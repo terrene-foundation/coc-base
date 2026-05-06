@@ -1,6 +1,6 @@
 ---
 name: claude-code-patterns
-description: Claude Code architecture patterns, artifact design, context management, and agentic system patterns. Use when creating, auditing, or improving CC artifacts.
+description: "Claude Code architecture — artifact design, context, agentic patterns. For CC audit/build."
 allowed-tools:
   - Read
   - Glob
