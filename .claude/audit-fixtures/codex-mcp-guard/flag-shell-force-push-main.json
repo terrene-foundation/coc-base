@@ -1,0 +1,8 @@
+{
+  "_doc": "Flagging payload — force-push to main MUST flag (validate-bash-command.js force-push branch protection).",
+  "tool": "shell",
+  "tool_input": { "command": "git push --force origin main" },
+  "expected_allow": false,
+  "expected_source_file": "validate-bash-command.js",
+  "expected_text_substring": "force-push"
+}

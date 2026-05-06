@@ -150,6 +150,24 @@ function logAndEmit(payload, event, finding, what_happened) {
           f,
           `Edit/Write to ${fp.slice(0, 80)}`,
         );
+      // probe-driven-verification/MUST-1 — advisory lexical sweep on
+      // test/harness file edits. Pairs with the Stop-event sweep on the
+      // assistant's final report.
+      const newSource =
+        input.content || input.new_string || input.new_str || "";
+      if (
+        newSource &&
+        /(\.test|tests?\/|test-harness|suites|audit-fixture)/.test(fp)
+      ) {
+        const probeFinding = P.detectRegexForSemanticAssertion(newSource, fp);
+        if (probeFinding)
+          return logAndEmit(
+            payload,
+            event,
+            probeFinding,
+            `probe-driven sweep on ${fp.slice(0, 80)}`,
+          );
+      }
     }
     return passthrough();
   }
@@ -203,6 +221,14 @@ function logAndEmit(payload, event, finding, what_happened) {
       P.detectSweepSubstitution(finalText),
       P.detectSelfConfession(finalText),
       P.detectRepoScopeDriftText(finalText),
+      P.detectMenuWithoutPick(finalText),
+      // probe-driven-verification/MUST-1 advisory: scan the final report for
+      // test/harness code blocks the agent authored that pair regex APIs with
+      // semantic-verification function names. Path argument is "Stop" (no
+      // filesystem path); the detector's path filter is bypassed by passing
+      // a synthetic test-shaped path so the in-prose snippets are still
+      // reachable. Findings stay advisory per hook-output-discipline.md MUST-2.
+      P.detectRegexForSemanticAssertion(finalText, "tests/inline-prose"),
       ...ackFindings,
     ].filter(Boolean);
 

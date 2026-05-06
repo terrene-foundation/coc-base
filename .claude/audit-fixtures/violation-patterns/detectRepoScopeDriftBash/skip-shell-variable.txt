@@ -1,0 +1,1 @@
+REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner) && gh issue list --repo "$REPO" --state open

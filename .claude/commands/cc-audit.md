@@ -54,11 +54,11 @@ Specify scope: `all`, `fidelity`, `sync`, or a specific file/type.
    - `artifact-flow.md` Rule 1 says atelier/ owns CC+CO, loom/ owns COC
    - Consistent with atelier/'s artifact-flow.md? No contradictions?
 
-9. **USE template contamination** (scan kailash-coc-claude-py/ and -rs/):
-   - `grep -rl "src/kailash/" .claude/agents/ .claude/rules/` → must be 0
-   - `grep -rl "packages/kailash-" .claude/rules/` → must be 0
-   - Management agents must NOT be present
-   - BUILD-only commands (/release) flagged
+9. **USE template contamination** (scan every USE template under loom/):
+   - Production-import patterns: `grep -rEl "(^|[^_a-zA-Z])(from kailash|import kailash)" .claude/agents/ .claude/rules/` → must be 0 (legitimate doc-citation strings like `Origin: src/kailash/...` are NOT contamination — flag only actual import statements)
+   - Management agents must NOT be present (sync-reviewer, coc-sync, repo-ops, settings-manager, todo-manager, gh-manager, posture-auditor)
+   - Management commands must NOT be present (repos, inspect, settings, sync, sync-to-build)
+   - BUILD-only commands flagged (/release lives in BUILD-only emission scope)
 
 10. **Hook integrity**:
     - Every hook in settings.json has a script on disk

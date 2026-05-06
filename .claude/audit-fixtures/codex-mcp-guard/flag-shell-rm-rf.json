@@ -1,0 +1,8 @@
+{
+  "_doc": "Flagging payload — MUST flag with isError citing validate-bash-command.js (rm on root filesystem).",
+  "tool": "shell",
+  "tool_input": { "command": "rm -rf /" },
+  "expected_allow": false,
+  "expected_source_file": "validate-bash-command.js",
+  "expected_text_substring": "rm on root filesystem"
+}

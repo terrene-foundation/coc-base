@@ -1,0 +1,8 @@
+{
+  "name": "SSH form upstream match → no flag",
+  "issue": "#36",
+  "git_remote_upstream": "git@github.com:Org/parent.git",
+  "cwd_basename": "consumer",
+  "command": "gh issue create --repo Org/parent --title 'fix' --body 'cross-fork issue'",
+  "expected": "null"
+}

@@ -1,24 +1,25 @@
 # COC Sync Marker — coc-base
-timestamp: 2026-05-06T06:46:57Z
+timestamp: 2026-05-06T13:13:25Z
 source: loom/.claude
 variant: base
+template_type: multi-cli
 clis: [claude, codex, gemini]
-tier_subscriptions: [cc, co, onboarding]
-loom_version: 2.21.0
-loom_sha: e047b66
+loom_sha: c18742b
+loom_version: 2.26.0
+template_version: 2.26.0
 stats:
-  updated: 8
-  created: 0
-  unchanged: 123
-  composed: 2       # rules/agents.md + rules/independence.md (slot-keyed overlays composed via compose.mjs)
-  preserved: 1      # CLAUDE.md (template-owned, never overwritten)
+  updated: 5
+  created: 71
+  unchanged: 127
+  composed: 2
+  preserved: 6   # CLAUDE.md, README.md, LICENSE (none yet), .claude/VERSION (initial state), .claude/learning/, .claude/.proposals
   baselines_emitted:
-    cc: 0           # CLAUDE.md preserved, not emitted
-    codex: 1        # AGENTS.md
-    gemini: 1       # GEMINI.md
+    cc: 0   # CLAUDE.md preserved (template-owned)
+    codex: 1   # AGENTS.md
+    gemini: 1   # GEMINI.md
   baseline_emission_bytes:
     block_cap_bytes: 61440
-    warn_cap_bytes:  32768
+    warn_cap_bytes: 32768
     codex:
       rules: 10
       bytes: 56797
@@ -33,13 +34,20 @@ stats:
       headroom_pct: 7.54
   cli_artifacts:
     codex:
-      prompts: 8
+      prompts: 9
       skills: 3
     gemini:
-      commands: 8
+      commands: 9
       skills: 3
       agents: 5
   mcp_guard:
-    policies_populated: false   # gated — runtime predicate loader not wired (Step 6.6 § G3)
-  purged_obsoleted: 0       # obsoleted: paths from manifest
-  purged_use_obsoleted: 0   # use_obsoleted: paths from manifest
+    policies_populated: true   # loom canonical policies.json copied (3 wrapped tool surfaces)
+    predicates_extracted: 1    # one validate-workflow.js predicate from extract emitter
+tier_subscriptions: [cc, co, onboarding]
+tier_filter_verified: zero_kailash_framework_leaks
+multi_cli_overlay_paths:
+  - .codex/
+  - .codex-mcp-guard/
+  - .gemini/
+  - AGENTS.md
+  - GEMINI.md

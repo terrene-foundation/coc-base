@@ -1,0 +1,6 @@
+CLEAN: no findings expected.
+NOTES:
+  All delegation phrasing is neutral ("delegate to ...", "dispatch ... in parallel").
+  All baseline references are conceptual ("the baseline rules").
+  All hook events use neutral phrasing ("the session-start hook").
+  All tool references use verb form ("read the file", "run pytest").

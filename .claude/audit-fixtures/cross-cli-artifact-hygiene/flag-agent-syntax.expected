@@ -1,0 +1,9 @@
+FLAG: cross-cli-artifact-hygiene MUST 1 (delegation syntax CLI-neutral)
+SEVERITY: advisory
+PATTERNS:
+  - agent-object-subagent-type (lines 3, 4)
+  - agent-subagent-type (lines 3, 4, 5)
+  - agent-run-in-background (line 5)
+NOTES:
+  Three lines flagged total; lint reports each pattern match per line.
+  Lint is per-pattern (one line can flag multiple patterns).

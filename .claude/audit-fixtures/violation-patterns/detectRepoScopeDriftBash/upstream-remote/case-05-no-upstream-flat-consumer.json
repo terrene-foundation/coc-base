@@ -1,0 +1,9 @@
+{
+  "name": "No upstream remote (flat consumer) — basename heuristic preserved",
+  "issue": "#36",
+  "git_remote_upstream": null,
+  "cwd_basename": "consumer",
+  "command": "gh issue create --repo Org/parent --title 'fix' --body 'no upstream'",
+  "expected_severity": "halt-and-report",
+  "expected_rule_id": "repo-scope-discipline/MUST-NOT-1"
+}

@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "source_dir": ".claude/hooks",
+  "policies": {
+    "shell": [
+      {
+        "source_file": "validate-bash-command.js",
+        "cc_matchers": [
+          "Bash"
+        ],
+        "invocation": "subprocess"
+      },
+      {
+        "source_file": "posture-gate.js",
+        "cc_matchers": [
+          "Bash",
+          "Edit|Write"
+        ],
+        "invocation": "subprocess"
+      }
+    ],
+    "unified_exec": [
+      {
+        "source_file": "validate-bash-command.js",
+        "cc_matchers": [
+          "Bash"
+        ],
+        "invocation": "subprocess"
+      },
+      {
+        "source_file": "posture-gate.js",
+        "cc_matchers": [
+          "Bash",
+          "Edit|Write"
+        ],
+        "invocation": "subprocess"
+      }
+    ],
+    "apply_patch": [
+      {
+        "source_file": "posture-gate.js",
+        "cc_matchers": [
+          "Bash",
+          "Edit|Write"
+        ],
+        "invocation": "subprocess"
+      },
+      {
+        "source_file": "gitignored-claude-warn.js",
+        "cc_matchers": [
+          "Edit|Write"
+        ],
+        "invocation": "subprocess"
+      }
+    ]
+  }
+}

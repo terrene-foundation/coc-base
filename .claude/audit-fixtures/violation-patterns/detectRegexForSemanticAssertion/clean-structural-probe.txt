@@ -1,0 +1,4 @@
+def verify_emit_artifact_completeness(out_dir, expected_files):
+    actual = {str(p.relative_to(out_dir)) for p in out_dir.rglob("*") if p.is_file()}
+    missing = expected_files - actual
+    return ProbeResult(passed=not missing, evidence={"missing": sorted(missing)})

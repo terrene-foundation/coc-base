@@ -1,0 +1,8 @@
+{
+  "name": "gh without --repo → regex doesn't match → no flag",
+  "issue": "#36",
+  "git_remote_upstream": "git@github.com:Org/parent.git",
+  "cwd_basename": "consumer",
+  "command": "gh issue list --state open",
+  "expected": "null"
+}

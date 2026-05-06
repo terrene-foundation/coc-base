@@ -1,0 +1,5 @@
+There is one path forward.
+
+Option A: revert PR #52 and re-do.
+
+This is the only viable approach given the surface gaps surfaced by the audit.

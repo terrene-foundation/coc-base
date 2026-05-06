@@ -1,0 +1,8 @@
+Two paths to fix this:
+
+Option A: add another callsite (cheap, ~30 LOC)
+Option B: move auth to a service module (more refactor, ~150 LOC)
+
+I recommend Option B. The 150 LOC churn is one-time; closing the bug class
+structurally prevents the same null-bind landing in the new callsite.
+Want me to proceed?

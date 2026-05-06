@@ -1,0 +1,5 @@
+Loom-A is now landed. The variant overlay drift in .codex/.gemini/ emissions
+is structurally fixed at emission time. Verified via spot-check: --target rs
+codex/prompts/sync.md now ships rs-variant body, not global.
+
+Continuing with Loom-C next.
