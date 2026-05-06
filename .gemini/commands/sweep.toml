@@ -1,0 +1,123 @@
+name = "sweep"
+description = "Comprehensive outstanding-work audit for the current project — workspaces, GH issues, redteam-vs-specs gaps, and process hygiene. End-of-cycle gate before /wrapup."
+prompt = '''
+## Purpose
+
+A `/sweep` is the structural defense against "I think we're done." Before declaring a session converged or starting fresh work, surface every class of outstanding item: in-flight todos, open GH issues (this repo), spec-vs-code redteam gaps, stale workspace state, and process-hygiene gaps.
+
+Distinct from `/redteam` (scopes to ONE workspace's spec compliance) — `/sweep` is repo-wide and rolls every workspace's redteam status into one view.
+
+**Project-scoped** — targets the CURRENT repo only. Does NOT compare against sibling SDK repos, PyPI, or BUILD-only state. BUILD repos (kailash-py, kailash-rs) maintain a richer LOCAL `commands/sweep.md` with cross-SDK + sibling-package + source-protection sweeps; do not edit those from here.
+
+## Execution Model
+
+Autonomous — runs every sweep sequentially, accumulates findings into a single report. The agent MAY fix trivial gaps inline (per `rules/zero-tolerance.md` Rule 1: "if you found it, you own it") but MUST surface every finding with its disposition (FIX-NOW / FILE-ISSUE / DEFER-WITH-REASON / FALSE-POSITIVE).
+
+## Workflow
+
+Run all 7 sweeps. Aggregate findings into a single report at the end with severity (CRIT / HIGH / MED / LOW), disposition, and pointer (file:line, PR#, issue#).
+
+### Sweep 1: Active todos across all workspaces
+
+```bash
+find workspaces/*/todos/active/ -name "*.md" -not -name "*-milestone-tracker.md" 2>/dev/null
+```
+
+Read frontmatter (`status`, `priority`, `wave`). Group by workspace. Surface stale (>7d) workspaces' todos with explicit "is this still relevant?" flag.
+
+### Sweep 2: Pending journal entries (auto-generated, awaiting promotion)
+
+```bash
+find workspaces/*/journal/.pending/ -name "*.md" 2>/dev/null
+```
+
+Per `rules/journal.md`: high-value commit body → promote, bare merge → discard, already-codified → discard with note.
+
+### Sweep 3: GitHub open issues — current repo (auto-detected)
+
+```bash
+REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)
+gh issue list --repo "$REPO" --state open --limit 50 \
+  --json number,title,labels,createdAt,updatedAt,comments
+```
+
+Categorize: **Stale** (no activity ≥30d), **`deferred` label** (verify Rule 1b 4-condition body per `rules/zero-tolerance.md`), **Closeable** (delivered code per `rules/git.md` § Issue Closure Discipline), **Genuinely actionable**.
+
+### Sweep 4: Open PRs and stale feature branches
+
+```bash
+REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)
+gh pr list --repo "$REPO" --state open --limit 50 \
+  --json number,title,headRefName,isDraft,createdAt,statusCheckRollup
+git branch -r --no-merged origin/main 2>&1 | grep -v "HEAD ->"
+```
+
+Surface: drafts >7d, PRs with red CI (never merge red — fix in same branch per `rules/git.md`), remote branches without PR (orphan work), local-only branches.
+
+### Sweep 5: Redteam gaps against full specs (every workspace)
+
+`/redteam` re-derived as a repo-wide sweep. Use `skills/spec-compliance/SKILL.md` protocol — AST/grep verification, never file existence.
+
+Sweep 5 MUST invoke `tools/sweep-redteam.py` (or the equivalent at `tools/` for the consumer project's language) and embed its sentinel comment + findings into the sweep report. Substituting `tools/spec-cite-check.py` or any other proxy for the mandated per-spec symbol + Tier 2 coverage verification is BLOCKED — see `rules/sweep-completeness.md` for the human-gate requirement when proxy substitution is genuinely warranted. The TOOL is BUILD-local (each repo owns `tools/`); the SKILL text mandates the invocation pattern.
+
+```bash
+for ws in workspaces/*/; do
+  [ -d "$ws/specs" ] && echo "WORKSPACE: $ws"
+done
+# Per workspace, per spec: invoke tools/sweep-redteam.py — single-pass
+# walk + compiled regex per MUST symbol; verify the contract holds;
+# verify Tier 2 coverage exists. Embed the tool's sentinel comment
+# `<!-- sweep-redteam:v1:OK specs=N symbols=M orphans=O coverage_gaps=C stubs=S -->`
+# into the sweep report so readers (and any future enforcement hook)
+# can verify the mandated step actually ran.
+```
+
+Categorize findings:
+
+- **Orphan** — spec promises symbol; source has none (`rules/orphan-detection.md` § 1)
+- **Drift** — spec says X; source does Y (`rules/specs-authority.md` § 6)
+- **Coverage gap** — symbol exists; no Tier 2 wiring test (`rules/facade-manager-detection.md` § 2)
+- **Stub** — `NotImplementedError` / `TODO` / `pass` in production paths (`rules/zero-tolerance.md` Rule 2)
+
+Roll up: per workspace, count findings by category. Workspaces with ≥3 unresolved gaps → flag as candidates for a follow-up `/redteam` round.
+
+### Sweep 6: Workspace + worktree hygiene
+
+```bash
+find workspaces/*/.session-notes -mtime +30 2>/dev/null            # stale session notes
+git worktree list                                                  # orphan worktrees
+find workspaces/*/journal/.pending/*.md -mtime +14 2>/dev/null     # stale .pending
+```
+
+Surface: workspaces with `.session-notes` >30d (archive), worktrees not at HEAD or zero-commit (cleanup per `rules/worktree-isolation.md`), `.pending` >14d (promote OR discard).
+
+### Sweep 7: Process hygiene (uncommitted, divergence, zero-tolerance)
+
+```bash
+git status --short
+git rev-list --left-right --count origin/main...HEAD 2>/dev/null
+grep -rEn 'TODO|FIXME|HACK|XXX|NotImplementedError' \
+  --include='*.py' --include='*.ts' --include='*.tsx' --include='*.js' --include='*.rs' \
+  --exclude-dir=node_modules --exclude-dir=target --exclude-dir=.venv \
+  -l 2>/dev/null | head -20
+```
+
+Surface: uncommitted changes, branch ahead/behind origin/main, new stub markers in production code (BLOCKED per `rules/zero-tolerance.md` Rule 2).
+
+## Output
+
+Write findings to `workspaces/<project>/04-validate/sweep-<date>.md` (workspace context active) OR `SWEEP-<date>.md` at root. Each finding: `[SEVERITY] [Sweep N] <title>` + Location + Disposition + Evidence + Why-this-matters + Action-taken-if-FIX-NOW. End with cross-cutting observations and 2-5 ranked recommended next-session items.
+
+## Closure
+
+Before reporting `/sweep` complete:
+
+1. ALL Sweep 1-7 outputs accumulated
+2. Trivial fixes applied inline (`rules/zero-tolerance.md` Rule 1); reclassified `FIXED` with commit SHA
+3. Non-trivial fixes filed as workspace todos OR GH issues with delivered-code references
+4. Report committed (`git add` + `git commit`)
+5. Optional: human authorization for the recommended next-session scope
+
+The report is the deliverable. The agent does NOT decide what to do next — that's a human call.
+'''
+tools = ["read_file", "glob", "grep_search", "list_directory", "run_shell_command", "write_file"]

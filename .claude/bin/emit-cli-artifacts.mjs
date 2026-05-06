@@ -41,6 +41,14 @@
  *   node .claude/bin/emit-cli-artifacts.mjs --out ./tmp/emit --verbose
  *   node .claude/bin/emit-cli-artifacts.mjs --cli codex --out ./tmp   (codex only)
  *   node .claude/bin/emit-cli-artifacts.mjs --cli gemini --out ./tmp  (gemini only)
+ *   node .claude/bin/emit-cli-artifacts.mjs --target py --out ./tmp   (filter by repos.py.tier_subscriptions)
+ *
+ * --target <name> filters emission to files matched by the union of glob
+ * patterns under tiers.<tier> for each tier in repos.<name>.tier_subscriptions.
+ * Required when emitting for a USE template — emitting WITHOUT a target ships
+ * every artifact on disk (e.g., onboarding-tier files leak into [cc,co,coc]
+ * py/rs/rb targets). Per commands/sync.md Gate 2 step 3, missing/empty
+ * tier_subscriptions is a manifest defect that MUST halt the sync.
  *
  * Exit codes: 0 = success, 1 = emission failure, 2 = usage error.
  */
@@ -148,6 +156,143 @@ function loadExclusions() {
 }
 
 // ────────────────────────────────────────────────────────────────
+// sync-manifest.yaml → tiers.* (top-level tier → glob list)
+// ────────────────────────────────────────────────────────────────
+// Mirrors loadExclusions: line-oriented parsing, no YAML library. The
+// tiers stanza is structurally identical to cli_emit_exclusions (a
+// top-level key with sub-keys whose values are list-of-string).
+function loadTiers() {
+  const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
+  const src = fs.readFileSync(manifestPath, "utf8");
+  const lines = src.split("\n");
+
+  const result = {};
+  let inStanza = false;
+  let currentTier = null;
+
+  for (const line of lines) {
+    if (/^tiers:\s*$/.test(line)) {
+      inStanza = true;
+      continue;
+    }
+    if (!inStanza) continue;
+
+    // End of stanza: a new top-level key (column 0, ends with :)
+    if (/^[a-zA-Z_][^:]*:\s*$/.test(line) && !line.startsWith(" ")) {
+      break;
+    }
+
+    // Tier key (2-space indent)
+    const tierMatch = line.match(/^ {2}([a-zA-Z_][\w-]*):\s*$/);
+    if (tierMatch) {
+      currentTier = tierMatch[1];
+      result[currentTier] = [];
+      continue;
+    }
+
+    // List entry (4-space indent, leading dash). Skip comments.
+    const entryMatch = line.match(/^ {4}-\s*(.+?)\s*$/);
+    if (entryMatch && currentTier) {
+      const val = entryMatch[1].replace(/^["']|["']$/g, "");
+      // Strip trailing inline comments (` # ...`)
+      const cleaned = val.replace(/\s+#.*$/, "").trim();
+      if (cleaned) result[currentTier].push(cleaned);
+    }
+  }
+
+  return result;
+}
+
+// ────────────────────────────────────────────────────────────────
+// sync-manifest.yaml → repos.<target>.tier_subscriptions
+// ────────────────────────────────────────────────────────────────
+// Returns the ordered list of tier names the named target subscribes to.
+// Inline-list form: `tier_subscriptions: [cc, co, coc]`.
+// Returns null if the target is unknown (caller decides whether to halt).
+// Returns empty array [] if the target declares an empty subscription
+// (e.g. retired prism — manifest declares [] structurally).
+function loadTargetTierSubscriptions(target) {
+  const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
+  const src = fs.readFileSync(manifestPath, "utf8");
+  const lines = src.split("\n");
+
+  let inRepos = false;
+  let inTarget = false;
+
+  for (const line of lines) {
+    if (/^repos:\s*$/.test(line)) {
+      inRepos = true;
+      continue;
+    }
+    if (!inRepos) continue;
+
+    // End of repos stanza: new top-level key
+    if (/^[a-zA-Z_][^:]*:\s*$/.test(line) && !line.startsWith(" ")) {
+      break;
+    }
+
+    // Target key (2-space indent, e.g. "  py:")
+    const targetMatch = line.match(/^ {2}([a-zA-Z_][\w-]*):\s*$/);
+    if (targetMatch) {
+      inTarget = targetMatch[1] === target;
+      continue;
+    }
+
+    // tier_subscriptions inline list (4-space indent under target)
+    if (inTarget) {
+      const tsMatch = line.match(/^ {4}tier_subscriptions:\s*\[(.*?)\]\s*$/);
+      if (tsMatch) {
+        return tsMatch[1]
+          .split(",")
+          .map((t) => t.trim().replace(/^["']|["']$/g, ""))
+          .filter(Boolean);
+      }
+    }
+  }
+
+  return null;
+}
+
+// ────────────────────────────────────────────────────────────────
+// Build tier filter: union of glob patterns across subscribed tiers.
+// Returns null when no target (caller emits everything per legacy mode).
+// Halts with exit 2 when target is provided but tier_subscriptions is
+// missing — per commands/sync.md Gate 2 step 3, that is a manifest
+// defect, not a fall-through-to-all-tiers fallback.
+// ────────────────────────────────────────────────────────────────
+function buildTierFilter(target) {
+  if (!target) return null;
+  const subs = loadTargetTierSubscriptions(target);
+  if (subs === null) {
+    process.stderr.write(
+      `emit-cli-artifacts: target '${target}' not found in sync-manifest.yaml::repos.* — halt.\n`,
+    );
+    process.exit(2);
+  }
+  if (subs.length === 0) {
+    process.stderr.write(
+      `emit-cli-artifacts: target '${target}' has empty tier_subscriptions ` +
+        `(retired/structural-defect halt per commands/sync.md Gate 2 step 3) — refusing to emit.\n`,
+    );
+    process.exit(2);
+  }
+  const tiers = loadTiers();
+  const globs = [];
+  for (const tier of subs) {
+    const patterns = tiers[tier];
+    if (!patterns) {
+      process.stderr.write(
+        `emit-cli-artifacts: tier '${tier}' (subscribed by ${target}) ` +
+          `not found in sync-manifest.yaml::tiers.* — halt.\n`,
+      );
+      process.exit(2);
+    }
+    globs.push(...patterns);
+  }
+  return globs;
+}
+
+// ────────────────────────────────────────────────────────────────
 // YAML frontmatter parser (minimal — handles the subset used here)
 // ────────────────────────────────────────────────────────────────
 // Supports:
@@ -228,7 +373,7 @@ function tomlLiteralEscape(body) {
   return body.replace(/'''/g, "''′'"); // U+2032 ′ — visually near but not a quote
 }
 
-function emitCommands({ outDir, exclusions, verbose }) {
+function emitCommands({ outDir, exclusions, tierFilter, verbose }) {
   const srcDir = path.join(REPO, ".claude", "commands");
   if (!fs.existsSync(srcDir)) {
     return { codex: 0, gemini: 0, skipped: 0 };
@@ -240,6 +385,13 @@ function emitCommands({ outDir, exclusions, verbose }) {
     if (!relPath.endsWith(".md")) continue;
     const manifestRel = `commands/${relPath}`;
     const name = path.basename(relPath, ".md");
+
+    // Tier-subscription filter: skip files not matched by any subscribed tier.
+    // tierFilter is null when --target is absent (legacy emit-everything mode).
+    if (tierFilter && !matchesAnyGlob(manifestRel, tierFilter)) {
+      stats.skipped++;
+      continue;
+    }
 
     const source = fs.readFileSync(absPath, "utf8");
     const { frontmatter, body } = parseFrontmatter(source);
@@ -288,7 +440,7 @@ function emitCommands({ outDir, exclusions, verbose }) {
 // live under the skill dir and are loaded on demand. We copy the WHOLE
 // skill directory (not just SKILL.md) so the sub-file references in
 // SKILL.md resolve when the CLI reads them.
-function emitSkills({ outDir, exclusions, verbose }) {
+function emitSkills({ outDir, exclusions, tierFilter, verbose }) {
   const srcDir = path.join(REPO, ".claude", "skills");
   if (!fs.existsSync(srcDir)) return { codex: 0, gemini: 0, skipped: 0 };
 
@@ -301,6 +453,15 @@ function emitSkills({ outDir, exclusions, verbose }) {
   for (const skill of skillDirs) {
     const manifestRel = `skills/${skill}/SKILL.md`;
     const skillSrc = path.join(srcDir, skill);
+
+    // Tier-subscription filter: skill tier patterns are usually
+    // `skills/NN-name/**` (prefix globs). Match the SKILL.md path against
+    // the tier filter — same convention as exclusions matching above.
+    // tierFilter null = legacy emit-everything mode.
+    if (tierFilter && !matchesAnyGlob(manifestRel, tierFilter)) {
+      stats.skipped += 2; // skipped for both CLIs
+      continue;
+    }
 
     for (const cli of ["codex", "gemini"]) {
       // Skills use prefix globs (skills/NN-name/**); match against any
@@ -393,7 +554,7 @@ function translateCcToolsToGemini(toolsRaw) {
   return translated;
 }
 
-function emitGeminiAgents({ outDir, exclusions, verbose }) {
+function emitGeminiAgents({ outDir, exclusions, tierFilter, verbose }) {
   const srcDir = path.join(REPO, ".claude", "agents");
   if (!fs.existsSync(srcDir)) return { gemini: 0, skipped: 0 };
 
@@ -406,6 +567,11 @@ function emitGeminiAgents({ outDir, exclusions, verbose }) {
   for (const { absPath, relPath } of walkFiles(srcDir)) {
     if (!relPath.endsWith(".md")) continue;
     const manifestRel = `agents/${relPath}`;
+    // Tier-subscription filter: skip agents not matched by any subscribed tier.
+    if (tierFilter && !matchesAnyGlob(manifestRel, tierFilter)) {
+      stats.skipped++;
+      continue;
+    }
     if (matchesAnyGlob(manifestRel, allExclusions)) {
       stats.skipped++;
       continue;
@@ -440,11 +606,12 @@ function emitGeminiAgents({ outDir, exclusions, verbose }) {
 // CLI entry
 // ────────────────────────────────────────────────────────────────
 function parseArgs(argv) {
-  const args = { out: null, cli: null, verbose: false };
+  const args = { out: null, cli: null, target: null, verbose: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--out") args.out = argv[++i];
     else if (a === "--cli") args.cli = argv[++i];
+    else if (a === "--target") args.target = argv[++i];
     else if (a === "-v" || a === "--verbose") args.verbose = true;
   }
   return args;
@@ -454,13 +621,14 @@ function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!args.out) {
     process.stderr.write(
-      "usage: emit-cli-artifacts.mjs --out <dir> [--cli codex|gemini] [-v]\n",
+      "usage: emit-cli-artifacts.mjs --out <dir> [--cli codex|gemini] [--target py|rs|rb|base] [-v]\n",
     );
     process.exit(2);
   }
 
   const onlyCli = args.cli; // null = both
   const exclusions = loadExclusions();
+  const tierFilter = buildTierFilter(args.target); // null when --target absent
   const outDir = path.resolve(args.out);
   fs.mkdirSync(outDir, { recursive: true });
 
@@ -469,16 +637,24 @@ function main() {
     console.log(`Output: ${outDir}`);
     console.log(`Exclusions (codex): ${exclusions.codex.length} globs`);
     console.log(`Exclusions (gemini): ${exclusions.gemini.length} globs`);
+    if (tierFilter) {
+      const subs = loadTargetTierSubscriptions(args.target);
+      console.log(
+        `Target: ${args.target} → tiers ${JSON.stringify(subs)} → ${tierFilter.length} include globs`,
+      );
+    } else {
+      console.log("Target: (none — emit everything)");
+    }
     console.log("");
   }
 
   const report = {
-    commands: emitCommands({ outDir, exclusions, verbose: args.verbose }),
-    skills: emitSkills({ outDir, exclusions, verbose: args.verbose }),
+    commands: emitCommands({ outDir, exclusions, tierFilter, verbose: args.verbose }),
+    skills: emitSkills({ outDir, exclusions, tierFilter, verbose: args.verbose }),
     geminiAgents:
       onlyCli === "codex"
         ? { gemini: 0, skipped: 0 }
-        : emitGeminiAgents({ outDir, exclusions, verbose: args.verbose }),
+        : emitGeminiAgents({ outDir, exclusions, tierFilter, verbose: args.verbose }),
   };
 
   // Apply --cli filter after the fact: if onlyCli is set, delete the
@@ -520,6 +696,9 @@ if (invokedAsScript) {
 
 export {
   loadExclusions,
+  loadTiers,
+  loadTargetTierSubscriptions,
+  buildTierFilter,
   parseFrontmatter,
   emitCommands,
   emitSkills,

@@ -1,0 +1,47 @@
+{
+  "$comment": "Template for .codex/hooks.json emitted to Codex-aware USE templates. IMPORTANT: Codex hooks fire on Bash tool invocations only. apply_patch, Write, and MCP tool calls do NOT fire PreToolUse/PostToolUse events — those are enforced via .claude/codex-mcp-guard/server.js. See .claude/agents/codex-architect.md § Hooks Coverage for details.",
+  "$env_var_note": "Codex does NOT export $CODEX_PROJECT_DIR (verified 2026-04-23 against developers.openai.com/codex/config-advanced). Hook commands use relative paths (./.claude/hooks/...) which rely on Codex invoking the hook with cwd=project_root. Hook scripts themselves parse JSON stdin and extract `cwd` for internal path resolution, so process-cwd drift is tolerated if Codex later changes behavior. See .claude/agents/codex-architect.md § Hook Path Resolution.",
+
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ./.claude/hooks/session-start.js"
+          }
+        ]
+      }
+    ],
+
+    "UserPromptSubmit": [],
+
+    "PreToolUse": [
+      {
+        "matcher": "shell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ./.claude/hooks/validate-bash-command.js"
+          }
+        ]
+      }
+    ],
+
+    "PermissionRequest": [],
+
+    "PostToolUse": [
+      {
+        "matcher": "shell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ./.claude/hooks/integration-hygiene.js"
+          }
+        ]
+      }
+    ],
+
+    "Stop": []
+  }
+}

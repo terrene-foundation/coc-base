@@ -59,6 +59,18 @@ function timedOut() {
   return Date.now() - startedAt > TIMEOUT_MS;
 }
 
+// Hard timeout fallback per cc-artifacts.md Rule 7. The timedOut() helper above
+// is checked between subprocess steps, but a single hung subprocess (gh hangup,
+// git lock) could still wedge past TIMEOUT_MS. setTimeout is the unconditional
+// kill switch. Advisory-only hook → exit 0 (never block the commit).
+const _scopeTimeoutHandle = setTimeout(() => {
+  console.error(
+    `[branch-scope advisory] timeout after ${TIMEOUT_MS}ms; exiting cleanly`,
+  );
+  process.exit(0);
+}, TIMEOUT_MS + 500);
+_scopeTimeoutHandle.unref?.();
+
 function git(args, opts = {}) {
   try {
     return execFileSync("git", args, {

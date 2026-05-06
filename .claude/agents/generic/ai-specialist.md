@@ -1,6 +1,6 @@
 ---
 name: ai-specialist
-description: "Generic AI specialist (base variant). Use for provider-agnostic LLM integration, prompt engineering, output validation; reads STACK.md."
+description: "Generic AI specialist (base variant). Use for provider-agnostic LLM integration; reads STACK.md."
 tools: Read, Write, Edit, Bash, Grep, Glob
 model: sonnet
 ---

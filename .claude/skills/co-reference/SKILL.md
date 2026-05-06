@@ -1,6 +1,6 @@
 ---
 name: co-reference
-description: "CARE/EATP/CO/COC framework family reference. Use when discussing governance philosophy, trust protocols, methodology, or codegen architecture. Covers Dual Plane Model, Mirror Thesis, trust lineage, five-layer architecture, three fault lines, or framework relationships."
+description: "CARE/EATP/CO/COC framework reference. Use for governance philosophy, trust protocols, codegen architecture: Dual Plane, Mirror Thesis, five-layer, three fault lines."
 allowed-tools:
   - Read
   - Glob

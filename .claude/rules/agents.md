@@ -1,4 +1,14 @@
+---
+priority: 0
+scope: baseline
+---
+
+# Agent Orchestration Rules
+
+See `.claude/guides/rule-extracts/agents.md` for full evidence, extended examples, post-mortems, recovery-protocol commands, the gate-review table, and CLI-syntax variants.
+
 <!-- slot:neutral-body -->
+
 
 ## Specialist Delegation (MUST)
 
