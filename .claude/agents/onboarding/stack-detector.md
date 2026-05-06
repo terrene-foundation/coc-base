@@ -1,6 +1,6 @@
 ---
 name: stack-detector
-description: "Stack detector. Use for detecting host language/framework from project manifest files; emits HIGH/MEDIUM/LOW/UNKNOWN confidence."
+description: "Stack detector. Detects host language/framework from manifest files; emits HIGH/MEDIUM/LOW/UNKNOWN confidence."
 tools: Read, Bash, Grep, Glob
 model: sonnet
 ---

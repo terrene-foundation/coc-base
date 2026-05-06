@@ -1,0 +1,26 @@
+# Template for .codex/config.toml or ~/.codex/config.toml emitted to Codex-aware
+# USE templates (kailash-coc-py, kailash-coc-rs). Merged with repo-local overrides
+# by coc-sync at Step 6.6. Per https://developers.openai.com/codex/config-advanced
+# the canonical location is ~/.codex/config.toml (user-global). Repo-local
+# .codex/config.toml may also be honored; coc-sync emits the repo-local form
+# for reproducibility.
+
+# Raise AGENTS.md project-doc cap from the 32 KiB default to 64 KiB. Emission
+# is ~53,620 B steady-state post-F4 (9 CRIT rules); 64 KiB leaves 11,916 B headroom.
+# Per .claude/rules/agents.md and .claude/agents/codex-architect.md § AGENTS.md Size Cap.
+project_doc_max_bytes = 65536
+
+# MCP servers — native Codex MCP consumption. The codex-mcp-guard server
+# wraps non-Bash mutating tools (apply_patch, Write, etc.) with the same
+# POLICIES table that .codex/hooks.json enforces at the Bash layer. Together
+# they cover the full tool surface.
+[mcp_servers.codex-mcp-guard]
+command = "node"
+args = ["./.codex-mcp-guard/server.js"]
+
+# Default model. Override per-session via `codex --model`.
+# model = "gpt-5"
+
+# Approval mode — auto-approve read-only tools by default. Mutating tools
+# always route through the hooks + MCP guard enforcement path.
+# approval_mode = "on_request"
