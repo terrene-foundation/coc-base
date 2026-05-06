@@ -1,0 +1,13 @@
+scripts/hooks/
+.claude/scripts/
+scripts/resolve-template.js
+.claude/commands/send-it.md
+.codex/prompts/send-it.md
+.gemini/commands/send-it.toml
+.claude/commands/decisive.md
+.codex/prompts/decisive.md
+.gemini/commands/decisive.toml
+.claude/agents/claude-code-architect.md
+.claude/projects/
+.claude/scheduled_tasks.lock
+.claude/test-harness/

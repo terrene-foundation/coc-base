@@ -1,0 +1,71 @@
+---
+description: "Detect project stack + scaffold STACK.md. Use when starting CO/COC adoption in a new (non-Kailash) repo."
+---
+
+Onboard the current project's stack: detect from manifest files, confirm with the user, write `STACK.md`, point at the appropriate language skill stub. The base-variant equivalent of `/start` for arbitrary stacks (Go, Java, TypeScript, Rust, Python-non-Kailash, Elixir, Swift, Kotlin, etc.).
+
+**Usage**: `/onboard-stack` (no args — runs in current repo)
+
+## Process
+
+### 1. Delegate to `stack-detector`
+
+Spawn `stack-detector` (under `agents/onboarding/`). It scans for:
+
+- `package.json` → TypeScript/JavaScript
+- `pyproject.toml` / `setup.py` / `requirements.txt` → Python
+- `Cargo.toml` → Rust
+- `go.mod` → Go
+- `Gemfile` / `*.gemspec` → Ruby
+- `pom.xml` / `build.gradle*` → Java/Kotlin/JVM
+- `mix.exs` → Elixir
+- `Package.swift` → Swift
+- `*.csproj` / `*.fsproj` / `*.sln` → .NET
+- `composer.json` → PHP
+- `Cargo.lock` AND `package.json` (polyglot Rust+JS, e.g., Tauri/Vite+wasm)
+
+Returns: `{primary_stack, secondary_stacks[], confidence, evidence[]}`. Confidence is HIGH (single manifest, recent), MEDIUM (multiple manifests, ambiguous primary), LOW (heuristic only — file patterns, no manifest), UNKNOWN (no signal).
+
+### 2. Confirm with user (REQUIRED for non-HIGH confidence)
+
+Per `verify-resource-existence.md` discipline — never auto-scaffold from low-confidence detection. Show the report; ask "Is `<primary>` correct? (Y/N + which secondary stacks should also be tracked)". HIGH confidence MAY proceed without confirmation if the user says `--yes`.
+
+### 3. Write `STACK.md` at project root
+
+Schema (governed by `rules/stack-detection.md`):
+
+```yaml
+declared_stack: typescript
+secondary_stacks: [python]
+detected_at: 2026-05-06T16:30:00Z
+confidence: HIGH
+detector_version: 1.0.0
+evidence:
+  - package.json (typescript@5.4.2)
+  - pyproject.toml (python>=3.12)
+notes: |
+  TypeScript primary (frontend + worker). Python sidecar for ETL.
+  Tier-1 tests use vitest; Python sidecar uses pytest.
+```
+
+### 4. Link the appropriate skill stub
+
+Show the user the path to `skills/40-stack-onboarding/<primary>/SKILL.md` (currently: python, typescript, go, rust ship Day-1; others land as users adopt + contribute). Each stub covers idiomatic test runner, package manager, build tool, common pitfalls.
+
+### 5. Suggest next-step phase commands
+
+```
+Next: /analyze (start a workspace) → /todos (plan) → /implement
+```
+
+If `STACK.md` already exists, `/onboard-stack` is idempotent: re-detects, asks "Update STACK.md? (last detected: <timestamp>)", refreshes only if user confirms. Never silently overwrites.
+
+## Delegate
+
+`stack-detector` (Step 1). The slash command is the orchestrator — it does NOT do detection itself.
+
+## Examples
+
+- `/onboard-stack` — first-time adoption: detects, confirms, writes STACK.md
+- `/onboard-stack --yes` — accept HIGH-confidence detection without confirmation prompt
+- `/onboard-stack` (after STACK.md exists) — re-detect + offer update

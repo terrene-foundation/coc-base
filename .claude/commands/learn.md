@@ -1,0 +1,67 @@
+# /learn - Learning System Status
+
+## Purpose
+
+View the learning digest and codification history. The learning system captures meaningful signals (user corrections, rule violations, session accomplishments, journal decisions) and feeds them into `/codify` for integration into real artifacts.
+
+## Quick Reference
+
+| Command        | Action                                    |
+| -------------- | ----------------------------------------- |
+| `/learn`       | Show learning digest summary              |
+| `/learn stats` | Show observation statistics and breakdown |
+
+## Usage
+
+### View Learning Digest
+
+Read `.claude/learning/learning-digest.json` and present:
+
+1. **Corrections** — Times the user pushed back or redirected. These are the most valuable signals — each represents a gap in the current artifacts.
+2. **Error patterns** — Recurring rule violations (which rules are being violated most?).
+3. **Accomplishments** — What was completed in recent sessions.
+4. **Decisions** — Journal entries (DECISION, DISCOVERY, TRADE-OFF) that may need codification.
+5. **Active frameworks** — Which Kailash frameworks are in use.
+
+### View Codification History
+
+Read `.claude/learning/learning-codified.json` to see what `/codify` has already processed from the digest.
+
+### View Stats
+
+```bash
+node scripts/learning/digest-builder.js --stats
+```
+
+## How It Works
+
+1. **Hooks capture signals** — User corrections (UserPromptSubmit), rule violations (PostToolUse), session accomplishments (SessionEnd), journal decisions (SessionEnd). Pure file I/O, no LLM.
+2. **Digest builder aggregates** — At session end, observations are summarized into `learning-digest.json`. Pure aggregation, no pattern matching or confidence scores.
+3. **/codify does the thinking** — When `/codify` runs, the LLM reads the digest, journals, and session notes. It decides what to codify into real rules, skills, or agents. No intermediate staging — changes go directly into canonical artifact locations.
+
+## File Locations
+
+```
+<project>/.claude/learning/
+  observations.jsonl        # Raw observations (capped at 500, auto-archived)
+  observations.archive/     # Archived observations
+  learning-digest.json      # Structured summary for /codify
+  learning-codified.json    # What /codify has already processed
+```
+
+## Observation Types
+
+| Type                     | Source                          | What It Captures                         |
+| ------------------------ | ------------------------------- | ---------------------------------------- |
+| `user_correction`        | UserPromptSubmit hook           | User pushed back or redirected approach  |
+| `rule_violation`         | PostToolUse (validate-workflow) | Specific rule violated in code           |
+| `session_accomplishment` | SessionEnd hook                 | What was completed (from .session-notes) |
+| `decision_reference`     | SessionEnd hook                 | Journal entries created this session     |
+| `workflow_pattern`       | PostToolUse (validate-workflow) | Node types and structure in user code    |
+| `framework_selection`    | PostToolUse (validate-workflow) | Which Kailash framework is being used    |
+
+## Related
+
+- `/codify` — Consumes the digest and codifies findings into artifacts
+- `/journal` — Creates DECISION/DISCOVERY entries that feed into learning
+- `/wrapup` — Writes session notes that feed into accomplishments
