@@ -1,0 +1,10 @@
+FLAG: cross-cli-artifact-hygiene MUST 2 (tool names neutral) + MUST 4 (hook events neutral)
+SEVERITY: advisory
+PATTERNS:
+  - tool-noun-read (line 3)
+  - tool-noun-bash (line 4)
+  - tool-noun-edit (line 5)
+  - hook-event-session-start (line 6)
+NOTES:
+  Tool noun lines and hook event lines all flag; user rewrites to neutral
+  prose ("read the file", "the session-start hook").

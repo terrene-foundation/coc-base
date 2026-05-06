@@ -1,0 +1,2 @@
+def verify_recommendation_present(response_text):
+    return re.search(r"\brecommend\b", response_text) is not None

@@ -42,7 +42,31 @@ Users on the fallback path WILL observe slightly higher tool-call latency. This 
 
 ## Authoring
 
-This server is scaffolded at the interface level. The `POLICIES` table contains placeholder predicate entries; `/sync` validator 13 is responsible for populating actual predicates from the hooks/\*.js AST. Do NOT edit policy predicates by hand in this file — they are regenerated on every sync from the single source of truth in `.claude/hooks/`.
+The `POLICIES` table is generated from the hooks/\*.js AST + the project's `settings.json` matcher map by `extract-policies.mjs --write-policies`, which emits a sibling `policies.json`. `server.js` loads `policies.json` at startup; `POLICIES_POPULATED` flips true iff at least one wrapped Codex tool has ≥1 policy entry. Do NOT edit `policies.json` by hand — it is regenerated on every `/sync` from the single source of truth in `.claude/hooks/`.
+
+### Policy execution model
+
+When the MCP server receives an `apply_patch` / `unified_exec` / `shell` invocation:
+
+1. Synthesize a CC-shaped PreToolUse JSON payload (`{ tool_name, tool_input, hook_event_name, cwd, session_id }`).
+2. For each policy entry registered for that Codex tool, spawn the underlying hook script as a Node subprocess (`node ../hooks/<source_file>`) with the payload on stdin and a 5-second timeout (`cc-artifacts.md` Rule 7).
+3. Read the subprocess exit code:
+   - `0` → allow this policy; continue to the next.
+   - `2` → deny; translate the hook's stdout (canonical `instructAndWait` shape) into an MCP `isError: true` response and short-circuit.
+   - other / timeout / spawn error → allow (fail-open) and append a `codex_mcp_guard_*` entry to `.claude/learning/violations.jsonl`.
+4. If all policies allow, forward the original tool call as `permit`.
+
+### Self-check
+
+```bash
+node .claude/codex-mcp-guard/server.js --self-check
+```
+
+Prints the per-tool policy entry counts, hook-dir resolution, timeout setting, and exits 0 if `POLICIES_POPULATED` is true (2 if false).
+
+### Acceptance fixtures
+
+`.claude/audit-fixtures/codex-mcp-guard/` ships the four canonical scenarios per `cc-artifacts.md` Rule 9: `clean-shell.json` (allow), `flag-shell-rm-rf.json` (deny → validate-bash-command), `flag-shell-force-push-main.json` (deny → validate-bash-command), and `timeout-shell.json` (subprocess hangs → allow + log). Run via `node .claude/codex-mcp-guard/test-server.mjs`.
 
 ## Validator 13 — predicate extractor (Phase E6)
 

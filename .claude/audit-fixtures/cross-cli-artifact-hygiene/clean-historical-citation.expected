@@ -1,0 +1,9 @@
+CLEAN: no findings expected.
+NOTES:
+  Lines containing "(historical)" or "(historical citation)" are skipped by
+  the lint allowlist per MUST 5 ("CLI mentions qualified when historical").
+  The qualifier is the user's contract that the CC reference is preserving
+  provenance, not prescribing future behavior.
+  The unqualified prescriptive line ("The current /implement runtime dispatches
+  reviewer in parallel before merge.") is neutral and does not match any
+  flagged pattern.

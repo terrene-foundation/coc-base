@@ -1,0 +1,5 @@
+(a) Use the existing emit-cli-artifacts.mjs as-is
+(b) Refactor to use compose.mjs
+(c) Replace with a new emitter
+
+Pick: (b) — compose.mjs is already wired and tested in emit.mjs.

@@ -1,0 +1,6 @@
+Two paths to fix this:
+
+Option A: add another callsite (cheap, ~30 LOC)
+Option B: move auth to a service module (more refactor, ~150 LOC)
+
+Which would you like?

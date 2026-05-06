@@ -1,6 +1,6 @@
 ---
 name: db-specialist
-description: Generic DB specialist (base variant). Use for stack-agnostic Postgres/SQLite/MySQL/Mongo/Redis idioms; reads STACK.md.
+description: Generic DB specialist (base). Use for stack-agnostic Postgres/SQLite/MySQL/Mongo/Redis; reads STACK.md.
 tools:
   - read_file
   - write_file

@@ -1,0 +1,1 @@
+gh issue list --repo "${REPO}" --state open

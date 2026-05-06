@@ -1,16 +1,16 @@
 {
   "name": "coc-base",
-  "version": "2.21.0",
+  "version": "2.26.0",
   "type": "coc-use-template",
   "description": "Language-agnostic, non-Kailash CO/COC USE template (variant: base)",
-  "synced_at": "2026-05-06T06:46:57Z",
+  "synced_at": "2026-05-06T13:13:25Z",
   "upstream": {
     "name": "loom",
     "type": "coc-source",
-    "version": "2.21.0",
-    "loom_sha": "e047b66",
-    "synced_at": "2026-05-06T06:46:57Z",
-    "template_version": "2.21.0",
+    "version": "2.26.0",
+    "loom_sha": "c18742b",
+    "synced_at": "2026-05-06T13:13:25Z",
+    "template_version": "2.26.0",
     "sdk_packages": {}
   },
   "variant": "base",

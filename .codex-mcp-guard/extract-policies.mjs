@@ -205,10 +205,68 @@ function normalizeReasonTemplate(raw) {
 }
 
 // ────────────────────────────────────────────────────────────────
+// CC matcher → Codex tool mapping
+// ────────────────────────────────────────────────────────────────
+//
+// Codex's tool surface differs from CC's. The `.claude/settings.json`
+// hooks are registered per CC matcher (Bash, Edit|Write, Read). For
+// the MCP-fallback path, we replay PreToolUse hooks against the
+// equivalent Codex tool:
+//
+//   CC matcher     | Codex wrapped tools
+//   ---------------+---------------------
+//   Bash           | shell, unified_exec
+//   Edit|Write     | apply_patch
+//   Read           | (out of scope — README "What's covered vs. not")
+//
+// A hook file may map to multiple Codex tools when its CC matcher
+// ("Bash") fans out to several Codex primitives. The same predicate
+// fires on every fan-out target.
+const CC_TO_CODEX_TOOLS = Object.freeze({
+  Bash: ["shell", "unified_exec"],
+  "Edit|Write": ["apply_patch"],
+  Edit: ["apply_patch"],
+  Write: ["apply_patch"],
+});
+
+const CODEX_TOOLS = Object.freeze(["shell", "unified_exec", "apply_patch"]);
+
+// Build hook-file → CC-matcher map by parsing the project's
+// settings.json. Only PreToolUse entries are policy candidates; we
+// preserve the matcher so each predicate inherits the correct
+// Codex-tool fan-out. A hook file may be registered under multiple
+// matchers (e.g. posture-gate.js fires on both Bash and Edit|Write);
+// the map values are arrays so the file-level fan-out is complete.
+function buildHookMatcherMap(settingsPath) {
+  const map = new Map(); // basename(file) → matcher[]
+  if (!fs.existsSync(settingsPath)) return map;
+  let settings;
+  try {
+    settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+  } catch {
+    return map;
+  }
+  const pre = settings?.hooks?.PreToolUse || [];
+  for (const block of pre) {
+    const matcher = block.matcher;
+    if (!matcher || !CC_TO_CODEX_TOOLS[matcher]) continue;
+    for (const h of block.hooks || []) {
+      // command shape: `node "$CLAUDE_PROJECT_DIR/.claude/hooks/<name>.js"`
+      const m = (h.command || "").match(/\/hooks\/([\w-]+\.js)/);
+      if (!m) continue;
+      const arr = map.get(m[1]) || [];
+      if (!arr.includes(matcher)) arr.push(matcher);
+      map.set(m[1], arr);
+    }
+  }
+  return map;
+}
+
+// ────────────────────────────────────────────────────────────────
 // Directory walker
 // ────────────────────────────────────────────────────────────────
 
-export function extractPolicies(dir) {
+export function extractPolicies(dir, opts = {}) {
   const files = fs
     .readdirSync(dir, { withFileTypes: true })
     .filter((d) => d.isFile() && d.name.endsWith(".js"))
@@ -216,6 +274,14 @@ export function extractPolicies(dir) {
     .sort();
 
   const predicates = [];
+
+  // Resolve settings.json path for hook-matcher map. Default: dir's
+  // grandparent + .claude/settings.json (i.e. <repo>/.claude/settings.json
+  // when dir is .claude/hooks/). Caller may override via opts.settingsPath.
+  const settingsPath =
+    opts.settingsPath ||
+    path.resolve(dir, "..", "settings.json");
+  const matcherMap = buildHookMatcherMap(settingsPath);
 
   for (const file of files) {
     const fullPath = path.join(dir, file);
@@ -227,10 +293,25 @@ export function extractPolicies(dir) {
       if (!shape) continue;
 
       const reason = extractReason(fn);
+      // Resolve the CC matchers → Codex tool fan-out for this file.
+      // Files not registered as PreToolUse (orchestrators like
+      // session-start.js, post-mortem hooks) get an empty
+      // `codex_tools` array and are excluded from the per-tool
+      // POLICIES table while still appearing in `predicates`.
+      const ccMatchers = matcherMap.get(file) || [];
+      const codexTools = [];
+      for (const m of ccMatchers) {
+        for (const t of CC_TO_CODEX_TOOLS[m] || []) {
+          if (!codexTools.includes(t)) codexTools.push(t);
+        }
+      }
+
       predicates.push({
         id: fn.name,
         shape,
         source_file: file,
+        cc_matchers: ccMatchers,
+        codex_tools: codexTools,
         reason_raw: reason,
         reason_template: normalizeReasonTemplate(reason),
         reject_condition_shape: {
@@ -242,11 +323,72 @@ export function extractPolicies(dir) {
     }
   }
 
+  // Build per-Codex-tool policy table consumed by server.js.
+  //
+  // Two-level enumeration:
+  //   1. Predicate-level (functions matched by Shape A/B/C). Useful
+  //      for AST audits and the validator-13 bijection check, but the
+  //      MCP server cannot CALL a sub-function directly across process
+  //      boundaries — hook scripts read stdin and own their exit
+  //      semantics.
+  //   2. File-level (every PreToolUse hook script registered under a
+  //      Bash / Edit|Write matcher). The server spawns the WHOLE
+  //      script as a subprocess per CC's documented hook contract;
+  //      the script's exit code is what we honor.
+  //
+  // Both shapes are emitted: `policies_predicates` is the
+  // shape-classified per-tool list; `policies` is the file-level
+  // executable list the server consumes. The latter is the source
+  // of truth for `POLICIES_POPULATED=true` because it directly drives
+  // subprocess invocation.
+  const policiesPredicates = Object.fromEntries(CODEX_TOOLS.map((t) => [t, []]));
+  for (const p of predicates) {
+    for (const tool of p.codex_tools) {
+      if (!policiesPredicates[tool]) continue;
+      policiesPredicates[tool].push({
+        id: p.id,
+        source_file: p.source_file,
+        shape: p.shape,
+        reason_template: p.reason_template,
+      });
+    }
+  }
+
+  const policies = Object.fromEntries(CODEX_TOOLS.map((t) => [t, []]));
+  // Iterate matcher-map entries → fan-out to Codex tools. Skip files
+  // that don't exist in the hook dir (settings.json may reference
+  // inactive hooks; the file-level enforcement only applies to
+  // scripts present on disk). Dedup by source_file per tool — a
+  // single hook registered under both Bash and Edit|Write fans out
+  // to (shell, unified_exec, apply_patch) but appears once per tool.
+  for (const [hookFile, matchers] of matcherMap.entries()) {
+    const fullPath = path.join(dir, hookFile);
+    if (!fs.existsSync(fullPath)) continue;
+    const tools = new Set();
+    for (const m of matchers) {
+      for (const t of CC_TO_CODEX_TOOLS[m] || []) tools.add(t);
+    }
+    for (const tool of tools) {
+      if (!policies[tool]) continue;
+      if (policies[tool].some((e) => e.source_file === hookFile)) continue;
+      policies[tool].push({
+        source_file: hookFile,
+        cc_matchers: matchers,
+        // Subprocess invocation contract: spawn `node <source_file>`,
+        // pipe synthesized PreToolUse JSON to stdin, read exit code:
+        // 0 = allow, 2 = deny, other = warn (treated as allow).
+        invocation: "subprocess",
+      });
+    }
+  }
+
   return {
     version: 1,
     extracted_at: new Date().toISOString(),
     source_dir: dir,
     predicates,
+    policies,
+    policies_predicates: policiesPredicates,
   };
 }
 
@@ -258,7 +400,7 @@ function main() {
   const args = process.argv.slice(2);
   if (args.length < 1) {
     process.stderr.write(
-      "usage: extract-policies.mjs <hook-dir> [--json | --pretty]\n",
+      "usage: extract-policies.mjs <hook-dir> [--json | --pretty] [--write-policies <out.json>] [--settings <path>]\n",
     );
     process.exit(2);
   }
@@ -269,8 +411,37 @@ function main() {
     process.exit(2);
   }
 
-  const mode = args[1] === "--json" ? "json" : "pretty";
-  const out = extractPolicies(dir);
+  // Parse remaining args.
+  let mode = "pretty";
+  let writePoliciesPath = null;
+  let settingsPath = null;
+  for (let i = 1; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--json") mode = "json";
+    else if (a === "--pretty") mode = "pretty";
+    else if (a === "--write-policies") writePoliciesPath = args[++i];
+    else if (a === "--settings") settingsPath = args[++i];
+  }
+
+  const out = extractPolicies(dir, settingsPath ? { settingsPath } : {});
+
+  if (writePoliciesPath) {
+    // Persist the per-tool policies table on its own. server.js
+    // loads this at startup; bijection invariant is checked separately
+    // via test-extract-policies.mjs. Timestamp is intentionally
+    // omitted from the persisted file so deterministic regeneration
+    // doesn't churn the artifact on every /sync.
+    const payload = {
+      version: out.version,
+      source_dir: out.source_dir,
+      policies: out.policies,
+    };
+    fs.writeFileSync(writePoliciesPath, JSON.stringify(payload, null, 2) + "\n");
+    const total = Object.values(out.policies).reduce((a, p) => a + p.length, 0);
+    process.stderr.write(
+      `extract-policies: wrote ${writePoliciesPath} (${total} policy entries across ${Object.keys(out.policies).length} tools)\n`,
+    );
+  }
 
   if (mode === "json") {
     process.stdout.write(JSON.stringify(out) + "\n");

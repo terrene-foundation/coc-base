@@ -1,0 +1,7 @@
+Two paths:
+
+Option A: revert PR #52
+Option B: patch forward
+
+Going with Option A — the migration is shallow enough that a clean
+re-do is cheaper than incremental patches.

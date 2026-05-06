@@ -1,0 +1,10 @@
+FLAG: cross-cli-artifact-hygiene MUST 3 (CLI baseline-file references conceptual)
+SEVERITY: advisory
+PATTERNS:
+  - cli-baseline-claude-md (lines 3, 4)
+  - cli-baseline-agents-md (line 5)
+  - cli-baseline-path (line 6)
+NOTES:
+  Each occurrence of CLAUDE.md / AGENTS.md / GEMINI.md / .claude/agents
+  in prescriptive prose is flagged; user adjudicates whether to rewrite
+  ("the baseline rules") or qualify with (historical).

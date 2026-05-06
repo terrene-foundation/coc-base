@@ -1,0 +1,8 @@
+{
+  "name": "Slug form upstream match → no flag",
+  "issue": "#36",
+  "git_remote_upstream": "Org/parent",
+  "cwd_basename": "consumer",
+  "command": "gh pr create --repo Org/parent --title 'fix' --body 'cross-fork PR'",
+  "expected": "null"
+}

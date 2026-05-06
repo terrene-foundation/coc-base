@@ -1,0 +1,7 @@
+Three approaches:
+
+(a) Manual cleanup script
+(b) Automated migration tool
+(c) Defer to next sprint
+
+What's your preference?

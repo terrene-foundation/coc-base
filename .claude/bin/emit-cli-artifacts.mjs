@@ -57,6 +57,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { applyOverlay } from "./lib/slot-parser.mjs";
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(__dirname, "..", "..");
 
@@ -254,6 +256,103 @@ function loadTargetTierSubscriptions(target) {
 }
 
 // ────────────────────────────────────────────────────────────────
+// sync-manifest.yaml → repos.<target>.variant
+// ────────────────────────────────────────────────────────────────
+// Returns the language-axis variant slug (py / rs / rb / base / null).
+// The variant determines which `variants/<lang>/...` overlay tree applies
+// when composing per-CLI artifacts (commands, skills, agents) for the
+// target's language axis. Returns null when target is unknown OR when
+// repos.<target>.variant is absent.
+function loadTargetVariant(target) {
+  if (!target) return null;
+  const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
+  const src = fs.readFileSync(manifestPath, "utf8");
+  const lines = src.split("\n");
+
+  let inRepos = false;
+  let inTarget = false;
+  for (const line of lines) {
+    if (/^repos:\s*$/.test(line)) {
+      inRepos = true;
+      continue;
+    }
+    if (!inRepos) continue;
+    if (/^[a-zA-Z_][^:]*:\s*$/.test(line) && !line.startsWith(" ")) {
+      break;
+    }
+    const targetMatch = line.match(/^ {2}([a-zA-Z_][\w-]*):\s*$/);
+    if (targetMatch) {
+      inTarget = targetMatch[1] === target;
+      continue;
+    }
+    if (inTarget) {
+      const vMatch = line.match(/^ {4}variant:\s*(.+?)\s*$/);
+      if (vMatch) {
+        return vMatch[1].replace(/^["']|["']$/g, "");
+      }
+    }
+  }
+  return null;
+}
+
+// ────────────────────────────────────────────────────────────────
+// composeArtifactBody — apply variant overlays to a non-rule artifact
+// ────────────────────────────────────────────────────────────────
+// Mirrors emit.mjs::composeRule for the commands/skills/agents axes.
+// Resolution order (each layer composed on top of the previous):
+//   1. Global at .claude/<category>/<relPath> (required base)
+//   2. Language overlay  variants/<lang>/<category>/<relPath>
+//   3. CLI overlay       variants/<cli>/<category>/<relPath>
+//   4. Ternary overlay   variants/<lang>-<cli>/<category>/<relPath>
+//
+// Two overlay forms are supported (auto-detected per file):
+//   - Slot-keyed: file contains `<!-- slot:NAME -->` markers; composed
+//                 via slot-parser::applyOverlay (slot bodies replace
+//                 matching slots in the running composed body).
+//   - Full-file:  variant file is the deployed content; replaces
+//                 composed body entirely (no slot markers present).
+//
+// Returns the composed body string. Caller is responsible for parsing
+// frontmatter from the returned body (frontmatter may differ between
+// global and full-file variant — variant wins on full-file, slot
+// composition preserves global frontmatter unless slots cover it).
+//
+// Without `lang` (legacy emit-everything mode), only the CLI-axis
+// overlay is applied.
+function composeArtifactBody(category, relPath, cli, lang) {
+  const globalPath = path.join(REPO, ".claude", category, relPath);
+  if (!fs.existsSync(globalPath)) return null;
+  let composed = fs.readFileSync(globalPath, "utf8");
+
+  const axes = [];
+  if (lang) axes.push(lang);
+  if (cli) axes.push(cli);
+  if (lang && cli) axes.push(`${lang}-${cli}`);
+
+  for (const axis of axes) {
+    const overlayPath = path.join(
+      REPO,
+      ".claude",
+      "variants",
+      axis,
+      category,
+      relPath,
+    );
+    if (!fs.existsSync(overlayPath)) continue;
+    const overlay = fs.readFileSync(overlayPath, "utf8");
+    if (overlay.includes("<!-- slot:")) {
+      // Slot-keyed: compose via slot-parser
+      const { composed: c } = applyOverlay(composed, overlay);
+      composed = c;
+    } else {
+      // Full-file replacement
+      composed = overlay;
+    }
+  }
+  return composed;
+}
+
+// ────────────────────────────────────────────────────────────────
 // Build tier filter: union of glob patterns across subscribed tiers.
 // Returns null when no target (caller emits everything per legacy mode).
 // Halts with exit 2 when target is provided but tier_subscriptions is
@@ -373,7 +472,7 @@ function tomlLiteralEscape(body) {
   return body.replace(/'''/g, "''′'"); // U+2032 ′ — visually near but not a quote
 }
 
-function emitCommands({ outDir, exclusions, tierFilter, verbose }) {
+function emitCommands({ outDir, exclusions, tierFilter, lang, verbose }) {
   const srcDir = path.join(REPO, ".claude", "commands");
   if (!fs.existsSync(srcDir)) {
     return { codex: 0, gemini: 0, skipped: 0 };
@@ -393,15 +492,16 @@ function emitCommands({ outDir, exclusions, tierFilter, verbose }) {
       continue;
     }
 
-    const source = fs.readFileSync(absPath, "utf8");
-    const { frontmatter, body } = parseFrontmatter(source);
-    const description = frontmatter.description || `Loom command: ${name}`;
-    const trimmedBody = body.replace(/^\n+/, "").replace(/\n+$/, "\n");
-
     // Codex — same .md, Codex reads frontmatter natively via /prompts:<name>.
+    // Apply variant overlays per (lang, codex) 3-axis stack so codex/prompts
+    // matches the same composed content CC sees in .claude/commands/.
     if (!matchesAnyGlob(manifestRel, exclusions.codex)) {
+      const codexBody = composeArtifactBody("commands", relPath, "codex", lang);
+      const { frontmatter: cFm, body: cBody } = parseFrontmatter(codexBody);
+      const cDesc = cFm.description || `Loom command: ${name}`;
+      const cTrimmed = cBody.replace(/^\n+/, "").replace(/\n+$/, "\n");
       const codexPath = path.join(outDir, "codex", "prompts", `${name}.md`);
-      const codexContent = `---\nname: ${name}\ndescription: "${description}"\n---\n\n${trimmedBody}`;
+      const codexContent = `---\nname: ${name}\ndescription: "${cDesc}"\n---\n\n${cTrimmed}`;
       safeWriteFileSync(codexPath, codexContent);
       stats.codex++;
       if (verbose) console.log(`  codex   prompts/${name}.md`);
@@ -409,17 +509,22 @@ function emitCommands({ outDir, exclusions, tierFilter, verbose }) {
       stats.skipped++;
     }
 
-    // Gemini — TOML. Body becomes the prompt string.
+    // Gemini — TOML. Body becomes the prompt string. Apply (lang, gemini)
+    // overlays.
     if (!matchesAnyGlob(manifestRel, exclusions.gemini)) {
+      const geminiBody = composeArtifactBody("commands", relPath, "gemini", lang);
+      const { frontmatter: gFm, body: gBody } = parseFrontmatter(geminiBody);
+      const gDesc = gFm.description || `Loom command: ${name}`;
+      const gTrimmed = gBody.replace(/^\n+/, "").replace(/\n+$/, "\n");
       const geminiPath = path.join(outDir, "gemini", "commands", `${name}.toml`);
       const toolsLine = GEMINI_DEFAULT_COMMAND_TOOLS
         .map((t) => `"${t}"`)
         .join(", ");
       const tomlContent = [
         `name = "${name}"`,
-        `description = "${description.replace(/"/g, '\\"')}"`,
+        `description = "${gDesc.replace(/"/g, '\\"')}"`,
         `prompt = '''`,
-        tomlLiteralEscape(trimmedBody).replace(/\n+$/, ""),
+        tomlLiteralEscape(gTrimmed).replace(/\n+$/, ""),
         `'''`,
         `tools = [${toolsLine}]`,
         "",
@@ -440,7 +545,7 @@ function emitCommands({ outDir, exclusions, tierFilter, verbose }) {
 // live under the skill dir and are loaded on demand. We copy the WHOLE
 // skill directory (not just SKILL.md) so the sub-file references in
 // SKILL.md resolve when the CLI reads them.
-function emitSkills({ outDir, exclusions, tierFilter, verbose }) {
+function emitSkills({ outDir, exclusions, tierFilter, lang, verbose }) {
   const srcDir = path.join(REPO, ".claude", "skills");
   if (!fs.existsSync(srcDir)) return { codex: 0, gemini: 0, skipped: 0 };
 
@@ -472,7 +577,18 @@ function emitSkills({ outDir, exclusions, tierFilter, verbose }) {
         continue;
       }
       const skillOut = path.join(outDir, cli, "skills", skill);
-      copyDirRecursive(skillSrc, skillOut);
+      // Per-file emission with variant-overlay composition for every
+      // file under the skill dir (SKILL.md and sub-files). Replaces a
+      // bare copyDirRecursive: the previous behavior copied global
+      // files verbatim, leaving variant overlays unapplied for codex/
+      // gemini emissions (variant-overlay drift root cause).
+      emitSkillTreeWithOverlays({
+        skillName: skill,
+        skillSrc,
+        skillOut,
+        cli,
+        lang,
+      });
       stats[cli]++;
       if (verbose) console.log(`  ${cli.padEnd(7)} skills/${skill}/`);
     }
@@ -481,17 +597,28 @@ function emitSkills({ outDir, exclusions, tierFilter, verbose }) {
   return stats;
 }
 
-function copyDirRecursive(src, dest) {
-  fs.mkdirSync(dest, { recursive: true });
-  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-    const s = path.join(src, entry.name);
-    const d = path.join(dest, entry.name);
-    if (entry.isDirectory()) {
-      copyDirRecursive(s, d);
-    } else if (entry.isFile()) {
-      const data = fs.readFileSync(s);
-      safeWriteFileSync(d, data);
+// Walk the skill tree; for each file, compose with variant overlays
+// (lang, cli, lang-cli ternary) and write to skillOut. Files that have
+// no variant overlay anywhere fall through to a verbatim copy.
+function emitSkillTreeWithOverlays({ skillName, skillSrc, skillOut, cli, lang }) {
+  fs.mkdirSync(skillOut, { recursive: true });
+  for (const { absPath, relPath } of walkFiles(skillSrc)) {
+    const outFile = path.join(skillOut, relPath);
+    // For markdown files, apply variant-overlay composition. Non-md
+    // files (e.g., images, fixtures) are copied byte-for-byte — they
+    // never have variant overlays.
+    if (relPath.endsWith(".md")) {
+      const category = "skills";
+      const skillRelPath = path.posix.join(skillName, relPath);
+      const composed = composeArtifactBody(category, skillRelPath, cli, lang);
+      if (composed !== null) {
+        safeWriteFileSync(outFile, composed);
+        continue;
+      }
     }
+    // Fallback: byte copy.
+    const data = fs.readFileSync(absPath);
+    safeWriteFileSync(outFile, data);
   }
 }
 
@@ -554,7 +681,7 @@ function translateCcToolsToGemini(toolsRaw) {
   return translated;
 }
 
-function emitGeminiAgents({ outDir, exclusions, tierFilter, verbose }) {
+function emitGeminiAgents({ outDir, exclusions, tierFilter, lang, verbose }) {
   const srcDir = path.join(REPO, ".claude", "agents");
   if (!fs.existsSync(srcDir)) return { gemini: 0, skipped: 0 };
 
@@ -577,7 +704,12 @@ function emitGeminiAgents({ outDir, exclusions, tierFilter, verbose }) {
       continue;
     }
 
-    const source = fs.readFileSync(absPath, "utf8");
+    // Apply variant overlays (lang, gemini, lang-gemini ternary) so the
+    // emitted gemini agent matches the composed content CC sees in
+    // .claude/agents/ for the same target. Without this, .gemini/agents/
+    // ships globals while .claude/agents/ ships variant-composed bodies.
+    const source = composeArtifactBody("agents", relPath, "gemini", lang) ||
+      fs.readFileSync(absPath, "utf8");
     const { frontmatter, body } = parseFrontmatter(source);
     const name = frontmatter.name || path.basename(relPath, ".md");
     const description = frontmatter.description || `${name} specialist`;
@@ -629,6 +761,7 @@ function main() {
   const onlyCli = args.cli; // null = both
   const exclusions = loadExclusions();
   const tierFilter = buildTierFilter(args.target); // null when --target absent
+  const lang = loadTargetVariant(args.target); // null when --target absent or variant unset
   const outDir = path.resolve(args.out);
   fs.mkdirSync(outDir, { recursive: true });
 
@@ -640,21 +773,21 @@ function main() {
     if (tierFilter) {
       const subs = loadTargetTierSubscriptions(args.target);
       console.log(
-        `Target: ${args.target} → tiers ${JSON.stringify(subs)} → ${tierFilter.length} include globs`,
+        `Target: ${args.target} → variant=${lang || "(none)"} → tiers ${JSON.stringify(subs)} → ${tierFilter.length} include globs`,
       );
     } else {
-      console.log("Target: (none — emit everything)");
+      console.log("Target: (none — emit everything, no variant overlays)");
     }
     console.log("");
   }
 
   const report = {
-    commands: emitCommands({ outDir, exclusions, tierFilter, verbose: args.verbose }),
-    skills: emitSkills({ outDir, exclusions, tierFilter, verbose: args.verbose }),
+    commands: emitCommands({ outDir, exclusions, tierFilter, lang, verbose: args.verbose }),
+    skills: emitSkills({ outDir, exclusions, tierFilter, lang, verbose: args.verbose }),
     geminiAgents:
       onlyCli === "codex"
         ? { gemini: 0, skipped: 0 }
-        : emitGeminiAgents({ outDir, exclusions, tierFilter, verbose: args.verbose }),
+        : emitGeminiAgents({ outDir, exclusions, tierFilter, lang, verbose: args.verbose }),
   };
 
   // Apply --cli filter after the fact: if onlyCli is set, delete the
@@ -698,7 +831,9 @@ export {
   loadExclusions,
   loadTiers,
   loadTargetTierSubscriptions,
+  loadTargetVariant,
   buildTierFilter,
+  composeArtifactBody,
   parseFrontmatter,
   emitCommands,
   emitSkills,
