@@ -35,6 +35,16 @@ Specify scope: `all`, `fidelity`, `sync`, or a specific file/type.
 
 5. **Token budget**: Estimate per-turn cost.
 
+6. **Probe-coverage** (`rules/probe-driven-verification.md` MUST-4): every test harness assertion verifying a SEMANTIC property (refusal, recommendation, compliance, quality, outcome framing) MUST have a probe definition (schema + scoring rule). Mechanical sweep:
+
+   ```bash
+   grep -rEn 'def (verify|score|assert|check|probe)_[A-Za-z_]*(recommend|refus|complian|respons|intent|semantic|quality|outcome|narrative|reasoning)' \
+     .claude/test-harness/ tests/ 2>/dev/null \
+     | xargs -I {} grep -lE 'kind:\s*"contains"|re\.(search|match|findall)|str\.contains' {} 2>/dev/null
+   ```
+
+   Each hit MUST cite a probe schema. Regex-on-semantic = HIGH. Structural assertions (file existence, exit code, marker presence) keep regex per MUST-3.
+
 ## Phase 2: Sync Integrity Audit (COC-specific)
 
 6. **Manifest validation** (`sync-manifest.yaml`):

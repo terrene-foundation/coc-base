@@ -1,48 +1,33 @@
 # COC Sync Marker — coc-base
-timestamp: 2026-05-06T21:30:00Z
+timestamp: 2026-05-06T22:30:00Z
 source: loom/.claude
 variant: base
 template_type: multi-cli
 clis: [claude, codex, gemini]
-loom_sha: e1569bd
-loom_version: 2.27.0
-template_version: 2.27.0
+loom_sha: c5565fe
+loom_version: 2.28.0
+template_version: 2.28.0
 stats:
-  updated: 0
-  created: 3   # commands/cli-audit.md (CC) + prompts/cli-audit.md (Codex) + commands/cli-audit.toml (Gemini)
-  unchanged: 199   # entire prior baseline (rules + AGENTS.md + GEMINI.md + every other artifact)
-  composed: 0   # 2.27.0 introduced no rule changes; manifest-only tier classification
+  updated: 4   # commands/cc-audit.md (cc tier, CC only) + commands/cli-audit.md (co tier, CC) + .codex/prompts/cli-audit.md + .gemini/commands/cli-audit.toml
+  created: 0
+  unchanged: 197   # entire prior baseline (rules + AGENTS.md + GEMINI.md + every other artifact)
+  composed: 0   # 2.28.0 introduced no rule body changes; prose-only command + agent updates
   preserved: 6   # CLAUDE.md, README.md, LICENSE (none yet), .claude/VERSION (now updated), .claude/learning/, .claude/.proposals
   baselines_emitted:
     cc: 0   # CLAUDE.md preserved (template-owned)
-    codex: 1   # AGENTS.md re-emitted; byte-identical to prior (verified diff exit 0)
-    gemini: 1   # GEMINI.md re-emitted; byte-identical to prior (verified diff exit 0)
-  baseline_emission_bytes:
-    block_cap_bytes: 61440
-    warn_cap_bytes: 32768
-    codex:
-      rules: 10
-      bytes: 56797
-      tier: WARN
-      headroom_bytes: 4643
-      headroom_pct: 7.55
-    gemini:
-      rules: 10
-      bytes: 56806
-      tier: WARN
-      headroom_bytes: 4634
-      headroom_pct: 7.54
+    codex: 0   # AGENTS.md not re-emitted; v2.28.0 introduced no rule body changes
+    gemini: 0  # GEMINI.md not re-emitted; v2.28.0 introduced no rule body changes
   cli_artifacts:
     codex:
-      prompts: 10   # was 9, +1 cli-audit.md
+      prompts: 10   # unchanged from v2.27.0
       skills: 3
     gemini:
-      commands: 10   # was 9, +1 cli-audit.toml
+      commands: 10   # unchanged from v2.27.0
       skills: 3
       agents: 5
   mcp_guard:
-    policies_populated: true   # loom canonical policies.json (3 wrapped tool surfaces)
-    predicates_extracted: 1    # one validate-workflow.js predicate from extract emitter
+    policies_populated: true
+    predicates_extracted: 1
 tier_subscriptions: [cc, co, onboarding]
 tier_filter_verified: zero_kailash_framework_leaks
 multi_cli_overlay_paths:
@@ -52,20 +37,19 @@ multi_cli_overlay_paths:
   - AGENTS.md
   - GEMINI.md
 delta_summary: |
-  Wave 3b incremental sync from loom v2.26.0 → v2.27.0.
-  v2.27.0 was a manifest-only tier classification of 5 paths that
-  existed in loom but were unclassified. For base templates with
-  tier_subscriptions = [cc, co, onboarding]:
-    - co tier:  commands/cli-audit.md            ← LANDED to all 3 CLIs
-    - coc tier: agents/cli-orchestrator.md       ← FILTERED (no coc subscription)
-    - coc tier: agents/codex-architect.md        ← FILTERED
-    - coc tier: agents/gemini-architect.md       ← FILTERED
-    - coc tier: guides/codex/**                  ← FILTERED
-  Multi-CLI distribution of cli-audit per cli_emit_exclusions:
-    - .claude/commands/cli-audit.md  (CC surface)
-    - .codex/prompts/cli-audit.md    (Codex surface — not excluded)
-    - .gemini/commands/cli-audit.toml (Gemini surface — not excluded)
-  Re-emitted AGENTS.md/GEMINI.md per multi_cli_overlays refresh
-  discipline (sync-flow.md § Downstream Sync step 4); both byte-
-  identical to prior emission since v2.27.0 introduced zero rule body
-  changes (manifest-only release).
+  Incremental sync from loom v2.27.0 → v2.28.0 (probe-driven verification Phase 2).
+  v2.28.0 ships 9 prose-only files in loom; for base templates with
+  tier_subscriptions = [cc, co, onboarding] only 2 propagate to all 3 CLIs:
+    - cc tier:  commands/cc-audit.md            ← LANDED to CC + Codex prompts + Gemini commands
+    - co tier:  commands/cli-audit.md           ← LANDED to CC + Codex prompts + Gemini commands
+    - coc tier: agents/cli-orchestrator.md      ← FILTERED (no coc subscription)
+    - coc tier: agents/quality/reviewer.md      ← FILTERED
+    - coc tier: agents/quality/security-reviewer.md ← FILTERED
+    - coc tier: agents/testing/testing-specialist.md ← FILTERED
+    - coc tier: commands/redteam.md             ← FILTERED
+    - coc tier: commands/codify.md              ← FILTERED
+    - excluded: test-harness/README.md          ← MANIFEST EXCLUDE
+  AGENTS.md/GEMINI.md NOT re-emitted: v2.28.0 made zero rule-body
+  changes; only command and agent prose updated, none of which are
+  composed into the multi-CLI baseline rule files.
+  Tier filter verification: zero leaks of Kailash specialists confirmed.
