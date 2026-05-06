@@ -1,22 +1,22 @@
 # COC Sync Marker — coc-base
-timestamp: 2026-05-06T13:13:25Z
+timestamp: 2026-05-06T21:30:00Z
 source: loom/.claude
 variant: base
 template_type: multi-cli
 clis: [claude, codex, gemini]
-loom_sha: c18742b
-loom_version: 2.26.0
-template_version: 2.26.0
+loom_sha: e1569bd
+loom_version: 2.27.0
+template_version: 2.27.0
 stats:
-  updated: 5
-  created: 71
-  unchanged: 127
-  composed: 2
-  preserved: 6   # CLAUDE.md, README.md, LICENSE (none yet), .claude/VERSION (initial state), .claude/learning/, .claude/.proposals
+  updated: 0
+  created: 3   # commands/cli-audit.md (CC) + prompts/cli-audit.md (Codex) + commands/cli-audit.toml (Gemini)
+  unchanged: 199   # entire prior baseline (rules + AGENTS.md + GEMINI.md + every other artifact)
+  composed: 0   # 2.27.0 introduced no rule changes; manifest-only tier classification
+  preserved: 6   # CLAUDE.md, README.md, LICENSE (none yet), .claude/VERSION (now updated), .claude/learning/, .claude/.proposals
   baselines_emitted:
     cc: 0   # CLAUDE.md preserved (template-owned)
-    codex: 1   # AGENTS.md
-    gemini: 1   # GEMINI.md
+    codex: 1   # AGENTS.md re-emitted; byte-identical to prior (verified diff exit 0)
+    gemini: 1   # GEMINI.md re-emitted; byte-identical to prior (verified diff exit 0)
   baseline_emission_bytes:
     block_cap_bytes: 61440
     warn_cap_bytes: 32768
@@ -34,14 +34,14 @@ stats:
       headroom_pct: 7.54
   cli_artifacts:
     codex:
-      prompts: 9
+      prompts: 10   # was 9, +1 cli-audit.md
       skills: 3
     gemini:
-      commands: 9
+      commands: 10   # was 9, +1 cli-audit.toml
       skills: 3
       agents: 5
   mcp_guard:
-    policies_populated: true   # loom canonical policies.json copied (3 wrapped tool surfaces)
+    policies_populated: true   # loom canonical policies.json (3 wrapped tool surfaces)
     predicates_extracted: 1    # one validate-workflow.js predicate from extract emitter
 tier_subscriptions: [cc, co, onboarding]
 tier_filter_verified: zero_kailash_framework_leaks
@@ -51,3 +51,21 @@ multi_cli_overlay_paths:
   - .gemini/
   - AGENTS.md
   - GEMINI.md
+delta_summary: |
+  Wave 3b incremental sync from loom v2.26.0 → v2.27.0.
+  v2.27.0 was a manifest-only tier classification of 5 paths that
+  existed in loom but were unclassified. For base templates with
+  tier_subscriptions = [cc, co, onboarding]:
+    - co tier:  commands/cli-audit.md            ← LANDED to all 3 CLIs
+    - coc tier: agents/cli-orchestrator.md       ← FILTERED (no coc subscription)
+    - coc tier: agents/codex-architect.md        ← FILTERED
+    - coc tier: agents/gemini-architect.md       ← FILTERED
+    - coc tier: guides/codex/**                  ← FILTERED
+  Multi-CLI distribution of cli-audit per cli_emit_exclusions:
+    - .claude/commands/cli-audit.md  (CC surface)
+    - .codex/prompts/cli-audit.md    (Codex surface — not excluded)
+    - .gemini/commands/cli-audit.toml (Gemini surface — not excluded)
+  Re-emitted AGENTS.md/GEMINI.md per multi_cli_overlays refresh
+  discipline (sync-flow.md § Downstream Sync step 4); both byte-
+  identical to prior emission since v2.27.0 introduced zero rule body
+  changes (manifest-only release).
