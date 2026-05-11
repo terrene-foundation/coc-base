@@ -2,6 +2,27 @@
 
 This directory contains an MCP server that enforces the same policies as `.claude/hooks/*.js`, emitted as a **fallback path** when the Codex CLI's native `hooks.json` binding is marked `under_development`.
 
+## Installation
+
+The guard depends on `@modelcontextprotocol/sdk` (declared in `package.json`; pinned via `package-lock.json`). On a fresh USE-template install — or after a `/sync` that refreshes this directory — run:
+
+```bash
+cd .codex-mcp-guard && npm ci
+```
+
+`npm ci` (not `npm install`) is required: it installs the exact versions declared in `package-lock.json` and refuses to mutate the lockfile. This is the **reproducible** install path — every Codex consumer of every USE template gets the same SDK build that loom audited at lockfile-commit time. Running `npm install` instead would silently re-resolve the dependency tree against npm's latest matching versions, breaking the audit chain.
+
+This installs the SDK into `.codex-mcp-guard/node_modules/` so `server.js` can lazy-load it on Codex startup. Without this step, Codex emits:
+
+```
+codex-mcp-guard: @modelcontextprotocol/sdk not installed (...).
+Install via the USE template's package.json before running stdio mode.
+```
+
+…and `MCP client for 'codex-mcp-guard' failed to start: handshaking with MCP server failed: connection closed: initialize response`. This is the **fail-closed** mode (per `zero-tolerance.md` Rule 2) — the guard refuses to start rather than running fail-open. The fix is one `npm install`; the gap is not silent corruption.
+
+`engines.node >= 18` per `package.json`. The package itself is `private: true` — it is never published to npm; only consumed in-place via the USE template's `.codex-mcp-guard/` directory.
+
 ## Why this exists
 
 Codex's native hook mechanism (`hooks.json`) is flagged `codex_hooks = under_development` in Codex 0.122. Shipping `hooks.json` to a user running that version would either silently fail (the hook file is ignored) or fail loudly on schema validation — neither is acceptable for a guardrail layer.

@@ -1,0 +1,33 @@
+{
+  "name": "codex-mcp-guard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MCP guardrail companion for Codex CLI. Emitted to .codex-mcp-guard/ in USE templates when codex_hooks feature-flag is under_development. Wraps apply_patch/unified_exec/shell with the same POLICIES table that .claude/hooks/*.js enforces.",
+  "type": "commonjs",
+  "main": "server.js",
+  "files": [
+    "server.js",
+    "extract-policies.mjs",
+    "policies.json",
+    "test-server.mjs",
+    "test-extract-policies.mjs",
+    "README.md"
+  ],
+  "scripts": {
+    "start": "node server.js",
+    "self-check": "node server.js --self-check",
+    "test": "node test-server.mjs && node test-extract-policies.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/esperie-enterprise/loom.git",
+    "directory": ".claude/codex-mcp-guard"
+  },
+  "license": "Apache-2.0"
+}

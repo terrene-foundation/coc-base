@@ -1,11 +1,11 @@
 # COC Sync Marker — coc-base
-timestamp: 2026-05-06T22:30:00Z
+timestamp: 2026-05-11T00:12:37Z
 source: loom/.claude
 variant: base
 template_type: multi-cli
 clis: [claude, codex, gemini]
-loom_sha: c5565fe
-loom_version: 2.28.0
+loom_sha: 06a0c4a
+loom_version: 2.29.4
 template_version: 2.28.0
 stats:
   updated: 4   # commands/cc-audit.md (cc tier, CC only) + commands/cli-audit.md (co tier, CC) + .codex/prompts/cli-audit.md + .gemini/commands/cli-audit.toml
