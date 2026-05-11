@@ -7,10 +7,10 @@
   "upstream": {
     "name": "loom",
     "type": "coc-source",
-    "version": "2.28.2",
-    "loom_sha": "94ed1be",
-    "synced_at": "2026-05-06T16:26:44Z",
-    "template_version": "2.28.2",
+    "version": "2.29.4",
+    "loom_sha": "06a0c4a",
+    "synced_at": "2026-05-11T00:12:37Z",
+    "template_version": "2.29.4",
     "sdk_packages": {}
   },
   "variant": "base",
