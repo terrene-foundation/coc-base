@@ -60,7 +60,6 @@ CARE (Philosophy: What is the human for?)
 | --------- | -------------------------------------------------------------------------------------------------------------------- |
 | EATP      | [26-eatp-reference/](../26-eatp-reference/SKILL.md) — TrustPlane SDK, BudgetTracker, PostureStore, security patterns |
 | PACT      | [29-pact/](../29-pact/SKILL.md) — GovernanceEngine, D/T/R addressing, envelopes, clearance                           |
-| COC       | [28-coc-reference/](../28-coc-reference/SKILL.md) — Template implementation details                                  |
 
 ## Central Insight
 

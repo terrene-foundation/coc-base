@@ -1,55 +1,45 @@
 # COC Sync Marker — coc-base
-timestamp: 2026-05-11T00:12:37Z
+timestamp: 2026-05-13T02:51:45Z
 source: loom/.claude
 variant: base
-template_type: multi-cli
-clis: [claude, codex, gemini]
-loom_sha: 06a0c4a
-loom_version: 2.29.4
-template_version: 2.28.0
+loom_version: 2.30.0
+loom_sha: f4048e2
+clis: ["claude", "codex", "gemini"]
 stats:
-  updated: 4   # commands/cc-audit.md (cc tier, CC only) + commands/cli-audit.md (co tier, CC) + .codex/prompts/cli-audit.md + .gemini/commands/cli-audit.toml
-  created: 0
-  unchanged: 197   # entire prior baseline (rules + AGENTS.md + GEMINI.md + every other artifact)
-  composed: 0   # 2.28.0 introduced no rule body changes; prose-only command + agent updates
-  preserved: 6   # CLAUDE.md, README.md, LICENSE (none yet), .claude/VERSION (now updated), .claude/learning/, .claude/.proposals
+  updated: 11
+  created: 13
+  unchanged: 87
+  composed: 1
+  preserved_audit_fixtures: yes
   baselines_emitted:
-    cc: 0   # CLAUDE.md preserved (template-owned)
-    codex: 0   # AGENTS.md not re-emitted; v2.28.0 introduced no rule body changes
-    gemini: 0  # GEMINI.md not re-emitted; v2.28.0 introduced no rule body changes
+    cc: 0
+    codex: 1
+    gemini: 1
+  baseline_emission_bytes:
+    block_cap_bytes: 61440
+    warn_cap_bytes: 32768
+    codex:
+      rules: 10
+      bytes: 52956
+      tier: WARN
+      headroom_bytes: 8484
+      headroom_pct: 13.81
+    gemini:
+      rules: 10
+      bytes: 52965
+      tier: WARN
+      headroom_bytes: 8475
+      headroom_pct: 13.79
   cli_artifacts:
     codex:
-      prompts: 10   # unchanged from v2.27.0
-      skills: 3
+      prompts: 10
+      skills: 6
     gemini:
-      commands: 10   # unchanged from v2.27.0
-      skills: 3
+      commands: 10
+      skills: 6
       agents: 5
-  mcp_guard:
-    policies_populated: true
-    predicates_extracted: 1
-tier_subscriptions: [cc, co, onboarding]
-tier_filter_verified: zero_kailash_framework_leaks
-multi_cli_overlay_paths:
-  - .codex/
-  - .codex-mcp-guard/
-  - .gemini/
-  - AGENTS.md
-  - GEMINI.md
-delta_summary: |
-  Incremental sync from loom v2.27.0 → v2.28.0 (probe-driven verification Phase 2).
-  v2.28.0 ships 9 prose-only files in loom; for base templates with
-  tier_subscriptions = [cc, co, onboarding] only 2 propagate to all 3 CLIs:
-    - cc tier:  commands/cc-audit.md            ← LANDED to CC + Codex prompts + Gemini commands
-    - co tier:  commands/cli-audit.md           ← LANDED to CC + Codex prompts + Gemini commands
-    - coc tier: agents/cli-orchestrator.md      ← FILTERED (no coc subscription)
-    - coc tier: agents/quality/reviewer.md      ← FILTERED
-    - coc tier: agents/quality/security-reviewer.md ← FILTERED
-    - coc tier: agents/testing/testing-specialist.md ← FILTERED
-    - coc tier: commands/redteam.md             ← FILTERED
-    - coc tier: commands/codify.md              ← FILTERED
-    - excluded: test-harness/README.md          ← MANIFEST EXCLUDE
-  AGENTS.md/GEMINI.md NOT re-emitted: v2.28.0 made zero rule-body
-  changes; only command and agent prose updated, none of which are
-  composed into the multi-CLI baseline rule files.
-  Tier filter verification: zero leaks of Kailash specialists confirmed.
+notes: |
+  Tier subscriptions: cc + co + onboarding (base variant is Kailash-agnostic).
+  multi_cli_overlays.multi-cli applied: .codex/, .codex-mcp-guard/, .gemini/,
+  AGENTS.md, GEMINI.md. CLI baselines emitted with --lang base.
+  3 new meta-skills shipped: skill-authoring, command-authoring, hook-authoring.

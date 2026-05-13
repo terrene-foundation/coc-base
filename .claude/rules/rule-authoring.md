@@ -148,6 +148,18 @@ DO NOT — bake CC-specific syntax into the neutral body:
 
 **Why:** Without slot markers the neutral body carries CLI-specific syntax that silently weakens the rule on the other two CLIs — a MUST clause with a CC-only example gets read as "only applies on CC." The slot mechanism is the single structural defense against per-CLI drift; the `parity_enforcement.cross_cli_drift_audit` validator checks neutral-body byte-identity and can only do so when the slots exist.
 
+### 9. Empirical-Validation Fixtures Reproduce The Originating Incident's Conditions
+
+When a rule's Origin (Rule 6) names ≥1 specific incident AND the rule ships empirical-validation fixtures (subprocess A/B, ablation, probe), each fixture MUST reproduce the incident's conditions — NOT an idealized version where the agent has already been told what to look for. Authors MUST enumerate incident conditions before scenario design and reject any fixture that drops one without rationale in the fixture's `_doc`.
+
+DO — fixture conditions match the incident (Phase I1: no in-prompt anchor, no inlined brief, lower-option anchor-status NOT declared, tempting `feedback_*.md` memory in scope → all four reproduced).
+
+DO NOT — F-1.5 S7-S10 inlined "(b) has no user-anchored source" AND materialized a brief that disqualified (b); both short-circuit the streetlight-fittability fallback the rule defends. The incident had neither.
+
+**BLOCKED rationalizations:** "Close enough" / "Idealizing makes the test cleaner" / "Harder fixtures later" / "Current differential is the signal" / "Incident was an edge case."
+
+**Why:** A rule's empirical claim is a research artifact distinct from its enforcement clauses (per `value-prioritization.md` § Origin "Empirical-claim status"). When fixtures don't reproduce the originating incident, the empirical claim measures something the incident wasn't, and every cycle's pass-rate drifts further from what the rule defends against. Evidence: F-1 (5 cycles) + F-1.5 (1 cycle) on `value-prioritization.md` never reached the Failure-A pattern because each fixture removed one Phase I1 condition; F-2.0 (#100) is corrective.
+
 ## MUST NOT
 
 - Rationale paragraphs longer than 2 sentences per `Why:` line

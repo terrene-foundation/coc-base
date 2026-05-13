@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "generated_at": "2026-05-10T07:32:18.660Z",
+  "source_dir": "/Users/esperie/repos/loom/.claude/hooks",
+  "shape_summary": {
+    "A": 0,
+    "B": 1,
+    "C": 0,
+    "D": 1
+  },
+  "orchestrators_filtered": 0,
+  "predicates": [
+    {
+      "id": "validateBashCommand",
+      "shape": "D",
+      "source_file": "validate-bash-command.js",
+      "cc_matchers": [
+        "Bash"
+      ],
+      "codex_tools": [
+        "shell",
+        "unified_exec"
+      ],
+      "reason_raw": null,
+      "reason_template": null,
+      "reject_condition_shape": "returns { severity: \"block\", ... } consumed by instructAndWait()/emit() per hook-output-discipline.md MUST-1"
+    },
+    {
+      "id": "validateFile",
+      "shape": "B",
+      "source_file": "validate-workflow.js",
+      "cc_matchers": [],
+      "codex_tools": [],
+      "reason_raw": null,
+      "reason_template": null,
+      "reject_condition_shape": "returns { exitCode: N>=2, ... } consumed by caller's process.exit(result.exitCode)"
+    }
+  ],
+  "policies_predicates": {
+    "shell": [
+      {
+        "id": "validateBashCommand",
+        "source_file": "validate-bash-command.js",
+        "shape": "D",
+        "reason_template": null
+      }
+    ],
+    "unified_exec": [
+      {
+        "id": "validateBashCommand",
+        "source_file": "validate-bash-command.js",
+        "shape": "D",
+        "reason_template": null
+      }
+    ],
+    "apply_patch": []
+  }
+}

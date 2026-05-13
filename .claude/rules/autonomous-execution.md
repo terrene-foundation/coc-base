@@ -46,6 +46,8 @@ Autonomous AI execution with mature COC institutional knowledge produces ~10x su
 
 **Does NOT apply to**: Greenfield domains (first session ~2-3x), novel architecture decisions, external dependencies (API access, approvals), human-authority gates (calendar-bound).
 
+**See also**: `rules/time-pressure-discipline.md` — when the user signals time pressure ("speed up", "deadline looming", "everyone's waiting"), parallelization IS the throughput response. Procedure drops (skipping `/redteam`, omitting regression tests, `--no-verify`) are BLOCKED even when explicitly authorized; the structural alternative (more parallel shards within the per-session capacity budget below) is the only correct response.
+
 ## Structural vs Execution Gates
 
 **Structural (human required):** Plan approval (/todos), release authorization (/release), envelope changes.

@@ -373,12 +373,13 @@ async function serveStdio() {
   // Lazy-loaded so the test harness + self-check can run without the
   // MCP SDK npm dependency installed in the host repo. The USE
   // template's package.json declares the dep at install time.
-  let Server, StdioServerTransport;
+  let McpServer, StdioServerTransport, z;
   try {
-    ({ Server } = require("@modelcontextprotocol/sdk/server/index.js"));
+    ({ McpServer } = require("@modelcontextprotocol/sdk/server/mcp.js"));
     ({
       StdioServerTransport,
     } = require("@modelcontextprotocol/sdk/server/stdio.js"));
+    ({ z } = require("zod"));
   } catch (e) {
     process.stderr.write(
       `codex-mcp-guard: @modelcontextprotocol/sdk not installed (${e.message}).\n` +
@@ -387,29 +388,30 @@ async function serveStdio() {
     process.exit(2);
   }
 
-  const server = new Server(
+  const server = new McpServer(
     { name: "codex-mcp-guard", version: "0.2.0" },
     { capabilities: { tools: {} } },
   );
 
+  const inputShape = {
+    input: z.record(z.string(), z.unknown()),
+    session_id: z.string().optional(),
+    cwd: z.string().optional(),
+  };
+
   for (const tool of WRAPPED_TOOLS) {
-    server.tool(tool, {
-      description: `Guardrail wrapper for Codex ${tool} — enforces hooks/*.js parity`,
-      inputSchema: {
-        type: "object",
-        properties: {
-          input: { type: "object" },
-          session_id: { type: "string" },
-          cwd: { type: "string" },
-        },
-        required: ["input"],
+    server.registerTool(
+      tool,
+      {
+        description: `Guardrail wrapper for Codex ${tool} — enforces hooks/*.js parity`,
+        inputSchema: inputShape,
       },
-      handler: async ({ input, session_id, cwd }) => {
+      async ({ input, session_id, cwd }) => {
         const result = evaluatePolicies({ tool, input, session_id, cwd });
         if (!result.allow) return result.mcpResponse;
         return { content: [{ type: "text", text: "permit" }] };
       },
-    });
+    );
   }
 
   const transport = new StdioServerTransport();

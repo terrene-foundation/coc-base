@@ -1,6 +1,6 @@
 ---
 name: stack-onboarding-rust
-description: Rust stack onboarding — test runner, package manager, build tool, idioms, CO/COC phase mapping. Use when STACK.md::declared_stack=rust.
+description: "Rust stack onboarding — runner, package mgr, build, idioms. Use when STACK.md=rust."
 allowed-tools:
   - Read
   - Glob

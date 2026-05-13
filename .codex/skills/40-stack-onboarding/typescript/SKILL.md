@@ -1,6 +1,6 @@
 ---
 name: stack-onboarding-typescript
-description: TypeScript stack onboarding — test runner, package manager, build tool, idioms, CO/COC phase mapping. Use when STACK.md::declared_stack=typescript.
+description: "TypeScript stack onboarding — runner, package mgr, build, idioms. Use when STACK.md=typescript."
 allowed-tools:
   - Read
   - Glob

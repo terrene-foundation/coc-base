@@ -106,12 +106,10 @@ Claude: [Uses DataFlow patterns from skills]
 │         28 directories of domain expertise                   │
 │                                                              │
 │  01-core-sdk    02-dataflow     03-nexus       04-kaizen    │
-│  05-kailash-mcp 06-cheatsheets  07-dev-guides  08-nodes     │
-│  09-workflows   10-deployment   11-frontend    12-testing   │
-│  13-decisions   14-templates    15-errors      16-validation │
-│  17-standards   18-security     19-flutter     20-widgets   │
-│  21-enterprise  22-conversation 23-uiux-design 24-value-audit│
-│  25-ai-patterns 26-eatp-ref    27-care-ref    28-coc-ref    │
+│  05-kailash-mcp 06-cheatsheets  08-nodes-ref                 │
+│  10-deployment  12-testing      15-errors      16-validation │
+│  17-standards   18-security     23-uiux-design               │
+│  25-ai-patterns 26-eatp-ref     co-reference                 │
 │                                                              │
 │  Purpose: Provide task-critical knowledge                    │
 │  Effect: Claude knows HOW to do things correctly             │

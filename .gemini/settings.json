@@ -1,11 +1,12 @@
 {
-  "$comment": "Template for .gemini/settings.json emitted to Gemini-aware USE templates (kailash-coc-py, kailash-coc-rs). Merged with repo-local overrides by coc-sync at Step 5-equivalent. Event names are Gemini-native (BeforeTool/AfterTool) — NOT CC's PreToolUse/PostToolUse.",
-  "model": "gemini-2.5-pro",
+  "_template_note": "Template for .gemini/settings.json emitted to Gemini-aware USE templates (kailash-coc-py, kailash-coc-rs). Merged with repo-local overrides by coc-sync at Step 5-equivalent. Event names are Gemini-native (BeforeTool/AfterTool) — NOT CC's PreToolUse/PostToolUse. Hook event translation: PreToolUse→BeforeTool, PostToolUse→AfterTool, Stop→SessionEnd (see .claude/agents/gemini-architect.md § Hook Event Name Translation). NOTE: Gemini CLI 0.41.2+ rejects `$comment` keys inside object schemas; this `_template_note` lives at top level only and is ignored by gemini.",
+  "model": {
+    "name": "gemini-2.5-pro"
+  },
   "mcpServers": {
     "codex-mcp-guard": {
       "command": "node",
-      "args": ["./.codex-mcp-guard/server.js"],
-      "$comment": "The MCP guard server wraps mutating tools (apply_patch, shell, etc.) with POLICIES-table enforcement. Same server as Codex consumes; Gemini invokes it via native MCP."
+      "args": ["./.codex-mcp-guard/server.js"]
     }
   },
   "mcp": {
@@ -45,6 +46,5 @@
         ]
       }
     ]
-  },
-  "$hook_event_translation_note": "CC → Gemini: PreToolUse → BeforeTool, PostToolUse → AfterTool, Stop → SessionEnd. See .claude/agents/gemini-architect.md § Hook Event Name Translation."
+  }
 }

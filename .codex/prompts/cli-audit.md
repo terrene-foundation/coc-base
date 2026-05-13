@@ -117,4 +117,4 @@ Run iteratively until zero CRITICAL and zero HIGH remain. Each iteration MUST re
 - `.claude/bin/emit.mjs` — Phase E4 emitter (V12 + V13 built-in)
 - `.claude/sync-manifest.yaml` → `cli_variants` + `parity_enforcement` — emission + audit config
 - `.claude/rules/cross-cli-parity.md` — parity contract source of truth
-- `workspaces/multi-cli-coc/02-plans/07-loom-multi-cli-spec-v6.md` §4.4 + §6.2 — authoritative dispatch contract
+- (loom-internal reference) §4.4 + §6.2 — authoritative dispatch contract

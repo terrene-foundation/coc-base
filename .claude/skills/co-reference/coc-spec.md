@@ -79,4 +79,4 @@ COC executes through autonomous AI agent systems, not human teams. Human-on-the-
 
 ## Implementation
 
-For the COC template implementation, see [28-coc-reference/](../28-coc-reference/SKILL.md) and the Kailash COC template repos.
+For the COC template implementation, see the Kailash COC template repos.

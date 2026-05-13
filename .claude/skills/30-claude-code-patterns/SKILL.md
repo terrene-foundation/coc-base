@@ -121,9 +121,9 @@ Critical info at beginning/end of context. Middle gets less attention. Trim tool
 
 ## Detailed Reference
 
-- **[Artifact Design Guide](artifact-design.md)** — Templates, frontmatter, structural patterns
-- **[Anti-Patterns Catalog](anti-patterns.md)** — Common mistakes and fixes
-- **[Token Budget Guide](token-budget.md)** — Measurement and optimization
+- **[Sync Flow](sync-flow.md)** — Full /sync protocol (loaded by sync-reviewer + coc-sync agents)
+- **[Multi-CLI Migration](multi-cli-migration.md)** — Loom's variant + emit pipeline reference
+- **[SDK Upstream Donation](sdk-upstream-donation.md)** — BUILD repo → loom → USE template flow
 - **[Parallel Merge Workflow](parallel-merge-workflow.md)** — Merging 5+ parallel worktree changes to the same file via specialist delegation
 - **[Worktree Orchestration Protocol](worktree-orchestration.md)** — Extended evidence + post-mortems for `rules/agents.md` worktree MUSTs and `rules/worktree-isolation.md`
 
