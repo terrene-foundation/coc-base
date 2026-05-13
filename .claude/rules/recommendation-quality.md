@@ -238,5 +238,6 @@ Extends:
 Distinct from:
 
 - `rules/autonomous-execution.md` — that rule governs WHAT the agent recommends (autonomous-framing assumptions); this rule governs HOW the recommendation is delivered.
+- `rules/time-pressure-discipline.md` — that rule's MUST Rule 3 (Prioritization MUST Be Suggested, Not Auto-Picked) IS the recommendation-quality shape applied to pressure-driven prioritization. When the user signals time pressure and ≥2 outstanding tasks are eligible, the agent MUST surface a prioritized list with rationale per this rule's Rules 1–3, not unilaterally pick the top item.
 
 Origin: 2026-05-06 — user directive after observing recommendations that surfaced options without picks AND used technical framings without translation: "please add in a strong rule that agent is not supposed to suggest without giving recommendations with implications, pros and cons, and easy-to-understand less technical expositions. This is critical." The user feedback memory `feedback_directive_recommendations.md` (2026-04-22) had captured the principle; this rule structurally enforces it as a MUST clause with detection + grace-period wiring.

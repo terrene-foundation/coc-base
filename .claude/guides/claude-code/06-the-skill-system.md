@@ -7,7 +7,7 @@ Skills are the **knowledge base** of this setup. They contain patterns, template
 By the end of this guide, you will understand:
 
 - What skills are and how they're organized
-- All 28 skill directories and their purposes
+- The current skill directories and their purposes
 - How skills relate to commands and agents
 - How to access skill content effectively
 - The structure of skill files
@@ -59,7 +59,7 @@ Skills provide **organized, accessible domain expertise**:
 │   │ • Sessions      │  │ • Memory        │                  │
 │   └─────────────────┘  └─────────────────┘                  │
 │                                                              │
-│                    ... 18 more directories                   │
+│                    ... more directories                      │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -77,38 +77,27 @@ Skills provide **organized, accessible domain expertise**:
 
 ## Part 2: Skill Directory Overview
 
-### All 28 Skill Directories
+### Skill Directories
 
-| Directory                    | Name          | Domain                    |
-| ---------------------------- | ------------- | ------------------------- |
-| `01-core-sdk`                | Core SDK      | Workflows, nodes, runtime |
-| `02-dataflow`                | DataFlow      | Database operations       |
-| `03-nexus`                   | Nexus         | Multi-channel platform    |
-| `04-kaizen`                  | Kaizen        | AI agents                 |
-| `05-kailash-mcp`             | MCP           | Model Context Protocol    |
-| `06-cheatsheets`             | Cheatsheets   | Quick reference           |
-| `07-development-guides`      | Dev Guides    | Advanced features         |
-| `08-nodes-reference`         | Nodes         | 110+ node documentation   |
-| `09-workflow-patterns`       | Workflows     | Industry patterns         |
-| `10-deployment-git`          | Deployment    | Docker, K8s, Git          |
-| `11-frontend-integration`    | Frontend      | React, Flutter            |
-| `12-testing-strategies`      | Testing       | 3-tier strategy           |
-| `13-architecture-decisions`  | Architecture  | Framework selection       |
-| `14-code-templates`          | Templates     | Starter code              |
-| `31-error-troubleshooting`   | Errors        | Debugging guides          |
-| `16-validation-patterns`     | Validation    | Input validation          |
-| `17-gold-standards`          | Standards     | Mandatory practices       |
-| `18-security-patterns`       | Security      | OWASP, secrets            |
-| `19-flutter-patterns`        | Flutter       | Mobile patterns           |
-| `20-interactive-widgets`     | Widgets       | Dynamic UI                |
-| `21-enterprise-ai-ux`        | Enterprise UX | Professional AI apps      |
-| `22-conversation-ux`         | Conversation  | Chat interfaces           |
-| `23-uiux-design-principles`  | UI/UX Design  | Design principles         |
-| `24-value-audit`             | Value Audit   | Enterprise demo QA        |
-| `25-ai-interaction-patterns` | AI Patterns   | AI UX (Shape of AI)       |
-| `26-eatp-reference`          | EATP          | Trust protocol reference  |
-| `co-reference`          | CARE          | Governance framework ref  |
-| `28-coc-reference`           | COC           | Five-layer architecture   |
+| Directory                    | Name         | Domain                    |
+| ---------------------------- | ------------ | ------------------------- |
+| `01-core-sdk`                | Core SDK     | Workflows, nodes, runtime |
+| `02-dataflow`                | DataFlow     | Database operations       |
+| `03-nexus`                   | Nexus        | Multi-channel platform    |
+| `04-kaizen`                  | Kaizen       | AI agents                 |
+| `05-kailash-mcp`             | MCP          | Model Context Protocol    |
+| `06-cheatsheets`             | Cheatsheets  | Quick reference           |
+| `08-nodes-reference`         | Nodes        | 110+ node documentation   |
+| `10-deployment-git`          | Deployment   | Docker, K8s, Git          |
+| `12-testing-strategies`      | Testing      | 3-tier strategy           |
+| `31-error-troubleshooting`   | Errors       | Debugging guides          |
+| `16-validation-patterns`     | Validation   | Input validation          |
+| `17-gold-standards`          | Standards    | Mandatory practices       |
+| `18-security-patterns`       | Security     | OWASP, secrets            |
+| `23-uiux-design-principles`  | UI/UX Design | Design principles         |
+| `25-ai-interaction-patterns` | AI Patterns  | AI UX (Shape of AI)       |
+| `26-eatp-reference`          | EATP         | Trust protocol reference  |
+| `co-reference`               | CARE         | Governance framework ref  |
 
 ---
 
@@ -235,12 +224,6 @@ agent = Agent(
 - `node-selection.md` - Choosing the right node
 - `common-mistakes.md` - Gotchas to avoid
 
-### 07-development-guides: Advanced Features
-
-**Purpose**: Deep-dive development topics
-
-**Key content**: Custom node development, async patterns, production deployment
-
 ### 08-nodes-reference: Node Documentation
 
 **Purpose**: Reference for all 110+ SDK nodes
@@ -254,12 +237,6 @@ agent = Agent(
 - File nodes (Read, Write, etc.)
 - Logic nodes (SwitchNode, Loop, etc.)
 
-### 09-workflow-patterns: Industry Patterns
-
-**Purpose**: Domain-specific workflow templates
-
-**Industries**: Finance, healthcare, logistics, manufacturing, retail
-
 ### 10-deployment-git: Infrastructure
 
 **Purpose**: Docker, Kubernetes, Git workflows
@@ -269,16 +246,6 @@ agent = Agent(
 - `docker-compose.md` - Local development
 - `kubernetes.md` - Production deployment
 - `git-workflows.md` - Branch strategies
-
-### 11-frontend-integration: UI Integration
-
-**Purpose**: React and Flutter with Kailash
-
-**Key files**:
-
-- `react-setup.md` - React integration
-- `flutter-setup.md` - Flutter integration
-- `api-client.md` - SDK API clients
 
 ### 12-testing-strategies: Test Patterns
 
@@ -305,29 +272,7 @@ Tier 3: E2E Tests
 
 ---
 
-## Part 5: Quality & Standards Skills (13-18)
-
-### 13-architecture-decisions: Framework Selection
-
-**Purpose**: Guides for choosing frameworks
-
-**Key files**:
-
-- `core-vs-dataflow.md` - When to use each
-- `runtime-selection.md` - Async vs sync
-- `database-selection.md` - PostgreSQL vs SQLite
-
-### 14-code-templates: Starter Code
-
-**Purpose**: Production-ready templates
-
-**Templates**:
-
-- Basic workflow template
-- Cyclic workflow template
-- Custom node template
-- MCP server template
-- Test templates (all 3 tiers)
+## Part 5: Quality & Standards Skills
 
 ### 31-error-troubleshooting: Debugging
 
@@ -357,34 +302,6 @@ Tier 3: E2E Tests
 **Purpose**: OWASP compliance, secrets management
 
 **Key content**: Input validation, injection prevention, authentication patterns
-
----
-
-## Part 6: Frontend & UX Skills (19-22)
-
-### 19-flutter-patterns: Flutter Development
-
-**Purpose**: Flutter-specific patterns
-
-**Key content**: Design tokens, responsive layouts, component architecture
-
-### 20-interactive-widgets: Dynamic UI
-
-**Purpose**: LLM-driven widget generation
-
-**Key content**: Streaming widgets, form builders, dynamic responses
-
-### 21-enterprise-ai-ux: Professional AI Apps
-
-**Purpose**: Enterprise-grade AI interfaces
-
-**Key content**: Challenge taxonomy, context management, professional design
-
-### 22-conversation-ux: Chat Interfaces
-
-**Purpose**: Multi-conversation management
-
-**Key content**: Thread branching, context switching, Lark-style patterns
 
 ---
 
@@ -541,13 +458,13 @@ Deep dive: "Explain DataFlow internals"
 
 Every agent knows which skills to consult:
 
-| Agent                 | Primary Skills                        |
-| --------------------- | ------------------------------------- |
-| `dataflow-specialist` | `02-dataflow`                         |
-| `nexus-specialist`    | `03-nexus`                            |
-| `kaizen-specialist`   | `04-kaizen`                           |
-| `testing-specialist`  | `12-testing-strategies`               |
-| `pattern-expert`      | `01-core-sdk`, `09-workflow-patterns` |
+| Agent                 | Primary Skills          |
+| --------------------- | ----------------------- |
+| `dataflow-specialist` | `02-dataflow`           |
+| `nexus-specialist`    | `03-nexus`              |
+| `kaizen-specialist`   | `04-kaizen`             |
+| `testing-specialist`  | `12-testing-strategies` |
+| `pattern-expert`      | `01-core-sdk`           |
 
 ### Skills Reference Agents
 

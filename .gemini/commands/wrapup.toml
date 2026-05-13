@@ -20,13 +20,14 @@ Do NOT duplicate these — the next session reads them directly:
 
 ## What ONLY wrapup can provide
 
-Three things nothing else captures:
+Four things nothing else captures:
 
 1. **Priority ordering** — out of everything in the repo, which files should the next session read first, and in what order
 2. **In-flight state** — what's true RIGHT NOW that isn't yet committed, journaled, or filed as a todo
 3. **Traps** — specific pitfalls the next session will walk into without warning
+4. **Forest-vs-trees check + value-anchored deferrals** — per `rules/value-prioritization.md` MUST-1+2: name the highest-value outstanding workstream (the user's actual forest); contrast with what THIS session worked on (the trees); for any item this session deferred or carried-forward, record the value-anchor (one sentence — why this matters to the user, citing the brief / spec § / journal DECISION). "Carried-forward (no grace clock)" without an adjacent value-anchor is BLOCKED.
 
-If content doesn't fit one of those three, it belongs somewhere else. Put it there before running `/wrapup`.
+If content doesn't fit one of those four, it belongs somewhere else. Put it there before running `/wrapup`.
 
 ## Where to write
 
@@ -74,7 +75,7 @@ change. Just enough for the next session to orient — not a history.
 - **Write, not verify.** Do NOT run grep, git log, git show, git diff, gh, pytest, ls, find, or file reads during wrapup. The only permitted tool calls are: workspace resolution (one `ls workspaces/` if needed) and the final `Write .session-notes`. **Tool call cap: 2.**
 - **Memory only.** Produce the notes from conversation memory. If you're unsure whether a claim is still true, omit it — the next session can discover it from git.
 - **No accomplishments list.** The next session reads `git log`. Do not describe what happened this session.
-- **No outstanding-todo list.** The next session reads `todos/active/`. Do not itemize remaining work.
+- **No outstanding-todo list.** The next session reads `todos/active/`. Do not itemize remaining work. **Exception**: items deferred or carried-forward IN THIS SESSION MUST be listed with a value-anchor per `rules/value-prioritization.md` MUST-2 — that's what the forest-vs-trees section is for. The exception covers session-local deferrals only; longer-standing items still belong in `todos/active/`.
 - **No decision log.** Journal decisions with `/journal` before running `/wrapup`, not in session notes.
 - **No quantitative claims.** Do not write "N tests passing", "3 files changed", or "27 todos remaining". Numbers must be verified; verification is forbidden here. Point at the source of truth instead.
 - **No oversight checklist.** Verification commands belong in the next session's task list, not session notes.

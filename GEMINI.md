@@ -1,11 +1,3 @@
-
-# agents.md
-
----
-priority: 0
-scope: baseline
----
-
 # Agent Orchestration Rules
 
 See `.claude/guides/rule-extracts/agents.md` for full evidence, extended examples, post-mortems, recovery-protocol commands, the gate-review table, and CLI-syntax variants.
@@ -119,13 +111,6 @@ When launching ≥2 parallel agents whose worktrees touch the SAME sub-package, 
 
 ---
 
-# autonomous-execution.md
-
----
-priority: 0
-scope: baseline
----
-
 # Autonomous Execution Model
 
 
@@ -167,6 +152,8 @@ Autonomous AI execution with mature COC institutional knowledge produces ~10x su
 **Conversion**: "3-5 human-days" → 1 session. "2-3 weeks with 2 devs" → 2-3 sessions. "33-50 human-days" → 3-5 days parallel.
 
 **Does NOT apply to**: Greenfield domains (first session ~2-3x), novel architecture decisions, external dependencies (API access, approvals), human-authority gates (calendar-bound).
+
+**See also**: `rules/time-pressure-discipline.md` — when the user signals time pressure ("speed up", "deadline looming", "everyone's waiting"), parallelization IS the throughput response. Procedure drops (skipping `/redteam`, omitting regression tests, `--no-verify`) are BLOCKED even when explicitly authorized; the structural alternative (more parallel shards within the per-session capacity budget below) is the only correct response.
 
 ## Structural vs Execution Gates
 
@@ -225,13 +212,6 @@ When a gate-level review (reviewer, security-reviewer, gold-standards-validator)
 
 ---
 
-# coc-sync-landing.md
-
----
-priority: 0
-scope: baseline
----
-
 # COC Sync Landing — BUILD-Side Discipline
 
 See `.claude/guides/rule-extracts/coc-sync-landing.md` for BLOCKED-rationalizations, extended bash examples, origin post-mortem, MUST NOT clauses, and cross-rule relationships.
@@ -260,13 +240,6 @@ After CI green or path-filter auto-skip, run `gh pr merge <N> --admin --merge --
 **Why:** `--admin` is the owner-class bypass for chore PRs; without it the PR drifts open across sessions and the failure mode resumes.
 
 
----
-
-# communication.md
-
----
-priority: 0
-scope: baseline
 ---
 
 # Communication Style
@@ -313,13 +286,6 @@ At gates (end of `/todos`, before `/deploy`), ask:
 **Why:** Repeating failed explanations signals that the agent cannot adapt, eroding user trust in the entire session.
 
 
----
-
-# git.md
-
----
-priority: 0
-scope: baseline
 ---
 
 # Git Workflow Rules
@@ -391,13 +357,6 @@ CC system prompt provides the template. Always include a `## Related issues` sec
 
 ---
 
-# repo-scope-discipline.md
-
----
-priority: 0
-scope: baseline
----
-
 # Repo Scope Discipline — Stay In This Repo
 
 See `.claude/guides/rule-extracts/repo-scope-discipline.md` for full BLOCKED-rationalization enumerations, extended DO/DO NOT examples, the orchestration-root exception detail, and origin post-mortem.
@@ -422,13 +381,6 @@ The repo whose root is the session's CWD defines the agent's entire scope of act
 
 NONE for action. Descriptive sibling-repo mentions are OK when purely informational, not prescriptive. The rule does NOT apply at orchestration roots (`~/repos/`, `loom/`) where cross-repo coordination IS the legitimate purpose — `/sync`, `/sync-to-build`, `/inspect`, `/repos` cross repos by design.
 
----
-
-# security.md
-
----
-priority: 0
-scope: baseline
 ---
 
 # Security Rules
@@ -529,13 +481,6 @@ Security exceptions require: written justification, security-reviewer approval, 
 
 ---
 
-# sweep-completeness.md
-
----
-priority: 0
-scope: baseline
----
-
 # Sweep / Multi-Step Protocol Completeness
 
 See `.claude/guides/rule-extracts/sweep-completeness.md` for the full BLOCKED-rationalization enumeration, extended DO/DO NOT examples, the cross-rule relationship list, the tool-backing pattern, and the 2026-05-04 origin post-mortem.
@@ -578,18 +523,13 @@ When a skill repeatedly produces substitution decisions, the skill text itself i
 
 **Why:** It removes the audit trail that allows the next reader to know the mandated step didn't run.
 
----
+**Distinct from**: `rules/time-pressure-discipline.md` — that rule blocks procedure drops triggered by **user pressure framings** ("speed up", "deadline looming"); this rule blocks procedure drops triggered by the **agent's own cost calculus** ("the expensive step needs a trigger we don't have"). Different triggers, overlapping defense. Both halves required: the agent can rationalize a substitution either way.
 
-# verify-resource-existence.md
-
----
-priority: 0
-scope: baseline
 ---
 
 # Verify Resource Existence Before Debugging Access
 
-See `.claude/guides/rule-extracts/verify-resource-existence.md` for full DO/DO NOT examples, BLOCKED-rationalization enumerations, and origin post-mortem.
+See `.claude/guides/rule-extracts/verify-resource-existence.md` for full DO/DO NOT examples, BLOCKED-rationalization enumerations, Trust Posture Wiring, and origin post-mortem.
 
 When a tool fails with a permission error (HTTP 403, "access denied", "insufficient scope") against a named external resource, the FIRST diagnostic action MUST be to verify the resource exists. Recursing on the permission axis against an absent resource produces unbounded credential-rotation cycles.
 
@@ -613,6 +553,22 @@ If the existence check returns empty AND there is no active user request to prov
 
 **Why:** Code targeting a non-existent resource is dead by definition — it cannot have ever worked. Removal is cheap and reversible; provisioning is expensive and durable (server costs, secret rotation, monitoring). Until the user asks for the capability, dead code is dead.
 
+### 4. Convergence / Round-Verdict Claims MUST Cite Durable Receipts
+
+Any claim that a multi-round process (redteam, vet, polish, sweep) reached convergence — "round N met target", "rounds 5+6 clean", "cross-agent agreement achieved" — MUST cite an external receipt: (a) a journal entry recording the verdict + agent task ID, (b) a commit SHA referencing the agent invocation transcript, or (c) an observations.jsonl entry naming the round + verdict. Self-attestation in the disposition document itself is BLOCKED.
+
+```markdown
+# DO — receipt cited
+
+Receipts: journal/.pending/0003 § round-history table.
+
+# DO NOT — self-attest
+
+Rounds 5+6 met convergence target.
+```
+
+**Why:** A self-attested convergence verdict has the same structural defect as a 403 against a non-existent resource — the claim cannot be verified by inspecting itself. The external receipt is the equivalent of `gh api` against the runtime. See guide for the BLOCKED-rationalization corpus and incident post-mortem.
+
 ## MUST NOT
 
 - Recommend credential creation (PAT, service account, API key) BEFORE the existence check has run
@@ -623,24 +579,23 @@ If the existence check returns empty AND there is no active user request to prov
 
 **Why:** Two consecutive failed scope attempts against the same 403 is the loud signal that the permission axis is the wrong axis. Existence check MUST fire automatically at the second failure if not at the first.
 
+- Self-attest a convergence verdict in the disposition document making the verdict claim
+
+**Why:** Same-document self-attestation is structurally identical to "the documentation says this resource exists" — it cannot be verified by inspecting itself. The receipt MUST be external (journal entry / commit SHA / observation entry) per MUST-4.
+
 ## Three-Layer Defense
 
 1. Existence check FIRST — `gh api`, `psql \dt`, `kubectl get`, `aws describe-*`, etc.
 2. If exists — proceed with permission/scope debugging (`rules/security.md`, `rules/ci-runners.md`).
 3. If absent — default to removal; provisioning ONLY on explicit user request.
 
----
+MUST-4 mirrors this shape: receipt FIRST, claim-grounding SECOND, absence-disposition THIRD (if no receipt exists, spawn one or surface the gap).
 
-# zero-tolerance.md
-
----
-priority: 0
-scope: baseline
 ---
 
 # Zero-Tolerance Rules
 
-See `.claude/guides/rule-extracts/zero-tolerance.md` for extended BLOCKED-pattern examples and Phase 5 audit evidence.
+See `.claude/guides/rule-extracts/zero-tolerance.md` for extended BLOCKED-pattern examples, sub-rule prose detail, and Phase 5 audit evidence.
 
 ## Scope
 
@@ -648,74 +603,45 @@ ALL sessions, ALL agents, ALL code, ALL phases. ABSOLUTE and NON-NEGOTIABLE.
 
 ## Rule 1: Pre-Existing Failures, Warnings, And Notices MUST Be Resolved Immediately
 
-If you found it, you own it. Fix it in THIS run — do not report, log, or defer.
+If you found it, you own it. Fix in THIS run — do not report, log, or defer.
 
-**Applies to** ("found it" includes, with equal weight):
+**Applies to** (equal weight): test/build/type failures, compiler/linter warnings, deprecation notices, WARN/ERROR in workspace logs since the previous gate, runtime warnings (`DeprecationWarning`/`ResourceWarning`/`RuntimeWarning`), peer-dependency / version-resolution warnings. A warning is not "less broken" than an error — it is an error the framework chose to keep running through.
 
-- Test failures, build errors, type errors
-- Compiler / linter warnings, deprecation notices
-- WARN/ERROR in workspace logs since previous gate
-- Runtime warnings (`DeprecationWarning`, `ResourceWarning`, `RuntimeWarning`)
-- Peer-dependency / missing-module / version-resolution warnings
+**Process:** diagnose root cause → fix → regression test → verify → commit. Scan most recent test runner + build output for WARN+ entries before reporting any gate complete (full triage protocol in `rules/observability.md` Rule 5).
 
-A warning is not "less broken" than an error. It is an error the framework chose to keep running through.
+**Why:** Deferring creates a ratchet — every session inherits more failures. Today's `DeprecationWarning` is next quarter's "it stopped working when we upgraded".
 
-**Process:** diagnose root cause → fix → regression test → verify (`pytest` or project test cmd) → commit.
+**Exceptions:** User says "skip this", OR upstream third-party deprecation unresolvable in this session → pinned version + documented reason / upstream issue link / explicit-owner todo. Silent dismissal still BLOCKED.
 
-**Why:** Deferring creates a ratchet — every session inherits more failures; codebase degrades faster than any single session can fix. Warnings are the leading indicator: today's `DeprecationWarning` is next quarter's "it stopped working when we upgraded".
-
-**Mechanism:** The log-triage protocol in `rules/observability.md` Rule 5 has concrete scan commands. If `observability.md` isn't loaded (config-file edits), MUST still scan most recent test runner + build output for WARN+ entries before reporting any gate complete.
-
-**Exceptions:** User explicitly says "skip this"; OR upstream third-party deprecation unresolvable in this session → pinned version + documented reason OR upstream issue link OR todo with explicit owner. Silent dismissal still BLOCKED.
+**See also:** `rules/time-pressure-discipline.md` — most common bypass is user pressure framing; the throughput response is parallelization, not deferral.
 
 ### Rule 1a: Scanner-Surface Symmetry
 
-Findings reported by a security scanner on a PR scan MUST be treated identically to findings on a main scan. "This also exists on main, therefore not introduced here" is BLOCKED.
+Findings on a PR scan MUST be treated identically to findings on a main scan. "Same on main, therefore not introduced here" is BLOCKED.
 
-**Why:** "Same on main" is the institutional ratchet that defers fixes forever. Rule 1 covers this in spirit; an explicit scanner-surface clause closes the rationalization gap. See guide for `__all__` / `__getattr__` second-instance variant (PR #506).
+**Why:** "Same on main" is the institutional ratchet that defers fixes forever. See guide for `__all__` / `__getattr__` second-instance variant (PR #506).
 
 ### Rule 1b: Scanner Deferral Requires Tracking Issue + Runtime-Safety Proof
 
-Rule 1a mandates that scanner findings MUST be fixed, not dismissed. A LEGITIMATE deferral disposition exists for findings that are provably runtime-safe AND require architectural refactor out of release-scope — but ONLY if all four conditions are met. Missing any one of them, the "deferral" IS silent dismissal under a different name and is BLOCKED.
+A LEGITIMATE deferral exists for findings that are provably runtime-safe AND require architectural refactor out of release-scope — ONLY when all four conditions hold: (1) written runtime-safety proof in PR comment citing guard lines, (2) tracking issue titled `codeql: defer <rule-id> — <ctx>` with full-fix acceptance criteria, (3) release PR body link with explicit "deferred, safe per #<issue>" language, (4) release-specialist signoff in review (or user "full fix" override). Missing any → silent dismissal → BLOCKED.
 
-Required conditions (ALL four):
-
-1. **Runtime-safety proof** — the finding is verified safe (e.g., every cyclic import is `TYPE_CHECKING`-guarded; the "unsafe" path is unreachable at runtime). Verification is a PR comment citing the guard lines.
-2. **Tracking issue** — filed against the repo with title `codeql: defer <rule-id> — <short-context>`, body including acceptance criteria for the full fix.
-3. **Release PR body link** — the tracking issue is linked from the release PR's body with explicit "deferred, safe per #<issue>" language.
-4. **Release-specialist agreement** — release-specialist confirms the deferral in review OR user explicitly overrides with "full fix".
-
-**Why:** Without written runtime-safety proof + tracking issue + release PR link + release-specialist signoff, a "deferred" finding is indistinguishable from a silent dismissal — nothing forces the follow-up and nothing surfaces the backlog. The four conditions are the structural defense: verification is the grep-able claim; the tracking issue is the workstream; the release PR link is the audit trail; the release-specialist signoff is the human gate. Rule 1a blocks dismissal; Rule 1b documents the ONLY legitimate path to defer.
+**Why:** Without all four, "deferred" is indistinguishable from silent dismissal — nothing forces follow-up and nothing surfaces the backlog. See guide for kailash-ml 1.5.x evidence + full BLOCKED-rationalization corpus.
 
 ### Rule 1c: "Pre-Existing" Is Unprovable After Context Boundary
 
-Any disposition that classifies an issue as "pre-existing", "not introduced in this session", or "outside the session's blast radius" MUST cite a specific commit SHA AND demonstrate that the SHA pre-dates the session's first tool call. After `/clear`, auto-compaction, conversation resume, sub-agent handoff, or any other context boundary, the agent has no audit trail of its prior-turn edits — the "pre-existing" claim is structurally unfalsifiable and is BLOCKED. The disposition under uncertainty is: fix it.
+Any "pre-existing", "not introduced this session", or "outside session blast radius" disposition MUST cite a commit SHA pre-dating the session's first tool call. After `/clear`, auto-compaction, resume, or sub-agent handoff, the agent has no audit trail — the claim is structurally unfalsifiable and BLOCKED. Disposition under uncertainty: fix it.
 
-**Why:** Wrapper-default scope discipline (CC's "a bug fix doesn't need surrounding code cleaned up", `~/repos/contrib/claude-code-source-code/src/constants/prompts.ts:201`) is sound for short-horizon coding assistants where the agent's edit log IS the session log. In COC's long-horizon institutional codebase, sessions cross `/clear`, auto-compaction, and resume boundaries that erase the edit log; the agent's recall is no longer evidence. `git blame` is also insufficient — the agent may have re-introduced an old bug via a same-session refactor that blame attributes to the original author. The structural defense is symmetric: either cite a SHA that proves pre-existence relative to session start, or fix it. "Pre-existing" without provenance grounding is BLOCKED regardless of how confident the claim feels.
+**Why:** COC sessions cross context boundaries that erase the edit log; `git blame` is insufficient (may attribute a same-session refactor regression to the original 2024 author). See guide for full prose + the `prompts.ts:201` wrapper-prompt reference.
 
 ## Rule 2: No Stubs, Placeholders, Or Deferred Implementation
 
-Production code MUST NOT contain:
+Production code MUST NOT contain: `TODO`/`FIXME`/`HACK`/`STUB`/`XXX` markers, `raise NotImplementedError`, `pass # placeholder`, empty function bodies, `return None # not implemented`.
 
-- `TODO`, `FIXME`, `HACK`, `STUB`, `XXX` markers
-- `raise NotImplementedError`
-- `pass # placeholder`, empty function bodies
-- `return None # not implemented`
-
-**No simulated/fake data:** `simulated_data`, `fake_response`, `dummy_value`, hardcoded mock responses, placeholder dicts. **Frontend mock is a stub too:** `MOCK_*`, `FAKE_*`, `DUMMY_*`, `SAMPLE_*` constants; `generate*()` / `mock*()` producing synthetic display data; `Math.random()` for UI.
+**No simulated/fake data:** `simulated_data`, `fake_response`, `dummy_value`, hardcoded mock responses, placeholder dicts. **Frontend mock is a stub too:** `MOCK_*`/`FAKE_*`/`DUMMY_*`/`SAMPLE_*` constants; `generate*()`/`mock*()` for synthetic display data; `Math.random()` for UI.
 
 **Why:** Frontend mock data is invisible to Python detection but has the same effect — users see fake data presented as real.
 
-**Extended BLOCKED patterns** (Phase 5 audit + kailash-ml-audit W33b) — see guide for full code examples:
-
-- **Fake encryption** — class stores `encryption_key` but `set()` writes plaintext. Audit trail shows "encrypted"; disk shows plaintext.
-- **Fake transaction** — `@contextmanager` named `transaction` that commits after every statement (no BEGIN/COMMIT/rollback).
-- **Fake health** — `/health` returns 200 without probing DB/Redis. Orchestrators make routing decisions on lies.
-- **Fake classification / redaction** — `@classify(REDACT)` stored but never enforced on read. Documented security control ships as no-op.
-- **Fake tenant isolation** — `multi_tenant=True` flag with cache key missing `tenant_id` dimension.
-- **Fake integration via missing handoff field** — frozen dataclass on pipeline's critical path omits the field the NEXT primitive needs. Each primitive's unit tests pass (each constructs its own fixture); the advertised 3-line pipeline breaks on every fresh install. Fix: add missing field; populate at every return site; add Tier-2 E2E regression (see `rules/testing.md` § End-to-End Pipeline Regression). Evidence: kailash-ml W33b `TrainingResult(frozen=True)` without `trainable`; `km.register` raised `ValueError` on fresh install.
-- **Fake metrics** — silent no-op counters because `prometheus_client` missing + no startup warning. Dashboards empty while operators believe they're reporting.
-- **Fake dispatch** — accepted in a `Literal[...]` / `Enum` / declared-string-set dispatch parameter, but no branch in the dispatcher. Every accepted literal MUST have a corresponding branch in the function body. The validator gate (`if kind not in {"x", "y", "z"}: raise`) followed by a dispatcher that branches only on `"x"` and falls through to a default for `"y"` and `"z"` IS the same failure-mode class as fake encryption / fake transaction / fake health: the documented contract advertises a feature the code does not implement. Evidence: kailash-ml `_wrappers.py:474–485` accepted `kind="clustering"`, `"alignment"`, `"llm"`, `"agent"` as valid `Literal` values — none had a dispatch branch; every one fell through to `DLDiagnostics(subject)`. Documented in spec §3.1 as supported; silently broken in practice (#701 bonus finding). Detection: `/redteam` MUST AST-walk every `Literal[...]` / `Enum`-valued dispatch parameter and confirm every accepted literal has a `match` arm or `if`/`elif` branch. Rust's `match` exhaustiveness check structurally covers `enum DiagnosticKind`; `&str` dispatch in Rust does NOT — same gap if Rust adds a string-dispatch surface. Python lacks the structural check entirely; the rule is the only defense.
+**Extended BLOCKED patterns** (Phase 5 + kailash-ml W33b) — see guide for full code + audit evidence: fake encryption · fake transaction · fake health · fake classification/redaction · fake tenant isolation · fake integration via missing handoff field · fake metrics · fake dispatch.
 
 ## Rule 3: No Silent Fallbacks Or Error Hiding
 
@@ -731,19 +657,19 @@ Production code MUST NOT contain:
 
 Any delegate method forwarding to a lazily-assigned backing object MUST guard with a typed error before access. Allowing `AttributeError` to propagate from `None.method()` is BLOCKED.
 
-**Why:** Opaque `AttributeError` blocks N tests at once with no actionable message; typed guard turns the failure into a one-line fix instruction.
+**Why:** Opaque `AttributeError` blocks N tests at once with no actionable message; typed guard turns the failure into a one-line fix instruction. See guide for the JWTMiddleware example.
 
 ### Rule 3c: Documented Kwargs Accepted But Unused
 
-A documented kwarg accepted in the public signature but with zero effect on the function body IS the silent-fallback failure mode at API surface level. Every kwarg listed in the public signature AND documented in the spec MUST be consumed by at least one branch of the function body. Accepting a kwarg and dropping it on the floor is BLOCKED.
+A kwarg accepted in the public signature but with zero effect on the function body IS the silent-fallback failure mode at API surface level. Every documented kwarg MUST be consumed by ≥1 branch of the function body OR explicitly forwarded to a callee. Silent drop is BLOCKED.
 
-**Why:** A documented kwarg is a contract. A kwarg accepted into the signature, listed in the spec, and silently dropped IS a contract violation indistinguishable from a stub return — the user passes a real `DataLoader`, the function returns a result, the user's loader was never read. Same failure-mode class as `except: pass` (Rule 3) and fake encryption (Rule 2): the documented behavior advertises something the code does not perform. Detection: at every `def f(*, kw1, kw2, kw3)` boundary, confirm `kw1`, `kw2`, `kw3` each appear at least once in the function body OR are explicitly forwarded to a callee. If the parameter exists only to satisfy a type-checker or to defer implementation, raise `NotImplementedError` until the branch is wired — silent drop is BLOCKED.
+**Why:** A documented kwarg is a contract. Same failure-mode class as `except: pass` (Rule 3) and fake encryption (Rule 2): the documented behavior advertises something the code does not perform. See guide for kailash-ml #701 (`diagnose(data=loader)` silently dropped) evidence.
 
 ### Rule 3d: Dual-Shape Return + Structural Guard = Silent Fallback
 
-A property or method whose return type is a union of structurally-distinct shapes (e.g., `Union[ConfigWrapper(dict), KaizenConfig(dataclass)]`) MUST NOT be consumed via a structural existence guard (`hasattr(value, "method")`) that resolves True for one branch and False for the other. The guard silently flips False on the branch that lacks the attribute, and the documented behavior never fires for users on that branch. Either dispatch on a discriminator (`isinstance` / type check) OR collapse the API to a single return shape.
+A property or method whose return type is a union of structurally-distinct shapes (e.g., `Union[ConfigWrapper(dict), KaizenConfig(dataclass)]`) MUST NOT be consumed via a structural existence guard (`hasattr(value, "method")`) that resolves True for one branch and False for the other. Either dispatch on a discriminator (`isinstance` / type check) OR collapse the API to a single return shape.
 
-**Why:** A dual-shape API consumed via structural guard is the same failure-mode class as fake encryption / fake transaction / fake dispatch (Rule 2): the documented contract advertises a feature the code does not perform on every branch. Tests written against the structurally-richer branch (dict has `.get`) silently mask the gap; users on the typed branch get a no-op. Detection: at every `hasattr(x, "<method>")` callsite where `x` has a union return type, walk back to the declared type — if any branch lacks `<method>`, the guard is silently flipping for that branch's users. Either dispatch on a discriminator (the consumer KNOWS which shape it has) or collapse the API (one shape eliminates the ambiguity).
+**Why:** `hasattr` silently flips False on the branch that lacks the attribute; the documented behavior never fires for users on that branch. Same failure-mode class as fake dispatch — the documented contract advertises a feature the code does not perform on every branch. See guide for kailash-kaizen #822 evidence.
 
 ## Rule 4: No Workarounds For Core SDK Issues
 
@@ -768,7 +694,7 @@ ALL version locations updated atomically:
 - If endpoint exists, it returns real data
 - If service is referenced, it is functional
 - Never leave "will implement later" comments
-- If you cannot implement: ask the user what it should do, then do it. If user says "remove it," delete the function.
+- If you cannot implement: ask the user; if "remove it," delete the function
 
 **Test files excluded:** `test_*`, `*_test.*`, `*.test.*`, `*.spec.*`, `__tests__/`
 
@@ -778,6 +704,8 @@ ALL version locations updated atomically:
 
 ### Rule 6a: Remove Fully — Public-API Removal Requires Deprecation Cycle
 
-Public-API removal MUST land with a `DeprecationWarning` shim covering at least one minor cycle, plus a CHANGELOG migration section explicitly documenting the 1.x → next-1.x callsite change. Removal-without-shim is BLOCKED. The removal is "complete" only when the shim has lived through one minor release AND the CHANGELOG migration entry is in place.
+Public-API removal MUST land with a `DeprecationWarning` shim covering at least one minor cycle, plus a CHANGELOG migration section explicitly documenting the callsite change. Removal-without-shim is BLOCKED. Removal is "complete" only when the shim has lived through one minor release AND the migration entry is in place.
 
-**Why:** Public-API removal without a deprecation cycle hard-breaks every downstream callsite on first import after `pip upgrade` / `cargo update`. The user did nothing wrong; their code worked yesterday and stops working today with a TypeError or NameError that gives no migration path. The deprecation shim converts a hard break into a warning the user can act on; the CHANGELOG migration section converts "what do I do now?" into "follow these 3 steps." Same structural-completion principle as Rule 6 (Implement Fully): a removal that ships without shim + CHANGELOG entry is half-implemented — the new API works, but the migration path is missing.
+**Why:** Removal without a deprecation cycle hard-breaks every downstream callsite on first import after `pip upgrade` / `cargo update`. The shim converts a hard break into a warning the user can act on; the CHANGELOG migration converts "what do I do now?" into actionable steps. See guide for kailash-ml 1.5.0 evidence (`InferenceServer(registry=, cache_size=)` and `warm_cache` dropped without shim).
+
+---

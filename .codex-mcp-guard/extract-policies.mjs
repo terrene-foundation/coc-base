@@ -109,6 +109,71 @@ function matchesShapeC(fn) {
   return /return\s*\{\s*isError:\s*true/.test(fn.body);
 }
 
+// Shape D: body returns { severity: "block", ... } and at least one caller
+// in the same file consumes the return through `instructAndWait(...)` (which
+// converts severity:"block" to exit code 2 + continue:false) or routes the
+// returned `severity` field into a callee that exits.
+//
+// This is the canonical hook-output-discipline.md MUST-1 shape — every halting
+// hook MUST emit through `lib/instruct-and-wait.js::instructAndWait()` /
+// `emit()`. validate-bash-command.js's validateBashCommand and similar hook
+// predicates produce severity:"block" returns wrapped at the hook script's
+// stdin-end handler. Pre-Shard-B, none of these were classified as policies
+// because the v6 §4.4 shape vocabulary (A/B/C) predates instruct-and-wait
+// landing 2026-05-05.
+function matchesShapeD(fn, wholeFileSource) {
+  // Step 1: function body contains `severity: "block"` literal in a return
+  // statement context. Quote variants accepted: 'block' or "block". The
+  // predicate must produce the literal "block" — not a variable that might
+  // resolve to "block" at runtime — so that the structural classification
+  // is grep-derivable without dataflow analysis.
+  if (!/\breturn\b/.test(fn.body)) return false;
+  if (!/severity:\s*['"]block['"]/.test(fn.body)) return false;
+
+  // Step 2: at least one caller in the same file pumps THIS predicate's
+  // return through `instructAndWait(...)` or `emit(...)` from
+  // `lib/instruct-and-wait.js`. Two accepted forms (mirrors Shape B):
+  //   (a) Captured: const|let|var <v> = <fnName>(...); ... instructAndWait({ severity: <v>... })
+  //   (b) Captured: const|let|var <v> = <fnName>(...); ... emit({ severity: <v>... })
+  //   (c) Inline: instructAndWait({ ...<fnName>(...) }) / emit({ ...<fnName>(...) })
+  //
+  // The caller-check distinguishes Shape D from a function that happens
+  // to construct {severity: "block", ...} but never reaches the exit
+  // pathway. Same structural defense as Shape B's process.exit caller-
+  // check.
+  const nameEsc = fn.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  // (c) Inline: instructAndWait({ ...<fnName>(...) }) or emit({ ...<fnName>(...) })
+  const inlinePattern = new RegExp(
+    `(?:instructAndWait|emit)\\s*\\(\\s*\\{[^}]*\\b${nameEsc}\\s*\\(`,
+  );
+  if (inlinePattern.test(wholeFileSource)) return true;
+
+  // (a)/(b) Captured: find every `const|let|var <v> = <fnName>(`, then
+  // check the rest of the file for `instructAndWait(`/`emit(` whose
+  // argument object spreads or references <v>.
+  const capturePattern = new RegExp(
+    `\\b(?:const|let|var)\\s+(\\w+)\\s*=\\s*${nameEsc}\\s*\\(`,
+    "g",
+  );
+  let m;
+  while ((m = capturePattern.exec(wholeFileSource)) !== null) {
+    const varName = m[1];
+    const afterAssign = wholeFileSource.slice(m.index + m[0].length);
+    // Match instructAndWait({ ...<varName>... }) — spread, property,
+    // or any reference inside the call's first argument object.
+    const wrapPattern = new RegExp(
+      `(?:instructAndWait|emit)\\s*\\(\\s*\\{[\\s\\S]*?\\b${varName}\\b`,
+    );
+    if (wrapPattern.test(afterAssign)) return true;
+    // Also match severity-field access from the captured var:
+    // process.stdout.write(JSON.stringify(out.json)) where out = instructAndWait(<v>)
+    // — handled by inline pattern when nested.
+  }
+
+  return false;
+}
+
 // Shape B: body returns { exitCode: N, ... } with N >= 2 literal, AND
 // at least one caller in the SAME FILE passes that return into
 // process.exit(<field>) or process.exit(<captured>.exitCode).
@@ -179,6 +244,7 @@ function classifyShape(fn, wholeFileSource) {
   if (matchesShapeA(fn)) return "A";
   if (matchesShapeC(fn)) return "C";
   if (matchesShapeB(fn, wholeFileSource)) return "B";
+  if (matchesShapeD(fn, wholeFileSource)) return "D";
   return null;
 }
 
@@ -318,6 +384,7 @@ export function extractPolicies(dir, opts = {}) {
           A: "process.exit(N>=2) in function body",
           B: "returns { exitCode: N>=2, ... } consumed by caller's process.exit(result.exitCode)",
           C: "returns { isError: true, content: [...] }",
+          D: 'returns { severity: "block", ... } consumed by instructAndWait()/emit() per hook-output-discipline.md MUST-1',
         }[shape],
       });
     }
