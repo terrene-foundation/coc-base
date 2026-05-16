@@ -617,7 +617,7 @@ function checkHardcodedKeys(content, filePath, messages) {
 
 /**
  * Detect mock/fake/generated data in frontend production code.
- * BLOCKING — frontend mock data is a stub. See rules/no-stubs.md.
+ * BLOCKING — frontend mock data is a stub. See rules/zero-tolerance.md.
  *
  * Patterns:
  *   - MOCK_*, FAKE_*, DUMMY_*, SAMPLE_* constants
@@ -681,7 +681,7 @@ function checkFrontendMockData(content, filePath, messages) {
         found.add("mock-constant");
         messages.push(
           `BLOCKED: Mock data constant "${name}" at ${path.basename(filePath)}:${i + 1}. ` +
-            `Replace with real API call. Frontend mock data is a stub (rules/no-stubs.md).`,
+            `Replace with real API call. Frontend mock data is a stub (rules/zero-tolerance.md).`,
         );
         hasBlocking = true;
       }
@@ -695,7 +695,7 @@ function checkFrontendMockData(content, filePath, messages) {
         found.add("mock-func-" + name);
         messages.push(
           `BLOCKED: Mock data generator "${name}" at ${path.basename(filePath)}:${i + 1}. ` +
-            `Replace with real API call. Frontend mock data is a stub (rules/no-stubs.md).`,
+            `Replace with real API call. Frontend mock data is a stub (rules/zero-tolerance.md).`,
         );
         hasBlocking = true;
       }
@@ -709,7 +709,7 @@ function checkFrontendMockData(content, filePath, messages) {
         found.add("mock-call-" + name);
         messages.push(
           `BLOCKED: Mock data generator call "${name}()" at ${path.basename(filePath)}:${i + 1}. ` +
-            `Replace with real API call. Frontend mock data is a stub (rules/no-stubs.md).`,
+            `Replace with real API call. Frontend mock data is a stub (rules/zero-tolerance.md).`,
         );
         hasBlocking = true;
       }
@@ -721,7 +721,7 @@ function checkFrontendMockData(content, filePath, messages) {
         found.add("math-random-display");
         messages.push(
           `BLOCKED: Math.random() generating display data at ${path.basename(filePath)}:${i + 1}. ` +
-            `Display data must come from real APIs, not random generators (rules/no-stubs.md).`,
+            `Display data must come from real APIs, not random generators (rules/zero-tolerance.md).`,
         );
         hasBlocking = true;
       }

@@ -125,6 +125,6 @@ ALL version locations updated atomically:
 
 Public-API removal MUST land with a `DeprecationWarning` shim covering at least one minor cycle, plus a CHANGELOG migration section explicitly documenting the callsite change. Removal-without-shim is BLOCKED. Removal is "complete" only when the shim has lived through one minor release AND the migration entry is in place.
 
-**Why:** Removal without a deprecation cycle hard-breaks every downstream callsite on first import after `pip upgrade` / `cargo update`. The shim converts a hard break into a warning the user can act on; the CHANGELOG migration converts "what do I do now?" into actionable steps. See guide for kailash-ml 1.5.0 evidence (`InferenceServer(registry=, cache_size=)` and `warm_cache` dropped without shim).
+**Why:** Removal without a deprecation cycle hard-breaks every downstream callsite on first `pip upgrade` / `cargo update`. The shim converts a hard break into an actionable warning; the CHANGELOG migration tells users what to do next. See guide for kailash-ml 1.5.0 evidence.
 
 Origin: 2026-04-12 + DataFlow 2.0 Phase 5 audit + kailash-ml-audit 2026-04-23 W33b + 2026-04-29 followup audit. See guide for full BLOCKED-pattern code examples + audit evidence.

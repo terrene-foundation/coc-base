@@ -48,14 +48,34 @@ const { spawnSync } = require("node:child_process");
 // Constants
 // ---------------------------------------------------------------------------
 const HERE = __dirname;
-const HOOKS_DIR = path.resolve(HERE, "..", "hooks");
+
+// Layout detection: this server runs in two distinct emission shapes.
+//
+//   1. loom-dev layout                        — HERE = <repo>/.claude/codex-mcp-guard/
+//      hooks at HERE/../hooks                 → COC_ROOT = HERE/..
+//
+//   2. multi-CLI USE-template / coc-project   — HERE = <repo>/.codex-mcp-guard/
+//      hooks at HERE/../.claude/hooks         → COC_ROOT = HERE/../.claude
+//
+// loom-dev and multi-CLI USE templates additionally place a symlink
+// `<root>/.claude/codex-mcp-guard → ../.codex-mcp-guard` (per
+// sync-manifest.yaml::multi_cli_overlays.<type>.symlinks); node resolves
+// __dirname via fs.realpath so HERE always points to the real directory,
+// not the symlink. Both layouts converge on COC_ROOT = `<root>/.claude/`.
+function resolveCocRoot(here) {
+  const loomDev = path.resolve(here, "..");
+  if (fs.existsSync(path.join(loomDev, "hooks"))) return loomDev;
+  const useTemplate = path.resolve(here, "..", ".claude");
+  if (fs.existsSync(path.join(useTemplate, "hooks"))) return useTemplate;
+  // Neither layout matches — fall back so HOOKS_DIR still points
+  // somewhere; the startup existence check (logged via self-check
+  // diagnostics, line ~305) will surface the failure loudly.
+  return loomDev;
+}
+const COC_ROOT = resolveCocRoot(HERE);
+const HOOKS_DIR = path.join(COC_ROOT, "hooks");
 const POLICIES_PATH = path.join(HERE, "policies.json");
-const VIOLATIONS_PATH = path.resolve(
-  HERE,
-  "..",
-  "learning",
-  "violations.jsonl",
-);
+const VIOLATIONS_PATH = path.join(COC_ROOT, "learning", "violations.jsonl");
 const SUBPROCESS_TIMEOUT_MS = 5000; // cc-artifacts.md Rule 7
 
 // Tool-wrap scope (parity with cli_variants.hooks/*.js.codex.wraps).

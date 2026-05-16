@@ -56,14 +56,26 @@ Each architect returns a structured JSON report enumerating findings in its owne
 
 ## Phase 3: cli-orchestrator.sees — cross-CLI drift
 
-Independent of the architects (which each see only their own CLI), run the `sees` verb to check for drift ACROSS CLIs per `parity_enforcement.cross_cli_drift_audit`:
+Independent of the architects (which each see only their own CLI), run the `sees` verb to check for drift ACROSS CLIs per `parity_enforcement.cross_cli_drift_audit`. The audit is executed by `tools/cli-drift-audit.mjs` — replaces the volatile `/tmp/loom-matrix-poc-v5-*` PoC referenced in spec v6 §6.2 + workspaces/multi-cli-coc todos E6c.
 
-1. Load `.claude/sync-manifest.yaml → parity_enforcement.cross_cli_drift_audit`.
-2. For each CRIT rule, compose the neutral-body slot under each CLI (CC, codex, gemini); verify byte-identity after scrub_tokens normalization.
-3. For each CRIT rule, compose the examples slot under each CLI; soft-WARN on drift (expected divergence) per `warn_on_drift_in_slots: ["examples"]`.
-4. For `frontmatter.priority` and `frontmatter.scope`, verify byte-identity (hard block on mismatch).
+```bash
+# Default — audit real .claude/rules/ at priority:0; JSON report alongside Phase-1 output.
+node tools/cli-drift-audit.mjs --json /tmp/cli-audit-$(date +%s)/drift-report.json
 
-Drift in `neutral-body`, `frontmatter.priority`, or `frontmatter.scope` HARD BLOCKS sync. Drift in `examples` is expected per-CLI divergence (scrubbed via `scrub_tokens: ["Agent(", "codex_agent(", "@specialist", "subagent_type", "run_in_background"]`).
+# Fixture-mode — exercise the executor against known-shape fixtures.
+node tools/cli-drift-audit.mjs --fixtures .claude/audit-fixtures/cross-cli-drift/fixture-clean
+```
+
+The executor implements the four-step contract from v6 §6.2:
+
+1. Loads `.claude/sync-manifest.yaml → parity_enforcement.cross_cli_drift_audit` (`compare_slots`, `scrub_tokens`, `fail_on_drift_in_slots`, `warn_on_drift_in_slots`).
+2. For each CRIT rule (`priority: 0` in frontmatter), composes the rule body under each CLI via `.claude/bin/emit.mjs::composeRule(rule, cli, null)`; extracts slots via `parseSlotsV5`.
+3. Applies `scrub_tokens` to each slot body; byte-compares across (cc, codex, gemini). Drift in `fail_on_drift_in_slots` → `CRITICAL`; drift in `warn_on_drift_in_slots` → `WARN`.
+4. Compares `frontmatter.priority` and `frontmatter.scope` byte-identically (rule-authoring.md Rule 7 — a rule cannot be CRIT baseline on one CLI and path-scoped on another).
+
+Exit code 0 ⇔ zero CRITICAL findings (sync may proceed). Exit code 1 ⇔ one or more CRITICAL findings — sync HARD BLOCKED per `rules/cross-cli-parity.md` MUST 1+2. Exit code 2 ⇔ usage / config error (malformed manifest, unwritable `--json` path, unknown flag).
+
+Acceptance fixtures at `.claude/audit-fixtures/cross-cli-drift/` exercise each branch (clean, neutral-body drift, frontmatter drift, examples-only drift). Run them all + unit branches for compose-failure and parse-failure via `node tools/cli-drift-audit-test.mjs` (7 cases, exit 0 on full pass).
 
 ## Phase 4: Project-artifact content sweep
 
@@ -112,8 +124,8 @@ Run iteratively until zero CRITICAL and zero HIGH remain. Each iteration MUST re
 
 ## References
 
-- `.claude/agents/cli-orchestrator.md` — the 5 verbs; `/cli-audit` dispatches `audits` + `sees`
-- `.claude/agents/{cc,codex,gemini}-architect.md` — parallel audit targets
+- `.codex/agents/cli-orchestrator.md` — the 5 verbs; `/cli-audit` dispatches `audits` + `sees`
+- `.codex/agents/{cc,codex,gemini}-architect.md` — parallel audit targets
 - `.claude/bin/emit.mjs` — Phase E4 emitter (V12 + V13 built-in)
 - `.claude/sync-manifest.yaml` → `cli_variants` + `parity_enforcement` — emission + audit config
 - `.claude/rules/cross-cli-parity.md` — parity contract source of truth

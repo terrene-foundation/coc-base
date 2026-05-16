@@ -20,6 +20,7 @@ const {
   logObservation: logLearningObservation,
 } = require("./lib/learning-utils");
 const { instructAndWait } = require("./lib/instruct-and-wait");
+const { detectStateFileMutation } = require("./lib/violation-patterns");
 
 // Timeout handling for PreToolUse hooks (5 second limit)
 const TIMEOUT_MS = 5000;
@@ -355,7 +356,7 @@ function validateBashCommand(data) {
       continue: true,
       exitCode: 0,
       message:
-        "REMINDER: Code review completed? Consider delegating to intermediate-reviewer.",
+        "REMINDER: Code review completed? Consider delegating to reviewer.",
     };
   }
 
@@ -400,67 +401,6 @@ function validateBashCommand(data) {
  * Per-line scanning: matchers operate on `[^|\\n]*` so multi-line commands
  * cannot cross-match a verb on one line with a protected path on a later line.
  */
-function detectStateFileMutation(command, pathRx) {
-  if (!command || !pathRx) return null;
-  const lines = command.split("\n");
-  for (const line of lines) {
-    // Layer 1: redirect / heredoc / tee / sed -i / jq -i — but NOT 2>&1 fd-redirect or /dev/null sink
-    // Output redirect to protected path
-    if (/(?:^|[^&\d2])>\s*[^|\n]*?/.test(line)) {
-      const redirectMatch = line.match(/(?:^|[^&\d2])>>?\s*([^\s|;&]+)/);
-      if (redirectMatch && pathRx.test(redirectMatch[1])) {
-        return { layer: 1, kind: "redirect" };
-      }
-    }
-    // Heredoc to protected path: `cat > path << EOF` or `>>path<<EOF`
-    if (/<<[-~]?\s*['"]?[A-Za-z_]/.test(line)) {
-      // Heredoc body itself is delivered later; the line that opens it
-      // typically has the redirect target. Match `> <protected>` on this line.
-      const m = line.match(/>\s*([^\s|;&<]+)/);
-      if (m && pathRx.test(m[1])) {
-        return { layer: 1, kind: "heredoc" };
-      }
-    }
-    // tee
-    if (/\btee\b\s+/.test(line)) {
-      const m = line.match(/\btee\b\s+(?:-[a-zA-Z]+\s+)*([^\s|;&]+)/);
-      if (m && pathRx.test(m[1])) {
-        return { layer: 1, kind: "tee" };
-      }
-    }
-    // sed -i / jq -i in-place editing
-    if (/\b(?:sed|jq)\b\s+[^|\n]*-i\b/.test(line)) {
-      if (pathRx.test(line)) return { layer: 1, kind: "in-place-edit" };
-    }
-
-    // Layer 2: file-mutating utilities
-    const layer2Verbs =
-      /\b(?:cp|mv|dd|rsync|install|truncate|ln|chmod|chown|touch)\b\s+/;
-    if (layer2Verbs.test(line) && pathRx.test(line)) {
-      const verbMatch = line.match(layer2Verbs);
-      return {
-        layer: 2,
-        kind: verbMatch ? verbMatch[0].trim() : "file-mutation-util",
-      };
-    }
-
-    // Layer 3: interpreter -c / -e / -m bodies (e.g. python -c "...", node -e "...")
-    // Includes combined short-flag forms like `-uc`, `-uec`
-    const interpreterBody =
-      /\b(?:python3?|node|nodejs|ruby|perl|bash|sh|zsh)\b\s+[^|\n]*-[a-zA-Z]*[cem][a-zA-Z]*\b\s+["'][^"']*["']/;
-    if (interpreterBody.test(line) && pathRx.test(line)) {
-      const interpMatch = line.match(
-        /\b(python3?|node|nodejs|ruby|perl|bash|sh|zsh)\b/,
-      );
-      return {
-        layer: 3,
-        kind: interpMatch ? `${interpMatch[1]} -c/-e/-m` : "interpreter-body",
-      };
-    }
-  }
-  return null;
-}
-
 function extractTestFlags(command) {
   const flags = [];
   if (/-x\b/.test(command)) flags.push("fail-fast");

@@ -37,7 +37,7 @@ git checkout -b release/v3.23.0 && git push -u origin release/v3.23.0
 git checkout -b feat/v3.23.0-release-prep
 ```
 
-**Why:** PR-gate workflows check `if: !startsWith(github.head_ref, 'release/')`. Branching from `release/v*` triggers the auto-skip and saves ~45 min × matrix-size of CI minutes per release-prep PR. If the work IS NOT metadata-only, split: keep code fix on `feat/`/`fix/` branch, cut release-prep on a separate `release/v*` branch. Evidence: a recent BUILD release-prep PR opened from `feat/...-release-prep` instead of `release/v*` consumed ~120 min of avoidable PR-gate CI on a metadata-only diff.
+**Why:** PR-gate workflows check `if: !startsWith(github.head_ref, 'release/')`. Branching from `release/v*` triggers the auto-skip and saves ~45 min × matrix-size of CI minutes per release-prep PR. If the work IS NOT metadata-only, split: keep code fix on `feat/`/`fix/` branch, cut release-prep on a separate `release/v*` branch. See guide for the ~120 min CI burn evidence.
 
 ### Pre-FIRST-Push CI Parity Discipline (MUST)
 
@@ -51,7 +51,7 @@ git push -u origin feat/<branch>
 git push -u origin feat/<branch>; git commit -am "style: fmt"; git push  # CI run #2 still bills run #1's wall-clock
 ```
 
-**Why:** With `concurrency: cancel-in-progress: true` on the workflow, prior in-flight runs are cancelled — but **the cancelled runs are still billed for the wall-clock minutes already consumed before cancellation**. A recent BUILD release had a 71-minute Workspace Tests run cancelled mid-flight; those 71 min were charged. Pre-flighting takes ~5-10 min; the alternative is N × 45 min of billed CI per fix-up cycle.
+**Why:** With `concurrency: cancel-in-progress: true` on the workflow, prior in-flight runs are cancelled — but **the cancelled runs are still billed for the wall-clock minutes already consumed before cancellation**. Pre-flighting takes ~5-10 min; the alternative is N × 45 min of billed CI per fix-up cycle. See guide for the 71-minute mid-flight cancel evidence.
 
 ## Branch Protection
 
@@ -79,7 +79,7 @@ git reset --hard origin/main
 git reset --hard origin/main         # silently wipes M files and untracked files; no reflog
 ```
 
-**Why:** `git reset --hard` is the most destructive git operation that doesn't rewrite history — and unlike force-push, the destruction is unrecoverable. `git reset --keep` exists in git specifically to provide the same effect with structural safety. Sibling of `dataflow-identifier-safety.md` Rule 4 (DROP) and `schema-migration.md` Rule 7 (downgrade) — same structural-confirmation pattern. Origin: 2026-04-28 — a `git reset --hard` wiped uncommitted `.session-notes`; cross-language principle.
+**Why:** `git reset --hard` is the most destructive git operation that doesn't rewrite history — and unlike force-push, the destruction is unrecoverable. `git reset --keep` exists in git specifically to provide the same effect with structural safety. Sibling of `dataflow-identifier-safety.md` Rule 4 (DROP) and `schema-migration.md` Rule 7 (downgrade) — same structural-confirmation pattern.
 
 ## Rules
 
@@ -108,5 +108,7 @@ feat(dataflow): add logging to bulk create
 - **Commit-message claim accuracy**: commit bodies MUST describe ONLY changes actually present in the diff. Over-claiming a refactor / deletion / side-effect is BLOCKED. If the claim was made in error, push a FOLLOW-UP commit that delivers what the prior message said — do NOT amend.
 
 **Why:** Issues closed without code refs break traceability; undocumented workarounds force every session to re-discover the same fix; over-claiming commit bodies poison `git log --grep` (the cheapest institutional-knowledge search). See extract for full DO/DO NOT examples.
+
+Origin: 2026-04-28 (`git reset --hard` discarded uncommitted `.session-notes` in a kailash-py session, PR #691) + cumulative CI-billing evidence on release-prep branch convention. See `.claude/guides/rule-extracts/git.md` for full post-mortems.
 
 <!-- /slot:neutral-body -->

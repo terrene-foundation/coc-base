@@ -19,7 +19,7 @@ Authoring a new slash command. Auditing an existing command for line cap, neutra
 
 | CLI    | On-disk path                   | Format   | Slash invocation  | Frontmatter shape                                                             |
 | ------ | ------------------------------ | -------- | ----------------- | ----------------------------------------------------------------------------- |
-| CC     | `.claude/commands/<name>.md`   | Markdown | `/<name>`         | YAML: `name:` + `description:` + optional `argument-hint:` / `allowed-tools:` |
+| CC     | `.gemini/commands/<name>.md`   | Markdown | `/<name>`         | YAML: `name:` + `description:` + optional `argument-hint:` / `allowed-tools:` |
 | Codex  | `.codex/prompts/<name>.md`     | Markdown | `/prompts:<name>` | Same YAML, preserved from source                                              |
 | Gemini | `.gemini/commands/<name>.toml` | TOML     | `/<name>`         | `name`, `description`, `prompt = '''…'''`, optional `tools = [...]`           |
 
@@ -33,7 +33,7 @@ Authoring a new slash command. Auditing an existing command for line cap, neutra
 
 ## Single Source, Three Emissions
 
-The authoritative copy lives at `.claude/commands/<name>.md`. The emitter `.claude/bin/emit-cli-artifacts.mjs` (driven by `coc-sync` Step 6.6) produces:
+The authoritative copy lives at `.gemini/commands/<name>.md`. The emitter `.claude/bin/emit-cli-artifacts.mjs` (driven by `coc-sync` Step 6.6) produces:
 
 - `.codex/prompts/<name>.md` — Markdown passthrough with Codex-native adaptations from `variants/codex/commands/<name>.md` overlays (if any).
 - `.gemini/commands/<name>.toml` — TOML wrap of the same body inside a triple-single-quote `prompt` block; YAML frontmatter is converted to TOML keys.
@@ -133,7 +133,7 @@ Variant files supply replacement bodies only for the slots that diverge. Unoverr
 
 ## Native-Primitive Carve-Outs
 
-Some CC commands map to a CLI's own native primitive — emitting a `.codex/prompts/<name>.md` or `.gemini/commands/<name>.toml` for them would shadow the native path. Per `.claude/agents/codex-architect.md` § Codex-Native Primitives:
+Some CC commands map to a CLI's own native primitive — emitting a `.codex/prompts/<name>.md` or `.gemini/commands/<name>.toml` for them would shadow the native path. Per `.gemini/agents/codex-architect.md` § Codex-Native Primitives:
 
 - **`/review`** → `codex review --uncommitted --base main` (Codex native). Do NOT emit a `.codex/prompts/review.md`.
 - **`/security-review`** → architect-decided; check the per-CLI exclusions list before adding.
@@ -185,7 +185,7 @@ Glob form is supported (`commands/i-*.md`). The emitter honors exclusions at sou
 | Always-on boundary enforcement                              | Rule       |
 | Deterministic hook firing on tool event / session lifecycle | Hook       |
 
-If a "command" file grows judgment rubrics, scoring criteria, or conditional branching with recovery paths, it's an agent in disguise. Move the body into `.claude/agents/<name>.md` and shrink the command to a 20-line dispatch (`Delegate to <name>-specialist with the user's input as the prompt.`).
+If a "command" file grows judgment rubrics, scoring criteria, or conditional branching with recovery paths, it's an agent in disguise. Move the body into `.gemini/agents/<name>.md` and shrink the command to a 20-line dispatch (`Delegate to <name>-specialist with the user's input as the prompt.`).
 
 ## Common Mistakes
 
@@ -199,11 +199,11 @@ Most frequent. Reference tables, exhaustive option lists, multi-page review rubr
 
 ### 3. Missing Sync-Manifest Entry
 
-New command in `.claude/commands/` but not in `sync-manifest.yaml` ships to nobody — emitter scans tier-listed files only. Fix: add `commands/<name>.md` to the correct tier; verify with a dry-run emission against one USE target.
+New command in `.gemini/commands/` but not in `sync-manifest.yaml` ships to nobody — emitter scans tier-listed files only. Fix: add `commands/<name>.md` to the correct tier; verify with a dry-run emission against one USE target.
 
 ### 4. Native-Primitive Shadow
 
-Authoring `.claude/commands/review.md` without an exclusion entry causes the emitter to overwrite Codex's native `codex review` invocation with a redirected prompt. Fix: add `commands/review.md` to `cli_emit_exclusions.codex` BEFORE the command lands.
+Authoring `.gemini/commands/review.md` without an exclusion entry causes the emitter to overwrite Codex's native `codex review` invocation with a redirected prompt. Fix: add `commands/review.md` to `cli_emit_exclusions.codex` BEFORE the command lands.
 
 ### 5. Description As Sentence Paragraph
 

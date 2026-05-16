@@ -77,6 +77,24 @@ assert_file_exists(f"{worktree}/src/feature.py")  # parent checks
 
 **Why:** Agents hit budget mid-message and emit "Now let me write X..." without having written X. Kaizen round 6 and ml-specialist round 7 both reported success with zero files on disk. `ls` check is O(1) and converts silent no-op into loud retry.
 
+### 3a. Tool-Output Verification Claims Require Post-Merge Re-Run For Checkout-Bound Tools
+
+When a worktree-isolated agent makes a verification claim citing a tool whose workspace root resolves via `__file__` / `Cargo.toml` / `package.json` (NOT the invoking CWD or an explicit `--root` flag), the parent orchestrator MUST re-run that tool from the main checkout AFTER merge before accepting the claim as institutional truth. In-worktree pre-merge verification of checkout-bound tools is structurally vacuous — the tool scans whichever checkout owns the script binary, not the worktree the agent compiled in.
+
+```bash
+# DO — re-run the tool from main after merge
+git checkout main && git pull --ff-only
+python3 tools/sweep-redteam.py --json specs/core-runtime.md  # authoritative
+
+# DO NOT — accept the in-worktree agent claim as the verdict
+# (agent ran tool inside worktree CWD; tool scanned main checkout files;
+#  worktree-added files were invisible; "0 gaps" reported was vacuous)
+```
+
+**BLOCKED rationalizations:** "The tool ran from the worktree CWD, so it must have seen the worktree files" / "The agent reported clean, that's good enough" / "Re-running post-merge is duplicate work" / "We trust the worktree's CI checks".
+
+**Why:** Tools that resolve their workspace root via `Path(__file__).parent.parent` (Python), `cargo locate-project` (Rust), or `package.json` discovery (Node) are bound to whichever checkout owns the SCRIPT BINARY — not the invoker's CWD. Source-of-truth example: `tools/sweep-redteam.py:65` sets `ROOT = Path(__file__).resolve().parent.parent`, so an in-worktree invocation scans the main checkout and reports gaps the worktree's own edits already closed. The post-merge re-run is the only invocation where the script's resolved ROOT and the verified state actually coincide.
+
 ### 4. Parallel-Launch Burst Size Limit (Waves of ≤3)
 
 When launching multiple Opus agents with `isolation: "worktree"` in a single orchestration turn, the parent MUST launch them in waves of ≤3, NOT a single burst of 4+. Bursts of 4+ simultaneous Opus agents hit Anthropic server-side rate limiting and ALL fail at 30–45s elapsed. Rate-limit failures exit the agent before it commits anything.

@@ -16,7 +16,7 @@ COC is a structured workflow where YOU direct an AI to build software. You don't
 
 The AI handles all the technical work — writing code, testing, security checks, and deployment.
 
-## The 5 Phases
+## The 6 Phases
 
 | Step | Command | What Happens | Your Role |
 |------|---------|-------------|-----------|
@@ -25,8 +25,18 @@ The AI handles all the technical work — writing code, testing, security checks
 | 3. Building | `/implement` | Build the project one task at a time | Answer questions when choices come up |
 | 4. Testing | `/redteam` | Test everything from a real user's perspective | Review results |
 | 5. Knowledge | `/codify` | Capture what we learned for future sessions | Confirm the knowledge is accurate |
+| 6. Authorization | `/release` | Final COC authorization gate — readiness check before launch | Approve the release |
 
-Plus **`/deploy`** when you're ready to launch, and **`/ws`** anytime to check progress.
+Plus **`/deploy`** when you're ready to ship the application after `/release` authorizes, and **`/ws`** anytime to check progress.
+
+## Repo type matters
+
+`/release` and `/deploy` behave differently depending on what kind of project you're in:
+
+- **USE application repo** (`.claude/VERSION::type = coc-project` + `deploy/deployment-config.md::type = application`): `/release` is the **COC authorization gate** — it confirms readiness across testing, security, and knowledge capture; `/deploy` is the **application deployment** mechanism (ships your app to its target environment).
+- **BUILD / SDK package repo** (`type = coc-build`, e.g., `kailash-py`, `kailash-rs`): `/release` is the **SDK publishing command** — it bumps versions, tags, and publishes to PyPI / crates.io; `/deploy` is not applicable.
+
+Your AI session detects which repo type you're in and routes correctly. If you ever see release/deploy commands describing the wrong shape for your repo, that's a template drift bug — flag it.
 
 ## Getting Started
 

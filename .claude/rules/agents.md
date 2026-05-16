@@ -91,6 +91,14 @@ Agents that compile MUST use the CLI's worktree-isolation primitive to avoid bui
 
 **Why:** Compilers and package managers hold exclusive filesystem locks on their build caches. Worktrees give each agent its own cache. See `skills/30-claude-code-patterns/worktree-orchestration.md` for the full 5-layer protocol — worktree isolation is necessary but not sufficient.
 
+## MUST: Worktree-Isolate Parallel Agents That Edit Shared Source; Concurrent Readers Read Committed HEAD
+
+The clause above generalizes beyond compilation: ANY background/parallel agent that EDITS shared repo source (manifest, rules, config, generated artifacts) MUST be worktree-isolated, even if it never compiles. Any concurrent agent that READS that source MUST read the committed HEAD (`git show HEAD:<path>`), never the working tree.
+
+**BLOCKED rationalizations:** "It's not a compiling agent, the worktree rule doesn't apply" / "The edit is quick, a collision is unlikely" / "Both agents are careful" / "I'll serialize them in my head".
+
+**Why:** A non-isolated editor's mid-edit WIP is visible in the shared checkout to every concurrent reader; a reader that copies the working tree mid-edit ships the broken state. Reading committed HEAD is the structural isolation when the editor was not worktree-isolated. See guide for the 2026-05-16 post-mortem.
+
 ## MUST: Worktree Prompts Use Relative Paths Only
 
 When prompting an agent with worktree isolation, the orchestrator MUST reference files via paths RELATIVE to the repo root — never absolute paths.
@@ -139,3 +147,133 @@ When launching ≥2 parallel agents whose worktrees touch the SAME sub-package, 
 Origin: 2026-04-19 worktree drift + 2026-04-20 parallel-release + 2026-04-27 W6 closure-parity. Base-variant adaptation 2026-05-06: stack-specialist names neutralized to db/api/ai-specialist trio reading `STACK.md`.
 
 <!-- /slot:neutral-body -->
+
+<!-- slot:examples -->
+
+## Examples (CLI-specific delegation syntax)
+
+The MUST clauses in the neutral-body section reference numbered examples here. Each example shows the CC `Agent(subagent_type=...)` delegation primitive; the Codex variant of this rule (`.claude/variants/codex/rules/agents.md`) replaces these with `codex_agent(agent=...)` syntax, and the Gemini variant uses `@specialist` invocation.
+
+### Example 1 — Parallel Brief-Claim Verification (≥3-issue brief)
+
+```python
+# DO — parallel deep-dive verification for ≥3-issue brief
+# (one agent per claim cluster, run concurrently)
+Agent(subagent_type="general-purpose", run_in_background=True, prompt="""
+  Verify brief claim #1: 'ExperimentTracker creates _kml_model_versions'.
+  Re-grep the source tree; cite file:line. Report TRUE / FALSE / UNCLEAR.""")
+Agent(subagent_type="general-purpose", run_in_background=True, prompt="""
+  Verify brief claim #2: 'InferenceServer at engines/inference_server.py'.
+  Re-grep + re-read the cited path. Report TRUE / FALSE / UNCLEAR.""")
+Agent(subagent_type="general-purpose", run_in_background=True, prompt="""
+  Verify brief claim #3: '1.1.x kwargs silently dropped in 1.5.x'.
+  Re-read the 1.5.x signature; check raise vs silent-drop. Report.""")
+# Wait for all three; reconcile findings; record corrections in journal +
+# architecture plan BEFORE /todos.
+
+# DO NOT — single-agent analysis on a ≥3-issue brief
+Agent(subagent_type="analyst", prompt="Analyze the brief and produce architecture plan.")
+# (the analyst inherits whatever framing the brief asserts; brief inaccuracies
+# propagate into the plan, the plan into /todos, and three sessions later
+# the workstream is solving the wrong problem.)
+```
+
+### Example 2 — Background Reviewer Dispatch (Quality Gates)
+
+```
+# Background agent pattern for MUST gates — review costs near-zero parent context
+Agent({subagent_type: "reviewer", run_in_background: true, prompt: "Review all changes since last gate..."})
+Agent({subagent_type: "security-reviewer", run_in_background: true, prompt: "Security audit all changes..."})
+```
+
+### Example 3 — Mechanical Sweep in Reviewer Prompt
+
+```python
+# DO — reviewer prompt enumerates mechanical sweeps
+Agent(subagent_type="reviewer", prompt="""
+Mechanical sweeps (run BEFORE LLM judgment):
+1. Parity grep (`grep -c`) on critical call-site patterns
+2. `pytest --collect-only -q` exit 0 across all test dirs
+3. Every public symbol in __all__ added by this PR has an eager import
+""")
+
+# DO NOT — reviewer prompt only includes diff context
+Agent(subagent_type="reviewer", prompt="Review the diff between main and feat/X.")
+```
+
+### Example 4 — Closure-Parity Specialist Dispatch (Bash+Read required)
+
+```python
+# DO — pact-specialist or general-purpose for Round-2+ closure-parity verification
+Agent(subagent_type="pact-specialist", prompt="""
+Verify W5→W6 closure parity. Run gh pr view, gh pr diff, grep, pytest --collect-only,
+ast.parse() for __all__ enumeration. Convert FORWARDED rows to VERIFIED with command output.""")
+
+# DO NOT — analyst (Read/Grep/Glob only) — cannot run gh / pytest / ast.parse()
+Agent(subagent_type="analyst", prompt="Verify W5→W6 closure parity...")
+```
+
+### Example 5 — Delegation-Time Closure-Parity Scan
+
+```python
+# DO — orchestrator detects closure-parity markers in draft prompt, picks Bash+Read specialist
+draft_prompt = "Verify W5→W6 closure parity. Run gh pr view, ast.parse() for __all__..."
+# scan: contains "closure parity" + "gh pr view" + "ast.parse(" → MUST use Bash+Read
+Agent(subagent_type="pact-specialist", prompt=draft_prompt)
+
+# DO NOT — orchestrator drafts a closure-parity prompt and delegates to read-only analyst
+draft_prompt = "Verify W5→W6 closure parity. Run gh pr view, ast.parse() for __all__..."
+Agent(subagent_type="analyst", prompt=draft_prompt)
+# (analyst lacks Bash; will FORWARD the gh-pr-view rows; round burned)
+```
+
+### Example 6 — Worktree Isolation (compiling agents)
+
+```
+# DO — independent target/ dirs, compile in parallel
+Agent(isolation: "worktree", prompt: "implement feature X...")
+# DO NOT — multiple agents sharing same target/ (serializes on lock)
+Agent(prompt: "implement feature X...")
+```
+
+### Example 7 — Worktree Relative Paths (NEVER absolute)
+
+```python
+# DO — relative paths resolve to the worktree's cwd
+Agent(isolation="worktree", prompt="Edit packages/kailash-ml/src/kailash_ml/trainable.py...")
+# DO NOT — absolute paths bypass worktree isolation
+Agent(isolation="worktree", prompt="Edit /absolute/path/to/main-checkout/packages/...")
+```
+
+### Example 8 — Worktree Commit Discipline
+
+```python
+Agent(isolation="worktree", prompt="""...
+**Commit discipline (MUST):**
+- After each file: `git add <file> && git commit -m "wip(shard-X): <what>"`
+- Exit-without-commit auto-cleans the worktree and ALL work is lost.""")
+```
+
+### Example 9 — Parallel-Worktree Version-Owner Coordination
+
+```python
+Agent(isolation="worktree", prompt="bump package to 0.13.0, CHANGELOG, __version__")  # owner
+Agent(isolation="worktree", prompt="""...feature work...
+COORDINATION NOTE: parallel agent is bumping; MUST NOT edit pyproject.toml / __version__ / CHANGELOG.""")
+```
+
+### Example 10 — Shared-Source Editor Isolated; Concurrent Reader Reads Committed HEAD
+
+```python
+# DO — a background agent that EDITS shared source is worktree-isolated
+Agent(isolation="worktree", prompt="Edit sync-manifest.yaml: add consumer_overlays ...")
+# DO — a concurrent agent that READS that source reads committed HEAD
+Agent(prompt="""Catch-up sync. Read loom source via `git show HEAD:.claude/bin/emit.mjs`
+(committed HEAD), NOT the working tree — a parallel agent may be mid-edit.""")
+
+# DO NOT — non-isolated editor + working-tree reader, same checkout
+Agent(prompt="Edit sync-manifest.yaml ...")          # mid-edit WIP visible to all
+Agent(prompt="Catch-up: copy .claude/bin/emit.mjs")  # may copy broken mid-edit state
+```
+
+<!-- /slot:examples -->

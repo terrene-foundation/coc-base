@@ -11,12 +11,13 @@ This document is loaded at `/migrate` time. It is the source of truth for the pr
 
 ## Modes
 
-| Mode           | Trigger                  | Steps run                                                                             | Commit message                                                    |
-| -------------- | ------------------------ | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| Full migration | `cc-only-legacy` lineage | 0–12                                                                                  | `chore(coc): migrate to multi-CLI template (claude+codex+gemini)` |
-| `--dry-run`    | Any lineage              | 0 detection only; print all planned actions; apply nothing                            | (no commit)                                                       |
-| `--refresh`    | `multi-cli` lineage      | 0.1 lineage check, 3 (overlay re-pull), 6 (re-emit), 8 (timestamp+stats), 10 (verify) | `chore(coc): refresh multi-CLI overlays`                          |
-| `--rollback`   | Migration branch active  | Inline porcelain guard, `git reset --keep main`, restore `.pre-migrate.bak`           | (no commit; branch deleted)                                       |
+| Mode           | Trigger                                     | Steps run                                                                             | Commit message                                                     |
+| -------------- | ------------------------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Full migration | `cc-only-legacy` lineage                    | 0–12                                                                                  | `chore(coc): migrate to multi-CLI template (claude+codex+gemini)`  |
+| `--dry-run`    | Any lineage                                 | 0 detection only; print all planned actions; apply nothing                            | (no commit)                                                        |
+| `--refresh`    | `multi-cli` lineage                         | 0.1 lineage check, 3 (overlay re-pull), 6 (re-emit), 8 (timestamp+stats), 10 (verify) | `chore(coc): refresh multi-CLI overlays`                           |
+| `--emit-only`  | Non-COC lineage (e.g. `claude-squad-local`) | 0.1 (non-COC accept), 1, 4a (scaffold), 6, 8 (emit-only marker), 10, 11, 12           | `chore(coc): emit multi-CLI artifacts from project's own .claude/` |
+| `--rollback`   | Migration branch active                     | Inline porcelain guard, `git reset --keep main`, restore `.pre-migrate.bak`           | (no commit; branch deleted)                                        |
 
 ## Cross-CLI Project Artifact Contract
 
@@ -295,6 +296,53 @@ Triggered when `template_type: multi-cli`. Refreshes top-level overlays per `mul
 6. Step 12: commit `chore(coc): refresh multi-CLI overlays`.
 
 Skipped: Steps 2 (VERSION upstream pointer already correct), 4 (downstream-sync handles `.claude/` refresh on next `/sync` — `--refresh` is overlay-only), 5 (CLAUDE.md project-owned post-migration), 7 (workflows already aligned), 11 (posture caveat already known to multi-CLI users).
+
+## `--emit-only` mode (non-COC lineage)
+
+Triggered for projects whose `.claude/VERSION.type` is NOT `cc-only-legacy` or `multi-cli` — typically `claude-squad-local` or any future non-COC fork that wants per-CLI artifacts emitted from its OWN `.claude/` source WITHOUT pulling sister-template content. The originating case is csq (`terrene-foundation/csq`, type=`claude-squad-local`): csq forked from kailash-coc-claude-py and pruned Kailash content; its `csq-loom-boundary.md` rule explicitly forbids template re-pulls; but csq still needs `.codex/`, `.gemini/`, `AGENTS.md`, `GEMINI.md` emitted from its own pruned `.claude/` so Codex and Gemini sessions against csq have a scaffold to load.
+
+The mode runs only the EMIT phase. Sister-template-dependent steps (3, 4, 5, 7) are skipped. The project's existing `.claude/` is the source of truth.
+
+### Steps
+
+1. **Step 0.1 — non-COC accept**: `--emit-only` bypasses the default "unrecognized lineage" rejection. The recognized non-COC types are `claude-squad-local` plus any project lineage that has a `.claude/` directory AND declares its type explicitly in `.claude/VERSION.type`. The flag MUST be set explicitly — `/migrate` without `--emit-only` on a non-COC type still rejects per the original Step 0 contract (no silent acceptance).
+2. **Step 1 — branch + snapshot**: same as full migration. Branch name: `chore/coc-multi-cli-emit-<YYYYMMDD>` (different prefix from `chore/coc-multi-cli-migrate-` to distinguish in `git log`).
+3. **Step 4a — scaffold the emitter dependencies**: same as full migration. Create `.claude/codex-mcp-guard → ../.codex-mcp-guard` symlink and copy `$LOOM_PATH/.claude/sync-manifest.yaml` into `.claude/`. The symlink + manifest are scaffold artifacts the emitters require; they do NOT come from a sister.
+4. **Step 6 — emit from project's own `.claude/`**: invoke `emit.mjs --cli codex` and `--cli gemini` against the project's existing `.claude/rules/`, plus `emit-cli-artifacts.mjs --target <project-variant>` against the project's `.claude/commands/`, `.claude/skills/`, `.claude/agents/`. **Crucially**: no `--target` filtering by tier-subscription (the project is non-COC, doesn't subscribe to any tier); emit EVERY artifact present in the project's own `.claude/` tree (modulo any `cli_emit_exclusions.{codex,gemini}` in the manifest). Same `mktemp + cp into dotted` pattern as full-migration Step 6.
+5. **Step 8 — emit-only marker schema**: write `.claude/.coc-sync-marker` with the emit-only schema (different shape from full-migration marker — no `migrated_from`, no `template`/`template_version` change, instead records `last_emit_at` and `loom_sha`):
+   ```yaml
+   template_type: <existing type — claude-squad-local, etc.> # preserved, NOT rewritten
+   clis: [claude, codex, gemini] # added/refreshed
+   last_emit_at: <ISO-8601>
+   loom_version: <semver>
+   loom_sha: <git sha>
+   stats:
+     baselines_emitted: { cc: <count>, codex: <count>, gemini: <count> }
+     cli_artifacts: { codex: { ... }, gemini: { ... } }
+     mcp_guard: { policies_populated: <bool> }
+   ```
+   The original `template`, `template_version`, `variant`, `migrated_from`, `migrated_at` fields are NOT modified. The marker becomes a hybrid: project-lineage metadata preserved + emit telemetry added.
+6. **Step 10 — verification**: rows 1–9 (file presence) + rows 17–19 (settings/config) apply. Rows 10–16 (full-migration marker schema, VERSION upstream, project-content diff) do NOT apply — the emit-only marker schema differs. Surface this in the report: "Step 10 verification: 12/12 emit-only rows ✓".
+7. **Step 11 — posture banner**: same as full migration (per-CLI posture caveat).
+8. **Step 12 — commit + PR**: same staging pattern (explicit paths, mktemp commit message). Commit: `chore(coc): emit multi-CLI artifacts from project's own .claude/`.
+
+Skipped: Steps 2 (VERSION upstream pointer — project is non-COC, doesn't track loom version), 3 (sister-template overlay copy — there's no sister for non-COC lineage), 4 (`.claude/` refresh from sister — explicitly forbidden by the project's own boundary contract, e.g. csq-loom-boundary), 5 (CLAUDE.md merge — project owns CLAUDE.md outright), 7 (`.github/` workflows refresh — project owns workflows), 9 (project-artifact lint — same as full migration runs it advisorily; included is fine, listing as optional here for emphasis).
+
+### When `--emit-only` is the right disposition
+
+- Project has a `.claude/` directory authored from a COC USE-template fork that has since diverged (csq pattern)
+- Project explicitly forbids template re-pulls via a boundary rule (csq's `csq-loom-boundary.md`)
+- Project wants to operate via Codex and Gemini using its OWN `.claude/` source-of-truth
+- Project does not want loom version tracking or SDK pin updates
+
+When in doubt, run `/migrate --emit-only --dry-run` first to surface the planned actions before applying.
+
+### When NOT to use `--emit-only`
+
+- Project has `cc-only-legacy` lineage → use full migration (`/migrate` without flag) to gain sister-template content
+- Project has `multi-cli` lineage → use `--refresh` to re-pull overlays from sister
+- Project has `coc-project` lineage (consumer of a COC USE template) → use full migration (sister exists)
+- Loom itself (this repo) → run the emit commands directly per `commands/migrate.md` § "Loom-self emission" (the canonical dogfooding harness, no `--emit-only` framing needed)
 
 ## `--rollback` mode
 

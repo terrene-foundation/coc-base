@@ -23,6 +23,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 
 // Symlink-safe write. Node's fs.writeFileSync follows symlinks by
 // default, so a TOCTOU attacker can plant a symlink between mkdirSync
@@ -46,6 +47,7 @@ function safeWriteFileSync(filePath, data) {
 }
 
 import { parseSlotsV5, applyOverlay } from "./lib/slot-parser.mjs";
+import { resolveOverlay } from "./lib/variant-overlay.mjs";
 import { extractPolicies } from "../codex-mcp-guard/extract-policies.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -207,6 +209,18 @@ export function stripSlotMarkers(raw) {
 }
 
 // ────────────────────────────────────────────────────────────────
+// Rule frontmatter strip (CDX-1: per-rule frontmatter blocks repeated in body)
+// ────────────────────────────────────────────────────────────────
+// Source rules carry a leading frontmatter block declaring `priority:`
+// and `scope:` (validator-14 enforces the pair). The block is metadata
+// for the emitter — Codex/Gemini consume the rendered baseline as
+// instruction prose, so the `---\npriority: 0\nscope: baseline\n---`
+// block must not survive into the emitted body.
+export function stripRuleFrontmatter(raw) {
+  return raw.replace(/^---\n[\s\S]*?\n---\n?/, "");
+}
+
+// ────────────────────────────────────────────────────────────────
 // Overlay application (per variant-authoring.md Rule 1)
 // ────────────────────────────────────────────────────────────────
 // applyOverlay is imported from ./lib/slot-parser.mjs — shared with
@@ -241,50 +255,46 @@ export function composeRule(ruleName, cli, lang = null) {
   let composed = fs.readFileSync(globalPath, "utf8");
   const warnings = [];
 
-  // Language-axis only overlay (applied first; Phase I2 2026-04-22)
-  if (lang) {
-    const langOnly = path.join(
-      REPO,
-      ".claude",
-      "variants",
-      lang,
-      "rules",
-      ruleName,
-    );
-    if (fs.existsSync(langOnly)) {
-      const overlay = fs.readFileSync(langOnly, "utf8");
+  // Axis resolution defers to resolveOverlay() so sync-manifest.yaml::variants
+  // is the source of truth. `null` declarations skip the axis even if a
+  // legacy file exists on disk (closes the phantom-overlay class — e.g.
+  // `variants/py/rules/ci-runners.md` exists despite the manifest declaring
+  // `[py] ci-runners.md: null`).
+  //
+  // Composition order matches the documented precedent: language-axis first,
+  // CLI-axis second, ternary (lang-cli) third. All present overlays compose
+  // additively (slot bodies replace global slots; full-file overlays replace
+  // composed body entirely — last writer wins).
+  const applyAxis = (axis, axisLabel) => {
+    const res = resolveOverlay("rules", ruleName, axis);
+    if (res.kind === "manifest-null") return;
+    if (!fs.existsSync(res.path)) {
+      if (res.kind === "manifest-explicit") {
+        throw new Error(
+          `sync-manifest.yaml::variants declares overlay '${path.relative(REPO, res.path)}' ` +
+            `for rules/${ruleName} axis '${axis}', but the file is missing (manifest defect)`,
+        );
+      }
+      return;
+    }
+    const overlay = fs.readFileSync(res.path, "utf8");
+    if (overlay.includes("<!-- slot:")) {
+      // Slot-keyed overlay — compose via slot-parser (Phase F2 convention).
       const { composed: c, warnings: w } = applyOverlay(composed, overlay);
       composed = c;
-      warnings.push(...w.map((m) => `[${lang}] ${m}`));
+      warnings.push(...w.map((m) => `[${axisLabel}] ${m}`));
+    } else {
+      // Full-file overlay — variant wins per artifact-flow.md § Variant
+      // Overlay Semantics. Pre-2026-05-12 composeRule had no branch for
+      // this and silently no-op'd against legacy full-file overlays (e.g.
+      // variants/prism/rules/*.md). Mirror composeArtifactBody behavior.
+      composed = overlay;
     }
-  }
+  };
 
-  // CLI-only overlay
-  const cliOnly = path.join(REPO, ".claude", "variants", cli, "rules", ruleName);
-  if (fs.existsSync(cliOnly)) {
-    const overlay = fs.readFileSync(cliOnly, "utf8");
-    const { composed: c, warnings: w } = applyOverlay(composed, overlay);
-    composed = c;
-    warnings.push(...w.map((m) => `[${cli}] ${m}`));
-  }
-
-  // Ternary (lang × CLI) overlay — stacked on top of CLI-only
-  if (lang) {
-    const ternary = path.join(
-      REPO,
-      ".claude",
-      "variants",
-      `${lang}-${cli}`,
-      "rules",
-      ruleName,
-    );
-    if (fs.existsSync(ternary)) {
-      const overlay = fs.readFileSync(ternary, "utf8");
-      const { composed: c, warnings: w } = applyOverlay(composed, overlay);
-      composed = c;
-      warnings.push(...w.map((m) => `[${lang}-${cli}] ${m}`));
-    }
-  }
+  if (lang) applyAxis(lang, lang);
+  applyAxis(cli, cli);
+  if (lang) applyAxis(`${lang}-${cli}`, `${lang}-${cli}`);
 
   return { composed, warnings };
 }
@@ -334,9 +344,21 @@ export function loadBudgetTolerance() {
   return m ? parseInt(m[1], 10) / 100 : 0.3;
 }
 
-// Load warn_cap_bytes + block_cap_bytes from sync-manifest.yaml per CLI.
-// The manifest is the single source of truth for the caps; the hardcoded
-// constants that used to live in emitBaseline (WARN_CAP=32768, BLOCK_CAP=61440)
+// Block threshold from sync-manifest.yaml per_rule_budget_block_threshold
+// (v6 §A.2 + §2.2). When a rule's emitted bytes exceed budget * (1 +
+// block_threshold), emission MUST hard-fail — the WARN tier is the
+// drift-signal; the BLOCK tier is the contract. Pre-Shard-D, only the
+// WARN path was wired; zero-tolerance.md ran +64% over budget unchecked.
+export function loadBudgetBlockThreshold() {
+  const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
+  const src = fs.readFileSync(manifestPath, "utf8");
+  const m = src.match(/per_rule_budget_block_threshold:\s*"\+(\d+)%"/);
+  return m ? parseInt(m[1], 10) / 100 : 0.3;
+}
+
+// Load warn_cap_bytes + block_cap_bytes + headroom_floor_pct from
+// sync-manifest.yaml per CLI. The manifest is the single source of truth
+// for the caps and the v6.2 Risk-0004 headroom floor; hardcoded constants
 // would silently drift if the manifest changed. This loader mirrors the
 // narrow-regex style used by loadPerRuleBudgets — deliberate, auditable,
 // no YAML dep. The manifest structure is:
@@ -345,6 +367,7 @@ export function loadBudgetTolerance() {
 //       <cli>:
 //         warn_cap_bytes: <int>
 //         block_cap_bytes: <int>
+//         headroom_floor_pct: <int>   # v6.2 — defaults to 10 if absent
 export function loadCliCaps() {
   const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
   const src = fs.readFileSync(manifestPath, "utf8");
@@ -364,6 +387,25 @@ export function loadCliCaps() {
       caps[cli] = {
         warn_cap_bytes: parseInt(m[1], 10),
         block_cap_bytes: parseInt(m[2], 10),
+        // headroom_floor_pct lives in the same per-CLI block; parse with a
+        // separate narrow regex anchored on the same `<cli>:` block. Default
+        // to 10 (Risk-0004 floor) if not declared — preserves backward-compat
+        // for any future CLI that lands without an explicit floor.
+        // Lower-bound clamp at 10 per Risk-0004 contract: a manifest edit
+        // setting floor < 10 would silently disable enforcement on the very
+        // surface the v6.2 plan §3 closes. Per security-reviewer audit
+        // (PR #218 R1) — the manifest is git-tracked, but operator-or-agent
+        // edits below the contract floor are structurally rejected here.
+        headroom_floor_pct: (() => {
+          const fr = new RegExp(
+            `\\b${cli}:\\s*\\n` +
+              `[\\s\\S]*?headroom_floor_pct:\\s*(\\d+)`,
+            "m",
+          );
+          const fm = src.match(fr);
+          const parsed = fm ? parseInt(fm[1], 10) : 10;
+          return Math.max(10, parsed);
+        })(),
       };
     }
   }
@@ -386,30 +428,82 @@ export function getCritBaseline() {
   return crit.sort();
 }
 
+// v6.2 Shard 1 — pure validator for aggregate headroom. Extracted from
+// emitBaseline so the violation shape is testable in isolation. Returns
+// an array (empty when no breach) so the call site can spread it directly
+// into the result; matches the budget_block_violations shape per plan §5.1
+// invariant 3 (per-rule budget BLOCK and aggregate-headroom BLOCK are
+// independent and both can fire on one emission).
+export function validateAggregateHeadroom({ cli, lang, emissionBytes, blockCap, floorPct }) {
+  if (blockCap <= 0) return [];
+  const headroomFloorBytes = Math.floor(blockCap * (1 - floorPct / 100));
+  const livePctRaw = ((blockCap - emissionBytes) / blockCap) * 100;
+  if (livePctRaw >= floorPct) return [];
+  return [
+    {
+      cli,
+      lang: lang || "base",
+      emission_bytes: emissionBytes,
+      block_cap_bytes: blockCap,
+      headroom_pct: Number(livePctRaw.toFixed(2)),
+      headroom_floor_pct: floorPct,
+      headroom_floor_bytes: headroomFloorBytes,
+      under_by_bytes: emissionBytes - headroomFloorBytes,
+      remediation:
+        "v6.2 Risk-0004 floor breach: per workspaces/multi-cli-coc/02-plans/" +
+        "08-loom-v6.2-headroom-validator.md, demote a CRIT rule to path-scoped " +
+        "(per v6 §A.2 + the v2.13.0/v2.19.0/v6.2-Shard-3 precedent), tighten a " +
+        "per-rule budget, or trim emission. block_cap raise (option b) is BLOCKED " +
+        "without explicit Codex-override-ceiling-stable evidence per plan §3.2.",
+    },
+  ];
+}
+
 export function emitBaseline(cli, outDir, { lang = null, verbose = false, dryRun = false } = {}) {
   const crit = getCritBaseline();
   const budgets = loadPerRuleBudgets();
   const tolerance = loadBudgetTolerance();
+  const blockThreshold = loadBudgetBlockThreshold();
   const perRuleReport = [];
   const chunks = [];
   const allWarnings = [];
   const budgetWarnings = [];
+  const budgetBlockViolations = [];
 
   for (const rule of crit) {
     const { composed, warnings } = composeRule(rule, cli, lang);
-    const abridged = abridgeV6(composed);
+    const fmStripped = stripRuleFrontmatter(composed);
+    const abridged = abridgeV6(fmStripped);
     const cleaned = stripSlotMarkers(abridged);
     const bytes = Buffer.byteLength(cleaned, "utf8");
 
     // Per-rule budget check per sync-manifest.yaml §per_rule_size_budget_bytes.
-    // Outside ±tolerance → WARN (doesn't block emission, but surfaces drift).
-    // Rules in the baseline set must have a budget entry; missing is a WARN.
+    // Outside ±tolerance → WARN (drift signal).
+    // Over budget * (1 + block_threshold) → BLOCK (contract violation;
+    //   per spec v6 §A.2, prevents one CRIT rule from monopolizing the
+    //   total emission budget). Pre-Shard-D, only the WARN path was
+    //   wired and zero-tolerance.md ran +64% over budget unchecked.
     let budgetStatus = "no_budget";
     if (budgets.has(rule)) {
       const budget = budgets.get(rule);
       const tolHigh = Math.floor(budget * (1 + tolerance));
       const tolLow = Math.floor(budget * (1 - tolerance));
-      if (bytes > tolHigh) {
+      const blockHigh = Math.floor(budget * (1 + blockThreshold));
+      if (bytes > blockHigh) {
+        budgetStatus = "block";
+        const overByPct = ((bytes / budget - 1) * 100).toFixed(1);
+        budgetBlockViolations.push({
+          rule,
+          bytes,
+          budget,
+          block_threshold_bytes: blockHigh,
+          over_by_bytes: bytes - blockHigh,
+          over_by_pct: Number(overByPct),
+        });
+        budgetWarnings.push(
+          `${rule}: ${bytes}B BLOCKS budget ${budget}B (+${blockThreshold * 100}% block_threshold = ${blockHigh}B); over by ${bytes - blockHigh}B (+${overByPct}% of budget)`,
+        );
+      } else if (bytes > tolHigh) {
         budgetStatus = "over";
         budgetWarnings.push(
           `${rule}: ${bytes}B over budget ${budget}B (+${tolerance * 100}% = ${tolHigh}B); over by ${bytes - tolHigh}B`,
@@ -434,11 +528,21 @@ export function emitBaseline(cli, outDir, { lang = null, verbose = false, dryRun
       budget: budgets.get(rule) || null,
       budget_status: budgetStatus,
     });
-    chunks.push(`\n# ${rule}\n\n${cleaned}`);
+    // CDX-3: drop the redundant `# <filename>.md` H1 prefix — each rule's
+    // own H1 (e.g. `# Zero-Tolerance Rules`) is more descriptive and the
+    // `---` inter-rule separator below provides structural boundary.
+    // CDX-1 fix: stripRuleFrontmatter() above prevents the `---\npriority:`
+    // block from showing up where the file-name H1 used to live.
+    chunks.push(cleaned);
     if (warnings.length) allWarnings.push({ rule, warnings });
   }
 
-  const emission = chunks.join("\n---\n");
+  // CDX-2: append a closing `---` so the document ends with a clean
+  // structural terminator rather than the trailing prose of the last
+  // rule. `chunks.join` only places separators *between* chunks; without
+  // this the final byte lands inside Rule 6a's "Why" paragraph and the
+  // file looks truncated to a Codex/Gemini reader.
+  const emission = chunks.join("\n---\n\n").replace(/\n+$/, "") + "\n\n---\n";
   const emissionBytes = Buffer.byteLength(emission, "utf8");
 
   // v6 caps — load from sync-manifest.yaml (single source of truth). The
@@ -446,13 +550,37 @@ export function emitBaseline(cli, outDir, { lang = null, verbose = false, dryRun
   // from cli_variants.context/root.md.<cli>.{warn,block}_cap_bytes so a
   // manifest edit propagates without touching emit.mjs.
   const allCaps = loadCliCaps();
-  const caps = allCaps[cli] || { warn_cap_bytes: 32768, block_cap_bytes: 61440 };
+  const caps = allCaps[cli] || {
+    warn_cap_bytes: 32768,
+    block_cap_bytes: 61440,
+    headroom_floor_pct: 10,
+  };
   const WARN_CAP = caps.warn_cap_bytes;
   const BLOCK_CAP = caps.block_cap_bytes;
+  // v6.2 Risk-0004 floor — emission MUST keep at least this percentage of
+  // block_cap as headroom. Default 10% per Risk-0004 contract; per-CLI
+  // override via cli_variants.context/root.md.<cli>.headroom_floor_pct.
+  const HEADROOM_FLOOR_PCT = caps.headroom_floor_pct;
   let tier;
   if (emissionBytes >= BLOCK_CAP) tier = "BLOCK";
   else if (emissionBytes >= WARN_CAP) tier = "WARN";
   else tier = "OK";
+
+  // v6.2 Shard 1 — per-lang aggregate headroom validator. Independent of
+  // per-rule budget BLOCK (line 440) and tier classification (above).
+  // Surfaces a structured violation for any cli×lang combo whose
+  // emission would breach the Risk-0004 floor. Both dryRun and regular
+  // returns include the array; strict-headroom mode in main() (default
+  // on as of v6.2 cycle-2; --no-strict-headroom escape for test-harness)
+  // turns a non-empty array into a non-zero exit code so /sync halts at
+  // emission.
+  const headroomFloorViolations = validateAggregateHeadroom({
+    cli,
+    lang,
+    emissionBytes,
+    blockCap: BLOCK_CAP,
+    floorPct: HEADROOM_FLOOR_PCT,
+  });
 
   const emitName = cli === "codex" ? "AGENTS.md" : "GEMINI.md";
   const outPath = path.join(outDir, emitName);
@@ -483,7 +611,10 @@ export function emitBaseline(cli, outDir, { lang = null, verbose = false, dryRun
       block_cap_bytes: BLOCK_CAP,
       headroom_bytes: headroomBytesForReport,
       headroom_pct: headroomPctForReport,
+      headroom_floor_pct: HEADROOM_FLOOR_PCT,
+      headroom_floor_violations: headroomFloorViolations,
       budget_warnings: budgetWarnings,
+      budget_block_violations: budgetBlockViolations,
       per_rule: perRuleReport,
       warnings: allWarnings,
       dry_run: true,
@@ -505,9 +636,12 @@ export function emitBaseline(cli, outDir, { lang = null, verbose = false, dryRun
         block_cap_bytes: BLOCK_CAP,
         headroom_bytes: headroomBytesForReport,
         headroom_pct: headroomPctForReport,
+        headroom_floor_pct: HEADROOM_FLOOR_PCT,
+        headroom_floor_violations: headroomFloorViolations,
         rules_emitted: crit.length,
         per_rule: perRuleReport,
         budget_warnings: budgetWarnings,
+        budget_block_violations: budgetBlockViolations,
         warnings: allWarnings,
       },
       null,
@@ -543,6 +677,10 @@ export function emitBaseline(cli, outDir, { lang = null, verbose = false, dryRun
     block_cap_bytes: BLOCK_CAP,
     headroom_bytes: headroomBytes,
     headroom_pct: Number(headroomPct.toFixed(2)),
+    headroom_floor_pct: HEADROOM_FLOOR_PCT,
+    headroom_floor_violations: headroomFloorViolations,
+    budget_warnings: budgetWarnings,
+    budget_block_violations: budgetBlockViolations,
   };
 }
 
@@ -671,48 +809,220 @@ export function validateRuleFrontmatter() {
 }
 
 // ────────────────────────────────────────────────────────────────
+// Validator 15 — manifest tier-completeness (loom 2026-05-16, journal
+// 0078). Every .claude/rules/*.md MUST have its distribution fate
+// consciously declared in sync-manifest.yaml — exactly one of:
+//   (a) tier-listed (cc/co/coc/onboarding) — shipped to subscribers,
+//   (b) use_obsoleted: — actively purged from USE templates,
+//   (c) use_exclude:   — deliberately loom-only (never fanned out).
+// The failure mode this blocks is SILENT omission: a rule that is in
+// none of the three falls out of the subscription-based /sync model
+// unnoticed. Before this validator, 16 rules authored at loom were
+// never added to a tier and were frozen in templates (matching only by
+// the luck of a pre-subscription full-sync). use_exclude IS a conscious
+// state (loom-only by design, e.g. loom-csq-boundary.md) — counting it
+// as managed prevents false positives on deliberately-excluded rules
+// while still hard-failing the unmanaged class. Regex-scoped section
+// parse (no YAML dep) consistent with loadManifestConfig.
+export function validateTierCompleteness() {
+  const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
+  const rulesDir = path.join(REPO, ".claude", "rules");
+  const text = fs.readFileSync(manifestPath, "utf8");
+
+  // Slice a top-level YAML block: from the line AFTER `^<key>:` to the
+  // next column-0 key. Slicing must start past the key's own newline —
+  // otherwise the next-key search matches the tail of the key line.
+  const sliceBlock = (key) => {
+    const re = new RegExp(`^${key}:\\s*$`, "m");
+    const start = text.search(re);
+    if (start === -1) return "";
+    const bodyStart = text.indexOf("\n", start);
+    if (bodyStart === -1) return "";
+    const after = text.slice(bodyStart + 1);
+    const nextRel = after.search(/^[A-Za-z_][\w-]*:\s*$/m);
+    return after.slice(0, nextRel === -1 ? undefined : nextRel);
+  };
+
+  const tiersBlock = sliceBlock("tiers");
+  const obsBlock = sliceBlock("use_obsoleted");
+  const exclBlock = sliceBlock("use_exclude");
+
+  const tiered = new Set(
+    [...tiersBlock.matchAll(/^\s*-\s*rules\/([a-z0-9-]+)\.md\s*$/gm)].map(
+      (m) => `${m[1]}.md`,
+    ),
+  );
+  // use_obsoleted entries are `.claude/rules/x.md`; use_exclude entries
+  // are `rules/x.md` (no `.claude/` prefix). Match both shapes.
+  const obsoleted = new Set(
+    [...obsBlock.matchAll(/^\s*-\s*\.claude\/rules\/([a-z0-9-]+)\.md\s*$/gm)].map(
+      (m) => `${m[1]}.md`,
+    ),
+  );
+  const excluded = new Set(
+    [...exclBlock.matchAll(/^\s*-\s*rules\/([a-z0-9-]+)\.md\s*$/gm)].map(
+      (m) => `${m[1]}.md`,
+    ),
+  );
+
+  const failures = [];
+  for (const f of fs.readdirSync(rulesDir).filter((f) => f.endsWith(".md"))) {
+    if (!tiered.has(f) && !obsoleted.has(f) && !excluded.has(f)) {
+      failures.push(
+        `${f}: unmanaged — declare its distribution fate in ` +
+          `sync-manifest.yaml: add to a tier (cc/co/coc/onboarding), OR ` +
+          `use_obsoleted: (purge from templates), OR use_exclude: ` +
+          `(loom-only). (journal 0078)`,
+      );
+    }
+  }
+  return { pass: failures.length === 0, failures };
+}
+
+// ────────────────────────────────────────────────────────────────
+// Validator 16 — strict-YAML manifest gate (loom 2026-05-16, journal
+// 0080). emit.mjs parses sync-manifest.yaml with regex (no YAML dep, by
+// design — loadManifestConfig). That parser is YAML-SYNTAX-BLIND: a
+// structurally-broken manifest still lets `emit --dry-run` exit 0,
+// while every strict-YAML consumer (verify-overlays.sh, yq, downstream
+// /sync) fails repo-wide. PR #246 shipped exactly this — a list scalar
+// with an embedded ": " — and it passed the emit gate. This validator
+// closes the hole: a strict YAML parse (python3 yaml.safe_load shell-
+// out, so emit.mjs stays Node-dependency-free) MUST succeed or emit
+// hard-fails. Runs BEFORE Validator 15 in main() — V15's regex section
+// parse is only trustworthy on a syntactically valid manifest.
+export function validateManifestYaml() {
+  const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
+  const r = spawnSync(
+    "python3",
+    [
+      "-c",
+      "import sys,yaml\ntry:\n yaml.safe_load(open(sys.argv[1]))\nexcept yaml.YAMLError as e:\n sys.stderr.write(str(e))\n sys.exit(1)",
+      manifestPath,
+    ],
+    { encoding: "utf8" },
+  );
+  if (r.error && r.error.code === "ENOENT") {
+    // python3 absent — degrade to a clear advisory, do NOT silently pass.
+    return {
+      pass: false,
+      failures: [
+        "python3 not found — cannot strict-YAML-validate the manifest. " +
+          "Install python3 (PyYAML) OR validate manually before emit.",
+      ],
+    };
+  }
+  if (r.status !== 0) {
+    return {
+      pass: false,
+      failures: [
+        `sync-manifest.yaml is not valid YAML: ${(r.stderr || "").trim().slice(0, 400)}`,
+      ],
+    };
+  }
+  return { pass: true, failures: [] };
+}
+
+// ────────────────────────────────────────────────────────────────
 // POLICIES writeback to .codex-mcp-guard/
 // ────────────────────────────────────────────────────────────────
-// Runs extract-policies on .claude/hooks/, writes the POLICIES JSON
-// next to server.js, flips POLICIES_POPULATED=true. Orchestrator
-// filtering (drop main-like Shape A orchestrators from the policy
-// set) happens here before the JSON is written.
+// Runs extract-policies on .claude/hooks/. Writes TWO files (CDX-5 fix,
+// Shard B 2026-05-10):
+//
+//   policies.json                — RUNTIME shape consumed by server.js
+//                                  ({version, source_dir, policies}).
+//                                  loadPolicies() in server.js (line 71-89)
+//                                  reads `raw.policies[t]` for each wrapped
+//                                  tool; this writer must match that shape.
+//   extract-policies.dump.json   — AUDIT shape for V13 introspection
+//                                  ({predicates, shape_summary,
+//                                   orchestrators_filtered, policies_predicates}).
+//                                  Sidecar; not loaded at runtime.
+//
+// Pre-Shard-B: this function wrote the audit shape to filename
+// `policies.json`, while the on-disk `.claude/codex-mcp-guard/policies.json`
+// (manually populated) carried the runtime shape. Same filename, two
+// schemas — CDX-5 finding from the 2026-05-10 audit. If a /sync ever
+// shipped this function's output to the codex-mcp-guard runtime
+// directory, server.js would silently see no policies and fail-closed-
+// refuse-to-start.
+//
+// Orchestrator filter per spec v6 §4.4 "Why Shape B is load-bearing":
+// Shape A orchestrator functions (`main`, top-level entry points) are
+// filtered as non-policy. Policies must be Shape B/C/D — Shape A's
+// `main` is the script entry, not a guard predicate.
 export function wireMcpPolicies(outDir) {
   const hooksDir = path.join(REPO, ".claude", "hooks");
   const extracted = extractPolicies(hooksDir);
 
-  // Orchestrator filter per spec v6 §4.4 "Why Shape B is load-bearing":
-  // Shape A orchestrator functions (`main`, top-level entry points) are
-  // filtered as non-policy. Policies must be Shape B or Shape C.
-  const policies = extracted.predicates.filter((p) => {
+  const filteredPredicates = extracted.predicates.filter((p) => {
     if (p.shape === "A" && p.id === "main") return false;
     return true;
   });
 
-  const policyJson = {
+  // Runtime shape — what server.js::loadPolicies consumes.
+  const runtimeJson = {
+    version: 1,
+    source_dir: path.relative(REPO, hooksDir),
+    policies: extracted.policies,
+  };
+
+  // Audit shape — V13 introspection, /cli-audit Phase 2 input.
+  const auditJson = {
     version: 1,
     generated_at: new Date().toISOString(),
     source_dir: hooksDir,
     shape_summary: {
-      A: policies.filter((p) => p.shape === "A").length,
-      B: policies.filter((p) => p.shape === "B").length,
-      C: policies.filter((p) => p.shape === "C").length,
+      A: filteredPredicates.filter((p) => p.shape === "A").length,
+      B: filteredPredicates.filter((p) => p.shape === "B").length,
+      C: filteredPredicates.filter((p) => p.shape === "C").length,
+      D: filteredPredicates.filter((p) => p.shape === "D").length,
     },
-    orchestrators_filtered: extracted.predicates.length - policies.length,
-    predicates: policies,
+    orchestrators_filtered: extracted.predicates.length - filteredPredicates.length,
+    predicates: filteredPredicates,
+    policies_predicates: extracted.policies_predicates,
   };
 
   fs.mkdirSync(outDir, { recursive: true });
-  const policiesPath = path.join(outDir, "policies.json");
-  safeWriteFileSync(policiesPath, JSON.stringify(policyJson, null, 2));
-  return policiesPath;
+  const runtimePath = path.join(outDir, "policies.json");
+  const auditPath = path.join(outDir, "extract-policies.dump.json");
+  safeWriteFileSync(runtimePath, JSON.stringify(runtimeJson, null, 2) + "\n");
+  safeWriteFileSync(auditPath, JSON.stringify(auditJson, null, 2) + "\n");
+  return runtimePath;
 }
 
 // ────────────────────────────────────────────────────────────────
 // CLI entry
 // ────────────────────────────────────────────────────────────────
-function parseArgs(argv) {
-  const args = { cli: null, out: null, lang: null, all: false, dryRun: false, verbose: false };
+
+// Single source of truth for the accepted-flag list. Read by BOTH the
+// parseArgs unknown-flag warning (issue #235) and main()'s usage line —
+// a future flag addition touches one place, not two.
+const EMIT_USAGE =
+  "usage: emit.mjs [--cli codex|gemini] [--lang py|rs] [--all] " +
+  "[--out <dir>] [--dry-run] [--no-strict-headroom] [-v]";
+
+export function parseArgs(argv) {
+  const args = {
+    cli: null,
+    out: null,
+    lang: null,
+    all: false,
+    dryRun: false,
+    verbose: false,
+    // v6.2 cycle-2 — strict mode is opt-out (default true). Mirrors the
+    // v2.13.0 --strict-budget rollout: shipped opt-in in cycle-1, flipped
+    // to opt-out in cycle-2 after one /sync observation cycle confirmed
+    // zero false-positive blocks (PR #218 → v2.31.0 /sync, 2026-05-15).
+    // Any headroom_floor_violations[] entry triggers exit code 1 so
+    // /sync halts at emission rather than shipping the breach to
+    // downstream USE templates.
+    strictHeadroom: true,
+    // issue #235 — tokens parseArgs did not recognize. Populated below so
+    // callers (and the emit-shape harness) can assert the warning fired
+    // without scraping stderr. A typo'd --no-strict-headroom lands here.
+    unknownArgs: [],
+  };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--cli") args.cli = argv[++i];
@@ -721,6 +1031,28 @@ function parseArgs(argv) {
     else if (a === "--all") args.all = true;
     else if (a === "--dry-run") args.dryRun = true;
     else if (a === "-v" || a === "--verbose") args.verbose = true;
+    // v6.2 cycle-2 — explicit opt-out for test-harness intentional-breach
+    // exercises. Production /sync invocations MUST NOT pass this flag;
+    // dropping strict mode in a /sync command body is regression class (a)
+    // per sync-completeness.md Trust Posture Wiring § Rule 2 headroom-floor.
+    else if (a === "--no-strict-headroom") args.strictHeadroom = false;
+    // issue #235 — anything else is an unrecognized token. Pre-v6.2 this
+    // branch did not exist: a typo'd --no-strict-headroon was silently
+    // swallowed, strict mode stayed ON, and the operator burned a round
+    // trip diagnosing why their explicit opt-out never fired.
+    else args.unknownArgs.push(a);
+  }
+  if (args.unknownArgs.length > 0) {
+    // JSON.stringify each token before echoing: argv is operator-controlled
+    // and may carry control / ANSI-escape characters; quoting neutralizes
+    // them and makes empty / whitespace-only tokens visible.
+    const shown = args.unknownArgs.map((t) => JSON.stringify(t)).join(", ");
+    process.stderr.write(
+      `emit.mjs: WARNING — ignored unrecognized argument(s): ${shown}\n` +
+        `  ${EMIT_USAGE}\n` +
+        `  note: a typo'd --no-strict-headroom leaves strict mode ON — ` +
+        `emission stays fail-safe, but the intended opt-out did NOT apply\n`,
+    );
   }
   return args;
 }
@@ -732,7 +1064,7 @@ function main() {
   const clis = args.all ? ["codex", "gemini"] : args.cli ? [args.cli] : null;
   if (!clis) {
     process.stderr.write(
-      "usage: emit.mjs [--cli codex|gemini] [--lang py|rs] [--all] [--out <dir>] [--dry-run] [-v]\n",
+      `${EMIT_USAGE}\n`,
     );
     process.exit(2);
   }
@@ -755,6 +1087,34 @@ function main() {
     overallPass = false;
     process.stderr.write(
       `VALIDATOR 14 FAIL (rule-authoring.md Rule 7):\n${v14.failures.map((l) => "  " + l).join("\n")}\n`,
+    );
+    process.exit(1);
+  }
+
+  // Validator 16 — strict-YAML manifest gate (journal 0080). MUST run
+  // BEFORE V15: V15's regex section parse is only meaningful on a
+  // syntactically valid manifest. PR #246's broken manifest passed the
+  // YAML-blind regex parser; this gate makes that impossible.
+  const v16 = validateManifestYaml();
+  console.log(`[validator-16] manifest-yaml: ${v16.pass ? "PASS" : "FAIL"}`);
+  if (!v16.pass) {
+    overallPass = false;
+    process.stderr.write(
+      `VALIDATOR 16 FAIL (sync-manifest.yaml strict-YAML, journal 0080):\n${v16.failures.map((l) => "  " + l).join("\n")}\n`,
+    );
+    process.exit(1);
+  }
+
+  // Validator 15 — manifest tier-completeness (journal 0078). Runs
+  // alongside V14 (structural, pre-emission): a rule absent from every
+  // tier is silently excluded from the subscription sync, so block
+  // before any CLI work — same fail-fast posture as V14.
+  const v15 = validateTierCompleteness();
+  console.log(`[validator-15] tier-completeness: ${v15.pass ? "PASS" : "FAIL"}`);
+  if (!v15.pass) {
+    overallPass = false;
+    process.stderr.write(
+      `VALIDATOR 15 FAIL (sync-manifest tier-completeness, journal 0078):\n${v15.failures.map((l) => "  " + l).join("\n")}\n`,
     );
     process.exit(1);
   }
@@ -798,6 +1158,24 @@ function main() {
         process.stderr.write(`  ${w}\n`);
       }
     }
+    if (result.budget_block_violations && result.budget_block_violations.length > 0) {
+      // Per-rule budget BLOCK — spec v6 §A.2 + sync-manifest.yaml
+      // per_rule_budget_block_threshold. ANY rule over budget * (1 +
+      // block_threshold) is a hard fail; emission is wrong by contract,
+      // not just over a soft target. Closes CDX-7 (2026-05-10 audit).
+      overallPass = false;
+      process.stderr.write(
+        `[${cli}] per-rule budget BLOCK (${result.budget_block_violations.length} rule${result.budget_block_violations.length > 1 ? "s" : ""} exceed block_threshold):\n`,
+      );
+      for (const v of result.budget_block_violations) {
+        process.stderr.write(
+          `  ${v.rule}: ${v.bytes}B over budget ${v.budget}B by +${v.over_by_pct}% (block_threshold ${v.block_threshold_bytes}B); over by ${v.over_by_bytes}B\n`,
+        );
+      }
+      process.stderr.write(
+        `[${cli}] remediation: per spec v6 §A.2, abridge the offending rule (move long examples to .claude/guides/rule-extracts/<rule>.md), tighten the per-rule budget, or demote the rule to path-scoped.\n`,
+      );
+    }
     if (result.tier === "BLOCK") {
       overallPass = false;
       process.stderr.write(
@@ -810,6 +1188,28 @@ function main() {
       process.stderr.write(
         `[${cli}] WARN: ${result.emission_bytes}B in [${32768}, ${61440}) — refactoring-signal tier (steady state per v6 §2.2).\n`,
       );
+    }
+    // v6.2 Shard 1 — per-lang headroom floor enforcement. Surfaces with
+    // ANY violation (independent of tier — a BLOCK is cap-breach, a
+    // floor breach is the canary BEFORE cap-breach). Always logs;
+    // strict-headroom mode (default on as of cycle-2; opt-out via
+    // --no-strict-headroom for test-harness) converts the log into a
+    // hard fail.
+    if (result.headroom_floor_violations && result.headroom_floor_violations.length > 0) {
+      const v = result.headroom_floor_violations[0];
+      const verdict = args.strictHeadroom ? "BLOCK" : "WARN";
+      process.stderr.write(
+        `[${cli}${args.lang ? " " + args.lang : ""}] headroom-floor ${verdict}: ` +
+          `${v.headroom_pct}% < ${v.headroom_floor_pct}% floor ` +
+          `(under by ${v.under_by_bytes}B; emission ${v.emission_bytes}B vs ` +
+          `floor ${v.headroom_floor_bytes}B / cap ${v.block_cap_bytes}B)\n`,
+      );
+      process.stderr.write(
+        `[${cli}${args.lang ? " " + args.lang : ""}] remediation: ${v.remediation}\n`,
+      );
+      if (args.strictHeadroom) {
+        overallPass = false;
+      }
     }
   }
 

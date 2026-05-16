@@ -24,12 +24,21 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURE_DIR = path.resolve(
-  __dirname,
-  "..",
-  "audit-fixtures",
-  "codex-mcp-guard",
-);
+
+// Layout detection (same shape as server.js::resolveCocRoot — fixtures
+// live under <coc-root>/audit-fixtures/codex-mcp-guard/). At loom dev
+// this resolves to <repo>/.claude; at multi-CLI USE templates / coc-
+// projects it resolves to <repo>/.claude via the .codex-mcp-guard/
+// → ../.claude detection. Both layouts converge on the same fixture path.
+function resolveCocRoot(here) {
+  const loomDev = path.resolve(here, "..");
+  if (fs.existsSync(path.join(loomDev, "audit-fixtures"))) return loomDev;
+  const useTemplate = path.resolve(here, "..", ".claude");
+  if (fs.existsSync(path.join(useTemplate, "audit-fixtures"))) return useTemplate;
+  return loomDev;
+}
+const COC_ROOT = resolveCocRoot(__dirname);
+const FIXTURE_DIR = path.join(COC_ROOT, "audit-fixtures", "codex-mcp-guard");
 
 const require = createRequire(import.meta.url);
 const server = require("./server.js");

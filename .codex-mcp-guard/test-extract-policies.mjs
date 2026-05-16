@@ -21,8 +21,23 @@ import { fileURLToPath } from "node:url";
 import { extractPolicies } from "./extract-policies.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const REPO = path.resolve(__dirname, "..", "..");
-const FIXTURE_DIR = path.join(REPO, ".claude", "fixtures", "validator-13");
+
+// Layout detection (same shape as server.js::resolveCocRoot — validator-13
+// fixtures live under <coc-root>/fixtures/validator-13/). At loom dev this
+// resolves to <repo>/.claude; at multi-CLI USE templates / coc-projects it
+// resolves to <repo>/.claude via the .codex-mcp-guard/ → ../.claude
+// detection. Previously hard-coded `..`,`..` which only resolved correctly
+// at the loom layout (.claude/codex-mcp-guard/) and was off-by-one when
+// emitted to multi-CLI top-level layout (.codex-mcp-guard/).
+function resolveCocRoot(here) {
+  const loomDev = path.resolve(here, "..");
+  if (fs.existsSync(path.join(loomDev, "fixtures"))) return loomDev;
+  const useTemplate = path.resolve(here, "..", ".claude");
+  if (fs.existsSync(path.join(useTemplate, "fixtures"))) return useTemplate;
+  return loomDev;
+}
+const COC_ROOT = resolveCocRoot(__dirname);
+const FIXTURE_DIR = path.join(COC_ROOT, "fixtures", "validator-13");
 const EXPECTED_PATH = path.join(FIXTURE_DIR, "expected-policies.json");
 
 // ────────────────────────────────────────────────────────────────

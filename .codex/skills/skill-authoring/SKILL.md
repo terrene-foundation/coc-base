@@ -29,7 +29,7 @@ Authoring a new skill. Auditing an existing skill for description-length, progre
 ## Directory Layout
 
 ```
-.claude/skills/<skill-name>/
+.codex/skills/<skill-name>/
 ├── SKILL.md                  ← primary entry, frontmatter-bearing
 ├── <topic-1>.md              ← progressive-disclosure depth
 ├── <topic-2>.md
@@ -152,7 +152,7 @@ The rule body is referenced from SKILL.md so its content reaches the model only 
 
 ## Cross-CLI Variant Overlays
 
-A skill authored at `.claude/skills/<name>/SKILL.md` is the canonical source. CLI-specific deltas live at `variants/<cli>/skills/<name>/SKILL.md` (or sub-files) and overlay only the diverging slot. See `rules/cross-cli-parity.md` and `guides/co-setup/05-variant-architecture.md` for the full overlay semantics.
+A skill authored at `.codex/skills/<name>/SKILL.md` is the canonical source. CLI-specific deltas live at `variants/<cli>/skills/<name>/SKILL.md` (or sub-files) and overlay only the diverging slot. See `rules/cross-cli-parity.md` and `guides/co-setup/05-variant-architecture.md` for the full overlay semantics.
 
 ### Slot-Marker Pattern
 
