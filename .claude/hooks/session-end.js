@@ -18,6 +18,7 @@ const {
   logObservation: logLearningObservation,
   countObservations,
 } = require("./lib/learning-utils");
+const { classifyCommitForJournal } = require("./lib/journal-classifier");
 
 // Timeout fallback — prevents hanging the Claude Code session
 const TIMEOUT_MS = 15000;
@@ -395,8 +396,15 @@ function generateJournalCandidates(cwd, sessionId, sessionDir) {
     const body = parts[2];
     if (!hash || !subject) continue;
 
-    const type = classifyCommitForJournal(subject, body || "");
-    if (!type) continue;
+    const verdict = classifyCommitForJournal(subject, body || "");
+    if (!verdict.type) {
+      // Per issue #114 acceptance criteria: log skipped commits to a
+      // per-workspace .journal-skipped.log so a future audit can verify
+      // nothing valuable was filtered. Single-line, grep-able shape.
+      appendJournalSkipLog(workspace.path, hash, verdict.skipReason, subject);
+      continue;
+    }
+    const type = verdict.type;
 
     const filename = `${Date.now()}-${count}-${type}.md`;
     const filepath = path.join(pendingDir, filename);
@@ -436,32 +444,24 @@ ${bodySection}
 }
 
 /**
- * Classify a commit by literal pattern matching (no semantic analysis).
- * Returns DECISION | DISCOVERY | RISK | null (skip).
+ * Append one line to the workspace's .journal-skipped.log.
+ *
+ * Format (per issue #114 acceptance criteria):
+ *   <journal-skip>commit=SHA12 reason=SLUG subject="SUBJECT"</journal-skip>\n
+ *
+ * Best-effort write — never throws. The log is gitignored
+ * (workspaces/* is gitignored at the repo root).
  */
-function classifyCommitForJournal(subject, body) {
-  const text = (subject + " " + (body || "")).toLowerCase();
-  // RISK: security/stability concerns mentioned in message
-  if (/\b(risk|concern|vulnerability|cve|security|exploit)\b/.test(text))
-    return "RISK";
-  // DISCOVERY: fixes for subtle bugs often reveal hidden behavior
-  if (
-    /^fix.*(race|leak|deadlock|corrupt|lost|regression)/.test(
-      subject.toLowerCase(),
-    )
-  )
-    return "DISCOVERY";
-  // DECISION: new features imply scope/architecture choices
-  if (/^feat(\(|:)/i.test(subject)) return "DECISION";
-  // DECISION: explicit decision language
-  if (/\b(decided|chose|trade-?off|alternative|rationale)\b/.test(text))
-    return "DECISION";
-  // DISCOVERY: explicit discovery language
-  if (/\b(discovered|found that|turns out|learned)\b/.test(text))
-    return "DISCOVERY";
-  // DECISION: commits touching architecture/decisions docs
-  if (/docs\/(adr|architecture|decisions)/.test(text)) return "DECISION";
-  return null; // routine commit — skip
+function appendJournalSkipLog(workspacePath, hash, skipReason, subject) {
+  try {
+    const logPath = path.join(workspacePath, ".journal-skipped.log");
+    const ts = new Date().toISOString();
+    const safeSubject = String(subject || "")
+      .replace(/[\r\n]/g, " ")
+      .slice(0, 200);
+    const line = `${ts} <journal-skip>commit=${hash.slice(0, 12)} reason=${skipReason} subject="${safeSubject}"</journal-skip>\n`;
+    fs.appendFileSync(logPath, line);
+  } catch {}
 }
 
 function cleanupOldSessions(sessionDir, keepCount) {

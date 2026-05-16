@@ -283,12 +283,12 @@ is_valid = verify_reasoning_signature(trace, signature, public_key)  # bool
 
 Confidentiality levels support ordering: `PUBLIC < RESTRICTED < CONFIDENTIAL < SECRET < TOP_SECRET`. Higher levels trigger automatic redaction in interop formats (W3C VC, SD-JWT).
 
-For deep coverage, see `.claude/skills/26-eatp-reference/eatp-sdk-reasoning-traces.md`.
+For deep coverage, see `.gemini/skills/26-eatp-reference/eatp-sdk-reasoning-traces.md`.
 
 ## For More Detail
 
-- **API Reference**: `.claude/skills/26-eatp-reference/eatp-sdk-api-reference.md`
-- **Patterns & Gotchas**: `.claude/skills/26-eatp-reference/eatp-sdk-patterns.md`
-- **Reasoning Traces**: `.claude/skills/26-eatp-reference/eatp-sdk-reasoning-traces.md`
+- **API Reference**: `.gemini/skills/26-eatp-reference/eatp-sdk-api-reference.md`
+- **Patterns & Gotchas**: `.gemini/skills/26-eatp-reference/eatp-sdk-patterns.md`
+- **Reasoning Traces**: `.gemini/skills/26-eatp-reference/eatp-sdk-reasoning-traces.md`
 - **Full Working Example**: `kailash/trust/examples/quickstart.py`
 - **Foundation Demo**: `kailash/trust/examples/foundation_deployment.py`

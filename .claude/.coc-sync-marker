@@ -1,35 +1,39 @@
 # COC Sync Marker — coc-base
-timestamp: 2026-05-13T02:51:45Z
+timestamp: 2026-05-16T13:36:54Z
 source: loom/.claude
 variant: base
-loom_version: 2.30.0
-loom_sha: f4048e2
+loom_version: 2.31.0
+loom_sha: 6bd4075
 clis: ["claude", "codex", "gemini"]
+catchup: true   # full catch-up from f4048e2 (2.30.0) → 6bd4075 (2.31.0), PR #241–#247
 stats:
-  updated: 11
-  created: 13
-  unchanged: 87
-  composed: 1
-  preserved_audit_fixtures: yes
+  updated: 19          # .claude/ MODIFIED (rules/commands/skills/hooks/bin + .coc-obsoleted + VERSION)
+  created: 9           # 3 co-tier NEW rules + 3 NEW hooks + 2 NEW bin/lib + 1 NEW bin
+  unchanged: many      # base-subscribed files already at HEAD
+  composed: 1          # rules/agents.md via compose.mjs (global@HEAD + variants/base neutral-body slot)
+  preserved_audit_fixtures: yes   # existing audit-fixtures subset preserved (not tier-subscribed; new fixtures NOT added)
+  g3_grep_count: 1     # grep -c 'Worktree-Isolate Parallel Agents That Edit Shared Source' rules/agents.md
+  sdk_pins: none       # base build:null — no pyproject.toml/Cargo.toml; SDK pins N/A
+  g5_gitignore: N/A    # git check-ignore .claude/bin/lib/slot-parser.mjs → not ignored; no !.claude/bin/lib/ negation needed
   baselines_emitted:
-    cc: 0
-    codex: 1
-    gemini: 1
+    cc: 0              # CLAUDE.md preserved (template-owned)
+    codex: 1           # AGENTS.md re-emitted (emit.mjs --cli codex, base default lang)
+    gemini: 1          # GEMINI.md re-emitted (emit.mjs --cli gemini, base default lang)
   baseline_emission_bytes:
     block_cap_bytes: 61440
     warn_cap_bytes: 32768
     codex:
-      rules: 10
-      bytes: 52956
+      rules: 9
+      bytes: 53015
       tier: WARN
-      headroom_bytes: 8484
-      headroom_pct: 13.81
+      headroom_bytes: 8425
+      headroom_pct: 13.71
     gemini:
-      rules: 10
-      bytes: 52965
+      rules: 9
+      bytes: 53244
       tier: WARN
-      headroom_bytes: 8475
-      headroom_pct: 13.79
+      headroom_bytes: 8196
+      headroom_pct: 13.34
   cli_artifacts:
     codex:
       prompts: 10
@@ -38,8 +42,39 @@ stats:
       commands: 10
       skills: 6
       agents: 5
+  coc_obsoleted:
+    before_paths: 20
+    after_paths: 41
+    added: 21          # v2.29.0 skill-audit removals + independence/terrene rules + variant entries
+    removed: 0
+flagged_followups:
+  - id: base-rule-extracts-dangling-by-design
+    severity: design-decision-required
+    scope: loom-side (out of scope for this catch-up)
+    note: |
+      base carries co-tier rules whose prose delegates to
+      .claude/guides/rule-extracts/<rule>.md (notably the #244/#247-abridged
+      repo-scope-discipline.md → BLOCKED-corpus + post-mortem live only in the
+      extract). base is not subscribed to guides/rule-extracts/** in any base
+      tier, so these refs are dangling-by-design. The #244/#247 abridgement
+      widens this gap. Disposition: requires a deliberate base-tier-design
+      decision (add guides/rule-extracts/** to a base-subscribed tier, OR keep
+      base rules self-contained by NOT abridging co-tier rules that ship to
+      base) — out of scope for this catch-up, tracked for loom-side resolution.
 notes: |
-  Tier subscriptions: cc + co + onboarding (base variant is Kailash-agnostic).
+  Full catch-up: f4048e2 (2.30.0) → 6bd4075 (2.31.0), spanning PR #241–#247.
+  Tier subscriptions: cc + co + onboarding (base variant is Kailash-agnostic);
+  coc-tier content correctly NOT emitted (sync.md/release.md/migrate.md/
+  deploy.md/sync-completeness.md/cli-orchestrator.md/guides-codex remain absent
+  — NO-OP, not regression).
+  3 co-tier silent-omission rules added NEW (repo-scope-discipline.md,
+  sweep-completeness.md, verify-resource-existence.md) — PR #245 tier
+  reconciliation lag closed. repo-scope-discipline.md carries the #244
+  User-Authorized Exception + #247 G2 cross-repo-authorized condition-4 marker.
+  rules/agents.md composed carries #247 G3 (Worktree-Isolate Parallel Agents
+  That Edit Shared Source) + Example 10.
+  Tier-independent runtime infra refreshed: emit.mjs (V15/V16), violation-
+  patterns.js (G2 detectRepoScopeDriftBash), + 3 NEW hooks + 2 NEW bin/lib.
   multi_cli_overlays.multi-cli applied: .codex/, .codex-mcp-guard/, .gemini/,
-  AGENTS.md, GEMINI.md. CLI baselines emitted with --lang base.
-  3 new meta-skills shipped: skill-authoring, command-authoring, hook-authoring.
+  AGENTS.md, GEMINI.md; CLI baselines emitted with base default lang.
+  .coc-obsoleted regenerated to full HEAD obsoleted∪use_obsoleted union (41).

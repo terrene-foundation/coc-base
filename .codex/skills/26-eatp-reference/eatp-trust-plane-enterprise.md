@@ -145,4 +145,4 @@ All trace to `TrustPlaneError` with `.details: dict[str, Any]`. Key branches:
 
 ## See Also
 
-- `.claude/skills/project/trust-plane-security-patterns.md` — 13 security patterns
+- `.codex/skills/project/trust-plane-security-patterns.md` — 13 security patterns

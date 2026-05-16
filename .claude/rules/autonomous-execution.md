@@ -81,7 +81,7 @@ A single shard (one session, one worktree, one implementation pass) MUST stay wi
   update all 14 call sites, add integration tests, migrate legacy callers
 ```
 
-**Why:** Beyond the budget the model stops tracking cross-file invariants and pattern-matches instead. Errors on line 400 poison everything after and surface only at `/redteam`. Evidence: the Phase 5.11 orphan (2,407 LOC of trust integration code with zero production call sites) was one conceptual change that exceeded the invariant budget — nothing caught it until the audit.
+**Why:** Beyond the budget the model stops tracking cross-file invariants and pattern-matches instead. Errors on line 400 poison everything after and surface only at `/redteam`. See Origin for Phase 5.11 evidence.
 
 ### 2. Size By Complexity, Not LOC Alone (MUST)
 
@@ -142,7 +142,7 @@ When a gate-level review (reviewer, security-reviewer, gold-standards-validator)
 - "Budget allows it but the blast radius is higher if something breaks"
 - "Splitting into two PRs is the conservative approach"
 
-**Why:** Same-bug-class gaps surfaced during review cost the least to fix while the context is loaded — the invariants, call graph, and domain model are all warm in attention. Filing a follow-up issue requires the next session to reload the entire context from scratch, typically 2–5× the marginal cost of continuing. Evidence: 2026-04-20 — a reviewer flagged 40+ sibling sites with the same hardcode pattern as the just-fixed PR. The agent filed a follow-up issue instead of fixing; the user pushed back ("why aren't you resolving it"); the fix shipped same session. Filing the follow-up wasted one user-turn of friction and one session-handoff context-reload that was unnecessary.
+**Why:** Same-bug-class gaps surfaced during review cost the least to fix while the context is loaded — the invariants, call graph, and domain model are all warm in attention. Filing a follow-up issue requires the next session to reload the entire context from scratch, typically 2–5× the marginal cost of continuing. See Origin for 2026-04-20 + cross-class evidence (kailash-rs PRs #735/#736, kailash-kaizen PR #836).
 
 **Bounded by the shard budget.** This rule does NOT override MUST Rule 1 (shard threshold). If the surfaced gap exceeds ≤500 LOC load-bearing / ≤5–10 invariants / ≤3–4 call-graph hops, filing the follow-up issue IS the correct disposition — the gap is a new shard, not a continuation of the current one.
 
