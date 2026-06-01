@@ -1,0 +1,9 @@
+---
+type: DISCOVERY
+date: 2026-05-23
+---
+
+# No references frontmatter
+
+This entry has no `references:` array in its frontmatter; nothing to
+verify. MUST-6 cannot be violated because nothing was cited.

@@ -1,0 +1,1 @@
+gh issue close 234 --reason "$REASON" --comment "$COMMENT"

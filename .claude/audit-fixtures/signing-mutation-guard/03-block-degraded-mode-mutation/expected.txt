@@ -1,0 +1,7 @@
+severity: block
+exit_code: 2
+continue: false
+stderr_tag: [BLOCK]
+predicate: signing key absent + working-tree-mutation predicate fires (Edit on tracked path)
+why: multi-operator-coc/signing-mutation-guard R5-S-03 — degraded mode is READ-ONLY via working-tree-mutation predicate
+agent_must_report cites: operation=edit-write, target path, run /whoami --register

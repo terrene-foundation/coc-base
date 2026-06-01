@@ -1,0 +1,12 @@
+{
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Edit",
+  "tool_input": {
+    "file_path": "<repo>/src/lib/foo.js"
+  },
+  "cwd": "<repo>",
+  "_env": {
+    "COC_OPERATOR_KEY_PATH": "<absolute path to a valid ssh ed25519 key>"
+  },
+  "_setup_note": "signing key resolves + no sibling contention → passthrough"
+}

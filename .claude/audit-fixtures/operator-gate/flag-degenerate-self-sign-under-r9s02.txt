@@ -1,0 +1,28 @@
+# operator-gate audit fixture: flag — degenerate self-sign attempt for
+# compaction-checkpoint / generation-rotation under REVOCATION-induced N=1
+# (R9-S-02 fence fires).
+#
+# Predicate: when derived-N=1 traces to a settled
+# collaborator-distinctness-revocation (NOT a genuine genesis N=1),
+# compaction-checkpoint and generation-rotation are NOT self-signable.
+# `lib/r9s02-fence.js::gateEligibleForSelfSignedCheckpointOrRotation`
+# returns eligible:false; the gate matrix MUST refuse.
+#
+# Input shape:
+#   command = "/wrapup --checkpoint"  (compaction-checkpoint emission)
+#   requester_person_id = "person:owner-alpha"
+#   approver_person_id  = "person:owner-alpha"  ← attempted self-sign
+#   foldedState.derived_N = 1
+#   foldedState.records  = [
+#     { type: "collaborator-distinctness-attestation", ... },  ← historical attestation
+#     { type: "collaborator-distinctness-revocation",  ... },  ← settled
+#   ]
+#   (Per r9s02-fence: ANY attestation in log = owner-add history occurred =
+#    current N=1 is revocation-induced, not genuine-genesis.)
+#
+# Expected gate evaluation:
+#   matrix_row = "compaction-checkpoint" / "generation-rotation"
+#   r9s02_fence: eligible:false, reason cites "R9-S-02 fence"
+#   self_approvable = false
+#   halt = true (halt-and-report)
+#   why = "operator-gate/r9s02-fence"

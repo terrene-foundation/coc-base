@@ -1,0 +1,25 @@
+{
+  "hook_event_name": "SessionStart",
+  "cwd": "<repo>",
+  "env": {
+    "COC_TEST_FINGERPRINT": "SHA256:alice-test-fingerprint",
+    "COC_TEST_PERSON_ID": "p-alice"
+  },
+  "roster": {
+    "genesis": {
+      "repo_owner": "alice",
+      "repo_owner_kind": "user",
+      "root_commit": "abc",
+      "genesis_generation": 0
+    },
+    "persons": {
+      "p-alice": {
+        "display_id": "alice",
+        "role": "owner",
+        "github_login": "alice",
+        "host_role": "human",
+        "keys": [{ "fingerprint": "SHA256:alice-test-fingerprint" }]
+      }
+    }
+  }
+}

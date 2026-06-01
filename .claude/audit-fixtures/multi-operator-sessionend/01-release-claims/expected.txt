@@ -1,0 +1,5 @@
+continue: true
+A release record with content.claim_id=my-claim-1 MUST be appended to
+coordination-log.jsonl.
+.session-end-cache MUST cache the released claim_id list.
+exit_code: 0

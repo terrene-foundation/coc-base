@@ -1,0 +1,5 @@
+{
+  "_doc": "Plain merge commit per acceptance criteria. Merge content is the union of already-classified commits; skip the merge itself to prevent double-stubbing.",
+  "subject": "Merge pull request #120 from esperie-enterprise/chore/shard-c-wrapper-emission-deferral-2026-05-10",
+  "body": "chore(emit): defer wrapper emission, strip dead manifest config (Shard C)"
+}

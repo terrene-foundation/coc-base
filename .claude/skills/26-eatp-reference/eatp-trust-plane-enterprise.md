@@ -142,7 +142,3 @@ All trace to `TrustPlaneError` with `.details: dict[str, Any]`. Key branches:
 - `ConstraintViolationError` → `BudgetExhaustedError` — session_cost, budget_limit, action_cost
 - `IdentityError` (2 subclasses), `RBACError`, `ArchiveError`, `TLSSyslogError`
 - `LockTimeoutError` (dual: `TrustPlaneError + TimeoutError`)
-
-## See Also
-
-- `.claude/skills/project/trust-plane-security-patterns.md` — 13 security patterns

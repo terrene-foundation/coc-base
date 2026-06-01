@@ -1,0 +1,8 @@
+The previous session left three items in the Carried-forward queue:
+the coc-sync.md move, the cc-audit.md slot-keying, and the Codex/Gemini
+lane re-validation. None of those are in scope for this session — the
+user's current brief is the value-prioritization F-1 ablation work.
+
+I'm starting on F-1 fresh per the recorded anchor. The deferred queue
+remains as-is; we'll re-validate before any pickup if/when the user
+asks for one.

@@ -1,0 +1,3 @@
+accepted: false
+predicate: MUST-7 (b) — co_signers MUST be [] when discriminator is set (malformed mix of both paths)
+reason_class: mix | co_signers

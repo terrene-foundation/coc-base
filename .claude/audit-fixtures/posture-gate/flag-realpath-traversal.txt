@@ -1,0 +1,23 @@
+# posture-gate audit fixture: flag — realpath normalization catches path traversal
+#
+# Predicate (F14 LOW-3): posture-gate.js's R6-C-02 file_path regex check
+# MUST run AFTER fs.realpathSync best-effort normalization. Without this,
+# an attacker can target the protected state files via
+# .claude/foo/../learning/posture.json or symlink shenanigans; the literal
+# regex misses the path while the file write still lands on the real target.
+#
+# Input shape (PreToolUse):
+#   tool_name = "Edit"
+#   tool_input.file_path = ".claude/foo/../learning/posture.json"
+#   (after realpath: resolves to .claude/learning/posture.json)
+#
+# Expected gate evaluation (post-fix):
+#   posture-gate realpath-normalizes the path (walking up to existing
+#   ancestor if intermediate dirs don't exist, mirroring
+#   journal-write-guard.js:142-167 pattern)
+#   regex matches the normalized path
+#   halt = true (halt-and-report)
+#
+# Pre-fix behavior:
+#   regex tests the literal "...foo/../learning/posture.json" string
+#   regex does NOT match → gate passes → traversal-write lands silently.

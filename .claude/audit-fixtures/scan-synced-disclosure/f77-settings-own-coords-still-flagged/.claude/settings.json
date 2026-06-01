@@ -1,0 +1,10 @@
+{
+  "description": "F77 own-coords-still-flagged fixture (#386) — synced settings.json carrying the maintainer's OWN dev-home path inside a permissions.allow tool-call matcher. The Option-1 allowlist suppresses `/Users/esperie/` in PROSE; this fixture proves the new settings-permission-absolute-path SHAPE does NOT inherit that suppression. A tool-call matcher in a synced permissions.allow array is intrinsically wrong regardless of which operator's path it carries — the matcher form encodes a runtime authorization scope keyed to an absolute filesystem path, which is broken for every downstream consumer's session.",
+  "permissions": {
+    "allow": [
+      "Edit(/Users/esperie/repos/loom/kailash-*/**)",
+      "Read(/Users/esperie/repos/loom/kailash-*/**)"
+    ],
+    "deny": []
+  }
+}

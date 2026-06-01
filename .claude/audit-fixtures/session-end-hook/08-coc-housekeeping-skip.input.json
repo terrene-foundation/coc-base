@@ -1,0 +1,5 @@
+{
+  "_doc": "COC sync delivery / telemetry-drift landing. Pure pipeline movement — no novel design content. Pre-fix: chore subjects were already null (no keyword match in body), but post-fix this is now an explicit skipReason so the audit log differentiates housekeeping from random chore.",
+  "subject": "chore(coc): land telemetry drift (observations + violations)",
+  "body": "Append-only jsonl runtime telemetry from prior sessions. Lands per coc-sync-landing.md MUST-1."
+}

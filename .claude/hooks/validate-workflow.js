@@ -17,6 +17,9 @@
  *   other = non-blocking error
  */
 
+// SWEEP-EXEMPT-STUB-MARKERS: this file IS the stub-marker detector; literal strings are detection patterns, not stubs.
+// See .claude/audit-fixtures/sweep-stub-marker-false-positives/README.md for the convention.
+
 const fs = require("fs");
 const path = require("path");
 const { parseEnvFile, getModelProvider } = require("./lib/env-utils");

@@ -1,0 +1,15 @@
+{
+  "hook_event_name": "Stop",
+  "env": {
+    "COC_TEST_FINGERPRINT": "SHA256:alice-test-fingerprint",
+    "COC_TEST_PERSON_ID": "p-alice",
+    "COC_TEST_SKIP_SIGN": "1",
+    "COC_TEST_FORCE_CHECKPOINT": "1"
+  },
+  "roster": {
+    "persons": {
+      "p-alice": { "role": "owner", "host_role": "human", "keys": [{ "fingerprint": "SHA256:alice" }] },
+      "p-bob":   { "role": "owner", "host_role": "human", "keys": [{ "fingerprint": "SHA256:bob"   }] }
+    }
+  }
+}

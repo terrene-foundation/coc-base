@@ -1,0 +1,3 @@
+accepted: false
+predicate: MUST-7 (c) freshness — capture_ts older than MIGRATION_LIVENESS_TTL (15 min) relative to record.ts
+reason_class: stale | freshness

@@ -17,11 +17,11 @@ Authoring a new slash command. Auditing an existing command for line cap, neutra
 
 ## Quick Reference
 
-| CLI    | On-disk path                   | Format   | Slash invocation  | Frontmatter shape                                                             |
-| ------ | ------------------------------ | -------- | ----------------- | ----------------------------------------------------------------------------- |
-| CC     | `.claude/commands/<name>.md`   | Markdown | `/<name>`         | YAML: `name:` + `description:` + optional `argument-hint:` / `allowed-tools:` |
-| Codex  | `.codex/prompts/<name>.md`     | Markdown | `/prompts:<name>` | Same YAML, preserved from source                                              |
-| Gemini | `.gemini/commands/<name>.toml` | TOML     | `/<name>`         | `name`, `description`, `prompt = '''…'''`, optional `tools = [...]`           |
+| CLI    | On-disk path                   | Format   | Slash invocation                                                                                                                                 | Frontmatter shape                                                             |
+| ------ | ------------------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
+| CC     | `.claude/commands/<name>.md`   | Markdown | `/<name>`                                                                                                                                        | YAML: `name:` + `description:` + optional `argument-hint:` / `allowed-tools:` |
+| Codex  | `.codex/prompts/<name>.md`     | Markdown | `bin/coc <name> "<prompt>"` (deprecated upstream: `/prompts:<name>` is no longer loaded by Codex CLI 0.128+ — `bin/coc` dispatcher is canonical) | Same YAML, preserved from source                                              |
+| Gemini | `.gemini/commands/<name>.toml` | TOML     | `/<name>`                                                                                                                                        | `name`, `description`, `prompt = '''…'''`, optional `tools = [...]`           |
 
 | Constraint       | Value                                                                                                                                           |
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -85,6 +85,8 @@ Per `rules/cc-artifacts.md` Rule 3: commands inject as user messages and compete
 - Rule enforcement / boundary checks → **rules** (always-on, frontmatter-scoped).
 
 If a command exceeds 150 lines, the fix is almost always extraction — move the reference block into a numbered skill the command references.
+
+The ≤150-line cap is an **output-quality** discipline, not only a budget one: per the curation/over-density principle (`rules/rule-authoring.md` MUST NOT § "Rules longer than 200 lines" + cc-architect dimension 7, grounded in journal/0193's directional ablation), a body whose load-bearing steps are drowned in non-load-bearing prose degrades the OUTPUT of the agent that loads it. Surfacing over-density at audit time is an advisory FINDING (recommend extraction), never a structural FAIL.
 
 ## Neutral Phrasing — Cross-CLI Hygiene
 
@@ -203,7 +205,7 @@ New command in `.claude/commands/` but not in `sync-manifest.yaml` ships to nobo
 
 ### 4. Native-Primitive Shadow
 
-Authoring `.claude/commands/review.md` without an exclusion entry causes the emitter to overwrite Codex's native `codex review` invocation with a redirected prompt. Fix: add `commands/review.md` to `cli_emit_exclusions.codex` BEFORE the command lands.
+Authoring a `review` command file (shadowing Codex's native `codex review`) without an exclusion entry causes the emitter to overwrite the native invocation with a redirected prompt. Fix: add that command to `cli_emit_exclusions.codex` BEFORE it lands.
 
 ### 5. Description As Sentence Paragraph
 

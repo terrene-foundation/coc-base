@@ -70,23 +70,13 @@ When delegating IMPLEMENTATION work (file edits, commits, build/test invocation,
 
 ## MUST: Audit/Closure-Parity Verification Specialist Has Bash + Read
 
-When delegating a /redteam round whose mission includes **closure-parity verification** (mapping prior-wave findings to delivered code via `gh pr view`, `pytest --collect-only`, `grep`, `ast.parse()`, `find`), the orchestrator MUST select a specialist whose tool set includes `Bash` AND `Read`. Read-only analyst (`Read, Grep, Glob`) MUST NOT be assigned closure-parity verification — its tool set silently FORWARDS verification rows the next round must redo. Extends § "Verify Specialist Tool Inventory" above from IMPLEMENTATION to AUDIT delegation.
+When delegating a /redteam round whose mission includes **closure-parity verification** (mapping prior-wave findings to delivered code via `gh pr view`, `pytest --collect-only`, `grep`, `ast.parse()`, `find`, `cargo nextest`), the orchestrator MUST select a specialist whose tool set includes `Bash` AND `Read`. Read-only analyst (`Read, Grep, Glob`) MUST NOT be assigned closure-parity verification — its tool set silently FORWARDS verification rows the next round must redo. Extends § "Verify Specialist Tool Inventory" above from IMPLEMENTATION to AUDIT delegation.
 
-(See **Example 4** in the examples slot below for closure-parity dispatch.)
+(See **Example 4** for closure-parity dispatch; **Example 5** for the delegation-time scan pattern.)
 
-**Delegation-time detection signals (orchestrator self-check before launch).** Before delegating, the orchestrator MUST scan the prompt-being-drafted for closure-parity mission markers. Presence of ANY of the following in the prompt obligates a Bash+Read specialist (general-purpose, pact-specialist, or framework specialist with full tool inventory) — selecting analyst with these markers present is BLOCKED:
+**BLOCKED (summary):** "analyst is the audit specialist" / "reviewer round picks up the FORWARDED rows" / "agent will figure out it lacks the tool". Full corpus + delegation-time detection signals (verification verbs / Bash-required commands / closure-parity nouns) + BLOCKED auto-promotion rationalizations + multi-incident Origin evidence: see `.claude/skills/30-claude-code-patterns/closure-parity-specialist-discipline.md`.
 
-- Verification verbs: "verify closure", "closure parity", "FORWARDED → VERIFIED", "convert FORWARDED rows", "map findings to delivered code"
-- Bash-required commands named in mission: `gh pr view`, `gh pr diff`, `gh issue view`, `pytest --collect-only`, `ast.parse(`, `cargo nextest`, `find -type f`, `grep -c`
-- Closure-parity nouns: "Round N closure parity", "post-merge verification", "wave-N → wave-N+1 audit", "redteam round N convergence check"
-
-The orchestrator MUST run this scan as a pre-flight before EVERY closure-parity-class delegation; surfacing the mismatch at delegation-time is O(1), re-launching after the agent FORWARDS rows is O(N) on row count and burns the round.
-
-(See **Example 5** in the examples slot below for the delegation-time scan pattern.)
-
-**BLOCKED auto-promotion rationalizations:** "I'll let the agent figure out it lacks the tool" / "Analyst handles audit by name, the markers don't override" / "Execution-time error is fine; the agent will surface it" / "Skipping the scan saves the orchestrator one step".
-
-**Why:** Tool-inventory mismatch costs one full audit round; verifying pre-launch is O(1) while re-launch is O(N) on row count. The delegation-time scan converts the Bash+Read specialist mandate from a recall-it-yourself principle into a draft-time check the orchestrator runs every cycle.
+**Why:** Tool-inventory mismatch costs one full audit round; verifying pre-launch is O(1) while re-launch is O(N) on row count.
 
 ## MUST: Worktree Isolation for Compiling Agents
 
@@ -150,7 +140,7 @@ When launching ≥2 parallel agents whose worktrees touch the SAME sub-package, 
 
 ## Examples (Codex-native delegation syntax)
 
-The MUST clauses below reference numbered examples here. Codex has no native specialist-by-name primitive; loom emits `.codex/prompts/specialist-<name>.md` per `.claude/agents/**/<name>.md`. Patterns: (a) `/prompts:specialist-<name>` (headless+interactive); (b) worker-subagent spawn with the prompt as spec (interactive only); (c) = (a) in headless.
+The MUST clauses below reference numbered examples here. Codex has no native specialist-by-name primitive. OpenAI deprecated custom prompts 2026-05-28 (issue #385); repo-local `.codex/prompts/` is no longer loaded by Codex CLI 0.128+ (openai/codex#9848). loom still ships `.codex/prompts/specialist-<name>.md` per `.claude/agents/**/<name>.md` as on-disk operating-spec content; invoke by inline-cat injection via `bin/coc <phase> "$(cat .codex/prompts/specialist-<name>.md)\n\nTask: ..."` or by natural-language subagent spawn referencing the file path (interactive only).
 
 ### Example 1 — Parallel Brief-Claim Verification (≥3-issue brief)
 
@@ -259,6 +249,10 @@ When a gate-level review (reviewer, security-reviewer, gold-standards-validator)
 
 **Bounded by the shard budget.** This rule does NOT override MUST Rule 1 (shard threshold). If the surfaced gap exceeds ≤500 LOC load-bearing / ≤5–10 invariants / ≤3–4 call-graph hops, filing the follow-up issue IS the correct disposition — the gap is a new shard, not a continuation of the current one.
 
+## Multi-Operator Capacity Considerations
+
+Concurrent-operator capacity guidance — per-operator capacity bounded per-`verified_id` (not per-session), cross-operator parallelization throughput multiplier (NON-SAME adjacency only), `/claim`-record discipline as the coordination signal — lives in `rules/multi-operator-coordination.md` §8. That rule is `scope: path-scoped` so the capacity clauses load only on paths where multi-operator coordination applies, keeping this baseline rule under its per-rule emission budget.
+
 ## MUST NOT (Sharding)
 
 - Size shards by LOC alone, ignoring invariant count and call-graph depth
@@ -279,7 +273,7 @@ When a gate-level review (reviewer, security-reviewer, gold-standards-validator)
 See `.claude/guides/rule-extracts/coc-sync-landing.md` for BLOCKED-rationalizations, extended bash examples, origin post-mortem, MUST NOT clauses, and cross-rule relationships.
 
 
-Loom's `/sync-to-build` delivery MUST land on `main` BEFORE any other session work. Pairs with `.claude/hooks/coc-drift-warn.js` (SessionStart).
+Loom's `/sync-to-build` delivery MUST land on `main` BEFORE any other session work. Pairs with `.claude/hooks/multi-operator-sessionstart.js` (SessionStart).
 
 ## MUST Rules
 
@@ -377,7 +371,7 @@ Any PR whose diff is metadata-only — version anchors (`pyproject.toml` / `Carg
 
 Before the FIRST `git push` that creates a remote branch, the agent MUST run the project's local CI parity command set (Rust: `cargo +nightly fmt --all --check` + `cargo clippy -- -D warnings` + `cargo nextest run` + `RUSTDOCFLAGS="-Dwarnings" cargo doc`. Python: `pre-commit run --all-files` + `pytest` + `mypy --strict`). All MUST exit 0 → push.
 
-**Why:** With `concurrency: cancel-in-progress: true` on the workflow, prior in-flight runs are cancelled — but **the cancelled runs are still billed for the wall-clock minutes already consumed before cancellation**. Pre-flighting takes ~5-10 min; the alternative is N × 45 min of billed CI per fix-up cycle. See guide for the 71-minute mid-flight cancel evidence.
+**Why:** With `concurrency: cancel-in-progress: true`, prior in-flight runs are cancelled but **still billed for the wall-clock minutes consumed before cancellation**. Pre-flighting takes ~5-10 min; the alternative is N × 45 min of billed CI per fix-up cycle. See guide for the 71-minute mid-flight cancel evidence + the full Rust/Python command set.
 
 ## Branch Protection
 
@@ -391,11 +385,11 @@ CC system prompt provides the template. Always include a `## Related issues` sec
 
 **Why:** Without issue links, PRs become disconnected from their motivation, breaking traceability and preventing automatic issue closure on merge.
 
-## `git reset --hard` MUST Verify Clean Working Tree (MUST)
+## Destructive Working-Tree Ops MUST Verify Clean Working Tree (MUST)
 
-`git reset --hard <ref>` SILENTLY discards every unstaged modification AND every untracked file in the affected paths. Recovery is impossible — unstaged content has no reflog entry. Running `git reset --hard` without first verifying `git status --porcelain` is empty is BLOCKED. Prefer `git reset --keep <ref>`, which performs the same commit-graph operation BUT aborts if it would lose local changes.
+`git reset --hard <ref>`, `git clean -f[d]`, and `rm -rf` of untracked paths all SILENTLY and IRRECOVERABLY destroy uncommitted work — unstaged modifications AND untracked-not-ignored files have NO reflog. Running any without first verifying `git status --porcelain` is empty is BLOCKED. Prefer `git reset --keep <ref>` (aborts on a dirty tree) and `git stash -u` over `git clean -f`. The `.claude/hooks/validate-bash-command.js` tripwire enforces this at the Bash boundary.
 
-**Why:** `git reset --hard` is the most destructive git operation that doesn't rewrite history — and unlike force-push, the destruction is unrecoverable. `git reset --keep` exists in git specifically to provide the same effect with structural safety. Sibling of `dataflow-identifier-safety.md` Rule 4 (DROP) and `schema-migration.md` Rule 7 (downgrade) — same structural-confirmation pattern.
+**Why:** The most destructive working-tree ops that don't rewrite history; unlike force-push the loss is unrecoverable (no reflog). `git reset --keep` / `git clean -n` convert silent loss into a loud refusal/preview. See guide for the #401 incident + the `dataflow-identifier-safety.md` Rule 4 / `schema-migration.md` Rule 7 siblings.
 
 ## Rules
 
@@ -455,7 +449,9 @@ The agent never self-authorizes. But the user owns the operating envelope (`rule
 
 ## Exceptions
 
-NONE the agent may invoke on its own judgment (see § User-Authorized Exception for the only user-initiated path). Descriptive sibling mentions are OK when informational, not prescriptive. The rule does NOT apply at orchestration roots (`~/repos/`, `loom/`) where cross-repo coordination IS the purpose (`/sync`, `/sync-to-build`, `/inspect`, `/repos`).
+NONE the agent may invoke on its own judgment (see § User-Authorized Exception for the only user-initiated path). Descriptive sibling mentions are OK when informational, not prescriptive. The rule does NOT apply at orchestration roots (`~/repos/`, `loom/`) where cross-repo coordination IS the purpose: artifact-distribution (`/sync`, `/sync-to-build`, `/inspect`, `/repos`) AND co-owner-directed cross-repo governance reads (per a User-Authorized Exception grant). **loom is the SOLE carve-out holder**; every downstream consumer is bound by the strict in-repo discipline (a consumer is never an orchestration root). The carve-out lifts the scope boundary for the _operation_ only: a cross-repo WRITE still needs the five conditions, and a cross-repo READ outside artifact-distribution still needs an explicit journaled grant. See extract for the loom-sole-holder rationale + governance-read walkthrough.
+
+Note: at the orchestration root, cross-repo targets are enumerated _explicitly_ via `bin/lib/loom-links.mjs::resolveRepo` / `resolveAll` (per `cross-repo.md` MUST-1) — no positional discovery, governance siblings (`governance.csq`, `governance.aegis`) included. The carve-out lifts the scope boundary for the _operation_, never the resolver requirement.
 
 ---
 

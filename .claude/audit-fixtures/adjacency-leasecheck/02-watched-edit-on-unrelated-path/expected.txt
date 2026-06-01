@@ -1,0 +1,5 @@
+severity: (silent — INDEPENDENT)
+exit_code: 0
+continue: true
+stderr: (empty — no tag)
+side_effect: signed `claim` record appended to coordination log (auto-claim)

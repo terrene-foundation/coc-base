@@ -1,0 +1,33 @@
+F14 / HIGH-3 fixture — Rule 3 fork detection on signed siblings.
+
+Scenario:
+  - Roster: one owner (pid-A) with valid SSH key.
+  - Record set:
+      sibling1: heartbeat signed by pid-A, seq=0, content { branch: "A" }
+      sibling2: heartbeat signed by pid-A, seq=0, content { branch: "B" }
+    (both fully signed — pre-shape-validation requires record.sig)
+
+Submission:
+  require("coordination-log.js").foldLog([sibling1, sibling2], roster, {})
+
+Expected:
+  forks[] length === 1
+  forks[0].verified_id === kA.fingerprint
+  forks[0].seq === 0
+
+Reachability analysis (HIGH-3):
+  The defensive sig-skip in _checkRule3 (coordination-log.js:689) is
+  STRUCTURALLY UNREACHABLE: _validateRecordShape (line 532) requires
+  record.sig to be a non-empty string AND shape validation runs BEFORE
+  rule 3 in the engine loop (lines 997-1004). A record reaching rule 3
+  always has a valid sig string. The sig-skip clause exists as
+  defense-in-depth against future shape-validation regressions; this
+  fixture pins the ordering invariant via the negative test:
+
+    "HIGH-3: sig-less records are rejected at shape validation before rule 3"
+    -> asserts rejected[0].rule === "shape" (not "rule-3")
+    -> asserts forks.length === 0 for sig-less inputs
+
+Test: tests/integration/multi-operator/substrate-hardening.test.js
+      :: "HIGH-3: sig-less records are rejected at shape validation before rule 3"
+      :: "HIGH-3: rule 3 detects fork between two signed siblings at (verified_id, seq)"

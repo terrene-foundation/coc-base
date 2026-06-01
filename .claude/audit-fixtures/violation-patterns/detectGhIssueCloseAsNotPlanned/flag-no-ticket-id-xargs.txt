@@ -1,0 +1,1 @@
+gh issue list --state open | xargs gh issue close --reason not_planned

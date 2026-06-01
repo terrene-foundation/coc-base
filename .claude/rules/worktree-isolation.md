@@ -95,24 +95,26 @@ python3 tools/sweep-redteam.py --json specs/core-runtime.md  # authoritative
 
 **Why:** Tools that resolve their workspace root via `Path(__file__).parent.parent` (Python), `cargo locate-project` (Rust), or `package.json` discovery (Node) are bound to whichever checkout owns the SCRIPT BINARY — not the invoker's CWD. Source-of-truth example: `tools/sweep-redteam.py:65` sets `ROOT = Path(__file__).resolve().parent.parent`, so an in-worktree invocation scans the main checkout and reports gaps the worktree's own edits already closed. The post-merge re-run is the only invocation where the script's resolved ROOT and the verified state actually coincide.
 
-### 4. Parallel-Launch Burst Size Limit (Waves of ≤3)
+### 4. Parallel-Launch Concurrency Is Throttle-Aware Adaptive (Not A Fixed Cap)
 
-When launching multiple Opus agents with `isolation: "worktree"` in a single orchestration turn, the parent MUST launch them in waves of ≤3, NOT a single burst of 4+. Bursts of 4+ simultaneous Opus agents hit Anthropic server-side rate limiting and ALL fail at 30–45s elapsed. Rate-limit failures exit the agent before it commits anything.
+When launching multiple Opus-tier agents in one orchestration turn — worktree-isolated OR plain parallel / deterministic-orchestration subagents — the parent MUST govern concurrency by an ADAPTIVE back-off model, NOT a fixed number and NOT the runtime's native ceiling. Cold start (no throttle signal yet this session): cap the first wave at **~3 concurrent Opus-tier agents** — NOT the runtime's native `min(16, cores−2)` cap (empirically too high — it throttles at sub-quota concurrency) and NOT unlimited. Back off to serial waves of ~3 ONLY on the falsifiable throttle signal below; do NOT preemptively serialize below ~3, and do NOT assert "no cap."
+
+**The falsifiable throttle signal (back off ONLY on this):** ≥2 agents in the same launch wave fail within a **~30–48s synchronized window** AND the failure carries the server string `Server is temporarily limiting requests` with `(not your usage limit)` / `Rate limited`. A single agent dying, an OOM, a 2-minute timeout, or a quota error that says "usage limit" is NOT this signal and MUST NOT trigger concurrency back-off.
 
 ```python
-# DO — wave of 3, wait, then next wave
-wave1 = [Agent(isolation="worktree", prompt="...") for _ in range(3)]
-# wait for wave1 to complete before launching wave2
+# DO — cold-start wave of ~3; back off to waves of 3 ONLY on the synchronized-throttle signal
+wave = launch(min(3, len(shards)))          # cold start ~3, NOT native 14, NOT unlimited
+# if ≥2 of `wave` die within ~30-48s carrying "(not your usage limit)" → next waves stay ≤3
+# else (wave returns clean) → proceed; the SIGNAL is the gate, not a fixed batch number
 
-# DO NOT — burst of 6 simultaneous Opus worktree agents
-for shard in [W31a, W31b, W31c, W32a, W32b, W32c]:
-    Agent(isolation="worktree", prompt=f"... {shard} ...")
-# ↑ all 6 rate-limited at 34-45s; zero commits; every shard's work lost.
+# DO NOT — trust the runtime's native min(16,cores-2)=14 cap
+for shard in shards: launch(shard)          # 2026-06-01: 7 read-only agents synchronized-died ~37-48s
+# DO NOT — hardcode "always waves-of-3" when no throttle signal has fired (over-serializes headroom)
 ```
 
-**BLOCKED rationalizations:** "The API says we can launch as many as we want" / "Rate limits only kick in on sustained load" / "If any fail we'll just retry" / "Waves of 3 halves my throughput for no reason" / "The earlier tests with 4 agents worked fine".
+**BLOCKED rationalizations:** "The runtime's native cap (14) is the ceiling to trust" (FALSE — 7 agents throttled sub-quota) / "It's a quota / usage-limit problem, wait for that signal" (FALSE — the string says `not your usage limit`) / "Always waves-of-3 is the safe rule" (over-serializes low-contention sessions) / "Rate limits only kick in on sustained load" / "If any fail we'll just retry" / "The earlier tests with 4 agents worked fine".
 
-**Why:** Empirically 4–6 concurrent Opus worktree agents from one parent exceeds server-side throttle; every agent in the burst dies before committing. Recovery is worse than serialization (re-launch + orphan recovery > waiting one wave). Evidence: 2026-04-23 M10 launch — 6 agents all died at 34–45s; waves of 3 completed cleanly. See guide for agent hashes.
+**Why:** The binding constraint is a server-side CONCURRENCY throttle that bites far below the runtime's native cap — NOT account quota and NOT a fixed batch count. Asserting "no cap / trust native 14" re-ships the synchronized-burst death; hardcoding "always ≤3" wastes the throughput multiplier on low-contention sessions. The adaptive model (cold-start ~3, back off on the falsifiable synchronized-death-at-30-48s + `not your usage limit` signal) is neither extreme. Worktree isolation per compiling agent — the rest of this rule — is RETAINED unchanged; only the concurrency-governance mechanism is reframed. The back-off signal originates at the Anthropic server boundary (not repo-controllable), so an in-repo actor cannot spoof it; the worst case of a SUPPRESSED signal is bounded to the cold-start cap of ~3 (no back-off below an already-safe ceiling — a throughput slowdown, never an over-concurrency breach). Evidence: 2026-04-23 M10 (6 agents synchronized-died 34–45s; waves-of-3 clean) + 2026-06-01 #419 (7 read-only agents synchronized-died ~37–48s, verbatim `(not your usage limit) · Rate limited`; waves-of-3 → 7/7 returned). See guide + journal/0193/0194.
 
 ### 5. Pre-Flight Merge-Base Check Before Worktree Launch
 
@@ -167,4 +169,4 @@ Agent(isolation="worktree", prompt="Implement W31... use feat/w31-core-ml-nodes"
 
 **Why:** `process.cwd()` resolves to whatever the Claude Code process was launched with (the main checkout), not the worktree; relative paths inherit the same problem.
 
-Origin: Session 2026-04-19 specialist drift + 2026-04-23 kailash-ml-audit M10 release wave (Rules 4–6). See guide for full post-mortem evidence.
+Origin: Session 2026-04-19 specialist drift + 2026-04-23 kailash-ml-audit M10 release wave (Rules 4–6). See guide for full post-mortem evidence. Rule 4 reframed 2026-06-01 (F110 / loom#418+#419) from the hardcoded "Waves of ≤3" cap to the throttle-aware adaptive model — #419's 7-read-only-agent synchronized throttle (sub-quota, `not your usage limit`) falsified #418's "trust the native cap (14)"; receipts journal/0193 (ablation + throttle evidence) + journal/0194 (F110 DECISION).

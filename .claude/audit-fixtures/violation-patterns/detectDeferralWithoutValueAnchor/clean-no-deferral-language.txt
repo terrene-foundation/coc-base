@@ -1,0 +1,15 @@
+# Session Notes — 2026-05-07
+
+## Where we are
+
+Aggregator-merge of `.probes.jsonl` companions landed via PR #72. Main at 983639b. /redteam Round 1+2 converged.
+
+## Read first
+
+1. `.claude/test-harness/lib/aggregate.mjs` — the merge implementation.
+2. `.claude/test-harness/tests/aggregate-merge.test.mjs` — 24-case smoke test.
+
+## Traps
+
+- The CC `--output-format json` is whole-message buffered.
+- `coc-base/` and `coc-claude-base/` at root are separate git repos.

@@ -1,0 +1,5 @@
+severity: silent passthrough
+exit_code: 0
+continue: true
+stderr_tag: (none)
+predicate: repoRelative() returns null (path outside repoDir)

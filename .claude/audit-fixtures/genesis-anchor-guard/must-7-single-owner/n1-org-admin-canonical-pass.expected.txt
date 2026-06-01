@@ -1,0 +1,2 @@
+accepted: true
+predicate: MUST-7 (a)-(g) chain — well-formed N=1 org-admin record passes all gates

@@ -1,0 +1,24 @@
+Scenario: hookPresent=false → V17 PASS (no coupling to enforce)
+
+Setup:
+  - Working tree has NEITHER .claude/hooks/lib/roster-schema-validate.js
+    NOR .claude/hooks/genesis-anchor-guard.js
+  - Schema presence and manifest tier-membership are IRRELEVANT in this
+    branch (the substrate hasn't landed; nothing to validate).
+
+Driver:
+  cd <tmpworktree>
+  rm -f .claude/hooks/lib/roster-schema-validate.js \
+        .claude/hooks/genesis-anchor-guard.js
+  node .claude/bin/emit.mjs --all --dry-run > /dev/null 2>&1
+  echo "exit=$?"
+
+Expected:
+  exit=0
+  stdout contains: "[validator-17] roster-schema-coupling: PASS"
+  stderr does NOT contain: "VALIDATOR 17 FAIL"
+
+Rationale: V17's hookPresent guard correctly produces PASS on a fresh
+checkout WITHOUT the multi-operator substrate (e.g., a downstream
+consumer that opted out of the coc tier). False-positive here would
+spuriously block emission on every non-substrate consumer.

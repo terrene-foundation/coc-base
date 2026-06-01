@@ -1,0 +1,42 @@
+Scenario: hookPresent=true + schemaExists=true + entry in `use_exclude:` (NOT `tiers:`) → V17 FAIL (scope-fix probe)
+
+Setup:
+  - Working tree HAS .claude/hooks/lib/roster-schema-validate.js
+  - Working tree HAS .claude/operators.roster.schema.json
+  - sync-manifest.yaml has the entry `- operators.roster.schema.json`
+    in the `use_exclude:` block instead of in a `tiers:` entry
+  - (Equivalent scenario: entry is in `use_obsoleted:` — both cause
+    the schema to NOT be shipped to consumers; V17 MUST FAIL on both.)
+
+Driver:
+  cd <tmpworktree>
+  cp .claude/sync-manifest.yaml /tmp/sm-baseline.yaml
+  python3 -c "
+import re
+with open('.claude/sync-manifest.yaml') as f: t = f.read()
+t = re.sub(r'\n    - operators\.roster\.schema\.json\n', '\n', t, count=1)
+t = t.replace('use_exclude:\n', 'use_exclude:\n  - operators.roster.schema.json\n', 1)
+with open('.claude/sync-manifest.yaml', 'w') as f: f.write(t)
+"
+  node .claude/bin/emit.mjs --all --dry-run > /tmp/out.txt 2>&1
+  echo "exit=$?"
+  grep -E "validator-17|VALIDATOR 17 FAIL" /tmp/out.txt
+  cp /tmp/sm-baseline.yaml .claude/sync-manifest.yaml  # restore
+
+Expected:
+  exit=1
+  stdout contains: "[validator-17] roster-schema-coupling: FAIL"
+  stderr contains:
+    "an entry in `use_exclude:` or `use_obsoleted:` does NOT satisfy"
+    "this check — the schema must be IN a tier so /sync ships it"
+    "(journal 0162 scope-fix)"
+
+Rationale: Pre-scope-fix (F67 commit ea3ed4e baseline) the V17 regex
+swept the WHOLE manifest text, producing false-PASS when the entry
+was in use_exclude/use_obsoleted (both blocks where the entry means
+"NOT distributed"). Post-scope-fix (journal/0162) V17 slices the
+`tiers:` block via the same pattern as V15, so the validator's
+mechanical sweep scope matches its prose claim ("the schema MUST
+appear in a TIER"). This fixture exercises the regression class
+the scope-fix exists to prevent — verified at journal/0162 land per
+"probe2_exit=1" with V17 FAIL message.

@@ -1,0 +1,34 @@
+F14 / HIGH-2 fixture — forged cosig sig on compaction-checkpoint MUST be rejected.
+
+Scenario:
+  - Roster: two owner-role humans (pid-A, pid-B), both with valid SSH keys.
+  - Record: compaction-checkpoint signed by pid-A (valid rule-1 sig).
+  - content.co_signers: [{ verified_id: kB.fingerprint, sig: <64 zero bytes b64> }]
+    — structurally valid (string sig, length plausible) but won't verify
+    against kB's pubkey over the co-signed canonical bytes.
+
+Submission:
+  require("coordination-log.js").foldLog([checkpoint], roster, {})
+
+Expected:
+  rejected[0].rule === "rule-5"
+  rejected[0].reason matches /co.sign|signature|verify|invalid/i
+
+Defense:
+  Pre-hardening, _checkRule5 (coordination-log.js:755-844) verified the
+  cosigner's roster membership + owner role + host_role:ci exclusion +
+  distinctness — but NEVER called cocSign.verify() on the cosig sig
+  string. A forger only needed (a) the victim cosigner's verified_id
+  (publicly visible in the roster) and (b) any plausible base64 string.
+  fold-rule-9b._verifyCoSigner and fold-rule-9c._verifyCoSigner already
+  call cocVerify(...) (lines 132-149 and 120-144 respectively); rule 5
+  drifted from that contract.
+
+Post-hardening: _checkRule5 calls cocSign.verify(_coSignedBytes(record),
+co.sig, matchingKey.pubkey, { keyType: matchingKey.type }) for every
+cosig entry — same shape as fold-9b's _coSignedBytes (co_signers stripped
+from canonical bytes).
+
+Test: tests/integration/multi-operator/substrate-hardening.test.js
+      :: "HIGH-2: compaction-checkpoint with forged cosig sig is rejected at rule 5"
+      :: "HIGH-2: compaction-checkpoint with valid 2-of-N cosig is accepted at rule 5"

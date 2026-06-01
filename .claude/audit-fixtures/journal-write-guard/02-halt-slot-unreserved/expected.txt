@@ -1,0 +1,7 @@
+severity: halt-and-report
+exit_code: 0
+continue: true
+stderr_tag: [HALT-AND-REPORT]
+predicate: no `journal-slot-reservation` record for (dir=journal, slot=0007) in fold
+why: multi-operator-coc/journal-write-guard MUST-NOT-2 — slot reservation required (architecture v11 §5.2)
+agent_must_report cites: target path, slot=0007 UNRESERVED, run /journal --new

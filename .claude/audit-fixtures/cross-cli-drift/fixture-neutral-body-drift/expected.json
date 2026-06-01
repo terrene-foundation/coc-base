@@ -1,0 +1,10 @@
+{
+  "summary": {
+    "rules_audited": 1,
+    "critical": 1,
+    "warn": 0,
+    "note": 0
+  },
+  "exit_code": 1,
+  "notes": "Codex variant smuggles 'Codex's structured-log primitive' and an asymmetric carve-out ('on Codex this applies only to mutating tools') into the neutral-body slot. This is the exact failure mode rules/cross-cli-parity.md MUST-1 hard-blocks."
+}

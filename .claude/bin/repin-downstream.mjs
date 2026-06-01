@@ -14,7 +14,7 @@
  *  feedback memory `feedback_downstream_responsibility.md` (2026-04-05).
  *
  *  DEFAULT FLOW (no loom intervention required):
- *    1. aerith / aether / aegis / ... session opens in that downstream repo
+ *    1. a downstream repo session opens in that repo
  *    2. operator updates `.claude/VERSION` → `upstream.template` locally
  *       (e.g. `kailash-coc-claude-py` → `kailash-coc-py`)
  *    3. operator runs `/sync` inside the downstream repo
@@ -60,69 +60,156 @@
  */
 
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import {
+  resolveShard as loomLinksResolveShard,
+  isConfigured as loomLinksConfigured,
+  LinkError,
+} from "./lib/loom-links.mjs";
 
 // ────────────────────────────────────────────────────────────────
-// Shard definitions — absolute filesystem paths per migration plan
+// Shard registry — loaded from an operator-local, gitignored config
 // ────────────────────────────────────────────────────────────────
-const HOME = process.env.HOME || "/Users/esperie";
-const R = (p) => path.join(HOME, "repos", p);
+//
+// The downstream-repo registry is NOT shipped inline in this script.
+// It correlated every engagement/consumer repo in one synced file
+// (`bin/**` is a sync tier), which is the issue #255 / #252 disclosure
+// class. The registry now lives in a gitignored operator-local file;
+// this script ships only the loader + a committed schema template.
+//
+//   config (gitignored): .claude/bin/repin-targets.local.json
+//   schema (committed):   .claude/bin/repin-targets.local.example.json
+//   override:             $REPIN_TARGETS_CONFIG (absolute path)
+//
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const CONFIG_PATH =
+  process.env.REPIN_TARGETS_CONFIG ||
+  path.join(SCRIPT_DIR, "repin-targets.local.json");
+const EXAMPLE_PATH = path.join(SCRIPT_DIR, "repin-targets.local.example.json");
 
-const SHARDS = {
-  I1a: [
-    R("terrene/foundation"),
-    R("terrene/publications"),
-    R("terrene/website"),
-    R("terrene/arbor"),
-    R("terrene/astra"),
-    R("terrene/care"),
-    R("terrene/pact"),
-    R("terrene/praxis"),
-  ],
-  I1b: [
-    R("dev/aegis"),
-    R("dev/aerith"),
-    R("dev/aether"),
-    R("dev/astra"),
-    R("dev/coursewright"),
-    R("dev/flutter"),
-    R("dev/envoy"),
-  ],
-  I1c: [
-    R("tpc/impact-verse"),
-    R("tpc/journeymate"),
-    R("tpc/talentverse"),
-    R("tpc/aspire-treasury"),
-    R("tpc/impact_week"),
-    R("tpc/stp"),
-    R("tpc/tpc_backend"),
-    R("tpc/tpc_cash_treasury"),
-  ],
-  I1d: [
-    R("rr/agentic-os"),
-    R("rr/rr_helpcentre"),
-    R("rr/rr_lead_to_cash"),
-    R("rr/rr-aegis"),
-    R("rr/rr-agentic-os"),
-    R("hmi/hana"),
-    R("hmi/hmi-chatbot"),
-  ],
-  I1e: [
-    R("projects/alex3"),
-    R("projects/gba"),
-    R("projects/byregot"),
-    R("projects/metis"),
-    R("projects/midas"),
-    R("projects/building-management"),
-    R("projects/motion"),
-    R("projects/portfolio-manager"),
-    R("projects/solar"),
-    R("projects/ideas"),
-    R("loom/kz-engage"),
-    R("loom/kaizen-cli-py"),
-  ],
-};
+function expandHome(p) {
+  const home = process.env.HOME || os.homedir();
+  if (p === "~") return home;
+  if (p.startsWith("~/")) return path.join(home, p.slice(2));
+  return p;
+}
+
+function configError(msg) {
+  console.error(`repin-downstream: ${msg}`);
+  process.exit(2);
+}
+
+// Legacy loader — repin-targets.local.json (the pre-Phase-2 config).
+// Behaviour preserved EXACTLY for operators who have not migrated.
+function loadShardsLegacy() {
+  if (!fs.existsSync(CONFIG_PATH)) {
+    const rel = (p) => path.relative(process.cwd(), p) || p;
+    configError(
+      `registry config not found at ${CONFIG_PATH}\n\n` +
+        `This script no longer ships the downstream-repo registry inline\n` +
+        `(it correlated every engagement in one synced file — issue #255).\n\n` +
+        `To use it, copy the committed template and fill in your paths:\n` +
+        `  cp ${rel(EXAMPLE_PATH)} ${rel(CONFIG_PATH)}\n` +
+        `  $EDITOR ${rel(CONFIG_PATH)}\n\n` +
+        `The local file is gitignored and is never committed or synced.`,
+    );
+  }
+  let cfg;
+  try {
+    cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
+  } catch (e) {
+    configError(`config parse error in ${CONFIG_PATH}: ${e.message}`);
+  }
+  if (!cfg || typeof cfg.shards !== "object" || cfg.shards === null) {
+    configError(`config ${CONFIG_PATH} missing required 'shards' object`);
+  }
+  const reposRoot = expandHome(
+    cfg.reposRoot || path.join(process.env.HOME || os.homedir(), "repos"),
+  );
+  const shards = {};
+  for (const [name, rels] of Object.entries(cfg.shards)) {
+    if (name.startsWith("_")) continue; // _README / _comment keys are ignored
+    if (!Array.isArray(rels)) {
+      configError(
+        `shard '${name}' must be an array of repo-relative paths`,
+      );
+    }
+    shards[name] = rels.map((rel) => path.join(reposRoot, rel));
+  }
+  if (Object.keys(shards).length === 0) {
+    configError(`config ${CONFIG_PATH} defines no shards`);
+  }
+  return shards;
+}
+
+// ────────────────────────────────────────────────────────────────
+// Phase-2 unify shim — shared loom-links resolver, legacy fallback
+// ────────────────────────────────────────────────────────────────
+//
+// Source precedence:
+//   1. loom-links config present (loom-links.local.json or
+//      $LOOM_LINKS_CONFIG)  → resolve `shards` via loom-links.mjs.
+//   2. else legacy repin-targets.local.json present → use it AND emit
+//      a one-time stderr migrate notice (behaviour byte-identical).
+//   3. else → legacy fail-loud message (unchanged from #255).
+//
+// For an operator with EITHER file, dry-run output is unchanged: both
+// loaders join shard-relative paths to reposRoot the same way.
+function loadShards() {
+  if (loomLinksConfigured()) {
+    // Resolve every shard name through the shared resolver. We need the
+    // shard NAMES too (usage() lists them, --shard <name> selects one),
+    // so read the config object once for its label set, then resolve
+    // each label's absolute paths via loom-links.mjs::resolveShard.
+    let cfg;
+    try {
+      const cfgPath =
+        process.env.LOOM_LINKS_CONFIG && process.env.LOOM_LINKS_CONFIG.trim()
+          ? process.env.LOOM_LINKS_CONFIG
+          : path.join(SCRIPT_DIR, "loom-links.local.json");
+      cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
+    } catch (e) {
+      configError(`loom-links config parse error: ${e.message}`);
+    }
+    if (!cfg || typeof cfg.shards !== "object" || cfg.shards === null) {
+      configError(
+        `loom-links config has no 'shards' block (required by repin-downstream).\n` +
+          `Add a 'shards' object — see loom-links.local.example.json.`,
+      );
+    }
+    const shards = {};
+    try {
+      for (const name of Object.keys(cfg.shards)) {
+        if (name.startsWith("_")) continue;
+        shards[name] = loomLinksResolveShard(name);
+      }
+    } catch (e) {
+      configError(
+        e instanceof LinkError ? e.message : `loom-links: ${e.message}`,
+      );
+    }
+    if (Object.keys(shards).length === 0) {
+      configError(`loom-links config defines no shards`);
+    }
+    return shards;
+  }
+
+  // No loom-links config — fall back to the legacy file.
+  if (fs.existsSync(CONFIG_PATH)) {
+    const rel = (p) => path.relative(process.cwd(), p) || p;
+    console.error(
+      `repin-downstream: NOTE — using legacy ${rel(CONFIG_PATH)}.\n` +
+        `  Migrate to loom-links.local.json (see loom-links.local.example.json):\n` +
+        `  the shared linkage resolver replaces this tool-specific registry.\n`,
+    );
+  }
+  return loadShardsLegacy();
+}
+
+const SHARDS = loadShards();
 
 // Legacy → new template name map (per r3 decision)
 const RENAME_MAP = {
@@ -155,17 +242,22 @@ function parseArgs(argv) {
 }
 
 function usage() {
+  const names = Object.keys(SHARDS);
+  const shardLines = names
+    .map((n) => `  ${n}  (${SHARDS[n].length} repos)`)
+    .join("\n");
   console.log(
-    `Usage: node .claude/bin/repin-downstream.mjs --shard {I1a|I1b|I1c|I1d|I1e|all} [--dry-run|--apply]
+    `Usage: node .claude/bin/repin-downstream.mjs --shard {${names.join(
+      "|",
+    )}|all} [--dry-run|--apply]
 
 Default mode: --dry-run (safer default).
 
+Shard registry is loaded from an operator-local, gitignored config
+(${CONFIG_PATH}); see repin-targets.local.example.json for the schema.
+
 Shards:
-  I1a  terrene/ (${SHARDS.I1a.length} repos)
-  I1b  dev/     (${SHARDS.I1b.length} repos)
-  I1c  tpc/     (${SHARDS.I1c.length} repos)
-  I1d  rr/+hmi/ (${SHARDS.I1d.length} repos)
-  I1e  projects/+training/+loom-downstream (${SHARDS.I1e.length} repos)
+${shardLines}
   all  every shard combined
 
 Re-pins legacy kailash-coc-claude-{py,rs} to new kailash-coc-{py,rs} in

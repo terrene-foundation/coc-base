@@ -1,3 +1,8 @@
+---
+name: learn
+description: "Learning system status — observations, codified patterns, posture trajectory."
+---
+
 # /learn - Learning System Status
 
 ## Purpose

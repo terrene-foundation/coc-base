@@ -1,0 +1,10 @@
+{
+  "summary": {
+    "rules_audited": 1,
+    "critical": 0,
+    "warn": 0,
+    "note": 0
+  },
+  "exit_code": 0,
+  "notes": "Three CLIs share byte-identical neutral-body. Delegation tokens in examples slot collapse to the same string under scrub_tokens normalization."
+}

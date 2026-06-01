@@ -1,0 +1,7 @@
+{
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "$GITCMD commit -m \"shell variable; literal regex would false-positive\""
+  }
+}

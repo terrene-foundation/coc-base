@@ -18,7 +18,7 @@ Pull latest artifacts from the USE template repo. No target needed — reads tem
    - **Step 1** — `KAILASH_COC_TEMPLATE_PATH` env var. If set and contains `.claude/`, use it. Source: `env-override`.
    - **Step 2** — Cache at `~/.cache/kailash-coc/<template>/`. Auto-update via `git -C <cache> fetch --depth 1 origin main && git -C <cache> reset --hard origin/main`. Source: `cache`.
    - **Step 3** — If no cache: `git clone --depth 1 --single-branch --branch main https://github.com/<template_repo>.git ~/.cache/kailash-coc/<template>/`. Source: `cloned`.
-   - **Step 4 (offline fallback only)** — Local sibling at `../<template>/` or `~/repos/loom/<template>/`. Used ONLY when steps 2-3 all fail (network unreachable). Source: `sibling-offline-fallback`. Emit a `freshness NOT guaranteed` notice.
+   - **Step 4 (offline fallback only)** — Local sibling resolved via `bin/lib/loom-links.mjs` (`use-template.<key>` logical key — the canonical NAME→location binding per `cross-repo.md` MUST-1), NOT a positional `../<template>/` / `~/repos/loom/<template>/` guess. Used ONLY when steps 2-3 all fail (network unreachable). If no linkage is declared this is an explicit not-found, not a positional fallback. Source: `sibling-offline-fallback`. Emit a `freshness NOT guaranteed` notice.
    - If a local sibling is detected during online resolution but NOT used, emit one stderr notice telling the user to set `KAILASH_COC_TEMPLATE_PATH` if they meant to use it.
    - Known slugs: `kailash-coc-claude-{py,rs,rb,prism}` and the multi-CLI `kailash-coc-{py,rs}` all live under `terrene-foundation/`.
    - **NEVER use the legacy `scripts/resolve-template.js` shim** — added to manifest's `obsoleted:` list in v2.9.1; purged in step 3 below.
@@ -27,7 +27,15 @@ Pull latest artifacts from the USE template repo. No target needed — reads tem
 
 3. **Purge obsoleted paths in this consumer (MUST, before any merge)**:
 
+   **HALT-on-dirty precondition (MUST — runs BEFORE the purge loop):** the purge below runs `rm -rf` against consumer paths. Before the loop, run `git status --porcelain` in the consumer. A non-empty result HALTS the downstream sync — the operator commits/stashes/cleans first, then re-runs. **HALT, never auto-stash** (stash is itself a loss vector — design red-team HIGH-1). An obsoleted-path directory may legitimately contain uncommitted operator work; deleting it via `rm -rf` while the tree is dirty risks unrecoverable loss of untracked-not-ignored files (the #401 class — no git object, no reflog). This is the second `rm`-without-porcelain-check instance the #401 analyst surfaced; it gets the same gate as Gate 2 step 0a.
+
    ```bash
+   # HALT-on-dirty: refuse to purge into a tree with uncommitted work.
+   if [ -n "$(git status --porcelain)" ]; then
+     echo "HALT: working tree dirty — commit/stash/clean before /sync purge" >&2
+     git status --porcelain >&2
+     exit 1
+   fi
    for path in <obsoleted-paths>; do
      if [ -e "./$path" ]; then
        rm -rf "./$path"
@@ -58,7 +66,7 @@ Pull latest artifacts from the USE template repo. No target needed — reads tem
    - Local-only files preserved (never deleted) **except** paths in obsoleted list (handled in step 3 above)
    - **NEVER overwritten** (downstream-owned): `CLAUDE.md`, `.claude/VERSION`, `.claude/settings.local.json`, `.env`, `.git/`, `.claude/.proposals/`, `.claude/learning/`
    - **NEVER overwritten** (multi-CLI consumer-customizable): every path in `multi_cli_overlays.multi-cli.preserved` from the manifest. Currently `.codex/local-config.toml`, `.gemini/local-settings.json` — reserved for future per-project overrides without sync conflict.
-   - **NEVER overwritten / NEVER purged** (standalone-consumer overlay): if this consumer's `.claude/.coc-sync-marker` OR `.claude/VERSION::upstream` matches a `sync-manifest.yaml::consumer_overlays.<slug>` entry (by slug or any `aliases:` entry), every path matching that entry's `preserved:` globs joins the "NEVER overwritten" set AND is exempt from the obsoleted/use_obsoleted purge in step 3 (consumer-only additions are not former-COC-artifacts; the cross-repo.md Rule 4 obsoletion exemption does not reach them). This is the 15%+5% RRPS-class overlay. The contract is consumer-targeted — it is NEVER active for the kailash-coc-claude-{py,rs,rb} / kailash-coc-{py,rs} / coc-base USE templates (none match a `consumer_overlays` slug).
+   - **NEVER overwritten / NEVER purged** (standalone-consumer overlay): if this consumer's `.claude/.coc-sync-marker` OR `.claude/VERSION::upstream` matches a `sync-manifest.yaml::consumer_overlays.<slug>` entry (by slug or any `aliases:` entry), every path matching that entry's `preserved:` globs joins the "NEVER overwritten" set AND is exempt from the obsoleted/use_obsoleted purge in step 3 (consumer-only additions are not former-COC-artifacts; the cross-repo.md Rule 4 obsoletion exemption does not reach them). This is the 15%+5% consumer-class overlay. The contract is consumer-targeted — it is NEVER active for the kailash-coc-claude-{py,rs,rb} / kailash-coc-{py,rs} / coc-base USE templates (none match a `consumer_overlays` slug).
 
    **5a. Canonical-divergence gate (MUST — runs AFTER step 4 diff, BEFORE step 5 merge when a `consumer_overlays` entry matches):** For the matched consumer, enumerate every consumer path matching `consumer_overlays.<slug>.canonical_protected` globs AND NOT matching its `preserved:` globs (`preserved:` wins). For each, compare `sha256(consumer copy)` against `sha256(resolved-template copy)`. Any mismatch is a **BLOCK-level finding**: /sync MUST surface it as a `CANONICAL-DIVERGENCE` row in the merge plan (step 6), MUST NOT silently overwrite the consumer's edited copy, and MUST HALT the merge until a human adjudicates one of: (1) **codify-back** — re-canonicalize the edit upstream via the exceptional codify-back path (scrubbed of `confidential_never_upstream` content); (2) **relocate** — move the divergent content into a `preserved:` overlay path (e.g. a `.claude/rules/cap-*.md`); (3) **accept-canonical** — discard the local edit, take loom's version (the default if the human takes no action). The check is mechanical (hash compare), not semantic — same structural-defense shape as coc-sync.md Step 8's "every obsoleted path is GONE" assertion. **BLOCKED rationalizations:** "the canonical edit is small, just merge it" / "the consumer obviously needed that change, preserve it like an overlay" / "re-running the gate every /sync is overhead" / "the divergence is in a comment, semantically equivalent". Why: a silent canonical overwrite either destroys a consumer fix that should have been codified back, OR silently re-canonicalizes a local divergence that was never reviewed — both are the unaudited-merge failure mode this gate exists to block. Detection is O(files) hash compares; adjudication is human and rare (the 80% canonical base is, by the audit, edited ~never in a well-behaved consumer).
 
@@ -76,14 +84,41 @@ Pull latest artifacts from the USE template repo. No target needed — reads tem
 
 12. **Update `.claude/.coc-sync-marker`** with timestamp + list of obsoleted paths purged in step 3 (audit trail for the migration).
 
-## Gate 1: Review (inbound — BUILD repo → loom/)
+## Gate 1: Review + Scrub (inbound — TWO proposal streams; loom does not originate)
 
-Scans the BUILD repo for artifact changes not yet upstreamed to loom/. Delegated to **sync-reviewer** agent. Runs automatically when `/sync` detects unreviewed changes; also runs on explicit `/sync py review`.
+loom is the central splitter/distributor — it never authors an artifact change itself. Gate 1 ingests proposals from TWO upstream streams: the **BUILD stream** (kailash-py / kailash-rs — SDK-code proposals; cross-SDK considered first by the BUILD repo, Gate 1 records/flags it as an advisory alignment note per step 8, NOT a hard block) and the **USE-template stream** (`kailash-coc-*` — COC-artifact-improvement proposals from USE-template `/codify` origination; the originator schema is the **USE-Template Proposal Schema (Step 7b)** subsection below — self-contained here so it travels to USE templates; `guides/co-setup/09-proposal-protocol.md` Step 7b carries the same schema plus full rationale but is loom-only and MUST NOT be cited as the schema authority in USE-template context). Delegated to **sync-reviewer** agent. Runs automatically when `/sync` detects unreviewed changes; also runs on explicit `/sync py review`.
+
+### USE-Template Proposal Schema (Step 7b — originator contract, self-contained)
+
+This is the field-shape contract a USE-template `/codify` session emits to `.claude/.proposals/latest.yaml`. It is reproduced here (not only in the loom-only `guides/co-setup/` guide) because USE templates do not receive `guides/co-setup/**` (`sync-manifest.yaml::use_excluded`); a USE-template session MUST be able to resolve the schema from a synced artifact.
+
+**Detect USE-template class:** git remote matches a USE-template slug (`sync-manifest.yaml::sync_targets[].templates[].repo`) OR `.claude/VERSION::type == "coc-template"`.
+
+**Mechanical wrong-lane defense (MUST, before writing the manifest):** glob-check every candidate change-path against the disallowed set `src/**`, `packages/**`, `pyproject.toml`, `Cargo.toml`. All disallowed → HALT ("wrong-lane — refile against BUILD repo issue queue"); mixed → skip-with-warning (in-scope proceed, disallowed excluded + warned); all in-scope → proceed.
+
+```yaml
+source_repo: kailash-coc-claude-py # or -claude-rs / -claude-rb / kailash-coc-py / -rs
+origin: use-template # explicit class discriminator
+codify_date: YYYY-MM-DD
+codify_session: "type(scope): description of work"
+template_version: "X.Y.Z" # .claude/VERSION::upstream.template_version
+coc_version: "X.Y.Z" # .claude/VERSION::upstream.version
+changes:
+  - file: .claude/rules/some-rule.md
+    action: created | modified
+    suggested_tier: cc | co | coc | coc-py | coc-rs
+    reason: "Why this artifact was created/changed"
+    diff_lines: "+N -N"
+status: pending_review
+```
+
+**Schema asymmetry vs BUILD (intentional):** USE-template manifests **OMIT** `sdk_version` / `sdk_packages` — the originator is artifact-only, not SDK code. Lifecycle is the standard three-state (`pending_review` → `reviewed` → `distributed`); append-not-overwrite per `rules/artifact-flow.md` § "Proposal Lifecycle".
 
 ### Process
 
+0. **Disclosure-scrub on intake (MUST — runs FIRST, before classify, before placement):** for the inbound repo (BUILD or USE-template), run `node .claude/bin/scan-synced-disclosure.mjs --root <inbound-repo-path>` against the candidate artifact files AND have a human scrub the `.claude/.proposals/latest.yaml` body per `upstream-issue-hygiene.md` Rule 2. `.proposals/` is `isNeverSynced`, so `--root` does not scan it — the human body-scrub is the structural cover for the proposal body. A non-zero scanner exit OR any finding is BLOCK-level: HALT, surface the redacted report, do NOT classify or place any file until the disclosure is genericized + relocated to the operator-local companion (#255 / #260 pattern). This is the symmetric twin of the Gate-2 step-0 synced-disclosure preflight; placement (step 9 below) MUST NOT proceed until step 0 is clean.
 1. Read `sync-manifest.yaml` for tier membership and variant mappings.
-2. Read BUILD repo path from `sync-manifest.yaml` → `repos.{target}.build`.
+2. Resolve the BUILD repo path: `sync-manifest.yaml` → `repos.{target}.build` gives the logical NAME; the on-disk path comes from `bin/lib/loom-links.mjs::resolveRepo("build.{target}")` (canonical NAME→location binding per `cross-repo.md` MUST-1) — never a positional `../{build}` guess. An undeclared `build.{target}` linkage is a typed `LinkError`, not a positional fallback.
 3. **Read SDK version** from BUILD repo's `pyproject.toml` (py) or `Cargo.toml` (rs). Report it in the review header.
 4. Compute **expected state**: for each file in `loom/.claude/`, apply the variant overlay for this target. This is what the BUILD repo SHOULD have if it were freshly synced.
 5. Diff BUILD repo's `.claude/` against expected state.
@@ -113,6 +148,28 @@ Scans the BUILD repo for artifact changes not yet upstreamed to loom/. Delegated
 ## Gate 2: Distribute (outbound — loom/ → templates)
 
 Merges loom/ source + variant overlays into USE template repos. Delegated to **coc-sync** agent. This is a **merge** — templates may have legitimate local content.
+
+**0. Synced-disclosure gate (MUST — runs BEFORE any emit step, the first action of Gate 2):** Gate 2 MUST run `node .claude/bin/scan-synced-disclosure.mjs --check` against loom/'s tree before computing or emitting any change. A non-zero exit is a **BLOCK-level finding**: /sync MUST HALT distribution, MUST surface the scanner's redacted report (path:line + `[SHAPE:<id>]` + «REDACTED» context — never the raw token) in the sync output, and MUST NOT emit a single file to any target until a human adjudicates. The scanner fences the now-closed #252 forest: any operator hostname, non-Foundation org slug, org-derived runner label, operator home path, or launchd/systemd service-label stem that reaches the synced surface propagates to 30+ downstream consumers and is correlatable across all of them. Resolve a finding by **genericizing** the disclosure + **relocating** the operator-specific value into the gitignored operator-local companion (per the #255 / #260 pattern), then re-run the scanner to confirm exit 0 before resuming Gate 2. The check is mechanical (positive-allowlist + structural shapes, zero secret tokens in the scanner itself), not semantic — same structural-defense shape as step-5a's canonical-divergence gate and coc-sync.md Step 8's "every obsoleted path is GONE" assertion. **BLOCKED rationalizations:** "the finding is in a comment, not user-visible" / "that token is the operator's own org, the consumers won't care" / "re-running the scanner every /sync is overhead" / "allowlist the token so the sync can proceed" (allowlisting a real operator/org token IS the #264 leak the scanner exists to prevent) / "the finding is pre-existing, not introduced this cycle" / "ship it, file a follow-up to genericize later". Why: a synced disclosure that escapes Gate 2 cannot be recalled — it is now in 30+ consumer repos' git history permanently; the one-time genericize-and-relocate cost is trivially smaller than the unrecoverable cross-consumer correlation it prevents. Detection is O(files) regex; resolution is human, scoped, and rare in a well-fenced tree (zero findings is the steady state once the residuals are remediated).
+
+**0a. HALT-on-dirty precondition (MUST — runs per target, BEFORE any write to that target), on MODIFIED-TRACKED files outside the never-synced set:** Downstream templates are perpetually WIP; a WHOLE-TREE halt makes /sync structurally impossible there. The #401 loss has exactly two sub-cases — (1) a modified **TRACKED** file overwritten (NO reflog when uncommitted), and (2) untracked work `rm -rf`'d (no git object). `sync-tier-aware.mjs` snapshots EVERY untracked-not-ignored file **surface-wide** (`git ls-files --others --exclude-standard`, lines 212–293) at the START of the per-target write — BEFORE its own copy/purge AND before the later Step-4.6 emit-cli `.codex/`/`.gemini/`/`.codex-mcp-guard/` writes — so sub-case (2) is ALWAYS recoverable regardless of path. Sub-case (1) is the ONLY one the snapshot does NOT cover. So the gate HALTs on exactly that — any modified-TRACKED entry, whole-tree, outside the never-synced/regenerated set — with **NO write-set allowlist to drift**:
+
+```bash
+git -C <target_dir> status --porcelain -- . \
+  ':(exclude).claude/VERSION'       ':(exclude).claude/.coc-sync-marker' \
+  ':(exclude).claude/learning/'     ':(exclude).claude/.proposals/' \
+  ':(exclude).claude/settings.local.json' \
+  | grep -vE '^\?\?'
+```
+
+A non-empty result (any non-untracked porcelain entry — `M`/`A`/`D`/`R`/`C`/`U`, the `^??` untracked lines filtered out — outside the never-synced set) is a **HALT-level finding**: STOP, surface it, the operator commits/cleans those TRACKED changes first, then re-runs. **HALT, never auto-stash** — `git stash` is itself a data-loss vector (the design red-team's HIGH-1).
+
+**Why HALT-on-modified-tracked is robust (closes the allowlist-drift hole a scoped-pathspec design opened):** halting on ALL modified-tracked needs NO enumeration of the write-set, so it CANNOT miss a write path — the earlier `.claude/ .codex/ .gemini/`-only pathspec MISSED `.gitignore` + `.codex-mcp-guard/` + `bin/coc` + the multi-CLI `sync-manifest.yaml` (security-reviewer CRIT+HIGH), re-opening the #401 hole; halting on every modified-tracked closes it structurally. Untracked WIP (`workspaces/`, `docs/`, `.session-notes`, `.claude/learning/` state) PROCEEDS — covered surface-wide by the snapshot that runs before every Gate-2 write. `VERSION`/`.coc-sync-marker` excluded (regenerated steps 7–9; a dirty `VERSION` is #407 auto-drift, not operator data — operators MUST NOT hand-edit a consumer's `.claude/VERSION`, it is tool-owned and Gate-2 overwrites it; corrections go through `/sync`, not a manual edit); `learning/`/`.proposals/`/`settings.local.json` excluded (never-synced per-repo state).
+
+**Snapshot-ordering invariant (security-reviewer MED — load-bearing):** the untracked-allow is safe ONLY because the surface-wide snapshot runs BEFORE every Gate-2 write — `sync-tier-aware.mjs` Step-4 snapshot precedes Step-4.6 emit-cli (`coc-sync.md` §Step 4.6). A future Gate-2 write path that runs WITHOUT a preceding surface-wide untracked snapshot would make the untracked-allow unsafe for that path; such a path MUST snapshot-first OR be added to a modified-tracked-equivalent halt. Durable fix (journal/0199 For-Discussion #1): each write tool asserts the snapshot ran before its first write, rather than two hand-maintained lists.
+
+**Still BLOCKED:** "auto-stash is safe enough" / "the snapshot covers it, just overwrite the modified rule" (snapshot is UNTRACKED-only — a modified TRACKED artifact has NO reflog, MUST HALT) / "porcelain-checking is overhead". **NOT blocked (the over-halt fix):** untracked WIP proceeds — snapshot-covered.
+
+**Serial same-lane orchestration (MUST):** `sync-tier-aware.mjs` is PER-LANE — one invocation writes BOTH templates in a lane unless scoped. When distributing to a multi-template lane, the orchestrator MUST sync each template SERIALLY (`node .claude/bin/sync-tier-aware.mjs --target <lane> --template <repo>` once per template), OR run a single `--all-templates` invocation — NEVER dispatch parallel same-lane sync agents. Parallel same-lane agents collide on the shared per-lane write (the #401 incident: concurrent same-lane dispatch destroyed a sibling consumer's untracked work). A bare `--target <lane>` write with neither `--template` nor `--all-templates` is REFUSED by the tool (exit 2) — pass one explicitly. Cross-LANE parallelism (py + rs + rb simultaneously) is fine — those resolve to disjoint template dirs. **BLOCKED rationalizations:** "parallel same-lane is faster" / "the two templates are different dirs so it's safe" (the per-lane tool writes both in one invocation regardless of dispatch) / "I'll just launch one agent per template in parallel" (still same-lane collision on the shared invocation path).
 
 ### Process
 

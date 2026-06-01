@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# coc: unified Codex CLI dispatcher for COC phase commands.
+#
+# Replaces the deprecated `/prompts:<phase>` invocation surface that
+# OpenAI Codex CLI 0.128+ removed (custom prompts deprecated in favor
+# of skills; repo-local `.codex/prompts/` is not discovered — only
+# `~/.codex/prompts/` is loaded, see openai/codex#9848).
+#
+# Usage:
+#   bin/coc <phase> "<prompt>"         # e.g. bin/coc analyze "..."
+#   bin/coc <phase>                    # read prompt from stdin (pipe)
+#   bin/coc-<phase> "<prompt>"         # phase-suffix shim (symlink/wrapper to this file)
+#
+# Resolves the per-phase JSON output schema from
+# .claude/wrappers/schemas/<phase>.schema.json and invokes:
+#   codex exec --json --output-schema=<schema> -c project_doc_max_bytes=65536 -- "<prompt>"
+#
+# Phase is derived from argv[1] when invoked as `bin/coc`, OR from the
+# basename suffix when invoked as `bin/coc-<phase>` (the suffix wrapper
+# is a thin sibling that delegates here with the phase pre-bound).
+#
+# Emitted to USE templates by /sync per coc-sync.md Step 6.6.
+
+set -euo pipefail
+
+PROJECT_ROOT="${PROJECT_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+
+# Resolve phase: either from basename suffix (bin/coc-<phase>) or argv[1].
+SELF_NAME="$(basename "$0")"
+if [[ "$SELF_NAME" == coc-* ]]; then
+  PHASE="${SELF_NAME#coc-}"
+else
+  if [[ $# -lt 1 ]]; then
+    cat >&2 <<'USAGE'
+Usage:
+  bin/coc <phase> "<prompt>"           # invoke phase with inline prompt
+  bin/coc <phase>                      # read prompt from stdin (pipe)
+  bin/coc-<phase> "<prompt>"           # phase-suffix shim
+
+<phase> resolves to .claude/wrappers/schemas/<phase>.schema.json.
+
+Note: OpenAI Codex CLI 0.128+ deprecated custom prompts in favor of
+skills; repo-local /prompts:<name> no longer works. This dispatcher
+is the canonical Codex invocation path for loom COC phases.
+USAGE
+    exit 2
+  fi
+  PHASE="$1"
+  shift
+fi
+
+# Validate phase name: reject shell-meta, path-separators, traversal. The
+# schema-path is constructed as ${PROJECT_ROOT}/.claude/wrappers/schemas/${PHASE}.schema.json
+# below; a phase like `../../../etc/passwd` would resolve outside the schemas dir.
+# The -f test catches non-existent files, but the shape is wrong — fail fast on
+# the phase NAME before any path construction.
+if ! [[ "$PHASE" =~ ^[a-z][a-z0-9-]*$ ]]; then
+  echo "ERROR: invalid phase '$PHASE' (must match ^[a-z][a-z0-9-]*\$)" >&2
+  exit 2
+fi
+
+SCHEMA_PATH="${PROJECT_ROOT}/.claude/wrappers/schemas/${PHASE}.schema.json"
+
+if [[ ! -f "$SCHEMA_PATH" ]]; then
+  echo "ERROR: schema file $SCHEMA_PATH not found" >&2
+  echo "       Available phases:" >&2
+  if [[ -d "${PROJECT_ROOT}/.claude/wrappers/schemas" ]]; then
+    ls "${PROJECT_ROOT}/.claude/wrappers/schemas" 2>/dev/null \
+      | sed -n 's/\.schema\.json$//p' \
+      | sed 's/^/         /' >&2
+  fi
+  exit 3
+fi
+
+# Resolve prompt: argv-first (positional args win when present), stdin fallback
+# only when no positional args. This precedence is REQUIRED for non-TTY contexts
+# (CI/cron, agent subshells, `Bash(...)` tool calls): in those contexts `! -t 0`
+# is true even when argv carries the prompt, so a stdin-first check would
+# spuriously fire `cat` against an empty/unrelated stdin and falsely report
+# "prompt is empty". Match the historical per-phase wrappers' precedence
+# (cf. .claude/wrappers/ai.sh.template).
+if [[ $# -ge 1 ]]; then
+  PROMPT="$*"
+elif [[ -p /dev/stdin || ! -t 0 ]]; then
+  PROMPT="$(cat)"
+else
+  echo "ERROR: no prompt provided (pass as argument or pipe to stdin)" >&2
+  exit 2
+fi
+
+if [[ -z "${PROMPT//[[:space:]]/}" ]]; then
+  echo "ERROR: prompt is empty" >&2
+  exit 2
+fi
+
+exec codex exec \
+  --json \
+  --output-schema="$SCHEMA_PATH" \
+  -c project_doc_max_bytes=65536 \
+  -- "$PROMPT"

@@ -1,0 +1,1 @@
+not-watched: `git status` is read-only and not in the watched-tool allowlist (sign / commit / push / roster ops only). The hook passes through (exit 0, continue: true) without touching the coordination log or roster.

@@ -1,0 +1,5 @@
+# Migration plan
+
+Phase I lands the core engine. Phase II lands consumer integration in the next 2 weeks per the brief's parallel-track schedule. Both phases are in active development; nothing is being deferred.
+
+User's wishlist for v3 includes faster startup time per the 2026-04-22 user feedback. We are building all of these features now per the active workspace todos.

@@ -1,0 +1,7 @@
+severity: block
+exit_code: 2
+continue: false
+stderr_tag: [BLOCK]
+predicate: resolveActiveBranch() != "codify/<display_id>-<YYYY-MM-DD>" (structural)
+why: multi-operator-coc/integrity-guard §2.3 — integrity-critical edits only via /codify
+agent_must_report cites: active branch, expected codify/<display_id>-<date>

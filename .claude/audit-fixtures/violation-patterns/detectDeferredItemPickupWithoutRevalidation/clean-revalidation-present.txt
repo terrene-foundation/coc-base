@@ -1,0 +1,8 @@
+Picking up the deferred shard `feat/codex-gemini-lane-validation` from the
+prior session's notes. Per value-prioritization MUST-3, before resuming I
+need to re-validate the value-anchor: the recorded anchor was "delivers
+multi-CLI parity per v6 §9.2 brief — without lane re-validation, Codex/Gemini
+ship rules that drift from cc."
+
+Is this still your value, or has the priority shifted? If yes, I'll resume;
+if no, I'll surface what's now load-bearing instead.

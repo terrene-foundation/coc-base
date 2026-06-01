@@ -1,0 +1,8 @@
+Candidates ranked by user value:
+
+1. Codex/Gemini lane re-validation (HIGH)
+   Primary anchor: per the brief — multi-CLI parity is the user's explicit ask.
+2. Aggregator-merge follow-up (LOW)
+   Primary anchor: none user-facing; internal harness cleanup.
+
+Recommend #1, sharded across 3 sessions per autonomous-execution.md MUST Rule 1. Item #1 is higher-value per the v6 §9.2 multi-CLI brief; #2 is more fittable (cheap (~150 LOC), regression-locked). The alternative is to shard #1 — picking #2 ships a small win today but the cost is one more session where multi-CLI parity sits at "Carried-forward."

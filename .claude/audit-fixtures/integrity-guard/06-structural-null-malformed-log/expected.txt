@@ -1,0 +1,6 @@
+severity: block (on non-codify branch, structural branch predicate fires before log read)
+exit_code: 2
+continue: false
+stderr_tag: [BLOCK]
+predicate: structural branch predicate evaluated first (before fold)
+note: when branch IS codify/<display_id>-<date>, malformed log → fold throws → accepted=[] → no lease → halt-and-report. The structural-NULL never crashes the hook (defense-in-depth try/catch returns {continue: true}).

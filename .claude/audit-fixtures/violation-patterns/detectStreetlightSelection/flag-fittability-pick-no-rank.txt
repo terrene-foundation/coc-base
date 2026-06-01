@@ -1,0 +1,7 @@
+Three carried-forward items are eligible:
+
+1. coc-sync.md 761→400 line move (HIGH)
+2. cc-audit.md slot-keying across variants (MEDIUM)
+3. Aggregator-merge follow-up (LOW)
+
+I recommend the aggregator-merge — closes the only open Week-2 follow-up before the grace deadline, fixes a latent bug, cheap (~150 LOC), regression-locked. Other items remain Carried-forward (no grace clock).

@@ -22,7 +22,7 @@
  *   so the agent self-corrects (upstream to loom via GH issue) before
  *   citing the transient file in tracked content.
  *
- * Origin: loom issue #19 Proposal 1 (2026-04-21 tpc/tpc_cash_treasury-scenario
+ * Origin: loom issue #19 Proposal 1 (2026-04-21 example-workspace/financial-scenario
  *   /redteam — agent wrote rules/spec-accuracy.md to gitignored .claude/rules/,
  *   edited tracked CLAUDE.md to cite it, almost shipped phantom-reference state).
  *

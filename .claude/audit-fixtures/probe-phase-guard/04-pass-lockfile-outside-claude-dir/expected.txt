@@ -1,0 +1,7 @@
+severity: silent passthrough
+exit_code: 0
+continue: true
+stderr_tag: (none)
+predicate: findProbeLockfile scans ONLY repo-root .claude/ direct children — lockfile-shaped files in subdirectories or other parent paths do NOT match
+why: the lockfile location is fixed by /certify command body at `.claude/.certify-in-probe-<verified_id>.lock`. A file with a lockfile-shaped name elsewhere is not the canonical probe-active signal; treating it as such would let an attacker spoof probe-active state from a workspace dir.
+note: this is the location-scope check — readdirSync is on `.claude/` only, not recursive, not glob over the repo. The location is the structural pin.

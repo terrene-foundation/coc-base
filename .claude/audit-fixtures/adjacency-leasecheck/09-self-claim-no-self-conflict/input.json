@@ -1,0 +1,9 @@
+{
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Edit",
+  "tool_input": {
+    "file_path": "src/lib/foo.js"
+  },
+  "cwd": "<repo>",
+  "_note": "Active claim record in the log has verified_id == self (same key path the hook resolves identity from). The hook's projectActiveSiblingClaims filter excludes verified_id == self."
+}

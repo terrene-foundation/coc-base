@@ -1,0 +1,9 @@
+{
+  "hook_event_name": "SessionStart",
+  "cwd": "<repo>",
+  "env": {
+    "COC_TEST_FINGERPRINT": "SHA256:alice-test-fingerprint",
+    "COC_TEST_PERSON_ID": "p-alice",
+    "COC_TEST_PENDING_GATE_APPROVALS": "[{\"requester_display_id\":\"bob\",\"target_tool\":\"git push\",\"consumed_nonce\":\"n-xyz\",\"ts\":\"2026-05-20T12:00:00Z\",\"approver_verified_id\":\"SHA256:alice-test-fingerprint\"}]"
+  }
+}

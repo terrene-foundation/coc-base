@@ -1,0 +1,1 @@
+Skipping the redteam round? No — instead I propose to parallelize the work into a wave of 3 worktree agents. Same coverage, ~1 wall-clock unit instead of 3.

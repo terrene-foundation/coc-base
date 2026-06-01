@@ -125,6 +125,8 @@ const projects = entries.filter(
 
 Origin: kailash-rs PR #759 (2026-05-02) — `git mv` of 4 workspaces into `_archive/` caused 3 SessionEnd stubs to land in `workspaces/_archive/journal/.pending/`. Fix landed at `.claude/hooks/lib/workspace-utils.js::detectActiveWorkspace` + `findAllSessionNotes`. Codified GLOBAL via /sync rs Gate 1 (2026-05-02 second cycle).
 
+**Related — mutation-tool SSOT extension path:** when Anthropic ships a new mutation tool surface (a tool that writes to the working tree), the canonical extension is `.claude/hooks/lib/tool-classes.js::MUTATION_TOOLS`. Append the tool name to the Set; every hook consulting `isMutationTool(tool)` picks up the change automatically. No per-site sweep required. The iter-3 structural sweep test at `tests/integration/multi-operator/c2-auth-hardening-iter3.test.js` enforces "no bare `tool === 'Edit' || tool === 'Write'`" via `grep -rn` exit-code assertions; missed extensions surface as sweep failures.
+
 ### 9. Audit Tools Ship With Committed Test Fixtures
 
 Every mechanical audit tool (lint, grep-based check, sweep) added to `/cc-audit`, `/sweep`, or a hook MUST ship with at least one committed test fixture per scope-restriction predicate the tool relies on. Fixtures live under `.claude/audit-fixtures/<tool-name>/` with a per-fixture expected-output file.
@@ -143,6 +145,8 @@ Every mechanical audit tool (lint, grep-based check, sweep) added to `/cc-audit`
 specs/lint-mechanism.md says "test the lint with a stub file containing X..."
 (no fixture on disk; future contributor must reconstruct from prose)
 ```
+
+Fixtures MAY use per-case sidecar files (as shown above) OR inline-case definition in `run.mjs`/`run.test.js` — the runner contract (assert expected vs actual + non-zero exit on mismatch) is the load-bearing primitive; the storage layout is operator-choice (see `.claude/audit-fixtures/codex-dispatcher/README.md` § "Fixture layout" for the inline-runner variant and selection criteria; receipts: cc-architect R2 LOW-2 + journal/0167 § R3 wave).
 
 **BLOCKED responses:**
 

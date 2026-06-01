@@ -1,0 +1,6 @@
+continue: true
+R9-S-02 fence: derived-N=1 traces to a settled
+collaborator-distinctness-revocation (attestation history present).
+gateEligibleForSelfSignedCheckpointOrRotation returns eligible:false.
+NO compaction-checkpoint record appended to coordination-log.jsonl.
+exit_code: 0

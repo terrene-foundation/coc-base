@@ -1,0 +1,16 @@
+{
+  "description": "F77 clean fixture (#386) — synced settings.json with NO operator-PII paths in permissions.allow/deny arrays. Every tool-call matcher uses a relative or $CLAUDE_PROJECT_DIR-rooted path. The scanner MUST produce zero findings on this surface.",
+  "permissions": {
+    "allow": [
+      "Read($CLAUDE_PROJECT_DIR/.claude/**)",
+      "Edit($CLAUDE_PROJECT_DIR/src/**)",
+      "Write($CLAUDE_PROJECT_DIR/tests/**)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)"
+    ],
+    "deny": [
+      "Edit($CLAUDE_PROJECT_DIR/.claude/learning/**)",
+      "Write(/etc/**)"
+    ]
+  }
+}

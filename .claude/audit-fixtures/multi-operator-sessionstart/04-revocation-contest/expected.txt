@@ -1,0 +1,4 @@
+continue: true
+additionalContext cites: 🚨 Contested revocations (rule 10)
+additionalContext cites: target=bob forging_signer=alice
+exit_code: 0

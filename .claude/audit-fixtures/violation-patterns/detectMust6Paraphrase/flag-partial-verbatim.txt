@@ -1,0 +1,14 @@
+---
+type: DECISION
+date: 2026-05-23
+references: ["0150", "0149"]
+---
+
+# Partial verbatim coverage
+
+Journal 0150 reads VERBATIM:
+
+> the only valid sources are the user's brief in this session
+
+But journal 0149's content is only paraphrased — no block-quote
+from 0149 appears here.

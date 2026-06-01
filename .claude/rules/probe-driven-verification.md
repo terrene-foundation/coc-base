@@ -80,7 +80,7 @@ if not LLM_AVAILABLE:
 
 **BLOCKED rationalizations:** "Some verification is better than none" / "Partial coverage is real coverage" / "We can document the regex as a 'best-effort signal'" / "CI environment is fixed, can't add LLM".
 
-**Why:** A regex fallback is anti-coverage. It says PASS when the regex matches and broadcasts to every reader of the harness output: "this verifies the recommendation property" → green → ship. The actual signal ("a string matched a pattern") is buried in the framing. Skipping with explicit reason is honest; running regex and reporting green is not. Same shape as `rules/test-skip-discipline.md` — acceptable skip vs masked failure.
+**Why:** A regex fallback is anti-coverage. It says PASS when the regex matches and broadcasts to every reader of the harness output: "this verifies the recommendation property" → green → ship. The actual signal ("a string matched a pattern") is buried in the framing. Skipping with explicit reason is honest; running regex and reporting green is not. Same shape as `skills/test-skip-discipline/SKILL.md` — acceptable skip vs masked failure.
 
 ### 4. Hook Detectors MAY Use Lexical Patterns BUT MUST NOT Block
 
@@ -140,7 +140,7 @@ Plan template + audit table at `skills/12-testing-strategies/probe-driven-verifi
 
 Extends `rules/cc-artifacts.md` Rule 7 (semantic analysis is agents' job, hooks check structure) — same principle applied to harness authoring. Extends `rules/hook-output-discipline.md` MUST-2 (lexical signals MUST NOT carry severity:block) — paired by MUST-4 of this rule (lexical hook MUST have probe-driven counterpart). Extends `rules/testing.md` (audit mode re-derives coverage from scratch) — same shape: probes re-derive semantic verdicts at gate review, not trust prior regex matches.
 
-Distinct from `rules/test-skip-discipline.md` — that rule governs WHEN tests skip; this rule governs HOW tests verify when they run.
+Distinct from `skills/test-skip-discipline/SKILL.md` — that rule governs WHEN tests skip; this rule governs HOW tests verify when they run.
 
 ## Origin
 

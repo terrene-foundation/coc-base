@@ -1,0 +1,20 @@
+# operator-gate audit fixture: flag — host_role:ci is NEVER eligible to
+# co-sign any gate-approval (R5-S-04, fail-loud via isEligibleSigner).
+#
+# Predicate: routed through lib/eligibility.js::isEligibleSigner — host_role:ci
+# is forever-ineligible for owner-quorum, distinctness, gate-approval, genesis,
+# migration. The eligibility predicate fires its own host_role guard so the
+# matrix evaluator does NOT need to duplicate the check.
+#
+# Input shape:
+#   command = "/release"
+#   approver_person_id = "person:ci-runner-001"
+#   approver_person.host_role = "ci"
+#   approver_person.role      = "owner"  ← role-eligible, but host_role excludes
+#
+# Expected gate evaluation:
+#   matrix_row = "release"
+#   eligibility check fails: isEligibleSigner({host_role:"ci", role:"owner"},
+#     "gate-approval") returns { eligible:false, reason:"host_role:ci ..." }
+#   halt = true (halt-and-report)
+#   why = "operator-gate/eligibility (R5-S-04)"

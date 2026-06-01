@@ -1,0 +1,7 @@
+severity: silent passthrough
+exit_code: 0
+continue: true
+stderr_tag: (none)
+predicate: RETRIEVAL_TOOLS.has(tool) returns false — Bash is not a retrieval tool
+why: Bash is needed by the orchestrator to remove the lockfile at probe exit (Phase C completion or abandon); blocking Bash would deadlock the entire /certify cycle. The lockfile is the structural signal of probe-phase-active; tool-scope is narrow by design.
+note: this is the structural narrowness check — Edit, Write, MultiEdit, Task, TodoWrite would all also pass through. Only RETRIEVAL_TOOLS = {Read, Grep, Glob, WebFetch} gate.

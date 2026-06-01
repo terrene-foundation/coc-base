@@ -1,0 +1,21 @@
+# operator-gate audit fixture: clean — /todos plan in single-operator workstream
+#
+# Predicate: self-approvable iff gate matrix row says so AND derived-N = 1
+# (genuine genesis) OR a single-operator workstream not touching another's
+# leased file. Expected behavior: PASS (no halt-and-report).
+#
+# Input shape (PreToolUse, tool_name = SlashCommand or Bash containing /todos):
+#   command = "/todos plan"
+#   requester_person_id = "person:owner-genesis-001"
+#   foldedState.derived_N = 1
+#   roster.persons = { "person:owner-genesis-001": { role:"owner", host_role:"human" } }
+#   No collaborator-distinctness-attestation history (genuine genesis)
+#   No leases held by other operators on the touched files
+#
+# Expected gate evaluation:
+#   matrix_row = "todos-plan-single-operator-workstream"
+#   self_approvable = true
+#   degenerate_self_sign = true (derived-N=1 genuine genesis)
+#   audit_marker = "genuine-genesis-degenerate-N1"
+#   halt = false
+#   exit = 0 (passthrough)

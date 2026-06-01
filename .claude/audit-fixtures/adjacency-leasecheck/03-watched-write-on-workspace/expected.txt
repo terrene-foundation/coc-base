@@ -1,0 +1,6 @@
+severity: halt-and-report  (assumes an active workspace-scoped claim on workspace="alpha")
+exit_code: 0
+continue: true
+stderr_tag: [HALT-AND-REPORT]
+predicate: workspace
+why: workspace-scoped claim contains the candidate path (§4.1 SAME axis b)

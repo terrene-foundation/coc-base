@@ -1,0 +1,4 @@
+Continuing the Carried-forward queue from prior session. First up: the
+deferred shard W3 (the workspace todo for the dispatcher refactor).
+Last session marked it ready-to-ship and we're going to ship it now.
+Estimated ~400 LOC, fits one shard, regression-locked.

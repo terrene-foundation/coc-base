@@ -1,0 +1,19 @@
+# operator-gate audit fixture: flag — derived gate name differs from signed target_tool
+#
+# Predicate (F14 MED-2): gate_approval.target_tool field MUST match the
+# canonical §6.4 row name derived from the current SlashCommand. A
+# gate-approval signed by an owner for "release" cannot authorize a
+# "/posture override" invocation. This is the cross-surface-replay defense.
+#
+# Input shape:
+#   command = "/posture override --to L5"
+#   detectTrigger returns "posture-override"
+#   gate_approval.target_tool = "release"  ← signed for a different row
+#   gate_approval has a valid sig from a roster owner over canonical bytes
+#   including target_tool="release".
+#
+# Expected gate evaluation:
+#   The sig verifies cryptographically (cocSign.verify returns valid=true)
+#   BUT the hook then checks target_tool == derived gate name and rejects.
+#   reason cites "target_tool mismatch"
+#   halt = true (halt-and-report)

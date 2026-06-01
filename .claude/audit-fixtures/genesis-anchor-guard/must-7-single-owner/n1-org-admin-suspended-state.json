@@ -1,0 +1,28 @@
+{
+  "type": "genesis-migration",
+  "verified_id": "SHA256:CANONICAL-FP",
+  "person_id": "pid-owner-f86",
+  "seq": 0,
+  "prev_hash": null,
+  "ts": "2026-05-29T12:00:00.000Z",
+  "content": {
+    "new_repo_owner": "myorg",
+    "new_repo_owner_kind": "org",
+    "from_genesis_generation": 0,
+    "to_genesis_generation": 1,
+    "co_signers": [],
+    "co_sign_anchor_kind": "gh_api_org_membership_capture",
+    "gh_api_owner_capture": {
+      "owner": { "login": "myorg" },
+      "capture_ts": "2026-05-29T12:00:00.000Z"
+    },
+    "gh_api_org_membership_capture": {
+      "role": "admin",
+      "state": "pending",
+      "user": { "login": "alice" },
+      "organization": { "login": "myorg" },
+      "capture_ts": "2026-05-29T12:00:00.000Z"
+    }
+  },
+  "sig": "STUB-SIG"
+}

@@ -23,7 +23,7 @@ Valid values: `opus`, `sonnet`, `haiku`, or omit for inherit.
 
 ## Changes Per Repo
 
-### 1. Terrene Foundation (`<governance-kb-repo>`)
+### 1. Governance KB (`<governance-kb-repo>`)
 
 **1 agent to update:**
 
@@ -35,43 +35,43 @@ Valid values: `opus`, `sonnet`, `haiku`, or omit for inherit.
 
 **6 agents to update:**
 
-| File                                        | Change                             |
-| ------------------------------------------- | ---------------------------------- |
-| `.claude/agents/release-specialist.md`   | `model: opus` → `model: sonnet`    |
-| `.claude/agents/reviewer.md` | `model: opus` → `model: sonnet`    |
-| `.claude/agents/build-fix.md`               | `model: opus` → `model: sonnet`    |
-| `.claude/agents/testing-specialist.md`              | `model: opus` → `model: sonnet`    |
-| `.claude/agents/gh-manager.md`              | Add `model: sonnet` if not present |
+| File                                   | Change                             |
+| -------------------------------------- | ---------------------------------- |
+| `.claude/agents/release-specialist.md` | `model: opus` → `model: sonnet`    |
+| `.claude/agents/reviewer.md`           | `model: opus` → `model: sonnet`    |
+| `.claude/agents/build-fix.md`          | `model: opus` → `model: sonnet`    |
+| `.claude/agents/testing-specialist.md` | `model: opus` → `model: sonnet`    |
+| `.claude/agents/gh-manager.md`         | Add `model: sonnet` if not present |
 
 ### 3. Kailash Python USE (`<python-use-repo>`)
 
 **6 agents to update:**
 
-| File                                        | Change                          |
-| ------------------------------------------- | ------------------------------- |
-| `.claude/agents/release-specialist.md`   | `model: opus` → `model: sonnet` |
-| `.claude/agents/reviewer.md` | `model: opus` → `model: sonnet` |
-| `.claude/agents/build-fix.md`               | `model: opus` → `model: sonnet` |
-| `.claude/agents/testing-specialist.md`              | `model: opus` → `model: sonnet` |
-| `.claude/agents/todo-manager.md`            | `model: opus` → `model: sonnet` |
+| File                                   | Change                          |
+| -------------------------------------- | ------------------------------- |
+| `.claude/agents/release-specialist.md` | `model: opus` → `model: sonnet` |
+| `.claude/agents/reviewer.md`           | `model: opus` → `model: sonnet` |
+| `.claude/agents/build-fix.md`          | `model: opus` → `model: sonnet` |
+| `.claude/agents/testing-specialist.md` | `model: opus` → `model: sonnet` |
+| `.claude/agents/todo-manager.md`       | `model: opus` → `model: sonnet` |
 
 ### 4. Kailash Rust BUILD/USE (`<rust-repo>`)
 
 **6 agents to update:**
 
-| File                                        | Change                          |
-| ------------------------------------------- | ------------------------------- |
-| `.claude/agents/release-specialist.md`   | `model: opus` → `model: sonnet` |
-| `.claude/agents/reviewer.md` | `model: opus` → `model: sonnet` |
-| `.claude/agents/build-fix.md`               | `model: opus` → `model: sonnet` |
-| `.claude/agents/testing-specialist.md`              | `model: opus` → `model: sonnet` |
-| `.claude/agents/todo-manager.md`            | `model: opus` → `model: sonnet` |
+| File                                   | Change                          |
+| -------------------------------------- | ------------------------------- |
+| `.claude/agents/release-specialist.md` | `model: opus` → `model: sonnet` |
+| `.claude/agents/reviewer.md`           | `model: opus` → `model: sonnet` |
+| `.claude/agents/build-fix.md`          | `model: opus` → `model: sonnet` |
+| `.claude/agents/testing-specialist.md` | `model: opus` → `model: sonnet` |
+| `.claude/agents/todo-manager.md`       | `model: opus` → `model: sonnet` |
 
 ---
 
 ## Execution Order
 
-1. **Terrene Foundation first** (this repo) — smallest change, immediate validation
+1. **Governance KB first** (this repo) — smallest change, immediate validation
 2. **Kailash Python USE** — template repo, changes propagate to new clones
 3. **Kailash Rust BUILD/USE** — same template structure
 4. **Kailash Python SDK BUILD** — development repo, test in active use
@@ -107,11 +107,11 @@ If any agent underperforms on Sonnet:
 
 ### Agents to watch
 
-| Agent                   | Currently | Watch For                                                    |
-| ----------------------- | --------- | ------------------------------------------------------------ |
-| build-fix               | → Sonnet  | Does it handle complex build errors? If not, revert to Opus  |
-| testing-specialist              | → Sonnet  | Does Playwright orchestration degrade? TerminalBench says no |
-| reviewer | → Sonnet  | Missing subtle doc issues? Unlikely given scope              |
+| Agent              | Currently | Watch For                                                    |
+| ------------------ | --------- | ------------------------------------------------------------ |
+| build-fix          | → Sonnet  | Does it handle complex build errors? If not, revert to Opus  |
+| testing-specialist | → Sonnet  | Does Playwright orchestration degrade? TerminalBench says no |
+| reviewer           | → Sonnet  | Missing subtle doc issues? Unlikely given scope              |
 
 ### Explore subagent optimization
 

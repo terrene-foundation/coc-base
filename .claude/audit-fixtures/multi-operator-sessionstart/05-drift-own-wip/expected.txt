@@ -1,0 +1,6 @@
+continue: true
+F13 closure:
+  .claude/learning/observations.jsonl MUST be attributed to own-WIP, NOT
+  surfaced under "🚨 COC ARTIFACT DRIFT".
+additionalContext cites: Working-tree drift: N own-WIP, 0 claimed-WIP
+exit_code: 0

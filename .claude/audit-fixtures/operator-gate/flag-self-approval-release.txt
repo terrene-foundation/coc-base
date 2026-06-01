@@ -1,0 +1,20 @@
+# operator-gate audit fixture: flag — /release with self-signed gate-approval
+#
+# Predicate: 4-eyes — approver person_id MUST differ from requester (R5-S-07
+# half 1, the self-sign half). `/release` row is "Never" self-approvable per
+# §6.4. Expected behavior: HALT (severity halt-and-report — same person_id
+# is a structural signature-record fact, but the gate is policy not safety
+# per hook-output-discipline.md MUST-2 — halt-and-report not block).
+#
+# Input shape:
+#   command = "/release"
+#   requester_person_id = "person:owner-alpha"
+#   gate_approval_signed_by = "person:owner-alpha"  ← SAME person_id
+#
+# Expected gate evaluation:
+#   matrix_row = "release"
+#   self_approvable = false (never per §6.4)
+#   reason = "/release rejects self-approval: approver person_id 'person:owner-alpha' == requester"
+#   halt = true (halt-and-report)
+#   instructAndWait shape: severity=halt-and-report, why="operator-gate/4-eyes",
+#     agent_must_report cites the matrix row + the rule_id.

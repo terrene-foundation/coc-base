@@ -41,7 +41,7 @@ Every prescriptive reference to specialist delegation in a workspace artifact MU
 - "We'll add a translation table at the top of the file"
 - "Workspace artifacts are session-local, the next session uses the same CLI"
 
-**Why:** Workspace artifacts cross CLI boundaries every time a different CLI is opened against the same repo. A Codex session reading `Agent(subagent_type="reviewer")` cannot run that primitive — Codex translates delegation through `/prompts:reviewer` (or its native surface); Gemini through `@reviewer`. The neutral phrase ("delegate to reviewer") is the contract; the per-CLI syntax is the implementation. Encoding the implementation in workspace prose weakens the contract for every non-CC reader.
+**Why:** Workspace artifacts cross CLI boundaries every time a different CLI is opened against the same repo. A Codex session reading `Agent(subagent_type="reviewer")` cannot run that primitive — Codex translates delegation through `bin/coc <phase> "$(cat .codex/prompts/specialist-reviewer.md)\n\nTask: ..."` (inline-cat injection; the prior `/prompts:reviewer` form is deprecated upstream and no longer loaded by Codex CLI 0.128+); Gemini through `@reviewer`. The neutral phrase ("delegate to reviewer") is the contract; the per-CLI syntax is the implementation. Encoding the implementation in workspace prose weakens the contract for every non-CC reader.
 
 ### 2. Tool Names Are Neutral In Prescriptive Prose
 

@@ -1,0 +1,7 @@
+severity: block
+exit_code: 2
+continue: false
+stderr_tag: [BLOCK]
+predicate: lockfile presence (fs.readdirSync structural) + tool name equality (Read in RETRIEVAL_TOOLS)
+why: /certify probe phase is the load-bearing institutional-knowledge gate; orchestrator retrieval during probe would assist the operator with answers they should produce from absorbed knowledge
+agent_must_report cites: tool blocked, lockfile present, refuse-with-one-sentence script, stale-lockfile recovery instruction

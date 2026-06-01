@@ -1,0 +1,5 @@
+{
+  "_doc": "Feat commit with substantive (>=100 char) body containing decision-language. Per the new classifier this MUST stub as DECISION — body has novel content (rationale + alternative) that wouldn't be captured by reading the subject alone.",
+  "subject": "feat(coc): introduce skill-embedded scope frontmatter value",
+  "body": "Decided to add scope: skill-embedded as a third option alongside baseline and path-scoped. The alternative (treat as path-scoped with hidden paths) was rejected because path-scoped rules emit to AGENTS.md while skill-embedded rules inline into the owning skill's SKILL.md only. Rationale: keeps the v6 §A.1 emission validator deterministic — one frontmatter key drives one emission target."
+}

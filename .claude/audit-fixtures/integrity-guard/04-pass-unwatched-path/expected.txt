@@ -1,0 +1,5 @@
+severity: silent passthrough
+exit_code: 0
+continue: true
+stderr_tag: (none)
+predicate: isWatchedPath() returns watched=false (src/foo.js not in §2.3 set)

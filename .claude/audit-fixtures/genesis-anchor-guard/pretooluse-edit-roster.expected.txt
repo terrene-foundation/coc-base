@@ -1,0 +1,1 @@
+watched: Edit on operators.roster.json IS a watched roster-touching write; the hook proceeds to verify the trust root before allowing the edit.

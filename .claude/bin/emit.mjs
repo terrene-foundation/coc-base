@@ -23,7 +23,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
+import { spawnSync, execFileSync } from "node:child_process";
 
 // Symlink-safe write. Node's fs.writeFileSync follows symlinks by
 // default, so a TOCTOU attacker can plant a symlink between mkdirSync
@@ -236,8 +236,8 @@ export function stripRuleFrontmatter(raw) {
 //   4. variants/<lang>-<cli>/rules/<rule>.md  (ternary, both-axis)
 // 2–4 are all applied if present (union of slot replacements), in
 // that order. Language-axis overlays were added 2026-04-22 (Phase I2)
-// to close the semantic-licensing bug where, e.g., the proprietary
-// rs override of independence.md was invisible to emit because only
+// to close the semantic-override bug where, e.g., the language-specific
+// rs override of framework-first.md was invisible to emit because only
 // CLI-only and ternary paths composed into the baseline.
 export function composeRule(ruleName, cli, lang = null) {
   // Rule-name validation: must be a simple .md filename — no traversal.
@@ -406,6 +406,40 @@ export function loadCliCaps() {
           const parsed = fm ? parseInt(fm[1], 10) : 10;
           return Math.max(10, parsed);
         })(),
+        // F23a / rule-authoring.md MUST Rule 10 — proximity-band override.
+        // Defaults to 15 (the rule-text value) when absent. Clamp to
+        // floorPct + 1 minimum to prevent a misconfigured manifest from
+        // silently disabling the advisory band (same fail-closed pattern
+        // as the floor clamp above per security-reviewer M3).
+        headroom_proximity_band_pct: (() => {
+          const pr = new RegExp(
+            `\\b${cli}:\\s*\\n` +
+              `[\\s\\S]*?headroom_proximity_band_pct:\\s*(\\d+)`,
+            "m",
+          );
+          const pm = src.match(pr);
+          const parsed = pm ? parseInt(pm[1], 10) : 15;
+          // Floor for THIS clamp is derived above; we cannot reference
+          // it from inside the IIFE, so re-parse. Same regex shape.
+          const floorParsed = (() => {
+            const fr = new RegExp(
+              `\\b${cli}:\\s*\\n` +
+                `[\\s\\S]*?headroom_floor_pct:\\s*(\\d+)`,
+              "m",
+            );
+            const fm = src.match(fr);
+            return fm ? Math.max(10, parseInt(fm[1], 10)) : 10;
+          })();
+          if (parsed <= floorParsed) {
+            process.stderr.write(
+              `[emit] WARN: ${cli} headroom_proximity_band_pct=${parsed} <= ` +
+                `headroom_floor_pct=${floorParsed}; clamping band to ${floorParsed + 1} ` +
+                `per F23a Security-M3 fail-closed clamp (rule-authoring.md MUST Rule 10).\n`,
+            );
+            return floorParsed + 1;
+          }
+          return parsed;
+        })(),
       };
     }
   }
@@ -457,6 +491,53 @@ export function validateAggregateHeadroom({ cli, lang, emissionBytes, blockCap, 
         "without explicit Codex-override-ceiling-stable evidence per plan §3.2.",
     },
   ];
+}
+
+// F23a / rule-authoring.md MUST Rule 10 — proximity-band advisory.
+// Emission is above floor (no BLOCK) but within the 15% proximity band:
+// the next baseline-priority MUST clause addition on this lane needs
+// paired extraction OR named-rationale exception per the rule. Returns
+// null when no advisory applies; otherwise an advisory object surfaced
+// in dry-run + write reports + console WARN. The 15% default matches
+// rule-authoring.md MUST 10 verbatim; per-CLI override lives in
+// `sync-manifest.yaml::cli_variants.context/root.md.<cli>.headroom_proximity_band_pct`
+// (defaults to 15 when absent).
+export const HEADROOM_PROXIMITY_BAND_PCT_DEFAULT = 15;
+
+export function getProximityBandAdvisory({
+  cli,
+  lang,
+  emissionBytes,
+  blockCap,
+  floorPct,
+  proximityBandPct = HEADROOM_PROXIMITY_BAND_PCT_DEFAULT,
+}) {
+  if (blockCap <= 0) return null;
+  if (proximityBandPct <= floorPct) return null; // misconfiguration; no band
+  const livePctRaw = ((blockCap - emissionBytes) / blockCap) * 100;
+  if (livePctRaw < floorPct) return null; // BLOCK case — handled separately
+  if (livePctRaw >= proximityBandPct) return null; // outside band — no advisory
+  const proximityBandBytes = Math.floor(blockCap * (1 - proximityBandPct / 100));
+  return {
+    cli,
+    lang: lang || "base",
+    emission_bytes: emissionBytes,
+    block_cap_bytes: blockCap,
+    headroom_pct: Number(livePctRaw.toFixed(2)),
+    headroom_floor_pct: floorPct,
+    proximity_band_pct: proximityBandPct,
+    proximity_band_bytes: proximityBandBytes,
+    margin_to_floor_bytes: emissionBytes <= Math.floor(blockCap * (1 - floorPct / 100))
+      ? Math.floor(blockCap * (1 - floorPct / 100)) - emissionBytes
+      : 0,
+    advisory:
+      "F23a proximity-band advisory (rule-authoring.md MUST Rule 10): " +
+      `headroom ${livePctRaw.toFixed(2)}% within ${proximityBandPct}% proximity band ` +
+      `above ${floorPct}% floor. Next baseline-priority MUST clause addition on this ` +
+      "lane MUST EITHER ship paired extraction-to-skill recovering ≥ the bytes added " +
+      "OR carry a named-rationale exception in the proposal's receipt journal. " +
+      "Adding load-bearing content without (a) or (b) is BLOCKED per Rule 10.",
+  };
 }
 
 export function emitBaseline(cli, outDir, { lang = null, verbose = false, dryRun = false } = {}) {
@@ -582,6 +663,26 @@ export function emitBaseline(cli, outDir, { lang = null, verbose = false, dryRun
     floorPct: HEADROOM_FLOOR_PCT,
   });
 
+  // F23a proximity-band advisory (rule-authoring.md MUST Rule 10).
+  // Default 15%; per-CLI override via sync-manifest.yaml::cli_variants.context/root.md.<cli>.headroom_proximity_band_pct.
+  const proximityBandPct =
+    (caps.headroom_proximity_band_pct ?? HEADROOM_PROXIMITY_BAND_PCT_DEFAULT);
+  const proximityBandAdvisory = getProximityBandAdvisory({
+    cli,
+    lang,
+    emissionBytes,
+    blockCap: BLOCK_CAP,
+    floorPct: HEADROOM_FLOOR_PCT,
+    proximityBandPct,
+  });
+  if (proximityBandAdvisory) {
+    console.log(
+      `[${cli}${lang ? " " + lang : ""}] ADVISORY: headroom ${proximityBandAdvisory.headroom_pct}% ` +
+      `within ${proximityBandPct}% proximity band — next baseline MUST addition requires ` +
+      `paired extraction OR named-rationale exception per rule-authoring.md Rule 10.`,
+    );
+  }
+
   const emitName = cli === "codex" ? "AGENTS.md" : "GEMINI.md";
   const outPath = path.join(outDir, emitName);
   const reportPath = path.join(outDir, `emit-report-${cli}.json`);
@@ -613,6 +714,7 @@ export function emitBaseline(cli, outDir, { lang = null, verbose = false, dryRun
       headroom_pct: headroomPctForReport,
       headroom_floor_pct: HEADROOM_FLOOR_PCT,
       headroom_floor_violations: headroomFloorViolations,
+      proximity_band_advisory: proximityBandAdvisory,
       budget_warnings: budgetWarnings,
       budget_block_violations: budgetBlockViolations,
       per_rule: perRuleReport,
@@ -638,6 +740,7 @@ export function emitBaseline(cli, outDir, { lang = null, verbose = false, dryRun
         headroom_pct: headroomPctForReport,
         headroom_floor_pct: HEADROOM_FLOOR_PCT,
         headroom_floor_violations: headroomFloorViolations,
+        proximity_band_advisory: proximityBandAdvisory,
         rules_emitted: crit.length,
         per_rule: perRuleReport,
         budget_warnings: budgetWarnings,
@@ -679,6 +782,7 @@ export function emitBaseline(cli, outDir, { lang = null, verbose = false, dryRun
     headroom_pct: Number(headroomPct.toFixed(2)),
     headroom_floor_pct: HEADROOM_FLOOR_PCT,
     headroom_floor_violations: headroomFloorViolations,
+    proximity_band_advisory: proximityBandAdvisory,
     budget_warnings: budgetWarnings,
     budget_block_violations: budgetBlockViolations,
   };
@@ -924,6 +1028,207 @@ export function validateManifestYaml() {
 }
 
 // ────────────────────────────────────────────────────────────────
+// Validator 17 — multi-operator substrate hook ⇔ data file coupling
+// (loom F67 2026-05-28, journal 0161, GH issue #379).
+//
+// roster-schema-validate.js + genesis-anchor-guard.js read
+// .claude/operators.roster.schema.json at runtime (path hardcoded in
+// roster-schema-validate.js:56-61). Before F67 the substrate sync
+// shipped the validator code but not the schema; consumer repos that
+// received the substrate without the schema had genesis-anchor-guard
+// fail-close every commit ("operators roster missing; trust root not
+// established") — the schema is not consumer-authorable, so there is
+// no in-repo recovery path.
+//
+// This validator codifies the coupling: if either hook is present in
+// loom source (which it is and will be), the manifest's tiered set
+// MUST contain operators.roster.schema.json — bare existence in
+// .claude/ is NOT enough; the path must appear in a tier so /sync
+// distributes it. Structural exit per hook-output-discipline.md
+// MUST-2 (file-existence + tier-membership are structural signals,
+// not lexical regex).
+export function validateRosterSchemaCoupling() {
+  const hooksRoot = path.join(REPO, ".claude", "hooks");
+  const schemaPath = path.join(REPO, ".claude", "operators.roster.schema.json");
+  const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
+
+  const validatorJs = path.join(hooksRoot, "lib", "roster-schema-validate.js");
+  const guardJs = path.join(hooksRoot, "genesis-anchor-guard.js");
+
+  const failures = [];
+
+  const hookPresent =
+    fs.existsSync(validatorJs) || fs.existsSync(guardJs);
+  if (!hookPresent) {
+    // No coupling to enforce — the substrate hasn't landed in this checkout.
+    return { pass: true, failures };
+  }
+
+  if (!fs.existsSync(schemaPath)) {
+    failures.push(
+      `operators.roster.schema.json missing at .claude/ — required by ` +
+        `roster-schema-validate.js:56-61 (runtime hardcoded path). ` +
+        `Restore the schema file before declaring substrate complete.`,
+    );
+    return { pass: false, failures };
+  }
+
+  // Manifest tier-membership check. The schema MUST appear as a
+  // bare-name entry in the `tiers:` block — NOT in `use_exclude:`
+  // (loom-only) or `use_obsoleted:` (purged on next sync). Per
+  // reviewer M1 + cc-architect HIGH-2 (journal 0162): a whole-file
+  // regex sweep would false-PASS if a future operator moved the
+  // entry to use_exclude/obsoleted, restoring the exact failure mode
+  // V17 exists to block. Mirroring V15's sliceBlock pattern keeps
+  // the validator's mechanical sweep scope-matched to its prose
+  // claim ("the schema MUST appear in a TIER").
+  const manifestText = fs.readFileSync(manifestPath, "utf8");
+  // Slice the `tiers:` block: from the line AFTER `^tiers:` to the
+  // next column-0 key. Same shape as validateTierCompleteness above
+  // (lines 939-948); duplicated rather than factored to keep V17
+  // self-contained (the factoring belongs in a separate refactor
+  // codify, not this same-shard remediation wave).
+  const tiersStart = manifestText.search(/^tiers:\s*$/m);
+  if (tiersStart === -1) {
+    failures.push(
+      `sync-manifest.yaml has no \`tiers:\` block — V17 cannot verify ` +
+        `schema tier-membership. Restore the tiers block before declaring ` +
+        `substrate complete.`,
+    );
+    return { pass: false, failures };
+  }
+  const tiersBodyStart = manifestText.indexOf("\n", tiersStart);
+  const afterTiers = manifestText.slice(tiersBodyStart + 1);
+  const nextKeyRel = afterTiers.search(/^[A-Za-z_][\w-]*:\s*$/m);
+  const tiersBlock =
+    nextKeyRel === -1 ? afterTiers : afterTiers.slice(0, nextKeyRel);
+  const tieredRe = /^\s*-\s*operators\.roster\.schema\.json\s*$/m;
+  if (!tieredRe.test(tiersBlock)) {
+    failures.push(
+      `operators.roster.schema.json EXISTS at .claude/ but is NOT declared ` +
+        `in any sync-manifest.yaml \`tiers:\` entry. The substrate's hook ` +
+        `consumers (roster-schema-validate.js, genesis-anchor-guard.js) ` +
+        `ship without their runtime data; consumer repos receiving the ` +
+        `substrate via /sync will fail-close every commit ("operators ` +
+        `roster missing; trust root not established"). Add ` +
+        `\`- operators.roster.schema.json\` to a tier (recommended: coc, ` +
+        `alongside commands/whoami.md). Origin: F67 / GH #379 / journal 0161. ` +
+        `Note: an entry in \`use_exclude:\` or \`use_obsoleted:\` does NOT ` +
+        `satisfy this check — the schema must be IN a tier so /sync ships ` +
+        `it (journal 0162 scope-fix).`,
+    );
+    return { pass: false, failures };
+  }
+
+  // F70: end-to-end strengthening — invoke sync-tier-aware.mjs --dry-run
+  // --json per declared sync target and assert
+  // operators.roster.schema.json appears in the planned `copied` list.
+  //
+  // The text-declaration check above (tieredRe) verifies the schema is
+  // SYNTACTICALLY in the manifest. F70 verifies it is SEMANTICALLY
+  // distributed — closes the grammar-evolution drift class where a
+  // future manifest addition (per-entry `disabled: true` marker, a new
+  // `use_exclude_v2:` block) silently drops the schema from every
+  // target's plan while leaving the tier-declaration intact. The text
+  // check would pass; only the end-to-end dry-run sees the drift.
+  //
+  // Per journal/0162 § F70 acceptance. Subprocess cost: ~1-2s per
+  // target × 5 targets ≈ 5-10s. Borne at /codify validation time, not
+  // at every emit.mjs invocation; opt-in via an env var would defeat
+  // the regression-lock so the deep check is unconditional.
+  const declaredTargets = ["py", "rs", "rb", "base", "prism"];
+  const syncTierAwarePath = path.join(REPO, ".claude", "bin", "sync-tier-aware.mjs");
+  const SCHEMA_PLAN_PATH = ".claude/operators.roster.schema.json";
+  // Use a synthetic --out path so the loom-links resolver is bypassed:
+  // V17 inspects the dry-run plan only, never writes, never actually
+  // resolves the target's on-disk location. This makes the validator
+  // operator-portable — it passes on every workstation regardless of
+  // which targets the operator has cloned locally.
+  const syntheticOut = path.join(REPO, ".claude", "bin", "v17-probe-out");
+  for (const target of declaredTargets) {
+    let stdout;
+    try {
+      stdout = execFileSync(
+        process.execPath,
+        [
+          syncTierAwarePath,
+          "--target",
+          target,
+          "--dry-run",
+          "--json",
+          "--out",
+          syntheticOut,
+        ],
+        { encoding: "utf8", timeout: 20000, stdio: ["ignore", "pipe", "pipe"] },
+      );
+    } catch (err) {
+      failures.push(
+        `V17 (F70 end-to-end): sync-tier-aware --target ${target} --dry-run --json ` +
+          `failed: ${err && err.message ? err.message.slice(0, 200) : String(err).slice(0, 200)}. ` +
+          `The dry-run probe MUST succeed for every declared target so V17 can verify the schema ` +
+          `actually distributes; if the target is intentionally retired, remove it from this validator's ` +
+          `declaredTargets list AND remove repos.${target} from sync-manifest.yaml in the same commit.`,
+      );
+      continue;
+    }
+    let plan;
+    try {
+      plan = JSON.parse(stdout);
+    } catch (err) {
+      failures.push(
+        `V17 (F70 end-to-end): sync-tier-aware --target ${target} --dry-run --json ` +
+          `emitted unparseable output: ${err.message.slice(0, 120)}. ` +
+          `Expected JSON with plan.files[] containing the schema's distribution action.`,
+      );
+      continue;
+    }
+    const files =
+      plan && plan.plan && Array.isArray(plan.plan.files) ? plan.plan.files : [];
+    // F70 scope: only fail on targets that subscribe to the `coc` tier
+    // (where the schema lives per F67's tier choice in journal/0161).
+    // Targets not subscribed to coc are out of #379's scope — they
+    // don't receive the substrate hooks' coc-tier siblings either.
+    // F70's regression-lock binds the schema's distribution to the
+    // tier-subscriptions that ARE supposed to ship it; widening the
+    // scope to every target would re-open a different architectural
+    // question (do base/prism need the substrate?) that F67 explicitly
+    // scoped out.
+    const subs =
+      plan && plan.plan && Array.isArray(plan.plan.tier_subscriptions)
+        ? plan.plan.tier_subscriptions
+        : [];
+    if (!subs.includes("coc")) {
+      // Target does not subscribe to coc tier — out of F70 scope.
+      // Documented as advisory note so the operator sees the skip.
+      continue;
+    }
+    const schemaEntry = files.find((f) => f && f.path === SCHEMA_PLAN_PATH);
+    if (!schemaEntry) {
+      failures.push(
+        `V17 (F70 end-to-end): sync-tier-aware --target ${target} --dry-run --json ` +
+          `plan does NOT include ${SCHEMA_PLAN_PATH} at all. ` +
+          `The tier declaration in sync-manifest.yaml passed the text check but the resolved ` +
+          `distribution plan silently dropped the schema. Inspect the manifest's tier_subscriptions ` +
+          `for target=${target}, any future per-entry markers (e.g. \`disabled: true\`), or recent ` +
+          `changes to sync-tier-aware.mjs's filtering logic.`,
+      );
+      continue;
+    }
+    if (schemaEntry.action !== "copy") {
+      failures.push(
+        `V17 (F70 end-to-end): sync-tier-aware --target ${target} --dry-run --json ` +
+          `plan includes ${SCHEMA_PLAN_PATH} but action="${schemaEntry.action}" (reason="${schemaEntry.reason}"). ` +
+          `Expected action="copy" so the schema actually ships with the substrate. The substrate's ` +
+          `hook consumers (roster-schema-validate.js, genesis-anchor-guard.js) ship without their ` +
+          `runtime data otherwise — every commit in target=${target} consumer repos will fail-close.`,
+      );
+    }
+  }
+
+  return { pass: failures.length === 0, failures };
+}
+
+// ────────────────────────────────────────────────────────────────
 // POLICIES writeback to .codex-mcp-guard/
 // ────────────────────────────────────────────────────────────────
 // Runs extract-policies on .claude/hooks/. Writes TWO files (CDX-5 fix,
@@ -971,7 +1276,7 @@ export function wireMcpPolicies(outDir) {
   const auditJson = {
     version: 1,
     generated_at: new Date().toISOString(),
-    source_dir: hooksDir,
+    source_dir: path.relative(REPO, hooksDir),
     shape_summary: {
       A: filteredPredicates.filter((p) => p.shape === "A").length,
       B: filteredPredicates.filter((p) => p.shape === "B").length,
@@ -1115,6 +1420,23 @@ function main() {
     overallPass = false;
     process.stderr.write(
       `VALIDATOR 15 FAIL (sync-manifest tier-completeness, journal 0078):\n${v15.failures.map((l) => "  " + l).join("\n")}\n`,
+    );
+    process.exit(1);
+  }
+
+  // Validator 17 — multi-operator substrate hook ⇔ data coupling (F67
+  // 2026-05-28, journal 0161, GH #379). The roster schema is data the
+  // substrate's hooks read at runtime; shipping the hooks without the
+  // schema fail-closes every consumer commit. Regression-lock makes
+  // future tier-set drift structurally impossible.
+  const v17 = validateRosterSchemaCoupling();
+  console.log(
+    `[validator-17] roster-schema-coupling: ${v17.pass ? "PASS" : "FAIL"}`,
+  );
+  if (!v17.pass) {
+    overallPass = false;
+    process.stderr.write(
+      `VALIDATOR 17 FAIL (multi-operator substrate hook⇔data coupling, F67 / GH #379 / journal 0161):\n${v17.failures.map((l) => "  " + l).join("\n")}\n`,
     );
     process.exit(1);
   }

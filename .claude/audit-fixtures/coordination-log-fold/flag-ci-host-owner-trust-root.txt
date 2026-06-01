@@ -1,0 +1,28 @@
+F14 / HIGH-1 fixture — CI-host owner anchor MUST NOT become trust root.
+
+Scenario:
+  - Roster: pid-ci is role=owner, host_role=ci.
+  - Accepted record: genesis-anchor signed by pid-ci's key (verified by
+    rule-1 because the key IS in the roster).
+
+Submission:
+  require("posture-v2.js").resolveTrustRoot(acceptedRecords, roster)
+
+Expected:
+  Returns null. Per R5-S-04, host_role:ci is audit-only — NEVER eligible
+  for trust-root binding even if the underlying record verified.
+
+Defense:
+  Pre-hardening, resolveTrustRoot (line 244-302 in posture-v2.js) built
+  ownerVerifiedIds from every owner-role person's keys without checking
+  host_role. A CI-host deploy key, present in the roster for audit log
+  signing, could rebase the trust root just by signing an anchor record.
+
+Post-hardening: the enumeration at line 250 skips persons whose
+host_role === "ci" (the same filter enforced by eligibility.js for
+every other R5-S-04 site: derive-n.js:86-90, fold-rule-9b.js:117-122,
+fold-rule-9c.js:105-110).
+
+Test: tests/integration/multi-operator/substrate-hardening.test.js
+      :: "HIGH-1: resolveTrustRoot rejects CI-host owner-signed anchor"
+      :: "HIGH-1: resolveTrustRoot picks human owner over CI-host sibling"

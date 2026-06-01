@@ -1,0 +1,2 @@
+FAIL forest-ledger: .claude/audit-fixtures/forest-ledger/fixture-12-multirow-close-one-missing.session-notes
+  [L3] "Closed this session" entry cites no durable receipt (PR#/#N/SHA/journal NNNN) — not closed: F3 finished but forgot the receipt

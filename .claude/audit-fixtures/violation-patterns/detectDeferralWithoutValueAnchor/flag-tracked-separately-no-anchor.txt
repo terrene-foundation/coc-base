@@ -1,0 +1,7 @@
+Three follow-up items deferred to next session:
+
+- Phase I1 reframed as downstream responsibility — tracked separately
+- Validators 1-12 implementation deferred to follow-up
+- Abridgement protocol punted to later
+
+Will pick up next session if time permits.

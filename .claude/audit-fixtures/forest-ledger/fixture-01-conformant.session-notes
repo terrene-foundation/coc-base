@@ -1,0 +1,22 @@
+# Session Notes — 2026-05-18
+
+## Where we are
+
+ID-contract fixture (journal/0095 Option B).
+
+## Read first
+
+1. `CLAUDE.md` — repo directives
+
+## Outstanding ledger (forest)
+
+| ID | Item | Value-anchor (MUST-1 source) | Status |
+| -- | ---- | ---------------------------- | ------ |
+| F1 | multi-CLI BUILD scaffold | user 2026-05-13 directive | BLOCKED |
+| F2 | headroom re-eval | v6.2 brief journal/0075 | BLOCKED |
+
+Closed this session: F3 → PR #270.
+
+## Traps
+
+- (none)

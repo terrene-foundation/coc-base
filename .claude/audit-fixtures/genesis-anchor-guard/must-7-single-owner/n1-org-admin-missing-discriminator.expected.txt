@@ -1,0 +1,3 @@
+accepted: false
+predicate: MUST-7 (e) — discriminator absent; falls through to 2-of-N path which rejects co_signers:[]
+reason_class: R6-S-04 | 2-of-N | degenerate self-sign

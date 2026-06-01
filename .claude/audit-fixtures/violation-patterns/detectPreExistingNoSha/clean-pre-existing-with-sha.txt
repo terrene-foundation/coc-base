@@ -1,0 +1,1 @@
+This is a pre-existing failure introduced by commit abc1234 on main. Will follow up separately with a regression test referencing that SHA.

@@ -1,0 +1,1 @@
+Tests pass (Tier 1: 247, Tier 2: 38, Tier 3: 12), regression test added at tests/regression/test_issue_NNN.py, /redteam round 1 complete with zero findings. PR ready for merge.

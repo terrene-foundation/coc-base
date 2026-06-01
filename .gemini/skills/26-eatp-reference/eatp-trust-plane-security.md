@@ -109,8 +109,3 @@ TrustPlaneError (base, .details: dict)
 ```
 
 All exceptions accept `details: dict[str, Any]` per EATP convention.
-
-## See Also
-
-- `.gemini/skills/project/store-backend-implementation.md` — Store backend guide
-- `.gemini/skills/project/trust-plane-enterprise-features.md` — Enterprise feature reference

@@ -20,6 +20,8 @@ The defect goes upstream. The story of HOW you found it stays at home.
 
 ALL sessions running in a USE-template-derived consumer repo. Applies to ANY `gh issue create`, `gh pr create`, `gh issue edit`, or equivalent issue-filing command targeting an SDK repository (`kailash-py`, `kailash-rs`, `kailash-prism`, or any sibling distributed via PyPI / crates.io / gems).
 
+It ALSO governs the **proposal-intake lane**: a USE-template or BUILD repo filing a COC-artifact issue, or a `/codify` proposal whose body flows through loom Gate-1, MUST scrub per Rule 2 BEFORE filing — a proposal body is a pipeline input that reaches 30+ downstream consumers once split and distributed, exactly the surface this rule fences.
+
 ## MUST Rules
 
 ### 1. Human Gate Before Filing
@@ -203,6 +205,10 @@ This is the Python equivalent of <sibling-SDK>#NNN ...
 - Auto-cross-file: filing on one SDK repo then auto-filing the sibling on a paired SDK repo without a separate human gate
 
 **Why:** Auto-cross-filing replicates whatever leakage the first body contained, doubling the surface area; cross-SDK parity is a maintainer concern, not a consumer one.
+
+- File a `/codify` proposal or a COC-artifact intake issue whose body carries a client / operator / 3rd-party identifier into loom Gate-1
+
+**Why:** A proposal body that reaches Gate-1 is split and distributed to 30+ consumers; any leaked identifier becomes permanently correlatable across all of them before any output fence runs — the intake lane is a pipeline input, not a private note.
 
 Origin: A 2026-04-29 public SDK issue body leaked `F-G1-HIGH S-H3 finding (<consumer-app> repo, 2026-04-27): non-atomic store_tokens in live_oauth.py:192-237 and pseudo-atomic in oauth.py:470-536` into a public SDK issue. Sibling leaks confirmed across ~13 issues spanning two public SDK repos (consumer-app workspace paths, finding tags, "<consumer-app> workaround" sections, references to private SDK repos). Drafted as the structural defense after the leakage audit (loom 2026-04-30).
 ```

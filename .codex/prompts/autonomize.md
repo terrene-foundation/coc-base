@@ -23,6 +23,20 @@ The user invoked `/autonomize`. This is a directive, not a task. Adopt the follo
 
 7. **"Proceed" / "continue" / "go" / "approve" means execute.** Another question is a regression. Resume prior work under this directive.
 
+## Throughput Routing
+
+After deciding WHAT to do, route HOW to execute it:
+
+1. **Decompose onto the orchestration primitive when the work earns it.** If the work surface is **≥3 independent items** OR has a **multi-stage shape** (analyze → implement → verify), author a deterministic multi-agent workflow on the runtime's orchestration primitive rather than executing serially. Parallel decomposition IS the throughput response — and under time pressure it is the ONLY correct one (per `rules/time-pressure-discipline.md`: parallelize, never shortcut).
+
+2. **The trigger is a real gate, not "always parallel."** For a genuinely serial single-item task, authoring a workflow is SLOWER than just doing it — execute inline. The ≥3-independent-items / multi-stage shape is the threshold; below it, serial is correct.
+
+3. **Concurrency is throttle-aware, not max-fanout** (per `rules/worktree-isolation.md` Rule 4): cold-start at ~3 concurrent agents — NOT the runtime's native cap — and back off to waves of ~3 ONLY on the falsifiable signal (≥2 agents dying within ~30–48s carrying `not your usage limit`). Do NOT preemptively over-serialize; do NOT trust the native cap.
+
+4. **Govern the shards** (per `rules/governed-throughput.md`): inject curated, MINIMAL, load-bearing rule-slices into each shard for COMPLIANCE (the shard honors the invariants you are accountable for), and run the full-context gate-review at merge. Over-injection degrades output — curate minimal, do NOT dump the full corpus.
+
+**Cons (symmetric):** for a 1-item serial task, workflow authoring is pure latency overhead; gate (2) is what prevents "always workflow." The command body names only "the runtime's orchestration primitive" — never a CLI-specific tool — per `rules/cross-cli-artifact-hygiene.md`; each CLI maps it to its own surface.
+
 ## Prudence — the permission envelope
 
 Autonomous execution operates INSIDE the user's permission envelope, not outside it. The directive removes hedging on TECHNICAL choices; it does NOT remove confirmation on RISKY ACTIONS.

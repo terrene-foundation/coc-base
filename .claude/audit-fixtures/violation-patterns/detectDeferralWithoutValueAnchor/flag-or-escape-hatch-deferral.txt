@@ -1,0 +1,5 @@
+Validators 1-12 disposition (red-team Round 2):
+
+Add Phase C6-adjacent todos for validators 1-12 OR explicit ADR statement that they are shell one-liners not needing separate todos.
+
+Punted to next milestone if neither shipped this cycle. Tracked separately.

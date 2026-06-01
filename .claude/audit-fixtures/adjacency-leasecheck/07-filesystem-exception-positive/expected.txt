@@ -1,0 +1,9 @@
+severity: block
+exit_code: 2
+continue: false
+stderr_tag: [BLOCK]
+predicate: §4.2 filesystem exception — porcelain match on exact target path
+why: structural-process-local signal (git status --porcelain) — the ONLY
+     branch carrying severity:block per hook-output-discipline.md MUST-2.
+evidence: COC_PORCELAIN_OVERRIDE lists "src/lib/foo.js" and the candidate
+          repoRelative resolves to "src/lib/foo.js" exactly.

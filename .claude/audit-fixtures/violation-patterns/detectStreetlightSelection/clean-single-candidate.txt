@@ -1,0 +1,3 @@
+Picking up the aggregator-merge follow-up — fits one shard, regression-locked, closes the only open Week-2 follow-up before the grace deadline. No other carried-forward items in scope this session.
+
+I recommend proceeding with the implementation per the workspace plan.

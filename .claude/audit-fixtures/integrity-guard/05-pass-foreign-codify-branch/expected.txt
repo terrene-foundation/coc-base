@@ -1,0 +1,8 @@
+severity: block
+exit_code: 2
+continue: false
+stderr_tag: [BLOCK]
+predicate: isCodifyBranch returns {match: false, foreign: true, foreignDisplayId: "SIBLING"}
+why: multi-operator-coc/integrity-guard §2.3 — foreign codify-branch
+agent_must_report cites: foreign codify branch for operator SIBLING
+note: fixture name "pass-foreign" is historical; the predicate IS foreign-branch → block

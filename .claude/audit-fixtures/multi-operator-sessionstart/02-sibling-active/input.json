@@ -1,0 +1,20 @@
+{
+  "hook_event_name": "SessionStart",
+  "cwd": "<repo>",
+  "env": {
+    "COC_TEST_FINGERPRINT": "SHA256:alice-test-fingerprint",
+    "COC_TEST_PERSON_ID": "p-alice"
+  },
+  "coord_log_seed": [
+    {
+      "type": "claim",
+      "verified_id": "SHA256:bob-test-fingerprint",
+      "person_id": "p-bob",
+      "display_id": "bob",
+      "seq": 0,
+      "ts": "2026-05-20T12:00:00Z",
+      "content": { "claim_id": "bob-c1", "path": "src/foo.js" },
+      "sig": "stub"
+    }
+  ]
+}

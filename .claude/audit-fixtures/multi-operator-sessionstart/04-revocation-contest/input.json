@@ -1,0 +1,9 @@
+{
+  "hook_event_name": "SessionStart",
+  "cwd": "<repo>",
+  "env": {
+    "COC_TEST_FINGERPRINT": "SHA256:alice-test-fingerprint",
+    "COC_TEST_PERSON_ID": "p-alice",
+    "COC_TEST_CONTESTED_REVOCATIONS": "[{\"target_login\":\"bob\",\"forging_signer\":\"alice\"}]"
+  }
+}

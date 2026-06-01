@@ -1,0 +1,33 @@
+Scenario: hookPresent=true + schemaExists=true + tier-member=false → V17 FAIL (manifest gap)
+
+Setup:
+  - Working tree HAS .claude/hooks/lib/roster-schema-validate.js
+  - Working tree HAS .claude/operators.roster.schema.json
+  - sync-manifest.yaml's `tiers:` block does NOT contain the entry
+    `- operators.roster.schema.json` (entry was never added, OR was
+    removed via cleanup, OR drifted out during a tier reorganization)
+
+Driver:
+  cd <tmpworktree>
+  cp .claude/sync-manifest.yaml /tmp/sm-baseline.yaml
+  sed -i.tmp '/^    - operators\.roster\.schema\.json$/d' \
+    .claude/sync-manifest.yaml
+  rm .claude/sync-manifest.yaml.tmp
+  node .claude/bin/emit.mjs --all --dry-run > /tmp/out.txt 2>&1
+  echo "exit=$?"
+  grep -E "validator-17|VALIDATOR 17 FAIL" /tmp/out.txt
+  cp /tmp/sm-baseline.yaml .claude/sync-manifest.yaml  # restore
+
+Expected:
+  exit=1
+  stdout contains: "[validator-17] roster-schema-coupling: FAIL"
+  stderr contains:
+    "VALIDATOR 17 FAIL (multi-operator substrate hook⇔data coupling, F67 / GH #379 / journal 0161):"
+    "operators.roster.schema.json EXISTS at .claude/ but is NOT declared"
+    "in any sync-manifest.yaml `tiers:` entry"
+
+Rationale: The originating failure mode F67 was authored to block —
+the substrate ships the validator code but the runtime data is left
+behind. V17 fires AT EMIT TIME so the gap cannot reach /sync.
+Verified at F67 land per journal/0162 § Verification ("probe2_exit=1
+... after removing entry from manifest").

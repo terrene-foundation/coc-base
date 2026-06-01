@@ -1,0 +1,13 @@
+---
+type: DECISION
+date: 2026-05-23
+references: ["0150"]
+---
+
+# Whitespace + smart-quote normalization
+
+The block-quote below uses smart-quotes and extra whitespace versus the
+cited journal's ASCII + single-space content. After FM-E normalization,
+the substring match still fires.
+
+>   the only valid sources are the user’s brief in this session

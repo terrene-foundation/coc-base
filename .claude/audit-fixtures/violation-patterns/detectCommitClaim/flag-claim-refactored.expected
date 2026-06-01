@@ -1,0 +1,5 @@
+{
+  "rule_id": "git/commit-message-claim-accuracy",
+  "severity": "advisory",
+  "evidence_substring": "refactored auth module"
+}

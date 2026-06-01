@@ -1,0 +1,5 @@
+Picking up issue #234 from the prior session. The deferred queue had
+this open for 28 days with no recent activity, so it's time to ship.
+I'll start by reading the issue body, then implement the fix across the
+three call sites identified in the original analysis. Tier-2 regression
+test included.

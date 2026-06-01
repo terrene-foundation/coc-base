@@ -1,0 +1,5 @@
+{
+  "_doc": "Feat commit with empty/short body — no novel content beyond the subject. Pre-fix: produced a DECISION stub on every feat (the originating bug). Post-fix: skip.",
+  "subject": "feat(emit): support .codex/prompts/ output directory",
+  "body": ""
+}

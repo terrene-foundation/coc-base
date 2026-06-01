@@ -1,0 +1,5 @@
+{"type":"genesis-anchor","verified_id":"SHA256:abc","person_id":"pid-owner-abc12345","seq":0,"prev_hash":null,"ts":"2026-05-20T00:00:00Z","content":{...
+{this line is not valid JSON; missing closing brace, unbalanced quotes,
+not even a {} structure — the loadLogRecords parser MUST skip it without
+crashing the hook}
+{"type":"genesis-anchor","verified_id":"SHA256:def","person_id":"pid-owner-abc12345","seq":1,"prev_hash":null,"ts":"2026-05-20T00:01:00Z","content":{"genesis":{"repo_owner":"verified-owner","repo_owner_kind":"user","root_commit":"abc123def456","genesis_generation":0},"gh_api_owner_capture":{},"gh_api_root_commit_capture":{}},"sig":"-----BEGIN SSH SIGNATURE-----..."}

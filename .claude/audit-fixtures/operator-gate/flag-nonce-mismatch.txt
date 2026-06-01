@@ -1,0 +1,18 @@
+# operator-gate audit fixture: flag — gate_approval target_tool mismatch
+#
+# Predicate (F14 MED-2): the gate_approval signed bytes cover the
+# target_tool field. A gate_approval validly signed over target_tool="release"
+# MUST NOT authorize a /posture upgrade invocation (cross-surface replay).
+# The hook verifies that the gate_approval's target_tool field equals the
+# canonical row name derived from the current command surface.
+#
+# Input shape:
+#   command = "/posture upgrade"
+#   gate = "posture-upgrade" (derived from command)
+#   gate_approval.target_tool = "release"  ← MISMATCH
+#   (signature is cryptographically valid over those bytes)
+#
+# Expected gate evaluation:
+#   reason cites "target_tool mismatch: gate_approval signed over 'release';
+#                 current invocation is 'posture-upgrade'"
+#   halt = true (halt-and-report)

@@ -1,0 +1,2 @@
+FAIL forest-ledger: .claude/audit-fixtures/forest-ledger/fixture-07-empty-forest-contradiction.session-notes
+  [L2] "Forest empty" asserted but 1 open row(s) present — contradictory ledger state

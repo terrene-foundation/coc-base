@@ -178,6 +178,21 @@ export function applyOverlay(globalSrc, overlaySrc) {
       );
     }
     if (!globalSlots.has(name)) {
+      // Canonical whole-body slot. `neutral-body` is the slot-only
+      // spelling of full-body replacement (variant-authoring.md MUST-1):
+      // a proper slot-only variant wraps its entire override in
+      // `slot:neutral-body`. When the global carries NO slot markers at
+      // all, its whole body IS the implicit neutral-body, so the
+      // overlay's neutral-body replaces it outright — the documented
+      // Replacement semantic (artifact-flow.md § Variant Overlay
+      // Semantics), identical to the full-file overlay path
+      // (emit.mjs:291 `composed = overlay`). Without this branch the
+      // RECOMMENDED slot-only form silently regresses to the generic
+      // global while the legacy full-file form works — issue #290.
+      if (name === "neutral-body" && globalSlots.size === 0) {
+        out = content;
+        continue;
+      }
       warnings.push(
         `overlay introduces slot '${name}' not in global (v6 §3 violation)`,
       );

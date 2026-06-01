@@ -1,0 +1,2 @@
+FAIL forest-ledger: .claude/audit-fixtures/forest-ledger/fixture-09-duplicate-id.session-notes
+  [L5] duplicate ledger ID "F1" — IDs MUST be unique (ID-conservation is ambiguous otherwise; journal/0095)

@@ -1,0 +1,11 @@
+{
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Edit",
+  "tool_input": {
+    "file_path": "src/lib/foo.js"
+  },
+  "cwd": "<repo>",
+  "_env_overrides": {
+    "COC_PORCELAIN_OVERRIDE": "src/lib/foo.js"
+  }
+}

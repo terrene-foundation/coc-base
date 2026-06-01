@@ -1,0 +1,5 @@
+continue: true
+derived-N=2 (two human owners). gateEligibleForSelfSignedCheckpointOrRotation
+returns eligible:true (N>=2 short-circuits). findOwnerCosigner finds p-bob.
+compaction-checkpoint emitted with co_signers=[{p-bob...}].
+exit_code: 0

@@ -1,0 +1,4 @@
+continue: true
+additionalContext cites: L3_SHARED_PLANNING (capped from L5_DELEGATED — partition detected)
+additionalContext cites: partition (local_genesis_generation=0, peer_high_water=2)
+exit_code: 0

@@ -1,0 +1,24 @@
+# operator-gate audit fixture: flag — gate_approval replay via same consumed_nonce
+#
+# Predicate (F14 MED-2 fold-side defense): the gate-approval record's
+# coordination-log fold predicate refuses to fold a second gate-approval
+# record carrying a consumed_nonce already present in acceptedSoFar. This
+# is defense-in-depth: the hook MAY accept the same in-payload bytes more
+# than once if invoked twice (no log state mediates the hook), but the
+# fold-side guarantees only one gate-approval per nonce ever lands in the
+# coordination log.
+#
+# Input shape (fold engine, NOT operator-gate hook):
+#   Two gate-approval records submitted in sequence, both with
+#   content.consumed_nonce = "n-abc123" but different seq+sig.
+#   Roster: 2 owners (alice as primary signer, bob as cosigner).
+#
+# Expected fold behavior:
+#   record #1: accepted (first witness of this nonce)
+#   record #2: rejected with reason cites "consumed_nonce 'n-abc123' already
+#              consumed by accepted gate-approval record"
+#
+# Defense layer: even if the operator-gate hook's hot-path checks somehow
+# allow the duplicate at PreToolUse, the fold predicate ensures the
+# coordination log itself rejects the second landing — closing the replay
+# class structurally.

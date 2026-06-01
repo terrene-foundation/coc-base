@@ -1,0 +1,9 @@
+{
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Edit",
+  "tool_input": {
+    "file_path": "<repo>/.claude/operators.roster.json"
+  },
+  "cwd": "<repo>",
+  "_setup_note": "coordination log is truncated mid-line ('{not-valid-json'); on main branch the structural branch predicate fires FIRST → block (log read failure is moot)"
+}

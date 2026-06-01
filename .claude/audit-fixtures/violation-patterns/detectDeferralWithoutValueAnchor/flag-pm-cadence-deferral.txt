@@ -1,0 +1,7 @@
+Three follow-up items:
+
+- Validators 1-12 — deferred to next sprint cycle
+- Phase II consumer integration — punted to next quarter
+- Multi-CLI parity work — out of scope for this OKR cadence
+
+Will revisit when bandwidth opens. Tracked separately for the next planning iteration.

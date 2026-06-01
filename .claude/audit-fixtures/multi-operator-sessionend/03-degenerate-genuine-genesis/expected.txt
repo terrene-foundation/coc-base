@@ -1,0 +1,6 @@
+continue: true
+derived-N=1, NO attestation history in log →
+gateEligibleForSelfSignedCheckpointOrRotation returns eligible:true.
+compaction-checkpoint emitted with content.degenerate="single-owner"
+(no cosigner since N=1).
+exit_code: 0

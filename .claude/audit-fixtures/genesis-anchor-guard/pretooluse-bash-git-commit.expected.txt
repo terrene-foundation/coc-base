@@ -1,0 +1,1 @@
+watched: tool=Bash command="git commit ..." matches the watched-tool allowlist (literal `git commit`); the hook proceeds to verify the trust root in the coordination log.

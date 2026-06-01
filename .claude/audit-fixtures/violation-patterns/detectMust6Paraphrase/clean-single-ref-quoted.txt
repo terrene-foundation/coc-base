@@ -1,0 +1,13 @@
+---
+type: DECISION
+date: 2026-05-23
+references: ["0150"]
+---
+
+# Single reference, verbatim quoted
+
+Per journal 0150:
+
+> the only valid sources are the user's brief in this session
+
+That single citation carries a verbatim block-quote — MUST-6 satisfied.

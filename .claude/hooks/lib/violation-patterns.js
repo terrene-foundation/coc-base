@@ -875,6 +875,234 @@ function detectStateFileMutation(command, pathRx) {
   return null;
 }
 
+// F29 — MUST-6 verbatim-quote detector (value-prioritization.md MUST-6, 2026-05-23)
+//
+// Detects: a journal entry's frontmatter declares `references: [<ID>, ...]`
+// citing prior journals, but the journal's body contains NO block-quote line
+// (markdown `>`) that appears as a contiguous substring of EVERY cited
+// journal's content. MUST-6 requires "path + section + verbatim sentence";
+// this detector enforces the verbatim half lexically.
+//
+// Severity: advisory (lexical detector per hook-output-discipline.md MUST-2).
+// The probe-driven gate-review counterpart per probe-driven-verification.md
+// MUST-4 runs at cc-architect at /codify (reviewer judges whether the cited
+// anchors are genuinely materialized verbatim).
+//
+// Parameters:
+//   journalPath: absolute or repo-relative path to a recently-written
+//                journal/NNNN-*.md file.
+//   options.journalDir: optional override for the directory containing
+//                cited journals (default: the same directory as journalPath).
+//                Used by audit fixtures to set up isolated temp layouts.
+//
+// Returns: a finding object when ANY cited journal has zero matching
+//          verbatim block-quotes; null when all cited journals are covered
+//          OR when there are no references to verify.
+// Resource caps applied per security-reviewer R1 findings (2026-05-23):
+//   MEDIUM-2: file-size cap before readFileSync (DoS class)
+//   MEDIUM-3: refIds-array cap + readdirSync cache (O(N×M) → O(N+M))
+// Quote-length floor from cc-architect MED-3 (anti-trigram-evasion):
+//   MUST6_MIN_QUOTE_CHARS (defined inside function body, used at extraction).
+const MUST6_MAX_FILE_BYTES = 5 * 1024 * 1024; // 5MB
+const MUST6_MAX_REFS = 50;
+
+// Normalize whitespace + smart-quotes for substring matching per analyst
+// FM-E. Collapses runs of whitespace to a single space; normalizes smart-
+// quote codepoints (U+2018/U+2019/U+201C/U+201D) to ASCII ' and ".
+function _normalizeQuoteText(s) {
+  return s
+    .replace(/[‘’]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Cross-directory cited-journal resolution (analyst FM-D). When the new
+// journal lives in `workspaces/<name>/journal/`, fall back to the
+// repo-root `journal/` directory if the cited NNNN isn't found locally.
+// Returns the list of candidate journal directories to search, in order.
+function _candidateJournalDirs(journalPath, explicitOverride) {
+  if (explicitOverride) return [explicitOverride];
+  const dirs = [path.dirname(journalPath)];
+  // If the journal lives in a workspaces/<name>/journal/ subtree, also
+  // search the repo-root journal/ dir (cross-workspace + cross-root refs).
+  const posix = journalPath.replace(/\\/g, "/");
+  const wsMatch = posix.match(/^(.*?)\/workspaces\/[^/]+\/journal\/\d{3,4}-/);
+  if (wsMatch) {
+    const repoRoot = wsMatch[1];
+    const rootJournal = path.join(repoRoot, "journal");
+    if (rootJournal !== dirs[0]) dirs.push(rootJournal);
+  }
+  return dirs;
+}
+
+// HIGH-1: only operate on journal paths that resolve under <repo>/journal/
+// or <repo>/workspaces/*/journal/. Without this guard a malicious
+// PostToolUse(Write) on /etc/journal/0001-x.md would make the detector
+// read from /etc.
+function isJournalPathInScope(journalPath) {
+  const norm = path.normalize(journalPath);
+  // Acceptable: any path whose POSIX-style dirname matches journal/ or
+  // workspaces/*/journal/. Use posix normalization for cross-platform
+  // consistency in the regex match.
+  const posix = norm.replace(/\\/g, "/");
+  return (
+    /(^|\/)journal\/\d{3,4}-[^/]+\.md$/.test(posix) &&
+    (/(^|\/)journal\/\d{3,4}-[^/]+\.md$/.test(posix) ||
+      /(^|\/)workspaces\/[^/]+\/journal\/\d{3,4}-[^/]+\.md$/.test(posix))
+  );
+}
+
+function detectMust6Paraphrase(journalPath, options) {
+  if (!journalPath || typeof journalPath !== "string") return null;
+  const opts = options || {};
+  // HIGH-1: path-scope allowlist. Silently no-op for out-of-scope paths;
+  // the hook is best-effort, not a permission gate. Test escape-hatch:
+  // when an explicit `options.journalDir` is supplied, trust the caller
+  // (audit fixtures use temp dirs without `journal/` in the layout).
+  if (!opts.journalDir && !isJournalPathInScope(journalPath)) return null;
+  // MEDIUM-2: size guard before reading.
+  let stat;
+  try {
+    stat = fs.statSync(journalPath);
+  } catch {
+    return null;
+  }
+  if (!stat.isFile() || stat.size > MUST6_MAX_FILE_BYTES) return null;
+  let bodyRaw;
+  try {
+    bodyRaw = fs.readFileSync(journalPath, "utf8");
+  } catch {
+    return null; // file unreadable — nothing to verify
+  }
+  // Parse YAML frontmatter — extract `references:` array. Frontmatter is
+  // bounded by `---` fences at the start of the file.
+  const fmMatch = bodyRaw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+  if (!fmMatch) return null; // no frontmatter — nothing to verify
+  const frontmatter = fmMatch[1];
+  const body = fmMatch[2];
+  // Extract `references:` list. Accept inline-array form (`references: ["0150", "0149"]`)
+  // and YAML-block form (multi-line bullets).
+  const refIds = [];
+  // Inline form: references: [ID1, ID2] (with optional quotes)
+  const inlineMatch = frontmatter.match(/^references:\s*\[([^\]]*)\]\s*$/m);
+  if (inlineMatch) {
+    const items = inlineMatch[1].split(",");
+    for (const it of items) {
+      const m = it.match(/["']?(\d{3,4})["']?/);
+      if (m) refIds.push(m[1]);
+      if (refIds.length >= MUST6_MAX_REFS) break;
+    }
+  } else {
+    // YAML-block form:
+    //   references:
+    //     - "0150"
+    //     - "0149"
+    const blockMatch = frontmatter.match(
+      /^references:\s*\n((?:\s*-\s*["']?\d{3,4}["']?.*\n?)+)/m,
+    );
+    if (blockMatch) {
+      const lines = blockMatch[1].split("\n");
+      for (const ln of lines) {
+        const m = ln.match(/^\s*-\s*["']?(\d{3,4})["']?/);
+        if (m) refIds.push(m[1]);
+        if (refIds.length >= MUST6_MAX_REFS) break;
+      }
+    }
+  }
+  if (refIds.length === 0) return null; // no refs — nothing to verify
+
+  // Extract block-quote lines from the body — lines starting with `>`
+  // (after optional indent). Trim the leading `>` and surrounding
+  // whitespace; require ≥30 chars per cc-architect MED-3 to prevent
+  // trigram-substring false-positives (e.g. `> the only valid` matching
+  // any prose containing that phrase).
+  const MUST6_MIN_QUOTE_CHARS = 30;
+  const quoteLines = [];
+  for (const line of body.split("\n")) {
+    const m = line.match(/^\s*>\s?(.*)$/);
+    if (m) {
+      const q = m[1].trim();
+      if (q.length >= MUST6_MIN_QUOTE_CHARS) quoteLines.push(q);
+    }
+  }
+
+  // Resolve candidate journal directories per analyst FM-D — walk parent
+  // dirs when the new journal lives in workspaces/<name>/journal/.
+  const candidateDirs = _candidateJournalDirs(journalPath, opts.journalDir);
+
+  // MEDIUM-3: cache readdirSync ONCE per candidate dir before the refIds
+  // loop (was O(N×M)).
+  const dirEntries = [];
+  for (const d of candidateDirs) {
+    try {
+      dirEntries.push({ dir: d, entries: fs.readdirSync(d) });
+    } catch {
+      // skip unreadable candidate
+    }
+  }
+  if (dirEntries.length === 0) return null;
+
+  // Pre-normalize quoteLines once for cross-journal comparison (FM-E).
+  const normalizedQuotes = quoteLines.map(_normalizeQuoteText);
+
+  // For each cited journal ID, check whether ≥1 block-quote line from the
+  // new journal appears as a contiguous substring of the cited journal.
+  const verified = [];
+  const unverified = [];
+  for (const refId of refIds) {
+    const padded = String(refId).padStart(4, "0");
+    let citedPath = null;
+    for (const { dir, entries } of dirEntries) {
+      const hit = entries.find(
+        (e) => e.startsWith(padded + "-") && e.endsWith(".md"),
+      );
+      if (hit) {
+        citedPath = path.join(dir, hit);
+        break;
+      }
+    }
+    if (!citedPath) continue; // cited journal not found in any candidate dir
+    // MEDIUM-2: size guard for cited file too.
+    let citedStat;
+    try {
+      citedStat = fs.statSync(citedPath);
+    } catch {
+      continue;
+    }
+    if (!citedStat.isFile() || citedStat.size > MUST6_MAX_FILE_BYTES) continue;
+    let citedContent;
+    try {
+      citedContent = fs.readFileSync(citedPath, "utf8");
+    } catch {
+      continue;
+    }
+    // FM-E: substring match against normalized text on both sides.
+    const normalizedCited = _normalizeQuoteText(citedContent);
+    const hasMatch = normalizedQuotes.some((q) => normalizedCited.includes(q));
+    if (hasMatch) verified.push(refId);
+    else unverified.push(refId);
+  }
+
+  if (unverified.length === 0) return null;
+
+  // LOW-4: scrub absolute path → basename in evidence to avoid leaking
+  // operator workspace context (per upstream-issue-hygiene.md MUST-2).
+  // Evidence enrichment (analyst): include verified[] + unverified[] +
+  // quote_count so reviewer can re-derive the partial-honoring shape
+  // without re-reading both journals.
+  const safeName = path.basename(journalPath);
+  return {
+    rule_id: "value-prioritization/MUST-6",
+    severity: "advisory",
+    evidence: `journal ${safeName} cites ${unverified.join(", ")} but contains no verbatim substring from ${unverified.length === 1 ? "it" : "them"} (verified: ${verified.length ? verified.join(", ") : "none"}; quote_count: ${quoteLines.length})`,
+    detection_layer: "lexical",
+    verified,
+    unverified,
+    quote_count: quoteLines.length,
+  };
+}
+
 module.exports = {
   detectPreExistingNoSha,
   detectRepoScopeDriftText,
@@ -892,4 +1120,5 @@ module.exports = {
   detectDeferredItemPickupWithoutRevalidation,
   detectGhIssueCloseAsNotPlanned,
   detectStateFileMutation,
+  detectMust6Paraphrase,
 };

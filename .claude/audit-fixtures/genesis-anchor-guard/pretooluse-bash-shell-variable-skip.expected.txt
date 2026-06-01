@@ -1,0 +1,1 @@
+not-watched: command begins with shell variable `$GITCMD`; the watched-tool regex requires a literal `git commit`. Per hook-output-discipline.md MUST-3 (pre-expansion shell variables are structural-NULL — the hook cannot evaluate `$VAR` at hook invocation time, so it MUST pass through). Hook passes through (exit 0, continue: true).

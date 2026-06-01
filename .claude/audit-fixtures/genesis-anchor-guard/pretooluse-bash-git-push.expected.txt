@@ -1,0 +1,1 @@
+watched: tool=Bash command="git push ..." matches the watched-tool allowlist; the hook proceeds to verify the trust root.

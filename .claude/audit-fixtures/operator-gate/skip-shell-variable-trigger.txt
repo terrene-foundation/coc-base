@@ -1,0 +1,19 @@
+# operator-gate audit fixture: skip — command-string detector MUST skip
+# shell-variable references per hook-output-discipline.md MUST-3.
+#
+# Predicate: the operator-gate hook detects gate-triggering commands by
+# lexical match on `payload.tool_input.command` for tool=Bash, OR by
+# slash-command name for tool=SlashCommand. A Bash command containing
+# "$CMD" or "${CMD}" or "$(...)" referencing the trigger command pre-
+# expansion cannot be evaluated; the detector MUST return null (skip),
+# NOT a halt-and-report. The skip is a structural NULL per MUST-3.
+#
+# Input shape:
+#   tool = "Bash"
+#   command = 'eval "$CMD"'         ← shell-variable, pre-expansion unknown
+#   command = 'gh $(./helpers/cmd-for-release)'  ← command-substitution
+#
+# Expected gate evaluation:
+#   triggerDetection returns null (skip)
+#   halt = false
+#   exit = 0 (passthrough)

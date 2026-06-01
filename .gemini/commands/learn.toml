@@ -1,5 +1,5 @@
 name = "learn"
-description = "Loom command: learn"
+description = "Learning system status — observations, codified patterns, posture trajectory."
 prompt = '''
 # /learn - Learning System Status
 

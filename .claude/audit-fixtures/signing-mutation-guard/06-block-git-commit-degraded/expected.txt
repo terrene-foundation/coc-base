@@ -1,0 +1,7 @@
+severity: block
+exit_code: 2
+continue: false
+stderr_tag: [BLOCK]
+predicate: classifyOperation() returns {kind:'git-mut'} + signing key absent → working-tree-mutation predicate fires
+why: multi-operator-coc/signing-mutation-guard R5-S-03 — git-ref transport mutation under degraded mode
+agent_must_report cites: operation=git-mut, command, run /whoami --register

@@ -1,0 +1,18 @@
+---
+type: DECISION
+date: 2026-05-23
+references: ["0150", "0149"]
+---
+
+# Both citations carry verbatim quotes
+
+From journal 0150:
+
+> the only valid sources are the user's brief in this session
+
+From journal 0149:
+
+> lease scope MUST union scopeFiles with MANDATORY_SCOPE
+
+Both references are covered by verbatim block-quotes; this entry
+satisfies MUST-6.

@@ -1,0 +1,3 @@
+accepted: false
+predicate: MUST-7 (c) — gh_api_org_membership_capture role MUST be "admin"; non-admin invalidates the structural anchor
+reason_class: role | not admin

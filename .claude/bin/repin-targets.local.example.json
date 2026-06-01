@@ -1,0 +1,44 @@
+{
+  "_DEPRECATED": [
+    "SUPERSEDED by loom-links.local.json (see loom-links.local.example.json).",
+    "The shared resolver bin/lib/loom-links.mjs now owns the canonical",
+    "NAME->location binding AND the downstream `shards` block (resolveShard).",
+    "repin-downstream.mjs reads loom-links config first (unified path) and",
+    "falls back to this legacy repin-targets.local.json only when no",
+    "loom-links config exists (back-compat shim — still active, not removed).",
+    "Operators SHOULD migrate: copy your `reposRoot` + `shards` into",
+    "loom-links.local.json's `shards` block and delete repin-targets.local.json.",
+    "This .example file is retained for the legacy shim; do NOT delete it.",
+    "Keys beginning with `_` are ignored by the loader."
+  ],
+  "_README": [
+    "Operator-local downstream-repo registry for repin-downstream.mjs.",
+    "",
+    "Copy this file to `repin-targets.local.json` (same directory) and fill",
+    "in your real downstream repo paths. `repin-targets.local.json` is",
+    "gitignored and is NEVER committed or synced — it is the only place the",
+    "downstream-repo registry lives. The shipped script carries only this",
+    "loader + schema, so no engagement/consumer identifiers appear in any",
+    "synced `.claude/` artifact (issue #255 / #252 disclosure class).",
+    "",
+    "Schema:",
+    "  reposRoot : base directory holding all downstream repo checkouts.",
+    "              Supports a leading `~` (expands to $HOME). Each shard",
+    "              path below is resolved relative to this root.",
+    "              Default if omitted: `~/repos`.",
+    "  shards    : object mapping a shard label -> array of repo paths",
+    "              (relative to reposRoot). Shard labels are arbitrary;",
+    "              `repin-downstream.mjs --shard <label>` selects one, and",
+    "              `--shard all` unions every shard.",
+    "",
+    "Keys beginning with `_` (like this one) are ignored by the loader."
+  ],
+  "reposRoot": "~/repos",
+  "shards": {
+    "example_group_a": [
+      "group-a/first-consumer-repo",
+      "group-a/second-consumer-repo"
+    ],
+    "example_group_b": ["group-b/another-consumer-repo"]
+  }
+}

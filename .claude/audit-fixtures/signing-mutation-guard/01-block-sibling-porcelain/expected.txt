@@ -1,0 +1,7 @@
+severity: block
+exit_code: 2
+continue: false
+stderr_tag: [BLOCK]
+predicate: sibling worktree porcelain shows EXACT target path (override or production primitive)
+why: multi-operator-coc/signing-mutation-guard §4.2 filesystem exception
+agent_must_report cites: target path, conflicting sibling worktree, evidence=override|production

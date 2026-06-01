@@ -1,0 +1,9 @@
+{
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Write",
+  "tool_input": {
+    "file_path": "<repo>/journal/0012-DECISION-mine.md"
+  },
+  "cwd": "<repo>",
+  "_setup_note": "coordination log has a signed journal-slot-reservation record with content.slot=0012, content.dir=journal, verified_id=<SELF_FINGERPRINT>"
+}

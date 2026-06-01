@@ -1,0 +1,4 @@
+Implementing the new feature spec from the user's brief. Adding the
+required scaffolding for the WebSocket handler and wiring it into the
+existing dispatcher. No deferred items in scope; no prior session state
+to inherit. Tier-2 regression tests added in the same commit.

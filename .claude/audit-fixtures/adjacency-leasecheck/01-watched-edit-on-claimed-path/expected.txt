@@ -1,0 +1,7 @@
+severity: halt-and-report
+exit_code: 0
+continue: true
+stderr_tag: [HALT-AND-REPORT]
+predicate: exact
+why: multi-operator-coc/adjacency-leasecheck §4.1 SAME predicate
+agent_must_report cites: claim_id, sibling display_id, predicate

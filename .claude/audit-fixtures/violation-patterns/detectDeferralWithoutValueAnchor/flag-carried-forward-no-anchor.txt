@@ -1,0 +1,8 @@
+Carried-forward (no grace clock):
+
+- coc-sync.md 761→400 line move to skills/30-claude-code-patterns/sync-flow.md
+- cc-audit.md legacy overlay slot-keying across variants/{py,rs,rb}/commands/
+
+Codex + Gemini lanes were NOT re-validated this session; only cc lane. Their timeouts are unchanged (60s/180s).
+
+Tracked separately for future sessions.

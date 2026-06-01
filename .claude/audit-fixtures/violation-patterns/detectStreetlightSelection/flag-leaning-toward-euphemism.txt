@@ -1,0 +1,7 @@
+Three carried-forward items today:
+
+1. Codex/Gemini lane re-validation (high-stakes brief)
+2. coc-sync.md 761→400 line move
+3. Aggregator-merge follow-up
+
+Leaning toward the aggregator-merge — fits one shard, regression-locked, cheap (~150 LOC). Best path forward is the small fix; will start with that and pick the others up next session.

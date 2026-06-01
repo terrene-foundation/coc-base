@@ -1,0 +1,1 @@
+All 12 commands now carry canonical frontmatter; verification grep returned OK for each. Ready for review.

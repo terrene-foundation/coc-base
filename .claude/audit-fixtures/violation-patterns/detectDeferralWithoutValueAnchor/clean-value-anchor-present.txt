@@ -1,0 +1,8 @@
+Carried-forward (no grace clock):
+
+- **coc-sync.md 761→400 line move**
+  Value-anchor: per the brief — current size is over the cc-artifacts.md command 150-line cap × 5; downstream readers skim the long file and miss the slot-composition contract. Delivers value: makes the canonical sync flow doc readable.
+- **cc-audit.md slot-keying**
+  Value-anchor: per spec § cross-cli-parity — slot-keying ensures Codex/Gemini emissions inherit the same audit checks as cc; without it, the auditor runs on cc only.
+
+Both items have user-anchored rationale; deferral is intentional pending Codex/Gemini lane re-validation.

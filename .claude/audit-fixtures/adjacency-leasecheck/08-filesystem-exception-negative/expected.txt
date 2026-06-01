@@ -1,0 +1,12 @@
+severity: advisory  (assumes a sibling claim on src/lib/other.js → ADJACENT
+                    via same-dir; the porcelain row names a sibling file but
+                    NOT the candidate, so §4.2 does NOT fire)
+exit_code: 0
+continue: true
+stderr_tag: [ADVISORY]
+why: §4.2 filesystem exception requires EXACT path match against porcelain.
+     The negative case (same-dir, no exact match) falls back through to the
+     §4.1 ADJACENT predicate (advisory) — never to block.
+note: This fixture is the structural-defense for hook-output-discipline.md
+      MUST-2: the §4.2 block branch MUST NOT generalize to "any porcelain
+      activity in the dir blocks". Only exact path matches.

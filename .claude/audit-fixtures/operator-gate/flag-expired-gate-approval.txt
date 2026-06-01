@@ -1,0 +1,17 @@
+# operator-gate audit fixture: flag — gate_approval ts older than TTL
+#
+# Predicate (F14 MED-2 TTL clause): gate_approval.ts MUST be within
+# GATE_APPROVAL_TTL_MS (24 hours) of now. An older signed approval, even
+# if cryptographically valid, is rejected — closing the long-tail replay
+# class where an attacker accumulates approvals from prior owner activity
+# and re-uses them weeks later.
+#
+# Input shape:
+#   command = "/release"
+#   gate_approval.ts = "2026-04-01T00:00:00Z"  (>24h before "now")
+#   (signature is cryptographically valid over those bytes)
+#   GATE_APPROVAL_TTL_MS = 86_400_000 (24h)
+#
+# Expected gate evaluation:
+#   reason cites "gate_approval expired: ts <ts> is older than 24h"
+#   halt = true (halt-and-report)

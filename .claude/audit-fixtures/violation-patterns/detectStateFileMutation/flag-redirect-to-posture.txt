@@ -1,0 +1,1 @@
+echo '{"posture":"L5_DELEGATED"}' > .claude/learning/posture.json

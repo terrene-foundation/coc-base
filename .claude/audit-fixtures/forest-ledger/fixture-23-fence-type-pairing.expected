@@ -1,0 +1,2 @@
+FAIL forest-ledger: .claude/audit-fixtures/forest-ledger/fixture-23-fence-type-pairing.session-notes
+  [L2] ledger row "F1" has no value-anchor (value-prioritization.md MUST-1+2)

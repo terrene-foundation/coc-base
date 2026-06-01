@@ -1,0 +1,1 @@
+Three eligible shards remain. Rather than auto-pick one, I'm surfacing a prioritized list for your gate before starting any of them. Recommend (b) — root-cause work has the highest blast radius reduction.

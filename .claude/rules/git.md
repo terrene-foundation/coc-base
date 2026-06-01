@@ -44,14 +44,12 @@ git checkout -b feat/v3.23.0-release-prep
 Before the FIRST `git push` that creates a remote branch, the agent MUST run the project's local CI parity command set (Rust: `cargo +nightly fmt --all --check` + `cargo clippy -- -D warnings` + `cargo nextest run` + `RUSTDOCFLAGS="-Dwarnings" cargo doc`. Python: `pre-commit run --all-files` + `pytest` + `mypy --strict`). All MUST exit 0 → push.
 
 ```bash
-# DO — pre-flight all local CI commands before first push
-cargo +nightly fmt --all --check && cargo clippy -- -D warnings && cargo nextest run
-git push -u origin feat/<branch>
-# DO NOT — push, watch CI, fix-up commit, push again, repeat
-git push -u origin feat/<branch>; git commit -am "style: fmt"; git push  # CI run #2 still bills run #1's wall-clock
+# DO — pre-flight ALL local CI commands; push only on exit 0
+cargo +nightly fmt --all --check && cargo clippy -- -D warnings && cargo nextest run && git push -u origin feat/<branch>
+# DO NOT — push, watch CI fail, fix-up, push again — each cycle re-bills the cancelled run's wall-clock
 ```
 
-**Why:** With `concurrency: cancel-in-progress: true` on the workflow, prior in-flight runs are cancelled — but **the cancelled runs are still billed for the wall-clock minutes already consumed before cancellation**. Pre-flighting takes ~5-10 min; the alternative is N × 45 min of billed CI per fix-up cycle. See guide for the 71-minute mid-flight cancel evidence.
+**Why:** With `concurrency: cancel-in-progress: true`, prior in-flight runs are cancelled but **still billed for the wall-clock minutes consumed before cancellation**. Pre-flighting takes ~5-10 min; the alternative is N × 45 min of billed CI per fix-up cycle. See guide for the 71-minute mid-flight cancel evidence + the full Rust/Python command set.
 
 ## Branch Protection
 
@@ -65,21 +63,20 @@ CC system prompt provides the template. Always include a `## Related issues` sec
 
 **Why:** Without issue links, PRs become disconnected from their motivation, breaking traceability and preventing automatic issue closure on merge.
 
-## `git reset --hard` MUST Verify Clean Working Tree (MUST)
+## Destructive Working-Tree Ops MUST Verify Clean Working Tree (MUST)
 
-`git reset --hard <ref>` SILENTLY discards every unstaged modification AND every untracked file in the affected paths. Recovery is impossible — unstaged content has no reflog entry. Running `git reset --hard` without first verifying `git status --porcelain` is empty is BLOCKED. Prefer `git reset --keep <ref>`, which performs the same commit-graph operation BUT aborts if it would lose local changes.
+`git reset --hard <ref>`, `git clean -f[d]`, and `rm -rf` of untracked paths all SILENTLY and IRRECOVERABLY destroy uncommitted work — unstaged modifications AND untracked-not-ignored files have NO reflog. Running any without first verifying `git status --porcelain` is empty is BLOCKED. Prefer `git reset --keep <ref>` (aborts on a dirty tree) and `git stash -u` over `git clean -f`. The `.claude/hooks/validate-bash-command.js` tripwire enforces this at the Bash boundary.
 
 ```bash
-# DO — --keep aborts loudly when working tree has changes
+# DO — --keep aborts on a dirty tree; dry-run before any clean
 git reset --keep origin/main
-# DO — verify clean first if --hard is genuinely needed
-[ -z "$(git status --porcelain)" ] || { echo "stash or commit first"; exit 1; }
-git reset --hard origin/main
-# DO NOT — bare --hard with no working-tree check
-git reset --hard origin/main         # silently wipes M files and untracked files; no reflog
+git clean -n
+# DO NOT — bare destructive op with no working-tree check
+git reset --hard origin/main   # wipes M + untracked; no reflog
+git clean -fd                  # deletes untracked; unrecoverable
 ```
 
-**Why:** `git reset --hard` is the most destructive git operation that doesn't rewrite history — and unlike force-push, the destruction is unrecoverable. `git reset --keep` exists in git specifically to provide the same effect with structural safety. Sibling of `dataflow-identifier-safety.md` Rule 4 (DROP) and `schema-migration.md` Rule 7 (downgrade) — same structural-confirmation pattern.
+**Why:** The most destructive working-tree ops that don't rewrite history; unlike force-push the loss is unrecoverable (no reflog). `git reset --keep` / `git clean -n` convert silent loss into a loud refusal/preview. See guide for the #401 incident + the `dataflow-identifier-safety.md` Rule 4 / `schema-migration.md` Rule 7 siblings.
 
 ## Rules
 

@@ -1,0 +1,5 @@
+{
+  "_doc": "Plain chore commit with no decision-language in body. Pre-fix this would have skipped (already returned null) — locks the regression so future tightening doesn't accidentally start stubbing.",
+  "subject": "chore(emit): wire per-rule budget BLOCK validator + abridge zero-tolerance.md",
+  "body": "Lift validator out of the inline emitter path; adds 38 lines and a regression test for the cap arithmetic. No design choice; mechanical extraction."
+}

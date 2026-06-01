@@ -1,0 +1,7 @@
+Three eligible candidates today:
+
+1. Workstream A
+2. Workstream B
+3. Workstream C
+
+Each fits one shard differently, regression-locked, cheap (~150 LOC). Could you tell me which one you want me to pick up?

@@ -1,0 +1,3 @@
+continue: true
+First heartbeat: cache absent → MUST create cache + append heartbeat record (under skip-sign: stub-sig record).
+exit_code: 0

@@ -1,0 +1,26 @@
+Scenario: hookPresent=true + schemaExists=false → V17 FAIL (schema missing)
+
+Setup:
+  - Working tree HAS .claude/hooks/lib/roster-schema-validate.js
+  - Working tree does NOT have .claude/operators.roster.schema.json
+    (deleted, never committed, or path was renamed without updating
+    roster-schema-validate.js:56-61's runtime SCHEMA_PATH constant)
+
+Driver:
+  cd <tmpworktree>
+  rm -f .claude/operators.roster.schema.json
+  node .claude/bin/emit.mjs --all --dry-run > /tmp/out.txt 2>&1
+  echo "exit=$?"
+  grep -E "validator-17|VALIDATOR 17 FAIL" /tmp/out.txt
+
+Expected:
+  exit=1
+  stdout contains: "[validator-17] roster-schema-coupling: FAIL"
+  stderr contains:
+    "VALIDATOR 17 FAIL (multi-operator substrate hook⇔data coupling, F67 / GH #379 / journal 0161):"
+    "operators.roster.schema.json missing at .claude/ — required by"
+    "roster-schema-validate.js:56-61 (runtime hardcoded path)"
+
+Rationale: catches the "schema file deleted or never committed" class.
+The runtime path is hardcoded in the validator; the loom-source schema
+file is the only way to recover.

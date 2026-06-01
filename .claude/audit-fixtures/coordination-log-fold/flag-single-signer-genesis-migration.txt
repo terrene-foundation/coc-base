@@ -1,0 +1,33 @@
+F14 / CRIT-1 fixture — single-signer genesis-migration MUST be rejected.
+
+Scenario:
+  - Roster: one owner (pid-A), host_role=human.
+  - Record: genesis-migration signed by pid-A only, content.co_signers absent.
+  - Fresh chain: seq=0, prev_hash=null.
+  - gh_api_repo_owner_capture present, fresh, with capture_ts == record.ts.
+
+Submission:
+  require("coordination-log.js").foldLog([migration], roster, {})
+
+Expected fold result:
+  accepted[]: no genesis-migration record
+  rejected[]: exactly one entry whose `record.type === "genesis-migration"`
+  rejected[0].reason MUST match /co.sign|2-of-N|R6-S-04|degenerate|self-sign/i
+
+Defense:
+  Pre-hardening (before F14 commit fix(coordination-log)), the engine's
+  module-default registry routed genesis-migration to a no-op predicate
+  (line 464-479 in coordination-log.js). The migration walked past rules
+  1-5 and landed as accepted: true. resolveTrustRoot then rebased the
+  trust root to the migration's owner — a single roster member could
+  unilaterally rotate the substrate's root of trust.
+
+Post-hardening: registry binds "genesis-migration" → foldGenesisMigration
+(fold-rule-9c.js), which enforces:
+  - R6-S-04: 2-of-N owner-cosig, NO degenerate self-sign
+  - fresh gh_api_repo_owner_capture matching new_repo_owner
+  - monotonic to_genesis_generation > from_genesis_generation
+
+Test: tests/integration/multi-operator/substrate-hardening.test.js
+      :: "CRIT-1: single-signer genesis-migration is rejected by fold engine"
+      :: "CRIT-1 e2e: single-signer genesis-migration in rejected[] with cosig reason"

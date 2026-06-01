@@ -1,0 +1,3 @@
+accepted: false
+predicate: MUST-7 (c) — gh_api_org_membership_capture state MUST be "active"; pending/suspended admin cannot anchor
+reason_class: state | not active

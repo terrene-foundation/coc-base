@@ -1,0 +1,10 @@
+{
+  "summary": {
+    "rules_audited": 1,
+    "critical": 2,
+    "warn": 0,
+    "note": 0
+  },
+  "exit_code": 1,
+  "notes": "Gemini variant downgrades priority 0 → 10 AND scope baseline → path-scoped. Two CRITICALs because both frontmatter.priority and frontmatter.scope are in fail_on_drift_in_slots."
+}

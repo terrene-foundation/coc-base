@@ -1,0 +1,20 @@
+# operator-gate audit fixture: flag — owner-class gate, same bound GitHub
+# collaborator login (R5-S-07 half 2, the colluding-collaborator half).
+#
+# Predicate: for owner/senior gates, approver's bound GitHub-collaborator
+# login MUST differ from the requester's. Same login but different person_id
+# (e.g. sock-puppet) still rejects. Expected behavior: HALT.
+#
+# Input shape:
+#   command = "/posture upgrade --to L5_DELEGATED"
+#   requester_person_id  = "person:owner-alpha"
+#   requester_gh_login   = "alice"
+#   approver_person_id   = "person:owner-bravo"
+#   approver_gh_login    = "alice"  ← SAME login despite different person_id
+#
+# Expected gate evaluation:
+#   matrix_row = "posture-upgrade"
+#   self_approvable = false
+#   reason = "owner/senior gate rejects same bound GitHub-collaborator login: 'alice'"
+#   halt = true (halt-and-report)
+#   why = "operator-gate/collaborator-distinctness (R5-S-07)"

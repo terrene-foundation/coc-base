@@ -1,0 +1,6 @@
+severity: (silent — path outside repo)
+exit_code: 0
+continue: true
+stderr: (empty — no tag)
+side_effect: NO auto-claim (path falls outside the repo's coordination scope)
+predicate: repoRelative returned null → passthrough

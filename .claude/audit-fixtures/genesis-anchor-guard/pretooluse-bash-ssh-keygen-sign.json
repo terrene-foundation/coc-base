@@ -1,0 +1,7 @@
+{
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "ssh-keygen -Y sign -f ~/.ssh/id_ed25519 -n coc-multi-operator /tmp/payload"
+  }
+}

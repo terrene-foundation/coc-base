@@ -1,0 +1,23 @@
+Scenario: hookPresent=true + schemaExists=true + tier-member=true → V17 PASS
+
+Setup:
+  - Working tree HAS .claude/hooks/lib/roster-schema-validate.js
+    (or .claude/hooks/genesis-anchor-guard.js, either satisfies the OR guard)
+  - Working tree HAS .claude/operators.roster.schema.json
+  - sync-manifest.yaml `tiers:` block contains:
+      coc:
+        ...
+        - operators.roster.schema.json
+        ...
+
+Driver:
+  cd <loom-checkout-with-F67-landed>
+  node .claude/bin/emit.mjs --all --dry-run > /dev/null 2>&1
+  echo "exit=$?"
+
+Expected:
+  exit=0
+  stdout contains: "[validator-17] roster-schema-coupling: PASS"
+
+Rationale: The intended steady-state. F67's land verifies this via
+journal/0162 § Verification ("baseline_exit=0").

@@ -1,0 +1,16 @@
+---
+type: DECISION
+date: 2026-05-23
+references:
+  - "0150"
+  - "0149"
+---
+
+# YAML-block reference form
+
+This entry uses the YAML-block form of `references:` (multi-line bullets)
+rather than the inline-array form. The detector MUST recognize both
+shapes; this fixture pins that behavior.
+
+The entry contains no block-quote lines, so both 0150 and 0149 land in
+unverified per F29's verbatim-substring contract.

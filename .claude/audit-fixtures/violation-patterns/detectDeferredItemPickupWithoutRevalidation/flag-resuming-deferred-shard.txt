@@ -1,0 +1,4 @@
+Resuming the deferred shard from last session. The session-notes left
+off at the codex-architect step. I'll continue from there — picking up
+the next codex command emit and proceeding through the remaining
+validators. Should be done in this session.

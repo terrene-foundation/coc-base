@@ -1,0 +1,9 @@
+severity: (silent — own active claim filtered out)
+exit_code: 0
+continue: true
+stderr: (empty — no HALT-AND-REPORT)
+predicate: projectActiveSiblingClaims drops claims where
+           verified_id === selfVerifiedId; the operator does NOT halt-and-
+           report against their own active claim.
+note: An auto-claim MAY still fire (the candidate is INDEPENDENT relative
+      to siblings), advertising a fresh seq for the operator's own chain.

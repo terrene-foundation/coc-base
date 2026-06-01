@@ -1,0 +1,21 @@
+# Example rule body — exercises every active rewrite
+
+See (loom-internal reference)
+for the source. Origin paragraph references (loom-internal reference)
+for context.
+
+Compare workspace artifacts to workspace artifacts —
+both live in sibling SDK trees.
+
+Edit the ml package (`src/kailash_ml/trainable.py`) to add the missing
+guard. The path the dataflow package directory src/dataflow/adapters/mongodb.py
+shows the same pattern.
+
+Diagnose CI failures with `gh api repos/<org>/<repo>/actions/runs`.
+
+For descriptive cross-repo examples, the sibling SDK's `.claude/rules/foo.md` is fine.
+
+Tree layout:
+`<workspace-root>/`
+├── crates
+└── workspaces

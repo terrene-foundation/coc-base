@@ -1,0 +1,2 @@
+FAIL forest-ledger: .claude/audit-fixtures/forest-ledger/fixture-22-unterminated-fence.session-notes
+  [L1] unterminated code fence in ledger section — rows after it are invisible; balance the fence (journal/0092)

@@ -1,0 +1,9 @@
+{
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Edit",
+  "tool_input": {
+    "file_path": "<repo>/.claude/learning/coordination-log.jsonl"
+  },
+  "cwd": "<repo>",
+  "_setup_note": "active branch is 'codify/self-2026-05-21'; coordination log has a signed codify-lease record with content.branch='codify/self-2026-05-21' and content.scope_files including '.claude/learning/coordination-log.jsonl'"
+}

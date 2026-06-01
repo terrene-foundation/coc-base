@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Expected POLICIES entries the AST extractor in validator 13 MUST emit when run on the 4 fixtures in this directory. Validator 13 must produce bijective matching: for each fixture, exactly one entry below. Shape D added at Shard B 2026-05-10 to recognize the canonical instruct-and-wait halting pattern landed 2026-05-05 (per hook-output-discipline.md MUST-1).",
+  "fixtures": [
+    {
+      "file": "shape-a-direct-exit.fixture.js",
+      "shape": "A",
+      "predicate": {
+        "id": "validateBashCommand",
+        "reject_condition_shape": "process.exit(N>=2) in function body",
+        "reason_template": "rm -rf / is blocked"
+      }
+    },
+    {
+      "file": "shape-b-two-layer.fixture.js",
+      "shape": "B",
+      "predicate": {
+        "id": "validateDeployment",
+        "reject_condition_shape": "returns { exitCode: N>=2, ... } consumed by caller's process.exit(result.exitCode)",
+        "reason_template": "prod deploys must originate from main"
+      }
+    },
+    {
+      "file": "shape-c-mcp-return.fixture.js",
+      "shape": "C",
+      "predicate": {
+        "id": "validateWorkflowMcp",
+        "reject_condition_shape": "returns { isError: true, content: [...] }",
+        "reason_template": "workflow name must be >= 3 characters"
+      }
+    },
+    {
+      "file": "shape-d-instruct-and-wait.fixture.js",
+      "shape": "D",
+      "predicate": {
+        "id": "validateBashGuardedExit",
+        "reject_condition_shape": "returns { severity: \"block\", ... } consumed by instructAndWait()/emit() per hook-output-discipline.md MUST-1",
+        "reason_template": "rm -rf / is blocked"
+      }
+    }
+  ],
+  "bijection_check": "For every entry above, validator 13's output MUST contain exactly one matching predicate (by id). Any missing or extra entry fails acceptance."
+}

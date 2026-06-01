@@ -1,0 +1,3 @@
+accepted: false
+predicate: MUST-7 § "User-owned + N=1 path (blocked)" — discriminator with new_repo_owner_kind=user has no structural anchor
+reason_class: user-owned | new_repo_owner_kind

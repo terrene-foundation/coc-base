@@ -1,0 +1,7 @@
+severity: block
+exit_code: 2
+continue: false
+stderr_tag: [BLOCK]
+predicate: fs.existsSync (structural; hook-output-discipline.md MUST-2)
+why: multi-operator-coc/journal-write-guard MUST-NOT-1 — journal entries append-only
+agent_must_report cites: target path, slot, open a NEW entry via /journal --new

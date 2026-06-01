@@ -1,0 +1,6 @@
+severity: silent passthrough
+exit_code: 0
+continue: true
+stderr_tag: (none)
+predicate: findProbeLockfile returns null — no .claude/.certify-in-probe-*.lock present
+why: probe phase not active; the hook is silent during normal sessions and during /certify Phase A (brief), which uses retrieval to walk the briefed surface

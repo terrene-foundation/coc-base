@@ -1,0 +1,7 @@
+Red-team finding F-12: validators 1-12 (v6 §4.4) lack implementation todos.
+
+Two options:
+1. Add Phase C6-adjacent todos for validators 1-12
+2. Or an explicit ADR statement that they are shell one-liners not needing separate todos
+
+I recommend either path — both resolve the finding, fits the shard budget. Pick whichever is cheaper. Tracked separately if deferred.

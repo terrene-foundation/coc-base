@@ -1,0 +1,2 @@
+FAIL forest-ledger: .claude/audit-fixtures/forest-ledger/fixture-20-verbatim-template-only.session-notes
+  [L1] ledger section present but contains no rows and no "Forest empty" sentinel — indistinguishable from a dropped ledger (journal/0089)

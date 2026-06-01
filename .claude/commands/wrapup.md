@@ -27,15 +27,13 @@ Four things nothing else captures:
 1. **Priority ordering** — out of everything in the repo, which files should the next session read first, and in what order
 2. **In-flight state** — what's true RIGHT NOW that isn't yet committed, journaled, or filed as a todo
 3. **Traps** — specific pitfalls the next session will walk into without warning
-4. **Forest-vs-trees check + value-anchored deferrals** — per `rules/value-prioritization.md` MUST-1+2: name the highest-value outstanding workstream (the user's actual forest); contrast with what THIS session worked on (the trees); for any item this session deferred or carried-forward, record the value-anchor (one sentence — why this matters to the user, citing the brief / spec § / journal DECISION). "Carried-forward (no grace clock)" without an adjacent value-anchor is BLOCKED.
+4. **Outstanding ledger (forest)** — the durable, cumulative forest-vs-trees record. Per `rules/value-prioritization.md` MUST-1+2: a running ledger of every forest-level outstanding workstream / blocked-item, reconciled at EVERY wrapup (grows on add, shrinks on close). This SUBSUMES the old one-shot forest-vs-trees reasoning: instead of re-deriving bearings from memory each session, the ledger IS the bearings — carried forward verbatim, closed only with a durable receipt. See § Outstanding ledger reconciliation.
 
 If content doesn't fit one of those four, it belongs somewhere else. Put it there before running `/wrapup`.
 
-## Where to write
+## Where to write — M6 D split layout
 
-1. If `$ARGUMENTS` names a workspace, write `workspaces/$ARGUMENTS/.session-notes`
-2. Else use the most recently modified directory under `workspaces/` (excluding `instructions/`)
-3. Else write `.session-notes` at the repo root
+Per-operator fragment `<base>/.session-notes.d/<display_id>.md` + forest ledger `<base>/.session-notes.shared.md` (per-row `owner:`, merged by `coc-ledger`). `<base>` = `workspaces/$ARGUMENTS/` if specified, else the most recently modified workspace dir (excluding `instructions/`), else the repo root. Writes go through `.claude/hooks/lib/session-notes-layout.js`. Rows MUST carry a stable single-token `ID` + value-anchor per `rules/value-prioritization.md` MUST-1+2; owner stamps from identity. On journal-file close, emit a signed `journal-body-anchor` record via `.claude/hooks/lib/journal-body-anchor.js::buildAnchorRecord` — pins `{path, sha256_of_content_bytes, slot_record_ref}`; fold-time predicate re-hashes and surfaces tamper on mismatch.
 
 ## Format
 
@@ -61,6 +59,26 @@ change. Just enough for the next session to orient — not a history.
 - Facts that are true NOW but aren't in git/todos/journal yet.
   (omit if none)
 
+## Outstanding ledger (forest)
+
+The running forest — every open forest-level workstream / blocked-item
+(NOT itemized todos; those live in `todos/active/`). Each row carries a
+short single-token (whitespace-free), UNIQUE, STABLE **ID** (`F1`,
+`F2` — never reused/renamed) + a value-anchor. The ID, not the prose
+name, is what the anti-vanish gate reconciles on — rewording never
+false-trips and two items can never collide. In the close list the
+ID is backtick-wrapped per the template; the gate strips the backticks.
+
+| ID   | Item         | Value-anchor (MUST-1 source)                               | Status                            |
+| ---- | ------------ | ---------------------------------------------------------- | --------------------------------- |
+| <id> | <workstream> | <why it matters, citing brief / spec § / journal DECISION> | BLOCKED on X / queued / in-flight |
+
+Closed this session: `<id>` → receipt `<PR# / SHA / journal NNNN>`.
+
+(If the forest is empty: "Forest empty — every item closed or
+externally blocked." Never omit this section — an absent ledger is
+indistinguishable from a forgotten one.)
+
 ## Traps
 
 - Concrete pitfalls the next session will hit.
@@ -72,21 +90,55 @@ change. Just enough for the next session to orient — not a history.
 (omit if none)
 ```
 
+## Outstanding ledger reconciliation (MUST — every wrapup)
+
+The ledger defends against the stale-snapshot trap (a closed item resurfacing, or an open one vanishing — `journal/0089`). Reconcile every wrapup:
+
+1. **Read the prior `.session-notes` once** (the single bounded read
+   the carve-out below permits) to recover the existing ledger.
+2. **Carry forward** every prior row whose work is not yet delivered,
+   KEEPING ITS ID UNCHANGED (the item text MAY be reworded; the ID
+   MUST NOT). A prior open ID MUST NOT silently disappear.
+3. **Close with receipt** — for each item delivered this session, move
+   it to the "Closed this session" list (one entry per line / bullet),
+   referenced **by its ID**, WITH a durable receipt (`<id>` → PR #N /
+   bare #N / commit SHA / journal NNNN) per `verify-resource-existence.md`
+   MUST-4. No ID or no receipt → it is NOT closed; carry it forward.
+4. **Grow** — add any new forest-level workstream / blocked-item with a
+   FRESH UNIQUE ID and a value-anchor citing a `value-prioritization.md`
+   MUST-1 user-anchored source (brief / spec § / journal DECISION /
+   literal user quote). No value-anchor → request it from the user, do
+   not invent one. IDs MUST be unique within the ledger and stable
+   across sessions — never reuse a retired ID, never renumber.
+5. **Empty forest** still writes the section explicitly ("Forest empty
+   — …"). Absence ≠ done. The sentinel and open rows are mutually
+   exclusive — asserting "Forest empty" with rows present is a defect.
+
+**Mechanical gate (CI / `/redteam`, NOT the wrapup runtime).**
+`validate-forest-ledger.mjs <notes>` checks intra-file conformance
+(section present + fence-balanced + non-vacuous; rows anchored; IDs
+unique; every close entry references an ID + cites a receipt SHAPE —
+shape not existence; a shaped-but-fake receipt is a
+`verify-resource-existence.md` MUST-1 gate-review matter, not this
+validator's). The no-silent-vanish invariant (step 2) is enforced
+ONLY by the `--git-prior` form, which diffs the prior committed
+`.session-notes` and flags any prior open **ID** absent from both
+current rows and the "Closed this session" list. Exact ID-set
+reconciliation — no prose parsing, no collision, deterministic, zero
+residue. Run `--git-prior` in CI / `/redteam`; the bare form makes NO
+anti-vanish claim.
+
 ## Hard rules
 
-- **Write, not verify.** Do NOT run grep, git log, git show, git diff, gh, pytest, ls, find, or file reads during wrapup. The only permitted tool calls are: workspace resolution (one `ls workspaces/` if needed) and the final `Write .session-notes`. **Tool call cap: 2.**
+- **Write, not verify (closed allowlist — EXACTLY these three tool calls, nothing else).** **(a)** one workspace resolution (`ls workspaces/`) if needed; **(b)** one read of the immediately-prior `.session-notes` — that exact file, no other path — for ledger carry-forward; **(c)** one write of the new `.session-notes`. **Tool call cap: 3.** ANY other tool call — including any additional read of any other file, any grep / git / gh / pytest / find — is BLOCKED. The allowlist is the operative bound; this is not a denylist with examples. The single bounded prior-`.session-notes` read is the carry-forward source, categorically not the verification cascade.
 - **Memory only.** Produce the notes from conversation memory. If you're unsure whether a claim is still true, omit it — the next session can discover it from git.
 - **No accomplishments list.** The next session reads `git log`. Do not describe what happened this session.
-- **No outstanding-todo list.** The next session reads `todos/active/`. Do not itemize remaining work. **Exception**: items deferred or carried-forward IN THIS SESSION MUST be listed with a value-anchor per `rules/value-prioritization.md` MUST-2 — that's what the forest-vs-trees section is for. The exception covers session-local deferrals only; longer-standing items still belong in `todos/active/`.
+- **No itemized-todo list — but the forest ledger is REQUIRED.** The next session reads `todos/active/` for per-task itemization; do NOT reproduce that here. The Outstanding ledger is the deliberate, scoped exception: it is **forest-level only** (workstreams / blocked-items, typically 2–6 rows), explicitly distinct from per-task todos. Every ledger row MUST carry a value-anchor per `rules/value-prioritization.md` MUST-1+2. Itemizing individual todos in the ledger is BLOCKED (that defeats forest-vs-trees); omitting the ledger entirely is BLOCKED (that is the stale-snapshot trap).
 - **No decision log.** Journal decisions with `/journal` before running `/wrapup`, not in session notes.
 - **No quantitative claims.** Do not write "N tests passing", "3 files changed", or "27 todos remaining". Numbers must be verified; verification is forbidden here. Point at the source of truth instead.
 - **No oversight checklist.** Verification commands belong in the next session's task list, not session notes.
-- **50-line output cap.** Overflow belongs in `todos/` or `journal/`.
+- **50-line output cap.** Overflow belongs in `todos/` or `journal/`. The ledger is part of this budget but bounded by construction (forest-level rows only); if it pushes past 50 lines the items are too granular — collapse to workstreams, push detail to `todos/active/`.
 - **Overwrite** existing `.session-notes`. Only the latest matters.
 - **The "Read first" list is the one section that MUST be present.** Without it, the next session has no entry point. If you can't produce a useful list, point at `CLAUDE.md` as the sole entry and say why.
 
-## Why this is lean
-
-Previous versions forced a tool-call cascade ("the tool call is the verification, not your memory") that consumed 200K+ tokens per run on large workspaces. The cascade existed to catch stale claims. The lean fix is to **not make claims that could go stale**: instead of "27 todos remaining" (must be verified), write "see `todos/active/`" (always current by definition).
-
-`.session-notes` is a pointer file, not a report. Its job is to save the next session's discovery time. That's all.
+`.session-notes` is a pointer file, not a report — its job is to save the next session's discovery time. Don't make claims that could go stale; write "see `todos/active/`" instead of a count.

@@ -1,0 +1,10 @@
+{
+  "summary": {
+    "rules_audited": 1,
+    "critical": 0,
+    "warn": 1,
+    "note": 0
+  },
+  "exit_code": 0,
+  "notes": "Gemini variant uses '@gemini_log' in the examples slot. Neutral-body is byte-identical. Per spec, examples drift soft-warns (warn_on_drift_in_slots) but exit code stays 0."
+}

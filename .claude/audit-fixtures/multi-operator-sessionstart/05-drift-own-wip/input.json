@@ -1,0 +1,11 @@
+{
+  "hook_event_name": "SessionStart",
+  "cwd": "<repo>",
+  "working_tree_state": {
+    "untracked": [".claude/learning/observations.jsonl"]
+  },
+  "env": {
+    "COC_TEST_FINGERPRINT": "SHA256:alice-test-fingerprint",
+    "COC_TEST_PERSON_ID": "p-alice"
+  }
+}

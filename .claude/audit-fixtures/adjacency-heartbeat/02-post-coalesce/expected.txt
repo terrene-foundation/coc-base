@@ -1,0 +1,4 @@
+continue: true
+Coalesce: cache shows last_heartbeat <60s ago → MUST NOT append new record.
+coordination-log.jsonl size MUST be unchanged.
+exit_code: 0

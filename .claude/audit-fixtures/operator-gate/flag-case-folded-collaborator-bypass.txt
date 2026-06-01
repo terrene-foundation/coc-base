@@ -1,0 +1,24 @@
+# operator-gate audit fixture: flag — case-folded GitHub login bypass of R5-S-07
+#
+# Predicate (F14 MED-4): GitHub usernames are case-insensitive at the server
+# side. R5-S-07 (same-bound-collaborator distinctness) MUST compare gh_login
+# values lowercase-normalized; otherwise an attacker who registered two
+# roster entries with the SAME GitHub username under different cases ("Alice"
+# vs "alice") can bypass the distinctness check on owner/senior gates.
+#
+# Input shape:
+#   command = "/release"
+#   requester_gh_login = "Alice"
+#   gate_approval.approver_gh_login = "alice"   ← same GH user, different case
+#   (requester and approver have distinct person_ids in the roster but
+#    BOTH map to the same case-insensitive collaborator login.)
+#
+# Expected gate evaluation (post-fix):
+#   _sameBoundCollaborator returns TRUE after lowercase normalization
+#   reason cites "approver bound to same GitHub collaborator 'alice' as
+#                 requester (case-insensitive match per GitHub server semantics)"
+#   halt = true (halt-and-report)
+#
+# Pre-fix behavior (regression case):
+#   string-equality comparison returns FALSE → gate passes → attacker bypasses
+#   the colluding-collaborator defense.

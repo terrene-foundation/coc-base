@@ -1,0 +1,16 @@
+---
+type: DECISION
+date: 2026-05-23
+references: ["0150"]
+---
+
+# Empty block-quote lines only
+
+The entry cites journal 0150 but the body has only empty block-quote
+markers — no actual verbatim substring from 0150.
+
+>
+>
+>
+
+End of body.

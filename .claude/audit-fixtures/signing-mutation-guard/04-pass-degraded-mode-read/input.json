@@ -1,0 +1,13 @@
+{
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Read",
+  "tool_input": {
+    "file_path": "<repo>/.gitignore"
+  },
+  "cwd": "<repo>",
+  "_env": {
+    "COC_OPERATOR_KEY_PATH": "",
+    "COC_SIGNING_MUTATION_GUARD_FORCE_DEGRADED": "1"
+  },
+  "_setup_note": "Read tool is non-mutating → classifyOperation returns {kind:'none'} → passthrough"
+}

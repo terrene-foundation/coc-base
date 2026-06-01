@@ -1,0 +1,9 @@
+{
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Edit",
+  "tool_input": {
+    "file_path": "<repo>/.claude/operators.roster.json"
+  },
+  "cwd": "<repo>",
+  "_setup_note": "active branch is 'main' (NOT codify/*-<date>); operator display_id=self"
+}

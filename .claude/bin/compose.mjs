@@ -19,9 +19,21 @@
  */
 
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 import { applyOverlay } from "./lib/slot-parser.mjs";
+
+// realpath an existing path (resolves the macOS /var → /private/var and
+// /tmp → /private/tmp symlinks); falls back to the lexical path when the
+// target does not yet exist.
+function realpathOrSelf(p) {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return p;
+  }
+}
 
 function parseArgs(argv) {
   const args = { global: null, overlay: null, out: null, check: false };
@@ -59,10 +71,46 @@ function main() {
   function assertInRepo(p, flag) {
     const resolved = path.resolve(p);
     if (!resolved.startsWith(REPO + path.sep) && resolved !== REPO) {
-      // Permit /tmp write targets for emission outputs, since --out is
-      // legitimately ephemeral. Reads must stay in repo.
-      if (flag === "--out" && (resolved.startsWith("/tmp/") || resolved.startsWith(path.join(process.env.TMPDIR || "/tmp", "")))) {
-        return resolved;
+      // Permit ephemeral temp-dir write targets for emission outputs, since
+      // --out is legitimately ephemeral. Reads must stay in repo.
+      //
+      // macOS portability: the OS temp dir is /var/folders/<…>/T (the Darwin
+      // user temp dir), which realpath-resolves to /private/var/folders/… —
+      // and BSD `mktemp` with no -p returns it regardless of $TMPDIR (the
+      // #F89 false-positive class that made verify-overlays.sh report every
+      // slot overlay as compose-failed on macOS). Normalise BOTH the
+      // candidate temp roots AND the resolved out-path (via its existing
+      // parent) through realpath so the /var→/private/var (and /tmp→
+      // /private/tmp) symlinks and the os.tmpdir() / $TMPDIR / bare-/tmp trio
+      // all match — without widening the path-traversal surface beyond
+      // ephemeral temp.
+      if (flag === "--out") {
+        // `/var/folders` is the Darwin user-temp tree root that BSD `mktemp`
+        // returns regardless of $TMPDIR (os.tmpdir() honours the $TMPDIR
+        // override, so it alone misses the mktemp-produced path). On Linux
+        // this root simply never matches a real out-path.
+        const tempRoots = [os.tmpdir(), process.env.TMPDIR, "/tmp", "/var/folders"]
+          .filter(Boolean)
+          .map((r) => realpathOrSelf(path.resolve(r)));
+        // realpath the PARENT dir (not the full out-path): this resolves a
+        // symlinked DIRECTORY component before the prefix check, so a
+        // `/tmp/evil → /Users/x/.ssh` symlink is rejected. Accepted residual
+        // (bounded-trust, F53-class — see multi-operator-coordination.md §
+        // Origin F53): a symlink at the FINAL component is followed by
+        // fs.writeFileSync (no O_NOFOLLOW). Exploit needs local FS write to
+        // pre-plant the symlink in a world-writable temp dir AND argv control,
+        // and the written content is composed in-repo markdown (non-secret) —
+        // outside compose's untrusted-LLM-argv threat model. Pre-existing; the
+        // /var/folders + os.tmpdir() widening does NOT enlarge it.
+        const resolvedReal = realpathOrSelf(path.dirname(resolved));
+        if (
+          tempRoots.some(
+            (root) =>
+              resolvedReal === root || resolvedReal.startsWith(root + path.sep),
+          )
+        ) {
+          return resolved;
+        }
       }
       process.stderr.write(`error: ${flag} path escapes loom repo: ${resolved}\n`);
       process.exit(2);

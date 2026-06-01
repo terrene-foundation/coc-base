@@ -1,0 +1,2 @@
+FAIL forest-ledger: .claude/audit-fixtures/forest-ledger/fixture-10-close-no-id.session-notes
+  [L3] "Closed this session" entry references no ID token — cannot reconcile: → PR #99.

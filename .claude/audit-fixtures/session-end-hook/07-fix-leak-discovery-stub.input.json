@@ -1,0 +1,5 @@
+{
+  "_doc": "Subtle bug fix matching the narrow `fix.*(race|leak|deadlock|corrupt|lost|regression)` subject pattern. These imply hidden behaviour worth a journal write-up regardless of body length.",
+  "subject": "fix(emit): close memory leak in slot composition cache",
+  "body": "Cache held weak references that were promoted on every composeRule call."
+}

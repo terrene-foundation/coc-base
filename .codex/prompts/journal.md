@@ -33,9 +33,9 @@ Parse `$ARGUMENTS`:
 
 1. Parse the TYPE and topic from arguments. Valid types: DECISION, DISCOVERY, TRADE-OFF, RISK, CONNECTION, GAP.
 
-2. Determine the next sequential number by checking the highest existing `NNNN-` prefix in the journal directory. If no entries exist, start at `0001`.
+2. Reserve the next slot via `.claude/hooks/lib/journal-reserve.js::reserveJournalSlot(dir, {identity, type, topic})`. Under N concurrent operators, scanning `ls journal/` races; the helper returns `{slot, filename, verified_id, person_id, display_id, type, topic, slug}` where the filename carries `<display_id>` to keep concurrent reservations on the same `seq` distinguishable. Frontmatter `verified_id` is authoritative for attribution scans.
 
-3. Create the file at `journal/NNNN-TYPE-topic.md` with this structure:
+3. Create the file at `journal/<filename>` (the reservation's `filename`) with this structure:
 
 ```markdown
 ---
@@ -43,7 +43,12 @@ type: [TYPE]
 date: [today's date, YYYY-MM-DD]
 project: [workspace name]
 topic: [topic description]
-phase: [current COC phase: analyze | todos | implement | redteam | codify | deploy]
+phase:
+  [current COC phase: analyze | todos | implement | redteam | codify | deploy]
+verified_id: [from reservation — authoritative attribution]
+person_id: [from reservation]
+display_id:
+  [from reservation — appears in filename for collision disambiguation]
 tags: []
 ---
 
@@ -53,7 +58,6 @@ tags: []
 ```
 
 4. Type-specific structure:
-
    - **DECISION**: Sections for Decision, Alternatives Considered, Rationale, Consequences
    - **DISCOVERY**: Sections for What Was Discovered, Why It Matters, Follow-Up
    - **TRADE-OFF**: Sections for Trade-Off, What Was Gained, What Was Sacrificed, Acceptable Because
@@ -61,7 +65,9 @@ tags: []
    - **CONNECTION**: Sections for Connection, Components Linked, Why This Matters
    - **GAP**: Sections for What Is Missing, Why It Matters, How to Resolve
 
-5. After creating, confirm with the entry number and path.
+5. **On close** — when the entry is finalized (`/wrapup`-time, or explicit `/journal --anchor`), emit a signed `journal-body-anchor` record via `.claude/hooks/lib/journal-body-anchor.js::buildAnchorRecord({journalPath, relPath, slotRecordRef})`. The record pins the file's SHA-256 content hash; the fold predicate re-hashes at fold time and surfaces tamper-detected as a block-grade integrity advisory naming the original signer. Per architecture §5.2 extension (2026-05-20) this closes the journal-body crypto gap a bounded-trust insider with disk access could otherwise exploit unobserved.
+
+6. After creating, confirm with the entry number and path.
 
 ---
 

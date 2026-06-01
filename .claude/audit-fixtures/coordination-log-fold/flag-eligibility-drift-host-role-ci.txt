@@ -1,0 +1,42 @@
+F14 / MED-3 fixture — eligibility consolidation via isEligibleSigner.
+
+Scenario:
+  - Roster: pid-A (human owner) + pid-ci (owner role, host_role=ci).
+  - Records exercised:
+      a) compaction-checkpoint signed by pid-A, cosigner = pid-ci's key
+      b) generation-rotation signed by pid-A, cosigner = pid-ci's key
+      c) genesis-migration signed by pid-A, cosigner = pid-ci's key
+
+Submission:
+  For each: require("coordination-log.js").foldLog([record], roster, {})
+
+Expected (all three):
+  accepted[].length === 0
+  rejected[0].reason matches /host_role|ci|audit|R5-S-04|eligib/i
+
+Defense:
+  Pre-hardening, three sites inlined the R5-S-04 host_role:ci check:
+    - coordination-log.js::_checkRule5 (lines 829-834)
+    - fold-rule-9b.js::_verifyCoSigner (lines 117-122)
+    - fold-rule-9c.js::_verifyCoSigner (lines 105-110)
+  Each spelled out `if (resolved.person.host_role === "ci") return ...`.
+  Drift between sites was unbounded — a future commit could weaken the
+  check at one site (e.g. allow host_role:ci on rotation but not
+  migration) without the other two sites surfacing the divergence.
+
+Post-hardening: all three sites route through
+require("eligibility.js").isEligibleSigner(person, contextName). The
+mapping is:
+  - rule 5 (checkpoint): "owner-quorum"
+  - rule 9b (rotation):  "owner-quorum"
+  - rule 9c (migration): "migration"
+Per eligibility.js::CI_FOREVER_INELIGIBLE_CONTEXTS, all three are in
+the forever-ineligible set; any drift would need to be made in
+eligibility.js itself, which is the single audit surface.
+
+Tests:
+  tests/integration/multi-operator/substrate-hardening.test.js
+    :: "MED-3: rule 5 rejects CI-host cosigner via eligibility predicate"
+    :: "MED-3: fold-rule-9b rejects CI-host cosigner via eligibility predicate"
+    :: "MED-3: fold-rule-9c rejects CI-host cosigner via eligibility predicate"
+    :: "MED-3: eligibility module exposes isEligibleSigner with CI-forever-ineligible contracts"

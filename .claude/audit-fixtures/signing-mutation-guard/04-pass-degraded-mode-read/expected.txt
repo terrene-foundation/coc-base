@@ -1,0 +1,5 @@
+severity: silent passthrough
+exit_code: 0
+continue: true
+stderr_tag: (none)
+predicate: classifyOperation() returns {kind:'none'} (Read is non-mutating); degraded mode is read-only via working-tree-mutation predicate per R5-S-03

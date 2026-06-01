@@ -1,0 +1,3 @@
+accepted: false
+predicate: MUST-7 (g) — gh_api_org_membership_capture user.login MUST match sole owner's bound github_login
+reason_class: user.login mismatch

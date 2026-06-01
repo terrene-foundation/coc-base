@@ -13,11 +13,12 @@
  *
  *   <dir>/codex/
  *     prompts/<cmd>.md                    one per non-excluded .claude/commands/<cmd>.md
- *     prompts/specialist-<name>.md        per non-excluded .claude/agents (recursive)
- *                                         deterministic delegation shim — Codex has no
- *                                         native specialist-by-name dispatch; the prompt
- *                                         loads the operating spec into context via
- *                                         /prompts:specialist-<name>
+ *     prompts/specialist-<name>.md        per non-excluded .claude/agents (recursive).
+ *                                         Operating-spec content surface; inlined into
+ *                                         the agent context via inline-cat injection
+ *                                         `"$(cat .codex/prompts/specialist-<name>.md)"`.
+ *                                         See `bin/coc` dispatcher + bin/README.md for
+ *                                         the canonical Codex invocation path (F79).
  *     skills/<nn-name>/SKILL.md  per non-excluded .claude/skills/<nn-name>/SKILL.md
  *
  *   <dir>/gemini/
@@ -158,6 +159,48 @@ function loadExclusions() {
       // Strip surrounding quotes if present
       const val = entryMatch[1].replace(/^["']|["']$/g, "");
       result[currentCli].push(val);
+    }
+  }
+
+  return result;
+}
+
+// ────────────────────────────────────────────────────────────────
+// sync-manifest.yaml → loom_only (top-level FLAT glob list)
+// ────────────────────────────────────────────────────────────────
+// F104 — loom-only artifacts are a POSITIVE never-sync declaration.
+// A source path matching any glob here is skipped for EVERY target
+// (cc/codex/gemini × every lang), BEFORE tier classification. Same flat
+// list shape as `obsoleted:` / `exclude:`: a top-level key whose body is a
+// list of `- <glob>` entries (NO nested CLI sub-keys). Bare source-relative
+// globs (`agents/management/coc-sync.md`) matched against the manifest-
+// relative path the emit functions build (`agents/...`).
+function loadLoomOnly() {
+  const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
+  const src = fs.readFileSync(manifestPath, "utf8");
+  const lines = src.split("\n");
+
+  const result = [];
+  let inStanza = false;
+
+  for (const line of lines) {
+    if (/^loom_only:\s*$/.test(line)) {
+      inStanza = true;
+      continue;
+    }
+    if (!inStanza) continue;
+
+    // End of stanza: a new top-level key (column 0, ends with `:`).
+    if (/^[a-zA-Z_][^:]*:\s*$/.test(line) && !line.startsWith(" ")) {
+      break;
+    }
+
+    // List entry (2-space indent, leading dash). Strip inline comments.
+    const entryMatch = line.match(/^ {2}-\s*(.+?)\s*$/);
+    if (entryMatch) {
+      const val = entryMatch[1].replace(/^["']|["']$/g, "");
+      const cleaned = val.replace(/\s+#.*$/, "").trim();
+      if (cleaned) result.push(cleaned);
     }
   }
 
@@ -392,7 +435,7 @@ function composeArtifactBody(category, relPath, cli, lang) {
   // .codex/{skills,prompts,agents}/ or .gemini/{skills,commands,agents}/.
   // Without this rewrite, a Codex consumer reading the emitted prompt
   // sees `.claude/skills/04-kaizen/SKILL.md` and looks for it where
-  // their CLI does not — surfaced as drift in tpc_cash_treasury (#205).
+  // their CLI does not — surfaced as drift in a downstream consumer (#205).
   // Shared-runtime paths (hooks, learning, VERSION, bin, sync markers,
   // rules, guides, codex-mcp-guard) stay `.claude/` since they're
   // consumed identically across all three CLIs.
@@ -548,7 +591,7 @@ function tomlLiteralEscape(body) {
   return body.replace(/'''/g, "''′'"); // U+2032 ′ — visually near but not a quote
 }
 
-function emitCommands({ outDir, exclusions, tierFilter, lang, verbose }) {
+function emitCommands({ outDir, exclusions, tierFilter, loomOnly, lang, verbose }) {
   const srcDir = path.join(REPO, ".claude", "commands");
   if (!fs.existsSync(srcDir)) {
     return { codex: 0, gemini: 0, skipped: 0 };
@@ -560,6 +603,13 @@ function emitCommands({ outDir, exclusions, tierFilter, lang, verbose }) {
     if (!relPath.endsWith(".md")) continue;
     const manifestRel = `commands/${relPath}`;
     const name = path.basename(relPath, ".md");
+
+    // F104 loom-only filter: positive never-sync declaration. Skip for
+    // EVERY target, BEFORE tier classification.
+    if (loomOnly && matchesAnyGlob(manifestRel, loomOnly)) {
+      stats.skipped++;
+      continue;
+    }
 
     // Tier-subscription filter: skip files not matched by any subscribed tier.
     // tierFilter is null when --target is absent (legacy emit-everything mode).
@@ -625,7 +675,7 @@ function emitCommands({ outDir, exclusions, tierFilter, lang, verbose }) {
 // live under the skill dir and are loaded on demand. We copy the WHOLE
 // skill directory (not just SKILL.md) so the sub-file references in
 // SKILL.md resolve when the CLI reads them.
-function emitSkills({ outDir, exclusions, tierFilter, lang, verbose }) {
+function emitSkills({ outDir, exclusions, tierFilter, loomOnly, lang, verbose }) {
   const srcDir = path.join(REPO, ".claude", "skills");
   if (!fs.existsSync(srcDir)) return { codex: 0, gemini: 0, skipped: 0 };
 
@@ -638,6 +688,14 @@ function emitSkills({ outDir, exclusions, tierFilter, lang, verbose }) {
   for (const skill of skillDirs) {
     const manifestRel = `skills/${skill}/SKILL.md`;
     const skillSrc = path.join(srcDir, skill);
+
+    // F104 loom-only filter: positive never-sync declaration. A skill dir
+    // matching a loom_only prefix glob (skills/<n>/** or skills/<n>/SKILL.md)
+    // is skipped for both CLIs, BEFORE tier classification.
+    if (loomOnly && matchesAnyGlob(manifestRel, loomOnly)) {
+      stats.skipped += 2; // skipped for both CLIs
+      continue;
+    }
 
     // Tier-subscription filter: skill tier patterns are usually
     // `skills/NN-name/**` (prefix globs). Match the SKILL.md path against
@@ -790,19 +848,21 @@ const CODEX_AGENT_STRUCTURAL_EXCLUSIONS = [
 // specialists (per .claude/guides/codex/README.md "Known limitations
 // 2026-04-22/23" — only `default/explorer/worker` roles exist). This
 // emitter materializes each eligible `.claude/agents/<group>/<name>.md`
-// into `.codex/prompts/specialist-<name>.md` so the specialist becomes
-// reachable as `/prompts:specialist-<name>` — a deterministic shim
-// that closes acceptance criteria 1 + 2 from the 2026-05-15 Codex
-// follow-up (specialist-by-name dispatch + reviewer/security-reviewer/
+// into `.codex/prompts/specialist-<name>.md` as the operating-spec
+// content surface; the file is consumed via inline-cat injection
+// `"$(cat .codex/prompts/specialist-<name>.md)"` per F79 (see `bin/coc`
+// dispatcher + bin/README.md for the canonical Codex invocation path).
+// Closes acceptance criteria 1 + 2 from the 2026-05-15 Codex follow-up
+// (specialist-by-name dispatch + reviewer/security-reviewer/
 // gold-standards-validator gate launchability).
 //
 // The emitted prompt wraps the specialist's operating spec with a
 // preamble describing three invocation patterns: (a) inline persona
 // (most reliable; works headless), (b) worker subagent delegation
-// (interactive only), (c) headless fallback (use pattern a). Codex
-// loads `.codex/prompts/<name>.md` on demand via /prompts:<name> —
-// no baseline-context cap pressure.
-function emitCodexAgentPrompts({ outDir, exclusions, tierFilter, lang, verbose }) {
+// (interactive only), (c) headless fallback (use pattern a). The file
+// is loaded into context on demand via inline-cat injection — no
+// baseline-context cap pressure.
+function emitCodexAgentPrompts({ outDir, exclusions, tierFilter, loomOnly, lang, verbose }) {
   const srcDir = path.join(REPO, ".claude", "agents");
   if (!fs.existsSync(srcDir)) return { codex: 0, skipped: 0 };
 
@@ -815,6 +875,11 @@ function emitCodexAgentPrompts({ outDir, exclusions, tierFilter, lang, verbose }
   for (const { absPath, relPath } of walkFiles(srcDir)) {
     if (!relPath.endsWith(".md")) continue;
     const manifestRel = `agents/${relPath}`;
+    // F104 loom-only filter: positive never-sync declaration, BEFORE tier.
+    if (loomOnly && matchesAnyGlob(manifestRel, loomOnly)) {
+      stats.skipped++;
+      continue;
+    }
     if (tierFilter && !matchesAnyGlob(manifestRel, tierFilter)) {
       stats.skipped++;
       continue;
@@ -833,7 +898,7 @@ function emitCodexAgentPrompts({ outDir, exclusions, tierFilter, lang, verbose }
     const source = composedResult ? composedResult.body : fs.readFileSync(absPath, "utf8");
     const { frontmatter, body } = parseFrontmatter(source);
     const baseName = frontmatter.name || path.basename(relPath, ".md");
-    // Strip redundant trailing "-specialist" for cleaner /prompts:specialist-<x>
+    // Strip redundant trailing "-specialist" for cleaner specialist-<x> filename
     // UX (e.g. `dataflow-specialist` → `specialist-dataflow`, not
     // `specialist-dataflow-specialist`). Agents whose name lacks the suffix
     // (analyst, reviewer, build-fix, value-auditor, …) pass through as-is.
@@ -892,7 +957,7 @@ function emitCodexAgentPrompts({ outDir, exclusions, tierFilter, lang, verbose }
   return stats;
 }
 
-function emitGeminiAgents({ outDir, exclusions, tierFilter, lang, verbose }) {
+function emitGeminiAgents({ outDir, exclusions, tierFilter, loomOnly, lang, verbose }) {
   const srcDir = path.join(REPO, ".claude", "agents");
   if (!fs.existsSync(srcDir)) return { gemini: 0, skipped: 0 };
 
@@ -905,6 +970,11 @@ function emitGeminiAgents({ outDir, exclusions, tierFilter, lang, verbose }) {
   for (const { absPath, relPath } of walkFiles(srcDir)) {
     if (!relPath.endsWith(".md")) continue;
     const manifestRel = `agents/${relPath}`;
+    // F104 loom-only filter: positive never-sync declaration, BEFORE tier.
+    if (loomOnly && matchesAnyGlob(manifestRel, loomOnly)) {
+      stats.skipped++;
+      continue;
+    }
     // Tier-subscription filter: skip agents not matched by any subscribed tier.
     if (tierFilter && !matchesAnyGlob(manifestRel, tierFilter)) {
       stats.skipped++;
@@ -982,6 +1052,7 @@ function main() {
 
   const onlyCli = args.cli; // null = both
   const exclusions = loadExclusions();
+  const loomOnly = loadLoomOnly(); // F104 — positive never-sync globs (all targets)
   const tierFilter = buildTierFilter(args.target); // null when --target absent
   const lang = loadTargetVariant(args.target); // null when --target absent or variant unset
   const outDir = path.resolve(args.out);
@@ -992,6 +1063,7 @@ function main() {
     console.log(`Output: ${outDir}`);
     console.log(`Exclusions (codex): ${exclusions.codex.length} globs`);
     console.log(`Exclusions (gemini): ${exclusions.gemini.length} globs`);
+    console.log(`Loom-only (all targets): ${loomOnly.length} globs`);
     if (tierFilter) {
       const subs = loadTargetTierSubscriptions(args.target);
       console.log(
@@ -1004,16 +1076,16 @@ function main() {
   }
 
   const report = {
-    commands: emitCommands({ outDir, exclusions, tierFilter, lang, verbose: args.verbose }),
-    skills: emitSkills({ outDir, exclusions, tierFilter, lang, verbose: args.verbose }),
+    commands: emitCommands({ outDir, exclusions, tierFilter, loomOnly, lang, verbose: args.verbose }),
+    skills: emitSkills({ outDir, exclusions, tierFilter, loomOnly, lang, verbose: args.verbose }),
     codexAgentPrompts:
       onlyCli === "gemini"
         ? { codex: 0, skipped: 0 }
-        : emitCodexAgentPrompts({ outDir, exclusions, tierFilter, lang, verbose: args.verbose }),
+        : emitCodexAgentPrompts({ outDir, exclusions, tierFilter, loomOnly, lang, verbose: args.verbose }),
     geminiAgents:
       onlyCli === "codex"
         ? { gemini: 0, skipped: 0 }
-        : emitGeminiAgents({ outDir, exclusions, tierFilter, lang, verbose: args.verbose }),
+        : emitGeminiAgents({ outDir, exclusions, tierFilter, loomOnly, lang, verbose: args.verbose }),
   };
 
   // Apply --cli filter after the fact: if onlyCli is set, delete the
@@ -1055,6 +1127,7 @@ if (invokedAsScript) {
 
 export {
   loadExclusions,
+  loadLoomOnly,
   loadTiers,
   loadTargetTierSubscriptions,
   loadTargetVariant,

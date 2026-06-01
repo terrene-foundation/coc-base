@@ -1,0 +1,9 @@
+{
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Edit",
+  "tool_input": {
+    "file_path": "src/lib/foo.js"
+  },
+  "cwd": "<repo>",
+  "_setup_note": "single-worktree repo, no override, signing key present → no contention + no degraded-mode"
+}

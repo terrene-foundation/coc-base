@@ -1,0 +1,19 @@
+{
+  "description": "F77 bad fixture (#386, R2-extended) — synced settings.json carrying operator-PII paths inside permissions.allow AND permissions.deny tool-call matchers. EVERY token is SYNTHETIC: '/Users/fakeuser' and '/home/fakebuilder' are INVENTED placeholders. The scanner MUST flag every <Tool>(/Users|/home/...) matcher entry as settings-permission-absolute-path, REGARDLESS of which operator-stem appears (the matcher form itself is the structural defect — a synced permissions.* entry MUST be relative or $CLAUDE_PROJECT_DIR-rooted). R2 expansion: covers the deny[] axis (cc-architect C-2) AND the full 8-tool SHAPE: Edit|Write|Read|Bash|MultiEdit|Glob|Grep|NotebookEdit (cc-architect C-3 + reviewer R-3).",
+  "permissions": {
+    "allow": [
+      "Edit(/Users/fakeuser/repos/loom/kailash-*/**)",
+      "Write(/Users/fakeuser/repos/loom/kailash-*/**)",
+      "Read(/Users/fakeuser/repos/loom/kailash-*/**)",
+      "Bash(/home/fakebuilder/ci-scripts/*:*)",
+      "MultiEdit(/Users/fakeuser/repos/loom/fakepkg/**)",
+      "Glob(/Users/fakeuser/repos/loom/fakepkg/**/*.py)",
+      "Grep(/Users/fakeuser/repos/loom/fakepkg/**)",
+      "NotebookEdit(/Users/fakeuser/repos/loom/fakenotebooks/**)"
+    ],
+    "deny": [
+      "Edit(/Users/fakeuser/repos/secrets/**)",
+      "Read(/home/fakebuilder/.ssh/**)"
+    ]
+  }
+}

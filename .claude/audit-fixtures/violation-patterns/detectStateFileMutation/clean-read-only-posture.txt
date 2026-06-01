@@ -1,0 +1,1 @@
+cat .claude/learning/posture.json | jq .posture

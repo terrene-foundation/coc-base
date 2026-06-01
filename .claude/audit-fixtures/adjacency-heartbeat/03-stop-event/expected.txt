@@ -1,0 +1,4 @@
+continue: true
+Stop event ALWAYS proceeds: bypasses coalesce, emits final heartbeat with
+session_end_intent=true. Cache touched.
+exit_code: 0

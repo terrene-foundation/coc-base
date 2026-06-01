@@ -1,0 +1,11 @@
+{
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Read",
+  "tool_input": {
+    "file_path": "<repo>/rules/independence.md"
+  },
+  "cwd": "<repo>",
+  "_setup": {
+    "create_file": "workspaces/_certify/.certify-in-probe-abc123def456.lock"
+  }
+}

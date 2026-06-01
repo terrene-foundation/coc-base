@@ -20,6 +20,8 @@
  */
 
 const { execSync } = require("child_process");
+const fs = require("fs");
+const path = require("path");
 
 const TIMEOUT_MS = 5000;
 const timeout = setTimeout(() => {
@@ -120,13 +122,66 @@ function triageLogs(cwd) {
   return messages;
 }
 
+// Enumerate nested git checkouts (sibling/BUILD repos like kailash-rs,
+// kailash-coc-py, kailash-coc-rs) at shallow depth so the log scan can
+// prune them. The Stop hook is loom's session-end signal; surfacing a
+// nested repo's transient journal-skip log as a loom WARN is a false
+// positive — that log is owned by the nested repo's own session
+// lifecycle, not loom's. cwd itself is NOT pruned (its .git is loom's).
+function findNestedGitCheckouts(cwd, maxDepth = 2) {
+  const out = [];
+  const excludedSet = new Set(EXCLUDED_DIRS);
+  function walk(dir, depth) {
+    if (depth > maxDepth) return;
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (!e.isDirectory()) continue;
+      if (excludedSet.has(e.name)) continue;
+      const child = path.join(dir, e.name);
+      // .git can be a dir (regular repo) or a file (submodule / worktree).
+      let hasGit = false;
+      try {
+        hasGit = fs.existsSync(path.join(child, ".git"));
+      } catch {
+        hasGit = false;
+      }
+      if (hasGit) {
+        out.push(child);
+        // Do not descend into a nested checkout — its inner tree is its
+        // own concern; pruning the outer dir covers everything below.
+        continue;
+      }
+      walk(child, depth + 1);
+    }
+  }
+  walk(cwd, 1);
+  return out;
+}
+
 function scanRecentLogs(cwd) {
   try {
     // Build -prune expression for excluded tool-cache directories so we don't
     // scan .playwright-mcp/, node_modules/, .venv/, etc. These dirs produce
     // WARN+ entries that are not session-actionable and drown real signal.
-    const prune = EXCLUDED_DIRS.map((d) => `-name '${d}'`).join(" -o ");
-    // find: prune tool cache dirs, then match *.log modified in last 120 min
+    const nameClauses = EXCLUDED_DIRS.map((d) => `-name '${d}'`).join(" -o ");
+    // Also prune nested git checkouts (BUILD/USE-template sibling repos that
+    // happen to be nested under cwd). Their logs are owned by their own
+    // session lifecycle, not loom's — surfacing them here is the documented
+    // false-positive class (session-notes 2026-05-27 trap).
+    const nestedRepos = findNestedGitCheckouts(cwd);
+    const pathClauses = nestedRepos
+      .map((p) => `-path '${p.replace(/'/g, "'\\''")}'`)
+      .join(" -o ");
+    const prune = pathClauses
+      ? `${nameClauses} -o ${pathClauses}`
+      : nameClauses;
+    // find: prune tool cache dirs + nested git checkouts, then match *.log
+    // modified in last 120 min.
     const cmd =
       `find "${cwd}" \\( -type d \\( ${prune} \\) -prune \\) -o ` +
       `-type f -name '*.log' -mmin -120 -print 2>/dev/null ` +

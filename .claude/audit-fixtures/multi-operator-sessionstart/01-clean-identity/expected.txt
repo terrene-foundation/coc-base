@@ -1,0 +1,5 @@
+continue: true
+hookSpecificOutput.hookEventName: SessionStart
+additionalContext cites: alice (display_id)
+additionalContext cites: owner (role)
+exit_code: 0

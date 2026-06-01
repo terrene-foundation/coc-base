@@ -1,0 +1,6 @@
+severity: (silent — non-watched tool)
+exit_code: 0
+continue: true
+stderr: (empty)
+predicate: isWatchedTool returned {watched:false} → passthrough
+note: Read is not in the §4.3 watched set (Edit|Write only).

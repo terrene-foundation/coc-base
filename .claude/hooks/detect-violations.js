@@ -22,7 +22,22 @@ const { emit } = require(path.join(__dirname, "lib", "instruct-and-wait.js"));
 const { appendViolation, readPosture, readRecentViolations } = require(
   path.join(__dirname, "lib", "state-io.js"),
 );
+const { appendStamped } = require(path.join(__dirname, "lib", "coc-append.js"));
+// M9.1 R7 Sec-R7-S-01 — route stamped-path file construction through the
+// shared resolver so a worktree-isolated rostered agent writes to the
+// MAIN checkout's `.claude/learning/violations.jsonl`, not the worktree's
+// (which is auto-deleted on cleanup, dropping the row + corrupting the
+// cumulative-violation downgrade math per `trust-posture.md` MUST-4).
+const { ensureStateDir } = require(
+  path.join(__dirname, "lib", "state-resolver.js"),
+);
+const { resolveIdentity } = require(
+  path.join(__dirname, "lib", "operator-id.js"),
+);
 const P = require(path.join(__dirname, "lib", "violation-patterns.js"));
+const { isMutationTool } = require(
+  path.join(__dirname, "lib", "tool-classes.js"),
+);
 
 function readStdin() {
   return new Promise((resolve) => {
@@ -46,14 +61,54 @@ function passthrough() {
   process.exit(0);
 }
 
-function logAndEmit(payload, event, finding, what_happened) {
-  appendViolation(payload.cwd, {
+function _logViolation(cwd, finding) {
+  // M9.1 R3 Sec-R3-S-02 — route through appendStamped (signed identity
+  // stamping) per `knowledge-convergence.md` MUST-6 when an identity is
+  // resolvable. Falls back to legacy appendViolation when the operator
+  // is un-rostered (loom's current state, pre-enrollment-ceremony): the
+  // un-rostered path is the M9.x deferred-enrollment carve-out per
+  // Bootstrap-1. The stamped path is the structural defense against
+  // cross-operator attribution forgery the security review flagged.
+  const partial = {
     rule_id: finding.rule_id,
     severity: finding.severity,
     evidence: finding.evidence,
     posture_at_time: process.env.CLAUDE_CURRENT_POSTURE || "unknown",
     addressed_by: null,
+  };
+  try {
+    const id = resolveIdentity(cwd);
+    if (id && id.verified_id && id.person_id) {
+      // M9.1 R7 Sec-R7-S-01 — route through state-resolver SSOT so the
+      // stamped row lands in the MAIN checkout's `.claude/learning/`,
+      // not the worktree's auto-deleted directory. Mirrors the legacy
+      // `appendViolation` path which routes via `ensureStateDir(cwd)`.
+      const stateDir = ensureStateDir(cwd);
+      const filePath = path.join(stateDir, "violations.jsonl");
+      const result = appendStamped(cwd || process.cwd(), filePath, partial, {
+        identity: {
+          verified_id: id.verified_id,
+          person_id: id.person_id,
+          display_id: id.display_id,
+        },
+      });
+      if (result && result.ok) return;
+      // appendStamped failed (record too large, sign failed, etc.):
+      // fall through to legacy path so the violation is still logged.
+    }
+  } catch {
+    // resolveIdentity failure (missing key, broken roster) — fall through.
+  }
+  // Un-rostered or stamped-append failed: legacy unsigned path with
+  // explicit marker so audit can distinguish stamped from un-stamped rows.
+  appendViolation(cwd, {
+    ...partial,
+    attribution: "un-rostered",
   });
+}
+
+function logAndEmit(payload, event, finding, what_happened) {
+  _logViolation(payload.cwd, finding);
 
   clearTimeout(fallback);
   emit({
@@ -144,16 +199,16 @@ function logAndEmit(payload, event, finding, what_happened) {
           f,
           `Bash command flagged: ${cmd.slice(0, 80)}`,
         );
-    } else if (tool === "Edit" || tool === "Write") {
-      const fp = input.file_path || "";
+    } else if (isMutationTool(tool)) {
+      // F14 C2 iter-3 root-cause fix: route through isMutationTool() so
+      // worktree-drift + probe-driven sweep also fire on MultiEdit and
+      // NotebookEdit. Per autonomous-execution.md MUST Rule 4: a
+      // worktree-drift bug bypassing the detector via a non-Edit/Write
+      // mutation tool is the exact failure class iter-3 closes.
+      const fp = input.file_path || input.filePath || input.notebook_path || "";
       const f = P.detectWorktreeDrift(fp);
       if (f)
-        return logAndEmit(
-          payload,
-          event,
-          f,
-          `Edit/Write to ${fp.slice(0, 80)}`,
-        );
+        return logAndEmit(payload, event, f, `${tool} to ${fp.slice(0, 80)}`);
       // probe-driven-verification/MUST-1 — advisory lexical sweep on
       // test/harness file edits. Pairs with the Stop-event sweep on the
       // assistant's final report.
@@ -170,6 +225,24 @@ function logAndEmit(payload, event, finding, what_happened) {
             event,
             probeFinding,
             `probe-driven sweep on ${fp.slice(0, 80)}`,
+          );
+      }
+      // F29 — value-prioritization MUST-6 verbatim-quote sweep on journal
+      // entries. Fires when the edited file matches journal/NNNN-*.md. The
+      // detector reads the journal from disk (reads its frontmatter +
+      // body-quoted lines + cited journals' content) so this branch fires
+      // post-tool, after the Edit/Write has landed on disk.
+      // reviewer L2: anchor at (^|/) so journal/0154-foo.md and workspace
+      // paths workspaces/x/journal/0154-foo.md both match, but a sibling
+      // dir like not-a-journal/journal/0154-foo.md does NOT.
+      if (fp && /(^|\/)journal\/\d{4}-.*\.md$/.test(fp)) {
+        const must6Finding = P.detectMust6Paraphrase(fp);
+        if (must6Finding)
+          return logAndEmit(
+            payload,
+            event,
+            must6Finding,
+            `MUST-6 verbatim-quote sweep on ${fp.slice(0, 80)}`,
           );
       }
     }
@@ -252,12 +325,13 @@ function logAndEmit(payload, event, finding, what_happened) {
 
     // Stop hooks emit systemMessage (CRIT-1). Multiple findings → concatenate.
     for (const f of findings) {
-      appendViolation(payload.cwd, {
+      // M9.1 R3 Sec-R3-S-02 — Stop-event findings also route through
+      // _logViolation for stamped-identity attribution; legacy-path
+      // fallback preserved when un-rostered.
+      _logViolation(payload.cwd, {
         rule_id: f.rule_id,
         severity: f.severity === "block" ? "halt-and-report" : f.severity, // Stop can't truly block
         evidence: f.evidence,
-        posture_at_time: process.env.CLAUDE_CURRENT_POSTURE || "unknown",
-        type: "post-mortem",
       });
     }
 

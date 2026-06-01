@@ -1,0 +1,5 @@
+{
+  "rule_id": "sweep-completeness/MUST-2",
+  "severity": "halt-and-report",
+  "evidence_substring": "Sweep 5: 0/0/0 (clean)"
+}

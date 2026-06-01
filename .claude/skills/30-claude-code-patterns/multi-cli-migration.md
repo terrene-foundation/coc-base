@@ -158,7 +158,7 @@ For `--refresh`: respect `multi_cli_overlays.multi-cli.preserved` — files in t
 
 ### Step 4 — `.claude/` refresh via downstream-sync
 
-Run downstream-sync semantics against the sister (per `skills/30-claude-code-patterns/sync-flow.md` § Downstream Sync, steps 2–8). This:
+Run downstream-sync semantics against the sister (per `skills/30-claude-code-patterns/sync-flow.md` § Downstream Sync, steps 2–8). The semantics are **additive-merge with explicit obsoletion**, NOT wholesale replacement (per `rules/cross-repo.md` Rule 4). This:
 
 - Reads sister's `.claude/.coc-obsoleted` and purges any matching paths in the project (per Rule 4 of `rules/cross-repo.md`).
 - Diffs sister `.claude/` against project `.claude/`.
@@ -166,6 +166,25 @@ Run downstream-sync semantics against the sister (per `skills/30-claude-code-pat
 - Preserves project-owned files: `.claude/settings.local.json`, `.claude/.proposals/`, `.claude/learning/`.
 - Multi-CLI sister adds binaries the CC-only template lacked: `.claude/bin/emit.mjs`, `.claude/bin/emit-cli-artifacts.mjs`, `.claude/bin/compose.mjs`. Picked up here.
 - Normalizes `settings.json` hook paths from `$CLAUDE_PROJECT_DIR/scripts/hooks/` → `$CLAUDE_PROJECT_DIR/.claude/hooks/` (legacy v2.8.x pattern).
+
+**Implementation pattern (per-file walk; do NOT bulk-copy):**
+
+```bash
+# DO — per-file diff + merge respecting cross-repo Rule 4
+SISTER_OBSOLETED=$(cat "$SISTER/.claude/.coc-obsoleted" 2>/dev/null || echo "")
+# Compute file set: sister files + project's surviving files (not on obsoleted).
+# Walk `find $SISTER/.claude` and per-file decide write-vs-preserve.
+# (Real implementation: invoke `sync-tier-aware.mjs` or equivalent
+#  downstream-sync helper — NEVER bulk `cp -r`.)
+
+# DO NOT — wholesale replacement drops project-only files (BLOCKED per
+# `rules/cross-repo.md` Rule 4)
+rm -rf .claude && cp -r "$SISTER/.claude" .claude
+# (This violates cross-repo Rule 4; if your implementation does this,
+#  surface the gap.)
+```
+
+**Post-Step-4 self-check:** `git status` MUST NOT show any DELETED file under `.claude/` that is NOT in sister's `.coc-obsoleted` list. If it does, the Step 4 implementation regressed to wholesale replacement; recover via `git checkout main -- <path>` for each unintentional deletion AND open an issue against the migrate.md protocol.
 
 ### Step 5 — CLAUDE.md 3-way reconciliation
 
@@ -183,13 +202,29 @@ CLAUDE.md is template-owned at the CC-only template; the multi-CLI variant diffe
 Closes variant-overlay-drift (the gap PR #52 left open). Sister installed `.claude/bin/emit.mjs` + `emit-cli-artifacts.mjs` at Step 4; now run them so the project's `.claude/rules/`, `.claude/commands/`, `.claude/skills/`, `.claude/agents/` propagate to the per-CLI surfaces with variant overlays applied:
 
 ```bash
-# Per-CLI commands + skills + Gemini agents — variant-overlay-aware (Loom-A composeArtifactBody)
-node .claude/bin/emit-cli-artifacts.mjs --target ${VARIANT} --out .
+# emit-cli-artifacts.mjs writes to <out>/codex/ and <out>/gemini/ (NO
+# leading dot). Use a tmp dir then move into dotted target paths —
+# invoking with `--out .` directly produces stray `codex/` and
+# `gemini/` directories at repo root alongside the dotted ones from
+# Step 3. Variant-aware per-CLI artifacts overlay the sister's Step 3
+# copy.
+EMIT_TMP="$(mktemp -d -t coc-migrate-emit-XXXXXX)"
+node .claude/bin/emit-cli-artifacts.mjs --target ${VARIANT} --out "$EMIT_TMP"
+
+mkdir -p .codex/prompts .codex/skills .gemini/commands .gemini/skills .gemini/agents
+cp -R "$EMIT_TMP/codex/prompts/." .codex/prompts/
+cp -R "$EMIT_TMP/codex/skills/."  .codex/skills/
+cp -R "$EMIT_TMP/gemini/commands/." .gemini/commands/
+cp -R "$EMIT_TMP/gemini/skills/."   .gemini/skills/
+cp -R "$EMIT_TMP/gemini/agents/."   .gemini/agents/
+rm -rf "$EMIT_TMP"
 
 # Per-CLI baselines — emitted from project's own .claude/rules/ (CRIT-tier rules)
-node .claude/bin/emit.mjs --cli codex
-node .claude/bin/emit.mjs --cli gemini
+node .claude/bin/emit.mjs --cli codex   # → AGENTS.md
+node .claude/bin/emit.mjs --cli gemini  # → GEMINI.md
 ```
+
+**Post-Step-6 self-check:** verify no stray non-dotted `codex/` or `gemini/` exist at repo root: `[ ! -d codex ] && [ ! -d gemini ] || { echo "stray non-dotted emit dirs"; exit 1; }`. If they exist, the agent invoked `emit-cli-artifacts.mjs --out .` instead of the tmp+move pattern above; clean up before proceeding.
 
 `.codex-mcp-guard/policies.json` population: if missing/empty, Loom-B's emission path runs `node .codex-mcp-guard/extract-policies.mjs` to populate from `.claude/hooks/`. Sister-side emission writes `policies.json` metadata; the live `POLICIES_POPULATED=true` flip stays deferred until predicate runtime ships (per `.claude/bin/emit-cli-artifacts.mjs` deferred-section). Currently fail-closed by design (`rules/zero-tolerance.md` Rule 2).
 
@@ -272,14 +307,23 @@ This is informational; no action required.
 
 Commit message MUST cite source/target template + version, files added (`.codex/`, `.codex-mcp-guard/`, `.gemini/`, `AGENTS.md`, `GEMINI.md`), files replaced (`CLAUDE.md` per Step 5), files updated (`.claude/.coc-sync-marker`, `.claude/VERSION`, `.github/workflows/{auto-merge,validate}.yml`, `.github/coc-sdk-refs-allowlist.txt`), files re-emitted (Step 6 per-CLI artifacts), files preserved (`workspaces/`, project source, SDK pins, `.claude/.proposals/`, `.claude/learning/`, `.claude/settings.local.json`), AND verification-table summary (`20/20 ✓`).
 
-Stage explicit paths only (per `rules/coc-sync-landing.md` Rule 2 — `git add -A` BLOCKED on COC-shaped PRs):
+Stage explicit paths only (per `rules/coc-sync-landing.md` Rule 2 — `git add -A` BLOCKED on COC-shaped PRs). **Namespace tmp files per repo** via `mktemp` to prevent concurrent `/migrate` sessions overwriting each other's commit messages (verified failure mode 2026-05-13 — two consumer migrations running in parallel: one consumer's commit shipped with the other's message body). Shared `/tmp/migrate-msg.txt` paths are BLOCKED.
 
 ```bash
+# DO — per-repo tmp namespacing OR mktemp; never shared /tmp/migrate-msg.txt
+MSGFILE="$(mktemp -t coc-migrate-msg-XXXXXX)"
+PRBODY="$(mktemp -t coc-migrate-prbody-XXXXXX)"
+# ... write commit message to "$MSGFILE", PR body to "$PRBODY" ...
+
 git add .claude/ .codex/ .codex-mcp-guard/ .gemini/ AGENTS.md GEMINI.md CLAUDE.md \
         .github/workflows/auto-merge.yml .github/workflows/validate.yml \
         .github/coc-sdk-refs-allowlist.txt
-git commit -F /tmp/migrate-msg.txt
-gh pr create --title "chore(coc): migrate to multi-CLI" --body-file /tmp/migrate-pr-body.md
+git commit -F "$MSGFILE"
+gh pr create --title "chore(coc): migrate to multi-CLI" --body-file "$PRBODY"
+rm -f "$MSGFILE" "$PRBODY"
+
+# DO NOT — shared /tmp/migrate-msg.txt path; second concurrent migrate overwrites first
+git commit -F /tmp/migrate-msg.txt   # BLOCKED — Write + git commit window is racey
 ```
 
 PR body MUST include the verification table from Step 10.

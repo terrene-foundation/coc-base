@@ -1,0 +1,13 @@
+{
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "git commit -m wip"
+  },
+  "cwd": "<repo>",
+  "_env": {
+    "COC_OPERATOR_KEY_PATH": "",
+    "COC_SIGNING_MUTATION_GUARD_FORCE_DEGRADED": "1"
+  },
+  "_setup_note": "Bash with git-mut command + degraded mode → wouldMutateWorkingTree returns true → block"
+}

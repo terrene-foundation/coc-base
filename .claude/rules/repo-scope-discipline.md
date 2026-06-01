@@ -39,6 +39,8 @@ The agent never self-authorizes. But the user owns the operating envelope (`rule
 
 ## Exceptions
 
-NONE the agent may invoke on its own judgment (see § User-Authorized Exception for the only user-initiated path). Descriptive sibling mentions are OK when informational, not prescriptive. The rule does NOT apply at orchestration roots (`~/repos/`, `loom/`) where cross-repo coordination IS the purpose (`/sync`, `/sync-to-build`, `/inspect`, `/repos`).
+NONE the agent may invoke on its own judgment (see § User-Authorized Exception for the only user-initiated path). Descriptive sibling mentions are OK when informational, not prescriptive. The rule does NOT apply at orchestration roots (`~/repos/`, `loom/`) where cross-repo coordination IS the purpose: artifact-distribution (`/sync`, `/sync-to-build`, `/inspect`, `/repos`) AND co-owner-directed cross-repo governance reads (per a User-Authorized Exception grant). **loom is the SOLE carve-out holder**; every downstream consumer is bound by the strict in-repo discipline (a consumer is never an orchestration root). The carve-out lifts the scope boundary for the _operation_ only: a cross-repo WRITE still needs the five conditions, and a cross-repo READ outside artifact-distribution still needs an explicit journaled grant. See extract for the loom-sole-holder rationale + governance-read walkthrough.
 
-Origin: 2026-05-03 (kailash-rs cross-repo surfacing); amended 2026-05-16 (User-Authorized Exception added after an rr-coe session over-blocked a user-authorized filing). Full post-mortem in extract.
+Note: at the orchestration root, cross-repo targets are enumerated _explicitly_ via `bin/lib/loom-links.mjs::resolveRepo` / `resolveAll` (per `cross-repo.md` MUST-1) — no positional discovery, governance siblings (`governance.csq`, `governance.aegis`) included. The carve-out lifts the scope boundary for the _operation_, never the resolver requirement.
+
+Origin: 2026-05-03 (kailash-rs cross-repo surfacing); amended 2026-05-16 (User-Authorized Exception added after a downstream-consumer session over-blocked a user-authorized filing). Full post-mortem in extract.

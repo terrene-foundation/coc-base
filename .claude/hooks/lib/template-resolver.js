@@ -25,11 +25,113 @@
  *   When a sibling is detected but bypassed (default online path), we
  *   emit a one-line stderr notice telling the user how to opt back in
  *   via KAILASH_COC_TEMPLATE_PATH if that's actually what they wanted.
+ *
+ *   Offline-sibling resolution (changed Phase-2): the local sibling is no
+ *   longer guessed POSITIONALLY (`dirname(cwd)/<tmpl>`, `~/repos/<tmpl>`,
+ *   etc.). The positional guess was the same fragility class loom removed
+ *   everywhere else — it breaks the moment an operator lays repos out
+ *   differently. The offline sibling is now resolved through the shared
+ *   linkage resolver at `../../bin/lib/loom-links.mjs` (the canonical
+ *   NAME→location binding) via the USE-template logical key
+ *   `use-template.<key>`. If a linkage is declared → that path is the
+ *   offline sibling. If NOT declared (or no config) → the function returns
+ *   an explicit not-found with a clear reason, NEVER a silent positional
+ *   guess. The XDG-conventional cache path (`~/.cache/kailash-coc/`,
+ *   CACHE_DIR below) is unchanged — that is a cache location, not a
+ *   linkage, and stays positional by convention.
  */
 
 const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
+
+// Canonical linkage resolver (ESM, zero-dependency) — relative to hooks/lib/.
+// template-resolver.js is CommonJS and findLocalSibling is synchronous, so
+// the ESM module cannot be `require()`d directly. We invoke it through a
+// short `node -e` shim (execFileSync, already imported) so the resolver
+// stays the SINGLE source of truth for NAME→path resolution — no positional
+// logic is duplicated here.
+const LOOM_LINKS_MJS = path.resolve(
+  __dirname,
+  "..",
+  "..",
+  "bin",
+  "lib",
+  "loom-links.mjs",
+);
+
+// Map a USE-template directory name to its loom-links logical key.
+// The resolver vocabulary is `use-template.{py,rs,rb,claude-py,claude-rs,
+// claude-rb}` (see bin/loom-links.local.example.json). Anything not in this
+// map has no linkage key and resolves to an explicit not-found.
+const TEMPLATE_LINK_KEYS = {
+  "kailash-coc-claude-py": "use-template.claude-py",
+  "kailash-coc-claude-rs": "use-template.claude-rs",
+  "kailash-coc-claude-rb": "use-template.claude-rb",
+  "kailash-coc-py": "use-template.py",
+  "kailash-coc-rs": "use-template.rs",
+  "kailash-coc-claude-prism": "use-template.prism",
+};
+
+/**
+ * Resolve a USE-template path through the shared loom-links resolver.
+ * Returns { path } on a declared linkage, or { notFound: reason } when no
+ * linkage is declared / no config exists / the resolver errors. NEVER
+ * falls back to a positional guess — that is the fragility this removes.
+ *
+ * @param {string} templateName e.g. "kailash-coc-claude-py"
+ * @returns {{ path: string } | { notFound: string }}
+ */
+function resolveSiblingViaLinks(templateName) {
+  const logicalKey = TEMPLATE_LINK_KEYS[templateName];
+  if (!logicalKey) {
+    return {
+      notFound:
+        `no loom-links logical key for template "${templateName}" ` +
+        `(known: ${Object.keys(TEMPLATE_LINK_KEYS).join(", ")})`,
+    };
+  }
+  if (!fs.existsSync(LOOM_LINKS_MJS)) {
+    return {
+      notFound: `linkage resolver not found at ${LOOM_LINKS_MJS}`,
+    };
+  }
+  // `require:false` → the resolver returns { skipped, reason } instead of
+  // throwing when the key/config is absent. We print a single JSON line so
+  // the sync CJS caller can parse one deterministic result.
+  const shim =
+    `import { resolveRepo } from ${JSON.stringify(LOOM_LINKS_MJS)};` +
+    `const r = resolveRepo(${JSON.stringify(logicalKey)}, { require: false });` +
+    `process.stdout.write(JSON.stringify(r));`;
+  try {
+    const out = execFileSync(
+      process.execPath,
+      ["--input-type=module", "-e", shim],
+      {
+        timeout: 5000,
+        stdio: ["pipe", "pipe", "pipe"],
+        encoding: "utf8",
+      },
+    );
+    const r = JSON.parse(out);
+    if (r && r.skipped) {
+      return { notFound: `loom-links: ${r.reason}` };
+    }
+    if (r && r.kind === "path" && typeof r.value === "string") {
+      return { path: r.value };
+    }
+    if (r && r.kind === "url") {
+      return {
+        notFound:
+          `loom-links key "${logicalKey}" is a git URL, not a local path ` +
+          `(offline sibling needs a local checkout)`,
+      };
+    }
+    return { notFound: `loom-links returned an unrecognized result` };
+  } catch (e) {
+    return { notFound: `loom-links resolver invocation failed: ${e.message}` };
+  }
+}
 
 const CACHE_DIR = path.join(
   process.env.HOME || process.env.USERPROFILE,
@@ -148,28 +250,44 @@ function resolveTemplate(cwd) {
 }
 
 /**
- * Search for the template as a local directory.
+ * Resolve the template as a local sibling directory.
  * Used ONLY for the detection notice (step 1 nudge) and the offline fallback
  * (step 4). Never used as the default resolution path online.
+ *
+ * The path is resolved through the shared loom-links resolver
+ * (`../../bin/lib/loom-links.mjs`) via the `use-template.<key>` logical key —
+ * NOT by guessing positional layouts. When no linkage is declared (or no
+ * config exists), this returns null with an explicit stderr reason rather
+ * than silently guessing `~/repos/<tmpl>` / `../<tmpl>`: an undeclared
+ * linkage is "not found", not "search harder".
+ *
+ * @returns {string|null} the linked sibling path, or null when no linkage
+ *   is declared / the linked path is absent on disk.
  */
 function findLocalSibling(cwd, templateName) {
-  const candidates = [];
-
-  candidates.push(path.join(path.dirname(cwd), templateName));
-
-  const parent = path.dirname(cwd);
-  candidates.push(path.join(parent, "loom", templateName));
-
-  const home = process.env.HOME || process.env.USERPROFILE;
-  candidates.push(path.join(home, "repos", "loom", templateName));
-  candidates.push(path.join(home, "repos", templateName));
-
-  for (const candidate of candidates) {
-    if (fs.existsSync(path.join(candidate, ".claude")) && candidate !== cwd) {
-      return candidate;
-    }
+  const r = resolveSiblingViaLinks(templateName);
+  if (r.notFound) {
+    // Explicit not-found. The resolver — not a positional guess — is the
+    // canonical NAME→location binding; an absent linkage is a clear signal,
+    // not a prompt to fall back to `~/repos/<tmpl>`.
+    console.error(
+      `[TEMPLATE] No offline sibling linkage for "${templateName}": ${r.notFound}. ` +
+        `Declare it in loom-links.local.json under "${TEMPLATE_LINK_KEYS[templateName] || "use-template.<key>"}" ` +
+        `(or set KAILASH_COC_TEMPLATE_PATH) — loom no longer guesses sibling paths positionally.`,
+    );
+    return null;
   }
-
+  const candidate = r.path;
+  // The linkage may point at a path that doesn't exist on this machine
+  // (operator declared it but hasn't checked it out). That is still a
+  // not-found for sibling purposes — but loud, not a positional retry.
+  if (fs.existsSync(path.join(candidate, ".claude")) && candidate !== cwd) {
+    return candidate;
+  }
+  console.error(
+    `[TEMPLATE] loom-links resolved "${templateName}" → ${candidate} but no .claude/ ` +
+      `exists there (linkage declared, checkout missing). Not used as offline sibling.`,
+  );
   return null;
 }
 

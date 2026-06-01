@@ -1,0 +1,5 @@
+continue: true
+hookSpecificOutput.hookEventName: SessionStart
+additionalContext: "Sibling active claims: none" (when stub sigs fail rule-1)
+   OR cites "bob" under grouping (when sigs pass rule-1)
+exit_code: 0

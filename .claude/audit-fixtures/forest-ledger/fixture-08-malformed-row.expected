@@ -1,0 +1,2 @@
+FAIL forest-ledger: .claude/audit-fixtures/forest-ledger/fixture-08-malformed-row.session-notes
+  [L2] malformed ledger row (expected | ID | Item | Value-anchor | Status |): | F1 | only three | columns |

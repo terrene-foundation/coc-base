@@ -1,0 +1,5 @@
+severity: silent passthrough
+exit_code: 0
+continue: true
+stderr_tag: (none)
+predicate: isWatchedTool() returns watched=false (Read, not Write)

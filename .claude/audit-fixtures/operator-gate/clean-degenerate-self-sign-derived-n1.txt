@@ -1,0 +1,23 @@
+# operator-gate audit fixture: clean — degenerate self-sign permitted at
+# derived genuine-genesis N=1 for /release-class gate (audit-marked).
+#
+# Predicate: §6.4 last row — in a derived genuine-genesis 1-operator repo,
+# /release / non-migration / non-owner-add quorum gates are self-approvable
+# with an audit marker. Genuine-genesis means: derived-N=1 AND NO
+# collaborator-distinctness-attestation history (R9-S-02 fence consulted
+# via r9s02-fence.js; returns eligible:true).
+#
+# Input shape:
+#   command = "/release"
+#   requester_person_id = "person:owner-genesis-001"
+#   approver_person_id  = "person:owner-genesis-001"  ← SAME, intentional
+#   foldedState.derived_N = 1
+#   foldedState.records  = [genesis-anchor only — no attestations]
+#   roster.persons       = { "person:owner-genesis-001": { role:"owner", host_role:"human" } }
+#
+# Expected gate evaluation:
+#   matrix_row = "degenerate-genesis-quorum-gate"
+#   self_approvable = true (audit-marked)
+#   audit_marker = "degenerate-self-sign-genuine-genesis-N1"
+#   r9s02_fence: eligible (no attestation history)
+#   halt = false (passthrough; but record audit marker)

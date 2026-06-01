@@ -1,0 +1,13 @@
+---
+type: DECISION
+date: 2026-05-23
+references: ["0150", "0149"]
+---
+
+# F29 verbatim-citation gap
+
+This journal entry cites prior journals 0150 and 0149 but contains
+no block-quote lines at all. The references are paraphrased in prose
+without any verbatim substring from either cited journal.
+
+Per MUST-6, a missing verbatim citation should flag this entry.

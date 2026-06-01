@@ -1,0 +1,15 @@
+---
+type: DECISION
+date: 2026-05-23
+references: ["9999"]
+---
+
+# Cited journal not on disk
+
+This entry cites journal 9999 which does NOT exist in the journal dir.
+F29's behavior is to skip the missing ref silently (the resolver returns
+no match); since the only cited journal cannot be verified or found, the
+unverified list ends up empty and the detector returns null.
+
+This pins the "missing cited journal" behavior so a future change that
+flags missing-on-disk as unverified gets caught.

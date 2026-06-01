@@ -1,0 +1,9 @@
+{
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Edit",
+  "tool_input": {
+    "file_path": "<repo>/.claude/operators.roster.json"
+  },
+  "cwd": "<repo>",
+  "_setup_note": "active branch is 'codify/SIBLING-2026-05-21'; operator display_id=self → foreign codify-branch → block"
+}

@@ -1,0 +1,6 @@
+severity: (silent — structural-NULL fallback)
+exit_code: 0
+continue: true
+stderr: (empty OR [ADVISORY] adjacency-leasecheck internal error: ...)
+predicate: readStdinSync returns {} → no tool_name → isWatchedTool returns false → passthrough
+note: cc-artifacts.md Rule 7 — malformed input MUST NOT halt the agent.

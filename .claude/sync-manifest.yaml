@@ -1,0 +1,2339 @@
+# Sync Manifest — Single Source of Truth for Artifact Distribution
+#
+# This manifest declares how artifacts flow from loom/ (source)
+# to COC template repos (kailash-coc-claude-py, kailash-coc-claude-rs,
+# kailash-coc-claude-rb, multi-CLI kailash-coc-py, kailash-coc-rs).
+# kailash-coc-claude-prism was retired in v2.9.4 — frontend-generic
+# artifacts now ship via the existing py/rs/rb USE templates.
+#
+# Architecture: guides/co-setup/05-variant-architecture.md
+# Lifecycle:    guides/co-setup/06-artifact-lifecycle.md
+#
+# ─────────────────────────────────────────────────────────────────
+# LANGUAGE MAPPING (CRITICAL — read before adding language-specific content)
+# ─────────────────────────────────────────────────────────────────
+# Loom artifacts go to TWO classes of repo:
+#
+#   USE templates (downstream apps consume these via /sync):
+#     kailash-coc-claude-py    → Python developers (py variant or global)
+#     kailash-coc-claude-rs    → Python AND Ruby developers writing apps that
+#                                consume kailash-rs through bindings (rs variant)
+#                                ⚠️ NOT Rust developers — they use Python/Ruby APIs
+#     kailash-coc-claude-rb    → Ruby developers (rb variant)
+#     (kailash-coc-claude-prism RETIRED in v2.9.4 — frontend content
+#      now ships via py/rs/rb USE templates via the global coc tier)
+#
+#   BUILD repos (SDK source, /sync-to-build):
+#     kailash-py    → Python (Kailash Python SDK source)
+#     kailash-rs    → Rust (Rust SDK source — the ONLY place Rust is written)
+#     kailash-prism → Composable FE engine (flutter/web/tauri/stitch + compiler)
+#
+# ─────────────────────────────────────────────────────────────────
+# PRISM CONTENT CLASSIFICATION (v2.9.4 — kailash-coc-claude-prism retired)
+# ─────────────────────────────────────────────────────────────────
+# kailash-prism is a composable FRONTEND engine. Its USE-relevant content
+# (frontend-generic) already ships via the global `coc` tier to every
+# existing USE template (py, rs, rb, multi-CLI py, multi-CLI rs). The
+# dedicated kailash-coc-claude-prism USE template was retired in v2.9.4
+# because every USE template already carries the FE-generic payload —
+# the dedicated repo had no unique consumer-facing content.
+#
+# Prism-internal artifacts (compiler, specs ontology, build system, stitch
+# assembly model, cross-FE-layer composition rules) describe the prism BUILD
+# repo's authoring surface — they are NOT COC-distributed via this manifest.
+# kailash-prism BUILD repo holds them locally (working-tree-only).
+#
+# Rule of thumb during classification:
+#   "Would a Python-backend app developer installing kailash-py and writing
+#    a Flutter UI benefit from this?"
+#     yes → global coc tier (all USE templates)
+#     no  → BUILD-only at kailash-prism (NOT in this manifest)
+#
+# FE agents/skills authored in loom/.claude/agents/frontend/ and
+# loom/.claude/skills/{11,19,20,21,22,23,25}/ are in the global coc tier.
+# variants/prism/ is reserved for any future case where kailash-prism BUILD
+# needs a /sync-to-build overlay distinct from the py/rs variants.
+#
+# Therefore:
+#   - Global skills/rules: PYTHON examples by default (Python is the majority language)
+#   - rs variant: PYTHON examples (Python/Ruby binding consumers, NOT Rust)
+#   - rb variant: RUBY examples (Ruby consumers)
+#   - Rust content: belongs ONLY in kailash-rs BUILD repo, maintained LOCALLY
+#                   in that repo (loom does NOT push Rust content via variants)
+#
+# When writing or auditing artifacts, NEVER leak Rust syntax (cargo, syn::,
+# #[derive], pub fn, use crate::, etc.) into globals or rs/rb variants.
+# Rust examples in spec-compliance, testing, build commands, etc. are managed
+# in kailash-rs/.claude/skills/spec-compliance/rust-parity.md and similar
+# BUILD-local files that loom never overwrites.
+
+# ─────────────────────────────────────────────────────────────────
+# TIER MEMBERSHIP
+# ─────────────────────────────────────────────────────────────────
+# Every artifact belongs to exactly one tier.
+# CC + CO + COC = global (synced to all targets).
+# Unlisted files default to COC (codegen, language-agnostic).
+# EXCEPTION — loom-only artifacts are declared POSITIVELY in the top-level
+# `loom_only:` stanza (F104) and are NEVER emitted to any target, overriding
+# the unlisted-defaults-to-COC behaviour. See `loom_only:` for the contract.
+
+# ─────────────────────────────────────────────────────────────────
+# Per-CLI emission exclusions  (v6 §7.3 Phase 3 Rule 2, option 2 — C6b)
+# ─────────────────────────────────────────────────────────────────
+# Paths listed per-CLI are excluded from that CLI's USE template emission,
+# even if their tier classification would otherwise include them. Used when
+# content is CC-flavored (references Agent(subagent_type=...) syntax,
+# worktree orchestration, `Task` tool, etc.) but lives under a neutral
+# topic tier (e.g. tiers.co for co-reference — the methodology is universal
+# but its examples are CC-syntax-native).
+#
+# Contract (honoured at Phase E6 emit time):
+#   - tier classification determines BASE inclusion
+#   - cli_emit_exclusions[<cli>] subtracts paths from that CLI's emission
+#   - Path is glob-matched against the source tree
+#   - Loom's own CC session still sees every path regardless (exclusion is
+#     at emit time, not at source-tree time — so switching loom itself to
+#     a different CLI in the future would naturally stop loading CC-flavored
+#     content, which is correct).
+#
+# Pre-Phase-E6 (today): the multi-CLI USE repos (kailash-coc-py /
+# kailash-coc-rs) do not yet exist; current sync targets (kailash-coc-claude-*)
+# are all CC-based and ignore this section. This is forward-compatible
+# stub that E6's emitter will honor.
+cli_emit_exclusions:
+  codex:
+    - skills/30-claude-code-patterns/**
+    - skills/co-reference/**
+    - agents/cc-architect.md
+    - agents/gemini-architect.md
+    - rules/cc-artifacts.md
+    - guides/claude-code/**
+    - commands/cc-audit.md
+  gemini:
+    - skills/30-claude-code-patterns/**
+    - skills/co-reference/**
+    - agents/cc-architect.md
+    - agents/codex-architect.md
+    - rules/cc-artifacts.md
+    - guides/claude-code/**
+    - commands/cc-audit.md
+    - guides/codex/**
+
+# ─────────────────────────────────────────────────────────────────
+# MULTI-CLI TOP-LEVEL OVERLAYS  (Loom-C, 2026-05-06)
+# ─────────────────────────────────────────────────────────────────
+# Paths emitted to multi-CLI USE templates ALONGSIDE .claude/. When a
+# downstream consumer's .claude/.coc-sync-marker declares
+# template_type: multi-cli (OR clis: contains "codex"|"gemini"), the
+# downstream /sync flow MUST diff and refresh these paths from the
+# resolved sister template — not just .claude/ as the cc-only flow does.
+#
+# Without this, multi-CLI consumers receive top-level overlays only at
+# /migrate time and never refresh on subsequent /sync cycles. They drift
+# silently as loom updates the underlying .claude/rules/, .claude/hooks/,
+# etc. (which DO refresh) while the per-CLI surfaces emit.mjs +
+# emit-cli-artifacts.mjs produce stay frozen at the migration version.
+#
+# Per template_type. cc-only-legacy templates (kailash-coc-claude-{py,rs,rb})
+# do NOT get top-level overlays — they ship CLAUDE.md only as a baseline
+# (already in baseline_files of repos.<target>.templates[].baseline_files).
+#
+# For multi-cli templates (kailash-coc-{py,rs}) the refresh set is below.
+# The merge semantics are additive (per Step 5 of Downstream Sync) —
+# template files overwrite matching local files; consumer-only files
+# preserved; deletes only via .coc-obsoleted (Step 3).
+multi_cli_overlays:
+  multi-cli:
+    paths:
+      # Per-CLI driving config trees. Whole subtree refresh; emit.mjs +
+      # emit-cli-artifacts.mjs at loom Gate 2 are the source of truth.
+      - .codex/**
+      - .codex-mcp-guard/**
+      - .gemini/**
+      # Per-CLI baseline files at repo root. Re-emitted on every loom
+      # /sync from .claude/rules/ via .claude/bin/emit.mjs --cli {codex,gemini}.
+      - AGENTS.md
+      - GEMINI.md
+    # Files inside the overlay set the consumer is permitted to customize
+    # locally — sync MUST NOT overwrite these even when present in the
+    # sister template. Same semantics as the cc-only "NEVER overwritten"
+    # set in sync-flow.md § Downstream Sync step 5.
+    preserved:
+      # Consumer may add per-project overrides; reserved for future use.
+      - .codex/local-config.toml
+      - .gemini/local-settings.json
+    # F78 (#387): Docker / dev-container scaffold ships at /migrate time
+    # from the USE template's `consumer_template_owned:` set below, then
+    # is consumer-OWNED forever after. `/sync` MUST NEVER overwrite OR
+    # delete these — they are pulled-once-at-/migrate, then the consumer
+    # customizes them to their project's needs (build context, base
+    # image, port mappings, dev-shell tooling, etc.). Distinct from the
+    # `preserved:` block above (local overrides the consumer ADDS); this
+    # set is files the consumer ADAPTS from a USE-template-shipped
+    # default. Per ADR-10 in the rs USE template's project journal.
+    # Lang-overlay note: `consumer_template_owned` is the COMMON set
+    # (py + rs); the rs USE template additionally ships `Gemfile.user`
+    # (per F78/#387 — multi-language consumer support for Ruby app
+    # devs binding to kailash-rs); the py USE template MUST NOT
+    # distribute `Gemfile.user`. Enforced by the per-variant overlay
+    # filter in coc-sync Step 4.5/5/7 (see agent file).
+    consumer_template_owned:
+      - Dockerfile
+      - docker-compose.yml
+      - .devcontainer/devcontainer.json
+      - .dockerignore
+      - bin/dev
+      - requirements-user.txt
+      - Dockerfile.user
+      - compose.override.yml.example
+    # Variant overlay: paths in this list ship to the named variant
+    # template ONLY, on top of consumer_template_owned. F78 (#387):
+    # Gemfile.user is rs-only — Ruby app devs binding to kailash-rs;
+    # py templates do NOT receive it.
+    consumer_template_owned_variants:
+      rs:
+        - Gemfile.user
+      py: []
+    # ─────────────────────────────────────────────────────────────
+    # Post-distribute scaffold (multi-CLI USE templates only)
+    # ─────────────────────────────────────────────────────────────
+    # Files and links the .claude/-emitters need at /migrate time that
+    # cannot be produced by plain file-copy. Honored by coc-sync.md
+    # Step 4.6. Closes the /migrate Step-4a inline-workaround gap
+    # surfaced by issue #184 (2026-05-13).
+    #
+    # symlinks: produced via `ln -sfn <target> <path>` inside the USE
+    #           template's working tree. Idempotent; replaces stale links.
+    #           path/target are relative to the USE template repo root.
+    symlinks:
+      - path: .claude/codex-mcp-guard
+        target: ../.codex-mcp-guard
+        # Why: emit.mjs + emit-cli-artifacts.mjs resolve policies.json /
+        # server.js via `.claude/codex-mcp-guard/` (relative to the
+        # emitter's cwd inside .claude/), but the runtime guard tree
+        # is distributed to repo-root .codex-mcp-guard/ via the
+        # `paths: .codex-mcp-guard/**` entry above. Without this symlink
+        # the project's emitter fails MODULE_NOT_FOUND at /migrate Step 6.
+    #
+    # manifest_distribute: when true, coc-sync ships the loom sync-manifest
+    #           to the USE template as `.claude/sync-manifest.yaml` so the
+    #           project-local emitter can read cli_variants / cli_emit_exclusions
+    #           / multi_cli_overlays sections at /migrate time.
+    #
+    # Carve-out from the global `exclude: sync-manifest.yaml` rule and
+    # the coc-sync.md Step 4.5 "DO NOT — emit the full sync-manifest.yaml"
+    # prohibition: that prohibition was written for cc-only-legacy
+    # templates which never invoke the multi-CLI emitter. Multi-CLI
+    # USE templates require the manifest for the emitter to function
+    # (issue #184 root cause). The "manifest changes shape across
+    # releases" concern is handled by the sync cadence — each /sync
+    # refreshes the manifest in the USE template alongside the
+    # artifacts that depend on it. Cc-only-legacy templates continue
+    # to NOT receive the manifest.
+    manifest_distribute: true
+  cc-only-legacy:
+    paths: []      # CLAUDE.md baseline already in repos.<target>.templates[].baseline_files
+    preserved: []
+    symlinks: []           # cc-only templates do not run the multi-CLI emitter
+    manifest_distribute: false
+
+# ─────────────────────────────────────────────────────────────────
+# CLI VARIANTS (Phase E1 — per spec v6 §2.2)
+# ─────────────────────────────────────────────────────────────────
+# Per-CLI emission configuration. Each key is a source-tree glob; its
+# value maps a CLI identifier → emission directives (target path, size
+# caps, abridgement protocol, native-primitive overrides, etc.).
+#
+# Phase E6's emitter reads this stanza to decide WHERE and HOW each
+# source file is materialized for each downstream CLI. The cc target
+# inherits the raw file unchanged; codex and gemini targets apply the
+# directives below plus the slot overlays at .claude/variants/<cli>/
+# and .claude/variants/<lang>-<cli>/.
+#
+# Authoritative reference: spec v6 §2.2 composing v3/v4/v5 base + v6
+# cap/abridgement updates.
+cli_variants:
+
+  # context/root.md — the CRIT-baseline emission file that lands at
+  # AGENTS.md (Codex) or GEMINI.md (Gemini). Abridger runs on the raw
+  # .claude/rules/*.md set (CRIT tier per appendix A.1) before emission.
+  context/root.md:
+    codex:
+      emit_to: "AGENTS.md"
+      size_cap_bytes: 65536
+      warn_cap_bytes: 32768            # refactoring-signal threshold
+      block_cap_bytes: 61440           # v6: raised from 40960 to match override ceiling less 4 KiB safety margin
+      headroom_floor_pct: 10           # v6.2 Risk-0004 floor — emission MUST keep ≥10% margin under block_cap; per-lang enforcement at emission time per workspaces/multi-cli-coc/02-plans/08-loom-v6.2-headroom-validator.md Shard 1
+      block_cap_rationale: |
+        Codex native cap is 32,768 bytes; mandatory invocation flag
+        -c project_doc_max_bytes=65536 raises operational cap to 65,536
+        (passed at `codex` launch by the operator; loom-emitted bash
+        wrappers were deferred per journal/0006).
+        block_cap_bytes=61,440 leaves 4 KiB safety margin under the
+        override ceiling. Below-warn_cap emissions produce no signal;
+        warn_cap→block_cap emits WARN (recommend refactoring); above
+        block_cap hard-blocks sync.
+      empirical_steady_state_bytes: 53620
+      empirical_steady_state_provenance:
+        measured_in: "Phase F4 post-demotion dry-run (2026-04-22)"
+        rules_emitted: 9
+        abridgement_protocol_version: "v6"
+        measurement_date: "2026-04-22"
+        note: |
+          Post Phase F4 budget-resolution demotion: rule-authoring.md and
+          variant-authoring.md moved from CRIT baseline to HIGH path-scoped,
+          reducing CRIT emission from 11 rules (65,514 B pre-demotion,
+          would have been BLOCK) to 9 rules (53,620 B). 7,820 B margin
+          under block_cap (61,440) and 20,852 B above warn_cap (32,768).
+          WARN tier is the expected steady state per §2.2; language-axis
+          emission (`emit.mjs --lang rs`) ships ~47,472 B due to more
+          concise rs overlays — both still WARN.
+
+          Historical: the v6-r6 PoC measured 58,438 B with the pre-demotion
+          11-rule set. That measurement is superseded; see
+          `workspaces/multi-cli-coc/02-plans/07-loom-multi-cli-spec-v6.md` §A.2.
+      cap_rationale: |
+        Codex native 32 KiB cap raised to 64 KiB via required
+        -c project_doc_max_bytes=65536 invocation flag (passed at
+        `codex` launch by the operator; bash wrappers were deferred
+        per journal/0006-DECISION-wrapper-emission-disposition-strip.md).
+        warn_cap_bytes (32 KiB) signals refactoring opportunity.
+        block_cap_bytes (60 KiB) is the hard ceiling; exceeding
+        requires demoting an existing baseline rule to path-scoped
+        or skill-embedded (NOT demoting CRIT per §A.2).
+      override_flag_required: "-c project_doc_max_bytes=65536"
+      # `override_flag_in_wrappers: true` removed at journal/0006 follow-up
+      # (2026-05-10) — loom no longer emits bash wrappers; the override
+      # flag is the operator's responsibility at `codex` invocation.
+      overflow_strategy: "priority_truncate_with_block_on_critical"
+      abridgement_protocol:
+        version: "v6"
+        strip_sections:
+          - "Origin paragraphs and Origin: lines"
+          - "Evidence / Verified / Measured sub-sections"
+          - "BLOCKED rationalizations: enumerated sub-lists"
+          - "BLOCKED responses: enumerated sub-lists"
+          - "Heading-depth level 4 and deeper (####+)"
+        strip_patterns:
+          - "Fenced code blocks that are NOT DO / DO NOT example blocks"
+          - "Markdown tables beyond 3 data rows (keep header + first 3)"
+        preserve:
+          - "MUST / MUST NOT clauses in full"
+          - "**Why:** lines in full (first 2 sentences)"
+          - "DO / DO NOT example blocks under 200 bytes each"
+          - "Tables whose full-rendered size is under 1000 bytes"
+        # Per-rule budgets measured v5-r4 PoC; ±30% tolerance accepts
+        # protocol variance. 9 CRIT baseline rules (priority: 0,
+        # scope: baseline). rule-authoring.md and variant-authoring.md
+        # were demoted from CRIT to path-scoped (priority: 10) on
+        # 2026-04-22 per v6 §A.2 "demote a CRIT rule to path-scoped"
+        # remediation — they are meta-rules that apply when editing
+        # .claude/rules/** or .claude/variants/**, not on every session.
+        # Emission dropped from 65,514 B (BLOCK) → ~53,677 B (WARN),
+        # restoring ~7,763 B headroom under block_cap. cross-cli-parity.md
+        # demoted at v2.13.0 (2026-05-01) for the same reason and via
+        # the same precedent — meta-rule about rule + variant authoring,
+        # not session-universal. Demotion frees ~3,200 B emission,
+        # restoring rs-axis headroom from 2.54% → ~7.75% under block_cap.
+        per_rule_size_budget_bytes:
+          "zero-tolerance.md": 9000
+          # security.md raised 6300 → 7200 at #290 bundle 2026-05-19.
+          # #290's slot-parser fix unmasked the rs security.md variant
+          # (silently dropped pre-fix): it carries 3 GENUINE Rust security
+          # MUST sections (constant-time credential compare, fail-closed
+          # defaults, network transport hardening — each with red-team
+          # Origin: 0021-RISK/0018-RISK/R3 commits). composed rs emission
+          # 8374B > old +30% threshold 8190B. Per the agents.md(#200) +
+          # git.md(Shard D) precedent in this same block: first-order
+          # security MUST content with documented value-anchors —
+          # abridgement is not the right disposition; raise the budget.
+          # 8374B sits at ~89% of new +30% threshold (9360B). This raise
+          # clears the per-rule BLOCK only. The duplicated illustrative
+          # code in the rs variant was separately condensed (raw −1.5KB,
+          # zero MUST/Why/Rust-section loss) — but the abridgement
+          # protocol governs EMITTED size, so the condense moved the
+          # aggregate 0B (measured). Aggregate-floor restoration is NOT
+          # this raise nor the condense; it is Plan-09 Shard 8 — the
+          # security.md GLOBAL slot-partition (security.md IS a baseline
+          # rule, so partitioning its global so rs inherits the universal
+          # body reclaims baseline bytes). NOT Shard 6 (testing.md): that
+          # rule is priority:10 path-scoped, NOT in the 9-rule baseline
+          # the v6.2 floor measures — measured 0B aggregate delta. See
+          # journal/0109 (corrects the journal/0108 mis-attribution).
+          "security.md": 7200
+          # worktree-isolation.md DEMOTED to path-scoped at v2.19.0 —
+          # frees ~6,166 B baseline emission, absorbs the new
+          # coc-sync-landing.md rule, restores cap-headroom from
+          # cap-bust (~62.9 KB) to ~56.8 KB (~7.6% headroom).
+          # Demoted per workspaces/multi-cli-coc/journal/0004 v6.2
+          # review trigger; rule still loads in COC orchestration
+          # sessions via paths: [.claude/{agents,commands,skills}/**,
+          # **/*worktree*, **/workspaces/**].
+          # agents.md raised 10000 → 14000 at #200 closure 2026-05-14
+          # (PR #203 commit c3bb9c8): slot:neutral-body + slot:examples
+          # partition per rule-authoring.md MUST-8 grew codex/gemini
+          # composed emission from 12832B → 13479B (+34.8% over 10000B
+          # block_threshold). Fix-immediately per
+          # autonomous-execution.md MUST Rule 4 (same-class gap, ≤5
+          # LOC); mirrors git.md raise pattern. New 13479B sits at
+          # ~96% of raised 14000B budget (under +30% block_threshold);
+          # composed emission stays under per-CLI cap headroom.
+          "agents.md": 14000
+          "autonomous-execution.md": 7100
+          # git.md raised 4400 → 6300 at Shard D 2026-05-10 (PRB-2 closure).
+          # New MUST clauses landed 2026-05-09 ("Release-Prep PRs MUST Use
+          # release/v* Branch Convention", "Pre-FIRST-Push CI Parity
+          # Discipline") are first-order rule content with documented
+          # value-anchors; abridgement is not the right disposition.
+          # Shard D's per-rule budget validator surfaced the +38.7% overrun
+          # that prompted this raise; fix-immediately per
+          # autonomous-execution.md MUST Rule 4 (same-class gap, ≤5 LOC).
+          "git.md": 6300
+          "communication.md": 1800
+          "verify-resource-existence.md": 4200
+          # 2800 → 3600 (2026-05-16, journal 0078): the user-approved
+          # User-Authorized Exception added a 5-condition load-bearing
+          # MUST block. Body is already abridged to skeleton (examples,
+          # BLOCKED corpus, post-mortem all in the rule-extract). 3600 is
+          # the legitimate load-bearing floor; in line with sibling
+          # baseline rules (verify-resource-existence.md 4200, git.md 6300).
+          "repo-scope-discipline.md": 3600
+          # sweep-completeness.md DEMOTED to path-scoped at v6.2-Shard-3
+          # (2026-05-15) — frees ~3,550 B baseline emission across both
+          # codex+gemini, restoring rs-lang headroom from 9.81%/9.85%
+          # (BELOW 10% Risk-0004 floor) to ~15%+. Demoted per
+          # workspaces/multi-cli-coc/02-plans/08-loom-v6.2-headroom-validator.md
+          # Shard 3 + journal/0072. Rule still loads in /sweep, /redteam,
+          # /codify, /vet command sessions via paths predicate covering
+          # those command files + corresponding skill/workspace paths.
+          # Selection over loom-csq-boundary.md / coc-sync-landing.md:
+          # narrowest fire condition (only multi-step protocol substitution
+          # decisions) AND largest reclamation (3,550 B vs 1,299 B for
+          # coc-sync-landing). loom-csq-boundary.md rejected because its
+          # Rule 5 (commit-tagging for COC shape changes) actually fires
+          # across all .claude/rules/ + sync-manifest.yaml edits — wider
+          # than path predicate suggests.
+          "coc-sync-landing.md": 1400
+          # NOTE: self-referential-codify.md is intentionally NOT budgeted here.
+          # It was demoted baseline → path-scoped 2026-05-18 (journal/0102) for
+          # Codex/Gemini emission fit; per_rule_size_budget_bytes is a
+          # baseline-emission budget and does not apply to a path-scoped rule.
+          # The journal/0101 14000 B entry was removed at F4 Phase-2 redteam
+          # reconciliation (reviewer HIGH-2; cc-architect's keep-it dissent
+          # rested on a misread of coc-sync-landing.md, which is scope:baseline).
+        per_rule_budget_tolerance: "±30%"
+        per_rule_budget_block_threshold: "+30%"
+    gemini:
+      emit_to: "GEMINI.md"
+      # Gemini caps mirror codex's contract per cross-cli-parity.md MUST
+      # Rule 1 (neutral-body slot invariant across CLIs). Caps were
+      # implicit pre-v6.2 (loadCliCaps fallback path); v6.2 makes them
+      # explicit so headroom_floor_pct lives at the single source of
+      # truth instead of a regex fallback default.
+      warn_cap_bytes: 32768            # mirror codex per parity contract
+      block_cap_bytes: 61440           # mirror codex per parity contract
+      headroom_floor_pct: 10           # v6.2 Risk-0004 floor — parity-locked to codex per cross-cli-parity.md MUST-1
+      inherit_abridgement_from: "codex"
+
+  # agents/**.md — TOML-header safety for codex-ingested agent files.
+  # v3 §2.2 change: moved from regex-match to iterate+classify to
+  # correctly handle quoted agent names containing special chars.
+  agents/**.md:
+    codex:
+      toml_key_safety: "iterate_and_classify"
+      toml_key_rule: |
+        For each [agents.X] header:
+          if X starts and ends with ": accept (quoted)
+          else X MUST match ^[a-zA-Z_][a-zA-Z0-9_-]*$ or sync blocks
+
+  # hooks/*.js — when codex_hooks feature-flag is off, emit an MCP
+  # guardrail companion (`.codex-mcp-guard/server.js`) that wraps
+  # the mutating tools with the same policies the hooks enforce.
+  # Validator 13 (§4.4) enforces bijection between hooks/*.js
+  # predicate functions and the MCP server's POLICIES table.
+  hooks/*.js:
+    codex:
+      feature_flag_required: "codex_hooks"
+      feature_flag_fallback: "emit_mcp_guardrail_companion"
+      mcp_guardrail_companion:
+        emit_to: ".codex-mcp-guard/server.js"
+        register_in: ".codex/config.toml.mcp_servers.coc-guard"
+        wraps: ["apply_patch", "unified_exec", "shell"]
+        wraps_scope_note: |
+          Mutating tools only. Read-path tools (read, grep_tool, glob_tool,
+          web_fetch, web_search) are SKIPPED in the MCP fallback path.
+          Users under `codex_hooks=under_development` receive weaker
+          read-path coverage than CC — documented in .codex-mcp-guard/README.md.
+        enforces_rules_from: "hooks/*.js"
+        coverage_equivalence_validator: "emit_step_4.4.13"
+
+  # wrappers/*.sh.template — DEFERRED at Shard C 2026-05-10 (CDX-8 closure).
+  # The 28 wrapper templates were declared as a Codex external-invocation
+  # surface (bin/coc-{name} bash scripts wrapping `codex exec`), but the
+  # emit_to declaration was never wired into emit-cli-artifacts.mjs and the
+  # runtime dependency `.codex/developer-instructions/<name>.md` was never
+  # authored anywhere in the ecosystem. Native interactive slash-command
+  # surface ships via `.codex/prompts/<name>.md` + `.gemini/commands/<name>.toml`
+  # instead — empirically present in every unified USE template.
+  #
+  # Per zero-tolerance.md Rule 2 ("No Stubs"), declared-but-never-shipped
+  # config IS a stub; the emit_to declarations are stripped at Shard C.
+  # Template files (.claude/wrappers/*.sh.template + schemas/*.schema.json)
+  # remain on disk as historical artifacts. Revival path: re-add a `codex:
+  # emit_to:` block here AND author the missing .codex/developer-instructions/
+  # corpus AND wire emitter iteration. See journal/0006-DECISION-wrapper-
+  # emission-disposition-strip.md for the full evidence + decision.
+
+# ─────────────────────────────────────────────────────────────────
+# PARITY ENFORCEMENT (Phase E1 — per spec v6 §5 + cross-cli-parity.md)
+# ─────────────────────────────────────────────────────────────────
+# Cross-CLI drift audit configuration. Consumed by /cli-audit (Phase E5)
+# via cli-orchestrator.sees verb (spec v6 §6.2). Drift in neutral-body
+# HARD BLOCKS sync; drift in examples SOFT WARNS. Scrub tokens eliminate
+# false-positive drift from delegation-syntax divergence.
+#
+# Contract source of truth: rules/cross-cli-parity.md.
+parity_enforcement:
+  required_coverage:
+    rules: [cc, codex, gemini]
+    skills: [cc, codex, gemini]
+    agents: [cc, codex, gemini]
+    hooks: [cc, codex, gemini]
+    commands: [cc, codex, gemini]
+    # `wrappers: [codex, gemini]` removed at journal/0006 follow-up
+    # (2026-05-10) — bash-wrapper emission deferred at Shard C; no
+    # parity-coverage requirement applies until wrappers revive
+    # (revival path: see lines 331–348 above + journal/0006).
+
+  block_on_violation: true
+  override_flag: "--allow-parity-gap"
+
+  # Cross-CLI drift check — byte-identity on neutral-body + frontmatter
+  # classification across every CLI emission of the same underlying
+  # artifact. Syntactic-delegation tokens are scrubbed to avoid false
+  # positives (CC `Agent(` vs Codex inline-cat injection via bin/coc vs
+  # Gemini `@specialist` are EXPECTED divergence, not drift). The
+  # legacy `codex_agent(` token stays in the scrub list for backward
+  # compatibility while ternary py-codex / rs-codex overlays drain.
+  # F79 migration CLOSED (Shard B R3): the legacy Codex prompts-deprecated
+  # token has been removed from the scrub list following the completion of
+  # the variant-overlay migration to inline-cat injection
+  # `"$(cat .codex/prompts/specialist-<name>.md)"` + bin/coc <phase>
+  # dispatcher (canonical Codex invocation path per F79 forest closure).
+  # A repo-wide grep for the deprecated invocation form returns zero matches.
+  cross_cli_drift_audit:
+    enabled: true
+    compare_slots: ["neutral-body", "frontmatter.priority", "frontmatter.scope"]
+    scrub_tokens:
+      - "Agent("
+      - "codex_agent("
+      - "@specialist"
+      - "subagent_type"
+      - "run_in_background"
+    fail_on_drift_in_slots:
+      - "neutral-body"
+      - "frontmatter.priority"
+      - "frontmatter.scope"
+    warn_on_drift_in_slots:
+      - "examples"
+
+tiers:
+  cc:
+    - guides/claude-code/**
+    - agents/cc-architect.md
+    - skills/30-claude-code-patterns/**
+    - rules/cc-artifacts.md
+    - commands/cc-audit.md
+    # CC-runtime hook companion fixtures per cc-artifacts.md Rule 9 +
+    # hook-output-discipline.md MUST-4. Parallel to hooks/** which is
+    # in the always-include list — these fixtures are exercised by the
+    # hooks and live alongside them on the target. 175+ files at every
+    # USE template today (pre-existing from prior cycles, never formally
+    # tier-classified until this entry). Loom #272 (2026-05-17 manifest
+    # completeness audit, follow-up to PR #271).
+    - audit-fixtures/**
+    # Extended rule prose referenced by rules/*.md body lines. Per
+    # rule-authoring.md Rule 7 (slot-keyed body) + the "See
+    # `.claude/guides/rule-extracts/<name>.md` for ..." reference
+    # pattern used by 20+ rules. Without this entry, the body line
+    # points to a non-existent file at every USE template. Same
+    # classification cycle as audit-fixtures/** above.
+    - guides/rule-extracts/**
+    # Validator-13 + future emit.mjs validator fixtures. Referenced by
+    # bin/emit.mjs validateCodexMcpGuardPolicies() and downstream
+    # validator additions. Parallel to bin/** which is in the
+    # always-include list.
+    - fixtures/**
+  co:
+    - skills/co-reference/**
+    - skills/26-eatp-reference/**
+    - skills/29-pact/**
+    # Multi-CLI artifact-authoring meta-skills (F1/F2/F3, 2026-05-12/13).
+    # Universal CO methodology — apply to any project authoring CC artifacts
+    # (skills, commands, hooks) across CC/Codex/Gemini surfaces. Subscribed
+    # by py/rs/rb AND the base variant so non-Kailash USE templates ship
+    # them too. Multi-CLI by body design — no cli_emit_exclusions needed
+    # (each skill explicitly covers CC + Codex + Gemini hook/command/skill
+    # registration). Cross-references to cc-tier rules (cc-artifacts.md,
+    # claude-code guides) remain functional for CC consumers; non-CC
+    # consumers get the multi-CLI guidance, which is the load-bearing
+    # content.
+    - skills/skill-authoring/**
+    - skills/command-authoring/**
+    - skills/hook-authoring/**
+    - guides/model-optimization/**
+    - rules/autonomous-execution.md
+    - rules/communication.md
+    - rules/recommendation-quality.md
+    - rules/probe-driven-verification.md
+    - rules/journal.md
+    - rules/zero-tolerance.md
+    # rules/terrene-naming.md + rules/independence.md were moved to `coc` tier
+    # 2026-05-07, then removed from COC distribution 2026-05-31 (FB) —
+    # Foundation messaging governance, not COC; relocated to atelier
+    # Foundation-docs; obsoleted for downstream purge (see `obsoleted:` +
+    # journal/0184). Neither tier carries them now.
+    - rules/git.md
+    - rules/security.md
+    - rules/agents.md
+    - rules/worktree-isolation.md
+    - rules/governed-throughput.md
+    - rules/artifact-flow.md
+    - rules/rule-authoring.md
+    - rules/specs-authority.md
+    - rules/spec-accuracy.md
+    - rules/deploy-hygiene.md
+    - rules/upstream-issue-hygiene.md
+    - rules/cross-cli-artifact-hygiene.md
+    - rules/state-file-write-guard.md
+    # The companion lib `hooks/lib/state-file-write-guard.js` (lifted
+    # 2026-05-10) ships via the `hooks/**` glob in the coc tier alongside
+    # `hooks/lib/violation-patterns.js`. Same path the Bash-side helper
+    # already takes; no separate entry needed here.
+    # Note: `base` tier subscribes to `co` only — base consumers receive
+    # the rule prose but NOT the runtime lib. Intentional: base templates
+    # are stack-agnostic and Foundation/Kailash-specific consumers (coc
+    # tier) get the lib + rule together. Base consumers wire their own
+    # PreToolUse hook against the rule's prose contract.
+    - commands/learn.md
+    - commands/journal.md
+    - commands/ws.md
+    - commands/wrapup.md
+    - commands/start.md
+    - commands/autonomize.md
+    - commands/sweep.md
+    - commands/cli-audit.md
+    - commands/posture.md
+    # commands/posture.md added to co tier (Loom-D, 2026-05-06): trust posture
+    # is governance per CARE Principle 7 — applies to every project regardless
+    # of language axis, including Codex/Gemini-driven sessions on multi-CLI USE
+    # templates. Without this entry, /posture is loom-only and Codex/Gemini
+    # users invoking /posture get a missing-prompt 404.
+    # Workspace phase-dir scaffold (loom #19 P2). Ships to every USE template
+    # so new workspaces inherit the canonical phase contract; missing-phase
+    # dirs become ls-visible. The path is outside .claude/ — emit handles
+    # this via the standard tier file-list mechanism.
+    - workspaces/_template/**
+    # ── Tier reconciliation 2026-05-16 (journal 0078) ──────────────
+    # Root cause: as these baseline/path-scoped behavioural rules were
+    # authored at loom, the tier lists were never updated. The
+    # subscription-based sync model silently excludes anything not
+    # tier-listed, so these rules were frozen in templates at whatever
+    # a pre-subscription full-sync last copied — unhooked from the
+    # freshness guarantee. They are universal CO discipline (apply to
+    # any project, including stack-agnostic base), so they belong in
+    # `co`. A manifest-completeness validator (emit.mjs) now blocks any
+    # rules/*.md that is neither tier-listed nor use_obsoleted, so this
+    # class of silent omission cannot recur.
+    - rules/repo-scope-discipline.md
+    - rules/verify-resource-existence.md
+    - rules/trust-posture.md
+    - rules/value-prioritization.md
+    - rules/time-pressure-discipline.md
+    - rules/sweep-completeness.md
+    - rules/orphan-detection.md
+    - rules/hook-output-discipline.md
+    - rules/facade-manager-detection.md
+    - rules/self-referential-codify.md
+    # F14 M8 Shard F (2026-05-22): universal CO governance rules — apply to
+    # any multi-operator COC repo (py/rs/rb + base). Subscribed by every
+    # variant's [cc, co, coc] (or [cc, co, onboarding] for base).
+    # multi-operator-coordination.md: identity + log + claims + posture + lifecycle hooks
+    # knowledge-convergence.md: artifact splits + codify-lease + team-memory + onboard
+    # user-flow-validation.md: deliverable-discipline (co-owner-directed origination, journal/0134)
+    - rules/multi-operator-coordination.md
+    - rules/knowledge-convergence.md
+    - rules/user-flow-validation.md
+  coc:
+    # rules/terrene-naming.md + rules/independence.md — removed from COC
+    # distribution 2026-05-31 (FB) — Foundation messaging governance, not
+    # COC; relocated to atelier Foundation-docs; obsoleted for downstream
+    # purge (see `obsoleted:` below + journal/0184). Apache 2.0 imposes no
+    # obligations, so these were never license enforcement — their purpose
+    # was Terrene-internal brand/license-labeling/anti-derivative messaging,
+    # which is not a codegen-orchestration concern for non-Terrene consumers.
+    # Multi-CLI orchestration agents (Phase E5, 2026-04-22; tier-classified 2026-05-06)
+    # commands/cli-audit.md is in `co` tier above (added with posture.md).
+    - agents/cli-orchestrator.md
+    - agents/codex-architect.md
+    - agents/gemini-architect.md
+    - guides/codex/**
+    - agents/analysis/analyst.md
+    - agents/quality/reviewer.md
+    - agents/quality/gold-standards-validator.md
+    - agents/quality/security-reviewer.md
+    # agents/open-source-strategist.md — removed from COC distribution 2026-05-31 (FB).
+    # The agent IS Terrene Foundation IP/open-core strategy (four-layer model,
+    # "Foundation owns all IP", EATP/Kailash open-vs-proprietary boundary,
+    # competitive positioning) — Foundation-specific governance, not a generic
+    # codegen-orchestration specialist. Shipping it gave non-Terrene consumers
+    # (RRPS/community) Terrene's strategic answers. Now loom-only (kept on disk
+    # for Terrene's own use, like agents/management/*). Obsoleted below for
+    # universal downstream purge. Receipt: journal/0184.
+    - agents/testing/testing-specialist.md
+    - agents/value-auditor.md
+    - agents/implementation/build-fix.md
+    - agents/implementation/pattern-expert.md
+    - agents/implementation/tdd-implementer.md
+    - agents/release/release-specialist.md
+    # agents/management/{todo-manager,gh-manager,posture-auditor}.md — REMOVED
+    # from the coc tier 2026-06-01 (F104). They are loom-only management
+    # agents (CLAUDE.md "Management (loom-only, excluded from sync)") but were
+    # accidentally tier-listed here, so the cc file-copy path
+    # (sync-tier-aware.mjs::classifyFile) shipped them to cc consumers via
+    # tier_match — the fragile exclusion-by-omission F104 closes. They now
+    # live in the top-level `loom_only:` stanza (positive never-sync
+    # declaration); the mutual-exclusion validator (validate-emit.mjs check 8)
+    # blocks /sync if a loom_only path is ever re-added to a synced tier.
+    - agents/frontend/**
+    - agents/frameworks/dataflow-specialist.md
+    - agents/frameworks/nexus-specialist.md
+    - agents/frameworks/kaizen-specialist.md
+    - agents/frameworks/mcp-specialist.md
+    - agents/frameworks/pact-specialist.md
+    - agents/frameworks/mcp-platform-specialist.md
+    - agents/frameworks/ml-specialist.md
+    - agents/frameworks/align-specialist.md
+    - skills/spec-compliance/**
+    - skills/test-skip-discipline/**
+    # skills/project/** added 2026-05-11 — placeholder/redirect skill for the
+    # CLI parser slot. Pre-fix, `project/` was not in any tier, so
+    # emit-cli-artifacts.mjs skipped it for every target. Result: any USE
+    # template whose `.codex/skills/project/SKILL.md` had been seeded by a
+    # historical emit (rs USE template carries one) became stale on tier
+    # filtering. The stale file lacks frontmatter and Codex CLI loud-fails
+    # on it (see commit b840d8f / PR #147). Adding to coc tier so the
+    # emitter regenerates fresh `.codex/skills/project/SKILL.md` +
+    # `.gemini/skills/project/SKILL.md` on every /sync for py/rs/rb targets.
+    # Base tier (coc-base, coc-claude-base) does NOT subscribe to coc and so
+    # does not ship the Kailash-specific project skill — intentional.
+    - skills/project/**
+    - skills/01-core-sdk/**
+    - skills/02-dataflow/**
+    - skills/03-nexus/**
+    - skills/04-kaizen/**
+    - skills/05-kailash-mcp/**
+    - skills/06-cheatsheets/**
+    - skills/08-nodes-reference/**
+    - skills/12-testing-strategies/**
+    - skills/16-validation-patterns/**
+    - skills/17-gold-standards/**
+    - skills/23-uiux-design-principles/**
+    - skills/25-ai-interaction-patterns/**
+    - commands/analyze.md
+    - commands/todos.md
+    - commands/implement.md
+    - commands/redteam.md
+    - commands/codify.md
+    - commands/validate.md
+    - commands/design.md
+    - commands/i-audit.md
+    - commands/i-polish.md
+    - commands/i-harden.md
+    - commands/deploy.md
+    - skills/10-deployment-git/**
+    - skills/15-enterprise-infrastructure/**
+    - skills/31-error-troubleshooting/**
+    - skills/18-security-patterns/**
+    # Explicit entries for cross-SDK RLS skills placed 2026-04-23 via
+    # kailash-rs proposal #9 and #10 (classified global). Glob above
+    # already covers them; explicit lines make the additions greppable.
+    - skills/18-security-patterns/dataflow-rls-posture.md
+    - skills/18-security-patterns/rls-security-definer-preauth-carveout.md
+    - skills/34-kailash-ml/**
+    - skills/35-kailash-align/**
+    - rules/documentation.md
+    - rules/env-models.md
+    - rules/cross-sdk-inspection.md
+    - rules/patterns.md
+    - rules/agent-reasoning.md
+    - rules/deployment.md
+    - rules/build-repo-release-discipline.md
+    - rules/eatp.md
+    - rules/infrastructure-sql.md
+    - rules/pact-governance.md
+    - rules/trust-plane-security.md
+    - rules/connection-pool.md
+    - rules/dataflow-pool.md
+    - rules/framework-first.md
+    - rules/dependencies.md
+    - rules/testing.md
+    - rules/e2e-god-mode.md
+    - rules/observability.md
+    - rules/schema-migration.md
+    - rules/dataflow-classification.md
+    - rules/event-payload-classification.md
+    - rules/ci-runners.md
+    - rules/nexus-webhook-hmac.md
+    - rules/nexus-http-status-convention.md
+    - rules/ui-backend-defense.md
+    - commands/release.md
+    - commands/sync.md
+    - commands/migrate.md
+    - commands/ai.md
+    - commands/api.md
+    - commands/db.md
+    - commands/sdk.md
+    - commands/test.md
+    # Runtime infrastructure (canonical Anthropic-documented locations since v2.9.1).
+    # MUST appear in every USE template and every downstream consumer — without
+    # these directories on disk the consumer's settings.json hooks resolve to
+    # paths that do not exist and every CC session fails SessionStart with
+    # MODULE_NOT_FOUND. Distinct from cli_variants.hooks/*.js (which governs
+    # per-CLI emission policy at emit time); the tier entry governs whether
+    # the SOURCE is even considered part of the syncable set during /sync
+    # diff+merge. Pre-v2.9.5 omission caused multiple downstream consumers
+    # to miss .claude/hooks/ during /sync while obsoleted purges fired
+    # correctly — fixed in v2.9.6.
+    - hooks/**
+    - hooks/lib/**
+    - bin/**
+    # ── Tier reconciliation 2026-05-16 (journal 0078) ──────────────
+    # Same root cause as the `co`-tier block above (unmaintained tier
+    # lists vs. the live rule corpus). These are Kailash/Python-specific
+    # (DataFlow, .py-pathed) or COC-tooling-process rules — `base`
+    # (stack-agnostic) consumers do NOT want them, so they belong in
+    # `coc`, not `co`. Covered by the same emit.mjs manifest-completeness
+    # validator that makes silent untiering structurally impossible.
+    - rules/python-environment.md
+    - rules/tenant-isolation.md
+    - rules/dataflow-identifier-safety.md
+    - rules/refactor-invariants.md
+    - rules/coc-sync-landing.md
+    - rules/sync-completeness.md
+    - rules/variant-authoring.md
+    - rules/cross-cli-parity.md
+    # Codex/Gemini bash-wrapper schemas. Multi-CLI infrastructure
+    # paired with the variants/<cli>/ overlay structure. wrapper
+    # emission was deferred per journal/0006 follow-up (2026-05-10),
+    # but the schemas remain at targets as the canonical reference
+    # for any future wrapper revival. 28 files at every multi-CLI
+    # USE template. Same classification cycle as audit-fixtures/**
+    # above (Loom #272 manifest completeness audit, 2026-05-17).
+    - wrappers/**
+    # Trust posture skill — referenced by rules/trust-posture.md
+    # ("See `.claude/skills/32-trust-posture/` for codify/implement/
+    # redteam integration procedures and grace-period mechanics").
+    # Without this entry, the rule's primary cross-reference points
+    # to a non-existent directory. Same classification cycle.
+    - skills/32-trust-posture/**
+    # ─────────────────────────────────────────────────────────────
+    # F14 multi-operator COC commands + skill + team-memory
+    # (M9.3 manifest fix 2026-05-22, journal/0138).
+    #
+    # Origin: declared in `multi-operator-m0-m5` + `multi-operator-m7`
+    # tiers below, neither of which any variant subscribed to. The R1
+    # reviewer caught the identical pattern on M8 rules 12 hours ago
+    # (multi-operator-m8 → `co:`); this fix applies the same orphan-tier
+    # R1 pattern to M0-M5 commands + M7 onboard surface, placing them
+    # in `coc:` because they are operational tooling (not CO methodology)
+    # and route alongside the runtime infra (hooks/**, hooks/lib/**, bin/**)
+    # already auto-included in `coc:`.
+    #
+    # Cross-refs: `rules/multi-operator-coordination.md` MUST clauses cite
+    # /claim, /claims, /release-claim, /whoami, /onboard; rules without
+    # commands = unactionable cross-refs = orphan-detection failure mode.
+    # ─────────────────────────────────────────────────────────────
+    # M3 single-writer + claim-system commands (per journal/0129):
+    - commands/claim.md
+    - commands/claims.md
+    - commands/release-claim.md
+    # M0 whoami / operator-registration command (per architecture §8 A1):
+    - commands/whoami.md
+    # M0 roster JSON Schema — data the substrate's hook consumers (roster-
+    # schema-validate.js, genesis-anchor-guard.js) load at runtime. Without
+    # this file at the consumer, validate() returns {valid:false} for every
+    # input, /whoami --register --enroll-genesis cannot validate any roster,
+    # and genesis-anchor-guard fail-closes every commit ("operators roster
+    # missing; trust root not established"). Coupling enforced structurally
+    # by emit.mjs::validateRosterSchemaCoupling (regression-lock per F67 /
+    # GH issue #379 / journal 0161). Path is the runtime-resolved location
+    # in roster-schema-validate.js:56-61; relocating requires touching
+    # every consumer of the path constant.
+    #
+    # CO-LOCATION INVARIANT (reviewer M2, journal 0162): the schema MUST
+    # live in the same tier as its hook consumers above (roster-schema-
+    # validate.js + genesis-anchor-guard.js auto-included via the
+    # `hooks/lib/**` + `hooks/**` globs in the coc tier). If the multi-
+    # operator substrate is ever promoted from `coc:` to a more
+    # universally-subscribed tier (e.g. `co:` per multi-operator-
+    # coordination.md F-series M9.x deferred-enrollment forest), the
+    # schema entry MUST move with it. V17 verifies tier-membership but
+    # does NOT verify tier-equality with consumers; co-location is
+    # operator-discipline-bound until a future validator codifies it
+    # (see forest item F69 — generalize V17 to hook⇔data coupling class).
+    - operators.roster.schema.json
+    # M7 onboard surface (per M7 INTEGRATION-NOTES.md):
+    - commands/onboard.md
+    - skills/41-onboard/**
+    - team-memory/README.md
+    # team-memory/canonical-build-targets.md is `tier: example` per M7
+    # INTEGRATION-NOTES.md — illustrative only. Gate-1 classification
+    # at /sync may downgrade to SKIP if the content is non-portable.
+    - team-memory/canonical-build-targets.md
+    # ─────────────────────────────────────────────────────────────
+    # /certify — knowledge-gate for new devs/consultants
+    # (co-owner-directed 2026-05-25, journal/0158). Three phases
+    # (Brief → Probe → Gate at 100%). Per-repo question bank lives
+    # in the CONSUMER repo at `specs/_certification.yaml`; loom ships
+    # a starter template at `templates/specs/_certification.yaml`
+    # for downstream repos to copy and curate. Same shape as the M7
+    # onboard surface (command + skill, global / not variant).
+    # ─────────────────────────────────────────────────────────────
+    - commands/certify.md
+    - skills/42-certify/**
+    # Starter template: downstream repos copy this to specs/_certification.yaml
+    # once on first /certify use, then curate. The CONSUMER-side
+    # specs/_certification.yaml is NOT shipped via /sync (lives in each
+    # downstream repo's own git history); only the loom-side starter is.
+    #
+    # EMISSION POLICY (PR #355 R1 security MED-4 closure): the asset is
+    # YAML data with no CLI-divergent body — copy-as-is to every CLI
+    # surface that subscribes the coc tier (CC, Codex, Gemini emission all
+    # ship the identical file). Not in cli_variants (no per-CLI overlay
+    # exists or is permitted; bank schema is CLI-invariant); not in
+    # cli_emit_exclusions (intentionally shipped to all three).
+    - templates/specs/_certification.yaml
+  # ─────────────────────────────────────────────────────────────
+  # ONBOARDING TIER — Stack-agnostic onboarding artifacts for the
+  # base variant. Added 2026-05-06 v2.21.0 to support the non-Kailash,
+  # language-agnostic `coc-claude-base` + `coc-base` USE templates.
+  # NOT subscribed by py/rs/rb/prism (those use coc tier instead).
+  # ─────────────────────────────────────────────────────────────
+  onboarding:
+    - agents/onboarding/stack-detector.md
+    - agents/onboarding/idiom-advisor.md
+    - agents/generic/db-specialist.md
+    - agents/generic/api-specialist.md
+    - agents/generic/ai-specialist.md
+    - skills/40-stack-onboarding/**
+    - commands/onboard-stack.md
+    - rules/stack-detection.md
+  # ─────────────────────────────────────────────────────────────
+  # MULTI-OPERATOR COC TIER — Shard M6 D + M7 E artifacts
+  # (workspaces/multi-operator-coc, architecture v11). Subscribed by
+  # the coc tier alongside the existing hook + lib globs.
+  # ─────────────────────────────────────────────────────────────
+  # Hook libraries (M6 D): coc-append.js, coc-ledger.js,
+  # journal-body-anchor.js, journal-reserve.js, session-notes-layout.js
+  # — all auto-included via the `hooks/lib/**` glob in the coc tier
+  # above. No explicit entries needed; listed here for discoverability.
+  #
+  # M6 D commands /wrapup + /journal: already in coc tier (lines 581+).
+  # The M6 D updates (per-operator layout consumption + body-anchor on
+  # close) edit the same files; no new manifest entry needed.
+  #
+  # M7 E artifacts (pre-declared so M7's land doesn't require manifest
+  # amendment; entries below are no-ops on disk until M7 lands its
+  # files, and the emit.mjs manifest-completeness validator tolerates
+  # not-yet-present paths under a category declaration). M7 INTEGRATION-
+  # NOTES.md is the canonical source for this list.
+  multi-operator-m7:
+    # F14 M9.3 manifest fix MOVED to `coc:` tier 2026-05-22 (orphan-tier R1 pattern).
+    # The M7 onboard surface (commands/onboard.md, skills/41-onboard/**,
+    # team-memory/**) is now in the `coc:` tier alongside the M0-M5 commands
+    # — `coc:` is universally subscribed by py/rs/rb. Empty list retained
+    # for tier-name greppability in journal references.
+    # Audit trail: journal/0138-DECISION-m9-3-manifest-fix-orphan-tiers-2026-05-22.md.
+    []
+  # ─────────────────────────────────────────────────────────────
+  # MULTI-OPERATOR M0–M5 COMMANDS + M8 RULES — Shard F-3 (2026-05-22)
+  # ─────────────────────────────────────────────────────────────
+  # Commands authored across M0–M5 that are not auto-included by the
+  # coc-tier globs above. Hooks (M0–M6 D) auto-include via `hooks/**` +
+  # `hooks/lib/**`; bin scripts auto-include via `bin/**`. Commands need
+  # explicit tier-list entries.
+  #
+  # Rules authored at M8 (Shard F-1 + F-2). knowledge-convergence.md +
+  # multi-operator-coordination.md are NEW global rules; they belong in
+  # the `co` tier (universal CO governance — apply to any multi-operator
+  # COC repo). Tier-listed here for greppability + manifest-completeness
+  # validator; if relocated to `co:` block above, prefer this section
+  # remain for cross-reference.
+  multi-operator-m0-m5:
+    # F14 M9.3 manifest fix MOVED to `coc:` tier 2026-05-22 (orphan-tier R1 pattern).
+    # The 4 commands (claim, claims, release-claim, whoami) are now in the
+    # `coc:` tier alongside the M7 onboard surface and the M8 rules' runtime
+    # infra — `coc:` is universally subscribed by py/rs/rb. Empty list
+    # retained for tier-name greppability in journal references.
+    # Audit trail: journal/0138-DECISION-m9-3-manifest-fix-orphan-tiers-2026-05-22.md.
+    []
+  multi-operator-m8:
+    # F14 M8 Shard F rules MOVED to `co:` tier 2026-05-22 (R1 reviewer HIGH-1).
+    # The `multi-operator-m8` tier was orphaned — no repo subscribed to it,
+    # so rules declared here did not propagate downstream. The 3 new rules
+    # (multi-operator-coordination, knowledge-convergence, user-flow-validation)
+    # are now in the `co:` tier alongside other universal CO governance rules.
+    # Empty list retained for tier-name greppability in journal references.
+    []
+
+# ─────────────────────────────────────────────────────────────────
+# VARIANT DECLARATIONS
+# ─────────────────────────────────────────────────────────────────
+# When a file needs language-specific content, the global version
+# contains the shared/base version. The variant REPLACES it during
+# sync to that target.
+#
+# Format:
+#   global-path:
+#     py: variants/py/path  (or ~ for "use global as-is")
+#     rs: variants/rs/path  (or ~ for "use global as-is")
+#     rb: variants/rb/path  (or ~ for "use global as-is")
+
+variants:
+  rules/patterns.md:
+    py: null
+    rs: variants/rs/rules/patterns.md
+    rb: variants/rb/rules/patterns.md
+  rules/agents.md:
+    py: null
+    # rs: null — Plan-09 Shard 2 (journal/0107). The former
+    # variants/rs/rules/agents.md was a stale pre-#200 full-nb copy with
+    # zero genuine rs divergence; it dropped the global's #200 slot:examples
+    # partition + 14 global lines. rs now inherits the correct current
+    # global agents.md. MEASURED net effect (clean HEAD vs bundle, codex
+    # rs): this DELETE frees only −702B, NOT the ~4.5KB the journal/0107
+    # raw file-delta implied (abridgement decouples emitted from raw size).
+    # The #290 slot-parser fix in this same bundle correctly unmasks the
+    # previously-silently-dropped rs security.md variant (+~2,387B genuine
+    # Rust security MUST content that SHOULD ship). NET bundle effect:
+    # +1,685B → codex rs 9.62% / gemini 9.66% (BELOW the v6.2 10% floor).
+    # This bundle deliberately SPENDS rs headroom to fix a HIGH
+    # silent-wrong-output bug; it is NOT a headroom-relief anchor. Floor
+    # restoration is Plan-09 Shard 8 — the security.md GLOBAL
+    # slot-partition (security.md IS a baseline rule). NOT Shard 6
+    # (testing.md): that rule is priority:10 path-scoped, NOT in the
+    # 9-rule baseline — measured 0B aggregate delta (Shard 6 is
+    # correctness-only: restores 7 dropped universal MUSTs to rs). See
+    # journal/0109 (corrects the journal/0108 Shard-6 mis-attribution).
+    rs: null
+    rb: null
+    prism: variants/prism/rules/agents.md
+    base: variants/base/rules/agents.md
+  rules/agent-reasoning.md:
+    py: null
+    rs: null
+    rb: variants/rb/rules/agent-reasoning.md
+  rules/deployment.md:
+    py: variants/py/rules/deployment.md
+    rs: null
+    rb: variants/rb/rules/deployment.md
+  rules/eatp.md:
+    py: null
+    rs: null
+    rb: variants/rb/rules/eatp.md
+  rules/infrastructure-sql.md:
+    py: null
+    rs: null
+    rb: variants/rb/rules/infrastructure-sql.md
+  rules/pact-governance.md:
+    py: null
+    rs: null
+    rb: variants/rb/rules/pact-governance.md
+  rules/trust-plane-security.md:
+    py: null
+    rs: null
+    rb: variants/rb/rules/trust-plane-security.md
+  rules/connection-pool.md:
+    py: null
+    rs: variants/rs/rules/connection-pool.md
+    rb: variants/rb/rules/connection-pool.md
+  rules/dataflow-pool.md:
+    py: null
+    rs: null
+    rb: variants/rb/rules/dataflow-pool.md
+  rules/testing.md:
+    py: null
+    rs: variants/rs/rules/testing.md
+    rb: variants/rb/rules/testing.md
+    prism: variants/prism/rules/testing.md
+  rules/zero-tolerance.md:
+    py: null
+    rs: null
+    rb: null
+    prism: variants/prism/rules/zero-tolerance.md
+    # rs + rb overlays removed 2026-05-01 (commits 7c4e7ed + 77b7cda — dead overlays).
+  # rules/independence.md + rules/terrene-naming.md — variant-mapping entries
+  # removed 2026-05-07 (per-language overlays declared use_obsoleted + deleted
+  # from loom that cycle). The rules themselves were removed from COC
+  # distribution 2026-05-31 (FB) — Foundation messaging governance, not COC;
+  # relocated to atelier Foundation-docs; obsoleted for downstream purge (see
+  # `obsoleted:` + journal/0184). Variants mapping retained for security.md only.
+  rules/security.md:
+    py: null
+    rs: variants/rs/rules/security.md
+    rb: null
+    prism: variants/prism/rules/security.md
+  rules/framework-first.md:
+    py: null
+    rs: variants/rs/rules/framework-first.md
+    rb: null
+  rules/observability.md:
+    py: null
+    rs: null
+    rb: variants/rb/rules/observability.md
+  rules/schema-migration.md:
+    py: null
+    rs: null
+    rb: variants/rb/rules/schema-migration.md
+  rules/e2e-god-mode.md:
+    py: null
+    rs: variants/rs/rules/e2e-god-mode.md
+    rb: variants/rb/rules/e2e-god-mode.md
+  rules/ci-runners.md:
+    py: null
+    rs: variants/rs/rules/ci-runners.md
+    rb: null
+  commands/sync.md:
+    py: null
+    rs: variants/rs/commands/sync.md
+    rb: variants/rb/commands/sync.md
+    # py overlay removed 2026-04-15 (commit 1cdc5d1 — stale py sync.md variant).
+  commands/cc-audit.md:
+    py: variants/py/commands/cc-audit.md
+    rs: variants/rs/commands/cc-audit.md
+    rb: variants/rb/commands/cc-audit.md
+  commands/sdk.md:
+    py: variants/py/commands/sdk.md
+    rs: variants/rs/commands/sdk.md
+    rb: variants/rb/commands/sdk.md
+  commands/db.md:
+    py: variants/py/commands/db.md
+    rs: variants/rs/commands/db.md
+    rb: variants/rb/commands/db.md
+  commands/ai.md:
+    py: variants/py/commands/ai.md
+    rs: variants/rs/commands/ai.md
+    rb: variants/rb/commands/ai.md
+  commands/api.md:
+    py: variants/py/commands/api.md
+    rs: variants/rs/commands/api.md
+    rb: variants/rb/commands/api.md
+  commands/test.md:
+    py: variants/py/commands/test.md
+    rs: variants/rs/commands/test.md
+    rb: variants/rb/commands/test.md
+  commands/release.md:
+    py: variants/py/commands/release.md
+    rs: variants/rs/commands/release.md
+    rb: variants/rb/commands/release.md
+  # commands/build.md: NOT a global — variants/rs/commands/build.md is a
+  # variant-only file (rs `cargo build` workflow); declared in variant_only:rs.
+  skills/01-core-sdk/SKILL.md:
+    py: variants/py/skills/01-core-sdk/SKILL.md
+    rs: variants/rs/skills/01-core-sdk/SKILL.md
+    rb: variants/rb/skills/01-core-sdk/SKILL.md
+  skills/02-dataflow/SKILL.md:
+    py: variants/py/skills/02-dataflow/SKILL.md
+    rs: variants/rs/skills/02-dataflow/SKILL.md
+    rb: variants/rb/skills/02-dataflow/SKILL.md
+  skills/02-dataflow/dataflow-fabric-engine.md:
+    py: variants/py/skills/02-dataflow/dataflow-fabric-engine.md
+  agents/frameworks/dataflow-specialist.md:
+    py: variants/py/agents/frameworks/dataflow-specialist.md
+  skills/03-nexus/SKILL.md:
+    py: variants/py/skills/03-nexus/SKILL.md
+    rs: variants/rs/skills/03-nexus/SKILL.md
+    rb: variants/rb/skills/03-nexus/SKILL.md
+  skills/04-kaizen/SKILL.md:
+    py: variants/py/skills/04-kaizen/SKILL.md
+    rs: variants/rs/skills/04-kaizen/SKILL.md
+    rb: variants/rb/skills/04-kaizen/SKILL.md
+  skills/05-kailash-mcp/SKILL.md:
+    py: variants/py/skills/05-kailash-mcp/SKILL.md
+    rs: variants/rs/skills/05-kailash-mcp/SKILL.md
+    rb: variants/rb/skills/05-kailash-mcp/SKILL.md
+  skills/29-pact/SKILL.md:
+    py: variants/py/skills/29-pact/SKILL.md
+    rs: variants/rs/skills/29-pact/SKILL.md
+  skills/29-pact/pact-dtr-addressing.md:
+    rs: variants/rs/skills/29-pact/pact-dtr-addressing.md
+    py: variants/py/skills/29-pact/pact-dtr-addressing.md
+  skills/06-cheatsheets/SKILL.md:
+    rs: variants/rs/skills/06-cheatsheets/SKILL.md
+  skills/01-core-sdk/connection-patterns.md:
+    rs: variants/rs/skills/01-core-sdk/connection-patterns.md
+    py: variants/py/skills/01-core-sdk/connection-patterns.md
+  skills/01-core-sdk/custom-node-guide.md:
+    rs: variants/rs/skills/01-core-sdk/custom-node-guide.md
+    py: variants/py/skills/01-core-sdk/custom-node-guide.md
+  skills/01-core-sdk/runtime-execution.md:
+    rs: variants/rs/skills/01-core-sdk/runtime-execution.md
+    py: variants/py/skills/01-core-sdk/runtime-execution.md
+  skills/01-core-sdk/workflow-quickstart.md:
+    rs: variants/rs/skills/01-core-sdk/workflow-quickstart.md
+  skills/04-kaizen/kaizen-agents-governance.md:
+    rs: variants/rs/skills/04-kaizen/kaizen-agents-governance.md
+    py: variants/py/skills/04-kaizen/kaizen-agents-governance.md
+  skills/04-kaizen/kaizen-streaming.md:
+    rs: variants/rs/skills/04-kaizen/kaizen-streaming.md
+  skills/10-deployment-git/SKILL.md:
+    rs: variants/rs/skills/10-deployment-git/SKILL.md
+  skills/10-deployment-git/deployment-ci.md:
+    rs: variants/rs/skills/10-deployment-git/deployment-ci.md
+  skills/10-deployment-git/deployment-cloud.md:
+    rs: variants/rs/skills/10-deployment-git/deployment-cloud.md
+  skills/10-deployment-git/deployment-docker-quick.md:
+    rs: variants/rs/skills/10-deployment-git/deployment-docker-quick.md
+  skills/10-deployment-git/deployment-kubernetes-quick.md:
+    rs: variants/rs/skills/10-deployment-git/deployment-kubernetes-quick.md
+  skills/10-deployment-git/deployment-onboarding.md:
+    rs: variants/rs/skills/10-deployment-git/deployment-onboarding.md
+  skills/10-deployment-git/deployment-packages.md:
+    rs: variants/rs/skills/10-deployment-git/deployment-packages.md
+  skills/10-deployment-git/deployment-patterns.md:
+    rs: variants/rs/skills/10-deployment-git/deployment-patterns.md
+  skills/10-deployment-git/git-release-patterns.md:
+    rs: variants/rs/skills/10-deployment-git/git-release-patterns.md
+  skills/10-deployment-git/git-workflow-quick.md:
+    rs: variants/rs/skills/10-deployment-git/git-workflow-quick.md
+  skills/10-deployment-git/github-management-patterns.md:
+    rs: variants/rs/skills/10-deployment-git/github-management-patterns.md
+  skills/10-deployment-git/project-management.md:
+    rs: variants/rs/skills/10-deployment-git/project-management.md
+  skills/10-deployment-git/python-version-bump.md:
+    rs: variants/rs/skills/10-deployment-git/rust-version-bump.md
+  skills/10-deployment-git/release-runbook.md:
+    rs: variants/rs/skills/10-deployment-git/release-runbook.md
+  skills/10-deployment-git/todo-github-sync.md:
+    rs: variants/rs/skills/10-deployment-git/todo-github-sync.md
+  skills/12-testing-strategies/SKILL.md:
+    rs: variants/rs/skills/12-testing-strategies/SKILL.md
+  skills/12-testing-strategies/test-3tier-strategy.md:
+    rs: variants/rs/skills/12-testing-strategies/test-3tier-strategy.md
+  skills/12-testing-strategies/testing-patterns.md:
+    rs: variants/rs/skills/12-testing-strategies/testing-patterns.md
+  skills/16-validation-patterns/SKILL.md:
+    rs: variants/rs/skills/16-validation-patterns/SKILL.md
+  skills/16-validation-patterns/validate-absolute-imports.md:
+    rs: variants/rs/skills/16-validation-patterns/validate-absolute-imports.md
+  skills/16-validation-patterns/validate-connections.md:
+    rs: variants/rs/skills/16-validation-patterns/validate-connections.md
+  skills/16-validation-patterns/validate-dataflow-patterns.md:
+    rs: variants/rs/skills/16-validation-patterns/validate-dataflow-patterns.md
+  skills/16-validation-patterns/validate-parameters.md:
+    rs: variants/rs/skills/16-validation-patterns/validate-parameters.md
+  skills/16-validation-patterns/validate-security.md:
+    rs: variants/rs/skills/16-validation-patterns/validate-security.md
+  skills/16-validation-patterns/validate-workflow-structure.md:
+    rs: variants/rs/skills/16-validation-patterns/validate-workflow-structure.md
+    py: variants/py/skills/16-validation-patterns/validate-workflow-structure.md
+  skills/17-gold-standards/SKILL.md:
+    rs: variants/rs/skills/17-gold-standards/SKILL.md
+  skills/17-gold-standards/documentation-validation-patterns.md:
+    rs: variants/rs/skills/17-gold-standards/documentation-validation-patterns.md
+    py: variants/py/skills/17-gold-standards/documentation-validation-patterns.md
+  skills/17-gold-standards/gold-absolute-imports.md:
+    rs: variants/rs/skills/17-gold-standards/gold-absolute-imports.md
+  skills/17-gold-standards/gold-custom-nodes.md:
+    rs: variants/rs/skills/17-gold-standards/gold-custom-nodes.md
+  skills/17-gold-standards/gold-documentation.md:
+    rs: variants/rs/skills/17-gold-standards/gold-documentation.md
+    py: variants/py/skills/17-gold-standards/gold-documentation.md
+  skills/17-gold-standards/gold-error-handling.md:
+    rs: variants/rs/skills/17-gold-standards/gold-error-handling.md
+  skills/17-gold-standards/gold-mocking-policy.md:
+    rs: variants/rs/skills/17-gold-standards/gold-mocking-policy.md
+  skills/17-gold-standards/gold-parameter-passing.md:
+    rs: variants/rs/skills/17-gold-standards/gold-parameter-passing.md
+  skills/17-gold-standards/gold-security.md:
+    rs: variants/rs/skills/17-gold-standards/gold-security.md
+    py: variants/py/skills/17-gold-standards/gold-security.md
+  skills/17-gold-standards/gold-test-creation.md:
+    rs: variants/rs/skills/17-gold-standards/gold-test-creation.md
+  skills/17-gold-standards/gold-testing.md:
+    rs: variants/rs/skills/17-gold-standards/gold-testing.md
+  skills/17-gold-standards/gold-workflow-design.md:
+    rs: variants/rs/skills/17-gold-standards/gold-workflow-design.md
+    py: variants/py/skills/17-gold-standards/gold-workflow-design.md
+  skills/18-security-patterns/SKILL.md:
+    rs: variants/rs/skills/18-security-patterns/SKILL.md
+  skills/31-error-troubleshooting/SKILL.md:
+    rs: variants/rs/skills/31-error-troubleshooting/SKILL.md
+  skills/31-error-troubleshooting/error-connection-exhaustion.md:
+    rs: variants/rs/skills/31-error-troubleshooting/error-connection-exhaustion.md
+  skills/31-error-troubleshooting/error-connection-params.md:
+    rs: variants/rs/skills/31-error-troubleshooting/error-connection-params.md
+  skills/31-error-troubleshooting/error-cycle-convergence.md:
+    rs: variants/rs/skills/31-error-troubleshooting/error-cycle-convergence.md
+  skills/31-error-troubleshooting/error-dataflow-template-syntax.md:
+    rs: variants/rs/skills/31-error-troubleshooting/error-dataflow-template-syntax.md
+  skills/31-error-troubleshooting/error-missing-build.md:
+    rs: variants/rs/skills/31-error-troubleshooting/error-missing-build.md
+  skills/31-error-troubleshooting/error-nexus-blocking.md:
+    rs: variants/rs/skills/31-error-troubleshooting/error-nexus-blocking.md
+  skills/31-error-troubleshooting/error-parameter-validation.md:
+    rs: variants/rs/skills/31-error-troubleshooting/error-parameter-validation.md
+  skills/31-error-troubleshooting/error-runtime-execution.md:
+    rs: variants/rs/skills/31-error-troubleshooting/error-runtime-execution.md
+  skills/31-error-troubleshooting/error-v1-migration.md:
+    rs: variants/rs/skills/31-error-troubleshooting/error-v1-migration.md
+  # skills/31-error-troubleshooting/error-kaizen-provider-config.md: NOT a global —
+  # variant-only file (py-specific kaizen provider config errors). Moved to variant_only:py.
+  skills/01-core-sdk/async-resource-safety.md:
+    py: variants/py/skills/01-core-sdk/async-resource-safety.md
+  skills/01-core-sdk/production-readiness-patterns.md:
+    py: variants/py/skills/01-core-sdk/production-readiness-patterns.md
+  skills/01-core-sdk/runtime-lifecycle.md:
+    py: variants/py/skills/01-core-sdk/runtime-lifecycle.md
+  skills/02-dataflow/dataflow-advanced-patterns.md:
+    py: variants/py/skills/02-dataflow/dataflow-advanced-patterns.md
+  skills/02-dataflow/dataflow-debug-agent.md:
+    py: variants/py/skills/02-dataflow/dataflow-debug-agent.md
+  skills/02-dataflow/dataflow-enterprise-migrations.md:
+    py: variants/py/skills/02-dataflow/dataflow-enterprise-migrations.md
+  skills/02-dataflow/dataflow-error-enhancer.md:
+    py: variants/py/skills/02-dataflow/dataflow-error-enhancer.md
+  skills/02-dataflow/dataflow-express.md:
+    py: variants/py/skills/02-dataflow/dataflow-express.md
+  skills/02-dataflow/dataflow-inspector.md:
+    py: variants/py/skills/02-dataflow/dataflow-inspector.md
+  skills/02-dataflow/dataflow-migrations-quick.md:
+    py: variants/py/skills/02-dataflow/dataflow-migrations-quick.md
+  skills/02-dataflow/dataflow-native-arrays.md:
+    py: variants/py/skills/02-dataflow/dataflow-native-arrays.md
+  skills/02-dataflow/dataflow-sqlite-concurrency.md:
+    py: variants/py/skills/02-dataflow/dataflow-sqlite-concurrency.md
+  skills/02-dataflow/dataflow-strict-mode.md:
+    py: variants/py/skills/02-dataflow/dataflow-strict-mode.md
+  skills/02-dataflow/dataflow-validation-layers.md:
+    py: variants/py/skills/02-dataflow/dataflow-validation-layers.md
+  skills/02-dataflow/dataflow-ml-integration.md:
+    py: variants/py/skills/02-dataflow/dataflow-ml-integration.md
+  agents/frameworks/kaizen-specialist.md:
+    py: variants/py/agents/frameworks/kaizen-specialist.md
+    rs: variants/rs/agents/frameworks/kaizen-specialist.md
+  agents/frameworks/nexus-specialist.md:
+    py: variants/py/agents/frameworks/nexus-specialist.md
+    rs: variants/rs/agents/frameworks/nexus-specialist.md
+  agents/frameworks/pact-specialist.md:
+    py: variants/py/agents/frameworks/pact-specialist.md
+  agents/release/release-specialist.md:
+    rs: variants/rs/agents/release/release-specialist.md
+  agents/frameworks/align-specialist.md:
+    py: variants/py/agents/frameworks/align-specialist.md
+    rs: variants/rs/agents/frameworks/align-specialist.md
+  # agents/frameworks/infrastructure-specialist.md: NOT a global —
+  # variant-only file (py-specific Kailash infrastructure specialist); declared in variant_only:py.
+  agents/frameworks/ml-specialist.md:
+    py: variants/py/agents/frameworks/ml-specialist.md
+    rs: variants/rs/agents/frameworks/ml-specialist.md
+  skills/01-core-sdk/async-workflow-patterns.md:
+    py: variants/py/skills/01-core-sdk/async-workflow-patterns.md
+  skills/01-core-sdk/cycle-workflows-basics.md:
+    py: variants/py/skills/01-core-sdk/cycle-workflows-basics.md
+  skills/01-core-sdk/error-handling-patterns.md:
+    py: variants/py/skills/01-core-sdk/error-handling-patterns.md
+  skills/01-core-sdk/kailash-imports.md:
+    py: variants/py/skills/01-core-sdk/kailash-imports.md
+  skills/01-core-sdk/kailash-installation.md:
+    py: variants/py/skills/01-core-sdk/kailash-installation.md
+    rs: variants/rs/skills/01-core-sdk/kailash-installation.md
+  skills/15-enterprise-infrastructure/progressive-infrastructure.md:
+    rs: variants/rs/skills/15-enterprise-infrastructure/progressive-infrastructure.md
+  skills/15-enterprise-infrastructure/connection-manager-patterns.md:
+    rs: variants/rs/skills/15-enterprise-infrastructure/connection-manager-patterns.md
+  skills/01-core-sdk/mcp-integration-guide.md:
+    py: variants/py/skills/01-core-sdk/mcp-integration-guide.md
+  skills/01-core-sdk/node-patterns-common.md:
+    py: variants/py/skills/01-core-sdk/node-patterns-common.md
+  # skills/01-core-sdk/otel-tracing.md: NOT a global —
+  # variant-only file (py-specific OpenTelemetry tracing); declared in variant_only:py.
+  skills/01-core-sdk/pythoncode-best-practices.md:
+    py: variants/py/skills/01-core-sdk/pythoncode-best-practices.md
+  skills/02-dataflow/dataflow-compliance.md:
+    py: variants/py/skills/02-dataflow/dataflow-compliance.md
+  skills/02-dataflow/dataflow-custom-nodes.md:
+    py: variants/py/skills/02-dataflow/dataflow-custom-nodes.md
+  skills/02-dataflow/dataflow-quickstart.md:
+    py: variants/py/skills/02-dataflow/dataflow-quickstart.md
+  # 03-nexus Tier 3: deeply py-specific (no rs equivalent yet, see kailash-rs #233-237)
+  skills/03-nexus/codegen-decision-tree.md:
+    py: variants/py/skills/03-nexus/codegen-decision-tree.md
+  skills/03-nexus/golden-patterns-catalog.md:
+    py: variants/py/skills/03-nexus/golden-patterns-catalog.md
+  skills/03-nexus/nexus-agent-reference.md:
+    py: variants/py/skills/03-nexus/nexus-agent-reference.md
+  skills/03-nexus/nexus-plugins.md:
+    py: variants/py/skills/03-nexus/nexus-plugins.md
+  skills/03-nexus/nexus-event-system.md:
+    py: variants/py/skills/03-nexus/nexus-event-system.md
+  skills/03-nexus/nexus-eventbus-phase2.md:
+    py: variants/py/skills/03-nexus/nexus-eventbus-phase2.md
+  skills/03-nexus/nexus-enterprise-features.md:
+    py: variants/py/skills/03-nexus/nexus-enterprise-features.md
+  skills/03-nexus/nexus-auth-plugin.md:
+    py: variants/py/skills/03-nexus/nexus-auth-plugin.md
+  skills/03-nexus/nexus-health-monitoring.md:
+    py: variants/py/skills/03-nexus/nexus-health-monitoring.md
+  skills/03-nexus/nexus-sessions.md:
+    py: variants/py/skills/03-nexus/nexus-sessions.md
+  skills/03-nexus/nexus-k8s-probes.md:
+    py: variants/py/skills/03-nexus/nexus-k8s-probes.md
+  skills/03-nexus/nexus-transport-architecture.md:
+    py: variants/py/skills/03-nexus/nexus-transport-architecture.md
+  # 03-nexus Tier 2: capabilities exist in both SDKs, syntax differs
+  skills/03-nexus/nexus-quickstart.md:
+    py: variants/py/skills/03-nexus/nexus-quickstart.md
+    rs: variants/rs/skills/03-nexus/nexus-quickstart.md
+  skills/03-nexus/nexus-comparison.md:
+    py: variants/py/skills/03-nexus/nexus-comparison.md
+    rs: variants/rs/skills/03-nexus/nexus-comparison.md
+  skills/03-nexus/nexus-workflow-registration.md:
+    py: variants/py/skills/03-nexus/nexus-workflow-registration.md
+    rs: variants/rs/skills/03-nexus/nexus-workflow-registration.md
+  skills/03-nexus/nexus-handler-support.md:
+    py: variants/py/skills/03-nexus/nexus-handler-support.md
+    rs: variants/rs/skills/03-nexus/nexus-handler-support.md
+  skills/03-nexus/nexus-config-options.md:
+    py: variants/py/skills/03-nexus/nexus-config-options.md
+    rs: variants/rs/skills/03-nexus/nexus-config-options.md
+  skills/03-nexus/nexus-multi-channel.md:
+    py: variants/py/skills/03-nexus/nexus-multi-channel.md
+    rs: variants/rs/skills/03-nexus/nexus-multi-channel.md
+  skills/03-nexus/nexus-api-patterns.md:
+    py: variants/py/skills/03-nexus/nexus-api-patterns.md
+    rs: variants/rs/skills/03-nexus/nexus-api-patterns.md
+  skills/03-nexus/nexus-mcp-channel.md:
+    py: variants/py/skills/03-nexus/nexus-mcp-channel.md
+    rs: variants/rs/skills/03-nexus/nexus-mcp-channel.md
+  skills/03-nexus/nexus-security-best-practices.md:
+    py: variants/py/skills/03-nexus/nexus-security-best-practices.md
+    rs: variants/rs/skills/03-nexus/nexus-security-best-practices.md
+  skills/03-nexus/nexus-production-deployment.md:
+    py: variants/py/skills/03-nexus/nexus-production-deployment.md
+    rs: variants/rs/skills/03-nexus/nexus-production-deployment.md
+  skills/03-nexus/nexus-essential-patterns.md:
+    py: variants/py/skills/03-nexus/nexus-essential-patterns.md
+    rs: variants/rs/skills/03-nexus/nexus-essential-patterns.md
+  skills/03-nexus/nexus-for-fastapi-users.md:
+    rs: variants/rs/skills/03-nexus/nexus-for-fastapi-users.md
+  skills/03-nexus/nexus-troubleshooting.md:
+    py: variants/py/skills/03-nexus/nexus-troubleshooting.md
+  skills/04-kaizen/README.md:
+    py: variants/py/skills/04-kaizen/README.md
+  skills/04-kaizen/UNIFIED_AGENT_API_DESIGN.md:
+    py: variants/py/skills/04-kaizen/UNIFIED_AGENT_API_DESIGN.md
+  skills/04-kaizen/UNIFIED_AGENT_EXECUTIVE_SUMMARY.md:
+    py: variants/py/skills/04-kaizen/UNIFIED_AGENT_EXECUTIVE_SUMMARY.md
+  skills/04-kaizen/UNIFIED_AGENT_IMPLEMENTATION_BLUEPRINT.md:
+    py: variants/py/skills/04-kaizen/UNIFIED_AGENT_IMPLEMENTATION_BLUEPRINT.md
+  skills/04-kaizen/kaizen-agent-execution.md:
+    py: variants/py/skills/04-kaizen/kaizen-agent-execution.md
+  skills/04-kaizen/kaizen-agent-manifest.md:
+    py: variants/py/skills/04-kaizen/kaizen-agent-manifest.md
+  skills/04-kaizen/kaizen-baseagent-quick.md:
+    py: variants/py/skills/04-kaizen/kaizen-baseagent-quick.md
+  skills/04-kaizen/kaizen-budget-tracking.md:
+    py: variants/py/skills/04-kaizen/kaizen-budget-tracking.md
+  skills/04-kaizen/kaizen-byok-patterns.md:
+    py: variants/py/skills/04-kaizen/kaizen-byok-patterns.md
+  skills/04-kaizen/kaizen-checkpoint.md:
+    py: variants/py/skills/04-kaizen/kaizen-checkpoint.md
+  skills/04-kaizen/kaizen-common-issues.md:
+    py: variants/py/skills/04-kaizen/kaizen-common-issues.md
+  skills/04-kaizen/kaizen-config-patterns.md:
+    py: variants/py/skills/04-kaizen/kaizen-config-patterns.md
+  skills/04-kaizen/kaizen-control-protocol.md:
+    py: variants/py/skills/04-kaizen/kaizen-control-protocol.md
+  skills/04-kaizen/kaizen-journey-orchestration.md:
+    py: variants/py/skills/04-kaizen/kaizen-journey-orchestration.md
+  # skills/04-kaizen/kaizen-multi-provider.md: NOT a global —
+  # variant-only file (py-specific kaizen multi-provider patterns); declared in variant_only:py.
+  skills/04-kaizen/kaizen-observability.md:
+    py: variants/py/skills/04-kaizen/kaizen-observability.md
+  skills/04-kaizen/kaizen-orchestration.md:
+    py: variants/py/skills/04-kaizen/kaizen-orchestration.md
+  skills/04-kaizen/kaizen-quickstart-template.md:
+    py: variants/py/skills/04-kaizen/kaizen-quickstart-template.md
+  skills/04-kaizen/kaizen-structured-outputs.md:
+    py: variants/py/skills/04-kaizen/kaizen-structured-outputs.md
+  skills/04-kaizen/kaizen-tool-calling.md:
+    py: variants/py/skills/04-kaizen/kaizen-tool-calling.md
+  # skills/04-kaizen/kaizen-tool-hydration.md: NOT a global —
+  # variant-only file (py-specific kaizen tool hydration); declared in variant_only:py.
+  skills/04-kaizen/kaizen-ux-helpers.md:
+    py: variants/py/skills/04-kaizen/kaizen-ux-helpers.md
+  skills/04-kaizen/kaizen-v1-features.md:
+    py: variants/py/skills/04-kaizen/kaizen-v1-features.md
+  skills/04-kaizen/kaizen-advanced-patterns.md:
+    py: variants/py/skills/04-kaizen/kaizen-advanced-patterns.md
+  skills/04-kaizen/kaizen-agent-reference.md:
+    py: variants/py/skills/04-kaizen/kaizen-agent-reference.md
+  skills/04-kaizen/kaizen-agent-registry.md:
+    py: variants/py/skills/04-kaizen/kaizen-agent-registry.md
+  skills/04-kaizen/kaizen-agents-security.md:
+    py: variants/py/skills/04-kaizen/kaizen-agents-security.md
+  skills/04-kaizen/kaizen-delegate.md:
+    py: variants/py/skills/04-kaizen/kaizen-delegate.md
+  skills/04-kaizen/kaizen-l3-context.md:
+    py: variants/py/skills/04-kaizen/kaizen-l3-context.md
+  skills/04-kaizen/kaizen-l3-envelope.md:
+    py: variants/py/skills/04-kaizen/kaizen-l3-envelope.md
+  skills/04-kaizen/kaizen-l3-factory.md:
+    py: variants/py/skills/04-kaizen/kaizen-l3-factory.md
+  skills/04-kaizen/kaizen-l3-messaging.md:
+    py: variants/py/skills/04-kaizen/kaizen-l3-messaging.md
+  skills/04-kaizen/kaizen-l3-plan-dag.md:
+    py: variants/py/skills/04-kaizen/kaizen-l3-plan-dag.md
+  skills/04-kaizen/kaizen-memory-system.md:
+    py: variants/py/skills/04-kaizen/kaizen-memory-system.md
+  skills/04-kaizen/kaizen-observability-hooks.md:
+    py: variants/py/skills/04-kaizen/kaizen-observability-hooks.md
+  skills/04-kaizen/kaizen-trust-eatp.md:
+    py: variants/py/skills/04-kaizen/kaizen-trust-eatp.md
+  skills/05-kailash-mcp/mcp-advanced-patterns.md:
+    py: variants/py/skills/05-kailash-mcp/mcp-advanced-patterns.md
+  skills/05-kailash-mcp/mcp-authentication.md:
+    py: variants/py/skills/05-kailash-mcp/mcp-authentication.md
+  skills/05-kailash-mcp/mcp-progress-reporting.md:
+    py: variants/py/skills/05-kailash-mcp/mcp-progress-reporting.md
+  skills/05-kailash-mcp/mcp-resources.md:
+    py: variants/py/skills/05-kailash-mcp/mcp-resources.md
+  skills/05-kailash-mcp/mcp-structured-tools.md:
+    py: variants/py/skills/05-kailash-mcp/mcp-structured-tools.md
+  skills/05-kailash-mcp/mcp-testing-patterns.md:
+    py: variants/py/skills/05-kailash-mcp/mcp-testing-patterns.md
+  skills/05-kailash-mcp/mcp-transports-quick.md:
+    py: variants/py/skills/05-kailash-mcp/mcp-transports-quick.md
+  skills/06-cheatsheets/node-initialization.md:
+    py: variants/py/skills/06-cheatsheets/node-initialization.md
+  skills/08-nodes-reference/SKILL.md:
+    py: variants/py/skills/08-nodes-reference/SKILL.md
+  skills/08-nodes-reference/nodes-ai-reference.md:
+    py: variants/py/skills/08-nodes-reference/nodes-ai-reference.md
+  skills/08-nodes-reference/nodes-code-reference.md:
+    py: variants/py/skills/08-nodes-reference/nodes-code-reference.md
+  skills/08-nodes-reference/nodes-data-reference.md:
+    py: variants/py/skills/08-nodes-reference/nodes-data-reference.md
+  skills/08-nodes-reference/nodes-logic-reference.md:
+    py: variants/py/skills/08-nodes-reference/nodes-logic-reference.md
+  skills/08-nodes-reference/nodes-quick-index.md:
+    py: variants/py/skills/08-nodes-reference/nodes-quick-index.md
+  skills/08-nodes-reference/nodes-transform-reference.md:
+    py: variants/py/skills/08-nodes-reference/nodes-transform-reference.md
+  skills/18-security-patterns/SKILL.md:
+    py: variants/py/skills/18-security-patterns/SKILL.md
+  # skills/18-security-patterns/security-attack-chains.md: NOT a global —
+  # variant-only file (py-specific security attack-chain analysis); declared in variant_only:py.
+  skills/26-eatp-reference/SKILL.md:
+    py: variants/py/skills/26-eatp-reference/SKILL.md
+  skills/26-eatp-reference/eatp-posture-stores.md:
+    py: variants/py/skills/26-eatp-reference/eatp-posture-stores.md
+  skills/26-eatp-reference/eatp-sdk-api-reference.md:
+    py: variants/py/skills/26-eatp-reference/eatp-sdk-api-reference.md
+  skills/26-eatp-reference/eatp-sdk-quickstart.md:
+    py: variants/py/skills/26-eatp-reference/eatp-sdk-quickstart.md
+  skills/29-pact/pact-access-enforcement.md:
+    py: variants/py/skills/29-pact/pact-access-enforcement.md
+  skills/29-pact/pact-envelopes.md:
+    py: variants/py/skills/29-pact/pact-envelopes.md
+  skills/29-pact/pact-governance-engine.md:
+    py: variants/py/skills/29-pact/pact-governance-engine.md
+  skills/29-pact/pact-governed-agents.md:
+    py: variants/py/skills/29-pact/pact-governed-agents.md
+  skills/29-pact/pact-kaizen-integration.md:
+    py: variants/py/skills/29-pact/pact-kaizen-integration.md
+  skills/29-pact/pact-quickstart.md:
+    py: variants/py/skills/29-pact/pact-quickstart.md
+  skills/29-pact/pact-conformance-features.md:
+    py: variants/py/skills/29-pact/pact-conformance-features.md
+
+# ─────────────────────────────────────────────────────────────────
+# VARIANT-ONLY FILES
+# ─────────────────────────────────────────────────────────────────
+# Files that exist ONLY for one language. No global equivalent.
+# These are ADDED to the target during sync (not replacements).
+
+variant_only:
+  py:
+    - variants/py/agents/frameworks/infrastructure-specialist.md
+    - variants/py/skills/01-core-sdk/otel-tracing.md
+    - variants/py/skills/18-security-patterns/security-attack-chains.md
+    - variants/py/skills/04-kaizen/kaizen-multi-provider.md
+    - variants/py/skills/04-kaizen/kaizen-tool-hydration.md
+    - variants/py/skills/04-kaizen/kaizen-align-serving.md
+    - variants/py/hooks/detect-package-manager.js
+    - variants/py/hooks/validate-prod-deploy.js
+    - variants/py/skills/04-kaizen/kaizen-ml-integration.md
+    - variants/py/skills/05-kailash-mcp/mcp-platform-server.md
+    - variants/py/skills/01-core-sdk/runtime-progress.md
+    - variants/py/skills/01-core-sdk/runtime-watchdog.md
+    - variants/py/skills/18-security-patterns/credential-url-handling.md
+    - variants/py/skills/02-dataflow/dataflow-provenance-audit.md
+    - variants/py/skills/02-dataflow/dataflow-fabric-cache-consumers.md
+    - variants/py/skills/26-eatp-reference/eatp-trust-posture-canonical.md
+    - variants/py/skills/04-kaizen/kaizen-llm-deployment.md
+    - variants/py/skills/31-error-troubleshooting/error-kaizen-provider-config.md
+    - variants/py/scripts/migrate.py
+  rs:
+    - variants/rs/agents/frameworks/trust-plane-specialist.md
+    - variants/rs/agents/ffi-specialist.md
+    - variants/rs/rules/build-speed.md
+    - variants/rs/rules/dataflow-null-typing.md
+    - variants/rs/rules/release.md
+    - variants/rs/rules/llm-auth-strategy-hygiene.md
+    - variants/rs/rules/llm-deployment-coverage.md
+    - variants/rs/skills/18-security-patterns/security-auth-middleware-rs.md
+    - variants/rs/skills/18-security-patterns/constant-time-comparison-rs.md
+    - variants/rs/skills/18-security-patterns/fail-closed-defaults-rs.md
+    - variants/rs/skills/18-security-patterns/network-security-rs.md
+    - variants/rs/skills/18-security-patterns/header-validation-at-construction.md
+    - variants/rs/skills/01-core-sdk/add-node.md
+    - variants/rs/skills/01-core-sdk/configure-alerts.md
+    - variants/rs/skills/01-core-sdk/core-events-visualization.md
+    - variants/rs/skills/01-core-sdk/enterprise-infrastructure.md
+    - variants/rs/skills/01-core-sdk/run-benchmarks.md
+    - variants/rs/skills/01-core-sdk/serialize-workflow.md
+    - variants/rs/skills/01-core-sdk/test-workflow.md
+    - variants/rs/skills/01-core-sdk/value-type-guide.md
+    - variants/rs/skills/04-kaizen/create-agent.md
+    - variants/rs/skills/04-kaizen/kaizen-a2a.md
+    - variants/rs/skills/04-kaizen/kaizen-hooks-lifecycle.md
+    - variants/rs/skills/04-kaizen/kaizen-llm-providers.md
+    - variants/rs/skills/04-kaizen/kaizen-memory.md
+    - variants/rs/skills/04-kaizen/kaizen-multi-agent.md
+    - variants/rs/skills/04-kaizen/kaizen-pipelines.md
+    - variants/rs/skills/04-kaizen/kaizen-quickstart.md
+    - variants/rs/skills/04-kaizen/kaizen-structured-output.md
+    - variants/rs/skills/04-kaizen/kaizen-tools.md
+    - variants/rs/skills/04-kaizen/kaizen-trust-architecture.md
+    - variants/rs/skills/02-dataflow/dataflow-pool-prevention.md
+    - variants/rs/skills/02-dataflow/dataflow-sync-express.md
+    - variants/rs/skills/02-dataflow/numbered-migration-scaffold.md
+    - variants/rs/skills/05-kailash-mcp/mcp-client.md
+    - variants/rs/skills/05-kailash-mcp/mcp-server.md
+    - variants/rs/skills/05-kailash-mcp/mcp-tools.md
+    - variants/rs/skills/05-kailash-mcp/mcp-transports.md
+    - variants/rs/skills/06-cheatsheets/**
+    - variants/rs/skills/04-kaizen/l3-autonomy-skill.md
+    - variants/rs/skills/04-kaizen/l3-agent-factory.md
+    - variants/rs/skills/04-kaizen/l3-envelope-tracking.md
+    - variants/rs/skills/04-kaizen/l3-invariant-index.md
+    - variants/rs/skills/04-kaizen/l3-messaging.md
+    - variants/rs/skills/04-kaizen/l3-plan-dag.md
+    - variants/rs/skills/04-kaizen/l3-scoped-context.md
+    - variants/rs/skills/04-kaizen/l3-type-convergence.md
+    - variants/rs/skills/04-kaizen/kaizen-agents-skill.md
+    - variants/rs/skills/04-kaizen/kaizen-agents-budget-context.md
+    - variants/rs/skills/04-kaizen/kaizen-agents-hydration-streaming.md
+    - variants/rs/skills/04-kaizen/kaizen-agents-orchestration-pipeline.md
+    - variants/rs/skills/04-kaizen/kaizen-agents-protocols.md
+    - variants/rs/skills/04-kaizen/kaizen-agents-reasoning-history.md
+    - variants/rs/skills/04-kaizen/kaizen-agents-structured-llm.md
+    - variants/rs/skills/06-python-bindings/SKILL.md
+    - variants/rs/skills/06-python-bindings/annotation-resolution-fallback.md
+    - variants/rs/skills/06-python-bindings/async-bridging.md
+    - variants/rs/skills/06-python-bindings/python-available-nodes.md
+    - variants/rs/skills/06-python-bindings/python-cheatsheet.md
+    - variants/rs/skills/06-python-bindings/python-common-mistakes.md
+    - variants/rs/skills/06-python-bindings/python-custom-nodes.md
+    - variants/rs/skills/06-python-bindings/python-framework-bindings.md
+    - variants/rs/skills/06-python-bindings/python-gold-standards.md
+    - variants/rs/skills/06-python-bindings/python-migration-guide.md
+    - variants/rs/skills/06-python-bindings/python-v2-quickstart.md
+    - variants/rs/skills/06-python-bindings/typed-exception-hierarchy.md
+    - variants/rs/skills/06-python-bindings/layered-truncation.md
+    - variants/rs/skills/15-enterprise-infrastructure/enterprise-abac.md
+    - variants/rs/skills/15-enterprise-infrastructure/enterprise-audit.md
+    - variants/rs/skills/15-enterprise-infrastructure/enterprise-compliance.md
+    - variants/rs/skills/15-enterprise-infrastructure/enterprise-infra-bindings.md
+    - variants/rs/skills/15-enterprise-infrastructure/enterprise-policy.md
+    - variants/rs/skills/15-enterprise-infrastructure/enterprise-rbac.md
+    - variants/rs/skills/15-enterprise-infrastructure/enterprise-sso.md
+    - variants/rs/skills/15-enterprise-infrastructure/enterprise-tenancy.md
+    - variants/rs/skills/15-enterprise-infrastructure/enterprise-tokens.md
+    - variants/rs/skills/15-enterprise-infrastructure/setup-abac.md
+    - variants/rs/skills/26-eatp-reference/trust-plane-skill.md
+    - variants/rs/skills/26-eatp-reference/trust-plane-binding-patterns.md
+    - variants/rs/skills/26-eatp-reference/trust-plane-cli-reference.md
+    - variants/rs/skills/26-eatp-reference/trust-plane-mcp-reference.md
+    - variants/rs/skills/26-eatp-reference/trust-plane-project-management.md
+    - variants/rs/skills/26-eatp-reference/trust-plane-shadow-mode.md
+    - variants/rs/skills/26-eatp-reference/trust-architecture-map.md
+    - variants/rs/skills/28-ruby-bindings/SKILL.md
+    - variants/rs/skills/28-ruby-bindings/ruby-available-nodes.md
+    - variants/rs/skills/28-ruby-bindings/ruby-cheatsheet.md
+    - variants/rs/skills/28-ruby-bindings/ruby-common-mistakes.md
+    - variants/rs/skills/28-ruby-bindings/ruby-custom-nodes.md
+    - variants/rs/skills/28-ruby-bindings/ruby-framework-bindings.md
+    - variants/rs/skills/28-ruby-bindings/ruby-gold-standards.md
+    - variants/rs/skills/28-ruby-bindings/ruby-quickstart.md
+    - variants/rs/skills/29-pact/governance-patterns.md
+    - variants/rs/skills/29-pact/pact-access-algorithm.md
+    - variants/rs/skills/29-pact/pact-engine-api.md
+    - variants/rs/skills/29-pact/pact-envelope-model.md
+    - variants/rs/skills/29-pact/pact-mcp-bridge.md
+    - variants/rs/skills/29-pact/pact-python-binding.md
+    - variants/rs/skills/29-pact/pact-quick-start.md
+    - variants/rs/skills/33-gsf-cap/SKILL.md
+    - variants/rs/skills/33-gsf-cap/audit-chain.md
+    - variants/rs/skills/33-gsf-cap/data-classification.md
+    - variants/rs/skills/33-gsf-cap/enterprise-middleware.md
+    - variants/rs/skills/33-gsf-cap/event-bus.md
+    - variants/rs/skills/33-gsf-cap/query-telemetry.md
+    - variants/rs/skills/33-gsf-cap/validation-patterns.md
+    - variants/rs/skills/management/build-reference.md
+    - variants/rs/skills/management/cargo-reference.md
+    - variants/rs/skills/management/release-workflow.md
+    - variants/rs/skills/project/SKILL.md
+    - variants/rs/skills/project/l3-binding-parity.md
+    - variants/rs/skills/05-enterprise/SKILL.md
+    - variants/rs/skills/05-enterprise/enterprise-abac.md
+    - variants/rs/skills/05-enterprise/enterprise-audit.md
+    - variants/rs/skills/05-enterprise/enterprise-compliance.md
+    - variants/rs/skills/05-enterprise/enterprise-infra-bindings.md
+    - variants/rs/skills/05-enterprise/enterprise-policy.md
+    - variants/rs/skills/05-enterprise/enterprise-rbac.md
+    - variants/rs/skills/05-enterprise/enterprise-sso.md
+    - variants/rs/skills/05-enterprise/enterprise-tenancy.md
+    - variants/rs/skills/05-enterprise/enterprise-tokens.md
+    - variants/rs/skills/05-enterprise/setup-abac.md
+    - variants/rs/skills/10-governance/SKILL.md
+    - variants/rs/skills/10-governance/governance-circuit-breaker-shadow.md
+    - variants/rs/skills/10-governance/governance-compliance-competency.md
+    - variants/rs/skills/10-governance/governance-governed-agent.md
+    - variants/rs/skills/10-governance/governance-trust-durability.md
+    - variants/rs/skills/10-governance/governance-verification-delegation.md
+    - variants/rs/skills/29-trust-plane/SKILL.md
+    - variants/rs/skills/29-trust-plane/binding-patterns.md
+    - variants/rs/skills/29-trust-plane/cli-reference.md
+    - variants/rs/skills/29-trust-plane/mcp-reference.md
+    - variants/rs/skills/29-trust-plane/project-management.md
+    - variants/rs/skills/29-trust-plane/shadow-mode.md
+    - variants/rs/skills/29-trust-plane/trust-architecture-map.md
+    - variants/rs/skills/31-l3-autonomy/SKILL.md
+    - variants/rs/skills/31-l3-autonomy/agent-factory.md
+    - variants/rs/skills/31-l3-autonomy/envelope-tracking.md
+    - variants/rs/skills/31-l3-autonomy/invariant-index.md
+    - variants/rs/skills/31-l3-autonomy/messaging.md
+    - variants/rs/skills/31-l3-autonomy/plan-dag.md
+    - variants/rs/skills/31-l3-autonomy/scoped-context.md
+    - variants/rs/skills/31-l3-autonomy/type-convergence.md
+    - variants/rs/skills/32-kaizen-agents/SKILL.md
+    - variants/rs/skills/32-kaizen-agents/budget-and-context.md
+    - variants/rs/skills/32-kaizen-agents/governance.md
+    - variants/rs/skills/32-kaizen-agents/hydration-streaming.md
+    - variants/rs/skills/32-kaizen-agents/orchestration-pipeline.md
+    - variants/rs/skills/32-kaizen-agents/protocols.md
+    - variants/rs/skills/32-kaizen-agents/reasoning-and-history.md
+    - variants/rs/skills/32-kaizen-agents/structured-llm.md
+    - variants/rs/skills/36-kailash-rs-alignment/SKILL.md
+    - variants/rs/skills/36-kailash-rs-alignment/crate-structure.md
+    - variants/rs/skills/36-kailash-rs-alignment/kailash-ml-crate.md
+    - variants/rs/skills/36-kailash-rs-alignment/pyo3-bindings.md
+    - variants/rs/skills/36-kailash-rs-alignment/transport-parity.md
+    - variants/rs/skills/36-kailash-rs-alignment/cross-sdk-features.md
+    - variants/rs/commands/build.md
+    - variants/rs/skills/34-kailash-ml/SKILL.md
+    - variants/rs/skills/35-align-serving/SKILL.md
+  rb: []
+  # v2.9.4 (2026-04-28): kailash-coc-claude-prism USE template retired
+  # (see repos.prism comment). variant_only.prism stays empty —
+  # frontend-generic artifacts already sync via global coc tier; prism-
+  # internal artifacts (compiler, specs ontology, build/assembly) live at
+  # kailash-prism BUILD only and are not COC-distributed via this manifest.
+  prism: []
+
+# ─────────────────────────────────────────────────────────────────
+# OBSOLETED (paths to DELETE in every consumer on next sync)
+# ─────────────────────────────────────────────────────────────────
+# Listed paths are former COC artifact locations that have been
+# moved/renamed. Both `coc-sync` (loom → USE templates) and downstream
+# `/sync` (USE template → consumer repo) MUST recursively delete every
+# match before installing the new layout. This is the ONLY mechanism
+# by which 30+ downstream repos can purge stale orphan directories.
+#
+# Rules for adding entries:
+#   - Path is repo-relative, no leading slash, trailing slash means dir.
+#   - Add a one-line `# why:` comment with the loom VERSION the move
+#     landed in, so future audits can date the obsoletion.
+#   - Carve a corresponding exemption in `cross-repo.md` MUST Rule 4
+#     (Preserve Target-Only Files) — obsoletion overrides preservation.
+#   - Once every downstream consumer has synced past the introducing
+#     VERSION (typically two release cycles), the entry MAY be removed
+#     from this list — but the `obsoleted:` section itself stays.
+obsoleted:
+  - scripts/hooks/                # why: COC hooks consolidated under .claude/hooks/ in v2.9.1 (Anthropic-documented location). The prior scripts/hooks/ directory is no longer COC-managed and must not be left as dead code in any consumer.
+  - .claude/scripts/              # why: legacy sibling of .claude/hooks/ from a transitional layout — never authoritative; leftover in legacy USE templates from pre-v2.9.1 syncs.
+  - scripts/resolve-template.js   # why: legacy shim that required ./hooks/lib/template-resolver — the require path no longer exists after the consolidation. Replaced by .claude/bin/resolve-template.js (canonical) in v2.9.1.
+  - .claude/commands/send-it.md   # why: renamed to .claude/commands/decisive.md in v2.9.3 (then to autonomize.md in v2.9.4 — see entries below). The slang name "send-it" was unfamiliar to non-technical COC users. Old name must be purged from every USE template + Codex/Gemini emission so the directive surface stays single-source.
+  - .codex/prompts/send-it.md     # why: paired Codex emission of the v2.9.3 rename; superseded again by v2.9.4. emit-cli-artifacts.mjs regenerates the current name from source; old names must not linger.
+  - .gemini/commands/send-it.toml # why: paired Gemini emission of the v2.9.3 rename; superseded again by v2.9.4. emit-cli-artifacts.mjs regenerates the current name from source; old names must not linger.
+  - .claude/commands/decisive.md  # why: renamed to .claude/commands/autonomize.md in v2.9.4. "Decisive" emphasised picking; "autonomize" emphasises the autonomous-execution posture (permission envelope + execute-without-asking) the directive actually delivers, and aligns the command surface with `rules/autonomous-execution.md`. Old name must be purged from every USE template + Codex/Gemini emission so the directive surface stays single-source.
+  - .codex/prompts/decisive.md    # why: paired Codex emission of the v2.9.4 rename. emit-cli-artifacts.mjs regenerates .codex/prompts/autonomize.md from the new source; the old name must not linger.
+  - .gemini/commands/decisive.toml # why: paired Gemini emission of the v2.9.4 rename. emit-cli-artifacts.mjs regenerates .gemini/commands/autonomize.toml from the new source; the old name must not linger.
+  - .claude/agents/claude-code-architect.md # why: renamed to .claude/agents/cc-architect.md in v2.9.x (CC artifact architect). Source-rename was applied at loom global, but the prior agent file lingered in 5 of 8 BUILD/USE consumers because no obsoleted entry existed to drive the purge. Same single-source-of-truth principle as send-it.md → decisive.md → autonomize.md.
+  - .claude/projects/                       # why: Claude Code's per-user session/state cache (`~/.claude/projects/<encoded-cwd>/`). loom-local; never artifact-managed. Surfaced in v2.10.x audit on rs USE templates carrying loom's own `-Users-esperie-repos-loom/` cache. Paired with the `projects/**` exclude entry below to prevent re-introduction.
+  - .claude/scheduled_tasks.lock            # why: Claude Code's per-user scheduled-task lock file. loom-local; never artifact-managed. Surfaced in v2.10.x audit (5 of 5 USE templates carried loom's lock). Paired with the `scheduled_tasks.lock` exclude entry.
+  - .claude/test-harness/                   # why: loom's multi-CLI parity test fixtures (~70 result logs + suites + run-all.sh). loom-only — consumers do not run the harness. Surfaced in v2.10.x audit on rs USE templates (644K, 100 files). Paired with the `test-harness/**` exclude entry.
+  - .claude/skills/07-development-guides/   # why: skill audit 2026-05-09 (PR #111, v2.29.0) — phantom-feature guide (cyclic v0.9.31 unimplemented) + duplicates 8 other skills + 4 specialists. Load-bearing primitives extracted to 01-core-sdk/parameter-scoping.md + 31-error-troubleshooting/node-lifecycle.md. Removed from every consumer.
+  - .claude/skills/09-workflow-patterns/    # why: skill audit 2026-05-09 (v2.29.0) — naive industry-use templates (user's cited example of low-value skills). User-approved REMOVE.
+  - .claude/skills/11-frontend-integration/ # why: skill audit 2026-05-09 (v2.29.0) — generic; no SDK-specific primitive. Coverage of frontend topics moved entirely to 23-uiux-design-principles + 25-ai-interaction-patterns.
+  - .claude/skills/13-architecture-decisions/ # why: skill audit 2026-05-09 (v2.29.0) — derivable from base CC reasoning + decide-framework skill (in 17-gold-standards). User-approved REMOVE.
+  - .claude/skills/14-code-templates/       # why: skill audit 2026-05-09 (v2.29.0) — duplicates SDK examples already in 01-core-sdk and per-framework skills. User-approved REMOVE.
+  - .claude/skills/19-flutter-patterns/     # why: skill audit 2026-05-09 (v2.29.0) — wrong-repo orphan (Flutter not in py SDK scope; flutter-specialist agent owns Flutter knowledge for the Kailash mobile/desktop surface).
+  - .claude/skills/20-interactive-widgets/  # why: skill audit 2026-05-09 (v2.29.0) — wrong-repo orphan (UI widget patterns belong to design-system / app-template repos, not the Kailash SDK).
+  - .claude/skills/21-enterprise-ai-ux/     # why: skill audit 2026-05-09 (v2.29.0) — naive enterprise-buzzword content; no load-bearing primitives. User-approved REMOVE.
+  - .claude/skills/22-conversation-ux/      # why: skill audit 2026-05-09 (v2.29.0) — naive UX content; superseded by 25-ai-interaction-patterns for genuine conversation-ux primitives.
+  - .claude/skills/24-value-audit/          # why: skill audit 2026-05-09 (v2.29.0) — ~80% duplicates the value-auditor agent prompt; remaining 20% scoped to non-Kailash demo class (extractable to atelier/ if future demo workstream needs it). value-auditor agent self-audited and recommended REMOVE.
+  - .claude/skills/28-coc-reference/        # why: skill audit 2026-05-09 (v2.29.0) — stale COC reference superseded by current rules/. User-approved REMOVE.
+  - .claude/skills/30-claude-code-patterns/anti-patterns.md   # why: skill audit 2026-05-09 (v2.29.0) — RESTRUCTURE 30 sub-file. Zero external references (grep clean). Content covered by 30/SKILL.md prose. User-approved.
+  - .claude/skills/30-claude-code-patterns/artifact-design.md # why: skill audit 2026-05-09 (v2.29.0) — RESTRUCTURE 30 sub-file. Zero external references. Templates duplicated in actual existing artifacts. User-approved.
+  - .claude/skills/30-claude-code-patterns/token-budget.md    # why: skill audit 2026-05-09 (v2.29.0) — RESTRUCTURE 30 sub-file. Zero external references. Token-cost numbers covered at high level in 30/SKILL.md. User-approved.
+  - .claude/skills/management/             # why: residual stale skill in kailash-coc-claude-py only (rs/rb/prism don't ship it, loom doesn't ship it). Hollow frontmatter (no `description:` field) — surfaces as 0-char-description entry in CC skill listing, consuming slot without semantic value. Content is repo-maintainer notes for /sync /codify /inspect, not a semantic skill consumers should match against. Surfaced 2026-05-14 via coursewright skill-bloat audit. User-approved REMOVE.
+  - .claude/rules/terrene-naming.md         # why: removed from COC distribution 2026-05-31 (FB) — Foundation messaging governance (brand/terminology/license-labeling consistency), NOT a codegen-orchestration concern. Apache 2.0 imposes no obligations, so this was never license enforcement. Relocated to atelier Foundation-docs (separate repo). Universal purge so every consumer (incl. non-Terrene RRPS/community) drops its stale copy. Receipt: journal/0184. Supersedes the prior use_obsoleted entry (which purged USE templates + downstream only; this purges ALL targets).
+  - .claude/rules/independence.md           # why: removed from COC distribution 2026-05-31 (FB) — same disposition as terrene-naming.md above (Foundation no-commercial-coupling messaging governance, not COC). Relocated to atelier Foundation-docs. Universal purge. Receipt: journal/0184. Supersedes the prior use_obsoleted entry.
+  - .claude/agents/open-source-strategist.md # why: removed from COC distribution 2026-05-31 (FB) — the agent IS Terrene Foundation IP/open-core strategy (four-layer architecture, Foundation-owns-all-IP, EATP/Kailash open-vs-proprietary boundary, competitive positioning), not a generic codegen specialist. Shipping it gave non-Terrene consumers (RRPS/community) Terrene's strategic answers. Now loom-only (kept on disk like agents/management/*). Universal purge of the stale consumer copy. Receipt: journal/0184.
+  - .gemini/agents/open-source-strategist.md # why: paired Gemini emission of the open-source-strategist agent removed above (FB 2026-05-31). Agents emit to Gemini only (Codex has no agents surface); this purges the stale Gemini-side copy from every consumer. Receipt: journal/0184.
+  - .claude/agents/management/gh-manager.md      # why: loom-only management agent that LEAKED to cc consumers via the `coc` tier (the exact exclusion-by-omission F104 closes). F104 stops re-emission (loom_only:) but the stale `.claude/agents/management/gh-manager.md` copy persists on every consumer that synced during the leak window — this purges it. cc-path only (never shipped to codex/gemini per structural exclusion). Receipt: F104 / journal/0191.
+  - .claude/agents/management/posture-auditor.md # why: same as gh-manager above — loom-only trust-posture-state-audit agent that leaked to cc consumers via `coc`; loom_only: stops re-emission, this obsoleted entry purges the stale cc copy. cc-path only. Receipt: F104 / journal/0191.
+  - .claude/agents/management/todo-manager.md    # why: same as gh-manager above — loom-only management agent that leaked to cc consumers via `coc`; loom_only: stops re-emission, this obsoleted entry purges the stale cc copy. cc-path only. Receipt: F104 / journal/0191.
+  - .claude/variants/                       # why: loom-internal variant overlay tree (language × CLI slot bodies) — NEVER synced; its presence in ANY consumer is a sync-hygiene defect. Surfaced 2026-06-01 in kailash-coc-claude-rs (PUBLIC) as a 7-file tracked tree LEAKING operator-PII hostnames inline in variants/rs/rules/ci-runners.md. Direct git rm applied to claude-rs (cross-repo-authorized, journal/0198); this obsoleted entry drives the universal declarative purge so the never-synced tree is removed from EVERY consumer on next sync AND cannot re-introduce via a future sync bug. Receipt: journal/0198 + 0199.
+
+# ─────────────────────────────────────────────────────────────────
+# LOOM-ONLY — POSITIVE never-sync declaration (F104)
+# ─────────────────────────────────────────────────────────────────
+# Source-relative glob list (same shape as `obsoleted:` / `exclude:` —
+# bare paths WITHOUT the `.claude/` prefix; matched against the
+# manifest-relative path `agents/...`, `commands/...`, `skills/...`).
+#
+# A path matching any `loom_only:` glob is NEVER emitted to ANY target —
+# cc / codex / gemini across EVERY language axis (py / rs / rb / base).
+# This is the POSITIVE never-sync declaration F104 introduces to replace
+# the fragile exclusion-by-omission ("Unlisted files default to COC", line
+# ~75): a forgotten exclusion previously shipped a loom-only artifact to
+# all 30+ consumers (the PR #147 stale-file class). Declaring intent here
+# makes loom-only an asserted invariant rather than the absence of a tier
+# entry.
+#
+# Enforcement (both halves of the emission surface honour this list):
+#   - emit-cli-artifacts.mjs (codex / gemini): skips a matching source path
+#     for EVERY target, BEFORE tier classification.
+#   - sync-tier-aware.mjs (cc file-copy): classifies a matching path as
+#     `skip` with reason `loom_only`, BEFORE tier inclusion — a POSITIVE
+#     skip, not an accidental `no_tier_match`.
+#   - validate-emit.mjs check 8 (`loom-only-mutual-exclusion`): a loom_only
+#     path that is ALSO in a synced tier (co / coc / onboarding / ...) FAILS
+#     and BLOCKS /sync. A loom_only glob matching 0 on-disk files = WARN.
+#
+# COMPLEMENTS `obsoleted:` — does NOT replace it. `loom_only:` SUPPRESSES
+# loom-side emission (the artifact never leaves loom). `obsoleted:` drives
+# the DOWNSTREAM purge of any STALE copy already present in a consumer from
+# a prior cycle. A loom-only artifact that ever shipped (e.g.
+# open-source-strategist.md) needs BOTH: loom_only to stop re-emitting +
+# obsoleted to purge the existing stale copy. The 7 management agents never
+# shipped to codex/gemini (structural exclusion) and the 4 in `exclude:`
+# never shipped to cc; gh-manager/posture-auditor/todo-manager DID reach cc
+# consumers via the `coc` tier (the exact omission F104 closes — they are
+# removed from `coc` here so loom_only is their single source of truth).
+loom_only:
+  - agents/management/coc-sync.md       # why: Gate-2 distributor — loom-only orchestration; CLAUDE.md "Management (loom-only, excluded from sync)".
+  - agents/management/sync-reviewer.md  # why: Gate-1 BUILD-repo review/classify — loom-only orchestration.
+  - agents/management/repo-ops.md       # why: cross-repo inspection / drift / bulk git — loom-only orchestration.
+  - agents/management/settings-manager.md # why: Claude Code settings across global/project — loom-only orchestration.
+  - agents/management/posture-auditor.md  # why: trust-posture state audit — loom-only. Was accidentally in `coc` tier (synced to cc consumers); removed from `coc` at F104 so loom_only is the single source of truth.
+  - agents/management/todo-manager.md     # why: loom-only management agent. Was accidentally in `coc` tier (synced to cc consumers); removed from `coc` at F104.
+  - agents/management/gh-manager.md       # why: loom-only management agent. Was accidentally in `coc` tier (synced to cc consumers); removed from `coc` at F104.
+  - agents/open-source-strategist.md      # why: Terrene Foundation open-core strategy (four-layer model, Foundation-owns-all-IP, EATP/Kailash open-vs-proprietary boundary). loom-only per FB 2026-05-31 (journal/0184). Paired `obsoleted:` entries purge the stale consumer + Gemini copies.
+
+# ─────────────────────────────────────────────────────────────────
+# EXCLUSIONS
+# ─────────────────────────────────────────────────────────────────
+# Never synced. Per-repo data.
+# Note: settings.json is excluded from the general artifact sync because
+# its `hooks[].command` paths may differ between the source repo's layout
+# and the target consumer's layout during migrations. The coc-sync agent
+# handles settings.json separately: it copies the source settings.json,
+# then verifies all hook paths resolve in the target. If the source and
+# target settings.json are identical (same hooks), no action needed. If
+# they differ, the agent rewrites the target's settings.json to point at
+# the canonical .claude/hooks/*.js paths (canonical since v2.9.1).
+
+# ─────────────────────────────────────────────────────────────────
+# CONSUMER-SIDE GITIGNORE ADDITIONS — F14 multi-operator-coc (Shard F-3)
+# ─────────────────────────────────────────────────────────────────
+# Paths every USE-template-derived consumer repo MUST gitignore. These
+# are per-clone identity / cache / lease artifacts that MUST NOT enter
+# the consumer's git history. /sync emits these lines into the consumer's
+# `.gitignore` on every cycle (additive — emit MUST NOT remove pre-existing
+# operator-managed .gitignore lines).
+#
+# Distinct from `exclude:` (which controls what loom emits to a consumer);
+# `gitignore_additions:` controls what the consumer's own git tracks.
+# A path can be both excluded from loom sync AND added to the consumer's
+# .gitignore — the two operations are orthogonal.
+#
+# F14 M0–M7 inventory (post journal/0132 convergence):
+gitignore_additions:
+  # Per-clone identity-resolution cache (M0 A1 spec — NON-load-bearing;
+  # rebuilds from coordination log if deleted). MUST NOT be committed —
+  # operator identity stamping derives from the coordination log alone;
+  # caching it in-repo would create a forgeable side-channel.
+  - .claude/operator-id
+  # Fold-speed optimization cache (M0 A0b-2c — append-only fold projection).
+  # Per-clone; regenerable from coordination log; commit-time inclusion
+  # would create per-clone churn with zero shared-value.
+  - .coc-fetch-cache
+  # Codify lease state (M7 codify-lease.js — single-writer lock for
+  # /codify). Atomic .tmp+rename writes; MUST NOT be committed — the
+  # lease IS the runtime-only signal of "an operator holds the codify
+  # lock"; persisting it across clones would make the lease forgeable.
+  - .claude/learning/codify-lease.json
+  # Telemetry autocommit log (per-clone runtime-generated; never synced
+  # via /sync). Surfaces as untracked drift every session if not gitignored
+  # at the consumer; trips SessionStart drift hooks as a false positive.
+  # GH #368 finding 2 — consumer drift evidence from rs USE-template-derived repos.
+  - .claude/logs/
+  # Journal-hook skip log (per-clone runtime-generated by the journal
+  # write-guard; never synced). Same drift-false-positive surface as
+  # .claude/logs/ above. GH #368 finding 2.
+  - "**/.journal-skipped.log"
+
+# FA (2026-05-31) — Visibility-conditional gitignore additions.
+# These patterns are applied to a consumer's `.gitignore` ONLY when the
+# consumer declares `visibility: public` in its `.coc-sync-marker` (the
+# DEFAULT — see `.coc-sync-marker` § visibility below). They keep a
+# PUBLIC repo from committing operator-local session state + active
+# workspace working-notes (which are never synced CONTENT — sync walks
+# .claude/ only — but ARE created locally as a consumer works).
+#
+# Private/team consumers (`visibility: private`) do NOT receive these
+# entries → they TRACK session-notes + workspaces by default (shared
+# team institutional knowledge, mirroring loom itself), with opt-out via
+# `visibility_opt_out: [session-notes|workspaces]` in their marker.
+#
+# `_template` carve-out (load-bearing): `workspaces/_template/**` IS
+# synced content (tier: coc) and is git-tracked in every consumer — the
+# phase-scaffold. The `/workspaces/*` + `!/workspaces/_template/` pair
+# ignores ACTIVE workspaces while preserving the tracked scaffold. A
+# blanket `workspaces/` would untrack the scaffold on every public
+# consumer. Co-owner directive 2026-05-31: "public definitely no session
+# notes and workspaces"; receipt journal/0185.
+visibility_gitignore_additions:
+  public:
+    # Operator-local session continuity — per-clone, never synced.
+    - .session-notes
+    - .session-notes.d/
+    - .session-notes.shared.md
+    # Active workspace working-state — ignore all EXCEPT the tracked
+    # _template scaffold (synced content). Order matters: the negation
+    # MUST follow the broad ignore so git re-includes _template.
+    - /workspaces/*
+    - "!/workspaces/_template/"
+
+# Apply logic — sync-tier-aware.mjs reads `gitignore_additions:` and
+# idempotently merges the entries into each target template's `.gitignore`
+# via a managed block (markers: `# >>> coc:gitignore_additions ...` /
+# `# <<< coc:gitignore_additions <<<`). The block is byte-stable across
+# runs; lines OUTSIDE the markers are user-managed and never touched.
+# Re-runs with no manifest change produce action: "noop". GH #368
+# finding 1 landed; tests at .claude/test-harness/tests/sync-tier-aware.test.mjs.
+# FA: when the consumer's marker visibility == "public", the
+# visibility_gitignore_additions.public[] entries are appended to the
+# managed block (minus any path in the marker's visibility_opt_out[]).
+# Default visibility is "public" (fail-safe: a marker with no visibility
+# field, or no marker at all, ignores its session state rather than
+# risking a public commit of operator-local notes).
+
+exclude:
+  - learning/**
+  - .coc-sync-marker
+  - .proposals/**
+  - "**/.env"                    # never propagate stray .env files (hook-generated template content belongs only in .env.example at the template root)
+  - settings.local.json
+  - settings.json
+  - sync-manifest.yaml
+  - VERSION
+  - variants/**
+  - CLAUDE.md
+  - agents/management/sync-reviewer.md
+  - agents/management/coc-sync.md
+  - agents/management/repo-ops.md
+  - agents/management/settings-manager.md
+  - commands/repos.md
+  - commands/inspect.md
+  - commands/settings.md
+  - commands/sync-to-build.md
+  - commands/test-harness-probe.md           # loom-only: orchestrator for `.claude/test-harness/` probe scoring; consumers do not run the harness. Pair: existing `test-harness/**` exclude entry below.
+  - agents/_README.md
+  - projects/**                  # Claude Code's per-user session/state cache; loom-local. Pair: `obsoleted: .claude/projects/`.
+  - scheduled_tasks.lock         # Claude Code's per-user scheduled-task lock; loom-local. Pair: `obsoleted: .claude/scheduled_tasks.lock`.
+  - test-harness/**              # loom's multi-CLI parity test fixtures + result logs; consumers do not run the harness. Pair: `obsoleted: .claude/test-harness/`.
+  - worktrees/**                 # operator-local agent worktrees (worktree-isolation.md primitive). Transient scratch space; never synced. Pair: scanner isNeverSynced + .gitignore — three-layer defense-in-depth per journal/0142.
+
+# ─────────────────────────────────────────────────────────────────
+# BUILD-EXCLUDE (USE templates only — never synced to BUILD repos)
+# ─────────────────────────────────────────────────────────────────
+# BUILD repos release packages via /release; they do NOT deploy applications.
+# The /deploy command, deploy-hygiene rule, and application-deployment skill
+# are only meaningful in downstream USE template projects (apps that ship
+# running code to production environments).
+#
+# /sync-to-build MUST skip everything listed here.
+# /sync (Gate 2 to USE templates) ignores this list — these files DO sync there.
+
+build_exclude:
+  - commands/deploy.md
+  - rules/deploy-hygiene.md
+  - skills/10-deployment-git/application-deployment.md
+
+# ─────────────────────────────────────────────────────────────────
+# USE-EXCLUDE (BUILD repos only — never synced to USE templates)
+# ─────────────────────────────────────────────────────────────────
+# Cross-SDK parity, sibling-SDK awareness, BUILD-internal architecture
+# narratives, loom→USE sync mechanism documentation, and CI-runner ops
+# are MAINTAINER concerns. USE templates serve consumers (Python / Ruby /
+# Rust binding apps via PyPI / crates.io / gems) who do NOT maintain the
+# SDKs and have no business filing cross-SDK parity issues or reading
+# loom-internal sync mechanism guides.
+#
+# /sync (Gate 2 to USE templates) MUST skip everything listed here.
+# /sync-to-build (BUILD targets) ignores this list — these files DO sync there.
+# Loom's own CC session sees every path regardless (exclusion is at sync time,
+# not at source-tree time).
+#
+# Symmetric with build_exclude: above. Same one-key pattern, opposite axis.
+
+use_exclude:
+  # Cross-SDK parity rule — BUILD-internal process; consumers don't run it.
+  - rules/cross-sdk-inspection.md
+  # loom ↔ csq paired-rule mirror — meta-rule about loom's relationship with
+  # csq (the multi-CLI evaluator). Applies to loom's test-harness/ and csq's
+  # coc-eval/ — neither path exists at USE templates or downstream consumers.
+  # Same loom-only-meta-rule classification as cross-cli-parity.md (which is
+  # path-scoped at the rule + variant authoring surface). Loom #21 (2026-05-01).
+  - rules/loom-csq-boundary.md
+  # Cross-repo target-resolution rule — binds the loom-links resolver
+  # (`bin/lib/loom-links.mjs`) as the canonical NAME→location binding for
+  # cross-repo tooling at orchestration roots (loom, ~/repos/) AND BUILD
+  # repos. USE templates are per-project CC sessions that do NOT do
+  # cross-repo enumeration — the resolver, its gitignored config, and the
+  # LinkError surface are all loom/BUILD-side concerns. Same loom-only-
+  # meta-rule classification as loom-csq-boundary.md above. Origin:
+  # Shards 1–3 feat/loom-links-resolver (2026-05-17), validator-15
+  # surfacing during /sync py v2.31.0 (2026-05-17).
+  - rules/cross-repo.md
+  # SDK upstream-donation playbook — instructs auto-cross-filing of parity
+  # issues; entirely a maintainer workflow.
+  - skills/30-claude-code-patterns/sdk-upstream-donation.md
+  # CO-setup guides describe the loom→BUILD→USE artifact-flow mechanism
+  # itself — the consumers ARE the audience for the OUTPUT of this flow,
+  # not the audience for documentation of the flow's internals.
+  - guides/co-setup/**
+  # Deterministic-quality guides describe SDK-maintainer rule-authoring,
+  # session-architecture, enforcement-ladder, type-system primitives —
+  # everything is BUILD-side language ("kailash-py has X", "kailash-rs
+  # has Y"). Consumers don't author SDK rules.
+  - guides/deterministic-quality/**
+  # Automated-maintenance guide describes loom-side cron / sync hygiene;
+  # BUILD-repo maintainers may consult, USE consumers should not.
+  - guides/automated-maintenance.md
+  # documentation.md hardcodes `terrene-foundation/kailash-py` URLs — that
+  # is the SDK BUILD repo's own README convention; USE consumers have
+  # their own repo URLs. BUILD-only.
+  - rules/documentation.md
+  # Foundation-branding rules — the SDK BUILD repos (kailash-py, kailash-rs)
+  # are Foundation-owned projects and DO need these rules to govern their
+  # own naming + license + commercial-reference hygiene. USE templates,
+  # however, are consumed by third-party application code that USES the
+  # SDKs but is NOT itself a Foundation project — those apps may freely
+  # reference any commercial product, use any organizational naming
+  # convention, and adopt any license. Enforcing "Terrene Foundation"
+  # naming or "no commercial references" on a downstream consumer's
+  # codebase is wrong by design. Same BUILD-only / USE-excluded
+  # classification as documentation.md above.
+  - rules/terrene-naming.md
+  - rules/independence.md
+  # rule-extracts/independence-rs.md is the rs-variant independence
+  # extract (BUILD-only authoring context); rule-extracts/git.md
+  # carries the branch-protection table for every loom-managed repo,
+  # which is maintainer-state, not consumer guidance.
+  - guides/rule-extracts/independence-rs.md
+  - guides/rule-extracts/git.md
+  # Variant ci-runners overlays are BUILD-ops content (self-hosted
+  # runners, gh-org workflows, runner-state troubleshooting). Variant
+  # overlays do not ship as standalone files (variants/** is universally
+  # excluded), but listing here documents BUILD-only intent at the
+  # manifest layer and is a backstop if variant emission ever changes.
+  - variants/py/rules/ci-runners.md
+  - variants/rs/rules/ci-runners.md
+  # variants/rs/skills/management/** is the rs-specific BUILD-ops
+  # skill set (release-workflow, version-bump, etc.) — same rationale.
+  - variants/rs/skills/management/**
+
+# ─────────────────────────────────────────────────────────────────
+# USE-OBSOLETED (purge from USE templates + propagate to downstream)
+# ─────────────────────────────────────────────────────────────────
+# Sibling of `use_exclude:`. Where `use_exclude:` says "stop emitting
+# this path to USE templates," `use_obsoleted:` says "AND actively
+# purge any pre-existing copy in the USE template target on next
+# sync, AND propagate the purge contract to downstream consumers
+# via .coc-obsoleted so apps derived from this USE template also
+# remove their stale copies."
+#
+# /sync (Gate 2 to USE templates) MUST purge these paths from the
+# target during coc-sync Step 4.5, AND append them to the emitted
+# `.coc-obsoleted` file for downstream consumer purging.
+# /sync-to-build (BUILD targets) IGNORES this list — BUILD repos
+# legitimately own these paths (cross-SDK parity, BUILD-internal
+# architecture narratives, sibling-SDK awareness, ops content).
+#
+# Symmetric with `obsoleted:` (universal purge on every target) but
+# scoped to USE-template-and-downstream only.
+
+use_obsoleted:
+  # Paths that landed in USE templates from prior sync cycles before
+  # they were classified BUILD-only. Now use_excluded; pre-existing
+  # copies are stale and should be purged on next sync cycle.
+  - .claude/rules/documentation.md
+  - .claude/skills/30-claude-code-patterns/sdk-upstream-donation.md
+  - .claude/guides/co-setup/
+  - .claude/guides/deterministic-quality/
+  - .claude/guides/automated-maintenance.md
+  - .claude/guides/rule-extracts/git.md
+  - .claude/guides/rule-extracts/independence-rs.md
+  # Foundation-branding rules — landed in every USE template via the
+  # prior `co` tier classification; now `coc`-tier + use_excluded
+  # (2026-05-07). Existing copies in kailash-coc-claude-py / -rs / -rb
+  # / kailash-coc-py / kailash-coc-rs / coc-base / coc-claude-base MUST
+  # be purged on next sync cycle so non-Foundation downstream
+  # consumers do not inherit Terrene Foundation branding rules.
+  - .claude/rules/terrene-naming.md
+  - .claude/rules/independence.md
+  # Variant overlays for the same rules — same purge requirement at
+  # every USE template that landed them.
+  - .claude/variants/rs/rules/independence.md
+  - .claude/variants/base/rules/independence.md
+  - .claude/variants/prism/rules/independence.md
+  - .claude/variants/prism/rules/terrene-naming.md
+
+# ─────────────────────────────────────────────────────────────────
+# BUILD REPO MAPPING
+# ─────────────────────────────────────────────────────────────────
+# Maps BUILD repos to their variant and COC template target.
+
+repos:
+  py:
+    build: kailash-py
+    variant: py
+    # Phase H1 (2026-04-22): parallel targets during multi-CLI rollout.
+    # CC-only legacy target stays active for downstream projects that
+    # consume it today; multi-CLI target ships AGENTS.md + CLAUDE.md +
+    # GEMINI.md at root (one file per CLI, which is where each CLI loads
+    # its baseline at session start).
+    tier_subscriptions: [cc, co, coc]
+    templates:
+      - repo: kailash-coc-claude-py
+        clis: [claude]
+        baseline_files: [CLAUDE.md]
+      - repo: kailash-coc-py
+        clis: [claude, codex, gemini]
+        baseline_files: [CLAUDE.md, AGENTS.md, GEMINI.md]
+    description: Kailash Python SDK (Terrene Foundation, Apache 2.0)
+  rs:
+    build: kailash-rs
+    variant: rs
+    tier_subscriptions: [cc, co, coc]
+    templates:
+      - repo: kailash-coc-claude-rs
+        clis: [claude]
+        baseline_files: [CLAUDE.md]
+      - repo: kailash-coc-rs
+        clis: [claude, codex, gemini]
+        baseline_files: [CLAUDE.md, AGENTS.md, GEMINI.md]
+    description: Kailash Rust SDK (Rust-backed Python/Ruby bindings)
+  rb:
+    build: kailash-rs
+    variant: rb
+    tier_subscriptions: [cc, co, coc]
+    templates:
+      - repo: kailash-coc-claude-rb
+        clis: [claude]
+        baseline_files: [CLAUDE.md]
+    description: Kailash Ruby SDK (Magnus bindings, gem install kailash)
+  base:
+    # v2.21.0 (2026-05-06): Non-Kailash, language-agnostic variant.
+    # User onboarding template for arbitrary stacks (Go, Java, TypeScript,
+    # Elixir, Swift, Kotlin, Python+non-Kailash, etc.). NO BUILD source —
+    # /sync-to-build early-exits on `build: null`. /codify proposals from
+    # base-variant USE consumers route to LOOM directly (loom owns COC
+    # variant distribution, including the base axis); proposals do NOT
+    # route to atelier (atelier remains the CO methodology authority).
+    #
+    # Tier subscriptions exclude `coc` entirely (no Kailash framework
+    # specialists, no SDK-specific skills, no kailash-coupled rules)
+    # and include the new `onboarding` tier for stack-detection,
+    # generic specialists, and per-language skills.
+    build: null
+    variant: base
+    tier_subscriptions: [cc, co, onboarding]
+    templates:
+      - repo: coc-claude-base
+        clis: [claude]
+        baseline_files: [CLAUDE.md]
+      - repo: coc-base
+        clis: [claude, codex, gemini]
+        baseline_files: [CLAUDE.md, AGENTS.md, GEMINI.md]
+    description: |
+      Language-agnostic, non-Kailash CO/COC USE template for adopting
+      COC discipline in arbitrary stacks. Pairs the methodology layer
+      (cc + co tiers) with stack-detection onboarding (new onboarding
+      tier). Ships under terrene-foundation/ org (Foundation owns the
+      COC standard). License: CC BY 4.0 (rules/specs) + Apache 2.0 (code).
+  prism:
+    build: kailash-prism
+    variant: prism
+    # tier_subscriptions: [] reflects USE retirement — no USE templates emit, so
+    # no tier subscription. /sync prism cannot run (templates: []), but the field
+    # is present per the manifest-defect halt-rule in commands/sync.md Gate 2 step 3.
+    tier_subscriptions: []
+    # v2.9.4 (2026-04-28): kailash-coc-claude-prism USE template RETIRED.
+    # Frontend-generic artifacts (FE agents, design-system skills, interaction
+    # patterns, UI/UX design principles, conversation/widget UX) already sync
+    # to ALL USE templates (kailash-coc-claude-py, kailash-coc-claude-rs,
+    # kailash-coc-claude-rb, kailash-coc-py, kailash-coc-rs) via the global
+    # coc tier — making the dedicated prism USE template redundant.
+    # Prism-internal artifacts (compiler, specs ontology, build/assembly model)
+    # stay at the kailash-prism BUILD repo only (no USE distribution needed —
+    # they describe BUILD-internal authoring surfaces, not consumer practices).
+    # /sync-to-build still pushes coc-tier artifacts to kailash-prism BUILD.
+    templates: []
+    description: |
+      Kailash Prism composable frontend engine (flutter/web/tauri/stitch +
+      prism compiler). USE-side distribution is via the existing py/rs/rb
+      USE templates which already carry frontend-generic content; the prism
+      BUILD repo (kailash-prism) receives /sync-to-build for working-tree
+      updates only (per "Never Commit BUILD Repos" feedback).
+
+
+# ─────────────────────────────────────────────────────────────────
+# CONSUMER OVERLAYS — standalone-consumer canonical↔variant boundary
+# ─────────────────────────────────────────────────────────────────
+# Issue #243 (2026-05-16). A generalized, client-agnostic mechanism
+# for any future enterprise consumer that runs its OWN downstream
+# /sync against a USE template while authoring its OWN overlay
+# content in its OWN repo.
+#
+# WHAT THIS IS NOT
+#   This is NOT a new first-class loom `client` variant axis. The
+#   `variants/` overlay system (py/rs/rb/base/prism) is the LANGUAGE/
+#   stack axis and is loom-authored. A `client` axis would mean loom
+#   authors and ships consumer-specific policy content — loom does NOT
+#   and MUST NOT carry any individual consumer's policy content. See
+#   guides/co-setup/05-variant-architecture.md § "Standalone-Consumer
+#   Model — `client` is intentionally NOT a variant axis (yet)" for the
+#   ratified decision, the rationale, and the explicit revisit trigger
+#   (a 2nd enterprise consumer appears).
+#
+# WHAT THIS IS
+#   A per-consumer PRESERVATION + PROHIBITION contract. A downstream
+#   USE-template consumer authors its OWN overlay content in its OWN
+#   repo. loom never sees or stores that content. This section tells
+#   the downstream `/sync` flow:
+#     (a) which consumer-authored paths to PRESERVE on every /sync
+#         (never overwrite, never purge) — the consumer overlay;
+#     (b) which loom-canonical paths the consumer MUST NOT edit, and
+#         how /sync DETECTS + BLOCKS a canonical-file divergence;
+#     (c) the codify-back policy (exceptional; consumer-confidential
+#         content MUST NOT be codified upstream).
+#
+# CONSUMER-TARGETED, NOT TEMPLATE-TARGETED
+#   Entries are keyed by the consumer's resolved GitHub slug and are
+#   honored ONLY when a downstream `/sync` runs against a consumer
+#   whose `.claude/.coc-sync-marker` (or `.claude/VERSION::upstream`)
+#   identifies it as that consumer. They are NEVER applied to the
+#   kailash-coc-claude-{py,rs,rb} / kailash-coc-{py,rs} / coc-base
+#   USE templates — those are loom-canonical-only and carry no
+#   consumer overlay. The keying-by-slug is the structural guarantee
+#   of that scoping.
+#
+# MERGE SEMANTICS (extends sync-flow.md § Downstream Sync step 5)
+#   - `preserved:` globs join the step-5 "NEVER overwritten" set for
+#     that consumer only. A path matching any `preserved:` glob is
+#     preserved even when absent from the resolved template (it is
+#     consumer-authored; loom has no copy) AND never purged by the
+#     obsoleted/use_obsoleted machinery (consumer-only additions are
+#     not former-COC-artifacts — the obsoletion exemption in
+#     cross-repo.md Rule 4 does not reach them).
+#   - `canonical_protected:` globs enumerate loom-owned paths the
+#     consumer must treat as read-only. On every downstream /sync, the
+#     flow diffs each canonical_protected path in the consumer against
+#     the freshly-resolved template. A divergence (consumer content !=
+#     resolved-template content) is a BLOCK-level finding: /sync MUST
+#     surface it in the merge plan, MUST NOT silently overwrite the
+#     consumer's edited copy, and MUST require explicit human
+#     adjudication (re-canonicalize the edit upstream via codify-back,
+#     OR move the divergent content into a preserved overlay path, OR
+#     accept the loom-canonical version and discard the local edit).
+#   - Precedence when a path matches BOTH: `preserved:` wins (a path
+#     the consumer is authorized to own cannot also be canonical).
+#     The globs are authored to be disjoint; this is the tie-break if
+#     a future edit makes them overlap.
+#
+# SCHEMA (per registered consumer, keyed by GitHub slug):
+#   "<github-org>/<consumer-repo-slug>":
+#     aliases: [ ... ]                 # match .coc-sync-marker variance
+#     upstream_template: <use-template-name>   # canonical source
+#     preserved:                       # consumer-owned overlay globs
+#       - .claude/skills/project/**
+#       - .claude/agents/project/**
+#       - .claude/rules/<consumer-policy>.md
+#       - .claude/hooks/<consumer-hook>.js
+#       - .claude/commands/<consumer-command>.md
+#     canonical_protected:             # loom-owned, consumer read-only
+#       - .claude/rules/**             # except preserved: (preserved wins)
+#       - .claude/agents/**            # except .claude/agents/project/**
+#       - .claude/skills/**            # except .claude/skills/project/**
+#       - .claude/commands/**          # except preserved: commands
+#       - .claude/hooks/**             # except preserved: hooks
+#       - .claude/hooks/lib/**
+#       - .claude/bin/**
+#       - .claude/guides/**
+#       - .claude/.coc-obsoleted
+#     canonical_divergence_gate:
+#       severity: block
+#       action: halt-merge-require-adjudication
+#       # Adjudication options surfaced to the human in the merge plan:
+#       #   1. codify-back: re-canonicalize the edit upstream
+#       #   2. relocate:    move divergent content into a preserved glob
+#       #   3. accept-canonical: discard the local edit (default)
+#     codify_back:
+#       policy: exceptional            # the overlay is client-specific
+#       route: loom                    # generalizable items route to loom
+#       confidential_never_upstream:   # MUST NOT be codified upstream
+#         - "<consumer-confidential content classes — verbatim policy,
+#            identity schemas, internal process guides, jurisdiction or
+#            client-confidential material under the preserved: globs>"
+#     # A codify-back proposal originating from a consumer MUST be
+#     # scrubbed of all confidential_never_upstream content BEFORE it
+#     # leaves the consumer repo. The default disposition for any
+#     # consumer overlay change is SKIP (stays local); upstreaming
+#     # requires an explicit human classification at loom Gate 1 that
+#     # the pattern is generalizable AND confidential-free.
+#
+# No consumer is registered. Populate per the SCHEMA above when an
+# enterprise consumer onboards; the populated entry lives in the
+# consumer's own provisioning, never with client identifiers in loom
+# canonical (see issue #248).
+consumer_overlays: {}

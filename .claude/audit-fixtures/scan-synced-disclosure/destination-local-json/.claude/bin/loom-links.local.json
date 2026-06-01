@@ -1,0 +1,9 @@
+{
+  "_comment": "SYNTHETIC fixture — issue #352 destination-mode predicate proof. Invented home paths; no real operator coordinates.",
+  "reposRoot": "/Users/fakeuser/fake-repos",
+  "links": {
+    "loom":                    { "path": "/Users/fakeuser/fake-repos/loom" },
+    "build.py":                { "path": "/Users/fakeuser/fake-repos/kailash-py" },
+    "use-template.claude-py":  { "path": "/Users/fakeuser/fake-repos/kailash-coc-claude-py" }
+  }
+}

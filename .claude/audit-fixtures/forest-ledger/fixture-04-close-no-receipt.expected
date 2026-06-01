@@ -1,0 +1,2 @@
+FAIL forest-ledger: .claude/audit-fixtures/forest-ledger/fixture-04-close-no-receipt.session-notes
+  [L3] "Closed this session" entry cites no durable receipt (PR#/#N/SHA/journal NNNN) — not closed: F2 it is done now, trust me.

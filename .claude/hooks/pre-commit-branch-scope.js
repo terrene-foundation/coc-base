@@ -40,7 +40,7 @@
  *      not every branch follows a convention and false-positive WARNs
  *      train operators to ignore the hook).
  *
- * Origin: loom issue #19 Proposal 3 (2026-04-21 tpc/tpc_cash_treasury-scenario
+ * Origin: loom issue #19 Proposal 3 (2026-04-21 example-workspace/financial-scenario
  *   /redteam — branch chore/scenario-pending-cleanup-2026-04-21 had a narrow
  *   .session-notes + .pending/ scope; session continued on the same branch
  *   for completely unrelated CLAUDE.md / 04-validate/ / .claude/rules/

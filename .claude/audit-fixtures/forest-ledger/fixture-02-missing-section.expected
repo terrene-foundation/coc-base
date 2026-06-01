@@ -1,0 +1,2 @@
+FAIL forest-ledger: .claude/audit-fixtures/forest-ledger/fixture-02-missing-section.session-notes
+  [L1] missing "## Outstanding ledger (forest)" section — absent ledger is the stale-snapshot trap (journal/0089)
