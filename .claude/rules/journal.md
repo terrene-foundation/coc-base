@@ -8,7 +8,6 @@ paths:
 
 # Journal Rules
 
-
 <!-- slot:neutral-body -->
 
 ## Naming & Format
@@ -30,7 +29,7 @@ tags: [list]
 ---
 ```
 
-**Author decision tree**: `human` — user stated conclusion before AI. `agent` — AI surfaced unprompted. `co-authored` — evolved through exchange (default when uncertain).
+**Author decision tree**: `human` — user stated conclusion before AI. `agent` — AI surfaced unprompted. `co-authored` — evolved through exchange (default when uncertain). Author claims are verifiable, not trusted — a `human`/`co-authored` claim is checked against the live per-session provenance ledger; see `rules/journal-author-discipline.md`.
 
 ## Entry Types
 

@@ -1,0 +1,9 @@
+predicate: checkAuthorBacking → author=human + 0 session HumanInput events in live ledger
+backing_status: unbacked
+disposition: halt-and-report (REGISTRY-class, NEVER block per hook-output-discipline.md MUST-2)
+exit_code: 0
+continue: true
+stderr_tag: [HALT-AND-REPORT]
+why: journal-author-discipline/MUST-1 — author:human claim is UNBACKED; the live per-session ledger carries 0 HumanInput events. Verifiable, not trusted.
+agent_must_report cites: target path, frontmatter author=human, UNBACKED with HumanInput count, remediation (set author:agent or surface why zero HumanInput captured)
+label: UNBACKED — author claim not backed by a session HumanInput event

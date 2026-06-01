@@ -1,0 +1,10 @@
+{
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Write",
+  "session_id": "<session-with-zero-humaninput-in-ledger>",
+  "tool_input": {
+    "file_path": "<repo>/journal/0043-esperie-DECISION-unbacked.md",
+    "content": "---\ntype: DECISION\ndate: 2026-06-01\nauthor: human\nsession_id: <session-with-zero-humaninput-in-ledger>\ntopic: unbacked example\n---\n\nClaims human authorship but the session captured zero HumanInput events.\n"
+  },
+  "cwd": "<repo>"
+}

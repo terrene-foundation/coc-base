@@ -1,0 +1,10 @@
+{
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Write",
+  "session_id": "<session-with-no-ledger-on-disk>",
+  "tool_input": {
+    "file_path": "<repo>/journal/0045-esperie-DECISION-no-ledger.md",
+    "content": "---\ntype: DECISION\ndate: 2026-06-01\nauthor: co-authored\nsession_id: <session-with-no-ledger-on-disk>\ntopic: undetermined example\n---\n\nClaims co-authored, but no per-session provenance ledger exists on disk (capture degraded or never ran).\n"
+  },
+  "cwd": "<repo>"
+}

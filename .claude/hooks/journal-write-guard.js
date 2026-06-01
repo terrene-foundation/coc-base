@@ -88,6 +88,15 @@ const { resolveMainCheckout } = require(
 const { isMutationTool } = require(
   path.join(__dirname, "lib", "tool-classes.js"),
 );
+// F101-3 (loom#411 governance-as-DNA): author-VERIFIABILITY layer. On a NEW
+// journal entry Write, the `author:` frontmatter claim is checked against the
+// LIVE per-session provenance ledger (the F101-2 capture stream). An unbacked /
+// undetermined human|co-authored claim emits halt-and-report (REGISTRY-class
+// per hook-output-discipline.md MUST-2 — NEVER block; an empty ledger is
+// ambiguous degraded-capture, not an irrefutable structural false claim).
+const { checkAuthorBacking } = require(
+  path.join(__dirname, "lib", "provenance-author-backing.js"),
+);
 
 function passthrough() {
   clearTimeout(fallback);
@@ -251,6 +260,28 @@ function findSlotReservation(accepted, dir, slot) {
   return matches[0];
 }
 
+/**
+ * Extract the `author:` value from a journal entry's YAML frontmatter
+ * (the leading `---` … `---` block of the Write payload's content). Returns the
+ * raw author string, or null when absent / unparseable. Frontmatter-only scan
+ * (stops at the closing fence) so a body line `author: foo` cannot spoof it.
+ *
+ * F101-3: this is the CLAIM. checkAuthorBacking verifies it against the ledger.
+ */
+function extractFrontmatterAuthor(content) {
+  if (typeof content !== "string" || content.length === 0) return null;
+  // Frontmatter MUST be the leading block. Tolerate a UTF-8 BOM + leading
+  // whitespace before the opening fence.
+  const m = content.match(/^﻿?\s*---\r?\n([\s\S]*?)\r?\n---/);
+  if (!m) return null;
+  const block = m[1];
+  for (const line of block.split(/\r?\n/)) {
+    const am = line.match(/^author:\s*(.+?)\s*$/);
+    if (am) return am[1];
+  }
+  return null;
+}
+
 // ---- main -------------------------------------------------------------------
 
 (async function main() {
@@ -368,7 +399,50 @@ function findSlotReservation(accepted, dir, slot) {
 
     // (2b) Slot RESERVED. Discriminate self vs sibling.
     if (reservation.verified_id === selfVerifiedId) {
-      // Self-reserved → passthrough. The writer IS authorized.
+      // Self-reserved → the writer IS authorized for the SLOT. Before the
+      // passthrough, run the F101-3 author-backing branch: a new journal
+      // entry's `author:` claim is verified against the live provenance ledger.
+      const author = extractFrontmatterAuthor(
+        (payload && payload.tool_input && payload.tool_input.content) || "",
+      );
+      if (author !== null) {
+        const result = checkAuthorBacking({
+          repoDir,
+          session: payload.session_id || payload.session || "",
+          frontmatterAuthor: author,
+        });
+        if (result.status === "unbacked" || result.status === "undetermined") {
+          // REGISTRY-class (reads ledger + matches frontmatter), NEVER block —
+          // an empty ledger is ambiguous (degraded capture vs false claim) per
+          // hook-output-discipline.md MUST-2. halt-and-report; the user
+          // adjudicates whether the claim stands.
+          clearTimeout(fallback);
+          const isUndetermined = result.status === "undetermined";
+          emit({
+            hookEvent,
+            severity: "halt-and-report",
+            what_happened: `Journal author claim '${author}' is ${result.status.toUpperCase()} against the live session provenance ledger (${result.label}).`,
+            why: "journal-author-discipline/MUST-1 — an author:human|co-authored claim is valid ONLY when backed by ≥1 session HumanInput provenance event (F101-3, #411). Author claims are verifiable, not trusted: the check reads the LIVE per-session ledger, NEVER the frontmatter's own assertion. Registry-record signal (reads a ledger file + matches frontmatter), not structural: hook-output-discipline.md MUST-2 — severity=halt-and-report, NEVER block (an empty/absent ledger is ambiguous degraded-capture, not an irrefutable false claim).",
+            agent_must_report: [
+              `Target path: ${wp.rel}`,
+              `Frontmatter author: ${author}`,
+              isUndetermined
+                ? "Backing status: UNDETERMINED — no live session ledger to verify against (capture may be degraded, or no HumanInput events were captured this session)."
+                : `Backing status: UNBACKED — ${result.humanInputCount} HumanInput events found in this session's ledger; a human|co-authored claim requires ≥1.`,
+              isUndetermined
+                ? "If the provenance ledger is genuinely degraded, confirm the author classification with the user, OR set author:agent if the entry was agent-surfaced (renders 'n/a — agent-surfaced')."
+                : "If no human input shaped this entry, set author:agent (it renders 'n/a — agent-surfaced'). If a human DID drive it, surface why the session captured zero HumanInput events.",
+            ],
+            agent_must_wait:
+              "Do not retry the Write until the author classification is reconciled with the user or corrected to author:agent.",
+            user_summary: `journal-author-discipline — author '${author}' ${result.status} vs live ledger (${wp.rel})`,
+          });
+          // emit() exits
+        }
+        // backed | n/a-agent → fall through to passthrough below.
+      }
+      // Self-reserved + (backed | n/a-agent | no author frontmatter) →
+      // passthrough. The writer IS authorized.
       passthrough();
     }
 

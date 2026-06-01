@@ -1,0 +1,8 @@
+predicate: checkAuthorBacking → author=agent → never verified (no human-input claim made)
+backing_status: n/a-agent
+disposition: silent passthrough (slot-reserved-by-self + author=agent makes no human claim)
+exit_code: 0
+continue: true
+stderr_tag: (none)
+why: journal-author-discipline/MUST-2 — an agent-surfaced entry MUST render "n/a — agent-surfaced", NEVER "BACKED by human input". The ledger is not even read for the agent branch.
+label: n/a — agent-surfaced

@@ -1,0 +1,8 @@
+predicate: checkAuthorBacking → author=human + ≥1 session HumanInput event in live ledger
+backing_status: backed
+disposition: silent passthrough (slot-reserved-by-self + author claim BACKED)
+exit_code: 0
+continue: true
+stderr_tag: (none)
+why: journal-author-discipline/MUST-1 — author:human claim is valid because the live per-session provenance ledger carries ≥1 HumanInput event. Verifiable, not trusted.
+label: BACKED by human input

@@ -1,21 +1,47 @@
 {
   "name": "coc-base",
-  "version": "2.31.0",
+  "version": "2.39.0",
   "type": "coc-use-template",
-  "description": "Language-agnostic, non-Kailash CO/COC USE template (variant: base)",
-  "synced_at": "2026-05-16T13:36:54Z",
+  "description": "Language-agnostic, non-Kailash CO/COC USE template — multi-CLI (variant: base, clis: claude/codex/gemini)",
+  "synced_at": "2026-06-01T12:56:41Z",
   "upstream": {
     "name": "loom",
     "type": "coc-source",
-    "version": "2.38.0",
-    "loom_sha": "1de1c41",
-    "synced_at": "2026-06-01T00:00:00Z",
-    "template_version": "2.38.0"
+    "version": "2.39.0",
+    "loom_sha": "e934018",
+    "synced_at": "2026-06-01T12:56:41Z",
+    "template_version": "2.39.0"
   },
   "variant": "base",
   "tier_subscriptions": [
     "cc",
     "co",
     "onboarding"
+  ],
+  "clis": [
+    "claude",
+    "codex",
+    "gemini"
+  ],
+  "changelog": [
+    {
+      "date": "2026-06-01",
+      "version": "2.39.0",
+      "summary": "MINOR UPSTREAM REFRESH — coc-base (multi-CLI) advanced from loom@1de1c41/2.38.0 to loom@e934018/2.39.0. Base lane (variant: base, tier_subscriptions: [cc, co, onboarding], build: null — NO SDK pins; clis: [claude, codex, gemini]). Carries PR #425's converged global-tier artifacts: #411 F101-3 journal author-discipline (new rule journal-author-discipline.md + provenance-author-backing.js hook + journal-write-guard.js author-backing branch + decision-recording-discipline skill + audit-fixtures/journal-author-discipline/), F110 governed-throughput refresh of agents.md, plus trust-posture.md + self-referential-codify.md allowlist extensions. The #423 rb->rs all-bindings collapse is rs-lane-only and does NOT touch base. Canonical sync-tier-aware.mjs --target base --template coc-base: copied=755, purged=0, skipped no_tier_match=528 + exclude=764 + use_exclude=29 + loom_only=8 + loom_local=2. OVERLAY FIX: rules/agents.md base slot-keyed overlay re-applied as strip(compose(global, variants/base)) — the tier-aware raw-copy shipped the loom global (drift-from-both); corrected to composed+stripped. verify-overlays.sh base: 2/2 PASS, Failing: 0. MULTI-CLI SCAFFOLD: emit.mjs --all baselines AGENTS.md (codex 53126B WARN, headroom OK) + GEMINI.md (gemini 53132B WARN, headroom 13.52% ADVISORY within 15% proximity band, ABOVE 10% floor — not blocked) re-emitted to repo root; emit-cli-artifacts --target base re-emitted .codex/{prompts=15,skills=6} + .gemini/{commands=10,skills=6,agents=5} (tier-filtered: coc-tier excluded — 31 commands+54 skills+34 agents skipped); .codex-mcp-guard/ refreshed; bin/coc dispatcher + 28 per-phase symlinks; Step 4.6 symlink .claude/codex-mcp-guard -> ../.codex-mcp-guard + sync-manifest.yaml distributed (manifest_distribute: true). settings.json: description normalized (Python)->(language-agnostic base) — was an inherited py-template residual; hook integrity 22/22; 0 scripts/hooks; 0 operator-PII. .coc-obsoleted regenerated (47 entries union). NO BUILD source (build:null) — sdk_packages {}. NO .github/coc-sdk-refs-allowlist.txt (Step 7.5 skipped). Disclosure preflight (--check exit 0) + full-tree rescan (735 files, 0 findings) + HALT-on-dirty-tracked (clean) PASS.",
+      "changes": [
+        "REFRESH: loom globals raw-copied via sync-tier-aware.mjs (copied=755). base tiers=[cc,co,onboarding]; coc-tier skipped (no_tier_match=528).",
+        "NEW (PR #425 / #411 F101-3): journal-author-discipline.md rule + provenance-author-backing.js hook + decision-recording-discipline.md skill + audit-fixtures/journal-author-discipline/ landed (4 new paths).",
+        "MODIFIED (PR #425): agents.md (F110), security.md, journal.md, self-referential-codify.md + trust-posture.md (allowlist/emergency-trigger extensions), emit.mjs, scan-synced-disclosure.mjs, journal-write-guard.js.",
+        "OVERLAY FIX: rules/agents.md base slot-keyed overlay re-applied as strip(compose(global, variants/base)). tier-aware raw-copy shipped the loom global (drift-from-both); corrected to composed+stripped (md5 matches expected). verify-overlays.sh base: variant-applied(base,slot) PASS.",
+        "MULTI-CLI BASELINES (Step 6.5): AGENTS.md (codex 53126B) + GEMINI.md (gemini 53132B) re-emitted to repo root via emit.mjs --all. gemini headroom 13.52% ADVISORY (15% proximity band) but ABOVE 10% Risk-0004 floor — emission exit 0, NOT blocked.",
+        "MULTI-CLI TREES (Step 6.6): emit-cli-artifacts --target base re-emitted .codex/{prompts=15,skills=6} + .gemini/{commands=10,skills=6,agents=5}; coc-tier artifacts excluded by tier_subscriptions. .codex-mcp-guard/ refreshed; bin/coc + 28 phase shims.",
+        "SCAFFOLD (Step 4.6): symlink .claude/codex-mcp-guard -> ../.codex-mcp-guard re-applied; sync-manifest.yaml distributed to .claude/ (manifest_distribute: true).",
+        "OBSOLETED: .coc-obsoleted regenerated (47 entries union obsoleted + use_obsoleted). All obsoleted paths confirmed absent.",
+        "SETTINGS: description normalized (Python)->(language-agnostic base) — inherited py-template residual corrected per Step 6b. Hook integrity 22/22; 0 scripts/hooks; 0 operator-PII; valid JSON.",
+        "SDK PINS: build:null — no pyproject.toml/Cargo.toml; sdk_packages {} (Step 5 skipped).",
+        "STEP 7.5: no .github/coc-sdk-refs-allowlist.txt (no contamination gate) — skipped.",
+        "PRESERVED: CLAUDE.md (template-owned, never overwritten); .claude/learning/** + .proposals/** + .coc-sync-marker never synced. .codex/local-config.toml + .gemini/local-settings.json preserve-list untouched (none present)."
+      ]
+    }
   ]
 }

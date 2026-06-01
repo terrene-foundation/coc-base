@@ -1,0 +1,9 @@
+predicate: checkAuthorBacking → author=co-authored + no per-session ledger on disk
+backing_status: undetermined
+disposition: halt-and-report (REGISTRY-class, NEVER block — empty/absent ledger is AMBIGUOUS: degraded capture vs false claim, per hook-output-discipline.md MUST-2)
+exit_code: 0
+continue: true
+stderr_tag: [HALT-AND-REPORT]
+why: journal-author-discipline/MUST-3 — the check reads the LIVE per-session ledger; a missing ledger is undetermined, NEVER a silent pass. Block would over-assert against an ambiguous signal.
+agent_must_report cites: target path, frontmatter author=co-authored, UNDETERMINED (no live session ledger), remediation (confirm classification with user OR set author:agent)
+label: undetermined — no live session ledger to verify against

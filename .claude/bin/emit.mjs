@@ -462,6 +462,38 @@ export function getCritBaseline() {
   return crit.sort();
 }
 
+// #423 AC#4 — pure binding-token guard, exported so the violation shape is
+// testable in isolation (mirrors validateAggregateHeadroom). The always-on
+// baseline MUST carry ZERO Ruby binding-code fences: Ruby examples live ONLY
+// in the on-demand 28-ruby-bindings skill, never the abridged baseline.
+// abridgeV6 drops >200B non-DO code blocks, but a ```ruby DO-block ≤200B in a
+// rule body survives — this is the mechanical guard against re-introducing the
+// rb-in-baseline failure mode the rb→rs collapse eliminated. Python is the
+// baseline default example language, so only Ruby fences are asserted-absent.
+export function detectBindingTokenViolations(emission, cli, lang = null) {
+  const violations = [];
+  const lines = String(emission).split("\n");
+  // Match ```ruby / ~~~ruby / ```rb at column 0 OR indented, case-insensitive,
+  // any fence length (≥3) — covers every fence shape abridgeV6 can pass through
+  // (it strips column-0 fences; an indented one survives as a plain line). `\b`
+  // after the token excludes ```rbs / ```rbenv (RBS/rbenv are not Ruby code).
+  const FENCE_RX = /^[ \t]*(?:`{3,}|~{3,})(ruby|rb)\b/i;
+  const idx = lines.findIndex((l) => FENCE_RX.test(l));
+  if (idx !== -1) {
+    violations.push({
+      cli,
+      lang,
+      token: lines[idx].replace(/^[ \t]*(?:`{3,}|~{3,})/, "").trim(),
+      line: idx + 1,
+      message:
+        "Ruby binding-code fence in the abridged baseline — Ruby binding code " +
+        "MUST live in the on-demand 28-ruby-bindings skill, not the always-on " +
+        "baseline (#423 Phase 1 invariant). Move it out of the rule body.",
+    });
+  }
+  return violations;
+}
+
 // v6.2 Shard 1 — pure validator for aggregate headroom. Extracted from
 // emitBaseline so the violation shape is testable in isolation. Returns
 // an array (empty when no breach) so the call site can spread it directly
@@ -626,6 +658,10 @@ export function emitBaseline(cli, outDir, { lang = null, verbose = false, dryRun
   const emission = chunks.join("\n---\n\n").replace(/\n+$/, "") + "\n\n---\n";
   const emissionBytes = Buffer.byteLength(emission, "utf8");
 
+  // #423 AC#4 — binding-token regression guard (pure fn exported above for
+  // isolation testing). Ruby binding code MUST NOT reach the always-on baseline.
+  const bindingTokenViolations = detectBindingTokenViolations(emission, cli, lang);
+
   // v6 caps — load from sync-manifest.yaml (single source of truth). The
   // previous hardcoded WARN_CAP=32768 / BLOCK_CAP=61440 are now loaded per-CLI
   // from cli_variants.context/root.md.<cli>.{warn,block}_cap_bytes so a
@@ -714,6 +750,7 @@ export function emitBaseline(cli, outDir, { lang = null, verbose = false, dryRun
       headroom_pct: headroomPctForReport,
       headroom_floor_pct: HEADROOM_FLOOR_PCT,
       headroom_floor_violations: headroomFloorViolations,
+      binding_token_violations: bindingTokenViolations,
       proximity_band_advisory: proximityBandAdvisory,
       budget_warnings: budgetWarnings,
       budget_block_violations: budgetBlockViolations,
@@ -740,6 +777,7 @@ export function emitBaseline(cli, outDir, { lang = null, verbose = false, dryRun
         headroom_pct: headroomPctForReport,
         headroom_floor_pct: HEADROOM_FLOOR_PCT,
         headroom_floor_violations: headroomFloorViolations,
+        binding_token_violations: bindingTokenViolations,
         proximity_band_advisory: proximityBandAdvisory,
         rules_emitted: crit.length,
         per_rule: perRuleReport,
@@ -782,6 +820,7 @@ export function emitBaseline(cli, outDir, { lang = null, verbose = false, dryRun
     headroom_pct: Number(headroomPct.toFixed(2)),
     headroom_floor_pct: HEADROOM_FLOOR_PCT,
     headroom_floor_violations: headroomFloorViolations,
+    binding_token_violations: bindingTokenViolations,
     proximity_band_advisory: proximityBandAdvisory,
     budget_warnings: budgetWarnings,
     budget_block_violations: budgetBlockViolations,
@@ -1159,7 +1198,16 @@ export function validateRosterSchemaCoupling() {
           "--out",
           syntheticOut,
         ],
-        { encoding: "utf8", timeout: 20000, stdio: ["ignore", "pipe", "pipe"] },
+        // maxBuffer: the --dry-run --json probe enumerates the full consumer
+        // tree; on a large consumer repo the output exceeds the 1 MiB
+        // execFileSync default → spurious ENOBUFS (measured ~2.8 MiB for rs).
+        // 64 MiB headroom keeps the V17 probe robust against tree growth.
+        {
+          encoding: "utf8",
+          timeout: 20000,
+          stdio: ["ignore", "pipe", "pipe"],
+          maxBuffer: 64 * 1024 * 1024,
+        },
       );
     } catch (err) {
       failures.push(
@@ -1532,6 +1580,20 @@ function main() {
       if (args.strictHeadroom) {
         overallPass = false;
       }
+    }
+    // #423 AC#4 — binding-token regression guard (hard BLOCK, NOT strict-gated;
+    // a Ruby code fence in the always-on baseline is always a defect — Ruby
+    // belongs in the on-demand 28-ruby-bindings skill per the rb→rs collapse).
+    if (
+      result.binding_token_violations &&
+      result.binding_token_violations.length > 0
+    ) {
+      const b = result.binding_token_violations[0];
+      process.stderr.write(
+        `[${b.cli}${b.lang ? " " + b.lang : ""}] binding-token BLOCK (#423): ` +
+          `${b.message} (line ${b.line}, fence \`\`\`${b.token})\n`,
+      );
+      overallPass = false;
     }
   }
 

@@ -1,18 +1,43 @@
 # COC Sync Marker — coc-base
-timestamp: 2026-06-01T07:15:00Z
+timestamp: 2026-06-01T12:56:41Z
 source: loom/.claude
-loom_sha: 1de1c41
-loom_version: 2.38.0
+loom_sha: e934018
+loom_version: 2.39.0
 variant: base
 clis: [claude, codex, gemini]
+visibility: public
 stats:
-  content_synced_byte_equal: true
-  baseline_status: emitted
+  copied: 755
+  purged: 0
+  skipped:
+    no_tier_match: 528
+    exclude: 764
+    use_exclude: 29
+    loom_only: 8
+    loom_local: 2
+  overlay_fix:
+    path: .claude/rules/agents.md
+    form: slot-keyed
+    action: strip(compose(global, variants/base)) re-applied
+    verify_overlays: variant-applied(base,slot) PASS
+  verify_overlays_failing: 0
+  hook_integrity: 22/22
+  baselines_emitted:
+    cc: 0
+    codex: 1
+    gemini: 1
+  baseline_emission:
+    codex: { bytes: 53126, tier: WARN }
+    gemini: { bytes: 53132, tier: WARN, headroom_pct: 13.52, note: "ADVISORY within 15% proximity band; ABOVE 10% Risk-0004 floor — not blocked" }
+  cli_artifacts:
+    codex: { prompts: 15, skills: 6 }
+    gemini: { commands: 10, skills: 6, agents: 5 }
+  scaffold:
+    symlinks: 1
+    manifest_distributed: true
+    bin_coc: true
+    bin_coc_phase_shims: 28
   preserved:
     - CLAUDE.md
     - README.md
-  cli_artifacts:
-    codex: { prompts: emitted, skills: emitted }
-    gemini: { commands: emitted, skills: emitted, agents: emitted }
-  baselines_emitted: { cc: 0, codex: 1, gemini: 1 }
   obsoleted_purge: variants-tree-confirmed-absent

@@ -2,9 +2,11 @@
 #
 # This manifest declares how artifacts flow from loom/ (source)
 # to COC template repos (kailash-coc-claude-py, kailash-coc-claude-rs,
-# kailash-coc-claude-rb, multi-CLI kailash-coc-py, kailash-coc-rs).
-# kailash-coc-claude-prism was retired in v2.9.4 — frontend-generic
-# artifacts now ship via the existing py/rs/rb USE templates.
+# multi-CLI kailash-coc-py, kailash-coc-rs).
+# kailash-coc-claude-prism was retired in v2.9.4; kailash-coc-claude-rb in
+# #423 Phase 1 (2026-06-01) — frontend-generic + Ruby-binding content now
+# ship via the existing py/rs USE templates (rb folded into the rs
+# all-bindings template's 28-ruby-bindings on-demand skill).
 #
 # Architecture: guides/co-setup/05-variant-architecture.md
 # Lifecycle:    guides/co-setup/06-artifact-lifecycle.md
@@ -17,11 +19,14 @@
 #   USE templates (downstream apps consume these via /sync):
 #     kailash-coc-claude-py    → Python developers (py variant or global)
 #     kailash-coc-claude-rs    → Python AND Ruby developers writing apps that
-#                                consume kailash-rs through bindings (rs variant)
+#                                consume kailash-rs through bindings (rs all-
+#                                bindings variant; Ruby depth in the
+#                                28-ruby-bindings on-demand skill)
 #                                ⚠️ NOT Rust developers — they use Python/Ruby APIs
-#     kailash-coc-claude-rb    → Ruby developers (rb variant)
-#     (kailash-coc-claude-prism RETIRED in v2.9.4 — frontend content
-#      now ships via py/rs/rb USE templates via the global coc tier)
+#     (kailash-coc-claude-rb RETIRED in #423 Phase 1 — Ruby is a Magnus
+#      binding of the kailash-rs engine, folded into the rs all-bindings
+#      template; kailash-coc-claude-prism RETIRED in v2.9.4 — both ship
+#      via the py/rs USE templates through the global coc tier)
 #
 #   BUILD repos (SDK source, /sync-to-build):
 #     kailash-py    → Python (Kailash Python SDK source)
@@ -33,7 +38,7 @@
 # ─────────────────────────────────────────────────────────────────
 # kailash-prism is a composable FRONTEND engine. Its USE-relevant content
 # (frontend-generic) already ships via the global `coc` tier to every
-# existing USE template (py, rs, rb, multi-CLI py, multi-CLI rs). The
+# existing USE template (py, rs, multi-CLI py, multi-CLI rs). The
 # dedicated kailash-coc-claude-prism USE template was retired in v2.9.4
 # because every USE template already carries the FE-generic payload —
 # the dedicated repo had no unique consumer-facing content.
@@ -56,13 +61,14 @@
 #
 # Therefore:
 #   - Global skills/rules: PYTHON examples by default (Python is the majority language)
-#   - rs variant: PYTHON examples (Python/Ruby binding consumers, NOT Rust)
-#   - rb variant: RUBY examples (Ruby consumers)
+#   - rs variant (all-bindings): PYTHON examples in baseline/commands; Ruby
+#     binding depth in the 28-ruby-bindings on-demand skill (rb folded in per
+#     #423). Binding-specific code stays OUT of the always-on baseline.
 #   - Rust content: belongs ONLY in kailash-rs BUILD repo, maintained LOCALLY
 #                   in that repo (loom does NOT push Rust content via variants)
 #
 # When writing or auditing artifacts, NEVER leak Rust syntax (cargo, syn::,
-# #[derive], pub fn, use crate::, etc.) into globals or rs/rb variants.
+# #[derive], pub fn, use crate::, etc.) into globals or rs variants.
 # Rust examples in spec-compliance, testing, build commands, etc. are managed
 # in kailash-rs/.claude/skills/spec-compliance/rust-parity.md and similar
 # BUILD-local files that loom never overwrites.
@@ -587,6 +593,7 @@ tiers:
     - rules/recommendation-quality.md
     - rules/probe-driven-verification.md
     - rules/journal.md
+    - rules/journal-author-discipline.md
     - rules/zero-tolerance.md
     # rules/terrene-naming.md + rules/independence.md were moved to `coc` tier
     # 2026-05-07, then removed from COC distribution 2026-05-31 (FB) —
@@ -1004,7 +1011,6 @@ variants:
   rules/patterns.md:
     py: null
     rs: variants/rs/rules/patterns.md
-    rb: variants/rb/rules/patterns.md
   rules/agents.md:
     py: null
     # rs: null — Plan-09 Shard 2 (journal/0107). The former
@@ -1030,42 +1036,15 @@ variants:
     rb: null
     prism: variants/prism/rules/agents.md
     base: variants/base/rules/agents.md
-  rules/agent-reasoning.md:
-    py: null
-    rs: null
-    rb: variants/rb/rules/agent-reasoning.md
   rules/deployment.md:
     py: variants/py/rules/deployment.md
     rs: null
-    rb: variants/rb/rules/deployment.md
-  rules/eatp.md:
-    py: null
-    rs: null
-    rb: variants/rb/rules/eatp.md
-  rules/infrastructure-sql.md:
-    py: null
-    rs: null
-    rb: variants/rb/rules/infrastructure-sql.md
-  rules/pact-governance.md:
-    py: null
-    rs: null
-    rb: variants/rb/rules/pact-governance.md
-  rules/trust-plane-security.md:
-    py: null
-    rs: null
-    rb: variants/rb/rules/trust-plane-security.md
   rules/connection-pool.md:
     py: null
     rs: variants/rs/rules/connection-pool.md
-    rb: variants/rb/rules/connection-pool.md
-  rules/dataflow-pool.md:
-    py: null
-    rs: null
-    rb: variants/rb/rules/dataflow-pool.md
   rules/testing.md:
     py: null
     rs: variants/rs/rules/testing.md
-    rb: variants/rb/rules/testing.md
     prism: variants/prism/rules/testing.md
   rules/zero-tolerance.md:
     py: null
@@ -1088,18 +1067,9 @@ variants:
     py: null
     rs: variants/rs/rules/framework-first.md
     rb: null
-  rules/observability.md:
-    py: null
-    rs: null
-    rb: variants/rb/rules/observability.md
-  rules/schema-migration.md:
-    py: null
-    rs: null
-    rb: variants/rb/rules/schema-migration.md
   rules/e2e-god-mode.md:
     py: null
     rs: variants/rs/rules/e2e-god-mode.md
-    rb: variants/rb/rules/e2e-god-mode.md
   rules/ci-runners.md:
     py: null
     rs: variants/rs/rules/ci-runners.md
@@ -1107,46 +1077,36 @@ variants:
   commands/sync.md:
     py: null
     rs: variants/rs/commands/sync.md
-    rb: variants/rb/commands/sync.md
     # py overlay removed 2026-04-15 (commit 1cdc5d1 — stale py sync.md variant).
   commands/cc-audit.md:
     py: variants/py/commands/cc-audit.md
     rs: variants/rs/commands/cc-audit.md
-    rb: variants/rb/commands/cc-audit.md
   commands/sdk.md:
     py: variants/py/commands/sdk.md
     rs: variants/rs/commands/sdk.md
-    rb: variants/rb/commands/sdk.md
   commands/db.md:
     py: variants/py/commands/db.md
     rs: variants/rs/commands/db.md
-    rb: variants/rb/commands/db.md
   commands/ai.md:
     py: variants/py/commands/ai.md
     rs: variants/rs/commands/ai.md
-    rb: variants/rb/commands/ai.md
   commands/api.md:
     py: variants/py/commands/api.md
     rs: variants/rs/commands/api.md
-    rb: variants/rb/commands/api.md
   commands/test.md:
     py: variants/py/commands/test.md
     rs: variants/rs/commands/test.md
-    rb: variants/rb/commands/test.md
   commands/release.md:
     py: variants/py/commands/release.md
     rs: variants/rs/commands/release.md
-    rb: variants/rb/commands/release.md
   # commands/build.md: NOT a global — variants/rs/commands/build.md is a
   # variant-only file (rs `cargo build` workflow); declared in variant_only:rs.
   skills/01-core-sdk/SKILL.md:
     py: variants/py/skills/01-core-sdk/SKILL.md
     rs: variants/rs/skills/01-core-sdk/SKILL.md
-    rb: variants/rb/skills/01-core-sdk/SKILL.md
   skills/02-dataflow/SKILL.md:
     py: variants/py/skills/02-dataflow/SKILL.md
     rs: variants/rs/skills/02-dataflow/SKILL.md
-    rb: variants/rb/skills/02-dataflow/SKILL.md
   skills/02-dataflow/dataflow-fabric-engine.md:
     py: variants/py/skills/02-dataflow/dataflow-fabric-engine.md
   agents/frameworks/dataflow-specialist.md:
@@ -1154,15 +1114,12 @@ variants:
   skills/03-nexus/SKILL.md:
     py: variants/py/skills/03-nexus/SKILL.md
     rs: variants/rs/skills/03-nexus/SKILL.md
-    rb: variants/rb/skills/03-nexus/SKILL.md
   skills/04-kaizen/SKILL.md:
     py: variants/py/skills/04-kaizen/SKILL.md
     rs: variants/rs/skills/04-kaizen/SKILL.md
-    rb: variants/rb/skills/04-kaizen/SKILL.md
   skills/05-kailash-mcp/SKILL.md:
     py: variants/py/skills/05-kailash-mcp/SKILL.md
     rs: variants/rs/skills/05-kailash-mcp/SKILL.md
-    rb: variants/rb/skills/05-kailash-mcp/SKILL.md
   skills/29-pact/SKILL.md:
     py: variants/py/skills/29-pact/SKILL.md
     rs: variants/rs/skills/29-pact/SKILL.md
@@ -1679,6 +1636,13 @@ variant_only:
     - variants/rs/skills/28-ruby-bindings/ruby-framework-bindings.md
     - variants/rs/skills/28-ruby-bindings/ruby-gold-standards.md
     - variants/rs/skills/28-ruby-bindings/ruby-quickstart.md
+    - variants/rs/skills/28-ruby-bindings/ruby-nexus-rack.md
+    - variants/rs/skills/28-ruby-bindings/ruby-mcp.md
+    - variants/rs/skills/28-ruby-bindings/ruby-dataflow.md
+    - variants/rs/skills/28-ruby-bindings/ruby-kaizen.md
+    - variants/rs/skills/28-ruby-bindings/ruby-deployment.md
+    - variants/rs/skills/28-ruby-bindings/ruby-eatp-trust.md
+    - variants/rs/skills/28-ruby-bindings/ruby-schema-migration.md
     - variants/rs/skills/29-pact/governance-patterns.md
     - variants/rs/skills/29-pact/pact-access-algorithm.md
     - variants/rs/skills/29-pact/pact-engine-api.md
@@ -2162,16 +2126,27 @@ repos:
       - repo: kailash-coc-rs
         clis: [claude, codex, gemini]
         baseline_files: [CLAUDE.md, AGENTS.md, GEMINI.md]
-    description: Kailash Rust SDK (Rust-backed Python/Ruby bindings)
+    description: Kailash Rust SDK — all-bindings USE template (Rust engine; Python & Ruby bindings via the 06-python-bindings + 28-ruby-bindings on-demand skills)
   rb:
     build: kailash-rs
     variant: rb
-    tier_subscriptions: [cc, co, coc]
-    templates:
-      - repo: kailash-coc-claude-rb
-        clis: [claude]
-        baseline_files: [CLAUDE.md]
-    description: Kailash Ruby SDK (Magnus bindings, gem install kailash)
+    # #423 Phase 1 (2026-06-01): kailash-coc-claude-rb USE template RETIRED.
+    # Ruby is a Magnus binding of the kailash-rs engine (repos.rb.build =
+    # kailash-rs — same engine as rs, not a separate engine), so Ruby-binding
+    # knowledge folded into the rs all-bindings template's 28-ruby-bindings
+    # on-demand skill per #423 (binding-agnostic baseline + per-binding
+    # on-demand skills). A one-cycle deprecation shim (zero-tolerance.md Rule
+    # 6a) redirects Ruby consumers to kailash-coc-rs / kailash-coc-claude-rs;
+    # downstream re-syncs once. tier_subscriptions: [] + templates: [] reflect
+    # USE retirement (mirrors the prism precedent); /sync rb cannot run, per
+    # the manifest-defect halt-rule in commands/sync.md Gate 2 step 3.
+    tier_subscriptions: []
+    templates: []
+    description: |
+      Kailash Ruby SDK (Magnus bindings of the kailash-rs engine) — USE-side
+      distribution folded into the rs all-bindings template (28-ruby-bindings
+      skill) per #423 Phase 1. Retired 2026-06-01; consumers re-point to the
+      rs template.
   base:
     # v2.21.0 (2026-05-06): Non-Kailash, language-agnostic variant.
     # User onboarding template for arbitrary stacks (Go, Java, TypeScript,

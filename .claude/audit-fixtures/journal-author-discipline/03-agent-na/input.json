@@ -1,0 +1,10 @@
+{
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Write",
+  "session_id": "<any-session>",
+  "tool_input": {
+    "file_path": "<repo>/journal/0044-esperie-DISCOVERY-agent-surfaced.md",
+    "content": "---\ntype: DISCOVERY\ndate: 2026-06-01\nauthor: agent\nsession_id: <any-session>\ntopic: agent-surfaced example\n---\n\nThe AI surfaced this unprompted; no human-input claim to verify.\n"
+  },
+  "cwd": "<repo>"
+}
