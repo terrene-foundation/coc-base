@@ -830,6 +830,33 @@ tiers:
     # redteam→codify→(re-)todos→implement loop applies to any project (py/rs/rb
     # + base), not loom-only. Path-scoped (workspaces/todos/commands/plans).
     - rules/wave-loop.md
+    # ─────────────────────────────────────────────────────────────
+    # Multi-operator coordination substrate — commands + skills +
+    # roster schema + team-memory README + certify template. MOVED
+    # here from `coc:` 2026-06-09 per journal/0250: this is universal
+    # CO governance (NOT Kailash-specific), so every active template
+    # (py/rs/base) MUST carry it. The RULES are already in this tier
+    # (multi-operator-coordination.md / knowledge-convergence.md above);
+    # the commands/skills/schema join them so base (which subscribes
+    # `co` but not `coc`) reaches parity. py/rs already subscribe `co`
+    # — no change for them. Co-owner-directed (verbatim): "all USE
+    # templates MUST be updated to parity"; "coordination substrate is
+    # not kailash-specific!". Roster-schema co-location invariant
+    # (journal/0162) satisfied: the hook consumers (roster-schema-
+    # validate.js, genesis-anchor-guard.js) emit tier-independently via
+    # the `hooks/**` glob and reach every template regardless of tier.
+    - commands/claim.md
+    - commands/claims.md
+    - commands/release-claim.md
+    - commands/whoami.md
+    - commands/onboard.md
+    - commands/certify.md
+    - skills/32-trust-posture/**
+    - skills/41-onboard/**
+    - skills/42-certify/**
+    - operators.roster.schema.json
+    - team-memory/README.md
+    - templates/specs/_certification.yaml
   coc:
     # rules/terrene-naming.md + rules/independence.md — removed from COC
     # distribution 2026-05-31 (FB) — Foundation messaging governance, not
@@ -1003,89 +1030,27 @@ tiers:
     # USE template. Same classification cycle as audit-fixtures/**
     # above (Loom #272 manifest completeness audit, 2026-05-17).
     - wrappers/**
-    # Trust posture skill — referenced by rules/trust-posture.md
-    # ("See `.claude/skills/32-trust-posture/` for codify/implement/
-    # redteam integration procedures and grace-period mechanics").
-    # Without this entry, the rule's primary cross-reference points
-    # to a non-existent directory. Same classification cycle.
-    - skills/32-trust-posture/**
     # ─────────────────────────────────────────────────────────────
-    # F14 multi-operator COC commands + skill + team-memory
-    # (M9.3 manifest fix 2026-05-22, journal/0138).
-    #
-    # Origin: declared in `multi-operator-m0-m5` + `multi-operator-m7`
-    # tiers below, neither of which any variant subscribed to. The R1
-    # reviewer caught the identical pattern on M8 rules 12 hours ago
-    # (multi-operator-m8 → `co:`); this fix applies the same orphan-tier
-    # R1 pattern to M0-M5 commands + M7 onboard surface, placing them
-    # in `coc:` because they are operational tooling (not CO methodology)
-    # and route alongside the runtime infra (hooks/**, hooks/lib/**, bin/**)
-    # already auto-included in `coc:`.
-    #
-    # Cross-refs: `rules/multi-operator-coordination.md` MUST clauses cite
-    # /claim, /claims, /release-claim, /whoami, /onboard; rules without
-    # commands = unactionable cross-refs = orphan-detection failure mode.
+    # Multi-operator coordination substrate (commands /claim /claims
+    # /release-claim /whoami /onboard /certify + skills 32-trust-posture
+    # / 41-onboard / 42-certify + operators.roster.schema.json +
+    # team-memory/README.md + templates/specs/_certification.yaml) MOVED
+    # to the `co:` tier 2026-06-09 per journal/0250. It is universal CO
+    # governance, NOT Kailash-specific, so ALL active templates
+    # (py/rs/base) must carry it; the prior `coc:` placement
+    # (journal/0138) left `base` (subscribes [cc, co, onboarding], no
+    # `coc`) without the substrate. Co-owner-directed: "all USE templates
+    # MUST be updated to parity"; "coordination substrate is not kailash-
+    # specific!". The roster-schema co-location invariant (journal/0162)
+    # is satisfied: the hook consumers (roster-schema-validate.js,
+    # genesis-anchor-guard.js) emit tier-independently via the `hooks/**`
+    # glob and reach every template regardless of tier subscription.
     # ─────────────────────────────────────────────────────────────
-    # M3 single-writer + claim-system commands (per journal/0129):
-    - commands/claim.md
-    - commands/claims.md
-    - commands/release-claim.md
-    # M0 whoami / operator-registration command (per architecture §8 A1):
-    - commands/whoami.md
-    # M0 roster JSON Schema — data the substrate's hook consumers (roster-
-    # schema-validate.js, genesis-anchor-guard.js) load at runtime. Without
-    # this file at the consumer, validate() returns {valid:false} for every
-    # input, /whoami --register --enroll-genesis cannot validate any roster,
-    # and genesis-anchor-guard fail-closes every commit ("operators roster
-    # missing; trust root not established"). Coupling enforced structurally
-    # by emit.mjs::validateRosterSchemaCoupling (regression-lock per F67 /
-    # GH issue #379 / journal 0161). Path is the runtime-resolved location
-    # in roster-schema-validate.js:56-61; relocating requires touching
-    # every consumer of the path constant.
-    #
-    # CO-LOCATION INVARIANT (reviewer M2, journal 0162): the schema MUST
-    # live in the same tier as its hook consumers above (roster-schema-
-    # validate.js + genesis-anchor-guard.js auto-included via the
-    # `hooks/lib/**` + `hooks/**` globs in the coc tier). If the multi-
-    # operator substrate is ever promoted from `coc:` to a more
-    # universally-subscribed tier (e.g. `co:` per multi-operator-
-    # coordination.md F-series M9.x deferred-enrollment forest), the
-    # schema entry MUST move with it. V17 verifies tier-membership but
-    # does NOT verify tier-equality with consumers; co-location is
-    # operator-discipline-bound until a future validator codifies it
-    # (see forest item F69 — generalize V17 to hook⇔data coupling class).
-    - operators.roster.schema.json
-    # M7 onboard surface (per M7 INTEGRATION-NOTES.md):
-    - commands/onboard.md
-    - skills/41-onboard/**
-    - team-memory/README.md
-    # team-memory/canonical-build-targets.md is `tier: example` per M7
-    # INTEGRATION-NOTES.md — illustrative only. Gate-1 classification
-    # at /sync may downgrade to SKIP if the content is non-portable.
+    # team-memory/canonical-build-targets.md STAYS in coc: — `tier:
+    # example` per M7 INTEGRATION-NOTES.md, illustrative Kailash
+    # build-targets only, Gate-1 SKIP-able for a non-Kailash base
+    # onboarding template (not portable governance, unlike the README).
     - team-memory/canonical-build-targets.md
-    # ─────────────────────────────────────────────────────────────
-    # /certify — knowledge-gate for new devs/consultants
-    # (co-owner-directed 2026-05-25, journal/0158). Three phases
-    # (Brief → Probe → Gate at 100%). Per-repo question bank lives
-    # in the CONSUMER repo at `specs/_certification.yaml`; loom ships
-    # a starter template at `templates/specs/_certification.yaml`
-    # for downstream repos to copy and curate. Same shape as the M7
-    # onboard surface (command + skill, global / not variant).
-    # ─────────────────────────────────────────────────────────────
-    - commands/certify.md
-    - skills/42-certify/**
-    # Starter template: downstream repos copy this to specs/_certification.yaml
-    # once on first /certify use, then curate. The CONSUMER-side
-    # specs/_certification.yaml is NOT shipped via /sync (lives in each
-    # downstream repo's own git history); only the loom-side starter is.
-    #
-    # EMISSION POLICY (PR #355 R1 security MED-4 closure): the asset is
-    # YAML data with no CLI-divergent body — copy-as-is to every CLI
-    # surface that subscribes the coc tier (CC, Codex, Gemini emission all
-    # ship the identical file). Not in cli_variants (no per-CLI overlay
-    # exists or is permitted; bank schema is CLI-invariant); not in
-    # cli_emit_exclusions (intentionally shipped to all three).
-    - templates/specs/_certification.yaml
   # ─────────────────────────────────────────────────────────────
   # ONBOARDING TIER — Stack-agnostic onboarding artifacts for the
   # base variant. Added 2026-05-06 v2.21.0 to support the non-Kailash,
@@ -1127,6 +1092,10 @@ tiers:
     # — `coc:` is universally subscribed by py/rs/rb. Empty list retained
     # for tier-name greppability in journal references.
     # Audit trail: journal/0138-DECISION-m9-3-manifest-fix-orphan-tiers-2026-05-22.md.
+    # SUPERSEDED 2026-06-09 (journal/0250): commands/onboard.md + skills/41-onboard/**
+    # + team-memory/README.md promoted coc:→co: (universal CO governance, not
+    # Kailash-specific — reaches base for parity). Only team-memory/canonical-build-targets.md
+    # remains coc: (illustrative Kailash example).
     []
   # ─────────────────────────────────────────────────────────────
   # MULTI-OPERATOR M0–M5 COMMANDS + M8 RULES — Shard F-3 (2026-05-22)
@@ -1149,6 +1118,9 @@ tiers:
     # infra — `coc:` is universally subscribed by py/rs/rb. Empty list
     # retained for tier-name greppability in journal references.
     # Audit trail: journal/0138-DECISION-m9-3-manifest-fix-orphan-tiers-2026-05-22.md.
+    # SUPERSEDED 2026-06-09 (journal/0250): claim/claims/release-claim/whoami
+    # promoted coc:→co: (universal CO governance, not Kailash-specific — reaches
+    # base for parity, alongside the M8 rules already in co:).
     []
   multi-operator-m8:
     # F14 M8 Shard F rules MOVED to `co:` tier 2026-05-22 (R1 reviewer HIGH-1).

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "description": "Kailash COC Claude (language-agnostic base) - Claude Code hooks configuration",
-  "effortLevel": "high",
+  "description": "Kailash COC Claude (language-agnostic base) — Claude Code hooks + permissions. Trust-posture state-file writes are guarded by hooks (validate-bash-command.js detectStateFileMutation for Bash + posture-gate/integrity-guard for Edit/Write), NOT a Bash deny-matrix. Do not re-add Bash(verb:path) deny entries — the path-based hook interceptor supersedes them (F123). See rules/state-file-write-guard.md.",
+  "effortLevel": "xhigh",
   "env": {
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
     "CLAUDE_CODE_DISABLE_ADAPTIVE_THINKING": "1"
@@ -10,19 +10,34 @@
     "deny": [
       "Edit(.claude/learning/posture.json)",
       "Edit(.claude/learning/posture.json.bak)",
+      "Edit(.claude/learning/posture.json.tmp.*)",
       "Edit(.claude/learning/violations.jsonl)",
       "Edit(.claude/learning/violations.jsonl.*)",
       "Edit(.claude/learning/.initialized)",
       "Write(.claude/learning/posture.json)",
       "Write(.claude/learning/posture.json.bak)",
+      "Write(.claude/learning/posture.json.tmp.*)",
       "Write(.claude/learning/violations.jsonl)",
       "Write(.claude/learning/violations.jsonl.*)",
       "Write(.claude/learning/.initialized)",
-      "Bash(rm:.claude/learning/posture*)",
-      "Bash(rm:.claude/learning/violations*)",
-      "Bash(mv:.claude/learning/posture*)",
-      "Bash(mv:.claude/learning/violations*)"
-    ]
+      "NotebookEdit(.claude/learning/posture.json)",
+      "NotebookEdit(.claude/learning/posture.json.bak)",
+      "NotebookEdit(.claude/learning/violations.jsonl)",
+      "NotebookEdit(.claude/learning/.initialized)",
+      "Edit(.claude/operators.roster.json)",
+      "Write(.claude/operators.roster.json)",
+      "NotebookEdit(.claude/operators.roster.json)",
+      "Edit(.claude/learning/coordination-log.jsonl)",
+      "Write(.claude/learning/coordination-log.jsonl)",
+      "NotebookEdit(.claude/learning/coordination-log.jsonl)",
+      "Edit(.claude/learning/.heartbeat-cache*)",
+      "Write(.claude/learning/.heartbeat-cache*)",
+      "NotebookEdit(.claude/learning/.heartbeat-cache*)",
+      "Edit(.claude/learning/.session-end-cache*)",
+      "Write(.claude/learning/.session-end-cache*)",
+      "NotebookEdit(.claude/learning/.session-end-cache*)"
+    ],
+    "defaultMode": "bypassPermissions"
   },
   "hooks": {
     "PreToolUse": [
@@ -38,11 +53,26 @@
             "type": "command",
             "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/posture-gate.js\"",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/genesis-anchor-guard.js\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/signing-mutation-guard.js\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/operator-gate.js\"",
+            "timeout": 5
           }
         ]
       },
       {
-        "matcher": "Edit|Write",
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
         "hooks": [
           {
             "type": "command",
@@ -52,6 +82,31 @@
           {
             "type": "command",
             "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/posture-gate.js\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/integrity-guard.js\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/adjacency-leasecheck.js\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/signing-mutation-guard.js\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/journal-write-guard.js\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/operator-gate.js\"",
             "timeout": 5
           }
         ]
@@ -65,6 +120,31 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Read|Grep|Glob|WebFetch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/probe-phase-guard.js\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/adjacency-heartbeat.js\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/provenance-capture-tool.js\"",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -75,11 +155,16 @@
             "type": "command",
             "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/detect-violations.js\"",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/fold-amendment-paired-with-helper.js\"",
+            "timeout": 5
           }
         ]
       },
       {
-        "matcher": "Edit|Write",
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
         "hooks": [
           {
             "type": "command",
@@ -128,8 +213,8 @@
           },
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/coc-drift-warn.js\"",
-            "timeout": 5
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/multi-operator-sessionstart.js\"",
+            "timeout": 10
           }
         ]
       }
@@ -140,6 +225,11 @@
           {
             "type": "command",
             "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-end.js\""
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/multi-operator-sessionend.js\"",
+            "timeout": 5
           }
         ]
       }
@@ -166,6 +256,11 @@
             "type": "command",
             "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/detect-violations.js\"",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/provenance-capture-prompt.js\"",
+            "timeout": 5
           }
         ]
       }
@@ -182,6 +277,16 @@
             "type": "command",
             "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/log-triage-gate.js\"",
             "timeout": 7
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/adjacency-heartbeat.js\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/multi-operator-sessionend.js\"",
+            "timeout": 5
           },
           {
             "type": "command",

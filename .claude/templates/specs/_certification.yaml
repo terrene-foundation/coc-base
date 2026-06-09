@@ -1,0 +1,125 @@
+# Certification question bank — TEMPLATE
+#
+# This file lives in the CONSUMER repo at `specs/_certification.yaml`.
+# Loom ships this template at `.claude/templates/specs/_certification.yaml`
+# so a new repo can copy it once and adapt:
+#
+#   cp .claude/templates/specs/_certification.yaml specs/_certification.yaml
+#   $EDITOR specs/_certification.yaml   # rewrite sections + questions for THIS repo
+#
+# The bank is the input to `/certify` (see `.claude/commands/certify.md` +
+# `.claude/skills/42-certify/SKILL.md`). Curated, NOT LLM-generated — a
+# 100% gate against hallucinated questions is unfair. Maintenance cost
+# (spec edits flag stale citations on /sync) is the price of fairness.
+#
+# ─────────────────────────────────────────────────────────────────
+# SCHEMA (validated at /certify probe start)
+# ─────────────────────────────────────────────────────────────────
+#   version:        integer — schema version (currently 1)
+#   bank_version:   string  — operator-visible bank version (free text)
+#   sections[]:
+#     id:                slug
+#     title:             human-readable name
+#     cites_spec:        path:line-range that the section's questions draw from
+#     questions[]:
+#       id:                  slug (unique across the whole bank)
+#       prompt:              one or two sentences
+#       kind:                "multiple_choice" | "short_answer"
+#       cites_spec_section:  path:line-range
+#       options[]:           multiple_choice only — "A: …", "B: …", ...
+#       expected:            multiple_choice: correct letter
+#                            short_answer: canonical answer prose
+#       grading_rubric[]:    short_answer ONLY — 3-5 acceptance-criteria bullets
+#
+# Ordering: easy questions first, hard last. The curator owns ordering;
+# /certify does NOT re-sort.
+#
+# Maintenance: when a rule the bank cites moves or the cited line range
+# changes, the curator must update the corresponding question (or remove
+# it). Stale cites_spec_section paths surface in the brief receipt as a
+# WARN; the question is still asked.
+
+version: 1
+bank_version: "TEMPLATE-v1 — REPLACE WITH YOUR REPO-AND-DATE TAG"
+
+sections:
+  # ─────────────────────────────────────────────────────────────────
+  # Section 1 — CO foundations (replace cites_spec with the rule paths
+  # that exist in THIS repo; the template cites loom's own rules).
+  # ─────────────────────────────────────────────────────────────────
+  - id: co-foundations
+    title: "CO foundations — autonomous execution + agent reasoning"
+    cites_spec: "rules/autonomous-execution.md:1-40, rules/agent-reasoning.md:1-30"
+    questions:
+      - id: co-foundations-q1
+        prompt: "Under COC, how should effort estimates be expressed?"
+        kind: multiple_choice
+        cites_spec_section: "rules/autonomous-execution.md:1-25"
+        options:
+          - "A: In developer-weeks or human-days, adjusted for team size"
+          - "B: In autonomous execution cycles (sessions), assuming maximum parallelization"
+          - "C: As story points relative to the team's velocity"
+          - "D: Estimates are unnecessary; ship when ready"
+        expected: B
+        grading_rubric: []
+
+      - id: co-foundations-q2
+        prompt: "What is the per-shard load-bearing-LOC ceiling, and why does the rule distinguish load-bearing from boilerplate?"
+        kind: short_answer
+        cites_spec_section: "rules/autonomous-execution.md:60-110"
+        expected: "Roughly 500 LOC of load-bearing logic per shard. The distinction matters because boilerplate (CRUD, DTOs, generated code) scales ~5x further before sharding triggers — the model holds a single pattern and stamps it out, so the invariant-tracking ceiling that constrains load-bearing work does not apply."
+        grading_rubric:
+          - Must cite ~500 LOC as the load-bearing ceiling
+          - Must explain that boilerplate scales further than load-bearing logic
+          - Must mention invariant tracking OR attention/context as the binding constraint
+          - Must NOT claim the ceiling is a uniform per-LOC count regardless of complexity
+
+  # ─────────────────────────────────────────────────────────────────
+  # Section 2 — Artifact flow (rules/artifact-flow.md governs how
+  # changes route from BUILD/USE-template repos to loom and back).
+  # ─────────────────────────────────────────────────────────────────
+  - id: artifact-flow
+    title: "Artifact flow — issue routing + the loom splitter"
+    cites_spec: "rules/artifact-flow.md:1-80"
+    questions:
+      - id: artifact-flow-q1
+        prompt: "A bug report against the SDK's runtime engine arrives. Which repo does the issue belong to?"
+        kind: multiple_choice
+        cites_spec_section: "rules/artifact-flow.md:30-55"
+        options:
+          - "A: The USE-template repo (kailash-coc-*), because USE templates originate proposals"
+          - "B: The BUILD repo (kailash-py / kailash-rs), routed cross-SDK-first"
+          - "C: Loom, because loom is the central splitter"
+          - "D: atelier, because atelier owns CC/CO methodology"
+        expected: B
+        grading_rubric: []
+
+      - id: artifact-flow-q2
+        prompt: "Why is loom forbidden from originating artifact changes on its own, and what's the narrow exception?"
+        kind: short_answer
+        cites_spec_section: "rules/artifact-flow.md:60-120"
+        expected: "Loom is the central splitter — it ingests proposals from BUILD and USE-template streams, classifies global vs variant at Gate-1, and distributes. A loom-originated change has no upstream audit trail (no /codify proposal), so it cannot be reviewed at Gate-1. The narrow exception is Co-Owner-Directed Origination: a verbatim co-owner directive recorded in a receipt-first journal DECISION entry BEFORE the edit, scoped to COC tooling only (not CC/CO methodology, not SDK code)."
+        grading_rubric:
+          - Must explain loom is splitter-not-originator and the audit-trail rationale
+          - Must name the Co-Owner-Directed Origination exception
+          - Must mention all three conditions (verbatim directive, receipt-before-edit, COC-tooling scope)
+          - Must NOT claim loom may originate based on "the co-owner would approve"
+
+  # ─────────────────────────────────────────────────────────────────
+  # Section 3 — Trust posture (delete this section if THIS repo does
+  # not run the trust-posture machinery; otherwise update cites_spec).
+  # ─────────────────────────────────────────────────────────────────
+  - id: trust-posture
+    title: "Trust posture — graduated autonomy"
+    cites_spec: "rules/trust-posture.md:1-80"
+    questions:
+      - id: trust-posture-q1
+        prompt: "How does an operator's posture get UPGRADED from L4 back to L5?"
+        kind: short_answer
+        cites_spec_section: "rules/trust-posture.md:55-95"
+        expected: "All four upgrade requirements must be met: at least 7 days at the current posture (168 hours), zero violations of the rule class that triggered the most recent downgrade, demonstrated correction (at least one session catching and fixing a same-class issue proactively, logged as a positive observation), and human approval via /posture upgrade with a challenge-nonce paste-back. The agent cannot self-promote."
+        grading_rubric:
+          - Must name all four requirements (time, zero-violations, demonstrated-correction, human gate)
+          - Must explicitly state the agent cannot self-promote
+          - Must mention the challenge-nonce or /posture upgrade command
+          - Must NOT claim time-alone or zero-violations-alone is sufficient
