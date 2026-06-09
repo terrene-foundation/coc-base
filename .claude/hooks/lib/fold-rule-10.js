@@ -75,8 +75,13 @@ function _validateRevocationShape(record) {
     return "content missing";
   }
   const c = record.content;
-  if (typeof c.github_login !== "string" || !c.github_login) {
-    return "content.github_login missing";
+  // Azure DevOps port (Shard 2c): the victim identity field is provider-
+  // specific — `principal` (Entra UPN) on ADO, `github_login` on GitHub. The
+  // rule-10 contest logic below (evidence-window vs X-chain activity) is
+  // provider-NEUTRAL; only the bound-identity field name dispatches.
+  const idField = c.provider === "azure-devops" ? "principal" : "github_login";
+  if (typeof c[idField] !== "string" || !c[idField]) {
+    return `content.${idField} missing`;
   }
   if (!c.evidence_window || typeof c.evidence_window !== "object") {
     return "content.evidence_window missing (R10-A-02)";
@@ -249,7 +254,11 @@ function isSettled(revocation, ctx) {
   }
 
   // R10-S-01: fetch-bounded settlement.
-  const victimLogin = revocation.content.github_login;
+  // Azure DevOps port (Shard 2c): provider-neutral victim-identity read.
+  const victimLogin =
+    revocation.content.provider === "azure-devops"
+      ? revocation.content.principal
+      : revocation.content.github_login;
   // The peer-high-water function is keyed by the victim's verified_id
   // (X's chain identifier). The ceremony populates this via the
   // mostRecentVictimChainEntry's verified_id; here we accept either a

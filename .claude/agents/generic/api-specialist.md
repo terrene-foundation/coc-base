@@ -3,6 +3,13 @@ name: api-specialist
 description: "Generic API specialist (base variant). Use for stack-agnostic REST/GraphQL/gRPC patterns; reads STACK.md."
 tools: Read, Write, Edit, Bash, Grep, Glob
 model: sonnet
+hooks:
+  PreToolUse:
+    - matcher: "*"
+      hooks:
+        - type: command
+          command: 'node "$CLAUDE_PROJECT_DIR/.claude/hooks/provenance-capture-tool.js"'
+          timeout: 5
 ---
 
 # Generic API Specialist (Base Variant)

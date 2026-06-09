@@ -3,6 +3,13 @@ name: stack-detector
 description: "Stack detector. Detects host language/framework from manifest files; emits HIGH/MEDIUM/LOW/UNKNOWN confidence."
 tools: Read, Bash, Grep, Glob
 model: sonnet
+hooks:
+  PreToolUse:
+    - matcher: "*"
+      hooks:
+        - type: command
+          command: 'node "$CLAUDE_PROJECT_DIR/.claude/hooks/provenance-capture-tool.js"'
+          timeout: 5
 ---
 
 # Stack Detector Agent

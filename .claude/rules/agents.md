@@ -41,6 +41,19 @@ When multiple independent operations are needed, launch agents in parallel via t
 
 **Why:** Sequential execution of independent operations wastes the autonomous execution multiplier, turning a 1-session task into a multi-session bottleneck.
 
+### MUST: Decompose Onto The Parallel Primitive By Default When The Work Earns It
+
+When the work surface is **≥3 independent items** OR has a **multi-stage shape** (analyze → implement → verify), the orchestrator MUST decompose onto the runtime's parallel orchestration primitive by DEFAULT — not only under `/autonomize`. The trigger is a real gate: a genuinely serial single-item task MUST stay serial. Governance per `rules/governed-throughput.md`; concurrency throttle-aware per `rules/worktree-isolation.md` Rule 4.
+
+```text
+# DO — 3 independent shards (W3,W4,W5) → one parallel wave (1 wall-clock unit)
+# DO NOT — 1 serial state-machine rewrite → stay serial (decomposing adds only latency)
+```
+
+**BLOCKED rationalizations:** "parallel-by-default needs `/autonomize`" / "serial is simpler, I'll decompose later" / "the ≥3-item trigger is my call each session".
+
+**Why:** Parallel decomposition is the baseline throughput response, not a per-session opt-in; the serial-single-item gate prevents over-decomposition of genuinely sequential work.
+
 ### MUST: Parallel Brief-Claim Verification When Issue Count ≥ 3
 
 When `/analyze` runs against a brief covering ≥ 3 distinct issues / failure modes / workstreams, the orchestrator MUST launch parallel deep-dive verification agents — one per claim cluster — to independently re-grep / re-read every factual claim in the brief tagged with file:line citations. Inaccuracies surfaced by the deep-dive sweep MUST be recorded in the workspace journal AND in the architecture plan's "Brief corrections" section AS THE GATE before `/todos`. Single-agent analysis on a ≥3-issue brief is BLOCKED — the framing inherited from the brief is the failure mode this rule prevents.

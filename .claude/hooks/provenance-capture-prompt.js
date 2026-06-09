@@ -17,7 +17,7 @@
  * We store a TAMPER-EVIDENT COMMITMENT (prompt_sha256 + char_count), NEVER the raw
  * text. The human proves their words by re-presenting them (the hash matches);
  * verbatim-words capture is a csq-lane evidence decision gated by the #411
- * Betriebsrat granularity question, NOT loom's local artifact.
+ * attribution-granularity question, NOT loom's local artifact.
  *
  * Test env overrides:
  *   COC_TEST_FINGERPRINT, COC_TEST_PERSON_ID — identity short-circuit

@@ -1,0 +1,35 @@
+{
+  "type": "genesis-migration",
+  "verified_id": "SHA256:ADO-CANONICAL-FP",
+  "person_id": "pid-owner-ado-f122",
+  "seq": 0,
+  "prev_hash": null,
+  "ts": "2026-06-03T12:00:00.000Z",
+  "content": {
+    "provider": "azure-devops",
+    "new_repo_owner": "myorg",
+    "new_repo_owner_kind": "org",
+    "from_genesis_generation": 0,
+    "to_genesis_generation": 1,
+    "co_signers": [],
+    "co_sign_anchor_kind": "gh_api_org_membership_capture",
+    "ado_api_owner_capture": {
+      "owner": {
+        "login": "myorg"
+      },
+      "capture_ts": "2026-06-03T12:00:00.000Z"
+    },
+    "gh_api_org_membership_capture": {
+      "role": "admin",
+      "state": "active",
+      "user": {
+        "login": "alice@contoso.com"
+      },
+      "organization": {
+        "login": "myorg"
+      },
+      "capture_ts": "2026-06-03T12:00:00.000Z"
+    }
+  },
+  "sig": "STUB-SIG-VALID-AT-CANONICAL-BYTES"
+}

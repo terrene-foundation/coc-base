@@ -1,11 +1,6 @@
 ---
 name: stack-onboarding-go
 description: "Go stack onboarding — runner, package mgr, build, idioms. Use when STACK.md=go."
-allowed-tools:
-  - Read
-  - Glob
-  - Grep
-  - Bash
 ---
 
 # Go Stack Onboarding (STARTER)

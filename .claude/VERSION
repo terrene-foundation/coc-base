@@ -3,13 +3,13 @@
   "version": "2.39.0",
   "type": "coc-use-template",
   "description": "Language-agnostic, non-Kailash CO/COC USE template — multi-CLI (variant: base, clis: claude/codex/gemini)",
-  "synced_at": "2026-06-01T12:56:41Z",
+  "synced_at": "2026-06-09T11:18:17Z",
   "upstream": {
     "name": "loom",
     "type": "coc-source",
     "version": "2.39.0",
-    "loom_sha": "e934018",
-    "synced_at": "2026-06-01T12:56:41Z",
+    "loom_sha": "4a12b9c",
+    "synced_at": "2026-06-09T11:18:17Z",
     "template_version": "2.39.0"
   },
   "variant": "base",

@@ -1,8 +1,9 @@
 {
-  "_doc": "Flagging payload — force-push to main MUST flag (validate-bash-command.js force-push branch protection).",
+  "_doc": "Force-push to main is HALT-AND-REPORT, not block, per hook-output-discipline.md MUST-2 (force-push is a LEXICAL signal → cannot carry block; the GitHub server-side rejection is the structural defense). validate-bash-command.js exits 0 with { continue:true, hookSpecificOutput:{validation} }. The guard MUST forward the tool (allow=true) AND surface the validation message — mirroring CC's continue:true + surfaced-message so the Codex agent receives the same advisory a CC agent does. Reclassified from the pre-MUST-2 block behavior (expected_allow was false) per #442.",
   "tool": "shell",
   "tool_input": { "command": "git push --force origin main" },
-  "expected_allow": false,
+  "expected_allow": true,
+  "expected_warning": true,
   "expected_source_file": "validate-bash-command.js",
   "expected_text_substring": "force-push"
 }

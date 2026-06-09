@@ -85,9 +85,10 @@ function _ledgerPath(repoDir, session) {
  *
  * Coarsening the in-repo path further (basename-only, depth-bucketed, hashed) is
  * NOT loom's default — it is the #411 ATTRIBUTION-GRANULARITY decision, which is
- * HUMAN-GATED (the RRPS Betriebsrat agreement settles how much AI-action detail
- * the record may carry, BetrVG §87(1)6). loom emits the maximally-accountable
- * form; csq's compliance-evidence lane MAY coarsen it per that agreement.
+ * HUMAN-GATED (a downstream works-council / co-determination agreement settles
+ * how much AI-action detail the record may carry). loom emits the maximally-
+ * accountable form; csq's compliance-evidence lane MAY coarsen it per that
+ * agreement.
  *
  * Branches: absolute-under-repo → repo-relative (retained per above); absolute
  * OUTSIDE the repo → basename only (no foreign-root disclosure); already-relative

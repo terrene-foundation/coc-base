@@ -2,9 +2,9 @@
 name: command-authoring
 description: "Authoring or auditing commands (CC/Codex/Gemini). Frontmatter, ≤150-line body, neutral phrasing, native-primitive carve-outs, variant overlays."
 tools:
-  - Read
-  - Glob
-  - Grep
+  - read_file
+  - glob
+  - grep_search
 ---
 
 # Command Authoring

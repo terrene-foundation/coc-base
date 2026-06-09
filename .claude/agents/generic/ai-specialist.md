@@ -3,6 +3,13 @@ name: ai-specialist
 description: "Generic AI specialist (base variant). Use for provider-agnostic LLM integration; reads STACK.md."
 tools: Read, Write, Edit, Bash, Grep, Glob
 model: sonnet
+hooks:
+  PreToolUse:
+    - matcher: "*"
+      hooks:
+        - type: command
+          command: 'node "$CLAUDE_PROJECT_DIR/.claude/hooks/provenance-capture-tool.js"'
+          timeout: 5
 ---
 
 # Generic AI Specialist (Base Variant)

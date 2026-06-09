@@ -38,6 +38,17 @@ const EVENT_KINDS = Object.freeze([
   "Delegation",
 ]);
 
+// ── SCHEMA FREEZE (F120, csq M18 seam) ──────────────────────────────────────
+// schema_version 1 is FROZEN as the loom↔csq seam FORMAT authority — loom owns
+// FORMAT per rules/loom-csq-boundary.md; csq owns evaluation. The canonical event
+// schema (EVENT_KINDS + EVENT_FIELDS + coc-sign canonical-byte serialization) is
+// byte-stable for csq M18 to build on, and MUST NOT change without a COORDINATED
+// bump (bump SCHEMA_VERSION + update csq conformance, per the EVENT_KINDS note above).
+// Freeze receipt: journal/0211. Converged: journal/0190 (F101-1); validated: F101-4.
+//
+// SCOPE — FORMAT ONLY. The drain/TRANSPORT contract (how events are chained/drained
+// across the seam — a separate per-session ref vs interleaving into the
+// coordination-log) is NOT frozen; it remains OPEN per journal/0190 § For-Discussion #1.
 const SCHEMA_VERSION = 1;
 
 /**

@@ -1,0 +1,4 @@
+{
+  "_README": "SYNTHETIC fixture denylist — the token 'Faketenant' is invented for this fixture (NO real customer identity here). When the fixture runner points --root at this fixture dir, the scanner loads this list and the customer-identity-token shape flags the matching token in leaky.js. The real loom denylist lives at the loom-level top .claude/disclosure-tenant-denylist.json (loom_only, never synced) and is NOT this file.",
+  "tokens": ["Faketenant"]
+}

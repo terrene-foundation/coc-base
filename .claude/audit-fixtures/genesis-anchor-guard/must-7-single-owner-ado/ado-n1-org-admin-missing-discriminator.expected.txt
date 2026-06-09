@@ -1,0 +1,2 @@
+accepted: false
+predicate: MUST-7 (e) discriminator presence — co_signers:[] but no co_sign_anchor_kind; falls through to the 2-of-N path which requires ≥2 distinct co-signers; rejected (R6-S-04)

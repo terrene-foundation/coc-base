@@ -356,9 +356,15 @@ function validateBashCommand(data) {
   }
 
   // BLOCK: Three-layer Bash mutation detection against trust-posture state files.
-  // Mitigates the gap where `permissions.deny` on Edit/Write is bypassable via
-  // bash redirects, file utils, or interpreter -c/-e/-m bodies. Pattern adopted
-  // from a downstream state-file-write-guard (issue #25, c0aeff73).
+  // This is the PRIMARY structural control for Bash-mediated state-file writes
+  // (F123): settings.json's Bash(verb:path) deny-matrix was removed as
+  // structurally incompletable — a verb-enumerating denylist can never cover
+  // every write-capable shell verb (awk/dd/perl/printf>/sponge/...) nor the
+  // redirect operator itself. This interceptor matches on the TARGET PATH
+  // regardless of verb, so it supersedes the denylist instead of racing it.
+  // Edit/Write tool writes remain fenced by the settings.json Edit/Write+path
+  // deny rules + posture-gate + integrity-guard. Pattern adopted from a
+  // downstream state-file-write-guard (issue #25, c0aeff73).
   //
   // Protected paths:
   //   .claude/learning/posture.json, posture.json.bak, posture.json.tmp.N

@@ -1,43 +1,52 @@
 # COC Sync Marker — coc-base
-timestamp: 2026-06-01T12:56:41Z
+timestamp: 2026-06-09T11:18:17Z
 source: loom/.claude
-loom_sha: e934018
+loom_sha: 4a12b9c
 loom_version: 2.39.0
 variant: base
 clis: [claude, codex, gemini]
 visibility: public
 stats:
-  copied: 755
+  copied: 802
+  verified_byte_equal: 802
   purged: 0
   skipped:
-    no_tier_match: 528
-    exclude: 764
-    use_exclude: 29
-    loom_only: 8
     loom_local: 2
+    exclude: 853
+    use_exclude: 29
+    no_tier_match: 531
   overlay_fix:
     path: .claude/rules/agents.md
     form: slot-keyed
     action: strip(compose(global, variants/base)) re-applied
+    expected_md5: c9b6b6233940bc7ba466ad77708becbb
     verify_overlays: variant-applied(base,slot) PASS
+  verify_overlays_total: 1
+  verify_overlays_passing: 1
   verify_overlays_failing: 0
+  overlay_form_breakdown:
+    composed: 1        # rules/agents.md slot-keyed via compose.mjs
+    legacy_full_file: 0
+    null_global: 801   # globals copied as-is (always_include + tier_match)
   hook_integrity: 22/22
   baselines_emitted:
-    cc: 0
-    codex: 1
-    gemini: 1
+    cc: 0              # CLAUDE.md preserved, not emitted
+    codex: 1           # AGENTS.md
+    gemini: 1          # GEMINI.md
   baseline_emission:
-    codex: { bytes: 53126, tier: WARN }
-    gemini: { bytes: 53132, tier: WARN, headroom_pct: 13.52, note: "ADVISORY within 15% proximity band; ABOVE 10% Risk-0004 floor — not blocked" }
+    block_cap_bytes: 61440
+    warn_cap_bytes: 32768
+    codex: { rules: 9, bytes: 50079, tier: WARN, headroom_pct: 18.49 }
+    gemini: { rules: 9, bytes: 50085, tier: WARN, headroom_pct: 18.48 }
   cli_artifacts:
-    codex: { prompts: 15, skills: 6 }
+    codex: { prompts: 10, skills: 6, agent_prompts: 5 }
     gemini: { commands: 10, skills: 6, agents: 5 }
   scaffold:
-    symlinks: 1
-    manifest_distributed: true
+    symlinks: 1                  # .claude/codex-mcp-guard -> ../.codex-mcp-guard
+    manifest_distributed: true   # .claude/sync-manifest.yaml
     bin_coc: true
     bin_coc_phase_shims: 28
   preserved:
     - CLAUDE.md
-    - README.md
-  obsoleted_purge: variants-tree-confirmed-absent
+  obsoleted_purge: all-13-obsoleted-paths-confirmed-absent
+  coc_obsoleted_emitted: true    # .claude/.coc-obsoleted (50 lines)

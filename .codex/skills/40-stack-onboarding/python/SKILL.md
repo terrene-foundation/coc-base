@@ -1,11 +1,6 @@
 ---
 name: stack-onboarding-python
 description: "Python stack onboarding — runner, package mgr, build, idioms. Use when STACK.md=python."
-allowed-tools:
-  - Read
-  - Glob
-  - Grep
-  - Bash
 ---
 
 # Python Stack Onboarding (STARTER)

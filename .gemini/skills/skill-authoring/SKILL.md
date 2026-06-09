@@ -2,9 +2,9 @@
 name: skill-authoring
 description: "Authoring or auditing skills (CC/Codex/Gemini). Frontmatter, description ≤200 chars, progressive disclosure, variant overlays."
 tools:
-  - Read
-  - Glob
-  - Grep
+  - read_file
+  - glob
+  - grep_search
 ---
 
 # Skill Authoring
@@ -75,7 +75,7 @@ The emitter at `/sync` distribute time renames `allowed-tools:` to `tools:` for 
 
 ### Tool Names Are Identifiers, Not Verbs
 
-Tool entries are identifiers the runtime maps to its native primitives. CLI translation tables live at `variants/<cli>/tool-translation.yaml`. Skill frontmatter is the contract: list every tool the SKILL.md body or its sub-files actually invoke.
+Tool entries are identifiers the emitter maps to each CLI's native primitives at `/sync` distribute time: the **Gemini** lane translates them (`Read`→`read_file`, `Grep`→`grep_search`, `Glob`→`glob`, …) and the **Codex** lane strips the `tools:` block entirely (Codex prompts/skills carry no per-artifact tool restriction, mirroring how agent prompts emit). The translation table is `CC_TO_GEMINI_TOOLS` in `.claude/bin/emit-cli-artifacts.mjs` (the same table the agents lane uses); skills are translated by `translateSkillFrontmatterTools` there. Skill frontmatter is the contract: list every tool the SKILL.md body or its sub-files actually invoke.
 
 ```yaml
 # DO — minimal, accurate list

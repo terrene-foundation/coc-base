@@ -100,6 +100,36 @@ The `ls` check is O(1) and converts silent no-op into loud retry.
 - Rule 3 (commit discipline) protects against worktree auto-cleanup
 - Rule 4 (post-exit verify) protects against the main checkout
 - Both are needed: Rule 3 alone misses truncated-in-main cases; Rule 4 alone misses truncated-worktree cases
+- Rule 4a (below) is the recovery path when Rule 3 was missed and the worktree is already cleaned
+
+## Rule 4a — Recover Orphan Writes From Zero-Commit Worktree Agents
+
+**Rule:** `rules/agents.md` § "MUST: Recover Orphan Writes From Zero-Commit Worktree Agents".
+
+An agent that wrote via ABSOLUTE paths resolves those writes to the MAIN checkout cwd (not its worktree). When such an agent reports done but its branch has zero commits AND the worktree was auto-cleaned, the work is NOT lost — it is orphaned, uncommitted, and reachable in the main checkout.
+
+### 4-step recovery protocol
+
+```bash
+git worktree list | grep <expected-branch>     # empty if cleaned
+git status --short                              # "??" entries surface the orphans
+git checkout -b recovery/<original-branch>      # rescue branch (greppable across history)
+git add -- "<orphan-path>" && git commit -m "recover(<branch>): orphaned worktree writes"
+```
+
+Quote each orphan path and terminate option parsing with `--` (`git add -- "path/with spaces.py"`) — never substitute an unquoted `$(...)` expansion, which word-splits on spaces/shell-meta. Stage the explicit orphan paths from `git status --short`, NOT `git add .`/`-A` (which would sweep unrelated working-tree state per `git.md` § "Stage Explicit Paths").
+
+### BLOCKED rationalizations
+
+- "The agent said it was done, the work must be committed somewhere"
+- "Re-launching is cleaner"
+- "If the branch has zero commits, the work is gone"
+- "The main checkout is clean"
+- "recovery/ branches are a workaround; feat/ is more correct"
+
+### Why it is load-bearing
+
+Re-launching abandons real work every time an absolute-path agent truncates. `git status` reveals the orphans; the `recovery/` branch prefix surfaces this class of rescue across history. PR #574 recovered 1129 LOC of `alignment.py` this way.
 
 ## Rule 5 — Parallel-Worktree Package Ownership Coordination
 

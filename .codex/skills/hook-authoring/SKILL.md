@@ -1,10 +1,6 @@
 ---
 name: hook-authoring
 description: "Authoring or auditing hooks (CC/Codex/Gemini). hooks.json registration, COC_RUNTIME, instructAndWait emit, Codex Bash-only gap + MCP-guard bijection, timeout fallback."
-tools:
-  - Read
-  - Glob
-  - Grep
 ---
 
 # Hook Authoring

@@ -1,0 +1,2 @@
+accepted: false
+predicate: MUST-7 ADO (b) — new_repo_owner_kind="user" with the ADO org-admin discriminator; user-owned N=1 has no PCA-membership anchor; rejected (add a second owner via /whoami --register before migrating)

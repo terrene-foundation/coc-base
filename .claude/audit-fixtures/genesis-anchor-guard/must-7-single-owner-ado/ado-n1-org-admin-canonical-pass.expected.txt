@@ -1,0 +1,2 @@
+accepted: true
+predicate: MUST-7 ADO (a)-(g) chain — well-formed N=1 ADO org-admin record passes all gates (provider=azure-devops; co_sign_anchor_kind=ado_api_org_admin_capture; role=admin+state=active PCA attestation; user.login==sole owner principal)

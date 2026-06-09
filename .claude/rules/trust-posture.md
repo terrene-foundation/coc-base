@@ -78,6 +78,7 @@ Downgrades fire on detection — no human in the loop, per EATP "downgrade insta
 - 1× `recurrent_extraction_escalation_bypass` (`rules/rule-authoring.md` MUST Rule 11 violation: 2nd Rule-10 invocation on same (rule, CLI) lane within 30 days without disposition (a') corpus review or (b') sixth-sub-field named-rationale) → drop 1 posture
 - 1× `governed_throughput_bypass` (`rules/governed-throughput.md` violation: a governed-path parallel/orchestrated shard delegated without curated rule-slices, OR a full-corpus injection, OR a slice-limited/skipped merge gate) → drop 1 posture
 - 1× `unbacked_author_claim` (`rules/journal-author-discipline.md` MUST-1 violation: a journal entry shipped with an `author:human|co-authored` claim that is UNBACKED against the live per-session provenance ledger) → drop 1 posture
+- 1× `wave_gate_skipped` (`rules/wave-loop.md` violation: a wave launched without its inter-wave gate per MUST-2, OR a value-coherent mega-wave overflowing the MUST-1 bound-B invariant ceiling, OR a self-attested wave-boundary verdict without a durable receipt per MUST-5) → drop 1 posture
 - 1× **critical**: destructive op without confirm (rm -rf, git reset --hard without porcelain check, force-push to main); secret leak; cross-repo write outside scope → drop to L1
 - 1× corrupt-state event (with init marker) → drop to L1
 

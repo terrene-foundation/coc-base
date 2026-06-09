@@ -1,6 +1,16 @@
 #!/usr/bin/env node
 /**
  * Hook: posture-gate
+ *
+ * @coc-codex-edit-gate — STATELESS trust gate (posture-bound tool
+ *   restriction); the policy extractor fans its CC edit-matcher
+ *   registration out to the Codex `apply_patch` lane (mcp-guard,
+ *   FF-AC6-1). At L5 it passes through; it bites only on a degraded
+ *   posture, identically across CC / Codex-shell / Codex-apply_patch.
+ *   Requires NO multi-operator coordination substrate — unlike the
+ *   cc-only coordination guards (adjacency-leasecheck, journal-write-
+ *   guard, integrity-guard), which deliberately omit this marker.
+ *
  * Events:
  *   - SessionStart — emit stderr summary so user sees current posture
  *   - PreToolUse  — enforce posture-bound tool restrictions at L2/L3
@@ -67,9 +77,7 @@ function _bestEffortRealpath(filePath) {
     try {
       const real = fs.realpathSync(p);
       // Re-join the popped segments in original order.
-      return segments.length
-        ? path.join(real, ...segments.reverse())
-        : real;
+      return segments.length ? path.join(real, ...segments.reverse()) : real;
     } catch {
       // ancestor doesn't exist; pop one segment and retry.
       const base = path.basename(p);

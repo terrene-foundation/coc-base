@@ -1,0 +1,2 @@
+accepted: false
+predicate: MUST-7 ADO (g) — ado_api_org_admin_capture user.login != sole owner's bound principal; the org-admin attestation must bind to the migrating owner's Entra UPN; rejected (principal mismatch)

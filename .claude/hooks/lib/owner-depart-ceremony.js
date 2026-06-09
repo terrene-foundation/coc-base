@@ -34,9 +34,84 @@
 const cocSign = require("./coc-sign.js");
 const ghApiAllowlist = require("./gh-api-allowlist.js");
 const githubLogin = require("./github-login.js");
+// Azure DevOps port (Shard 2c): the ADO provider adapter for the revocation
+// path. The ADO path binds the departing operator via `principal` (Entra UPN)
+// and captures org members via the ADO Graph adapter (canonical inner shape).
+const azureAdapter = require("./vcs-azure-adapter.js");
 
 function defaultSign(bytes, opts) {
   return cocSign.sign(bytes, opts);
+}
+
+/**
+ * Shared signing tail (provider-NEUTRAL): canonical-serialize + sign + attach
+ * `sig`. Both the GitHub and ADO revocation paths hand their assembled
+ * recordCore here so the signing envelope cannot drift between providers.
+ *
+ * @returns {{ok: true, record} | {ok: false, error}}
+ */
+function _signRecord(recordCore, signFn, keyType, keyPath) {
+  let bytes;
+  try {
+    bytes = cocSign.canonicalSerialize(recordCore);
+  } catch (err) {
+    return {
+      ok: false,
+      error: `canonicalSerialize failed: ${err && err.message ? err.message : err}`,
+    };
+  }
+  const signResult = signFn(bytes, { keyType, keyPath });
+  if (!signResult || !signResult.ok) {
+    return {
+      ok: false,
+      error: `sign failed: ${signResult && signResult.reason ? signResult.reason : "unknown"}`,
+    };
+  }
+  return { ok: true, record: { ...recordCore, sig: signResult.sig } };
+}
+
+/**
+ * Build the provider-neutral R10-A-02 evidence window from the most-recent
+ * folded victim chain entry. Identical shape for GitHub and ADO — fold rule 10
+ * consumes it below the provider dispatch.
+ */
+function _buildEvidenceWindow(mostRecentVictimChainEntry, ts) {
+  const mre = mostRecentVictimChainEntry;
+  return {
+    opens_at: mre && typeof mre.ts === "string" ? mre.ts : ts,
+    closes_at: ts,
+    victim_chain_high_water_seq:
+      mre && typeof mre.seq === "number" ? mre.seq : -1,
+  };
+}
+
+/**
+ * Validate the provider-neutral signer/seq fields shared by both paths.
+ */
+function _validateSignerSeq(params) {
+  if (!params.signer || typeof params.signer !== "object")
+    return "signer missing";
+  if (typeof params.signer.person_id !== "string" || !params.signer.person_id) {
+    return "signer.person_id missing";
+  }
+  if (
+    typeof params.signer.verified_id !== "string" ||
+    !params.signer.verified_id
+  ) {
+    return "signer.verified_id missing";
+  }
+  if (typeof params.signer.keyPath !== "string" || !params.signer.keyPath) {
+    return "signer.keyPath missing";
+  }
+  if (
+    typeof params.seq !== "number" ||
+    !Number.isInteger(params.seq) ||
+    params.seq < 0
+  ) {
+    return "seq must be non-negative integer";
+  }
+  if (typeof params.now !== "function") return "now callback missing";
+  return null;
 }
 
 function _validateInput(params) {
@@ -112,6 +187,28 @@ function _validateInput(params) {
  * @returns {{ok: boolean, record?: object, error?: string}}
  */
 function runRevocationCeremony(params) {
+  if (!params || typeof params !== "object") {
+    return { ok: false, error: "params not an object" };
+  }
+  if (!params.roster || typeof params.roster !== "object") {
+    return { ok: false, error: "roster missing" };
+  }
+
+  // Azure DevOps port (Shard 2c): provider dispatch. `roster.genesis.provider`
+  // (absent ⇒ "github") selects the path. The GitHub path below is byte-
+  // UNCHANGED; the ADO path is fully additive in _runAdoRevocation.
+  const providerId =
+    (params.roster.genesis && params.roster.genesis.provider) || "github";
+  if (providerId === "azure-devops") {
+    return _runAdoRevocation(params);
+  }
+  if (providerId !== "github") {
+    return {
+      ok: false,
+      error: `unknown provider "${providerId}" (github | azure-devops)`,
+    };
+  }
+
   const validateErr = _validateInput(params);
   if (validateErr) return { ok: false, error: validateErr };
 
@@ -238,6 +335,133 @@ function runRevocationCeremony(params) {
   // revocation's signer is the cryptographic-naming trail.
   const record = { ...recordCore, sig: signResult.sig };
   return { ok: true, record };
+}
+
+// =========================================================================
+// Azure DevOps port (Shard 2c) — _runAdoRevocation (additive). The ADO
+// collaborator-distinctness revocation. Fails closed iff the fresh ADO members
+// capture shows the departing principal IS STILL a member. Binds via
+// `principal`; the evidence_window is provider-NEUTRAL (fold rule 10 reads it
+// below the dispatch). Per architecture §4.5 the revocation is a self-produced
+// fact and IS forgeable; fold rule 10's contest path detects forgery eventually
+// and names the signing verified_id — identical to the GitHub path.
+// =========================================================================
+
+/**
+ * Run the ADO revocation ceremony.
+ *
+ * @param {object} params
+ * @param {object} params.roster - provider="azure-devops"; genesis.repo_owner
+ *   the ADO org, genesis.ado_project the project ref.
+ * @param {string} params.repo - the ADO repo slug.
+ * @param {string} params.departingPrincipal - the Entra UPN departing.
+ * @param {object} params.signer - {person_id, verified_id, keyPath, keyType?}
+ * @param {number} params.seq
+ * @param {string|null} params.prevHash
+ * @param {function} params.now
+ * @param {function} params.adoApi - ({service,path,meta?}) => {ok,status,body}
+ * @param {object|null} params.mostRecentVictimChainEntry - {verified_id, seq, ts}
+ * @param {function} [params.sign]
+ *
+ * @returns {{ok: boolean, record?: object, error?: string}}
+ */
+function _runAdoRevocation(params) {
+  const signerSeqErr = _validateSignerSeq(params);
+  if (signerSeqErr) return { ok: false, error: signerSeqErr };
+  if (typeof params.adoApi !== "function") {
+    return {
+      ok: false,
+      error:
+        "adoApi callback missing (azure-devops revocation requires opts.adoApi)",
+    };
+  }
+  if (
+    typeof params.departingPrincipal !== "string" ||
+    !params.departingPrincipal
+  ) {
+    return { ok: false, error: "departingPrincipal missing" };
+  }
+  if (typeof params.repo !== "string" || !params.repo) {
+    return { ok: false, error: "repo missing (ADO repo slug)" };
+  }
+
+  const g = params.roster.genesis || {};
+  if (typeof g.repo_owner !== "string" || !g.repo_owner) {
+    return { ok: false, error: "roster.genesis.repo_owner missing (ADO org)" };
+  }
+  if (typeof g.ado_project !== "string" || !g.ado_project) {
+    return {
+      ok: false,
+      error:
+        "roster.genesis.ado_project missing (azure-devops requires the ADO project ref)",
+    };
+  }
+  const repoRef = {
+    org: g.repo_owner,
+    project: g.ado_project,
+    repo: params.repo,
+  };
+  const refValid = azureAdapter.validateRepoRef(repoRef);
+  if (!refValid.valid) {
+    return { ok: false, error: `repoRef invalid: ${refValid.reason}` };
+  }
+  const pValid = azureAdapter.validatePrincipal(params.departingPrincipal);
+  if (!pValid.valid) {
+    return {
+      ok: false,
+      error: `departingPrincipal invalid: ${pValid.reason}`,
+    };
+  }
+
+  const signFn = params.sign || defaultSign;
+  const keyType = params.signer.keyType || "ssh";
+  const ts = params.now();
+
+  // Fresh members capture: verify departingPrincipal is NO LONGER a member.
+  const membersRes = azureAdapter.listCollaborators(params.adoApi, repoRef, {
+    capture_ts: ts,
+  });
+  if (!membersRes.ok) {
+    return {
+      ok: false,
+      error: `ADO members capture failed: ${membersRes.error} (${membersRes.reason}) — a revocation without a fresh ADO Graph proof defeats omission (architecture §2.1); genuine offline departure requires a network-permitted ceremony`,
+    };
+  }
+  const members =
+    (membersRes.capture && membersRes.capture.collaborators) || [];
+  const stillPresent = members.find(
+    (entry) =>
+      entry &&
+      typeof entry.login === "string" &&
+      azureAdapter.principalsEqual(entry.login, params.departingPrincipal),
+  );
+  if (stillPresent) {
+    return {
+      ok: false,
+      error: `revocation fails closed: principal '${params.departingPrincipal}' is still a member of ADO org '${g.repo_owner}' per fresh ADO Graph — a revocation without proof of departure defeats omission (architecture §2.1)`,
+    };
+  }
+
+  const evidenceWindow = _buildEvidenceWindow(
+    params.mostRecentVictimChainEntry,
+    ts,
+  );
+  const recordCore = {
+    type: "collaborator-distinctness-revocation",
+    verified_id: params.signer.verified_id,
+    person_id: params.signer.person_id,
+    seq: params.seq,
+    prev_hash: params.prevHash || null,
+    ts,
+    content: {
+      provider: "azure-devops",
+      principal: params.departingPrincipal,
+      ado_api_members_capture: membersRes.capture,
+      captured_at_ts: ts,
+      evidence_window: evidenceWindow,
+    },
+  };
+  return _signRecord(recordCore, signFn, keyType, params.signer.keyPath);
 }
 
 module.exports = {

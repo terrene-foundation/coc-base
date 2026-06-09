@@ -1,0 +1,1 @@
+grep -v drop /tmp/x | sponge .claude/learning/coordination-log.jsonl

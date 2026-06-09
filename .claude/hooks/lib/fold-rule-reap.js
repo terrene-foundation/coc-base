@@ -50,6 +50,11 @@ const {
   _isCaptureFresh,
   _verifyDistinctBoundCollaborators,
 } = require("./gh-api-allowlist.js");
+// Azure DevOps port (Shard 2c): the ADO distinct-bound-member predicate, the
+// principalsEqual sibling of _verifyDistinctBoundCollaborators. The fold
+// dispatches on content.provider (absent ⇒ github) and reads the matching
+// capture field (ado_api_members_capture) + roster bind field (principal).
+const { _verifyDistinctBoundMembers } = require("./ado-api-allowlist.js");
 
 /**
  * Resolve the verified_id's roster person (if any). Returns
@@ -284,20 +289,42 @@ function foldReap(record, ctx) {
     };
   }
 
-  // --- HIGH-2 / R5-S-07: distinct-bound-collaborator ---
-  // The reap record MUST carry a fresh gh_api_collaborators_capture; the
-  // reaper + cosigner MUST resolve to distinct admin-bound github logins.
-  const capture = c.gh_api_collaborators_capture;
+  // --- HIGH-2 / R5-S-07: distinct-bound-collaborator/member ---
+  // The reap record MUST carry a fresh members capture; the reaper + cosigner
+  // MUST resolve to distinct admin-bound identities. Azure DevOps port
+  // (Shard 2c): dispatch on content.provider (absent ⇒ github). ADO reads
+  // ado_api_members_capture + binds via `principal` + applies the
+  // principalsEqual distinctness predicate; the capture freshness +
+  // roster-resolution flow below is provider-NEUTRAL.
+  const provider = c.provider || "github";
+  if (provider !== "github" && provider !== "azure-devops") {
+    return {
+      accepted: false,
+      foldState: state,
+      reason: `reap predicate: unknown content.provider '${provider}' (github | azure-devops)`,
+      forging_signer: record.verified_id,
+    };
+  }
+  const isAdo = provider === "azure-devops";
+  const captureField = isAdo
+    ? "ado_api_members_capture"
+    : "gh_api_collaborators_capture";
+  const bindField = isAdo ? "principal" : "github_login";
+  const verifyDistinct = isAdo
+    ? _verifyDistinctBoundMembers
+    : _verifyDistinctBoundCollaborators;
+
+  const capture = c[captureField];
   if (!capture) {
     return {
       accepted: false,
       foldState: state,
-      reason:
-        "reap predicate: missing required field gh_api_collaborators_capture (R5-S-07 distinct-bound-collaborator anchor)",
+      reason: `reap predicate: missing required field ${captureField} (R5-S-07 distinct-bound anchor)`,
       forging_signer: record.verified_id,
     };
   }
-  // Capture freshness — record ts within ceiling of capture_ts.
+  // Capture freshness — record ts within ceiling of capture_ts (provider-
+  // neutral: _isCaptureFresh operates on capture_ts only).
   const captureTs =
     (capture && typeof capture.capture_ts === "string" && capture.capture_ts) ||
     null;
@@ -305,8 +332,7 @@ function foldReap(record, ctx) {
     return {
       accepted: false,
       foldState: state,
-      reason:
-        "reap predicate: gh_api_collaborators_capture missing capture_ts (HIGH-4)",
+      reason: `reap predicate: ${captureField} missing capture_ts (HIGH-4)`,
       forging_signer: record.verified_id,
     };
   }
@@ -319,7 +345,7 @@ function foldReap(record, ctx) {
       forging_signer: record.verified_id,
     };
   }
-  // Resolve reaper + cosigner github logins via roster.
+  // Resolve reaper + cosigner bound identities via roster.
   const reaperResolve = _resolveRosterPerson(roster, record.verified_id);
   if (!reaperResolve) {
     return {
@@ -347,29 +373,25 @@ function foldReap(record, ctx) {
       forging_signer: record.verified_id,
     };
   }
-  const primaryLogin = reaperResolve.person.github_login;
-  const cosignerLogin = cosignerResolve.person.github_login;
-  if (typeof primaryLogin !== "string" || !primaryLogin) {
+  const primaryBound = reaperResolve.person[bindField];
+  const cosignerBound = cosignerResolve.person[bindField];
+  if (typeof primaryBound !== "string" || !primaryBound) {
     return {
       accepted: false,
       foldState: state,
-      reason: "reap predicate: reaper roster entry missing github_login",
+      reason: `reap predicate: reaper roster entry missing ${bindField}`,
       forging_signer: record.verified_id,
     };
   }
-  if (typeof cosignerLogin !== "string" || !cosignerLogin) {
+  if (typeof cosignerBound !== "string" || !cosignerBound) {
     return {
       accepted: false,
       foldState: state,
-      reason: "reap predicate: cosigner roster entry missing github_login",
+      reason: `reap predicate: cosigner roster entry missing ${bindField}`,
       forging_signer: record.verified_id,
     };
   }
-  const distinctness = _verifyDistinctBoundCollaborators(
-    primaryLogin,
-    cosignerLogin,
-    capture,
-  );
+  const distinctness = verifyDistinct(primaryBound, cosignerBound, capture);
   if (!distinctness.ok) {
     return {
       accepted: false,

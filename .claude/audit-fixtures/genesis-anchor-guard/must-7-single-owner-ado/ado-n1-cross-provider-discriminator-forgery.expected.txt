@@ -1,0 +1,2 @@
+accepted: false
+predicate: MUST-7 cross-provider forgery guard — content.provider=azure-devops but co_sign_anchor_kind=gh_api_org_membership_capture (GitHub discriminator) with a gh_api capture; fold-rule-9c rejects a record whose discriminator is inconsistent with content.provider (a github record cannot read through ADO's capture fields, or vice versa); rejected

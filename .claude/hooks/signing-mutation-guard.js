@@ -2,6 +2,16 @@
 /**
  * signing-mutation-guard.js — §2.3 + §4.3 pre-tool-use guard.
  *
+ * @coc-codex-edit-gate — STATELESS trust gate (degraded-mode signing-key
+ *   mutation discipline); the policy extractor fans its CC edit-matcher
+ *   registration out to the Codex `apply_patch` lane (mcp-guard,
+ *   FF-AC6-1). Its inputs are stateless: a signing key resolves via git
+ *   config / explicit env (NOT the multi-operator roster), and the
+ *   degraded-mode read-only block is the same behavior already shipped on
+ *   the Codex shell lane (DF-AC6-2) — extending it to apply_patch makes
+ *   the file-edit lane symmetric with the shell lane. The cc-only
+ *   coordination guards deliberately omit this marker.
+ *
  * Shard B3a (workspaces/multi-operator-coc/02-plans/01-architecture.md
  * §2.3 + §4.3 hook-table row + R4-S-02 + R5-S-03).
  *
@@ -138,8 +148,7 @@ function classifyOperation(payload) {
   // structural close.
   if (isMutationTool(tool)) {
     // NotebookEdit uses notebook_path; cover both.
-    const fp =
-      input.file_path || input.filePath || input.notebook_path || "";
+    const fp = input.file_path || input.filePath || input.notebook_path || "";
     if (typeof fp === "string" && fp.length > 0) {
       return { kind: "edit-write", targetPath: fp };
     }

@@ -3,6 +3,13 @@ name: cc-architect
 description: CC artifact architect. Use for auditing, designing, or improving agents, skills, rules, commands, hooks.
 tools: Read, Write, Edit, Grep, Glob, Bash, Task
 model: opus
+hooks:
+  PreToolUse:
+    - matcher: "*"
+      hooks:
+        - type: command
+          command: 'node "$CLAUDE_PROJECT_DIR/.claude/hooks/provenance-capture-tool.js"'
+          timeout: 5
 ---
 
 # Claude Code Architecture Specialist

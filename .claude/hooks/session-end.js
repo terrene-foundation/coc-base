@@ -304,15 +304,23 @@ function logDecisionReferences(cwd, sessionId, sessionDir) {
       // Only log entries created/modified during this session
       if (stat.mtimeMs < sessionStartMs) continue;
 
-      // Parse type from filename: NNNN-TYPE-topic.md
-      const match = entry.match(/^\d+-(\w+)-(.+)\.md$/);
+      // Parse TYPE from filename. Handles BOTH the legacy single-operator
+      // shape (NNNN-TYPE-topic.md) AND the multi-operator shape
+      // (NNNN-<display_id>-TYPE-topic.md per knowledge-convergence.md MUST-2 /
+      // rules/journal.md). The optional lowercase display_id segment is skipped
+      // so TYPE (uppercase, may contain a hyphen e.g. TRADE-OFF) is captured,
+      // not the display_id. Pre-multi-op regex `^\d+-(\w+)-` mis-captured the
+      // display_id as the type for every NNNN-<display_id>-TYPE entry.
+      const match = entry.match(
+        /^\d+-(?:[a-z0-9_-]+-)?(DECISION|DISCOVERY|TRADE-OFF|RISK|CONNECTION|GAP|AMENDMENT)-(.+)\.md$/,
+      );
       if (!match) continue;
 
       logLearningObservation(
         cwd,
         "decision_reference",
         {
-          type: match[1], // DECISION, DISCOVERY, TRADE-OFF, etc.
+          type: match[1], // DECISION, DISCOVERY, TRADE-OFF, RISK, CONNECTION, GAP, AMENDMENT
           topic: match[2].replace(/-/g, " "),
           file: entry,
         },

@@ -1,11 +1,6 @@
 ---
 name: stack-onboarding-rust
 description: "Rust stack onboarding — runner, package mgr, build, idioms. Use when STACK.md=rust."
-allowed-tools:
-  - Read
-  - Glob
-  - Grep
-  - Bash
 ---
 
 # Rust Stack Onboarding (STARTER)

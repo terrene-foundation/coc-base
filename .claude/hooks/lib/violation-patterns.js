@@ -796,10 +796,14 @@ function detectGhIssueCloseAsNotPlanned(command) {
  *
  * Layer 1: redirect / heredoc / tee / sed -i / jq -i (excluding fd-redirects
  *          like `2>&1` and /dev/null sinks).
- * Layer 2: file-mutating utilities (cp, mv, dd, rsync, install, truncate, ln,
- *          chmod, chown, touch).
- * Layer 3: interpreter -c / -e / -m bodies (python, node, ruby, perl, bash, sh)
- *          that reference the protected path.
+ * Layer 2: file-mutating utilities (cp, mv, rm, dd, rsync, install, truncate,
+ *          ln, chmod, chown, touch, sponge).
+ * Layer 3: interpreter bodies (python, node, ruby, perl, bash, sh) referencing
+ *          the protected path — per-line quoted `-c`/`-e`/`-m` forms, PLUS a
+ *          fallback for a command / pipeline-segment LED BY python/node/ruby/perl
+ *          (covers `-m`, unquoted, script-arg, `--eval=`, and stdin-heredoc
+ *          forms; restores parity with the removed Bash(python:*<state>*) deny
+ *          globs, which anchored on the interpreter as the command executable).
  *
  * Single-line scope: each layer matches within ONE line of the command —
  * a `>` on line 1 followed by a protected path on line 4 is NOT one redirect.
@@ -847,9 +851,14 @@ function detectStateFileMutation(command, pathRx) {
       if (pathRx.test(line)) return { layer: 1, kind: "in-place-edit" };
     }
 
-    // Layer 2: file-mutating utilities
+    // Layer 2: file-mutating utilities. `rm` + `sponge` added (F123): `rm`
+    // closes the parity gap left when settings.json's Bash(rm:<state>) deny
+    // entries were removed in favor of this path-based interceptor; `sponge`
+    // (moreutils write-back) closes a write-capable verb the deny-matrix
+    // never covered. Each fires only when pathRx ALSO matches the line, so a
+    // benign `rm <non-state-file>` does not flag.
     const layer2Verbs =
-      /\b(?:cp|mv|dd|rsync|install|truncate|ln|chmod|chown|touch)\b\s+/;
+      /\b(?:cp|mv|rm|dd|rsync|install|truncate|ln|chmod|chown|touch|sponge)\b\s+/;
     if (layer2Verbs.test(line) && pathRx.test(line)) {
       const verbMatch = line.match(layer2Verbs);
       return {
@@ -871,6 +880,29 @@ function detectStateFileMutation(command, pathRx) {
         kind: interpMatch ? `${interpMatch[1]} -c/-e/-m` : "interpreter-body",
       };
     }
+  }
+
+  // Layer 3 (whole-command fallback): a command — or pipeline segment — whose
+  // LEADING token is an interpreter (python/node/ruby/perl), with a protected
+  // path anywhere in the command. The per-line matcher above requires a quoted
+  // `-c`/`-e`/`-m` body on a single line; this clause additionally covers `-m`
+  // module invocations, unquoted/escaped bodies, `--eval=` forms, a script arg
+  // (`python3 write_state.py <path>`), and stdin heredocs (`python3 - <<PY …
+  // <path> … PY`) that span lines. Anchoring on the LEADING token (the way the
+  // removed Bash(python:*<state>*)/Bash(node:*<state>*) deny globs anchored on
+  // the interpreter AS the command executable) restores parity WITHOUT the
+  // broader false-positives a bare token-anywhere match would add: prose
+  // (`echo "python … <path>"`) and interpreter-as-search-arg (`grep python
+  // <path>`) are NOT led by the interpreter and do not flag (per
+  // hook-output-discipline.md MUST-2 — keep the lexical block narrow).
+  // bash/sh/zsh are excluded: their writes go through the redirect operator,
+  // already caught by Layer 1.
+  const leadingInterpreter = /^\s*(?:\S*\/)?(python3?|node|nodejs|ruby|perl)\b/;
+  const segments = command.split(/\||&&|;|\n/);
+  const ledSeg = segments.find((s) => leadingInterpreter.test(s));
+  if (ledSeg && pathRx.test(command)) {
+    const im = ledSeg.match(leadingInterpreter);
+    return { layer: 3, kind: `${im[1]} (interpreter)` };
   }
   return null;
 }

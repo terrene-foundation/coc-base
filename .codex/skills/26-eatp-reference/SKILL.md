@@ -1,10 +1,6 @@
 ---
 name: eatp-reference
 description: "EATP SDK — TrustPlane, BudgetTracker, PostureStore. For trust-code implementation."
-tools:
-  - Read
-  - Glob
-  - Grep
 ---
 
 # EATP SDK Implementation Reference

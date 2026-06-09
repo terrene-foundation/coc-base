@@ -3,6 +3,13 @@ name: db-specialist
 description: "Generic DB specialist (base). Use for stack-agnostic Postgres/SQLite/MySQL/Mongo/Redis; reads STACK.md."
 tools: Read, Write, Edit, Bash, Grep, Glob
 model: sonnet
+hooks:
+  PreToolUse:
+    - matcher: "*"
+      hooks:
+        - type: command
+          command: 'node "$CLAUDE_PROJECT_DIR/.claude/hooks/provenance-capture-tool.js"'
+          timeout: 5
 ---
 
 # Generic Database Specialist (Base Variant)

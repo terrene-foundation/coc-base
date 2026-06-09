@@ -387,6 +387,77 @@ next_top_level: foo
 }
 
 // ----------------------------------------------------------------------
+// fixture-15 — check 13 helper: validateGeminiCommandToml parse-load (#408 AC#7)
+// ----------------------------------------------------------------------
+// The Gemini-command TOML loader closes a '''…''' literal at the FIRST ''' after
+// the opener; an unescaped ''' in the prompt body closes early and turns the
+// trailing markdown into invalid TOML (the tomlLiteralEscape escape-bug class).
+// Clean shape → no errors; premature-close shape → flagged.
+{
+  const { validateGeminiCommandToml } = await import("../../bin/validate-emit.mjs");
+  const good = `name = "demo"\ndescription = "A demo."\nprompt = '''\nbody \`x\` "q"\n'''\ntools = ["read_file"]\n`;
+  const bad = `name = "demo"\ndescription = "A demo."\nprompt = '''\nbody ''' early close\nprose\n'''\ntools = []\n`;
+  const goodErrs = validateGeminiCommandToml(good);
+  const badErrs = validateGeminiCommandToml(bad);
+  check(
+    "fixture-15-validateGeminiCommandToml-parse-load",
+    goodErrs.length === 0 && badErrs.some((e) => /early|embedded/.test(e)),
+    `good=${JSON.stringify(goodErrs)} bad=${JSON.stringify(badErrs)}`,
+  );
+}
+
+// ----------------------------------------------------------------------
+// fixture-16 — check 13 helper: extractRulesIndexCitations (#408 AC#7)
+// ----------------------------------------------------------------------
+// The rules-reference index's delivery integrity rests on every cited
+// `.claude/rules/<file>.md` resolving to a real source file; the extractor must
+// surface EVERY citation (matchAll, not just the first) so no dangling row hides.
+{
+  const { extractRulesIndexCitations } = await import("../../bin/validate-emit.mjs");
+  const text =
+    "| A | g | `.claude/rules/a.md` |\n| B | g | `.claude/rules/b-c.md` |\n| C | g | `.claude/rules/d.md` |\n";
+  const cites = extractRulesIndexCitations(text);
+  check(
+    "fixture-16-extractRulesIndexCitations-all-rows",
+    cites.length === 3 &&
+      cites[0] === "a.md" &&
+      cites[2] === "d.md" &&
+      extractRulesIndexCitations("# none\n").length === 0,
+    JSON.stringify(cites),
+  );
+}
+
+// ----------------------------------------------------------------------
+// fixture-17 — check 14 helper: canonicalPolicies (DF-AC6-2 / #408)
+// ----------------------------------------------------------------------
+// The codex-policies-fresh guard compares the committed policies.json against a
+// fresh extraction order-insensitively. canonicalPolicies must (a) treat
+// tool-key / entry / matcher-array order as equivalent, and (b) detect a
+// dropped entry (the actual DF-AC6-2 drift: gates missing from the stale file).
+{
+  const { canonicalPolicies } = await import("../../bin/validate-emit.mjs");
+  const a = {
+    shell: [
+      { source_file: "b.js", cc_matchers: ["Bash"], invocation: "subprocess" },
+      { source_file: "a.js", cc_matchers: ["Edit", "Write"], invocation: "subprocess" },
+    ],
+  };
+  const aReordered = {
+    shell: [
+      { source_file: "a.js", cc_matchers: ["Write", "Edit"], invocation: "subprocess" },
+      { source_file: "b.js", cc_matchers: ["Bash"], invocation: "subprocess" },
+    ],
+  };
+  const dropped = { shell: [{ source_file: "a.js", cc_matchers: ["Edit", "Write"], invocation: "subprocess" }] };
+  check(
+    "fixture-17-canonicalPolicies-order-insensitive-and-drop-detecting",
+    canonicalPolicies(a) === canonicalPolicies(aReordered) &&
+      canonicalPolicies(a) !== canonicalPolicies(dropped),
+    `eq=${canonicalPolicies(a) === canonicalPolicies(aReordered)} drop=${canonicalPolicies(a) !== canonicalPolicies(dropped)}`,
+  );
+}
+
+// ----------------------------------------------------------------------
 // Summary
 // ----------------------------------------------------------------------
 process.stdout.write(

@@ -50,26 +50,26 @@
  * without a central coordinator.
  *
  * --------------------------------------------------------------------------
- * GitHub ruleset (CONF-2 verdict, 2026-05-20)
+ * refs/coc/** server-side protection: N/A on github.com (CONF-2 REFUTED — GH #367)
  * --------------------------------------------------------------------------
  *
- * Server-side protection MUST be provisioned for `refs/coc/**` at M9.3:
+ * The journal/0125 CONF-2 "provision a refs/coc/** ruleset" verdict was
+ * REFUTED 2026-06-07 (journal/0233): github.com rulesets reject a custom-ref
+ * target pattern. Live: POST repos/{owner}/{repo}/rulesets with
+ * conditions.ref_name.include: ["refs/coc/**"] -> 422 "Invalid target
+ * patterns: 'refs/coc/**'". github.com rulesets + branch protection target
+ * refs/heads/** and refs/tags/** ONLY; there is NO server-side mechanism to
+ * restrict creation/deletion of refs/coc/**. The F48 "seed-first" precondition
+ * was a misdiagnosis (the 422 is "Invalid target patterns", not empty-
+ * namespace) and is withdrawn. Do NOT attempt the POST — it 422s.
  *
- *   target: ref
- *   ref_name:
- *     include: ["refs/coc/**"]
- *   rules:
- *     - type: creation         # un-co-signed new-ref push BLOCKED
- *     - type: deletion         # archive-ref deletion BLOCKED
- *     - type: non_fast_forward # existing protection on -genN updates
- *   bypass_actors:
- *     - actor_type: RepositoryRole
- *       actor_id: <owner-role-id>
- *       bypass_mode: always
- *
- * Full spec lives at workspaces/multi-operator-coc/02-plans/ref-protection-spec.md
- * (gitignored — workspace-local) for Shard F to author into
- * `multi-operator-coordination.md` at M8.
+ * The equivocation-parity defense is therefore CLIENT-SIDE (the PRIMARY
+ * defense, not defense-in-depth): the F51 archive-tip-pin verification —
+ * verifyArchiveTipPin (archive-ref.js) invoked from fold-rule-9b.js against
+ * the observed refs/coc/archive-genN tip read through readArchiveRefTip below.
+ * A GitHub ENTERPRISE (GHES) pre-receive hook MAY add server-side custom-ref
+ * protection where available — an Enterprise-only second layer, never a
+ * github.com mandate. See multi-operator-coordination.md MUST-5 + journal/0233.
  *
  * --------------------------------------------------------------------------
  * Style: CommonJS, zero-dep beyond child_process + crypto. No production

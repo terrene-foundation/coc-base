@@ -1,11 +1,6 @@
 ---
 name: stack-onboarding-typescript
 description: "TypeScript stack onboarding — runner, package mgr, build, idioms. Use when STACK.md=typescript."
-allowed-tools:
-  - Read
-  - Glob
-  - Grep
-  - Bash
 ---
 
 # TypeScript Stack Onboarding (STARTER)

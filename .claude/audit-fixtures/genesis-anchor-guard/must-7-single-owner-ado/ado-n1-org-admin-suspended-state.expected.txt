@@ -1,0 +1,2 @@
+accepted: false
+predicate: MUST-7 ADO (c) state — ado_api_org_admin_capture state="pending" (not active); a pending/suspended PCA membership cannot stand in as the verified-identity anchor; rejected (not active)

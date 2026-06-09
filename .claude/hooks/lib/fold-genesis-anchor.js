@@ -48,6 +48,10 @@ const { isUnenrolled } = require("./roster-schema-validate.js");
 // case-insensitive. Route ALL login comparisons through loginsEqual()
 // (lib/github-login.js) to close the per-site bug class iter-1/2/3 swept.
 const { loginsEqual } = require("./github-login.js");
+// Azure DevOps port: ADO principal (Entra UPN) comparison for the
+// content.provider === "azure-devops" owner-bind branch. Same
+// case-insensitive semantics as loginsEqual (sock-puppet defense).
+const { principalsEqual } = require("./ado-login.js");
 
 /**
  * Validate that a record has the shape we expect before we touch sig.
@@ -98,6 +102,16 @@ function _validateRecordShape(record) {
  */
 function _resolveOwnerPerson(roster, record) {
   if (!roster || !roster.persons) return null;
+  // Azure DevOps port: dispatch on the record's content.provider (absent ⇒
+  // github). An ADO anchor owner-binds via `principal` against the
+  // ado_api_org_admin_capture attestation; the inner capture shape is
+  // identical to GitHub's org-membership capture, so only the field name +
+  // the identity field (principal vs github_login) + the equality function
+  // differ. The GitHub branch below is byte-unchanged.
+  const providerId = (record.content && record.content.provider) || "github";
+  if (providerId === "azure-devops") {
+    return _resolveOwnerPersonAdo(roster, record);
+  }
   const genesis = roster.genesis || {};
   const kind = genesis.repo_owner_kind;
   let targetLogin;
@@ -123,6 +137,43 @@ function _resolveOwnerPerson(roster, record) {
     if (isUnenrolled(pid)) continue;
     if (person.role !== "owner") continue;
     if (!loginsEqual(person.github_login, targetLogin)) continue;
+    return { person_id: pid, person };
+  }
+  return null;
+}
+
+/**
+ * Azure DevOps owner-bind. An ADO genesis ALWAYS anchors via the org-admin
+ * (Project Collection Administrators) attestation — there is no commit-sig
+ * verification on ADO. The attestation lives in
+ * `content.ado_api_org_admin_capture` (the canonical inner shape is identical
+ * to GitHub's gh_api_org_membership_capture: `{role, state, user:{login},
+ * organization:{login}, capture_ts}`). The owner person binds via `principal`
+ * (Entra UPN), compared case-insensitively.
+ *
+ * Parity note: this mirrors the GitHub `kind === "org"` branch's
+ * role==="admin" predicate. The state==="active" check is enforced at ceremony
+ * time (genesis-ceremony.js::_runAdoEnrollment Step 3) for BOTH the github-org
+ * and ADO paths; the fold owner-bind checks role only, matching the github
+ * branch above (no state re-check in the fold).
+ */
+function _resolveOwnerPersonAdo(roster, record) {
+  if (!roster || !roster.persons) return null;
+  const capture = record.content && record.content.ado_api_org_admin_capture;
+  if (
+    !capture ||
+    typeof capture.user !== "object" ||
+    typeof capture.user.login !== "string"
+  ) {
+    return null;
+  }
+  if (capture.role !== "admin") return null;
+  const targetPrincipal = capture.user.login;
+  if (!targetPrincipal) return null;
+  for (const [pid, person] of Object.entries(roster.persons)) {
+    if (isUnenrolled(pid)) continue;
+    if (person.role !== "owner") continue;
+    if (!principalsEqual(person.principal, targetPrincipal)) continue;
     return { person_id: pid, person };
   }
   return null;

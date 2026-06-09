@@ -3,6 +3,13 @@ name: idiom-advisor
 description: "Per-stack idiom coach. Reads STACK.md and emits idiomatic conventions, test runner, package manager, common pitfalls."
 tools: Read, Grep, Glob
 model: sonnet
+hooks:
+  PreToolUse:
+    - matcher: "*"
+      hooks:
+        - type: command
+          command: 'node "$CLAUDE_PROJECT_DIR/.claude/hooks/provenance-capture-tool.js"'
+          timeout: 5
 ---
 
 # Idiom Advisor Agent

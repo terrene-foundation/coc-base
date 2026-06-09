@@ -66,6 +66,11 @@ import { fileURLToPath } from "node:url";
 import { applyOverlay } from "./lib/slot-parser.mjs";
 import { resolveOverlay } from "./lib/variant-overlay.mjs";
 import { stripBuildInternalReferences } from "./lib/strip-build-internal.mjs";
+// #408 AC#5-b: the rules-reference emitter resolves each rule's non-CC lane via
+// the SHARED cli_delivery parser (also used by emit.mjs::validateCliDelivery /
+// Validator 18). Single source of truth — a divergent mirror was the R1 finding
+// the AC#5-a redteam closed.
+import { checkRuleCliDelivery } from "./lib/cli-delivery.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(__dirname, "..", "..");
@@ -99,8 +104,10 @@ function safeWriteFileSync(filePath, data) {
 //   commands/cc-audit.md                → exact match
 //   guides/claude-code/**               → prefix match
 function globToRegex(glob) {
-  // Escape regex metacharacters, then re-expand glob tokens.
-  const escaped = glob.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  // Escape regex metacharacters, then re-expand glob tokens. `?` is escaped to
+  // a literal (not left as a regex 0-or-1 quantifier) — the manifest globs are
+  // exact-path / prefix patterns, never POSIX single-char wildcards.
+  const escaped = glob.replace(/[.+^${}()|[\]\\?]/g, "\\$&");
   const withStars = escaped
     .replace(/\*\*/g, "__DOUBLESTAR__")
     .replace(/\*/g, "[^/]*")
@@ -756,7 +763,11 @@ function emitSkillTreeWithOverlays({ skillName, skillSrc, skillOut, cli, lang })
           ? result.destRelPath.slice(skillName.length + 1)
           : result.destRelPath;
         const outFile = path.join(skillOut, destBelowSkill);
-        safeWriteFileSync(outFile, result.body);
+        // #408 AC#4: translate CC tool-name frontmatter per-CLI (gemini
+        // native names / codex strip) so CC-isms (Read/Glob/Grep) do not
+        // leak verbatim into the skills lane. Body untouched.
+        const outBody = translateSkillFrontmatterTools(result.body, cli);
+        safeWriteFileSync(outFile, outBody);
         continue;
       }
     }
@@ -765,6 +776,310 @@ function emitSkillTreeWithOverlays({ skillName, skillSrc, skillOut, cli, lang })
     const data = fs.readFileSync(absPath);
     safeWriteFileSync(outFile, data);
   }
+}
+
+// ────────────────────────────────────────────────────────────────
+// Rules-reference skill — #408 AC#5-b on-demand skill-channel delivery
+// ────────────────────────────────────────────────────────────────
+// Claude Code auto-loads each path-scoped rule when the operator edits a file
+// matching the rule's `paths:` globs. Codex and Gemini have NO such path-glob
+// loader, so before this skill those rules were undeliverable on the non-CC
+// lanes (surfaced by Validator 18 as the `skill-channel [pending AC#5-b]`
+// backlog — visible, never silent). This emitter closes that gap.
+//
+// DESIGN — index, NOT body-copy. The canonical rule bodies live at the SHARED
+// `.claude/rules/<name>.md` (consumed identically by all three CLIs — rules are
+// NOT rewritten to a per-CLI path; see rewriteClaudePathsForCli). So this skill
+// is a generated INDEX: a table mapping each skill-channel rule to its `paths:`
+// globs (the "when does this apply" signal CC gets from the glob loader) and a
+// pointer to the canonical `.claude/rules/<name>.md` to read on demand. This is
+// single-source-of-truth (zero body duplication → zero drift), budget-neutral on
+// the always-on AGENTS.md/GEMINI.md file AND on the skill listing (ONE entry).
+//
+// The skill-channel rule SET is resolved through the SHARED checkRuleCliDelivery
+// (the same parser Validator 18 uses), so the index provably contains exactly the
+// rules the validator reports as `skill-channel`. `cli_delivery` is a global/
+// neutral field, so the set is lane-identical (Validator 18 fails the emit on any
+// asymmetric exclusion before this runs) — the index is built once and emitted to
+// both lanes. tier/loomOnly/exclusion filters are applied so a --target emit only
+// indexes rules that target actually receives.
+const RULES_REFERENCE_SKILL = "rules-reference";
+const RULES_REFERENCE_DESCRIPTION =
+  "Path-scoped project rules index for Codex/Gemini (no path-glob loader): find " +
+  "which rule governs the file you are editing, then read the cited .claude/rules/<name>.md.";
+
+// Extract the `paths:` YAML list from a rule frontmatter body. Returns string[]
+// (the globs, unquoted). The flat parseFrontmatter cannot read list values, so
+// this is a focused list-scanner handling BOTH YAML list forms a rule may use:
+//   - block form:  `paths:` then indented `  - "glob"` lines
+//   - inline form: `paths: ["a", "b"]`  (3 corpus rules use this — e.g.
+//                  multi-operator-coordination / user-flow-validation carry the
+//                  broadest `**/*` glob inline; missing it mislabels them as
+//                  "no path globs", the exact R1 reviewer/analyst MED/HIGH).
+// Both list forms are parsed through QUOTE-AWARE primitives (not regex token
+// matching). R2 surfaced that a regex split is position-dependent (a brace-glob
+// `"**/*.{py,rs}"` only survived as the FIRST element) and that a greedy
+// `\[(.*)\]` over-captures a trailing comment containing `]`. The scan-based
+// helpers below close both classes: comment-strip and comma-split both respect
+// quote state, so they are correct regardless of element position or comment
+// content.
+
+// Strip a trailing ` #…` comment that sits OUTSIDE single/double quotes. A `#`
+// inside a quoted glob (e.g. `"a#b"`) is preserved; a whitespace-preceded `#`
+// outside quotes (a YAML comment) and everything after it is removed.
+function stripOutsideQuoteComment(line) {
+  let inS = false;
+  let inD = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === "'" && !inD) inS = !inS;
+    else if (c === '"' && !inS) inD = !inD;
+    else if (c === "#" && !inS && !inD && i > 0 && /\s/.test(line[i - 1])) {
+      return line.slice(0, i);
+    }
+  }
+  return line;
+}
+
+// Split a flow-list body on commas that are OUTSIDE quotes, so a brace-glob's
+// internal comma is preserved no matter where the element sits in the list.
+function splitFlowListOutsideQuotes(body) {
+  const out = [];
+  let cur = "";
+  let inS = false;
+  let inD = false;
+  for (const c of body) {
+    if (c === "'" && !inD) {
+      inS = !inS;
+      cur += c;
+    } else if (c === '"' && !inS) {
+      inD = !inD;
+      cur += c;
+    } else if (c === "," && !inS && !inD) {
+      out.push(cur);
+      cur = "";
+    } else {
+      cur += c;
+    }
+  }
+  if (cur.trim() !== "") out.push(cur);
+  return out;
+}
+
+// Trim, unquote a single list item. Comment-stripping is done at the line level
+// (stripOutsideQuoteComment) BEFORE this, so no comment handling is needed here.
+function stripPathItem(raw) {
+  return raw.trim().replace(/^["']|["']$/g, "").trim();
+}
+
+function parseRulePaths(fmBody) {
+  const lines = fmBody.split("\n");
+  const out = [];
+  let inList = false;
+  for (const rawLine of lines) {
+    // Strip any outside-quote trailing comment FIRST — this removes the
+    // greedy-vs-bracket ambiguity entirely (a comment can no longer contain a
+    // `]` that the bracket match would over-capture).
+    const line = stripOutsideQuoteComment(rawLine);
+    // Inline flow-list form: `paths: ["a", "b"]`. Greedy to the LAST `]` is now
+    // safe (the comment is already gone) and preserves a glob char-class like
+    // `**/*.[ch]`. The body is split quote-aware, position-independent.
+    const inline = line.match(/^paths:\s*\[(.*)\]\s*$/);
+    if (inline) {
+      for (const t of splitFlowListOutsideQuotes(inline[1])) {
+        const g = stripPathItem(t);
+        if (g) out.push(g);
+      }
+      return out; // inline form is self-contained; no block follows.
+    }
+    if (/^paths:\s*$/.test(line)) {
+      inList = true;
+      continue;
+    }
+    if (inList) {
+      // Full-line comment inside the block: skip, do NOT terminate the list.
+      // (A comment-only line is empty after stripOutsideQuoteComment iff the
+      // `#` was at column 0 with no preceding space; handle both via trim.)
+      if (line.trim() === "" || /^\s*#/.test(rawLine)) continue;
+      const m = line.match(/^\s*-\s*(.+?)\s*$/);
+      if (m) {
+        const g = stripPathItem(m[1]);
+        if (g) out.push(g);
+        continue;
+      }
+      // A non-list, non-blank, non-comment line ends the paths block.
+      if (line.trim() !== "") break;
+    }
+  }
+  return out;
+}
+
+// Extract the rule's H1 title (first `# ...` after the frontmatter), used as the
+// human-readable label in the index. Falls back to the filename stem. Fence-aware:
+// a `# DO`-style heading inside a ``` code block is NOT mistaken for the title
+// (latent today — every corpus rule opens with its H1 — but cheap to close).
+function ruleTitle(content, file) {
+  const afterFm = content.replace(/^---\n[\s\S]*?\n---\n?/, "");
+  let inFence = false;
+  for (const line of afterFm.split("\n")) {
+    // Both fence forms — backtick (```) and tilde (~~~) — toggle the fence.
+    if (/^\s*(```|~~~)/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    const m = line.match(/^#\s+(.+?)\s*$/);
+    if (m) return m[1].trim();
+  }
+  return file.replace(/\.md$/, "");
+}
+
+// Escape a value before interpolating it into a markdown table cell: the cell
+// delimiter `|` breaks the row, a newline splits it, and a backtick breaks the
+// inline-code span the glob cells render inside (`` `${mdCell(g)}` ``). The input
+// is self-authored trusted rule frontmatter (gated by /codify +
+// self-referential-codify), so this is defense-in-depth, not a trust boundary —
+// no corpus title or glob contains any of these, but completeness keeps a future
+// glob from silently breaking the table.
+function mdCell(s) {
+  return s
+    .replace(/\|/g, "\\|")
+    .replace(/`/g, "'") // backtick → apostrophe (cannot close the code span)
+    .replace(/\r?\n/g, " ");
+}
+
+// Build the rules-reference index body (one SKILL.md). Returns
+// { skillMd: string|null, rules: [{file, title, paths}], skippedContractFail,
+//   skippedNoFrontmatter }. skillMd is null when no rule resolves to skill-channel
+// for the (filtered) set — callers skip the emission rather than ship an empty index.
+//
+// DEFENSIVE, not ordering-dependent: this emitter independently resolves each
+// rule's lane through the SHARED checkRuleCliDelivery and includes ONLY rules
+// whose lane === "skill-channel". A rule whose contract FAILS (asymmetric
+// exclusion, unresolved lane) resolves to lane:null and is excluded HERE,
+// regardless of whether emit.mjs::validateCliDelivery (Validator 18) ran first.
+// Validator 18 is the hard GATE that fails the whole emit on such a rule; this
+// emitter does not rely on that ordering for correctness — it skips the same
+// rules on its own. Contract-failure + missing-frontmatter skips are COUNTED and
+// surfaced (never silent per zero-tolerance Rule 3) so a standalone run flags them.
+function buildRulesReferenceIndex({ tierFilter, loomOnly, exclusions }) {
+  const rulesDir = path.join(REPO, ".claude", "rules");
+  if (!fs.existsSync(rulesDir))
+    return { skillMd: null, rules: [], skippedContractFail: 0, skippedNoFrontmatter: 0 };
+  const files = fs
+    .readdirSync(rulesDir)
+    .filter((f) => f.endsWith(".md"))
+    .sort();
+
+  const rules = [];
+  let skippedContractFail = 0;
+  let skippedNoFrontmatter = 0;
+  for (const file of files) {
+    const relPath = `rules/${file}`;
+    // loom-only rules never ship to any consumer.
+    if (loomOnly && matchesAnyGlob(relPath, loomOnly)) continue;
+    // tier-subscription filter (null = full/dogfood emit → include all).
+    if (tierFilter && !matchesAnyGlob(relPath, tierFilter)) continue;
+    const content = fs.readFileSync(path.join(rulesDir, file), "utf8");
+    const fm = content.match(/^---\n([\s\S]*?)\n---/);
+    if (!fm) {
+      // emit.mjs Validator 14 is the hard gate on missing frontmatter; count
+      // here so a standalone emit surfaces it rather than dropping it silently.
+      skippedNoFrontmatter++;
+      continue;
+    }
+    // Resolve the lane via the SHARED parser, using the SAME per-lane manifest
+    // exclusion read the real emit uses (Validator 18's exact computation).
+    const manifest = {
+      codex: matchesAnyGlob(relPath, exclusions.codex || []),
+      gemini: matchesAnyGlob(relPath, exclusions.gemini || []),
+    };
+    const res = checkRuleCliDelivery(fm[1], manifest);
+    if (res.lane !== "skill-channel") {
+      // A contract FAILURE (lane:null + failures — asymmetric exclusion /
+      // unresolved lane) is distinct from a legitimate non-skill-channel lane
+      // (baseline / cc-only / n/a-skill-embedded). Count the former so it is
+      // visible even if this emitter runs without emit.mjs's Validator 18 gate.
+      if (res.lane === null && res.failures && res.failures.length) skippedContractFail++;
+      continue;
+    }
+    rules.push({
+      file,
+      title: ruleTitle(content, file),
+      paths: parseRulePaths(fm[1]),
+    });
+  }
+
+  if (rules.length === 0)
+    return { skillMd: null, rules: [], skippedContractFail, skippedNoFrontmatter };
+
+  const rows = rules
+    .map((r) => {
+      const globs = r.paths.length
+        ? r.paths.map((g) => `\`${mdCell(g)}\``).join(", ")
+        : "_(no path globs — consult by domain relevance)_";
+      return `| ${mdCell(r.title)} | ${globs} | \`.claude/rules/${r.file}\` |`;
+    })
+    .join("\n");
+
+  const skillMd = `---
+name: ${RULES_REFERENCE_SKILL}
+description: ${RULES_REFERENCE_DESCRIPTION}
+---
+
+# Rules Reference — Path-Scoped Project Rules (on-demand index)
+
+<!-- GENERATED by .claude/bin/emit-cli-artifacts.mjs::emitRulesReferenceSkill
+     (#408 AC#5-b). Source of truth: .claude/rules/*.md frontmatter.
+     DO NOT edit by hand — regenerated on every emit. -->
+
+Claude Code auto-loads each rule below when you edit a file matching its
+\`paths:\` globs. **Codex and Gemini have no path-glob rule loader** — so this
+index IS your delivery channel. Find the rule(s) whose globs match the file or
+domain you are working on, then **read the cited \`.claude/rules/<name>.md\`**
+(the canonical rule body, shared verbatim across all CLIs) before proceeding.
+A path-scoped rule you have not read is a rule you are not honoring.
+
+| Rule | Applies when editing (paths) | Read |
+| ---- | ---------------------------- | ---- |
+${rows}
+
+${rules.length} path-scoped rule${rules.length === 1 ? "" : "s"} indexed.
+`;
+  return { skillMd, rules, skippedContractFail, skippedNoFrontmatter };
+}
+
+// Emit the rules-reference skill to both lanes' output trees (the --cli filter's
+// post-hoc tree deletion in main() drops the unwanted lane, mirroring emitSkills).
+function emitRulesReferenceSkill({ outDir, exclusions, tierFilter, loomOnly, verbose }) {
+  const stats = { codex: 0, gemini: 0, rules: 0, skippedContractFail: 0, skippedNoFrontmatter: 0 };
+  const { skillMd, rules, skippedContractFail, skippedNoFrontmatter } = buildRulesReferenceIndex({
+    tierFilter,
+    loomOnly,
+    exclusions,
+  });
+  stats.skippedContractFail = skippedContractFail;
+  stats.skippedNoFrontmatter = skippedNoFrontmatter;
+  // Surface contract-failure / missing-frontmatter skips loudly (never silent per
+  // zero-tolerance Rule 3). These are the hard-gate cases emit.mjs Validator 18 /
+  // Validator 14 fail on; if this emitter runs standalone, the advisory makes the
+  // decoupling visible rather than dropping the rule without a trace.
+  if (skippedContractFail || skippedNoFrontmatter) {
+    process.stderr.write(
+      `emit-cli-artifacts: rules-reference index skipped ${skippedContractFail} ` +
+        `contract-failing + ${skippedNoFrontmatter} missing-frontmatter rule(s) — ` +
+        `run emit.mjs (Validator 18/14) to see the failing rule names.\n`,
+    );
+  }
+  if (!skillMd) return stats; // empty index → emit nothing.
+  stats.rules = rules.length;
+  for (const cli of ["codex", "gemini"]) {
+    const outFile = path.join(outDir, cli, "skills", RULES_REFERENCE_SKILL, "SKILL.md");
+    safeWriteFileSync(outFile, skillMd);
+    stats[cli] = 1;
+    if (verbose) console.log(`  ${cli.padEnd(7)} skills/${RULES_REFERENCE_SKILL}/ (${rules.length} rules)`);
+  }
+  return stats;
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -824,6 +1139,104 @@ function translateCcToolsToGemini(toolsRaw) {
     translated.push("list_directory");
   }
   return translated;
+}
+
+// ────────────────────────────────────────────────────────────────
+// Skill frontmatter tool-name translation (#408 AC#4)
+// ────────────────────────────────────────────────────────────────
+// The SKILLS lane historically byte-copied CC tool-name frontmatter
+// (`tools:\n  - Read\n  - Glob\n  - Grep`) verbatim into both Codex and
+// Gemini emissions — the cross-CLI-parity gap #408 AC#4 names. The AGENTS
+// lane already translates (emitGeminiAgents → translateCcToolsToGemini)
+// or strips (emitCodexAgentPrompts drops `tools:` entirely); this brings
+// the skills lane to the SAME per-CLI contract:
+//   - gemini: translate each CC token to its native name (CC_TO_GEMINI_TOOLS),
+//     preserving the multi-line YAML list form. CC-only / unknown tokens
+//     (e.g. Task) drop. Unlike the agents translator this does NOT inject
+//     list_directory — skill `tools:` declares ONLY what the SKILL.md body
+//     invokes (skill-authoring.md "Tools List Mismatch"), so over-declaring
+//     would violate that contract.
+//   - codex: strip the `tools:` block entirely, mirroring emitCodexAgentPrompts
+//     (Codex prompts/skills carry no native per-artifact tool restriction).
+// Operates ONLY on the leading frontmatter block — the body (including the
+// DO-NOT example blocks that legitimately contain CC-isms like
+// `Agent(subagent_type=…)` to teach what NOT to write, per #408 C3b) is
+// never touched. Also normalizes the legacy `allowed-tools:` key to `tools:`
+// on translate (skill-authoring.md § "Tools Field" rename-at-distribute).
+//
+// Robustness (each pins a redteam-surfaced edge case, all with regression
+// fixtures in skill-frontmatter-tool-translation.test.mjs):
+//   - CRLF: the fence + line split are CRLF-tolerant and the source EOL is
+//     preserved on rebuild — a CRLF skill no longer silently no-ops and leaks
+//     CC tokens.
+//   - trailing comment: a YAML `#` comment on the key line (`tools:  # note`,
+//     or `tools: Read  # note`) is stripped BEFORE the inline-vs-multiline
+//     decision, so the following list items are still consumed rather than
+//     orphaned into a dangling-list malformed-YAML leak.
+//   - idempotent: tokens already in native form (values of CC_TO_GEMINI_TOOLS)
+//     pass through unchanged, so a second gemini pass is a true no-op instead
+//     of dropping the block. The single call site (emitSkillTreeWithOverlays)
+//     still invokes exactly once per emit.
+// A body with no frontmatter, or frontmatter with no tools:/allowed-tools:
+// block, round-trips byte-identical on both lanes.
+function translateSkillFrontmatterTools(body, cli) {
+  if (cli !== "codex" && cli !== "gemini") return body;
+  // CRLF-tolerant fence; the source EOL is preserved on reconstruction.
+  const fmMatch = body.match(/^(---\r?\n)([\s\S]*?\r?\n)(---\r?\n)([\s\S]*)$/);
+  if (!fmMatch) return body; // no frontmatter → nothing to translate
+  const [, open, fmRaw, close, rest] = fmMatch;
+  const eol = open.includes("\r\n") ? "\r\n" : "\n";
+  const geminiNative = new Set(Object.values(CC_TO_GEMINI_TOOLS));
+  const lines = fmRaw.split(/\r?\n/);
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const m = line.match(/^(tools|allowed-tools):\s*(.*)$/);
+    if (!m) {
+      out.push(line);
+      continue;
+    }
+    // Strip a trailing YAML comment (`# …` at start, or ` # …` after the
+    // value) from the key line BEFORE the inline-vs-multiline decision —
+    // otherwise a commented key takes the inline branch, mis-parses the
+    // comment as a token, and orphans the following list items.
+    let inline = m[2];
+    const hashIdx = inline.search(/(^|\s)#/);
+    if (hashIdx !== -1) inline = inline.slice(0, hashIdx);
+    inline = inline.trim();
+    let tokens;
+    if (inline) {
+      tokens = inline
+        .replace(/^\[/, "")
+        .replace(/\]$/, "")
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean);
+    } else {
+      tokens = [];
+      let j = i + 1;
+      while (j < lines.length && /^\s*-\s+/.test(lines[j])) {
+        tokens.push(lines[j].replace(/^\s*-\s+/, "").trim());
+        j++;
+      }
+      i = j - 1; // advance past the consumed list items
+    }
+    if (cli === "codex") {
+      // strip the block entirely (mirror emitCodexAgentPrompts)
+      continue;
+    }
+    // gemini: translate CC tokens → native; pass already-native tokens through
+    // (idempotency); drop CC-only/unknown (Task). Normalize key → tools.
+    const translated = tokens
+      .map((t) => CC_TO_GEMINI_TOOLS[t] || (geminiNative.has(t) ? t : null))
+      .filter(Boolean);
+    if (translated.length > 0) {
+      out.push("tools:");
+      for (const t of translated) out.push(`  - ${t}`);
+    }
+    // translated empty → drop the block (no native gemini equivalent)
+  }
+  return `${open}${out.join(eol)}${close}${rest}`;
 }
 
 // Agents excluded from Codex specialist-prompt emission. Mirrors the
@@ -1078,6 +1491,7 @@ function main() {
   const report = {
     commands: emitCommands({ outDir, exclusions, tierFilter, loomOnly, lang, verbose: args.verbose }),
     skills: emitSkills({ outDir, exclusions, tierFilter, loomOnly, lang, verbose: args.verbose }),
+    rulesReference: emitRulesReferenceSkill({ outDir, exclusions, tierFilter, loomOnly, verbose: args.verbose }),
     codexAgentPrompts:
       onlyCli === "gemini"
         ? { codex: 0, skipped: 0 }
@@ -1109,6 +1523,9 @@ function main() {
     `  gemini: commands=${report.commands.gemini} skills=${report.skills.gemini} agents=${report.geminiAgents.gemini}`,
   );
   console.log(
+    `  rules-reference skill: codex=${report.rulesReference.codex} gemini=${report.rulesReference.gemini} (${report.rulesReference.rules} path-scoped rules indexed) [#408 AC#5-b]`,
+  );
+  console.log(
     `  skipped (exclusions): commands=${report.commands.skipped} skills=${report.skills.skipped} codex-agent-prompts=${report.codexAgentPrompts.skipped} gemini-agents=${report.geminiAgents.skipped}`,
   );
   console.log(`  output: ${outDir}`);
@@ -1126,6 +1543,8 @@ if (invokedAsScript) {
 }
 
 export {
+  REPO,
+  safeWriteFileSync,
   loadExclusions,
   loadLoomOnly,
   loadTiers,
@@ -1134,9 +1553,19 @@ export {
   buildTierFilter,
   composeArtifactBody,
   parseFrontmatter,
+  walkFiles,
+  matchesAnyGlob,
   emitCommands,
   emitSkills,
+  emitRulesReferenceSkill,
+  buildRulesReferenceIndex,
+  parseRulePaths,
+  ruleTitle,
+  mdCell,
+  stripOutsideQuoteComment,
+  splitFlowListOutsideQuotes,
   emitCodexAgentPrompts,
   emitGeminiAgents,
   translateCcToolsToGemini,
+  translateSkillFrontmatterTools,
 };

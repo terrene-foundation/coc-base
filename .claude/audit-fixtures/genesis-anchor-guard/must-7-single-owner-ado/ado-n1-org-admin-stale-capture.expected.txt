@@ -1,0 +1,2 @@
+accepted: false
+predicate: MUST-7 ADO (c) freshness — ado_api_org_admin_capture older than MIGRATION_LIVENESS_TTL relative to record ts; rejected (stale) at both ceremony AND fold layers (replay defense)

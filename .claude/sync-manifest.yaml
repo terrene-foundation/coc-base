@@ -396,13 +396,21 @@ cli_variants:
           # autonomous-execution.md MUST Rule 4 (same-class gap, ≤5 LOC).
           "git.md": 6300
           "communication.md": 1800
-          "verify-resource-existence.md": 4200
+          # verify-resource-existence.md DEMOTED baseline → path-scoped
+          # 2026-06-08 (#408 AC#5-c, journal/0238) to free ~5,021 B baseline
+          # emission across all lanes so the rs language lane can absorb the
+          # framework-first promotion. Per-rule baseline budget no longer
+          # applies (path-scoped rules are not in the 10-rule baseline the
+          # v6.2 floor measures); entry removed like the worktree-isolation.md
+          # and sweep-completeness.md demotion precedents above.
           # 2800 → 3600 (2026-05-16, journal 0078): the user-approved
           # User-Authorized Exception added a 5-condition load-bearing
           # MUST block. Body is already abridged to skeleton (examples,
           # BLOCKED corpus, post-mortem all in the rule-extract). 3600 is
           # the legitimate load-bearing floor; in line with sibling
-          # baseline rules (verify-resource-existence.md 4200, git.md 6300).
+          # baseline rules (communication.md 1800, git.md 6300).
+          # (verify-resource-existence.md was demoted out of baseline
+          # 2026-06-08 per #408 AC#5-c, so it is no longer a budget sibling.)
           "repo-scope-discipline.md": 3600
           # sweep-completeness.md DEMOTED to path-scoped at v6.2-Shard-3
           # (2026-05-15) — frees ~3,550 B baseline emission across both
@@ -420,6 +428,15 @@ cli_variants:
           # across all .claude/rules/ + sync-manifest.yaml edits — wider
           # than path predicate suggests.
           "coc-sync-landing.md": 1400
+          # framework-first.md PROMOTED path-scoped → baseline 2026-06-08
+          # (#408 AC#5-c, journal/0237, co-owner-approved C-A). Compact
+          # baseline body = binding table + Raw-Is-Wrong (measured 1,569 B
+          # abridged); depth extracted to the on-demand framework-first
+          # skill (Rule-10 path-(a) paired extraction). 2000 B budget gives
+          # ~430 B headroom over the measured body. The rs rule variant was
+          # removed (compact body is language-agnostic); rs binding framing
+          # preserved in skills/framework-first/SKILL.md.
+          "framework-first.md": 2000
           # NOTE: self-referential-codify.md is intentionally NOT budgeted here.
           # It was demoted baseline → path-scoped 2026-05-18 (journal/0102) for
           # Codex/Gemini emission fit; per_rule_size_budget_bytes is a
@@ -542,6 +559,144 @@ parity_enforcement:
       - "frontmatter.scope"
     warn_on_drift_in_slots:
       - "examples"
+
+  # ── Provenance-event cross-CLI parity (F101-4 / loom#411 item 5) ──────────
+  # The CC lane captures decision-provenance events via the F101-2 hooks
+  # (provenance-capture-prompt.js → HumanInput; provenance-capture-tool.js →
+  # Delegation/Decision/Action). This block declares, per event KIND × per
+  # target CLI lane, whether the equivalent capture is `wired` (the validate-emit
+  # `provenance-parity` check asserts the named hook is registered in that lane's
+  # emit target) or `deferred` (an EXPLICIT, tracked known gap — never a silent
+  # drop). Source of truth for the captured-kind set is the HOOKS, not this
+  # declaration: the check extracts the kind:"…" literals the capture hooks emit,
+  # validates each is in provenance-event.js::EVENT_KINDS, and byte-compares
+  # (coc-sign::canonicalSerialize) against cc_capture below — drift is a hard
+  # finding (the byte-exact seam discipline, csq journal 0017). A captured kind
+  # with NO lane declaration is a SILENT DROP → FAIL (the #408 failure mode).
+  # List items are pipe-delimited single strings (no YAML dep at validator time):
+  #   cc_capture:        "<kind>|<hook-file>|<cc-event>"
+  #   lanes (deferred):  "<lane>|<kind>|deferred|<#tracking>|<reason…>"
+  #   lanes (wired):     "<lane>|<kind>|wired|<hook-file>|<lane-event>"
+  # Current state: CC captures all 4 kinds. Item 1 (PR #439) wired 3 Codex/Gemini
+  # cells (codex·Action, gemini·Action, gemini·Decision); #440 wires a 4th
+  # (codex·Decision via the codex-mcp-guard apply_patch capture side-effect). The
+  # remaining 4 cells stay `deferred` with tracking #411 + an honest reason, so the
+  # gap is explicit + tracked (value-prioritization.md MUST-2, non-decaying), not
+  # silently absent. When a lane's capture is wired, flip its cell `deferred`→`wired`;
+  # the validator verifies the hook is genuinely reachable — via the native lane
+  # emit target, OR (suffix `@codex-mcp-guard`) via the guard's exported CAPTURE_*
+  # contract. Contract source: rules/cross-cli-parity.md + loom#411.
+  provenance_parity:
+    enabled: true
+    cc_capture:
+      - "HumanInput|provenance-capture-prompt.js|UserPromptSubmit"
+      - "Action|provenance-capture-tool.js|PreToolUse"
+      - "Decision|provenance-capture-tool.js|PreToolUse"
+      - "Delegation|provenance-capture-tool.js|PreToolUse"
+    lanes:
+      - "codex|HumanInput|deferred|#411|Codex native hooks fire on shell only; UserPromptSubmit slot vestigial/unconfirmed-firing — UNVERIFIABLE from loom (item 1)"
+      - "codex|Action|wired|provenance-capture-tool.js|PreToolUse shell (native, the cell's wired-proof) — classify() maps shell/unified_exec to Action; the apply_patch Action slice is ADDITIONALLY captured via the codex-mcp-guard side-effect, verified by codex-guard-capture.test.mjs not this parity cell (#440)"
+      - "codex|Decision|wired|provenance-capture-tool.js@codex-mcp-guard|apply_patch V4A path → Decision via the codex-mcp-guard capture side-effect (codex#16732: apply_patch has no native hook; #440)"
+      - "codex|Delegation|deferred|#411|Codex delegation is inline-cat injection via bin/coc — not a tool call, no capture point exists (item 1)"
+      - "gemini|HumanInput|deferred|#411|BeforeModel is closest but its stdin payload (carries prompt text?) is UNVERIFIABLE without a live Gemini run (item 1)"
+      - "gemini|Action|wired|provenance-capture-tool.js|BeforeTool — classify() maps write_file/replace/run_shell_command to Action"
+      - "gemini|Decision|wired|provenance-capture-tool.js|BeforeTool — classify() maps write_file on a journal-DECISION path to Decision"
+      - "gemini|Delegation|deferred|#411|@agent fires BeforeAgent (subagent lifecycle), a different payload shape than classify() consumes — BeforeAgent shape unverified (item 1)"
+    # F128/#445 — DEPTH axis (subagent-internal capture). Orthogonal to the
+    # {kind}×{cli} top-level matrix above: it does NOT flip a cell — it asks
+    # whether provenance capture reaches a delegated subagent's INTERNAL tool
+    # calls. Per loom#441 design pass (journal/0220): CC supports
+    # agent-frontmatter PreToolUse hooks ("Hooks in skills and agents" — all
+    # events supported); Codex/Gemini have no per-agent hook primitive.
+    # Format: "<lane>|<status>|<proof-or-tracking>|<reason…>". Status:
+    #   wired               — a real per-agent hook is injected + reachable
+    #   residual-absent     — the capability does not exist on this CLI
+    #   residual-unverified — a path may exist but is not live-verified (not shipped)
+    # The validator (check provenance-subagent-hooks) asserts a `wired` cc cell
+    # against actual .claude/agents/** frontmatter presence (wired-but-absent guard).
+    subagent_internal_capture:
+      - "cc|wired|provenance-capture-tool.js|agent-frontmatter PreToolUse(*) injected into every .claude/agents/**/*.md, mirroring the top-level settings.json registration (matcher * / timeout 5); the emit pipeline strips the key for codex/gemini (parseFrontmatter ignores nested blocks). wired = STRUCTURALLY PRESENT (injected + validate-emit check-11 verified) AND CAPTURE-LAYER FIRING-CONFIRMED — subagent-internal tool calls reach the session ledger, empirically reproduced: walk journal/0223 (single probe sha256 75449d38… that the parent never ran) + journal/0224 redteam corroboration, count corrected per journal/0225 (72 subagent Bash Action captures clustered 10:20-10:30Z while the parent loop was suspended on the background workflow; the single 10:31:35Z in-window event is the parent's own HumanInput resume marker, not a capture → temporal-elimination attribution). The hook FIRES inside subagents. ATTRIBUTION remains coarse (durably): subagent-vs-parent is NOT field-distinguishable — the captured Action carries operator_ref but NO agent_id/agent_type (#448), AND no Delegation event corroborates the spawn because classify() DELEGATION_TOOLS={Task} misses this runtime's spawn primitive (0 Delegation events across all ledgers) — so subagent-origin rests on temporal/sha elimination, not a self-contained ledger predicate. RESIDUAL #448 (extended): extract agent_id (schema_version:2) for a NAMED-subagent re-walk event + recognize the spawn primitive so delegations capture as Delegation — capture (the #445 goal) works and is reproduced; per-entity ATTRIBUTION is the tracked follow-up"
+      - "codex|residual-absent|#445|Codex hooks are global-only + Bash-only; .codex 'agents' are prose prompts (.codex/prompts/specialist-*.md), not executable agents; NO per-agent frontmatter hook primitive exists (verify-resource-existence.md MUST-3 → documented residual, not fabricated wiring)"
+      - "gemini|residual-unverified|#445|Gemini has session-global BeforeAgent but NO per-agent frontmatter hooks; a BeforeAgent dispatch-on-agent-name path is feasible but its payload schema is UNVERIFIED — not shipped per verify-resource-existence.md MUST-2"
+
+  # ── Hook delivery lane declaration (#408 AC#6 / journal/0241) ─────────────
+  # Mirrors the per-RULE cli_delivery contract (AC#5-a / Validator 18) for
+  # HOOKS. Every .claude/hooks/*.js MUST declare exactly ONE non-CC delivery
+  # lane; the validate-emit `hook-delivery` check FAILS on any hook on disk
+  # with no declaration (a SILENT DROP — the #408 failure mode) AND on any
+  # declaration with no hook on disk (orphan). Hooks have no frontmatter, so
+  # the declaration lives here (like provenance_parity).
+  #
+  # SCOPE: the GLOBAL hook tree (.claude/hooks/*.js) only. Variant-overlay hooks
+  # (variants/<lang>/hooks/*.js — e.g. py detect-package-manager.js) are
+  # LANGUAGE-axis overlays delivered per-language to consumers; their cross-CLI
+  # delivery lane is a separate axis NOT covered here (a future AC may extend the
+  # scan). Documented so the boundary is explicit, not a silent omission.
+  # Lanes:
+  #   mcp-guard  — mirrored to .codex-mcp-guard (Codex). The AUTHORITATIVE set
+  #     is the FRESH extract-policies `res.policies` table (regenerated on emit),
+  #     NOT the stale committed policies.json — the hook-delivery check
+  #     cross-validates every mcp-guard / cc-only label against a live extraction.
+  #   provenance — capture hook; per-lane delivery declared in provenance_parity
+  #   cc-only    — CC-runtime / loom-workflow-specific; NOT in the fresh extraction
+  # Items: "<hook>.js|<lane>|<reason>" (pipe-delimited; the parseProvenanceParity
+  # idiom — no YAML dep at validator time).
+  #
+  # TRACKED-DEFERRED findings (behavioral codex-mcp-guard changes, OUT of AC#6
+  # declaration scope — declared here so they are never silent, per
+  # verify-resource-existence.md MUST-4):
+  #   DF-AC6-1: extract-policies.mjs::CC_TO_CODEX_TOOLS lacks the
+  #     `Edit|Write|MultiEdit|NotebookEdit` matcher key settings.json uses, so a
+  #     FUTURE mutating-tool guard under that matcher silently does NOT mirror to
+  #     Codex. gitignored-claude-warn.js is the current VICTIM (Edit-only matcher
+  #     → dropped from the fresh extraction → declared cc-only); enforce-framework-
+  #     first.js is doubly non-mirrorable (PostToolUse, which the extractor skips
+  #     entirely, AND the Edit-matcher gap). Latent — the deferred fix is to add
+  #     the full matcher form (and, separately, PostToolUse support).
+  #   DF-AC6-2: the committed .codex-mcp-guard/policies.json is STALE IN BOTH
+  #     DIRECTIONS vs a fresh extraction — it LISTS gitignored-claude-warn.js
+  #     (Edit-only, fresh drops it) and MISSES genesis-anchor-guard/operator-gate/
+  #     signing-mutation-guard (Bash-registered, fresh includes them). The fresh
+  #     res.policies set (the 5 mcp-guard hooks below) is authoritative; the
+  #     committed snapshot regenerates on the next emit. Couple-fix with DF-AC6-1.
+  hook_delivery:
+    enabled: true
+    declarations:
+      # mcp-guard (5) — the fresh extract-policies res.policies set (Bash-matcher
+      # PreToolUse guards with a classifiable predicate shape). Cross-validated by
+      # the hook-delivery check against a LIVE extraction (NOT committed policies.json).
+      - "validate-bash-command.js|mcp-guard|Bash destructive-op tripwire (git reset/clean); mirrored to shell/unified_exec (Bash-only)"
+      - "posture-gate.js|mcp-guard|trust-posture gate; mirrored to shell/unified_exec (Bash) + apply_patch (edit matcher, @coc-codex-edit-gate marker, FF-AC6-1)"
+      - "genesis-anchor-guard.js|mcp-guard|genesis trust-root commit guard; mirrored to shell/unified_exec (Bash-only; no edit-matcher registration)"
+      - "signing-mutation-guard.js|mcp-guard|degraded-mode signing-key mutation guard; mirrored to shell/unified_exec (Bash) + apply_patch (edit matcher, @coc-codex-edit-gate marker, FF-AC6-1)"
+      - "operator-gate.js|mcp-guard|multi-operator 4-eyes gate-approval; mirrored to shell/unified_exec (Bash) + apply_patch (edit matcher, @coc-codex-edit-gate marker, FF-AC6-1)"
+      # provenance (2) — per-lane delivery declared in provenance_parity above
+      - "provenance-capture-prompt.js|provenance|HumanInput capture; lanes declared in provenance_parity"
+      - "provenance-capture-tool.js|provenance|Action/Decision/Delegation capture; lanes in provenance_parity"
+      # cc-only (23) — CC-runtime / loom-substrate; NOT in the fresh extraction
+      - "integrity-guard.js|cc-only|gates Edit/Write to codify/<id>-<date> branches; coordination substrate (codify-branch state) — omits @coc-codex-edit-gate → excluded from apply_patch (FF-AC6-1 AC#2), not mirrored"
+      - "journal-write-guard.js|cc-only|journal slot-reservation + overwrite guard; coordination substrate (journal-slot fold) — omits @coc-codex-edit-gate → excluded from apply_patch (FF-AC6-1 AC#2), not mirrored"
+      - "adjacency-leasecheck.js|cc-only|multi-operator claim-adjacency lease check; coordination substrate (claims/roster, auto-claim writes) — omits @coc-codex-edit-gate → excluded from apply_patch (FF-AC6-1 AC#2), not mirrored"
+      - "adjacency-heartbeat.js|cc-only|multi-operator session heartbeat (matcher *); no classifiable predicate, not mirrored"
+      - "gitignored-claude-warn.js|cc-only|edit-of-gitignored-.claude display warning; not a trust gate — omits @coc-codex-edit-gate → excluded from apply_patch by design (FF-AC6-1; the DF-AC6-1 brittle-matcher drop is now an intentional marker-driven exclusion)"
+      - "fold-amendment-paired-with-helper.js|cc-only|genesis fold-amendment paired-landing gate; not mirrored"
+      - "multi-operator-sessionstart.js|cc-only|SessionStart peer-state banner; CC SessionStart event"
+      - "multi-operator-sessionend.js|cc-only|SessionEnd claim-release + checkpoint; CC SessionEnd event"
+      - "session-start.js|cc-only|CC SessionStart lifecycle (no Codex/Gemini event equivalent)"
+      - "session-end.js|cc-only|CC SessionEnd lifecycle"
+      - "stop.js|cc-only|CC Stop-event violation detection"
+      - "pre-compact.js|cc-only|CC PreCompact lifecycle"
+      - "user-prompt-rules-reminder.js|cc-only|CC UserPromptSubmit rules reminder"
+      - "detect-violations.js|cc-only|CC Read-matcher + Stop violation detection"
+      - "auto-format.js|cc-only|CC PostToolUse auto-format"
+      - "enforce-framework-first.js|cc-only|framework-first enforcement on edits; PostToolUse-registered (extractor reads PreToolUse only) AND Edit-matcher gap — DF-AC6-1"
+      - "integration-hygiene.js|cc-only|CC integration-hygiene gate"
+      - "log-triage-gate.js|cc-only|CC log-triage gate"
+      - "pre-commit-branch-scope.js|cc-only|git pre-commit branch-scope hook (not a CLI-runtime hook)"
+      - "probe-phase-guard.js|cc-only|CC Read|Grep|Glob probe-phase guard"
+      - "validate-deployment.js|cc-only|deployment validation gate; CC-workflow"
+      - "validate-prod-deploy.js|cc-only|prod-deploy validation gate; CC-workflow"
+      - "validate-workflow.js|cc-only|workflow validation gate; CC-workflow"
 
 tiers:
   cc:
@@ -671,6 +826,10 @@ tiers:
     - rules/multi-operator-coordination.md
     - rules/knowledge-convergence.md
     - rules/user-flow-validation.md
+    # wave-loop.md (2026-06-06): universal CO methodology — the wave-gated
+    # redteam→codify→(re-)todos→implement loop applies to any project (py/rs/rb
+    # + base), not loom-only. Path-scoped (workspaces/todos/commands/plans).
+    - rules/wave-loop.md
   coc:
     # rules/terrene-naming.md + rules/independence.md — removed from COC
     # distribution 2026-05-31 (FB) — Foundation messaging governance, not
@@ -741,6 +900,12 @@ tiers:
     - skills/04-kaizen/**
     - skills/05-kailash-mcp/**
     - skills/06-cheatsheets/**
+    # skills/framework-first/** added 2026-06-08 (#408 AC#5-c, journal/0237):
+    # on-demand depth for the framework-first baseline rule (four-layer
+    # hierarchy, DO/DO-NOT, specialist-consultation lookup table,
+    # version-stable integration, rs-bindings framing). Synced to coc
+    # consumers alongside the other domain skills.
+    - skills/framework-first/**
     - skills/08-nodes-reference/**
     - skills/12-testing-strategies/**
     - skills/16-validation-patterns/**
@@ -1063,10 +1228,10 @@ variants:
     rs: variants/rs/rules/security.md
     rb: null
     prism: variants/prism/rules/security.md
-  rules/framework-first.md:
-    py: null
-    rs: variants/rs/rules/framework-first.md
-    rb: null
+  # rules/framework-first.md variant overlay REMOVED 2026-06-08 (#408 AC#5-c,
+  # journal/0237): promoted path-scoped → baseline with a language-agnostic
+  # compact body (binding table + Raw-Is-Wrong); the rs binding framing moved
+  # to skills/framework-first/SKILL.md, so no rule-level rs overlay remains.
   rules/e2e-god-mode.md:
     py: null
     rs: variants/rs/rules/e2e-god-mode.md
@@ -1820,6 +1985,8 @@ loom_only:
   - agents/management/todo-manager.md     # why: loom-only management agent. Was accidentally in `coc` tier (synced to cc consumers); removed from `coc` at F104.
   - agents/management/gh-manager.md       # why: loom-only management agent. Was accidentally in `coc` tier (synced to cc consumers); removed from `coc` at F104.
   - agents/open-source-strategist.md      # why: Terrene Foundation open-core strategy (four-layer model, Foundation-owns-all-IP, EATP/Kailash open-vs-proprietary boundary). loom-only per FB 2026-05-31 (journal/0184). Paired `obsoleted:` entries purge the stale consumer + Gemini copies.
+  - disclosure-tenant-denylist.json       # why: customer-identity / tenant token list the Gate-2 disclosure scanner (bin/scan-synced-disclosure.mjs `customer-identity-token` shape) flags against the SYNCED surface. TOP-LEVEL .claude/ file (NOT under bin/**) so it sits outside every synced-tier glob — this positive loom_only entry keeps it out of /sync without tripping loom-only-mutual-exclusion. The literal tokens must never reach a consumer (a consumer greps the synced scanner/list source → the leak the shape exists to prevent). At a consumer the file is absent → the shape is inert. loom-only per journal/0214 (loom#411 governance-as-DNA disclosure scrub).
+  - public-release/                        # why: loom-only source dir for the PUBLIC-FORK pipeline (scripts/publish-to-public.mjs) — holds the public README + Apache-2.0 LICENSE the pipeline copies into the terrene-foundation/loom snapshot. NOT framework a COC consumer uses; loom-internal publish machinery (same class as agents/management/*). Top-level .claude/ dir outside every synced-tier glob, so this loom_only entry keeps it out of /sync without tripping loom-only-mutual-exclusion. loom-only per journal/0215 (public-fork lane).
 
 # ─────────────────────────────────────────────────────────────────
 # EXCLUSIONS

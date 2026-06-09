@@ -114,6 +114,18 @@ function buildReapRecord(opts) {
       error: `basis '${opts.basis}' not in {co-signed, owner-2-of-N, self-reap}`,
     };
   }
+  // Azure DevOps port (Shard 2c): provider selects the distinct-bound-member
+  // capture field name (gh_api_collaborators_capture vs ado_api_members_capture)
+  // + sets content.provider so fold-rule-reap dispatches the matching
+  // distinctness predicate (principalsEqual vs loginsEqual). Absent ⇒ github
+  // (content.provider field stays ABSENT → byte-identical GitHub records).
+  const provider = opts.provider || "github";
+  if (provider !== "github" && provider !== "azure-devops") {
+    return {
+      ok: false,
+      error: `provider '${provider}' not in {github, azure-devops}`,
+    };
+  }
   if (
     !opts.pinnedVictimHeartbeat ||
     typeof opts.pinnedVictimHeartbeat !== "object"
@@ -250,16 +262,31 @@ function buildReapRecord(opts) {
     },
     basis: opts.basis,
   };
-  // M3 HIGH-2 / R5-S-07: non-self-reap bases require the gh-api
-  // collaborators capture. The engine-side predicate verifies it.
+  // M3 HIGH-2 / R5-S-07: non-self-reap bases require the fresh members
+  // capture in the provider-correct field. The engine-side predicate verifies
+  // it. ADO tags content.provider so the fold reads ado_api_members_capture +
+  // applies the principalsEqual distinctness predicate.
+  if (provider === "azure-devops") {
+    content.provider = "azure-devops";
+  }
   if (!isSelfReap) {
-    if (!opts.ghApiCollaboratorsCapture) {
-      return {
-        ok: false,
-        error: `basis '${opts.basis}' requires ghApiCollaboratorsCapture (R5-S-07 / HIGH-2)`,
-      };
+    if (provider === "azure-devops") {
+      if (!opts.adoMembersCapture) {
+        return {
+          ok: false,
+          error: `basis '${opts.basis}' (azure-devops) requires adoMembersCapture (R5-S-07 / HIGH-2)`,
+        };
+      }
+      content.ado_api_members_capture = opts.adoMembersCapture;
+    } else {
+      if (!opts.ghApiCollaboratorsCapture) {
+        return {
+          ok: false,
+          error: `basis '${opts.basis}' requires ghApiCollaboratorsCapture (R5-S-07 / HIGH-2)`,
+        };
+      }
+      content.gh_api_collaborators_capture = opts.ghApiCollaboratorsCapture;
     }
-    content.gh_api_collaborators_capture = opts.ghApiCollaboratorsCapture;
   }
   const core = {
     type: "reap",

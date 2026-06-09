@@ -19,7 +19,7 @@ Parse `$ARGUMENTS`:
 
 2. In the workspace's `journal/` directory:
    - Count total entries
-   - Count entries by type (DECISION, DISCOVERY, TRADE-OFF, RISK, CONNECTION, GAP)
+   - Count entries by type (DECISION, DISCOVERY, TRADE-OFF, RISK, CONNECTION, GAP, AMENDMENT)
    - List the 5 most recent entries with their date, type, and topic (from frontmatter)
    - Show the highest entry number (for next entry reference)
 
@@ -29,7 +29,7 @@ Parse `$ARGUMENTS`:
 
 ## Action: New Entry
 
-1. Parse the TYPE and topic from arguments. Valid types: DECISION, DISCOVERY, TRADE-OFF, RISK, CONNECTION, GAP.
+1. Parse the TYPE and topic from arguments. Valid types: DECISION, DISCOVERY, TRADE-OFF, RISK, CONNECTION, GAP, AMENDMENT.
 
 2. Reserve the next slot via `.claude/hooks/lib/journal-reserve.js::reserveJournalSlot(dir, {identity, type, topic})`. Under N concurrent operators, scanning `ls journal/` races; the helper returns `{slot, filename, verified_id, person_id, display_id, type, topic, slug}` where the filename carries `<display_id>` to keep concurrent reservations on the same `seq` distinguishable. Frontmatter `verified_id` is authoritative for attribution scans.
 
@@ -39,21 +39,28 @@ Parse `$ARGUMENTS`:
 ---
 type: [TYPE]
 date: [today's date, YYYY-MM-DD]
+author: [human | agent | co-authored — per the journal.md decision tree]
 project: [workspace name]
 topic: [topic description]
 phase:
   [current COC phase: analyze | todos | implement | redteam | codify | deploy]
 verified_id: [from reservation — authoritative attribution]
-person_id: [from reservation]
+person_id: [from reservation — the authority unit]
 display_id:
   [from reservation — appears in filename for collision disambiguation]
 tags: []
+relates_to:
+  [
+    optional — NNNN-slug of the entry this amends/extends/references; REQUIRED for AMENDMENT,
+  ]
 ---
 
 ## [Section heading appropriate to type]
 
 [Content — prompt the user for details if not provided]
 ```
+
+This frontmatter is the canonical contract `rules/journal.md` documents — the two MUST agree. The `author:` value (`human` | `agent` | `co-authored`) is verified against the live per-session provenance ledger per `rules/journal-author-discipline.md`; default to `co-authored` when uncertain. Set it honestly — an unbacked `author: human` is flagged by `journal-write-guard.js`.
 
 4. Type-specific structure:
    - **DECISION**: Sections for Decision, Alternatives Considered, Rationale, Consequences
@@ -62,6 +69,9 @@ tags: []
    - **RISK**: Sections for Risk Identified, Likelihood and Impact, Mitigation, Follow-Up
    - **CONNECTION**: Sections for Connection, Components Linked, Why This Matters
    - **GAP**: Sections for What Is Missing, Why It Matters, How to Resolve
+   - **AMENDMENT**: Sections for What Is Amended (with `relates_to:` the original), What Changed, Why — extends a prior entry, never overwrites it
+
+   **`## For Discussion`** (per `rules/journal.md` Requirements): append 2-3 probing questions (≥1 counterfactual, ≥1 referencing specific data) for analytical types (DISCOVERY, TRADE-OFF, RISK, GAP, CONNECTION) and substantive DECISIONs. A terse **coordination-receipt DECISION** or **AMENDMENT** (closure SHAs, criteria-met tables, redteam dispositions, convergence verdicts, wave-boundary captures per `rules/wave-loop.md` G2) MAY omit it — it must still be self-contained.
 
 5. **On close** — when the entry is finalized (`/wrapup`-time, or explicit `/journal --anchor`), emit a signed `journal-body-anchor` record via `.claude/hooks/lib/journal-body-anchor.js::buildAnchorRecord({journalPath, relPath, slotRecordRef})`. The record pins the file's SHA-256 content hash; the fold predicate re-hashes at fold time and surfaces tamper-detected as a block-grade integrity advisory naming the original signer. Per architecture §5.2 extension (2026-05-20) this closes the journal-body crypto gap a bounded-trust insider with disk access could otherwise exploit unobserved.
 
@@ -82,7 +92,7 @@ tags: []
 
 - **No workspace detected**: Ask the user which workspace to use, or list available workspaces.
 - **Journal directory missing**: Create `journal/` in the workspace and proceed.
-- **Invalid TYPE**: Show the list of valid types (DECISION, DISCOVERY, TRADE-OFF, RISK, CONNECTION, GAP) and ask the user to choose.
+- **Invalid TYPE**: Show the list of valid types (DECISION, DISCOVERY, TRADE-OFF, RISK, CONNECTION, GAP, AMENDMENT) and ask the user to choose.
 - **Numbering gaps**: Acceptable. Always use the highest existing number + 1, regardless of gaps.
 '''
 tools = ["read_file", "glob", "grep_search", "list_directory", "run_shell_command", "write_file"]

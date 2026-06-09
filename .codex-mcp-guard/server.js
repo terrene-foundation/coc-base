@@ -85,6 +85,73 @@ const SUBPROCESS_TIMEOUT_MS = 5000; // cc-artifacts.md Rule 7
 // README.md § Scope.
 const WRAPPED_TOOLS = Object.freeze(["apply_patch", "unified_exec", "shell"]);
 
+// Codex tool → canonical CC tool name. The CC PreToolUse hooks classify by CC
+// tool name: posture-gate / signing-mutation-guard / operator-gate route through
+// `isMutationTool(tool)` / `tool === "Bash"`. This guard REPLAYS those hooks
+// against Codex tool calls, so the synthesized PreToolUse payload MUST present
+// the CC-native tool name — otherwise the hook's tool-name classification no-ops
+// and the gate is registered-but-INERT (FF-AC6-1 walk finding). Translating here
+// also fires the latent DF-AC6-2 shell-lane gap, where posture/signing/operator
+// gates keyed on `tool === "Bash"` never fired against `tool_name: "shell"` (only
+// the command-string-based validate-bash-command worked on that lane).
+// NOTE: this map governs ONLY the policy-evaluation payload (evaluatePolicies);
+// the provenance-capture path (synthesizeCaptureInput) deliberately keeps the raw
+// Codex tool name for accurate provenance, and POLICIES[tool] stays keyed by the
+// Codex tool name (policies.json is Codex-tool-keyed).
+const CODEX_TO_CC_TOOL = Object.freeze({
+  shell: "Bash",
+  unified_exec: "Bash",
+  apply_patch: "Edit",
+});
+
+// Upper bound on per-target gate fan-out for a single apply_patch call. A
+// crafted patch with thousands of `*** Update File:` markers would otherwise
+// spawn (policies × targets) serial subprocesses. Beyond the cap the overflow
+// targets are NOT gated per-target; the call is forwarded with a surfaced
+// halt-and-report advisory (fail-direction = surface, never silent-allow) +
+// a `codex_mcp_guard_target_cap` breadcrumb (R2 security LOW-R2-2). Realistic
+// Codex patches touch tens of files; 256 is well above that and below any
+// spawn-storm threshold.
+const MAX_GATE_TARGETS = 256;
+
+// ---------------------------------------------------------------------------
+// Provenance capture (loom#411 item 1 / #440)
+// ---------------------------------------------------------------------------
+// apply_patch is the ONE wrapped tool with no native Codex hook (codex#16732),
+// so journal-DECISION + file-write Action capture on Codex rides THIS guard, not
+// .codex/hooks.json. The capture hook is invoked as a NON-BLOCKING side-effect
+// (it always exits 0); it is deliberately NOT a policies.json entry — registering
+// it in the policy chain would make capture order-dependent and skippable on a
+// sibling deny, breaking the deterministic intent-capture property (journal/0216
+// intent-vs-execution residual). shell / unified_exec are NOT captured here —
+// they capture via the native shell registration in .codex/hooks.json, so
+// capturing them here too would double-record. The CAPTURE_* exports are the
+// SSOT the F101-4 validator (validate-emit.mjs::checkProvenanceParity) reads to
+// verify a `wired|<hook>@codex-mcp-guard` parity cell.
+const CAPTURE_HOOK = "provenance-capture-tool.js";
+const CAPTURE_HOOKS = Object.freeze([CAPTURE_HOOK]);
+const CAPTURE_TOOLS = Object.freeze(["apply_patch"]);
+
+// V4A apply_patch envelope target-path markers (Codex's documented patch format).
+const V4A_FILE_RE = /^\*\*\*\s+(?:Update|Add|Delete) File:\s+(.+?)\s*$/;
+const V4A_MOVE_RE = /^\*\*\*\s+Move to:\s+(.+?)\s*$/;
+
+// Lazy + memoized: JOURNAL_DECISION_RE lives in the capture hook (SSOT). We only
+// need it to PREFER a journal-DECISION target among a multi-file patch; if the
+// hook is unreadable we fall back to the first target (Decision degrades to
+// Action — captured, never fake).
+let _journalDecisionRe; // undefined = not loaded; null = load failed
+function journalDecisionRe() {
+  if (_journalDecisionRe !== undefined) return _journalDecisionRe;
+  try {
+    _journalDecisionRe =
+      require(path.join(HOOKS_DIR, CAPTURE_HOOK)).JOURNAL_DECISION_RE || null;
+  } catch {
+    _journalDecisionRe = null;
+  }
+  return _journalDecisionRe;
+}
+
 // ---------------------------------------------------------------------------
 // Policy table — populated from sibling policies.json
 // ---------------------------------------------------------------------------
@@ -122,8 +189,20 @@ const POLICIES_POPULATED = WRAPPED_TOOLS.some(
 // ---------------------------------------------------------------------------
 // Violations log helper — writes to .claude/learning/violations.jsonl
 // when a policy enforcement decision is non-trivial (subprocess
-// timeout, parse error, deny). Best-effort: hooks own the canonical
+// timeout, parse error, deny, surface). Best-effort: hooks own the canonical
 // violation log; this is supplementary breadcrumbs from the MCP path.
+//
+// MUST-6 exemption (knowledge-convergence.md): these MCP-side breadcrumbs are
+// INTENTIONALLY NOT routed through appendStamped(). The guard is the Codex
+// fallback emitted to a USE-template/coc-project `.codex-mcp-guard/` where the
+// multi-operator signing substrate (coc-append.js + identity resolution) is the
+// in-process HOOKS' domain, not the guard's — the guard runs as a standalone
+// subprocess companion and deliberately avoids that dependency (it lazy-loads
+// even the MCP SDK). The canonical SIGNED attribution log is owned by the
+// in-process hooks via appendStamped; this best-effort breadcrumb is a
+// supplementary MCP-path trace, not a posture-downgrade-counting record. The
+// divergence is explicit here (not silent drift) so a future operator can elect
+// to wire appendStamped if the guard ever runs inside the full substrate.
 // ---------------------------------------------------------------------------
 function logViolation(entry) {
   try {
@@ -179,15 +258,45 @@ function invokeHook({ hookFile, payload }) {
     };
   }
   const code = r.status === null ? -4 : r.status;
+  const stdout = r.stdout || "";
+  const { validation, continueFlag } = extractHookValidation(stdout);
   let verdict;
-  if (code === 0) verdict = "allow";
-  else if (code === 2) verdict = "deny";
-  else verdict = "warn";
+  let surfaceValidation = null;
+  if (code === 2 || continueFlag === false) {
+    // exit 2 (the PreToolUse block contract) OR an explicit continue:false
+    // even at exit 0. A continue:false-with-exit-0 hook is contradictory; the
+    // guard honors the MORE-RESTRICTIVE block intent defensively rather than
+    // forwarding a tool the hook signaled to block. translateDeny re-parses
+    // stdout for the message.
+    verdict = "deny";
+  } else if (code === 0) {
+    // Exit 0 is allow — BUT a HALT-AND-REPORT hook also exits 0 (it emits
+    // { continue:true, hookSpecificOutput:{validation} } per
+    // hook-output-discipline.md MUST-2; the lexical signal cannot carry block,
+    // so the server-side GitHub rejection is the structural defense).
+    // Distinguish the two by an ACTIONABLE validation head — NOT the mere
+    // presence of a validation field. instruct-and-wait.js emits an
+    // all-clear sentinel ("Validated" / "Not a deployment file") through the
+    // SAME { continue:true, hookSpecificOutput:{validation} } shape, so keying
+    // on presence alone would surface a spurious advisory on EVERY clean call.
+    // Only a genuine halt-and-report/advisory body (carrying an instructAndWait
+    // head) is "surface" (forward the tool BUT surface the message, mirroring
+    // CC's continue:true + surfaced-message); everything else is plain "allow".
+    if (isActionableValidation(validation)) {
+      verdict = "surface";
+      surfaceValidation = validation;
+    } else {
+      verdict = "allow";
+    }
+  } else {
+    verdict = "warn";
+  }
   return {
     verdict,
     exitCode: code,
-    stdout: r.stdout || "",
+    stdout,
     stderr: r.stderr || "",
+    validation: surfaceValidation,
   };
 }
 
@@ -199,15 +308,18 @@ function invokeHook({ hookFile, payload }) {
 // validation } } (PreToolUse) or { continue: true, systemMessage }
 // (Stop-class). MCP requires { isError: true, content: [{ type: "text",
 // text }] }. translateDeny extracts the human-readable validation text.
-function translateDeny({ hookFile, hookStdout, hookStderr }) {
+// Parse a hook's stdout for the canonical validation/continue shape. CC hooks
+// emit one JSON line (occasionally multi-line on bad authoring); take the LAST
+// non-empty line that parses to an object carrying a validation message.
+// Shapes: { continue:false, hookSpecificOutput:{validation} } (deny, exit 2) OR
+// { continue:true, hookSpecificOutput:{validation} } (HALT-AND-REPORT, exit 0,
+// per hook-output-discipline.md MUST-2) OR { continue:true, systemMessage }
+// (Stop-class). Returns { validation, continueFlag }; validation null when none.
+function extractHookValidation(hookStdout) {
   let validation = null;
   let continueFlag = null;
   try {
-    // Hook may emit multi-line JSON; take the LAST non-empty line that
-    // parses as an object. The stdin handler in lib/instruct-and-wait.js
-    // emits a single JSON line followed by exit; multi-line output
-    // implies bad authoring but we tolerate it gracefully.
-    const lines = hookStdout
+    const lines = (hookStdout || "")
       .split("\n")
       .map((l) => l.trim())
       .filter(Boolean);
@@ -219,12 +331,39 @@ function translateDeny({ hookFile, hookStdout, hookStderr }) {
         continueFlag = obj?.continue;
         if (validation) break;
       } catch {
-        // not JSON; continue
+        // not JSON; continue scanning upward
       }
     }
   } catch {
-    /* parse failure — fall through to fallback */
+    /* parse failure — caller falls back */
   }
+  return { validation, continueFlag };
+}
+
+// instruct-and-wait.js::buildValidationBody emits an ACTIONABLE validation body
+// beginning with exactly one of these canonical heads. An all-clear sentinel
+// ("Validated" / "Not a deployment file") carries NO head — it flows through the
+// same { continue:true, hookSpecificOutput:{validation} } legacy-advisory shape,
+// so the head is the ONLY structural discriminator between a real halt-and-report
+// and a clean confirmation. The guard surfaces ONLY actionable bodies so a clean
+// Codex call is not spammed with a false advisory on every command. The block
+// head ("STOP — Tool call blocked.") is exit-2 → the deny path, never surface;
+// it is intentionally absent here. Coupling to instruct-and-wait.js is locked by
+// the force-push (surface) + clean (no-surface) assertions in test-server.mjs.
+const ACTIONABLE_VALIDATION_HEADS = Object.freeze([
+  "STOP — Action requires acknowledgement.", // halt-and-report
+  "ADVISORY — Acknowledge in next message.", // advisory
+  "POST-MORTEM — Recorded for next session.", // post-mortem (defensive; Stop-class)
+]);
+function isActionableValidation(validation) {
+  return (
+    typeof validation === "string" &&
+    ACTIONABLE_VALIDATION_HEADS.some((h) => validation.startsWith(h))
+  );
+}
+
+function translateDeny({ hookFile, hookStdout, hookStderr }) {
+  const { validation, continueFlag } = extractHookValidation(hookStdout);
   const text =
     validation ||
     `codex-mcp-guard: hook ${hookFile} blocked the tool invocation` +
@@ -237,6 +376,38 @@ function translateDeny({ hookFile, hookStdout, hookStderr }) {
       continue: continueFlag,
     },
   };
+}
+
+// Project a Codex tool's input into the LIST of CC tool_input shapes the
+// replayed CC hooks consume — one per edit target, so a multi-file apply_patch
+// is gated PER TARGET. The earlier first-target-only projection bypassed every
+// TARGET-SPECIFIC gate branch on a non-first target (R1 security MED-1 +
+// reviewer LOW-1): posture-gate's `.claude/learning/` write fence
+// (posture-gate.js R6-C-02) and signing-mutation-guard's sibling-worktree
+// contention block both key on the concrete `file_path`, so a benign first
+// target + a sensitive/contended second target slipped through. Evaluating
+// every target (first-deny short-circuits) closes that gap.
+//
+// FIELDED projection (NOT a raw spread): only the fields the gates actually
+// consume reach the hook subprocess — `file_path` for apply_patch, `command`
+// for shell/unified_exec. This mirrors synthesizeCaptureInput's secrets fence
+// (R1 security MED-2): raw V4A patch CONTENT (which may carry secret values)
+// and any unmodelled raw field never flow to a hook's stdin / violations.jsonl.
+// No parseable target → a single `{}` input (gate classifies {kind:"none"} →
+// passthrough, the safe degenerate direction). Reuses parseApplyPatchTargets
+// (the capture path's V4A parser) so the two paths cannot drift.
+function synthesizePolicyInputs(tool, input) {
+  if (tool === "apply_patch") {
+    const targets = parseApplyPatchTargets(input);
+    if (targets.length === 0) return [{}];
+    return targets.map((file_path) => ({ file_path }));
+  }
+  // shell / unified_exec → the Bash classifiers read `.command` only.
+  const command =
+    input && typeof input === "object" && typeof input.command === "string"
+      ? input.command
+      : "";
+  return [{ command }];
 }
 
 // ---------------------------------------------------------------------------
@@ -254,58 +425,246 @@ function evaluatePolicies({ tool, input, session_id, cwd }) {
     // tool array means "no enforcement on this specific tool"; the
     // call forwards (allow). This matches CC behavior where a tool
     // matcher with zero hooks does not block the call.
-    return { allow: true, decisions: [] };
+    return { allow: true, warnings: [], decisions: [] };
   }
+  // Present the CC-native tool name + tool_input shape to the CC hooks so
+  // their tool-name classification fires (FF-AC6-1 walk finding — see
+  // CODEX_TO_CC_TOOL). ccToolInputs is a LIST (one per apply_patch edit target)
+  // so every TARGET-SPECIFIC gate branch sees every target (R1 security MED-1).
+  const ccToolName = CODEX_TO_CC_TOOL[tool] || tool;
+  const allInputs = synthesizePolicyInputs(tool, input);
   const decisions = [];
+  // halt-and-report validations from "surface"-verdict hooks (exit 0 +
+  // validation). The tool is forwarded (allow) BUT each message is surfaced
+  // to the Codex agent so it receives the same advisory a CC agent would —
+  // closing the cross-cli-parity.md MUST-1 gap (#442).
+  const warnings = [];
+  // Cap the per-target fan-out (R2 security LOW-R2-2). Overflow targets are
+  // NOT silently allowed: surface a halt-and-report advisory + log a breadcrumb.
+  let ccToolInputs = allInputs;
+  if (allInputs.length > MAX_GATE_TARGETS) {
+    ccToolInputs = allInputs.slice(0, MAX_GATE_TARGETS);
+    warnings.push({
+      source_file: "codex-mcp-guard",
+      validation: `apply_patch touches ${allInputs.length} targets; only the first ${MAX_GATE_TARGETS} were gated per-target — review the remaining ${allInputs.length - MAX_GATE_TARGETS} manually.`,
+    });
+    logViolation({
+      kind: "codex_mcp_guard_target_cap",
+      tool,
+      target_count: allInputs.length,
+      cap: MAX_GATE_TARGETS,
+    });
+  }
   for (const policy of list) {
+    // Run each policy against EVERY projected target; first-deny across all
+    // (policy, target) pairs short-circuits the whole chain.
+    for (const ccToolInput of ccToolInputs) {
+      const payload = {
+        hook_event_name: "PreToolUse",
+        tool_name: ccToolName,
+        tool_input: ccToolInput,
+        session_id: session_id || null,
+        cwd: cwd || process.cwd(),
+      };
+      const result = invokeHook({ hookFile: policy.source_file, payload });
+      decisions.push({ source_file: policy.source_file, ...result });
+      if (result.verdict === "deny") {
+        const mcpResponse = translateDeny({
+          hookFile: policy.source_file,
+          hookStdout: result.stdout,
+          hookStderr: result.stderr,
+        });
+        logViolation({
+          kind: "codex_mcp_guard_deny",
+          tool,
+          source_file: policy.source_file,
+          cwd: payload.cwd,
+          // Which projected target tripped the gate — the durable audit row
+          // is otherwise lossy on a multi-target patch (R2 security LOW-R2-3).
+          // A shell `command` may carry secret values, so slice it to 120 chars
+          // for parity with validate-bash-command.js's truncation discipline
+          // (R3 security LOW-R3-1); a file_path is not secret-bearing.
+          target:
+            ccToolInput.file_path ||
+            (typeof ccToolInput.command === "string"
+              ? ccToolInput.command.slice(0, 120)
+              : null),
+        });
+        return { allow: false, mcpResponse, decisions };
+      }
+      if (result.verdict === "surface") {
+        // Halt-and-report: forward the tool BUT capture the validation so the
+        // MCP handler surfaces it. NOT a deny — the loop continues (a later
+        // policy/target may still deny). Logged as a breadcrumb (a forwarded
+        // halt-and-report is a non-trivial decision the agent must act on).
+        warnings.push({
+          source_file: policy.source_file,
+          validation: result.validation,
+        });
+        logViolation({
+          kind: "codex_mcp_guard_surface",
+          tool,
+          source_file: policy.source_file,
+          cwd: payload.cwd,
+        });
+        continue;
+      }
+      if (result.verdict === "timeout") {
+        // Per cc-artifacts.md Rule 7 — timeout falls open + logs.
+        logViolation({
+          kind: "codex_mcp_guard_timeout",
+          tool,
+          source_file: policy.source_file,
+          timeout_ms: SUBPROCESS_TIMEOUT_MS,
+        });
+      } else if (
+        result.verdict === "warn" ||
+        result.verdict === "error" ||
+        result.verdict === "missing"
+      ) {
+        // Non-blocking deviations are logged and the call still
+        // proceeds — the alternative (fail-closed on any hook bug)
+        // would deny every Codex call when one of N hooks regresses.
+        logViolation({
+          kind: "codex_mcp_guard_" + result.verdict,
+          tool,
+          source_file: policy.source_file,
+          exit_code: result.exitCode,
+        });
+      }
+    }
+  }
+  return { allow: true, warnings, decisions };
+}
+
+// ---------------------------------------------------------------------------
+// Allow-path MCP response builder — plain permit OR forward+warn
+// ---------------------------------------------------------------------------
+// For an ALLOWED tool call, builds the MCP response. When the call carried
+// halt-and-report warnings (exit-0 hooks with a validation message), the
+// response surfaces them in content[].text — mirroring CC's continue:true +
+// surfaced-message semantics so the Codex agent sees the same advisory a CC
+// agent would. isError stays false (the tool IS forwarded). Plain allow (no
+// warnings) returns the bare "permit" the guard has always emitted.
+function buildAllowResponse(result) {
+  if (result && Array.isArray(result.warnings) && result.warnings.length > 0) {
+    const warnText = result.warnings
+      .map((w) => w.validation)
+      .filter(Boolean)
+      .join("\n\n");
+    return {
+      content: [
+        {
+          type: "text",
+          text:
+            "permit\n\n⚠ halt-and-report (tool forwarded — surface to user):\n\n" +
+            warnText,
+        },
+      ],
+      _meta: { warnings: result.warnings },
+    };
+  }
+  return { content: [{ type: "text", text: "permit" }] };
+}
+
+// ---------------------------------------------------------------------------
+// Provenance capture side-effect — the load-bearing #440 function
+// ---------------------------------------------------------------------------
+// Extract V4A target file path(s) from an apply_patch tool input. The patch text
+// may arrive under any key (the exact Codex MCP arg shape is unverified from loom;
+// see journal/0218 residual), so scan all string values (bounded depth) for the
+// documented V4A markers. Returns [] when no patch text / no markers are found
+// (→ caller degrades to Action, the write-tool default — never a fake event).
+function parseApplyPatchTargets(input) {
+  const paths = [];
+  const seen = new Set();
+  const scanString = (s) => {
+    for (const line of s.split("\n")) {
+      const m = line.match(V4A_FILE_RE) || line.match(V4A_MOVE_RE);
+      if (m && m[1]) {
+        const p = m[1].trim();
+        if (p && !seen.has(p)) {
+          seen.add(p);
+          paths.push(p);
+        }
+      }
+    }
+  };
+  const walk = (node, depth) => {
+    if (node == null || depth > 4) return;
+    if (typeof node === "string") return scanString(node);
+    if (Array.isArray(node)) {
+      for (const v of node) walk(v, depth + 1);
+      return;
+    }
+    if (typeof node === "object") {
+      for (const v of Object.values(node)) walk(v, depth + 1);
+    }
+  };
+  walk(input, 0);
+  return paths;
+}
+
+// Build the CC-shaped tool_input the capture hook's classify() consumes. For
+// apply_patch, extract the V4A target and PREFER a journal-DECISION path so
+// classify() records a Decision (else Action). No path → {} (classify → Action,
+// the write-tool default). Non-apply_patch tools are not captured here.
+function synthesizeCaptureInput(tool, input) {
+  // Only apply_patch is captured via the guard (CAPTURE_TOOLS). For any other
+  // tool return {} — NEVER the raw input — so that if CAPTURE_TOOLS ever widens
+  // to a command-bearing tool, a raw command (which may carry secret VALUES in
+  // its argv) cannot flow to the permanent ledger through this path. The secrets
+  // fence stays airtight by construction here, not only via runProvenanceCapture's
+  // scope gate. A future capturer for another tool MUST extend this function with
+  // a fielded projection — and the self-referential-codify gate fires on that edit
+  // (security R1 LOW defense-in-depth, journal/0219).
+  if (tool !== "apply_patch") return {};
+  const targets = parseApplyPatchTargets(input);
+  if (targets.length === 0) return {};
+  const re = journalDecisionRe();
+  const decisionTarget = re ? targets.find((p) => re.test(p)) : null;
+  return { file_path: decisionTarget || targets[0] };
+}
+
+// Non-blocking governance capture: invoke the capture hook as a side-effect on a
+// wrapped tool. NEVER denies the tool call (the hook always exits 0); a non-zero/
+// timeout verdict is a capture degradation logged to violations.jsonl, never a
+// block. The MCP handler runs this BEFORE evaluatePolicies so INTENT is captured
+// even when a sibling policy later denies (journal/0216 intent-vs-execution).
+function runProvenanceCapture({ tool, input, session_id, cwd }) {
+  if (!CAPTURE_TOOLS.includes(tool)) {
+    return { captured: false, reason: "tool-not-in-capture-scope" };
+  }
+  try {
+    const tool_input = synthesizeCaptureInput(tool, input);
     const payload = {
       hook_event_name: "PreToolUse",
       tool_name: tool,
-      tool_input: input,
+      tool_input,
       session_id: session_id || null,
       cwd: cwd || process.cwd(),
     };
-    const result = invokeHook({ hookFile: policy.source_file, payload });
-    decisions.push({ source_file: policy.source_file, ...result });
-    if (result.verdict === "deny") {
-      const mcpResponse = translateDeny({
-        hookFile: policy.source_file,
-        hookStdout: result.stdout,
-        hookStderr: result.stderr,
-      });
+    const r = invokeHook({ hookFile: CAPTURE_HOOK, payload });
+    if (r.verdict !== "allow") {
+      // The capture hook exits 0 on every path; a non-allow verdict means the
+      // hook is missing/buggy/slow — log the degradation, never block the call.
       logViolation({
-        kind: "codex_mcp_guard_deny",
+        kind: "codex_mcp_guard_capture_" + r.verdict,
         tool,
-        source_file: policy.source_file,
-        cwd: payload.cwd,
-      });
-      return { allow: false, mcpResponse, decisions };
-    }
-    if (result.verdict === "timeout") {
-      // Per cc-artifacts.md Rule 7 — timeout falls open + logs.
-      logViolation({
-        kind: "codex_mcp_guard_timeout",
-        tool,
-        source_file: policy.source_file,
-        timeout_ms: SUBPROCESS_TIMEOUT_MS,
-      });
-    } else if (
-      result.verdict === "warn" ||
-      result.verdict === "error" ||
-      result.verdict === "missing"
-    ) {
-      // Non-blocking deviations are logged and the call still
-      // proceeds — the alternative (fail-closed on any hook bug)
-      // would deny every Codex call when one of N hooks regresses.
-      logViolation({
-        kind: "codex_mcp_guard_" + result.verdict,
-        tool,
-        source_file: policy.source_file,
-        exit_code: result.exitCode,
+        source_file: CAPTURE_HOOK,
+        exit_code: r.exitCode,
       });
     }
+    return { captured: r.verdict === "allow", verdict: r.verdict, tool_input };
+  } catch (e) {
+    logViolation({
+      kind: "codex_mcp_guard_capture_error",
+      tool,
+      source_file: CAPTURE_HOOK,
+      error: String((e && e.message) || e),
+    });
+    return { captured: false, reason: "exception" };
   }
-  return { allow: true, decisions };
 }
 
 // ---------------------------------------------------------------------------
@@ -427,9 +786,23 @@ async function serveStdio() {
         inputSchema: inputShape,
       },
       async ({ input, session_id, cwd }) => {
+        // Governance capture FIRST (non-blocking, intent-time) — runs before
+        // policy evaluation so a provenance event is recorded even if a sibling
+        // policy denies the tool call (loom#411 item 1 / #440; journal/0218).
+        // Defense-in-depth: runProvenanceCapture is internally guarded, but the
+        // capture side-effect MUST NEVER block a tool call, so the call site is
+        // wrapped too — a capture throw is swallowed, policy eval proceeds
+        // unchanged (cc-architect R1 LOW, journal/0219).
+        try {
+          runProvenanceCapture({ tool, input, session_id, cwd });
+        } catch {
+          /* capture is best-effort; never block the tool call */
+        }
         const result = evaluatePolicies({ tool, input, session_id, cwd });
         if (!result.allow) return result.mcpResponse;
-        return { content: [{ type: "text", text: "permit" }] };
+        // Allowed — plain permit, OR forward+warn when a halt-and-report hook
+        // surfaced a validation message (#442 cross-CLI parity).
+        return buildAllowResponse(result);
       },
     );
   }
@@ -472,5 +845,19 @@ module.exports = {
   evaluatePolicies,
   invokeHook,
   translateDeny,
+  extractHookValidation,
+  isActionableValidation,
+  buildAllowResponse,
   loadPolicies,
+  // Provenance capture (loom#411 item 1 / #440). CAPTURE_HOOKS + CAPTURE_TOOLS
+  // are the SSOT the F101-4 validator reads to verify a `@codex-mcp-guard` cell.
+  CAPTURE_HOOK,
+  CAPTURE_HOOKS,
+  CAPTURE_TOOLS,
+  runProvenanceCapture,
+  parseApplyPatchTargets,
+  synthesizeCaptureInput,
+  synthesizePolicyInputs,
+  CODEX_TO_CC_TOOL,
+  MAX_GATE_TARGETS,
 };

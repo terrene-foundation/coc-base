@@ -46,6 +46,14 @@
 // normalization stays safe; the SSOT sweep regex catches any new bare
 // strict compare on `recLogin`/`login` local-vars.
 const { normalizeLogin, loginsEqual } = require("./github-login.js");
+// Azure DevOps port (Shard 2c): when roster.genesis.provider === "azure-devops"
+// the distinctness binding is the Entra UPN (`principal`) instead of
+// github_login, and case-folding routes through normalizePrincipal /
+// principalsEqual. Derived-N dispatches ONCE on the roster's provider (the
+// roster has exactly one provider; all its records match it) and selects the
+// binding field + comparator below — the latest-by-seq algorithm is otherwise
+// provider-NEUTRAL.
+const { normalizePrincipal, principalsEqual } = require("./ado-login.js");
 
 /**
  * Compute derived-N from a folded log + roster + trust-root snapshot.
@@ -90,6 +98,18 @@ function computeDerivedN(params) {
     };
   }
 
+  // Azure DevOps port (Shard 2c): select the binding field + comparator once
+  // from the roster's provider. github_login + normalizeLogin/loginsEqual for
+  // GitHub (byte-unchanged); principal + normalizePrincipal/principalsEqual for
+  // azure-devops. The latest-by-seq algorithm below is provider-NEUTRAL — it
+  // reads `bindField` on both roster persons and records.
+  const isAdo = !!(
+    roster.genesis && roster.genesis.provider === "azure-devops"
+  );
+  const bindField = isAdo ? "principal" : "github_login";
+  const normalizeId = isAdo ? normalizePrincipal : normalizeLogin;
+  const idEqual = isAdo ? principalsEqual : loginsEqual;
+
   // 1. Enumerate the candidate owner logins from the roster.
   //    A login is a candidate iff its person record has role=='owner'
   //    AND host_role != 'ci' (R5-S-04).
@@ -97,18 +117,19 @@ function computeDerivedN(params) {
   //    F14 MED-4: GitHub usernames are case-insensitive server-side, so
   //    the candidateLogins key MUST be lowercase. Two roster entries
   //    advertising the same gh_login under different cases ("Alice" vs
-  //    "alice") would otherwise double-count toward derived-N.
-  const candidateLogins = new Map(); // lowercase(github_login) → person_id
+  //    "alice") would otherwise double-count toward derived-N. (ADO Entra
+  //    UPNs are likewise case-insensitive via normalizePrincipal.)
+  const candidateLogins = new Map(); // lowercase(bound id) → person_id
   for (const [pid, person] of Object.entries(roster.persons)) {
     if (!person || person.role !== "owner") continue;
     if (person.host_role === "ci") {
       notes.push(
-        `host_role:ci suppressed: ${person.github_login} (person_id ${pid}) — R5-S-04`,
+        `host_role:ci suppressed: ${person[bindField]} (person_id ${pid}) — R5-S-04`,
       );
       continue;
     }
-    if (typeof person.github_login === "string" && person.github_login) {
-      candidateLogins.set(normalizeLogin(person.github_login), pid);
+    if (typeof person[bindField] === "string" && person[bindField]) {
+      candidateLogins.set(normalizeId(person[bindField]), pid);
     }
   }
 
@@ -125,9 +146,9 @@ function computeDerivedN(params) {
       p &&
       p.role === "owner" &&
       p.host_role !== "ci" &&
-      typeof p.github_login === "string"
+      typeof p[bindField] === "string"
     ) {
-      genesisOwnerLogin = normalizeLogin(p.github_login);
+      genesisOwnerLogin = normalizeId(p[bindField]);
     }
   }
 
@@ -146,17 +167,18 @@ function computeDerivedN(params) {
       ) {
         continue;
       }
-      // F14 MED-4: record.content.github_login may carry any case; match
+      // F14 MED-4: record.content[bindField] may carry any case; match
       // case-insensitively against the lowercased candidateLogins keys.
+      // (ADO records carry content.principal; GitHub carry content.github_login.)
       const recLogin =
-        rec.content && typeof rec.content.github_login === "string"
-          ? normalizeLogin(rec.content.github_login)
+        rec.content && typeof rec.content[bindField] === "string"
+          ? normalizeId(rec.content[bindField])
           : null;
-      // F14 M5-B2 iter-5 R5-MED-2: route through `loginsEqual` so the
-      // safety property does not depend on upstream `normalizeLogin`
-      // discipline. Both sides are pre-normalized here; `loginsEqual`
-      // is idempotent in that case.
-      if (!loginsEqual(recLogin, login)) continue;
+      // F14 M5-B2 iter-5 R5-MED-2: route through the equality fn so the
+      // safety property does not depend on upstream normalization
+      // discipline. Both sides are pre-normalized here; the fn is
+      // idempotent in that case.
+      if (!idEqual(recLogin, login)) continue;
       // R10-A-03: contested revocations are EXCLUDED from latest-by-seq.
       if (
         rec.type === "collaborator-distinctness-revocation" &&
@@ -179,10 +201,10 @@ function computeDerivedN(params) {
     if (latest === null) {
       // No verifying distinctness record. R9-A-03 — if this IS the genesis
       // owner, the trust-root binding counts AS-IF an attestation.
-      // F14 M5-B2 iter-5 R5-MED-2: route through `loginsEqual` (idempotent
+      // F14 M5-B2 iter-5 R5-MED-2: route through the equality fn (idempotent
       // when both sides are pre-normalized) — same SSOT safety guarantee
       // as the `recLogin !== login` site above.
-      if (loginsEqual(login, genesisOwnerLogin)) {
+      if (idEqual(login, genesisOwnerLogin)) {
         perLoginLatest[login] = {
           kind: "genesis-anchor",
           seq:

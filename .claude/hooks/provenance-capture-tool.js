@@ -11,25 +11,51 @@
  * Behavior: classify the about-to-run tool call into a provenance kind and
  * record it in the local per-session ledger (provenance-ledger.js):
  *
- *   - Task                              → Delegation  (which sub-agent, what task)
- *   - mutation tool writing a journal    → Decision    (a DECISION entry is landing)
+ *   - delegation tool (Task)             → Delegation  (which sub-agent, what task)
+ *   - write tool writing a journal       → Decision    (a DECISION entry is landing)
  *     NNNN-*DECISION*.md
- *   - mutation tool (Edit/Write/...) OR  → Action      (a consequential mutation)
- *     Bash
+ *   - write tool OR shell tool           → Action      (a consequential mutation)
  *   - read-path (Read/Grep/Glob/WebFetch)→ SKIP        (read-path is out of scope
  *                                                       per #411 completeness vet)
+ *
+ * CROSS-CLI (F101 item 1, loom#411): this ONE hook file is registered as the
+ * provenance capture surface on ALL THREE CLIs — CC (PreToolUse *), Gemini
+ * (BeforeTool), Codex (PreToolUse shell). classify() therefore recognizes each
+ * CLI's tool vocabulary, which is DISJOINT across CLIs, so the CLI is implicit
+ * in the tool name (no env var / flag): CC {Task, Edit/Write/…, Bash}, Gemini
+ * {write_file, replace, run_shell_command}, Codex {apply_patch, shell,
+ * unified_exec}. classify() maps by EFFECT (delegation / write / shell), so a
+ * future cross-CLI tool-name collision (none today) still classifies by kind.
  *
  * SECRETS FENCE (`security.md` "no secrets in logs"): the ledger is a permanent,
  * csq-anchored record. Surfaces that can carry literal secret VALUES — a Bash
  * command (`export TOKEN=...`), a Task prompt — are stored as a sha256 COMMITMENT,
  * never raw. Surfaces that are accountability-bearing and not secret-shaped — the
  * file_path of a mutation, the subagent_type of a delegation — are kept verbatim.
+ * A Codex shell/unified_exec ARGV ARRAY is joined-with-spaces THEN hashed: the
+ * commitment is a privacy-preserving fingerprint, NOT a faithful argv
+ * reconstruction (an argv array and the equivalent string command collide on the
+ * same sha256 — acceptable, the hash proves "what" only to a holder of the
+ * plaintext). argv elements are assumed string-shaped; the Codex shell contract
+ * does not pass nested objects.
  *
- * MUTATION SSOT: file-write tools come from `tool-classes.js::isMutationTool` (the
- * single mutation-tool registry per `cc-artifacts.md` Rule 8). Bash is added HERE
- * (provenance-local) as a consequential-action surface — it is intentionally NOT
- * in MUTATION_TOOLS (that set drives the file-write guards; widening it there would
- * change integrity-guard / adjacency-leasecheck behavior).
+ * INTENT vs EXECUTION (PreToolUse capture — accepted residual, NOT a leak): events
+ * are captured at PreToolUse / BeforeTool = INTENT time. A captured Action/Decision
+ * records that the agent was ABOUT to run the tool, not that it succeeded — a
+ * sibling guard (e.g. validate-bash-command.js on the same shell matcher) may exit
+ * 2 and DENY the call AFTER this hook recorded the intent. This is BY DESIGN:
+ * PreToolUse capture is what makes the record deterministic ("the model cannot skip
+ * it"). csq's drain treats provenance events as INTENT; an execution-confirmation
+ * (PostToolUse reconciliation marker) is a separate kind the FROZEN schema (F120,
+ * provenance-event.js) does not carry — tracked as a #411 sub-shard, not this one.
+ *
+ * MUTATION SSOT: CC file-write tools come from `tool-classes.js::isMutationTool`
+ * (the single mutation-tool registry per `cc-artifacts.md` Rule 8). The Gemini /
+ * Codex write-tool names live HERE (provenance-local), NOT in `MUTATION_TOOLS` —
+ * that set drives the CC file-write guards (integrity-guard / adjacency-leasecheck),
+ * and widening it with non-CC names would change those guards' behavior on CC. The
+ * shell tools (Bash / run_shell_command / shell / unified_exec) are also provenance-
+ * local consequential-action surfaces, intentionally outside MUTATION_TOOLS.
  *
  * Test env overrides:
  *   COC_TEST_FINGERPRINT, COC_TEST_PERSON_ID — identity short-circuit
@@ -57,6 +83,25 @@ const PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 // `.pending/` so a DECISION write is captured as a Decision in every journal form.
 const JOURNAL_DECISION_RE =
   /(?:^|\/)journal\/(?:\.pending\/)?\d+-[^/]*DECISION[^/]*\.md$/i;
+
+// Cross-CLI tool vocabularies (F101 item 1). Disjoint across CLIs, so membership
+// alone disambiguates the CLI — classify() maps by EFFECT, not by CLI.
+//   - DELEGATION: only CC `Task` is a tool call. Gemini `@agent` fires the native
+//     BeforeAgent lifecycle event (a different payload shape, not a tool call);
+//     Codex delegation is inline-cat injection via bin/coc (no tool call). Both are
+//     deferred per #411 provenance_parity — no tool-call capture point exists here.
+//   - WRITE (non-CC): CC write tools come from tool-classes.js::isMutationTool; the
+//     Gemini (write_file/replace) + Codex (apply_patch) write-tool names live here.
+//   - SHELL: the consequential-command surface across all CLIs.
+const DELEGATION_TOOLS = new Set(["Task"]);
+const GEMINI_WRITE_TOOLS = new Set(["write_file", "replace"]);
+const CODEX_WRITE_TOOLS = new Set(["apply_patch"]);
+const SHELL_TOOLS = new Set([
+  "Bash", // CC
+  "run_shell_command", // Gemini
+  "shell", // Codex
+  "unified_exec", // Codex
+]);
 
 function sha256(s) {
   return crypto.createHash("sha256").update(String(s), "utf8").digest("hex");
@@ -118,6 +163,17 @@ function isMutationToolSafely(tool) {
   }
 }
 
+// Cross-CLI write-tool predicate: CC mutation tools (via the tool-classes SSOT)
+// PLUS the Gemini / Codex write-tool names. A write tool is the Action/Decision
+// surface on every CLI.
+function isWriteToolSafely(tool) {
+  return (
+    isMutationToolSafely(tool) ||
+    GEMINI_WRITE_TOOLS.has(tool) ||
+    CODEX_WRITE_TOOLS.has(tool)
+  );
+}
+
 /**
  * Classify a tool call into a provenance {kind, payload} or null (skip).
  * Pure function of (tool name, tool_input) — no IO, fully testable.
@@ -125,7 +181,7 @@ function isMutationToolSafely(tool) {
 function classify(tool, toolInput) {
   const ti = toolInput && typeof toolInput === "object" ? toolInput : {};
 
-  if (tool === "Task") {
+  if (DELEGATION_TOOLS.has(tool)) {
     const payload = { tool };
     if (typeof ti.subagent_type === "string" && ti.subagent_type) {
       payload.subagent_type = ti.subagent_type;
@@ -143,28 +199,37 @@ function classify(tool, toolInput) {
     (typeof ti.file_path === "string" && ti.file_path) ||
     (typeof ti.notebook_path === "string" && ti.notebook_path) ||
     null;
-  const isMutation = isMutationToolSafely(tool);
+  const isWrite = isWriteToolSafely(tool);
 
-  if (isMutation && filePath && JOURNAL_DECISION_RE.test(filePath)) {
+  if (isWrite && filePath && JOURNAL_DECISION_RE.test(filePath)) {
     return { kind: "Decision", payload: { tool, journal_path: filePath } };
   }
 
-  if (isMutation) {
+  if (isWrite) {
     const payload = { tool };
     if (filePath) payload.file_path = filePath;
     return { kind: "Action", payload };
   }
 
-  if (tool === "Bash") {
+  if (SHELL_TOOLS.has(tool)) {
     const payload = { tool };
-    if (typeof ti.command === "string") {
-      payload.command_sha256 = sha256(ti.command);
-      payload.command_chars = ti.command.length;
+    // Secrets fence: the command is stored as a sha256 commitment + length,
+    // never raw. Handle both the CC/Gemini string form and the Codex array
+    // form (`shell`/`unified_exec` pass argv as an array).
+    const cmd = ti.command;
+    if (typeof cmd === "string") {
+      payload.command_sha256 = sha256(cmd);
+      payload.command_chars = cmd.length;
+    } else if (Array.isArray(cmd)) {
+      const joined = cmd.map((x) => String(x)).join(" ");
+      payload.command_sha256 = sha256(joined);
+      payload.command_chars = joined.length;
     }
     return { kind: "Action", payload };
   }
 
-  // read-path (Read/Grep/Glob/WebFetch/…) — out of scope per #411 vet.
+  // read-path (Read/Grep/Glob/WebFetch/read_file/grep_search/…) — out of scope
+  // per #411 completeness vet (no kind for a read).
   return null;
 }
 

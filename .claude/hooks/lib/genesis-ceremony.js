@@ -41,7 +41,15 @@ const cocSign = require("./coc-sign.js");
 const ghApiAllowlist = require("./gh-api-allowlist.js");
 const githubLogin = require("./github-login.js");
 const { isUnenrolled } = require("./roster-schema-validate.js");
-const { CO_SIGN_ANCHOR_KIND_ORG_ADMIN } = require("./fold-rule-9c.js");
+const {
+  CO_SIGN_ANCHOR_KIND_ORG_ADMIN,
+  CO_SIGN_ANCHOR_KIND_ORG_ADMIN_ADO,
+} = require("./fold-rule-9c.js");
+// Azure DevOps port: the provider adapter for the azure-devops enrollment
+// path. The GitHub enrollment path is byte-unchanged (it reads gh-api inline
+// above); the ADO path routes through this adapter so the canonical capture
+// inner shapes stay provider-neutral below the content.provider dispatch.
+const azureAdapter = require("./vcs-azure-adapter.js");
 
 // F86 / MUST-7 typed-error tokens. Callers (sessions, CLI, hooks)
 // pattern-match these strings to distinguish the structural-block paths
@@ -133,6 +141,42 @@ function _resolveGenesisOwner(roster, targetLogin) {
 }
 
 /**
+ * Azure DevOps sibling of _resolveGenesisOwner: resolve the genesis owner
+ * person_id whose `principal` (Entra UPN) matches the target. The roster MUST
+ * declare EXACTLY ONE `owner` person_id whose principal resolves to the target
+ * (the org-admin attestation's UPN). principalsEqual is case-insensitive
+ * (sock-puppet-via-case-mismatch defense — mirrors loginsEqual on github_login).
+ */
+function _resolveGenesisOwnerByPrincipal(roster, targetPrincipal) {
+  const matches = [];
+  for (const [pid, person] of Object.entries(roster.persons)) {
+    if (isUnenrolled(pid)) continue;
+    if (person.role !== "owner") continue;
+    if (!azureAdapter.principalsEqual(person.principal, targetPrincipal)) {
+      continue;
+    }
+    matches.push({ person_id: pid, person });
+  }
+  if (matches.length === 0) {
+    return {
+      ok: false,
+      reason: `no genesis owner declared in roster: no person_id with role=owner has principal=${targetPrincipal}`,
+    };
+  }
+  if (matches.length > 1) {
+    return {
+      ok: false,
+      reason: `roster declares ${matches.length} owner person_ids with principal=${targetPrincipal}; ceremony requires exactly one`,
+    };
+  }
+  return {
+    ok: true,
+    person_id: matches[0].person_id,
+    person: matches[0].person,
+  };
+}
+
+/**
  * Find the signing key (by fingerprint) within the genesis-owner's keys.
  */
 function _findSigningKey(person, fingerprint) {
@@ -141,6 +185,77 @@ function _findSigningKey(person, fingerprint) {
     if (k.fingerprint === fingerprint) return k;
   }
   return null;
+}
+
+/**
+ * Shared genesis-anchor tail: build the record core, canonical-serialize,
+ * sign, append. Provider-NEUTRAL — both the GitHub and ADO enrollment paths
+ * build their own `content` (with provider-specific capture field names; the
+ * ADO path also sets content.provider) and hand it here. The record shape
+ * (type/verified_id/person_id/seq:0/prev_hash:null/ts/content/sig) is
+ * identical across providers, so factoring it guarantees the two paths can
+ * never drift on the signing envelope.
+ *
+ * @returns {{ok: true, record} | {ok: false, error, reason, step}}
+ */
+function _signAndAppend(args) {
+  const {
+    content,
+    signingKeyFingerprint,
+    signingPersonId,
+    now,
+    sign,
+    keyType,
+    signingKeyPath,
+    transportAppend,
+  } = args;
+  const recordCore = {
+    type: "genesis-anchor",
+    verified_id: signingKeyFingerprint,
+    person_id: signingPersonId,
+    seq: 0,
+    prev_hash: null,
+    ts: now(),
+    content,
+  };
+
+  let bytes;
+  try {
+    bytes = cocSign.canonicalSerialize(recordCore);
+  } catch (err) {
+    return {
+      ok: false,
+      error: "canonicalSerialize threw",
+      reason: err && err.message ? err.message : String(err),
+      step: "6-serialize",
+    };
+  }
+
+  const signResult = sign(bytes, { keyType, keyPath: signingKeyPath });
+  if (!signResult || !signResult.ok) {
+    return {
+      ok: false,
+      error: signResult && signResult.error ? signResult.error : "sign failed",
+      reason: signResult && signResult.reason ? signResult.reason : "unknown",
+      step: "6-sign",
+    };
+  }
+  const record = { ...recordCore, sig: signResult.sig };
+
+  const appendResult = transportAppend(record);
+  if (!appendResult || !appendResult.ok) {
+    return {
+      ok: false,
+      error: "transport append failed",
+      reason:
+        appendResult && appendResult.error
+          ? appendResult.error
+          : "unknown transport append error",
+      step: "6-append",
+    };
+  }
+
+  return { ok: true, record };
 }
 
 /**
@@ -192,7 +307,7 @@ function runEnrollmentCeremony(opts) {
   const sign = o.sign || defaultSign;
   const keyType = o.keyType || "ssh";
 
-  // Step 1: roster pre-flight
+  // Step 1: roster pre-flight (provider-neutral genesis-block shape)
   const rosterErr = _validateRosterForCeremony(roster);
   if (rosterErr) {
     return {
@@ -202,6 +317,25 @@ function runEnrollmentCeremony(opts) {
       step: "1-roster-preflight",
     };
   }
+
+  // Azure DevOps port: provider dispatch. `roster.genesis.provider` (absent ⇒
+  // "github") selects the path. The GitHub path below is byte-UNCHANGED (the
+  // #1 invariant — genesis-anchor.test.js is the regression lock); the ADO
+  // path is fully additive in _runAdoEnrollment and shares only the
+  // _signAndAppend tail.
+  const providerId = (roster.genesis && roster.genesis.provider) || "github";
+  if (providerId === "azure-devops") {
+    return _runAdoEnrollment(o, { now, sign, keyType });
+  }
+  if (providerId !== "github") {
+    return {
+      ok: false,
+      error: "unknown provider",
+      reason: `roster.genesis.provider="${providerId}" is not a known provider (github | azure-devops)`,
+      step: "1-roster-preflight",
+    };
+  }
+
   if (!repo || typeof repo !== "object" || !repo.owner || !repo.name) {
     return {
       ok: false,
@@ -551,53 +685,287 @@ function runEnrollmentCeremony(opts) {
   if (orgMembershipCapture) {
     content.gh_api_org_membership_capture = orgMembershipCapture;
   }
-  const recordCore = {
-    type: "genesis-anchor",
-    verified_id: signingKeyFingerprint,
-    person_id: signingPersonId,
-    seq: 0,
-    prev_hash: null,
-    ts: now(),
+  // Shared tail (provider-neutral): build core, serialize, sign, append. The
+  // GitHub `content` carries NO `provider` field (absent ⇒ github at fold),
+  // so the produced record stays byte-identical to the pre-port shape.
+  return _signAndAppend({
     content,
-  };
+    signingKeyFingerprint,
+    signingPersonId,
+    now,
+    sign,
+    keyType,
+    signingKeyPath,
+    transportAppend,
+  });
+}
 
-  let bytes;
-  try {
-    bytes = cocSign.canonicalSerialize(recordCore);
-  } catch (err) {
+// =========================================================================
+// Azure DevOps port — _runAdoEnrollment (additive; org-admin-attestation
+// anchored). ADO has no commit-signature-verification API, so an ADO genesis
+// ALWAYS anchors via the Project Collection Administrators attestation
+// (verified is always false; the org-admin attestation IS the verified-
+// identity anchor — the issue #358 org-bootstrap relaxation generalized to
+// the provider). The canonical capture INNER shapes are identical to GitHub's
+// (vcs-azure-adapter.js emits them); only the OUTER field names (ado_api_*)
+// and the content.provider discriminator differ.
+// =========================================================================
+
+/**
+ * Run the ADO genesis enrollment ceremony.
+ *
+ * @param {object} o    - the original runEnrollmentCeremony opts. For ADO:
+ *   - o.roster: provider="azure-devops"; genesis.repo_owner is the ADO org;
+ *     genesis.ado_project is the project ref; owner persons bind via `principal`.
+ *   - o.repo:   { repo: "<ado-repo-slug>" } (org + project come from roster);
+ *     `{ name }` is also accepted as the repo slug for caller convenience.
+ *   - o.adoApi: ({service,path,meta?}) => {ok,status,body,error?} — the ADO
+ *     transport (the structured analogue of GitHub's ghApi(endpointString)).
+ *   - o.signingKeyPath / o.signingKeyFingerprint / o.transportAppend as usual.
+ * @param {object} ctx  - { now, sign, keyType } resolved by the caller.
+ * @returns {{ok: true, record} | {ok: false, error, reason, step}}
+ */
+function _runAdoEnrollment(o, ctx) {
+  const {
+    roster,
+    repo,
+    signingKeyPath,
+    signingKeyFingerprint,
+    adoApi,
+    transportAppend,
+  } = o;
+  const { now, sign, keyType } = ctx;
+  const g = roster.genesis;
+
+  // --- Step 1: ADO-specific pre-flight ---
+  if (!signingKeyPath || !signingKeyFingerprint) {
     return {
       ok: false,
-      error: "canonicalSerialize threw",
-      reason: err && err.message ? err.message : String(err),
-      step: "6-serialize",
-    };
-  }
-
-  const signResult = sign(bytes, { keyType, keyPath: signingKeyPath });
-  if (!signResult || !signResult.ok) {
-    return {
-      ok: false,
-      error: signResult && signResult.error ? signResult.error : "sign failed",
-      reason: signResult && signResult.reason ? signResult.reason : "unknown",
-      step: "6-sign",
-    };
-  }
-  const record = { ...recordCore, sig: signResult.sig };
-
-  const appendResult = transportAppend(record);
-  if (!appendResult || !appendResult.ok) {
-    return {
-      ok: false,
-      error: "transport append failed",
+      error: "signing key not configured",
       reason:
-        appendResult && appendResult.error
-          ? appendResult.error
-          : "unknown transport append error",
-      step: "6-append",
+        "opts.signingKeyPath + opts.signingKeyFingerprint are required (zero-tolerance.md Rule 3 — no silent fallback)",
+      step: "1-roster-preflight",
+    };
+  }
+  if (typeof adoApi !== "function") {
+    return {
+      ok: false,
+      error: "adoApi callable missing",
+      reason:
+        "opts.adoApi must be a function ({service,path,meta?}) => {ok,status,body} for the azure-devops provider",
+      step: "1-roster-preflight",
+    };
+  }
+  if (typeof transportAppend !== "function") {
+    return {
+      ok: false,
+      error: "transportAppend callable missing",
+      reason: "opts.transportAppend must be a function (record) => {ok}",
+      step: "1-roster-preflight",
+    };
+  }
+  if (typeof g.ado_project !== "string" || !g.ado_project) {
+    return {
+      ok: false,
+      error: "roster.genesis.ado_project missing",
+      reason:
+        "azure-devops provider requires roster.genesis.ado_project (the ADO project ref the coordination repo lives under)",
+      step: "1-roster-preflight",
+    };
+  }
+  const repoSlug = repo && (repo.repo || repo.name);
+  if (!repoSlug) {
+    return {
+      ok: false,
+      error: "repo identification missing",
+      reason:
+        "opts.repo MUST be { repo: '<ado-repo-slug>' } (org + project come from roster.genesis)",
+      step: "1-roster-preflight",
+    };
+  }
+  // repoRef: org from genesis.repo_owner, project from genesis.ado_project,
+  // repo from opts.repo. Validate BEFORE interpolation (endpoint-injection
+  // safety — vcs-azure-adapter delegates to ado-login validators).
+  const repoRef = { org: g.repo_owner, project: g.ado_project, repo: repoSlug };
+  const refValid = azureAdapter.validateRepoRef(repoRef);
+  if (!refValid.valid) {
+    return {
+      ok: false,
+      error: "repoRef invalid",
+      reason: refValid.reason,
+      step: "1-roster-preflight",
     };
   }
 
-  return { ok: true, record };
+  const declaredOwner = g.repo_owner; // the ADO org
+  const declaredRoot = g.root_commit;
+  const repoOwnerKind = g.repo_owner_kind;
+
+  // --- Step 2: repo existence / owner corroboration ---
+  // ADO owner-check is "server confirms the repo exists under the asserted,
+  // auth-scoped org" (the adapter stamps owner.login from the request-side
+  // org). The principalsEqual check is a structural-parity sanity check with
+  // the GitHub path.
+  const ownerRes = azureAdapter.fetchRepoOwner(adoApi, repoRef, {
+    capture_ts: new Date().toISOString(),
+  });
+  if (!ownerRes.ok) {
+    return {
+      ok: false,
+      error: ownerRes.error,
+      reason: ownerRes.reason,
+      step: "2-ado-owner",
+    };
+  }
+  if (!azureAdapter.principalsEqual(ownerRes.ownerPrincipal, declaredOwner)) {
+    return {
+      ok: false,
+      error: "owner_mismatch",
+      reason: `ADO owner corroboration mismatch: roster declares org '${declaredOwner}', adapter resolved '${ownerRes.ownerPrincipal}'`,
+      step: "2-ado-owner",
+    };
+  }
+  const ownerCapture = ownerRes.capture;
+
+  // --- Step 3-pre: bind the signing key to a non-PLACEHOLDER owner person ---
+  let signingPerson = null;
+  let signingPersonId = null;
+  for (const [pid, person] of Object.entries(roster.persons)) {
+    if (isUnenrolled(pid)) continue;
+    if (_findSigningKey(person, signingKeyFingerprint)) {
+      signingPerson = person;
+      signingPersonId = pid;
+      break;
+    }
+  }
+  if (!signingPerson) {
+    return {
+      ok: false,
+      error: "signing key not in roster",
+      reason: `signing key fingerprint ${signingKeyFingerprint} does not match any non-PLACEHOLDER person_id in the roster`,
+      step: "3-signing-key-bind",
+    };
+  }
+  if (signingPerson.role !== "owner") {
+    return {
+      ok: false,
+      error: "signing key not owner-role",
+      reason: `signing key resolves to person_id ${signingPersonId} with role=${signingPerson.role}; only role=owner may sign genesis-anchor`,
+      step: "3-signing-key-bind",
+    };
+  }
+  // ADO binds via `principal` (Entra UPN), not github_login.
+  const adminPrincipal = signingPerson.principal;
+  const pValid = azureAdapter.validatePrincipal(adminPrincipal);
+  if (!pValid.valid) {
+    return {
+      ok: false,
+      error: "signing person principal invalid",
+      reason: `signing person.principal ${pValid.reason}`,
+      step: "3-org-admin",
+    };
+  }
+
+  // --- Step 3: org-admin attestation (Project Collection Administrators) ---
+  // This IS the verified-identity anchor for ADO (no commit-sig API). role
+  // MUST be "admin" AND state MUST be "active" (the active attestation is what
+  // substitutes for an unsigned/unverifiable root commit).
+  const adminRes = azureAdapter.fetchOrgAdmin(adoApi, repoRef, adminPrincipal, {
+    capture_ts: new Date().toISOString(),
+  });
+  if (!adminRes.ok) {
+    return {
+      ok: false,
+      error: adminRes.error,
+      reason: adminRes.reason,
+      step: "3-org-admin",
+    };
+  }
+  if (adminRes.role !== "admin") {
+    return {
+      ok: false,
+      error: "not an org admin",
+      reason: `ADO Project Collection Administrators membership role is '${adminRes.role}', not 'admin' (org-admin attestation is the ADO verified-identity anchor)`,
+      step: "3-org-admin",
+    };
+  }
+  if (adminRes.state !== "active") {
+    return {
+      ok: false,
+      error: "org membership not active",
+      reason: `ADO PCA membership state is '${adminRes.state}', not 'active' (the attestation MUST be currently in force to substitute as the verified-identity anchor)`,
+      step: "3-org-admin",
+    };
+  }
+  const orgAdminCapture = adminRes.capture;
+
+  // --- Step 4: root commit — CAPTURE ONLY (verified always false on ADO) ---
+  // ADO exposes no commit-signature verification; the org-admin attestation
+  // captured at Step 3 IS the anchor. The unverified state is captured
+  // faithfully into the signed record so auditors see the anchor path.
+  const commitRes = azureAdapter.fetchCommitVerification(
+    adoApi,
+    repoRef,
+    declaredRoot,
+    { capture_ts: new Date().toISOString() },
+  );
+  if (!commitRes.ok) {
+    return {
+      ok: false,
+      error: commitRes.error,
+      reason: commitRes.reason,
+      step: "4-root-commit",
+    };
+  }
+  const rootCommitCapture = commitRes.capture;
+
+  // --- Step 5: condition (c) — exactly ONE owner whose principal is the
+  // attestation UPN, and it MUST be the signer. ---
+  const ownerResolution = _resolveGenesisOwnerByPrincipal(
+    roster,
+    adminPrincipal,
+  );
+  if (!ownerResolution.ok) {
+    return {
+      ok: false,
+      error: "no genesis owner declared",
+      reason: ownerResolution.reason,
+      step: "5-condition-c",
+    };
+  }
+  if (ownerResolution.person_id !== signingPersonId) {
+    return {
+      ok: false,
+      error: "signing key not the resolved genesis owner",
+      reason: `signing fingerprint maps to ${signingPersonId}; condition-(c)-resolved genesis owner is ${ownerResolution.person_id}`,
+      step: "5-condition-c",
+    };
+  }
+
+  // --- Step 6: build ADO content + shared tail. content.provider is the
+  // fold dispatch discriminator; the ado_api_* outer names pair with it. ---
+  const content = {
+    genesis: {
+      repo_owner: declaredOwner,
+      repo_owner_kind: repoOwnerKind,
+      root_commit: declaredRoot,
+      genesis_generation: g.genesis_generation || 0,
+    },
+    provider: "azure-devops",
+    ado_api_owner_capture: ownerCapture,
+    ado_api_root_commit_capture: rootCommitCapture,
+    ado_api_org_admin_capture: orgAdminCapture,
+  };
+  return _signAndAppend({
+    content,
+    signingKeyFingerprint,
+    signingPersonId,
+    now,
+    sign,
+    keyType,
+    signingKeyPath,
+    transportAppend,
+  });
 }
 
 // =========================================================================
@@ -920,6 +1288,35 @@ function performMigration(opts) {
       step: "1-input",
     };
   }
+
+  // Azure DevOps port (Shard 2b): provider dispatch — mirrors
+  // runEnrollmentCeremony's top-level dispatch. `roster.genesis.provider`
+  // (absent ⇒ "github") selects the path. The GitHub MUST-7 migration path
+  // below is byte-UNCHANGED (the #1 invariant — f86/f88/genesis-anchor are
+  // the regression lock); the ADO path is fully additive in _runAdoMigration
+  // and re-uses the provider-neutral _resolveSoleOwner / _verifyLocalRootCommit
+  // / _verifyOriginRootCommit / chain-head helpers below.
+  const providerId = (roster.genesis && roster.genesis.provider) || "github";
+  if (providerId === "azure-devops") {
+    return _runAdoMigration(o, {
+      now,
+      sign,
+      keyType,
+      git,
+      readChainHead,
+      defaultBranch,
+      cwd,
+    });
+  }
+  if (providerId !== "github") {
+    return {
+      ok: false,
+      error: "unknown provider",
+      reason: `roster.genesis.provider="${providerId}" is not a known provider (github | azure-devops)`,
+      step: "1-input",
+    };
+  }
+
   if (!repo || typeof repo !== "object" || !repo.owner || !repo.name) {
     return {
       ok: false,
@@ -1297,6 +1694,461 @@ function performMigration(opts) {
   // log via the same engine + SSOT the fold will use, so prev_hash matches
   // rule-2 byte-for-byte. A null head (genuinely-first record, fresh log)
   // correctly yields seq:0/prev_hash:null. See journal/0172.
+  let chainHead;
+  try {
+    chainHead = readChainHead({
+      cwd,
+      roster,
+      verifiedId: signingKeyFingerprint,
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      error: "chain-head read failed",
+      reason: `readChainHead threw (coordination-log unreadable; refusing to fall back to seq:0 which would fork): ${err && err.message ? err.message : String(err)}`,
+      step: "8-chain-head",
+    };
+  }
+  const recordSeq = chainHead ? chainHead.lastSeq + 1 : 0;
+  const recordPrevHash = chainHead ? chainHead.lastContentHash : null;
+
+  const recordCore = {
+    type: "genesis-migration",
+    verified_id: signingKeyFingerprint,
+    person_id: owner.person_id,
+    seq: recordSeq,
+    prev_hash: recordPrevHash,
+    ts: now(),
+    content,
+  };
+
+  let bytes;
+  try {
+    bytes = cocSign.canonicalSerialize(recordCore);
+  } catch (err) {
+    return {
+      ok: false,
+      error: "canonicalSerialize threw",
+      reason: err && err.message ? err.message : String(err),
+      step: "8-serialize",
+    };
+  }
+
+  const signResult = sign(bytes, { keyType, keyPath: signingKeyPath });
+  if (!signResult || !signResult.ok) {
+    return {
+      ok: false,
+      error: signResult && signResult.error ? signResult.error : "sign failed",
+      reason: signResult && signResult.reason ? signResult.reason : "unknown",
+      step: "8-sign",
+    };
+  }
+  const record = Object.assign({}, recordCore, { sig: signResult.sig });
+
+  const appendResult = transportAppend(record);
+  if (!appendResult || !appendResult.ok) {
+    return {
+      ok: false,
+      error: "transport append failed",
+      reason:
+        appendResult && appendResult.error
+          ? appendResult.error
+          : "unknown transport append error",
+      step: "8-append",
+    };
+  }
+
+  return { ok: true, record };
+}
+
+// =========================================================================
+// Azure DevOps port (Shard 2b) — _runAdoMigration (additive; org-admin-
+// attestation anchored, N=1 only). The ADO sibling of performMigration's
+// GitHub MUST-7 N=1 path. ADO has NO commit-signature-verification API, so an
+// ADO migration ALWAYS anchors via the Project Collection Administrators
+// attestation (role=admin + state=active) — exactly the same structural-
+// equivalent anchor the GitHub N=1 path binds to gh_api_org_membership_capture
+// (issue #358 org-bootstrap relaxation generalized to MUST-7). ADO operators
+// bind via `principal` (Entra UPN), not github_login; records carry
+// content.provider + ado_api_* capture names + co_sign_anchor_kind =
+// CO_SIGN_ANCHOR_KIND_ORG_ADMIN_ADO. fold-rule-9c dispatches on content.provider
+// + the discriminator and runs the same N=1 predicates below the dispatch.
+//
+// user-owned + ghes-shared-appliance blocks are PROVIDER-NEUTRAL structural
+// guards: a user-owned roster has no org-membership surface to anchor against,
+// and an operator-set ghes-shared-appliance host token signals an out-of-band
+// appliance-admin mutation channel that defeats the attestation anchor. Both
+// fire before any network call (typed errors reachable offline), identical to
+// the GitHub path.
+// =========================================================================
+
+/**
+ * Run an ADO `genesis-migration` ceremony (N=1 org-admin path + re-anchor).
+ *
+ * @param {object} o   - the original performMigration opts. For ADO:
+ *   - o.roster: provider="azure-devops"; genesis.repo_owner is the CURRENT ADO
+ *     org; genesis.ado_project the project ref; owner persons bind via `principal`.
+ *   - o.newRepo: { org, project?, repo? } — the POST-migration ADO location.
+ *     project defaults to genesis.ado_project; repo defaults to o.repo.repo/.name.
+ *     For kind="re-anchor" the org does not change (defaults to genesis.repo_owner).
+ *   - o.repo: { repo: "<ado-repo-slug>" } (org+project from roster); { name } also accepted.
+ *   - o.adoApi: ({service,path,meta?}) => {ok,status,body,error?} — the ADO transport.
+ *   - o.signingKeyPath / o.signingKeyFingerprint / o.transportAppend / o.kind /
+ *     o.newRootCommit / o.preCorrectionRootCommit / o.from/toGenesisGeneration / o.host as usual.
+ * @param {object} ctx - { now, sign, keyType, git, readChainHead, defaultBranch, cwd }.
+ * @returns {{ok: true, record} | {ok: false, error, reason, step}}
+ */
+function _runAdoMigration(o, ctx) {
+  const {
+    roster,
+    repo,
+    signingKeyPath,
+    signingKeyFingerprint,
+    adoApi,
+    transportAppend,
+    kind,
+    newRootCommit,
+    preCorrectionRootCommit,
+    fromGenesisGeneration,
+    toGenesisGeneration,
+    host,
+  } = o;
+  const { now, sign, keyType, git, readChainHead, defaultBranch, cwd } = ctx;
+  const g = roster.genesis;
+
+  // --- Step 1: provider-neutral input validation (mirrors performMigration) ---
+  if (
+    typeof fromGenesisGeneration !== "number" ||
+    !Number.isInteger(fromGenesisGeneration) ||
+    typeof toGenesisGeneration !== "number" ||
+    !Number.isInteger(toGenesisGeneration)
+  ) {
+    return {
+      ok: false,
+      error: "genesis_generation must be integers",
+      reason: `from=${fromGenesisGeneration}, to=${toGenesisGeneration}`,
+      step: "1-input",
+    };
+  }
+  if (toGenesisGeneration <= fromGenesisGeneration) {
+    return {
+      ok: false,
+      error: "monotonic generation required",
+      reason: `genesis_generation must increment monotonically (from=${fromGenesisGeneration}, to=${toGenesisGeneration})`,
+      step: "1-input",
+    };
+  }
+  if (!signingKeyPath || !signingKeyFingerprint) {
+    return {
+      ok: false,
+      error: "signing key not configured",
+      reason:
+        "opts.signingKeyPath + opts.signingKeyFingerprint are required (zero-tolerance.md Rule 3 — no silent fallback)",
+      step: "1-input",
+    };
+  }
+  if (typeof adoApi !== "function") {
+    return {
+      ok: false,
+      error: "adoApi callable missing",
+      reason:
+        "opts.adoApi must be a function ({service,path,meta?}) => {ok,status,body} for the azure-devops provider",
+      step: "1-input",
+    };
+  }
+  if (typeof transportAppend !== "function") {
+    return {
+      ok: false,
+      error: "transportAppend callable missing",
+      reason: "opts.transportAppend must be a function (record) => {ok}",
+      step: "1-input",
+    };
+  }
+  if (typeof g.ado_project !== "string" || !g.ado_project) {
+    return {
+      ok: false,
+      error: "roster.genesis.ado_project missing",
+      reason:
+        "azure-devops provider requires roster.genesis.ado_project (the ADO project ref the coordination repo lives under)",
+      step: "1-input",
+    };
+  }
+  if (kind === "re-anchor") {
+    if (typeof newRootCommit !== "string" || !newRootCommit) {
+      return {
+        ok: false,
+        error: "newRootCommit required for kind=re-anchor",
+        reason: "opts.newRootCommit MUST be the corrected root SHA",
+        step: "1-input",
+      };
+    }
+    if (
+      typeof preCorrectionRootCommit !== "string" ||
+      !preCorrectionRootCommit
+    ) {
+      return {
+        ok: false,
+        error: "preCorrectionRootCommit required for kind=re-anchor",
+        reason:
+          "opts.preCorrectionRootCommit MUST be the old SHA being corrected",
+        step: "1-input",
+      };
+    }
+    if (newRootCommit === preCorrectionRootCommit) {
+      return {
+        ok: false,
+        error: "no-op re-anchor",
+        reason:
+          "newRootCommit === preCorrectionRootCommit; re-anchor would not change the trust root",
+        step: "1-input",
+      };
+    }
+  }
+
+  // --- Step 2: route by repo_owner_kind + host (PROVIDER-NEUTRAL guards) ---
+  const repoOwnerKind = g.repo_owner_kind;
+  // RESIDUAL (R1 security-reviewer LOW → Shard 4 prose): the operator-set
+  // `ghes-shared-appliance` token blocks the GitHub-Enterprise-Server out-of-
+  // band appliance-admin mutation channel. ADO Server (on-prem Azure DevOps
+  // Server) has the IDENTICAL threat class — a server-instance admin can forge
+  // PCA membership out-of-band, defeating the attestation anchor — but there is
+  // no `ado-server-shared-appliance` token yet. Not externally exploitable
+  // (requires operator to omit a not-yet-existing token); generalizing the
+  // host-block token set + documenting the ADO-Server residual in
+  // multi-operator-coordination.md MUST-5/MUST-7 is Shard 4 work (paired with
+  // the rule prose that explains it — landing the token without the prose would
+  // be a half-landing).
+  if (host === "ghes-shared-appliance") {
+    return {
+      ok: false,
+      error: "ghes-shared-appliance blocked",
+      reason: ERR_GHES_SHARED_APPLIANCE_BLOCKED,
+      step: "2-route",
+    };
+  }
+  if (repoOwnerKind === "user") {
+    return {
+      ok: false,
+      error: "user-owned N=1 blocked",
+      reason: ERR_USER_OWNED_N1_BLOCKED,
+      step: "2-route",
+    };
+  }
+  if (repoOwnerKind !== "org") {
+    return {
+      ok: false,
+      error: "unknown repo_owner_kind",
+      reason: `roster.genesis.repo_owner_kind must be "user" or "org"; got "${repoOwnerKind}"`,
+      step: "2-route",
+    };
+  }
+
+  // Resolve the post-migration ADO repoRef. The org MAY change (owner-
+  // relocation migration); for re-anchor it stays the current org. project +
+  // repo default from roster + opts.repo. Validate BEFORE interpolation.
+  const newRepoOrg = (o.newRepo && o.newRepo.org) || g.repo_owner;
+  const newRepoProject = (o.newRepo && o.newRepo.project) || g.ado_project;
+  const newRepoSlug =
+    (o.newRepo && o.newRepo.repo) || (repo && (repo.repo || repo.name));
+  if (!newRepoSlug) {
+    return {
+      ok: false,
+      error: "repo identification missing",
+      reason:
+        "opts.newRepo.repo or opts.repo.repo MUST identify the ADO repo slug (org+project resolved from newRepo/roster)",
+      step: "1-input",
+    };
+  }
+  const newRepoRef = {
+    org: newRepoOrg,
+    project: newRepoProject,
+    repo: newRepoSlug,
+  };
+  const refValid = azureAdapter.validateRepoRef(newRepoRef);
+  if (!refValid.valid) {
+    return {
+      ok: false,
+      error: "newRepoRef invalid",
+      reason: refValid.reason,
+      step: "1-input",
+    };
+  }
+
+  // --- Step 3: resolve the sole owner (N=1 gate); bind via principal ---
+  const owner = _resolveSoleOwner(roster);
+  if (!owner.ok) {
+    return {
+      ok: false,
+      error: "sole-owner resolution failed",
+      reason: owner.reason,
+      step: "3-sole-owner",
+    };
+  }
+  const adminPrincipal = owner.person && owner.person.principal;
+  const pValid = azureAdapter.validatePrincipal(adminPrincipal);
+  if (!pValid.valid) {
+    return {
+      ok: false,
+      error: "sole owner principal invalid",
+      reason: `roster.persons[${owner.person_id}].principal ${pValid.reason}; cannot bind org-admin attestation`,
+      step: "3-sole-owner",
+    };
+  }
+  const signingKey = _findSigningKey(owner.person, signingKeyFingerprint);
+  if (!signingKey) {
+    return {
+      ok: false,
+      error: "signing key not the sole owner's enrolled key",
+      reason: `signing fingerprint ${signingKeyFingerprint} is not enrolled under the sole owner person_id ${owner.person_id}`,
+      step: "3-sole-owner",
+    };
+  }
+
+  // --- Step 4 (re-anchor only): local + origin root-commit verification ---
+  // PROVIDER-NEUTRAL git (re-uses the GitHub path's helpers). ADO exposes no
+  // commit-sig API, so the verified-identity anchor is the PCA attestation
+  // (Step 6); the local+origin root agreement closes the mid-ceremony
+  // git-filter-repo divergence residual exactly as on GitHub.
+  if (kind === "re-anchor") {
+    const local = _verifyLocalRootCommit(git, cwd, newRootCommit);
+    if (!local.ok) {
+      return {
+        ok: false,
+        error: "local root-commit verification failed",
+        reason: local.reason,
+        step: local.step,
+      };
+    }
+    const remote = _verifyOriginRootCommit(
+      git,
+      cwd,
+      newRootCommit,
+      defaultBranch,
+    );
+    if (!remote.ok) {
+      return {
+        ok: false,
+        error: "origin root-commit verification failed",
+        reason: remote.reason,
+        step: remote.step,
+        ...(remote.soft ? { soft: true } : {}),
+      };
+    }
+  }
+
+  // --- Step 5: ADO repo existence / owner corroboration (fresh capture) ---
+  const ownerRes = azureAdapter.fetchRepoOwner(adoApi, newRepoRef, {
+    capture_ts: now(),
+  });
+  if (!ownerRes.ok) {
+    return {
+      ok: false,
+      error: ownerRes.error,
+      reason: ownerRes.reason,
+      step: "5-ado-owner",
+    };
+  }
+  if (!azureAdapter.principalsEqual(ownerRes.ownerPrincipal, newRepoOrg)) {
+    return {
+      ok: false,
+      error: "owner_mismatch",
+      reason: `ADO owner corroboration mismatch: newRepo org '${newRepoOrg}', adapter resolved '${ownerRes.ownerPrincipal}'`,
+      step: "5-ado-owner",
+    };
+  }
+  const ownerCapture = ownerRes.capture;
+
+  // --- Step 6: ADO org-admin (PCA) attestation — the verified-identity
+  // anchor under N=1. role MUST be "admin" + state MUST be "active" + the
+  // attestation's user principal MUST be the sole owner's principal. ---
+  const adminRes = azureAdapter.fetchOrgAdmin(
+    adoApi,
+    newRepoRef,
+    adminPrincipal,
+    { capture_ts: now() },
+  );
+  if (!adminRes.ok) {
+    return {
+      ok: false,
+      error: adminRes.error,
+      reason: adminRes.reason,
+      step: "6-org-admin",
+    };
+  }
+  if (adminRes.role !== "admin") {
+    return {
+      ok: false,
+      error: "not an org admin",
+      reason: `ADO PCA membership role is '${adminRes.role}', not 'admin' (org-admin attestation is the ADO verified-identity anchor under N=1)`,
+      step: "6-org-admin",
+    };
+  }
+  if (adminRes.state !== "active") {
+    return {
+      ok: false,
+      error: "org membership not active",
+      reason: `ADO PCA membership state is '${adminRes.state}', not 'active' (the attestation MUST be currently in force to substitute as the structural-equivalent anchor)`,
+      step: "6-org-admin",
+    };
+  }
+  if (!azureAdapter.principalsEqual(adminRes.userPrincipal, adminPrincipal)) {
+    return {
+      ok: false,
+      error: "org-admin principal mismatch",
+      reason: `ADO PCA attestation user principal '${adminRes.userPrincipal}' does not match the sole owner's principal '${adminPrincipal}'`,
+      step: "6-org-admin",
+    };
+  }
+  const orgAdminCapture = adminRes.capture;
+
+  // --- Step 7 (re-anchor only): ADO commit capture (verified always false) ---
+  let rootCommitCapture = null;
+  if (kind === "re-anchor") {
+    const commitRes = azureAdapter.fetchCommitVerification(
+      adoApi,
+      newRepoRef,
+      newRootCommit,
+      { capture_ts: now() },
+    );
+    if (!commitRes.ok) {
+      return {
+        ok: false,
+        error: commitRes.error,
+        reason: commitRes.reason,
+        step: "7-root-commit",
+      };
+    }
+    rootCommitCapture = commitRes.capture;
+  }
+
+  // --- Step 8: build canonical ADO content + sign + append ---
+  // content.provider is the fold field-name dispatch discriminator;
+  // co_sign_anchor_kind = CO_SIGN_ANCHOR_KIND_ORG_ADMIN_ADO is the N=1-path
+  // entry discriminator fold-rule-9c branches on (provider-consistent with the
+  // ado_api_* field names). Per MUST-7 (f), the signature covers the ENTIRE
+  // content block (co_signers + discriminator + both captures) — canonical-
+  // Serialize over recordCore (sig absent) is exactly that.
+  const content = {
+    new_repo_owner: newRepoOrg,
+    new_repo_owner_kind: "org",
+    from_genesis_generation: fromGenesisGeneration,
+    to_genesis_generation: toGenesisGeneration,
+    co_signers: [],
+    co_sign_anchor_kind: CO_SIGN_ANCHOR_KIND_ORG_ADMIN_ADO,
+    provider: "azure-devops",
+    ado_api_owner_capture: ownerCapture,
+    ado_api_org_admin_capture: orgAdminCapture,
+  };
+  if (kind === "re-anchor") {
+    content.pre_correction_root_commit = preCorrectionRootCommit;
+    content.ado_api_root_commit_capture = rootCommitCapture;
+  }
+
+  // F88 — stamp seq/prev_hash as a chain-continuation off the emitter's
+  // current chain head (NOT seq:0, which would fork against an existing
+  // genesis-anchor at the same (verified_id, seq=0) and flag the owner as an
+  // equivocator). Provider-neutral — re-uses the same readChainHead the GitHub
+  // path uses. See journal/0172 (F88).
   let chainHead;
   try {
     chainHead = readChainHead({

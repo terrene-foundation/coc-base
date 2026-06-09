@@ -1,0 +1,2 @@
+accepted: false
+predicate: MUST-7 ADO (a) — discriminator co_sign_anchor_kind=ado_api_org_admin_capture present AND co_signers populated (malformed mix); the N=1 org-admin path requires co_signers===[]; rejected

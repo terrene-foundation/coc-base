@@ -1,6 +1,15 @@
 ---
-priority: 0
-scope: baseline
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "**/*.py"
+  - "**/*.rs"
+  - "**/*.mjs"
+  - "**/*.js"
+  - "**/*.sh"
+  - "**/workspaces/**"
+  - ".claude/{commands,skills}/**"
 ---
 
 # Verify Resource Existence Before Debugging Access
@@ -67,4 +76,4 @@ Rounds 5+6 met convergence target.
 
 MUST-4 mirrors this shape: receipt FIRST, claim-grounding SECOND, absence-disposition THIRD (if no receipt exists, spawn one or surface the gap).
 
-Origin: 2026-05-03 ci-queue-monitor session burned 6 PRs debugging access to a non-existent 16-core hosted runner. MUST-4 added 2026-05-09 from stale-workspace convergence cycle. See guide for full post-mortem.
+Origin: 2026-05-03 ci-queue-monitor session burned 6 PRs debugging access to a non-existent 16-core hosted runner. MUST-4 added 2026-05-09 from stale-workspace convergence cycle. See guide for full post-mortem. DEMOTED baseline → path-scoped 2026-06-08 (#408 AC#5-c, journal/0238) to free ~5,021 B of baseline emission across all lanes for the framework-first promotion — the rs language lane could not otherwise absorb a 10th baseline rule. The permission-existence discipline (MUST-1–3) fires on a 403/permission-denied against a named external resource; MUST-4 on convergence-receipt claims — both narrow triggers the `paths:` globs cover, and the rule stays delivered via the rules-reference index on Codex/Gemini.

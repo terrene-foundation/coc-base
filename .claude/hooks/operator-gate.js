@@ -2,6 +2,22 @@
 /**
  * Hook: operator-gate
  *
+ * @coc-codex-edit-gate — STATELESS trust gate (multi-operator 4-eyes
+ *   gate-approval); the policy extractor fans its CC edit-matcher
+ *   registration out to the Codex `apply_patch` lane (mcp-guard,
+ *   FF-AC6-1). It fires only on the lexical gate-bearing command
+ *   surfaces (/release, /posture upgrade|override, /codify, roster
+ *   ops) and passes through every other edit — so it does NOT require
+ *   the coordination substrate to be enrolled on a Codex consumer.
+ *   The cc-only coordination guards deliberately omit this marker.
+ *   NOTE: a `apply_patch` (file-edit) call carries no command surface,
+ *   so on the apply_patch lane this gate is a NO-OP by construction —
+ *   it bites only on the Bash lane (shell/unified_exec), where the
+ *   gate-bearing slash commands actually arrive on Codex. The marker is
+ *   retained for shell-lane structural parity (same 3 stateless gates
+ *   across every Codex tool) + defense-in-depth (a future edit-gating
+ *   branch would activate without re-wiring).
+ *
  * Event: PreToolUse
  *
  * Trigger: lexical command-string match for the gate-bearing surfaces:
@@ -320,7 +336,9 @@ if (process.stdin.isTTY) {
       // never a silent passthrough (rules/zero-tolerance.md Rule 3).
       return emitGateHalt(
         gate,
-        { reason: `evaluator error: ${err && err.message ? err.message : String(err)}` },
+        {
+          reason: `evaluator error: ${err && err.message ? err.message : String(err)}`,
+        },
         command,
       );
     }

@@ -49,6 +49,7 @@ const VALID_TYPES = new Set([
   "RISK",
   "CONNECTION",
   "GAP",
+  "AMENDMENT",
 ]);
 
 // Match the canonical journal command's filename regex: NNNN- (4 digits),
@@ -98,7 +99,8 @@ function _scanHighWater(dir) {
  *   REQUIRED. The display_id is consumed in the filename; verified_id
  *   is what the caller will write to frontmatter as authoritative.
  * @param {string} opts.type - one of DECISION/DISCOVERY/TRADE-OFF/RISK/
- *   CONNECTION/GAP (the canonical journal TYPE set).
+ *   CONNECTION/GAP/AMENDMENT (the canonical journal TYPE set, per
+ *   rules/journal.md Entry Types).
  * @param {string} opts.topic - human-readable topic; slugified.
  * @returns {{
  *   slot: string,            // "NNNN" zero-padded

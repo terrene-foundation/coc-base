@@ -275,19 +275,45 @@ function normalizeReasonTemplate(raw) {
 // ────────────────────────────────────────────────────────────────
 //
 // Codex's tool surface differs from CC's. The `.claude/settings.json`
-// hooks are registered per CC matcher (Bash, Edit|Write, Read). For
-// the MCP-fallback path, we replay PreToolUse hooks against the
-// equivalent Codex tool:
+// hooks are registered per CC matcher (Bash, Edit|Write|MultiEdit|
+// NotebookEdit, Read). For the MCP-fallback path, we replay PreToolUse
+// hooks against the equivalent Codex tool:
 //
-//   CC matcher     | Codex wrapped tools
+//   CC tool        | Codex wrapped tools
 //   ---------------+---------------------
 //   Bash           | shell, unified_exec
-//   Edit|Write     | apply_patch
+//   Edit           | apply_patch
+//   Write          | apply_patch
+//   MultiEdit      | apply_patch
+//   NotebookEdit   | apply_patch
 //   Read           | (out of scope — README "What's covered vs. not")
 //
-// A hook file may map to multiple Codex tools when its CC matcher
-// ("Bash") fans out to several Codex primitives. The same predicate
-// fires on every fan-out target.
+// A CC matcher is a `|`-joined SET of CC tools (e.g.
+// "Edit|Write|MultiEdit|NotebookEdit"); resolution splits the matcher
+// and unions each tool's Codex fan-out (matcherToCodexTools below). The
+// prior design keyed CC_TO_CODEX_TOOLS by the WHOLE matcher string and
+// looked it up verbatim — the DF-AC6-1 root cause: the real edit matcher
+// "Edit|Write|MultiEdit|NotebookEdit" was not a literal key, so the
+// entire edit lane (apply_patch) silently dropped from the extraction.
+//
+// `CC_TO_CODEX_TOOLS` is retained as the canonical matcher→tool binding
+// table for the `multi-operator-coordination.md` §7 / MUST-6 literal
+// reference (CC_TO_CODEX_TOOLS["Edit|Write"] = ["apply_patch"]); the
+// authoritative resolver the extractor uses is matcherToCodexTools(),
+// which reproduces these bindings for ANY matcher permutation.
+const CC_TOOL_TO_CODEX = Object.freeze({
+  Bash: ["shell", "unified_exec"],
+  Edit: ["apply_patch"],
+  Write: ["apply_patch"],
+  MultiEdit: ["apply_patch"],
+  NotebookEdit: ["apply_patch"],
+});
+
+// Reference-only table for the multi-operator-coordination.md §7 / MUST-6
+// literal citation (CC_TO_CODEX_TOOLS["Edit|Write"] = ["apply_patch"]). NOT a
+// resolver input — matcherToCodexTools() is the authoritative resolver. Keys
+// are only the matchers the rule actually cites; do NOT add the live 4-tool
+// matcher here (it has no literal-reference contract — R1 cc-architect LOW-1).
 const CC_TO_CODEX_TOOLS = Object.freeze({
   Bash: ["shell", "unified_exec"],
   "Edit|Write": ["apply_patch"],
@@ -296,6 +322,55 @@ const CC_TO_CODEX_TOOLS = Object.freeze({
 });
 
 const CODEX_TOOLS = Object.freeze(["shell", "unified_exec", "apply_patch"]);
+
+// Resolve a `|`-joined CC matcher string to its unioned Codex tool set.
+// Robust to tool-order permutations and to new edit-tool additions —
+// each CC tool maps independently via CC_TOOL_TO_CODEX. This is the
+// structural close of the DF-AC6-1 brittle-exact-match bug. A CC tool with
+// NO CC_TOOL_TO_CODEX entry is intentionally SKIPPED (resolves to []), not an
+// error — the validator-13 bijection + audit fixtures are the backstop if a
+// future CC tool needs a mapping (R1 reviewer LOW-3).
+function matcherToCodexTools(matcher) {
+  const out = [];
+  for (const tool of String(matcher)
+    .split("|")
+    .map((s) => s.trim())) {
+    for (const ct of CC_TOOL_TO_CODEX[tool] || []) {
+      if (!out.includes(ct)) out.push(ct);
+    }
+  }
+  return out;
+}
+
+// apply_patch (Codex file-edit) is the lane the multi-operator
+// COORDINATION substrate (roster / claims / journal-slots / codify-
+// branch) must NOT leak into on a non-enrolled Codex consumer. A hook
+// registered under a CC edit matcher (Edit/Write/MultiEdit/NotebookEdit)
+// fans out to apply_patch ONLY when it carries this opt-in marker —
+// declaring it a STATELESS trust gate (posture / 4-eyes / signing) safe
+// to replay against a consumer's file-edits WITHOUT that substrate.
+//
+// The marker lives in the SYNCED hook source, so it is the
+// CONSUMER-AVAILABLE selectivity signal (FF-AC6-1 AC#3): the projection
+// of sync-manifest's `mcp-guard` lane into the hook itself, because
+// sync-manifest.yaml is NOT synced to consumers where this extractor
+// regenerates policies.json. The cc-only coordination guards
+// (adjacency-leasecheck, journal-write-guard, integrity-guard)
+// deliberately OMIT the marker → excluded from apply_patch (FF-AC6-1
+// AC#2). Default is fail-safe-for-functionality: a NEW edit hook with no
+// marker is EXCLUDED, so a forgotten coordination guard never halts a
+// Codex consumer's edits. The hook-delivery validator's mirrored-set
+// cross-check (validate-emit.mjs::deriveMirroredHookSet) enforces the
+// mcp-guard⟺marker bijection at /sync.
+//
+// The match is ANCHORED to a JSDoc comment LINE — the opt-in must be a
+// deliberate ` * @coc-codex-edit-gate` header directive, NOT an incidental
+// in-prose mention of the token (R1 security LOW-2). A hook header that merely
+// DESCRIBES the exclusion ("this guard omits `@coc-codex-edit-gate`") does not
+// match, because the token is not the first non-`*` content on its line — so an
+// exclusion-describing coordination guard cannot be silently flipped into the
+// gated set.
+const CODEX_APPLY_PATCH_GATE_MARKER = /^\s*\*\s*@coc-codex-edit-gate\b/m;
 
 // Build hook-file → CC-matcher map by parsing the project's
 // settings.json. Only PreToolUse entries are policy candidates; we
@@ -315,7 +390,10 @@ function buildHookMatcherMap(settingsPath) {
   const pre = settings?.hooks?.PreToolUse || [];
   for (const block of pre) {
     const matcher = block.matcher;
-    if (!matcher || !CC_TO_CODEX_TOOLS[matcher]) continue;
+    // Resolve via the per-tool splitter (NOT a verbatim CC_TO_CODEX_TOOLS
+    // key lookup) so multi-tool matchers like "Edit|Write|MultiEdit|
+    // NotebookEdit" map correctly — the DF-AC6-1 root-cause fix.
+    if (!matcher || matcherToCodexTools(matcher).length === 0) continue;
     for (const h of block.hooks || []) {
       // command shape: `node "$CLAUDE_PROJECT_DIR/.claude/hooks/<name>.js"`
       const m = (h.command || "").match(/\/hooks\/([\w-]+\.js)/);
@@ -349,10 +427,17 @@ export function extractPolicies(dir, opts = {}) {
     path.resolve(dir, "..", "settings.json");
   const matcherMap = buildHookMatcherMap(settingsPath);
 
+  // Per-file apply_patch eligibility (the @coc-codex-edit-gate marker).
+  // Built once during the file scan; reused by both the predicate-level
+  // codex_tools assignment and the file-level policies table.
+  const markerByFile = new Map();
+
   for (const file of files) {
     const fullPath = path.join(dir, file);
     const source = fs.readFileSync(fullPath, "utf8");
     const functions = findTopLevelFunctions(source);
+    const gatesApplyPatch = CODEX_APPLY_PATCH_GATE_MARKER.test(source);
+    markerByFile.set(file, gatesApplyPatch);
 
     for (const fn of functions) {
       const shape = classifyShape(fn, source);
@@ -364,10 +449,13 @@ export function extractPolicies(dir, opts = {}) {
       // session-start.js, post-mortem hooks) get an empty
       // `codex_tools` array and are excluded from the per-tool
       // POLICIES table while still appearing in `predicates`.
+      // apply_patch is marker-gated: only a hook carrying
+      // @coc-codex-edit-gate fans out to the Codex file-edit lane.
       const ccMatchers = matcherMap.get(file) || [];
       const codexTools = [];
       for (const m of ccMatchers) {
-        for (const t of CC_TO_CODEX_TOOLS[m] || []) {
+        for (const t of matcherToCodexTools(m)) {
+          if (t === "apply_patch" && !gatesApplyPatch) continue;
           if (!codexTools.includes(t)) codexTools.push(t);
         }
       }
@@ -426,14 +514,22 @@ export function extractPolicies(dir, opts = {}) {
   // that don't exist in the hook dir (settings.json may reference
   // inactive hooks; the file-level enforcement only applies to
   // scripts present on disk). Dedup by source_file per tool — a
-  // single hook registered under both Bash and Edit|Write fans out
-  // to (shell, unified_exec, apply_patch) but appears once per tool.
+  // single hook registered under both Bash and the edit matcher fans
+  // out to (shell, unified_exec, apply_patch) but appears once per
+  // tool. apply_patch is marker-gated: a hook reaches the Codex
+  // file-edit lane only when it carries @coc-codex-edit-gate.
   for (const [hookFile, matchers] of matcherMap.entries()) {
     const fullPath = path.join(dir, hookFile);
     if (!fs.existsSync(fullPath)) continue;
+    const gatesApplyPatch =
+      markerByFile.get(hookFile) ??
+      CODEX_APPLY_PATCH_GATE_MARKER.test(fs.readFileSync(fullPath, "utf8"));
     const tools = new Set();
     for (const m of matchers) {
-      for (const t of CC_TO_CODEX_TOOLS[m] || []) tools.add(t);
+      for (const t of matcherToCodexTools(m)) {
+        if (t === "apply_patch" && !gatesApplyPatch) continue;
+        tools.add(t);
+      }
     }
     for (const tool of tools) {
       if (!policies[tool]) continue;

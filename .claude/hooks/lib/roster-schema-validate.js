@@ -276,6 +276,64 @@ function _validateGpgFingerprints(roster, errors) {
 }
 
 /**
+ * Provider-conditional identity binding (Azure DevOps port). The vendored
+ * validator does NOT support if/then (see header), so the
+ * provider-dependent "which identity field is required" constraint is a
+ * load-time CODE assert, exactly like _validateGpgFingerprints (#372).
+ *
+ * `genesis.provider` (absent ⇒ "github") decides the binding:
+ *   - github  → every enrolled (non-PLACEHOLDER) person MUST carry a
+ *               non-empty `github_login` (relaxed from JSON-Schema `required`
+ *               so an azure-devops roster need not carry it).
+ *   - azure-devops → `genesis.ado_project` MUST be present, AND every
+ *               enrolled person MUST carry a non-empty `principal` (Entra UPN).
+ *
+ * Why fail LOUD here rather than at resolution: a github roster missing
+ * `github_login` (or an ADO roster missing `principal`) would silently fail
+ * owner-bind at the genesis ceremony / fold — the trust root never
+ * establishes and every downstream guard hard-blocks with an opaque reason.
+ * Surfacing it at the /whoami --register validation gate names the exact
+ * field + person_id.
+ */
+function _validateProviderIdentity(roster, errors) {
+  const genesis = roster && roster.genesis;
+  if (!genesis || typeof genesis !== "object") return; // shape errors already flagged
+  const provider =
+    typeof genesis.provider === "string" && genesis.provider
+      ? genesis.provider
+      : "github";
+  const persons = roster.persons;
+  if (!persons || typeof persons !== "object" || Array.isArray(persons)) return;
+
+  if (provider === "azure-devops") {
+    if (typeof genesis.ado_project !== "string" || !genesis.ado_project) {
+      errors.push(
+        `$.genesis.ado_project: required when genesis.provider == "azure-devops" (the ADO project ref the coordination repo lives under)`,
+      );
+    }
+  }
+
+  for (const personId of Object.keys(persons)) {
+    if (isUnenrolled(personId)) continue; // PLACEHOLDER- reserved, not yet bound
+    const person = persons[personId];
+    if (!person || typeof person !== "object") continue; // shape errors already flagged
+    if (provider === "azure-devops") {
+      if (typeof person.principal !== "string" || !person.principal) {
+        errors.push(
+          `$.persons.${personId}.principal: required when genesis.provider == "azure-devops" (Entra UPN binding; the ADO analogue of github_login)`,
+        );
+      }
+    } else {
+      if (typeof person.github_login !== "string" || !person.github_login) {
+        errors.push(
+          `$.persons.${personId}.github_login: required when genesis.provider is github/absent`,
+        );
+      }
+    }
+  }
+}
+
+/**
  * Validate a roster object against the operators-roster JSON Schema.
  *
  * @param {object} roster — parsed JSON content of operators.roster.json
@@ -300,6 +358,9 @@ function validate(roster) {
   // #372: GPG-fingerprint uppercase-40-hex assert (conditional on key.type,
   // which the vendored validator cannot express as a JSON-Schema pattern).
   _validateGpgFingerprints(roster, errors);
+  // Azure DevOps port: provider-conditional identity binding (github_login vs
+  // principal), also conditional and thus not a JSON-Schema constraint.
+  _validateProviderIdentity(roster, errors);
   return { valid: errors.length === 0, errors };
 }
 
