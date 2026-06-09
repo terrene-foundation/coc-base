@@ -10,3 +10,11 @@
 /workspaces/*
 !/workspaces/_template/
 # <<< coc:gitignore_additions <<<
+
+# Template-local: stray operator cruft swept by the hooks/** always-include
+# (matches the py/rs templates; see loom journal/0250 follow-up). Pre-existing
+# .env here is a COMMENTED placeholder template, not live secrets.
+.env
+**/.env
+.DS_Store
+**/.DS_Store
