@@ -3,13 +3,13 @@
   "version": "2.39.0",
   "type": "coc-use-template",
   "description": "Language-agnostic, non-Kailash CO/COC USE template — multi-CLI (variant: base, clis: claude/codex/gemini)",
-  "synced_at": "2026-06-09T13:39:33Z",
+  "synced_at": "2026-06-10T02:53:44Z",
   "upstream": {
     "name": "loom",
     "type": "coc-source",
     "version": "2.39.0",
-    "loom_sha": "c445a66",
-    "synced_at": "2026-06-09T13:39:33Z",
+    "loom_sha": "1daa45b",
+    "synced_at": "2026-06-10T02:53:44Z",
     "template_version": "2.39.0"
   },
   "variant": "base",
@@ -24,6 +24,19 @@
     "gemini"
   ],
   "changelog": [
+    {
+      "date": "2026-06-10",
+      "version": "2.39.0",
+      "summary": "REDISTRIBUTION — coc-base (multi-CLI) advanced from loom@c445a66 to loom@1daa45b (both 2.39.0; same-version REDISTRIBUTION bringing the base lane current to loom HEAD, no loom version bump). Base lane (variant: base, tier_subscriptions: [cc, co, onboarding], build: null — NO SDK pins; clis: [claude, codex, gemini]). Canonical sync-tier-aware.mjs --target base --all-templates: copied=820, verified 820/820 byte-equal, purged=0, skipped no_tier_match=513 + exclude=855 + use_exclude=29 + loom_local=2. OVERLAY FIX: rules/agents.md base slot-keyed overlay re-applied as strip(compose(global, variants/base)) — the tier-aware raw-copy shipped the loom global (drift-from-both 271190d); corrected to composed+stripped (md5 c9b6b62, single strip rewrite: packages/kailash-ml/src path neutralized in Example 7). verify-overlays.sh base: 2/2 PASS, Failing: 0. .claude/ content axis only this cycle (Gate-2 distribute redistribution). settings.json unchanged: hook integrity 38/38; 0 scripts/hooks; 0 operator-PII. .gitignore noop (10 entries). NO BUILD source (build:null) — sdk_packages {}. NO .github/coc-sdk-refs-allowlist.txt (Step 7.5 skipped).",
+      "changes": [
+        "REDISTRIBUTION: loom globals raw-copied via sync-tier-aware.mjs --all-templates (copied=820, verified 820/820 byte-equal). base tiers=[cc,co,onboarding]; coc-tier skipped (no_tier_match=513).",
+        "OVERLAY FIX: rules/agents.md base slot-keyed overlay re-applied as strip(compose(global, variants/base)). tier-aware raw-copy shipped the loom global (drift-from-both 271190d); corrected to composed+stripped (md5 c9b6b62). verify-overlays.sh base: variant-applied(base,slot) PASS, Failing: 0.",
+        "SETTINGS: unchanged by sync. Hook integrity 38/38; 0 scripts/hooks; 0 operator-PII; valid JSON.",
+        "SDK PINS: build:null — no pyproject.toml/Cargo.toml; sdk_packages {} (Step 5 skipped).",
+        "STEP 7.5: no .github/coc-sdk-refs-allowlist.txt (no contamination gate) — skipped.",
+        "PRESERVED: CLAUDE.md (template-owned, never overwritten); .claude/learning/** + .proposals/** + .coc-sync-marker never synced; .codex/local-config.toml + .gemini/local-settings.json preserve-list untouched (none present)."
+      ]
+    },
     {
       "date": "2026-06-01",
       "version": "2.39.0",

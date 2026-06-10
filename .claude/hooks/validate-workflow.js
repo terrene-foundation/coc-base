@@ -69,16 +69,27 @@ process.stdin.on("end", () => {
       process.exit(out.exitCode);
       return;
     }
-    // Advisory / clean path
-    console.log(
-      JSON.stringify({
-        continue: result.continue,
-        hookSpecificOutput: {
-          hookEventName: "PostToolUse",
-          validation: result.messages,
-        },
-      }),
-    );
+    // Advisory / clean path. Non-blocking advisories reach the agent via
+    // additionalContext — the delivered PostToolUse field; the prior
+    // `validation` sibling was silently dropped (loom #466). Render the
+    // message list to text; emit no context block when there are none.
+    const advisory = { continue: result.continue };
+    const msgs = Array.isArray(result.messages)
+      ? result.messages
+      : result.messages
+        ? [result.messages]
+        : [];
+    if (msgs.length) {
+      advisory.hookSpecificOutput = {
+        hookEventName: "PostToolUse",
+        additionalContext: msgs
+          .map((m) =>
+            typeof m === "string" ? m : m && m.message ? m.message : String(m),
+          )
+          .join("\n"),
+      };
+    }
+    console.log(JSON.stringify(advisory));
     process.exit(result.exitCode);
   } catch (error) {
     console.error(`[HOOK ERROR] ${error.message}`);

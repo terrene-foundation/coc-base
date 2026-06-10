@@ -1,10 +1,24 @@
 /**
  * instruct-and-wait — canonical hook output shape for the graduated-trust system.
  *
- * Mitigates red-team CRIT-1 (Stop schema bug):
- *   Stop / SessionEnd / PreCompact emit `systemMessage` (top-level) — `hookSpecificOutput`
- *   is silently dropped on those events per CC schema.
- *   PreToolUse / PostToolUse / UserPromptSubmit / SessionStart use `hookSpecificOutput.validation`.
+ * Delivery-channel contract (verified against the CC hook docs 2026-06-09 —
+ * loom #466). The host injects agent-facing context ONLY via documented fields;
+ * arbitrary sibling fields (`validation`, `message`, `suppressOutput`) are
+ * SILENTLY DROPPED — the agent never sees them:
+ *   Stop / SessionEnd / PreCompact         → top-level `systemMessage`
+ *                                            (`hookSpecificOutput` dropped here)
+ *   PreToolUse / PostToolUse /             → `hookSpecificOutput.additionalContext`
+ *     UserPromptSubmit / SessionStart        (non-block)
+ *   PreToolUse BLOCK                       → exit code 2; the host feeds stderr
+ *                                            back to the agent (additionalContext
+ *                                            is NOT read once the call is denied)
+ *
+ * History (CRIT-1 + #466): the prior shape emitted `hookSpecificOutput.validation`,
+ * a custom field CC drops — so the structured body (`what_happened`/`why`/
+ * `agent_must_report`) reached the agent on NO event; only the `user_summary`
+ * stderr line survived. This file is the canonical shape `hook-output-discipline.md`
+ * MUST-1 mandates for every halting hook, so the drop degraded the structured
+ * handoff fleet-wide.
  *
  * Three severities:
  *   - block            tool call BLOCKED. Only meaningful at PreToolUse.
@@ -80,7 +94,7 @@ function instructAndWait({
     );
   }
 
-  // 2. Event-aware JSON shape (mitigates CRIT-1)
+  // 2. Event-aware JSON shape (mitigates CRIT-1 + #466 dropped-channel bug).
   if (STOP_LIKE_EVENTS.has(hookEvent)) {
     // Stop / SessionEnd / PreCompact — hookSpecificOutput is dropped; use systemMessage
     // `continue: true` always — these events cannot block tool calls
@@ -90,14 +104,41 @@ function instructAndWait({
     };
   }
 
-  // PreToolUse / PostToolUse / UserPromptSubmit / SessionStart
-  const cont = severity !== "block";
+  if (severity === "block") {
+    // PreToolUse block ONLY. Exit code 2 is the proven, UNCHANGED block trigger
+    // (the structural teeth at L2/L3 per trust-posture.md); on exit 2 the host
+    // feeds stderr back to the agent, so the FULL instruction body goes to
+    // stderr — that is the agent's delivery channel for a denied call
+    // (additionalContext is NOT read once the call is blocked). The
+    // permissionDecision/Reason pair carries the same body via the canonical
+    // structured PreToolUse field for hosts that parse it; exit 2 remains
+    // authoritative so the block teeth do not depend on it.
+    process.stderr.write("\n" + validation + "\n");
+    return {
+      json: {
+        continue: false,
+        hookSpecificOutput: {
+          hookEventName: hookEvent,
+          permissionDecision: "deny",
+          permissionDecisionReason: validation,
+        },
+      },
+      exitCode: 2,
+    };
+  }
+
+  // Non-block (halt-and-report / advisory / post-mortem) at
+  // PreToolUse / PostToolUse / UserPromptSubmit / SessionStart — the body
+  // reaches the agent ONLY via additionalContext.
   return {
     json: {
-      continue: cont,
-      hookSpecificOutput: { hookEventName: hookEvent, validation },
+      continue: true,
+      hookSpecificOutput: {
+        hookEventName: hookEvent,
+        additionalContext: validation,
+      },
     },
-    exitCode: severity === "block" ? 2 : 0,
+    exitCode: 0,
   };
 }
 

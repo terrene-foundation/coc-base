@@ -462,6 +462,109 @@ function parseTiers(manifestText) {
 }
 
 /**
+ * Parse `variant_only:` block into { <variant>: [entry, ...] }. Block shape
+ * mirrors `tiers:` — a 2-space variant key, then a 4-space `- entry` list:
+ *
+ *   variant_only:
+ *     py:
+ *       - variants/py/skills/01-core-sdk/otel-tracing.md
+ *     rs:
+ *       - variants/rs/skills/28-ruby-bindings/ruby-nexus-rack.md
+ *       - variants/rs/skills/06-cheatsheets/**
+ *     rb: []
+ *
+ * Inline-empty arrays (`rb: []`) do NOT match the block-header regex (which
+ * anchors `:\s*$`), so they simply produce no section — treated as empty,
+ * which is the correct semantics (no variant-only files for that variant).
+ *
+ * Entries are repo-relative WITHOUT the leading `.claude/` (the manifest
+ * convention: `variants/<variant>/<rest>`). They may be literal paths or
+ * `**`/`*` globs (e.g. `variants/rs/skills/06-cheatsheets/**`).
+ */
+function parseVariantOnly(manifestText) {
+  const block = sliceBlock(manifestText, "variant_only");
+  const out = {};
+  const headerRe = /^  ([a-z_][\w-]*):\s*$/gm;
+  const headers = [];
+  let m;
+  while ((m = headerRe.exec(block)) !== null) {
+    headers.push({ name: m[1], start: m.index, headerEnd: m.index + m[0].length });
+  }
+  for (let i = 0; i < headers.length; i++) {
+    const startBody = headers[i].headerEnd + 1;
+    const endBody = i + 1 < headers.length ? headers[i + 1].start : block.length;
+    out[headers[i].name] = parseList(block.slice(startBody, endBody));
+  }
+  return out;
+}
+
+/**
+ * Expand the declared `variant_only:<variant>` entries against the walked
+ * loom file set, returning the per-file copy plan AND the completeness gap.
+ *
+ * #427 root cause: variant_only files live at `.claude/variants/<variant>/…`
+ * and are EXCLUDED by `classifyFile` (the `variants/**` exclude). They deploy
+ * to the target at the STRIPPED destination (`variants/<variant>/skills/X.md`
+ * → `.claude/skills/X.md`), written as-is (no compose — `coc-sync.md:1405`
+ * confirms variant_only files are pure additions, not slot-composed overlays).
+ * Prior to this pass, their distribution was prose-only in the coc-sync agent
+ * (Step 5), so a forgotten / stale new entry shipped silently.
+ *
+ * Returns:
+ *   { files:  [{ path, dest, variant_only_entry }],  // path = .claude-prefixed
+ *                                                     // loom source (matches the
+ *                                                     // global copy-branch shape);
+ *                                                     // dest = .claude-prefixed
+ *                                                     // stripped destination.
+ *     missing: [entry, ...] }                         // declared entries that
+ *                                                     // matched ZERO loom files
+ *                                                     // (manifest-vs-source defect).
+ *
+ * Security note: the entry string is used ONLY as a glob to MATCH walked loom
+ * files (which `walkClaudeDir` guarantees cannot contain `..`); the `dest` is
+ * derived by stripping a known prefix off a REAL walked path, never by
+ * interpolating the entry into a path. So a malicious manifest glob cannot
+ * escape the target dir through this function — and `safeJoinUnder` is the
+ * final runtime guard at the copy site regardless.
+ */
+function expandVariantOnly(allFiles, variant, entries) {
+  const files = [];
+  const missing = [];
+  if (!variant || !Array.isArray(entries)) return { files, missing };
+  const prefix = `variants/${variant}/`;
+  for (const entry of entries) {
+    const re = globToRegex(entry);
+    let matched = 0;
+    for (const f of allFiles) {
+      const stripped = f.startsWith(".claude/") ? f.slice(".claude/".length) : f;
+      if (!stripped.startsWith(prefix)) continue; // only this variant's tree
+      if (!re.test(stripped)) continue;
+      const rest = stripped.slice(prefix.length); // e.g. "skills/X.md", "scripts/migrate.py"
+      // Dest-root dispatch (coc-sync.md Step 5 § "top-level scripts/ is the
+      // destination"): `scripts/` + `workspaces/` are project-ops top-level
+      // dirs, deployed to `<target>/<rest>` — NOT `.claude/`-rooted (`.claude/
+      // scripts/` is in `obsoleted:` and purged every sync, so a `.claude/`-
+      // rooted scripts entry silently self-destructs). EVERYTHING ELSE —
+      // skills, agents, rules, commands, AND hooks — is `.claude/`-rooted.
+      // hooks/ specifically → `.claude/hooks/` per the v2.9.1 consolidation
+      // (cross-repo.md Rule 3 + ALWAYS_INCLUDE `.claude/hooks/**`); the live
+      // py template confirms `.claude/hooks/<hook>.js`, NOT top-level.
+      const dest = /^(scripts|workspaces)\//.test(rest)
+        ? rest // top-level <target>/scripts/… | workspaces/…
+        : ".claude/" + rest; // <target>/.claude/… (skills/agents/rules/commands/hooks)
+      files.push({
+        path: f,
+        dest,
+        variant_only_entry: entry,
+      });
+      matched++;
+    }
+    if (matched === 0) missing.push(entry);
+  }
+  return { files, missing };
+}
+
+/**
  * Parse `repos:` block into { name: { tier_subscriptions:[], templates:[{repo,clis,baseline_files}], variant, build } }.
  */
 function parseRepos(manifestText) {
@@ -1120,12 +1223,24 @@ function buildPlan(manifest, target, templateFilter) {
     files.push({ path: f, ...disposition });
   }
 
+  // #427 — variant_only distribution pass. classifyFile EXCLUDES every
+  // `variants/**` path (the global enumerator is tier-only); variant_only
+  // ADDITIONS are distributed here, copied to their stripped destination
+  // (see expandVariantOnly). `variant_only_missing` is the completeness
+  // gap (a declared entry matching zero loom files) — main() hard-fails the
+  // WRITE path on it, mirroring the #401 Defect-2 byte-verify teeth.
+  const variantOnlyMap = parseVariantOnly(manifest);
+  const { files: variantOnlyFiles, missing: variantOnlyMissing } =
+    expandVariantOnly(allFiles, repo.variant, variantOnlyMap[repo.variant] || []);
+
   return {
     target,
     variant: repo.variant,
     tier_subscriptions: repo.tier_subscriptions,
     templates: templates.map((t) => t.repo),
     files,
+    variant_only: variantOnlyFiles,
+    variant_only_missing: variantOnlyMissing,
     purge: useObsoleted.slice(),
     gitignore_additions: gitignoreAdditions.slice(),
     visibility_gitignore_additions: visibilityGitignoreAdditions.slice(),
@@ -1222,6 +1337,9 @@ function executePlan(plan, outOverride, dryRun) {
       copied: [],
       verified: 0,
       verify_failures: [],
+      variant_only_copied: [],
+      variant_only_verified: 0,
+      variant_only_verify_failures: [],
       purged: [],
       skipped: {
         loom_local: 0,
@@ -1272,6 +1390,37 @@ function executePlan(plan, outOverride, dryRun) {
         src: f.path,
         dest: path.relative(dir, dest),
         reason: f.reason,
+      });
+    }
+    // #427 — variant_only distribution. These live under `variants/<variant>/`
+    // in loom (EXCLUDED from the global copy above) and land at the STRIPPED
+    // destination (vf.dest, already `.claude/`-prefixed). Same O_NOFOLLOW copy
+    // + post-copy byte-equality (#401 Defect-2) as the global branch, so a
+    // silent no-op / stale-bytes copy surfaces as a verify failure and blocks.
+    for (const vf of plan.variant_only || []) {
+      const src = path.join(REPO, vf.path);
+      let dest;
+      try {
+        dest = safeJoinUnder(dir, vf.dest);
+      } catch (e) {
+        fail(1, `variant_only copy refused: ${e.message}`);
+      }
+      if (!dryRun) {
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        safeCopyFile(src, dest);
+        const reason = verifyCopiedBytes(src, dest);
+        if (reason === null) {
+          result.variant_only_verified++;
+        } else {
+          result.variant_only_verify_failures.push(
+            `${path.relative(dir, dest)} — ${reason}`,
+          );
+        }
+      }
+      result.variant_only_copied.push({
+        src: vf.path,
+        dest: path.relative(dir, dest),
+        entry: vf.variant_only_entry,
       });
     }
     // Purge use_obsoleted at target (only if path exists at target).
@@ -1333,6 +1482,17 @@ function emitText(plan, results, dryRun) {
       `variant=${plan.variant ?? "—"} ` +
       `tiers=[${plan.tier_subscriptions.join(",")}]`,
   );
+  // #427 — completeness gap: declared variant_only entries with ZERO loom
+  // matches. Surfaced in BOTH dry-run (preview) and write; main() additionally
+  // hard-fails the WRITE path on a non-empty list.
+  if (plan.variant_only_missing && plan.variant_only_missing.length) {
+    lines.push(
+      `  ✗ variant_only INCOMPLETE — ${plan.variant_only_missing.length} declared ` +
+        `entr${plan.variant_only_missing.length === 1 ? "y" : "ies"} matched ZERO loom ` +
+        `source files (manifest declares a file absent from loom):`,
+    );
+    for (const e of plan.variant_only_missing) lines.push(`      - ${e}`);
+  }
   for (const r of results) {
     // HIGH-2 defense: result carries target_basename (set in
     // executePlan); the absolute path never escapes the function.
@@ -1357,6 +1517,17 @@ function emitText(plan, results, dryRun) {
             : ""),
       );
     }
+    // #427 — variant_only distribution line (one per template).
+    const voCopied = r.variant_only_copied ? r.variant_only_copied.length : 0;
+    lines.push(
+      `   variant_only: ${voCopied} copied` +
+        (!dryRun
+          ? ` — ${r.variant_only_verified}/${voCopied} byte-equal` +
+            (r.variant_only_verify_failures && r.variant_only_verify_failures.length
+              ? ` — ${r.variant_only_verify_failures.length} FAILED (variant_only under-delivered)`
+              : "")
+          : ""),
+    );
     lines.push(`   purged:  ${r.purged.length}`);
     lines.push(
       `   skipped: loom_local=${r.skipped.loom_local || 0} ` +
@@ -1438,15 +1609,33 @@ function main() {
   // caller can NEVER trust a success count that masks an under-delivery.
   if (!args.dryRun) {
     const failed = results.flatMap((r) =>
-      (r.verify_failures || []).map((f) => `${r.template}: ${f}`),
+      [
+        ...(r.verify_failures || []),
+        // #427 — variant_only byte-equality failures share the #401 Defect-2
+        // teeth: a copy that silently no-ops / lands stale bytes blocks the sync.
+        ...(r.variant_only_verify_failures || []),
+      ].map((f) => `${r.template}: ${f}`),
     );
     if (failed.length > 0) {
       fail(
         1,
         `post-copy byte-equality verification FAILED for ${failed.length} ` +
-          `path(s) — the sync under-delivered (#401 Defect 2):\n  ` +
+          `path(s) — the sync under-delivered (#401 Defect 2 / #427):\n  ` +
           failed.slice(0, 20).join("\n  ") +
           (failed.length > 20 ? `\n  …and ${failed.length - 20} more` : ""),
+      );
+    }
+    // #427 — completeness gate: a declared variant_only entry that matched
+    // ZERO loom source files is a manifest-vs-source defect. Block the WRITE
+    // so a sync can NEVER complete with a declared-but-undistributable file.
+    if (plan.variant_only_missing && plan.variant_only_missing.length > 0) {
+      fail(
+        1,
+        `variant_only INCOMPLETE (#427): ${plan.variant_only_missing.length} ` +
+          `declared entr${plan.variant_only_missing.length === 1 ? "y" : "ies"} ` +
+          `for variant '${plan.variant}' matched ZERO loom source files ` +
+          `(manifest declares a file that does not exist in loom):\n  ` +
+          plan.variant_only_missing.join("\n  "),
       );
     }
   }
@@ -1483,6 +1672,8 @@ export {
   parseArgs,
   parseTiers,
   parseRepos,
+  parseVariantOnly,
+  expandVariantOnly,
   parseList,
   sliceBlock,
   globToRegex,

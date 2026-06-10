@@ -52,16 +52,17 @@ process.stdin.on("end", () => {
       process.exit(result.exitCode);
       return;
     }
-    // Legacy advisory path
-    console.log(
-      JSON.stringify({
-        continue: result.continue,
-        hookSpecificOutput: {
-          hookEventName: "PostToolUse",
-          validation: result.message,
-        },
-      }),
-    );
+    // Legacy advisory path. Non-blocking advisories reach the agent via
+    // additionalContext — the delivered PostToolUse field; the prior
+    // `validation` sibling was silently dropped (loom #466).
+    const advisory = { continue: result.continue };
+    if (result.message) {
+      advisory.hookSpecificOutput = {
+        hookEventName: "PostToolUse",
+        additionalContext: result.message,
+      };
+    }
+    console.log(JSON.stringify(advisory));
     process.exit(result.exitCode);
   } catch (error) {
     console.error(`[HOOK ERROR] ${error.message}`);

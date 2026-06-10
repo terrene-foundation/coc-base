@@ -41,7 +41,7 @@ const EVENT_KINDS = Object.freeze([
 // ── SCHEMA FREEZE (F120, csq M18 seam) ──────────────────────────────────────
 // schema_version 1 is FROZEN as the loom↔csq seam FORMAT authority — loom owns
 // FORMAT per rules/loom-csq-boundary.md; csq owns evaluation. The canonical event
-// schema (EVENT_KINDS + EVENT_FIELDS + coc-sign canonical-byte serialization) is
+// schema (EVENT_KINDS + EVENT_KEYS + coc-sign canonical-byte serialization) is
 // byte-stable for csq M18 to build on, and MUST NOT change without a COORDINATED
 // bump (bump SCHEMA_VERSION + update csq conformance, per the EVENT_KINDS note above).
 // Freeze receipt: journal/0211. Converged: journal/0190 (F101-1); validated: F101-4.
@@ -49,6 +49,26 @@ const EVENT_KINDS = Object.freeze([
 // SCOPE — FORMAT ONLY. The drain/TRANSPORT contract (how events are chained/drained
 // across the seam — a separate per-session ref vs interleaving into the
 // coordination-log) is NOT frozen; it remains OPEN per journal/0190 § For-Discussion #1.
+//
+// ── NAMED VERSION + csq M18 5-FIELD MAPPING (loom #461, journal/0251) ────────
+// Named frozen anchor: this module @ commit f36a6fe (bytes stable since b02a68c);
+// git tag `provenance-event-schema/v1`. csq M18's 5-field decision record maps
+// onto the v1 byte-exact event as follows (csq DERIVES the non-stored fields —
+// the v1 bytes are NOT widened):
+//   • schema version            = `schema_version` (=1)                 [exact]
+//   • claimed-decision-timestamp= `ts` (ISO-8601; NOTE: capture/intent
+//                                  time, not a separately-claimed time)  [field]
+//   • event UUID                = sha256(canonicalSerialize(event))      [derived —
+//                                  the SAME content hash csq signs; not a stored field]
+//   • surface id                = derive from `kind` + `payload`
+//                                  ({tool, journal_path})                [derived]
+//   • per-source monotonic counter = DIVERGENCE — v1 orders per operator_ref via the
+//                                  `prev_link` HASH-CHAIN, NOT an integer counter.
+//                                  csq derives ordering from chain depth per
+//                                  operator_ref; there is no `seq` field in v1.
+// Guarantee: no #411-lane work reshapes these v1 bytes without a COORDINATED
+// SCHEMA_VERSION bump + csq conformance in the same cross-repo cycle. A csq decoder
+// requiring event_id/seq/surface_id as byte-present fields is a v2 bump, not v1.
 const SCHEMA_VERSION = 1;
 
 /**
@@ -363,6 +383,111 @@ function chainProvenanceEvent(priorEvent, args) {
   return buildProvenanceEvent({ ...args, prevLink });
 }
 
+// ── DECODE ARM (F101-1 v1, loom↔csq seam) ───────────────────────────────────
+// loom OWNS the decode RULE; csq owns the decoder that APPLIES it (loom-csq-
+// boundary § FORMAT-vs-evaluation). Three v1 decode outputs and where each comes
+// from (journal/0251 mapping):
+//   decision_id ("event UUID")  — DERIVED: sha256 of the canonical bytes
+//                                 (= hashProvenanceEvent). csq computes
+//                                 sha256(received_bytes); loom emits canonical
+//                                 bytes so received == canonical → identical.
+//                                 (This identity holds ONLY while the emitter is
+//                                 canonical — a non-canonical producer would make
+//                                 received != canonical; loom always emits via
+//                                 canonicalSerialize, so the invariant holds.)
+//   surface                     — DERIVED from (kind, payload) via deriveSurface
+//                                 below; NOT byte-present (Option A: v1 bytes not
+//                                 widened).
+//   ordering                    — chain-level: prev_link hash-chain DEPTH per
+//                                 operator_ref, NOT a stored integer seq and NOT a
+//                                 per-event field. Its cross-drain stability depends
+//                                 on the OPEN transport contract (journal/0190
+//                                 §FD#1), so it is intentionally NOT a per-event
+//                                 decode here.
+
+/**
+ * Derive the governance SURFACE id from a v1 event — the FORMAT-authority rule.
+ * surface is NOT byte-present in v1; it is derived from (kind, payload). csq's M18
+ * decoder applies this SAME rule and is tested against loom's conformance vector,
+ * so drift surfaces as a conformance-test failure, not silent divergence.
+ *
+ * Rule (payload shapes per provenance-capture-tool.js::classify):
+ *   HumanInput                  → "human-input"
+ *   Decision   {journal_path}   → payload.journal_path          (the DECISION record)
+ *   Delegation {subagent_type?} → payload.subagent_type ?? "delegation:" + tool
+ *   Action     {file_path}      → payload.file_path             (write surface)
+ *   Action     {command_sha256} → "shell"                       (opaque-by-hash command)
+ *   Action     (neither)        → "action:" + payload.tool      (consequential tool, no path)
+ *
+ * @param {object} evt  a valid v1 provenance event
+ * @returns {string} the surface id
+ */
+function deriveSurface(evt) {
+  const { ok, errors } = validateProvenanceEvent(evt);
+  if (!ok) {
+    throw new Error(
+      `deriveSurface: refusing to derive from an invalid event:\n  - ${errors.join("\n  - ")}`,
+    );
+  }
+  const p = evt.payload || {};
+  switch (evt.kind) {
+    case "HumanInput":
+      return "human-input";
+    case "Decision":
+      if (!_isNonEmptyString(p.journal_path)) {
+        throw new Error(
+          "deriveSurface: Decision payload MUST carry a non-empty journal_path",
+        );
+      }
+      return p.journal_path;
+    case "Delegation":
+      if (_isNonEmptyString(p.subagent_type)) return p.subagent_type;
+      // Fallback requires a tool name; a Delegation event with neither is
+      // malformed (classify always sets tool). Fail loud rather than emit the
+      // degraded "delegation:undefined" surface (R1 security LOW-1).
+      if (!_isNonEmptyString(p.tool)) {
+        throw new Error(
+          "deriveSurface: Delegation payload MUST carry a non-empty subagent_type or tool",
+        );
+      }
+      return `delegation:${p.tool}`;
+    case "Action":
+      if (_isNonEmptyString(p.file_path)) return p.file_path;
+      if (_isNonEmptyString(p.command_sha256)) return "shell";
+      if (!_isNonEmptyString(p.tool)) {
+        throw new Error(
+          "deriveSurface: Action payload MUST carry a non-empty file_path, command_sha256, or tool",
+        );
+      }
+      return `action:${p.tool}`;
+    default:
+      // Unreachable — validateProvenanceEvent already rejects kinds outside the
+      // closed taxonomy. Kept as a fail-loud guard if EVENT_KINDS grows without
+      // this switch being updated (the coordinated-bump discipline).
+      throw new Error(
+        `deriveSurface: unhandled kind ${JSON.stringify(evt.kind)} — EVENT_KINDS grew without updating deriveSurface`,
+      );
+  }
+}
+
+/**
+ * Decode the FORMAT-derivable fields of a v1 event: decision_id (the content hash /
+ * "event UUID") + surface. ORDERING is intentionally NOT included — it is chain-level
+ * (prev_link depth per operator_ref) and its cross-drain stability is gated on the
+ * OPEN transport contract; the consumer derives it across the chain.
+ *
+ * @param {object} evt  a valid v1 provenance event
+ * @returns {{ decision_id: string, surface: string, schema_version: number, kind: string }}
+ */
+function decodeProvenanceEvent(evt) {
+  return {
+    decision_id: hashProvenanceEvent(evt),
+    surface: deriveSurface(evt),
+    schema_version: evt.schema_version,
+    kind: evt.kind,
+  };
+}
+
 module.exports = {
   EVENT_KINDS,
   SCHEMA_VERSION,
@@ -372,4 +497,6 @@ module.exports = {
   buildProvenanceEvent,
   hashProvenanceEvent,
   chainProvenanceEvent,
+  deriveSurface,
+  decodeProvenanceEvent,
 };

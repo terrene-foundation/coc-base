@@ -122,12 +122,19 @@ function buildReminder(data) {
     logUserCorrection(data.tool_input?.user_message, cwd, data.session_id);
   } catch {}
 
+  // Deliver via additionalContext — the ONLY field the host injects into the
+  // agent's turn for UserPromptSubmit. The prior `message`/`suppressOutput`
+  // siblings were silently dropped, so this per-turn reminder (the primary
+  // anti-amnesia mechanism documented in the header) reached the agent on no
+  // turn (loom #466). Emit no context block when there are no lines.
+  if (!lines.length) {
+    return { continue: true };
+  }
   return {
     continue: true,
     hookSpecificOutput: {
       hookEventName: "UserPromptSubmit",
-      suppressOutput: false,
-      message: lines.join("\n"),
+      additionalContext: lines.join("\n"),
     },
   };
 }

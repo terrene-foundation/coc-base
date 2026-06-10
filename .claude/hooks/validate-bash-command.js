@@ -52,16 +52,18 @@ process.stdin.on("end", () => {
       console.log(JSON.stringify(out.json));
       process.exit(out.exitCode);
     }
-    // Legacy advisory path
-    console.log(
-      JSON.stringify({
-        continue: result.continue,
-        hookSpecificOutput: {
-          hookEventName: "PreToolUse",
-          validation: result.message,
-        },
-      }),
-    );
+    // Legacy advisory path. Non-blocking advisories reach the agent via
+    // additionalContext — the delivered PreToolUse field; the prior
+    // `validation` sibling was silently dropped (loom #466). Emit the context
+    // block only when there's an advisory message.
+    const advisory = { continue: result.continue };
+    if (result.message) {
+      advisory.hookSpecificOutput = {
+        hookEventName: "PreToolUse",
+        additionalContext: result.message,
+      };
+    }
+    console.log(JSON.stringify(advisory));
     process.exit(result.exitCode);
   } catch (error) {
     console.error(`[HOOK ERROR] ${error.message}`);

@@ -1,31 +1,35 @@
 # COC Sync Marker — coc-base
 visibility: public
-timestamp: 2026-06-09T13:39:33Z
+timestamp: 2026-06-10T02:53:44Z
 source: loom/.claude
-loom_sha: c445a66
+loom_sha: 1daa45b
 loom_version: 2.39.0
 variant: base
 clis: [claude, codex, gemini]
 note: >
-  Re-sync after manifest re-tier (c445a66, journal/0250): multi-operator
-  coordination substrate moved coc: -> co: tier; base subscribes [cc, co,
-  onboarding] so it receives the 12 substrate artifacts for the first time
-  (claim/claims/release-claim/whoami/onboard/certify commands;
-  32-trust-posture/41-onboard/42-certify skills; operators.roster.schema.json;
-  team-memory/README.md; templates/specs/_certification.yaml).
+  Redistribution (same loom version 2.39.0) bringing the base lane current
+  from loom@c445a66 to loom@1daa45b. .claude/-content axis only this cycle —
+  globals raw-copied via sync-tier-aware.mjs --all-templates; rules/agents.md
+  base slot-keyed overlay re-applied as strip(compose). The .codex/ + .gemini/
+  CLI trees + AGENTS.md/GEMINI.md root baselines were NOT re-emitted this
+  cycle (multi-CLI emit Step 6.5/6.6 unchanged from the c445a66 emission); the
+  baseline_emission / cli_artifacts / scaffold blocks below reflect that prior
+  emission state. base does NOT subscribe to coc tier. No BUILD source
+  (build:null) — no SDK pins.
 stats:
   copied: 820
   verified_byte_equal: 820
   purged: 0
   skipped:
     loom_local: 2
-    exclude: 853
+    exclude: 855
     use_exclude: 29
     no_tier_match: 513
   overlay_fix:
     path: .claude/rules/agents.md
     form: slot-keyed
     action: strip(compose(global, variants/base)) re-applied
+    pre_md5: 271190d8201a1e87918181341ffce118   # tier-aware raw-copy shipped loom global (drift-from-both)
     expected_md5: c9b6b6233940bc7ba466ad77708becbb
     verify_overlays: variant-applied(base,slot) PASS
   verify_overlays_total: 2
@@ -35,21 +39,20 @@ stats:
     composed: 1        # rules/agents.md slot-keyed via compose.mjs + strip
     legacy_full_file: 0
     null_global: 819   # globals copied as-is (always_include + tier_match)
-  hook_integrity: 28/28
-  require_integrity: 84/84
-  baselines_emitted:
+  hook_integrity: 38/38
+  baselines_emitted:    # unchanged this cycle (prior c445a66 emission)
     cc: 0              # CLAUDE.md preserved, not emitted
-    codex: 1           # AGENTS.md
-    gemini: 1          # GEMINI.md
-  baseline_emission:
+    codex: 1           # AGENTS.md (root)
+    gemini: 1          # GEMINI.md (root)
+  baseline_emission:    # unchanged this cycle (prior c445a66 emission)
     block_cap_bytes: 61440
     warn_cap_bytes: 32768
     codex: { rules: 9, bytes: 49550, tier: WARN, headroom_pct: 19.35 }
     gemini: { rules: 9, bytes: 49556, tier: WARN, headroom_pct: 19.34 }
-  cli_artifacts:
+  cli_artifacts:        # unchanged this cycle (prior c445a66 emission)
     codex: { prompts: 21, skills: 10 }
     gemini: { commands: 16, skills: 10, agents: 5 }
-  scaffold:
+  scaffold:             # unchanged this cycle (prior c445a66 emission)
     symlinks: 1                  # .claude/codex-mcp-guard -> ../.codex-mcp-guard
     manifest_distributed: true   # .claude/sync-manifest.yaml
     bin_coc: true
@@ -58,6 +61,6 @@ stats:
     policies_populated: false    # still gated — runtime predicate loader is a later phase
   preserved:
     - CLAUDE.md
-  settings_json: kept            # base working-tree canonical == loom (modulo language-label); not overwritten
+  settings_json: kept            # base working-tree canonical == loom; not overwritten
   obsoleted_purge: all-obsoleted-paths-confirmed-absent
-  coc_obsoleted_emitted: true    # .claude/.coc-obsoleted (47 path entries)
+  sdk_pins: none                 # build:null

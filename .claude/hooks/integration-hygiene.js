@@ -39,15 +39,20 @@ process.stdin.on("end", () => {
   try {
     const data = JSON.parse(input);
     const result = checkFile(data);
-    console.log(
-      JSON.stringify({
-        continue: true,
-        hookSpecificOutput: {
-          hookEventName: "PostToolUse",
-          validation: result.messages,
-        },
-      }),
-    );
+    // Surface advisories to the agent via additionalContext — the delivered
+    // PostToolUse field; the prior `validation` sibling was silently dropped
+    // (loom #466). Render the message objects to text; emit no context block
+    // when there are no advisories.
+    const out = { continue: true };
+    if (Array.isArray(result.messages) && result.messages.length) {
+      out.hookSpecificOutput = {
+        hookEventName: "PostToolUse",
+        additionalContext: result.messages
+          .map((m) => (m && m.message ? `[${m.rule}] ${m.message}` : String(m)))
+          .join("\n"),
+      };
+    }
+    console.log(JSON.stringify(out));
     process.exit(0);
   } catch (error) {
     console.error(`[HOOK ERROR] integration-hygiene: ${error.message}`);
