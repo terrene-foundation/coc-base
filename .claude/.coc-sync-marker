@@ -1,22 +1,29 @@
 # COC Sync Marker — coc-base (base lane, multi-CLI)
-timestamp: 2026-06-11T14:42:00Z
-source: loom/.claude
-loom_sha: 036c8ff
-upstream_version: 2.42.0
-template_version: 2.42.0
-variant: base
 visibility: public
+timestamp: 2026-06-11T15:05:00Z
+source: loom/.claude
+loom_sha: 1d6968e
+upstream_version: 2.42.1
+template_version: 2.42.1
+variant: base
+template_type: multi-cli
 clis: ["claude", "codex", "gemini"]
 tier_subscriptions: ["cc", "co", "onboarding"]
 stats:
   copied: 844
-  verified: 844
-  verify_failures: 0
-  stripped: 15
+  delivered: 844
+  byte_equal: 830
+  content_equal_after_strip: 14   # BUILD-internal refs neutralized
   composed: 1          # rules/agents.md base slot-keyed overlay (mode:slot)
   overlay_verified: 1
-  purged: 0            # 13 obsoleted paths declared; all absent on disk
+  variant_only: 0
+  purged: 0            # 13 active-purge paths absent on disk; full union 49 in .coc-obsoleted
   preserved: CLAUDE.md
+  changed_this_cycle:  # PR #489 global-rule prose trims, base lane
+    - rules/evidence-first-claims.md
+    - rules/security.md
+    - rules/zero-tolerance.md
+    # rules/agents.md re-composed byte-identical (PR #489 agents.md edit was rs-variant-only)
   baselines_emitted:
     cc: 0              # CLAUDE.md preserved, not emitted
     codex: 1           # AGENTS.md
@@ -24,21 +31,22 @@ stats:
   baseline_emission_bytes:
     block_cap_bytes: 61440
     warn_cap_bytes: 32768
+    headroom_floor_pct: 10
     codex:
       rules: 10
-      bytes: 54335
+      bytes: 53963
       tier: WARN
-      headroom_bytes: 7105
-      headroom_pct: 11.56
+      headroom_bytes: 7477
+      headroom_pct: 12.17
     gemini:
       rules: 10
-      bytes: 54341
+      bytes: 53969
       tier: WARN
-      headroom_bytes: 7099
-      headroom_pct: 11.55
+      headroom_bytes: 7471
+      headroom_pct: 12.16
   cli_artifacts:
     codex:
-      prompts: 21       # 16 commands + 5 agent-prompts
+      prompts: 21      # 16 commands + 5 agent-prompts
       skills: 40
     gemini:
       commands: 16
@@ -51,3 +59,10 @@ stats:
     symlink: ".claude/codex-mcp-guard -> ../.codex-mcp-guard"
     manifest_distributed: true
   sdk_packages: {}     # build:null — language-agnostic base, no SDK pins
+  verification:
+    hook_integrity: 38/38
+    lib_require_misses: 0
+    build_path_leaks: 0
+    operator_pii: 0
+    verify_overlays_base: "2/2 PASS, Failing: 0"
+    obsoleted_purged: true

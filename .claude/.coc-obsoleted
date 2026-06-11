@@ -44,6 +44,8 @@ scripts/resolve-template.js
 .claude/guides/automated-maintenance.md
 .claude/guides/rule-extracts/git.md
 .claude/guides/rule-extracts/independence-rs.md
+.claude/rules/terrene-naming.md
+.claude/rules/independence.md
 .claude/variants/rs/rules/independence.md
 .claude/variants/base/rules/independence.md
 .claude/variants/prism/rules/independence.md

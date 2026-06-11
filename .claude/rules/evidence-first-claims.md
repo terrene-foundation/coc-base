@@ -44,18 +44,18 @@ A command that exited non-zero, hit an invalid flag, timed out, or returned empt
 
 ## Trust Posture Wiring
 
-- **Severity:** `halt-and-report` at gate-review (reviewer / cc-architect at `/codify`); `advisory` at hook layer per `hook-output-discipline.md` MUST-2. MUST-2 is the canonical halt-and-report trigger.
+- **Severity:** `halt-and-report` at gate-review; `advisory` at hook layer per `hook-output-discipline.md` MUST-2.
 - **Grace period:** 7 days from rule landing (2026-05-31 → 2026-06-07).
 - **Cumulative posture impact:** MUST-1/3/4 route cumulative per `trust-posture.md` MUST-4; MUST-2 routes emergency — never double-counted.
 - **Regression-within-grace:** emergency downgrade per `trust-posture.md` MUST-4. Independently, MUST-2 is a 1×-instant emergency trigger — key `evidence_free_claim` (1× = drop 1 posture).
 - **Receipt requirement:** SessionStart `[ack: evidence-first-claims]` IFF `posture.json::pending_verification` includes this rule_id.
-- **Detection mechanism:** Phase 1 review-layer (load-bearing) — reviewer at `/implement` + cc-architect at `/codify`. Phase 2 hook (advisory, planned `detectEvidenceFreeClaim` on Stop). Fixtures: `.claude/audit-fixtures/evidence-first-claims/` (one flag + one clean per MUST predicate).
+- **Detection mechanism:** Phase 1 review-layer — reviewer at `/implement` + cc-architect at `/codify`. Phase 2 hook (advisory, planned `detectEvidenceFreeClaim`). Fixtures: `.claude/audit-fixtures/evidence-first-claims/`.
 - **Violation scope:** rule-corpus-wide. MUST-1/3/4 cumulative; MUST-2 emergency.
 - **Origin:** See § Origin.
 
 ## Distinct From / Cross-References
 
-Extends `verify-resource-existence.md` MUST-2 to ALL diagnostic/anomaly/security claims. Pairs with `recommendation-quality.md` MUST-3, `probe-driven-verification.md`, `user-flow-validation.md` MUST-2. Distinct from `communication.md` (HOW to phrase vs WHETHER a claim may be made) and from `verify-claims-before-write.md` (code-surface claims at durable-write time vs diagnostic/security claims inline in any message).
+Extends `verify-resource-existence.md` MUST-2 to ALL diagnostic/anomaly/security claims. Pairs with `recommendation-quality.md` MUST-3, `probe-driven-verification.md`, `user-flow-validation.md` MUST-2. Distinct from `communication.md` (HOW vs WHETHER) and `verify-claims-before-write.md` (code-surface claims at durable-write time vs diagnostic/security claims inline).
 
 ## Origin
 

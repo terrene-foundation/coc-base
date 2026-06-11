@@ -129,8 +129,8 @@ ALL version locations updated atomically:
 
 ### Rule 6a: Remove Fully — Public-API Removal Requires Deprecation Cycle
 
-Public-API removal MUST land with a `DeprecationWarning` shim covering at least one minor cycle, plus a CHANGELOG migration section explicitly documenting the callsite change. Removal-without-shim is BLOCKED. Removal is "complete" only when the shim has lived through one minor release AND the migration entry is in place.
+Public-API removal MUST land with a `DeprecationWarning` shim covering at least one minor cycle, plus a CHANGELOG migration section documenting the callsite change. Removal-without-shim is BLOCKED; removal is "complete" only after the shim lives through one minor release AND the migration entry lands.
 
-**Why:** Removal without a deprecation cycle hard-breaks every downstream callsite on first `pip upgrade` / `cargo update`. The shim converts a hard break into an actionable warning; the CHANGELOG migration tells users what to do next. See guide for kailash-ml 1.5.0 evidence.
+**Why:** Removal without a deprecation cycle hard-breaks every downstream callsite on first upgrade; the shim converts a hard break into an actionable warning. See guide for kailash-ml 1.5.0 evidence.
 
 Origin: 2026-04-12 + DataFlow 2.0 Phase 5 audit + kailash-ml-audit 2026-04-23 W33b + 2026-04-29 followup audit + kailash-rs Rule 3e (2026-05-22 PR #1088; magic-value extension 2026-05-28 PR #1160). See guide for full BLOCKED-pattern code examples + audit evidence.
