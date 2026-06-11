@@ -35,7 +35,19 @@
       "NotebookEdit(.claude/learning/.heartbeat-cache*)",
       "Edit(.claude/learning/.session-end-cache*)",
       "Write(.claude/learning/.session-end-cache*)",
-      "NotebookEdit(.claude/learning/.session-end-cache*)"
+      "NotebookEdit(.claude/learning/.session-end-cache*)",
+      "MultiEdit(.claude/learning/posture.json)",
+      "MultiEdit(.claude/learning/posture.json.bak)",
+      "MultiEdit(.claude/learning/posture.json.tmp.*)",
+      "MultiEdit(.claude/learning/violations.jsonl)",
+      "MultiEdit(.claude/learning/violations.jsonl.*)",
+      "MultiEdit(.claude/learning/.initialized)",
+      "MultiEdit(.claude/operators.roster.json)",
+      "MultiEdit(.claude/learning/coordination-log.jsonl)",
+      "MultiEdit(.claude/learning/.heartbeat-cache*)",
+      "MultiEdit(.claude/learning/.session-end-cache*)",
+      "NotebookEdit(.claude/learning/posture.json.tmp.*)",
+      "NotebookEdit(.claude/learning/violations.jsonl.*)"
     ],
     "defaultMode": "bypassPermissions"
   },

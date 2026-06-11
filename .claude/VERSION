@@ -1,17 +1,17 @@
 {
   "name": "coc-base",
-  "version": "2.40.0",
+  "version": "2.41.0",
   "type": "coc-use-template",
   "description": "Language-agnostic, non-Kailash CO/COC USE template — multi-CLI (variant: base, clis: claude/codex/gemini)",
-  "synced_at": "2026-06-10T02:53:44Z",
+  "synced_at": "2026-06-11T10:33:34Z",
   "upstream": {
     "name": "loom",
     "type": "coc-source",
-    "version": "2.40.0",
-    "loom_sha": "57c88cc",
-    "synced_at": "2026-06-11T01:58:28Z",
-    "template_version": "2.40.0",
-    "build_version": "2.40.0"
+    "version": "2.41.0",
+    "loom_sha": "bbfa970",
+    "synced_at": "2026-06-11T10:33:34Z",
+    "template_version": "2.41.0",
+    "build_version": "2.41.0"
   },
   "variant": "base",
   "tier_subscriptions": [
@@ -25,6 +25,17 @@
     "gemini"
   ],
   "changelog": [
+    {
+      "date": "2026-06-11",
+      "version": "2.41.0",
+      "summary": "loom@bbfa970 redistribution (base multi-CLI, loom 2.41.0) — version-currency stamp. Base subscribes [cc,co,onboarding]; the loom 2.41.0 coc-tier skill 36-claude-managed-agents is NOT distributed here (no coc subscription).",
+      "changes": [
+        "822 globals verified (15 stripped + 807 byte-equal) + 1 base overlay byte-equal. No new content this cycle (CMA is coc-tier, base-excluded by design).",
+        "SETTINGS: state-file deny-matrix hardening from loom source (F123/FSUB); (language-agnostic base) label preserved. 38/38 hooks resolve.",
+        "SDK pins: n/a (build:null — language-agnostic base).",
+        "BUMP: upstream.version 2.40.0->2.41.0 (loom_sha bbfa970)."
+      ]
+    },
     {
       "date": "2026-06-11",
       "version": "2.40.0",

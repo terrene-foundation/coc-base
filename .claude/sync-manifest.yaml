@@ -238,9 +238,9 @@ multi_cli_overlays:
     # to NOT receive the manifest.
     manifest_distribute: true
   cc-only-legacy:
-    paths: []      # CLAUDE.md baseline already in repos.<target>.templates[].baseline_files
+    paths: [] # CLAUDE.md baseline already in repos.<target>.templates[].baseline_files
     preserved: []
-    symlinks: []           # cc-only templates do not run the multi-CLI emitter
+    symlinks: [] # cc-only templates do not run the multi-CLI emitter
     manifest_distribute: false
 
 # ─────────────────────────────────────────────────────────────────
@@ -259,7 +259,6 @@ multi_cli_overlays:
 # Authoritative reference: spec v6 §2.2 composing v3/v4/v5 base + v6
 # cap/abridgement updates.
 cli_variants:
-
   # context/root.md — the CRIT-baseline emission file that lands at
   # AGENTS.md (Codex) or GEMINI.md (Gemini). Abridger runs on the raw
   # .claude/rules/*.md set (CRIT tier per appendix A.1) before emission.
@@ -267,9 +266,9 @@ cli_variants:
     codex:
       emit_to: "AGENTS.md"
       size_cap_bytes: 65536
-      warn_cap_bytes: 32768            # refactoring-signal threshold
-      block_cap_bytes: 61440           # v6: raised from 40960 to match override ceiling less 4 KiB safety margin
-      headroom_floor_pct: 10           # v6.2 Risk-0004 floor — emission MUST keep ≥10% margin under block_cap; per-lang enforcement at emission time per workspaces/multi-cli-coc/02-plans/08-loom-v6.2-headroom-validator.md Shard 1
+      warn_cap_bytes: 32768 # refactoring-signal threshold
+      block_cap_bytes: 61440 # v6: raised from 40960 to match override ceiling less 4 KiB safety margin
+      headroom_floor_pct: 10 # v6.2 Risk-0004 floor — emission MUST keep ≥10% margin under block_cap; per-lang enforcement at emission time per workspaces/multi-cli-coc/02-plans/08-loom-v6.2-headroom-validator.md Shard 1
       block_cap_rationale: |
         Codex native cap is 32,768 bytes; mandatory invocation flag
         -c project_doc_max_bytes=65536 raises operational cap to 65,536
@@ -453,9 +452,9 @@ cli_variants:
       # implicit pre-v6.2 (loadCliCaps fallback path); v6.2 makes them
       # explicit so headroom_floor_pct lives at the single source of
       # truth instead of a regex fallback default.
-      warn_cap_bytes: 32768            # mirror codex per parity contract
-      block_cap_bytes: 61440           # mirror codex per parity contract
-      headroom_floor_pct: 10           # v6.2 Risk-0004 floor — parity-locked to codex per cross-cli-parity.md MUST-1
+      warn_cap_bytes: 32768 # mirror codex per parity contract
+      block_cap_bytes: 61440 # mirror codex per parity contract
+      headroom_floor_pct: 10 # v6.2 Risk-0004 floor — parity-locked to codex per cross-cli-parity.md MUST-1
       inherit_abridgement_from: "codex"
 
   # agents/**.md — TOML-header safety for codex-ingested agent files.
@@ -961,6 +960,12 @@ tiers:
     - skills/18-security-patterns/rls-security-definer-preauth-carveout.md
     - skills/34-kailash-ml/**
     - skills/35-kailash-align/**
+    # skills/36-claude-managed-agents/** added 2026-06-11 (journal/0268,
+    # co-owner-directed origination): CMA hosted-harness integration reference
+    # (event model, custom-tool reverse-tunnel with RT-hardened example,
+    # session state machine). CLI-agnostic (emits to cc/codex/gemini, not in
+    # cli_emit_exclusions). On-demand skill — no baseline-headroom impact.
+    - skills/36-claude-managed-agents/**
     - rules/documentation.md
     - rules/env-models.md
     - rules/cross-sdk-inspection.md
@@ -2001,42 +2006,42 @@ variant_only:
 #     VERSION (typically two release cycles), the entry MAY be removed
 #     from this list — but the `obsoleted:` section itself stays.
 obsoleted:
-  - scripts/hooks/                # why: COC hooks consolidated under .claude/hooks/ in v2.9.1 (Anthropic-documented location). The prior scripts/hooks/ directory is no longer COC-managed and must not be left as dead code in any consumer.
-  - .claude/scripts/              # why: legacy sibling of .claude/hooks/ from a transitional layout — never authoritative; leftover in legacy USE templates from pre-v2.9.1 syncs.
-  - scripts/resolve-template.js   # why: legacy shim that required ./hooks/lib/template-resolver — the require path no longer exists after the consolidation. Replaced by .claude/bin/resolve-template.js (canonical) in v2.9.1.
-  - .claude/commands/send-it.md   # why: renamed to .claude/commands/decisive.md in v2.9.3 (then to autonomize.md in v2.9.4 — see entries below). The slang name "send-it" was unfamiliar to non-technical COC users. Old name must be purged from every USE template + Codex/Gemini emission so the directive surface stays single-source.
-  - .codex/prompts/send-it.md     # why: paired Codex emission of the v2.9.3 rename; superseded again by v2.9.4. emit-cli-artifacts.mjs regenerates the current name from source; old names must not linger.
+  - scripts/hooks/ # why: COC hooks consolidated under .claude/hooks/ in v2.9.1 (Anthropic-documented location). The prior scripts/hooks/ directory is no longer COC-managed and must not be left as dead code in any consumer.
+  - .claude/scripts/ # why: legacy sibling of .claude/hooks/ from a transitional layout — never authoritative; leftover in legacy USE templates from pre-v2.9.1 syncs.
+  - scripts/resolve-template.js # why: legacy shim that required ./hooks/lib/template-resolver — the require path no longer exists after the consolidation. Replaced by .claude/bin/resolve-template.js (canonical) in v2.9.1.
+  - .claude/commands/send-it.md # why: renamed to .claude/commands/decisive.md in v2.9.3 (then to autonomize.md in v2.9.4 — see entries below). The slang name "send-it" was unfamiliar to non-technical COC users. Old name must be purged from every USE template + Codex/Gemini emission so the directive surface stays single-source.
+  - .codex/prompts/send-it.md # why: paired Codex emission of the v2.9.3 rename; superseded again by v2.9.4. emit-cli-artifacts.mjs regenerates the current name from source; old names must not linger.
   - .gemini/commands/send-it.toml # why: paired Gemini emission of the v2.9.3 rename; superseded again by v2.9.4. emit-cli-artifacts.mjs regenerates the current name from source; old names must not linger.
-  - .claude/commands/decisive.md  # why: renamed to .claude/commands/autonomize.md in v2.9.4. "Decisive" emphasised picking; "autonomize" emphasises the autonomous-execution posture (permission envelope + execute-without-asking) the directive actually delivers, and aligns the command surface with `rules/autonomous-execution.md`. Old name must be purged from every USE template + Codex/Gemini emission so the directive surface stays single-source.
-  - .codex/prompts/decisive.md    # why: paired Codex emission of the v2.9.4 rename. emit-cli-artifacts.mjs regenerates .codex/prompts/autonomize.md from the new source; the old name must not linger.
+  - .claude/commands/decisive.md # why: renamed to .claude/commands/autonomize.md in v2.9.4. "Decisive" emphasised picking; "autonomize" emphasises the autonomous-execution posture (permission envelope + execute-without-asking) the directive actually delivers, and aligns the command surface with `rules/autonomous-execution.md`. Old name must be purged from every USE template + Codex/Gemini emission so the directive surface stays single-source.
+  - .codex/prompts/decisive.md # why: paired Codex emission of the v2.9.4 rename. emit-cli-artifacts.mjs regenerates .codex/prompts/autonomize.md from the new source; the old name must not linger.
   - .gemini/commands/decisive.toml # why: paired Gemini emission of the v2.9.4 rename. emit-cli-artifacts.mjs regenerates .gemini/commands/autonomize.toml from the new source; the old name must not linger.
   - .claude/agents/claude-code-architect.md # why: renamed to .claude/agents/cc-architect.md in v2.9.x (CC artifact architect). Source-rename was applied at loom global, but the prior agent file lingered in 5 of 8 BUILD/USE consumers because no obsoleted entry existed to drive the purge. Same single-source-of-truth principle as send-it.md → decisive.md → autonomize.md.
-  - .claude/projects/                       # why: Claude Code's per-user session/state cache (`~/.claude/projects/<encoded-cwd>/`). loom-local; never artifact-managed. Surfaced in v2.10.x audit on rs USE templates carrying loom's own `-Users-esperie-repos-loom/` cache. Paired with the `projects/**` exclude entry below to prevent re-introduction.
-  - .claude/scheduled_tasks.lock            # why: Claude Code's per-user scheduled-task lock file. loom-local; never artifact-managed. Surfaced in v2.10.x audit (5 of 5 USE templates carried loom's lock). Paired with the `scheduled_tasks.lock` exclude entry.
-  - .claude/test-harness/                   # why: loom's multi-CLI parity test fixtures (~70 result logs + suites + run-all.sh). loom-only — consumers do not run the harness. Surfaced in v2.10.x audit on rs USE templates (644K, 100 files). Paired with the `test-harness/**` exclude entry.
-  - .claude/skills/07-development-guides/   # why: skill audit 2026-05-09 (PR #111, v2.29.0) — phantom-feature guide (cyclic v0.9.31 unimplemented) + duplicates 8 other skills + 4 specialists. Load-bearing primitives extracted to 01-core-sdk/parameter-scoping.md + 31-error-troubleshooting/node-lifecycle.md. Removed from every consumer.
-  - .claude/skills/09-workflow-patterns/    # why: skill audit 2026-05-09 (v2.29.0) — naive industry-use templates (user's cited example of low-value skills). User-approved REMOVE.
+  - .claude/projects/ # why: Claude Code's per-user session/state cache (`~/.claude/projects/<encoded-cwd>/`). loom-local; never artifact-managed. Surfaced in v2.10.x audit on rs USE templates carrying loom's own `-Users-esperie-repos-loom/` cache. Paired with the `projects/**` exclude entry below to prevent re-introduction.
+  - .claude/scheduled_tasks.lock # why: Claude Code's per-user scheduled-task lock file. loom-local; never artifact-managed. Surfaced in v2.10.x audit (5 of 5 USE templates carried loom's lock). Paired with the `scheduled_tasks.lock` exclude entry.
+  - .claude/test-harness/ # why: loom's multi-CLI parity test fixtures (~70 result logs + suites + run-all.sh). loom-only — consumers do not run the harness. Surfaced in v2.10.x audit on rs USE templates (644K, 100 files). Paired with the `test-harness/**` exclude entry.
+  - .claude/skills/07-development-guides/ # why: skill audit 2026-05-09 (PR #111, v2.29.0) — phantom-feature guide (cyclic v0.9.31 unimplemented) + duplicates 8 other skills + 4 specialists. Load-bearing primitives extracted to 01-core-sdk/parameter-scoping.md + 31-error-troubleshooting/node-lifecycle.md. Removed from every consumer.
+  - .claude/skills/09-workflow-patterns/ # why: skill audit 2026-05-09 (v2.29.0) — naive industry-use templates (user's cited example of low-value skills). User-approved REMOVE.
   - .claude/skills/11-frontend-integration/ # why: skill audit 2026-05-09 (v2.29.0) — generic; no SDK-specific primitive. Coverage of frontend topics moved entirely to 23-uiux-design-principles + 25-ai-interaction-patterns.
   - .claude/skills/13-architecture-decisions/ # why: skill audit 2026-05-09 (v2.29.0) — derivable from base CC reasoning + decide-framework skill (in 17-gold-standards). User-approved REMOVE.
-  - .claude/skills/14-code-templates/       # why: skill audit 2026-05-09 (v2.29.0) — duplicates SDK examples already in 01-core-sdk and per-framework skills. User-approved REMOVE.
-  - .claude/skills/19-flutter-patterns/     # why: skill audit 2026-05-09 (v2.29.0) — wrong-repo orphan (Flutter not in py SDK scope; flutter-specialist agent owns Flutter knowledge for the Kailash mobile/desktop surface).
-  - .claude/skills/20-interactive-widgets/  # why: skill audit 2026-05-09 (v2.29.0) — wrong-repo orphan (UI widget patterns belong to design-system / app-template repos, not the Kailash SDK).
-  - .claude/skills/21-enterprise-ai-ux/     # why: skill audit 2026-05-09 (v2.29.0) — naive enterprise-buzzword content; no load-bearing primitives. User-approved REMOVE.
-  - .claude/skills/22-conversation-ux/      # why: skill audit 2026-05-09 (v2.29.0) — naive UX content; superseded by 25-ai-interaction-patterns for genuine conversation-ux primitives.
-  - .claude/skills/24-value-audit/          # why: skill audit 2026-05-09 (v2.29.0) — ~80% duplicates the value-auditor agent prompt; remaining 20% scoped to non-Kailash demo class (extractable to atelier/ if future demo workstream needs it). value-auditor agent self-audited and recommended REMOVE.
-  - .claude/skills/28-coc-reference/        # why: skill audit 2026-05-09 (v2.29.0) — stale COC reference superseded by current rules/. User-approved REMOVE.
-  - .claude/skills/30-claude-code-patterns/anti-patterns.md   # why: skill audit 2026-05-09 (v2.29.0) — RESTRUCTURE 30 sub-file. Zero external references (grep clean). Content covered by 30/SKILL.md prose. User-approved.
+  - .claude/skills/14-code-templates/ # why: skill audit 2026-05-09 (v2.29.0) — duplicates SDK examples already in 01-core-sdk and per-framework skills. User-approved REMOVE.
+  - .claude/skills/19-flutter-patterns/ # why: skill audit 2026-05-09 (v2.29.0) — wrong-repo orphan (Flutter not in py SDK scope; flutter-specialist agent owns Flutter knowledge for the Kailash mobile/desktop surface).
+  - .claude/skills/20-interactive-widgets/ # why: skill audit 2026-05-09 (v2.29.0) — wrong-repo orphan (UI widget patterns belong to design-system / app-template repos, not the Kailash SDK).
+  - .claude/skills/21-enterprise-ai-ux/ # why: skill audit 2026-05-09 (v2.29.0) — naive enterprise-buzzword content; no load-bearing primitives. User-approved REMOVE.
+  - .claude/skills/22-conversation-ux/ # why: skill audit 2026-05-09 (v2.29.0) — naive UX content; superseded by 25-ai-interaction-patterns for genuine conversation-ux primitives.
+  - .claude/skills/24-value-audit/ # why: skill audit 2026-05-09 (v2.29.0) — ~80% duplicates the value-auditor agent prompt; remaining 20% scoped to non-Kailash demo class (extractable to atelier/ if future demo workstream needs it). value-auditor agent self-audited and recommended REMOVE.
+  - .claude/skills/28-coc-reference/ # why: skill audit 2026-05-09 (v2.29.0) — stale COC reference superseded by current rules/. User-approved REMOVE.
+  - .claude/skills/30-claude-code-patterns/anti-patterns.md # why: skill audit 2026-05-09 (v2.29.0) — RESTRUCTURE 30 sub-file. Zero external references (grep clean). Content covered by 30/SKILL.md prose. User-approved.
   - .claude/skills/30-claude-code-patterns/artifact-design.md # why: skill audit 2026-05-09 (v2.29.0) — RESTRUCTURE 30 sub-file. Zero external references. Templates duplicated in actual existing artifacts. User-approved.
-  - .claude/skills/30-claude-code-patterns/token-budget.md    # why: skill audit 2026-05-09 (v2.29.0) — RESTRUCTURE 30 sub-file. Zero external references. Token-cost numbers covered at high level in 30/SKILL.md. User-approved.
-  - .claude/skills/management/             # why: residual stale skill in kailash-coc-claude-py only (rs/rb/prism don't ship it, loom doesn't ship it). Hollow frontmatter (no `description:` field) — surfaces as 0-char-description entry in CC skill listing, consuming slot without semantic value. Content is repo-maintainer notes for /sync /codify /inspect, not a semantic skill consumers should match against. Surfaced 2026-05-14 via coursewright skill-bloat audit. User-approved REMOVE.
-  - .claude/rules/terrene-naming.md         # why: removed from COC distribution 2026-05-31 (FB) — Foundation messaging governance (brand/terminology/license-labeling consistency), NOT a codegen-orchestration concern. Apache 2.0 imposes no obligations, so this was never license enforcement. Relocated to atelier Foundation-docs (separate repo). Universal purge so every consumer (incl. non-Terrene RRPS/community) drops its stale copy. Receipt: journal/0184. Supersedes the prior use_obsoleted entry (which purged USE templates + downstream only; this purges ALL targets).
-  - .claude/rules/independence.md           # why: removed from COC distribution 2026-05-31 (FB) — same disposition as terrene-naming.md above (Foundation no-commercial-coupling messaging governance, not COC). Relocated to atelier Foundation-docs. Universal purge. Receipt: journal/0184. Supersedes the prior use_obsoleted entry.
+  - .claude/skills/30-claude-code-patterns/token-budget.md # why: skill audit 2026-05-09 (v2.29.0) — RESTRUCTURE 30 sub-file. Zero external references. Token-cost numbers covered at high level in 30/SKILL.md. User-approved.
+  - .claude/skills/management/ # why: residual stale skill in kailash-coc-claude-py only (rs/rb/prism don't ship it, loom doesn't ship it). Hollow frontmatter (no `description:` field) — surfaces as 0-char-description entry in CC skill listing, consuming slot without semantic value. Content is repo-maintainer notes for /sync /codify /inspect, not a semantic skill consumers should match against. Surfaced 2026-05-14 via coursewright skill-bloat audit. User-approved REMOVE.
+  - .claude/rules/terrene-naming.md # why: removed from COC distribution 2026-05-31 (FB) — Foundation messaging governance (brand/terminology/license-labeling consistency), NOT a codegen-orchestration concern. Apache 2.0 imposes no obligations, so this was never license enforcement. Relocated to atelier Foundation-docs (separate repo). Universal purge so every consumer (incl. non-Terrene RRPS/community) drops its stale copy. Receipt: journal/0184. Supersedes the prior use_obsoleted entry (which purged USE templates + downstream only; this purges ALL targets).
+  - .claude/rules/independence.md # why: removed from COC distribution 2026-05-31 (FB) — same disposition as terrene-naming.md above (Foundation no-commercial-coupling messaging governance, not COC). Relocated to atelier Foundation-docs. Universal purge. Receipt: journal/0184. Supersedes the prior use_obsoleted entry.
   - .claude/agents/open-source-strategist.md # why: removed from COC distribution 2026-05-31 (FB) — the agent IS Terrene Foundation IP/open-core strategy (four-layer architecture, Foundation-owns-all-IP, EATP/Kailash open-vs-proprietary boundary, competitive positioning), not a generic codegen specialist. Shipping it gave non-Terrene consumers (RRPS/community) Terrene's strategic answers. Now loom-only (kept on disk like agents/management/*). Universal purge of the stale consumer copy. Receipt: journal/0184.
   - .gemini/agents/open-source-strategist.md # why: paired Gemini emission of the open-source-strategist agent removed above (FB 2026-05-31). Agents emit to Gemini only (Codex has no agents surface); this purges the stale Gemini-side copy from every consumer. Receipt: journal/0184.
-  - .claude/agents/management/gh-manager.md      # why: loom-only management agent that LEAKED to cc consumers via the `coc` tier (the exact exclusion-by-omission F104 closes). F104 stops re-emission (loom_only:) but the stale `.claude/agents/management/gh-manager.md` copy persists on every consumer that synced during the leak window — this purges it. cc-path only (never shipped to codex/gemini per structural exclusion). Receipt: F104 / journal/0191.
+  - .claude/agents/management/gh-manager.md # why: loom-only management agent that LEAKED to cc consumers via the `coc` tier (the exact exclusion-by-omission F104 closes). F104 stops re-emission (loom_only:) but the stale `.claude/agents/management/gh-manager.md` copy persists on every consumer that synced during the leak window — this purges it. cc-path only (never shipped to codex/gemini per structural exclusion). Receipt: F104 / journal/0191.
   - .claude/agents/management/posture-auditor.md # why: same as gh-manager above — loom-only trust-posture-state-audit agent that leaked to cc consumers via `coc`; loom_only: stops re-emission, this obsoleted entry purges the stale cc copy. cc-path only. Receipt: F104 / journal/0191.
-  - .claude/agents/management/todo-manager.md    # why: same as gh-manager above — loom-only management agent that leaked to cc consumers via `coc`; loom_only: stops re-emission, this obsoleted entry purges the stale cc copy. cc-path only. Receipt: F104 / journal/0191.
-  - .claude/variants/                       # why: loom-internal variant overlay tree (language × CLI slot bodies) — NEVER synced; its presence in ANY consumer is a sync-hygiene defect. Surfaced 2026-06-01 in kailash-coc-claude-rs (PUBLIC) as a 7-file tracked tree LEAKING operator-PII hostnames inline in variants/rs/rules/ci-runners.md. Direct git rm applied to claude-rs (cross-repo-authorized, journal/0198); this obsoleted entry drives the universal declarative purge so the never-synced tree is removed from EVERY consumer on next sync AND cannot re-introduce via a future sync bug. Receipt: journal/0198 + 0199.
+  - .claude/agents/management/todo-manager.md # why: same as gh-manager above — loom-only management agent that leaked to cc consumers via `coc`; loom_only: stops re-emission, this obsoleted entry purges the stale cc copy. cc-path only. Receipt: F104 / journal/0191.
+  - .claude/variants/ # why: loom-internal variant overlay tree (language × CLI slot bodies) — NEVER synced; its presence in ANY consumer is a sync-hygiene defect. Surfaced 2026-06-01 in kailash-coc-claude-rs (PUBLIC) as a 7-file tracked tree LEAKING operator-PII hostnames inline in variants/rs/rules/ci-runners.md. Direct git rm applied to claude-rs (cross-repo-authorized, journal/0198); this obsoleted entry drives the universal declarative purge so the never-synced tree is removed from EVERY consumer on next sync AND cannot re-introduce via a future sync bug. Receipt: journal/0198 + 0199.
 
 # ─────────────────────────────────────────────────────────────────
 # LOOM-ONLY — POSITIVE never-sync declaration (F104)
@@ -2075,16 +2080,16 @@ obsoleted:
 # consumers via the `coc` tier (the exact omission F104 closes — they are
 # removed from `coc` here so loom_only is their single source of truth).
 loom_only:
-  - agents/management/coc-sync.md       # why: Gate-2 distributor — loom-only orchestration; CLAUDE.md "Management (loom-only, excluded from sync)".
-  - agents/management/sync-reviewer.md  # why: Gate-1 BUILD-repo review/classify — loom-only orchestration.
-  - agents/management/repo-ops.md       # why: cross-repo inspection / drift / bulk git — loom-only orchestration.
+  - agents/management/coc-sync.md # why: Gate-2 distributor — loom-only orchestration; CLAUDE.md "Management (loom-only, excluded from sync)".
+  - agents/management/sync-reviewer.md # why: Gate-1 BUILD-repo review/classify — loom-only orchestration.
+  - agents/management/repo-ops.md # why: cross-repo inspection / drift / bulk git — loom-only orchestration.
   - agents/management/settings-manager.md # why: Claude Code settings across global/project — loom-only orchestration.
-  - agents/management/posture-auditor.md  # why: trust-posture state audit — loom-only. Was accidentally in `coc` tier (synced to cc consumers); removed from `coc` at F104 so loom_only is the single source of truth.
-  - agents/management/todo-manager.md     # why: loom-only management agent. Was accidentally in `coc` tier (synced to cc consumers); removed from `coc` at F104.
-  - agents/management/gh-manager.md       # why: loom-only management agent. Was accidentally in `coc` tier (synced to cc consumers); removed from `coc` at F104.
-  - agents/open-source-strategist.md      # why: Terrene Foundation open-core strategy (four-layer model, Foundation-owns-all-IP, EATP/Kailash open-vs-proprietary boundary). loom-only per FB 2026-05-31 (journal/0184). Paired `obsoleted:` entries purge the stale consumer + Gemini copies.
-  - disclosure-tenant-denylist.json       # why: customer-identity / tenant token list the Gate-2 disclosure scanner (bin/scan-synced-disclosure.mjs `customer-identity-token` shape) flags against the SYNCED surface. TOP-LEVEL .claude/ file (NOT under bin/**) so it sits outside every synced-tier glob — this positive loom_only entry keeps it out of /sync without tripping loom-only-mutual-exclusion. The literal tokens must never reach a consumer (a consumer greps the synced scanner/list source → the leak the shape exists to prevent). At a consumer the file is absent → the shape is inert. loom-only per journal/0214 (loom#411 governance-as-DNA disclosure scrub).
-  - public-release/                        # why: loom-only source dir for the PUBLIC-FORK pipeline (scripts/publish-to-public.mjs) — holds the public README + Apache-2.0 LICENSE the pipeline copies into the terrene-foundation/loom snapshot. NOT framework a COC consumer uses; loom-internal publish machinery (same class as agents/management/*). Top-level .claude/ dir outside every synced-tier glob, so this loom_only entry keeps it out of /sync without tripping loom-only-mutual-exclusion. loom-only per journal/0215 (public-fork lane).
+  - agents/management/posture-auditor.md # why: trust-posture state audit — loom-only. Was accidentally in `coc` tier (synced to cc consumers); removed from `coc` at F104 so loom_only is the single source of truth.
+  - agents/management/todo-manager.md # why: loom-only management agent. Was accidentally in `coc` tier (synced to cc consumers); removed from `coc` at F104.
+  - agents/management/gh-manager.md # why: loom-only management agent. Was accidentally in `coc` tier (synced to cc consumers); removed from `coc` at F104.
+  - agents/open-source-strategist.md # why: Terrene Foundation open-core strategy (four-layer model, Foundation-owns-all-IP, EATP/Kailash open-vs-proprietary boundary). loom-only per FB 2026-05-31 (journal/0184). Paired `obsoleted:` entries purge the stale consumer + Gemini copies.
+  - disclosure-tenant-denylist.json # why: customer-identity / tenant token list the Gate-2 disclosure scanner (bin/scan-synced-disclosure.mjs `customer-identity-token` shape) flags against the SYNCED surface. TOP-LEVEL .claude/ file (NOT under bin/**) so it sits outside every synced-tier glob — this positive loom_only entry keeps it out of /sync without tripping loom-only-mutual-exclusion. The literal tokens must never reach a consumer (a consumer greps the synced scanner/list source → the leak the shape exists to prevent). At a consumer the file is absent → the shape is inert. loom-only per journal/0214 (loom#411 governance-as-DNA disclosure scrub).
+  - public-release/ # why: loom-only source dir for the PUBLIC-FORK pipeline (scripts/publish-to-public.mjs) — holds the public README + Apache-2.0 LICENSE the pipeline copies into the terrene-foundation/loom snapshot. NOT framework a COC consumer uses; loom-internal publish machinery (same class as agents/management/*). Top-level .claude/ dir outside every synced-tier glob, so this loom_only entry keeps it out of /sync without tripping loom-only-mutual-exclusion. loom-only per journal/0215 (public-fork lane).
 
 # ─────────────────────────────────────────────────────────────────
 # EXCLUSIONS
@@ -2189,7 +2194,7 @@ exclude:
   - learning/**
   - .coc-sync-marker
   - .proposals/**
-  - "**/.env"                    # never propagate stray .env files (hook-generated template content belongs only in .env.example at the template root)
+  - "**/.env" # never propagate stray .env files (hook-generated template content belongs only in .env.example at the template root)
   - settings.local.json
   - settings.json
   - sync-manifest.yaml
@@ -2204,12 +2209,12 @@ exclude:
   - commands/inspect.md
   - commands/settings.md
   - commands/sync-to-build.md
-  - commands/test-harness-probe.md           # loom-only: orchestrator for `.claude/test-harness/` probe scoring; consumers do not run the harness. Pair: existing `test-harness/**` exclude entry below.
+  - commands/test-harness-probe.md # loom-only: orchestrator for `.claude/test-harness/` probe scoring; consumers do not run the harness. Pair: existing `test-harness/**` exclude entry below.
   - agents/_README.md
-  - projects/**                  # Claude Code's per-user session/state cache; loom-local. Pair: `obsoleted: .claude/projects/`.
-  - scheduled_tasks.lock         # Claude Code's per-user scheduled-task lock; loom-local. Pair: `obsoleted: .claude/scheduled_tasks.lock`.
-  - test-harness/**              # loom's multi-CLI parity test fixtures + result logs; consumers do not run the harness. Pair: `obsoleted: .claude/test-harness/`.
-  - worktrees/**                 # operator-local agent worktrees (worktree-isolation.md primitive). Transient scratch space; never synced. Pair: scanner isNeverSynced + .gitignore — three-layer defense-in-depth per journal/0142.
+  - projects/** # Claude Code's per-user session/state cache; loom-local. Pair: `obsoleted: .claude/projects/`.
+  - scheduled_tasks.lock # Claude Code's per-user scheduled-task lock; loom-local. Pair: `obsoleted: .claude/scheduled_tasks.lock`.
+  - test-harness/** # loom's multi-CLI parity test fixtures + result logs; consumers do not run the harness. Pair: `obsoleted: .claude/test-harness/`.
+  - worktrees/** # operator-local agent worktrees (worktree-isolation.md primitive). Transient scratch space; never synced. Pair: scanner isNeverSynced + .gitignore — three-layer defense-in-depth per journal/0142.
 
 # ─────────────────────────────────────────────────────────────────
 # BUILD-EXCLUDE (USE templates only — never synced to BUILD repos)
@@ -2465,7 +2470,6 @@ repos:
       USE templates which already carry frontend-generic content; the prism
       BUILD repo (kailash-prism) receives /sync-to-build for working-tree
       updates only (per "Never Commit BUILD Repos" feedback).
-
 
 # ─────────────────────────────────────────────────────────────────
 # CONSUMER OVERLAYS — standalone-consumer canonical↔variant boundary

@@ -1,42 +1,28 @@
 # COC Sync Marker — coc-base
 visibility: public
-timestamp: 2026-06-11T01:58:28Z
+timestamp: 2026-06-11T10:34:16Z
 source: loom/.claude
-loom_sha: 57c88cc
-loom_version: 2.40.0
+loom_sha: bbfa970
+loom_version: 2.41.0
 variant: base
-template_type: multi-cli
 clis: ["claude", "codex", "gemini"]
-tier_subscriptions: ["cc", "co", "onboarding"]
 stats:
   copied: 822
   variant_only: 0
-  overlays_applied: 1
-  stripped: 15
+  overlays: 1
+  composed: 0
+  preserved: 1   # CLAUDE.md
   purged: 0
-  preserved: ["CLAUDE.md", ".codex/local-config.toml", ".gemini/local-settings.json", "settings.local.json", "learning/", ".proposals/", ".env"]
+  skipped: { loom_local: 2, exclude: 869, use_exclude: 29, no_tier_match: 514 }
   baselines_emitted: { cc: 0, codex: 1, gemini: 1 }
   baseline_emission_bytes:
     block_cap_bytes: 61440
     warn_cap_bytes: 32768
-    codex:  { rules: 9, bytes: 49550, tier: WARN, headroom_pct: 19.35 }
-    gemini: { rules: 9, bytes: 49556, tier: WARN, headroom_pct: 19.34 }
+    codex: { rules: 9, bytes: 49550, tier: WARN, headroom_bytes: 11890, headroom_pct: 19.35 }
+    gemini: { rules: 9, bytes: 49556, tier: WARN, headroom_bytes: 11884, headroom_pct: 19.34 }
   cli_artifacts:
-    codex:  { prompts: 21, skills: 10 }
-    gemini: { commands: 16, skills: 10, agents: 5 }
-  codex_dispatcher: "bin/coc + 28 phase symlinks"
-  mcp_guard: { policies_populated: false }
-fsub_delta:
-  - .claude/hooks/lib/coc-emit.js (new)
-  - .claude/hooks/lib/codify-lease.js
-  - .claude/hooks/lib/coordination-log.js
-  - .claude/hooks/lib/journal-body-anchor.js
-  - .claude/hooks/lib/journal-reserve.js
-  - .claude/hooks/lib/operator-id.js (full-diff carry)
-  - .claude/commands/journal.md
-  - .claude/rules/knowledge-convergence.md
-  - .claude/rules/self-referential-codify.md
-  # NOTE: commands/codify.md NOT carried — coc tier (base subscribes [cc,co,onboarding])
-catch_up_beyond_fsub: "1daa45b..57c88cc — strip-build-internal.mjs, sync-tier-aware.mjs, provenance-event.js, 8 rule-extracts guides, cli-audit.md, 5 rules, 3 skills, audit fixtures"
-hooks_resolve: "38/38"
-sdk_pins: "n/a (build:null — language-agnostic base)"
+    codex: { prompts: 16, skills: 9 }
+    gemini: { commands: 16, skills: 9, agents: 5 }
+  codex_dispatcher: { bin_coc: 1, phase_symlinks: 28 }
+  sdk_pins_changed: null   # build:null — non-Kailash
+headline: "Version-currency stamp (loom 2.41.0); CMA skill is coc-tier, base-excluded by design"
