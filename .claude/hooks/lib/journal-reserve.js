@@ -42,6 +42,11 @@
 const fs = require("fs");
 const path = require("path");
 
+// FSUB (2026-06-11): signed-emission dependencies are lazy-required inside
+// reserveJournalSlotSigned so the pure reserveJournalSlot path keeps its
+// zero-dep cost for callers that only need the computation (tests, dry
+// runs). The signed path is the one the /journal command mandates.
+
 const VALID_TYPES = new Set([
   "DECISION",
   "DISCOVERY",
@@ -173,7 +178,211 @@ function reserveJournalSlot(dir, opts) {
   };
 }
 
+/**
+ * Scan the fold-accepted coordination log for journal-slot-reservation
+ * records targeting `dirRel` and return the highest reserved slot number
+ * (0 when none). This is the FOLD half of the high-water computation —
+ * a sibling operator may have reserved a slot whose file has not landed
+ * on this clone's disk yet (partial-push window), so the disk scan alone
+ * under-counts. Per knowledge-convergence.md MUST-2 the fold-accepted
+ * log is the authoritative ordering surface.
+ *
+ * Read errors REFUSE (throw) rather than silently returning 0 — a 0 on
+ * an unreadable log would hand out an already-reserved slot.
+ */
+function _foldHighWater(repoDir, dirRel) {
+  const { resolveLogPath } = require("./state-io.js");
+  const coordinationLog = require("./coordination-log.js");
+
+  const logPath = resolveLogPath(repoDir);
+  let raw;
+  try {
+    raw = fs.readFileSync(logPath, "utf8");
+  } catch (err) {
+    if (err && err.code === "ENOENT") return 0;
+    throw err;
+  }
+  const records = raw
+    .split("\n")
+    .filter((l) => l.length > 0)
+    .map((l) => {
+      try {
+        return JSON.parse(l);
+      } catch {
+        return null;
+      }
+    })
+    .filter((r) => r && typeof r === "object");
+  if (records.length === 0) return 0;
+
+  let roster = null;
+  try {
+    const rosterPath = path.join(repoDir, ".claude", "operators.roster.json");
+    if (fs.existsSync(rosterPath)) {
+      roster = JSON.parse(fs.readFileSync(rosterPath, "utf8"));
+    }
+  } catch {
+    roster = null;
+  }
+
+  const folded = coordinationLog.foldLog(records, roster, {});
+  const accepted =
+    process.env.COC_TEST_SKIP_SIGN === "1"
+      ? records
+      : (folded && folded.accepted) || [];
+  let high = 0;
+  for (const rec of accepted) {
+    if (!rec || rec.type !== "journal-slot-reservation") continue;
+    const c = rec.content || {};
+    if (c.dir !== dirRel) continue;
+    const n = parseInt(c.slot, 10);
+    if (Number.isFinite(n) && n > high) high = n;
+  }
+  return high;
+}
+
+/**
+ * Reserve the next journal slot AND emit the signed
+ * `journal-slot-reservation` coordination-log record that
+ * journal-write-guard.js folds for its slot-reserved check.
+ *
+ * This is the FSUB wiring (knowledge-convergence.md MUST-2): the pure
+ * reserveJournalSlot computes a slot from the filesystem only and emits
+ * nothing, so every subsequent journal Write halt-and-reports "slot
+ * unreserved in fold". This variant:
+ *
+ *   1. Computes slot = max(disk high-water, fold-accepted reservation
+ *      high-water for the same dir) + 1 — the fold half covers the
+ *      partial-push window where a sibling reserved a slot whose file
+ *      has not landed on this clone yet.
+ *   2. Emits the signed record {type: "journal-slot-reservation",
+ *      content: {slot, dir, filename}} via coc-emit.js (per-emitter
+ *      chained seq/prev_hash, canonical-bytes signature, 2KB-capped
+ *      append).
+ *
+ * @param {string} repoDir - absolute MAIN-checkout repo root (callers
+ *   inside worktrees resolve via state-resolver first — the log + the
+ *   guard's fold both live at the main checkout).
+ * @param {object} opts
+ * @param {string} [opts.dir="journal"] - REPO-RELATIVE journal directory
+ *   ("journal", "workspaces/<name>/journal", or the /.pending variant).
+ *   MUST match the dir token journal-write-guard.js derives from the
+ *   Write path, byte-for-byte — the guard's reservation match is
+ *   content.dir === <derived dir>.
+ * @param {{verified_id, person_id, display_id}} [opts.identity] -
+ *   defaults to operator-id.js::resolveIdentity(repoDir).
+ * @param {string} opts.type / opts.topic - as reserveJournalSlot.
+ * @param {string} [opts.signingKeyPath] / {function} [opts.sign] /
+ *   {function} [opts.readChainHead] / {function} [opts.append] -
+ *   forwarded to coc-emit.js (test injection).
+ * @returns {{ok: true, reservation: object, record: object} |
+ *           {ok: false, error: string, reason: string, step: string,
+ *            reservation?: object}}
+ *   On emission failure the computed reservation is attached so the
+ *   caller can surface BOTH the slot it would have taken AND why the
+ *   reservation did not land (the guard will halt the Write either way).
+ */
+function reserveJournalSlotSigned(repoDir, opts) {
+  if (!repoDir || typeof repoDir !== "string") {
+    return {
+      ok: false,
+      error: "invalid argument",
+      reason: "repoDir must be a non-empty string",
+      step: "args",
+    };
+  }
+  const o = opts || {};
+  const dirRel =
+    typeof o.dir === "string" && o.dir.trim() ? o.dir.trim() : "journal";
+
+  // Resolve identity up front — the filename embeds display_id and the
+  // emitter stamps verified_id/person_id.
+  let identity = o.identity;
+  if (!identity) {
+    const { resolveIdentity } = require("./operator-id.js");
+    identity = resolveIdentity(repoDir, {});
+  }
+
+  // Fold high-water FIRST (it can refuse); then compute the reservation
+  // off max(disk, fold). reserveJournalSlot re-validates identity/type/
+  // topic with its typed throws — convert to the typed-result shape.
+  let foldHigh;
+  try {
+    foldHigh = _foldHighWater(repoDir, dirRel);
+  } catch (err) {
+    return {
+      ok: false,
+      error: "fold high-water read failed",
+      reason: `coordination log unreadable; refusing to hand out a possibly-reserved slot: ${err && err.message ? err.message : String(err)}`,
+      step: "fold-high-water",
+    };
+  }
+
+  const absDir = path.join(repoDir, dirRel);
+  let reservation;
+  try {
+    reservation = reserveJournalSlot(absDir, {
+      identity,
+      type: o.type,
+      topic: o.topic,
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      error: "reservation invalid",
+      reason: err && err.message ? err.message : String(err),
+      step: "reserve",
+    };
+  }
+
+  if (foldHigh >= reservation.slot_num) {
+    // A fold-accepted reservation outranks the disk scan — rebuild the
+    // reservation at fold-high + 1 (same identity/type/topic).
+    const slotNum = foldHigh + 1;
+    const slot = String(slotNum).padStart(4, "0");
+    const displaySlug = _slugify(identity.display_id);
+    reservation = Object.assign({}, reservation, {
+      slot,
+      slot_num: slotNum,
+      filename: `${slot}-${displaySlug}-${reservation.type}-${reservation.slug}.md`,
+    });
+  }
+
+  const { emitSignedRecord } = require("./coc-emit.js");
+  const emitOpts = {
+    repoDir,
+    type: "journal-slot-reservation",
+    content: {
+      slot: reservation.slot,
+      dir: dirRel,
+      filename: reservation.filename,
+    },
+    identity,
+    signingKeyPath: o.signingKeyPath,
+    keyType: o.keyType,
+    sign: o.sign,
+    readChainHead: o.readChainHead,
+    append: o.append,
+  };
+  if (Object.prototype.hasOwnProperty.call(o, "gitConfigSigningKey")) {
+    emitOpts.gitConfigSigningKey = o.gitConfigSigningKey;
+  }
+  const emitResult = emitSignedRecord(emitOpts);
+  if (!emitResult.ok) {
+    return {
+      ok: false,
+      error: emitResult.error,
+      reason: emitResult.reason,
+      step: `emit:${emitResult.step}`,
+      reservation,
+    };
+  }
+
+  return { ok: true, reservation, record: emitResult.record };
+}
+
 module.exports = {
   reserveJournalSlot,
+  reserveJournalSlotSigned,
   VALID_TYPES,
 };

@@ -44,7 +44,7 @@ judge = MagicMock(spec=JudgeCallable)  # methods auto-generated stubs, still moc
 
 **Why:** The Protocol contract is the scripting surface, not a mock framework's `side_effect` or `return_value`. A real class declaring Protocol-required methods with correct signatures + returning real values of the Protocol-required types is a valid Tier 2 test double even when output is deterministic. A real PostgreSQL + `DeterministicJudge` are both Tier 2-legal; a mocked PostgreSQL + real OpenAI call is Tier 2 illegal.
 
-Origin: Session 2026-04-20 (issue #567 PR#5, PR#580). `DeterministicJudge` in `packages/kailash-kaizen/tests/integration/judges/test_judges_wiring.py` exercises 7 Tier 2 tests through the `kaizen.judges` facade without API keys; satisfies `kailash.diagnostics.protocols.JudgeCallable` at runtime.
+Origin: Session 2026-04-20 (issue #567 PR#5, PR#580). `DeterministicJudge` in the kaizen package (`tests/integration/judges/test_judges_wiring.py`) exercises 7 Tier 2 tests through the `kaizen.judges` facade without API keys; satisfies `kailash.diagnostics.protocols.JudgeCallable` at runtime.
 
 ## PR #466 — 63-Warning Sweep (2026-04-14)
 
@@ -59,7 +59,7 @@ Specific fixes:
 
 ## Pytest Plugin + Marker Declaration — 11,917-Test Block (2026-04-20)
 
-Session 2026-04-20 /redteam collection-gate sweep: `packages/kailash-kaizen/tests/e2e/memory/test_persistent_buffer_e2e.py` used `@pytest.mark.benchmark` + `benchmark` fixture without declaring `pytest-benchmark` in the sub-package's `[dev]` extras. Collection failed with:
+Session 2026-04-20 /redteam collection-gate sweep: the kaizen package (`tests/e2e/memory/test_persistent_buffer_e2e.py`) used `@pytest.mark.benchmark` + `benchmark` fixture without declaring `pytest-benchmark` in the sub-package's `[dev]` extras. Collection failed with:
 
 ```
 'benchmark' not found in `markers` configuration option
@@ -67,7 +67,7 @@ Session 2026-04-20 /redteam collection-gate sweep: `packages/kailash-kaizen/test
 
 ALL 11,917 kaizen tests blocked from collection until fixed. Fixed commit `1313ae56` by:
 
-1. Adding `pytest-benchmark>=4.0.0` to `packages/kailash-kaizen/pyproject.toml::[project.optional-dependencies].dev`
+1. Adding `pytest-benchmark>=4.0.0` to the kaizen package (`pyproject.toml::[project.optional-dependencies].dev`)
 2. Registering `benchmark: Performance benchmark tests (pytest-benchmark)` in `markers` config
 
 See `workspaces/kailash-ml-gpu-stack/journal/0008-GAP-full-specs-redteam-2026-04-20-findings.md`.
@@ -94,7 +94,7 @@ W33b fix:
 
 1. Added `trainable: Trainable | None = None` field to `TrainingResult` dataclass
 2. Every `Trainable.fit()` return site populated with `trainable=self`
-3. Landed `packages/kailash-ml/tests/regression/test_readme_quickstart_executes.py::test_readme_quickstart_executes_end_to_end` as Tier-2 E2E regression
+3. Landed the ml package (`tests/regression/test_readme_quickstart_executes.py::test_readme_quickstart_executes_end_to_end`) as Tier-2 E2E regression
 
 See `rules/zero-tolerance.md` §2 "Fake integration via missing handoff field" for the stub-pattern framing.
 

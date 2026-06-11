@@ -59,7 +59,7 @@ Origin: `workspaces/arbor-upstream-fixes/.session-notes` (2026-04-12)
 
 ## Sanitizer Contract — Exhaustive Examples
 
-DataFlow's input sanitizer (`packages/kailash-dataflow/src/dataflow/core/nodes.py::sanitize_sql_input`) is a defense-in-depth display-path safety net, NOT the primary SQLi defense. Parameter binding (`$N` / `%s` / `?`) is the primary defense.
+DataFlow's input sanitizer (the dataflow package (`src/dataflow/core/nodes.py::sanitize_sql_input`)) is a defense-in-depth display-path safety net, NOT the primary SQLi defense. Parameter binding (`$N` / `%s` / `?`) is the primary defense.
 
 ### 1. String Inputs Token-Replaced, Not Quote-Escaped
 
@@ -117,8 +117,8 @@ When a security-relevant kwarg (classification policy, tenant scope, clearance c
 # Helper added `policy` + `model_name` kwargs for classification sanitisation.
 #
 # $ grep -rn 'validate_model(' src/ packages/
-# packages/kailash-dataflow/src/dataflow/features/express.py:_validate_if_enabled
-# packages/kailash-dataflow/src/dataflow/engine.py::validate_record
+# the dataflow package directory src/dataflow/features/express.py:_validate_if_enabled
+# the dataflow package directory src/dataflow/engine.py::validate_record
 # tests/...  (tests covered separately)
 #
 # Both production call sites get policy+model_name in this PR:

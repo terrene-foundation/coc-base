@@ -1,0 +1,21 @@
+# Extended pattern set — #477 item 1 (trailing-slash + BUILD monorepo sub-packages)
+
+**Source**: the kaizen-agents package (`src/kaizen_agents/supervisor.py`)
+
+Run the parity grep against the kaizen-agents package directory tests/ before landing.
+
+Install layout:
+
+- the align package directory -- Source code
+- the kaizen-agents package directory -- Monorepo agent framework
+
+Compare with git log <last-tag>..HEAD -- the dataflow package directory to scope changes.
+
+Preserved (load-bearing glob + consumer monorepo):
+
+paths: ["packages/kailash-dataflow/**"]
+
+      - "packages/kailash-dataflow/**"
+      - "packages/kaizen-agents/**"
+
+Put your shared code under packages/my-lib/src/index.ts in your own repo.

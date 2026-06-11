@@ -1,16 +1,17 @@
 {
   "name": "coc-base",
-  "version": "2.39.0",
+  "version": "2.40.0",
   "type": "coc-use-template",
   "description": "Language-agnostic, non-Kailash CO/COC USE template — multi-CLI (variant: base, clis: claude/codex/gemini)",
   "synced_at": "2026-06-10T02:53:44Z",
   "upstream": {
     "name": "loom",
     "type": "coc-source",
-    "version": "2.39.0",
-    "loom_sha": "1daa45b",
-    "synced_at": "2026-06-10T02:53:44Z",
-    "template_version": "2.39.0"
+    "version": "2.40.0",
+    "loom_sha": "57c88cc",
+    "synced_at": "2026-06-11T01:58:28Z",
+    "template_version": "2.40.0",
+    "build_version": "2.40.0"
   },
   "variant": "base",
   "tier_subscriptions": [
@@ -24,6 +25,17 @@
     "gemini"
   ],
   "changelog": [
+    {
+      "date": "2026-06-11",
+      "version": "2.40.0",
+      "summary": "loom@57c88cc redistribution (base multi-CLI, loom 2.40.0) — FSUB signed-emitter wiring + 1daa45b..57c88cc catch-up.",
+      "changes": [
+        "FSUB: signed journal-slot-reservation + codify-lease emission (knowledge-convergence MUST-2/3 writer half). New hooks/lib/coc-emit.js + codify-lease.js + journal-reserve.js + journal-body-anchor.js + coordination-log.js default-registration; operator-id.js carried current. codify.md NOT carried (coc tier — base subscribes [cc,co,onboarding]).",
+        "CATCH-UP (1daa45b..57c88cc): full expected-state diff beyond FSUB — strip-build-internal.mjs + sync-tier-aware.mjs + provenance-event.js + 8 rule-extracts guides + cli-audit.md + rules (security/value-prioritization/cross-cli-artifact-hygiene/knowledge-convergence/self-referential-codify) + 3 30-claude-code-patterns skills + audit fixtures. 822 globals verified (15 stripped + 807 byte-equal) + 1 base overlay byte-equal.",
+        "SDK pins: n/a (build:null — language-agnostic base; sdk_packages null).",
+        "BUMP: VERSION 2.40.0 ; loom_sha 57c88cc ; upstream.version 2.40.0. PR #480/#481, loom main 57c88cc."
+      ]
+    },
     {
       "date": "2026-06-10",
       "version": "2.39.0",
@@ -56,5 +68,6 @@
         "PRESERVED: CLAUDE.md (template-owned, never overwritten); .claude/learning/** + .proposals/** + .coc-sync-marker never synced. .codex/local-config.toml + .gemini/local-settings.json preserve-list untouched (none present)."
       ]
     }
-  ]
+  ],
+  "updated": "2026-06-11"
 }

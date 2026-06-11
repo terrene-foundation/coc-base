@@ -180,7 +180,7 @@ Mentions of "Claude Code" / "Codex" / "Gemini" MUST be qualified historically ("
 ## Trust Posture Wiring
 
 - **Severity:** `advisory` for all 5 MUST clauses. Lint reports leaks; user adjudicates rewrite vs qualify. Workspace artifacts are session records; advisory severity matches CARE Principle 7 graduated-trust posture for content that affects framing without affecting runtime directly.
-- **Grace period:** 14 days. Existing artifacts in `kailash-py/workspaces/` and `kailash-rs/workspaces/` carry pre-rule leakage; lint surfaces them as advisory until swept.
+- **Grace period:** 14 days. Existing artifacts in workspace artifacts and workspace artifacts carry pre-rule leakage; lint surfaces them as advisory until swept.
 - **Regression-within-grace:** any new artifact authored after rule-land that introduces a flagged pattern triggers `regression_within_grace` per `trust-posture.md` MUST Rule 4. New leaks are loud; old leaks are advisory.
 - **Receipt requirement:** none — rule is path-scoped to artifact paths and surfaces via `tools/lint-workspaces.js` + `/cli-audit` Phase 4.
 - **Detection mechanism:** `node tools/lint-workspaces.js workspaces/` enumerates artifacts and greps for the BLOCKED patterns from MUST clauses 1–5. `/cli-audit` Phase 4 invokes the same lint. Fixtures at `.claude/audit-fixtures/cross-cli-artifact-hygiene/` exercise every flag + every clean-pass case.

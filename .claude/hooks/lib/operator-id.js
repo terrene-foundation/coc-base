@@ -382,6 +382,13 @@ module.exports = {
   _parseGpgColonFingerprint,
   _gpgFingerprint,
   _fingerprintFromKey,
+  // FSUB (2026-06-11): signing-key discovery shared with coc-emit.js —
+  // the signed-record emitter needs the SAME explicit-path → git-config
+  // discovery order resolveIdentity uses, so emission signs with the key
+  // whose fingerprint IS the resolved verified_id (single SSOT; a
+  // divergent discovery order could sign with a key that does not match
+  // the stamped identity, and fold rule 1 would reject every record).
+  _discoverSigningKey,
   // Test-only counters. NOT part of the supported API.
   _test_getDeriveCount: () => _deriveCount,
   _test_resetDeriveCount: () => {

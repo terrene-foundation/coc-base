@@ -72,7 +72,7 @@ uv pip install \
   -e packages/kailash-kaizen
 
 # DO NOT — PYTHONPATH prefix workaround
-PYTHONPATH=packages/kailash-dataflow/src:packages/kailash-nexus/src \
+PYTHONPATH=the dataflow package directory src:the nexus package directory src \
   .venv/bin/python -m pytest tests/
 ```
 
@@ -116,7 +116,7 @@ Origin: `workspaces/arbor-upstream-fixes/.session-notes` (2026-04-12)
 
 ```toml
 # DO — sub-packages own their test deps
-# packages/kailash-pact/pyproject.toml:
+# the pact package directory pyproject.toml:
 [project.optional-dependencies]
 test = ["hypothesis>=6.98"]
 

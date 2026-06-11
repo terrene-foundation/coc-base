@@ -120,7 +120,7 @@ All user-generated content MUST be encoded before display in HTML templates, JSO
 
 ## Sanitizer Contract — DataFlow Display Hygiene
 
-DataFlow's input sanitizer (`packages/kailash-dataflow/src/dataflow/core/nodes.py::sanitize_sql_input`) is a defense-in-depth display-path safety net, NOT the primary SQLi defense. Parameter binding (`$N` / `%s` / `?`) is the primary defense — see § Parameterized Queries above.
+DataFlow's input sanitizer (the dataflow package (`src/dataflow/core/nodes.py::sanitize_sql_input`)) is a defense-in-depth display-path safety net, NOT the primary SQLi defense. Parameter binding (`$N` / `%s` / `?`) is the primary defense — see § Parameterized Queries above.
 
 ### 1. String Inputs MUST Be Token-Replaced, Not Quote-Escaped
 

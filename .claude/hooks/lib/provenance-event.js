@@ -46,9 +46,12 @@ const EVENT_KINDS = Object.freeze([
 // bump (bump SCHEMA_VERSION + update csq conformance, per the EVENT_KINDS note above).
 // Freeze receipt: journal/0211. Converged: journal/0190 (F101-1); validated: F101-4.
 //
-// SCOPE — FORMAT ONLY. The drain/TRANSPORT contract (how events are chained/drained
-// across the seam — a separate per-session ref vs interleaving into the
-// coordination-log) is NOT frozen; it remains OPEN per journal/0190 § For-Discussion #1.
+// SCOPE — FORMAT ONLY. The drain/TRANSPORT contract is decided SEPARATELY from this
+// freeze: RESOLVED as Option A — a separate per-session ledger (provenance-ledger.js;
+// NOT the coordination-log, NOT a git ref). journal/0190 § For-Discussion #1's OPEN
+// framing is superseded by journal/0255 (transport resolved + ordering stability) and
+// journal/0258 (#476 — the decided drain contract incl. the completeness guarantee:
+// recorded-prefix integrity only; csq must flag gaps).
 //
 // ── NAMED VERSION + csq M18 5-FIELD MAPPING (loom #461, journal/0251) ────────
 // Named frozen anchor: this module @ commit f36a6fe (bytes stable since b02a68c);
@@ -400,9 +403,12 @@ function chainProvenanceEvent(priorEvent, args) {
 //                                 widened).
 //   ordering                    — chain-level: prev_link hash-chain DEPTH per
 //                                 operator_ref, NOT a stored integer seq and NOT a
-//                                 per-event field. Its cross-drain stability depends
-//                                 on the OPEN transport contract (journal/0190
-//                                 §FD#1), so it is intentionally NOT a per-event
+//                                 per-event field. Cross-drain stability is
+//                                 GUARANTEED under the decided per-session-ledger
+//                                 transport (journal/0255 + 0258: gap-free within a
+//                                 recorded segment; prefix-stable under partial /
+//                                 degraded drain). Ordering remains a CHAIN
+//                                 property, so it is intentionally NOT a per-event
 //                                 decode here.
 
 /**
@@ -473,8 +479,9 @@ function deriveSurface(evt) {
 /**
  * Decode the FORMAT-derivable fields of a v1 event: decision_id (the content hash /
  * "event UUID") + surface. ORDERING is intentionally NOT included — it is chain-level
- * (prev_link depth per operator_ref) and its cross-drain stability is gated on the
- * OPEN transport contract; the consumer derives it across the chain.
+ * (prev_link depth per operator_ref; stability guaranteed by the decided
+ * per-session-ledger transport, journal/0255 + 0258); the consumer derives it
+ * across the chain.
  *
  * @param {object} evt  a valid v1 provenance event
  * @returns {{ decision_id: string, surface: string, schema_version: number, kind: string }}

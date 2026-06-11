@@ -38,8 +38,13 @@
  *
  * Public API:
  *   acquireCodifyLease({ scopeFiles, displayId, repoDir? }) -> Result
- *     Result = { ok: true, lease: {...}, branch, leasePath, scope }
+ *     Result = { ok: true, lease: {...}, branch, leasePath, scope, record_emit }
  *           | { ok: false, error, reason, conflicting?: {...} }
+ *     record_emit (FSUB 2026-06-11): result of emitting the signed
+ *     `codify-lease` coordination-log record (cross-clone visibility per
+ *     knowledge-convergence.md MUST-3). {ok:true, record} on success;
+ *     a typed {ok:false, error, reason, step} on failure — NON-FATAL to
+ *     the lease (the on-disk mutex landed), but callers MUST surface it.
  *
  *   releaseCodifyLease({ repoDir?, displayId }) -> { ok, error? }
  *     The leasePath is derived from repoDir via _leasePath(_gitToplevel(repoDir))
@@ -195,6 +200,51 @@ function _leasePath(repoDir) {
   return path.join(stateDir, LEASE_FILE);
 }
 
+/**
+ * FSUB (2026-06-11): emit the signed coordination-log record that makes
+ * a lease transition visible to sibling CLONES (the on-disk
+ * codify-lease.json is the local mutex; it does not travel — a sibling
+ * operator's clone learns of the lease only through the fold). Record
+ * types `codify-lease` / `codify-lease-release` are registered in
+ * coordination-log.js::_registerDefaults (liveness-churn class, like
+ * claim/release).
+ *
+ * Emission failure is NON-FATAL to the lease transition: the local
+ * mutex already landed atomically, and refusing the lease because the
+ * visibility record could not be signed (e.g. un-rostered operator)
+ * would block solo /codify entirely. The failure IS surfaced — the
+ * caller receives it under `record_emit` and MUST report it per
+ * zero-tolerance.md Rule 3 (typed + observable, never silent).
+ */
+function _emitLeaseRecord(repoDir, type, content, opts) {
+  const o = opts || {};
+  try {
+    const { emitSignedRecord } = require("./coc-emit.js");
+    const emitOpts = {
+      repoDir,
+      type,
+      content,
+      identity: o.identity,
+      signingKeyPath: o.signingKeyPath,
+      keyType: o.keyType,
+      sign: o.sign,
+      readChainHead: o.readChainHead,
+      append: o.append,
+    };
+    if (Object.prototype.hasOwnProperty.call(o, "gitConfigSigningKey")) {
+      emitOpts.gitConfigSigningKey = o.gitConfigSigningKey;
+    }
+    return emitSignedRecord(emitOpts);
+  } catch (err) {
+    return {
+      ok: false,
+      error: "lease-record emit threw",
+      reason: err && err.message ? err.message : String(err),
+      step: "emit",
+    };
+  }
+}
+
 // ---- public API ------------------------------------------------------------
 
 /**
@@ -306,7 +356,30 @@ function acquireCodifyLease(opts) {
     };
   }
 
-  const branch = `${BRANCH_PREFIX}${displayId}-${_isoDate()}`;
+  // FSUB walk finding (2026-06-11, journal/0264 §FD1): the lease branch
+  // MUST match the branch the codify session actually edits on —
+  // integrity-guard.js::findCoveringLease matches content.branch against
+  // `git rev-parse --abbrev-ref HEAD`, and a UTC-derived date constructs
+  // YESTERDAY's name for a late-evening UTC+N session (live repro:
+  // lease said codify/esperie-2026-06-10, session branch was
+  // codify/esperie-2026-06-11 → covering check structurally unmatchable).
+  // When the session is ALREADY on this operator's codify/* branch, bind
+  // the lease to it; otherwise construct the UTC-dated default.
+  // PR-B walk finding (2026-06-11, journal/0267): the capture MUST be
+  // DATE-TERMINAL (`codify/<display_id>-YYYY-MM-DD` exactly) — the
+  // integrity-guard's branch-shape predicate rejects suffixed names
+  // (e.g. `codify/esperie-2026-06-11-b`), so a startsWith capture binds
+  // a lease to a branch the guard will never honor (lease and guard
+  // silently disagree on what a codify branch IS). Same-day second
+  // codify work belongs on the SAME date-named branch.
+  const currentBranchEarly = _gitCurrentBranch(topLevel);
+  const ownBranchRe = new RegExp(
+    `^${BRANCH_PREFIX}${displayId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-\\d{4}-\\d{2}-\\d{2}$`,
+  );
+  const branch =
+    currentBranchEarly && ownBranchRe.test(currentBranchEarly)
+      ? currentBranchEarly
+      : `${BRANCH_PREFIX}${displayId}-${_isoDate()}`;
   const acquiredAt = _isoTimestamp();
   const leaseId =
     `lease_${Date.now()}_` + crypto.randomBytes(4).toString("hex");
@@ -328,12 +401,41 @@ function acquireCodifyLease(opts) {
 
   _atomicWriteJson(leasePath, lease);
 
+  // FSUB (2026-06-11): cross-clone visibility record. The content shape
+  // matches the READER contract integrity-guard.js::findCoveringLease
+  // documents and folds — {branch, date, scope_files} — so the guard's
+  // covering check (branch match + signer match + scope path/prefix
+  // match) resolves against this record. scope_files are REPO-RELATIVE
+  // loom-internal artifact paths (the same visibility class as this
+  // repo's own git history; the coordination log is per-repo and never
+  // synced per multi-operator-coordination.md MUST NOT), so no
+  // downstream-context token ships. A very large scope can exceed the
+  // 2KB append cap — the emitter then refuses typed and record_emit
+  // surfaces it (the on-disk lease is unaffected).
+  const recordEmit = _emitLeaseRecord(
+    topLevel,
+    "codify-lease",
+    {
+      lease_id: leaseId,
+      branch,
+      // Informational; keep consistent with the branch's own date token
+      // when the lease bound to an existing codify/* branch.
+      date: (branch.match(/(\d{4}-\d{2}-\d{2})$/) || [])[1] || _isoDate(),
+      scope_files: scope,
+      scope_fingerprint: fingerprint,
+      acquired_at: acquiredAt,
+      action: "acquire",
+    },
+    o,
+  );
+
   return {
     ok: true,
     lease,
     branch,
     leasePath,
     scope,
+    record_emit: recordEmit,
   };
 }
 
@@ -405,7 +507,22 @@ function releaseCodifyLease(opts) {
     released_by_pid: process.pid,
   });
   _atomicWriteJson(leasePath, released);
-  return { ok: true, lease: released };
+
+  // FSUB (2026-06-11): release visibility record — siblings folding the
+  // log can pair acquire/release by lease_id without reading this
+  // clone's codify-lease.json.
+  const recordEmit = _emitLeaseRecord(
+    topLevel,
+    "codify-lease-release",
+    {
+      lease_id: existing.lease_id,
+      released_at: released.released_at,
+      action: "release",
+    },
+    o,
+  );
+
+  return { ok: true, lease: released, record_emit: recordEmit };
 }
 
 /**

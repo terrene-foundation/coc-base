@@ -24,8 +24,8 @@
  *
  * Contract:
  *   hashJournalBody(path) → "sha256:<hex>"
- *   buildAnchorRecord({journalPath, slotRecordRef, identity}) → record
- *   foldAnchorPredicate(record, ctx) → {ok, tampered?, evidence?}
+ *   buildAnchorRecord({journalPath, relPath, slotRecordRef?}) → partial
+ *   foldAnchorPredicate(record, ctx) → {accepted, tampered?, evidence?}
  *
  * The buildAnchorRecord output is the partial that callers pass to
  * coc-append.js or a coordination-log emit path; this module does NOT

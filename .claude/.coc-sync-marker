@@ -1,44 +1,42 @@
 # COC Sync Marker — coc-base
 visibility: public
-timestamp: 2026-06-10T04:30:00Z
+timestamp: 2026-06-11T01:58:28Z
 source: loom/.claude
-loom_sha: b8b3d1a
-loom_version: "2.39.0"
+loom_sha: 57c88cc
+loom_version: 2.40.0
 variant: base
 template_type: multi-cli
 clis: ["claude", "codex", "gemini"]
-operation: re-emit-multi-cli-trees-current-to-b8b3d1a
-note: >
-  Follow-up to the 2026-06-10 /sync py+rs+base redistribution (loom@1daa45b
-  prior marker), which refreshed .claude/-content but did NOT re-run the
-  multi-CLI emit (Step 6.5/6.6/4.6). This cycle re-emits the per-CLI trees
-  from current loom HEAD b8b3d1a. base subscribes [cc, co, onboarding] — NOT
-  coc — so the emitted set is the smaller onboarding-tier surface. EMPIRICAL
-  RESULT: baselines (AGENTS.md/GEMINI.md) byte-IDENTICAL — no change. CLI
-  trees stale in exactly ONE file per CLI — codex/skills/rules-reference/
-  SKILL.md + gemini/skills/rules-reference/SKILL.md — reflecting the
-  self-referential-codify.md paths: addition of `tools/verify-overlays.sh`
-  (loom commit c01a06d). Distributed .claude/sync-manifest.yaml was already
-  current with loom HEAD (no refresh needed this cycle). No BUILD source
-  (build:null) — no SDK pins.
+tier_subscriptions: ["cc", "co", "onboarding"]
 stats:
-  cli_trees_changed: true
-  files_changed: 2        # codex rules-reference SKILL.md + gemini rules-reference SKILL.md (manifest already current)
-  baselines_emitted:
-    cc: 0                 # CLAUDE.md preserved, not emitted
-    codex: 0              # AGENTS.md byte-identical to prior emit — not rewritten
-    gemini: 0             # GEMINI.md byte-identical to prior emit — not rewritten
-  baseline_emission_bytes:    # measured this cycle, strict-headroom PASS (default mode, exit 0)
+  copied: 822
+  variant_only: 0
+  overlays_applied: 1
+  stripped: 15
+  purged: 0
+  preserved: ["CLAUDE.md", ".codex/local-config.toml", ".gemini/local-settings.json", "settings.local.json", "learning/", ".proposals/", ".env"]
+  baselines_emitted: { cc: 0, codex: 1, gemini: 1 }
+  baseline_emission_bytes:
     block_cap_bytes: 61440
     warn_cap_bytes: 32768
-    codex:  { rules: 9, bytes: 49550, tier: WARN, headroom_bytes: 11890, headroom_pct: 19.35 }
-    gemini: { rules: 9, bytes: 49556, tier: WARN, headroom_bytes: 11884, headroom_pct: 19.34 }
-  cli_artifacts:              # measured on-disk this cycle (emitter-owned trees; onboarding-tier scope)
-    codex:  { prompts: 21, skills: 13 }   # prompts = 16 commands + 5 agent-prompts; skills incl. rules-reference
-    gemini: { commands: 16, skills: 13, agents: 5 }
-  scaffold:
-    symlinks: 1           # .claude/codex-mcp-guard -> ../.codex-mcp-guard (verified OK)
-    manifest_distributed: true   # already current with loom HEAD this cycle
-    bin_coc: true         # bin/coc present (unchanged)
-  sdk_pins: none          # build:null
-  headroom_floor_violations: []   # strict-headroom gate PASS (lowest 19.34% > 10% Risk-0004 floor)
+    codex:  { rules: 9, bytes: 49550, tier: WARN, headroom_pct: 19.35 }
+    gemini: { rules: 9, bytes: 49556, tier: WARN, headroom_pct: 19.34 }
+  cli_artifacts:
+    codex:  { prompts: 21, skills: 10 }
+    gemini: { commands: 16, skills: 10, agents: 5 }
+  codex_dispatcher: "bin/coc + 28 phase symlinks"
+  mcp_guard: { policies_populated: false }
+fsub_delta:
+  - .claude/hooks/lib/coc-emit.js (new)
+  - .claude/hooks/lib/codify-lease.js
+  - .claude/hooks/lib/coordination-log.js
+  - .claude/hooks/lib/journal-body-anchor.js
+  - .claude/hooks/lib/journal-reserve.js
+  - .claude/hooks/lib/operator-id.js (full-diff carry)
+  - .claude/commands/journal.md
+  - .claude/rules/knowledge-convergence.md
+  - .claude/rules/self-referential-codify.md
+  # NOTE: commands/codify.md NOT carried — coc tier (base subscribes [cc,co,onboarding])
+catch_up_beyond_fsub: "1daa45b..57c88cc — strip-build-internal.mjs, sync-tier-aware.mjs, provenance-event.js, 8 rule-extracts guides, cli-audit.md, 5 rules, 3 skills, audit fixtures"
+hooks_resolve: "38/38"
+sdk_pins: "n/a (build:null — language-agnostic base)"

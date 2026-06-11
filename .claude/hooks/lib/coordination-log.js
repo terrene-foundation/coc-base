@@ -113,6 +113,12 @@ const { foldPostureEvent } = require("./fold-posture-event.js");
 // rebase the trust root to their key.
 const { foldGenerationRotation } = require("./fold-rule-9b.js");
 const { foldGenesisMigration } = require("./fold-rule-9c.js");
+// FSUB (2026-06-11): journal-body-anchor fold predicate — registered in
+// _registerDefaults so emitted anchors fold in EVERY default-engine
+// consumer (an unregistered type is dispatch-rejected and rule-2-poisons
+// the emitter's subsequent chain). journal-body-anchor.js requires only
+// node builtins — no require cycle.
+const journalBodyAnchor = require("./journal-body-anchor.js");
 // F14 MED-3: route inline R5-S-04 host_role:ci + role checks through
 // the single eligibility predicate so drift across rule 5 / 9b / 9c is
 // closed structurally.
@@ -452,12 +458,19 @@ function _registerM0Defaults(registry) {
   });
 
   // Pure-liveness churn — non-exempt per rule 6 denylist.
+  // FSUB (2026-06-11): codify-lease + codify-lease-release join this
+  // class — lease acquire/release records are the cross-clone visibility
+  // surface for the on-disk codify-lease.json local mutex
+  // (knowledge-convergence.md MUST-3). Same churn semantics as
+  // claim/release: a released lease has no post-checkpoint value.
   for (const t of [
     "heartbeat",
     "claim",
     "release",
     "session-open",
     "session-close",
+    "codify-lease",
+    "codify-lease-release",
   ]) {
     registry.set(t, {
       fn: (record, ctx) => ({ accepted: true, foldState: ctx.foldState }),
@@ -468,6 +481,64 @@ function _registerM0Defaults(registry) {
       },
     });
   }
+
+  // FSUB (2026-06-11): journal-slot-reservation — M6 D's slot-reservation
+  // record, previously registered ONLY in journal-write-guard.js's
+  // sandboxed engine. Default-registering it is load-bearing: a record
+  // type absent from the default registry is dispatch-rejected at fold
+  // (line ~1479) WITHOUT advancing the emitter's chain state, so every
+  // SUBSEQUENT record by that emitter fails rule 2 in every default-
+  // engine fold (session-start, sessionend checkpoint, /claims) — the
+  // chain-poisoning class. checkpoint_exempt: true matches the guard's
+  // sandboxed registration (rule 6: signed witness/accountability records
+  // exempt by default; body-anchors reference reservations via
+  // slot_record_ref, so reservations must survive compaction).
+  registry.set("journal-slot-reservation", {
+    fn: (record, ctx) => ({ accepted: true, foldState: ctx.foldState }),
+    meta: {
+      checkpoint_exempt: true,
+      authoritative_for_record: true,
+      authoritative_for_aggregate: false,
+    },
+  });
+
+  // FSUB (2026-06-11): journal-body-anchor — the M6 D invariant-6 body-
+  // hash anchor. The fold predicate (re-hash + tamper surface) has lived
+  // in journal-body-anchor.js since M6 D but was never registered, so an
+  // emitted anchor would have been dispatch-rejected (same chain-
+  // poisoning class as above). checkpoint_exempt: true per the module
+  // header (rule 6: signed witness record).
+  registry.set("journal-body-anchor", {
+    fn: (record, ctx) => {
+      const v = journalBodyAnchor.foldAnchorPredicate(record, {
+        repoDir: ctx && ctx.opts ? ctx.opts.repoDir : undefined,
+      });
+      if (!v || v.accepted !== true) {
+        return {
+          accepted: false,
+          reason: (v && v.reason) || "journal-body-anchor predicate rejected",
+        };
+      }
+      // Tamper detected → fold-accept (the record IS the detection
+      // evidence) AND forward the tampered flag + evidence so the engine
+      // surfaces them (FSUB R1 reviewer LOW-2: pre-fix the wrapper
+      // swallowed the verdict — the re-hash ran but its detection
+      // surfaced nowhere, breaking the knowledge-convergence.md MUST-2
+      // "fold-time re-hash detects body tamper and names the anchor's
+      // SIGNER" promise).
+      return {
+        accepted: true,
+        foldState: ctx.foldState,
+        tampered: v.tampered === true,
+        evidence: v.evidence,
+      };
+    },
+    meta: {
+      checkpoint_exempt: true,
+      authoritative_for_record: true,
+      authoritative_for_aggregate: false,
+    },
+  });
 
   // Owner-signed types — exempt per rule 6. Their rule-4 (mutation
   // scoping) check requires co-signers; rule 5 governs the checkpoint
@@ -1546,6 +1617,38 @@ function _foldLog(records, roster, opts, registry) {
     ) {
       foldState = predicateResult.foldState;
     }
+    // FSUB R1 LOW-2 — tamper-flagged accepted records (journal-body-anchor
+    // re-hash mismatch). Mirror of the rule-10 contested path above: the
+    // record IS the detection evidence so it folds + chains, but the
+    // verdict surfaces BOTH as a flagged accepted record (consumers
+    // filtering accepted[] see `body_anchor_tampered`) AND as a fold
+    // advisory naming the anchor's SIGNER (per knowledge-convergence.md
+    // MUST-2 + the §4.5 signer-vs-author residual: the accountable party
+    // is the record's verified_id — the SIGNER — never the journal
+    // frontmatter author).
+    if (predicateResult.tampered === true) {
+      advisories.push({
+        type: "journal-body-anchor-tamper",
+        verified_id: record.verified_id,
+        person_id: record.person_id,
+        display_id: record.display_id,
+        seq: record.seq,
+        evidence: predicateResult.evidence || null,
+        reason:
+          "journal-body-anchor re-hash mismatch: file bytes diverge from the signed anchor; accountable party is the anchor's SIGNER (verified_id above), not the frontmatter author",
+      });
+      const flagged = Object.assign({}, record, {
+        body_anchor_tampered: true,
+      });
+      accepted.push(flagged);
+      _advanceChainState(
+        perEmitterState,
+        perEmitterStats,
+        record,
+        forkCheck.this_hash,
+      );
+      continue;
+    }
     accepted.push(record);
     _advanceChainState(
       perEmitterState,
@@ -1641,7 +1744,25 @@ function computeOwnChainHead(folded, ownVerifiedId) {
   try {
     // Strip sig before canonical-hash (symmetric with _canonicalHash usage
     // at fold-time: rule-3 fork-check hashes content-without-sig).
-    const { sig: _s, ...core } = head;
+    //
+    // ALSO strip engine-annotation flags (FSUB R2 hardening, 2026-06-11):
+    // the fold pushes FLAGGED COPIES into accepted[] for contested
+    // revocations (`rule10_contested`, the rule-10 path) and tampered
+    // body anchors (`body_anchor_tampered`, the FSUB R1 LOW-2 path).
+    // Those flags exist ONLY on the in-memory accepted copies — never on
+    // the disk record the signature covers — so hashing them here would
+    // diverge this chain head from the fold's own perEmitterState (which
+    // advances with the ORIGINAL record's hash), and the emitter's NEXT
+    // record would be rule-2-rejected on every fold. Latent today (no
+    // production caller folds with the flag-activating ctx before
+    // computing a chain head) but structural: any future repoDir-folding
+    // caller would trip it.
+    const {
+      sig: _s,
+      rule10_contested: _r10,
+      body_anchor_tampered: _bat,
+      ...core
+    } = head;
     const contentHash = _canonicalHash(core);
     return { lastSeq: head.seq, lastContentHash: contentHash };
   } catch {

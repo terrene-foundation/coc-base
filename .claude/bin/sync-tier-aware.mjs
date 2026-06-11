@@ -58,6 +58,8 @@ import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { resolveRepo, LinkError } from "./lib/loom-links.mjs";
+import { applyOverlay } from "./lib/slot-parser.mjs";
+import { stripBuildInternalReferences } from "./lib/strip-build-internal.mjs";
 
 // ────────────────────────────────────────────────────────────────
 // Filesystem safety primitives (security-reviewer Round-1 CRIT/HIGH)
@@ -323,6 +325,109 @@ const ALWAYS_INCLUDE = [
 const LOOM_LOCAL_PATTERNS = [".claude/bin/*.local.json"];
 
 // ────────────────────────────────────────────────────────────────
+// Plain-global strip exclusion (#475 — the strip half of the
+// complete Gate-2 distributor)
+// ────────────────────────────────────────────────────────────────
+//
+// Plain (non-overlay) copy-action globals are stripped of BUILD-internal
+// references at write time (`stripBuildInternalReferences` — the same
+// transform the overlay pass already applies via composeOverlayContent),
+// EXCEPT the paths below. `stripBuildInternalReferences(content)` is a
+// pure content transform with no path parameter BY DESIGN (shared with
+// emit-cli-artifacts.mjs and verify-overlays.sh --apply); the path
+// classifier therefore lives HERE, at the sync call site.
+//
+// Pinning (vs manifest-driven) is intentional — same rationale as
+// ALWAYS_INCLUDE above: which paths are prose-to-strip vs
+// test-data/code-to-preserve is a deliberate operator decision, not a
+// passive manifest edit. Survey receipt: journal/0259 (47 distinct
+// strippable copy-action files = 39 prose / 3 audit-fixture test data /
+// 5 bin code).
+//
+//  - audit-fixtures/**: committed test data — BUILD-internal-LOOKING
+//    tokens are the test SUBJECT (e.g. strip-build-internal/fixture-01
+//    is byte-compared against its .expected; scan-synced-disclosure
+//    fixtures test the very tokens a strip would remove). Stripping
+//    inverts fixture semantics.
+//  - fixtures/**: fixture-class content (defensive; zero hits today).
+//  - bin/**: CODE — includes lib/strip-build-internal.mjs ITSELF
+//    (its REWRITES regex literals + SELF_TEST_FIXTURES fire its own
+//    patterns; a mechanical strip self-corrupts the shipped helper)
+//    and runtime output strings where a rewrite mutates behavior.
+//  - hooks/**: CODE (defensive; zero hits today — a future pattern
+//    collision in hook code must not be silently rewritten).
+//  - .coc-obsoleted: config path-list, not prose.
+const STRIP_EXCLUDE = [
+  ".claude/audit-fixtures/**",
+  ".claude/fixtures/**",
+  ".claude/bin/**",
+  ".claude/hooks/**",
+  ".claude/.coc-obsoleted",
+];
+
+/**
+ * Path half of the #475 strip classifier — is this copy-action global
+ * ELIGIBLE for the write-time strip? (The content half — utf8
+ * round-trip + did-the-strip-change-anything — is decided in the copy
+ * loop; eligibility is path-only so it is plan-visible in dry-run.)
+ */
+function isStripEligible(relpath) {
+  return !matchesAny(relpath, STRIP_EXCLUDE);
+}
+
+/**
+ * #475 D5 — variant_only strip-dirty completeness gate.
+ *
+ * variant_only ADDITIONS are raw-copied VERBATIM by contract (#427: H9
+ * byte-equal teeth + verify-overlays.sh Pass 2 raw-md5 — deliberate).
+ * Variants are USE-facing sources; a BUILD-internal reference in one is
+ * an AUTHORING defect, not a transform gap. Rather than flip the
+ * verbatim contract, this gate makes the defect LOUD: any variant_only
+ * source whose content the strip transform WOULD change is reported in
+ * the plan, and main() hard-fails the WRITE on a non-empty list
+ * (mirroring the variant_only_missing completeness gate).
+ *
+ * PATTERN-RELATIVE (R4/R5 reviewer): the gate flags exactly what the
+ * CURRENT strip-build-internal.mjs REWRITES set recognizes — a clean
+ * result means "no PATTERN-COVERED reference", not "no BUILD-internal
+ * reference of any conceivable form". Known coverage gaps (trailing-
+ * slash `packages/kailash-X/` form; non-kailash BUILD-monorepo
+ * sub-packages like kaizen-agents) are tracked as strip-helper
+ * follow-ups, not gate defects.
+ *
+ * Binary sources (utf8 round-trip fails) are not prose — skipped.
+ * Absent sources are the variant_only pass's own missing-file surface —
+ * skipped here.
+ *
+ * Read-hardening note (R4 security-reviewer): this read — like every
+ * loom-INTERNAL source read in this tool (safeCopyFile's src read,
+ * composeOverlayContent, the write-time strip read) — is intentionally
+ * NOT O_NOFOLLOW-guarded. The O_NOFOLLOW + size-cap hardening on
+ * readConsumerVisibility / applyGitignoreAdditions exists because those
+ * read CONSUMER-side files (TOCTOU surface); loom-side sources are
+ * enumerated from walkClaudeDir / the committed manifest and a symlink
+ * there would be a self-inflicted loom-tree defect, not an attack
+ * vector. Dest-side WRITES are the guarded surface (safeWriteSync).
+ */
+function findStrippableVariantOnly(variantOnlyFiles) {
+  const strippable = [];
+  for (const vf of variantOnlyFiles || []) {
+    const abs = path.join(REPO, vf.path);
+    let buf;
+    try {
+      buf = fs.readFileSync(abs);
+    } catch {
+      continue; // absent → surfaced by the variant_only pass itself
+    }
+    const text = buf.toString("utf8");
+    if (!Buffer.from(text, "utf8").equals(buf)) continue; // binary
+    const { stripped } = stripBuildInternalReferences(text);
+    if (stripped !== text) strippable.push(vf.path);
+  }
+  return strippable;
+}
+
+// ────────────────────────────────────────────────────────────────
 // `.gitignore` apply — managed block markers (GH #368 finding 1)
 // ────────────────────────────────────────────────────────────────
 //
@@ -562,6 +667,252 @@ function expandVariantOnly(allFiles, variant, entries) {
     if (matched === 0) missing.push(entry);
   }
   return { files, missing };
+}
+
+/**
+ * Parse the `variants:` block into { <global-path>: { <axis>: overlayPath|null } }.
+ *
+ * #473 — the `variants:` REPLACEMENT overlay declarations. Block shape mirrors
+ * `tiers:` nesting but keys are full global paths (category/relPath WITHOUT the
+ * leading `.claude/`) and each axis value is an overlay path or `null`:
+ *
+ *   variants:
+ *     rules/patterns.md:
+ *       py: null
+ *       rs: variants/rs/rules/patterns.md
+ *     skills/10-deployment-git/python-version-bump.md:
+ *       rs: variants/rs/skills/10-deployment-git/rust-version-bump.md   # RENAME
+ *
+ * Semantics (per `bin/lib/variant-overlay.mjs::resolveOverlay`):
+ *   - explicit path → REPLACEMENT overlay applies (compose if slot-keyed, else
+ *     full-file), deployed at the rename-aware destination.
+ *   - null / ~ / empty → manifest-null: NO overlay applies for that axis (the
+ *     bare global ships unchanged). Treated identically to a literal `null`.
+ *
+ * This is a SELF-CONTAINED parse over the PASSED manifest text — deliberately
+ * NOT a call into `variant-overlay.mjs::loadManifestVariants` (which reads the
+ * live on-disk manifest + memoizes). Parsing the passed text keeps `buildPlan`
+ * a pure function of its `manifest` argument so synthetic-fixture tests exercise
+ * the overlay pass against synthetic `variants:` blocks.
+ *
+ * BLOCK BOUNDARY (R1 reviewer MED-2): the block extraction uses the SAME regex
+ * as `loadManifestVariants` (stop at the next top-level `\n<word>:` key — inline-
+ * value OR bare — OR end-of-input), NOT `sliceBlock` (whose `^<word>:\s*$` stop
+ * only fires on a BARE top-level key). `sliceBlock` would slurp PAST an inline-
+ * value top-level key (e.g. `consumer_overlays: {}`) placed right after the
+ * variants block and mis-parse a later block's keys as variant entries. Matching
+ * `loadManifestVariants`'s boundary makes the two STRUCTURALLY aligned with yq's
+ * YAML parse, not coincidentally aligned only while the next top-level key
+ * happens to be bare. The inner parse (2-space key / 4-space axis / inline-
+ * comment + quote normalization / empty==null) mirrors `loadManifestVariants`.
+ */
+function parseVariants(manifestText) {
+  // Same boundary as variant-overlay.mjs::loadManifestVariants — see docstring.
+  const blockMatch = manifestText.match(
+    /^variants:\s*\n([\s\S]*?)(?=\n[a-zA-Z_][a-zA-Z0-9_-]*:|(?![\s\S]))/m,
+  );
+  const block = blockMatch ? blockMatch[1] : "";
+  const map = {};
+  const lines = block.split("\n");
+  let currentKey = null;
+  const keyRe = /^ {2}(\S.*?):\s*$/;
+  const axisRe = /^ {4}(\w+):\s*(.*?)\s*$/;
+  for (const ln of lines) {
+    if (/^\s*#/.test(ln)) continue; // whole-line comment (incl. indented)
+    const km = ln.match(keyRe);
+    if (km) {
+      currentKey = km[1];
+      // #477 R1 reviewer HIGH: a duplicate top-level variants: key is
+      // last-wins under plain object assignment — the earlier key's axes
+      // are silently DROPPED, so a lane stops shipping its declared
+      // overlay with zero diagnostics (byte-invisible to J13 and to
+      // verify-overlays, which iterate the same collapsed map). Duplicate
+      // keys are a manifest authoring defect; fail the plan loudly.
+      // Structural signal (key collision in committed YAML), so a throw
+      // is the correct severity per hook-output-discipline.md MUST-2.
+      if (Object.prototype.hasOwnProperty.call(map, currentKey)) {
+        throw new Error(
+          `sync-manifest.yaml variants: duplicate key '${currentKey}' — ` +
+            `declare every axis (py/rs/rb/...) under ONE key; last-wins ` +
+            `would silently drop the earlier block's axes`,
+        );
+      }
+      map[currentKey] = {};
+      continue;
+    }
+    const am = ln.match(axisRe);
+    if (am && currentKey) {
+      const axis = am[1];
+      let raw = am[2].replace(/\s+#.*$/, "").trim(); // strip inline comment
+      if (
+        (raw.startsWith('"') && raw.endsWith('"')) ||
+        (raw.startsWith("'") && raw.endsWith("'"))
+      ) {
+        raw = raw.slice(1, -1);
+      }
+      map[currentKey][axis] =
+        raw === "" || raw === "null" || raw === "~" ? null : raw;
+    }
+  }
+  return map;
+}
+
+/**
+ * Detect a slot-keyed overlay — a variant file containing a `<!-- slot:NAME -->`
+ * marker. MUST mirror `tools/verify-overlays.sh::is_slot_keyed` (`grep -q
+ * '^<!-- slot:'`) byte-for-byte: a divergence here makes the tool and the
+ * independent post-sync auditor disagree on which compose path to take, which
+ * is the exact #427-class drift #473 closes.
+ */
+function isSlotKeyed(overlaySrc) {
+  return /^<!-- slot:/m.test(overlaySrc);
+}
+
+/**
+ * Compose the DEPLOYED content for one `variants:` REPLACEMENT overlay,
+ * mirroring the emit pipeline (`emit-cli-artifacts.mjs`) AND the expected-md5
+ * algorithm in `tools/verify-overlays.sh` EXACTLY:
+ *
+ *   slot-keyed → strip( applyOverlay(global, overlay).composed )
+ *   full-file  → strip( overlay )
+ *
+ * Both forms run through `stripBuildInternalReferences` (idempotent; a no-op on
+ * clean content) so the deployed bytes equal what verify-overlays computes —
+ * `Failing: 0` directly from the tool, no separate agent overlay-apply step.
+ *
+ * Returns { content, slot_keyed, warnings }. THROWS on a compose failure (slot
+ * not present in global, etc.) — the caller HALTS the write rather than ship a
+ * mis-composed overlay.
+ */
+function composeOverlayContent(globalAbs, overlayAbs) {
+  const globalSrc = fs.readFileSync(globalAbs, "utf8");
+  const overlaySrc = fs.readFileSync(overlayAbs, "utf8");
+  const slot_keyed = isSlotKeyed(overlaySrc);
+  let raw;
+  const warnings = [];
+  if (slot_keyed) {
+    const result = applyOverlay(globalSrc, overlaySrc);
+    raw = result.composed;
+    if (Array.isArray(result.warnings)) warnings.push(...result.warnings);
+  } else {
+    raw = overlaySrc;
+  }
+  const { stripped } = stripBuildInternalReferences(raw);
+  return { content: stripped, slot_keyed, warnings };
+}
+
+/**
+ * Post-write content-equality verification for an overlay — the #401 Defect-2
+ * byte-verify teeth adapted for composed (not raw-copied) content. The global
+ * branch compares src bytes to dest bytes; an overlay's "source" is the
+ * IN-MEMORY composed+stripped string, so re-read the dest and compare to it.
+ * Returns null on equality, else a human-readable reason.
+ */
+function verifyWrittenText(dest, expected) {
+  try {
+    const got = fs.readFileSync(dest, "utf8");
+    if (got === expected) return null;
+    return `byte mismatch (expected ${Buffer.byteLength(expected, "utf8")}B vs dest ${Buffer.byteLength(got, "utf8")}B)`;
+  } catch (e) {
+    return `planned overlay not readable post-write: ${e.message}`;
+  }
+}
+
+/**
+ * Resolve the `variants:<variant>` REPLACEMENT overlays for one target.
+ *
+ * For each global declared with a non-null overlay for `variant`, AND whose
+ * global is tier-matched (action "copy") in `filesByPath`:
+ *   - SUPPRESS the bare-global raw copy (mutate its action to "overlay" so the
+ *     copy loop skips it — the composed overlay replaces it).
+ *   - emit an overlay descriptor (rename-aware dest).
+ *   - on a RENAME (overlay basename ≠ global basename), record the global-named
+ *     dest as an orphan to purge at the target (a stale pre-rename file).
+ *   - a declared overlay whose SOURCE file is absent from loom → `missing`
+ *     (the #427-class completeness gap; main() hard-fails the WRITE on it).
+ *
+ * A declared overlay whose GLOBAL is NOT tier-matched for this target is simply
+ * out-of-lane (the global does not ship here, so neither does its overlay) —
+ * NOT a missing-source defect. It IS recorded in `out_of_lane` so the skip is
+ * VISIBLE, not silent (R1 reviewer LOW-1): `verify-overlays.sh` does NOT model
+ * tier subscriptions — it checks every `.variants` key in every template_for_lang
+ * — so an out-of-lane declared overlay is a tool⟺verifier disagreement surface.
+ * The tool is correct to skip (the global genuinely does not ship to this
+ * target); the advisory makes the asymmetry inspectable rather than hidden.
+ *
+ * Returns { overlays, missing, orphans, out_of_lane }.
+ */
+function resolveVariantOverlays(variantsMap, variant, filesByPath, allFilesSet) {
+  const overlays = [];
+  const missing = [];
+  const orphans = [];
+  const out_of_lane = [];
+  if (!variant) return { overlays, missing, orphans, out_of_lane };
+  for (const globalPath of Object.keys(variantsMap)) {
+    const axes = variantsMap[globalPath];
+    if (!(variant in axes)) continue; // axis not declared for this global
+    const overlayRel = axes[variant];
+    if (overlayRel === null) continue; // manifest-null → no overlay applies
+    // #477 R3 security LOW: explicit source-side path containment, symmetric
+    // with the dest-side safeJoinUnder. Containment today is IMPLICIT via the
+    // exact-string allFilesSet membership gate below (walked paths are
+    // normalized and can never contain ".."), but that invariant is
+    // load-bearing and refactor-fragile — replacing the membership check
+    // with an fs.existsSync/path-resolving probe would silently re-open
+    // ".."-escape reads through path.join(REPO, ...). Reject the shapes
+    // structurally so the guard survives any future read-path refactor.
+    if (
+      path.posix.isAbsolute(overlayRel) ||
+      overlayRel.split("/").includes("..") ||
+      (globalPath !== "" &&
+        (path.posix.isAbsolute(globalPath) ||
+          globalPath.split("/").includes("..")))
+    ) {
+      missing.push(overlayRel); // non-canonical manifest path → never deploys
+      continue;
+    }
+    const globalClaudePath = ".claude/" + globalPath;
+    const globalEntry = filesByPath.get(globalClaudePath);
+    if (!globalEntry || globalEntry.action !== "copy") {
+      // Global out-of-lane (not tier-matched) → overlay does not deploy. Record
+      // it (advisory) so the skip is visible; do NOT treat it as missing-source.
+      out_of_lane.push({
+        global: globalClaudePath,
+        overlay: overlayRel,
+        reason: globalEntry ? globalEntry.reason : "global-absent-from-loom",
+      });
+      continue;
+    }
+    const overlayClaudePath = ".claude/" + overlayRel;
+    if (!allFilesSet.has(overlayClaudePath)) {
+      missing.push(overlayRel); // declared overlay source absent from loom
+      continue;
+    }
+    const globalBase = path.posix.basename(globalPath);
+    const overlayBase = path.posix.basename(overlayRel);
+    let destRel = globalPath;
+    if (overlayBase !== globalBase) {
+      const dir = path.posix.dirname(globalPath);
+      destRel = dir === "." ? overlayBase : path.posix.join(dir, overlayBase);
+      orphans.push(globalClaudePath); // rename → purge the global-named orphan
+    }
+    overlays.push({
+      global_path: globalClaudePath,
+      overlay_path: overlayClaudePath,
+      dest: ".claude/" + destRel,
+      global_basename: globalBase,
+      overlay_basename: overlayBase,
+    });
+    // Suppress the bare-global raw copy — the composed overlay replaces it.
+    globalEntry.action = "overlay";
+    globalEntry.reason = "variant_overlay";
+    // #475 R3 reviewer LOW: drop the copy-lane strip annotation — it is
+    // meaningless on an overlay-suppressed entry (the overlay pass strips
+    // via composeOverlayContent; the copy-lane strip can never fire here)
+    // and a stale `strip:true` misleads plan/JSON inspectors.
+    delete globalEntry.strip;
+  }
+  return { overlays, missing, orphans, out_of_lane };
 }
 
 /**
@@ -1220,7 +1571,13 @@ function buildPlan(manifest, target, templateFilter) {
       useExclude,
       loomOnly,
     );
-    files.push({ path: f, ...disposition });
+    const entry = { path: f, ...disposition };
+    // #475 — plan-visible strip eligibility (path half of the classifier).
+    // The content half (utf8 round-trip + rewrite-fired) is decided at
+    // write time in executePlan; eligibility here makes the disposition
+    // inspectable in --dry-run / --json before any write.
+    if (entry.action === "copy") entry.strip = isStripEligible(f);
+    files.push(entry);
   }
 
   // #427 — variant_only distribution pass. classifyFile EXCLUDES every
@@ -1233,6 +1590,30 @@ function buildPlan(manifest, target, templateFilter) {
   const { files: variantOnlyFiles, missing: variantOnlyMissing } =
     expandVariantOnly(allFiles, repo.variant, variantOnlyMap[repo.variant] || []);
 
+  // #475 D5 — variant_only strip-dirty gate. variant_only ADDITIONS ship
+  // VERBATIM (#427 contract); a source whose content the strip transform
+  // would change is an authoring defect surfaced here (plan-visible in
+  // dry-run) and hard-failed on the WRITE path by main().
+  const variantOnlyStrippable = findStrippableVariantOnly(variantOnlyFiles);
+
+  // #473 — variants: REPLACEMENT overlay pass. classifyFile EXCLUDES every
+  // `variants/**` path (overlay sources never enter the global copy plan); the
+  // overlay APPLY composes the deployed content (slot → compose, full → as-is;
+  // both stripped) and SUPPRESSES the bare-global raw copy it replaces. Without
+  // this, sync-tier-aware raw-copied the bare global over a declared overlay —
+  // the #427 failure class, one level over. The byte-equal verify teeth (#401
+  // Defect-2) and the source-missing completeness gate mirror the variant_only
+  // pass above; main() hard-fails the WRITE on either.
+  const variantsMap = parseVariants(manifest);
+  const filesByPath = new Map(files.map((f) => [f.path, f]));
+  const allFilesSet = new Set(allFiles);
+  const {
+    overlays,
+    missing: overlayMissing,
+    orphans: overlayOrphans,
+    out_of_lane: overlayOutOfLane,
+  } = resolveVariantOverlays(variantsMap, repo.variant, filesByPath, allFilesSet);
+
   return {
     target,
     variant: repo.variant,
@@ -1241,6 +1622,11 @@ function buildPlan(manifest, target, templateFilter) {
     files,
     variant_only: variantOnlyFiles,
     variant_only_missing: variantOnlyMissing,
+    variant_only_strippable: variantOnlyStrippable,
+    overlays,
+    overlay_missing: overlayMissing,
+    overlay_orphans: overlayOrphans,
+    overlay_out_of_lane: overlayOutOfLane,
     purge: useObsoleted.slice(),
     gitignore_additions: gitignoreAdditions.slice(),
     visibility_gitignore_additions: visibilityGitignoreAdditions.slice(),
@@ -1337,9 +1723,14 @@ function executePlan(plan, outOverride, dryRun) {
       copied: [],
       verified: 0,
       verify_failures: [],
+      stripped: [],
       variant_only_copied: [],
       variant_only_verified: 0,
       variant_only_verify_failures: [],
+      overlay_applied: [],
+      overlay_verified: 0,
+      overlay_verify_failures: [],
+      overlay_orphans_purged: [],
       purged: [],
       skipped: {
         loom_local: 0,
@@ -1357,11 +1748,38 @@ function executePlan(plan, outOverride, dryRun) {
       presync.count > 0
         ? { dir: path.basename(presync.snapshotDir), count: presync.count }
         : null;
+    // #473 R1 reviewer MED-1: the rename-orphan purge runs AFTER the write
+    // loops; without a guard it would delete a path a SAME-plan write just
+    // shipped (e.g. a variant_only ADDITION landing at the exact path a rename
+    // overlay records as its orphan → silent data loss, the #427/#473 class one
+    // mechanism over). Collect every absolute dest THIS plan writes; the orphan
+    // purge skips any path in the set (a same-plan write owns it).
+    const shippedDests = new Set();
+    // #475 R4 reviewer LOW: a variant_only ADDITION sharing a dest with a
+    // copy-action global OVERWRITES it (the variant_only loop runs after
+    // the copy loop — pre-existing #427 ordering). Strip-writing such a
+    // global would waste the transform AND inflate the `stripped` counter
+    // with a write that never ships. Collect the variant_only dests
+    // up-front; the copy loop downgrades collision dests to a plain raw
+    // copy (pre-#475 behavior — the final state is the variant source).
+    // R6 reviewer LOW: the f.path-vs-vf.dest comparison relies on copy
+    // globals and `.claude/`-rooted variant_only dests sharing the same
+    // `.claude/`-prefixed convention. A top-level (scripts/, workspaces/)
+    // variant_only dest can never collide with a copy global because
+    // walkClaudeDir enumerates ONLY `.claude/`-rooted paths into the copy
+    // plan — so the key shapes coincide exactly on the reachable surface.
+    const variantOnlyDestRel = new Set(
+      (plan.variant_only || []).map((vf) => vf.dest),
+    );
     for (const f of plan.files) {
       if (f.action === "skip") {
         result.skipped[f.reason] = (result.skipped[f.reason] || 0) + 1;
         continue;
       }
+      // #473 — a global SUPPRESSED by a variants: overlay (action "overlay")
+      // is NOT raw-copied here; the composed overlay replaces it in the overlay
+      // pass below. It is neither a skip (not tallied) nor a copy.
+      if (f.action !== "copy") continue;
       const src = path.join(REPO, f.path);
       // CRIT-2 defense: containment check on dest. f.path comes from
       // walkClaudeDir() which cannot produce `..` segments today, but
@@ -1372,18 +1790,60 @@ function executePlan(plan, outOverride, dryRun) {
       } catch (e) {
         fail(1, `copy refused: ${e.message}`);
       }
+      shippedDests.add(dest); // MED-1: a same-plan write owns this path
       if (!dryRun) {
         fs.mkdirSync(path.dirname(dest), { recursive: true });
-        // HIGH-1 defense: O_NOFOLLOW refuses symlink targets at dest.
-        safeCopyFile(src, dest);
-        // #401 Defect-2 fix: post-copy byte-equality. A plain `copied++`
-        // count trusts that safeCopyFile landed the bytes; the incident
-        // proved a copy can silently no-op (dest left at stale HEAD).
-        const reason = verifyCopiedBytes(src, dest);
-        if (reason === null) {
-          result.verified++;
+        // #475 — strip plain-global prose at write time. Path eligibility
+        // was decided at plan time (f.strip, isStripEligible); the content
+        // half is decided here: (i) the source must round-trip utf8
+        // byte-exactly (binary safety — stripBuildInternalReferences is a
+        // text transform; a lossy utf8 decode of a binary file would
+        // corrupt it), and (ii) the strip must actually CHANGE the text.
+        // Clean files and binaries take the raw-copy fast path, keeping
+        // them byte-identical to source and re-runs byte-stable (the
+        // strip is idempotent, so a re-sync over an already-stripped
+        // template converges).
+        let strippedWrite = null;
+        if (f.strip === true && !variantOnlyDestRel.has(f.path)) {
+          const srcBuf = fs.readFileSync(src);
+          const text = srcBuf.toString("utf8");
+          if (Buffer.from(text, "utf8").equals(srcBuf)) {
+            const { stripped } = stripBuildInternalReferences(text);
+            if (stripped !== text) strippedWrite = stripped;
+          }
+        }
+        if (strippedWrite !== null) {
+          // Stripped write: dest ≠ src BY DESIGN, so the #401 Defect-2
+          // teeth route through the overlay shape — verifyWrittenText
+          // against the in-memory expected string (same as the #473
+          // overlay pass), never verifyCopiedBytes(src, dest).
+          safeWriteTextSync(dest, strippedWrite);
+          const reason = verifyWrittenText(dest, strippedWrite);
+          if (reason === null) {
+            result.verified++;
+            // #477 item 3 (#475 redteam R-4): count a stripped write ONLY
+            // on verify success. Pushing before the verify outcome let a
+            // FAILED stripped write inflate strippedN, understating the
+            // emitText `N−K byte-equal to source` arithmetic in the same
+            // run that prints the FAILED message and exits 1.
+            result.stripped.push(path.relative(dir, dest));
+          } else {
+            result.verify_failures.push(
+              `${path.relative(dir, dest)} — ${reason}`,
+            );
+          }
         } else {
-          result.verify_failures.push(`${path.relative(dir, dest)} — ${reason}`);
+          // HIGH-1 defense: O_NOFOLLOW refuses symlink targets at dest.
+          safeCopyFile(src, dest);
+          // #401 Defect-2 fix: post-copy byte-equality. A plain `copied++`
+          // count trusts that safeCopyFile landed the bytes; the incident
+          // proved a copy can silently no-op (dest left at stale HEAD).
+          const reason = verifyCopiedBytes(src, dest);
+          if (reason === null) {
+            result.verified++;
+          } else {
+            result.verify_failures.push(`${path.relative(dir, dest)} — ${reason}`);
+          }
         }
       }
       result.copied.push({
@@ -1405,6 +1865,7 @@ function executePlan(plan, outOverride, dryRun) {
       } catch (e) {
         fail(1, `variant_only copy refused: ${e.message}`);
       }
+      shippedDests.add(dest); // MED-1: a same-plan write owns this path
       if (!dryRun) {
         fs.mkdirSync(path.dirname(dest), { recursive: true });
         safeCopyFile(src, dest);
@@ -1422,6 +1883,84 @@ function executePlan(plan, outOverride, dryRun) {
         dest: path.relative(dir, dest),
         entry: vf.variant_only_entry,
       });
+    }
+    // #473 — variants: REPLACEMENT overlay apply. The deployed content is
+    // strip(compose(global, overlay)) for slot-keyed overlays, strip(overlay)
+    // for full-file — mirroring the emit pipeline AND verify-overlays.sh's
+    // expected-md5 EXACTLY. Written to the rename-aware dest (vo.dest). The
+    // bare global it replaces was suppressed in the copy loop above (action
+    // "overlay"). Post-write content-equality (verifyWrittenText) shares the
+    // #401 Defect-2 teeth: a mis-written overlay surfaces as a verify failure
+    // and blocks the sync (main()).
+    for (const ov of plan.overlays || []) {
+      const globalAbs = path.join(REPO, ov.global_path);
+      const overlayAbs = path.join(REPO, ov.overlay_path);
+      let dest;
+      try {
+        dest = safeJoinUnder(dir, ov.dest);
+      } catch (e) {
+        fail(1, `overlay apply refused: ${e.message}`);
+      }
+      shippedDests.add(dest); // MED-1: a same-plan write owns this path
+      let composed;
+      try {
+        composed = composeOverlayContent(globalAbs, overlayAbs);
+      } catch (e) {
+        // A compose failure (slot missing in global, etc.) is a manifest-vs-
+        // source defect — HALT rather than ship a mis-composed overlay.
+        fail(
+          1,
+          `overlay compose failed for ${ov.overlay_path} ` +
+            `(global ${ov.global_path}): ${e.message}`,
+        );
+      }
+      if (!dryRun) {
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        // O_NOFOLLOW refuses a symlink at dest (HIGH-1 parity with the copy
+        // branch); composed content is written as utf8 text.
+        safeWriteTextSync(dest, composed.content);
+        const reason = verifyWrittenText(dest, composed.content);
+        if (reason === null) {
+          result.overlay_verified++;
+        } else {
+          result.overlay_verify_failures.push(
+            `${path.relative(dir, dest)} — ${reason}`,
+          );
+        }
+      }
+      result.overlay_applied.push({
+        global: ov.global_path,
+        overlay: ov.overlay_path,
+        dest: path.relative(dir, dest),
+        mode: composed.slot_keyed ? "slot" : "full",
+      });
+    }
+    // #473 — rename-orphan purge. When a variants: overlay RENAMES the global
+    // (e.g. python-version-bump.md → rust-version-bump.md), the global-named
+    // file must NOT linger at the target from a pre-rename sync. The renamed
+    // overlay shipped above; purge the stale global-named orphan if present.
+    // Containment-guarded (CRIT-1 parity); orphans are always files.
+    for (const orphan of plan.overlay_orphans || []) {
+      let targetAbs;
+      try {
+        targetAbs = safeJoinUnder(dir, orphan);
+      } catch (e) {
+        fail(1, `overlay orphan purge refused: ${e.message}`);
+      }
+      // MED-1: NEVER purge a path a same-plan write owns (a variant_only
+      // ADDITION or another overlay may legitimately ship at the global-named
+      // path). The explicit write wins; the orphan purge only removes STALE
+      // pre-rename files nothing in this plan re-ships.
+      if (shippedDests.has(targetAbs)) continue;
+      if (fs.existsSync(targetAbs)) {
+        if (!dryRun) {
+          const st = fs.lstatSync(targetAbs);
+          if (st.isDirectory())
+            fs.rmSync(targetAbs, { recursive: true, force: true });
+          else fs.unlinkSync(targetAbs);
+        }
+        result.overlay_orphans_purged.push({ path: orphan });
+      }
     }
     // Purge use_obsoleted at target (only if path exists at target).
     // CRIT-1 defense: containment check rejects `..` / absolute /
@@ -1493,6 +2032,45 @@ function emitText(plan, results, dryRun) {
     );
     for (const e of plan.variant_only_missing) lines.push(`      - ${e}`);
   }
+  // #473 — variants: overlay completeness gap: declared overlay source files
+  // absent from loom. Surfaced in BOTH dry-run and write; main() hard-fails the
+  // WRITE path on a non-empty list (same teeth as variant_only_missing).
+  if (plan.overlay_missing && plan.overlay_missing.length) {
+    lines.push(
+      `  ✗ variants: overlay INCOMPLETE — ${plan.overlay_missing.length} declared ` +
+        `overlay${plan.overlay_missing.length === 1 ? "" : "s"} matched ZERO loom ` +
+        `source files (manifest declares an overlay file absent from loom):`,
+    );
+    for (const e of plan.overlay_missing) lines.push(`      - ${e}`);
+  }
+  // #475 D5 — variant_only strip-dirty gate: variant_only sources whose
+  // content the strip transform WOULD change. They ship VERBATIM by the
+  // #427 contract, so a strippable source is an AUTHORING defect in the
+  // variant file. Surfaced in BOTH dry-run and write; main() hard-fails
+  // the WRITE path on a non-empty list (same teeth as variant_only_missing).
+  if (plan.variant_only_strippable && plan.variant_only_strippable.length) {
+    lines.push(
+      `  ✗ variant_only STRIP-DIRTY — ${plan.variant_only_strippable.length} ` +
+        `source${plan.variant_only_strippable.length === 1 ? "" : "s"} carry ` +
+        `BUILD-internal references (variant_only ships VERBATIM; fix the ` +
+        `variant source — see strip-build-internal.mjs --check):`,
+    );
+    for (const e of plan.variant_only_strippable) lines.push(`      - ${e}`);
+  }
+  // #473 R1 reviewer LOW-1 — declared overlays whose global is NOT tier-matched
+  // for this target (out-of-lane). The tool correctly does NOT deploy them
+  // (the global does not ship here); verify-overlays.sh is tier-blind and would
+  // flag them as deployed-missing, so this advisory makes the asymmetry visible.
+  // NON-blocking (no exit teeth) — it is a manifest-inspection signal, not a defect.
+  if (plan.overlay_out_of_lane && plan.overlay_out_of_lane.length) {
+    lines.push(
+      `  ⚠ variants: ${plan.overlay_out_of_lane.length} declared ` +
+        `overlay${plan.overlay_out_of_lane.length === 1 ? "" : "s"} out-of-lane ` +
+        `(global not tier-matched for ${plan.target}; not deployed — advisory):`,
+    );
+    for (const e of plan.overlay_out_of_lane)
+      lines.push(`      - ${e.global} → ${e.overlay} (${e.reason})`);
+  }
   for (const r of results) {
     // HIGH-2 defense: result carries target_basename (set in
     // executePlan); the absolute path never escapes the function.
@@ -1510,8 +2088,18 @@ function emitText(plan, results, dryRun) {
     lines.push(`   copied:  ${r.copied.length}`);
     if (!dryRun) {
       // #401 Defect-2: byte-equality verified count + any under-delivery.
+      // #475: stripped writes verify content-equal to the in-memory
+      // stripped string (verifyWrittenText); raw copies verify byte-equal
+      // to source. Both count toward `verified`. R5 reviewer LOW: the
+      // label distinguishes the two verification targets explicitly —
+      // "byte-equal" is asserted only of the raw-copy subset.
+      const strippedN = (r.stripped || []).length;
       lines.push(
-        `   verified: ${r.verified}/${r.copied.length} byte-equal` +
+        `   verified: ${r.verified}/${r.copied.length}` +
+          (strippedN
+            ? ` delivered — ${strippedN} content-equal after strip (BUILD-internal refs), ` +
+              `${r.verified - strippedN} byte-equal to source`
+            : " byte-equal") +
           (r.verify_failures.length
             ? ` — ${r.verify_failures.length} FAILED (sync under-delivered)`
             : ""),
@@ -1526,6 +2114,20 @@ function emitText(plan, results, dryRun) {
             (r.variant_only_verify_failures && r.variant_only_verify_failures.length
               ? ` — ${r.variant_only_verify_failures.length} FAILED (variant_only under-delivered)`
               : "")
+          : ""),
+    );
+    // #473 — variants: overlay apply line (one per template).
+    const ovApplied = r.overlay_applied ? r.overlay_applied.length : 0;
+    lines.push(
+      `   overlays: ${ovApplied} applied` +
+        (!dryRun
+          ? ` — ${r.overlay_verified}/${ovApplied} byte-equal` +
+            (r.overlay_verify_failures && r.overlay_verify_failures.length
+              ? ` — ${r.overlay_verify_failures.length} FAILED (overlay under-delivered)`
+              : "")
+          : "") +
+        (r.overlay_orphans_purged && r.overlay_orphans_purged.length
+          ? ` (+${r.overlay_orphans_purged.length} rename-orphan${r.overlay_orphans_purged.length === 1 ? "" : "s"} purged)`
           : ""),
     );
     lines.push(`   purged:  ${r.purged.length}`);
@@ -1614,6 +2216,9 @@ function main() {
         // #427 — variant_only byte-equality failures share the #401 Defect-2
         // teeth: a copy that silently no-ops / lands stale bytes blocks the sync.
         ...(r.variant_only_verify_failures || []),
+        // #473 — variants: overlay byte-equality failures share the same teeth:
+        // a mis-composed / silently-no-op overlay write blocks the sync.
+        ...(r.overlay_verify_failures || []),
       ].map((f) => `${r.template}: ${f}`),
     );
     if (failed.length > 0) {
@@ -1636,6 +2241,37 @@ function main() {
           `for variant '${plan.variant}' matched ZERO loom source files ` +
           `(manifest declares a file that does not exist in loom):\n  ` +
           plan.variant_only_missing.join("\n  "),
+      );
+    }
+    // #473 — variants: overlay completeness gate: a declared overlay whose
+    // SOURCE file is absent from loom. Block the WRITE so a sync can NEVER
+    // complete with a declared-but-undistributable overlay (same teeth as the
+    // variant_only completeness gate above).
+    if (plan.overlay_missing && plan.overlay_missing.length > 0) {
+      fail(
+        1,
+        `variants: overlay INCOMPLETE (#473): ${plan.overlay_missing.length} ` +
+          `declared overlay${plan.overlay_missing.length === 1 ? "" : "s"} ` +
+          `for variant '${plan.variant}' matched ZERO loom source files ` +
+          `(manifest declares an overlay file that does not exist in loom):\n  ` +
+          plan.overlay_missing.join("\n  "),
+      );
+    }
+    // #475 D5 — variant_only strip-dirty gate: a variant_only source whose
+    // content the strip transform would change carries BUILD-internal
+    // references INTO a USE template verbatim (variant_only ships as-is by
+    // the #427 contract). That is an authoring defect in the variant
+    // source — block the WRITE and name the fix, never ship the leak.
+    if (plan.variant_only_strippable && plan.variant_only_strippable.length > 0) {
+      fail(
+        1,
+        `variant_only STRIP-DIRTY (#475): ${plan.variant_only_strippable.length} ` +
+          `variant_only source${plan.variant_only_strippable.length === 1 ? "" : "s"} ` +
+          `for variant '${plan.variant}' carr${plan.variant_only_strippable.length === 1 ? "ies" : "y"} ` +
+          `BUILD-internal references. variant_only ADDITIONS ship VERBATIM — ` +
+          `fix the variant source (preview the rewrite with ` +
+          `\`node .claude/bin/lib/strip-build-internal.mjs --check <file>\`):\n  ` +
+          plan.variant_only_strippable.join("\n  "),
       );
     }
   }
@@ -1674,6 +2310,11 @@ export {
   parseRepos,
   parseVariantOnly,
   expandVariantOnly,
+  parseVariants,
+  resolveVariantOverlays,
+  isSlotKeyed,
+  composeOverlayContent,
+  verifyWrittenText,
   parseList,
   sliceBlock,
   globToRegex,
@@ -1699,4 +2340,7 @@ export {
   GITIGNORE_MANAGED_END,
   ALWAYS_INCLUDE,
   LOOM_LOCAL_PATTERNS,
+  STRIP_EXCLUDE,
+  isStripEligible,
+  findStrippableVariantOnly,
 };

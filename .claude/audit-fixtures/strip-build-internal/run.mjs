@@ -4,7 +4,8 @@
 // Per rules/cc-artifacts.md Rule 9, every mechanical audit tool MUST
 // ship with at least one committed fixture per scope-restriction
 // predicate. This runner exercises:
-//   (a) the helper's built-in self-test (13 inline fixtures)
+//   (a) the helper's built-in self-test (inline fixtures; count asserted
+//       by the helper itself — see SELF_TEST_FIXTURES)
 //   (b) external-file fixtures that real /sync emissions would hit,
 //       so a future refactor that drops in-source fixtures still has
 //       a separate audit trail on disk.

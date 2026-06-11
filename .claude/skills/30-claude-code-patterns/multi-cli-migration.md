@@ -253,7 +253,7 @@ Surface CC-native syntax leaks in workspaces/journals/briefs/todos/.session-note
 node tools/lint-workspaces.js workspaces/ .session-notes 2>/dev/null || true   # advisory
 ```
 
-If `tools/lint-workspaces.js` is absent (project predates v2.23.x), inline the regex set from `workspaces/multi-cli-coc/fixtures/slot-markers/emitter.mjs:279-301`:
+If `tools/lint-workspaces.js` is absent (project predates v2.23.x), inline the regex set from (loom-internal reference):
 
 - `Agent\([^)]*subagent_type` (CC delegation)
 - `Agent\([^)]*run_in_background`

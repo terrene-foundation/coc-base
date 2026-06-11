@@ -29,7 +29,7 @@ $ gh issue list --repo terrene-foundation/kailash-py
 # (CWD is kailash-rs; this is the cross-repo failure mode)
 
 # DO — descriptive sibling reference in a rule body
-"This rule mirrors the Python SDK's pattern in `kailash-py/.claude/rules/foo.md`."
+"This rule mirrors the Python SDK's pattern in the sibling SDK's `.claude/rules/foo.md`."
 # (descriptive; no action proposed; no cross-repo work recommended)
 
 # DO NOT — prescriptive sibling recommendation

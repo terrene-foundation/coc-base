@@ -1361,7 +1361,10 @@ variants:
     rs: variants/rs/skills/17-gold-standards/gold-workflow-design.md
     py: variants/py/skills/17-gold-standards/gold-workflow-design.md
   skills/18-security-patterns/SKILL.md:
+    # (#477 R1 reviewer MED: py + rs axes were split across two duplicate
+    # keys; last-wins dropped the rs axis on main. Merged under one key.)
     rs: variants/rs/skills/18-security-patterns/SKILL.md
+    py: variants/py/skills/18-security-patterns/SKILL.md
   skills/31-error-troubleshooting/SKILL.md:
     rs: variants/rs/skills/31-error-troubleshooting/SKILL.md
   skills/31-error-troubleshooting/error-connection-exhaustion.md:
@@ -1612,6 +1615,10 @@ variants:
     py: variants/py/skills/05-kailash-mcp/mcp-transports-quick.md
   skills/06-cheatsheets/node-initialization.md:
     py: variants/py/skills/06-cheatsheets/node-initialization.md
+    # (#477 R1 reviewer HIGH: the rs reclassification block initially added
+    # this as a DUPLICATE key, which last-wins would resolve by silently
+    # dropping this py axis. rs axis merged here instead.)
+    rs: variants/rs/skills/06-cheatsheets/node-initialization.md
   skills/08-nodes-reference/SKILL.md:
     py: variants/py/skills/08-nodes-reference/SKILL.md
   skills/08-nodes-reference/nodes-ai-reference.md:
@@ -1626,8 +1633,7 @@ variants:
     py: variants/py/skills/08-nodes-reference/nodes-quick-index.md
   skills/08-nodes-reference/nodes-transform-reference.md:
     py: variants/py/skills/08-nodes-reference/nodes-transform-reference.md
-  skills/18-security-patterns/SKILL.md:
-    py: variants/py/skills/18-security-patterns/SKILL.md
+  # skills/18-security-patterns/SKILL.md: declared ABOVE (single key, py + rs axes).
   # skills/18-security-patterns/security-attack-chains.md: NOT a global —
   # variant-only file (py-specific security attack-chain analysis); declared in variant_only:py.
   skills/26-eatp-reference/SKILL.md:
@@ -1652,7 +1658,130 @@ variants:
     py: variants/py/skills/29-pact/pact-quickstart.md
   skills/29-pact/pact-conformance-features.md:
     py: variants/py/skills/29-pact/pact-conformance-features.md
-
+  # ── #477 item 2 (#475 redteam R-2) — reclassified from variant_only:py.
+  # These 7 each have a GLOBAL source at the same dest; under variant_only
+  # they functioned as same-dest REPLACEMENTS only via the pre-existing
+  # #427 loop ordering (variant_only overwrites the copy). The variants:
+  # lane is the declared REPLACEMENT contract: the overlay pass SUPPRESSES
+  # the bare-global copy and ships strip(compose) — full-file here (no
+  # slot markers), so deployed bytes = strip(variant source). variant_only
+  # stays pure ADDITIONS per the #427 contract.
+  hooks/validate-prod-deploy.js:
+    py: variants/py/hooks/validate-prod-deploy.js
+    rs: null
+  skills/04-kaizen/kaizen-ml-integration.md:
+    py: variants/py/skills/04-kaizen/kaizen-ml-integration.md
+    rs: null
+  skills/01-core-sdk/runtime-progress.md:
+    py: variants/py/skills/01-core-sdk/runtime-progress.md
+    rs: null
+  skills/01-core-sdk/runtime-watchdog.md:
+    py: variants/py/skills/01-core-sdk/runtime-watchdog.md
+    rs: null
+  skills/02-dataflow/dataflow-provenance-audit.md:
+    py: variants/py/skills/02-dataflow/dataflow-provenance-audit.md
+    rs: null
+  skills/02-dataflow/dataflow-fabric-cache-consumers.md:
+    py: variants/py/skills/02-dataflow/dataflow-fabric-cache-consumers.md
+    rs: null
+  skills/04-kaizen/kaizen-llm-deployment.md:
+    py: variants/py/skills/04-kaizen/kaizen-llm-deployment.md
+    rs: null
+  # ── #477 item 2 extension (same class, rs lane — surfaced by the J13
+  # pure-ADDITIONS gate): the former `variants/rs/skills/06-cheatsheets/**`
+  # variant_only GLOB expanded to 44 files that ALL have a global at the
+  # same dest (43 below + SKILL.md, which was ALREADY a variants: entry —
+  # the glob double-shipped it). Plus skills/project/SKILL.md and
+  # skills/34-kailash-ml/SKILL.md, same class. All are full-file rs
+  # REPLACEMENTS and now declared as such.
+  skills/06-cheatsheets/README.md:
+    rs: variants/rs/skills/06-cheatsheets/README.md
+  skills/06-cheatsheets/a2a-coordination.md:
+    rs: variants/rs/skills/06-cheatsheets/a2a-coordination.md
+  skills/06-cheatsheets/admin-nodes-reference.md:
+    rs: variants/rs/skills/06-cheatsheets/admin-nodes-reference.md
+  skills/06-cheatsheets/asyncsql-advanced.md:
+    rs: variants/rs/skills/06-cheatsheets/asyncsql-advanced.md
+  skills/06-cheatsheets/common-mistakes-catalog.md:
+    rs: variants/rs/skills/06-cheatsheets/common-mistakes-catalog.md
+  skills/06-cheatsheets/custom-node-guide.md:
+    rs: variants/rs/skills/06-cheatsheets/custom-node-guide.md
+  skills/06-cheatsheets/cycle-aware-nodes.md:
+    rs: variants/rs/skills/06-cheatsheets/cycle-aware-nodes.md
+  skills/06-cheatsheets/cycle-debugging.md:
+    rs: variants/rs/skills/06-cheatsheets/cycle-debugging.md
+  skills/06-cheatsheets/cycle-scenarios.md:
+    rs: variants/rs/skills/06-cheatsheets/cycle-scenarios.md
+  skills/06-cheatsheets/cycle-state-persistence.md:
+    rs: variants/rs/skills/06-cheatsheets/cycle-state-persistence.md
+  skills/06-cheatsheets/cycle-testing.md:
+    rs: variants/rs/skills/06-cheatsheets/cycle-testing.md
+  skills/06-cheatsheets/cyclic-patterns-advanced.md:
+    rs: variants/rs/skills/06-cheatsheets/cyclic-patterns-advanced.md
+  skills/06-cheatsheets/data-integration.md:
+    rs: variants/rs/skills/06-cheatsheets/data-integration.md
+  skills/06-cheatsheets/developer-tools.md:
+    rs: variants/rs/skills/06-cheatsheets/developer-tools.md
+  skills/06-cheatsheets/directoryreader-patterns.md:
+    rs: variants/rs/skills/06-cheatsheets/directoryreader-patterns.md
+  skills/06-cheatsheets/distributed-transactions.md:
+    rs: variants/rs/skills/06-cheatsheets/distributed-transactions.md
+  skills/06-cheatsheets/enterprise-mcp.md:
+    rs: variants/rs/skills/06-cheatsheets/enterprise-mcp.md
+  skills/06-cheatsheets/env-variables.md:
+    rs: variants/rs/skills/06-cheatsheets/env-variables.md
+  skills/06-cheatsheets/integration-mastery.md:
+    rs: variants/rs/skills/06-cheatsheets/integration-mastery.md
+  skills/06-cheatsheets/kailash-quick-tips.md:
+    rs: variants/rs/skills/06-cheatsheets/kailash-quick-tips.md
+  skills/06-cheatsheets/mcp-resource-subscriptions.md:
+    rs: variants/rs/skills/06-cheatsheets/mcp-resource-subscriptions.md
+  skills/06-cheatsheets/monitoring-alerting.md:
+    rs: variants/rs/skills/06-cheatsheets/monitoring-alerting.md
+  skills/06-cheatsheets/multi-path-cycles.md:
+    rs: variants/rs/skills/06-cheatsheets/multi-path-cycles.md
+  skills/06-cheatsheets/multi-tenancy-patterns.md:
+    rs: variants/rs/skills/06-cheatsheets/multi-tenancy-patterns.md
+  skills/06-cheatsheets/node-selection-guide.md:
+    rs: variants/rs/skills/06-cheatsheets/node-selection-guide.md
+  skills/06-cheatsheets/ollama-integration.md:
+    rs: variants/rs/skills/06-cheatsheets/ollama-integration.md
+  skills/06-cheatsheets/performance-optimization.md:
+    rs: variants/rs/skills/06-cheatsheets/performance-optimization.md
+  skills/06-cheatsheets/production-patterns.md:
+    rs: variants/rs/skills/06-cheatsheets/production-patterns.md
+  skills/06-cheatsheets/production-readiness.md:
+    rs: variants/rs/skills/06-cheatsheets/production-readiness.md
+  skills/06-cheatsheets/pythoncode-data-science.md:
+    rs: variants/rs/skills/06-cheatsheets/pythoncode-data-science.md
+  skills/06-cheatsheets/query-builder.md:
+    rs: variants/rs/skills/06-cheatsheets/query-builder.md
+  skills/06-cheatsheets/query-routing.md:
+    rs: variants/rs/skills/06-cheatsheets/query-routing.md
+  skills/06-cheatsheets/resilience-patterns.md:
+    rs: variants/rs/skills/06-cheatsheets/resilience-patterns.md
+  skills/06-cheatsheets/saga-pattern.md:
+    rs: variants/rs/skills/06-cheatsheets/saga-pattern.md
+  skills/06-cheatsheets/security-config.md:
+    rs: variants/rs/skills/06-cheatsheets/security-config.md
+  skills/06-cheatsheets/validation-testing.md:
+    rs: variants/rs/skills/06-cheatsheets/validation-testing.md
+  skills/06-cheatsheets/visualization.md:
+    rs: variants/rs/skills/06-cheatsheets/visualization.md
+  skills/06-cheatsheets/workflow-api-deployment.md:
+    rs: variants/rs/skills/06-cheatsheets/workflow-api-deployment.md
+  skills/06-cheatsheets/workflow-composition.md:
+    rs: variants/rs/skills/06-cheatsheets/workflow-composition.md
+  skills/06-cheatsheets/workflow-design-process.md:
+    rs: variants/rs/skills/06-cheatsheets/workflow-design-process.md
+  skills/06-cheatsheets/workflow-export.md:
+    rs: variants/rs/skills/06-cheatsheets/workflow-export.md
+  skills/06-cheatsheets/workflow-patterns-library.md:
+    rs: variants/rs/skills/06-cheatsheets/workflow-patterns-library.md
+  skills/project/SKILL.md:
+    rs: variants/rs/skills/project/SKILL.md
+  skills/34-kailash-ml/SKILL.md:
+    rs: variants/rs/skills/34-kailash-ml/SKILL.md
 # ─────────────────────────────────────────────────────────────────
 # VARIANT-ONLY FILES
 # ─────────────────────────────────────────────────────────────────
@@ -1668,16 +1797,13 @@ variant_only:
     - variants/py/skills/04-kaizen/kaizen-tool-hydration.md
     - variants/py/skills/04-kaizen/kaizen-align-serving.md
     - variants/py/hooks/detect-package-manager.js
-    - variants/py/hooks/validate-prod-deploy.js
-    - variants/py/skills/04-kaizen/kaizen-ml-integration.md
+    # (#477 item 2: validate-prod-deploy.js, kaizen-ml-integration.md,
+    # runtime-progress.md, runtime-watchdog.md, dataflow-provenance-audit.md,
+    # dataflow-fabric-cache-consumers.md, kaizen-llm-deployment.md moved to
+    # the variants: REPLACEMENT lane — each has a global at the same dest.)
     - variants/py/skills/05-kailash-mcp/mcp-platform-server.md
-    - variants/py/skills/01-core-sdk/runtime-progress.md
-    - variants/py/skills/01-core-sdk/runtime-watchdog.md
     - variants/py/skills/18-security-patterns/credential-url-handling.md
-    - variants/py/skills/02-dataflow/dataflow-provenance-audit.md
-    - variants/py/skills/02-dataflow/dataflow-fabric-cache-consumers.md
     - variants/py/skills/26-eatp-reference/eatp-trust-posture-canonical.md
-    - variants/py/skills/04-kaizen/kaizen-llm-deployment.md
     - variants/py/skills/31-error-troubleshooting/error-kaizen-provider-config.md
     - variants/py/scripts/migrate.py
   rs:
@@ -1719,7 +1845,9 @@ variant_only:
     - variants/rs/skills/05-kailash-mcp/mcp-server.md
     - variants/rs/skills/05-kailash-mcp/mcp-tools.md
     - variants/rs/skills/05-kailash-mcp/mcp-transports.md
-    - variants/rs/skills/06-cheatsheets/**
+    # (#477 item 2 extension: the 06-cheatsheets/** glob, skills/project/
+    # SKILL.md and skills/34-kailash-ml/SKILL.md moved to the variants:
+    # REPLACEMENT lane — every expanded file has a global at the same dest.)
     - variants/rs/skills/04-kaizen/l3-autonomy-skill.md
     - variants/rs/skills/04-kaizen/l3-agent-factory.md
     - variants/rs/skills/04-kaizen/l3-envelope-tracking.md
@@ -1797,7 +1925,6 @@ variant_only:
     - variants/rs/skills/management/build-reference.md
     - variants/rs/skills/management/cargo-reference.md
     - variants/rs/skills/management/release-workflow.md
-    - variants/rs/skills/project/SKILL.md
     - variants/rs/skills/project/l3-binding-parity.md
     - variants/rs/skills/05-enterprise/SKILL.md
     - variants/rs/skills/05-enterprise/enterprise-abac.md
@@ -1846,7 +1973,6 @@ variant_only:
     - variants/rs/skills/36-kailash-rs-alignment/transport-parity.md
     - variants/rs/skills/36-kailash-rs-alignment/cross-sdk-features.md
     - variants/rs/commands/build.md
-    - variants/rs/skills/34-kailash-ml/SKILL.md
     - variants/rs/skills/35-align-serving/SKILL.md
   rb: []
   # v2.9.4 (2026-04-28): kailash-coc-claude-prism USE template retired

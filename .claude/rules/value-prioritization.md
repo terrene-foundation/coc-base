@@ -105,7 +105,7 @@ At the start of any session that picks up a deferred item (workspace todo, GH fo
 
 Picking up `feat/codex-gemini-lane-validation` (deferred 2026-04-23).
 Recorded anchor: "delivers multi-CLI parity per v6 §9.2 brief."
-Re-validation: brief still active per workspaces/multi-cli-coc/briefs/?
+Re-validation: brief still active per (loom-internal reference)?
 User's most recent feedback referenced multi-CLI as in-flight — anchor
 holds. Resuming.
 
@@ -149,7 +149,7 @@ explicit ADR statement that they are shell one-liners.
 
 **BLOCKED OR-escape-hatch variants** — the ONLY legitimate dispositions are (1) implement now with value-anchored shards, (2) ADR with user-gated value-decay, (3) close with user gate. ANY OR-disposition that introduces a fourth option is BLOCKED regardless of framing: "Add X OR file follow-up issue / OR document as known limitation / OR mark as deferred-with-rationale / OR capture in roadmap / OR create observability / OR add a smoke test asserting current behavior / OR add to /redteam checklist / Implement-OR-spec-only / Code-OR-doc / Fix-OR-monitor." Each substitutes a cheaper proxy for the load-bearing implementation; the cheaper proxy ALWAYS wins. Full enumeration in guide-extract.
 
-**Why:** The user's value rationale is the load-bearing claim that the work matters. Closing without re-validating is the terminal step in deferral-as-forgetting: the item disappears from the queue, the rationale disappears from the audit trail, and the next time the user asks "did we ever address X?" the answer is "we closed it 60 days ago." The user gate is the only mechanism that catches value-still-applies before closure becomes institutional fact. Evidence (Failure-A audit 2026-05-07): 7-of-7 deferred items inspected showed decay-not-pickup; 2 of 7 used the OR-escape-hatch (`workspaces/multi-cli-coc/04-validate/27-todos-redteam.md:155, 171`); both shipped only the ADR statement, neither had the load-bearing implementation 14+ days later.
+**Why:** The user's value rationale is the load-bearing claim that the work matters. Closing without re-validating is the terminal step in deferral-as-forgetting: the item disappears from the queue, the rationale disappears from the audit trail, and the next time the user asks "did we ever address X?" the answer is "we closed it 60 days ago." The user gate is the only mechanism that catches value-still-applies before closure becomes institutional fact. Evidence (Failure-A audit 2026-05-07): 7-of-7 deferred items inspected showed decay-not-pickup; 2 of 7 used the OR-escape-hatch (`(loom-internal reference):155, 171`); both shipped only the ADR statement, neither had the load-bearing implementation 14+ days later.
 
 ### 5. Brief / User-Stated Value Is The Primary Anchor; Code-Health Is Secondary
 
@@ -255,7 +255,7 @@ picking based on functionality count.
 
 ## Origin
 
-**Primary** (Failure-A: deferral-as-forgetting): 2026-04-23 — `workspaces/multi-cli-coc/todos/active/00-migration-plan.md:403-452` reframed v6 §9.2 step 23 (30+ downstream re-pin obligation) from "loom task" to "downstream responsibility — loom does not sweep these," citing prior feedback memory as authority. Failure-A audit (2026-05-07) confirmed 7-of-7 decay-not-pickup ratio across deferred items inspected; OR-escape-hatch pattern in 2 of 7.
+**Primary** (Failure-A: deferral-as-forgetting): 2026-04-23 — (loom-internal reference) reframed v6 §9.2 step 23 (30+ downstream re-pin obligation) from "loom task" to "downstream responsibility — loom does not sweep these," citing prior feedback memory as authority. Failure-A audit (2026-05-07) confirmed 7-of-7 decay-not-pickup ratio across deferred items inspected; OR-escape-hatch pattern in 2 of 7.
 
 **Corroboration** (Failure-B: streetlight selection): 2026-05-07 loom session — agent picked aggregator-merge `.probes.jsonl` follow-up over THREE Carried-forward candidates (`coc-sync.md` move, `cc-audit.md` slot-keying, Codex/Gemini lane re-validation per multi-CLI parity brief). Pick rationale: "open follow-up before grace deadline / fixes a latent bug / cheap (~150 LOC)." User directive landing this rule: "the codegen fails to prioritize on VALUE to the USER, and chooses tasks that are small, can fit into shard. Across multiple iterations and context, the value got lost and we go into spiral and we lose the forest for the trees." Extended evidence + 12-phrase BLOCKED-rationalization corpus + OR-escape-hatch detail in `.claude/guides/rule-extracts/value-prioritization.md`.
 

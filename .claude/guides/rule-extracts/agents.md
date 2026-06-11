@@ -114,15 +114,15 @@ result = Agent(prompt="Write src/feature.py with ...")
 # DO — explicit ownership in prompts
 Agent(isolation="worktree", prompt="""...resolve #546 ONNX matrix...
 Version bump + CHANGELOG:
-- packages/kailash-ml/pyproject.toml → 0.13.0
-- packages/kailash-ml/src/kailash_ml/__init__.py::__version__
-- packages/kailash-ml/CHANGELOG.md""")
+- the ml package directory pyproject.toml → 0.13.0
+- the ml package directory src/kailash_ml/__init__.py::__version__
+- the ml package directory CHANGELOG.md""")
 
 Agent(isolation="worktree", prompt="""...resolve #547+#548 km.doctor + km.track...
 COORDINATION NOTE: A parallel agent is bumping this package to 0.13.0.
-You MUST NOT edit packages/kailash-ml/pyproject.toml,
-packages/kailash-ml/src/kailash_ml/__init__.py::__version__, or
-packages/kailash-ml/CHANGELOG.md. Just deliver the functionality.""")
+You MUST NOT edit the ml package directory pyproject.toml,
+the ml package directory src/kailash_ml/__init__.py::__version__, or
+the ml package directory CHANGELOG.md. Just deliver the functionality.""")
 
 # DO NOT — silent parallel ownership
 Agent(isolation="worktree", prompt="...resolve #546... bump to 0.13.0")

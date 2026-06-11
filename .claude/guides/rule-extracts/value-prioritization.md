@@ -11,10 +11,10 @@ Extended material for `rules/value-prioritization.md`. The rule itself stays at 
 | `.session-notes:34`                                                          | `coc-sync.md` 761→400-line move   | Decay (no grace clock)                       | No                                         | indefinite |
 | `.session-notes:35`                                                          | `cc-audit.md` legacy slot-keying  | Decay (no grace clock)                       | No                                         | indefinite |
 | `.session-notes:27-30`                                                       | `aggregate.mjs` probes-merge      | Decay (ownerless until current session)      | Yes (faint)                                | ~12h       |
-| `workspaces/multi-cli-coc/todos/active/00-migration-plan.md:403-452`         | Phase I1 (30+ downstream re-pins) | Decay (reframed as out-of-scope)             | Yes in v6 spec; disconnected from executor | 14 days    |
-| `workspaces/multi-cli-coc/todos/active/00-migration-plan.md:454-463`         | Phase I2 (archival 2026-10-22)    | Decay-prone (no automation, 6-month horizon) | Yes                                        | 6 months   |
-| `workspaces/multi-cli-coc/04-validate/27-todos-redteam.md:155, 233-235, 267` | Validators 1-12                   | Decay (OR-ADR escape)                        | Yes (in spec)                              | open       |
-| `workspaces/multi-cli-coc/04-validate/27-todos-redteam.md:171, 234, 269`     | Abridgement protocol              | Decay (OR-ADR escape)                        | Yes (in spec)                              | open       |
+| (loom-internal reference)         | Phase I1 (30+ downstream re-pins) | Decay (reframed as out-of-scope)             | Yes in v6 spec; disconnected from executor | 14 days    |
+| (loom-internal reference)         | Phase I2 (archival 2026-10-22)    | Decay-prone (no automation, 6-month horizon) | Yes                                        | 6 months   |
+| `(loom-internal reference):155, 233-235, 267` | Validators 1-12                   | Decay (OR-ADR escape)                        | Yes (in spec)                              | open       |
+| `(loom-internal reference):171, 234, 269`     | Abridgement protocol              | Decay (OR-ADR escape)                        | Yes (in spec)                              | open       |
 
 **Ratio: 7 decay / 0 pickup observed.** Every deferral located either (a) sits behind "no grace clock" / "downstream responsibility" / "tracked separately" framing, or (b) has an OR-escape-hatch that lets a cheaper proxy substitute for the load-bearing implementation.
 
@@ -117,7 +117,7 @@ Why this fails:
 3. **Delegated judgment** — the OR delegates the implement-vs-defer decision back to the human on every future session, which `recommendation-quality.md` MUST-1 already blocks ("no menu without pick").
 4. **Audit-trail erasure** — once the ADR statement ships, the finding is "closed" and the load-bearing implementation has no tracking artifact.
 
-Evidence: `workspaces/multi-cli-coc/04-validate/27-todos-redteam.md:155` (validators 1-12) and `:171` (abridgement protocol). Both shipped only the ADR statement, neither had the load-bearing implementation 14+ days later. Per Rule 4, recommendations MUST commit to one disposition: implement, ADR with user-gated value-decay, or close with user gate. OR-disposition is structurally indistinguishable from auto-closure-as-not-planned under another name.
+Evidence: (loom-internal reference) (validators 1-12) and `:171` (abridgement protocol). Both shipped only the ADR statement, neither had the load-bearing implementation 14+ days later. Per Rule 4, recommendations MUST commit to one disposition: implement, ADR with user-gated value-decay, or close with user gate. OR-disposition is structurally indistinguishable from auto-closure-as-not-planned under another name.
 
 ## Hook-detector fixture catalog
 

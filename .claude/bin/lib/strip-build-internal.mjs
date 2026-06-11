@@ -69,6 +69,50 @@ const REWRITES = [
     desc: "BUILD packages/ path (bare)",
   },
 
+  // ── 5b. BUILD monorepo sub-package paths (backticked) ───────────
+  // kailash-kaizen monorepo layout: `packages/kaizen-agents/<rest>`.
+  // Non-kailash-prefixed BUILD sub-packages are an explicit family
+  // allowlist (kaizen- today) — a generic `packages/<name>/` pattern
+  // would corrupt consumer-project monorepo paths (see PRESERVED).
+  // Replacement keeps the full package name (no prefix to drop),
+  // matching the #475 R5 manual-rewording convention at source.
+  {
+    pattern: /`packages\/(kaizen-[a-z][a-z0-9_-]*)\/([^`]+)`/g,
+    replacement: "the $1 package (`$2`)",
+    desc: "BUILD monorepo packages/ path (backticked)",
+  },
+
+  // ── 5c. BUILD monorepo sub-package paths (bare in prose) ────────
+  {
+    pattern: /\bpackages\/(kaizen-[a-z][a-z0-9_-]*)\/([A-Za-z0-9_./\-]+)/g,
+    replacement: "the $1 package directory $2",
+    desc: "BUILD monorepo packages/ path (bare)",
+  },
+
+  // ── 5d. BUILD packages/ dir, trailing-slash no-subpath (backticked)
+  // `packages/kailash-X/` / `packages/kaizen-X/` with NOTHING after
+  // the slash (e.g. "- `packages/kailash-align/` -- Source code").
+  // Patterns 4/4b require a subpath, so this form previously shipped
+  // verbatim (#477 item 1 / #475 redteam R-1).
+  {
+    pattern: /`packages\/((?:kailash|kaizen)-[a-z][a-z0-9_-]*)\/`/g,
+    replacement: (_m, pkg) =>
+      `the ${pkg.startsWith("kailash-") ? pkg.slice("kailash-".length) : pkg} package directory`,
+    desc: "BUILD packages/ dir, no subpath (backticked)",
+  },
+
+  // ── 5e. BUILD packages/ dir, trailing-slash no-subpath (bare) ───
+  // Negative lookahead: no subpath character may follow. `*` is in the
+  // excluded set so glob forms (`packages/kailash-dataflow/**` in
+  // `paths:` frontmatter / CI path filters) stay load-bearing verbatim.
+  {
+    pattern:
+      /\bpackages\/((?:kailash|kaizen)-[a-z][a-z0-9_-]*)\/(?![A-Za-z0-9_.*/\-])/g,
+    replacement: (_m, pkg) =>
+      `the ${pkg.startsWith("kailash-") ? pkg.slice("kailash-".length) : pkg} package directory`,
+    desc: "BUILD packages/ dir, no subpath (bare)",
+  },
+
   // ── 6. sibling-SDK .claude/ examples (descriptive cross-repo) ───
   // `kailash-{py,rs,prism}/.claude/<rest>` → the sibling SDK's `.claude/<rest>`
   {
@@ -98,6 +142,17 @@ const REWRITES = [
 //     (public package identifiers users `pip install` directly)
 //   - `kailash-{py,rs,prism}` repo names appearing in unstructured prose
 //     (NOT followed by /workspaces/, /.claude/, or tree-character)
+//   - Glob forms: `packages/kailash-X/**` / `packages/kaizen-X/**` (and any
+//     `*` immediately after the package slash) — these are LOAD-BEARING in
+//     `paths:` frontmatter of path-scoped rules/skills and in CI path
+//     filters; `*` is excluded from every subpath char-class and from the
+//     5e trailing-slash lookahead by design. Rewriting them would break
+//     rule loading on the consumer side.
+//   - Generic consumer monorepo paths: `packages/<name>/...` where <name>
+//     is NOT kailash-/kaizen- prefixed (e.g. packages/my-app/src/). Consumer
+//     projects legitimately use packages/ layouts; only the known BUILD
+//     package families strip. New BUILD monorepo families extend the
+//     explicit alternation (kailash|kaizen), never a wildcard.
 // These patterns are intentionally NOT in REWRITES.
 
 /**
@@ -202,6 +257,60 @@ const SELF_TEST_FIXTURES = [
     expected: "Tree:\n`<workspace-root>/`\n├── src\n└── tests",
   },
   {
+    name: "monorepo-subpackage-backticked",
+    input:
+      "**Source**: `packages/kaizen-agents/src/kaizen_agents/supervisor.py`",
+    expected:
+      "**Source**: the kaizen-agents package (`src/kaizen_agents/supervisor.py`)",
+  },
+  {
+    name: "monorepo-subpackage-bare",
+    input: "Run the grep against packages/kaizen-agents/tests/ for callers.",
+    expected:
+      "Run the grep against the kaizen-agents package directory tests/ for callers.",
+  },
+  {
+    name: "trailing-slash-no-subpath-backticked",
+    input: "- `packages/kailash-align/` -- Source code",
+    expected: "- the align package directory -- Source code",
+  },
+  {
+    name: "trailing-slash-no-subpath-bare",
+    input: "git log <last-tag>..HEAD -- packages/kailash-dataflow/  → changes?",
+    expected:
+      "git log <last-tag>..HEAD -- the dataflow package directory  → changes?",
+  },
+  {
+    name: "trailing-slash-monorepo-backticked",
+    input: "MOVE it to `packages/kaizen-agents/` for the monorepo layout.",
+    expected:
+      "MOVE it to the kaizen-agents package directory for the monorepo layout.",
+  },
+  {
+    name: "preserve-paths-frontmatter-glob",
+    input: 'paths: ["packages/kailash-dataflow/**"]',
+    expected: 'paths: ["packages/kailash-dataflow/**"]',
+  },
+  {
+    name: "preserve-ci-path-filter-glob",
+    input: '      - "packages/kailash-dataflow/**"\n      - "packages/kaizen-agents/**"',
+    expected:
+      '      - "packages/kailash-dataflow/**"\n      - "packages/kaizen-agents/**"',
+  },
+  {
+    name: "preserve-consumer-monorepo-path",
+    input: "Put shared code under packages/my-lib/src/index.ts in your repo.",
+    expected:
+      "Put shared code under packages/my-lib/src/index.ts in your repo.",
+  },
+  {
+    name: "idempotent-on-extended-outputs",
+    input:
+      "See the kaizen-agents package (`src/kaizen_agents/supervisor.py`) and the align package directory for detail.",
+    expected:
+      "See the kaizen-agents package (`src/kaizen_agents/supervisor.py`) and the align package directory for detail.",
+  },
+  {
     name: "multiple-patterns-one-pass",
     input:
       "From `workspaces/multi-cli-coc/journal/0001.md`, edit `packages/kailash-kaizen/tests/foo.py` and run `gh api repos/terrene-foundation/kailash-py/issues`.",
@@ -256,8 +365,11 @@ function selftest({ verbose = false } = {}) {
 //
 // Used by:
 //   - rules/cc-artifacts.md Rule 9 (audit fixtures via --selftest)
-//   - agents/management/coc-sync.md Step 3a (per-file --check at sync time)
+//   - agents/management/coc-sync.md Step 3a (--check as post-sync audit)
 //   - .claude/bin/emit-cli-artifacts.mjs (library import; in-process call)
+//   - .claude/bin/sync-tier-aware.mjs (library import since #473; #475 adds
+//     write-time strip of plain-global copy actions + the variant_only
+//     strip-dirty completeness gate)
 // ────────────────────────────────────────────────────────────────
 async function cli() {
   const args = process.argv.slice(2);

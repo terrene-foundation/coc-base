@@ -35,7 +35,7 @@ See 0052-DISCOVERY §2.1 and `guides/deterministic-quality/06-observability-prim
 
 ## Rule 8 — Schema-Name Hygiene: Evidence
 
-Origin: Red team review of PR #430 (2026-04-12) flagged `packages/kailash-dataflow/src/dataflow/classification/policy.py::ClassificationPolicy.classify` emitting field names at WARN level. Because log aggregators (Datadog, Splunk, CloudWatch) are typically accessible to a broader audience than the production database (SREs, on-call engineers, support staff, third-party observability vendors), a WARN containing `field=ssn` revealed that the `users` table has an `ssn` column to every log reader — even though the VALUES never leaked.
+Origin: Red team review of PR #430 (2026-04-12) flagged the dataflow package (`src/dataflow/classification/policy.py::ClassificationPolicy.classify`) emitting field names at WARN level. Because log aggregators (Datadog, Splunk, CloudWatch) are typically accessible to a broader audience than the production database (SREs, on-call engineers, support staff, third-party observability vendors), a WARN containing `field=ssn` revealed that the `users` table has an `ssn` column to every log reader — even though the VALUES never leaked.
 
 Downgraded to DEBUG-level in commit 62d64ac7. Operators who need to audit unclassified fields enable DEBUG for the audit window.
 

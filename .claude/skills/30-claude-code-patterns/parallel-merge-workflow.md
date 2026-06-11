@@ -69,7 +69,7 @@ Before merging a worktree branch, check if its merge-base is older than the targ
 
 ```bash
 # For each worktree about to merge, compare LOC of shared files
-TARGET_FILE="packages/kailash-kaizen/src/kaizen/core/base_agent.py"
+TARGET_FILE="the kaizen package directory src/kaizen/core/base_agent.py"
 for wt in .claude/worktrees/agent-*/; do
     wt_file="${wt}${TARGET_FILE}"
     [ -f "$wt_file" ] || continue

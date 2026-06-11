@@ -322,7 +322,7 @@ class TrainingResult:
 
 Fix: add the missing handoff field (`trainable: Trainable | None = None`), ensure every `fit()` return site populates it, AND add an end-to-end regression test (see `rules/testing.md` § End-to-End Pipeline Regression Tests).
 
-Evidence: kailash-ml-audit 2026-04-23 W33b — `TrainingResult(frozen=True)` without `trainable` shipped in W31 + W33; `km.register` landed in W33c with no way to resolve `.model`; canonical Quick Start raised `ValueError` on every fresh install until W33b added `trainable=self` at every `Trainable.fit()` return site and landed `packages/kailash-ml/tests/regression/test_readme_quickstart_executes.py`.
+Evidence: kailash-ml-audit 2026-04-23 W33b — `TrainingResult(frozen=True)` without `trainable` shipped in W31 + W33; `km.register` landed in W33c with no way to resolve `.model`; canonical Quick Start raised `ValueError` on every fresh install until W33b added `trainable=self` at every `Trainable.fit()` return site and landed the ml package (`tests/regression/test_readme_quickstart_executes.py`).
 
 ### Fake Metrics
 

@@ -42,8 +42,8 @@ Agent(
     Resolve <issue>.
 
     Files you may edit (relative paths only; NEVER absolute):
-    - packages/kailash-ml/src/kailash_ml/foo.py
-    - packages/kailash-ml/tests/integration/test_foo.py
+    - the ml package directory src/kailash_ml/foo.py
+    - the ml package directory tests/integration/test_foo.py
 
     ...
     """,
@@ -140,7 +140,7 @@ Re-launching abandons real work every time an absolute-path agent truncates. `gi
 Session 2026-04-20 kailash-ml 0.13.0 + kailash 2.8.10 parallel-release cycle (PRs #552, #553). Three parallel worktree agents resolved issues #546 (ONNX matrix), #547+#548 (km.doctor + km.track), and #550 (quote_identifier). Clean integration because:
 
 - **Agent 1** designated version-owner for kailash-ml pyproject.toml + CHANGELOG
-- **Agent 2** prompt included the verbatim exclusion: "COORDINATION NOTE: A parallel agent is resolving #546 (ONNX bridge matrix) in another worktree and will ALSO bump version to 0.13.0 + write CHANGELOG. To avoid merge conflicts, you (this agent) MUST NOT edit packages/kailash-ml/pyproject.toml, packages/kailash-ml/src/kailash_ml/**init**.py::**version**, or packages/kailash-ml/CHANGELOG.md."
+- **Agent 2** prompt included the verbatim exclusion: "COORDINATION NOTE: A parallel agent is resolving #546 (ONNX bridge matrix) in another worktree and will ALSO bump version to 0.13.0 + write CHANGELOG. To avoid merge conflicts, you (this agent) MUST NOT edit the ml package directory pyproject.toml, the ml package directory src/kailash_ml/**init**.py::**version**, or the ml package directory CHANGELOG.md."
 - **Agent 3** worked on a different package (core kailash/, 2.8.10) — no overlap
 
 Result: merge integration was mechanical. One trivial CHANGELOG conflict on the root file, zero conflicts on package pyproject.toml or package CHANGELOG. Integration step (owned by orchestrator) added `km-doctor` console script + expanded CHANGELOG (which Agent 1 correctly seeded with ONNX entries only) to cover all three issues.
