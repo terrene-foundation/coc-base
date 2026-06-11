@@ -1,28 +1,53 @@
-# COC Sync Marker — coc-base
-visibility: public
-timestamp: 2026-06-11T10:34:16Z
+# COC Sync Marker — coc-base (base lane, multi-CLI)
+timestamp: 2026-06-11T14:42:00Z
 source: loom/.claude
-loom_sha: bbfa970
-loom_version: 2.41.0
+loom_sha: 036c8ff
+upstream_version: 2.42.0
+template_version: 2.42.0
 variant: base
+visibility: public
 clis: ["claude", "codex", "gemini"]
+tier_subscriptions: ["cc", "co", "onboarding"]
 stats:
-  copied: 822
-  variant_only: 0
-  overlays: 1
-  composed: 0
-  preserved: 1   # CLAUDE.md
-  purged: 0
-  skipped: { loom_local: 2, exclude: 869, use_exclude: 29, no_tier_match: 514 }
-  baselines_emitted: { cc: 0, codex: 1, gemini: 1 }
+  copied: 844
+  verified: 844
+  verify_failures: 0
+  stripped: 15
+  composed: 1          # rules/agents.md base slot-keyed overlay (mode:slot)
+  overlay_verified: 1
+  purged: 0            # 13 obsoleted paths declared; all absent on disk
+  preserved: CLAUDE.md
+  baselines_emitted:
+    cc: 0              # CLAUDE.md preserved, not emitted
+    codex: 1           # AGENTS.md
+    gemini: 1          # GEMINI.md
   baseline_emission_bytes:
     block_cap_bytes: 61440
     warn_cap_bytes: 32768
-    codex: { rules: 9, bytes: 49550, tier: WARN, headroom_bytes: 11890, headroom_pct: 19.35 }
-    gemini: { rules: 9, bytes: 49556, tier: WARN, headroom_bytes: 11884, headroom_pct: 19.34 }
+    codex:
+      rules: 10
+      bytes: 54335
+      tier: WARN
+      headroom_bytes: 7105
+      headroom_pct: 11.56
+    gemini:
+      rules: 10
+      bytes: 54341
+      tier: WARN
+      headroom_bytes: 7099
+      headroom_pct: 11.55
   cli_artifacts:
-    codex: { prompts: 16, skills: 9 }
-    gemini: { commands: 16, skills: 9, agents: 5 }
-  codex_dispatcher: { bin_coc: 1, phase_symlinks: 28 }
-  sdk_pins_changed: null   # build:null — non-Kailash
-headline: "Version-currency stamp (loom 2.41.0); CMA skill is coc-tier, base-excluded by design"
+    codex:
+      prompts: 21       # 16 commands + 5 agent-prompts
+      skills: 40
+    gemini:
+      commands: 16
+      skills: 40
+      agents: 5
+  codex_dispatcher:
+    bin_coc: true
+    per_phase_symlinks: 28
+  scaffold:
+    symlink: ".claude/codex-mcp-guard -> ../.codex-mcp-guard"
+    manifest_distributed: true
+  sdk_packages: {}     # build:null — language-agnostic base, no SDK pins

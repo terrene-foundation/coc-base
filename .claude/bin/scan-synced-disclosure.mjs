@@ -408,6 +408,13 @@ const ALLOWLIST = [
   //      covered by the anchored Foundation entry above, independent
   //      of this entry.
   /github\.com[:/]kailash-sdk\/[A-Za-z0-9._-]+|(?<![\w-]\/)\bkailash-sdk\b(?!\/)/i,
+  // ALLOWLIST-NOTE (Gate-1 2026-06-11, human-adjudicated): `include/kailash`
+  // is the SDK's own C-ABI header path (kailash-capi emits include/kailash.h);
+  // the nonfoundation-org-slug shape reads the `<dir>/<file>` form as an
+  // org/repo slug in the kailash-rs build-speed.md prose. The SDK's own
+  // header path is not an operator/3rd-party token; allowlist the exact
+  // path span only (NOT bare `kailash`, which other anchored entries govern).
+  /\binclude\/kailash\b/i,
   // ratified generic placeholder vocabulary (issue #263)
   /example-[a-z0-9-]*/i,
   /<runner-host(-\d+)?>/,

@@ -83,6 +83,12 @@ Every `/codify` execution MUST include `cc-architect` in its validation team.
 
 **Why:** Without artifact validation, `/codify` creates agents with 800-line knowledge dumps and unscoped rules.
 
+### 6a. cc-architect R1 Closure-Parity Sweeps Recently-Landed Proposals
+
+cc-architect's Round-1 mechanical sweep at `/codify` MUST verify closure-parity against (i) every other rule/proposal landed in the SAME codify cycle AND (ii) any baseline rule whose last Origin date is within the prior 7 calendar days — sweeping overlapping Violation-scope declarations, overlapping Why failure-mode claims, and overlapping BLOCKED-rationalization corpus entries. Scoping the R1 sweep to the diff under review alone is BLOCKED. The sweep MUST log its target list to the cycle's receipt journal under "R1 closure-parity sweep targets:"; a cycle shipping without that line is flagged at the next `/codify` as a same-class violation.
+
+**Why:** Sibling rule amendments landing in one cycle carry adjacent Violation scopes and partial BLOCKED-corpus overlap that per-diff review approves in isolation; collisions then surface a round late (or at loom Gate-1). The 7-day window matches the trust-posture grace period, also catching rules still inside grace from the prior week.
+
 ### 7. Hooks Include Timeout Handling
 
 Every hook MUST include a setTimeout fallback that returns `{ continue: true }` and exits.

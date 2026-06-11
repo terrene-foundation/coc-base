@@ -177,9 +177,15 @@ engine.validate_record(instance) -> validate_model(instance)   # bypasses saniti
 
 **BLOCKED rationalizations:** "The primary call site is the one users hit 99% of the time" / "The sibling is rarely used; we'll patch it in a follow-up" / "The helper signature is backwards-compatible, sibling can stay as-is" / "Test coverage will catch divergence later" / "The kwarg has a safe default — siblings still get baseline behaviour".
 
-**Why:** A helper takes a security-relevant kwarg precisely because the unqualified call leaks or misbehaves, so any sibling left on the unqualified signature ships the exact failure mode the kwarg fixes (the "safe default" is the insecure default). Fix is mechanical: `grep -rn 'helper_name(' .` + patch every hit.
+**Why:** A sibling left on the unqualified signature ships the exact failure mode the kwarg fixes (the "safe default" is the insecure default). Fix is mechanical: `grep -rn 'helper_name(' .` + patch every hit.
 
 Origin: PR #522 / PR #529 (2026-04-19) — BP-049 validation sanitiser plumbing missed one sibling. See guide for full evidence.
+
+## Redactor Contract
+
+Subject-keyed redactors (primitives scrubbing every string containing a `subject_id` substring) MUST enforce a minimum subject-id length floor (≥8 chars), failing closed with a typed error naming the floor and the received length. When a matching object KEY is scrubbed, BOTH key and value MUST be scrubbed — the key replaced with a numbered sentinel (`[REDACTED_KEY_N]`) preserving audit shape; the byte-level audit trail survives via the original-hash return.
+
+**Why:** 1–7-char ids substring-match benign strings ("alice" → "malice"); a preserved matching key under a `[REDACTED]` value leaks the subject's identity as audit metadata. See guide for kailash-rs PR #1123 evidence + cross-SDK landing requirement.
 
 ## Kailash-Specific Security
 

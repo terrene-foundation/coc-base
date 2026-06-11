@@ -1,0 +1,3 @@
+Observation: run 530 shows `publish-rubygems: SKIPPED`, `build-ruby-gem-linux: FAILURE`.
+Inference (unverified until I read the log): the --list-all fix likely didn't fully
+resolve the ABI; pulling the log to confirm.

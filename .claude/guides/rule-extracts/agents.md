@@ -172,3 +172,27 @@ The same session twice used `git -c core.hooksPath=/dev/null commit` reflexively
 ### Counterfactual
 
 Had the #243 agent been worktree-isolated (or had the catch-up agents been told to read committed HEAD from the start), zero reader cycles would have been spent on a phantom defect. The reader-reads-committed-HEAD instruction was added mid-session and worked — it is now the codified default, not an ad-hoc save.
+
+## Holistic Post-Multi-Wave Redteam — Evidence
+
+When a plan executes across N≥3 sharded waves and each shard carried its own per-shard `/redteam`, the orchestrator MUST run a HOLISTIC post-multi-wave `/redteam` across ALL merged shards on main BEFORE declaring the plan converged. Per-shard `/redteam` catches within-shard defects; the holistic round catches cross-shard invariant violations — each shard locally correct but two shards together break a global invariant (orphaned API surface, missing audit-chain link, doc↔merged-impl drift, workspace path leakage scrubbed from each shard but not the combined surface).
+
+The holistic round dispatches ≥3 parallel agents (reviewer + security-reviewer + closure-parity verifier) per § Audit/Closure-Parity Specialist Discipline, scoped to "all merged PRs in this plan on main", NOT "the diff of the most recent shard". Same parallel-execution shape as Parallel Brief-Claim Verification (≥3-issue brief) but applied at the post-implementation convergence gate rather than at `/analyze`.
+
+**BLOCKED rationalizations:** "Each shard was redteamed, the union is covered" / "The last shard's diff is the only new surface" / "Holistic redteam duplicates the per-shard rounds" / "Per-shard caught zero CRIT/HIGH, so the plan is clean" / "Cross-shard review is /codify's job".
+
+Evidence: a multi-wave delegate arc — after the final wave merged, a holistic post-multi-wave `/redteam` across all 8 shards on main surfaced 1 L1 cleanup gap (workspace path leakage scrub that NO per-shard round caught, each being scoped to its own diff) + 5 cross-shard follow-up findings. Per-shard rounds caught zero CRIT/HIGH unfixed; the holistic round caught one L1 + 5 cross-shard.
+
+**Trust Posture Wiring:** Severity `halt-and-report` at the orchestrator's "plan converged" claim (cc-architect mechanical sweep on session notes claiming multi-wave completion). Grace 7 days. Cumulative 3× same-rule/30d → drop 1 posture. Regression-within-grace key `multi_wave_plan_no_holistic_redteam` → emergency downgrade 1 step. Detection: cc-architect asserts a journal entry exists naming ≥3 parallel specialists scoped to the union of merged shards. Origin: kailash-py delegate arc (2026-05-22).
+
+## Binding-Scoped Shard PRs Touch Only Their Own Package — Evidence
+
+When ≥2 parallel worktree agents each ship a binding/package-scoped shard (e.g. a Go MCP wrapper + a Ruby MCP wrapper), each shard's PR MUST limit its diff to its OWN binding/package directory. Incidental fixes to sibling-package files (clippy lints, fmt drift, doc typos) discovered mid-shard MUST be filed as a separate PR or carried in a dedicated cross-package cleanup shard — NOT bundled into the binding-scoped shard. This is the file-overlap variant of § Parallel-Worktree Package Ownership Coordination: that clause forbids two agents editing the version anchor; this one forbids two agents editing the same sibling-package source.
+
+**BLOCKED rationalizations:** "It's only a one-liner lint fix" / "Both bindings rebuild anyway" / "Filing a separate PR is overhead for trivial drift" / "I'm already touching the workspace anyway" / "The fix is in a different file from the sibling shard" / "Concurrent PRs on different files don't conflict".
+
+**Why:** When two concurrent binding-scoped shards touch the SAME sibling-package file (one shard's incidental fix + a concurrent shard that owns that file), the second-to-merge hits a 3-way conflict the orchestrator resolves mid-flight. Evidence: F9 Wave 3c (2026-05-22) — PR #1084 (a Java MCP shard) bundled an incidental Ruby clippy fix on a Ruby binding source file; concurrent PR #1085 (a broader Ruby MCP shard) edited the same file; #1085's auto-merge hit a 3-way conflict resolved at merge commit `69bed4e0`, adding ~10 min of mid-flight churn that binding-scope discipline would have prevented. Same trap precedent: Wave 3b PR #1081 on the parity-matrix file.
+
+**Detection sweep:** reviewer mechanical sweep at `/implement` — `git diff --name-only main...HEAD`, map each changed path to its top-2 directory components, flag any binding-scoped PR (title `feat(go|java|ruby|python|nodejs):`) whose changed-file roots span >1 binding directory WITHOUT a cross-package-cleanup title prefix (`chore(bindings):` / `fix(bindings):` are explicitly carved out — they MAY touch multiple binding dirs by design).
+
+**Trust Posture Wiring:** Severity `halt-and-report` (gate-review) / `advisory` (hook). Grace 7 days. Cumulative 3× same-rule/30d → drop 1 posture. Regression-within-grace → emergency downgrade L5→L4. Receipt `[ack: agents-binding-scope]` if pending_verification includes the rule_id. Origin: F9 Wave 3c (2026-05-22), PR #1084/#1085 conflict on a Ruby binding source file.

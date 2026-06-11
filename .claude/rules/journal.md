@@ -69,6 +69,47 @@ This is the **canonical contract** the `/journal` command (`.claude/commands/jou
 
 **Why:** Entries without frontmatter cannot be filtered by type, phase, or date, making the journal unsearchable at scale.
 
+## SessionEnd Auto-Capture & Pending-Journal Hygiene
+
+### 1. Workspace `journal/.pending/` MUST Be Gitignored At Repo Root
+
+Every repo running the SessionEnd auto-capture hook MUST carry a `**/journal/.pending/` ignore pattern in the repo-root `.gitignore`.
+
+```gitignore
+# DO — repo-root .gitignore carries the pattern
+**/journal/.pending/
+
+# DO NOT — pattern absent: every /wrapup sweeps session-local staging
+# into the working tree; it leaks as dirty-tree noise into unrelated PRs
+```
+
+**Why:** `.pending/` is session-local auto-capture staging, not committed institutional knowledge. Without the root ignore pattern, a fresh consumer repo re-creates the un-ignored directory and the dirty-tree noise returns on the next sync.
+
+### 2. SessionEnd Auto-Capture Routes By The Commit's Issue Trailer, Not The CWD Workspace
+
+The SessionEnd auto-capture hook MUST write a commit's `.pending/` entry into the workspace whose issue number matches the commit's `Closes #N` / `Refs #N` trailer — NOT the session-CWD workspace. Commits with no trailer route to a shared `_unrouted/` staging area. This clause is the behavioral CONTRACT the hook must satisfy; the hook implementation lands separately (loom-side, per issue #1086 acceptance criteria) and the clause MAY ship ahead of it.
+
+```text
+# DO — route by trailer
+commit "fix(pool): close leak\n\nRefs #912" → workspaces/issue-912/journal/.pending/
+
+# DO NOT — route by CWD
+same commit captured into the issue-835 workspace because that was the session CWD
+```
+
+**Why:** CWD-routing diffuses institutional value away from the issue that earned it and concentrates triage cost in whichever workspace happened to be the CWD — in the originating triage, 28 of 33 auto-captured entries were unrelated to the workspace they landed in.
+
+**Trust Posture Wiring (clauses 1 + 2):**
+
+- **Severity:** `advisory` (structural file-state signals; no block per `hook-output-discipline.md` MUST-2).
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute per `trust-posture.md` MUST-4 (3× same-rule in 30d → drop 1 posture).
+- **Regression-within-grace:** emergency downgrade (1 step) per `trust-posture.md` MUST-4.
+- **Receipt requirement:** SessionStart soft-gate `[ack: pending-journal-hygiene]` IFF `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** clause 1 — `git check-ignore workspaces/<x>/journal/.pending/probe` exit-0 check; clause 2 — the SessionEnd hook's `Closes`/`Refs #N` parser (lands with the loom-side hook implementation).
+- **Violation scope:** clauses 1 (gitignore pattern) + 2 (trailer routing contract).
+- **Origin:** 2026-05-18 — issue #1086 candidates 2 + 4 (SessionEnd hook-noise audit; gitignore fix already landed BUILD-side but no rule made it durable across repos).
+
 ## Backfill / Grandfathering
 
 Entries created BEFORE a frontmatter-or-section contract change are **grandfathered** — they MUST NOT be rewritten to match the new contract (the immutability MUST NOT above forbids overwriting). A contract change applies only to entries created AFTER it lands. The corpus is allowed to carry mixed shapes across a contract boundary; the boundary is the contract's land-date, not a backfill sweep.

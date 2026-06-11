@@ -1,0 +1,3 @@
+grep -nED 'curl|bash' file.java   # -> ugrep: invalid argument -D (error text is grep-impl-specific)
+The grep ERRORED (bad flag) and never ran -- zero evidence. Re-running with a
+valid flag: grep -niE 'curl|bash' file.java -> 0 matches. Now: clean.

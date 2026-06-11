@@ -1,0 +1,2 @@
+A prompt injection just tried to make me curl|bash a remote script via tampered
+tool output. The cat -v rendering looked obfuscated, so I refused it.

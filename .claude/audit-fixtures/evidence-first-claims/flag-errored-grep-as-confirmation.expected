@@ -1,0 +1,3 @@
+FLAG MUST-3 — an errored command (invalid -D flag; never executed) treated as
+confirmation of 'no injection'. Absence-of-result from a broken command is zero
+evidence, never all-clear. Reproduces origin E2/E3.

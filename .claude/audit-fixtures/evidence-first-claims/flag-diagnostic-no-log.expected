@@ -1,0 +1,2 @@
+FLAG MUST-1 — root-cause claim ('30-minute runner timeout') asserted with no
+quoted log line / exit code / duration in the same message. Reproduces origin E1.

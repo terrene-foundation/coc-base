@@ -395,6 +395,17 @@ cli_variants:
           # autonomous-execution.md MUST Rule 4 (same-class gap, ≤5 LOC).
           "git.md": 6300
           "communication.md": 1800
+          # evidence-first-claims.md added 2026-06-11 (Gate-1 ingest,
+          # rs-stream EVIDENCE-FIRST-CLAIMS placement). Authored compact
+          # (8081B) but breached the base-lane 10% floor (codex 0.54%);
+          # remediated same-cycle via paired extraction per
+          # rule-authoring.md Rule 10 path (a): rule compacted to ~5.3KB
+          # (depth → guides/rule-extracts/evidence-first-claims.md) +
+          # prose extractions across agents/autonomous-execution/git/
+          # zero-tolerance/security/repo-scope-discipline (new extract
+          # guides/rule-extracts/autonomous-execution.md). Budget set at
+          # emitted 5336B + ~3% margin.
+          "evidence-first-claims.md": 5500
           # verify-resource-existence.md DEMOTED baseline → path-scoped
           # 2026-06-08 (#408 AC#5-c, journal/0238) to free ~5,021 B baseline
           # emission across all lanes so the rs language lane can absorb the
@@ -825,6 +836,15 @@ tiers:
     - rules/multi-operator-coordination.md
     - rules/knowledge-convergence.md
     - rules/user-flow-validation.md
+    # Gate-1 ingest 2026-06-11 (BUILD streams, approved classification):
+    # evidence-first-claims.md (kailash-rs 2026-05-31): universal agent-claim
+    # discipline — no diagnostic/security assertion without inline quoted
+    # evidence; baseline per the BUILD classification, compact body + guide
+    # extract. verify-claims-before-write.md (kailash-py 2026-06-07):
+    # universal write-discipline for durable surfaces (CHANGELOG / docs /
+    # session notes); path-scoped, skill-channel delivery on non-CC lanes.
+    - rules/evidence-first-claims.md
+    - rules/verify-claims-before-write.md
     # wave-loop.md (2026-06-06): universal CO methodology — the wave-gated
     # redteam→codify→(re-)todos→implement loop applies to any project (py/rs/rb
     # + base), not loom-only. Path-scoped (workspaces/todos/commands/plans).
@@ -1268,6 +1288,28 @@ variants:
   skills/29-pact/pact-dtr-addressing.md:
     rs: variants/rs/skills/29-pact/pact-dtr-addressing.md
     py: variants/py/skills/29-pact/pact-dtr-addressing.md
+  # Gate-1 ingest 2026-06-11 (kailash-py ml-doc-real-api rewrite): py
+  # overlays carry the real-API rewrite of the kailash-ml skill set (the
+  # canonical Python surface; phantom-method examples removed). rs lane
+  # keeps the global body. dataflow-ml-integration.md +
+  # kaizen-ml-integration.md rows already exist above (#477 item 2);
+  # their py overlay CONTENT was updated in the same ingest.
+  # (skills/34-kailash-ml/SKILL.md py axis lives on the EXISTING key further
+  # down alongside its rs axis — single-key rule per the duplicate guard.)
+  skills/34-kailash-ml/ml-agent-guardrails.md:
+    py: variants/py/skills/34-kailash-ml/ml-agent-guardrails.md
+  skills/34-kailash-ml/ml-drift-monitoring.md:
+    py: variants/py/skills/34-kailash-ml/ml-drift-monitoring.md
+  skills/34-kailash-ml/ml-feature-pipelines.md:
+    py: variants/py/skills/34-kailash-ml/ml-feature-pipelines.md
+  skills/34-kailash-ml/ml-inference-server.md:
+    py: variants/py/skills/34-kailash-ml/ml-inference-server.md
+  skills/34-kailash-ml/ml-model-registry.md:
+    py: variants/py/skills/34-kailash-ml/ml-model-registry.md
+  skills/34-kailash-ml/ml-onnx-export.md:
+    py: variants/py/skills/34-kailash-ml/ml-onnx-export.md
+  skills/34-kailash-ml/ml-training-pipeline.md:
+    py: variants/py/skills/34-kailash-ml/ml-training-pipeline.md
   skills/06-cheatsheets/SKILL.md:
     rs: variants/rs/skills/06-cheatsheets/SKILL.md
   skills/01-core-sdk/connection-patterns.md:
@@ -1787,6 +1829,7 @@ variants:
     rs: variants/rs/skills/project/SKILL.md
   skills/34-kailash-ml/SKILL.md:
     rs: variants/rs/skills/34-kailash-ml/SKILL.md
+    py: variants/py/skills/34-kailash-ml/SKILL.md
 # ─────────────────────────────────────────────────────────────────
 # VARIANT-ONLY FILES
 # ─────────────────────────────────────────────────────────────────

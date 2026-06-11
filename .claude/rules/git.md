@@ -31,25 +31,17 @@ Format: `type/description` (e.g., `feat/add-auth`, `fix/api-timeout`).
 Any PR whose diff is metadata-only — version anchors (`pyproject.toml` / `Cargo.toml`, `__init__.py::__version__` / lib.rs `pub const VERSION`), `CHANGELOG.md`, spec/doc version-line updates — MUST be opened from a branch named `release/v<X.Y.Z>`. Using `feat/`, `fix/`, `chore/` on a release-prep PR is BLOCKED.
 
 ```bash
-# DO — release-prep branch auto-skips PR-gate matrix
-git checkout -b release/v3.23.0 && git push -u origin release/v3.23.0
-# DO NOT — feat/ branch fires the full PR-gate matrix on metadata-only diff
-git checkout -b feat/v3.23.0-release-prep
+# DO — git checkout -b release/v3.23.0 (auto-skips PR-gate matrix)
+# DO NOT — git checkout -b feat/v3.23.0-release-prep (fires full matrix on metadata-only diff)
 ```
 
-**Why:** PR-gate workflows check `if: !startsWith(github.head_ref, 'release/')`. Branching from `release/v*` triggers the auto-skip and saves ~45 min × matrix-size of CI minutes per release-prep PR. If the work IS NOT metadata-only, split: keep code fix on `feat/`/`fix/` branch, cut release-prep on a separate `release/v*` branch. See guide for the ~120 min CI burn evidence.
+**Why:** PR-gate workflows check `if: !startsWith(github.head_ref, 'release/')`; the auto-skip saves ~45 min × matrix-size per release-prep PR. If the work is NOT metadata-only, split code onto `feat/`/`fix/` and cut release-prep on a separate `release/v*` branch. See guide.
 
 ### Pre-FIRST-Push CI Parity Discipline (MUST)
 
 Before the FIRST `git push` that creates a remote branch, the agent MUST run the project's local CI parity command set (Rust: `cargo +nightly fmt --all --check` + `cargo clippy -- -D warnings` + `cargo nextest run` + `RUSTDOCFLAGS="-Dwarnings" cargo doc`. Python: `pre-commit run --all-files` + `pytest` + `mypy --strict`). All MUST exit 0 → push.
 
-```bash
-# DO — pre-flight ALL local CI commands; push only on exit 0
-cargo +nightly fmt --all --check && cargo clippy -- -D warnings && cargo nextest run && git push -u origin feat/<branch>
-# DO NOT — push, watch CI fail, fix-up, push again — each cycle re-bills the cancelled run's wall-clock
-```
-
-**Why:** With `concurrency: cancel-in-progress: true`, prior in-flight runs are cancelled but **still billed for the wall-clock minutes consumed before cancellation**. Pre-flighting takes ~5-10 min; the alternative is N × 45 min of billed CI per fix-up cycle. See guide for the 71-minute mid-flight cancel evidence + the full Rust/Python command set.
+**Why:** With `concurrency: cancel-in-progress: true`, cancelled in-flight runs are still billed for wall-clock consumed. Pre-flighting takes ~5-10 min; the alternative is N × 45 min of billed CI per fix-up cycle (push → CI fail → fix-up → push is the DO-NOT). See guide for the 71-minute mid-flight cancel evidence + full command set.
 
 ## Branch Protection
 
@@ -68,15 +60,11 @@ CC system prompt provides the template. Always include a `## Related issues` sec
 `git reset --hard <ref>`, `git clean -f[d]`, and `rm -rf` of untracked paths all SILENTLY and IRRECOVERABLY destroy uncommitted work — unstaged modifications AND untracked-not-ignored files have NO reflog. Running any without first verifying `git status --porcelain` is empty is BLOCKED. Prefer `git reset --keep <ref>` (aborts on a dirty tree) and `git stash -u` over `git clean -f`. The `.claude/hooks/validate-bash-command.js` tripwire enforces this at the Bash boundary.
 
 ```bash
-# DO — --keep aborts on a dirty tree; dry-run before any clean
-git reset --keep origin/main
-git clean -n
-# DO NOT — bare destructive op with no working-tree check
-git reset --hard origin/main   # wipes M + untracked; no reflog
-git clean -fd                  # deletes untracked; unrecoverable
+# DO — git reset --keep origin/main; git clean -n (loud refusal / preview)
+# DO NOT — git reset --hard origin/main; git clean -fd (wipes M + untracked; no reflog)
 ```
 
-**Why:** The most destructive working-tree ops that don't rewrite history; unlike force-push the loss is unrecoverable (no reflog). `git reset --keep` / `git clean -n` convert silent loss into a loud refusal/preview. See guide for the #401 incident + the `dataflow-identifier-safety.md` Rule 4 / `schema-migration.md` Rule 7 siblings.
+**Why:** Unlike force-push the loss is unrecoverable (no reflog). `--keep` / `clean -n` convert silent loss into a loud refusal/preview. See guide for the #401 incident + sibling rules.
 
 ## Rules
 
@@ -87,21 +75,17 @@ git clean -fd                  # deletes untracked; unrecoverable
 - Commit bodies MUST answer **why**, not **what** (the diff shows what)
 
 ```
-# DO — explains why
-feat(dataflow): add WARN log on bulk partial failure
-# (BulkCreate silently swallowed per-row exceptions; alerting never fired.)
-# DO NOT — restates the diff
-feat(dataflow): add logging to bulk create
-# (Added logger.warning call in _handle_batch_error method.)
+# DO — body explains why: "(BulkCreate silently swallowed per-row exceptions; alerting never fired.)"
+# DO NOT — body restates the diff: "(Added logger.warning call in _handle_batch_error.)"
 ```
 
-**Why:** Mixed commits are impossible to revert cleanly. Leaked secrets require key rotation across all environments. Large binaries permanently bloat the repo. Commit bodies that explain "why" are the cheapest form of institutional documentation — co-located, versioned, `git log --grep`-searchable, never stale.
+**Why:** Mixed commits are impossible to revert cleanly; leaked secrets require rotation everywhere; commit bodies that explain "why" are the cheapest institutional documentation — co-located, versioned, `git log --grep`-searchable.
 
 ## Discipline
 
 - **Issue closure**: `gh issue close <N>` MUST include a commit SHA / PR number / merged-PR link in the comment. Closing with no code reference is BLOCKED.
 - **Pre-commit hook workarounds**: when pre-commit auto-stash fails despite hooks passing standalone, `git -c core.hooksPath=/dev/null commit ...` MUST be documented in the commit body + a follow-up todo filed. Silent `--no-verify` is BLOCKED.
-- **Pre-commit comment-syntax matchers**: the `python-use-type-annotations` hook regex matches `# type` (NOT `# type:`) per `pre-commit-hooks/.pre-commit-hooks.yaml::pygrep`. Comments referencing the `types` module — `# types.UnionType for PEP 604` — trigger a false positive. Reword to avoid `# type` as a literal substring (e.g. "PEP 604 produces `types.UnionType`" → "PEP 604 produces a union type"). Same class for any future `pygrep` hook that matches comment fragments without the trailing punctuation.
+- **Pre-commit comment-syntax matchers**: `pygrep`-class hooks match comment fragments WITHOUT trailing punctuation (`python-use-type-annotations` matches `# type`, not `# type:`); reword comments to avoid the literal substring. See extract for the `types.UnionType` false-positive walkthrough.
 - **Commit-message claim accuracy**: commit bodies MUST describe ONLY changes actually present in the diff. Over-claiming a refactor / deletion / side-effect is BLOCKED. If the claim was made in error, push a FOLLOW-UP commit that delivers what the prior message said — do NOT amend.
 
 **Why:** Issues closed without code refs break traceability; undocumented workarounds force every session to re-discover the same fix; over-claiming commit bodies poison `git log --grep` (the cheapest institutional-knowledge search). See extract for full DO/DO NOT examples.

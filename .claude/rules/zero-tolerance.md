@@ -15,9 +15,9 @@ ALL sessions, ALL agents, ALL code, ALL phases. ABSOLUTE and NON-NEGOTIABLE.
 
 If you found it, you own it. Fix in THIS run — do not report, log, or defer.
 
-**Applies to** (equal weight): test/build/type failures, compiler/linter warnings, deprecation notices, WARN/ERROR in workspace logs since the previous gate, runtime warnings (`DeprecationWarning`/`ResourceWarning`/`RuntimeWarning`), peer-dependency / version-resolution warnings. A warning is not "less broken" than an error — it is an error the framework chose to keep running through.
+**Applies to** (equal weight): test/build/type failures, compiler/linter warnings, deprecation notices, WARN/ERROR in workspace logs since the previous gate, runtime + peer-dependency warnings. A warning is an error the framework chose to keep running through.
 
-**Process:** diagnose root cause → fix → regression test → verify → commit. Scan most recent test runner + build output for WARN+ entries before reporting any gate complete (full triage protocol in `rules/observability.md` Rule 5).
+**Process:** diagnose root cause → fix → regression test → verify → commit. Scan latest test/build output for WARN+ before reporting any gate complete (triage protocol: `rules/observability.md` Rule 5).
 
 **BLOCKED responses:**
 
@@ -30,7 +30,7 @@ If you found it, you own it. Fix in THIS run — do not report, log, or defer.
 
 **Why:** Deferring creates a ratchet — every session inherits more failures. Today's `DeprecationWarning` is next quarter's "it stopped working when we upgraded".
 
-**Exceptions:** User says "skip this", OR upstream third-party deprecation unresolvable in this session → pinned version + documented reason / upstream issue link / explicit-owner todo. Silent dismissal still BLOCKED.
+**Exceptions:** User says "skip this", OR unresolvable upstream third-party deprecation → pinned version + documented reason / upstream issue link / owner todo. Silent dismissal still BLOCKED.
 
 **See also:** `rules/time-pressure-discipline.md` — most common bypass is user pressure framing; the throughput response is parallelization, not deferral.
 
@@ -42,15 +42,15 @@ Findings on a PR scan MUST be treated identically to findings on a main scan. "S
 
 ### Rule 1b: Scanner Deferral Requires Tracking Issue + Runtime-Safety Proof
 
-A LEGITIMATE deferral exists for findings that are provably runtime-safe AND require architectural refactor out of release-scope — ONLY when all four conditions hold: (1) written runtime-safety proof in PR comment citing guard lines, (2) tracking issue titled `codeql: defer <rule-id> — <ctx>` with full-fix acceptance criteria, (3) release PR body link with explicit "deferred, safe per #<issue>" language, (4) release-specialist signoff in review (or user "full fix" override). Missing any → silent dismissal → BLOCKED.
+A LEGITIMATE deferral exists for findings provably runtime-safe AND requiring architectural refactor out of release-scope — ONLY when all four hold: (1) written runtime-safety proof in PR comment citing guard lines, (2) tracking issue `codeql: defer <rule-id> — <ctx>` with full-fix acceptance criteria, (3) release PR body "deferred, safe per #<issue>" link, (4) release-specialist signoff (or user override). Missing any → silent dismissal → BLOCKED.
 
-**Why:** Without all four, "deferred" is indistinguishable from silent dismissal — nothing forces follow-up and nothing surfaces the backlog. See guide for kailash-ml 1.5.x evidence + full BLOCKED-rationalization corpus.
+**Why:** Without all four, "deferred" is indistinguishable from silent dismissal. See guide for kailash-ml 1.5.x evidence + full BLOCKED corpus.
 
 ### Rule 1c: "Pre-Existing" Is Unprovable After Context Boundary
 
-Any "pre-existing", "not introduced this session", or "outside session blast radius" disposition MUST cite a commit SHA pre-dating the session's first tool call. After `/clear`, auto-compaction, resume, or sub-agent handoff, the agent has no audit trail — the claim is structurally unfalsifiable and BLOCKED. Disposition under uncertainty: fix it.
+Any "pre-existing" / "not introduced this session" disposition MUST cite a commit SHA pre-dating the session's first tool call. After `/clear`, auto-compaction, resume, or sub-agent handoff the claim is structurally unfalsifiable and BLOCKED. Disposition under uncertainty: fix it.
 
-**Why:** COC sessions cross context boundaries that erase the edit log; `git blame` is insufficient (may attribute a same-session refactor regression to the original 2024 author). See guide for full prose + the `prompts.ts:201` wrapper-prompt reference.
+**Why:** Context boundaries erase the edit log; `git blame` may attribute a same-session regression to the original author. See guide.
 
 ## Rule 2: No Stubs, Placeholders, Or Deferred Implementation
 
@@ -82,13 +82,19 @@ Any delegate method forwarding to a lazily-assigned backing object MUST guard wi
 
 A kwarg accepted in the public signature but with zero effect on the function body IS the silent-fallback failure mode at API surface level. Every documented kwarg MUST be consumed by ≥1 branch of the function body OR explicitly forwarded to a callee. Silent drop is BLOCKED.
 
-**Why:** A documented kwarg is a contract. Same failure-mode class as `except: pass` (Rule 3) and fake encryption (Rule 2): the documented behavior advertises something the code does not perform. See guide for kailash-ml #701 (`diagnose(data=loader)` silently dropped) evidence.
+**Why:** A documented kwarg is a contract; the documented behavior advertises something the code does not perform. See guide for kailash-ml #701 evidence.
 
 ### Rule 3d: Dual-Shape Return + Structural Guard = Silent Fallback
 
 A property or method whose return type is a union of structurally-distinct shapes (e.g., `Union[ConfigWrapper(dict), KaizenConfig(dataclass)]`) MUST NOT be consumed via a structural existence guard (`hasattr(value, "method")`) that resolves True for one branch and False for the other. Either dispatch on a discriminator (`isinstance` / type check) OR collapse the API to a single return shape.
 
-**Why:** `hasattr` silently flips False on the branch that lacks the attribute; the documented behavior never fires for users on that branch. Same failure-mode class as fake dispatch — the documented contract advertises a feature the code does not perform on every branch. See guide for kailash-kaizen #822 evidence.
+**Why:** `hasattr` silently flips False on the branch lacking the attribute; the documented behavior never fires for users on that branch. See guide for kailash-kaizen #822 evidence.
+
+### Rule 3e: Doc Walk-Back Claims About Code Surface Cite Source Line Range
+
+Any doc edit rewriting a claim about code surface — method lists, registered handlers, exposed bindings, config keys, deprecation lists, magic-value numeric constants (cross-base restatements of `pub const` sentinels) — MUST cite the ground-truth source as `<path>:<start>-<end>` in the same paragraph; cross-base numeric restatements additionally require a same-shard compile-time pin test. Uncited claims are BLOCKED.
+
+**Why:** Walk-backs are written mid-correction without the registration block in working memory — the doc drifts to what the API "should" expose. See guide for kailash-rs PRs #1087/#1088 + #1160 evidence + Trust Posture Wiring.
 
 ## Rule 4: No Workarounds For Core SDK Issues
 
@@ -127,4 +133,4 @@ Public-API removal MUST land with a `DeprecationWarning` shim covering at least 
 
 **Why:** Removal without a deprecation cycle hard-breaks every downstream callsite on first `pip upgrade` / `cargo update`. The shim converts a hard break into an actionable warning; the CHANGELOG migration tells users what to do next. See guide for kailash-ml 1.5.0 evidence.
 
-Origin: 2026-04-12 + DataFlow 2.0 Phase 5 audit + kailash-ml-audit 2026-04-23 W33b + 2026-04-29 followup audit. See guide for full BLOCKED-pattern code examples + audit evidence.
+Origin: 2026-04-12 + DataFlow 2.0 Phase 5 audit + kailash-ml-audit 2026-04-23 W33b + 2026-04-29 followup audit + kailash-rs Rule 3e (2026-05-22 PR #1088; magic-value extension 2026-05-28 PR #1160). See guide for full BLOCKED-pattern code examples + audit evidence.

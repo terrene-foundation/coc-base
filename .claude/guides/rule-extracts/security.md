@@ -146,6 +146,45 @@ engine.validate_record(instance)  -> validate_model(instance)   # bypasses sanit
 
 Origin: PR #522 / PR #529 (2026-04-19) — BP-049 validation sanitiser plumbing missed one sibling.
 
+## Redactor Contract — Extended
+
+### 1. Minimum Subject-Id Length Floor (≥8 chars)
+
+A substring-match redactor that scrubs every string containing a `subject_id` substring MUST reject ids shorter than 8 chars with a typed error citing the floor and the received length. Empty-id rejection alone is insufficient — single-char and 2-char ids substring-match catastrophically into benign role-knowledge strings.
+
+```text
+# DO — fail closed on a too-short id (typed error names floor + received length)
+redact_subject_keyed(payload, subject_id="a")
+→ Error: subject_id length 1 below MIN_SUBJECT_ID_CHARS=8 (over-redaction guard)
+
+# DO NOT — empty-check only; 1–7-char ids over-redact benign strings
+redact_subject_keyed(payload, subject_id="alice")
+→ "malice aforethought" → "m[REDACTED] aforethought"   # role knowledge destroyed
+```
+
+Practical subject refs (sovereign_ref, role_id, agent_id, UUIDs, emails) are all ≥8 chars — the floor is the structural defense against the over-redaction class, which defeats the "successor inherits role knowledge" contract by scrubbing content the successor is entitled to.
+
+### 2. Numbered-Sentinel Key Scrub (companion clause)
+
+A subject-keyed redactor scrubbing object KEYS that match the subject id MUST scrub BOTH the key AND the value. Preserving the original matching key under a `"[REDACTED]"` value leaks the departed subject's identity as audit metadata — a downstream reader can enumerate which entries belonged to them.
+
+```text
+# DO — numbered sentinel preserves audit shape, scrubs identity
+{"alice@example.com": "...", "bob@example.com": "..."} (subject = alice@example.com)
+→ {"[REDACTED_KEY_1]": "[REDACTED]", "bob@example.com": "..."}
+# count of scrubbed keys preserved via per-key counter; byte-level audit trail
+# preserved via the original_hash return (hash-preserving redaction contract)
+
+# DO NOT — preserve the matching key as "audit metadata"
+→ {"alice@example.com": "[REDACTED]", ...}   # identity leaks as the key itself
+```
+
+The matching-key counter prevents map collapse across multiple matching keys; any residue predicate (`payload_mentions_subject`) MUST treat matching keys as residue, symmetric with the scrubber.
+
+**Cross-SDK landing requirement:** when an equivalent subject-keyed redactor lands in a sibling SDK (Python, Ruby, Node), the min-length floor AND the numbered-sentinel key scrub MUST be part of the ORIGINAL landing — not a follow-up.
+
+**Evidence:** kailash-rs `eatp::redact_subject_keyed` shipped with only an empty-id check (PR #1123 commit `f2cd020e`); /redteam Round 1 flagged HIGH (1–7-char ids over-redact role knowledge) + MEDIUM (preserved matching key leaks predecessor identity). Same-shard fix (commit `6a332ef5`) added the `MIN_SUBJECT_ID_CHARS = 8` floor + regression test `redact_subject_keyed_short_subject_id_is_rejected` + the `[REDACTED_KEY_N]` sentinel + symmetric residue predicate.
+
 ## Kailash-Specific Security — Extended
 
 - **DataFlow**: Access controls on models, validate at model level, never expose internal IDs

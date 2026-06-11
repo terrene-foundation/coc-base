@@ -1,0 +1,5 @@
+The Linux gem job failed. From the log:
+    no ruby-build version for 3.2
+    + exit 1
+Root cause: rbenv install --list returns a curated shortlist; the grep finds no
+3.2 patch -> empty -> exit 1. (NOT a timeout -- the job ran 53s.)

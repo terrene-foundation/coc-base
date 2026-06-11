@@ -12,13 +12,15 @@ paths:
 
 # Recommendation Quality — No Suggestion Without Recommendation
 
+See `.claude/guides/rule-extracts/recommendation-quality.md` for MUST-6's extended decision-packet DO/DO-NOT examples and detection-mechanism detail.
+
 When the agent surfaces a choice to the user — options, paths forward, design tradeoffs, technical decisions, mitigation strategies — the agent MUST present a **recommendation**, not a menu. The recommendation MUST include implications, pros and cons, and plain-language framing the user can act on without a technical glossary. Bare option enumeration without a pick is BLOCKED. Pros-and-cons-without-recommendation is BLOCKED. Technical jargon without translation is BLOCKED.
 
 The user opens a conversation to be **advised**, not to be a decision arbitrator on an unannotated list.
 
 ## Scope
 
-ALL agent output that asks for user direction. Applies to: design choices, architectural tradeoffs, "should we X or Y?" framings, "options A/B/C" lists, mitigation strategies, scope decisions, sequencing decisions, follow-up dispositions. Does NOT apply to: factual answers ("what's the version of X?"), confirmation gates ("destructive op — proceed?"), or user-explicitly-asked-for-choice ("give me three options").
+ALL agent output that asks for user direction. Applies to: design choices, architectural tradeoffs, "should we X or Y?" framings, "options A/B/C" lists, mitigation strategies, scope decisions, sequencing decisions, follow-up dispositions, **founder/owner decision packets and "clarification" lists**. Does NOT apply to: factual answers ("what's the version of X?"), confirmation gates ("destructive op — proceed?"), or user-explicitly-asked-for-choice ("give me three options"). Note: a founder-clarification packet is NOT the "user-explicitly-asked-for-choice" exemption — the user asking for a decision packet is asking for _recommendations to ratify_, not a blank menu (see MUST-6).
 
 ## MUST Rules
 
@@ -200,11 +202,37 @@ forward, (b) revert and start clean, (c) some hybrid. Which way?
 
 **Why:** A recommendation that ends in "or, alternatively, the menu I just declined to recommend on" cancels itself out. Either the agent has a recommendation (commit to it; ask yes/no to confirm OR ask one specific clarifying question that would change it), or the agent doesn't and should say so explicitly: "I don't have enough context to recommend; I need to know X first."
 
+### 6. "The Human Decides" Means Ratify A Recommendation — Not Fill A Blank
+
+When a decision is reserved to the human (founder ratification, owner sign-off, a gated approval, a "clarification" the human must answer), the agent MUST still produce a full spec-grounded recommendation for **every** item. The human exercises authority by **ratifying or overriding** that recommendation — NOT by answering a blank the agent left. A "clarification packet", "decision menu", or list of open questions presented with empty answer fields for the human to fill from scratch is the MUST-1 violation in disguise and is BLOCKED.
+
+Decide ≠ recommend. "Not an agent-decided _default_" forbids a SILENT, unstated assumption baked into code or output — it does NOT forbid a LOUD, rationale-backed, ratifiable _recommendation_. The agent always recommends; the human always decides; withholding the recommendation is never the correct expression of "the human decides."
+
+A multi-domain decision packet (≥2 questions spanning ≥2 specialist domains) MUST have each recommendation produced by the relevant **domain specialist** (per `rules/agents.md` Specialist Delegation), so every pick is spec-grounded — a single-threaded orchestrator guess is not a spec-grounded recommendation.
+
+`DO` (packet): each row = recommendation + spec basis + honest con + "RATIFY / OVERRIDE". `DO` (authorship): each row's pick produced by its domain specialist; the orchestrator synthesizes, does not guess. `DO NOT`: a row with an empty `→ ANSWER:` field; a recommendation cell that says "needs input" / "TBD" / "depends" (a blank in table costume); all rows guessed in one single-threaded orchestrator pass. Full examples in the guide extract.
+
+**BLOCKED rationalizations:**
+
+- "These are clarifications for the human to answer, not choices for me to recommend on"
+- "The human / founder holds decision authority, so I should not pre-fill"
+- "'Not an agent-decided default' means I must not recommend an answer"
+- "Presenting the questions blank respects the human's decision authority"
+- "The agent does NOT pre-fill — withholding the recommendation IS the discipline"
+- "The questions are too deep / too founder-specific for me to recommend on"
+- "The recommendation cell can say 'needs founder input' — that's honest"
+
+**Why:** Withholding the recommendation under the banner of "the human decides" transfers the entire synthesis cost to the human — the exact MUST-1 failure, one indirection deeper. The human's decision authority is over the recommendation, not over a vacuum; even a deep question has a spec-closest answer the agent MUST recommend, naming the residual judgment (per MUST-1's "state which context would change the recommendation, not punt"). A decision packet remains an internal artifact — if escalated to a public/cross-repo surface it stays bound by `upstream-issue-hygiene.md` Rule 2 redaction.
+
 ## MUST NOT
 
 - Surface ≥2 options without a recommendation pick
 
 **Why:** This is the originating failure mode this rule blocks. The user who asked for advice gets a menu instead.
+
+- Present a "clarification packet" / decision list with blank answer fields, OR a recommendation cell that punts ("needs input" / "TBD" / "depends"), for the human to resolve from scratch
+
+**Why:** A blank packet is MUST-1's violation in the costume of deference; "the human decides" is satisfied by ratify/override, not by an empty field.
 
 - Use technical terms without immediate translation on first appearance in a recommendation
 
@@ -221,11 +249,12 @@ forward, (b) revert and start clean, (c) some hybrid. Which way?
 ## Trust Posture Wiring
 
 - **Severity:** `advisory` for the hook-based detection (lexical regex match — per `rules/hook-output-discipline.md` MUST-2, lexical signals MUST NOT carry severity:block); `halt-and-report` when surfaced by a gate-level reviewer (reviewer / cc-architect) at `/codify` validation. Not block-at-tool-call (no structural signal at PreToolUse time — recommendations are prose).
-- **Grace period:** 7 days from rule landing (2026-05-06 → 2026-05-13). During grace, the Stop-event hook logs to `violations.jsonl` for cumulative-tracking but does NOT auto-emergency-downgrade. After grace, regression contributes to the cumulative-downgrade math per `rules/trust-posture.md` MUST Rule 4 (5× total in 30d → drop posture).
-- **Regression-within-grace:** if `/codify` authors a same-class violation (a recommendation that drops to a menu, hides cons, or buries jargon) within 7 days of this rule landing, emergency-downgrade per trust-posture Rule 4.
+- **Grace period:** MUST-1..5 — 7 days from 2026-05-06 (→ 2026-05-13). MUST-6 — 7 days from 2026-05-18 (→ 2026-05-25). During grace, the Stop-event hook logs to `violations.jsonl` for cumulative-tracking but does NOT auto-emergency-downgrade. After grace, regression contributes to the cumulative-downgrade math per `rules/trust-posture.md` MUST Rule 4 (5× total in 30d → drop posture).
+- **Regression-within-grace:** if `/codify` authors a same-class violation (a recommendation that drops to a menu, hides cons, buries jargon, OR a blank-field decision packet) within the relevant grace window, emergency-downgrade per trust-posture Rule 4.
 - **Receipt requirement:** SessionStart MUST require `[ack: recommendation-quality]` in the agent's first response IF the most recent `violations.jsonl` includes a `recommendation-quality/MUST-1` entry AND `posture.json::pending_verification` includes this rule_id.
 - **Detection mechanism (hook layer — IMPLEMENTED 2026-05-06):** `.claude/hooks/lib/violation-patterns.js::detectMenuWithoutPick` runs in the Stop-event chain via `.claude/hooks/detect-violations.js`. Pattern: ≥2 option markers (`Option [A-D]`, `(a)`–`(d)`, `[a]`–`[d]`) without a recommendation anchor (`I recommend`, `Going with`, `Pick:`, `My pick:`, `Recommendation:`, `My choice:`, `I'd go with`, `I'm going with`). 8 audit fixtures committed at `.claude/audit-fixtures/violation-patterns/detectMenuWithoutPick/` per `rules/cc-artifacts.md` Rule 9 + `rules/hook-output-discipline.md` MUST-4 — covering: 2 flag cases (markers without anchor), 5 clean cases (single option, with each of three anchor forms, no options at all), 1 empty input. False-positive class: legitimate option enumerations the user explicitly asked for ("just give me the options"). Acknowledged in Scope above; the hook surfaces the candidate, the agent acknowledges in next turn or the user adjudicates.
 - **Detection mechanism (review layer — semantic):** gate-level reviewer mechanical sweep at `/codify` validation: for any agent response flagged by the hook AND the response was in answer to a user choice, the reviewer confirms whether (a) the user explicitly asked for a menu (false positive — close), or (b) the response genuinely lacked recommendation/implications/pros-cons/plain-language (true positive — flag for downgrade math). Final disposition is human.
+- **Detection mechanism (MUST-6 — decision packets):** `detectMenuWithoutPick` covers prose menus; a blank packet is a FILE artifact, not prose — Phase-1 detection is the `/codify` + `/redteam` gate-review (reviewer confirms any surfaced decision packet carries a recommendation per row). Phase-2 (deferred): a `PostToolUse(Write)` hook scanning decision-packet files for empty answer-field markers; detail in the guide extract.
 
 ## Relationship to existing rules
 
@@ -241,3 +270,5 @@ Distinct from:
 - `rules/time-pressure-discipline.md` — that rule's MUST Rule 3 (Prioritization MUST Be Suggested, Not Auto-Picked) IS the recommendation-quality shape applied to pressure-driven prioritization. When the user signals time pressure and ≥2 outstanding tasks are eligible, the agent MUST surface a prioritized list with rationale per this rule's Rules 1–3, not unilaterally pick the top item.
 
 Origin: 2026-05-06 — user directive after observing recommendations that surfaced options without picks AND used technical framings without translation: "please add in a strong rule that agent is not supposed to suggest without giving recommendations with implications, pros and cons, and easy-to-understand less technical expositions. This is critical." The user feedback memory `feedback_directive_recommendations.md` (2026-04-22) had captured the principle; this rule structurally enforces it as a MUST clause with detection + grace-period wiring.
+
+Origin (MUST-6): 2026-05-18 — `kailash-rs` session. The agent built a 22-question founder clarification packet as a blank menu — every `→ ANSWER:` field empty, prose stating "the agent does NOT pre-fill." User: "why aren't you using a team of agents, ultrathink, and recommend according to our specs?" Root cause: conflating "don't agent-**decide** a silent default" (correct) with "don't agent-**recommend**" (wrong). Correction: a 6-specialist team produced 23 spec-grounded recommendations; the packet was rewritten to carry pick + spec basis + con + ratify/override per row. User then directed proper codification ("don't just rely on memory, codify it properly"). Self-referential `/codify` per `self-referential-codify.md` Rule 2 — landed BUILD-side with a 3-agent redteam (reviewer / security-reviewer / cc-architect), verdict MERGE-WITH-FIXES, all CRIT/HIGH/MED fixes applied in that codify.

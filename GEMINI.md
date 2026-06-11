@@ -157,6 +157,8 @@ The MUST clauses in the neutral-body section reference numbered examples here. T
 
 # Autonomous Execution Model
 
+See `.claude/guides/rule-extracts/autonomous-execution.md` for extended examples + Rule-4 Origin evidence.
+
 
 COC executes through **autonomous AI agent systems**, not human teams. All deliberation, analysis, recommendations, and effort estimates MUST assume autonomous execution unless the user explicitly states otherwise.
 
@@ -197,7 +199,7 @@ Autonomous AI execution with mature COC institutional knowledge produces ~10x su
 
 **Does NOT apply to**: Greenfield domains (first session ~2-3x), novel architecture decisions, external dependencies (API access, approvals), human-authority gates (calendar-bound).
 
-**See also**: `rules/time-pressure-discipline.md` — when the user signals time pressure ("speed up", "deadline looming", "everyone's waiting"), parallelization IS the throughput response. Procedure drops (skipping `/redteam`, omitting regression tests, `--no-verify`) are BLOCKED even when explicitly authorized; the structural alternative (more parallel shards within the per-session capacity budget below) is the only correct response.
+**See also**: `rules/time-pressure-discipline.md` — under time-pressure framings, parallelization IS the throughput response; procedure drops are BLOCKED even when explicitly authorized.
 
 ## Structural vs Execution Gates
 
@@ -219,6 +221,12 @@ A single shard (one session, one worktree, one implementation pass) MUST stay wi
 - **≤15k LOC of relevant surface area** in working context for correctness.
 - Describable in **3 sentences or fewer**. If it takes more, the shard is too big.
 
+```markdown
+# DO — sharded plan, explicit invariant count per shard (3 shards × 3 invariants)
+
+# DO NOT — one mega-todo bundling all paths + call sites + tests + migration
+```
+
 **Why:** Beyond the budget the model stops tracking cross-file invariants and pattern-matches instead. Errors on line 400 poison everything after and surface only at `/redteam`. See Origin for Phase 5.11 evidence.
 
 ### 2. Size By Complexity, Not LOC Alone (MUST)
@@ -237,13 +245,13 @@ Shards with an executable feedback loop (unit tests, `cargo check`, type checker
 
 When a gate-level review (reviewer, security-reviewer, gold-standards-validator) or self-verification surfaces a latent gap in the SAME BUG CLASS as the in-flight PR AND the gap fits within one remaining shard budget (≤500 LOC load-bearing logic / ≤5–10 invariants / ≤3–4 call-graph hops), the session MUST spawn the fix immediately rather than filing a follow-up issue. Filing the follow-up issue instead of fixing is BLOCKED.
 
-**Why:** Same-bug-class gaps surfaced during review cost the least to fix while the context is loaded — the invariants, call graph, and domain model are all warm in attention. Filing a follow-up issue requires the next session to reload the entire context from scratch, typically 2–5× the marginal cost of continuing. See Origin for 2026-04-20 + cross-class evidence (kailash-rs PRs #735/#736, kailash-kaizen PR #836).
+**Why:** Same-class gaps cost least to fix while the context is warm; a follow-up issue forces the next session to reload everything, typically 2–5× the marginal cost. See Origin.
 
 **Bounded by the shard budget.** This rule does NOT override MUST Rule 1 (shard threshold). If the surfaced gap exceeds ≤500 LOC load-bearing / ≤5–10 invariants / ≤3–4 call-graph hops, filing the follow-up issue IS the correct disposition — the gap is a new shard, not a continuation of the current one.
 
 ## Multi-Operator Capacity Considerations
 
-Concurrent-operator capacity guidance — per-operator capacity bounded per-`verified_id` (not per-session), cross-operator parallelization throughput multiplier (NON-SAME adjacency only), `/claim`-record discipline as the coordination signal — lives in `rules/multi-operator-coordination.md` §8. That rule is `scope: path-scoped` so the capacity clauses load only on paths where multi-operator coordination applies, keeping this baseline rule under its per-rule emission budget.
+Concurrent-operator capacity guidance (per-`verified_id` budgets, NON-SAME-adjacency parallelization, `/claim`-record discipline) lives in `rules/multi-operator-coordination.md` §8 (path-scoped).
 
 ## MUST NOT (Sharding)
 
@@ -319,20 +327,80 @@ At gates (end of `/todos`, before `/deploy`), ask:
 
 - Ask non-coders to read code — describe in plain language
 
-**Why:** Non-technical users cannot act on code snippets, so they either ignore the information or make wrong assumptions.
+**Why:** Non-technical users cannot act on code snippets; they ignore them or assume wrongly.
 
 - Use unexplained jargon — immediately explain technical terms
 
-**Why:** Unexplained jargon forces the user to ask clarifying questions, doubling the turns needed to reach a decision.
+**Why:** Unexplained jargon doubles the turns needed to reach a decision.
 
 - Present raw error messages — translate to impact
 
-**Why:** Raw error messages are unintelligible to most users and create anxiety without enabling action.
+**Why:** Raw errors create anxiety without enabling action.
 
 - Repeat the same jargon if user says "I don't understand" — find new analogy
 
-**Why:** Repeating failed explanations signals that the agent cannot adapt, eroding user trust in the entire session.
+**Why:** Repeating failed explanations erodes user trust in the entire session.
 
+
+---
+
+# Evidence-First Claims — No Assertion Without Quoted Evidence
+
+See `.claude/guides/rule-extracts/evidence-first-claims.md` for full DO/DO-NOT blocks, BLOCKED-rationalization corpora, the `cat -v` decode walkthrough, the structural-finding carve-out, and the complete E1/E2/E3 origin narrative.
+
+Diagnostic, root-cause, anomaly, and security claims MUST be grounded in evidence quoted **inline, in the same message as the claim**. Inference is permitted — but labeled as inference, never asserted as fact. The security/anomaly subclass carries the strictest bar: quote the triggering bytes, decoded.
+
+## MUST Rules
+
+### 1. Diagnostic And Root-Cause Claims Cite The Evidence Inline
+
+Any statement of WHY something failed MUST quote the supporting log line, command output, exit code, or file content in the same message. "X failed because Y" without the evidence for Y is BLOCKED; reading the log precedes naming the cause.
+
+**Why:** A symptom is consistent with many causes; naming one before reading the evidence builds the next action on a confident-but-wrong diagnosis. See guide.
+
+### 2. Security / Anomaly Claims Quote The Triggering Bytes, Decoded
+
+Any claim of compromise, injection, tampering, or "suspicious" data MUST quote the exact triggering bytes inline AND decode the WHOLE suspect span (`hexdump -C` / `od -c`) BEFORE characterizing it. A `cat -v` rendering is display encoding, NOT content. Byte-less structural findings substitute inline repro steps + observed output; fabricating a byte-quote OR suppressing a byte-less real finding are BOTH BLOCKED.
+
+**Why:** A false security claim is worse than silence — it triggers escalation and consumes trust real findings need; one hexdump settles whether `e2 80 94` is an em-dash or a payload. See guide.
+
+### 3. An Errored Or Empty Command Is Zero Evidence, Never Confirmation
+
+A command that exited non-zero, hit an invalid flag, timed out, or returned empty provides no findings — it does NOT "confirm" any hypothesis. An errored SECURITY detector is NOT an all-clear: re-run it correctly OR surface "detection did not run; threat status UNKNOWN".
+
+**Why:** An errored command and a clean-but-empty result are indistinguishable in raw output yet opposite in meaning. See guide.
+
+### 4. Inference Is Labeled As Inference; Only Quoted Observation Is Stated As Fact
+
+"I see [quoted X]" is a fact; "this suggests [Y]" is an inference and MUST carry a hypothesis marker. Presenting an inference in the grammar of an observation is BLOCKED.
+
+**Why:** The reader cannot act correctly if they cannot tell known from guessed; fact-grammar is the form every confabulation takes. See guide.
+
+## MUST NOT
+
+- State a security / compromise / injection / tampering claim without quoting the triggering bytes inline — **Why:** unfalsifiable from the reader's side; triggers costly escalation on a possibly-invented threat.
+- Characterize `cat -v` / escaped-byte renderings as content without decoding to the real codepoint first — **Why:** the rendering is not the byte.
+- Treat an errored, timed-out, or empty command result as confirmation of any hypothesis — **Why:** absence-of-result is not evidence.
+- Assert a root-cause claim before reading the log / output / file that would show the cause — **Why:** the log disambiguates; asserting first builds the next action on a guess.
+
+## Trust Posture Wiring
+
+- **Severity:** `halt-and-report` at gate-review (reviewer / cc-architect at `/codify`); `advisory` at hook layer per `hook-output-discipline.md` MUST-2. MUST-2 is the canonical halt-and-report trigger.
+- **Grace period:** 7 days from rule landing (2026-05-31 → 2026-06-07).
+- **Cumulative posture impact:** MUST-1/3/4 route cumulative per `trust-posture.md` MUST-4; MUST-2 routes emergency — never double-counted.
+- **Regression-within-grace:** emergency downgrade per `trust-posture.md` MUST-4. Independently, MUST-2 is a 1×-instant emergency trigger — key `evidence_free_claim` (1× = drop 1 posture).
+- **Receipt requirement:** SessionStart `[ack: evidence-first-claims]` IFF `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 review-layer (load-bearing) — reviewer at `/implement` + cc-architect at `/codify`. Phase 2 hook (advisory, planned `detectEvidenceFreeClaim` on Stop). Fixtures: `.claude/audit-fixtures/evidence-first-claims/` (one flag + one clean per MUST predicate).
+- **Violation scope:** rule-corpus-wide. MUST-1/3/4 cumulative; MUST-2 emergency.
+- **Origin:** See § Origin.
+
+## Distinct From / Cross-References
+
+Extends `verify-resource-existence.md` MUST-2 to ALL diagnostic/anomaly/security claims. Pairs with `recommendation-quality.md` MUST-3, `probe-driven-verification.md`, `user-flow-validation.md` MUST-2. Distinct from `communication.md` (HOW to phrase vs WHETHER a claim may be made) and from `verify-claims-before-write.md` (code-surface claims at durable-write time vs diagnostic/security claims inline in any message).
+
+## Origin
+
+2026-05-31 — kailash-rs session: three escalating assert-before-verify errors (E1 "timeout" misdiagnosis vs a 53s log-visible failure; E2 errored command nearly read as runner-deletion; E3 fabricated "curl|bash prompt-injection" from a `cat -v`-rendered em-dash — the detection grep never ran). User directive after E3: "how can you just fabricate a security claim, its not normal, please investigate fully" → forensics → `/codify`. Full narrative in the guide extract.
 
 ---
 
@@ -386,13 +454,18 @@ Format: `type/description` (e.g., `feat/add-auth`, `fix/api-timeout`).
 
 Any PR whose diff is metadata-only — version anchors (`pyproject.toml` / `Cargo.toml`, `__init__.py::__version__` / lib.rs `pub const VERSION`), `CHANGELOG.md`, spec/doc version-line updates — MUST be opened from a branch named `release/v<X.Y.Z>`. Using `feat/`, `fix/`, `chore/` on a release-prep PR is BLOCKED.
 
-**Why:** PR-gate workflows check `if: !startsWith(github.head_ref, 'release/')`. Branching from `release/v*` triggers the auto-skip and saves ~45 min × matrix-size of CI minutes per release-prep PR. If the work IS NOT metadata-only, split: keep code fix on `feat/`/`fix/` branch, cut release-prep on a separate `release/v*` branch. See guide for the ~120 min CI burn evidence.
+```bash
+# DO — git checkout -b release/v3.23.0 (auto-skips PR-gate matrix)
+# DO NOT — git checkout -b feat/v3.23.0-release-prep (fires full matrix on metadata-only diff)
+```
+
+**Why:** PR-gate workflows check `if: !startsWith(github.head_ref, 'release/')`; the auto-skip saves ~45 min × matrix-size per release-prep PR. If the work is NOT metadata-only, split code onto `feat/`/`fix/` and cut release-prep on a separate `release/v*` branch. See guide.
 
 ### Pre-FIRST-Push CI Parity Discipline (MUST)
 
 Before the FIRST `git push` that creates a remote branch, the agent MUST run the project's local CI parity command set (Rust: `cargo +nightly fmt --all --check` + `cargo clippy -- -D warnings` + `cargo nextest run` + `RUSTDOCFLAGS="-Dwarnings" cargo doc`. Python: `pre-commit run --all-files` + `pytest` + `mypy --strict`). All MUST exit 0 → push.
 
-**Why:** With `concurrency: cancel-in-progress: true`, prior in-flight runs are cancelled but **still billed for the wall-clock minutes consumed before cancellation**. Pre-flighting takes ~5-10 min; the alternative is N × 45 min of billed CI per fix-up cycle. See guide for the 71-minute mid-flight cancel evidence + the full Rust/Python command set.
+**Why:** With `concurrency: cancel-in-progress: true`, cancelled in-flight runs are still billed for wall-clock consumed. Pre-flighting takes ~5-10 min; the alternative is N × 45 min of billed CI per fix-up cycle (push → CI fail → fix-up → push is the DO-NOT). See guide for the 71-minute mid-flight cancel evidence + full command set.
 
 ## Branch Protection
 
@@ -410,7 +483,12 @@ CC system prompt provides the template. Always include a `## Related issues` sec
 
 `git reset --hard <ref>`, `git clean -f[d]`, and `rm -rf` of untracked paths all SILENTLY and IRRECOVERABLY destroy uncommitted work — unstaged modifications AND untracked-not-ignored files have NO reflog. Running any without first verifying `git status --porcelain` is empty is BLOCKED. Prefer `git reset --keep <ref>` (aborts on a dirty tree) and `git stash -u` over `git clean -f`. The `.claude/hooks/validate-bash-command.js` tripwire enforces this at the Bash boundary.
 
-**Why:** The most destructive working-tree ops that don't rewrite history; unlike force-push the loss is unrecoverable (no reflog). `git reset --keep` / `git clean -n` convert silent loss into a loud refusal/preview. See guide for the #401 incident + the `dataflow-identifier-safety.md` Rule 4 / `schema-migration.md` Rule 7 siblings.
+```bash
+# DO — git reset --keep origin/main; git clean -n (loud refusal / preview)
+# DO NOT — git reset --hard origin/main; git clean -fd (wipes M + untracked; no reflog)
+```
+
+**Why:** Unlike force-push the loss is unrecoverable (no reflog). `--keep` / `clean -n` convert silent loss into a loud refusal/preview. See guide for the #401 incident + sibling rules.
 
 ## Rules
 
@@ -420,13 +498,13 @@ CC system prompt provides the template. Always include a `## Related issues` sec
 - No large binaries (>10MB single file)
 - Commit bodies MUST answer **why**, not **what** (the diff shows what)
 
-**Why:** Mixed commits are impossible to revert cleanly. Leaked secrets require key rotation across all environments. Large binaries permanently bloat the repo. Commit bodies that explain "why" are the cheapest form of institutional documentation — co-located, versioned, `git log --grep`-searchable, never stale.
+**Why:** Mixed commits are impossible to revert cleanly; leaked secrets require rotation everywhere; commit bodies that explain "why" are the cheapest institutional documentation — co-located, versioned, `git log --grep`-searchable.
 
 ## Discipline
 
 - **Issue closure**: `gh issue close <N>` MUST include a commit SHA / PR number / merged-PR link in the comment. Closing with no code reference is BLOCKED.
 - **Pre-commit hook workarounds**: when pre-commit auto-stash fails despite hooks passing standalone, `git -c core.hooksPath=/dev/null commit ...` MUST be documented in the commit body + a follow-up todo filed. Silent `--no-verify` is BLOCKED.
-- **Pre-commit comment-syntax matchers**: the `python-use-type-annotations` hook regex matches `# type` (NOT `# type:`) per `pre-commit-hooks/.pre-commit-hooks.yaml::pygrep`. Comments referencing the `types` module — `# types.UnionType for PEP 604` — trigger a false positive. Reword to avoid `# type` as a literal substring (e.g. "PEP 604 produces `types.UnionType`" → "PEP 604 produces a union type"). Same class for any future `pygrep` hook that matches comment fragments without the trailing punctuation.
+- **Pre-commit comment-syntax matchers**: `pygrep`-class hooks match comment fragments WITHOUT trailing punctuation (`python-use-type-annotations` matches `# type`, not `# type:`); reword comments to avoid the literal substring. See extract for the `types.UnionType` false-positive walkthrough.
 - **Commit-message claim accuracy**: commit bodies MUST describe ONLY changes actually present in the diff. Over-claiming a refactor / deletion / side-effect is BLOCKED. If the claim was made in error, push a FOLLOW-UP commit that delivers what the prior message said — do NOT amend.
 
 **Why:** Issues closed without code refs break traceability; undocumented workarounds force every session to re-discover the same fix; over-claiming commit bodies poison `git log --grep` (the cheapest institutional-knowledge search). See extract for full DO/DO NOT examples.
@@ -466,13 +544,13 @@ The agent never self-authorizes. But the user owns the operating envelope (`rule
 4. **Journaled before acting** — a journal entry (requester, target, action, timestamp, verbatim instruction) + a greppable `cross-repo-authorized: <owner/repo>` marker line lands BEFORE the command runs.
 5. **Scoped exactly** — only the named action against only the named repo; no incidental reads, no scope creep.
 
-**Why:** The pre-action journal receipt is what distinguishes an authorized cross-repo write from an unauthorized one — without it the two are identical after the fact, keeping `rules/trust-posture.md` MUST-4's "cross-repo write outside scope → L1" trigger intact (receipt present = in-scope; absent = critical L1).
+**Why:** The pre-action journal receipt is what distinguishes an authorized cross-repo write from an unauthorized one; receipt present = in-scope, absent = critical L1 per `rules/trust-posture.md` MUST-4.
 
 ## Exceptions
 
-NONE the agent may invoke on its own judgment (see § User-Authorized Exception for the only user-initiated path). Descriptive sibling mentions are OK when informational, not prescriptive. The rule does NOT apply at orchestration roots (`~/repos/`, `loom/`) where cross-repo coordination IS the purpose: artifact-distribution (`/sync`, `/sync-to-build`, `/inspect`, `/repos`) AND co-owner-directed cross-repo governance reads (per a User-Authorized Exception grant). **loom is the SOLE carve-out holder**; every downstream consumer is bound by the strict in-repo discipline (a consumer is never an orchestration root). The carve-out lifts the scope boundary for the _operation_ only: a cross-repo WRITE still needs the five conditions, and a cross-repo READ outside artifact-distribution still needs an explicit journaled grant. See extract for the loom-sole-holder rationale + governance-read walkthrough.
+NONE the agent may invoke on its own judgment (§ User-Authorized Exception is the only user-initiated path). Descriptive sibling mentions are OK when informational, not prescriptive. The rule does NOT apply at orchestration roots (`~/repos/`, `loom/`) where cross-repo coordination IS the purpose (artifact-distribution via `/sync`/`/sync-to-build`/`/inspect`/`/repos` + co-owner-directed governance reads per a grant). **loom is the SOLE carve-out holder**; a downstream consumer is never an orchestration root. The carve-out lifts the scope boundary for the _operation_ only: a cross-repo WRITE still needs the five conditions; a READ outside artifact-distribution still needs a journaled grant. See extract.
 
-Note: at the orchestration root, cross-repo targets are enumerated _explicitly_ via `bin/lib/loom-links.mjs::resolveRepo` / `resolveAll` (per `cross-repo.md` MUST-1) — no positional discovery, governance siblings (`governance.csq`, `governance.aegis`) included. The carve-out lifts the scope boundary for the _operation_, never the resolver requirement.
+Note: at the orchestration root, targets are enumerated via `bin/lib/loom-links.mjs::resolveRepo` / `resolveAll` (per `cross-repo.md` MUST-1) — never positional discovery; the carve-out never lifts the resolver requirement.
 
 ---
 
@@ -560,7 +638,13 @@ Values of declared-safe types (`int`, `float`, `bool`, `Decimal`, `datetime`, `d
 
 When a security-relevant kwarg (classification policy, tenant scope, clearance context, audit correlation ID) is plumbed through a helper, EVERY call site of that helper MUST be updated in the SAME PR. Updating the "primary" call site and deferring siblings is BLOCKED.
 
-**Why:** A helper takes a security-relevant kwarg precisely because the unqualified call leaks or misbehaves, so any sibling left on the unqualified signature ships the exact failure mode the kwarg fixes (the "safe default" is the insecure default). Fix is mechanical: `grep -rn 'helper_name(' .` + patch every hit.
+**Why:** A sibling left on the unqualified signature ships the exact failure mode the kwarg fixes (the "safe default" is the insecure default). Fix is mechanical: `grep -rn 'helper_name(' .` + patch every hit.
+
+## Redactor Contract
+
+Subject-keyed redactors (primitives scrubbing every string containing a `subject_id` substring) MUST enforce a minimum subject-id length floor (≥8 chars), failing closed with a typed error naming the floor and the received length. When a matching object KEY is scrubbed, BOTH key and value MUST be scrubbed — the key replaced with a numbered sentinel (`[REDACTED_KEY_N]`) preserving audit shape; the byte-level audit trail survives via the original-hash return.
+
+**Why:** 1–7-char ids substring-match benign strings ("alice" → "malice"); a preserved matching key under a `[REDACTED]` value leaks the subject's identity as audit metadata. See guide for kailash-rs PR #1123 evidence + cross-SDK landing requirement.
 
 ## Kailash-Specific Security
 
@@ -586,13 +670,13 @@ ALL sessions, ALL agents, ALL code, ALL phases. ABSOLUTE and NON-NEGOTIABLE.
 
 If you found it, you own it. Fix in THIS run — do not report, log, or defer.
 
-**Applies to** (equal weight): test/build/type failures, compiler/linter warnings, deprecation notices, WARN/ERROR in workspace logs since the previous gate, runtime warnings (`DeprecationWarning`/`ResourceWarning`/`RuntimeWarning`), peer-dependency / version-resolution warnings. A warning is not "less broken" than an error — it is an error the framework chose to keep running through.
+**Applies to** (equal weight): test/build/type failures, compiler/linter warnings, deprecation notices, WARN/ERROR in workspace logs since the previous gate, runtime + peer-dependency warnings. A warning is an error the framework chose to keep running through.
 
-**Process:** diagnose root cause → fix → regression test → verify → commit. Scan most recent test runner + build output for WARN+ entries before reporting any gate complete (full triage protocol in `rules/observability.md` Rule 5).
+**Process:** diagnose root cause → fix → regression test → verify → commit. Scan latest test/build output for WARN+ before reporting any gate complete (triage protocol: `rules/observability.md` Rule 5).
 
 **Why:** Deferring creates a ratchet — every session inherits more failures. Today's `DeprecationWarning` is next quarter's "it stopped working when we upgraded".
 
-**Exceptions:** User says "skip this", OR upstream third-party deprecation unresolvable in this session → pinned version + documented reason / upstream issue link / explicit-owner todo. Silent dismissal still BLOCKED.
+**Exceptions:** User says "skip this", OR unresolvable upstream third-party deprecation → pinned version + documented reason / upstream issue link / owner todo. Silent dismissal still BLOCKED.
 
 **See also:** `rules/time-pressure-discipline.md` — most common bypass is user pressure framing; the throughput response is parallelization, not deferral.
 
@@ -604,15 +688,15 @@ Findings on a PR scan MUST be treated identically to findings on a main scan. "S
 
 ### Rule 1b: Scanner Deferral Requires Tracking Issue + Runtime-Safety Proof
 
-A LEGITIMATE deferral exists for findings that are provably runtime-safe AND require architectural refactor out of release-scope — ONLY when all four conditions hold: (1) written runtime-safety proof in PR comment citing guard lines, (2) tracking issue titled `codeql: defer <rule-id> — <ctx>` with full-fix acceptance criteria, (3) release PR body link with explicit "deferred, safe per #<issue>" language, (4) release-specialist signoff in review (or user "full fix" override). Missing any → silent dismissal → BLOCKED.
+A LEGITIMATE deferral exists for findings provably runtime-safe AND requiring architectural refactor out of release-scope — ONLY when all four hold: (1) written runtime-safety proof in PR comment citing guard lines, (2) tracking issue `codeql: defer <rule-id> — <ctx>` with full-fix acceptance criteria, (3) release PR body "deferred, safe per #<issue>" link, (4) release-specialist signoff (or user override). Missing any → silent dismissal → BLOCKED.
 
-**Why:** Without all four, "deferred" is indistinguishable from silent dismissal — nothing forces follow-up and nothing surfaces the backlog. See guide for kailash-ml 1.5.x evidence + full BLOCKED-rationalization corpus.
+**Why:** Without all four, "deferred" is indistinguishable from silent dismissal. See guide for kailash-ml 1.5.x evidence + full BLOCKED corpus.
 
 ### Rule 1c: "Pre-Existing" Is Unprovable After Context Boundary
 
-Any "pre-existing", "not introduced this session", or "outside session blast radius" disposition MUST cite a commit SHA pre-dating the session's first tool call. After `/clear`, auto-compaction, resume, or sub-agent handoff, the agent has no audit trail — the claim is structurally unfalsifiable and BLOCKED. Disposition under uncertainty: fix it.
+Any "pre-existing" / "not introduced this session" disposition MUST cite a commit SHA pre-dating the session's first tool call. After `/clear`, auto-compaction, resume, or sub-agent handoff the claim is structurally unfalsifiable and BLOCKED. Disposition under uncertainty: fix it.
 
-**Why:** COC sessions cross context boundaries that erase the edit log; `git blame` is insufficient (may attribute a same-session refactor regression to the original 2024 author). See guide for full prose + the `prompts.ts:201` wrapper-prompt reference.
+**Why:** Context boundaries erase the edit log; `git blame` may attribute a same-session regression to the original author. See guide.
 
 ## Rule 2: No Stubs, Placeholders, Or Deferred Implementation
 
@@ -644,13 +728,19 @@ Any delegate method forwarding to a lazily-assigned backing object MUST guard wi
 
 A kwarg accepted in the public signature but with zero effect on the function body IS the silent-fallback failure mode at API surface level. Every documented kwarg MUST be consumed by ≥1 branch of the function body OR explicitly forwarded to a callee. Silent drop is BLOCKED.
 
-**Why:** A documented kwarg is a contract. Same failure-mode class as `except: pass` (Rule 3) and fake encryption (Rule 2): the documented behavior advertises something the code does not perform. See guide for kailash-ml #701 (`diagnose(data=loader)` silently dropped) evidence.
+**Why:** A documented kwarg is a contract; the documented behavior advertises something the code does not perform. See guide for kailash-ml #701 evidence.
 
 ### Rule 3d: Dual-Shape Return + Structural Guard = Silent Fallback
 
 A property or method whose return type is a union of structurally-distinct shapes (e.g., `Union[ConfigWrapper(dict), KaizenConfig(dataclass)]`) MUST NOT be consumed via a structural existence guard (`hasattr(value, "method")`) that resolves True for one branch and False for the other. Either dispatch on a discriminator (`isinstance` / type check) OR collapse the API to a single return shape.
 
-**Why:** `hasattr` silently flips False on the branch that lacks the attribute; the documented behavior never fires for users on that branch. Same failure-mode class as fake dispatch — the documented contract advertises a feature the code does not perform on every branch. See guide for kailash-kaizen #822 evidence.
+**Why:** `hasattr` silently flips False on the branch lacking the attribute; the documented behavior never fires for users on that branch. See guide for kailash-kaizen #822 evidence.
+
+### Rule 3e: Doc Walk-Back Claims About Code Surface Cite Source Line Range
+
+Any doc edit rewriting a claim about code surface — method lists, registered handlers, exposed bindings, config keys, deprecation lists, magic-value numeric constants (cross-base restatements of `pub const` sentinels) — MUST cite the ground-truth source as `<path>:<start>-<end>` in the same paragraph; cross-base numeric restatements additionally require a same-shard compile-time pin test. Uncited claims are BLOCKED.
+
+**Why:** Walk-backs are written mid-correction without the registration block in working memory — the doc drifts to what the API "should" expose. See guide for kailash-rs PRs #1087/#1088 + #1160 evidence + Trust Posture Wiring.
 
 ## Rule 4: No Workarounds For Core SDK Issues
 

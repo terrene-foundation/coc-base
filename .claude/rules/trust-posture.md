@@ -70,6 +70,8 @@ Downgrades fire on detection — no human in the loop, per EATP "downgrade insta
 **Emergency (instant downgrade by 1 posture, or to L1 for critical):**
 
 - 1× `regression_within_grace` (violating a rule authored within its 7-day grace period) → drop 1 posture
+- 1× `evidence_free_claim` (a security / compromise / injection / tampering claim asserted with no inline decoded-bytes evidence per `rules/evidence-first-claims.md` MUST-2) → drop 1 posture
+- 1× `unverified_durable_code_claim` (a code-claim — API name / signature / count / membership — written into a durable artifact without same-session ground-truth verification per `rules/verify-claims-before-write.md`) → drop 1 posture
 - 1× `time_pressure_procedure_drop` (procedure drop in response to user pressure framing per `rules/time-pressure-discipline.md`) → drop 1 posture
 - 1× `streetlight_selection` (fittability-pick over higher-value candidate without value-anchor / named trade-off per `rules/value-prioritization.md` MUST-1) → drop 1 posture
 - 1× `deferral_without_value_anchor` (deferred shard / "Carried-forward" / "tracked separately" / Phase-N reframing without adjacent value-anchor per `rules/value-prioritization.md` MUST-2) → drop 1 posture

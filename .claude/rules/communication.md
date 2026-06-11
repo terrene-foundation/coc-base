@@ -57,18 +57,18 @@ At gates (end of `/todos`, before `/deploy`), ask:
 
 - Ask non-coders to read code — describe in plain language
 
-**Why:** Non-technical users cannot act on code snippets, so they either ignore the information or make wrong assumptions.
+**Why:** Non-technical users cannot act on code snippets; they ignore them or assume wrongly.
 
 - Use unexplained jargon — immediately explain technical terms
 
-**Why:** Unexplained jargon forces the user to ask clarifying questions, doubling the turns needed to reach a decision.
+**Why:** Unexplained jargon doubles the turns needed to reach a decision.
 
 - Present raw error messages — translate to impact
 
-**Why:** Raw error messages are unintelligible to most users and create anxiety without enabling action.
+**Why:** Raw errors create anxiety without enabling action.
 
 - Repeat the same jargon if user says "I don't understand" — find new analogy
 
-**Why:** Repeating failed explanations signals that the agent cannot adapt, eroding user trust in the entire session.
+**Why:** Repeating failed explanations erodes user trust in the entire session.
 
 <!-- /slot:neutral-body -->

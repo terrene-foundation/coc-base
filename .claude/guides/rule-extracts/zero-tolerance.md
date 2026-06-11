@@ -150,6 +150,47 @@ if hasattr(self.kaizen.config, "get"):  # True for ConfigWrapper(dict), False fo
 
 Origin: kailash-kaizen #822 (2026-05-05) — `Kaizen.config` returns `Union[ConfigWrapper(dict), KaizenConfig(dataclass)]`; consumer at `agents.py:458` guarded with `hasattr(config, "get")` which is False for the dataclass branch. Documented `signature_programming_enabled` gate silently never fired for users who passed `KaizenConfig(signature_programming_enabled=True)`. Fixed in kailash-kaizen 2.19.0.
 
+## Rule 3e — Doc Walk-Back Citation Full Detail (DO/DO NOT + Magic-Value Extension + Wiring)
+
+```markdown
+# DO — citation pins the doc claim to the registration block
+
+`OAuth2Client` exposes 5 sync surfaces (see registration at
+`bindings/kailash-ruby/ext/kailash/src/mcp_server.rs:1416-1428`): `new`,
+`client_id`, `token_endpoint`, `build_authorization_request`, `verify_state`.
+
+# DO NOT — list without source-line anchor; drifts on first refactor
+
+`OAuth2Client` exposes 5 sync surfaces: `is_authenticated`,
+`clear_authentication`, `set_initial_token`, `client_id`, `new`.
+
+# ↑ 3 of these don't exist; reader can't tell without re-greping
+```
+
+**BLOCKED rationalizations:**
+
+- "The reader can grep for the registration block"
+- "Citations make the doc verbose"
+- "The 5-method list IS the source-line anchor in spirit"
+- "I just checked the registration block; the names are right"
+- "We'll add the citation in the next pass"
+- "The CI gate will catch a mismatch eventually"
+
+**Why (extended):** Doc walk-backs that rewrite previously-wrong claims about code surface are themselves a high-drift surface — the writer is mid-correction, doesn't carry the registration block in working memory, and lists what the API "should" expose rather than what it does. Without an inline source-line citation pinning the claim to a grep-able anchor, the second-order drift is invisible until a reviewer re-derives the list against the registration block. Evidence: a kailash-rs walk-back of OAuth2 RDoc named 3 methods (`is_authenticated`, `clear_authentication`, `set_initial_token`) that do not exist on `RbOAuth2Client` (actual surface at `bindings/kailash-ruby/ext/kailash/src/mcp_server.rs:1416-1428` exposes `new`, `client_id`, `token_endpoint`, `build_authorization_request`, `verify_state`); an R2-HIGH reviewer finding caught it; the fix (PR #1088) added the source-line citation anchoring every method name to the registration block.
+
+**Magic-value extension (2026-05-28).** The list-of-NAMES failure class generalizes to NUMERIC-VALUE claims about `pub const` sentinels: when a rustdoc body restates a const's value in a different base (decimal of a hex literal, hex of a decimal literal, byte sequence of a magic-value u32), every restatement is a second source of truth that drifts on every refactor of the declaration. The structural defense pairs the Rule 3e citation requirement with a same-shard compile-time pin test: the const's rustdoc body MUST cite the declaration's `<path>:<line>`, AND the crate MUST ship a `#[test]` fixture (e.g. `crates/kailash-capi/tests/header_constants_emit.rs`) asserting the const's value in EVERY base form the rustdoc names, so a refactor that touches the literal fails the pin before the rustdoc drifts. Evidence: kailash-capi `TP_REPAIR_CONFIRM` rustdoc claimed decimal `1_380_274_241` for the hex magic `0x52455041`; PR #1160 R1 LOW-1 surfaced the drift risk; commit 84e9732a corrected the decimal AND pinned the cross-base equivalence. The pattern extends to every `pub const` magic-value an FFI surface exposes, and to the Python analogue (`.pyi` stub numeric constants restated in module docstrings).
+
+**Trust Posture Wiring (Rule 3e):**
+
+- **Severity:** `halt-and-report` at gate-review (reviewer at `/implement` + cc-architect at `/codify` surface uncited method-list / numeric-value claims via mechanical sweep); `advisory` at hook layer (lexical detection of surface-list patterns without adjacent `<path>:<line>` cite cannot carry `block` per `hook-output-discipline.md` MUST-2).
+- **Grace period:** 7 days from rule landing (clause 2026-05-22 → 2026-05-29; magic-value extension 2026-05-28 → 2026-06-04).
+- **Cumulative posture impact:** same-class violations (doc claim about code surface without source-line citation) contribute to `trust-posture.md` MUST-4 cumulative math (3× same-rule in 30d → drop 1 posture).
+- **Regression-within-grace:** any uncited method-list / handler-list / config-key / cross-base-numeric claim within grace → `regression_within_grace` per trust-posture.md MUST-4 (emergency downgrade L5→L4).
+- **Receipt requirement:** SessionStart MUST require `[ack: zero-tolerance-3e]` IF `posture.json::pending_verification` includes this rule_id (single ack covers the base clause + magic-value extension).
+- **Detection mechanism:** reviewer mechanical sweep at `/implement` + cc-architect at `/codify` grep doc edits for method-list / handler-list / surface-list / cross-base-numeric patterns and verify adjacent `<path>:<line>` citation (+ pin-test presence for numeric claims). Audit fixtures TBD.
+- **Violation scope:** ANY doc edit rewriting a list-of-method-names / list-of-handler-names / list-of-config-keys / list-of-exposed-surfaces claim about code in the same repo, AND any rustdoc/docstring restating a `pub const` sentinel's numeric value in a different base without the declaration's `<path>:<line>` cite AND a compile-time cross-base pin test.
+- **Origin:** kailash-rs 2026-05-22 (R2-HIGH OAuth2 RDoc walk-back; fix PR #1088) + 2026-05-28 magic-value extension (PR #1160 R1 LOW-1, commit 84e9732a).
+
 ## Rule 6a — Remove Fully (Python + Rust Examples + BLOCKED)
 
 ```python

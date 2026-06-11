@@ -7,6 +7,9 @@ paths:
   - "**/workspaces/**/specs/**"
   - "**/02-plans/**"
   - "**/briefs/**"
+  - "**/README*.md"
+  - "**/docs/**"
+  - "**/skills/**/*.md"
 ---
 
 # Spec Accuracy Rules
@@ -148,6 +151,24 @@ Append-only `## §X Change log` sections describing PAST transitions in past ten
 ```
 
 **Why:** Past-tense change logs are institutional memory; future-tense entries are split-state framings (Rule 2) wearing a hat. Use todos / issues for forward planning.
+
+### 7. Doc Code-Fence API Citations Pass An Import-Execution Sweep At /redteam
+
+Rule 1 extends from spec prose to README / skill / guide code fences: every doc/skill code fence MUST pass an import-execution sweep at `/redteam` — import each cited symbol and assert every called method, constructor kwarg, and method-call kwarg resolves against installed code, carrying variable→class bindings across fences within a file. Shipping fences that teach a fictional API (phantom methods, phantom kwargs, wrong import paths) is BLOCKED. Intentional before/after migration contrasts opt out per-fence with an auditable `# doc-sweep: ignore` marker.
+
+```markdown
+# DO — fence cites the real surface; sweep imports + resolves every call
+
+`store.register_features(schema)` # method exists on the imported class
+
+# DO NOT — fence teaches a phantom method that exists on NO surface
+
+`fs.ingest(df)` # neither canonical nor legacy class has .ingest()
+```
+
+**BLOCKED rationalizations:** "the example is illustrative" / "the README isn't a spec" / "the import swap fixed it" (correct module, phantom methods remain) / "users will adapt the snippet".
+
+**Why:** Doc fences are the most-copied surface in the repo — a phantom method in a skill propagates into every consumer's first attempt and fails at runtime, the Rule-1 phantom-citation failure mode one surface over. Evidence: a single sweep surfaced 87 fictional-API findings across 17 files; the rewrite drove them to 0 across 417 docs (PR #1277, merged 1decd6c49). Verification is mechanical: each BUILD repo carries its own sweep tool (Python reference: `tools/check_doc_api_examples.py` — 5 check classes: import / method-existence / ctor-kwarg / method-kwarg / cross-fence; AST-based, never executes fences); the tool stays per-BUILD-repo tooling, the obligation here is the gate.
 
 ## MUST NOT
 

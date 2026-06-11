@@ -33,7 +33,7 @@ A path-scoped rule you have not read is a rule you are not honoring.
 | Recommendation Quality — No Suggestion Without Recommendation | `.claude/**`, `workspaces/**`, `**/*.md`, `briefs/**`, `todos/**`, `journal/**` | `.claude/rules/recommendation-quality.md` |
 | Rule Authoring Meta-Rule | `**/.claude/rules/**`, `**/.claude/variants/**/rules/**` | `.claude/rules/rule-authoring.md` |
 | Self-Referential /codify Discipline | `.claude/commands/**`, `.claude/rules/**`, `.claude/skills/**`, `.claude/hooks/**`, `.claude/bin/**`, `.claude/agents/management/**`, `.claude/audit-fixtures/**`, `.claude/sync-manifest.yaml`, `.claude/codex-mcp-guard/**`, `tools/verify-overlays.sh` | `.claude/rules/self-referential-codify.md` |
-| Spec Accuracy Rules | `**/specs/**`, `**/specs/_index.md`, `**/workspaces/**/specs/**`, `**/02-plans/**`, `**/briefs/**` | `.claude/rules/spec-accuracy.md` |
+| Spec Accuracy Rules | `**/specs/**`, `**/specs/_index.md`, `**/workspaces/**/specs/**`, `**/02-plans/**`, `**/briefs/**`, `**/README*.md`, `**/docs/**`, `**/skills/**/*.md` | `.claude/rules/spec-accuracy.md` |
 | Specs Authority Rules | `**/specs/**`, `**/specs/_index.md`, `**/workspaces/**`, `**/briefs/**`, `**/02-plans/**`, `**/todos/**` | `.claude/rules/specs-authority.md` |
 | Stack Detection Discipline (base variant) | `**/STACK.md`, `**/.claude/agents/onboarding/**`, `**/.claude/commands/onboard-stack.md`, `**/.claude/skills/40-stack-onboarding/**` | `.claude/rules/stack-detection.md` |
 | State-File Write Guard — Validator-Driven Deploy Claims | `deploy/**`, `**/.last-deployed-*`, `**/.last-smoke-result-*`, `**/.last-interactions-smoke-result-*`, `**/state-file-write-guard.*`, `**/validate-state-file.*`, `**/post-deploy-smoke.*` | `.claude/rules/state-file-write-guard.md` |
@@ -43,8 +43,9 @@ A path-scoped rule you have not read is a rule you are not honoring.
 | Upstream Issue Hygiene | `**/.github/**`, `**/CONTRIBUTING.md`, `**/SECURITY.md`, `**/.session-notes`, `**/journal/**`, `**/workspaces/**` | `.claude/rules/upstream-issue-hygiene.md` |
 | User-Flow Validation Rules | `**/*` | `.claude/rules/user-flow-validation.md` |
 | Value-Prioritization — Rank By User Value Before Shard-Fit | `**/workspaces/**`, `**/journal/**`, `**/.session-notes`, `**/.claude/commands/**`, `**/SWEEP*.md`, `**/WORKSPACE-DISPOSITION*.md`, `**/CHANGELOG*.md` | `.claude/rules/value-prioritization.md` |
+| Verify Code-Claims Against Ground Truth Before Durable Write | `**/*.md`, `**/CHANGELOG*`, `**/.session-notes`, `**/journal/**` | `.claude/rules/verify-claims-before-write.md` |
 | Verify Resource Existence Before Debugging Access | `**/*.py`, `**/*.rs`, `**/*.mjs`, `**/*.js`, `**/*.sh`, `**/workspaces/**`, `.claude/{commands,skills}/**` | `.claude/rules/verify-resource-existence.md` |
 | Wave-Loop — Verify-And-Feed-Forward Between Milestone-Groups | `**/workspaces/**`, `**/todos/**`, `**/.claude/commands/**`, `**/02-plans/**` | `.claude/rules/wave-loop.md` |
 | Worktree Isolation Rules | `.claude/agents/**`, `.claude/commands/**`, `.claude/skills/**`, `**/*worktree*`, `**/workspaces/**` | `.claude/rules/worktree-isolation.md` |
 
-28 path-scoped rules indexed.
+29 path-scoped rules indexed.

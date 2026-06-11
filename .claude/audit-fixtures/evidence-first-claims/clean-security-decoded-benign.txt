@@ -1,0 +1,4 @@
+cat -v showed `Helper M-bM-^@M-^T synchronous`. Hexdump of the whole span:
+    e2 80 94  -> UTF-8 em-dash (—)
+grep -icE 'curl|bash|http' -> 0. Conclusion: benign Unicode in a code comment.
+No anomaly.

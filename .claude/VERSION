@@ -1,17 +1,17 @@
 {
   "name": "coc-base",
-  "version": "2.41.0",
+  "version": "2.42.0",
   "type": "coc-use-template",
   "description": "Language-agnostic, non-Kailash CO/COC USE template — multi-CLI (variant: base, clis: claude/codex/gemini)",
-  "synced_at": "2026-06-11T10:33:34Z",
+  "synced_at": "2026-06-11T14:42:00Z",
   "upstream": {
     "name": "loom",
     "type": "coc-source",
-    "version": "2.41.0",
-    "loom_sha": "bbfa970",
-    "synced_at": "2026-06-11T10:33:34Z",
-    "template_version": "2.41.0",
-    "build_version": "2.41.0"
+    "version": "2.42.0",
+    "loom_sha": "036c8ff",
+    "synced_at": "2026-06-11T14:42:00Z",
+    "template_version": "2.42.0",
+    "build_version": "2.42.0"
   },
   "variant": "base",
   "tier_subscriptions": [
@@ -25,6 +25,24 @@
     "gemini"
   ],
   "changelog": [
+    {
+      "date": "2026-06-11",
+      "version": "2.42.0",
+      "summary": "loom@036c8ff Gate-2 distribution (base multi-CLI, loom 2.42.0) — Gate-1 ingest cycle 2026-06-11. Base subscribes [cc,co,onboarding]; coc-tier artifacts excluded by design. NEW baseline rules evidence-first-claims.md + verify-claims-before-write.md (both cc/co tier, distributed); compacted agents/autonomous-execution/git/zero-tolerance/security/repo-scope-discipline/communication; NEW guides/rule-extracts/autonomous-execution.md; trust-posture + self-referential-codify edits. build:null — NO SDK pins.",
+      "changes": [
+        "DISTRIBUTE: sync-tier-aware.mjs --target base --all-templates. coc-base: copied=844, verified 844/844 byte-equal, stripped=15 (build-internal refs), overlay_applied=1 + overlay_verified=1 (rules/agents.md base slot-composed), purged=0 (all 13 obsoleted paths absent on disk), skipped no_tier_match=514 + exclude=8000 + use_exclude=29 + loom_only=9 + loom_local=2. visibility=public preserved.",
+        "NEW baseline rules this cycle (cc/co tier — distributed to base): evidence-first-claims.md + verify-claims-before-write.md. Compacted: agents/autonomous-execution/git/zero-tolerance/security/repo-scope-discipline/communication. NEW guide guides/rule-extracts/autonomous-execution.md. trust-posture.md + self-referential-codify.md allowlist/trigger edits.",
+        "OVERLAY: rules/agents.md base slot-keyed overlay composed in-process (mode:slot) + stripped. verify-overlays.sh base: variant-applied(base,slot) PASS, Failing: 0.",
+        "MULTI-CLI BASELINES (Step 6.5): AGENTS.md (codex 54335B WARN, headroom 11.56% ADVISORY 15%-band, ABOVE 10% Risk-0004 floor) + GEMINI.md (gemini 54341B WARN, headroom 11.55%) re-emitted to repo root via emit.mjs --all --lang base. All validators (12,13,14,15,16,17,18) PASS.",
+        "MULTI-CLI TREES (Step 6.6): emit-cli-artifacts --target base re-emitted .codex/{prompts=21,skills=40} + .gemini/{commands=16,skills=40,agents=5} (tier-filtered: coc-tier excluded — commands=25,skills=52,codex-agent-prompts=34,gemini-agents=34 skipped). .codex-mcp-guard/ refreshed; bin/coc dispatcher + 28 per-phase symlinks. validator-13 bijection PASS.",
+        "SCAFFOLD (Step 4.6): symlink .claude/codex-mcp-guard -> ../.codex-mcp-guard (resolves to server.js); sync-manifest.yaml distributed to .claude/ (manifest_distribute: true).",
+        "SETTINGS: state-file deny-matrix hardening preserved from loom source; (language-agnostic base) description preserved (Step 6b: no Python/Rust/Ruby tag for base). Hook integrity 38/38; 0 scripts/hooks; 0 operator-PII.",
+        "SDK pins: n/a (build:null — language-agnostic base; sdk_packages {}). Step 9/10 dependency-install skipped (lane declares no BUILD source).",
+        "STEP 7.5: no .github/coc-sdk-refs-allowlist.txt (no contamination gate) — skipped (legitimate absence).",
+        "PRESERVED: CLAUDE.md (template-owned); .claude/learning/** + .proposals/** + .coc-sync-marker never synced; .codex/local-config.toml + .gemini/local-settings.json preserve-list untouched (none present); consumer_template_owned scaffold (Docker/dev-container) never originated by loom (consumer-owned per F78).",
+        "BUMP: VERSION 2.41.0->2.42.0; loom_sha bbfa970->036c8ff; upstream.version 2.41.0->2.42.0."
+      ]
+    },
     {
       "date": "2026-06-11",
       "version": "2.41.0",

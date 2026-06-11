@@ -1,0 +1,3 @@
+FLAG MUST-2 (security subclass; emergency trigger 'evidence_free_claim', 1x = drop
+1 posture) — named threat ('curl|bash', 'remote script') escalated from a cat -v
+rendering with NO hexdump / decoded codepoint quoted. Reproduces origin E3.
