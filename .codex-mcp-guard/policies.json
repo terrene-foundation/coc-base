@@ -14,7 +14,7 @@
         "source_file": "posture-gate.js",
         "cc_matchers": [
           "Bash",
-          "Edit|Write|MultiEdit|NotebookEdit"
+          "Edit|Write|NotebookEdit"
         ],
         "invocation": "subprocess"
       },
@@ -29,7 +29,7 @@
         "source_file": "signing-mutation-guard.js",
         "cc_matchers": [
           "Bash",
-          "Edit|Write|MultiEdit|NotebookEdit"
+          "Edit|Write|NotebookEdit"
         ],
         "invocation": "subprocess"
       },
@@ -37,7 +37,7 @@
         "source_file": "operator-gate.js",
         "cc_matchers": [
           "Bash",
-          "Edit|Write|MultiEdit|NotebookEdit"
+          "Edit|Write|NotebookEdit"
         ],
         "invocation": "subprocess"
       }
@@ -54,7 +54,7 @@
         "source_file": "posture-gate.js",
         "cc_matchers": [
           "Bash",
-          "Edit|Write|MultiEdit|NotebookEdit"
+          "Edit|Write|NotebookEdit"
         ],
         "invocation": "subprocess"
       },
@@ -69,7 +69,7 @@
         "source_file": "signing-mutation-guard.js",
         "cc_matchers": [
           "Bash",
-          "Edit|Write|MultiEdit|NotebookEdit"
+          "Edit|Write|NotebookEdit"
         ],
         "invocation": "subprocess"
       },
@@ -77,7 +77,7 @@
         "source_file": "operator-gate.js",
         "cc_matchers": [
           "Bash",
-          "Edit|Write|MultiEdit|NotebookEdit"
+          "Edit|Write|NotebookEdit"
         ],
         "invocation": "subprocess"
       }
@@ -87,7 +87,7 @@
         "source_file": "posture-gate.js",
         "cc_matchers": [
           "Bash",
-          "Edit|Write|MultiEdit|NotebookEdit"
+          "Edit|Write|NotebookEdit"
         ],
         "invocation": "subprocess"
       },
@@ -95,7 +95,7 @@
         "source_file": "signing-mutation-guard.js",
         "cc_matchers": [
           "Bash",
-          "Edit|Write|MultiEdit|NotebookEdit"
+          "Edit|Write|NotebookEdit"
         ],
         "invocation": "subprocess"
       },
@@ -103,7 +103,7 @@
         "source_file": "operator-gate.js",
         "cc_matchers": [
           "Bash",
-          "Edit|Write|MultiEdit|NotebookEdit"
+          "Edit|Write|NotebookEdit"
         ],
         "invocation": "subprocess"
       }

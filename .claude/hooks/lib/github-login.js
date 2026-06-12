@@ -202,6 +202,19 @@ const GITHUB_LOGIN_FIELD_NAMES = [
   // regex — any new `.gh_login ===` bare compare anywhere in the substrate
   // is flagged by `structural_sweep_with_extended_field_ssot_empty`.
   "gh_login",
+  // MULTIOPDD iter-5 exhaustive-enumeration residual (2026-06-12,
+  // journal/0276): three GitHub-login-class field names surfaced by the
+  // iter-5 todo's mandatory grep audit. `requester_gh_login` +
+  // `approver_gh_login` (operator-gate.js:183,199) feed the gate-matrix
+  // `gh_login` compare; `target_login`
+  // (multi-operator-sessionstart.js:410) carries the rule-10
+  // revocation-contest target's login. None are in bare `===` compare
+  // sites today — same future-drift predicate as the R5-LOW-3 entries:
+  // any new strict compare on these names becomes a sweep finding
+  // instead of a silent normalization bypass.
+  "requester_gh_login",
+  "approver_gh_login",
+  "target_login",
 ];
 
 /**

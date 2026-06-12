@@ -14,7 +14,12 @@
  *                                coordination-guard exclusion, FF-AC6-1 AC#2)
  *   P4  multi-tool matcher
  *       "Edit|Write|MultiEdit|NotebookEdit" resolves (the DF-AC6-1
- *       brittle-exact-match root-cause regression guard)
+ *       brittle-exact-match root-cause regression guard). The matcher
+ *       deliberately KEEPS the removed-from-CC MultiEdit token: loom's
+ *       own settings.json dropped it (journal/0276), but an OLDER
+ *       consumer's settings may still carry it — this fixture locks the
+ *       legacy MultiEdit→apply_patch fan-out in matcherToCodexTools()
+ *       so stale consumer matchers never silently drop the edit lane.
  *   P5  dual registration (Bash + edit matcher) + MARKER → all three
  *       tools; the marker gates ONLY the apply_patch portion
  *

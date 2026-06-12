@@ -1,14 +1,15 @@
 # COC Sync Marker — coc-base (base lane, multi-CLI)
 visibility: public
-timestamp: 2026-06-12T00:00:00Z
+timestamp: 2026-06-12T05:46:47Z
 source: loom/.claude
-loom_sha: 1b26e91
-upstream_version: 2.44.0
-template_version: 2.44.0
+loom_sha: 6d18fe9
+upstream_version: 2.45.0
+template_version: 2.45.0
 variant: base
 template_type: multi-cli
 clis: ["claude", "codex", "gemini"]
 tier_subscriptions: ["cc", "co", "onboarding"]
+payload: MultiEdit-removal canonicalization (loom 2.45.0, PR #500, journals 0276+0277)
 stats:
   copied: 844
   delivered: 844
@@ -19,31 +20,25 @@ stats:
   variant_only: 0
   purged: 0            # 13 active-purge paths absent on disk
   preserved: CLAUDE.md
-  changed_this_cycle:  # loom 2.44.0 Gate-1 rs-ingest globals, base lane (6 .claude/ modifications + re-emitted CLI surfaces)
-    - rules/zero-tolerance.md        # Rule 3e binding-inheritance extension
-    - rules/value-prioritization.md  # MUST-2 SHA-pinned state-claim anchors
-    - rules/worktree-isolation.md    # Rule 2a re-assert cwd per invocation
-    - guides/rule-extracts/zero-tolerance.md
-    - skills/30-claude-code-patterns/worktree-orchestration.md
-    - skills/30-claude-code-patterns/closure-parity-specialist-discipline.md
-    - AGENTS.md         # re-emitted baseline (+496B: worktree-isolation Rule 2a growth)
-    - GEMINI.md         # re-emitted baseline (+496B: worktree-isolation Rule 2a growth)
-    - .codex/**         # re-emitted CLI tree (tier-filtered base)
-    - .gemini/**        # re-emitted CLI tree (tier-filtered base)
-    - .codex-mcp-guard/**  # refreshed + emitted policies.json
-    - .claude/sync-manifest.yaml  # manifest_distribute refresh (byte-identical to loom source)
+  changed_this_cycle:
+    - rules/multi-operator-coordination.md   # §7 + MUST-6 live-matcher (Edit|Write|NotebookEdit)
+    - rules/self-referential-codify.md       # tool-classes.js added to Rule-2 allowlist
+    - hooks/lib/tool-classes.js              # MUTATION_TOOLS keeps MultiEdit (runtime legacy tolerance)
+    - hooks/lib/github-login.js              # GITHUB_LOGIN_FIELD_NAMES SSOT +3 fields
+  settings_canonicalization:                # Step 6 (settings.json is exclude:, hand-applied)
+    multiedit_deny_entries_removed: 10
+    matchers_normalized: "Edit|Write|NotebookEdit"
+    description_stem_preserved: "language-agnostic base"
   content_guard:
-    coc_tier_leaks: 0   # git status: all 6 .claude/ rule/skill/guide changes status M, zero status A
+    coc_tier_leaks: 0   # no Kailash specialists/skills (agents/frameworks, skills/01-core-sdk absent)
     coc_tier_additions: 0
-    note: testing.md x3 extensions are coc-tier (NOT in base [cc,co,onboarding] subscription) — correctly ABSENT
-  baselines_emitted:
-    cc: 0              # CLAUDE.md preserved, not emitted
-    codex: 1           # AGENTS.md
-    gemini: 1          # GEMINI.md
+  baselines_emitted:    # Step 6.5 — emit.mjs --all --lang base (strict-headroom default, PASS)
+    cc: 0               # CLAUDE.md preserved, not emitted
+    codex: 1            # AGENTS.md
+    gemini: 1           # GEMINI.md
   baseline_emission_bytes:
     block_cap_bytes: 61440
     warn_cap_bytes: 32768
-    headroom_floor_pct: 10
     codex:
       rules: 10
       bytes: 52518
@@ -56,28 +51,29 @@ stats:
       tier: WARN
       headroom_bytes: 8916
       headroom_pct: 14.51
-    proximity_band_advisory: "14.52% within 15% band — authoring advisory for NEXT baseline MUST addition (Rule 10); no new baseline rule this cycle (count unchanged at 10)"
-  cli_artifacts:
+  cli_artifacts:        # Step 6.6 — emit-cli-artifacts.mjs --target base
     codex:
-      prompts: 21      # 16 commands + 5 agent-prompts
-      skills: 10       # incl rules-reference skill
+      prompts: 21       # 16 phase + 5 specialist agent-prompts
+      skills: 10        # 9 + rules-reference
     gemini:
       commands: 16
-      skills: 10       # incl rules-reference skill
+      skills: 10        # 9 + rules-reference
       agents: 5
-  codex_dispatcher:
-    bin_coc: true
-    per_phase_symlinks: 28
-  scaffold:
-    symlink: ".claude/codex-mcp-guard -> ../.codex-mcp-guard"
-    manifest_distributed: true
+  scaffold:             # Step 4.6 — multi_cli_overlays.multi-cli
+    symlink: ".claude/codex-mcp-guard -> ../.codex-mcp-guard (resolves, server.js present)"
+    manifest_distributed: true   # sync-manifest.yaml copied (manifest_distribute=true)
+    codex_dispatcher: "bin/coc + 28 per-phase symlinks"
+    codex_mcp_guard_files: 9
+  consumer_owned_scaffold: absent  # F78 preserve-by-construction — loom never emits Dockerfile/etc.
+  mcp_guard:
+    policies_populated: false   # still gated — fail-closed in USE templates per Step 6.6 §G3
+    validator_13_bijection: PASS  # policies.json regenerated, 0 MultiEdit
   sdk_packages: {}     # build:null — language-agnostic base, no SDK pins
   verification:
-    hook_integrity: 38/38   # total hook command entries resolve (28 unique scripts)
-    lib_require_misses: 0
+    hook_integrity: ok        # all settings.json PreToolUse/PostToolUse hook commands resolve on disk
     build_path_leaks: 0
     operator_pii: 0
-    claude_scripts_absent: true   # STRUCTURAL ASSERTION pass
-    verify_overlays_base: "2/2 PASS (coc-base + coc-claude-base), Failing: 0"
+    settings_multiedit_residual: 0
+    cli_tree_multiedit_residual: 0  # .codex/.gemini/policies.json all clean
+    verify_overlays_base: "coc-base variant-applied(base,slot) PASS"
     obsoleted_purged: true
-    policies_apply_patch: 3       # 3 stateless gates (posture-gate/signing-mutation-guard/operator-gate)

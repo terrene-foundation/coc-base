@@ -1,17 +1,17 @@
 {
   "name": "coc-base",
-  "version": "2.44.0",
+  "version": "2.45.0",
   "type": "coc-use-template",
   "description": "Language-agnostic, non-Kailash CO/COC USE template — multi-CLI (variant: base, clis: claude/codex/gemini)",
-  "synced_at": "2026-06-12T00:00:00Z",
+  "synced_at": "2026-06-12T05:48:47Z",
   "upstream": {
     "name": "loom",
     "type": "coc-source",
-    "version": "2.44.0",
-    "loom_sha": "1b26e91",
-    "synced_at": "2026-06-12T00:00:00Z",
-    "template_version": "2.44.0",
-    "build_version": "2.44.0"
+    "version": "2.45.0",
+    "loom_sha": "6d18fe9",
+    "synced_at": "2026-06-12T05:48:47Z",
+    "template_version": "2.45.0",
+    "build_version": "2.45.0"
   },
   "variant": "base",
   "tier_subscriptions": [
@@ -25,6 +25,17 @@
     "gemini"
   ],
   "changelog": [
+    {
+      "date": "2026-06-12",
+      "version": "2.45.0",
+      "summary": "loom@6d18fe9 Gate-2 distribution (base multi-CLI, loom 2.45.0) — MultiEdit-removal canonicalization (PR #500, journals 0276+0277). Claude Code removed the MultiEdit tool; stale MultiEdit(...) permissions.deny entries fired session-start warnings. PAYLOAD: settings.json (10 MultiEdit deny entries removed, PreToolUse/PostToolUse matchers -> Edit|Write|NotebookEdit; target-owned language-agnostic-base description preserved); hooks/lib/tool-classes.js (MUTATION_TOOLS keeps MultiEdit runtime legacy tolerance) + github-login.js (GITHUB_LOGIN_FIELD_NAMES SSOT +3); rules/multi-operator-coordination.md (§7 + MUST-6 live-matcher) + self-referential-codify.md (tool-classes.js -> Rule-2 allowlist); bin/scan-synced-disclosure.mjs + audit-fixtures/extract-policies/run.mjs (legacy MultiEdit vocab for stale consumers). MULTI-CLI EMISSION: AGENTS.md (codex, 52518B, headroom 14.52%) + GEMINI.md (gemini, 52524B, headroom 14.51%) — both WARN tier, above 10% Risk-0004 floor; validators 12-18 PASS, validator-13 bijection PASS (policies.json regenerated, 0 MultiEdit). .codex/ (21 prompts, 10 skills, config+hooks) + .gemini/ (16 commands, 10 skills, 5 agents, settings) + .codex-mcp-guard/ + bin/coc dispatcher (28 phase shims) emitted; scaffold symlink .claude/codex-mcp-guard -> ../.codex-mcp-guard + sync-manifest.yaml distributed (manifest_distribute=true). Base subscribes [cc,co,onboarding]; coc-tier excluded (BASE-LANE CONTENT GUARD: 0 Kailash additions). build:null — NO SDK pins. Consumers MUST NOT re-add MultiEdit to settings matchers/permissions.",
+      "changes": [
+        "DISTRIBUTE: sync-tier-aware.mjs --target base --template coc-base. copied=844, verified 844/844 (14 content-equal after strip, 830 byte-equal), overlay rules/agents.md base slot 1/1 byte-equal, variant_only=0, purged=0.",
+        "MULTI-CLI: emit.mjs --lang base AGENTS.md+GEMINI.md (WARN, headroom 14.52/14.51%); emit-cli-artifacts.mjs .codex/+.gemini/ trees; scaffold symlink + manifest distributed.",
+        "settings.json: 10 MultiEdit deny entries removed; matchers Edit|Write|NotebookEdit; description stem language-agnostic base preserved.",
+        "verify-overlays.sh base: 2/2 passing 0 failing. visibility=public preserved. consumer-owned scaffold preserved-by-construction (absent)."
+      ]
+    },
     {
       "date": "2026-06-12",
       "version": "2.44.0",

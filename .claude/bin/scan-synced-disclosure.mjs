@@ -736,7 +736,11 @@ const SHAPES = [
     // F77 (#386): synced settings.json `permissions.allow` / `permissions.deny`
     // matcher entries of the form `Edit(/<absolute-path>/...)`,
     // `Write(/<absolute-path>/...)`, `Read(/<absolute-path>/...)` (and the
-    // sibling `Bash`/`MultiEdit`/`Glob`/`Grep` tool-name forms) carry a
+    // sibling `Bash`/`MultiEdit`/`Glob`/`Grep` tool-name forms — MultiEdit
+    // was removed from CC ~v2.0.8/journal/0276 but is deliberately RETAINED
+    // in this scan vocabulary: stale consumer settings may still carry
+    // `MultiEdit(...)` entries and a legacy entry leaks operator PII exactly
+    // like a current one) carry a
     // structural defect distinct from the prose `/Users/<op>/` leak class:
     // the matcher itself encodes a runtime authorization scope keyed to an
     // absolute filesystem path, so every downstream consumer's session

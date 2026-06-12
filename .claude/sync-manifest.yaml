@@ -656,7 +656,9 @@ parity_enforcement:
   # declaration scope — declared here so they are never silent, per
   # verify-resource-existence.md MUST-4):
   #   DF-AC6-1: extract-policies.mjs::CC_TO_CODEX_TOOLS lacks the
-  #     `Edit|Write|MultiEdit|NotebookEdit` matcher key settings.json uses, so a
+  #     `Edit|Write|MultiEdit|NotebookEdit` matcher key settings.json used at the
+  #     time (the then-live matcher; now `Edit|Write|NotebookEdit` post-MultiEdit
+  #     removal, journal/0276), so a
   #     FUTURE mutating-tool guard under that matcher silently does NOT mirror to
   #     Codex. gitignored-claude-warn.js is the current VICTIM (Edit-only matcher
   #     → dropped from the fresh extraction → declared cc-only); enforce-framework-

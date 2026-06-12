@@ -57,11 +57,28 @@
  * string, not the tool name (handled by signing-mutation-guard.js's
  * separate classifier).
  *
- * Per Anthropic's CC tool inventory (as of 2026-05-21):
- *   - Edit         — single-file textual edit (file_path, old_string, new_string)
+ * Per Anthropic's CC tool inventory (as of 2026-06-12; Tools Reference at
+ * code.claude.com/docs/en/tools-reference):
+ *   - Edit         — single-file textual edit (file_path, old_string,
+ *                    new_string; replace_all for batch replacement)
  *   - Write        — full-file write (file_path, content)
- *   - MultiEdit    — batch single-file edit (file_path, edits[])
  *   - NotebookEdit — Jupyter notebook cell edit (notebook_path, ...)
+ *
+ * LEGACY TOLERANCE — "MultiEdit" (batch single-file edit, file_path +
+ * edits[]) was REMOVED from Claude Code (~v2.0.8, 2025-10; restoration
+ * declined per anthropic/claude-code#11125). It stays in MUTATION_TOOLS
+ * deliberately: this Set classifies RUNTIME payloads (`payload.tool_name`),
+ * keeping the classifier correct for ANY surface that reaches a hook
+ * (the `*`-matched and Bash-classified blocks, plus direct invocation).
+ * Scope precision (R1 security-reviewer, journal/0276 cycle): the
+ * Edit-class settings matcher no longer routes MultiEdit, so on a
+ * pre-removal CC the Edit-class residual is covered by the Bash-path
+ * detectStateFileMutation layer (path-based, tool-name-independent) —
+ * NOT by this Set. Set membership carries zero warning cost (unlike
+ * settings.json permissions entries, which CC validates against the live
+ * tool inventory and warns on — those were removed 2026-06-12,
+ * journal/0276). Do NOT re-add MultiEdit to settings.json matchers or
+ * permissions.
  *
  * EXTENSION PATH (when Anthropic ships a new mutation tool):
  *   1. Append the tool name to MUTATION_TOOLS below.

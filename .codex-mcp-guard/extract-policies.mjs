@@ -275,8 +275,8 @@ function normalizeReasonTemplate(raw) {
 // ────────────────────────────────────────────────────────────────
 //
 // Codex's tool surface differs from CC's. The `.claude/settings.json`
-// hooks are registered per CC matcher (Bash, Edit|Write|MultiEdit|
-// NotebookEdit, Read). For the MCP-fallback path, we replay PreToolUse
+// hooks are registered per CC matcher (Bash, Edit|Write|NotebookEdit,
+// Read). For the MCP-fallback path, we replay PreToolUse
 // hooks against the equivalent Codex tool:
 //
 //   CC tool        | Codex wrapped tools
@@ -284,15 +284,19 @@ function normalizeReasonTemplate(raw) {
 //   Bash           | shell, unified_exec
 //   Edit           | apply_patch
 //   Write          | apply_patch
-//   MultiEdit      | apply_patch
+//   MultiEdit      | apply_patch (LEGACY — tool removed from CC ~v2.0.8;
+//                    mapping retained so an older consumer settings.json
+//                    still carrying MultiEdit in its matcher fans out to
+//                    apply_patch instead of silently dropping the edit
+//                    lane, the DF-AC6-1 class; journal/0276)
 //   NotebookEdit   | apply_patch
 //   Read           | (out of scope — README "What's covered vs. not")
 //
 // A CC matcher is a `|`-joined SET of CC tools (e.g.
-// "Edit|Write|MultiEdit|NotebookEdit"); resolution splits the matcher
+// "Edit|Write|NotebookEdit"); resolution splits the matcher
 // and unions each tool's Codex fan-out (matcherToCodexTools below). The
 // prior design keyed CC_TO_CODEX_TOOLS by the WHOLE matcher string and
-// looked it up verbatim — the DF-AC6-1 root cause: the real edit matcher
+// looked it up verbatim — the DF-AC6-1 root cause: the then-live edit matcher
 // "Edit|Write|MultiEdit|NotebookEdit" was not a literal key, so the
 // entire edit lane (apply_patch) silently dropped from the extraction.
 //
