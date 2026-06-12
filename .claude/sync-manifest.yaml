@@ -1979,6 +1979,12 @@ variant_only:
     - variants/rs/skills/management/cargo-reference.md
     - variants/rs/skills/management/release-workflow.md
     - variants/rs/skills/project/l3-binding-parity.md
+    # ffi-handle-lifecycle.md added 2026-06-12 (Gate-1 rs ingest,
+    # SKILL-FFI-HANDLE-LIFECYCLE): cross-binding check-then-use UAF depth skill
+    # backing testing.md § "FFI Handle Wrappers Ship A Concurrent-Close Stress
+    # Test". rs all-bindings cross-cutting (Go/Java/.NET/Ruby/Python/Node
+    # per-runtime fix shapes). Variant-only — no global equivalent.
+    - variants/rs/skills/project/ffi-handle-lifecycle.md
     - variants/rs/skills/05-enterprise/SKILL.md
     - variants/rs/skills/05-enterprise/enterprise-abac.md
     - variants/rs/skills/05-enterprise/enterprise-audit.md

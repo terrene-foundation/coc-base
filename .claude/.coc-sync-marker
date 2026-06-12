@@ -2,9 +2,9 @@
 visibility: public
 timestamp: 2026-06-12T00:00:00Z
 source: loom/.claude
-loom_sha: d7ec0d2
-upstream_version: 2.43.0
-template_version: 2.43.0
+loom_sha: 1b26e91
+upstream_version: 2.44.0
+template_version: 2.44.0
 variant: base
 template_type: multi-cli
 clis: ["claude", "codex", "gemini"]
@@ -19,15 +19,23 @@ stats:
   variant_only: 0
   purged: 0            # 13 active-purge paths absent on disk
   preserved: CLAUDE.md
-  changed_this_cycle:  # #491, base lane
-    - rules/agents.md   # worktree MUST cluster extracted to skill; base overlay one-line bullets + restored binding-scoped-shard-PR clause
-    - rules/security.md # global slot-partition; base carries global Redactor Contract
-    - AGENTS.md         # re-emitted baseline (worktree extraction: -1941B)
-    - GEMINI.md         # re-emitted baseline (worktree extraction: -1941B)
-    - .claude/sync-manifest.yaml  # manifest_distribute refresh (now byte-identical to loom source)
+  changed_this_cycle:  # loom 2.44.0 Gate-1 rs-ingest globals, base lane (6 .claude/ modifications + re-emitted CLI surfaces)
+    - rules/zero-tolerance.md        # Rule 3e binding-inheritance extension
+    - rules/value-prioritization.md  # MUST-2 SHA-pinned state-claim anchors
+    - rules/worktree-isolation.md    # Rule 2a re-assert cwd per invocation
+    - guides/rule-extracts/zero-tolerance.md
+    - skills/30-claude-code-patterns/worktree-orchestration.md
+    - skills/30-claude-code-patterns/closure-parity-specialist-discipline.md
+    - AGENTS.md         # re-emitted baseline (+496B: worktree-isolation Rule 2a growth)
+    - GEMINI.md         # re-emitted baseline (+496B: worktree-isolation Rule 2a growth)
+    - .codex/**         # re-emitted CLI tree (tier-filtered base)
+    - .gemini/**        # re-emitted CLI tree (tier-filtered base)
+    - .codex-mcp-guard/**  # refreshed + emitted policies.json
+    - .claude/sync-manifest.yaml  # manifest_distribute refresh (byte-identical to loom source)
   content_guard:
-    coc_tier_leaks: 0   # checked copied set vs all 103 manifest coc-tier path patterns
-    note: skills/26-eatp-reference is co-tier (CO methodology), correctly included
+    coc_tier_leaks: 0   # git status: all 6 .claude/ rule/skill/guide changes status M, zero status A
+    coc_tier_additions: 0
+    note: testing.md x3 extensions are coc-tier (NOT in base [cc,co,onboarding] subscription) — correctly ABSENT
   baselines_emitted:
     cc: 0              # CLAUDE.md preserved, not emitted
     codex: 1           # AGENTS.md
@@ -38,16 +46,17 @@ stats:
     headroom_floor_pct: 10
     codex:
       rules: 10
-      bytes: 52022
+      bytes: 52518
       tier: WARN
-      headroom_bytes: 9418
-      headroom_pct: 15.33
+      headroom_bytes: 8922
+      headroom_pct: 14.52
     gemini:
       rules: 10
-      bytes: 52028
+      bytes: 52524
       tier: WARN
-      headroom_bytes: 9412
-      headroom_pct: 15.32
+      headroom_bytes: 8916
+      headroom_pct: 14.51
+    proximity_band_advisory: "14.52% within 15% band — authoring advisory for NEXT baseline MUST addition (Rule 10); no new baseline rule this cycle (count unchanged at 10)"
   cli_artifacts:
     codex:
       prompts: 21      # 16 commands + 5 agent-prompts
@@ -71,3 +80,4 @@ stats:
     claude_scripts_absent: true   # STRUCTURAL ASSERTION pass
     verify_overlays_base: "2/2 PASS (coc-base + coc-claude-base), Failing: 0"
     obsoleted_purged: true
+    policies_apply_patch: 3       # 3 stateless gates (posture-gate/signing-mutation-guard/operator-gate)

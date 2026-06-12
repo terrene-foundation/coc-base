@@ -180,6 +180,21 @@ Origin: kailash-kaizen #822 (2026-05-05) — `Kaizen.config` returns `Union[Conf
 
 **Magic-value extension (2026-05-28).** The list-of-NAMES failure class generalizes to NUMERIC-VALUE claims about `pub const` sentinels: when a rustdoc body restates a const's value in a different base (decimal of a hex literal, hex of a decimal literal, byte sequence of a magic-value u32), every restatement is a second source of truth that drifts on every refactor of the declaration. The structural defense pairs the Rule 3e citation requirement with a same-shard compile-time pin test: the const's rustdoc body MUST cite the declaration's `<path>:<line>`, AND the crate MUST ship a `#[test]` fixture (e.g. `crates/kailash-capi/tests/header_constants_emit.rs`) asserting the const's value in EVERY base form the rustdoc names, so a refactor that touches the literal fails the pin before the rustdoc drifts. Evidence: kailash-capi `TP_REPAIR_CONFIRM` rustdoc claimed decimal `1_380_274_241` for the hex magic `0x52455041`; PR #1160 R1 LOW-1 surfaced the drift risk; commit 84e9732a corrected the decimal AND pinned the cross-base equivalence. The pattern extends to every `pub const` magic-value an FFI surface exposes, and to the Python analogue (`.pyi` stub numeric constants restated in module docstrings).
 
+**Binding-inheritance extension (2026-06-11).** The doc-drift failure class AMPLIFIES across bindings: a wrong claim in the SDK's own doc/spec (a phantom error variant, a phantom enum, a phantom field, a phantom finish reason) is faithfully reproduced by EVERY binding that mirrors the surface — and every binding reviewer trusts the SDK doc, so N bindings ship N copies of the phantom with zero reviewer catching it. Therefore: when wrapping an SDK surface across ≥2 bindings, every documented contract the wrapper restates (error variants, enum members, signatures, finish reasons, lifecycle guarantees) MUST be re-derived from the SDK _code_ (the enum declaration, the function body), NOT from the SDK _doc_; AND the multi-binding parity audit MUST include a row-by-row source-rederivation matrix that re-derives each row from source.
+
+```text
+# DO — restate the contract from the enum declaration, audit via a parity matrix
+//   error variants confirmed against `enum EngineError { ... }` (the source),
+//   row-by-row across PyO3 / C-ABI / Go / Java / .NET
+
+# DO NOT — copy the SDK rustdoc's "errors: AlreadyComplete | ..." into 5 bindings
+//   the SDK doc named a variant the enum + body never had; all 5 mirror the phantom
+```
+
+**BLOCKED rationalizations:** "the SDK doc is authoritative" / "the other bindings already document this variant, so it must exist" / "re-deriving from code for every binding is redundant" / "the binding reviewer would catch a phantom".
+
+**Why:** A symptom of N reviewers all trusting one upstream doc is N identical copies of one defect — the parity matrix re-derived from source is the only check that defeats the shared blind spot. Evidence: kailash-rs F16 W2 (journals 0176/0178) — SDK rustdoc documented an `AlreadyComplete` error variant that did not exist in the enum or the body; PyO3 + C-ABI + Go + Java + .NET all mirrored the phantom across 6 doc sites; 3 binding authors and 3 reviewers missed it; only the 4-auditor row-by-row Python↔C-ABI↔Go↔Java↔.NET parity matrix caught it (the fix then implemented the gate for real, shipping in v4.5.0). Same wave: a phantom `FinishReason` enum in the spec (R3) and a same-file sibling self-contradiction (R2-CRIT) — three instances of one class in one wave.
+
 **Trust Posture Wiring (Rule 3e):**
 
 - **Severity:** `halt-and-report` at gate-review (reviewer at `/implement` + cc-architect at `/codify` surface uncited method-list / numeric-value claims via mechanical sweep); `advisory` at hook layer (lexical detection of surface-list patterns without adjacent `<path>:<line>` cite cannot carry `block` per `hook-output-discipline.md` MUST-2).
@@ -188,8 +203,8 @@ Origin: kailash-kaizen #822 (2026-05-05) — `Kaizen.config` returns `Union[Conf
 - **Regression-within-grace:** any uncited method-list / handler-list / config-key / cross-base-numeric claim within grace → `regression_within_grace` per trust-posture.md MUST-4 (emergency downgrade L5→L4).
 - **Receipt requirement:** SessionStart MUST require `[ack: zero-tolerance-3e]` IF `posture.json::pending_verification` includes this rule_id (single ack covers the base clause + magic-value extension).
 - **Detection mechanism:** reviewer mechanical sweep at `/implement` + cc-architect at `/codify` grep doc edits for method-list / handler-list / surface-list / cross-base-numeric patterns and verify adjacent `<path>:<line>` citation (+ pin-test presence for numeric claims). Audit fixtures TBD.
-- **Violation scope:** ANY doc edit rewriting a list-of-method-names / list-of-handler-names / list-of-config-keys / list-of-exposed-surfaces claim about code in the same repo, AND any rustdoc/docstring restating a `pub const` sentinel's numeric value in a different base without the declaration's `<path>:<line>` cite AND a compile-time cross-base pin test.
-- **Origin:** kailash-rs 2026-05-22 (R2-HIGH OAuth2 RDoc walk-back; fix PR #1088) + 2026-05-28 magic-value extension (PR #1160 R1 LOW-1, commit 84e9732a).
+- **Violation scope:** ANY doc edit rewriting a list-of-method-names / list-of-handler-names / list-of-config-keys / list-of-exposed-surfaces claim about code in the same repo, AND any rustdoc/docstring restating a `pub const` sentinel's numeric value in a different base without the declaration's `<path>:<line>` cite AND a compile-time cross-base pin test, AND (binding-inheritance extension 2026-06-11) any binding wrapper doc/impl restating an SDK-documented contract without re-deriving it from SDK source — the multi-binding parity audit's row-by-row source-rederivation matrix is the detection mechanism for this subclass.
+- **Origin:** kailash-rs 2026-05-22 (R2-HIGH OAuth2 RDoc walk-back; fix PR #1088) + 2026-05-28 magic-value extension (PR #1160 R1 LOW-1, commit 84e9732a) + 2026-06-11 binding-inheritance extension (F16 W2, journals 0176/0178; phantom `AlreadyComplete` variant mirrored across 5 bindings).
 
 ## Rule 6a — Remove Fully (Python + Rust Examples + BLOCKED)
 

@@ -711,9 +711,9 @@ A property or method whose return type is a union of structurally-distinct shape
 
 ### Rule 3e: Doc Walk-Back Claims About Code Surface Cite Source Line Range
 
-Any doc edit rewriting a claim about code surface — method lists, registered handlers, exposed bindings, config keys, deprecation lists, magic-value numeric constants (cross-base restatements of `pub const` sentinels) — MUST cite the ground-truth source as `<path>:<start>-<end>` in the same paragraph; cross-base numeric restatements additionally require a same-shard compile-time pin test. Uncited claims are BLOCKED.
+Any doc edit rewriting a claim about code surface — method lists, registered handlers, exposed bindings, config keys, deprecation lists, magic-value numeric constants (cross-base restatements of `pub const` sentinels) — MUST cite the ground-truth source as `<path>:<start>-<end>` in the same paragraph; cross-base numeric restatements additionally require a same-shard compile-time pin test. Uncited claims are BLOCKED. **Binding-inheritance:** when a contract (error variant, enum member, field, finish reason, lifecycle guarantee) is restated by a wrapper across ≥2 bindings, every binding's restatement MUST be re-derived from the SDK _code_ (the enum/function body), NOT the SDK _doc_; the multi-binding parity audit MUST include a row-by-row source-rederivation matrix.
 
-**Why:** Walk-backs are written mid-correction without the registration block in working memory — the doc drifts to what the API "should" expose. See guide for kailash-rs PRs #1087/#1088 + #1160 evidence + Trust Posture Wiring.
+**Why:** Walk-backs are written mid-correction without the registration block in working memory — the doc drifts to what the API "should" expose; a wrong SDK doc claim is faithfully mirrored by every binding (N reviewers all trust the same SDK doc). See guide for kailash-rs PRs #1087/#1088 + #1160 + the binding-inheritance (F16 W2) evidence + Trust Posture Wiring.
 
 ## Rule 4: No Workarounds For Core SDK Issues
 

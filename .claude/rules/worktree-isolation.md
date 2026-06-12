@@ -61,6 +61,22 @@ If top-level path does NOT match worktree path, STOP and emit
 
 **Why:** The orchestrator's pinned-path instruction can be lost to context compression across long delegation chains; a self-check inside the specialist file is a belt-and-suspenders guarantee that survives prompt truncation. One git call (~30 ms) prevents specialist drift.
 
+### 2a. Re-Assert Cwd Per Invocation — `cd` Persistence Is Not Trustworthy
+
+The Rule-2 self-check at agent START is necessary but not sufficient: the shell's cwd can silently revert to the MAIN checkout mid-session after tool-mediated file operations. A relative-path patch then resolves against the wrong checkout and "succeeds" — edits land on main's copy, the worktree's code never changes, and a subsequent test run prints green against the UNPATCHED code (a vacuous pass). Any worktree command whose correctness depends on which checkout it runs in (apply patch, run tests, grep for the edit) MUST re-assert location in the same invocation (`git -C <worktree> …`, or `cd <worktree> && pwd && …`) — not rely on a `cd` from an earlier call.
+
+```bash
+# DO — location asserted in the SAME invocation as the operation
+cd "$WT" && git rev-parse --show-toplevel && <run-tests/apply-patch>
+
+# DO NOT — trust an earlier cd; relative paths may now resolve against main
+<run-tests>     # cwd silently reverted → tests main's old code, prints green
+```
+
+**BLOCKED rationalizations:** "I cd'd at the start of the session" / "the prior command ran in the worktree, so this one will" / "the test passed, the patch must have applied".
+
+**Why:** The false-green is worse than a failure — it converts an unapplied patch into institutional "validated" state. Evidence: kailash-rs journal 0177 § Process note (2026-06-10) — a "3× green" validation had silently run in the main checkout after cwd reverted; the explicit `cd` + re-run produced the real 3/3 FAIL that exposed an O(n²) regression. Pairs with Rule 3a (checkout-bound tools): 3a covers tools rooted at the script's own location; this clause covers the invoking shell's cwd.
+
 ### 3. Parent MUST Verify Deliverables Exist After Agent Exit
 
 When an agent reports completion of a file-writing task, the parent orchestrator MUST verify the claimed files exist at the worktree path via `ls` or `Read` before trusting the completion claim. Agent completion messages are NOT evidence of file creation.
@@ -169,4 +185,4 @@ Agent(isolation="worktree", prompt="Implement W31... use feat/w31-core-ml-nodes"
 
 **Why:** `process.cwd()` resolves to whatever the Claude Code process was launched with (the main checkout), not the worktree; relative paths inherit the same problem.
 
-Origin: Session 2026-04-19 specialist drift + 2026-04-23 kailash-ml-audit M10 release wave (Rules 4–6). See guide for full post-mortem evidence. Rule 4 reframed 2026-06-01 (F110 / loom#418+#419) from the hardcoded "Waves of ≤3" cap to the throttle-aware adaptive model — #419's 7-read-only-agent synchronized throttle (sub-quota, `not your usage limit`) falsified #418's "trust the native cap (14)"; receipts journal/0193 (ablation + throttle evidence) + journal/0194 (F110 DECISION).
+Origin: Session 2026-04-19 specialist drift + 2026-04-23 kailash-ml-audit M10 release wave (Rules 4–6) + Rule 2a 2026-06-11 (kailash-rs journal 0177 § Process note — cwd silently reverted to main mid-session, a "3× green" validation had run against unpatched main code). See guide for full post-mortem evidence. Rule 4 reframed 2026-06-01 (F110 / loom#418+#419) from the hardcoded "Waves of ≤3" cap to the throttle-aware adaptive model — #419's 7-read-only-agent synchronized throttle (sub-quota, `not your usage limit`) falsified #418's "trust the native cap (14)"; receipts journal/0193 (ablation + throttle evidence) + journal/0194 (F110 DECISION).

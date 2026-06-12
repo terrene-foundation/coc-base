@@ -51,6 +51,23 @@ Tool-inventory mismatch costs one full audit round; verifying pre-launch is O(1)
 
 Compiled-language audit toolkits substitute their own introspection commands (`cargo nextest`, `cargo doc`, `grep` on Rust source) for the Python introspection set — the underlying principle (Bash + Read required for runtime verification) generalizes across stacks.
 
+## Closure-Parity CLEAN Is Not Convergence — A Fresh-Eyes Round Follows
+
+A closure-parity round verifies PRIOR findings are closed; a fresh-eyes round hunts NEW defects. They are orthogonal — a CLEAN closure-parity verdict says nothing about defects nobody has looked for yet. Before declaring a wave/gate converged, run ≥1 fresh-eyes round (blind auditors, distinct lenses — e.g. spec+test / parity+security) AFTER the closure-parity round. Evidence: kailash-rs journal 0178 — R2 closure-parity returned CLEAN; R3 fresh-eyes caught a Go AlignEngine UAF (HIGH, exploitable under GC pressure) and a phantom spec section that would have shipped to v4.5.0. The pattern recurred across the whole F16/W2C wave (journals 0154/0167/0175): mechanical/closure rounds CLEAN → independent fresh-eyes still finds HIGH.
+
+## Read-Only Reviewers: Materialize The Branches Instead Of Re-Dispatching
+
+When the correct specialist for a REVIEW mission is read-only (security-reviewer: Read/Grep/Glob) but the artifacts live on unfetched PR branches, do NOT hand it `gh pr diff` instructions (it cannot run them and will correctly refuse per evidence-first discipline). Materialize the branches as throwaway worktrees first, then point the read-only agent at on-disk paths:
+
+```bash
+git worktree add /tmp/sec-w31 origin/feat/<branch-a>
+git worktree add /tmp/sec-w32 origin/feat/<branch-b>
+# prompt: "review /tmp/sec-w31/<path> ... everything is Readable; no shell required"
+# afterwards: git worktree remove /tmp/sec-w31 --force
+```
+
+This preserves the read-only specialist's tool-inventory guarantees (it cannot mutate anything) while giving it the bytes. Evidence: 2026-06-11 Wave-3 security review — first dispatch with `gh pr diff` instructions returned BLOCKED (correct); re-dispatch against materialized worktrees returned a full APPROVED report.
+
 ## Cross-references
 
 - `.claude/rules/agents.md` § "MUST: Audit/Closure-Parity Verification Specialist Has Bash + Read" — load-bearing MUST clause
