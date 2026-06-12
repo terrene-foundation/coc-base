@@ -1,10 +1,10 @@
 # COC Sync Marker — coc-base (base lane, multi-CLI)
 visibility: public
-timestamp: 2026-06-11T15:05:00Z
+timestamp: 2026-06-12T00:00:00Z
 source: loom/.claude
-loom_sha: 1d6968e
-upstream_version: 2.42.1
-template_version: 2.42.1
+loom_sha: d7ec0d2
+upstream_version: 2.43.0
+template_version: 2.43.0
 variant: base
 template_type: multi-cli
 clis: ["claude", "codex", "gemini"]
@@ -17,13 +17,17 @@ stats:
   composed: 1          # rules/agents.md base slot-keyed overlay (mode:slot)
   overlay_verified: 1
   variant_only: 0
-  purged: 0            # 13 active-purge paths absent on disk; full union 49 in .coc-obsoleted
+  purged: 0            # 13 active-purge paths absent on disk
   preserved: CLAUDE.md
-  changed_this_cycle:  # PR #489 global-rule prose trims, base lane
-    - rules/evidence-first-claims.md
-    - rules/security.md
-    - rules/zero-tolerance.md
-    # rules/agents.md re-composed byte-identical (PR #489 agents.md edit was rs-variant-only)
+  changed_this_cycle:  # #491, base lane
+    - rules/agents.md   # worktree MUST cluster extracted to skill; base overlay one-line bullets + restored binding-scoped-shard-PR clause
+    - rules/security.md # global slot-partition; base carries global Redactor Contract
+    - AGENTS.md         # re-emitted baseline (worktree extraction: -1941B)
+    - GEMINI.md         # re-emitted baseline (worktree extraction: -1941B)
+    - .claude/sync-manifest.yaml  # manifest_distribute refresh (now byte-identical to loom source)
+  content_guard:
+    coc_tier_leaks: 0   # checked copied set vs all 103 manifest coc-tier path patterns
+    note: skills/26-eatp-reference is co-tier (CO methodology), correctly included
   baselines_emitted:
     cc: 0              # CLAUDE.md preserved, not emitted
     codex: 1           # AGENTS.md
@@ -34,23 +38,23 @@ stats:
     headroom_floor_pct: 10
     codex:
       rules: 10
-      bytes: 53963
+      bytes: 52022
       tier: WARN
-      headroom_bytes: 7477
-      headroom_pct: 12.17
+      headroom_bytes: 9418
+      headroom_pct: 15.33
     gemini:
       rules: 10
-      bytes: 53969
+      bytes: 52028
       tier: WARN
-      headroom_bytes: 7471
-      headroom_pct: 12.16
+      headroom_bytes: 9412
+      headroom_pct: 15.32
   cli_artifacts:
     codex:
       prompts: 21      # 16 commands + 5 agent-prompts
-      skills: 40
+      skills: 10       # incl rules-reference skill
     gemini:
       commands: 16
-      skills: 40
+      skills: 10       # incl rules-reference skill
       agents: 5
   codex_dispatcher:
     bin_coc: true
@@ -60,9 +64,10 @@ stats:
     manifest_distributed: true
   sdk_packages: {}     # build:null — language-agnostic base, no SDK pins
   verification:
-    hook_integrity: 38/38
+    hook_integrity: 38/38   # total hook command entries resolve (28 unique scripts)
     lib_require_misses: 0
     build_path_leaks: 0
     operator_pii: 0
-    verify_overlays_base: "2/2 PASS, Failing: 0"
+    claude_scripts_absent: true   # STRUCTURAL ASSERTION pass
+    verify_overlays_base: "2/2 PASS (coc-base + coc-claude-base), Failing: 0"
     obsoleted_purged: true

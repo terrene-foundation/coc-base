@@ -1188,8 +1188,13 @@ variants:
     # +1,685B → codex rs 9.62% / gemini 9.66% (BELOW the v6.2 10% floor).
     # This bundle deliberately SPENDS rs headroom to fix a HIGH
     # silent-wrong-output bug; it is NOT a headroom-relief anchor. Floor
-    # restoration is Plan-09 Shard 8 — the security.md GLOBAL
-    # slot-partition (security.md IS a baseline rule). NOT Shard 6
+    # restoration was Plan-09 Shard 8 — the security.md GLOBAL
+    # slot-partition — LANDED 2026-06-12 (#491 + F116, journal/0271):
+    # rules/security.md is now neutral-body + lang-security-extensions;
+    # variants/rs/rules/security.md overlays ONLY the extensions slot
+    # (3 Rust MUST sections), so global trims/additions reach the rs lane
+    # automatically (the PR #489 double-trim tax is retired). Interim
+    # floor relief had come from PR #489 manual trims. NOT Shard 6
     # (testing.md): that rule is priority:10 path-scoped, NOT in the
     # 9-rule baseline — measured 0B aggregate delta (Shard 6 is
     # correctness-only: restores 7 dropped universal MUSTs to rs). See

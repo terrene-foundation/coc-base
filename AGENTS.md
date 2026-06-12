@@ -81,47 +81,25 @@ When delegating a /redteam round whose mission includes **closure-parity verific
 
 **Why:** Tool-inventory mismatch costs one full audit round. Verifying pre-launch is O(1); re-launch is O(N) on row count.
 
-## MUST: Worktree Isolation for Compiling Agents
+## MUST: Worktree Orchestration
 
-Agents that compile MUST use the CLI's worktree-isolation primitive to avoid build-directory lock contention. The exact build-cache lock varies by stack (Rust: `target/`; Python editable installs: `.venv/`; Go: `$GOCACHE`; TypeScript: `node_modules/.cache/`); the principle is uniform.
+Depth (protocol, prompt templates, BLOCKED corpora, post-mortems): `skills/30-claude-code-patterns/worktree-orchestration.md`. Each bullet is a full MUST:
 
-**Why:** Compilers and package managers hold exclusive filesystem locks on their build caches. Worktrees give each agent its own cache. See `skills/30-claude-code-patterns/worktree-orchestration.md` for the full 5-layer protocol — worktree isolation is necessary but not sufficient.
+- **Isolate compiling agents** — build caches hold exclusive filesystem locks (Rust `target/`; Python editable `.venv/`; Go `$GOCACHE`; TypeScript `node_modules/.cache/`); one worktree per compiling agent (skill Rule 1).
+- **Isolate ANY shared-source editor** (manifest, rules, config, generated artifacts), compiling or not; concurrent readers read committed HEAD via `git show HEAD:<path>`, never the working tree (skill Rule 9).
+- **Relative paths only in worktree prompts** — absolute paths resolve to the parent checkout, silently defeating isolation (skill Rule 2).
+- **Commit per milestone; verify ≥1 commit** before declaring work landed — zero-commit worktrees auto-delete (skill Rule 3).
+- **Verify deliverables exist after exit** (`ls`/`Read` the claimed files) — budget exhaustion truncates writes mid-message (skill Rule 4).
+- **Recover orphan writes** of zero-commit auto-cleaned worktrees from the MAIN checkout onto `recovery/<branch>` (skill Rule 4a).
+- **One version owner per sub-package** when ≥2 parallel agents touch it; siblings are told "do NOT edit" the version anchor + CHANGELOG (Python `pyproject.toml` + `__version__`; Rust `Cargo.toml` + `pub const VERSION`; Go `go.mod` const; TypeScript `package.json::version`) (skill Rule 5).
+- **Binding/package-scoped shard PRs touch only their own package** — sibling-package fixes ship as a separate PR; bundling is BLOCKED (skill Rule 10).
 
-## MUST: Worktree-Isolate Parallel Agents That Edit Shared Source; Concurrent Readers Read Committed HEAD
+```text
+# DO — isolated editor; HEAD-pinned readers; relative paths; per-milestone commits
+# DO NOT — shared-checkout editor + working-tree readers + absolute paths + 0 commits
+```
 
-The clause above generalizes beyond compilation: ANY background/parallel agent that EDITS shared repo source (manifest, rules, config, generated artifacts) MUST be worktree-isolated, even if it never compiles. Any concurrent agent that READS that source MUST read the committed HEAD (`git show HEAD:<path>`), never the working tree.
-
-**Why:** A non-isolated editor's mid-edit WIP is visible in the shared checkout to every concurrent reader; a reader that copies the working tree mid-edit ships the broken state. Reading committed HEAD is the structural isolation when the editor was not worktree-isolated. See guide for the 2026-05-16 post-mortem.
-
-## MUST: Worktree Prompts Use Relative Paths Only
-
-When prompting an agent with worktree isolation, the orchestrator MUST reference files via paths RELATIVE to the repo root — never absolute paths.
-
-**Why:** Worktree isolation sets cwd to the worktree; absolute paths point back to the parent checkout, silently defeating isolation.
-
-## MUST: Recover Orphan Writes From Zero-Commit Worktree Agents
-
-When a worktree-isolated agent reports completion but the branch has zero commits AND the worktree has been auto-cleaned, the parent MUST inspect the MAIN checkout for orphaned untracked files BEFORE concluding the work was lost. Absolute-path writes from the agent resolve to the MAIN checkout cwd — the files are NOT lost; they are orphaned, uncommitted, and reachable via `git status` on the parent.
-
-**Why:** Re-launching abandons real work every time an absolute-path agent truncates. `git status` reveals the orphans; `recovery/` grep surfaces this class of rescue across history.
-
-## MUST: Worktree Agents Commit Incremental Progress
-
-Every worktree-isolated agent MUST receive an explicit instruction in its prompt to `git commit` after each milestone. The orchestrator MUST verify the branch has ≥1 commit before declaring the agent's work landed.
-
-**Why:** Worktrees with zero commits are silently deleted.
-
-## MUST: Verify Agent Deliverables Exist After Exit
-
-When an agent reports completion of a file-writing task, the parent MUST `ls` or `Read` the claimed file before trusting the completion claim.
-
-**Why:** Budget exhaustion truncates writes mid-message. The `ls` check is O(1) and converts silent no-op into loud retry.
-
-## MUST: Parallel-Worktree Package Ownership Coordination
-
-When launching ≥2 parallel agents whose worktrees touch the SAME sub-package, the orchestrator MUST designate ONE agent as **version owner** (manifest version anchor + CHANGELOG) AND tell every sibling explicitly: "do NOT edit those files". Integration belongs to the orchestrator. Per-language anchors: Python (`pyproject.toml` + `__init__.py::__version__`); Rust (`Cargo.toml` + `lib.rs` `pub const VERSION`); Go (`go.mod` + module-level `const`); TypeScript (`package.json::version`).
-
-**Why:** Parallel agents see the same base SHA; each independently bumps `version` and writes a CHANGELOG entry. Merge picks one — discarding the other's prose silently.
+**Why:** Each clause converts a silent parallel-work loss — lock serialization, phantom reads, checkout drift, auto-cleanup loss, truncated writes, version clobber, shard conflicts — into clean isolation or a loud refusal.
 
 ## MUST NOT
 
@@ -143,14 +121,6 @@ The MUST clauses below reference numbered examples here. Codex has no native spe
 ### Example 4 — Closure-Parity Specialist Dispatch (Bash+Read required)
 
 ### Example 5 — Delegation-Time Closure-Parity Scan
-
-### Example 6 — Worktree Isolation (compiling agents)
-
-### Example 7 — Worktree Relative Paths (NEVER absolute)
-
-### Example 8 — Worktree Commit Discipline
-
-### Example 9 — Parallel-Worktree Version-Owner Coordination
 
 
 ---
@@ -560,6 +530,7 @@ ALL code changes in the repository.
 
 See `.claude/guides/rule-extracts/security.md` for extended examples, exhaustive sanitizer contract examples, and multi-site kwarg plumbing full post-mortem.
 
+
 ## No Hardcoded Secrets
 
 All sensitive data MUST use environment variables.
@@ -655,6 +626,8 @@ Subject-keyed redactors (primitives scrubbing every string containing a `subject
 ## Exceptions
 
 Security exceptions require: written justification, security-reviewer approval, documentation, and time-limited remediation plan.
+
+
 
 ---
 

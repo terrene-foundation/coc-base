@@ -1,17 +1,17 @@
 {
   "name": "coc-base",
-  "version": "2.42.1",
+  "version": "2.43.0",
   "type": "coc-use-template",
   "description": "Language-agnostic, non-Kailash CO/COC USE template — multi-CLI (variant: base, clis: claude/codex/gemini)",
-  "synced_at": "2026-06-11T15:05:00Z",
+  "synced_at": "2026-06-12T00:00:00Z",
   "upstream": {
     "name": "loom",
     "type": "coc-source",
-    "version": "2.42.1",
-    "loom_sha": "1d6968e",
-    "synced_at": "2026-06-11T15:05:00Z",
-    "template_version": "2.42.1",
-    "build_version": "2.42.1"
+    "version": "2.43.0",
+    "loom_sha": "d7ec0d2",
+    "synced_at": "2026-06-12T00:00:00Z",
+    "template_version": "2.43.0",
+    "build_version": "2.43.0"
   },
   "variant": "base",
   "tier_subscriptions": [
@@ -25,6 +25,24 @@
     "gemini"
   ],
   "changelog": [
+    {
+      "date": "2026-06-12",
+      "version": "2.43.0",
+      "summary": "loom@d7ec0d2 Gate-2 distribution (base multi-CLI, loom 2.43.0) — #491 agents.md worktree-cluster extraction + security.md global slot-partition (PR #493, loom main 6590005). Base subscribes [cc,co,onboarding]; coc-tier excluded by design (BASE-LANE CONTENT GUARD: 0 coc-tier leaks across all 103 manifest coc-tier path patterns; eatp-reference skill is co-tier, correctly included). build:null — NO SDK pins. The worktree extraction reduced agents.md size, improving baseline headroom to codex 15.33% / gemini 15.32% (both well above 10% Risk-0004 floor).",
+      "changes": [
+        "DISTRIBUTE: sync-tier-aware.mjs --target base --template coc-base. copied=844, verified 844/844 delivered (14 content-equal after BUILD-internal strip, 830 byte-equal), overlay_applied=1 + overlay_verified=1 (rules/agents.md base slot-composed byte-equal), variant_only=0, purged=0 (13 active-purge paths absent on disk), skipped loom_local=2 + exclude=880 + use_exclude=29 + no_tier_match=514. .gitignore noop. visibility=public preserved.",
+        "CHANGED THIS CYCLE (#491, base lane): rules/agents.md base overlay re-composed (worktree MUST cluster extracted to skill; base overlay one-line MUST bullets + restored binding-scoped-shard-PR clause) + rules/security.md global slot-partition (base carries global Redactor Contract). verify-overlays.sh base: coc-base + coc-claude-base both variant-applied(base,slot) PASS, Failing: 0.",
+        "MULTI-CLI BASELINES (Step 6.5): AGENTS.md (codex 52022B WARN, headroom 15.33% / 9418B) + GEMINI.md (gemini 52028B WARN, headroom 15.32% / 9412B) re-emitted to repo root via emit.mjs --all --lang base (strict-headroom default, exit 0). 10 rules each. -1941B vs prior cycle (worktree extraction). Validators 12/13/14/15/16/17/18 PASS.",
+        "MULTI-CLI TREES (Step 6.6): emit-cli-artifacts --target base re-emitted .codex/{prompts=21,skills=10} + .gemini/{commands=16,skills=10,agents=5} (tier-filtered [cc,co,onboarding]: coc-tier excluded — commands=25,skills=52,codex-agent-prompts=34,gemini-agents=34 skipped). rules-reference skill 1 each (29 path-scoped rules indexed, #408 AC#5-b). .codex-mcp-guard/ (9 files) refreshed + emitted policies.json. bin/coc dispatcher + 28 per-phase symlinks. validator-13 bijection PASS.",
+        "SCAFFOLD (Step 4.6): symlink .claude/codex-mcp-guard -> ../.codex-mcp-guard (verified); sync-manifest.yaml distributed to .claude/ (manifest_distribute: true) — now byte-identical to loom source.",
+        "CONTENT GUARD: 0 Kailash coc-tier specialist leaks (checked copied set against all 103 manifest coc-tier path patterns). skills/26-eatp-reference is co-tier (CO methodology), correctly included.",
+        "SETTINGS: (language-agnostic base) description preserved (Step 6b: no Python/Rust/Ruby tag for base — correct as-is). Hook integrity 38/38 entries resolve; 0 scripts/hooks; 0 operator-PII in settings.json + AGENTS.md + GEMINI.md.",
+        "SDK pins: n/a (build:null — language-agnostic base; sdk_packages {}). Step 9/10 dependency-install skipped (lane declares no BUILD source).",
+        "STEP 7.5: no .github/coc-sdk-refs-allowlist.txt (no contamination gate) — skipped (legitimate absence).",
+        "PRESERVED: CLAUDE.md (template-owned); .claude/learning/** + .proposals/** + .coc-sync-marker never synced. STRUCTURAL ASSERTION: no .claude/scripts/ (overlay-flow defect absent).",
+        "BUMP: VERSION 2.42.1->2.43.0; loom_sha 1d6968e->d7ec0d2; upstream.version 2.42.1->2.43.0."
+      ]
+    },
     {
       "date": "2026-06-11",
       "version": "2.42.1",
@@ -116,5 +134,5 @@
       ]
     }
   ],
-  "updated": "2026-06-11"
+  "updated": "2026-06-12"
 }

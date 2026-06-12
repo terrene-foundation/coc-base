@@ -50,6 +50,8 @@ Agent(
 )
 ```
 
+**BLOCKED rationalizations:** "Absolute paths are unambiguous" / "The agent should figure out its own cwd" / "This worked the one time I tested it".
+
 ## Rule 3 — Worktree Agents Commit Incremental Progress
 
 **Rule:** `rules/agents.md` § "MUST: Worktree Agents Commit Incremental Progress".
@@ -296,9 +298,60 @@ Agent(isolation="worktree", prompt="Implement W33 km.* wrappers...")
 
 Origin: Session 2026-04-23 — W33 initial launch lost to `worktree-agent-<hash>`; re-launched with explicit `feat/W33-km-wrappers`.
 
+## Rule 9 — Worktree-Isolate Shared-Source Editors; Concurrent Readers Read Committed HEAD
+
+**Rule:** `rules/agents.md` § Worktree Orchestration — shared-source editor isolation. Rule 1's isolation mandate generalizes beyond compilation: ANY background/parallel agent that EDITS shared repo source (`sync-manifest.yaml`, rules, `bin/`, config) MUST be worktree-isolated, even if it never compiles. Any concurrent agent that READS that source MUST read the committed HEAD (`git show HEAD:<path>`), never the working tree.
+
+### Failure mode evidence (2026-05-16 post-mortem)
+
+Three agents ran against the SAME loom checkout: a background agent EDITING `sync-manifest.yaml` (issue #243), and two `/sync` catch-up agents READING loom source. The editor's mid-edit WIP left the manifest with a transient YAML syntax error; both readers flagged "the manifest is broken repo-wide" — correct for the working tree, false at committed HEAD. ~2 agents' analysis cycles were spent reconciling a phantom defect. Root cause: the isolation MUST was framed compiling-only, so the orchestrator launched the editor non-isolated precisely because "it doesn't compile."
+
+### The two structural halves
+
+1. **Editor isolation** — any shared-source editor is worktree-isolated, compiling or not.
+2. **Reader discipline** — concurrent readers read committed HEAD; this is the half that actually saved the cycle (once the catch-up agents were told to read `git show HEAD:<path>`, they produced correct plans despite the broken WIP in the shared tree).
+
+### Prompt template
+
+```python
+# DO — a background agent that EDITS shared source is worktree-isolated
+Agent(isolation="worktree", prompt="Edit sync-manifest.yaml: add consumer_overlays ...")
+# DO — a concurrent agent that READS that source reads committed HEAD
+Agent(prompt="""Catch-up sync. Read loom source via `git show HEAD:.claude/bin/emit.mjs`
+(committed HEAD), NOT the working tree — a parallel agent may be mid-edit.""")
+
+# DO NOT — non-isolated editor + working-tree reader, same checkout
+Agent(prompt="Edit sync-manifest.yaml ...")          # mid-edit WIP visible to all
+Agent(prompt="Catch-up: copy .claude/bin/emit.mjs")  # may copy broken mid-edit state
+```
+
+**BLOCKED rationalizations:** "It's not a compiling agent, the worktree rule doesn't apply" / "The edit is quick, a collision is unlikely" / "Both agents are careful" / "I'll serialize them in my head".
+
+**Why:** A non-isolated editor's mid-edit WIP is visible in the shared checkout; a reader copying the working tree mid-edit ships the broken state. Had the editor been isolated (or the readers HEAD-pinned from the start), zero reader cycles would have been spent on a phantom defect.
+
+Origin: 2026-05-16 loom session (issue #243 manifest editor vs py/rs catch-up readers); full post-mortem in `guides/rule-extracts/agents.md` § Post-mortem 2026-05-16.
+
+## Rule 10 — Binding/Package-Scoped Shard PRs Touch Only Their Own Package
+
+**Rule:** `rules/agents.md` § Worktree Orchestration — binding-scope discipline. When ≥2 parallel worktree agents each ship a binding/package-scoped shard, each shard's PR MUST limit its diff to its OWN binding/package directory. Incidental fixes to sibling-package files (clippy lints, fmt drift, doc typos) discovered mid-shard ship as a separate PR or a dedicated cross-package cleanup shard — bundling is BLOCKED. This is the file-overlap variant of Rule 5: that clause forbids two agents editing the version anchor; this one forbids two agents editing the same sibling-package source.
+
+### Failure mode evidence
+
+F9 Wave 3c (2026-05-22): PR #1084 (a Java MCP shard) bundled an incidental Ruby clippy fix on a Ruby binding source file; concurrent PR #1085 (a broader Ruby MCP shard) edited the same file; #1085's auto-merge hit a 3-way conflict resolved mid-flight at merge commit `69bed4e0` (~10 min of churn binding-scope discipline would have prevented). Same trap precedent: Wave 3b PR #1081 on the parity-matrix file.
+
+### Detection sweep (reviewer mechanical sweep at /implement)
+
+`git diff --name-only main...HEAD`, map each changed path to its top-2 directory components, flag any binding-scoped PR (title `feat(go|java|ruby|python|nodejs):`) whose changed-file roots span >1 binding directory WITHOUT a cross-package-cleanup title prefix (`chore(bindings):` / `fix(bindings):` are carved out — they MAY touch multiple binding dirs by design).
+
+**BLOCKED rationalizations:** "It's only a one-liner lint fix" / "Both bindings rebuild anyway" / "Filing a separate PR is overhead for trivial drift" / "I'm already touching the workspace anyway" / "The fix is in a different file from the sibling shard" / "Concurrent PRs on different files don't conflict".
+
+**Why:** When two concurrent binding-scoped shards touch the SAME sibling-package file (one shard's incidental fix + a concurrent shard that owns that file), the second-to-merge hits a 3-way conflict the orchestrator resolves mid-flight. Trust Posture Wiring for this clause: `guides/rule-extracts/agents.md` § Binding-Scoped Shard PRs.
+
+Origin: F9 Wave 3c (2026-05-22), PR #1084/#1085 conflict on a Ruby binding source file.
+
 ## Related rules & skills
 
-- `rules/agents.md` — the load-bearing MUST clauses for all 5 worktree rules
+- `rules/agents.md` § Worktree Orchestration — the load-bearing MUST cluster this skill carries the depth for (one structural assertion per clause in the rule; protocol, templates, BLOCKED corpora + post-mortems here)
 - `rules/orphan-detection.md` — §1 (facade call site) and §6 (`__all__` eager import) are what the mechanical sweep verifies
 - `skills/30-claude-code-patterns/parallel-merge-workflow.md` — merge-step patterns for collecting worktree branches into an integration branch
 - `guides/deterministic-quality/02-session-architecture.md` — session-level architecture for multi-agent orchestration
