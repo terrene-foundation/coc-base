@@ -1,15 +1,15 @@
 {
   "name": "coc-base",
-  "version": "2.45.0",
+  "version": "2.45.1",
   "type": "coc-use-template",
   "description": "Language-agnostic, non-Kailash CO/COC USE template — multi-CLI (variant: base, clis: claude/codex/gemini)",
-  "synced_at": "2026-06-12T05:48:47Z",
+  "synced_at": "2026-06-17T13:51:33Z",
   "upstream": {
     "name": "loom",
     "type": "coc-source",
     "version": "2.45.0",
-    "loom_sha": "6d18fe9",
-    "synced_at": "2026-06-12T05:48:47Z",
+    "loom_sha": "c1e52a62",
+    "synced_at": "2026-06-17T13:51:33Z",
     "template_version": "2.45.0",
     "build_version": "2.45.0"
   },
@@ -25,6 +25,17 @@
     "gemini"
   ],
   "changelog": [
+    {
+      "date": "2026-06-17",
+      "version": "2.45.1",
+      "summary": "loom@c1e52a62 redistribution (base multi-CLI, loom 2.45.0 unchanged) — sync-upflow Wave-3 todo-14: FIRST real /sync-to-use carrying the Wave-1/2 sync-family artifacts. Base tier [cc,co,onboarding] — no coc-tier Kailash specialists. Inbox ensure-exists provisioned.",
+      "changes": [
+        "INGEST: sync-family artifacts reach the base surface byte-equal (869 globals; 1 overlay; verify-overlays.sh base 2/2). Tier-filtered: no Kailash coc-tier specialists.",
+        "INBOX: .claude/.proposals/inbox/{README.md,.gitkeep} ensure-exists provisioned.",
+        "PINS: N/A (non-Kailash base template — no SDK pins).",
+        "BUMP: template 2.45.0->2.45.1; loom_sha 6d18fe9->c1e52a62."
+      ]
+    },
     {
       "date": "2026-06-12",
       "version": "2.45.0",

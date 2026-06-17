@@ -22,6 +22,8 @@ ALL sessions running in a USE-template-derived consumer repo. Applies to ANY `gh
 
 It ALSO governs the **proposal-intake lane**: a USE-template or BUILD repo filing a COC-artifact issue, or a `/codify` proposal whose body flows through loom Gate-1, MUST scrub per Rule 2 BEFORE filing — a proposal body is a pipeline input that reaches 30+ downstream consumers once split and distributed, exactly the surface this rule fences.
 
+It ALSO governs the **downstream-upflow inbox-PR surface**: a `coc-project` consumer's Step-7c offer is a `gh pr create` adding `<template>/.claude/.proposals/inbox/<date>-<slug>.yaml` — a filing subject to MUST-1's human gate AND MUST-2's redaction exactly as an SDK-repo issue is. The inbox YAML body (its `codify_session` + per-change `reason:` free-text — the human-scrub-only residual, NOT reached by the mechanical scanner) AND every referenced artifact file MUST be scrubbed before the PR is opened (this is fence i of the scenario-8 QUADRUPLE disclosure fence; the template's inbox-ingest scrub and loom Gate-1 are fences ii–iii). Step-7c provenance is hop-level only (`origin: downstream`, no `source_repo` / consumer name), so the schema itself carries no consumer identity — but the free-text fields are the surface this rule fences.
+
 ## MUST Rules
 
 ### 1. Human Gate Before Filing
@@ -84,7 +86,6 @@ df = kailash.DataFlow("postgresql://...")
 df.execute_raw("INSERT INTO t (col) VALUES ($1)", [None])
 df.execute_raw("INSERT INTO t (col) VALUES ($1)", ["ascii-only"])  # raises UTF-8 error
 ```
-````
 
 # DO NOT — body carries consumer-project name + internal paths + finding IDs
 
@@ -100,7 +101,6 @@ live_oauth.py:192-237 and pseudo-atomic in oauth.py:470-536.
 ## Workspace
 
 workspaces/<consumer-app>/journal/0020-DISCOVERY-dataflow-execute-raw-utf8-corruption.md
-
 ````
 
 **BLOCKED rationalizations:**
@@ -127,13 +127,15 @@ The issue body MUST consist of ONLY:
 
 Nothing else. No "## Workaround", no "## Workspace", no "## <consumer-app> wired around it like this", no "## Cross-references" pointing to consumer journals, no "## Cross-SDK alignment" sections.
 
-```markdown
+````markdown
 # DO — five required sections, nothing else
 
 ## Affected API
+
 `kailash.DataFlow.execute_raw(sql: str, params: list)`
 
 ## Minimal repro
+
 ```python
 import kailash
 df = kailash.DataFlow("postgresql://localhost/test")
@@ -141,7 +143,7 @@ df.execute_raw("CREATE TABLE t (col TEXT)")
 df.execute_raw("INSERT INTO t VALUES ($1)", [None])
 df.execute_raw("INSERT INTO t VALUES ($1)", ["ascii-only"])
 # Raises: psycopg.errors.CharacterNotInRepertoire: invalid byte sequence
-````
+```
 
 ## Expected vs actual
 
@@ -179,8 +181,7 @@ This is the Python equivalent of <sibling-SDK>#NNN ...
 
 - <consumer-app> shard: S36d
 - Tier 2 test suite: tests/integration/test*websocket*\*.py [in the consumer repo]
-
-```
+````
 
 **BLOCKED rationalizations:**
 
@@ -211,4 +212,5 @@ This is the Python equivalent of <sibling-SDK>#NNN ...
 **Why:** A proposal body that reaches Gate-1 is split and distributed to 30+ consumers; any leaked identifier becomes permanently correlatable across all of them before any output fence runs — the intake lane is a pipeline input, not a private note.
 
 Origin: A 2026-04-29 public SDK issue body leaked `F-G1-HIGH S-H3 finding (<consumer-app> repo, 2026-04-27): non-atomic store_tokens in live_oauth.py:192-237 and pseudo-atomic in oauth.py:470-536` into a public SDK issue. Sibling leaks confirmed across ~13 issues spanning two public SDK repos (consumer-app workspace paths, finding tags, "<consumer-app> workaround" sections, references to private SDK repos). Drafted as the structural defense after the leakage audit (loom 2026-04-30).
-```
+
+**Length rationale (per `rules/rule-authoring.md` MUST NOT § "Rules longer than 200 lines").** Rule body exceeds the 200-line guidance. Named rationale: **disclosure-fence scope**. The rule codifies the full upstream-filing + proposal-intake disclosure contract — the human gate (MUST-1), the redaction denylist (MUST-2), the five-section minimal-repro shape (MUST-3), the downstream-upflow inbox-PR surface (§ Scope), plus the MUST NOT clause block — each carrying the DO/DO-NOT examples + `**Why:**` lines `rules/rule-authoring.md` MUST-3/4 require. The good-vs-kitchen-sink example issue-bodies are necessarily verbose because the leakage failure mode they teach is shape-level, not one-liner. This rule is `priority: 10` + `scope: path-scoped`, so it pays NO baseline-emission cost (loaded only in sessions matching its `paths:` globs) and `rules/rule-authoring.md` Rule 10's proximity-band gate does NOT fire. Per `rules/rule-authoring.md` MUST NOT § "Rules longer than 200 lines": overage is permitted with named rationale anchored at Origin. Sibling precedent: `artifact-flow.md` Origin.

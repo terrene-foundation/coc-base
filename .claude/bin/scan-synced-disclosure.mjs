@@ -158,6 +158,14 @@ function isNeverSynced(relPath, base, segs) {
   // gitignored per `permissions.deny` convention and carries genuine
   // per-operator local overrides.
   if (base === "settings.local.json") return true;
+  // sync-preserve.local.yaml is the consumer-owned half of the scenario-11
+  // sanctioned-local-preserve pair (sync-flow.md § Downstream Sync step 5b):
+  // consumer-local, in the fixed NEVER-overwritten set, never propagates
+  // upstream — same never-synced class as settings.local.json. The
+  // template-carried `sync-preserve.yaml` (no `.local`) IS synced and is NOT
+  // excluded here (it ships template→consumer and must be scanned like any
+  // other synced artifact).
+  if (base === "sync-preserve.local.yaml") return true;
   if (base === ".coc-sync-marker") return true;
   if (base === "scheduled_tasks.lock") return true;
   if (base === ".env" || /\.env$/.test(base)) return true;
@@ -192,6 +200,19 @@ function isExcluded(relPath) {
   // it is never synced (sync-manifest.yaml `loom_only:`). Same self-exclude
   // pattern as the scanner's own file above.
   if (base === "disclosure-tenant-denylist.json") return true;
+  // The D6 ecosystem registry (ECO-IMPL W1) carries the REAL per-ecosystem org
+  // slugs by design — it is loom-only (sync-manifest.yaml loom_only:) and
+  // never reaches a consumer. The exclusion is SOURCE-ONLY (mirrors the #352
+  // `*.local.json` destination-mode flip at :250): at loom-source
+  // (REPO_ROOT_ACTIVE === REPO_ROOT) it is self-excluded so its OWN legitimate
+  // slugs do not self-flag (preserving zero-findings-on-main). At a DESTINATION
+  // scan (`--root <consumer>`), a committed `ecosystem.json` IS the disclosure
+  // event the loom_only fence forbids (it shipped past the never-sync skip) —
+  // so it is SCANNED there, and any bare non-allowlisted org/host slug fails
+  // loud via the ecosystem-bare-org-slug shape below. ONLY the exact
+  // `ecosystem.json` basename — `ecosystem.example.json` (synthetic tokens)
+  // stays SCANNED in BOTH modes and is the positive fixture for that shape.
+  if (base === "ecosystem.json" && REPO_ROOT_ACTIVE === REPO_ROOT) return true;
 
   // This scanner's OWN audit fixtures intentionally embed SYNTHETIC
   // disclosure shapes (invented `acme-*` / `Fakename-*` / `fakeuser`
@@ -302,6 +323,19 @@ const ALLOWLIST = [
   /terrene-foundation(\/[A-Za-z0-9._-]+)?/i,
   /terrene\.foundation/i,
   /terrene\.dev/i,
+  // ALLOWLIST-NOTE (W6b-i 2026-06-17): `terrenefoundation` (NO hyphen) is the
+  // canon Docker Hub REGISTRY org — the Docker-namespace form of the Foundation
+  // GitHub org `terrene-foundation` above (Docker Hub org slugs disallow the
+  // hyphen). It is the SAME Foundation-public identity, not a client/3rd-party
+  // org. It appears in the py dev-container emit TEST as the substituted-registry
+  // assertion (`terrenefoundation/kailash-coc-py`) — the real registry org lives
+  // only in the loom-only `ecosystem.json` and is substituted into the synthetic
+  // `{{REGISTRY_*}}` placeholders at emit time (it never ships as a literal in the
+  // synced template SOURCE). The trailing `(?![\w-])` non-word/non-hyphen boundary
+  // anchors to the EXACT own Docker org (mirrors the `esperie-enterprise` entry's
+  // anchoring): a typosquat `terrenefoundation-evil/loom` no longer matches the
+  // allowlist and is still flagged by the nonfoundation-org-slug shape.
+  /terrenefoundation(?![\w-])(\/[A-Za-z0-9._-]+)?/i,
   // ALLOWLIST-NOTE: `esperie-enterprise` is loom's own GitHub host org
   // per co-owner Option-1 ruling 2026-05-17 (#263); self-coordinates,
   // not a client/3rd-party disclosure. The scanner still flags genuine
@@ -468,6 +502,19 @@ const ALLOWLIST = [
   // the operator's actual lowercase username, not `runner`/`me`.
   /\/Users\/runner\//,
   /\/(?:Users|home)\/me\//,
+  // ALLOWLIST-NOTE (W6b-i 2026-06-17): `/home/dev/` is the CONTAINER-INTERNAL
+  // devcontainer user home, NOT a host operator home. The py dev-container
+  // Dockerfile creates it with `useradd ... dev` + `USER dev` and the
+  // devcontainer.json sets `remoteUser: "dev"`; every consumer's container gets
+  // the identical fixed `dev` user. The mount/volume targets
+  // (`target=/home/dev/.cache/uv`, `- uv-cache:/home/dev/.cache/uv`) are
+  // in-container destination paths, carrying zero operator/tenant identity —
+  // exact precedent class as `/Users/runner/` (GitHub hosted-runner home) and
+  // `/home/me/` (CC teaching placeholder) above. Anchored to the EXACT
+  // fixed container username `dev`: a real operator home (`/home/<operator>/`)
+  // carries the operator's actual username, fails this anchored prefix, and is
+  // still flagged by the operator-home-path shape.
+  /\/home\/dev\//,
   // ALLOWLIST-NOTE: a `/Users/<PascalCase>/` span (e.g. `/Users/Items/`
   // from the `mockData/Users/Items/Records/Response*` glob comment in
   // validate-workflow.js) is a fake-data FIELD-NAME path, not a home
@@ -759,6 +806,26 @@ const SHAPES = [
     id: "settings-permission-absolute-path",
     rx: /"(?:Edit|Write|Read|Bash|MultiEdit|Glob|Grep|NotebookEdit)\((\/(?:Users|home)\/[^"\)]+)\)"/g,
   },
+  {
+    // D6-1 (ECO-IMPL W1-S3 / redteam/01 HIGH promoted to impl). The
+    // nonfoundation-org-slug shape above flags an org ONLY inside a
+    // <org>/<repo-family> slug, a git/gh context, or an `-enterprise` suffix —
+    // it is structurally BLIND to a BARE JSON value like `"org": "acme-corp"`
+    // (no `/`, no repo-family, no git context). The D6 ecosystem registry is
+    // exactly that shape: { "remote_links": { "build.py": { "org":
+    // "acme-corp", "repo": "..." } } }. This FILE-SCOPED shape (ecosystem*
+    // files ONLY — NOT every repo-wide JSON value, which would flood) flags a
+    // bare lowercase-slug "org" / "host" value. The REAL ecosystem.json is
+    // self-excluded (isExcluded) and never reaches here; ecosystem.example.json
+    // IS scanned and its synthetic `example-*` / `<org>` values pass via the
+    // POSITIVE allowlist (allowlistCovers applies to this shape) — it is the
+    // positive fixture proving the shape catches a real bare slug. A bare host
+    // WITH a dot ("docker.io") does not match (the closing quote is not
+    // adjacent to the [a-z0-9-] run), so public registry hosts stay clean.
+    id: "ecosystem-bare-org-slug",
+    fileScope: /^ecosystem.*\.json$/,
+    rx: /"(?:org|host)"\s*:\s*"[a-z][a-z0-9-]{2,}"/g,
+  },
 ];
 
 // ────────────────────────────────────────────────────────────────
@@ -844,12 +911,17 @@ function scanFile(file, findings, shapes) {
   }
   if (isProbablyBinary(buf)) return;
   const rel = path.relative(REPO_ROOT_ACTIVE, file);
+  const base = path.basename(file);
   const text = buf.toString("utf8");
   const lines = text.split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (!line) continue;
     for (const shape of shapes) {
+      // A shape may declare `fileScope` (a basename regex); it then applies
+      // ONLY to matching files. File-scoped shapes (e.g. the ecosystem
+      // bare-org-slug shape) avoid flooding every repo-wide JSON value.
+      if (shape.fileScope && !shape.fileScope.test(base)) continue;
       shape.rx.lastIndex = 0;
       let m;
       while ((m = shape.rx.exec(line)) !== null) {

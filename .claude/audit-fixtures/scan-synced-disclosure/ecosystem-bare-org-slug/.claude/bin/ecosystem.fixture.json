@@ -1,0 +1,11 @@
+{
+  "_doc": "POSITIVE fixture for the D6-1 ecosystem-bare-org-slug shape (ECO-IMPL W1-S3). Basename matches /^ecosystem.*\\.json$/ but is NOT the exact `ecosystem.json` (which isExcluded skips). The two BARE lowercase-slug org/host values below have no `/`, no repo-family, no git context — invisible to the nonfoundation-org-slug shape, caught only by the file-scoped ecosystem-bare-org-slug shape. The example-* / <org> / docker.io values MUST NOT flag (allowlist + dot-in-host). All tokens SYNTHETIC.",
+  "schema_version": 1,
+  "registry": { "host": "privatereg", "org": "example-registry-org" },
+  "remote_links": {
+    "build.py": { "org": "acme-corp", "repo": "kailash-py" },
+    "build.rs": { "org": "example-org", "repo": "kailash-rs" },
+    "loom": { "org": "<org>", "repo": "<repo>" }
+  },
+  "registry_public": { "host": "docker.io" }
+}

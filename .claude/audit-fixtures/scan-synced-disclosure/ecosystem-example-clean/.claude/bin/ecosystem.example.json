@@ -1,0 +1,13 @@
+{
+  "_doc": "NEGATIVE fixture for the D6-1 ecosystem-bare-org-slug shape (ECO-IMPL W1-S3). Mirrors the committed ecosystem.example.json: every org/host value is a synthetic example-* / <org> placeholder (allowlist-covered) or a dotted public registry host (no match). The file-scoped shape applies (basename matches /^ecosystem.*\\.json$/) but produces ZERO findings — proving the shape does not false-positive on the synthetic vocabulary the public-fork example carries. All tokens SYNTHETIC.",
+  "schema_version": 1,
+  "registry": { "host": "docker.io", "org": "example-registry-org" },
+  "remote_links": {
+    "build.py": { "org": "example-org", "repo": "example-build-py" },
+    "loom": { "org": "<org>", "repo": "<repo>" }
+  },
+  "vcs": {
+    "default_provider": "github",
+    "overrides": { "build.rs": "azure-devops" }
+  }
+}

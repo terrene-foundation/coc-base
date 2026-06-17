@@ -1,0 +1,8 @@
+# SYNTHETIC fixture — scenario-11 two-axis narrowness proof.
+# The template-carried carrier (NO `.local`) IS synced template->consumer and
+# MUST be scanned like any other synced artifact. The embedded operator-home-path
+# token MUST flag (exit 1) — proving the isNeverSynced skip is NARROW (only the
+# `.local.yaml` companion is skipped, never this template-carried file).
+# Invented home paths only; no real operator coordinates.
+preserved:
+  - "Dockerfile.user" # why: hand-tuned base under /Users/fakeuser/fake-repos

@@ -119,6 +119,27 @@ const { foldGenesisMigration } = require("./fold-rule-9c.js");
 // the emitter's subsequent chain). journal-body-anchor.js requires only
 // node builtins — no require cycle.
 const journalBodyAnchor = require("./journal-body-anchor.js");
+// ECO-IMPL W2-S1 (A1-T1): cascade-membership registry predicates (M1–M4 +
+// disclosure-isolation + genesis-precedes). Registered in
+// _registerM0Defaults so member-registry records fold in EVERY
+// default-engine consumer AND so coc-emit.js::emitSignedRecord accepts the
+// namespace (an unregistered type is dispatch-rejected and rule-2-poisons
+// the emitter's subsequent chain). fold-member-registry.js requires only
+// coc-sign + node:crypto — no require cycle (it does NOT require this file).
+const foldMemberRegistry = require("./fold-member-registry.js");
+// ECO-IMPL W2-S2 (A1-T2): project-side single-valued `upstream-canon`
+// pointer predicate (the P-side half of the handshake). Same registration
+// rationale as the member-registry block above — registering it here lets
+// emitSignedRecord accept the type AND foldLog dispatch it.
+// fold-upstream-canon.js is zero-dep (no require cycle).
+const foldUpstreamCanon = require("./fold-upstream-canon.js");
+// ECO-IMPL W4-S1 (A2-T1): capability-lifecycle ledger fold predicates (the
+// §4.2 record namespace + dual code/artifact lineage). Same registration
+// rationale as the member-registry block above — registering them here lets
+// emitSignedRecord accept every §4.2 type (invariant i) AND foldLog dispatch
+// them. fold-capability-ledger.js requires only coc-sign + node:crypto — no
+// require cycle (it does NOT require this file).
+const foldCapabilityLedger = require("./fold-capability-ledger.js");
 // F14 MED-3: route inline R5-S-04 host_role:ci + role checks through
 // the single eligibility predicate so drift across rule 5 / 9b / 9c is
 // closed structurally.
@@ -657,6 +678,88 @@ function _registerM0Defaults(registry) {
       authoritative_for_aggregate: false,
     },
   });
+
+  // ECO-IMPL W2-S1 (A1-T1): cascade-membership registry namespace (M1–M4
+  // + disclosure-isolation + genesis-precedes). These records live in a
+  // SEPARATE log (refs/coc/member-registry → member-registry.jsonl) but
+  // fold under THIS default engine (shared substrate, distinct namespace
+  // per framework-first.md §9). checkpoint_exempt: true per rule 6 — every
+  // membership record is a signed trust/accountability/trust-root record
+  // (admission, sever, attestation, genesis-anchor, rotation) that MUST
+  // survive compaction so the per-project causal chain (M2) re-derives.
+  // Registering them here is load-bearing for emitSignedRecord's type-
+  // check (member-registry.js::emitMemberRecord) AND for foldLog dispatch.
+  for (const [type, fn] of [
+    [
+      foldMemberRegistry.TYPE_GENESIS_ANCHOR,
+      foldMemberRegistry.foldRegistryGenesisAnchor,
+    ],
+    [
+      foldMemberRegistry.TYPE_MEMBER_ADMITTED,
+      foldMemberRegistry.foldMemberAdmitted,
+    ],
+    [
+      foldMemberRegistry.TYPE_RECONCILIATION,
+      foldMemberRegistry.foldReconciliationAttestation,
+    ],
+    [
+      foldMemberRegistry.TYPE_MEMBERSHIP_SEVERED,
+      foldMemberRegistry.foldMembershipSevered,
+    ],
+    [
+      foldMemberRegistry.TYPE_GENERATION_ROTATION,
+      foldMemberRegistry.foldRegistryGenerationRotation,
+    ],
+  ]) {
+    registry.set(type, {
+      fn,
+      meta: {
+        checkpoint_exempt: true,
+        authoritative_for_record: true,
+        authoritative_for_aggregate: false,
+      },
+    });
+  }
+
+  // ECO-IMPL W2-S2 (A1-T2): project-side `upstream-canon` pointer. Lives in
+  // its OWN log (refs/coc/upstream-canon → upstream-canon.jsonl), folds
+  // under THIS default engine. checkpoint_exempt: true — the pointer is a
+  // signed trust record whose tip is the single-valued membership claim
+  // (must survive compaction so the tip re-derives).
+  registry.set(foldUpstreamCanon.TYPE_UPSTREAM_CANON, {
+    fn: foldUpstreamCanon.foldUpstreamCanon,
+    meta: {
+      checkpoint_exempt: true,
+      authoritative_for_record: true,
+      authoritative_for_aggregate: false,
+    },
+  });
+
+  // ECO-IMPL W4-S1 (A2-T1): capability-lifecycle ledger namespace (the §4.2
+  // record types + dual code/artifact lineage). These records live in a
+  // SEPARATE log (refs/coc/capability-ledger → capability-ledger.jsonl) but
+  // fold under THIS default engine (shared substrate, distinct namespace per
+  // framework-first.md §7 — NOT a second signing substrate). The FULL §4.2
+  // type set is registered up front (invariant i: every emit type-checks
+  // against the registered fold dispatch; an unknown type is dispatch-rejected
+  // at fold AND refused by emitSignedRecord) — so sub-wave 2 (A2-T2 classifier
+  // + A2-T3a DAG) never re-touches coordination-log.js. checkpoint_exempt:
+  // true per rule 6 — every ledger record (rails / workaround / classification
+  // / cascade / retirement / sever) is a signed lifecycle/accountability
+  // record that MUST survive compaction so the capability-lineage chain
+  // re-derives. Registering them here is load-bearing for emitSignedRecord's
+  // type-check (capability-ledger.js::emitLedgerRecord) AND for foldLog
+  // dispatch.
+  for (const [type, fn] of foldCapabilityLedger.LEDGER_PREDICATES) {
+    registry.set(type, {
+      fn,
+      meta: {
+        checkpoint_exempt: true,
+        authoritative_for_record: true,
+        authoritative_for_aggregate: false,
+      },
+    });
+  }
 }
 
 // ---- per-rule helpers -------------------------------------------------------
@@ -945,7 +1048,7 @@ function _resolveRosterPerson(roster, verifiedId) {
  * use by predicates that re-verify (defense-in-depth, e.g. genesis-anchor
  * which has an additional owner-bind check on top of rule 1).
  */
-function _verifyRule1(record, roster) {
+function _verifyRule1(record, roster, opts) {
   const resolved = _resolveRosterPerson(roster, record.verified_id);
   if (!resolved) {
     return {
@@ -960,6 +1063,25 @@ function _verifyRule1(record, roster) {
     return {
       ok: false,
       reason: `rule 1: roster person resolved but no key matching verified_id`,
+    };
+  }
+  // skipSignatureVerify — keep the roster-MEMBERSHIP gate (an unrostered /
+  // unknown-key record still rejects above) but skip the expensive
+  // cryptographic verify. Used ONLY by the emit-time fold-validation guard
+  // (coc-emit.js::_foldDelta): the candidate is freshly self-signed (its
+  // signature is guaranteed valid) and the prior records are the already-
+  // established accepted chain (verified when first folded), so re-verifying
+  // every signature on every emit is pure waste — it does NOT change which
+  // records fold-accept, only how long it takes. The COC-CHAIN guard needs
+  // rule-2 (chain) + rule-3 (fork) + the predicate, none of which depend on
+  // rule-1's crypto check. Read-time folds (every reader) ALWAYS verify
+  // (this opt is never set there) — forgery detection is unaffected.
+  if (opts && opts.skipSignatureVerify) {
+    return {
+      ok: true,
+      resolvedPerson: resolved,
+      pubkey: matchingKey.pubkey,
+      keyType: matchingKey.type,
     };
   }
   // Re-derive canonical content bytes and verify the detached signature.
@@ -1509,7 +1631,7 @@ function _foldLog(records, roster, opts, registry) {
     }
 
     // --- Rule 1 — signature verification gate ---
-    const r1 = _verifyRule1(record, roster);
+    const r1 = _verifyRule1(record, roster, optsResolved);
     if (!r1.ok) {
       rejected.push({ record, reason: r1.reason, rule: "rule-1" });
       continue;

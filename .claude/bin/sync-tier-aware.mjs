@@ -7,7 +7,7 @@
  *  PURPOSE
  *
  *  Closes the recurring `/tmp/sync-<target>.sh` ad-hoc-script class in
- *  /sync Gate 2. Every prior cycle re-implemented the tier-subscription
+ *  /sync-to-use (Gate 2). Every prior cycle re-implemented the tier-subscription
  *  filter in hand-written bash; every cycle regressed (the 2026-05-17
  *  cycle's helper leaked 4 categories of inappropriate files into a USE
  *  template before self-reverting). This script IS the structural defense
@@ -15,7 +15,7 @@
  *  Tier-Aware Tooling" clause names — there is now exactly one place
  *  where tier filtering happens, and it ships with regression tests.
  *
- *  CONTRACT (sync-flow.md Gate 2 step 3)
+ *  CONTRACT (sync-flow.md § Gate 2 → Process step 3)
  *
  *    1. Read `repos.<target>.tier_subscriptions` (REQUIRED in v2.21.0+;
  *       missing = manifest defect, halt with non-zero exit).
@@ -305,7 +305,7 @@ const CLAUDE_DIR = path.join(REPO, ".claude");
 // ────────────────────────────────────────────────────────────────
 //
 // These ship to every USE template regardless of tier_subscriptions.
-// Source of truth: `commands/sync.md` Gate 2 step 3 line.
+// Source of truth: sync-flow.md § Gate 2 → Process step 3 (loom: /sync-to-use).
 //
 // Pinning here (vs computing from manifest) is intentional: these are
 // runtime infrastructure paths, not tier-classified content. Adding a
@@ -1476,7 +1476,7 @@ function buildPlan(manifest, target, templateFilter) {
     fail(
       1,
       `manifest defect: repos.${target}.tier_subscriptions missing ` +
-        `(REQUIRED in v2.21.0+; halt per commands/sync.md Gate 2 step 3)`,
+        `(REQUIRED in v2.21.0+; halt per sync-flow.md § Gate 2 → Process step 3 (loom: /sync-to-use))`,
     );
   }
 

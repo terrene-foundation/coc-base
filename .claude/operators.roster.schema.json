@@ -91,6 +91,18 @@
             "enum": ["human", "ci"],
             "description": "Whether the signing host is a human or a CI deploy-key. Architecture §2.3 R5-S-04: host_role:ci is AUDIT-ONLY — NEVER eligible to co-sign owner-quorum, distinctness, gate-approval, or genesis/migration records. This schema RECORDS the value; ineligibility is enforced in shard A0b-2c (NOT here)."
           },
+          "business_roles": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "platform-engineer",
+                "capability-engineer",
+                "business-consultant"
+              ]
+            },
+            "description": "OPTIONAL advisory operating-model classification (role-first model; specs/06 §2; ratified journal/0282, INFRA fold journal/0284). Cut by PURPOSE: capability-engineer (≡ agentic-AI-engineer, one role) builds reusable capabilities consumed by a product's RUNTIME (home build); platform-engineer owns loom in full — the ecosystem machine + method/methodology pool + the INFRA team/function — all DEV-PROCESS-consumed (home loom); business-consultant builds specific products on capabilities + use-templates (home use). ADVISORY + capability-scoping ONLY: NEVER quorum-eligible, NEVER consulted by any distinctness/gate predicate, and ORTHOGONAL to both the authority `role` (owner/senior/contributor) and the trust-posture (L1–L5). Optional + additive — absent on pre-model rosters (NOT in `required`). product-owner is NOT a value (the requirements/brief author sits outside the delivery substrate, no signing identity)."
+          },
           "keys": {
             "type": "array",
             "minItems": 1,

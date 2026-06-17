@@ -53,7 +53,7 @@
  * patterns under tiers.<tier> for each tier in repos.<name>.tier_subscriptions.
  * Required when emitting for a USE template — emitting WITHOUT a target ships
  * every artifact on disk (e.g., onboarding-tier files leak into [cc,co,coc]
- * py/rs/rb targets). Per commands/sync.md Gate 2 step 3, missing/empty
+ * py/rs/rb targets). Per sync-flow.md § Gate 2 → Process step 3 (loom: /sync-to-use), missing/empty
  * tier_subscriptions is a manifest defect that MUST halt the sync.
  *
  * Exit codes: 0 = success, 1 = emission failure, 2 = usage error.
@@ -482,7 +482,7 @@ function rewriteClaudePathsForCli(body, cli) {
 // Build tier filter: union of glob patterns across subscribed tiers.
 // Returns null when no target (caller emits everything per legacy mode).
 // Halts with exit 2 when target is provided but tier_subscriptions is
-// missing — per commands/sync.md Gate 2 step 3, that is a manifest
+// missing — per sync-flow.md § Gate 2 → Process step 3 (loom: /sync-to-use), that is a manifest
 // defect, not a fall-through-to-all-tiers fallback.
 // ────────────────────────────────────────────────────────────────
 function buildTierFilter(target) {
@@ -497,7 +497,7 @@ function buildTierFilter(target) {
   if (subs.length === 0) {
     process.stderr.write(
       `emit-cli-artifacts: target '${target}' has empty tier_subscriptions ` +
-        `(retired/structural-defect halt per commands/sync.md Gate 2 step 3) — refusing to emit.\n`,
+        `(retired/structural-defect halt per sync-flow.md § Gate 2 → Process step 3 (loom: /sync-to-use)) — refusing to emit.\n`,
     );
     process.exit(2);
   }

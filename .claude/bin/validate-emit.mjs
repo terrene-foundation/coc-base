@@ -42,6 +42,21 @@
  *    8. loom-only-mutual-exclusion (F104) a `loom_only:` glob that is ALSO in a
  *                                  synced tier FAILS (blocks /sync); a glob
  *                                  matching 0 on-disk files = WARN (non-blocking).
+ *   15. variant-orphan            (todo 16) every TRACKED file under
+ *                                  .claude/variants/ MUST be one of: a `variants:`
+ *                                  overlay value, a `variant_only:<lang>` entry, a
+ *                                  RULE/wrapper under a convention axis tree
+ *                                  (variants/<axis>/rules/ · variants/<cli>/wrappers/),
+ *                                  a null-ACK phantom (variants: <key> with this
+ *                                  lang explicitly null), or a README/.example
+ *                                  companion doc. Anything else = orphan → FAIL.
+ *                                  Enumerated via `git ls-files` (untracked
+ *                                  operator-local *.local.md companions are OUT of
+ *                                  scope by design). The allowlist MUST union BOTH
+ *                                  `variants:` AND `variant_only:` — a
+ *                                  `variants:`-only reading mis-reports ~200 false
+ *                                  orphans (the client-report symptom; see
+ *                                  workspaces/sync-upflow/todos/active/16-*).
  *
  *  Each check is STRUCTURAL (file existence, frontmatter parse, line count, set
  *  membership, glob match, tree presence) per probe-driven-verification.md
@@ -154,6 +169,7 @@ const CHECK_IDS = [
   "coc-artifact-ids",
   "consumer-efficacy",
   "codex-policies-fresh",
+  "variant-orphan",
 ];
 
 const STATUS = {
@@ -1189,16 +1205,33 @@ function checkAuditFixtureCoverage(root) {
   return { id, source_rule: "cc-artifacts.md Rule 9 / hook-output-discipline.md MUST-4", results };
 }
 
+// Declared load-bearing carve-outs (ECO-IMPL W1 / D6). A positive allowlist
+// (cc-artifacts.md Rule 10) of CONCRETE (wildcard-free) loom_only files that are
+// permitted to sit UNDER a synced tier glob. Such a file is NOT a contradiction:
+// sync-tier-aware.mjs::classifyFile suppresses it at step 2b (loom_only PRECEDES
+// tier inclusion), so the one file is carved out of the synced tier while the
+// rest of the tier still syncs — the INTENDED never-sync fence for a
+// committed-but-ecosystem-private artifact (e.g. the D6 ecosystem registry,
+// deliberately placed under bin/** so loom_only is LOAD-BEARING + this validator-
+// checked). Adding an entry here is the EXPLICIT, auditable act of declaring such
+// a fence; any within-tier loom_only file NOT on this list still FAILS loud
+// (catching the inverse bug: a real synced artifact accidentally loom_only'd,
+// which would silently starve every consumer). Paths are `.claude/`-relative,
+// matching the loom_only stanza shape.
+const LOOM_ONLY_TIER_CARVEOUTS = new Set(["bin/ecosystem.json"]);
+
 // Check 8 — loom-only mutual exclusion (F104).
-//   FAIL  a loom_only glob that ALSO appears as a tier entry (any tier) —
-//         a path declared never-sync but also tier-listed would be both
+//   FAIL  a loom_only glob that ALSO appears as / swallows a tier entry (any
+//         tier) — a path declared never-sync but also tier-listed would be both
 //         emitted (by tier) and never-emitted (by loom_only); the manifest
-//         contradicts itself. Blocks /sync.
+//         contradicts itself. Blocks /sync. EXCEPTION: a concrete file in
+//         LOOM_ONLY_TIER_CARVEOUTS is a declared load-bearing carve-out (PASS).
 //   FIXTURE_NEEDED  (WARN, non-blocking would be ideal but the status taxonomy
 //         only has pass/fail/fixture-needed/skip; per the F104 spec a
 //         zero-match glob is a WARN, NOT a block) → emitted as `skip` with a
 //         "WARN:" detail so it surfaces without blocking /sync.
-//   PASS  a loom_only glob that matches >=1 on-disk file AND is in no tier.
+//   PASS  a loom_only glob in no tier, OR a declared tier carve-out, that
+//         matches >=1 on-disk file.
 function checkLoomOnlyMutualExclusion(root) {
   const id = "loom-only-mutual-exclusion";
   const source_rule = "sync-manifest.yaml loom_only (F104) / cross-repo.md Rule 4";
@@ -1230,12 +1263,16 @@ function checkLoomOnlyMutualExclusion(root) {
     const collisions = tierEntries.filter(
       (t) => t.glob === lo || loomGlobMatch(t.glob.replace(/^\.claude\//, ""), lo) || loomGlobMatch(lo, t.glob),
     );
-    if (collisions.length > 0) {
+    // A declared, concrete (wildcard-free) carve-out is the load-bearing fence,
+    // not a contradiction (emit suppresses it at classifyFile step 2b). Any
+    // OTHER within-tier loom_only entry still FAILS loud.
+    const isCarveout = LOOM_ONLY_TIER_CARVEOUTS.has(lo) && !lo.includes("*");
+    if (collisions.length > 0 && !isCarveout) {
       const where = collisions.map((c) => `${c.tier}:${c.glob}`).join(", ");
       results.push({
         artifact: lo,
         status: STATUS.FAIL,
-        detail: `loom_only path is ALSO in synced tier(s) ${where} — a never-sync artifact cannot be tier-listed (mutual-exclusion violation)`,
+        detail: `loom_only path is ALSO in synced tier(s) ${where} — a never-sync artifact cannot be tier-listed (mutual-exclusion violation). If this is an intended load-bearing carve-out, add it to LOOM_ONLY_TIER_CARVEOUTS.`,
       });
       continue;
     }
@@ -1251,7 +1288,13 @@ function checkLoomOnlyMutualExclusion(root) {
       });
       continue;
     }
-    results.push({ artifact: lo, status: STATUS.PASS, detail: "never-sync, in no synced tier, matches on-disk file" });
+    results.push({
+      artifact: lo,
+      status: STATUS.PASS,
+      detail: isCarveout
+        ? `load-bearing carve-out (declared in LOOM_ONLY_TIER_CARVEOUTS): concrete loom_only file under synced tier(s) ${collisions.map((c) => `${c.tier}:${c.glob}`).join(", ")} — emit suppresses at classifyFile loom_only step (2b) before tier inclusion; the rest of the tier still syncs`
+        : "never-sync, in no synced tier, matches on-disk file",
+    });
   }
   return { id, source_rule, results };
 }
@@ -2266,6 +2309,224 @@ function checkCodexPoliciesFresh(root) {
   };
 }
 
+// =======================================================================
+//  CHECK 15 — variant-orphan (todo 16 / sync-upflow Wave 2b)
+// =======================================================================
+// Every TRACKED file under .claude/variants/ MUST be accounted for by exactly
+// the positive allowlist below (cc-artifacts.md Rule 10 — closed allowlist, not
+// a denylist). The check exists because the sync-manifest is HUMAN-maintained at
+// Gate 1; a manual drop (a file moved, globalized, or re-classified without its
+// stale leftover deleted) leaves an undeclared orphan that no other check sees.
+//
+// THE LOAD-BEARING DO-NOT (the client-report symptom): the allowlist MUST union
+// BOTH the `variants:` REPLACEMENT lane AND the `variant_only:<lang>` ADDITION
+// lane. A checker reading `variants:` ALONE reports ~200 false orphans (505
+// tracked − 303 `variants:` paths), because `variant_only:` (177 paths, zero
+// overlap) is an EQUAL declaration source it ignored — the exact 202-false-
+// positive a client hit live. Unioning both sections is the systemic fix every
+// coc-tier consumer of this validator gets for free.
+//
+// The 5 allowlist arms a tracked variants/ file MUST match (else → orphan FAIL):
+//   1. variants-overlay   — a non-null overlay VALUE in `variants:` (any lang).
+//   2. variant-only       — listed in `variant_only:<lang>` (any lang).
+//   3. convention-rule/wrapper — a RULE under a convention-composed axis tree
+//      (variants/<axis>/rules/, axis ∈ langs ∪ clis ∪ lang-cli ternaries —
+//      consumed by emit.mjs::composeRule filesystem convention) OR a CLI wrapper
+//      (variants/<cli>/wrappers/ per variant-authoring Rule 4).
+//   4. null-ack           — the file sits at the conventional phantom path of a
+//      `variants:` <artifact-key> whose value for THIS lang is explicitly `null`
+//      (the documented phantom-overlay suppression, emit.mjs null-axis skip).
+//   5. readme-or-example  — a README / `.example.` companion doc.
+//
+// Enumeration is `git ls-files` (NOT the filesystem): untracked operator-local
+// `*.local.md` companions are by-design local and OUT of scope.
+
+// Convention-tree axes (arm 3). Langs + CLIs are the canonical sets the emitter
+// iterates (emit.mjs declaredTargets + the codex/gemini cli list); the ternary
+// lang-cli axes are their cross product. A file under variants/<axis>/rules/ is
+// composed by filesystem convention iff <axis> is in this set.
+//
+// SSOT NOTE: these two arrays MUST stay in sync with the emitter's axis sets —
+// VARIANT_LANGS mirrors `emit.mjs` `declaredTargets` (the lang list `composeRule`
+// iterates) and VARIANT_CLIS mirrors the codex/gemini cli list in `emit.mjs`
+// main(). If a future lane adds an axis to the emitter but NOT here, a
+// legitimately-composed variants/<newaxis>/rules/... file is mis-flagged as an
+// orphan (a false /sync BLOCK — fail-CLOSED, never a false allow). When you touch
+// either array, re-grep `declaredTargets` + the `clis = ... ["codex","gemini"]`
+// line in emit.mjs and mirror the change.
+const VARIANT_LANGS = ["py", "rs", "rb", "base", "prism"];
+const VARIANT_CLIS = ["codex", "gemini"];
+function variantConventionAxes() {
+  const axes = new Set([...VARIANT_LANGS, ...VARIANT_CLIS]);
+  for (const l of VARIANT_LANGS) for (const c of VARIANT_CLIS) axes.add(`${l}-${c}`);
+  return axes;
+}
+const VARIANT_AXES = variantConventionAxes();
+
+// Parse the `variants:` REPLACEMENT block. Returns
+//   { overlays: Set<string>, nullCells: Array<{key,lang}> }
+// where `overlays` are the non-null overlay path VALUES (.claude-relative, e.g.
+// "variants/rs/rules/patterns.md") and `nullCells` records each <key>×<lang>
+// cell explicitly set to `null` (the phantom-suppression arm-4 source). Returns
+// null when the manifest is unreadable. Line-oriented (the parseTiers idiom).
+function parseVariantsBlock(root) {
+  const manifest = safeRead(join(root, ".claude", "sync-manifest.yaml"));
+  if (manifest === null) return null;
+  const overlays = new Set();
+  const nullCells = [];
+  let inBlock = false;
+  let curKey = null;
+  for (const raw of manifest.split(/\r?\n/)) {
+    if (/^variants:\s*$/.test(raw)) {
+      inBlock = true;
+      continue;
+    }
+    if (!inBlock) continue;
+    // A non-space, non-comment char at column 0 ends the block (next top-level key).
+    if (/^[^\s#]/.test(raw)) break;
+    if (/^\s*(#.*)?$/.test(raw)) continue; // blank or comment line
+    // 2-space artifact-key header: `  rules/patterns.md:` (empty value after colon).
+    const keyM = raw.match(/^ {2}([^\s#][^:]*):\s*(#.*)?$/);
+    if (keyM) {
+      curKey = keyM[1].trim();
+      continue;
+    }
+    // 4-space lang line: `    py: null` | `    rs: variants/rs/rules/patterns.md`.
+    const langM = raw.match(/^ {4}([A-Za-z0-9_-]+):\s*(.+?)\s*$/);
+    if (langM && curKey) {
+      const lang = langM[1];
+      let val = langM[2].replace(/\s+#.*$/, "").trim().replace(/^["']|["']$/g, "");
+      if (val === "" || val === "null" || val === "~") {
+        nullCells.push({ key: curKey, lang });
+      } else {
+        overlays.add(val);
+      }
+    }
+  }
+  return { overlays, nullCells };
+}
+
+// Parse the `variant_only:` ADDITION block into a flat Set of every declared
+// path (.claude-relative), across all langs. Returns null when unreadable.
+function parseVariantOnlyAll(root) {
+  const manifest = safeRead(join(root, ".claude", "sync-manifest.yaml"));
+  if (manifest === null) return null;
+  const out = new Set();
+  let inBlock = false;
+  for (const raw of manifest.split(/\r?\n/)) {
+    if (/^variant_only:\s*$/.test(raw)) {
+      inBlock = true;
+      continue;
+    }
+    if (!inBlock) continue;
+    if (/^[^\s#]/.test(raw)) break; // next top-level key ends the block
+    if (/^\s*(#.*)?$/.test(raw)) continue; // blank or comment
+    const item = raw.match(/^\s+-\s+(.+?)\s*$/);
+    if (item) {
+      const v = item[1].replace(/\s+#.*$/, "").trim().replace(/^["']|["']$/g, "");
+      if (v) out.add(v);
+    }
+    // lang headers (`  py:`) need no capture — we collect the flat path set.
+  }
+  return out;
+}
+
+// Pure classifier — the testable core (no IO). `relPath` is .claude-relative
+// (e.g. "variants/py/skills/project/foo.md"). Returns { ok, arm }.
+function classifyVariantFile(relPath, { overlays, variantOnly, nullPhantoms }) {
+  const base = relPath.slice(relPath.lastIndexOf("/") + 1);
+  // arm 5 — README / .example. companion docs (cheapest, unambiguous; first).
+  if (base === "README.md" || base === "_README.md" || relPath.includes(".example.")) {
+    return { ok: true, arm: "readme-or-example" };
+  }
+  // arm 1 — a declared overlay VALUE in `variants:`.
+  if (overlays.has(relPath)) return { ok: true, arm: "variants-overlay" };
+  // arm 2 — a `variant_only:<lang>` entry.
+  if (variantOnly.has(relPath)) return { ok: true, arm: "variant-only" };
+  // arm 4 — a null-ACK phantom (variants: <key> with this lang explicitly null).
+  if (nullPhantoms.has(relPath)) return { ok: true, arm: "null-ack" };
+  // arm 3 — convention axis tree: variants/<axis>/rules/<…> OR variants/<cli>/wrappers/<…>.
+  const m = relPath.match(/^variants\/([^/]+)\/(rules|wrappers)\/.+/);
+  if (m) {
+    const axis = m[1];
+    const sub = m[2];
+    if (sub === "rules" && VARIANT_AXES.has(axis)) return { ok: true, arm: "convention-rule" };
+    if (sub === "wrappers" && VARIANT_CLIS.includes(axis)) return { ok: true, arm: "convention-wrapper" };
+  }
+  return { ok: false, arm: "orphan" };
+}
+
+// Enumerate TRACKED files under .claude/variants/ via git (NOT the filesystem —
+// untracked operator-local companions are out of scope by design). Returns an
+// array of repo-relative paths, or null when git is unavailable.
+function listTrackedVariants(root) {
+  try {
+    const out = execFileSync(
+      "git",
+      ["ls-files", "-z", "--", ".claude/variants"],
+      { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+    );
+    return out.split("\0").filter(Boolean);
+  } catch {
+    return null;
+  }
+}
+
+function checkVariantOrphan(root) {
+  const id = "variant-orphan";
+  const source_rule =
+    "sync-manifest.yaml variants/variant_only (todo 16 / sync-upflow Wave 2b) / cc-artifacts.md Rule 10";
+  if (!existsSync(join(root, ".claude", "variants"))) {
+    return {
+      id,
+      source_rule,
+      results: [{ artifact: ".claude/variants", status: STATUS.SKIP, detail: "no variants/ dir (consumer tree — variants/ is loom-only)" }],
+    };
+  }
+  const tracked = listTrackedVariants(root);
+  if (tracked === null) {
+    return {
+      id,
+      source_rule,
+      results: [{ artifact: ".claude/variants", status: STATUS.SKIP, detail: "git ls-files unavailable (not a git checkout)" }],
+    };
+  }
+  const variantsBlock = parseVariantsBlock(root);
+  const variantOnly = parseVariantOnlyAll(root);
+  if (variantsBlock === null || variantOnly === null) {
+    return {
+      id,
+      source_rule,
+      results: [{ artifact: "sync-manifest.yaml", status: STATUS.SKIP, detail: "manifest unreadable" }],
+    };
+  }
+  // arm-4 phantom paths: the conventional overlay path of each null cell.
+  const nullPhantoms = new Set(
+    variantsBlock.nullCells.map((c) => `variants/${c.lang}/${c.key}`),
+  );
+  const ctx = { overlays: variantsBlock.overlays, variantOnly, nullPhantoms };
+  const results = [];
+  for (const f of tracked) {
+    const rel = f.startsWith(".claude/") ? f.slice(".claude/".length) : f;
+    if (!rel.startsWith("variants/")) continue;
+    const c = classifyVariantFile(rel, ctx);
+    if (c.ok) {
+      results.push({ artifact: rel, status: STATUS.PASS, detail: c.arm });
+    } else {
+      results.push({
+        artifact: rel,
+        status: STATUS.FAIL,
+        detail:
+          "undeclared variant orphan — matches NO allowlist arm (variants: overlay / variant_only: / convention axis tree / null-ack / README-.example). Declare an overlay or variant_only:<lang> entry, OR delete the leftover (todo 16).",
+      });
+    }
+  }
+  if (results.length === 0) {
+    results.push({ artifact: ".claude/variants", status: STATUS.SKIP, detail: "no tracked variant files" });
+  }
+  return { id, source_rule, results };
+}
+
 const CHECK_FNS = {
   "command-frontmatter": checkCommandFrontmatter,
   "command-line-cap": checkCommandLineCap,
@@ -2281,6 +2542,7 @@ const CHECK_FNS = {
   "coc-artifact-ids": checkCocArtifactIds,
   "consumer-efficacy": checkConsumerEfficacy,
   "codex-policies-fresh": checkCodexPoliciesFresh,
+  "variant-orphan": checkVariantOrphan,
 };
 
 function runChecks(root, only, opts) {
@@ -2456,6 +2718,14 @@ export {
   extractRulesIndexCitations,
   checkCodexPoliciesFresh,
   canonicalPolicies,
+  checkVariantOrphan,
+  parseVariantsBlock,
+  parseVariantOnlyAll,
+  classifyVariantFile,
+  listTrackedVariants,
+  VARIANT_AXES,
+  VARIANT_LANGS,
+  VARIANT_CLIS,
   deriveMirroredHookSet,
   frontmatterRegion,
   extractHookKinds,

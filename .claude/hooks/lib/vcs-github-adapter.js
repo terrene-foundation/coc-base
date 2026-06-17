@@ -7,8 +7,22 @@
  * invariant: this adapter is BEHAVIOR-IDENTICAL to the prior inline gh-api
  * code, so GitHub ceremony records remain byte-for-byte unchanged.
  *
- * The injected `transport` is the existing `ghApi` callable:
+ * The injected `transport` is the existing `ghApi` callable. The READ form is
+ * GET-only:
  *   (endpoint: string) => { ok, status, body, error? }   (wraps `gh api <endpoint>`)
+ * The deploy write surface (ECO-IMPL W6a) extends it to a WRITE-CAPABLE form
+ * (the read form is the back-compat default — existing GET callers pass no
+ * second arg and are byte-unchanged):
+ *   (endpoint: string, opts?: { method?: "GET"|"POST"|"DELETE"|"PATCH",
+ *                               fields?: object }) => { ok, status, body, error? }
+ * The injected write-transport MUST (1) invoke `gh api` in execFileSync
+ * arg-array form (never a composed shell string) — the adapter signature-guards
+ * every endpoint-interpolated value, but arg-array invocation is the transport's
+ * half of the command-injection contract (`security.md`); AND (2) JSON-serialize
+ * the WHOLE `fields` object as the request body (`gh api --input -` semantics),
+ * NOT `gh api --field key=val` flattening — `--field` cannot carry a nested
+ * `fields.inputs` object, so flattening would silently drop the workflow_dispatch
+ * inputs. This serialization contract is inherited by W7's upflow methods.
  *
  * repoRef shape for GitHub: { owner: string, name: string }.
  * principal for GitHub: a github_login (string).
@@ -19,6 +33,8 @@
  *   fetchOrgAdmin   → { ok, role, state, userPrincipal, orgPrincipal, capture } | { ok:false, ... }
  *   fetchCommitVerification → { ok, verified, authorPrincipal, authorName, capture } | { ok:false, ... }
  *   listCollaborators → { ok, capture } | { ok:false, ... }
+ *   pushImage / applyDeployTarget → { ok, dispatched, workflow, ref, status } | { ok:false, ... }
+ *   invalidateCache → { ok, invalidated, key, status } | { ok:false, ... }
  *
  * Style: CommonJS, zero-dep. No subprocess here — transport is injected.
  */
@@ -222,6 +238,138 @@ function listCollaborators(transport, repoRef, opts) {
   return { ok: true, capture };
 }
 
+// ── Deploy write surface (ECO-IMPL W6a / T2-iface) ─────────────────────────
+// The deploy half of the provider write-surface. The upflow half
+// (createUpflowPR / createUpflowIssue / completeUpflowPR) lands in W7 against
+// the SAME contract — W6a agrees the interface, W7 fills its three method
+// bodies on this file (shared-source serialization per agents.md worktree
+// Rule 9). The deploy descriptors (workflow id, ref, inputs, cache key) are
+// the shape C3/C4 (the deploy-config override + /deploy Step-0 wiring) produce;
+// this adapter DEFINES the shape, the consumers conform (contract-first).
+//
+// Endpoints (real GitHub REST):
+//   workflow_dispatch → POST repos/{o}/{r}/actions/workflows/{wf}/dispatches
+//   cache purge       → DELETE repos/{o}/{r}/actions/caches?key={key}
+// pushImage + applyDeployTarget both model a workflow_dispatch (CI builds +
+// pushes the image to GHCR / runs the deploy — the adapter NEVER shells out to
+// docker); they share _dispatchWorkflow but stay distinct named interface
+// methods (ADO implements them via different services).
+
+const WORKFLOW_ID_RE = /^[A-Za-z0-9._-]+$/; // workflow filename or numeric id; no path sep
+const GIT_REF_RE = /^[A-Za-z0-9._/-]+$/; // branch / tag / sha; bounded charset
+const CACHE_KEY_RE = /^[A-Za-z0-9._/-]+$/; // query-param key; bounded, query-safe charset
+
+/**
+ * Shared workflow_dispatch primitive for pushImage + applyDeployTarget.
+ * descriptor: { repoRef:{owner,name}, workflow, ref?, inputs? }
+ */
+function _dispatchWorkflow(transport, descriptor, label) {
+  const repoRef = descriptor && descriptor.repoRef;
+  const rv = validateRepoRef(repoRef);
+  if (!rv.valid) return _fail(`${label}: repoRef invalid`, rv.reason);
+  const workflow = descriptor.workflow;
+  if (typeof workflow !== "string" || !WORKFLOW_ID_RE.test(workflow)) {
+    return _fail(
+      `${label}: workflow id invalid`,
+      `workflow must match /^[A-Za-z0-9._-]+$/ (filename or numeric id); got ${JSON.stringify(workflow)}`,
+    );
+  }
+  const ref = descriptor.ref === undefined ? "main" : descriptor.ref;
+  if (typeof ref !== "string" || !GIT_REF_RE.test(ref)) {
+    return _fail(
+      `${label}: ref invalid`,
+      `ref must match /^[A-Za-z0-9._/-]+$/ (git ref shape); got ${JSON.stringify(ref)}`,
+    );
+  }
+  const inputs =
+    descriptor.inputs === undefined || descriptor.inputs === null
+      ? {}
+      : descriptor.inputs;
+  if (typeof inputs !== "object" || Array.isArray(inputs)) {
+    return _fail(
+      `${label}: inputs invalid`,
+      `inputs must be a plain object; got ${JSON.stringify(inputs)}`,
+    );
+  }
+  let r;
+  try {
+    r = transport(
+      `repos/${repoRef.owner}/${repoRef.name}/actions/workflows/${workflow}/dispatches`,
+      { method: "POST", fields: { ref, inputs } },
+    );
+  } catch (err) {
+    return _fail(
+      `${label}: dispatch threw`,
+      `network unavailable or transport threw: ${err && err.message ? err.message : String(err)}`,
+    );
+  }
+  if (!r || !r.ok) {
+    return _fail(
+      `${label}: dispatch failed`,
+      `POST actions/workflows/${workflow}/dispatches → status ${r && r.status} body ${JSON.stringify(r && r.body)}`,
+      { status: r && r.status, body: r && r.body },
+    );
+  }
+  // workflow_dispatch returns 204 No Content on success.
+  return { ok: true, dispatched: true, workflow, ref, status: r.status };
+}
+
+/**
+ * Publish a container image by dispatching the image-publish workflow (CI
+ * builds + pushes to GHCR). descriptor: { repoRef, workflow, ref?, inputs? }.
+ */
+function pushImage(transport, imageSpec) {
+  return _dispatchWorkflow(transport, imageSpec, "pushImage");
+}
+
+/**
+ * Apply a deploy target by dispatching its deploy workflow.
+ * descriptor: { repoRef, workflow, ref?, inputs? }.
+ */
+function applyDeployTarget(transport, target) {
+  return _dispatchWorkflow(transport, target, "applyDeployTarget");
+}
+
+/**
+ * Purge an Actions cache by key. scope: { repoRef:{owner,name}, key }.
+ */
+function invalidateCache(transport, scope) {
+  const repoRef = scope && scope.repoRef;
+  const rv = validateRepoRef(repoRef);
+  if (!rv.valid) return _fail("invalidateCache: repoRef invalid", rv.reason);
+  const key = scope.key;
+  if (typeof key !== "string" || !CACHE_KEY_RE.test(key)) {
+    return _fail(
+      "invalidateCache: cache key invalid",
+      `key must match /^[A-Za-z0-9._/-]+$/ (bounded, query-safe charset); got ${JSON.stringify(key)}`,
+    );
+  }
+  // `key` passes CACHE_KEY_RE (bounded charset — no &, ?, #, =, space) so it
+  // cannot break out of the query-value position; the allowed `/` is inert in a
+  // value. The key is passed PRE-encoding to the transport, which is responsible
+  // for URL-encoding the query (the gh-api transport encodes query params).
+  let r;
+  try {
+    r = transport(
+      `repos/${repoRef.owner}/${repoRef.name}/actions/caches?key=${key}`,
+      { method: "DELETE" },
+    );
+  } catch (err) {
+    return _fail(
+      "invalidateCache: delete threw",
+      `network unavailable or transport threw: ${err && err.message ? err.message : String(err)}`,
+    );
+  }
+  if (!r || !r.ok) {
+    return _fail(
+      "invalidateCache: delete failed",
+      `DELETE actions/caches?key=${key} → status ${r && r.status} body ${JSON.stringify(r && r.body)}`,
+      { status: r && r.status, body: r && r.body },
+    );
+  }
+  return { ok: true, invalidated: true, key, status: r.status };
+}
+
 /**
  * R5-S-07 distinct-bound-collaborator predicate (delegates to the existing
  * gh-api-allowlist implementation — byte-identical behavior).
@@ -240,5 +388,8 @@ module.exports = {
   fetchOrgAdmin,
   fetchCommitVerification,
   listCollaborators,
+  pushImage,
+  applyDeployTarget,
+  invalidateCache,
   verifyDistinctBoundPrincipals,
 };

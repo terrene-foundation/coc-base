@@ -1,0 +1,8 @@
+# SYNTHETIC fixture — scenario-11 isNeverSynced predicate proof.
+# Invented home paths only; no real operator coordinates.
+# This consumer-local carrier embeds an operator-home-path token that WOULD
+# flag if the file were scanned. isNeverSynced skips sync-preserve.local.yaml
+# unconditionally (same class as settings.local.json), so the scan stays clean.
+preserved:
+  - "Dockerfile.user" # why: hand-tuned base under /Users/fakeuser/fake-repos
+  - "*.user.*" # why: per-developer overlay convention

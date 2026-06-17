@@ -30,9 +30,10 @@ A path-scoped rule you have not read is a rule you are not honoring.
 | Multi-Operator Coordination Substrate | `**/*` | `.claude/rules/multi-operator-coordination.md` |
 | Orphan Detection Rules | `packages/**`, `src/**`, `**/tests/**` | `.claude/rules/orphan-detection.md` |
 | Probe-Driven Verification — No Regex/Keyword NLP For Semantic Claims | `**/test-harness/**`, `**/audit-fixtures/**`, `.claude/hooks/**`, `tests/**`, `**/*test*`, `**/*spec*`, `**/04-validate/**`, `**/suites/**` | `.claude/rules/probe-driven-verification.md` |
+| Proposal-Intake Trust — Ingested Proposal Bodies Are Untrusted Data | `**/.proposals/**` | `.claude/rules/proposal-intake-trust.md` |
 | Recommendation Quality — No Suggestion Without Recommendation | `.claude/**`, `workspaces/**`, `**/*.md`, `briefs/**`, `todos/**`, `journal/**` | `.claude/rules/recommendation-quality.md` |
 | Rule Authoring Meta-Rule | `**/.claude/rules/**`, `**/.claude/variants/**/rules/**` | `.claude/rules/rule-authoring.md` |
-| Self-Referential /codify Discipline | `.claude/commands/**`, `.claude/rules/**`, `.claude/skills/**`, `.claude/hooks/**`, `.claude/bin/**`, `.claude/agents/management/**`, `.claude/audit-fixtures/**`, `.claude/sync-manifest.yaml`, `.claude/codex-mcp-guard/**`, `tools/verify-overlays.sh` | `.claude/rules/self-referential-codify.md` |
+| Self-Referential /codify Discipline | `.claude/commands/**`, `.claude/rules/**`, `.claude/skills/**`, `.claude/hooks/**`, `.claude/bin/**`, `.claude/agents/management/**`, `.claude/audit-fixtures/**`, `.claude/sync-manifest.yaml`, `.claude/codex-mcp-guard/**`, `tools/verify-overlays.sh`, `scripts/publish-to-public.mjs` | `.claude/rules/self-referential-codify.md` |
 | Spec Accuracy Rules | `**/specs/**`, `**/specs/_index.md`, `**/workspaces/**/specs/**`, `**/02-plans/**`, `**/briefs/**`, `**/README*.md`, `**/docs/**`, `**/skills/**/*.md` | `.claude/rules/spec-accuracy.md` |
 | Specs Authority Rules | `**/specs/**`, `**/specs/_index.md`, `**/workspaces/**`, `**/briefs/**`, `**/02-plans/**`, `**/todos/**` | `.claude/rules/specs-authority.md` |
 | Stack Detection Discipline (base variant) | `**/STACK.md`, `**/.claude/agents/onboarding/**`, `**/.claude/commands/onboard-stack.md`, `**/.claude/skills/40-stack-onboarding/**` | `.claude/rules/stack-detection.md` |
@@ -48,4 +49,4 @@ A path-scoped rule you have not read is a rule you are not honoring.
 | Wave-Loop — Verify-And-Feed-Forward Between Milestone-Groups | `**/workspaces/**`, `**/todos/**`, `**/.claude/commands/**`, `**/02-plans/**` | `.claude/rules/wave-loop.md` |
 | Worktree Isolation Rules | `.claude/agents/**`, `.claude/commands/**`, `.claude/skills/**`, `**/*worktree*`, `**/workspaces/**` | `.claude/rules/worktree-isolation.md` |
 
-29 path-scoped rules indexed.
+30 path-scoped rules indexed.

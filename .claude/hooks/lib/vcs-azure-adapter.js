@@ -7,8 +7,15 @@
  * provider-neutral below the `content.provider` dispatch point.
  *
  * Transport contract (the ADO analogue of GitHub's `ghApi(endpointString)`):
- *   (req: { service: "core"|"graph", path: string, meta?: object })
+ *   (req: { service: "core"|"graph", path: string, meta?: object,
+ *           method?: "GET"|"POST"|"DELETE"|"PATCH", fields?: object })
  *     => { ok, status, body, error? }
+ *   method defaults to GET (read callers pass none — byte-unchanged). The
+ *   deploy write surface (ECO-IMPL W6a) adds method/fields for POSTs; the
+ *   ADO deploy endpoints are DOCUMENTED-UNVERIFIED (no live ADO test org — per
+ *   `rules/verify-resource-existence.md` MUST-2 the live-API mapping is the
+ *   operator-verified runbook's job), so every ADO deploy result carries
+ *   `unverified: true` and NONE fakes success.
  *
  *   - service "core"  → dev.azure.com REST (repos, commits)
  *   - service "graph" → vssps.dev.azure.com Graph REST (members, PCA membership)
@@ -291,6 +298,126 @@ function listCollaborators(transport, repoRef, opts) {
   return { ok: true, capture };
 }
 
+// ── Deploy write surface (ECO-IMPL W6a / T2-iface) ─────────────────────────
+// The ADO sibling of the GitHub deploy half. Same uniform return contract +
+// the same descriptor shapes (provider-dispatched: gh uses workflow_dispatch,
+// ADO uses Azure Pipelines runs). Every ADO deploy result carries
+// `unverified: true` per the module header's documented residual policy (see
+// the transport-contract + provider-semantics notes above) — NONE fakes
+// success; `unverified` flags the API-mapping as not-live-verified.
+
+const ADO_PIPELINE_ID_RE = /^[A-Za-z0-9._-]+$/; // pipeline name or numeric id
+const ADO_GIT_REF_RE = /^[A-Za-z0-9._/-]+$/; // branch / tag / sha; bounded charset
+
+/**
+ * Shared Azure Pipelines run primitive for pushImage + applyDeployTarget.
+ * descriptor: { repoRef:{org,project,repo}, pipeline, ref?, inputs? }.
+ * DOCUMENTED-UNVERIFIED endpoint:
+ *   POST {org}/{project}/_apis/pipelines/{pipelineId}/runs?api-version=7.1
+ */
+function _runPipeline(transport, descriptor, label) {
+  const repoRef = descriptor && descriptor.repoRef;
+  const rv = validateRepoRef(repoRef);
+  if (!rv.valid) return _fail(`${label}: repoRef invalid`, rv.reason);
+  const pipeline = descriptor.pipeline;
+  if (typeof pipeline !== "string" || !ADO_PIPELINE_ID_RE.test(pipeline)) {
+    return _fail(
+      `${label}: pipeline id invalid`,
+      `pipeline must match /^[A-Za-z0-9._-]+$/ (name or numeric id); got ${JSON.stringify(pipeline)}`,
+    );
+  }
+  const ref = descriptor.ref === undefined ? "main" : descriptor.ref;
+  if (typeof ref !== "string" || !ADO_GIT_REF_RE.test(ref)) {
+    return _fail(
+      `${label}: ref invalid`,
+      `ref must match /^[A-Za-z0-9._/-]+$/ (git ref shape); got ${JSON.stringify(ref)}`,
+    );
+  }
+  const inputs =
+    descriptor.inputs === undefined || descriptor.inputs === null
+      ? {}
+      : descriptor.inputs;
+  if (typeof inputs !== "object" || Array.isArray(inputs)) {
+    return _fail(
+      `${label}: inputs invalid`,
+      `inputs must be a plain object; got ${JSON.stringify(inputs)}`,
+    );
+  }
+  const { org, project } = repoRef;
+  let r;
+  try {
+    r = transport({
+      service: "core",
+      path: `${org}/${project}/_apis/pipelines/${pipeline}/runs?api-version=${API_VERSION}`,
+      method: "POST",
+      fields: {
+        // ADO residual: this assumes a BRANCH ref (refs/heads/ prefix). A tag
+        // or SHA ref is not supported here — it would resolve to a non-existent
+        // branch and the run would be rejected at ADO (the result is already
+        // `unverified`, so no false success). A tag/SHA deploy on ADO is an
+        // undocumented-residual the W6b/G-D deploy-spec work resolves if needed.
+        resources: { repositories: { self: { refName: `refs/heads/${ref}` } } },
+        templateParameters: inputs,
+      },
+    });
+  } catch (err) {
+    return _fail(
+      `${label}: pipeline run threw`,
+      `network unavailable or transport threw: ${err && err.message ? err.message : String(err)}`,
+    );
+  }
+  if (!r || !r.ok) {
+    return _fail(
+      `${label}: pipeline run failed`,
+      `POST pipelines/${pipeline}/runs → status ${r && r.status} body ${JSON.stringify(r && r.body)}`,
+      { status: r && r.status, body: r && r.body, unverified: true },
+    );
+  }
+  // unverified: the endpoint mapping is not live-verified (no ADO test org).
+  return {
+    ok: true,
+    dispatched: true,
+    pipeline,
+    ref,
+    status: r.status,
+    unverified: true,
+  };
+}
+
+/**
+ * ADO: publish a container image by running the image-publish pipeline.
+ * descriptor: { repoRef, pipeline, ref?, inputs? }.
+ */
+function pushImage(transport, imageSpec) {
+  return _runPipeline(transport, imageSpec, "pushImage");
+}
+
+/**
+ * ADO: apply a deploy target by running its deploy pipeline.
+ * descriptor: { repoRef, pipeline, ref?, inputs? }.
+ */
+function applyDeployTarget(transport, target) {
+  return _runPipeline(transport, target, "applyDeployTarget");
+}
+
+/**
+ * ADO residual: Azure Pipelines caching exposes NO public purge-cache-by-key
+ * REST endpoint (verify-resource-existence.md MUST-2 — unsupported, NOT faked).
+ * Return a typed UNVERIFIED failure so the consumer handles the gap explicitly
+ * rather than mistaking absence for success. scope: { repoRef, key }.
+ */
+function invalidateCache(transport, scope) {
+  const rv = validateRepoRef(scope && scope.repoRef);
+  if (!rv.valid) return _fail("invalidateCache: repoRef invalid", rv.reason);
+  return {
+    ok: false,
+    error: "ado cache purge unsupported",
+    reason:
+      "Azure Pipelines exposes no public purge-cache-by-key REST endpoint (documented residual, verify-resource-existence.md MUST-2); not faked",
+    unverified: true,
+  };
+}
+
 /**
  * R5-S-07 distinct-bound-principal predicate (ADO principalsEqual variant).
  */
@@ -308,5 +435,8 @@ module.exports = {
   fetchOrgAdmin,
   fetchCommitVerification,
   listCollaborators,
+  pushImage,
+  applyDeployTarget,
+  invalidateCache,
   verifyDistinctBoundPrincipals,
 };

@@ -1,79 +1,31 @@
 # COC Sync Marker — coc-base (base lane, multi-CLI)
-visibility: public
-timestamp: 2026-06-12T05:46:47Z
+timestamp: 2026-06-17T13:51:33Z
 source: loom/.claude
-loom_sha: 6d18fe9
-upstream_version: 2.45.0
-template_version: 2.45.0
+loom_sha: c1e52a62
 variant: base
-template_type: multi-cli
-clis: ["claude", "codex", "gemini"]
-tier_subscriptions: ["cc", "co", "onboarding"]
-payload: MultiEdit-removal canonicalization (loom 2.45.0, PR #500, journals 0276+0277)
+clis: [claude, codex, gemini]
+visibility: public
 stats:
-  copied: 844
-  delivered: 844
-  byte_equal: 830
-  content_equal_after_strip: 14   # BUILD-internal refs neutralized
-  composed: 1          # rules/agents.md base slot-keyed overlay (mode:slot)
-  overlay_verified: 1
+  copied: 869
   variant_only: 0
-  purged: 0            # 13 active-purge paths absent on disk
-  preserved: CLAUDE.md
-  changed_this_cycle:
-    - rules/multi-operator-coordination.md   # §7 + MUST-6 live-matcher (Edit|Write|NotebookEdit)
-    - rules/self-referential-codify.md       # tool-classes.js added to Rule-2 allowlist
-    - hooks/lib/tool-classes.js              # MUTATION_TOOLS keeps MultiEdit (runtime legacy tolerance)
-    - hooks/lib/github-login.js              # GITHUB_LOGIN_FIELD_NAMES SSOT +3 fields
-  settings_canonicalization:                # Step 6 (settings.json is exclude:, hand-applied)
-    multiedit_deny_entries_removed: 10
-    matchers_normalized: "Edit|Write|NotebookEdit"
-    description_stem_preserved: "language-agnostic base"
-  content_guard:
-    coc_tier_leaks: 0   # no Kailash specialists/skills (agents/frameworks, skills/01-core-sdk absent)
-    coc_tier_additions: 0
-  baselines_emitted:    # Step 6.5 — emit.mjs --all --lang base (strict-headroom default, PASS)
-    cc: 0               # CLAUDE.md preserved, not emitted
-    codex: 1            # AGENTS.md
-    gemini: 1           # GEMINI.md
-  baseline_emission_bytes:
+  overlay_applied: 1
+  verify_failures: 0
+  purged: 0
+  preserved: [CLAUDE.md, .proposals/, learning/, settings.local.json, dev-container-scaffold]
+  baselines_emitted:
+    cc: 0          # CLAUDE.md preserved, not emitted
+    codex: 1       # AGENTS.md
+    gemini: 1      # GEMINI.md
+  baseline_emission:
     block_cap_bytes: 61440
     warn_cap_bytes: 32768
-    codex:
-      rules: 10
-      bytes: 52518
-      tier: WARN
-      headroom_bytes: 8922
-      headroom_pct: 14.52
-    gemini:
-      rules: 10
-      bytes: 52524
-      tier: WARN
-      headroom_bytes: 8916
-      headroom_pct: 14.51
-  cli_artifacts:        # Step 6.6 — emit-cli-artifacts.mjs --target base
-    codex:
-      prompts: 21       # 16 phase + 5 specialist agent-prompts
-      skills: 10        # 9 + rules-reference
-    gemini:
-      commands: 16
-      skills: 10        # 9 + rules-reference
-      agents: 5
-  scaffold:             # Step 4.6 — multi_cli_overlays.multi-cli
-    symlink: ".claude/codex-mcp-guard -> ../.codex-mcp-guard (resolves, server.js present)"
-    manifest_distributed: true   # sync-manifest.yaml copied (manifest_distribute=true)
-    codex_dispatcher: "bin/coc + 28 per-phase symlinks"
-    codex_mcp_guard_files: 9
-  consumer_owned_scaffold: absent  # F78 preserve-by-construction — loom never emits Dockerfile/etc.
-  mcp_guard:
-    policies_populated: false   # still gated — fail-closed in USE templates per Step 6.6 §G3
-    validator_13_bijection: PASS  # policies.json regenerated, 0 MultiEdit
-  sdk_packages: {}     # build:null — language-agnostic base, no SDK pins
-  verification:
-    hook_integrity: ok        # all settings.json PreToolUse/PostToolUse hook commands resolve on disk
-    build_path_leaks: 0
-    operator_pii: 0
-    settings_multiedit_residual: 0
-    cli_tree_multiedit_residual: 0  # .codex/.gemini/policies.json all clean
-    verify_overlays_base: "coc-base variant-applied(base,slot) PASS"
-    obsoleted_purged: true
+    headroom_floor_pct: 10
+    codex: { tier: WARN, headroom_pct: 14.21 }
+    gemini: { tier: WARN, headroom_pct: 14.20 }
+  cli_artifacts:
+    codex: { prompts: 38, skills: 31, agent_prompts: 21 }
+    gemini: { commands: 38, skills: 31, agents: 21 }
+  codex_dispatcher: { bin_coc: 1, phase_shims: 28 }
+  mcp_guard: { policies_populated: false }
+wave: sync-upflow-wave-3-todo-14
+note: FIRST real /sync-to-use of the Wave-1/2 sync-family artifacts; loom 2.45.0 unchanged (artifact wave).

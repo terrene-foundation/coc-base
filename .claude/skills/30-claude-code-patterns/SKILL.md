@@ -121,7 +121,7 @@ Critical info at beginning/end of context. Middle gets less attention. Trim tool
 
 ## Detailed Reference
 
-- **[Sync Flow](sync-flow.md)** — Full /sync protocol (loaded by sync-reviewer + coc-sync agents)
+- **[Sync Flow](sync-flow.md)** — Full sync-family protocol (loaded by sync-reviewer + coc-sync agents)
 - **[Multi-CLI Migration](multi-cli-migration.md)** — Loom's variant + emit pipeline reference
 - **[SDK Upstream Donation](sdk-upstream-donation.md)** — BUILD repo → loom → USE template flow
 - **[Parallel Merge Workflow](parallel-merge-workflow.md)** — Merging 5+ parallel worktree changes to the same file via specialist delegation

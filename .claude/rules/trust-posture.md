@@ -144,7 +144,7 @@ Every Trust-Posture-Wired rule MUST use the canonical 8-field template. Fields M
 
 **Why:** State self-modification is the rationalization loophole that defeats the entire system. The hooks are the only legitimate writers (mitigates red-team CRIT-3).
 
-- Sync `posture.json` or `violations.jsonl` between repos via `/sync` or `/sync-to-build`. State is per-repo.
+- Sync `posture.json` or `violations.jsonl` between repos via `/sync`, `/sync-to-use`, or `/sync-to-build`. State is per-repo.
 
 **Why:** A USE template inheriting BUILD repo's degraded posture would corrupt downstream. Insight (rule patterns) syncs through `/codify`; state stays local (mitigates red-team M1).
 

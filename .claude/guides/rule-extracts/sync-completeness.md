@@ -69,7 +69,7 @@ PR #218 (merged 2026-05-15, commit `75352dd`) added a `headroom_pct` column to R
 
 The structural defense is `emit.mjs` (in default strict mode) returning non-zero on breach (Shard 1); the coc-sync agent's emit step 6.5 (Shard 2) invokes `node …/emit.mjs --all --lang <py|rs>` for every py/rs distribution. F5's Trust Posture Wiring binds this structural defense to the graduated-trust posture system: severity is `block` (structural — the emitter's exit code IS the signal, not a prose match), grace is 7 days from PR #218 merge, regression-within-grace fires on flag-bypass / manifest-edit-that-breaches / explicit override prose.
 
-Strict mode was opt-in at PR #218 merge (cycle-1 design per plan §5.1 invariant 5); cycle-2 flipped the default to opt-out (PR #230, 2026-05-15) after the v2.31.0 /sync cycle confirmed zero false-positive blocks. Cycle-3 (a) removed the legacy `--strict-headroom` accepting after a callsite sweep confirmed zero executable references. The opt-out escape `--no-strict-headroom` is reserved for test-harness intentional-breach exercises and BLOCKED in production `/sync` per Trust Posture Wiring regression class (a).
+Strict mode was opt-in at PR #218 merge (cycle-1 design per plan §5.1 invariant 5); cycle-2 flipped the default to opt-out (PR #230, 2026-05-15) after the v2.31.0 /sync cycle confirmed zero false-positive blocks. Cycle-3 (a) removed the legacy `--strict-headroom` accepting after a callsite sweep confirmed zero executable references. The opt-out escape `--no-strict-headroom` is reserved for test-harness intentional-breach exercises and BLOCKED in production `/sync-to-use` per Trust Posture Wiring regression class (a).
 
 ## Origin — full prose
 

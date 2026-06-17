@@ -5,7 +5,7 @@ description: "Detailed protocol for /migrate (claude-only USE template → multi
 
 # Multi-CLI Migration Reference
 
-`/migrate` is loom's downstream-side counterpart to `/sync`. It runs in a project repo whose `.claude/.coc-sync-marker` declares either a claude-only USE template lineage (`kailash-coc-claude-{py,rs,rb}` — full migration) or a multi-CLI lineage (`kailash-coc-{py,rs}` — `--refresh` mode), and ensures the project's per-CLI surfaces stay current with the sister template at loom.
+`/migrate` is loom's downstream-side counterpart to `/sync-from-template`. It runs in a project repo whose `.claude/.coc-sync-marker` declares either a claude-only USE template lineage (`kailash-coc-claude-{py,rs,rb}` — full migration) or a multi-CLI lineage (`kailash-coc-{py,rs}` — `--refresh` mode), and ensures the project's per-CLI surfaces stay current with the sister template at loom.
 
 This document is loaded at `/migrate` time. It is the source of truth for the protocol; the command body (`commands/migrate.md`) is the entry point only.
 
@@ -102,7 +102,7 @@ multi_cli_overlays:
      exit 1;
    }
    ```
-4. Resolve sister template path. Reuse `/sync` resolution chain (`commands/sync.md` Downstream Sync step 1):
+4. Resolve sister template path. Reuse the `/sync-from-template` resolution chain (`commands/sync-from-template.md` § Downstream Sync):
    ```bash
    SISTER=$(node .claude/bin/resolve-template.js --template kailash-coc-${VARIANT})
    # Else inline: env KAILASH_COC_TEMPLATE_PATH → ~/.cache/kailash-coc/<sister>/ → git clone --depth 1 → offline-fallback ~/repos/loom/<sister>/
@@ -339,7 +339,7 @@ Triggered when `template_type: multi-cli`. Refreshes top-level overlays per `mul
 5. Step 10: verification table (rows 1–9, 17–19 — schema fields already canonical).
 6. Step 12: commit `chore(coc): refresh multi-CLI overlays`.
 
-Skipped: Steps 2 (VERSION upstream pointer already correct), 4 (downstream-sync handles `.claude/` refresh on next `/sync` — `--refresh` is overlay-only), 5 (CLAUDE.md project-owned post-migration), 7 (workflows already aligned), 11 (posture caveat already known to multi-CLI users).
+Skipped: Steps 2 (VERSION upstream pointer already correct), 4 (downstream-sync handles `.claude/` refresh on next `/sync-from-template` — `--refresh` is overlay-only), 5 (CLAUDE.md project-owned post-migration), 7 (workflows already aligned), 11 (posture caveat already known to multi-CLI users).
 
 ## `--emit-only` mode (non-COC lineage)
 

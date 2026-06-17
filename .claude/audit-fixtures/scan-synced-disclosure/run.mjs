@@ -307,6 +307,55 @@ const CASES = [
     expectShapes: ["customer-identity-token"],
     expectFindingCount: 1,
   },
+  {
+    // scenario-11 (sync-upflow Wave 2b todo 10): the consumer-owned half of the
+    // sanctioned-local-preserve pair (`sync-preserve.local.yaml`) is never
+    // synced — `isNeverSynced` skips it unconditionally, same class as
+    // `settings.local.json`. The fixture plants an operator-home-path token
+    // inside the skipped file; the scan MUST stay clean (the file is never
+    // walked). A non-zero exit = the skip predicate regressed.
+    name: "sync-preserve-local-skipped",
+    dir: "sync-preserve-local-skipped",
+    expectExit: 0,
+    expectShapes: [],
+  },
+  {
+    // scenario-11 narrowness complement: the template-carried carrier
+    // `sync-preserve.yaml` (NO `.local`) IS synced template→consumer and MUST
+    // be scanned like any other synced artifact. The same operator-home-path
+    // token MUST flag here. A 0-finding result = the `.local.yaml` skip
+    // over-broadened to swallow the synced template-carried carrier.
+    name: "sync-preserve-yaml-scanned",
+    dir: "sync-preserve-yaml-scanned",
+    expectExit: 1,
+    expectShapes: ["operator-home-path"],
+  },
+  {
+    // D6-1 (ECO-IMPL W1-S3): the nonfoundation-org-slug shape is BLIND to a
+    // BARE JSON value (`"org": "acme-corp"` — no `/`, no repo-family, no git
+    // context). The file-scoped ecosystem-bare-org-slug shape closes that
+    // blindness for ecosystem* files ONLY. The fixture plants 2 bare slugs
+    // (`"org": "acme-corp"` + `"host": "privatereg"` — MUST flag) alongside
+    // synthetic `example-*` / `<org>` values + a dotted `docker.io` host (MUST
+    // stay clean). expectFindingCount: 2 locks BOTH halves — the shape fires on
+    // the real bare slug AND the allowlist/dot-host values do not flag. A 3rd
+    // finding = the allowlist-skip regressed; a 0/1 count = the shape failed.
+    name: "ecosystem-bare-org-slug",
+    dir: "ecosystem-bare-org-slug",
+    expectExit: 1,
+    expectShapes: ["ecosystem-bare-org-slug"],
+    expectFindingCount: 2,
+  },
+  {
+    // D6-1 negative complement: the committed ecosystem.example.json carries
+    // ONLY synthetic example-* / <org> placeholders + dotted public hosts. The
+    // file-scoped shape APPLIES (basename matches) but produces ZERO findings —
+    // proving it does not false-positive on the public-fork example vocabulary.
+    name: "ecosystem-example-clean",
+    dir: "ecosystem-example-clean",
+    expectExit: 0,
+    expectShapes: [],
+  },
 ];
 
 function runScanner(root) {

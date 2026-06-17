@@ -1,0 +1,86 @@
+{
+  "_README": [
+    "Ecosystem-shared parameterization registry — the committed schema TEMPLATE.",
+    "Resolved through .claude/bin/lib/ecosystem-config.mjs + the WHICH-layer join",
+    "in loom-links.mjs (resolveRepo / resolveRemote).",
+    "",
+    "PURPOSE (D6 keystone — specs/03 §3)",
+    "  loom-links.local.json answers WHERE-on-disk a logical key is (per-operator,",
+    "  gitignored). THIS file answers the orthogonal ECOSYSTEM-level questions that",
+    "  are the SAME for every operator in one ecosystem but DIFFER across ecosystems",
+    "  (canon vs a client fork): which container registry, which remote {org,repo}",
+    "  each logical key points at, the VCS provider defaults/overrides, the deploy",
+    "  targets, and the upstream-canon this ecosystem syncs from.",
+    "",
+    "THE REAL FILE IS ecosystem.json (NOT this .example). It is COMMITTED-and-shared",
+    "WITHIN one ecosystem but fenced THREE ways so it never crosses an ecosystem",
+    "boundary and never reaches the public fork:",
+    "  - never synced            (sync-manifest.yaml loom_only:)",
+    "  - never published         (scripts/publish-to-public.mjs EXCLUDE_WITHIN + KILL)",
+    "  - never scanned-as-content (scan-synced-disclosure.mjs ecosystem.json exclude)",
+    "Each fork AUTHORS ITS OWN ecosystem.json at fork time (it never inherits canon's",
+    "— that is the structural basis of cross-ecosystem disclosure isolation). THIS",
+    ".example carries SYNTHETIC tokens only and is the only ecosystem* file the public",
+    "fork carries.",
+    "",
+    "BACK-COMPAT",
+    "  The ABSENCE of ecosystem.json is NOT an error: a consumer (which never receives",
+    "  it) sees every accessor return null/its default and loom-links resolution is",
+    "  byte-identical to today. A PRESENT-but-malformed / unknown schema_version file",
+    "  fails LOUD — never silently read as v1.",
+    "",
+    "FIELDS",
+    "  schema_version          MUST equal the loom's SUPPORTED_SCHEMA_VERSION (1).",
+    "  ecosystem.id            opaque LOCAL label (e.g. \"canon\") — NOT a client name.",
+    "  ecosystem.upstream_canon {remote,url} the 'sync upstream from' pointer; null in",
+    "                          canon (canon is the root); a fork names its canon.",
+    "  registry                {host,org} → composes ${host}/${org}/<image>.",
+    "  remote_links            logical key → {org,repo}. Keys are EXACTLY the resolver",
+    "                          keys: build.{py,rs,prism}, use-template.{...}, loom,",
+    "                          atelier, downstream.<slug>. Local owns WHERE; this owns",
+    "                          WHICH; resolveRepo joins them.",
+    "  vcs.default_provider    ecosystem default ('github' | 'azure-devops').",
+    "  vcs.overrides           per-key provider override (roster.genesis.provider for",
+    "                          a repo's OWN provider still wins over this).",
+    "  vcs.ado_work_item_type  ADO work-item type (G-F upflow); default 'Task'.",
+    "  deploy                  {default_targets,per_project} — ecosystem-aware deploy."
+  ],
+  "schema_version": 1,
+  "ecosystem": {
+    "id": "example-ecosystem",
+    "upstream_canon": {
+      "remote": "upstream",
+      "url": "git@example.com:<canon-org>/loom.git"
+    }
+  },
+  "registry": {
+    "host": "docker.io",
+    "org": "example-registry-org"
+  },
+  "remote_links": {
+    "build.py": { "org": "example-org", "repo": "example-build-py" },
+    "build.rs": { "org": "example-org", "repo": "example-build-rs" },
+    "build.prism": { "org": "example-org", "repo": "example-build-prism" },
+    "use-template.py": { "org": "example-org", "repo": "example-use-py" },
+    "use-template.rs": { "org": "example-org", "repo": "example-use-rs" },
+    "use-template.claude-py": {
+      "org": "example-org",
+      "repo": "example-use-claude-py"
+    },
+    "loom": { "org": "example-org", "repo": "example-loom" },
+    "atelier": { "org": "example-org", "repo": "example-atelier" },
+    "downstream.app-a": {
+      "org": "example-downstream-org",
+      "repo": "example-app-a"
+    }
+  },
+  "vcs": {
+    "default_provider": "github",
+    "overrides": { "build.rs": "azure-devops" },
+    "ado_work_item_type": "Task"
+  },
+  "deploy": {
+    "default_targets": ["example-staging"],
+    "per_project": { "build.py": { "target": "example-prod" } }
+  }
+}

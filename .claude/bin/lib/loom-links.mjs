@@ -53,6 +53,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+// The WHICH layer (ecosystem-shared remote registry). loom-links owns WHERE;
+// ecosystem-config owns WHICH. getRemoteLink returns null when no ecosystem.json
+// is present (back-compat: resolution then collapses to today's path-only shape).
+import { getRemoteLink, getRepoProvider } from "./ecosystem-config.mjs";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 // lib/ → bin/  (config + schema live in bin/, one level up)
@@ -244,18 +248,90 @@ function normalizeEntry(key, entry, reposRoot) {
 }
 
 // ────────────────────────────────────────────────────────────────
+// WHICH-layer join (D6) — local owns WHERE, remote owns WHICH
+// ────────────────────────────────────────────────────────────────
+//
+// deriveDefaultPath maps a remote-only logical key to its SUGGESTED checkout
+// path under the operator's reposRoot, using the canonical sublayout HINT
+// (cross-repo.md § Canonical Sublayout). This is a DECLARED-binding-derived
+// default — the key's remote binding IS declared in ecosystem.json — NOT the
+// positional guess cross-repo.md MUST-1 blocks (an UNDECLARED key still throws
+// unknown-key below; nothing here invents a binding).
+//
+function deriveDefaultPath(key, remote, reposRoot) {
+  let relUnder;
+  if (key.startsWith("build.")) {
+    relUnder = path.join("kailash", "build", key.slice("build.".length));
+  } else if (key.startsWith("use-template.")) {
+    relUnder = path.join("kailash", "use", key.slice("use-template.".length));
+  } else if (key === "loom" || key === "atelier") {
+    relUnder = key;
+  } else {
+    // downstream.<slug> / any dotted key → its last segment; else the repo name.
+    relUnder = key.includes(".") ? key.split(".").pop() : remote.repo || key;
+  }
+  return path.join(reposRoot, relUnder);
+}
+
+// Derive a clone URL for a remote-only binding. github → SSH form (canon's
+// only provider today). Non-github providers (azure-devops) need the full
+// org/project triple wired by G-F (W7); until then the result carries org +
+// repo + provider so a consumer can construct the URL, and url is null.
+function deriveRemoteUrl(remote, provider) {
+  if (provider === "github") {
+    return `git@github.com:${remote.org}/${remote.repo}.git`;
+  }
+  return null;
+}
+
+// Assemble the remote-only result (Q4 url-kind): the key is bound in the
+// ecosystem remote registry but NOT checked out locally. kind:"remote-only"
+// signals "not on disk"; `value` is the suggested default path, `url`/`org`/
+// `repo`/`provider` are the remote WHICH.
+function makeRemoteOnly(key, remote, reposRoot) {
+  const provider = getRepoProvider(key);
+  return {
+    kind: "remote-only",
+    key,
+    org: remote.org,
+    repo: remote.repo,
+    provider,
+    url: deriveRemoteUrl(remote, provider),
+    value: deriveDefaultPath(key, remote, reposRoot),
+  };
+}
+
+// ────────────────────────────────────────────────────────────────
 // Public API
 // ────────────────────────────────────────────────────────────────
 
 /**
- * Resolve a single logical key.
+ * Resolve a single logical key, joining the WHERE layer (local, this module)
+ * with the WHICH layer (ecosystem remote registry, ecosystem-config.mjs).
+ *
+ * Join rule — local owns WHERE, remote owns WHICH:
+ *   - local present  → return the local entry, ANNOTATED `remote:{org,repo}`
+ *                      when a remote binding exists (else the field is absent).
+ *   - local absent + remote present → `{kind:"remote-only", org, repo,
+ *                      provider, url, value:<derived-default-path>, key}` (Q4).
+ *   - local absent + remote absent  → unchanged fail-loud LinkError(unknown-key).
+ *
+ * BACK-COMPAT (mandatory): with NO ecosystem.json, getRemoteLink returns null
+ * for every key, so the `remote` annotation never appears and the return is
+ * BYTE-IDENTICAL to before D6 (`{kind,value,key}`). A PRESENT-but-malformed
+ * ecosystem.json fails LOUD (EcosystemConfigError, Q6) — NOT swallowed by
+ * require:false, because a survey silently skipping every key over a broken
+ * remote registry is the exact silent failure Q6 prevents.
  *
  * @param {string} logicalKey  e.g. "build.py", "use-template.rs",
  *                              "loom", "atelier", "downstream.<slug>"
  * @param {{require?: boolean}} [opts]  require defaults to true.
  *        require:false → return { skipped:true, reason } instead of
- *        throwing (for survey / fan-out callers that tolerate gaps).
- * @returns {{kind:"path"|"url", value:string, key:string}
+ *        throwing a LinkError (for survey / fan-out callers that tolerate
+ *        undeclared-key GAPS; a malformed ecosystem.json still throws).
+ * @returns {{kind:"path"|"url", value:string, key:string, remote?:{org,repo}}
+ *           | {kind:"remote-only", key:string, org:string, repo:string,
+ *              provider:string, url:string|null, value:string}
  *           | {skipped:true, reason:string}}
  */
 export function resolveRepo(logicalKey, opts = {}) {
@@ -268,20 +344,50 @@ export function resolveRepo(logicalKey, opts = {}) {
       );
     }
     const { reposRoot, links } = loadConfig();
-    if (!(logicalKey in links)) {
-      throw new LinkError(
-        "unknown-key",
-        `loom-links: no linkage declared for key '${logicalKey}'\n` +
-          `(declare it in your loom-links.local.json 'links' block)`,
-      );
+    const remote = getRemoteLink(logicalKey); // null when no ecosystem.json / unbound
+
+    if (logicalKey in links) {
+      const local = normalizeEntry(logicalKey, links[logicalKey], reposRoot);
+      if (remote) local.remote = { org: remote.org, repo: remote.repo };
+      return local;
     }
-    return normalizeEntry(logicalKey, links[logicalKey], reposRoot);
+    if (remote) {
+      return makeRemoteOnly(logicalKey, remote, reposRoot);
+    }
+    throw new LinkError(
+      "unknown-key",
+      `loom-links: no linkage declared for key '${logicalKey}'\n` +
+        `(declare it in your loom-links.local.json 'links' block)`,
+    );
   } catch (e) {
     if (!requireIt && e instanceof LinkError) {
       return { skipped: true, reason: `${e.subtype}: ${e.message}` };
     }
     throw e;
   }
+}
+
+/**
+ * Resolve ONLY the WHICH layer for a logical key (the ecosystem remote
+ * binding), independent of whether the repo is checked out locally. For
+ * consumers that need the remote slug/URL without a local path — S3
+ * cross-ecosystem migration + the G-F upflow transport (design §5).
+ *
+ * @param {string} logicalKey
+ * @returns {{org:string, repo:string, provider:string, url:string|null}|null}
+ *          null when there is no ecosystem.json OR the key is not bound in
+ *          remote_links. A malformed ecosystem.json throws (Q6).
+ */
+export function resolveRemote(logicalKey) {
+  const remote = getRemoteLink(logicalKey);
+  if (!remote) return null;
+  const provider = getRepoProvider(logicalKey);
+  return {
+    org: remote.org,
+    repo: remote.repo,
+    provider,
+    url: deriveRemoteUrl(remote, provider),
+  };
 }
 
 /**

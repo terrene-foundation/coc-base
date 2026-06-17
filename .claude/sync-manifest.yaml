@@ -168,38 +168,140 @@ multi_cli_overlays:
       # Consumer may add per-project overrides; reserved for future use.
       - .codex/local-config.toml
       - .gemini/local-settings.json
-    # F78 (#387): Docker / dev-container scaffold ships at /migrate time
-    # from the USE template's `consumer_template_owned:` set below, then
-    # is consumer-OWNED forever after. `/sync` MUST NEVER overwrite OR
-    # delete these — they are pulled-once-at-/migrate, then the consumer
-    # customizes them to their project's needs (build context, base
-    # image, port mappings, dev-shell tooling, etc.). Distinct from the
-    # `preserved:` block above (local overrides the consumer ADDS); this
-    # set is files the consumer ADAPTS from a USE-template-shipped
-    # default. Per ADR-10 in the rs USE template's project journal.
-    # Lang-overlay note: `consumer_template_owned` is the COMMON set
-    # (py + rs); the rs USE template additionally ships `Gemfile.user`
-    # (per F78/#387 — multi-language consumer support for Ruby app
-    # devs binding to kailash-rs); the py USE template MUST NOT
-    # distribute `Gemfile.user`. Enforced by the per-variant overlay
-    # filter in coc-sync Step 4.5/5/7 (see agent file).
-    consumer_template_owned:
-      - Dockerfile
-      - docker-compose.yml
-      - .devcontainer/devcontainer.json
-      - .dockerignore
-      - bin/dev
-      - requirements-user.txt
-      - Dockerfile.user
-      - compose.override.yml.example
-    # Variant overlay: paths in this list ship to the named variant
-    # template ONLY, on top of consumer_template_owned. F78 (#387):
-    # Gemfile.user is rs-only — Ruby app devs binding to kailash-rs;
-    # py templates do NOT receive it.
-    consumer_template_owned_variants:
-      rs:
-        - Gemfile.user
-      py: []
+    # ─────────────────────────────────────────────────────────────
+    # Dev-container ownership — 3-WAY MODEL (ECO-CANON W5, C5 reconcile)
+    # ─────────────────────────────────────────────────────────────
+    # Authoritative model: workspaces/ecosystem-operating-model/specs/04
+    # §2 (sync-ownership.md Architecture B, finalized 2026-05-29). This
+    # REPLACES the older F78/#387 2-way `consumer_template_owned` encoding
+    # ("ship-once-at-/migrate, consumer owns forever"), which was WRONG
+    # against the 3-way model (conflicts/00 C5; DECISION-5 RATIFIED,
+    # journal/0280). The three ownership classes:
+    #
+    #   1. publisher_internal      — loom OWNS + sync-distributes the build
+    #      recipe, INCLUDING the version pins; consumers pull the pre-built
+    #      image and do NOT execute these on first run.
+    #   2. consumer_shipped        — regenerated/overwritten on /sync
+    #      (consumers execute these). Consumer CUSTOMIZATIONS do NOT live
+    #      here — they live in the project_owned_preserve overlay.
+    #   3. project_owned_preserve  — never overwritten, never purged (the
+    #      consumer's own overlay layer).
+    #
+    # ⚠️ ACTIVATION STATE IS PER-VARIANT (W6b-i, 2026-06-17; the D6
+    # getRegistry() primitive shipped — journal/0293; specs/04 §6 Path-A,
+    # py-scoped, USER-RATIFIED). The variants diverge in activation state:
+    #
+    #   • py = D6-ACTIVE. loom OWNS + EMITS + DISTRIBUTES the
+    #     `publisher_internal` + `consumer_shipped` classes for py from the
+    #     loom-tracked source at `.claude/dev-container-templates/py/`, with
+    #     the canon image pointer un-hardcoded via getRegistry()→{host,org}
+    #     registry substitution applied at /sync-to-use distribution time
+    #     (specs/04 §3+§6). coc-sync Step 4.5 step (c) invokes
+    #     `.claude/bin/emit-dev-container.mjs` as the ONLY py dev-container
+    #     writer; the emit helper fails closed on a surviving placeholder
+    #     (zero-tolerance.md Rule 3). The 3-way distribution BEHAVIOR — loom
+    #     image-publish + pull for `publisher_internal`, /sync regeneration
+    #     for `consumer_shipped` — is LIVE for py.
+    #
+    #   • rs = INTERIM preserve-only. rs builds locally (compose `build:`,
+    #     no `image:` pointer) → ZERO canon-registry break → no
+    #     parameterization needed and nothing to distribute. coc-sync Step
+    #     4.5/7 preserve + purge-exempt the UNION of all classes for rs (= the
+    #     prior F78 behavior — loom carries no rs copy, never emits, never
+    #     clobbers, never deletes rs files), so no rs ownership class flips.
+    #     A loom-owned rs dev-container source is a broader goal not driven by
+    #     any verified break (out of W6b-i scope).
+    #
+    # Class membership below is BOTH the interim PRESERVE union (both
+    # variants — absent files are a preserve no-op) AND, for the variant
+    # named in `loom_distributed` (py), the DISTRIBUTION set. The full
+    # specs/04 §2 target membership is ALREADY ADDED for py (now D6-active):
+    # publisher_internal += requirements-coc.txt, requirements-coc-ml.txt,
+    # publish-dev-image.yml (py via publisher_internal_variants.py);
+    # consumer_shipped += .devcontainer/postCreate.sh, .env.example (the
+    # repo-root README is deliberately EXCLUDED — it is the consumer's own
+    # repo doc, not a dev-container scaffold); project_owned_preserve += the
+    # *.user.* / compose.override.yml globs (interim exact-match guard;
+    # glob semantics activate with the broader D6 glob work). For rs these
+    # additions remain a preserve no-op (rs ships none of them).
+    dev_container_ownership:
+      # ── D6-ACTIVATION expanded to the full specs/04 §2 membership (W6b-i, 2026-06-17).
+      # SCOPE = py image-pull architecture (specs/04 §6 launch-time amendment, USER-RATIFIED):
+      # only py hardcodes the canon registry org; rs builds locally (compose `build:`, no
+      # `image:` pointer) → ZERO registry break → rs stays interim-preserve-only (loom carries
+      # no copy for rs). The class lists are BOTH the interim PRESERVE union (both variants —
+      # absent files are a preserve no-op) AND, for the variant named in `loom_distributed`
+      # below, the DISTRIBUTION set sourced from `.claude/dev-container-templates/<variant>/`.
+      publisher_internal:
+        # `Dockerfile` is the BASE recipe → loom-owned + distributed (py, D6-active);
+        # the consumer's `Dockerfile.user` overlay stays project_owned_preserve (below).
+        # The `.user` split per specs/04 §2 is the base-vs-overlay line.
+        - Dockerfile
+        - .dockerignore
+      # py-only publisher pins + publish CI workflow. rs has NEITHER (local-build architecture,
+      # no published image) — variant-keyed so rs's preserve-union never claims files it lacks
+      # and the py distribution picks them up. (§2 publisher_internal additions.)
+      publisher_internal_variants:
+        py:
+          - requirements-coc.txt
+          - requirements-coc-ml.txt
+          - .github/workflows/publish-dev-image.yml
+        rs: []
+      consumer_shipped:
+        - docker-compose.yml
+        - .devcontainer/devcontainer.json
+        - bin/dev
+        - requirements-user.txt
+        # `compose.override.yml.example` is the STUB (an `*.example` →
+        # consumer_shipped/regenerated per specs/04 §2). The consumer-created
+        # live `compose.override.yml` is project_owned_preserve (§2 class 3);
+        # D6-activation maps the stub→live distinction (the stub regenerates,
+        # the live override is never overwritten).
+        - compose.override.yml.example
+        # `.env.example` is the secrets-template stub (consumer copies → .env, which is
+        # gitignored + never owned). Common to py + rs. (§2 consumer_shipped addition.)
+        - .env.example
+      # py-only consumer scaffold. rs runs postCreate via `bin/dev setup` (no postCreate.sh);
+      # `Dockerfile.user.example` is the py *.user.* STUB (consumer_shipped/regenerated — the
+      # live `Dockerfile.user` is project_owned). (§2 consumer_shipped additions, py-scoped.)
+      # NOTE: the repo-root `README.md` is deliberately NOT in this set — it is the consumer
+      # template's own repo doc, not a dev-container scaffold file; loom MUST NOT clobber it.
+      consumer_shipped_variants:
+        py:
+          - .devcontainer/postCreate.sh
+          - .devcontainer/postCreate.user.sh.example
+          - Dockerfile.user.example
+        rs: []
+      project_owned_preserve:
+        - Dockerfile.user
+        # the consumer-created live `compose.override.yml` (no `.example`) is never in the
+        # loom source and never overwritten — the stub→live distinction D6 activates. (§2
+        # project_owned_preserve addition; glob semantics for `*.user.*` activate with D6.)
+        - compose.override.yml
+      # Variant overlay: variant-only paths ship to the named variant
+      # template ONLY, on top of the common class sets above. Gemfile.user
+      # is *.user.* → project_owned_preserve, rs-only (Ruby app devs binding
+      # to kailash-rs); py templates MUST NOT receive it. Enforced by the
+      # per-variant overlay filter in coc-sync Step 4.5/5/7 (see agent file).
+      project_owned_preserve_variants:
+        rs:
+          - Gemfile.user
+        py: []
+      # ── D6 distribution declaration (W6b-i, py-scoped): which variants loom DISTRIBUTES
+      # (not merely preserves) the publisher_internal + consumer_shipped classes for, from
+      # which loom-tracked source, with ecosystem-relative registry substitution. A variant
+      # ABSENT here = interim preserve-only (loom carries no copy). coc-sync reads this to
+      # decide distribute-vs-preserve per variant (Step 4.5/7) — see specs/04 §6.
+      loom_distributed:
+        py:
+          source: .claude/dev-container-templates/py/
+          classes:
+            - publisher_internal
+            - consumer_shipped
+          # {{REGISTRY_HOST}}/{{REGISTRY_ORG}} placeholders in the source → getRegistry()
+          # {host,org} substituted at /sync-to-use distribution time (ecosystem-relative).
+          registry_substitution: true
+        # rs: ABSENT → interim preserve-only (rs owns its local-build dev-container; no break).
     # ─────────────────────────────────────────────────────────────
     # Post-distribute scaffold (multi-CLI USE templates only)
     # ─────────────────────────────────────────────────────────────
@@ -242,6 +344,12 @@ multi_cli_overlays:
     preserved: []
     symlinks: [] # cc-only templates do not run the multi-CLI emitter
     manifest_distribute: false
+    # No `dev_container_ownership` key: cc-only-legacy templates never
+    # received the dev-container scaffold (the prior F78 `consumer_template_owned`
+    # set ALSO lived only under `multi-cli`). The dev-container scaffold consumer
+    # (per the rs USE template's ADR-10) is kailash-coc-rs, a multi-cli template.
+    # coc-sync's preserve-union resolves empty here, before AND after W5 — no
+    # regression, behavior-preserving.
 
 # ─────────────────────────────────────────────────────────────────
 # CLI VARIANTS (Phase E1 — per spec v6 §2.2)
@@ -778,6 +886,12 @@ tiers:
     - rules/spec-accuracy.md
     - rules/deploy-hygiene.md
     - rules/upstream-issue-hygiene.md
+    # proposal-intake-trust (sync-upflow todo 08): the reviewer-side
+    # review-as-untrusted-data discipline for proposal/inbox bodies. Co-tier
+    # (NOT baseline — codex-rs headroom 10.84%): co-tier is the only tier
+    # reaching the base-tier human-scrub population that lacks bin/** and needs
+    # the discipline most. Path-scoped **/.proposals/**.
+    - rules/proposal-intake-trust.md
     - rules/cross-cli-artifact-hygiene.md
     - rules/state-file-write-guard.md
     # The companion lib `hooks/lib/state-file-write-guard.js` (lifted
@@ -1014,7 +1128,11 @@ tiers:
     - rules/nexus-http-status-convention.md
     - rules/ui-backend-defense.md
     - commands/release.md
-    - commands/sync.md
+    - commands/sync.md # DEPRECATED stub (D8 2026-06-15) — removed next cycle; redirects to /sync-from-*
+    - commands/sync-from-build.md # D8: loom inbound — BUILD stream (Gate-1)
+    - commands/sync-from-use.md # D8: loom inbound — USE-template stream (Gate-1)
+    - commands/sync-from-downstream.md # D8: USE-template inbound — downstream upflow inbox
+    - commands/sync-from-template.md # D8: downstream-consumer inbound — pull from template
     - commands/migrate.md
     - commands/ai.md
     - commands/api.md
@@ -1243,10 +1361,13 @@ variants:
     py: null
     rs: variants/rs/rules/ci-runners.md
     rb: null
-  commands/sync.md:
+  # commands/sync.md is now a DEPRECATED redirect stub (D8 2026-06-15) — identical
+  # across lanes, so it carries NO variant overlay. The rs pull-command overlay moved
+  # to commands/sync-from-template.md below (the renamed consumer pull verb).
+  commands/sync-from-template.md:
     py: null
-    rs: variants/rs/commands/sync.md
-    # py overlay removed 2026-04-15 (commit 1cdc5d1 — stale py sync.md variant).
+    rs: variants/rs/commands/sync-from-template.md
+    # py overlay: none (the global sync-from-template.md body is language-neutral).
   commands/cc-audit.md:
     py: variants/py/commands/cc-audit.md
     rs: variants/rs/commands/cc-audit.md
@@ -1708,6 +1829,10 @@ variants:
     py: variants/py/skills/29-pact/pact-governed-agents.md
   skills/29-pact/pact-kaizen-integration.md:
     py: variants/py/skills/29-pact/pact-kaizen-integration.md
+    # rs overlay declared 2026-06-13 (todo 16 Part B, user-ratified): genuine
+    # Rust integration content (kailash_pact::engine / eatp::constraints /
+    # kailash_kaizen::trust Ed25519+CareChain) — distinct from the Python global.
+    rs: variants/rs/skills/29-pact/pact-kaizen-integration.md
   skills/29-pact/pact-quickstart.md:
     py: variants/py/skills/29-pact/pact-quickstart.md
   skills/29-pact/pact-conformance-features.md:
@@ -1860,6 +1985,15 @@ variant_only:
     - variants/py/skills/18-security-patterns/credential-url-handling.md
     - variants/py/skills/26-eatp-reference/eatp-trust-posture-canonical.md
     - variants/py/skills/31-error-troubleshooting/error-kaizen-provider-config.md
+    # release-checklist.md added 2026-06-13 (sync-upflow DANGLEREF repair, journal/0011,
+    # co-owner-directed): py-specific /release reference material cited by
+    # variants/py/commands/release.md:122 since loom's initial commit but never shipped
+    # (day-one dangling reference). Mirrors the rs build-reference.md pattern (variant_only.rs
+    # cited by variants/rs/commands/build.md:78). Path-cited reference (no frontmatter), not a
+    # semantic skill — does NOT re-introduce the hollow-SKILL.md bloat the obsoleted entry targets.
+    # Closes the DANGLEREF defect noted at the `obsoleted: .claude/skills/management/SKILL.md`
+    # entry below; disjoint from that purge (SKILL.md ≠ release-checklist.md, no collision).
+    - variants/py/skills/management/release-checklist.md
     - variants/py/scripts/migrate.py
   rs:
     - variants/rs/agents/frameworks/trust-plane-specialist.md
@@ -2089,7 +2223,7 @@ obsoleted:
   - .claude/skills/30-claude-code-patterns/anti-patterns.md # why: skill audit 2026-05-09 (v2.29.0) — RESTRUCTURE 30 sub-file. Zero external references (grep clean). Content covered by 30/SKILL.md prose. User-approved.
   - .claude/skills/30-claude-code-patterns/artifact-design.md # why: skill audit 2026-05-09 (v2.29.0) — RESTRUCTURE 30 sub-file. Zero external references. Templates duplicated in actual existing artifacts. User-approved.
   - .claude/skills/30-claude-code-patterns/token-budget.md # why: skill audit 2026-05-09 (v2.29.0) — RESTRUCTURE 30 sub-file. Zero external references. Token-cost numbers covered at high level in 30/SKILL.md. User-approved.
-  - .claude/skills/management/ # why: residual stale skill in kailash-coc-claude-py only (rs/rb/prism don't ship it, loom doesn't ship it). Hollow frontmatter (no `description:` field) — surfaces as 0-char-description entry in CC skill listing, consuming slot without semantic value. Content is repo-maintainer notes for /sync /codify /inspect, not a semantic skill consumers should match against. Surfaced 2026-05-14 via coursewright skill-bloat audit. User-approved REMOVE.
+  - .claude/skills/management/SKILL.md # why: residual stale hollow-frontmatter management skill (no `description:` field — surfaced as 0-char-description entry in CC skill listing; content was repo-maintainer notes for /sync /codify /inspect, not a semantic skill consumers match against). Surfaced 2026-05-14 via coursewright skill-bloat audit; User-approved REMOVE. NARROWED 2026-06-13 (sync-upflow Wave 3 STEP-0 / MANIFTEN, journal/0003) from the directory-wide `.claude/skills/management/` to this single file: the rs templates legitimately receive 3 `variant_only.rs` files INTO `.claude/skills/management/` (build-reference.md, cargo-reference.md, release-workflow.md — see `variant_only.rs` above), so a directory-wide purge shared a path with the rs deploy target (purge∩deploy ordering hazard, failure-redteam MED-2). Sibling files i-harden-criteria.md + release-checklist.md were py /i-harden + /release command reference material, NOT stale residue — their collateral over-purge by the prior directory-wide entry is a separate dangling-reference defect (release-checklist.md is still cited at variants/py/commands/release.md:122), tracked for the inter-wave gate.
   - .claude/rules/terrene-naming.md # why: removed from COC distribution 2026-05-31 (FB) — Foundation messaging governance (brand/terminology/license-labeling consistency), NOT a codegen-orchestration concern. Apache 2.0 imposes no obligations, so this was never license enforcement. Relocated to atelier Foundation-docs (separate repo). Universal purge so every consumer (incl. non-Terrene RRPS/community) drops its stale copy. Receipt: journal/0184. Supersedes the prior use_obsoleted entry (which purged USE templates + downstream only; this purges ALL targets).
   - .claude/rules/independence.md # why: removed from COC distribution 2026-05-31 (FB) — same disposition as terrene-naming.md above (Foundation no-commercial-coupling messaging governance, not COC). Relocated to atelier Foundation-docs. Universal purge. Receipt: journal/0184. Supersedes the prior use_obsoleted entry.
   - .claude/agents/open-source-strategist.md # why: removed from COC distribution 2026-05-31 (FB) — the agent IS Terrene Foundation IP/open-core strategy (four-layer architecture, Foundation-owns-all-IP, EATP/Kailash open-vs-proprietary boundary, competitive positioning), not a generic codegen specialist. Shipping it gave non-Terrene consumers (RRPS/community) Terrene's strategic answers. Now loom-only (kept on disk like agents/management/*). Universal purge of the stale consumer copy. Receipt: journal/0184.
@@ -2136,6 +2270,8 @@ obsoleted:
 # consumers via the `coc` tier (the exact omission F104 closes — they are
 # removed from `coc` here so loom_only is their single source of truth).
 loom_only:
+  - commands/sync-to-use.md # why: Gate-2 distribution command (sync-upflow D1 split) — a distribution command leaking to consumers would instruct them to redistribute; loom_only converts the exclude: denylist fence into the validate-emit BLOCK guard.
+  - commands/sync-to-build.md # why: BUILD-distribution sibling — same outbound-command class as sync-to-use.md above.
   - agents/management/coc-sync.md # why: Gate-2 distributor — loom-only orchestration; CLAUDE.md "Management (loom-only, excluded from sync)".
   - agents/management/sync-reviewer.md # why: Gate-1 BUILD-repo review/classify — loom-only orchestration.
   - agents/management/repo-ops.md # why: cross-repo inspection / drift / bulk git — loom-only orchestration.
@@ -2146,6 +2282,7 @@ loom_only:
   - agents/open-source-strategist.md # why: Terrene Foundation open-core strategy (four-layer model, Foundation-owns-all-IP, EATP/Kailash open-vs-proprietary boundary). loom-only per FB 2026-05-31 (journal/0184). Paired `obsoleted:` entries purge the stale consumer + Gemini copies.
   - disclosure-tenant-denylist.json # why: customer-identity / tenant token list the Gate-2 disclosure scanner (bin/scan-synced-disclosure.mjs `customer-identity-token` shape) flags against the SYNCED surface. TOP-LEVEL .claude/ file (NOT under bin/**) so it sits outside every synced-tier glob — this positive loom_only entry keeps it out of /sync without tripping loom-only-mutual-exclusion. The literal tokens must never reach a consumer (a consumer greps the synced scanner/list source → the leak the shape exists to prevent). At a consumer the file is absent → the shape is inert. loom-only per journal/0214 (loom#411 governance-as-DNA disclosure scrub).
   - public-release/ # why: loom-only source dir for the PUBLIC-FORK pipeline (scripts/publish-to-public.mjs) — holds the public README + Apache-2.0 LICENSE the pipeline copies into the terrene-foundation/loom snapshot. NOT framework a COC consumer uses; loom-internal publish machinery (same class as agents/management/*). Top-level .claude/ dir outside every synced-tier glob, so this loom_only entry keeps it out of /sync without tripping loom-only-mutual-exclusion. loom-only per journal/0215 (public-fork lane).
+  - bin/ecosystem.json # why: the D6 ecosystem-shared remote-links + registry + vcs + deploy + upstream-canon registry (ECO-IMPL W1). Carries the REAL per-ecosystem org slugs by design; it is COMMITTED-and-shared WITHIN one ecosystem but MUST NEVER cross canon↔client or reach a consumer (a synced ecosystem.json leaks one ecosystem's orgs into another — the #255/#252 disclosure class across the ecosystem boundary). UNLIKE the top-level loom-only files above, this path IS under the synced `bin/**` tier, so this loom_only entry is LOAD-BEARING (not belt-and-suspenders): validate-emit.mjs check-8 converts it into a structural BLOCK. Each fork authors its OWN ecosystem.json; the committed `bin/ecosystem.example.json` (synthetic tokens) is the only ecosystem* file that DOES sync/publish. loom-only per ECO-IMPL W1 (journal/0292, design 02-plans/01 §4).
 
 # ─────────────────────────────────────────────────────────────────
 # EXCLUSIONS
@@ -2265,6 +2402,7 @@ exclude:
   - commands/inspect.md
   - commands/settings.md
   - commands/sync-to-build.md
+  - commands/sync-to-use.md # loom-only: Gate-2 distribution command (sync-upflow D1 split); pairs with sync-to-build.md above
   - commands/test-harness-probe.md # loom-only: orchestrator for `.claude/test-harness/` probe scoring; consumers do not run the harness. Pair: existing `test-harness/**` exclude entry below.
   - agents/_README.md
   - projects/** # Claude Code's per-user session/state cache; loom-local. Pair: `obsoleted: .claude/projects/`.
@@ -2465,7 +2603,7 @@ repos:
     # 6a) redirects Ruby consumers to kailash-coc-rs / kailash-coc-claude-rs;
     # downstream re-syncs once. tier_subscriptions: [] + templates: [] reflect
     # USE retirement (mirrors the prism precedent); /sync rb cannot run, per
-    # the manifest-defect halt-rule in commands/sync.md Gate 2 step 3.
+    # the manifest-defect halt-rule in sync-flow.md § Gate 2 → Process step 3 (loom: /sync-to-use).
     tier_subscriptions: []
     templates: []
     description: |
@@ -2486,6 +2624,30 @@ repos:
     # specialists, no SDK-specific skills, no kailash-coupled rules)
     # and include the new `onboarding` tier for stack-detection,
     # generic specialists, and per-language skills.
+    #
+    # ── Non-Kailash client coverage (ECO-CANON W5 / C7; DECISION-5 RATIFIED,
+    #    journal/0280) ──────────────────────────────────────────────────
+    # A non-Kailash client (.NET/NuGet, Go, Java, etc.) is served by THIS
+    # EXISTING `coc-base` + `coc-claude-base` tier, driven by the project's
+    # `STACK.md` (written by `onboard-stack` + `stack-detection`). There is
+    # NO net-new stack-generic tier to build — DECISION-5 corrected the
+    # original "ratify a net-new tier" framing as a FALSE DICHOTOMY: the
+    # tier already exists (shipped v2.21.0, this block + tier_subscriptions
+    # [cc, co, onboarding]). The METHOD genericizes via STACK.md; the
+    # use-template tier is this base variant.
+    #
+    # ⚠️ Honest-con (specs/04 §4-style; NOT claimed end-to-end verified —
+    # spec-accuracy.md). "coc-base fully covers the non-Kailash
+    # onboard→dev→deploy walk" is UNVERIFIED end-to-end; a fresh `/analyze`
+    # must walk the path for a real .NET client. Two REAL S1 gaps are
+    # DEFERRED to the /implement workstream (overview § Deferred; D5/D6
+    # anchors), NOT resolved by this canonical edit:
+    #   • G1.2 — the workaround→build→cascade route when `build` is the
+    #     client's own non-Kailash lib (i.e. `build: null` here): the base
+    #     tier has no `sync-to-build` route, so the capability-promotion
+    #     lifecycle is an open design (gated on the D6 primitive).
+    #   • G1.3 — the fork boundary for a non-Kailash client (how the base
+    #     tier composes with an ecosystem fork's upstream-pull isolation).
     build: null
     variant: base
     tier_subscriptions: [cc, co, onboarding]
@@ -2507,7 +2669,7 @@ repos:
     variant: prism
     # tier_subscriptions: [] reflects USE retirement — no USE templates emit, so
     # no tier subscription. /sync prism cannot run (templates: []), but the field
-    # is present per the manifest-defect halt-rule in commands/sync.md Gate 2 step 3.
+    # is present per the manifest-defect halt-rule in sync-flow.md § Gate 2 → Process step 3 (loom: /sync-to-use).
     tier_subscriptions: []
     # v2.9.4 (2026-04-28): kailash-coc-claude-prism USE template RETIRED.
     # Frontend-generic artifacts (FE agents, design-system skills, interaction
