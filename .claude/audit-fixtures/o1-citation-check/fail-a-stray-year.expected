@@ -1,0 +1,2 @@
+ok=false reason=no-version-token failed=(a)
+predicate: (a) FAILED — standard named (ISO 27001) + clause + derivation present, but the only 4-digit year ("2019") is a STRAY audit-date sitting past the clause id, NOT name-adjacent to the standard. A free-floating year in prose does NOT count as a version token; only a year that RIDES the standard name does (e.g. "SOC 2 2017", "ISO 27001 2022"). This pins the R1-redteam name-adjacency boundary.

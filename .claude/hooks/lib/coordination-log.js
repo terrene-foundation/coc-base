@@ -1048,7 +1048,7 @@ function _resolveRosterPerson(roster, verifiedId) {
  * use by predicates that re-verify (defense-in-depth, e.g. genesis-anchor
  * which has an additional owner-bind check on top of rule 1).
  */
-function _verifyRule1(record, roster, opts) {
+function _verifyRule1(record, roster, opts, gpgHome) {
   const resolved = _resolveRosterPerson(roster, record.verified_id);
   if (!resolved) {
     return {
@@ -1099,6 +1099,18 @@ function _verifyRule1(record, roster, opts) {
   try {
     verifyResult = cocSign.verify(bytes, sig, matchingKey.pubkey, {
       keyType: matchingKey.type,
+      // F17 — when the fold pre-created a shared GPG homedir, reuse it
+      // (one agent per fold). undefined ⇒ _verifyGpg makes its own
+      // ephemeral homedir per call (today's behavior; fail-to-slow-path).
+      gpgHome,
+      // F17 identity binding — the shared homedir holds EVERY roster key, so
+      // bind this verify to THIS record's expected signer fingerprint. Without
+      // it a multi-key keyring would accept a record signed by ANY rostered
+      // key, letting operator B forge a record attributed to operator A
+      // (the §1 bounded-trust impersonation adversary). Harmless on the SSH
+      // path (ignored) and on the per-call path (single-key keyring already
+      // binds) — strictly additive defense.
+      expectedFpr: matchingKey.fingerprint,
     });
   } catch (err) {
     return {
@@ -1547,6 +1559,32 @@ function _detectPartialPushGaps(perEmitterStats, peerHighWaterFor) {
  * Internal fold loop bound to a specific registry. Use `createEngine()`
  * to get a public foldLog handle.
  */
+/**
+ * Collect the DISTINCT armored GPG public keys across the whole roster
+ * (F17). These are the only keys that can reach the rule-1 verify call —
+ * `_verifyRule1` rejects any non-roster signer at `_resolveRosterPerson`
+ * BEFORE verifying — so pre-importing exactly this set into one shared
+ * homedir covers every verifiable record. SSH keys are skipped (they use
+ * no GPG homedir). Returns [] when the roster has no GPG keys.
+ */
+function _collectRosterGpgPubkeys(roster) {
+  const out = [];
+  const seen = new Set();
+  if (!roster || !roster.persons) return out;
+  for (const person of Object.values(roster.persons)) {
+    const keys = (person && person.keys) || [];
+    for (const k of keys) {
+      if (k && k.type === "gpg" && typeof k.pubkey === "string" && k.pubkey) {
+        if (!seen.has(k.pubkey)) {
+          seen.add(k.pubkey);
+          out.push(k.pubkey);
+        }
+      }
+    }
+  }
+  return out;
+}
+
 function _foldLog(records, roster, opts, registry) {
   const optsResolved = opts || {};
   const peerHighWaterFor =
@@ -1588,228 +1626,253 @@ function _foldLog(records, roster, opts, registry) {
     };
   }
 
-  for (const record of records) {
-    // --- Universal shape check ---
-    const shapeErr = _validateRecordShape(record);
-    if (shapeErr) {
-      rejected.push({
+  // --- F17: one shared GPG verify-homedir per fold ---
+  // Read-time folds verify every record's signature (the trust gate). Without
+  // a shared homedir, each rule-1 verify spawns its own ephemeral gpg-agent
+  // (~710ms — journal/0311 Issue B), so latency scales with the chain length.
+  // Pre-import every distinct roster GPG key into ONE homedir (one agent), pass
+  // it as gpgHome to every verify, and tear it down once in the finally below.
+  // Skipped when skipSignatureVerify is set (no verify happens at all).
+  // Fail-to-slow-path: if gpg is absent or creation fails, _sharedGpgHome stays
+  // null and each verify falls back to its own ephemeral homedir (correct, slow).
+  let _sharedGpgHome = null;
+  if (!optsResolved.skipSignatureVerify) {
+    const _gpgPubkeys = _collectRosterGpgPubkeys(roster);
+    if (_gpgPubkeys.length > 0) {
+      const _h = cocSign.createVerifyHomedir(_gpgPubkeys);
+      if (_h.ok) _sharedGpgHome = _h.home;
+    }
+  }
+
+  try {
+    for (const record of records) {
+      // --- Universal shape check ---
+      const shapeErr = _validateRecordShape(record);
+      if (shapeErr) {
+        rejected.push({
+          record,
+          reason: `shape invalid: ${shapeErr}`,
+          rule: "shape",
+        });
+        continue;
+      }
+
+      // --- Rule 3 (fork detection) — runs BEFORE rule 1 so the engine
+      // catches the equivocator's two signed siblings even when the SECOND
+      // sibling would otherwise pass rule 2. The fork-check itself does
+      // not require signature verification: the hashes are over canonical
+      // content (which includes the entire record minus `sig`), and the
+      // forks: [] output cites the verified_id — the equivocator's own
+      // claim. The forger cannot deny the equivocation because both records
+      // are present in the log under the same verified_id.
+      // ---
+      const forkCheck = _checkRule3(record, hashByEmitterSeq);
+      if (forkCheck.fork) {
+        forks.push({
+          verified_id: record.verified_id,
+          seq: record.seq,
+          hash_a: forkCheck.prior_hash,
+          hash_b: forkCheck.this_hash,
+          record_a: forkCheck.prior_record,
+          record_b: record,
+        });
+        // The fork is surfaced; the second sibling is NOT accepted into
+        // the fold state (engine refuses to extend the chain with an
+        // equivocated record). Move on.
+        rejected.push({
+          record,
+          reason: `rule 3: fork detected at (${record.verified_id}, ${record.seq}) — see forks[]`,
+          rule: "rule-3",
+        });
+        continue;
+      }
+
+      // --- Rule 1 — signature verification gate ---
+      const r1 = _verifyRule1(record, roster, optsResolved, _sharedGpgHome);
+      if (!r1.ok) {
+        rejected.push({ record, reason: r1.reason, rule: "rule-1" });
+        continue;
+      }
+
+      // --- Rule 3 cache commit (Sec-LOG-1) — only rule-1-passing records
+      //     get cached against (verified_id, seq) for later fork-detection.
+      //     Prevents shape-valid-but-unverified records from poisoning the
+      //     cache and framing legitimate emitters as equivocators. ---
+      _commitRule3CacheEntry(record, forkCheck.this_hash, hashByEmitterSeq);
+
+      // --- Rule 2 — per-emitter chain integrity ---
+      const r2 = _checkRule2(record, perEmitterState);
+      if (!r2.ok) {
+        rejected.push({ record, reason: r2.reason, rule: "rule-2" });
+        continue;
+      }
+
+      // --- Rule 4 — mutation scoping ---
+      const r4 = _checkRule4(record, r1.resolvedPerson);
+      if (!r4.ok) {
+        rejected.push({ record, reason: r4.reason, rule: "rule-4" });
+        continue;
+      }
+
+      // --- Rule 5 — checkpoint reconciliation (only for checkpoint records) ---
+      const r5 = _checkRule5(record, roster);
+      if (!r5.ok) {
+        rejected.push({ record, reason: r5.reason, rule: "rule-5" });
+        continue;
+      }
+
+      // --- Record-type dispatch (rule 9 — registration API) ---
+      const entry = registry.get(record.type);
+      if (!entry) {
+        rejected.push({
+          record,
+          reason: `unknown record type '${record.type}': no predicate registered`,
+          rule: "dispatch",
+        });
+        continue;
+      }
+      let predicateResult;
+      try {
+        predicateResult = entry.fn(record, {
+          foldState,
+          roster,
+          acceptedSoFar: accepted,
+          opts: optsResolved,
+          meta: entry.meta,
+        });
+      } catch (err) {
+        rejected.push({
+          record,
+          reason: `predicate threw for type '${record.type}': ${err && err.message ? err.message : String(err)}`,
+          rule: "dispatch",
+        });
+        continue;
+      }
+      if (!predicateResult || typeof predicateResult !== "object") {
+        rejected.push({
+          record,
+          reason: `predicate for '${record.type}' returned non-object`,
+          rule: "dispatch",
+        });
+        continue;
+      }
+      // Contested revocation (fold-rule-10 path)
+      if (predicateResult.contested === true) {
+        contestedRevocations.push({
+          record,
+          forging_signer: predicateResult.forging_signer,
+          contested_by_record: predicateResult.contested_by_record,
+          reason: predicateResult.reason,
+        });
+        // Mark the record contested in the accepted stream so derive-n can
+        // see R10-A-03 exclusion. We DO accept the record into the stream
+        // because derive-n needs to walk it AND mark it contested; without
+        // accepting it, the contested-exclusion case in R10-A-03 has nothing
+        // to exclude. The contested record is also surfaced separately in
+        // contestedRevocations[] so consumer hooks can emit block-grade
+        // integrity advisories naming the forger.
+        const flagged = Object.assign({}, record, { rule10_contested: true });
+        accepted.push(flagged);
+        _advanceChainState(
+          perEmitterState,
+          perEmitterStats,
+          record,
+          forkCheck.this_hash,
+        );
+        continue;
+      }
+      if (predicateResult.accepted !== true) {
+        rejected.push({
+          record,
+          reason:
+            predicateResult.reason || `predicate rejected '${record.type}'`,
+          rule: "predicate",
+        });
+        continue;
+      }
+      // Accepted: update fold state, chain state, stats.
+      if (
+        predicateResult.foldState &&
+        typeof predicateResult.foldState === "object"
+      ) {
+        foldState = predicateResult.foldState;
+      }
+      // FSUB R1 LOW-2 — tamper-flagged accepted records (journal-body-anchor
+      // re-hash mismatch). Mirror of the rule-10 contested path above: the
+      // record IS the detection evidence so it folds + chains, but the
+      // verdict surfaces BOTH as a flagged accepted record (consumers
+      // filtering accepted[] see `body_anchor_tampered`) AND as a fold
+      // advisory naming the anchor's SIGNER (per knowledge-convergence.md
+      // MUST-2 + the §4.5 signer-vs-author residual: the accountable party
+      // is the record's verified_id — the SIGNER — never the journal
+      // frontmatter author).
+      if (predicateResult.tampered === true) {
+        advisories.push({
+          type: "journal-body-anchor-tamper",
+          verified_id: record.verified_id,
+          person_id: record.person_id,
+          display_id: record.display_id,
+          seq: record.seq,
+          evidence: predicateResult.evidence || null,
+          reason:
+            "journal-body-anchor re-hash mismatch: file bytes diverge from the signed anchor; accountable party is the anchor's SIGNER (verified_id above), not the frontmatter author",
+        });
+        const flagged = Object.assign({}, record, {
+          body_anchor_tampered: true,
+        });
+        accepted.push(flagged);
+        _advanceChainState(
+          perEmitterState,
+          perEmitterStats,
+          record,
+          forkCheck.this_hash,
+        );
+        continue;
+      }
+      accepted.push(record);
+      _advanceChainState(
+        perEmitterState,
+        perEmitterStats,
         record,
-        reason: `shape invalid: ${shapeErr}`,
-        rule: "shape",
-      });
-      continue;
+        forkCheck.this_hash,
+      );
     }
 
-    // --- Rule 3 (fork detection) — runs BEFORE rule 1 so the engine
-    // catches the equivocator's two signed siblings even when the SECOND
-    // sibling would otherwise pass rule 2. The fork-check itself does
-    // not require signature verification: the hashes are over canonical
-    // content (which includes the entire record minus `sig`), and the
-    // forks: [] output cites the verified_id — the equivocator's own
-    // claim. The forger cannot deny the equivocation because both records
-    // are present in the log under the same verified_id.
-    // ---
-    const forkCheck = _checkRule3(record, hashByEmitterSeq);
-    if (forkCheck.fork) {
-      forks.push({
-        verified_id: record.verified_id,
-        seq: record.seq,
-        hash_a: forkCheck.prior_hash,
-        hash_b: forkCheck.this_hash,
-        record_a: forkCheck.prior_record,
-        record_b: record,
-      });
-      // The fork is surfaced; the second sibling is NOT accepted into
-      // the fold state (engine refuses to extend the chain with an
-      // equivocated record). Move on.
-      rejected.push({
-        record,
-        reason: `rule 3: fork detected at (${record.verified_id}, ${record.seq}) — see forks[]`,
-        rule: "rule-3",
-      });
-      continue;
-    }
+    // --- Rule 8 — partial-push gap advisory (post-pass) ---
+    const r8 = _detectPartialPushGaps(perEmitterStats, peerHighWaterFor);
+    for (const a of r8) advisories.push(a);
 
-    // --- Rule 1 — signature verification gate ---
-    const r1 = _verifyRule1(record, roster, optsResolved);
-    if (!r1.ok) {
-      rejected.push({ record, reason: r1.reason, rule: "rule-1" });
-      continue;
-    }
-
-    // --- Rule 3 cache commit (Sec-LOG-1) — only rule-1-passing records
-    //     get cached against (verified_id, seq) for later fork-detection.
-    //     Prevents shape-valid-but-unverified records from poisoning the
-    //     cache and framing legitimate emitters as equivocators. ---
-    _commitRule3CacheEntry(record, forkCheck.this_hash, hashByEmitterSeq);
-
-    // --- Rule 2 — per-emitter chain integrity ---
-    const r2 = _checkRule2(record, perEmitterState);
-    if (!r2.ok) {
-      rejected.push({ record, reason: r2.reason, rule: "rule-2" });
-      continue;
-    }
-
-    // --- Rule 4 — mutation scoping ---
-    const r4 = _checkRule4(record, r1.resolvedPerson);
-    if (!r4.ok) {
-      rejected.push({ record, reason: r4.reason, rule: "rule-4" });
-      continue;
-    }
-
-    // --- Rule 5 — checkpoint reconciliation (only for checkpoint records) ---
-    const r5 = _checkRule5(record, roster);
-    if (!r5.ok) {
-      rejected.push({ record, reason: r5.reason, rule: "rule-5" });
-      continue;
-    }
-
-    // --- Record-type dispatch (rule 9 — registration API) ---
-    const entry = registry.get(record.type);
-    if (!entry) {
-      rejected.push({
-        record,
-        reason: `unknown record type '${record.type}': no predicate registered`,
-        rule: "dispatch",
-      });
-      continue;
-    }
-    let predicateResult;
+    // --- Derived-N (consumed by gate matrix) ---
+    let derivedN = null;
     try {
-      predicateResult = entry.fn(record, {
-        foldState,
+      derivedN = computeDerivedN({
         roster,
-        acceptedSoFar: accepted,
-        opts: optsResolved,
-        meta: entry.meta,
+        log: accepted,
+        trustRoot: foldState.trustRoot,
       });
     } catch (err) {
-      rejected.push({
-        record,
-        reason: `predicate threw for type '${record.type}': ${err && err.message ? err.message : String(err)}`,
-        rule: "dispatch",
-      });
-      continue;
-    }
-    if (!predicateResult || typeof predicateResult !== "object") {
-      rejected.push({
-        record,
-        reason: `predicate for '${record.type}' returned non-object`,
-        rule: "dispatch",
-      });
-      continue;
-    }
-    // Contested revocation (fold-rule-10 path)
-    if (predicateResult.contested === true) {
-      contestedRevocations.push({
-        record,
-        forging_signer: predicateResult.forging_signer,
-        contested_by_record: predicateResult.contested_by_record,
-        reason: predicateResult.reason,
-      });
-      // Mark the record contested in the accepted stream so derive-n can
-      // see R10-A-03 exclusion. We DO accept the record into the stream
-      // because derive-n needs to walk it AND mark it contested; without
-      // accepting it, the contested-exclusion case in R10-A-03 has nothing
-      // to exclude. The contested record is also surfaced separately in
-      // contestedRevocations[] so consumer hooks can emit block-grade
-      // integrity advisories naming the forger.
-      const flagged = Object.assign({}, record, { rule10_contested: true });
-      accepted.push(flagged);
-      _advanceChainState(
-        perEmitterState,
-        perEmitterStats,
-        record,
-        forkCheck.this_hash,
-      );
-      continue;
-    }
-    if (predicateResult.accepted !== true) {
-      rejected.push({
-        record,
-        reason: predicateResult.reason || `predicate rejected '${record.type}'`,
-        rule: "predicate",
-      });
-      continue;
-    }
-    // Accepted: update fold state, chain state, stats.
-    if (
-      predicateResult.foldState &&
-      typeof predicateResult.foldState === "object"
-    ) {
-      foldState = predicateResult.foldState;
-    }
-    // FSUB R1 LOW-2 — tamper-flagged accepted records (journal-body-anchor
-    // re-hash mismatch). Mirror of the rule-10 contested path above: the
-    // record IS the detection evidence so it folds + chains, but the
-    // verdict surfaces BOTH as a flagged accepted record (consumers
-    // filtering accepted[] see `body_anchor_tampered`) AND as a fold
-    // advisory naming the anchor's SIGNER (per knowledge-convergence.md
-    // MUST-2 + the §4.5 signer-vs-author residual: the accountable party
-    // is the record's verified_id — the SIGNER — never the journal
-    // frontmatter author).
-    if (predicateResult.tampered === true) {
+      // derive-n is intentionally permissive; if it throws, surface via
+      // advisory rather than failing the whole fold.
       advisories.push({
-        type: "journal-body-anchor-tamper",
-        verified_id: record.verified_id,
-        person_id: record.person_id,
-        display_id: record.display_id,
-        seq: record.seq,
-        evidence: predicateResult.evidence || null,
-        reason:
-          "journal-body-anchor re-hash mismatch: file bytes diverge from the signed anchor; accountable party is the anchor's SIGNER (verified_id above), not the frontmatter author",
+        type: "derived-n-error",
+        reason: `computeDerivedN threw: ${err && err.message ? err.message : String(err)}`,
       });
-      const flagged = Object.assign({}, record, {
-        body_anchor_tampered: true,
-      });
-      accepted.push(flagged);
-      _advanceChainState(
-        perEmitterState,
-        perEmitterStats,
-        record,
-        forkCheck.this_hash,
-      );
-      continue;
     }
-    accepted.push(record);
-    _advanceChainState(
-      perEmitterState,
-      perEmitterStats,
-      record,
-      forkCheck.this_hash,
-    );
+
+    return {
+      foldState,
+      accepted,
+      rejected,
+      forks,
+      advisories,
+      contestedRevocations,
+      derivedN,
+    };
+  } finally {
+    // F17 — always release the shared verify-homedir's gpg-agent + temp dir,
+    // even if a predicate threw mid-loop (no agent/dir leak per fold).
+    if (_sharedGpgHome) cocSign.destroyVerifyHomedir(_sharedGpgHome);
   }
-
-  // --- Rule 8 — partial-push gap advisory (post-pass) ---
-  const r8 = _detectPartialPushGaps(perEmitterStats, peerHighWaterFor);
-  for (const a of r8) advisories.push(a);
-
-  // --- Derived-N (consumed by gate matrix) ---
-  let derivedN = null;
-  try {
-    derivedN = computeDerivedN({
-      roster,
-      log: accepted,
-      trustRoot: foldState.trustRoot,
-    });
-  } catch (err) {
-    // derive-n is intentionally permissive; if it throws, surface via
-    // advisory rather than failing the whole fold.
-    advisories.push({
-      type: "derived-n-error",
-      reason: `computeDerivedN threw: ${err && err.message ? err.message : String(err)}`,
-    });
-  }
-
-  return {
-    foldState,
-    accepted,
-    rejected,
-    forks,
-    advisories,
-    contestedRevocations,
-    derivedN,
-  };
 }
 
 function _advanceChainState(

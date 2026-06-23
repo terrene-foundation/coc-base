@@ -1,0 +1,1 @@
+block: fork-identifying-content (boundary=fork->canon, prefix-collision authority NOT carved out — word-boundary match refuses "iso-" continuation)

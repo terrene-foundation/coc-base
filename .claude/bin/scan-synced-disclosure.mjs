@@ -225,6 +225,20 @@ function isExcluded(relPath) {
   // and the runner's whole purpose is to scan those planted shapes).
   if (relPath.includes("audit-fixtures/scan-synced-disclosure")) return true;
 
+  // ALLOWLIST-NOTE (#584 follow-up): the cross-ecosystem-disclosure-guard
+  // audit fixtures intentionally embed SYNTHETIC canon/fork org slugs
+  // (`ssh://canon/loom.git`, `canon-origin`) to exercise the guard's own
+  // boundary recognition — `canon` is the architectural placeholder for the
+  // canonical upstream (artifact-flow.md § "Ecosystem Forks vs Downstream
+  // Consumers"), NOT a real org slug. The `nonfoundation-org-slug` shape
+  // over-matches that synthetic token, exactly the by-design-synthetic case
+  // the scan-synced-disclosure exclusion above covers. Same loom-relative-path
+  // keying: it does NOT fire when the guard's own fixture runner points
+  // `--root` AT the fixture dir (relPath then fixture-root-relative). #584
+  // landed these fixtures without extending this exclusion; this closes the gap.
+  if (relPath.includes("audit-fixtures/cross-ecosystem-disclosure-guard"))
+    return true;
+
   // accepted-history sweep reports + journals + proposals + session notes
   //
   // R2 exclusion-scoping FIX (#263): the prior journal predicate was

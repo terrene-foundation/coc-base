@@ -1,0 +1,2 @@
+ok=false reason=no-standard-named failed=(a)
+predicate: (a) FAILED — no named external authority. "standard best practice" is not a citation (the "this is a standard best practice" DO-NOT example in artifact-flow.md § "The Origination Taxonomy").

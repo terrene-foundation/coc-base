@@ -1,0 +1,8 @@
+{
+  "_predicate": "public-authority-O1 NEGATIVE — a TENANT-specific (non-public) authority O1 is NOT carved out; falls to the disclosure scan and BLOCKS on identifying content",
+  "upstreamCanon": { "remote": "canon-origin", "url": "ssh://canon/loom.git" },
+  "targetEcosystem": "canon-origin",
+  "o1": true,
+  "authority": "Acme Internal Policy IS-7",
+  "findings": ["acme-corp"]
+}

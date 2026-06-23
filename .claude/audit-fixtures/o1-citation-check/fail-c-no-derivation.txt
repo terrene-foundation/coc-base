@@ -1,0 +1,1 @@
+per ISO/IEC 27001:2022 §A.8.24 — this rule covers secret handling

@@ -1,0 +1,1 @@
+per GDPR Article 32 requires breach-appropriate security → this rule mandates env-var-only secret handling

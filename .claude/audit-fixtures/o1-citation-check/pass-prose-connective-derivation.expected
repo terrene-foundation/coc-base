@@ -1,0 +1,2 @@
+ok=true reason=ok failed=null
+predicate: standard+version (a) PASS (800-53 + Rev. 5); clause (b) PASS (control AC-2); derivation (c) PASS (prose connective: requires … therefore … mandates)

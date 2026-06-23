@@ -1,0 +1,2 @@
+ok=false reason=no-derivation-sentence failed=(c)
+predicate: (c) FAILED — standard+version (a) and clause (b) both present, but NO one-sentence derivation bridging clause → artifact mandate ("§X requires Y → this rule mandates Z"). The citation EXISTS; it does not show the clause GOVERNS. This is the SHAPE half of the GOVERNS requirement (artifact-flow.md § "The Origination Taxonomy", the "Enforcement is load-bearing" paragraph); whether the derivation is SEMANTICALLY correct stays the human/LLM gate's call.

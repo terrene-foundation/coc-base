@@ -97,7 +97,13 @@ function readCapabilityLedger(repoDir) {
 function _readLedgerChainHead(repoDir, { roster, verifiedId }) {
   const records = readCapabilityLedger(repoDir);
   if (records.length === 0) return null;
-  const folded = coordinationLog.foldLog(records, roster, {});
+  // skipSignatureVerify: chain-head needs only chain STRUCTURE (seq +
+  // prev_hash), not crypto validity — O(N)-gpg-verify-per-emit fix mirrored
+  // from coc-emit.js::_defaultReadChainHead (fail-closed; read-time
+  // foldLedger still verifies).
+  const folded = coordinationLog.foldLog(records, roster, {
+    skipSignatureVerify: true,
+  });
   folded.rawRecords = records;
   return coordinationLog.computeOwnChainHead(folded, verifiedId);
 }

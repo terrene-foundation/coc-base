@@ -1,0 +1,5 @@
+{
+  "_predicate": "boundary-recognition — fork editing its OWN surface (no canon-target) is intra-ecosystem, unaffected even with fork-identifying findings",
+  "upstreamCanon": { "remote": "canon-origin", "url": "ssh://canon/loom.git" },
+  "findings": ["acme-corp"]
+}

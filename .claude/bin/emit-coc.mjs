@@ -26,7 +26,9 @@
  * manifest with NO signature sidecar.
  *
  * Usage:
- *   node .claude/bin/emit-coc.mjs --out <dir> [--target py|rs|rb|base] [-v]
+ *   node .claude/bin/emit-coc.mjs --out <dir> [--target <repos.* key>] [-v]
+ *   (--target resolves against sync-manifest.yaml::repos.* — py|rs|rb|base|prism;
+ *    cc/codex/gemini are TIER names, not targets, and correctly halt exit 2)
  *
  * `--out .` writes `<cwd>/.coc/`. `--target` applies the consumer's tier
  * subscriptions + language variant overlays (mirrors emit-cli-artifacts.mjs);
@@ -50,7 +52,7 @@ import {
   composeArtifactBody,
   walkFiles,
   matchesAnyGlob,
-} from "./emit-cli-artifacts.mjs";
+} from "./lib/coc-manifest.mjs";
 import { stripSlotMarkers } from "./emit.mjs";
 
 // ──────────────────────────────────────────────────────────────────
@@ -82,6 +84,34 @@ const ID_RE = /^[A-Z][A-Z0-9-]{1,32}$/;
 // `01-core-sdk` → `S01-CORE-SDK`). The kind dir already separates namespaces,
 // so the sentinel only restores grammar conformance; ids stay unique per kind.
 const KIND_SENTINEL = { rules: "R", agents: "A", skills: "S", commands: "C" };
+
+// Typed-superset fields (contract 09b §3.2 — the L2-enabling requirement).
+// For a conforming runtime to deliver L2 (native subagent registry / native
+// /command / progressive-disclosure skill), `.coc/` MUST preserve the source
+// artifact's native typed frontmatter rather than stripping it. These are the
+// per-kind fields the producer carries BEYOND the strict {id, paths, applies_to}
+// block, in canonical (allowlist) order. Each is carried ONLY when the source
+// artifact declares it (the producer never synthesizes a field), so NONE are
+// producer-required — the per-kind SET is:
+//   - agent:   name, description, tools, model, hooks
+//   - command: name, description, argument-hint, model
+//   - skill:   name, description
+//   - rule:    none — paths/applies_to (already in the strict block) ARE its
+//              typed fields; rules are context, not a native registry kind.
+// For L2 a conformer NEEDS name + description on the registry kinds; when a
+// source omits `name` (e.g. a description-only skill / command), the native
+// handle derives from the filename/dir exactly as the native surface does.
+// The fields are ADDITIVE + OMITTABLE + unknowns-tolerant (contract §3.2 + §9):
+// a `.coc/` set omitting them is a valid L1-floor set; a consumer not parsing
+// them reads them via `unknowns` and delivers L1 — a clean degrade, never a
+// parse failure. They are carried VERBATIM from the source's composed
+// frontmatter (extractTypedBlock), never re-serialized — see buildFrontmatter.
+const TYPED_FIELDS = {
+  rules: [],
+  agents: ["name", "description", "tools", "model", "hooks"],
+  skills: ["name", "description"],
+  commands: ["name", "description", "argument-hint", "model"],
+};
 
 // Known sha256 of a zero-byte file (the `.gitkeep` sentinel). Computed, not
 // hardcoded, at emit time — kept here only as documentation of the value.
@@ -148,13 +178,38 @@ function yamlQuote(s) {
 // derive to `id: NO` etc. — a string under strict YAML 1.2 but coerced to a
 // bool/null under any 1.1-compat reader. The spec forbids 1.1 coercion, so we
 // quote unconditionally. List values are quoted flow sequences.
-function buildFrontmatter({ id, paths, appliesTo }) {
+//
+// `typedBlock` (contract §3.2) is the per-kind typed-superset, carried VERBATIM
+// from the source artifact's composed frontmatter via extractTypedBlock(). It is
+// NOT routed through yamlQuote: the typed fields include nested blocks (agent
+// `hooks:` is multi-line) that single-line quoting would corrupt.
+//
+// The block extractTypedBlock returns is well-formed by two structural facts:
+//  (1) It preserves ONLY single-line scalar values and INDENTED nested blocks /
+//      block-scalar bodies — exactly the shapes loom's typed fields use today.
+//      A multi-line scalar whose continuation wraps to column 0 is NOT silently
+//      dropped — extractTypedBlock THROWS on it (a future author adding such a
+//      field must extend the loop first), so this comment cannot drift ahead of
+//      the code.
+//  (2) A column-0 `---` (or any column-0 non-allowlisted line) is a block
+//      TERMINATOR in extractTypedBlock (sets curKey=null, never collected), AND
+//      YAML fence-closing requires column 0 — so the emitted typed block can
+//      never carry a `---` that prematurely closes THIS frontmatter. (rawFrontmatter
+//      also extracts strictly between the source's own `---` fences — a secondary
+//      guarantee; the column-0 terminator is the operative one.)
+// The block is appended as its own line(s) after the strict fields — never inside
+// a flow sequence — so the single-line-emission invariant on id/paths/applies_to
+// is unaffected.
+function buildFrontmatter({ id, paths, appliesTo, typedBlock }) {
   const lines = ["---", `id: ${yamlQuote(id)}`];
   if (paths && paths.length) {
     lines.push(`paths: [${paths.map(yamlQuote).join(", ")}]`);
   }
   if (appliesTo && appliesTo.length) {
     lines.push(`applies_to: [${appliesTo.map(yamlQuote).join(", ")}]`);
+  }
+  if (typedBlock) {
+    lines.push(typedBlock);
   }
   lines.push("---");
   return lines.join("\n");
@@ -227,6 +282,67 @@ function extractListField(rawFm, field) {
 }
 
 // ──────────────────────────────────────────────────────────────────
+// Typed-superset extraction (contract §3.2) — VERBATIM, never re-serialized.
+// ──────────────────────────────────────────────────────────────────
+// Pull the per-kind TYPED_FIELDS out of the source's composed frontmatter text
+// (rawFm), returning the raw text of each allowlisted key's block — the `key:`
+// line PLUS any indented continuation lines (so a nested `hooks:` block is
+// preserved exactly) — joined in canonical TYPED_FIELDS order. Returns "" when
+// the kind carries no typed fields OR none are present (clean L1-floor degrade).
+//
+// id/paths/applies_to are NEVER in any kind's TYPED_FIELDS (they are owned by the
+// strict block), so this cannot duplicate a strict field. A column-0 `key:` line
+// starts a block; subsequent indented (or blank) lines belong to it; the next
+// column-0 key ends it. Canonical-order emission (not source order) keeps the
+// output deterministic across artifacts regardless of source field ordering.
+function extractTypedBlock(rawFm, kind) {
+  const allow = TYPED_FIELDS[kind] || [];
+  if (allow.length === 0 || !rawFm) return "";
+  const allowSet = new Set(allow);
+  const lines = rawFm.split("\n");
+  const blocks = new Map(); // key → raw lines (incl. the key line)
+  let curKey = null;
+  for (const line of lines) {
+    const keyMatch = /^([A-Za-z][A-Za-z0-9_-]*):(?:\s.*)?$/.exec(line);
+    if (keyMatch && !/^\s/.test(line)) {
+      curKey = keyMatch[1];
+      blocks.set(curKey, [line]);
+    } else if (curKey !== null && (/^\s/.test(line) || line.trim() === "")) {
+      // Indented continuation (nested-block child / block-scalar body) or an
+      // interior blank line — belongs to the current block.
+      blocks.get(curKey).push(line);
+    } else {
+      // A column-0 line that is neither a key nor indented. In well-formed
+      // frontmatter (only keys + indented children) this occurs ONLY as the
+      // wrapped continuation of a multi-line plain/quoted scalar. If it would
+      // drop a continuation of an ALLOWLISTED field, FAIL LOUD rather than
+      // silently truncate the value (zero-tolerance Rule 3 — the same posture
+      // extractListField takes on a malformed block-list). Single-line scalars
+      // and INDENTED nested blocks / block-scalar bodies (every loom typed-field
+      // shape today) never reach here; a non-allowlisted field's continuation is
+      // harmlessly skipped (we never emit it).
+      if (curKey !== null && allowSet.has(curKey)) {
+        throw new Error(
+          `emit-coc: typed field '${curKey}' (kind '${kind}') has a multi-line ` +
+            `scalar value whose continuation is at column 0 (${JSON.stringify(line)}) — ` +
+            `extractTypedBlock preserves single-line scalars + indented nested blocks ` +
+            `only; extend the block-capture loop before adding such a field.`,
+        );
+      }
+      curKey = null; // a column-0 non-key line ends the current block
+    }
+  }
+  const out = [];
+  for (const key of allow) {
+    if (!blocks.has(key)) continue;
+    const blk = blocks.get(key).slice();
+    while (blk.length > 1 && blk[blk.length - 1].trim() === "") blk.pop(); // trim trailing blanks
+    out.push(blk.join("\n"));
+  }
+  return out.join("\n");
+}
+
+// ──────────────────────────────────────────────────────────────────
 // Body composition — CLI-NEUTRAL canonical form.
 // composeArtifactBody(cat, rel, /*cli*/ null, lang) applies the language
 // variant overlay + strips BUILD-internal refs, with NO per-CLI path rewrite
@@ -260,7 +376,8 @@ function collectArtifacts({ exclusions, loomOnly, tierFilter, lang, warnOversize
     }
     seenIds[kind].add(id);
     const appliesTo = computeAppliesTo(manifestRel, exclusions);
-    const fm = buildFrontmatter({ id, paths, appliesTo });
+    const typedBlock = extractTypedBlock(composed.rawFm, kind);
+    const fm = buildFrontmatter({ id, paths, appliesTo, typedBlock });
     const content = `${fm}\n\n${composed.body}\n`;
     const relInCoc = `${kind}/${id}.md`;
     const bytes = Buffer.byteLength(content, "utf8");
@@ -304,6 +421,16 @@ function collectArtifacts({ exclusions, loomOnly, tierFilter, lang, warnOversize
   // SKILLS — `.claude/skills/<name>/SKILL.md` (entry point only; per spec
   // §9.2.4 SkillDef carries one body — progressive-disclosure sub-files are
   // not part of the CocSet contract).
+  //
+  // NESTED skills (W4 D3 resolution): a skill dir with NO top-level SKILL.md but
+  // with per-language `<dir>/<sub>/SKILL.md` entry points (e.g. 40-stack-onboarding/
+  // {go,python,rust,typescript}/SKILL.md) is emitted as ONE flat `.coc/` skill per
+  // sub-entry, id `<DIR>-<SUB>` — coverage-preserving (every language body reaches
+  // every surface), csq reads them as ordinary SkillDefs. The one-body-per-skill
+  // contract (§9.2.4) is satisfied per flat skill. Legacy emit-cli-artifacts makes ONE
+  // dir-level delivery decision (`skills/<dir>/SKILL.md`) and emits the whole tree; we
+  // mirror that decision (filter on the dir-level path) so per-surface membership stays
+  // byte-aligned with legacy, then emit one flat skill per sub-entry.
   const skillsDir = path.join(REPO, ".claude", "skills");
   if (fs.existsSync(skillsDir)) {
     const skillNames = fs
@@ -312,14 +439,27 @@ function collectArtifacts({ exclusions, loomOnly, tierFilter, lang, warnOversize
       .map((d) => d.name)
       .sort();
     for (const skill of skillNames) {
-      const skillRel = `${skill}/SKILL.md`;
-      const manifestRel = `skills/${skillRel}`;
-      if (!fs.existsSync(path.join(skillsDir, skill, "SKILL.md"))) continue;
-      if (loomOnly && matchesAnyGlob(manifestRel, loomOnly)) continue;
-      if (tierFilter && !matchesAnyGlob(manifestRel, tierFilter)) continue;
-      const composed = composeNeutralBody("skills", skillRel, lang);
-      if (composed === null) continue;
-      push("skills", skill, manifestRel, composed, null);
+      const dirManifestRel = `skills/${skill}/SKILL.md`; // the dir-level path legacy filters on
+      if (loomOnly && matchesAnyGlob(dirManifestRel, loomOnly)) continue;
+      if (tierFilter && !matchesAnyGlob(dirManifestRel, tierFilter)) continue;
+      if (fs.existsSync(path.join(skillsDir, skill, "SKILL.md"))) {
+        // Flat skill: `<dir>/SKILL.md` → id `<DIR>`.
+        const composed = composeNeutralBody("skills", `${skill}/SKILL.md`, lang);
+        if (composed === null) continue;
+        push("skills", skill, dirManifestRel, composed, null);
+      } else {
+        // Nested skill: one flat `.coc/` skill per `<dir>/<sub>/SKILL.md` → id `<DIR>-<SUB>`.
+        const subs = fs
+          .readdirSync(path.join(skillsDir, skill), { withFileTypes: true })
+          .filter((d) => d.isDirectory() && fs.existsSync(path.join(skillsDir, skill, d.name, "SKILL.md")))
+          .map((d) => d.name)
+          .sort();
+        for (const sub of subs) {
+          const composed = composeNeutralBody("skills", `${skill}/${sub}/SKILL.md`, lang);
+          if (composed === null) continue;
+          push("skills", `${skill}-${sub}`, `skills/${skill}/${sub}/SKILL.md`, composed, null);
+        }
+      }
     }
   }
 
@@ -377,6 +517,18 @@ function buildCocMd(counts) {
     "`paths` path-scope filter. An `applies_to` surface allowlist is present only",
     "when the artifact is surface-specific; a universal artifact omits it. The",
     "`coc.version` envelope is declared here once and omitted per-artifact.",
+    "",
+    "Agents, commands, and skills additionally carry a **typed superset** beyond",
+    "`id`, copied verbatim from each artifact's source frontmatter — so a field is",
+    "present only when the source declares it: agents carry `name`/`description`",
+    "(+ optional `tools`/`model`/`hooks`); commands carry an optional `name` handle",
+    "(+ optional `description`/`argument-hint`/`model`; absent → the handle derives",
+    "from the artifact filename, as in the native surface); skills carry `name`",
+    "and/or `description`. These fields let a conforming runtime reconstruct the",
+    "native surface (subagent registry, `/command`, eager-loaded skill description)",
+    "— Level-2 fidelity. They are additive and omittable: a consumer that does not",
+    "parse them reads them as unknowns and delivers the Level-1 injection floor (a",
+    "clean degrade, never a parse failure).",
     "",
     "## Contents",
     "",
@@ -562,7 +714,7 @@ function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!args.out) {
     process.stderr.write(
-      "usage: emit-coc.mjs --out <dir> [--target py|rs|rb|base] [-v]\n",
+      "usage: emit-coc.mjs --out <dir> [--target py|rs|rb|base|prism] [-v]\n",
     );
     process.exit(2);
   }
@@ -605,12 +757,14 @@ export {
   computeAppliesTo,
   buildFrontmatter,
   extractListField,
+  extractTypedBlock,
   buildLock,
   buildCocMd,
   buildTree,
   atomicSwap,
   sha256Hex,
   COC_VERSION,
+  TYPED_FIELDS,
   FILE_SIZE_WARN_BYTES,
   EMPTY_SHA256,
 };

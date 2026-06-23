@@ -1,0 +1,5 @@
+{
+  "_predicate": "fail-closed — fork->canon write whose disclosure surface produced NO clean verdict (no findings, no scanFn) is UNVERIFIED and BLOCKS (evidence-first-claims.md MUST-3)",
+  "upstreamCanon": { "remote": "canon-origin", "url": "ssh://canon/loom.git" },
+  "targetEcosystem": "canon-origin"
+}

@@ -1,0 +1,7 @@
+{
+  "_predicate": "envelope-expansion close — the repo-scope-discipline.md:30 five-condition User-Authorized Exception grant does NOT bypass the guard; identifying fork->canon write STILL BLOCKED",
+  "upstreamCanon": { "remote": "canon-origin", "url": "ssh://canon/loom.git" },
+  "targetEcosystem": "canon-origin",
+  "findings": ["acme-corp tenant slug"],
+  "repoScopeGrant": true
+}

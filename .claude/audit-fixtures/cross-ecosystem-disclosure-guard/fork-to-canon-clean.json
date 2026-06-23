@@ -1,0 +1,6 @@
+{
+  "_predicate": "fork-identifying-content NEGATIVE — a fork->canon write whose scan ran CLEAN (empty findings) is ALLOWED",
+  "upstreamCanon": { "remote": "canon-origin", "url": "ssh://canon/loom.git" },
+  "targetEcosystem": "canon-origin",
+  "findings": []
+}

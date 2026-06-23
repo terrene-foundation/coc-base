@@ -1,0 +1,1 @@
+per ISO 27001 §A.8.24 in 2019 requires X → this rule mandates Y

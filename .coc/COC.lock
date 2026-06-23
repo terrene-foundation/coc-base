@@ -1,0 +1,329 @@
+{
+  "schema_version": 1,
+  "files": [
+    {
+      "path": "COC.md",
+      "sha256": "8712022c8312074168018e8f3b6fd9265d64a177934e318ab96dac412a253f49"
+    },
+    {
+      "path": "agents/AI-SPECIALIST.md",
+      "sha256": "463e56485d5da80d0f7a6bac9a4de1872ff4ed7d80b64ec05031e6c55b180241"
+    },
+    {
+      "path": "agents/API-SPECIALIST.md",
+      "sha256": "e6acefd1747696c5bebe83ff7cd2b43a35d9dc87abb22e29a19e7ce2d33e3f06"
+    },
+    {
+      "path": "agents/CC-ARCHITECT.md",
+      "sha256": "45e9f508ef8aea42afe2f64bb26b0feaf0523f37bf323a72c46b0224ac819e74"
+    },
+    {
+      "path": "agents/DB-SPECIALIST.md",
+      "sha256": "c7be36040539e55dbffc860b8a7a8b8e0748657fe12f7f40b74b5b88126d0776"
+    },
+    {
+      "path": "agents/IDIOM-ADVISOR.md",
+      "sha256": "ad7225300a1612f80560bf93bb77671a4e81b8ab6c0e7ec0e57b727e7e7108c8"
+    },
+    {
+      "path": "agents/STACK-DETECTOR.md",
+      "sha256": "44af56b44e3788af71b19ac775818f37b7c9c35e78370c8984ad12a57af473c0"
+    },
+    {
+      "path": "commands/AUTONOMIZE.md",
+      "sha256": "2c7ea7f7f677806ace407f252c15340774fc5af196a125754dad89e84432387f"
+    },
+    {
+      "path": "commands/CC-AUDIT.md",
+      "sha256": "a4f60b8a5e4a532dd954d6afd30598b34123d796de37c1f9692fb4f5ac78e12e"
+    },
+    {
+      "path": "commands/CERTIFY.md",
+      "sha256": "2f6c1efa7b7b37d9a5fe8d546da56e97d3329314b82269abae0143ac9a1d3927"
+    },
+    {
+      "path": "commands/CLAIM.md",
+      "sha256": "4228cad944c915022a65656cd12e85f4138401f83f71ef95d7c2ba0acc3aaa47"
+    },
+    {
+      "path": "commands/CLAIMS.md",
+      "sha256": "9346b4a4e5312fd5e9b1e1f1aa7d2d3b60cc71ba6afcf987abfeb1720cd635bc"
+    },
+    {
+      "path": "commands/CLI-AUDIT.md",
+      "sha256": "5f017c54bfaf3d539817094fe1140d9d551df2cc6c5815966e15b42da8c7bd29"
+    },
+    {
+      "path": "commands/ECOSYSTEM-INIT.md",
+      "sha256": "3d3cf489c827c35d2d90c9dc22a08c8958c828a7721e3bb9a777fc0f91910f8a"
+    },
+    {
+      "path": "commands/ENROLL.md",
+      "sha256": "e234d51b65e67db08791489f9cf80405f645d532cead1ef0cbc5481bd8613b33"
+    },
+    {
+      "path": "commands/JOURNAL.md",
+      "sha256": "58f3519a82ef684eee4cede6f4d3c6645483f33da58023415dcb13fbf033f9ee"
+    },
+    {
+      "path": "commands/LEARN.md",
+      "sha256": "1ca162d0dab680202f2499ebe0a7f7520be0f2ec5f9f004e0567f576c4ac82c6"
+    },
+    {
+      "path": "commands/ONBOARD-STACK.md",
+      "sha256": "4837cac6f8bfa14abedfe2f7c72df0065f4c9d40824d16e8f76d8515273a4f98"
+    },
+    {
+      "path": "commands/ONBOARD.md",
+      "sha256": "427d7a2f027e27ad6d902fae08c93fa2a16cfcb18e8a3e9e199d90065ea6df40"
+    },
+    {
+      "path": "commands/POSTURE.md",
+      "sha256": "e1ce06d02e85ce914f04301c04261c4808bcdb8ac7d7310ed2c0b331622482f2"
+    },
+    {
+      "path": "commands/RELEASE-CLAIM.md",
+      "sha256": "1233ef4ea7e2d26f27a8fdd5aa6f0f66fc22c39d8f5f2348759c7e9c99c034b3"
+    },
+    {
+      "path": "commands/START.md",
+      "sha256": "c8dbf33cc8034c2ee1b55a8d180f591373f453a707b032d899c8e40dbcbcab08"
+    },
+    {
+      "path": "commands/SWEEP.md",
+      "sha256": "08dfc50498cd23af070d5abe32e4a967f6f236b1f74a87a16491a91be5cb3bcc"
+    },
+    {
+      "path": "commands/WHOAMI.md",
+      "sha256": "9e027f03c2efd8bd4cf6d3402e6fe9ae3e1c3bc2b0372ba457308c3c3df72f94"
+    },
+    {
+      "path": "commands/WRAPUP.md",
+      "sha256": "b22a7cc237ff1225cb74b5cb45110957fce85ba34925b7c9a58481666feb0fe5"
+    },
+    {
+      "path": "commands/WS.md",
+      "sha256": "19b26465037bcad9c1b0e64c19130e5069c47069e083d98c90c49131ca535056"
+    },
+    {
+      "path": "rules/AGENTS.md",
+      "sha256": "7b276ed47fa7ff1c96abeb20ba8d35bd7f70ff9319ade87bcb420953349a842c"
+    },
+    {
+      "path": "rules/ARTIFACT-FLOW.md",
+      "sha256": "17a65847b7fe91aaa8d460d546651129c4dc5a75efb3e1664cdc836aa7e98692"
+    },
+    {
+      "path": "rules/AUTONOMOUS-EXECUTION.md",
+      "sha256": "c056df28c96c8f7d7cb0d41d3a484472fee38ed0fb29e9c592c770fd11fa8c75"
+    },
+    {
+      "path": "rules/CC-ARTIFACTS.md",
+      "sha256": "db372af9c600814f1616c5e0c26ad0eb61e72244e944994024e723fbcda424ca"
+    },
+    {
+      "path": "rules/COMMUNICATION.md",
+      "sha256": "ebf94f59e397a9dc7118ca0d911ce9bca04cf6e2b0c99360c3c31999633cad6f"
+    },
+    {
+      "path": "rules/CROSS-CLI-ARTIFACT-HYGIENE.md",
+      "sha256": "1c57020ef661462b36143a7f94597194413742fc1a5cb537b62f756d5579e08a"
+    },
+    {
+      "path": "rules/DEPLOY-HYGIENE.md",
+      "sha256": "c89474bd2e4a40e0e16913d4c49c0336a989f93ae3ea2feab38981830001d29d"
+    },
+    {
+      "path": "rules/EVIDENCE-FIRST-CLAIMS.md",
+      "sha256": "1c7e5841719f8605781d4ee6361b6cfc5d89a80d77e14532857020873692544d"
+    },
+    {
+      "path": "rules/FACADE-MANAGER-DETECTION.md",
+      "sha256": "25de32fad56cc4191db749964ad9221d16cf5592721ae007e2db680d3245a8f9"
+    },
+    {
+      "path": "rules/GIT.md",
+      "sha256": "8274a85942047a68e79cf2994fecd21552d3f5b093ae7f4b9c75f994044499f0"
+    },
+    {
+      "path": "rules/GOVERNED-THROUGHPUT.md",
+      "sha256": "328bec3dd52d30a8d8919775237dbc4eb2d79b9e8a1ea36eea493ff3bbfec919"
+    },
+    {
+      "path": "rules/HOOK-OUTPUT-DISCIPLINE.md",
+      "sha256": "a312084a37b1ff559c3cc1cd428a915cbe0ec84e2e0262d72f0f3f0284c079df"
+    },
+    {
+      "path": "rules/JOURNAL-AUTHOR-DISCIPLINE.md",
+      "sha256": "55186818bddca6abe9d966910338e49860bd378f3f71742fd71dcd32691d0809"
+    },
+    {
+      "path": "rules/JOURNAL.md",
+      "sha256": "0e5fab4e11f3cf9ecf563b5753b75649630cb92bec3827d23e322541efddb7dc"
+    },
+    {
+      "path": "rules/KNOWLEDGE-CONVERGENCE.md",
+      "sha256": "546937f4532a8a8b9a14f8998e864c561628da7365fcb5bb9d384bbe749de508"
+    },
+    {
+      "path": "rules/MULTI-OPERATOR-COORDINATION.md",
+      "sha256": "76c5d8f5ba4295cc0554f25082b581866d32a55bd931df7e47ad652d2a69ff54"
+    },
+    {
+      "path": "rules/ORPHAN-DETECTION.md",
+      "sha256": "8258a49d377eea9192663c2dd30876d7d7270a094b711ad3242669601118164a"
+    },
+    {
+      "path": "rules/PROBE-DRIVEN-VERIFICATION.md",
+      "sha256": "bbb450becb57489b302420260a7a52195b27894b4ab4f91c5ed2b600d0ef3ff2"
+    },
+    {
+      "path": "rules/PROPOSAL-INTAKE-TRUST.md",
+      "sha256": "6bfd611c1c9bef43c418a175f420ab21558fa6dfabe29310acb1ebfc4a87c196"
+    },
+    {
+      "path": "rules/RECOMMENDATION-QUALITY.md",
+      "sha256": "e6c08d00004e5c50127064112101cc9cf52c1a5e8c045685c30e56cb4a03428a"
+    },
+    {
+      "path": "rules/REPO-SCOPE-DISCIPLINE.md",
+      "sha256": "4e05014d24260d9667978ad8fe27d118b876ec213508ca7321e1d51aa5027abc"
+    },
+    {
+      "path": "rules/RULE-AUTHORING.md",
+      "sha256": "c0f76216d4c19e8ae251ade595fa2adfaa88526c36f326ea0979839d442122b8"
+    },
+    {
+      "path": "rules/SECURITY.md",
+      "sha256": "c38155e376332fed9c9c979e9210b7bb520cc45bc2fcd763a5ba145677e8f041"
+    },
+    {
+      "path": "rules/SELF-REFERENTIAL-CODIFY.md",
+      "sha256": "39145c6f313d03c5c50d69bf6d23f1244d99c861d1b632c887b954f54663fa35"
+    },
+    {
+      "path": "rules/SPEC-ACCURACY.md",
+      "sha256": "30ab5e2f5346d81cc9f058829d7471b009741610c21a278e042d2e00ddee3359"
+    },
+    {
+      "path": "rules/SPECS-AUTHORITY.md",
+      "sha256": "084e2b9c4631e60921759688a0de56ea547df0cbf7dcde518b0a5eb3eaad92d3"
+    },
+    {
+      "path": "rules/STACK-DETECTION.md",
+      "sha256": "e6b2a6dc9dc50c0de1e319fee374fff265913645d6ce862d0cf711128236ac33"
+    },
+    {
+      "path": "rules/STATE-FILE-WRITE-GUARD.md",
+      "sha256": "8a5d6484a7d15934b4dfbb48596ebf6573b6b2822460f7f0c2e4638d8ceaf615"
+    },
+    {
+      "path": "rules/SWEEP-COMPLETENESS.md",
+      "sha256": "b66fb7d5b5971c6b4e84037a38975f431081154db42caafc29be399edb42ff62"
+    },
+    {
+      "path": "rules/TIME-PRESSURE-DISCIPLINE.md",
+      "sha256": "e361ecd3160bc3dc43f8a33a35a3bc94ff0fa3781650a31ff52831a06e67068b"
+    },
+    {
+      "path": "rules/TRUST-POSTURE.md",
+      "sha256": "af6d0009e6512e0058837ff136cdad67a3b238b067dd44b366383b80c8941b32"
+    },
+    {
+      "path": "rules/UPSTREAM-ISSUE-HYGIENE.md",
+      "sha256": "a379550d46d6f8a9b77db61fc0c1aeabf6a99c4777cd99e8cb62bc22807ffe57"
+    },
+    {
+      "path": "rules/USER-FLOW-VALIDATION.md",
+      "sha256": "48c54917f476efb22fae7fe9e2026de04e139df1fe90c305c6a66e8dab80e56c"
+    },
+    {
+      "path": "rules/VALUE-PRIORITIZATION.md",
+      "sha256": "f94b9a89e4331b2ac626825545ff824661649e6e8a8fc54d3cd443efe8362278"
+    },
+    {
+      "path": "rules/VERIFY-CLAIMS-BEFORE-WRITE.md",
+      "sha256": "6da21e8baa0041dc1727bf8ca6237a80ed7fbfd90140facd8e8cd5ebd9d4ba77"
+    },
+    {
+      "path": "rules/VERIFY-RESOURCE-EXISTENCE.md",
+      "sha256": "cc389a63553f46eabeab00cef54a27f784e073a30fb9356b47ee2bc2500c952c"
+    },
+    {
+      "path": "rules/WAVE-LOOP.md",
+      "sha256": "c9e8e0b7fbaf0e73e6f1ecf10949099f972e9add365e1f60f58906183d6bad23"
+    },
+    {
+      "path": "rules/WORKTREE-ISOLATION.md",
+      "sha256": "518024a24d2fec778c6735bff9ee0d42be2939860a21472f5f50dc2ffa692472"
+    },
+    {
+      "path": "rules/ZERO-TOLERANCE.md",
+      "sha256": "95a99531faf1df30c2caf8cc8cf06dc16c8d85f32a5da7bf7b27dc77f703e438"
+    },
+    {
+      "path": "skills/CO-REFERENCE.md",
+      "sha256": "af88ceaa28db419d744dac8e0088ea7db1e4b7a76dc5333e7b3153c33966fc21"
+    },
+    {
+      "path": "skills/COMMAND-AUTHORING.md",
+      "sha256": "e30fbb030d47a8e5eb8ff9e7a739045c4189016c298e797b0b81c805089f7a6b"
+    },
+    {
+      "path": "skills/HOOK-AUTHORING.md",
+      "sha256": "d11be49a13cece39c3271a7f1666fd13119ba92e3d9867653822a0e8e5ed4333"
+    },
+    {
+      "path": "skills/S26-EATP-REFERENCE.md",
+      "sha256": "cd8b98fd954ab0e52cb477253860b1d1277ffbdfb41e84360fa8ec6a39626702"
+    },
+    {
+      "path": "skills/S29-PACT.md",
+      "sha256": "1c791773b3bd60625b7398299674565724e0fe805431c9a18af5cf841ad4b8a2"
+    },
+    {
+      "path": "skills/S30-CLAUDE-CODE-PATTERNS.md",
+      "sha256": "e2c5f545e7f42d5ce5239065d9861da1079b7ad9a5be96a9720dc6f6767cc6ba"
+    },
+    {
+      "path": "skills/S32-TRUST-POSTURE.md",
+      "sha256": "f6215069e5bc8a82885cbba6356e4b8b4b5fc473c516bd6a18834e4ff3057595"
+    },
+    {
+      "path": "skills/S40-STACK-ONBOARDING-GO.md",
+      "sha256": "ee076843c4f9e4695882aaf04cb1cf5c6a73e7e2e2a7ed3216159da88bc323aa"
+    },
+    {
+      "path": "skills/S40-STACK-ONBOARDING-PYTHON.md",
+      "sha256": "4a6186334f83737eb491d66f94b4097788f98e189c128985b134345d2d83b354"
+    },
+    {
+      "path": "skills/S40-STACK-ONBOARDING-RUST.md",
+      "sha256": "fd2583daf69739d0b4f64764b81299ed855477b54f786f876eb51651496b03dd"
+    },
+    {
+      "path": "skills/S40-STACK-ONBOARDING-TYPESCRIPT.md",
+      "sha256": "8bb2efcfd0a8950ca49e3463856105e6a1c2bd383509347d6c74ab0ac447f8f1"
+    },
+    {
+      "path": "skills/S41-ONBOARD.md",
+      "sha256": "c66fea8b4281cdab0a367288192c1e6fd50eef1ec0cbd00e5856ba2b0a29de65"
+    },
+    {
+      "path": "skills/S42-CERTIFY.md",
+      "sha256": "b82593834ec63a9650d6ab3c9ab87b0be987b4f7908d42e60f464516b210ce12"
+    },
+    {
+      "path": "skills/S43-ECOSYSTEM-INIT.md",
+      "sha256": "f8c5de182cb1cca3aa3f31579251c453b3f4864f9842969d7297945d70f7d0bb"
+    },
+    {
+      "path": "skills/S44-ENROLL.md",
+      "sha256": "cda6ebd0b539ade1847c0c165f46ea5c16c8f431938369d3c15167e1ac24be3a"
+    },
+    {
+      "path": "skills/SKILL-AUTHORING.md",
+      "sha256": "5c98c7800c29f0afc88d421ddd49e09109be4b4c46641cfec0179be8912425d1"
+    }
+  ]
+}

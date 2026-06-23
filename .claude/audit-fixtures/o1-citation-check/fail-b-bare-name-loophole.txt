@@ -1,0 +1,1 @@
+per ISO/IEC 27001:2022 this rule mandates env-var-only secret handling

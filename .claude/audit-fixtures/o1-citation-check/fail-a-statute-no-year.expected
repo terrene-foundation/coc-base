@@ -1,0 +1,2 @@
+ok=false reason=no-version-token failed=(a)
+predicate: (a) FAILED — a statutory authority cited WITHOUT its version year ("GDPR Article 32", no enactment year) fails the uniform version sub-gate by design. The authoring contract (o1-citation-check.js header) requires statutes carry their enactment/amendment year NAME-ADJACENT ("GDPR 2016 Article 32" — see pass-statute-with-year). This is NOT an over-block: the year is the version proxy O1 requires "down to version + clause" (artifact-flow.md § The Origination Taxonomy).

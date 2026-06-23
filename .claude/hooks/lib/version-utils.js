@@ -282,19 +282,17 @@ const KNOWN_TEMPLATE_REPOS = {
   "terrene-foundation/kailash-coc-claude-rb": "kailash-coc-claude-rb",
   "terrene-foundation/kailash-coc-claude-prism": "kailash-coc-claude-prism",
   // Multi-CLI USE templates (clis: [claude, codex, gemini]). These repos
-  // currently ship `type: coc-project` on main (pre-existing #407 drift,
-  // file-evidence-confirmed); the sync-upflow Wave-3 distribution re-types them
-  // to `coc-use-template`. These KNOWN_TEMPLATE_REPOS entries make
-  // `isActualTemplateRepo` return true (dir-basename / git-remote match), so
-  // once the re-type lands, session-start's checkVersion() does NOT run the
-  // `coc-use-template && !isActualTemplateRepo` auto-correct branch — the
-  // re-typed VERSION stays `coc-use-template` instead of being rewritten back to
-  // `coc-project` on every session start (the perpetual `M .claude/VERSION`
-  // drift #407 closed). Until the re-type, the entries are inert for these repos
-  // (the auto-correct branch only fires for `type: coc-use-template`). Authoritative
-  // sync targets per sync-manifest.yaml::repos (py.templates + rs.templates carrying
-  // clis:[claude,codex,gemini]); kailash-coc-rb is the loom-links use-template.rb
-  // sibling (declared key; activates with no drift if/when it becomes a sync target).
+  // ship `type: coc-use-template` on main (re-typed from the pre-existing #407
+  // `coc-project` drift by the sync-upflow Wave-3 distribution). These
+  // KNOWN_TEMPLATE_REPOS entries make `isActualTemplateRepo` return true
+  // (dir-basename / git-remote match), so session-start's checkVersion() does
+  // NOT run the `coc-use-template && !isActualTemplateRepo` auto-correct branch
+  // — the re-typed VERSION stays `coc-use-template` instead of being rewritten
+  // back to `coc-project` on every session start (the perpetual `M .claude/VERSION`
+  // drift #407 closed). Authoritative sync targets per sync-manifest.yaml::repos
+  // (py.templates + rs.templates carrying clis:[claude,codex,gemini]);
+  // kailash-coc-rb is the loom-links use-template.rb sibling (declared key;
+  // activates with no drift if/when it becomes a sync target).
   "terrene-foundation/kailash-coc-py": "kailash-coc-py",
   "terrene-foundation/kailash-coc-rs": "kailash-coc-rs",
   "terrene-foundation/kailash-coc-rb": "kailash-coc-rb",

@@ -57,6 +57,14 @@
  *                                  `variants:`-only reading mis-reports ~200 false
  *                                  orphans (the client-report symptom; see
  *                                  workspaces/sync-upflow/todos/active/16-*).
+ *   16. allowlist-paths-coverage (#443) every named-file entry in
+ *                                  self-referential-codify.md's Rule-2 allowlist
+ *                                  (the firing-scope SUBSET) MUST be covered by
+ *                                  ≥1 `paths:` frontmatter glob (the load-trigger
+ *                                  SUPERSET). An uncovered entry means editing it
+ *                                  never LOADS the rule, so the Rule-1 gate
+ *                                  silently does not FIRE on it → FAIL (the #440
+ *                                  `.claude/codex-mcp-guard/**` gap class).
  *
  *  Each check is STRUCTURAL (file existence, frontmatter parse, line count, set
  *  membership, glob match, tree presence) per probe-driven-verification.md
@@ -170,6 +178,7 @@ const CHECK_IDS = [
   "consumer-efficacy",
   "codex-policies-fresh",
   "variant-orphan",
+  "allowlist-paths-coverage",
 ];
 
 const STATUS = {
@@ -1922,6 +1931,14 @@ function checkCocArtifactIds(root) {
   let tmp;
   try {
     tmp = mkdtempSync(join(tmpdir(), "validate-coc-"));
+    // Full-corpus emit (no --target) gates the FILENAME-DERIVED invariants for
+    // EVERY per-target coc-sync Step 6.7 emit: deriveId is a pure function of the
+    // source filename + kind, so id-grammar (§9.2.1) and within-kind id-collision
+    // (§9.4.2) are target-invariant — a clean full-corpus emit implies them for
+    // every tier-filtered subset (--target only REMOVES whole artifacts). NOT
+    // target-invariant: a language variant overlay (--target <lang>) can REPLACE
+    // an artifact's frontmatter, so a typed-field throw introduced by an overlay's
+    // frontmatter is exercised only when that target emits (at its /sync-to-use).
     const r = emitCoc({ outDir: tmp });
     const results = [
       {
@@ -2527,6 +2544,188 @@ function checkVariantOrphan(root) {
   return { id, source_rule, results };
 }
 
+// =======================================================================
+//  CHECK 16 — self-referential-codify allowlist ⊆ paths: glob coverage (#443)
+// =======================================================================
+// self-referential-codify.md carries TWO co-dependent path surfaces:
+//   1. the named-file ALLOWLIST (Rule 2) — the FIRING scope: the gate (Rule 1)
+//      fires the multi-agent redteam on a /codify touching any of these files.
+//   2. the `paths:` frontmatter globs — the LOAD-TRIGGER scope: which edits
+//      LOAD the rule into context.
+// The rule states this invariant in prose (Rule 2 § "paths: frontmatter is the
+// load-trigger SUPERSET; this allowlist is the firing-scope SUBSET"): EVERY
+// allowlist file MUST be covered by ≥1 paths: glob, else editing that file does
+// NOT load the rule and the gate that should fire on it silently does not —
+// the #440 `.claude/codex-mcp-guard/**` gap class. This check makes that prose
+// invariant structural: parse BOTH surfaces, assert every concrete allowlist
+// entry resolves to ≥1 covering glob. An uncovered entry is a BLOCKING finding.
+//
+// Structural per probe-driven-verification.md MUST-3 (set-membership over two
+// parsed path surfaces — no LLM, no regex-over-prose-semantics). Runs against
+// the loom checkout (the rule is loom-authored); SKIPs when the rule is absent
+// (a consumer's emitted tree carries the rule as a SYNCED artifact but a glob
+// gap there is loom's to fix, surfaced here at /sync time before distribution).
+
+// The rule's `Rule 2` allowlist is partitioned into EXACTLY these category
+// bullets (`- **<Category>:** ...`). The discriminator is the bullet label's
+// FIRST WORD — a fixed, declared set mirroring the Rule-2 enumeration. This
+// EXCLUDES the Trust-Posture-Wiring bullets (Severity / Grace period /
+// Regression-within-grace / Receipt requirement / Detection ...) and the
+// Distinct-From bullets (Extends / Pairs / Distinct), which share the
+// `- **<Label>:**` shape but are NOT allowlist sources.
+const ALLOWLIST_CATEGORY_FIRST_WORDS = new Set([
+  "Commands", "Skills", "Rules", "Hooks", "Data", "Bin",
+  "Tools", "Codex", "Audit", "Management",
+]);
+
+// Path-prefix gate: a genuine allowlist entry is a real artifact path. Prose
+// backtick references inside a bullet (rule names like `cc-artifacts.md`, §
+// citations) are bare — they do NOT carry one of these repo-root prefixes.
+const ALLOWLIST_PATH_PREFIX = /^(\.claude\/|tools\/|scripts\/)/;
+
+// Brace-expand `{a,b,c}` (recursively, supporting one brace group at a time as
+// the rule authors them — e.g. `.claude/rules/{trust-posture,cc-artifacts}.md`
+// → two entries). Globs containing `*` (e.g. `validate-*.mjs`) are returned
+// as-is for coverage matching; the `*` is irrelevant to /**-prefix coverage.
+function braceExpandAllowlist(s) {
+  const m = s.match(/^(.*?)\{([^}]*)\}(.*)$/);
+  if (!m) return [s];
+  const [, pre, inner, post] = m;
+  const out = [];
+  for (const part of inner.split(",")) out.push(...braceExpandAllowlist(pre + part + post));
+  return out;
+}
+
+// Strip balanced parentheticals (depth-aware) — the per-entry "(added … per …)"
+// prose explanations carry backtick references that are NOT allowlist entries
+// (`.claude/**`, `cc-artifacts.md`, the trailing-slash subtree fragments). The
+// genuine allowlist paths sit OUTSIDE the parentheticals, comma/`+`-separated.
+function stripParentheticals(s) {
+  let out = "";
+  let depth = 0;
+  for (const ch of s) {
+    if (ch === "(") { depth++; continue; }
+    if (ch === ")") { if (depth > 0) depth--; continue; }
+    if (depth === 0) out += ch;
+  }
+  return out;
+}
+
+// Parse the named-file allowlist from self-referential-codify.md's Rule-2
+// category bullets. Returns a sorted string[] of concrete `.claude/`-rooted (or
+// tools/ / scripts/) paths + glob entries, or null when the rule is unreadable.
+function parseSelfRefAllowlist(ruleText) {
+  if (ruleText == null) return null;
+  const entries = new Set();
+  // Single-line-bullet assumption: each Rule-2 category bullet keeps its
+  // backtick allowlist paths on ONE physical line. A future hard-wrapped
+  // category bullet would drop its continuation-line entries (line-oriented
+  // parse). The current corpus keeps all category bullets single-line; the
+  // validator file is itself self-ref-allowlisted (Bin lane), so an edit
+  // that wraps a bullet fires the multi-agent gate (#443 R1 redteam LOW).
+  for (const ln of ruleText.split(/\r?\n/)) {
+    const lm = ln.match(/^- \*\*([^:*]+)/);
+    if (!lm) continue;
+    const first = lm[1].trim().split(/\s+/)[0];
+    if (!ALLOWLIST_CATEGORY_FIRST_WORDS.has(first)) continue;
+    const body = stripParentheticals(ln);
+    for (const m of body.matchAll(/`([^`]+)`/g)) {
+      for (const e of braceExpandAllowlist(m[1].trim())) {
+        // Trailing-slash fragments (`.claude/hooks/lib/`) are prose subtree
+        // references, never a file entry — a real entry names a file or a /**
+        // glob. Reject a bare-dir token (ends in `/`, no `**`).
+        if (e.endsWith("/")) continue;
+        if (ALLOWLIST_PATH_PREFIX.test(e)) entries.add(e);
+      }
+    }
+  }
+  return [...entries].sort();
+}
+
+// Parse the `paths:` frontmatter glob list from a rule file. Returns string[]
+// (may be empty) or null when the file is unreadable / has no frontmatter.
+function parsePathsFrontmatter(ruleText) {
+  if (ruleText == null) return null;
+  const { hasFrontmatter, fields } = parseFrontmatter(ruleText);
+  if (!hasFrontmatter) return null;
+  return Array.isArray(fields.paths) ? fields.paths : [];
+}
+
+// Does `glob` cover allowlist `entry`? Coverage forms the rule's frontmatter
+// uses: an exact path (`.claude/sync-manifest.yaml`) OR a `/**` directory
+// prefix (`.claude/commands/**`). An allowlist entry may ITSELF be a glob
+// (`.claude/bin/validate-*.mjs`, `.claude/skills/sweep/**`); a `/**` parent
+// glob covers any child path/glob under its prefix. A `*` in the entry's
+// basename is irrelevant to a /**-prefix match (the prefix is the directory).
+//
+// Brace-set globs: the rule's own SUPERSET prose writes the load-trigger
+// frontmatter as `.claude/{commands,rules,skills,hooks,bin}/**`; a future
+// author MAY collapse the `paths:` frontmatter to that same brace-set form.
+// `glob` is therefore brace-expanded (the SAME `braceExpandAllowlist` the
+// allowlist side uses) before matching — a brace-set glob covers `entry` iff
+// ANY of its expansions covers it. WITHOUT this, a brace-set `paths:` entry
+// would match NO allowlist entry on the literal `===`/prefix test and silently
+// UNDER-cover the firing-scope allowlist, dropping the Rule-1 multi-agent gate
+// on a sibling self-referential surface (the security-relevant trust-substrate
+// weakening #443 R1 security-reviewer flagged). The expansion is symmetric with
+// the allowlist parse, so the two surfaces can never drift on brace handling.
+function allowlistGlobCovers(glob, entry) {
+  for (const g of braceExpandAllowlist(glob)) {
+    if (g === entry) return true;
+    if (g.endsWith("/**")) {
+      const prefix = g.slice(0, -3);
+      // entry === prefix (the dir itself) OR entry is under prefix/.
+      if (entry === prefix || entry.startsWith(prefix + "/")) return true;
+    }
+  }
+  return false;
+}
+
+function checkAllowlistPathsCoverage(root) {
+  const id = "allowlist-paths-coverage";
+  const source_rule =
+    "self-referential-codify.md Rule 2 § paths-superset/allowlist-subset (#443 / #440 gap class)";
+  const rulePath = join(root, ".claude", "rules", "self-referential-codify.md");
+  const ruleText = safeRead(rulePath);
+  if (ruleText === null) {
+    return {
+      id,
+      source_rule,
+      results: [{ artifact: "rules/self-referential-codify.md", status: STATUS.SKIP, detail: "rule unreadable or absent" }],
+    };
+  }
+  const allowlist = parseSelfRefAllowlist(ruleText);
+  const globs = parsePathsFrontmatter(ruleText);
+  if (allowlist === null || globs === null) {
+    return {
+      id,
+      source_rule,
+      results: [{ artifact: "rules/self-referential-codify.md", status: STATUS.SKIP, detail: "could not parse allowlist or paths: frontmatter" }],
+    };
+  }
+  const results = [];
+  if (allowlist.length === 0) {
+    return {
+      id,
+      source_rule,
+      results: [{ artifact: "rules/self-referential-codify.md", status: STATUS.SKIP, detail: "no allowlist entries parsed (category-bullet shape changed?)" }],
+    };
+  }
+  for (const entry of allowlist) {
+    const covering = globs.filter((g) => allowlistGlobCovers(g, entry));
+    if (covering.length >= 1) {
+      results.push({ artifact: entry, status: STATUS.PASS, detail: `covered by paths: ${covering[0]}` });
+    } else {
+      results.push({
+        artifact: entry,
+        status: STATUS.FAIL,
+        detail: `allowlist entry covered by NO paths: glob — editing it does NOT load self-referential-codify.md, so the Rule-1 gate silently does not fire (the #440 codex-mcp-guard gap class). Add a covering glob (exact path or <dir>/**) to the rule's paths: frontmatter.`,
+      });
+    }
+  }
+  return { id, source_rule, results };
+}
+
 const CHECK_FNS = {
   "command-frontmatter": checkCommandFrontmatter,
   "command-line-cap": checkCommandLineCap,
@@ -2543,6 +2742,7 @@ const CHECK_FNS = {
   "consumer-efficacy": checkConsumerEfficacy,
   "codex-policies-fresh": checkCodexPoliciesFresh,
   "variant-orphan": checkVariantOrphan,
+  "allowlist-paths-coverage": checkAllowlistPathsCoverage,
 };
 
 function runChecks(root, only, opts) {
@@ -2723,6 +2923,12 @@ export {
   parseVariantOnlyAll,
   classifyVariantFile,
   listTrackedVariants,
+  checkAllowlistPathsCoverage,
+  parseSelfRefAllowlist,
+  parsePathsFrontmatter,
+  allowlistGlobCovers,
+  braceExpandAllowlist,
+  stripParentheticals,
   VARIANT_AXES,
   VARIANT_LANGS,
   VARIANT_CLIS,

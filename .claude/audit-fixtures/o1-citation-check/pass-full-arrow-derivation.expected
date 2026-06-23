@@ -1,0 +1,3 @@
+ok=true reason=ok failed=null
+predicate: standard+version (a) PASS; clause (b) PASS; derivation (c) PASS
+note: SHAPE-clean. Whether §A.8.24 actually GOVERNS env-var secret handling is the human/LLM gate's call, NOT decided by this check.

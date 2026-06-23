@@ -1,0 +1,6 @@
+{
+  "_predicate": "boundary-recognition — canon (upstream_canon=null) has no upstream to cross to",
+  "upstreamCanon": null,
+  "targetEcosystem": "canon",
+  "findings": ["looks-like-a-slug"]
+}

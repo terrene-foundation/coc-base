@@ -1,0 +1,2 @@
+ok=true reason=ok failed=null
+predicate: standard+version (a) PASS via NAME-ADJACENT year ("ISO 27001 2022" — the year rides the standard name through the catalog number, not a colon-year); clause (b) PASS; derivation (c) PASS. The name-adjacent year is the ONLY bare-year form that satisfies the version sub-gate (contrast fail-a-stray-year). SHAPE-clean; whether §A.8.24 actually GOVERNS is the human/LLM gate's call.

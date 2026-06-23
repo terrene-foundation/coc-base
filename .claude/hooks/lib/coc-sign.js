@@ -300,8 +300,20 @@ function _signGpg(content, keyId, gpgHome) {
  *   `gpgconf --homedir <gpgHome> --kill all` after the verify call to
  *   release the gpg-agent process the verify spawned implicitly; not
  *   doing so leaks one gpg-agent per call.
+ *
+ * Expected-fingerprint binding (F17 — load-bearing for a SHARED homedir):
+ *   In the per-call path the keyring holds exactly ONE key (the imported
+ *   pubKeyArmored), so `gpg --verify` structurally accepts only a signature
+ *   made by THAT key. A shared homedir (F17) holds EVERY roster key, so a
+ *   bare `gpg --verify` would accept a signature made by ANY rostered key —
+ *   letting operator B forge a record attributed to operator A (the §1
+ *   bounded-trust impersonation adversary). When `expectedFpr` is supplied,
+ *   this function parses `--status-fd` and requires the GnuPG `VALIDSIG`
+ *   line to name `expectedFpr`, re-instating the single-key binding even in
+ *   a multi-key keyring. Absent `expectedFpr`, behavior is unchanged
+ *   (back-compat for callers relying on the single-key keyring).
  */
-function _verifyGpg(content, sig, pubKeyArmored, gpgHome) {
+function _verifyGpg(content, sig, pubKeyArmored, gpgHome, expectedFpr) {
   // Build a transient keyring containing the supplied pubkey, then verify.
   const home =
     gpgHome || fs.mkdtempSync(path.join(os.tmpdir(), "coc-sign-gpg-vfy-"));
@@ -323,17 +335,55 @@ function _verifyGpg(content, sig, pubKeyArmored, gpgHome) {
     const sigFile = path.join(home, "coc-sig.asc");
     // M9.1 R3 Sec-R3-S-06 — owner-only mode on temp files.
     fs.writeFileSync(sigFile, sig, { mode: 0o600 });
+    // --status-fd 1 → machine-readable GNUPG status (incl. VALIDSIG <fpr>)
+    // on stdout; human messages stay on stderr. Used for the expectedFpr bind.
     const r = spawnSync(
       "gpg",
-      ["--homedir", home, "--batch", "--verify", sigFile, "-"],
+      [
+        "--homedir",
+        home,
+        "--batch",
+        "--status-fd",
+        "1",
+        "--verify",
+        sigFile,
+        "-",
+      ],
       { input: content, encoding: "utf8" },
     );
-    if (r.status === 0) return { ok: true, valid: true };
-    return {
-      ok: true,
-      valid: false,
-      reason: `gpg --verify exit ${r.status}: ${(r.stderr || "").trim().slice(0, 256)}`,
-    };
+    if (r.status !== 0) {
+      return {
+        ok: true,
+        valid: false,
+        reason: `gpg --verify exit ${r.status}: ${(r.stderr || "").trim().slice(0, 256)}`,
+      };
+    }
+    // Identity binding: when the caller names the expected signer key, the
+    // signature MUST have been made by THAT key — not merely by SOME key in
+    // the (possibly shared, multi-key) keyring. Fail-closed: a missing or
+    // mismatched VALIDSIG fingerprint is NOT valid.
+    if (expectedFpr) {
+      const want = String(expectedFpr).toUpperCase().replace(/\s+/g, "");
+      const validsig = String(r.stdout || "")
+        .split("\n")
+        .find((l) => /\bVALIDSIG\b/.test(l));
+      if (!validsig) {
+        return {
+          ok: true,
+          valid: false,
+          reason: `gpg --verify exited 0 but emitted no VALIDSIG status; cannot bind signer to expected key ${want.slice(0, 16)}`,
+        };
+      }
+      const present = validsig.toUpperCase().replace(/\s+/g, "").includes(want);
+      if (!present) {
+        return {
+          ok: true,
+          valid: false,
+          reason: `signature verified against a DIFFERENT key than expected (${want.slice(0, 16)}…); VALIDSIG: ${validsig.trim().slice(0, 120)}`,
+        };
+      }
+    }
+    return { ok: true, valid: true };
   } finally {
     if (ownsHome) {
       try {
@@ -349,6 +399,94 @@ function _verifyGpg(content, sig, pubKeyArmored, gpgHome) {
         // best-effort temp cleanup
       }
     }
+  }
+}
+
+/**
+ * Create ONE shared GPG homedir for a batch of verifies (F17 — read-time
+ * fold latency). Imports every supplied armored pubkey once and spawns a
+ * single gpg-agent (the first import brings it up); the returned `home` is
+ * then passed as `opts.gpgHome` to every `verify({keyType:"gpg"})` call in
+ * the batch, so the per-record ephemeral-homedir + agent-spawn cost
+ * (journal/0311 Issue B) is paid ONCE per fold instead of once per record.
+ *
+ * Caller owns the lifecycle per the `_verifyGpg` contract (gpgHome provided
+ * ⇒ the lib neither imports nor tears down): the caller MUST call
+ * `destroyVerifyHomedir(home)` when the batch completes (a `finally`).
+ *
+ * Fail-to-slow-path: returns `{ok:false, reason}` (NEVER throws) when gpg is
+ * absent or any import fails — and tears down the partial homedir itself, so
+ * a false return leaks nothing. The caller's correct disposition on `ok:false`
+ * is to OMIT `gpgHome` and let each verify fall back to its own ephemeral
+ * homedir (today's behavior — correct, just slow). This is fail-OPEN to the
+ * existing-correct slow path, NOT fail-closed-to-broken.
+ *
+ * @param {string[]} pubKeys - distinct armored GPG public-key blocks. Only
+ *   GPG keys belong here; SSH verifies use no homedir.
+ * @returns {{ok:true, home:string} | {ok:false, reason:string}}
+ */
+function createVerifyHomedir(pubKeys) {
+  if (!Array.isArray(pubKeys) || pubKeys.length === 0) {
+    return { ok: false, reason: "no gpg pubkeys to pre-import" };
+  }
+  let home;
+  try {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), "coc-sign-gpg-fold-"));
+  } catch (err) {
+    return {
+      ok: false,
+      reason: `mkdtemp failed: ${err && err.message ? err.message : String(err)}`,
+    };
+  }
+  for (const pub of pubKeys) {
+    if (typeof pub !== "string" || !pub) {
+      destroyVerifyHomedir(home);
+      return {
+        ok: false,
+        reason: "pubKeys contained a non-string / empty entry",
+      };
+    }
+    const r = spawnSync("gpg", ["--homedir", home, "--import", "--batch"], {
+      input: pub,
+      encoding: "utf8",
+    });
+    if (r.error || r.status !== 0) {
+      // gpg absent (ENOENT) or an import failed — tear down and signal the
+      // caller to fall back to the per-call ephemeral path.
+      destroyVerifyHomedir(home);
+      return {
+        ok: false,
+        reason: r.error
+          ? `gpg unavailable: ${r.error.message}`
+          : `gpg --import exit ${r.status}: ${(r.stderr || "").trim().slice(0, 256)}`,
+      };
+    }
+  }
+  return { ok: true, home };
+}
+
+/**
+ * Tear down a shared verify homedir created by `createVerifyHomedir`:
+ * kill the gpg-agent the imports/verifies spawned, then remove the homedir.
+ * Best-effort + idempotent — safe to call on a null/undefined home (no-op)
+ * and on an already-removed path. Mirrors the owned-home `finally` block in
+ * `_verifyGpg`.
+ *
+ * @param {string} home - the homedir returned by createVerifyHomedir.
+ */
+function destroyVerifyHomedir(home) {
+  if (!home || typeof home !== "string") return;
+  try {
+    execFileSync("gpgconf", ["--homedir", home, "--kill", "all"], {
+      stdio: "ignore",
+    });
+  } catch {
+    // gpgconf may be absent; rmSync still proceeds.
+  }
+  try {
+    fs.rmSync(home, { recursive: true, force: true });
+  } catch {
+    // best-effort temp cleanup
   }
 }
 
@@ -405,6 +543,9 @@ function sign(content, opts) {
  * @param {Object} [opts]
  * @param {"ssh"|"gpg"} [opts.keyType="ssh"]
  * @param {string} [opts.gpgHome] - optional pre-loaded GPG homedir
+ * @param {string} [opts.expectedFpr] - GPG only: when set, the signature MUST
+ *   verify against THIS key fingerprint (VALIDSIG bind). Required when gpgHome
+ *   is a shared multi-key keyring; ignored on the SSH path.
  * @returns {{ok: true, valid: boolean, reason?: string} | {ok: false, error: string, reason: string}}
  *
  * Caller is responsible for binding pubKey → operator identity. That
@@ -439,7 +580,7 @@ function verify(content, sig, pubKey, opts) {
     : Buffer.from(String(content), "utf8");
   try {
     if (keyType === "ssh") return _verifySsh(buf, sig, pubKey);
-    return _verifyGpg(buf, sig, pubKey, o.gpgHome);
+    return _verifyGpg(buf, sig, pubKey, o.gpgHome, o.expectedFpr);
   } catch (err) {
     return {
       ok: false,
@@ -453,6 +594,10 @@ module.exports = {
   canonicalSerialize,
   sign,
   verify,
+  // Shared verify-homedir lifecycle (F17) — create ONE homedir per fold,
+  // pass its `home` as opts.gpgHome to every verify, destroy once after.
+  createVerifyHomedir,
+  destroyVerifyHomedir,
   // Exposed for downstream shards that need to share the SSH namespace
   // when constructing allowed-signers files or audit records.
   SSH_NAMESPACE,

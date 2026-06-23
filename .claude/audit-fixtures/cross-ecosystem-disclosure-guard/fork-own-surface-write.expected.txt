@@ -1,0 +1,1 @@
+allow: not-fork-to-canon (boundary=intra-ecosystem)

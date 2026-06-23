@@ -1,15 +1,15 @@
 {
   "name": "coc-base",
-  "version": "2.45.1",
+  "version": "2.45.2",
   "type": "coc-use-template",
   "description": "Language-agnostic, non-Kailash CO/COC USE template — multi-CLI (variant: base, clis: claude/codex/gemini)",
-  "synced_at": "2026-06-17T13:51:33Z",
+  "synced_at": "2026-06-23T00:00:00Z",
   "upstream": {
     "name": "loom",
     "type": "coc-source",
     "version": "2.45.0",
-    "loom_sha": "c1e52a62",
-    "synced_at": "2026-06-17T13:51:33Z",
+    "loom_sha": "f7c236d",
+    "synced_at": "2026-06-23T00:00:00Z",
     "template_version": "2.45.0",
     "build_version": "2.45.0"
   },
@@ -25,6 +25,21 @@
     "gemini"
   ],
   "changelog": [
+    {
+      "date": "2026-06-23",
+      "version": "2.45.2",
+      "summary": "loom@f7c236d redistribution (base multi-CLI, loom 2.45.0 unchanged — c1e52a62..f7c236d catch-up: global cc/co rule updates + commands inspect/maintain/release/sync-to-use + tier-independent hooks/bin). Base tier [cc,co,onboarding]; the large c1e52a62..f7c236d delta is mostly coc-tier ecosystem/capability substrate skipped by design (no_tier_match=538). Full multi-CLI re-emit (AGENTS.md + GEMINI.md + .codex/ + .gemini/ + .codex-mcp-guard + bin/coc + .coc/).",
+      "changes": [
+        "DISTRIBUTE: sync-tier-aware.mjs --target base --template coc-base. copied=940, verified 940/940 (14 content-equal after BUILD-internal strip, 926 byte-equal), overlay_applied=1 byte-equal (rules/agents.md base slot), variant_only=0, purged=0 (49 obsoleted absent on disk), skipped loom_local=2 + exclude=971 + use_exclude=29 + no_tier_match=538.",
+        "BASELINES (Step 6.5): emit.mjs --all --lang base. AGENTS.md 53128B (codex WARN, headroom 13.53%), GEMINI.md 53134B (gemini WARN, headroom 13.52%) — both above 10% floor; all 18 validators PASS. CLAUDE.md preserved (template-owned).",
+        "CLI TREES (Step 6.6): emit-cli-artifacts.mjs --target base. codex prompts=18 skills=11 agent-prompts=5; gemini commands=18 skills=11 agents=5; rules-reference skill codex=1 gemini=1 (30 path-scoped rules indexed). Counts are tier-filtered base emission — NOT the prior marker's 38/31/21 (different counting basis). bin/coc + 28 phase shims installed. .codex-mcp-guard distributed.",
+        "SCAFFOLD (Step 6.6b): .claude/codex-mcp-guard -> ../.codex-mcp-guard symlink emitted + verified; sync-manifest.yaml distributed (manifest_distribute:true).",
+        "UNIFIED .coc (Step 6.7): emit-coc.mjs --target base. 80 artifacts (rules=39 agents=6 skills=16 commands=19), 82 files, coc.version 1.0.0. 2 producer-budget WARN files emitted-not-truncated (no consumer cap per spec-09).",
+        "VERIFY: hook integrity 38/38; 0 scripts/hooks refs; 0 operator-PII; description (language-agnostic base) preserved. verify-overlays.sh coc-base Failing:0. visibility=public preserved across marker rewrite.",
+        "PINS: N/A (build:null — non-Kailash base; no SDK pins; Step 6 SDK-pin + Step 8 BUILD-proposal steps correctly skipped).",
+        "BUMP: template 2.45.1->2.45.2; loom_sha c1e52a62->f7c236d; upstream loom 2.45.0 unchanged."
+      ]
+    },
     {
       "date": "2026-06-17",
       "version": "2.45.1",

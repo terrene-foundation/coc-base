@@ -35,6 +35,8 @@
  *   listCollaborators → { ok, capture } | { ok:false, ... }
  *   pushImage / applyDeployTarget → { ok, dispatched, workflow, ref, status } | { ok:false, ... }
  *   invalidateCache → { ok, invalidated, key, status } | { ok:false, ... }
+ *   createUpflowPR / createUpflowIssue → { ok, created, number, url, status } | { ok:false, ... }
+ *   completeUpflowPR → { ok, completed, merged, sha, status } | { ok:false, ... }
  *
  * Style: CommonJS, zero-dep. No subprocess here — transport is injected.
  */
@@ -370,6 +372,222 @@ function invalidateCache(transport, scope) {
   return { ok: true, invalidated: true, key, status: r.status };
 }
 
+// ── Upflow write surface (ECO-IMPL W7 / G-F) ───────────────────────────────
+// The upflow half of the provider write-surface (the deploy half above is W6a),
+// filled against the SAME §ADR contract — W6a agreed the 2-arg
+// (transport, descriptor) interface, W7 fills these three method bodies on the
+// same file (shared-source serialization per agents.md worktree Rule 9).
+//
+// These are transport PRIMITIVES the Step-7c downstream-upflow procedure
+// (commands/codify.md Step 7c) dispatches AFTER its human gate
+// (upstream-issue-hygiene.md MUST-1) + consumer-side disclosure scrub (fence i).
+// The adapter is the dumb transport; the human gate + scrub live in the
+// consumer — the adapter NEVER auto-fires (no standing approval baked here).
+//
+// Endpoints (real GitHub REST):
+//   createUpflowPR    → POST repos/{o}/{r}/pulls
+//   createUpflowIssue → POST repos/{o}/{r}/issues
+//   completeUpflowPR  → PUT  repos/{o}/{r}/pulls/{n}/merge
+
+const PR_NUMBER_RE = /^[0-9]+$/; // PR number — path-interpolated, integer only
+const MERGE_METHOD_RE = /^(merge|squash|rebase)$/; // gh merge_method enum
+
+/**
+ * Open the human-gated upflow PR (the consumer has already pushed `head` and
+ * staged the inbox proposal YAML on it). descriptor:
+ *   { repoRef:{owner,name}, head, base?, title, body? }.
+ * head/base reach BODY positions only (no path-injection); guarded for shape.
+ */
+function createUpflowPR(transport, prSpec) {
+  const repoRef = prSpec && prSpec.repoRef;
+  const rv = validateRepoRef(repoRef);
+  if (!rv.valid) return _fail("createUpflowPR: repoRef invalid", rv.reason);
+  const head = prSpec.head;
+  if (
+    typeof head !== "string" ||
+    !GIT_REF_RE.test(head) ||
+    head.includes("..")
+  ) {
+    return _fail(
+      "createUpflowPR: head invalid",
+      `head must match /^[A-Za-z0-9._/-]+$/ with no '..' segment (git ref shape); got ${JSON.stringify(head)}`,
+    );
+  }
+  const base = prSpec.base === undefined ? "main" : prSpec.base;
+  if (
+    typeof base !== "string" ||
+    !GIT_REF_RE.test(base) ||
+    base.includes("..")
+  ) {
+    return _fail(
+      "createUpflowPR: base invalid",
+      `base must match /^[A-Za-z0-9._/-]+$/ with no '..' segment (git ref shape); got ${JSON.stringify(base)}`,
+    );
+  }
+  const title = prSpec.title;
+  if (typeof title !== "string" || title.length === 0) {
+    return _fail(
+      "createUpflowPR: title invalid",
+      `title must be a non-empty string; got ${JSON.stringify(title)}`,
+    );
+  }
+  const body = prSpec.body === undefined ? "" : prSpec.body;
+  if (typeof body !== "string") {
+    return _fail(
+      "createUpflowPR: body invalid",
+      `body must be a string; got ${typeof body}`,
+    );
+  }
+  let r;
+  try {
+    r = transport(`repos/${repoRef.owner}/${repoRef.name}/pulls`, {
+      method: "POST",
+      fields: { title, head, base, body },
+    });
+  } catch (err) {
+    return _fail(
+      "createUpflowPR: create threw",
+      `network unavailable or transport threw: ${err && err.message ? err.message : String(err)}`,
+    );
+  }
+  if (!r || !r.ok) {
+    return _fail(
+      "createUpflowPR: create failed",
+      `POST repos/${repoRef.owner}/${repoRef.name}/pulls → status ${r && r.status} body ${JSON.stringify(r && r.body)}`,
+      { status: r && r.status, body: r && r.body },
+    );
+  }
+  const pr = r.body || {};
+  return {
+    ok: true,
+    created: true,
+    number: pr.number,
+    url: pr.html_url,
+    status: r.status,
+  };
+}
+
+/**
+ * Open the no-fork Route-A fallback issue on the template. descriptor:
+ *   { repoRef:{owner,name}, title, body?, labels? }.
+ * All caller content reaches BODY positions (no path-injection); labels are
+ * shape-guarded (array of strings) so a malformed label cannot corrupt the body.
+ */
+function createUpflowIssue(transport, issueSpec) {
+  const repoRef = issueSpec && issueSpec.repoRef;
+  const rv = validateRepoRef(repoRef);
+  if (!rv.valid) return _fail("createUpflowIssue: repoRef invalid", rv.reason);
+  const title = issueSpec.title;
+  if (typeof title !== "string" || title.length === 0) {
+    return _fail(
+      "createUpflowIssue: title invalid",
+      `title must be a non-empty string; got ${JSON.stringify(title)}`,
+    );
+  }
+  const body = issueSpec.body === undefined ? "" : issueSpec.body;
+  if (typeof body !== "string") {
+    return _fail(
+      "createUpflowIssue: body invalid",
+      `body must be a string; got ${typeof body}`,
+    );
+  }
+  const labels = issueSpec.labels;
+  if (
+    labels !== undefined &&
+    (!Array.isArray(labels) || !labels.every((l) => typeof l === "string"))
+  ) {
+    return _fail(
+      "createUpflowIssue: labels invalid",
+      `labels must be an array of strings; got ${JSON.stringify(labels)}`,
+    );
+  }
+  const fields =
+    labels === undefined ? { title, body } : { title, body, labels };
+  let r;
+  try {
+    r = transport(`repos/${repoRef.owner}/${repoRef.name}/issues`, {
+      method: "POST",
+      fields,
+    });
+  } catch (err) {
+    return _fail(
+      "createUpflowIssue: create threw",
+      `network unavailable or transport threw: ${err && err.message ? err.message : String(err)}`,
+    );
+  }
+  if (!r || !r.ok) {
+    return _fail(
+      "createUpflowIssue: create failed",
+      `POST repos/${repoRef.owner}/${repoRef.name}/issues → status ${r && r.status} body ${JSON.stringify(r && r.body)}`,
+      { status: r && r.status, body: r && r.body },
+    );
+  }
+  const issue = r.body || {};
+  return {
+    ok: true,
+    created: true,
+    number: issue.number,
+    url: issue.html_url,
+    status: r.status,
+  };
+}
+
+/**
+ * Complete (merge) the upflow PR once the template maintainer approves.
+ * descriptor: { repoRef:{owner,name}, prId, mergeMethod? }.
+ * prId is PATH-interpolated → integer-only guard; mergeMethod is enum-guarded.
+ */
+function completeUpflowPR(transport, prRef) {
+  const repoRef = prRef && prRef.repoRef;
+  const rv = validateRepoRef(repoRef);
+  if (!rv.valid) return _fail("completeUpflowPR: repoRef invalid", rv.reason);
+  const prId = prRef.prId;
+  if (
+    (typeof prId !== "string" && typeof prId !== "number") ||
+    !PR_NUMBER_RE.test(String(prId))
+  ) {
+    return _fail(
+      "completeUpflowPR: prId invalid",
+      `prId must match /^[0-9]+$/ (PR number); got ${JSON.stringify(prId)}`,
+    );
+  }
+  const mergeMethod =
+    prRef.mergeMethod === undefined ? "merge" : prRef.mergeMethod;
+  if (typeof mergeMethod !== "string" || !MERGE_METHOD_RE.test(mergeMethod)) {
+    return _fail(
+      "completeUpflowPR: mergeMethod invalid",
+      `mergeMethod must be one of merge|squash|rebase; got ${JSON.stringify(mergeMethod)}`,
+    );
+  }
+  let r;
+  try {
+    r = transport(
+      `repos/${repoRef.owner}/${repoRef.name}/pulls/${String(prId)}/merge`,
+      { method: "PUT", fields: { merge_method: mergeMethod } },
+    );
+  } catch (err) {
+    return _fail(
+      "completeUpflowPR: merge threw",
+      `network unavailable or transport threw: ${err && err.message ? err.message : String(err)}`,
+    );
+  }
+  if (!r || !r.ok) {
+    return _fail(
+      "completeUpflowPR: merge failed",
+      `PUT pulls/${String(prId)}/merge → status ${r && r.status} body ${JSON.stringify(r && r.body)}`,
+      { status: r && r.status, body: r && r.body },
+    );
+  }
+  const m = r.body || {};
+  return {
+    ok: true,
+    completed: true,
+    merged: m.merged === true,
+    sha: m.sha,
+    status: r.status,
+  };
+}
+
 /**
  * R5-S-07 distinct-bound-collaborator predicate (delegates to the existing
  * gh-api-allowlist implementation — byte-identical behavior).
@@ -391,5 +609,8 @@ module.exports = {
   pushImage,
   applyDeployTarget,
   invalidateCache,
+  createUpflowPR,
+  createUpflowIssue,
+  completeUpflowPR,
   verifyDistinctBoundPrincipals,
 };

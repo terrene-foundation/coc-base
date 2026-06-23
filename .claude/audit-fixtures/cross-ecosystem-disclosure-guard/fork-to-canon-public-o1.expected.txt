@@ -1,0 +1,1 @@
+allow: public-authority-o1 (boundary=fork->canon, ecosystem-neutral)

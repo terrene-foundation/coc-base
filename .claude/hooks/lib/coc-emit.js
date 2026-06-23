@@ -99,7 +99,22 @@ function _defaultReadChainHead({ repoDir, roster, verifiedId }) {
     })
     .filter((r) => r && typeof r === "object");
   if (records.length === 0) return null;
-  const folded = coordinationLog.foldLog(records, roster, {});
+  // skipSignatureVerify: computing the emitter's chain HEAD needs only the
+  // per-emitter chain STRUCTURE (max seq + its prev_hash) — NOT cryptographic
+  // signature validity. Re-verifying every prior record's signature on every
+  // emit is pure O(n)-gpg waste (each GPG verify spawns an ephemeral-homedir
+  // gpg-agent — ~710ms/record on loom's chain; 127 records ≈ 90s PER emit, and
+  // a lease+slot is 2 emits ≈ 180s — the "signing hang" that blocked journal
+  // writes + codify-leases). This MIRRORS the identical skip in _foldDelta
+  // above (see its NOTE for the fail-closed proof): skip can only make a chain-
+  // head computation count a forged-sig squatter at (vid,seq) — advancing OUR
+  // next seq PAST it (fail-closed: we never reuse a seq), never reuse a seq a
+  // read-time fold would reject. Read-time folds (the actual trust gate) always
+  // verify. Without this, _defaultReadChainHead re-verified the whole chain
+  // every emit while _foldDelta (already fixed) did not — the sibling-path gap.
+  const folded = coordinationLog.foldLog(records, roster, {
+    skipSignatureVerify: true,
+  });
   // Under COC_TEST_SKIP_SIGN computeOwnChainHead reads rawRecords (fold
   // rule 1 rejects unsigned stubs); attach them so the skip-sign path
   // sees the full chain.

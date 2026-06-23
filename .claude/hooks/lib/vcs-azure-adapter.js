@@ -15,7 +15,10 @@
  *   ADO deploy endpoints are DOCUMENTED-UNVERIFIED (no live ADO test org — per
  *   `rules/verify-resource-existence.md` MUST-2 the live-API mapping is the
  *   operator-verified runbook's job), so every ADO deploy result carries
- *   `unverified: true` and NONE fakes success.
+ *   `unverified: true` and NONE fakes success. The upflow write surface
+ *   (ECO-IMPL W7 / G-F: createUpflowPR / createUpflowIssue / completeUpflowPR)
+ *   carries the SAME `unverified: true` posture (same no-live-ADO-org gate,
+ *   G-F-4) and the same uniform-return contract.
  *
  *   - service "core"  → dev.azure.com REST (repos, commits)
  *   - service "graph" → vssps.dev.azure.com Graph REST (members, PCA membership)
@@ -418,6 +421,236 @@ function invalidateCache(transport, scope) {
   };
 }
 
+// ── Upflow write surface (ECO-IMPL W7 / G-F) ───────────────────────────────
+// The ADO sibling of the GitHub upflow half. Same uniform return contract +
+// the same 2-arg (transport, descriptor) §ADR convention. Provider-dispatched:
+// gh uses the pulls/issues REST; ADO uses pullrequests + work-items. Every ADO
+// upflow result carries `unverified: true` (no live ADO test org — G-F-4 gate,
+// same posture as the deploy half) — NONE fakes success.
+
+const ADO_PR_ID_RE = /^[0-9]+$/; // PR id — path-interpolated, integer only
+const ADO_WORKITEM_TYPE_RE = /^[A-Za-z][A-Za-z0-9 ._-]*$/; // work-item type; path-interpolated, NO path sep
+
+/**
+ * ADO: open the human-gated upflow PR. descriptor:
+ *   { repoRef:{org,project,repo}, head, base?, title, body? }.
+ * DOCUMENTED-UNVERIFIED endpoint:
+ *   POST {org}/{project}/_apis/git/repositories/{repo}/pullrequests?api-version=7.1
+ */
+function createUpflowPR(transport, prSpec) {
+  const repoRef = prSpec && prSpec.repoRef;
+  const rv = validateRepoRef(repoRef);
+  if (!rv.valid) return _fail("createUpflowPR: repoRef invalid", rv.reason);
+  const head = prSpec.head;
+  if (
+    typeof head !== "string" ||
+    !ADO_GIT_REF_RE.test(head) ||
+    head.includes("..")
+  ) {
+    return _fail(
+      "createUpflowPR: head invalid",
+      `head must match /^[A-Za-z0-9._/-]+$/ with no '..' segment (git ref shape); got ${JSON.stringify(head)}`,
+    );
+  }
+  const base = prSpec.base === undefined ? "main" : prSpec.base;
+  if (
+    typeof base !== "string" ||
+    !ADO_GIT_REF_RE.test(base) ||
+    base.includes("..")
+  ) {
+    return _fail(
+      "createUpflowPR: base invalid",
+      `base must match /^[A-Za-z0-9._/-]+$/ with no '..' segment (git ref shape); got ${JSON.stringify(base)}`,
+    );
+  }
+  const title = prSpec.title;
+  if (typeof title !== "string" || title.length === 0) {
+    return _fail(
+      "createUpflowPR: title invalid",
+      `title must be a non-empty string; got ${JSON.stringify(title)}`,
+    );
+  }
+  const body = prSpec.body === undefined ? "" : prSpec.body;
+  if (typeof body !== "string") {
+    return _fail(
+      "createUpflowPR: body invalid",
+      `body must be a string; got ${typeof body}`,
+    );
+  }
+  const { org, project, repo } = repoRef;
+  let r;
+  try {
+    r = transport({
+      service: "core",
+      path: `${org}/${project}/_apis/git/repositories/${repo}/pullrequests?api-version=${API_VERSION}`,
+      method: "POST",
+      fields: {
+        sourceRefName: `refs/heads/${head}`,
+        targetRefName: `refs/heads/${base}`,
+        title,
+        description: body,
+      },
+    });
+  } catch (err) {
+    return _fail(
+      "createUpflowPR: create threw",
+      `network unavailable or transport threw: ${err && err.message ? err.message : String(err)}`,
+    );
+  }
+  if (!r || !r.ok) {
+    return _fail(
+      "createUpflowPR: create failed",
+      `ADO pullrequests POST → status ${r && r.status} body ${JSON.stringify(r && r.body)}`,
+      { status: r && r.status, body: r && r.body, unverified: true },
+    );
+  }
+  const pr = r.body || {};
+  return {
+    ok: true,
+    created: true,
+    number: pr.pullRequestId,
+    url: pr.url,
+    status: r.status,
+    unverified: true,
+  };
+}
+
+/**
+ * ADO: open the no-fork Route-A fallback as a work-item. descriptor:
+ *   { repoRef:{org,project,repo}, title, body?, workItemType? }.
+ * workItemType defaults to "Task" (the D6 getAdoWorkItemType() default, G-F-3);
+ * it is PATH-interpolated → guarded against path separators. NOTE: the caller
+ * threads getAdoWorkItemType() in through the /codify Step-7c procedure (the
+ * doc-side bridge, sync-flow.md § Provider-dispatched transport) — there is no
+ * executable call site that passes workItemType, BY DESIGN (the LLM procedure
+ * invokes this dumb adapter per agent-reasoning.md). The accessor is
+ * procedure-bridged, NOT dead code.
+ *
+ * G-F-1 disclosure-surface neutralization (security-sensitive): an ADO
+ * work-item exposes disclosure fields BEYOND title/body — System.AreaPath,
+ * System.IterationPath, System.Tags, System.AssignedTo — each of which can
+ * carry org / consumer identity. The adapter constructs a MINIMAL JSON-Patch
+ * that sets ONLY System.Title + System.Description, and NEVER auto-populates
+ * the disclosure fields (they default to the project root, carrying no consumer
+ * identity). Arbitrary caller fields are NOT passed through — the minimal,
+ * fixed field set IS the structural neutralization.
+ */
+function createUpflowIssue(transport, issueSpec) {
+  const repoRef = issueSpec && issueSpec.repoRef;
+  const rv = validateRepoRef(repoRef);
+  if (!rv.valid) return _fail("createUpflowIssue: repoRef invalid", rv.reason);
+  const title = issueSpec.title;
+  if (typeof title !== "string" || title.length === 0) {
+    return _fail(
+      "createUpflowIssue: title invalid",
+      `title must be a non-empty string; got ${JSON.stringify(title)}`,
+    );
+  }
+  const body = issueSpec.body === undefined ? "" : issueSpec.body;
+  if (typeof body !== "string") {
+    return _fail(
+      "createUpflowIssue: body invalid",
+      `body must be a string; got ${typeof body}`,
+    );
+  }
+  const workItemType =
+    issueSpec.workItemType === undefined ? "Task" : issueSpec.workItemType;
+  if (
+    typeof workItemType !== "string" ||
+    !ADO_WORKITEM_TYPE_RE.test(workItemType)
+  ) {
+    return _fail(
+      "createUpflowIssue: workItemType invalid",
+      `workItemType must match /^[A-Za-z][A-Za-z0-9 ._-]*$/ (no path separators); got ${JSON.stringify(workItemType)}`,
+    );
+  }
+  // G-F-1: minimal JSON-Patch — Title + Description ONLY. The disclosure fields
+  // (AreaPath / IterationPath / Tags / AssignedTo) are NEVER set.
+  const patch = [
+    { op: "add", path: "/fields/System.Title", value: title },
+    { op: "add", path: "/fields/System.Description", value: body },
+  ];
+  const { org, project } = repoRef;
+  let r;
+  try {
+    r = transport({
+      service: "core",
+      // `$<type>` is the ADO work-item-create path form; the production
+      // transport sets Content-Type: application/json-patch+json (unverified —
+      // no live ADO org).
+      path: `${org}/${project}/_apis/wit/workitems/$${workItemType}?api-version=${API_VERSION}`,
+      method: "POST",
+      fields: patch,
+    });
+  } catch (err) {
+    return _fail(
+      "createUpflowIssue: create threw",
+      `network unavailable or transport threw: ${err && err.message ? err.message : String(err)}`,
+    );
+  }
+  if (!r || !r.ok) {
+    return _fail(
+      "createUpflowIssue: create failed",
+      `ADO work-item POST → status ${r && r.status} body ${JSON.stringify(r && r.body)}`,
+      { status: r && r.status, body: r && r.body, unverified: true },
+    );
+  }
+  const wi = r.body || {};
+  return {
+    ok: true,
+    created: true,
+    number: wi.id,
+    url: wi.url,
+    status: r.status,
+    unverified: true,
+  };
+}
+
+/**
+ * ADO: complete the upflow PR. descriptor: { repoRef:{org,project,repo}, prId }.
+ * prId is PATH-interpolated → integer-only guard.
+ * DOCUMENTED-UNVERIFIED endpoint:
+ *   PATCH {org}/{project}/_apis/git/repositories/{repo}/pullrequests/{prId}?api-version=7.1
+ */
+function completeUpflowPR(transport, prRef) {
+  const repoRef = prRef && prRef.repoRef;
+  const rv = validateRepoRef(repoRef);
+  if (!rv.valid) return _fail("completeUpflowPR: repoRef invalid", rv.reason);
+  const prId = prRef.prId;
+  if (
+    (typeof prId !== "string" && typeof prId !== "number") ||
+    !ADO_PR_ID_RE.test(String(prId))
+  ) {
+    return _fail(
+      "completeUpflowPR: prId invalid",
+      `prId must match /^[0-9]+$/ (PR id); got ${JSON.stringify(prId)}`,
+    );
+  }
+  const { org, project, repo } = repoRef;
+  let r;
+  try {
+    r = transport({
+      service: "core",
+      path: `${org}/${project}/_apis/git/repositories/${repo}/pullrequests/${String(prId)}?api-version=${API_VERSION}`,
+      method: "PATCH",
+      fields: { status: "completed" },
+    });
+  } catch (err) {
+    return _fail(
+      "completeUpflowPR: complete threw",
+      `network unavailable or transport threw: ${err && err.message ? err.message : String(err)}`,
+    );
+  }
+  if (!r || !r.ok) {
+    return _fail(
+      "completeUpflowPR: complete failed",
+      `ADO pullrequests/${String(prId)} PATCH → status ${r && r.status} body ${JSON.stringify(r && r.body)}`,
+      { status: r && r.status, body: r && r.body, unverified: true },
+    );
+  }
+  return { ok: true, completed: true, status: r.status, unverified: true };
+}
+
 /**
  * R5-S-07 distinct-bound-principal predicate (ADO principalsEqual variant).
  */
@@ -438,5 +671,8 @@ module.exports = {
   pushImage,
   applyDeployTarget,
   invalidateCache,
+  createUpflowPR,
+  createUpflowIssue,
+  completeUpflowPR,
   verifyDistinctBoundPrincipals,
 };

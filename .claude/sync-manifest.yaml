@@ -112,6 +112,12 @@ cli_emit_exclusions:
     - skills/co-reference/**
     - agents/cc-architect.md
     - agents/gemini-architect.md
+    # W4 D1 (validate-coc-parity): per-CLI architects + cli-orchestrator are loom AUTHORING
+    # agents (self-reference / multi-CLI meta), NOT downstream codex specialists. Mirrors
+    # emit-cli-artifacts CODEX_AGENT_STRUCTURAL_EXCLUSIONS so .coc/ computeAppliesTo matches
+    # legacy per-CLI emission.
+    - agents/codex-architect.md
+    - agents/cli-orchestrator.md
     - rules/cc-artifacts.md
     - guides/claude-code/**
     - commands/cc-audit.md
@@ -120,6 +126,12 @@ cli_emit_exclusions:
     - skills/co-reference/**
     - agents/cc-architect.md
     - agents/codex-architect.md
+    # W4 D2 (validate-coc-parity): per-CLI architects + cli-orchestrator are loom AUTHORING
+    # agents (self-reference / multi-CLI meta), NOT downstream gemini specialists. Mirrors
+    # emit-cli-artifacts GEMINI_AGENT_STRUCTURAL_EXCLUSIONS so .coc/ computeAppliesTo matches
+    # legacy per-CLI emission.
+    - agents/gemini-architect.md
+    - agents/cli-orchestrator.md
     - rules/cc-artifacts.md
     - guides/claude-code/**
     - commands/cc-audit.md
@@ -793,10 +805,11 @@ parity_enforcement:
       # provenance (2) — per-lane delivery declared in provenance_parity above
       - "provenance-capture-prompt.js|provenance|HumanInput capture; lanes declared in provenance_parity"
       - "provenance-capture-tool.js|provenance|Action/Decision/Delegation capture; lanes in provenance_parity"
-      # cc-only (23) — CC-runtime / loom-substrate; NOT in the fresh extraction
+      # cc-only (25) — CC-runtime / loom-substrate; NOT in the fresh extraction
       - "integrity-guard.js|cc-only|gates Edit/Write to codify/<id>-<date> branches; coordination substrate (codify-branch state) — omits @coc-codex-edit-gate → excluded from apply_patch (FF-AC6-1 AC#2), not mirrored"
       - "journal-write-guard.js|cc-only|journal slot-reservation + overwrite guard; coordination substrate (journal-slot fold) — omits @coc-codex-edit-gate → excluded from apply_patch (FF-AC6-1 AC#2), not mirrored"
       - "adjacency-leasecheck.js|cc-only|multi-operator claim-adjacency lease check; coordination substrate (claims/roster, auto-claim writes) — omits @coc-codex-edit-gate → excluded from apply_patch (FF-AC6-1 AC#2), not mirrored"
+      - "cross-ecosystem-disclosure-guard.js|cc-only|canon↔fork disclosure-isolation pre-write guard (#584 AC-1); coordination substrate (ecosystem-boundary, COC_XECO_TARGET_ECOSYSTEM-gated; production activation deferred #576/AC-2) — omits @coc-codex-edit-gate → excluded from apply_patch (FF-AC6-1 AC#2), not mirrored"
       - "adjacency-heartbeat.js|cc-only|multi-operator session heartbeat (matcher *); no classifiable predicate, not mirrored"
       - "gitignored-claude-warn.js|cc-only|edit-of-gitignored-.claude display warning; not a trust gate — omits @coc-codex-edit-gate → excluded from apply_patch by design (FF-AC6-1; the DF-AC6-1 brittle-matcher drop is now an intentional marker-driven exclusion)"
       - "fold-amendment-paired-with-helper.js|cc-only|genesis fold-amendment paired-landing gate; not mirrored"
@@ -817,6 +830,7 @@ parity_enforcement:
       - "validate-deployment.js|cc-only|deployment validation gate; CC-workflow"
       - "validate-prod-deploy.js|cc-only|prod-deploy validation gate; CC-workflow"
       - "validate-workflow.js|cc-only|workflow validation gate; CC-workflow"
+      - "wrapup-after-landing.js|cc-only|PostToolUse(Bash) wrapup-on-landing nudge on `gh pr merge`; advisory CC-workflow convenience (not a trust gate, no classifiable predicate, no @coc-codex-edit-gate) — the cross-CLI wrapup-on-landing DISCIPLINE reaches Codex/Gemini via the wave-loop.md G2 rule + release.md command emission, not this hook"
 
 tiers:
   cc:
@@ -986,9 +1000,19 @@ tiers:
     - commands/whoami.md
     - commands/onboard.md
     - commands/certify.md
+    # ECO-IMPL W8a (2026-06-20): the two NEW onboarding-ceremony surfaces that
+    # complete the three-surface model (/onboard read-only + /enroll once-per-
+    # operator + /ecosystem-init once-per-fork — 02-plans/02-ga-ecosystem-
+    # onboarding.md). Universal CO governance like their /whoami/onboard/certify
+    # siblings already in this tier; the ecosystem-config DATA (ecosystem.json)
+    # stays loom-only while the ceremony COMMANDS that write it sync to parity.
+    - commands/ecosystem-init.md
+    - commands/enroll.md
     - skills/32-trust-posture/**
     - skills/41-onboard/**
     - skills/42-certify/**
+    - skills/43-ecosystem-init/**
+    - skills/44-enroll/**
     - operators.roster.schema.json
     - team-memory/README.md
     - templates/specs/_certification.yaml
@@ -1999,6 +2023,36 @@ variant_only:
     - variants/rs/agents/frameworks/trust-plane-specialist.md
     - variants/rs/agents/ffi-specialist.md
     - variants/rs/rules/build-speed.md
+    # version-cadence.md added (sync/from-build rs-2): rs-specific stricter
+    # major-bump gate (deprecate-first + human-gate + consumer-observable-break);
+    # path-scoped to Cargo.toml/CHANGELOG/binding-manifests, no global equivalent.
+    # NOTE (out of scope this codify): the rule body forward-flags trigger key
+    # `version_cadence_unjustified_bump` for registration in trust-posture.md
+    # MUST-4 emergency-trigger list — a SEPARATE codify; left as-is here.
+    - variants/rs/rules/version-cadence.md
+    # build-cache-hygiene (sync/from-build rs-3, NEW): rs-specific cargo
+    # target/ cache-reclaim discipline (path-scoped to **/*.rs, Cargo.*,
+    # .claude/hooks/build-cache-*.js). Rule + 2 session-lifecycle hooks +
+    # 1 deletion-safety fixture, all rs-only (no global equivalent), placed
+    # as variant_only.rs ADDITIONS per the py detect-package-manager.js
+    # precedent (variant-overlay hooks at variants/<lang>/hooks/*.js).
+    # RESIDUAL — hook registration: build-cache-guard.js (SessionStart) +
+    # build-cache-gc.js (SessionEnd) are NOT registered in any loom-side
+    # settings; loom has NO variant-hook lifecycle-registration mechanism
+    # (the hook-delivery validator explicitly scopes to the GLOBAL hook tree
+    # only — variant-overlay hooks are a separate, un-covered axis). The
+    # SessionStart/SessionEnd wiring is a CONSUMER-side (rs USE-template
+    # settings.json) concern on pull, mirroring how the py template wires
+    # detect-package-manager.js. FLAGGED for Gate-2 / coc-sync disposition.
+    # FLAGGED — audit-fixtures location: no variants/<lang>/audit-fixtures/
+    # precedent existed; placed at variants/rs/audit-fixtures/build-cache-gc/
+    # mirroring the global .claude/audit-fixtures/ tree shape one level into
+    # the rs variant. Confirm this is the intended variant-fixtures convention
+    # at Gate 2 (no manifest validator covers variant audit-fixtures today).
+    - variants/rs/rules/build-cache-hygiene.md
+    - variants/rs/hooks/build-cache-guard.js
+    - variants/rs/hooks/build-cache-gc.js
+    - variants/rs/audit-fixtures/build-cache-gc/test-deletion-safety.sh
     - variants/rs/rules/dataflow-null-typing.md
     - variants/rs/rules/release.md
     - variants/rs/rules/llm-auth-strategy-hygiene.md
@@ -2223,7 +2277,7 @@ obsoleted:
   - .claude/skills/30-claude-code-patterns/anti-patterns.md # why: skill audit 2026-05-09 (v2.29.0) — RESTRUCTURE 30 sub-file. Zero external references (grep clean). Content covered by 30/SKILL.md prose. User-approved.
   - .claude/skills/30-claude-code-patterns/artifact-design.md # why: skill audit 2026-05-09 (v2.29.0) — RESTRUCTURE 30 sub-file. Zero external references. Templates duplicated in actual existing artifacts. User-approved.
   - .claude/skills/30-claude-code-patterns/token-budget.md # why: skill audit 2026-05-09 (v2.29.0) — RESTRUCTURE 30 sub-file. Zero external references. Token-cost numbers covered at high level in 30/SKILL.md. User-approved.
-  - .claude/skills/management/SKILL.md # why: residual stale hollow-frontmatter management skill (no `description:` field — surfaced as 0-char-description entry in CC skill listing; content was repo-maintainer notes for /sync /codify /inspect, not a semantic skill consumers match against). Surfaced 2026-05-14 via coursewright skill-bloat audit; User-approved REMOVE. NARROWED 2026-06-13 (sync-upflow Wave 3 STEP-0 / MANIFTEN, journal/0003) from the directory-wide `.claude/skills/management/` to this single file: the rs templates legitimately receive 3 `variant_only.rs` files INTO `.claude/skills/management/` (build-reference.md, cargo-reference.md, release-workflow.md — see `variant_only.rs` above), so a directory-wide purge shared a path with the rs deploy target (purge∩deploy ordering hazard, failure-redteam MED-2). Sibling files i-harden-criteria.md + release-checklist.md were py /i-harden + /release command reference material, NOT stale residue — their collateral over-purge by the prior directory-wide entry is a separate dangling-reference defect (release-checklist.md is still cited at variants/py/commands/release.md:122), tracked for the inter-wave gate.
+  - .claude/skills/management/SKILL.md # why: residual stale hollow-frontmatter management skill (no `description:` field — surfaced as 0-char-description entry in CC skill listing; content was repo-maintainer notes for /sync /codify /inspect, not a semantic skill consumers match against). Surfaced 2026-05-14 via coursewright skill-bloat audit; User-approved REMOVE. NARROWED 2026-06-13 (sync-upflow Wave 3 STEP-0 / MANIFTEN, journal/0003) from the directory-wide `.claude/skills/management/` to this single file: the rs templates legitimately receive 3 `variant_only.rs` files INTO `.claude/skills/management/` (build-reference.md, cargo-reference.md, release-workflow.md — see `variant_only.rs` above), so a directory-wide purge shared a path with the rs deploy target (purge∩deploy ordering hazard, failure-redteam MED-2). Sibling files i-harden-criteria.md + release-checklist.md were py /i-harden + /release command reference material, NOT stale residue. release-checklist.md: the citation at variants/py/commands/release.md:122 ("Full reference") was a DAY-ONE dangling reference in loom source (cited since the initial commit d98da8b but loom never shipped the file — git log --all -- **/release-checklist.md was empty pre-restore), NOT collateral over-purge from this obsoletion. CLOSED 2026-06-13 (journal/0011, co-owner-directed Option A): restored as variant_only.py (variants/py/skills/management/release-checklist.md, mirroring the rs build-reference.md pattern) so the citation resolves at the deployed py template; residual RELCHKREVAL (content not line-revalidated) deferred to G3, co-owner-ratified, non-blocking. i-harden-criteria.md is referenced nowhere (/i-harden points to skills/23-uiux-design-principles/production-hardening.md) → unreferenced orphan, correctly stays purged.
   - .claude/rules/terrene-naming.md # why: removed from COC distribution 2026-05-31 (FB) — Foundation messaging governance (brand/terminology/license-labeling consistency), NOT a codegen-orchestration concern. Apache 2.0 imposes no obligations, so this was never license enforcement. Relocated to atelier Foundation-docs (separate repo). Universal purge so every consumer (incl. non-Terrene RRPS/community) drops its stale copy. Receipt: journal/0184. Supersedes the prior use_obsoleted entry (which purged USE templates + downstream only; this purges ALL targets).
   - .claude/rules/independence.md # why: removed from COC distribution 2026-05-31 (FB) — same disposition as terrene-naming.md above (Foundation no-commercial-coupling messaging governance, not COC). Relocated to atelier Foundation-docs. Universal purge. Receipt: journal/0184. Supersedes the prior use_obsoleted entry.
   - .claude/agents/open-source-strategist.md # why: removed from COC distribution 2026-05-31 (FB) — the agent IS Terrene Foundation IP/open-core strategy (four-layer architecture, Foundation-owns-all-IP, EATP/Kailash open-vs-proprietary boundary, competitive positioning), not a generic codegen specialist. Shipping it gave non-Terrene consumers (RRPS/community) Terrene's strategic answers. Now loom-only (kept on disk like agents/management/*). Universal purge of the stale consumer copy. Receipt: journal/0184.

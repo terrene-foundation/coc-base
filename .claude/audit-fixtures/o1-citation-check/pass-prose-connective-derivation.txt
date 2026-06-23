@@ -1,0 +1,1 @@
+Per NIST SP 800-53 Rev. 5, control AC-2 requires account-management controls, therefore this rule mandates per-operator roster registration.

@@ -1,0 +1,7 @@
+{
+  "_predicate": "public-authority-O1 carve-out — a public ISO/SOC2/GDPR O1 artifact is ecosystem-neutral (artifact-flow.md:200) and crosses fork->canon, checked BEFORE the disclosure scan",
+  "upstreamCanon": { "remote": "canon-origin", "url": "ssh://canon/loom.git" },
+  "targetEcosystem": "canon-origin",
+  "o1": true,
+  "authority": "ISO/IEC 27001:2022 §A.8.24"
+}

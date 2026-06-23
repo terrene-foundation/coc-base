@@ -225,7 +225,17 @@ function _foldHighWater(repoDir, dirRel) {
     roster = null;
   }
 
-  const folded = coordinationLog.foldLog(records, roster, {});
+  // skipSignatureVerify: the journal-slot HIGH-WATER needs only chain
+  // STRUCTURE (which slots are taken), not crypto validity — same O(N)-gpg-
+  // verify-per-emit fix as coc-emit.js::_defaultReadChainHead (see its NOTE
+  // for the fail-closed proof: a forged-sig reservation at slot N is counted →
+  // we advance PAST it, never reuse N). Read-time folds (journal-write-guard)
+  // still verify. Without this, reserveJournalSlotSigned re-verified the whole
+  // chain (~710ms/record × N) on every reservation — the second half of the
+  // signing hang (the first was the chain-head read in coc-emit).
+  const folded = coordinationLog.foldLog(records, roster, {
+    skipSignatureVerify: true,
+  });
   const accepted =
     process.env.COC_TEST_SKIP_SIGN === "1"
       ? records

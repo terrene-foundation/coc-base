@@ -1,0 +1,1 @@
+per GDPR 2016 Article 32 requires breach-appropriate security of processing → this rule mandates env-var-only secret handling

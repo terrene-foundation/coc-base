@@ -1,0 +1,6 @@
+{
+  "_predicate": "fork-identifying-content — fork->canon write carrying tenant identity (org slug, internal path) is BLOCKED",
+  "upstreamCanon": { "remote": "canon-origin", "url": "ssh://canon/loom.git" },
+  "targetEcosystem": "canon-origin",
+  "findings": ["acme-corp org slug", "src/acme-internal/billing.py"]
+}

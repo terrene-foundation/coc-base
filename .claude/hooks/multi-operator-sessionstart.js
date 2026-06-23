@@ -374,29 +374,10 @@ function detectRulesChangedSinceLastSession() {
   return null;
 }
 
-function detectUpstreamLag() {
-  // Subsumed from coc-drift-warn — local-vs-cached-upstream lag.
-  const upstreamRef = (
-    safeExec("git", [
-      "rev-parse",
-      "--abbrev-ref",
-      "--symbolic-full-name",
-      "@{upstream}",
-    ]) || ""
-  ).trim();
-  if (!upstreamRef) return null;
-  const behindRaw = safeExec("git", [
-    "rev-list",
-    "--count",
-    `HEAD..${upstreamRef}`,
-    "--",
-    ".claude/",
-  ]);
-  if (behindRaw === null) return null;
-  const behind = parseInt(behindRaw.trim(), 10);
-  if (!Number.isFinite(behind) || behind <= 0) return null;
-  return { behind, upstreamRef };
-}
+// detectUpstreamLag (the passive .claude/-scoped upstream-lag warning) was REPLACED by
+// the active start-refresh (ECO-IMPL W8b / G-A-T3) — `lib/ecosystem-pull-merge.js`
+// runStartRefresh Op1 does the active whole-tree ff-only pull (the co-owner's "always
+// pull and merge at start" D2 directive) that supersedes the prior warn-only behavior.
 
 function detectRevocationContests(contestedFromFold) {
   // Test override: explicit JSON array of contested revocations.
@@ -573,7 +554,12 @@ function detectOwnerActionAudit(roster, foldedState) {
       identity,
       activeSiblingClaims,
     );
-    const upstreamLag = detectUpstreamLag();
+    // Active start-refresh (ECO-IMPL W8b / G-A-T3) — the co-owner's "always pull and
+    // merge at start" (D2), replacing the prior passive detectUpstreamLag warning.
+    const { runStartRefresh } = require(
+      path.join(__dirname, "lib", "ecosystem-pull-merge.js"),
+    );
+    const startRefresh = runStartRefresh({ repoDir: PROJECT_DIR });
     const rulesChanged = detectRulesChangedSinceLastSession();
     const revocationContests = detectRevocationContests(
       folded.contestedRevocations,
@@ -677,11 +663,23 @@ function detectOwnerActionAudit(roster, foldedState) {
       // ALWAYS attributed to own-WIP — F13 false-positive closed).
     }
 
-    // Upstream lag (subsumed from coc-drift-warn)
-    if (upstreamLag) {
-      lines.push(
-        `⚠️  Upstream ahead: ${upstreamLag.behind} un-pulled .claude/ commit(s) (${upstreamLag.upstreamRef})`,
-      );
+    // Active start-refresh surfacing (ECO-IMPL W8b / G-A-T3) — supersedes the prior
+    // passive "Upstream ahead" warning. Op1 = intra-ecosystem ff-only merge (clean-tree-
+    // gated, HALT-not-destroy on dirty/diverged per git.md destructive-tree); Op2 =
+    // canon-upstream fetch-no-merge (advisory; roll-in human-gated, D3). Both fail-open.
+    if (
+      startRefresh &&
+      startRefresh.op1 &&
+      startRefresh.op1.status !== "up-to-date"
+    ) {
+      lines.push(startRefresh.op1.message);
+    }
+    if (
+      startRefresh &&
+      startRefresh.op2 &&
+      startRefresh.op2.status !== "no-canon"
+    ) {
+      lines.push(startRefresh.op2.message);
     }
 
     // 4. Rules-changed since last session (staleness caveat)
