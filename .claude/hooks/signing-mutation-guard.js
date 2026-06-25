@@ -100,6 +100,9 @@ const siblingPorcelain = require(
 const { isMutationTool } = require(
   path.join(__dirname, "lib", "tool-classes.js"),
 );
+const { isCoordinationEnabled } = require(
+  path.join(__dirname, "lib", "coordination-mode.js"),
+);
 
 function passthrough() {
   clearTimeout(fallback);
@@ -313,6 +316,18 @@ function wouldMutateWorkingTree(opKind, repoDir, candidateRel) {
     }
 
     const repoDir = resolveRepoDir(payload);
+
+    // MO-OPT W1-c — opt-in gate (workspaces/multi-operator-optional, journal/0330).
+    // BOTH the §4.2 sibling-worktree porcelain check AND the degraded-mode
+    // (no-signing-key) mutation block are coordination-substrate concerns. On a
+    // solo / fresh repo (coordination OFF) there are no sibling worktrees, and
+    // an absent signing key is "un-enrolled", NOT "degraded" — blocking every
+    // tracked-path Edit/Write/commit because no GPG key is configured is THE
+    // disruption (analysis gate #3). Passthrough. When ENABLED, byte-unchanged.
+    if (!isCoordinationEnabled(repoDir)) {
+      passthrough();
+    }
+
     const candidateRel =
       op.kind === "edit-write" ? repoRelative(op.targetPath, repoDir) : null;
 

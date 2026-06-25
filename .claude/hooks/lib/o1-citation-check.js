@@ -50,7 +50,10 @@
  * halt-and-report / advisory (a judgment-bearing review signal), never
  * severity:block.
  *
- * Style: CommonJS, zero-dep, pure functions. No I/O. No clock. No network.
+ * Style: CommonJS, zero-dep, pure functions. No I/O / clock / network in the
+ * LIBRARY half (exports below); the require.main CLI edge at the foot of the file
+ * is the SOLE I/O surface (fs read + stdout/exit), guarded so a require() of this
+ * module never triggers it — consumers stay I/O-free.
  */
 
 "use strict";
@@ -247,3 +250,41 @@ module.exports = {
   // exported for fixture/test introspection only:
   _hasDerivation,
 };
+
+// ── CLI edge (require.main === module ONLY — the library above stays I/O-free) ──
+// Usage: node o1-citation-check.js <receipt-path>
+//   Reads the O1-origination journal DECISION receipt at <receipt-path>, runs the
+//   SHAPE gate, prints the typed human reason + the JSON result, and exits:
+//     0  shape-clean (name+version, clause, derivation all present)
+//     1  shape-fail  (a typed REASON names which of (a)/(b)/(c) is missing)
+//     2  usage / unreadable receipt
+//   This is Detection LAYER 1 (mechanical SHAPE) per artifact-flow.md § "The
+//   Origination Taxonomy" — the platform-engineer's pre-gate self-check that
+//   `/govern` Step 2 prescribes. It is NOT the governance gate: a shape-clean
+//   receipt is STILL subject to the cc-architect /codify judgment (LAYER 2 —
+//   "does the cited clause ACTUALLY govern this artifact?"). The exit code is the
+//   structural SHAPE signal only.
+if (require.main === module) {
+  const fs = require("fs");
+  const receiptPath = process.argv[2];
+  if (!receiptPath) {
+    process.stderr.write(
+      "usage: node o1-citation-check.js <receipt-path>\n" +
+        "  shape-checks an O1-origination journal DECISION receipt (Detection layer 1).\n",
+    );
+    process.exit(2);
+  }
+  let text;
+  try {
+    text = fs.readFileSync(receiptPath, "utf8");
+  } catch (e) {
+    process.stderr.write(
+      `o1-citation-check: cannot read receipt '${receiptPath}': ${e && e.message ? e.message : String(e)}\n`,
+    );
+    process.exit(2);
+  }
+  const result = checkO1Citation(text);
+  process.stdout.write(humanReason(result) + "\n");
+  process.stdout.write(JSON.stringify(result) + "\n");
+  process.exit(result.ok ? 0 : 1);
+}

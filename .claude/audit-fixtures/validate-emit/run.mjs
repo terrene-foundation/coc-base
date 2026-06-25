@@ -629,6 +629,118 @@ variant_only:
 }
 
 // ----------------------------------------------------------------------
+// fixture-22 — parseSurfaceRoles: KEYED path→roles[] map (W2-b invariant #4)
+// ----------------------------------------------------------------------
+// The parser reuses parseLoomOnly's line-state-machine IDIOM but returns a KEYED
+// Map (NOT a flat string[]). Inline `# comment` lines + a trailing top-level key
+// terminate cleanly; comment-only lines are skipped.
+{
+  const manifest = `other_top: x
+surface_roles:
+  commands/analyze.md: [build, use-consumer]
+  commands/foo.md: [platform]
+  # comment line — skipped
+next_top: y
+`;
+  const root = buildFixtureRoot({ ".claude/sync-manifest.yaml": manifest });
+  try {
+    const { parseSurfaceRoles } = await import("../../bin/validate-emit.mjs");
+    const m = parseSurfaceRoles(root);
+    check(
+      "fixture-22-parseSurfaceRoles-keyed-map",
+      m instanceof Map &&
+        m.size === 2 &&
+        JSON.stringify(m.get("commands/analyze.md")) ===
+          JSON.stringify(["build", "use-consumer"]) &&
+        JSON.stringify(m.get("commands/foo.md")) === JSON.stringify(["platform"]),
+      JSON.stringify([...m]),
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+// ----------------------------------------------------------------------
+// fixture-23 — checkSurfaceRoleMembership per-artifact predicates (W2-b)
+// ----------------------------------------------------------------------
+// PASS: valid roles + on-disk + ALSO tier-listed (orthogonality, invariant #1 —
+// a near-copy of the loom_only mutual-exclusion check would WRONGLY fail this).
+// SKIP(WARN): zero on-disk match. FAIL: out-of-enum role. FAIL: empty role list.
+{
+  const { checkSurfaceRoleMembership } = await import("../../bin/validate-emit.mjs");
+  const manifest = `tiers:
+  coc:
+    - commands/redteam.md
+surface_roles:
+  commands/redteam.md: [build, use-consumer]
+  commands/ghost.md: [build]
+  commands/bad.md: [bogus]
+  commands/empty.md: []
+`;
+  const root = buildFixtureRoot({
+    ".claude/sync-manifest.yaml": manifest,
+    ".claude/commands/redteam.md": "x\n", // exists AND tier-listed → orthogonality PASS
+    ".claude/commands/bad.md": "x\n", // exists, out-of-enum role → FAIL
+    ".claude/commands/empty.md": "x\n", // exists, empty role list → FAIL
+    // commands/ghost.md intentionally NOT created → zero-match SKIP(WARN)
+  });
+  try {
+    const c = checkSurfaceRoleMembership(root);
+    check(
+      "fixture-23-checkSurfaceRoleMembership-predicates",
+      statusOf(c, "commands/redteam.md") === STATUS.PASS &&
+        statusOf(c, "commands/ghost.md") === STATUS.SKIP &&
+        statusOf(c, "commands/bad.md") === STATUS.FAIL &&
+        statusOf(c, "commands/empty.md") === STATUS.FAIL,
+      JSON.stringify(c.results),
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+// ----------------------------------------------------------------------
+// fixture-24 — parseReposRoles + per-target role validation (W2b-5)
+// ----------------------------------------------------------------------
+// A target's `role:` child is collected; a target with NO role: is OMITTED
+// (absent = full emission, invariant #7 back-compat). Valid role → PASS,
+// out-of-enum → FAIL.
+{
+  const { parseReposRoles, checkSurfaceRoleMembership } = await import(
+    "../../bin/validate-emit.mjs"
+  );
+  const manifest = `repos:
+  base:
+    build: null
+    role: use-consumer
+    variant: base
+  py:
+    build: kailash-py
+    variant: py
+  bad:
+    role: bogus
+next_top: x
+`;
+  const root = buildFixtureRoot({ ".claude/sync-manifest.yaml": manifest });
+  try {
+    const rr = parseReposRoles(root);
+    const c = checkSurfaceRoleMembership(root);
+    check(
+      "fixture-24-parseReposRoles-and-per-target-validation",
+      rr instanceof Map &&
+        rr.get("base") === "use-consumer" &&
+        rr.get("bad") === "bogus" &&
+        !rr.has("py") && // declares no role → NOT included (back-compat)
+        statusOf(c, "repos.base.role") === STATUS.PASS &&
+        statusOf(c, "repos.bad.role") === STATUS.FAIL,
+      `rr=${JSON.stringify([...rr])} results=${JSON.stringify(c.results)}`,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+// ----------------------------------------------------------------------
 // Summary
 // ----------------------------------------------------------------------
 process.stdout.write(

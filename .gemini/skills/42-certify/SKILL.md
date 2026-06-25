@@ -1,4 +1,5 @@
 ---
+name: certify
 description: "/certify procedure: brief → probe → gate at 100%; loops failed questions until pass. NO Claude-assistance during gate phase. Curated bank, not LLM-generated."
 ---
 

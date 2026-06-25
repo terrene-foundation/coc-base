@@ -179,6 +179,7 @@ const CHECK_IDS = [
   "codex-policies-fresh",
   "variant-orphan",
   "allowlist-paths-coverage",
+  "surface-role-membership",
 ];
 
 const STATUS = {
@@ -1303,6 +1304,172 @@ function checkLoomOnlyMutualExclusion(root) {
       detail: isCarveout
         ? `load-bearing carve-out (declared in LOOM_ONLY_TIER_CARVEOUTS): concrete loom_only file under synced tier(s) ${collisions.map((c) => `${c.tier}:${c.glob}`).join(", ")} — emit suppresses at classifyFile loom_only step (2b) before tier inclusion; the rest of the tier still syncs`
         : "never-sync, in no synced tier, matches on-disk file",
+    });
+  }
+  return { id, source_rule, results };
+}
+
+// =======================================================================
+//  CHECK — surface-role membership (D3 / onboarding-portability W2-b)
+// =======================================================================
+// DISTRIBUTE ≠ SURFACE. `tiers:` decides which repos RECEIVE an artifact;
+// `surface_roles:` decides which ROLES present it in their surface. The two are
+// ORTHOGONAL — an artifact MAY be BOTH tier-listed AND surface-role-scoped
+// (invariant #1) — UNLIKE loom_only (check 8), which is mutually exclusive with
+// tiers. This check therefore MUST NOT cross-check tier membership; a literal
+// near-copy of checkLoomOnlyMutualExclusion would wrongly FAIL such an artifact.
+// surface_roles is a POSITIVE declaration (never an exclude:-style denylist —
+// emit ignores exclude: so a SURFACE restriction expressed as exclusion would
+// silently leak; #638). DEFAULT-SURFACED: an artifact with no entry surfaces for
+// every role (open decision #5); declare an entry ONLY to RESTRICT.
+const VALID_SURFACE_ROLES = new Set(["platform", "build", "use-consumer"]);
+
+// Parse the top-level `surface_roles:` block — keyed `<path>: [role, ...]`
+// inline-flow-list entries at 2-space indent. Returns a KEYED Map path→roles[]
+// (structurally DISTINCT from parseLoomOnly's flat string[] — invariant #4: the
+// parsing IDIOM is reused, the return SHAPE is keyed). null when the manifest is
+// unreadable; empty Map when the block is absent or has no entries.
+function parseSurfaceRoles(root) {
+  const manifest = safeRead(join(root, ".claude", "sync-manifest.yaml"));
+  if (manifest === null) return null;
+  const out = new Map();
+  let inBlock = false;
+  for (const raw of manifest.split(/\r?\n/)) {
+    if (/^surface_roles:\s*$/.test(raw)) {
+      inBlock = true;
+      continue;
+    }
+    if (!inBlock) continue;
+    // A new top-level key (col-0, ends with `:`) ends the block.
+    if (/^[A-Za-z0-9_-]+:/.test(raw) && !raw.startsWith(" ")) break;
+    // `  <path>: [role, role]`  (an inline `# comment` after the list is fine).
+    const m = raw.match(/^ {2}([^:\s]+):\s*\[([^\]]*)\]/);
+    if (m) {
+      const roles = m[2]
+        .split(",")
+        .map((r) => r.trim().replace(/^["']|["']$/g, ""))
+        .filter(Boolean);
+      out.set(m[1], roles);
+    }
+  }
+  return out;
+}
+
+// Parse `repos.<target>.role` declarations (D3 / W2b-5 / redteam Finding 1). The
+// repos: block is `2-space <target>:` headers with 4-space children; collect the
+// `role:` child of each. Returns a Map target→role for every target that
+// DECLARES one (absent target = full emission, invariant #7, NOT included). null
+// when the manifest is unreadable.
+function parseReposRoles(root) {
+  const manifest = safeRead(join(root, ".claude", "sync-manifest.yaml"));
+  if (manifest === null) return null;
+  const out = new Map();
+  let inRepos = false;
+  let cur = null;
+  for (const raw of manifest.split(/\r?\n/)) {
+    if (/^repos:\s*$/.test(raw)) {
+      inRepos = true;
+      continue;
+    }
+    if (!inRepos) continue;
+    if (/^[A-Za-z0-9_-]+:/.test(raw) && !raw.startsWith(" ")) break;
+    const target = raw.match(/^ {2}([A-Za-z0-9_.-]+):\s*$/);
+    if (target) {
+      cur = target[1];
+      continue;
+    }
+    const roleM = raw.match(/^ {4}role:\s*(.+?)\s*$/);
+    if (roleM && cur) {
+      const v = roleM[1]
+        .replace(/\s+#.*$/, "")
+        .replace(/^["']|["']$/g, "")
+        .trim();
+      out.set(cur, v);
+    }
+  }
+  return out;
+}
+
+// Check body. FAIL: out-of-enum role value (per-artifact OR per-target), or an
+// EMPTY per-artifact role list (surfaces nowhere = unreachable). SKIP(WARN): a
+// surface_roles path matching 0 on-disk files. PASS: valid + resolves. Tier
+// membership is deliberately NOT consulted (orthogonality, invariant #1).
+function checkSurfaceRoleMembership(root) {
+  const id = "surface-role-membership";
+  const source_rule =
+    "sync-manifest.yaml surface_roles + repos.<t>.role (D3) / onboarding-portability W2-b";
+  const sr = parseSurfaceRoles(root);
+  const reposRoles = parseReposRoles(root);
+  if (sr === null && reposRoles === null) {
+    return {
+      id,
+      source_rule,
+      results: [{ artifact: "sync-manifest.yaml", status: STATUS.SKIP, detail: "manifest unreadable" }],
+    };
+  }
+  const results = [];
+  // (1) per-artifact surface_roles values
+  if (sr) {
+    for (const [p, roles] of sr) {
+      const bad = roles.filter((r) => !VALID_SURFACE_ROLES.has(r));
+      if (bad.length > 0) {
+        results.push({
+          artifact: p,
+          status: STATUS.FAIL,
+          detail: `surface_roles value(s) [${bad.join(", ")}] not in the closed role vocabulary {${[...VALID_SURFACE_ROLES].join(", ")}}`,
+        });
+        continue;
+      }
+      if (roles.length === 0) {
+        results.push({
+          artifact: p,
+          status: STATUS.FAIL,
+          detail: `surface_roles declares an EMPTY role list — an artifact that surfaces for NO role is unreachable; remove the entry to default-surface, or name >=1 role`,
+        });
+        continue;
+      }
+      const candidate = join(root, ".claude", p);
+      const exists =
+        existsSync(candidate) ||
+        (p.endsWith("/**") && existsSync(join(root, ".claude", p.slice(0, -3))));
+      if (!exists) {
+        results.push({
+          artifact: p,
+          status: STATUS.SKIP,
+          detail: `WARN: surface_roles path matches 0 on-disk files (stale entry? verify the path)`,
+        });
+        continue;
+      }
+      results.push({
+        artifact: p,
+        status: STATUS.PASS,
+        detail: `surfaces for role(s) [${roles.join(", ")}] (orthogonal to tier/distribution)`,
+      });
+    }
+  }
+  // (2) per-target repos.<t>.role values (emit-lane subset selector, W2b-5)
+  if (reposRoles) {
+    for (const [target, role] of reposRoles) {
+      if (!VALID_SURFACE_ROLES.has(role)) {
+        results.push({
+          artifact: `repos.${target}.role`,
+          status: STATUS.FAIL,
+          detail: `repos.${target}.role '${role}' not in the closed role vocabulary {${[...VALID_SURFACE_ROLES].join(", ")}}`,
+        });
+      } else {
+        results.push({
+          artifact: `repos.${target}.role`,
+          status: STATUS.PASS,
+          detail: `target role '${role}' valid (emit-lane subset selector)`,
+        });
+      }
+    }
+  }
+  if (results.length === 0) {
+    results.push({
+      artifact: "surface_roles",
+      status: STATUS.SKIP,
+      detail: "no surface_roles or repos.<t>.role entries declared",
     });
   }
   return { id, source_rule, results };
@@ -2743,6 +2910,7 @@ const CHECK_FNS = {
   "codex-policies-fresh": checkCodexPoliciesFresh,
   "variant-orphan": checkVariantOrphan,
   "allowlist-paths-coverage": checkAllowlistPathsCoverage,
+  "surface-role-membership": checkSurfaceRoleMembership,
 };
 
 function runChecks(root, only, opts) {
@@ -2924,6 +3092,10 @@ export {
   classifyVariantFile,
   listTrackedVariants,
   checkAllowlistPathsCoverage,
+  checkSurfaceRoleMembership,
+  parseSurfaceRoles,
+  parseReposRoles,
+  VALID_SURFACE_ROLES,
   parseSelfRefAllowlist,
   parsePathsFrontmatter,
   allowlistGlobCovers,

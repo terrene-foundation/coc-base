@@ -63,6 +63,17 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const BIN_DIR = path.resolve(SCRIPT_DIR, "..");
 const LOCAL_CONFIG_PATH = path.join(BIN_DIR, "loom-links.local.json");
 const EXAMPLE_PATH = path.join(BIN_DIR, "loom-links.local.example.json");
+// lib/ → bin/ → .claude/ → repo-root. The `.coc-role` fallback marker (D2)
+// lives at the repo root (open-decision #4 = repo-root-relative) so a
+// resolver-absent USE-CONSUMER — which has NO .claude/bin/ config — can still
+// declare its role.
+const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..", "..");
+
+// The closed ROLE vocabulary (D2). Lowercase, no synonyms, no fourth role. A
+// value outside this set is a loud config-error, never a silent guess. This is
+// the ONE membership-validated scalar in this module (everything else is
+// shape-validated) because the role vocabulary IS closed.
+export const VALID_ROLES = new Set(["platform", "build", "use-consumer"]);
 
 // ────────────────────────────────────────────────────────────────
 // Typed error
@@ -147,7 +158,7 @@ function resolveConfigPath() {
   throw new LinkError("not-configured", notConfiguredMessage());
 }
 
-let _cache = null; // { configPath, reposRoot, links, shards }
+let _cache = null; // { configPath, reposRoot, links, shards, role }
 
 function loadConfig() {
   const configPath = resolveConfigPath();
@@ -188,13 +199,80 @@ function loadConfig() {
       ? cfg.shards
       : null;
 
-  _cache = { configPath, reposRoot, links, shards };
+  // `role` is OPTIONAL (D2 — the ROLE-axis declaration: which role THIS clone
+  // is). Absent → null (back-compat: a pre-role config behaves byte-identically;
+  // the accessor decides). Present-but-out-of-enum → loud LinkError, matching
+  // the resolver's typed-error discipline.
+  const role = validateRole(cfg.role, rel(configPath));
+
+  _cache = { configPath, reposRoot, links, shards, role };
   return _cache;
 }
 
 /** Test/CLI hook — drop the memoized config so a changed env/file is re-read. */
 export function _resetCache() {
   _cache = null;
+}
+
+// ────────────────────────────────────────────────────────────────
+// ROLE axis (D2) — which role THIS clone is
+// ────────────────────────────────────────────────────────────────
+//
+// Precedence (NO silent guess): resolver `role:` (PRIMARY) → `.coc-role`
+// repo-root marker (FALLBACK, resolver-absent consumer) → null (doctor-inferred
+// is a Wave-3 ratified action, NOT here). See resolveRole() below.
+
+// Validate an OPTIONAL role scalar against the closed VALID_ROLES enum. Absent
+// (undefined / null) → null (back-compat). Present-but-invalid (wrong type or
+// out-of-enum, including "") → LinkError("config-error"), consistent with the
+// resolver's fail-loud discipline. `where` names the source for the message.
+function validateRole(role, where) {
+  if (role === undefined || role === null) return null;
+  if (typeof role !== "string" || !VALID_ROLES.has(role)) {
+    throw new LinkError(
+      "config-error",
+      `loom-links: invalid role ${JSON.stringify(role)} in ${where} — ` +
+        `must be one of {${[...VALID_ROLES].join(", ")}}`,
+    );
+  }
+  return role;
+}
+
+// The `.coc-role` fallback-marker path: $LOOM_COC_ROLE_MARKER (absolute
+// override — for tests + operators) → repo-root `.coc-role`. Computed at call
+// time so a test-set env var is honored. The absolute-path requirement mirrors
+// $LOOM_LINKS_CONFIG (resolveConfigPath): a relative override would resolve
+// against an arbitrary CWD (a footgun in a synced artifact), so it fails loud.
+function cocRoleMarkerPath() {
+  const env = process.env.LOOM_COC_ROLE_MARKER;
+  if (env && env.trim() !== "") {
+    if (!path.isAbsolute(env)) {
+      throw new LinkError(
+        "config-error",
+        `$LOOM_COC_ROLE_MARKER must be an absolute path (got: ${rel(env)})`,
+      );
+    }
+    return env;
+  }
+  return path.join(REPO_ROOT, ".coc-role");
+}
+
+// Read the repo-root `.coc-role` fallback marker (D2, open-decision #4). A
+// USE-CONSUMER legitimately has NO resolver config, so this marker is the role
+// anchor when loadConfig throws not-configured. Mirrors the ecosystem-config
+// absent-is-not-error contract: absent / empty → null (fall through), malformed
+// (out-of-enum token) → loud LinkError("config-error").
+function readCocRoleMarker() {
+  const markerPath = cocRoleMarkerPath();
+  let raw;
+  try {
+    raw = fs.readFileSync(markerPath, "utf8");
+  } catch {
+    return null; // absent → fall through (back-compat)
+  }
+  const token = raw.trim();
+  if (token === "") return null; // empty marker → treat as absent
+  return validateRole(token, rel(markerPath));
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -420,6 +498,38 @@ export function resolveAll() {
 }
 
 /**
+ * Resolve which ROLE this clone is (D2). Precedence (NO silent guess):
+ *   1. resolver `role:` in loom-links.local.json   — PRIMARY
+ *   2. `.coc-role` repo-root marker                 — FALLBACK (resolver-absent
+ *                                                     USE-CONSUMER)
+ *   3. null                                         — undeclared (doctor-inferred
+ *                                                     is a Wave-3 ratified action,
+ *                                                     NOT a runtime guess here)
+ *
+ * A resolver-absent clone (loadConfig → not-configured) FALLS THROUGH to the
+ * marker — a USE-CONSUMER has no config but may carry a marker. A malformed
+ * config OR an out-of-enum role value still propagates loud (LinkError
+ * "config-error"); ONLY "not-configured" falls through.
+ *
+ * Does NOT route through resolveAll/resolveRepo — those operate on the `links`
+ * map and would not surface a top-level scalar.
+ *
+ * @returns {"platform"|"build"|"use-consumer"|null}
+ */
+export function resolveRole() {
+  try {
+    const { role } = loadConfig();
+    if (role) return role;
+    // config present but no role: → fall through to the marker.
+  } catch (e) {
+    // Resolver-absent consumer → try the marker. Any OTHER LinkError
+    // (config-error / out-of-enum role) propagates loud.
+    if (!(e instanceof LinkError) || e.subtype !== "not-configured") throw e;
+  }
+  return readCocRoleMarker();
+}
+
+/**
  * repin-compatible shard resolution. Reads the OPTIONAL `shards` block:
  *   { "<label>": ["<rel/path>", ...], ... }
  * Each relative path is joined to reposRoot exactly as repin does.
@@ -484,4 +594,4 @@ export function configPath() {
   return resolveConfigPath();
 }
 
-export const _paths = { LOCAL_CONFIG_PATH, EXAMPLE_PATH, BIN_DIR };
+export const _paths = { LOCAL_CONFIG_PATH, EXAMPLE_PATH, BIN_DIR, REPO_ROOT };

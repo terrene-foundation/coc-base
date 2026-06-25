@@ -425,6 +425,18 @@ function writeSessionNotesAtomic(repoDir, identity) {
   //                                       merged via coc-ledger driver)
   // Both lands via atomic `.tmp.<pid>` + rename inside the layout lib.
   if (process.env.COC_TEST_WRITE_SESSION_NOTES !== "1") return;
+  // MO-OPT W1-e — opt-in gate (workspaces/multi-operator-optional, journal/0330).
+  // The per-operator split (.session-notes.d/<display_id>.md + the
+  // .session-notes.shared.md forest ledger) exists to solve the N-concurrent-
+  // writer clobber — a coordination-ON artifact. A solo repo (coordination
+  // OFF) writes a single tracked .session-notes (via /wrapup) and MUST NOT
+  // scatter multi-operator fragments + a forest ledger. Skip the split when
+  // OFF (the single-file form is the correct solo default, brief S1/S4). When
+  // ENABLED, the split write is byte-unchanged (S6).
+  const { isCoordinationEnabled } = require(
+    path.join(__dirname, "lib", "coordination-mode.js"),
+  );
+  if (!isCoordinationEnabled(repoDir)) return;
   try {
     const layout = require(
       path.join(__dirname, "lib", "session-notes-layout.js"),

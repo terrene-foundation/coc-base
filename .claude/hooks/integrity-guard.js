@@ -88,6 +88,9 @@ const { resolveMainCheckout } = require(
 const { isMutationTool, MUTATION_TOOLS } = require(
   path.join(__dirname, "lib", "tool-classes.js"),
 );
+const { isCoordinationEnabled } = require(
+  path.join(__dirname, "lib", "coordination-mode.js"),
+);
 
 function passthrough() {
   clearTimeout(fallback);
@@ -203,6 +206,15 @@ function isWatchedPath(absPath, repoDir) {
     ".claude/learning/posture.json",
     ".claude/learning/violations.jsonl",
     ".claude/learning/observations.jsonl",
+    // MO-OPT W1 (journal/0330, G1 R1 security HIGH defense-in-depth): the
+    // coordination-mode opt-in override. On an ENROLLED repo (coordination ON)
+    // a write to it off-codify is BLOCKED here — mirroring posture.json — so it
+    // cannot be silently flipped to disable the substrate. The predicate's
+    // asymmetric precedence already REFUSES a local {enabled:false} on an
+    // enrolled repo; this is the second layer (gate the write itself). On a solo
+    // repo (OFF) the W1-b gate above passes through, so a consumer may still set
+    // their local mode freely.
+    ".claude/learning/coordination-mode.json",
   ]);
   if (DIRECT.has(rel)) return { watched: true, rel };
   // Subtree hits.
@@ -351,6 +363,20 @@ function findCoveringLease(
     const wp = isWatchedPath(watch.targetPath, repoDir);
     if (!wp.watched) {
       // Unwatched path — silent passthrough.
+      passthrough();
+    }
+
+    // MO-OPT W1-b — opt-in gate (workspaces/multi-operator-optional, journal/0330).
+    // When the coordination substrate is DISABLED (a solo / fresh repo that
+    // never enrolled — no roster+genesis, no explicit switch), the entire
+    // codify-branch + lease fence is a no-op: a watched path is editable from
+    // any branch, exactly as on a single-writer repo. This fixes THE worst
+    // disruption (analysis §A): integrity-guard otherwise blocks every
+    // Edit/Write to journal/team-memory/learning/roster on main/feat/* with no
+    // coordination precondition. When ENABLED, everything below is byte-unchanged
+    // (the S6 invariant — this adds one early branch on the OFF path only).
+    // isCoordinationEnabled is synchronous and never throws into the guard.
+    if (!isCoordinationEnabled(repoDir)) {
       passthrough();
     }
 

@@ -100,7 +100,7 @@ The phrase "memory IS NOT ENOUGH" pinpoints the structural failure: an earlier a
 
 Three-layer defense was authored at commit `91c81ac4`:
 
-1. **Hook layer** (`.claude/hooks/coc-drift-warn.js`) — SessionStart hook that scans for working-tree drift under `.claude/**` and `scripts/hooks/**`, emits a loud "🚨 COC ARTIFACT DRIFT DETECTED" warning to the session's additional context. The hook is the structural enforcement: the warning fires every session start regardless of whether the agent reads any rule.
+1. **Hook layer** (`.claude/hooks/multi-operator-sessionstart.js`) — SessionStart hook that scans for working-tree drift under `.claude/**` and `scripts/hooks/**`, emits a loud "🚨 COC ARTIFACT DRIFT DETECTED" warning to the session's additional context (this drift-warner was previously the standalone `coc-drift-warn.js`, now subsumed per F13 closure). The hook is the structural enforcement: the warning fires every session start regardless of whether the agent reads any rule.
 2. **Rule layer** (`.claude/rules/coc-sync-landing.md`) — this rule. Linguistic complement; prescribes the exact action sequence the agent MUST take when the hook fires. Three MUST clauses cover: drift lands as PR #1; explicit-path staging; admin-merge per owner workflow.
 3. **Memory layer** (cross-session feedback memory) — third backstop. Captures the user's directive in language the agent can recall in any subsequent session even if the rule and hook are accidentally disabled.
 
@@ -108,7 +108,7 @@ The three layers are intentionally redundant. Each has a different failure mode:
 
 ## Cross-Rule Relationships
 
-- **`.claude/hooks/coc-drift-warn.js`** — structural enforcement (SessionStart loud warning). Pairing constraint: rule and hook MUST land in same /sync cycle. Distributing the rule without the hook leaves the rule as linguistic-only (no structural enforcement). Distributing the hook without the rule leaves the hook uncited (the warning text references rules/coc-sync-landing.md MUST Rule 1).
+- **`.claude/hooks/multi-operator-sessionstart.js`** — structural enforcement (SessionStart loud warning; the drift-warner formerly at `coc-drift-warn.js`, subsumed per F13 closure). Pairing constraint: rule and hook MUST land in same /sync cycle. Distributing the rule without the hook leaves the rule as linguistic-only (no structural enforcement). Distributing the hook without the rule leaves the hook uncited (the warning text references rules/coc-sync-landing.md MUST Rule 1).
 - **`rules/artifact-flow.md`** — upstream contract. BUILD repos receive deliveries via /sync-to-build but do NOT sync directly to anywhere. This rule prescribes the LANDING discipline on the BUILD side after the inbound delivery completes.
 - **`rules/git.md` § Branch Protection** — admin-merge workflow precedent. The `gh pr merge --admin --merge --delete-branch` pattern in MUST Rule 3 is the same owner-bypass pattern documented there for chore-class PRs.
 - **`rules/git.md` § Pre-FIRST-Push CI Parity Discipline** — does NOT apply to `.claude/**`-only diffs. The Rust pre-flight (`cargo +nightly fmt --all --check + cargo clippy + cargo nextest run + cargo doc`) and Python pre-flight (`pre-commit run --all-files + pytest + mypy`) are required for source-touching PRs. COC-sync PRs auto-skip the matrix per workflow path filters; CI green is instantaneous; pre-flighting is unnecessary.

@@ -31,6 +31,24 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO = path.resolve(__dirname, "..", "..", "..");
 
+// Symlink-safe read (O_RDONLY|O_NOFOLLOW, leaf-only guard). loadManifestVariants
+// is reached from every emit producer via composeArtifactBody → resolveOverlay,
+// so its sync-manifest.yaml read is part of the #569 emit-lane source-read class:
+// a symlink swapped for the manifest between resolution and read raises ELOOP
+// instead of being silently followed. Local mirror of the emit.mjs/compose.mjs
+// helper (variant-overlay imports no coc-manifest — a shared import would cycle).
+function safeReadFileSync(filePath, encoding) {
+  const fd = fs.openSync(
+    filePath,
+    fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
+  );
+  try {
+    return fs.readFileSync(fd, encoding);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 // Memoized parse — manifest does not change during one process run.
 let _manifestVariants = null;
 
@@ -51,7 +69,7 @@ export function loadManifestVariants() {
   if (_manifestVariants !== null) return _manifestVariants;
 
   const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
-  const src = fs.readFileSync(manifestPath, "utf8");
+  const src = safeReadFileSync(manifestPath, "utf8");
 
   // Extract the `variants:` block until the next top-level key OR EOF.
   // The `(?![\s\S])` (end-of-input) alternative protects against the failure

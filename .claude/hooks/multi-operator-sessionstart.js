@@ -598,6 +598,25 @@ function detectOwnerActionAudit(roster, foldedState) {
           : ` (source=${operativeRes.source})`),
     );
 
+    // Coordination-mode tamper/ambiguity surface (MO-OPT W1 G1 R2). When a
+    // security-relevant coordination-mode warning is present — a REFUSED
+    // enrolled-disable (a planted local-override {enabled:false} on this enrolled
+    // repo) or an indeterminate-enrollment OFF — surface it advisory so the
+    // disposition is NOT silent. The predicate's warning rides the rich result
+    // of coordinationMode(); the ergonomic isCoordinationEnabled() boolean the
+    // guards call discards it, so session-start is the operator-facing surface.
+    try {
+      const { coordinationMode } = require(
+        path.join(__dirname, "lib", "coordination-mode.js"),
+      );
+      const cm = coordinationMode(PROJECT_DIR);
+      if (cm && cm.warning) {
+        lines.push(`⚠️  coordination-mode (${cm.source}): ${cm.warning}`);
+      }
+    } catch {
+      // advisory surface only; never block session-start
+    }
+
     // 6. Peer ref-regression + genesis-generation partition (advisory line)
     if (partition && partition.partitioned) {
       lines.push(

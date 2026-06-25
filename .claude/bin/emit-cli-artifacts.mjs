@@ -69,12 +69,16 @@ import path from "node:path";
 import {
   REPO,
   safeWriteFileSync,
+  safeReadFileSync,
   matchesAnyGlob,
   loadExclusions,
   loadLoomOnly,
   loadTiers,
   loadTargetTierSubscriptions,
   loadTargetVariant,
+  loadTargetRole,
+  loadSurfaceRoles,
+  surfaceRolesAllow,
   buildTierFilter,
   composeArtifactBody,
   walkFiles,
@@ -148,7 +152,7 @@ function tomlLiteralEscape(body) {
   return body.replace(/'''/g, "''′'"); // U+2032 ′ — visually near but not a quote
 }
 
-function emitCommands({ outDir, exclusions, tierFilter, loomOnly, lang, verbose }) {
+function emitCommands({ outDir, exclusions, tierFilter, loomOnly, surfaceRoles, targetRole, lang, verbose }) {
   const srcDir = path.join(REPO, ".claude", "commands");
   if (!fs.existsSync(srcDir)) {
     return { codex: 0, gemini: 0, skipped: 0 };
@@ -164,6 +168,15 @@ function emitCommands({ outDir, exclusions, tierFilter, loomOnly, lang, verbose 
     // F104 loom-only filter: positive never-sync declaration. Skip for
     // EVERY target, BEFORE tier classification.
     if (loomOnly && matchesAnyGlob(manifestRel, loomOnly)) {
+      stats.skipped++;
+      continue;
+    }
+
+    // W3-d surface_roles filter (deferred W2-c tail): positive per-artifact
+    // role restriction. Skip when the TARGET's role is not in the artifact's
+    // declared surface_roles. Default-surfaced (no entry) OR null targetRole
+    // (py/rs, no --target) → keep (back-compat). Sibling of loom_only, BEFORE tiers.
+    if (!surfaceRolesAllow(surfaceRoles, manifestRel, targetRole)) {
       stats.skipped++;
       continue;
     }
@@ -232,7 +245,7 @@ function emitCommands({ outDir, exclusions, tierFilter, loomOnly, lang, verbose 
 // live under the skill dir and are loaded on demand. We copy the WHOLE
 // skill directory (not just SKILL.md) so the sub-file references in
 // SKILL.md resolve when the CLI reads them.
-function emitSkills({ outDir, exclusions, tierFilter, loomOnly, lang, verbose }) {
+function emitSkills({ outDir, exclusions, tierFilter, loomOnly, surfaceRoles, targetRole, lang, verbose }) {
   const srcDir = path.join(REPO, ".claude", "skills");
   if (!fs.existsSync(srcDir)) return { codex: 0, gemini: 0, skipped: 0 };
 
@@ -250,6 +263,12 @@ function emitSkills({ outDir, exclusions, tierFilter, loomOnly, lang, verbose })
     // matching a loom_only prefix glob (skills/<n>/** or skills/<n>/SKILL.md)
     // is skipped for both CLIs, BEFORE tier classification.
     if (loomOnly && matchesAnyGlob(manifestRel, loomOnly)) {
+      stats.skipped += 2; // skipped for both CLIs
+      continue;
+    }
+
+    // W3-d surface_roles filter (deferred W2-c tail): sibling of loom_only.
+    if (!surfaceRolesAllow(surfaceRoles, manifestRel, targetRole)) {
       stats.skipped += 2; // skipped for both CLIs
       continue;
     }
@@ -323,7 +342,7 @@ function emitSkillTreeWithOverlays({ skillName, skillSrc, skillOut, cli, lang })
     }
     // Fallback: byte copy (destination keeps original relPath).
     const outFile = path.join(skillOut, relPath);
-    const data = fs.readFileSync(absPath);
+    const data = safeReadFileSync(absPath);
     safeWriteFileSync(outFile, data);
   }
 }
@@ -512,7 +531,7 @@ function mdCell(s) {
 // emitter does not rely on that ordering for correctness — it skips the same
 // rules on its own. Contract-failure + missing-frontmatter skips are COUNTED and
 // surfaced (never silent per zero-tolerance Rule 3) so a standalone run flags them.
-function buildRulesReferenceIndex({ tierFilter, loomOnly, exclusions }) {
+function buildRulesReferenceIndex({ tierFilter, loomOnly, surfaceRoles, targetRole, exclusions }) {
   const rulesDir = path.join(REPO, ".claude", "rules");
   if (!fs.existsSync(rulesDir))
     return { skillMd: null, rules: [], skippedContractFail: 0, skippedNoFrontmatter: 0 };
@@ -528,9 +547,11 @@ function buildRulesReferenceIndex({ tierFilter, loomOnly, exclusions }) {
     const relPath = `rules/${file}`;
     // loom-only rules never ship to any consumer.
     if (loomOnly && matchesAnyGlob(relPath, loomOnly)) continue;
+    // W3-d surface_roles filter (deferred W2-c tail): sibling of loom_only.
+    if (!surfaceRolesAllow(surfaceRoles, relPath, targetRole)) continue;
     // tier-subscription filter (null = full/dogfood emit → include all).
     if (tierFilter && !matchesAnyGlob(relPath, tierFilter)) continue;
-    const content = fs.readFileSync(path.join(rulesDir, file), "utf8");
+    const content = safeReadFileSync(path.join(rulesDir, file), "utf8");
     const fm = content.match(/^---\n([\s\S]*?)\n---/);
     if (!fm) {
       // emit.mjs Validator 14 is the hard gate on missing frontmatter; count
@@ -601,11 +622,13 @@ ${rules.length} path-scoped rule${rules.length === 1 ? "" : "s"} indexed.
 
 // Emit the rules-reference skill to both lanes' output trees (the --cli filter's
 // post-hoc tree deletion in main() drops the unwanted lane, mirroring emitSkills).
-function emitRulesReferenceSkill({ outDir, exclusions, tierFilter, loomOnly, verbose }) {
+function emitRulesReferenceSkill({ outDir, exclusions, tierFilter, loomOnly, surfaceRoles, targetRole, verbose }) {
   const stats = { codex: 0, gemini: 0, rules: 0, skippedContractFail: 0, skippedNoFrontmatter: 0 };
   const { skillMd, rules, skippedContractFail, skippedNoFrontmatter } = buildRulesReferenceIndex({
     tierFilter,
     loomOnly,
+    surfaceRoles,
+    targetRole,
     exclusions,
   });
   stats.skippedContractFail = skippedContractFail;
@@ -825,7 +848,7 @@ const CODEX_AGENT_STRUCTURAL_EXCLUSIONS = [
 // (interactive only), (c) headless fallback (use pattern a). The file
 // is loaded into context on demand via inline-cat injection — no
 // baseline-context cap pressure.
-function emitCodexAgentPrompts({ outDir, exclusions, tierFilter, loomOnly, lang, verbose }) {
+function emitCodexAgentPrompts({ outDir, exclusions, tierFilter, loomOnly, surfaceRoles, targetRole, lang, verbose }) {
   const srcDir = path.join(REPO, ".claude", "agents");
   if (!fs.existsSync(srcDir)) return { codex: 0, skipped: 0 };
 
@@ -840,6 +863,11 @@ function emitCodexAgentPrompts({ outDir, exclusions, tierFilter, loomOnly, lang,
     const manifestRel = `agents/${relPath}`;
     // F104 loom-only filter: positive never-sync declaration, BEFORE tier.
     if (loomOnly && matchesAnyGlob(manifestRel, loomOnly)) {
+      stats.skipped++;
+      continue;
+    }
+    // W3-d surface_roles filter (deferred W2-c tail): sibling of loom_only.
+    if (!surfaceRolesAllow(surfaceRoles, manifestRel, targetRole)) {
       stats.skipped++;
       continue;
     }
@@ -858,7 +886,7 @@ function emitCodexAgentPrompts({ outDir, exclusions, tierFilter, loomOnly, lang,
     // overlay tree exists for `codex` axis today, but the call shape
     // mirrors emitGeminiAgents for future-proofing).
     const composedResult = composeArtifactBody("agents", relPath, "codex", lang);
-    const source = composedResult ? composedResult.body : fs.readFileSync(absPath, "utf8");
+    const source = composedResult ? composedResult.body : safeReadFileSync(absPath, "utf8");
     const { frontmatter, body } = parseFrontmatter(source);
     const baseName = frontmatter.name || path.basename(relPath, ".md");
     // Strip redundant trailing "-specialist" for cleaner specialist-<x> filename
@@ -920,7 +948,7 @@ function emitCodexAgentPrompts({ outDir, exclusions, tierFilter, loomOnly, lang,
   return stats;
 }
 
-function emitGeminiAgents({ outDir, exclusions, tierFilter, loomOnly, lang, verbose }) {
+function emitGeminiAgents({ outDir, exclusions, tierFilter, loomOnly, surfaceRoles, targetRole, lang, verbose }) {
   const srcDir = path.join(REPO, ".claude", "agents");
   if (!fs.existsSync(srcDir)) return { gemini: 0, skipped: 0 };
 
@@ -935,6 +963,11 @@ function emitGeminiAgents({ outDir, exclusions, tierFilter, loomOnly, lang, verb
     const manifestRel = `agents/${relPath}`;
     // F104 loom-only filter: positive never-sync declaration, BEFORE tier.
     if (loomOnly && matchesAnyGlob(manifestRel, loomOnly)) {
+      stats.skipped++;
+      continue;
+    }
+    // W3-d surface_roles filter (deferred W2-c tail): sibling of loom_only.
+    if (!surfaceRolesAllow(surfaceRoles, manifestRel, targetRole)) {
       stats.skipped++;
       continue;
     }
@@ -953,7 +986,7 @@ function emitGeminiAgents({ outDir, exclusions, tierFilter, loomOnly, lang, verb
     // .claude/agents/ for the same target. Without this, .gemini/agents/
     // ships globals while .claude/agents/ ships variant-composed bodies.
     const composedResult = composeArtifactBody("agents", relPath, "gemini", lang);
-    const source = composedResult ? composedResult.body : fs.readFileSync(absPath, "utf8");
+    const source = composedResult ? composedResult.body : safeReadFileSync(absPath, "utf8");
     const { frontmatter, body } = parseFrontmatter(source);
     const name = frontmatter.name || path.basename(relPath, ".md");
     const description = frontmatter.description || `${name} specialist`;
@@ -1016,6 +1049,8 @@ function main() {
   const onlyCli = args.cli; // null = both
   const exclusions = loadExclusions();
   const loomOnly = loadLoomOnly(); // F104 — positive never-sync globs (all targets)
+  const surfaceRoles = loadSurfaceRoles(); // W3-d — per-artifact positive role restriction
+  const targetRole = loadTargetRole(args.target); // null when --target absent OR role unset (py/rs)
   const tierFilter = buildTierFilter(args.target); // null when --target absent
   const lang = loadTargetVariant(args.target); // null when --target absent or variant unset
   const outDir = path.resolve(args.out);
@@ -1027,6 +1062,9 @@ function main() {
     console.log(`Exclusions (codex): ${exclusions.codex.length} globs`);
     console.log(`Exclusions (gemini): ${exclusions.gemini.length} globs`);
     console.log(`Loom-only (all targets): ${loomOnly.length} globs`);
+    console.log(
+      `Surface-roles: ${Object.keys(surfaceRoles).length} declared; target role=${targetRole || "(unset → full emission)"}`,
+    );
     if (tierFilter) {
       const subs = loadTargetTierSubscriptions(args.target);
       console.log(
@@ -1039,17 +1077,17 @@ function main() {
   }
 
   const report = {
-    commands: emitCommands({ outDir, exclusions, tierFilter, loomOnly, lang, verbose: args.verbose }),
-    skills: emitSkills({ outDir, exclusions, tierFilter, loomOnly, lang, verbose: args.verbose }),
-    rulesReference: emitRulesReferenceSkill({ outDir, exclusions, tierFilter, loomOnly, verbose: args.verbose }),
+    commands: emitCommands({ outDir, exclusions, tierFilter, loomOnly, surfaceRoles, targetRole, lang, verbose: args.verbose }),
+    skills: emitSkills({ outDir, exclusions, tierFilter, loomOnly, surfaceRoles, targetRole, lang, verbose: args.verbose }),
+    rulesReference: emitRulesReferenceSkill({ outDir, exclusions, tierFilter, loomOnly, surfaceRoles, targetRole, verbose: args.verbose }),
     codexAgentPrompts:
       onlyCli === "gemini"
         ? { codex: 0, skipped: 0 }
-        : emitCodexAgentPrompts({ outDir, exclusions, tierFilter, loomOnly, lang, verbose: args.verbose }),
+        : emitCodexAgentPrompts({ outDir, exclusions, tierFilter, loomOnly, surfaceRoles, targetRole, lang, verbose: args.verbose }),
     geminiAgents:
       onlyCli === "codex"
         ? { gemini: 0, skipped: 0 }
-        : emitGeminiAgents({ outDir, exclusions, tierFilter, loomOnly, lang, verbose: args.verbose }),
+        : emitGeminiAgents({ outDir, exclusions, tierFilter, loomOnly, surfaceRoles, targetRole, lang, verbose: args.verbose }),
   };
 
   // Apply --cli filter after the fact: if onlyCli is set, delete the

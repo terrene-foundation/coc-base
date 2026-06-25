@@ -24,6 +24,22 @@ import path from "node:path";
 
 import { applyOverlay } from "./lib/slot-parser.mjs";
 
+// Symlink-safe read (O_RDONLY|O_NOFOLLOW, leaf-only guard). An artifact-source
+// file swapped for a symlink between the existsSync probe and the read raises
+// ELOOP instead of silently reading the attacker's target (#569 sibling-site
+// sweep — the compose-source twin of emit.mjs / coc-manifest.mjs).
+function safeReadFileSync(filePath, encoding) {
+  const fd = fs.openSync(
+    filePath,
+    fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
+  );
+  try {
+    return fs.readFileSync(fd, encoding);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 // realpath an existing path (resolves the macOS /var → /private/var and
 // /tmp → /private/tmp symlinks); falls back to the lexical path when the
 // target does not yet exist.
@@ -130,8 +146,8 @@ function main() {
     process.exit(2);
   }
 
-  const globalSrc = fs.readFileSync(globalPath, "utf8");
-  const overlaySrc = fs.readFileSync(overlayPath, "utf8");
+  const globalSrc = safeReadFileSync(globalPath, "utf8");
+  const overlaySrc = safeReadFileSync(overlayPath, "utf8");
   let result;
   try {
     result = applyOverlay(globalSrc, overlaySrc);

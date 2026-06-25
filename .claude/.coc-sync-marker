@@ -1,16 +1,16 @@
 # COC Sync Marker — coc-base (base lane, multi-CLI)
-timestamp: 2026-06-23T00:00:00Z
+timestamp: 2026-06-25T00:00:00Z
 source: loom/.claude
-loom_sha: f7c236d
+loom_sha: 8197257
 variant: base
 clis: [claude, codex, gemini]
 visibility: public
 stats:
-  copied: 940
+  copied: 943
   variant_only: 0
   overlay_applied: 1
   verify_failures: 0
-  purged: 0
+  purged: 1            # commands/cli-audit.md (Step-4.5 BOTH-halves purge)
   preserved: [CLAUDE.md, .proposals/, learning/, settings.local.json, dev-container-scaffold]
   baselines_emitted:
     cc: 0          # CLAUDE.md preserved, not emitted
@@ -20,13 +20,31 @@ stats:
     block_cap_bytes: 61440
     warn_cap_bytes: 32768
     headroom_floor_pct: 10
-    codex: { tier: WARN, bytes: 53128, headroom_pct: 13.53 }
-    gemini: { tier: WARN, bytes: 53134, headroom_pct: 13.52 }
+    codex: { tier: WARN, bytes: 52479, headroom_pct: 14.58 }
+    gemini: { tier: WARN, bytes: 52485, headroom_pct: 14.58 }
   cli_artifacts:
-    codex: { prompts: 18, skills: 11, agent_prompts: 5 }
-    gemini: { commands: 18, skills: 11, agents: 5 }
+    codex: { prompts: 22, skills: 12 }
+    gemini: { commands: 17, skills: 12, agents: 5 }
   rules_reference_skill: { codex: 1, gemini: 1, path_scoped_rules_indexed: 30 }
   codex_dispatcher: { bin_coc: 1, phase_shims: 28 }
-  coc_unified: { artifacts: 80, files: 82, version: "1.0.0" }
+  coc_unified: { artifacts: 79, files: 81, version: "1.0.0" }
   mcp_guard: { policies_populated: false }
-note: loom@f7c236d redistribution (base multi-CLI, loom 2.45.0 unchanged — c1e52a62..f7c236d catch-up). Base tiers=[cc,co,onboarding]; coc-tier excluded by design (no_tier_match=538). 940 copied (14 content-equal after BUILD-internal strip, 926 byte-equal), 1 base overlay byte-equal, 0 purged. CLI artifact counts reflect tier-filtered base emission (NOT prior marker's 38/31/21, which were a different counting basis); current on-disk pre-sync was 21/10 codex prompts/skills, this emit grows it with loom's maintain.md + 43-ecosystem-init + 44-enroll additions.
+note: |
+  loom@8197257 Gate-2 distribution (base multi-CLI, loom 2.45.0 unchanged — f7c236d..8197257).
+  HEADLINE: MO-OPT W1 — multi-operator coordination substrate made OPT-IN (journal/0330 + 0331).
+  W1 lives in tier-independent .claude/hooks/** so it ships to the base lane: new lib
+  hooks/lib/coordination-mode.js (isCoordinationEnabled 5-tier precedence predicate);
+  isCoordinationEnabled early-return-to-passthrough hoists in integrity-guard.js +
+  journal-write-guard.js + signing-mutation-guard.js + hooks/lib/codify-lease.js +
+  hooks/lib/operator-id.js; top-level hook adjacency-leasecheck.js. Un-enrolled non-Kailash
+  base consumers now get clean passthrough vs the prior unconditional-guard disruption.
+  Base tiers=[cc,co,onboarding]; coc-tier excluded by design (no_tier_match=538). 943 copied
+  (13 content-equal after BUILD-internal strip, 930 byte-equal), 1 base overlay byte-equal,
+  purged=1 (commands/cli-audit.md via Step-4.5 BOTH-halves purge; remaining 65 obsoleted-union
+  paths absent). Full multi-CLI re-emit: AGENTS.md + GEMINI.md baselines (codex/gemini WARN,
+  14.58% headroom each, >13% flag threshold); .codex/ prompts=22 skills=12 + config;
+  .gemini/ commands=17 skills=12 agents=5 + settings; bin/coc + 28 phase shims;
+  .codex-mcp-guard distributed; .claude/codex-mcp-guard symlink + sync-manifest.yaml manifest
+  distributed; unified .coc/ (79 artifacts, 81 files). .coc-obsoleted regenerated (66 entries =
+  union obsoleted + use_obsoleted). build:null — no SDK pins. W1-landing verification:
+  coordination-mode.js present + isCoordinationEnabled grep in integrity-guard.js — PASS.

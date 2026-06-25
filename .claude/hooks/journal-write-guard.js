@@ -97,6 +97,9 @@ const { isMutationTool } = require(
 const { checkAuthorBacking } = require(
   path.join(__dirname, "lib", "provenance-author-backing.js"),
 );
+const { isCoordinationEnabled } = require(
+  path.join(__dirname, "lib", "coordination-mode.js"),
+);
 
 function passthrough() {
   clearTimeout(fallback);
@@ -335,6 +338,20 @@ function extractFrontmatterAuthor(content) {
         user_summary: `journal-write-guard — BLOCK on existing journal file ${wp.rel}`,
       });
       // emit() exits
+    }
+
+    // MO-OPT W1-c — opt-in gate (workspaces/multi-operator-optional, journal/0330).
+    // The append-only BLOCK above is mode-independent (journal.md forbids
+    // overwriting an entry on a solo repo too), so it stays ABOVE this gate.
+    // Everything below — the slot-reservation FOLD check, the sibling
+    // discrimination, the author-backing verifiability layer — is the
+    // coordination substrate. On a solo / fresh repo (coordination OFF), solo
+    // journal numbering is race-free via pure reserveJournalSlot (fs
+    // high-water), there are no siblings, and the provenance ledger is absent —
+    // so the fold check would halt-and-report "slot unreserved" on every solo
+    // journal write (analysis gate #2). Skip it. When ENABLED, byte-unchanged.
+    if (!isCoordinationEnabled(repoDir)) {
+      passthrough();
     }
 
     // (2) Registry checks against the folded coordination log.

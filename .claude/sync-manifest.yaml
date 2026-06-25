@@ -924,7 +924,11 @@ tiers:
     - commands/start.md
     - commands/autonomize.md
     - commands/sweep.md
-    - commands/cli-audit.md
+    # commands/cli-audit.md MOVED to loom_only (leak fix 2026-06-23): it audits loom's OWN
+    # multi-CLI EMISSION PIPELINE (source rules → slot overlays → per-CLI target files) and
+    # dispatches the loom-only cc/codex/gemini-architect agents — a consumer has neither the
+    # source pipeline nor those architects. It shipped to cc (co tier) + codex/gemini
+    # (emit-cli-artifacts emits any command not in loom_only). loom_only + obsoleted ×3.
     - commands/posture.md
     # commands/posture.md added to co tier (Loom-D, 2026-05-06): trust posture
     # is governance per CARE Principle 7 — applies to every project regardless
@@ -1025,7 +1029,8 @@ tiers:
     # was Terrene-internal brand/license-labeling/anti-derivative messaging,
     # which is not a codegen-orchestration concern for non-Terrene consumers.
     # Multi-CLI orchestration agents (Phase E5, 2026-04-22; tier-classified 2026-05-06)
-    # commands/cli-audit.md is in `co` tier above (added with posture.md).
+    # commands/cli-audit.md MOVED to loom_only (leak fix 2026-06-23) — it audits loom's OWN
+    # multi-CLI emission pipeline + dispatches the loom-only architects; see loom_only + obsoleted.
     - agents/cli-orchestrator.md
     - agents/codex-architect.md
     - agents/gemini-architect.md
@@ -1153,10 +1158,13 @@ tiers:
     - rules/ui-backend-defense.md
     - commands/release.md
     - commands/sync.md # DEPRECATED stub (D8 2026-06-15) — removed next cycle; redirects to /sync-from-*
-    - commands/sync-from-build.md # D8: loom inbound — BUILD stream (Gate-1)
-    - commands/sync-from-use.md # D8: loom inbound — USE-template stream (Gate-1)
-    - commands/sync-from-downstream.md # D8: USE-template inbound — downstream upflow inbox
-    - commands/sync-from-template.md # D8: downstream-consumer inbound — pull from template
+    # commands/sync-from-build.md + commands/sync-from-use.md MOVED to loom_only (leak fix 2026-06-23):
+    # both are loom's OWN Gate-1 inbound ingest verbs (loom ingests the BUILD + USE-template proposal
+    # streams) — a downstream BUILD/USE consumer never runs them. They reached cc/codex/gemini consumers
+    # via this coc tier since D8 (2026-06-15); removed here so loom_only is their single source of truth +
+    # obsoleted purges the stale copies. sync-from-downstream/template STAY (consumer-run verbs).
+    - commands/sync-from-downstream.md # D8: USE-template inbound — downstream upflow inbox (USE templates RUN this → ships)
+    - commands/sync-from-template.md # D8: downstream-consumer inbound — pull from template (consumers RUN this → ships)
     - commands/migrate.md
     - commands/ai.md
     - commands/api.md
@@ -2250,6 +2258,32 @@ variant_only:
 #     VERSION (typically two release cycles), the entry MAY be removed
 #     from this list — but the `obsoleted:` section itself stays.
 obsoleted:
+  # ── loom-only sync-from-* leak purge (2026-06-23) ──────────────────────────
+  # commands/sync-from-build.md + commands/sync-from-use.md are loom's OWN Gate-1
+  # inbound ingest verbs (moved to loom_only above). They reached cc + codex + gemini
+  # consumers via the `coc` tier since D8 (2026-06-15). loom_only stops re-emitting;
+  # these entries purge the already-distributed stale copies from every consumer
+  # (the F104 pattern: loom_only suppresses, obsoleted purges). ×3 emission paths each.
+  - .claude/commands/sync-from-build.md # why: loom-only Gate-1 BUILD-stream ingest verb leaked to consumers via the coc tier (D8 2026-06-15); purge the stale cc copy. Consumers never run loom's inbound ingest.
+  - .codex/prompts/sync-from-build.md # why: paired Codex emission of the leaked sync-from-build.md; emit-cli-artifacts.mjs no longer emits it (loom_only) — purge the stale copy.
+  - .gemini/commands/sync-from-build.toml # why: paired Gemini emission of the leaked sync-from-build.md; purge the stale copy.
+  - .claude/commands/sync-from-use.md # why: loom-only Gate-1 USE-template-stream ingest verb leaked to consumers via the coc tier (D8 2026-06-15); purge the stale cc copy. Sibling of sync-from-build.md above.
+  - .codex/prompts/sync-from-use.md # why: paired Codex emission of the leaked sync-from-use.md; purge the stale copy.
+  - .gemini/commands/sync-from-use.toml # why: paired Gemini emission of the leaked sync-from-use.md; purge the stale copy.
+  # ── additional loom-orchestration leak purge (2026-06-23, "what OTHER loom only commands did you leak?") ──
+  # cli-audit shipped to cc (co tier) + codex + gemini → ×3. inspect/repos/settings were exclude-fenced from
+  # the cc lane but leaked to codex + gemini (emit-cli-artifacts ignores exclude:) → ×2 (codex+gemini only).
+  - .claude/commands/cli-audit.md # why: loom-only multi-CLI emission-pipeline audit leaked to cc consumers via the co tier; purge the stale cc copy.
+  - .codex/prompts/cli-audit.md # why: paired Codex emission of the leaked cli-audit; purge.
+  - .gemini/commands/cli-audit.toml # why: paired Gemini emission of the leaked cli-audit; purge.
+  - .codex/prompts/inspect.md # why: loom-only cross-repo inspection verb leaked to codex consumers (exclude: fenced cc only, not codex/gemini); purge.
+  - .gemini/commands/inspect.toml # why: paired Gemini emission of the leaked inspect; purge.
+  - .codex/prompts/repos.md # why: loom-only ecosystem repo-list verb leaked to codex consumers; purge.
+  - .gemini/commands/repos.toml # why: paired Gemini emission of the leaked repos; purge.
+  - .codex/prompts/settings.md # why: loom-only settings-management verb leaked to codex consumers; purge.
+  - .gemini/commands/settings.toml # why: paired Gemini emission of the leaked settings; purge.
+  - .codex/prompts/test-harness-probe.md # why: loom-only harness-probe orchestrator leaked to codex consumers (exclude:-MINUS-loom_only residual); purge.
+  - .gemini/commands/test-harness-probe.toml # why: paired Gemini emission of the leaked test-harness-probe; purge.
   - scripts/hooks/ # why: COC hooks consolidated under .claude/hooks/ in v2.9.1 (Anthropic-documented location). The prior scripts/hooks/ directory is no longer COC-managed and must not be left as dead code in any consumer.
   - .claude/scripts/ # why: legacy sibling of .claude/hooks/ from a transitional layout — never authoritative; leftover in legacy USE templates from pre-v2.9.1 syncs.
   - scripts/resolve-template.js # why: legacy shim that required ./hooks/lib/template-resolver — the require path no longer exists after the consolidation. Replaced by .claude/bin/resolve-template.js (canonical) in v2.9.1.
@@ -2326,6 +2360,18 @@ obsoleted:
 loom_only:
   - commands/sync-to-use.md # why: Gate-2 distribution command (sync-upflow D1 split) — a distribution command leaking to consumers would instruct them to redistribute; loom_only converts the exclude: denylist fence into the validate-emit BLOCK guard.
   - commands/sync-to-build.md # why: BUILD-distribution sibling — same outbound-command class as sync-to-use.md above.
+  - commands/sync-from-build.md # why: loom's OWN Gate-1 inbound ingest verb (loom ingests the BUILD proposal stream) — a downstream BUILD/USE consumer never runs it. Was accidentally in `coc` tier (synced to cc/codex/gemini consumers since D8 2026-06-15); removed from `coc` at the 2026-06-23 leak fix so loom_only is the single source of truth (+ obsoleted purges the stale copies). Same inbound-ingest class as the sync-to-* outbound siblings above.
+  - commands/sync-from-use.md # why: loom's OWN Gate-1 inbound ingest verb (loom ingests the USE-template proposal stream) — sibling of sync-from-build.md above; same coc-tier-leak fix 2026-06-23. (sync-from-downstream/template are NOT here — they are consumer-RUN verbs that correctly ship.)
+  - commands/govern.md # why: loom platform-governance ORIGINATION command (O1 / co-owner-directed lane, W2-d / onboarding-portability ROLE axis). It is platform-role — only loom originates governance/compliance artifacts directly; a BUILD/USE consumer never runs it. The artifacts /govern ORIGINATES distribute normally via the co/coc tiers; the COMMAND itself stays loom-only (DISTRIBUTE ≠ SURFACE). Same loom-own-verb class as the sync-* siblings above.
+  # ── additional loom-orchestration leaks found answering "what OTHER loom only commands did you leak?" (2026-06-23) ──
+  # These shipped to codex/gemini consumers because emit-cli-artifacts emits any command NOT in loom_only;
+  # the `exclude:` block below only fences the cc /sync-to-use lane (sync-tier-aware), NOT the codex/gemini lane.
+  # Verified leaking via `emit-cli-artifacts --cli codex|gemini`. All are loom-orchestration verbs a consumer cannot run.
+  - commands/cli-audit.md # why: audits loom's OWN multi-CLI emission pipeline (source→overlays→per-CLI targets) + dispatches loom-only cc/codex/gemini-architects. Was in the `co` tier (shipped cc+codex+gemini); removed from `co` at this leak fix. obsoleted ×3.
+  - commands/inspect.md # why: cross-repo loom-ecosystem inspection / drift detection (CLAUDE.md: loom management; backed by loom-only repo-ops). Was exclude-only (cc-fenced) but leaked to codex/gemini. obsoleted ×2 (codex+gemini; never reached cc).
+  - commands/repos.md # why: lists repositories under the loom/ ecosystem — orchestration-root only (CLAUDE.md: loom management). Was exclude-only; leaked to codex/gemini. obsoleted ×2.
+  - commands/settings.md # why: Claude Code settings across loom global/project (CLAUDE.md: loom-only settings-manager). Was exclude-only; leaked to codex/gemini. obsoleted ×2.
+  - commands/test-harness-probe.md # why: loom-only orchestrator for `.claude/test-harness/` probe scoring (body line 8 self-declares "Loom-only"; consumers don't run the harness). Was exclude-only (cc-fenced) but leaked to codex/gemini — the exclude:-MINUS-loom_only residual the self-ref gate's exhaustive set-difference surfaced. obsoleted ×2 (codex+gemini; never reached cc).
   - agents/management/coc-sync.md # why: Gate-2 distributor — loom-only orchestration; CLAUDE.md "Management (loom-only, excluded from sync)".
   - agents/management/sync-reviewer.md # why: Gate-1 BUILD-repo review/classify — loom-only orchestration.
   - agents/management/repo-ops.md # why: cross-repo inspection / drift / bulk git — loom-only orchestration.
@@ -2337,6 +2383,62 @@ loom_only:
   - disclosure-tenant-denylist.json # why: customer-identity / tenant token list the Gate-2 disclosure scanner (bin/scan-synced-disclosure.mjs `customer-identity-token` shape) flags against the SYNCED surface. TOP-LEVEL .claude/ file (NOT under bin/**) so it sits outside every synced-tier glob — this positive loom_only entry keeps it out of /sync without tripping loom-only-mutual-exclusion. The literal tokens must never reach a consumer (a consumer greps the synced scanner/list source → the leak the shape exists to prevent). At a consumer the file is absent → the shape is inert. loom-only per journal/0214 (loom#411 governance-as-DNA disclosure scrub).
   - public-release/ # why: loom-only source dir for the PUBLIC-FORK pipeline (scripts/publish-to-public.mjs) — holds the public README + Apache-2.0 LICENSE the pipeline copies into the terrene-foundation/loom snapshot. NOT framework a COC consumer uses; loom-internal publish machinery (same class as agents/management/*). Top-level .claude/ dir outside every synced-tier glob, so this loom_only entry keeps it out of /sync without tripping loom-only-mutual-exclusion. loom-only per journal/0215 (public-fork lane).
   - bin/ecosystem.json # why: the D6 ecosystem-shared remote-links + registry + vcs + deploy + upstream-canon registry (ECO-IMPL W1). Carries the REAL per-ecosystem org slugs by design; it is COMMITTED-and-shared WITHIN one ecosystem but MUST NEVER cross canon↔client or reach a consumer (a synced ecosystem.json leaks one ecosystem's orgs into another — the #255/#252 disclosure class across the ecosystem boundary). UNLIKE the top-level loom-only files above, this path IS under the synced `bin/**` tier, so this loom_only entry is LOAD-BEARING (not belt-and-suspenders): validate-emit.mjs check-8 converts it into a structural BLOCK. Each fork authors its OWN ecosystem.json; the committed `bin/ecosystem.example.json` (synthetic tokens) is the only ecosystem* file that DOES sync/publish. loom-only per ECO-IMPL W1 (journal/0292, design 02-plans/01 §4).
+
+# ─────────────────────────────────────────────────────────────────
+# SURFACE ROLES (D3 — the ROLE axis: which ROLES surface an artifact)
+# ─────────────────────────────────────────────────────────────────
+# DISTRIBUTE ≠ SURFACE. `tiers:` (above) decides which repos RECEIVE an artifact;
+# `surface_roles:` decides which ROLES present it in their command/agent surface.
+# The two are ORTHOGONAL — an artifact MAY be BOTH tier-listed (distributed) AND
+# surface-role-scoped (surfaced only for some roles) — UNLIKE loom_only, which is
+# mutually exclusive with tiers. The validate-emit `surface-role-membership`
+# check (W2-b) validates the role vocabulary but MUST NOT cross-check tier as a
+# mutual-exclusion (invariant #1).
+#
+# POSITIVE declaration only (like loom_only), NEVER an exclude:-style denylist:
+# emit-cli-artifacts ignores exclude:, so a SURFACE restriction expressed as an
+# exclusion would silently leak (feedback_emit_cli_ignores_exclude / #638).
+#
+# DEFAULT-SURFACED (open decision #5): an artifact with NO surface_roles entry
+# surfaces for EVERY role (opt-in restriction, mirroring loom_only being opt-in
+# suppression). Declare an entry ONLY to RESTRICT surfacing.
+#
+# Role vocabulary (closed, D2): platform | build | use-consumer.
+#
+# Initial memberships: the BUILD lifecycle (analyze/todos/implement/redteam/
+# SDK-codify/release) is DISTRIBUTED to build + use-consumer repos but does NOT
+# surface at the loom `platform` role (D4 — loom stops surfacing the SDK
+# lifecycle it never produces; the commands still SYNC via the co/coc tiers, they
+# just leave loom's surfaced set). The platform-governance origination lane gets
+# its own /govern command at W2-d; until then codify.md (the SDK /codify) is
+# build+use-consumer-surfaced. The CLAUDE.md table that READS these memberships
+# is W2-d; the emit/strip that CONSUMES them is W2-c.
+surface_roles:
+  commands/analyze.md: [build, use-consumer]
+  commands/todos.md: [build, use-consumer]
+  commands/implement.md: [build, use-consumer]
+  commands/redteam.md: [build, use-consumer]
+  commands/codify.md: [build, use-consumer]
+  commands/release.md: [build, use-consumer]
+  # Utility / framework commands (W3-d, the deferred W2-c tail — journal/0328
+  # re-scope). SDK / dev / frontend utilities the loom `platform` role does NOT
+  # produce; same ontology as the lifecycle commands above → [build, use-consumer].
+  # NO current behavioral change for shipped consumers (loom_only + tiers already
+  # strip the base subset); this is the DATA + the forward-enforcement membership
+  # the emit-strip reads. /start, /learn, /journal are DELIBERATELY omitted —
+  # they are universal (orientation, learning-status, journaling apply to every
+  # role incl. platform) → left default-surfaced (no entry = all roles).
+  commands/sdk.md: [build, use-consumer]
+  commands/db.md: [build, use-consumer]
+  commands/api.md: [build, use-consumer]
+  commands/ai.md: [build, use-consumer]
+  commands/test.md: [build, use-consumer]
+  commands/validate.md: [build, use-consumer]
+  commands/deploy.md: [build, use-consumer]
+  commands/design.md: [build, use-consumer]
+  commands/i-audit.md: [build, use-consumer]
+  commands/i-polish.md: [build, use-consumer]
+  commands/i-harden.md: [build, use-consumer]
 
 # ─────────────────────────────────────────────────────────────────
 # EXCLUSIONS
@@ -2457,6 +2559,8 @@ exclude:
   - commands/settings.md
   - commands/sync-to-build.md
   - commands/sync-to-use.md # loom-only: Gate-2 distribution command (sync-upflow D1 split); pairs with sync-to-build.md above
+  - commands/sync-from-build.md # loom-only: Gate-1 inbound ingest verb (leak fix 2026-06-23); pairs with the loom_only entry above
+  - commands/sync-from-use.md # loom-only: Gate-1 inbound ingest sibling (leak fix 2026-06-23); pairs with sync-from-build.md above
   - commands/test-harness-probe.md # loom-only: orchestrator for `.claude/test-harness/` probe scoring; consumers do not run the harness. Pair: existing `test-harness/**` exclude entry below.
   - agents/_README.md
   - projects/** # Claude Code's per-user session/state cache; loom-local. Pair: `obsoleted: .claude/projects/`.
@@ -2704,6 +2808,14 @@ repos:
     #     tier composes with an ecosystem fork's upstream-pull isolation).
     build: null
     variant: base
+    # role (D3 / W2b-5 — redteam Finding 1): the per-TARGET role the emit lane
+    # (W2-c) reads to select a consumer subset. `base` has build:null — it is
+    # purely a USE template for non-Kailash consumers, so its role is
+    # unambiguously use-consumer. Targets that feed BOTH a BUILD repo AND USE
+    # templates (py/rs) are intentionally LEFT UNSET (full emission, invariant #7
+    # back-compat) — their build-vs-use role is per-direction, a granularity W2-c
+    # resolves.
+    role: use-consumer
     tier_subscriptions: [cc, co, onboarding]
     templates:
       - repo: coc-claude-base

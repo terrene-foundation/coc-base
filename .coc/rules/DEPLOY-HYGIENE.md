@@ -6,7 +6,7 @@ paths: ["**/Dockerfile", "**/*.dockerfile", "deploy/**", "**/k8s/**", "**/kubern
 # Deploy Hygiene — Committed ≠ Deployed
 
 
-For full DO/DO NOT examples, the 10-step checklist, the deployment-config.md schema, frontend deployment patterns (Vite, Docker, Next.js), and cache-layer troubleshooting, see `skills/10-deployment-git/application-deployment.md`. This rule loads only when infrastructure files are touched; the verbose details live in the skill.
+For full DO/DO NOT examples, the Step 0–5 checklist's per-step guidance, the deployment-config.md schema, frontend deployment patterns (Vite, Docker, Next.js), and cache-layer troubleshooting, see `skills/10-deployment-git/application-deployment.md`. This rule loads only when infrastructure files are touched; the verbose details live in the skill.
 
 ## The Failure Mode
 
@@ -92,9 +92,9 @@ Build is a step inside `/deploy`. MUST NOT run `npm run build`, `docker build`, 
 
 For dev inner loop, use `npm run dev` / `cargo watch` / dev server — NEVER production build commands.
 
-### 8. Print and follow the 10-step deploy checklist
+### 8. Print and follow the Step 0–5 deploy checklist
 
-Every `/deploy` MUST start by printing the 10-step checklist (defined in `commands/deploy.md`) and check off boxes as each step passes. The agent MUST NOT report deploy as complete until every box is checked. If any step fails, the response says "DEPLOY FAILED AT STEP N: <reason>" — NOT "build succeeded, will redeploy soon".
+Every `/deploy` MUST start by printing the 6-step (Step 0–5) checklist (defined in `commands/deploy.md`) and check off boxes as each step passes. The agent MUST NOT report deploy as complete until every box is checked. If any step fails, the response says "DEPLOY FAILED AT STEP N: <reason>" — NOT "build succeeded, will redeploy soon".
 
 **Why:** Without a visible per-step checklist, the agent's mental model collapses into "the most recent command I ran". A printed checklist forces tracking and lets the user spot incomplete steps.
 

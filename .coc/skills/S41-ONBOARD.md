@@ -1,5 +1,6 @@
 ---
 id: "S41-ONBOARD"
+name: onboard
 description: "/onboard procedure: read roster + team-memory + posture + claims + codify lease + rules-changed for a new operator joining a multi-operator COC repo."
 ---
 

@@ -12,10 +12,10 @@
  * (same behavior, byte-identical emit) — only the file location + the
  * sibling import paths (`./lib/X` → `./X`) and REPO's depth changed.
  *
- * Symbols (13): REPO, safeWriteFileSync, globToRegex, matchesAnyGlob,
- *   loadExclusions, loadLoomOnly, loadTiers, loadTargetTierSubscriptions,
- *   loadTargetVariant, buildTierFilter, composeArtifactBody,
- *   rewriteClaudePathsForCli, walkFiles.
+ * Symbols (14): REPO, safeWriteFileSync, safeReadFileSync, globToRegex,
+ *   matchesAnyGlob, loadExclusions, loadLoomOnly, loadTiers,
+ *   loadTargetTierSubscriptions, loadTargetVariant, buildTierFilter,
+ *   composeArtifactBody, rewriteClaudePathsForCli, walkFiles.
  *
  * Node ESM, zero external deps (mirrors emit.mjs / emit-cli-artifacts.mjs).
  */
@@ -52,6 +52,24 @@ function safeWriteFileSync(filePath, data) {
   );
   try {
     fs.writeFileSync(fd, data);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+// Symlink-safe read (mirrors safeWriteFileSync to keep the source side
+// TOCTOU-closed). O_NOFOLLOW raises ELOOP if the leaf component is a
+// symlink — so a symlink swapped in for an artifact source between the
+// existsSync probe and the read raises instead of silently reading the
+// attacker's target. Guards the leaf only (same caveat as the write
+// side); loom's .claude artifact tree carries zero symlinks (#569).
+function safeReadFileSync(filePath, encoding) {
+  const fd = fs.openSync(
+    filePath,
+    fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
+  );
+  try {
+    return fs.readFileSync(fd, encoding);
   } finally {
     fs.closeSync(fd);
   }
@@ -95,7 +113,7 @@ function matchesAnyGlob(relPath, globs) {
 // unexpected files and investigates).
 function loadExclusions() {
   const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
-  const src = fs.readFileSync(manifestPath, "utf8");
+  const src = safeReadFileSync(manifestPath, "utf8");
   const lines = src.split("\n");
 
   const result = { codex: [], gemini: [] };
@@ -151,7 +169,7 @@ function loadExclusions() {
 // relative path the emit functions build (`agents/...`).
 function loadLoomOnly() {
   const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
-  const src = fs.readFileSync(manifestPath, "utf8");
+  const src = safeReadFileSync(manifestPath, "utf8");
   const lines = src.split("\n");
 
   const result = [];
@@ -189,7 +207,7 @@ function loadLoomOnly() {
 // top-level key with sub-keys whose values are list-of-string).
 function loadTiers() {
   const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
-  const src = fs.readFileSync(manifestPath, "utf8");
+  const src = safeReadFileSync(manifestPath, "utf8");
   const lines = src.split("\n");
 
   const result = {};
@@ -239,7 +257,7 @@ function loadTiers() {
 // (e.g. retired prism — manifest declares [] structurally).
 function loadTargetTierSubscriptions(target) {
   const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
-  const src = fs.readFileSync(manifestPath, "utf8");
+  const src = safeReadFileSync(manifestPath, "utf8");
   const lines = src.split("\n");
 
   let inRepos = false;
@@ -290,7 +308,7 @@ function loadTargetTierSubscriptions(target) {
 function loadTargetVariant(target) {
   if (!target) return null;
   const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
-  const src = fs.readFileSync(manifestPath, "utf8");
+  const src = safeReadFileSync(manifestPath, "utf8");
   const lines = src.split("\n");
 
   let inRepos = false;
@@ -317,6 +335,107 @@ function loadTargetVariant(target) {
     }
   }
   return null;
+}
+
+// ────────────────────────────────────────────────────────────────
+// sync-manifest.yaml → repos.<target>.role  (D3 / W2-b)
+// ────────────────────────────────────────────────────────────────
+// Returns the per-TARGET role the emit lane reads to select a consumer
+// subset (W3-d / the deferred W2-c tail). Mirrors loadTargetVariant's
+// line-oriented parse but reads the `role:` scalar. Returns null when the
+// target is unknown OR repos.<target>.role is absent (py/rs are
+// intentionally unset → full emission, invariant #7 back-compat).
+function loadTargetRole(target) {
+  if (!target) return null;
+  const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
+  const src = safeReadFileSync(manifestPath, "utf8");
+  const lines = src.split("\n");
+
+  let inRepos = false;
+  let inTarget = false;
+  for (const line of lines) {
+    if (/^repos:\s*$/.test(line)) {
+      inRepos = true;
+      continue;
+    }
+    if (!inRepos) continue;
+    if (/^[a-zA-Z_][^:]*:\s*$/.test(line) && !line.startsWith(" ")) {
+      break;
+    }
+    const targetMatch = line.match(/^ {2}([a-zA-Z_][\w-]*):\s*$/);
+    if (targetMatch) {
+      inTarget = targetMatch[1] === target;
+      continue;
+    }
+    if (inTarget) {
+      const rMatch = line.match(/^ {4}role:\s*(.+?)\s*$/);
+      if (rMatch) {
+        return rMatch[1].replace(/\s+#.*$/, "").replace(/^["']|["']$/g, "").trim();
+      }
+    }
+  }
+  return null;
+}
+
+// ────────────────────────────────────────────────────────────────
+// sync-manifest.yaml → surface_roles  (D3 / W2-b; consumed W3-d)
+// ────────────────────────────────────────────────────────────────
+// POSITIVE per-artifact role restriction (mirrors loom_only's positive
+// shape, NOT an exclude:-style denylist — emit-cli-artifacts ignores
+// exclude:, so a surface restriction expressed as exclusion would silently
+// leak, feedback_emit_cli_ignores_exclude / #638). A top-level key whose
+// entries are `<manifest-rel-path>: [role, role]`. Returns a map
+// { "commands/analyze.md": ["build","use-consumer"], ... }. An artifact
+// with NO entry is DEFAULT-SURFACED (surfaces for every role — open
+// decision #5). The role vocabulary is the closed set {platform, build,
+// use-consumer} (D2); validation is the validate-emit surface-role-
+// membership check, NOT this loader (a dumb data endpoint per
+// agent-reasoning.md).
+function loadSurfaceRoles() {
+  const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
+  const src = safeReadFileSync(manifestPath, "utf8");
+  const lines = src.split("\n");
+
+  const result = {};
+  let inStanza = false;
+
+  for (const line of lines) {
+    if (/^surface_roles:\s*$/.test(line)) {
+      inStanza = true;
+      continue;
+    }
+    if (!inStanza) continue;
+
+    // End of stanza: a new top-level key (column 0, ends with `:`).
+    if (/^[a-zA-Z_][^:]*:\s*$/.test(line) && !line.startsWith(" ")) {
+      break;
+    }
+
+    // Entry (2-space indent): `path/to/artifact.md: [role, role]`.
+    const entryMatch = line.match(/^ {2}(\S+):\s*\[(.*?)\]\s*$/);
+    if (entryMatch) {
+      const key = entryMatch[1].replace(/^["']|["']$/g, "");
+      const roles = entryMatch[2]
+        .split(",")
+        .map((r) => r.trim().replace(/^["']|["']$/g, ""))
+        .filter(Boolean);
+      if (key) result[key] = roles;
+    }
+  }
+
+  return result;
+}
+
+// surfaceRolesAllow — TRUE if an artifact at `manifestRel` surfaces for
+// `targetRole`. Default-surfaced (no entry) → always true. A null
+// targetRole (no --target, or a target with no declared role — py/rs)
+// → always true (back-compat full emission). Otherwise true IFF the
+// artifact's declared role list INCLUDES targetRole.
+function surfaceRolesAllow(surfaceRoles, manifestRel, targetRole) {
+  if (!targetRole) return true; // no role to filter on → keep (back-compat)
+  const declared = surfaceRoles && surfaceRoles[manifestRel];
+  if (!declared) return true; // default-surfaced (no restriction)
+  return declared.includes(targetRole);
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -358,7 +477,7 @@ function loadTargetVariant(target) {
 function composeArtifactBody(category, relPath, cli, lang) {
   const globalPath = path.join(REPO, ".claude", category, relPath);
   if (!fs.existsSync(globalPath)) return null;
-  let composed = fs.readFileSync(globalPath, "utf8");
+  let composed = safeReadFileSync(globalPath, "utf8");
   let destRelPath = relPath;
 
   const axes = [];
@@ -380,7 +499,7 @@ function composeArtifactBody(category, relPath, cli, lang) {
       }
       continue;
     }
-    const overlay = fs.readFileSync(res.path, "utf8");
+    const overlay = safeReadFileSync(res.path, "utf8");
     if (overlay.includes("<!-- slot:")) {
       // Slot-keyed: compose via slot-parser
       const { composed: c } = applyOverlay(composed, overlay);
@@ -505,6 +624,7 @@ function* walkFiles(root, rel = "") {
 export {
   REPO,
   safeWriteFileSync,
+  safeReadFileSync,
   globToRegex,
   matchesAnyGlob,
   loadExclusions,
@@ -512,6 +632,9 @@ export {
   loadTiers,
   loadTargetTierSubscriptions,
   loadTargetVariant,
+  loadTargetRole,
+  loadSurfaceRoles,
+  surfaceRolesAllow,
   buildTierFilter,
   composeArtifactBody,
   rewriteClaudePathsForCli,

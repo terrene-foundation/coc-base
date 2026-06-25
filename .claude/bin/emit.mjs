@@ -46,6 +46,24 @@ function safeWriteFileSync(filePath, data) {
   }
 }
 
+// Symlink-safe read (mirrors safeWriteFileSync to close the read side of the
+// same TOCTOU). O_NOFOLLOW raises ELOOP if the leaf is a symlink — so an
+// artifact-source file swapped for a symlink between an existsSync probe and
+// the read raises instead of silently reading the attacker's target. Leaf-only
+// guard, same caveat as the write side; loom's .claude tree carries zero
+// symlinks (#569 sibling-site sweep — emit lane).
+function safeReadFileSync(filePath, encoding) {
+  const fd = fs.openSync(
+    filePath,
+    fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
+  );
+  try {
+    return fs.readFileSync(fd, encoding);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 import { parseSlotsV5, applyOverlay } from "./lib/slot-parser.mjs";
 import { resolveOverlay } from "./lib/variant-overlay.mjs";
 import { extractPolicies } from "../codex-mcp-guard/extract-policies.mjs";
@@ -267,7 +285,7 @@ export function composeRule(ruleName, cli, lang = null) {
     throw new Error(`rule not found: ${globalPath}`);
   }
 
-  let composed = fs.readFileSync(globalPath, "utf8");
+  let composed = safeReadFileSync(globalPath, "utf8");
   const warnings = [];
 
   // Axis resolution defers to resolveOverlay() so sync-manifest.yaml::variants
@@ -292,7 +310,7 @@ export function composeRule(ruleName, cli, lang = null) {
       }
       return;
     }
-    const overlay = fs.readFileSync(res.path, "utf8");
+    const overlay = safeReadFileSync(res.path, "utf8");
     if (overlay.includes("<!-- slot:")) {
       // Slot-keyed overlay — compose via slot-parser (Phase F2 convention).
       const { composed: c, warnings: w } = applyOverlay(composed, overlay);
@@ -329,7 +347,7 @@ export function composeRule(ruleName, cli, lang = null) {
 // MED finding on loadManifestConfig's regex-based YAML parsing).
 export function loadPerRuleBudgets() {
   const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
-  const src = fs.readFileSync(manifestPath, "utf8");
+  const src = safeReadFileSync(manifestPath, "utf8");
 
   const blockMatch = src.match(
     /per_rule_size_budget_bytes:\s*\n([\s\S]*?)(?=\n\s*per_rule_budget_tolerance:|\n[a-zA-Z_])/,
@@ -354,7 +372,7 @@ export function loadPerRuleBudgets() {
 // parse it narrowly — if drift, this falls back to 0.30).
 export function loadBudgetTolerance() {
   const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
-  const src = fs.readFileSync(manifestPath, "utf8");
+  const src = safeReadFileSync(manifestPath, "utf8");
   const m = src.match(/per_rule_budget_tolerance:\s*"±(\d+)%"/);
   return m ? parseInt(m[1], 10) / 100 : 0.3;
 }
@@ -366,7 +384,7 @@ export function loadBudgetTolerance() {
 // WARN path was wired; zero-tolerance.md ran +64% over budget unchecked.
 export function loadBudgetBlockThreshold() {
   const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
-  const src = fs.readFileSync(manifestPath, "utf8");
+  const src = safeReadFileSync(manifestPath, "utf8");
   const m = src.match(/per_rule_budget_block_threshold:\s*"\+(\d+)%"/);
   return m ? parseInt(m[1], 10) / 100 : 0.3;
 }
@@ -385,7 +403,7 @@ export function loadBudgetBlockThreshold() {
 //         headroom_floor_pct: <int>   # v6.2 — defaults to 10 if absent
 export function loadCliCaps() {
   const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
-  const src = fs.readFileSync(manifestPath, "utf8");
+  const src = safeReadFileSync(manifestPath, "utf8");
   const caps = {};
   // Anchor on each CLI's cap pair. Regex is intentionally narrow: match the
   // per-CLI block from `<cli>:` down to (and including) the first
@@ -468,7 +486,7 @@ export function getCritBaseline() {
   const files = fs.readdirSync(rulesDir).filter((f) => f.endsWith(".md"));
   const crit = [];
   for (const f of files) {
-    const content = fs.readFileSync(path.join(rulesDir, f), "utf8");
+    const content = safeReadFileSync(path.join(rulesDir, f), "utf8");
     const fm = content.match(/^---\n([\s\S]*?)\n---/);
     if (!fm) continue;
     const prio = fm[1].match(/^priority:\s*(\d+)/m);
@@ -877,7 +895,7 @@ export function validateMcpBijectionAgainstFixtures() {
   if (!fs.existsSync(expectedPath)) {
     return { pass: false, reason: `fixture missing: ${expectedPath}` };
   }
-  const expected = JSON.parse(fs.readFileSync(expectedPath, "utf8"));
+  const expected = JSON.parse(safeReadFileSync(expectedPath, "utf8"));
   const actual = extractPolicies(fixtureDir);
   const actualById = new Map(actual.predicates.map((p) => [p.id, p]));
   const failures = [];
@@ -917,7 +935,7 @@ export function validateRuleFrontmatter() {
   const failures = [];
 
   for (const f of files) {
-    const content = fs.readFileSync(path.join(rulesDir, f), "utf8");
+    const content = safeReadFileSync(path.join(rulesDir, f), "utf8");
     const fm = content.match(/^---\n([\s\S]*?)\n---/);
     if (!fm) {
       failures.push(`${f}: MISSING frontmatter block`);
@@ -1003,7 +1021,7 @@ export function validateCliDelivery() {
   };
 
   for (const f of files) {
-    const content = fs.readFileSync(path.join(rulesDir, f), "utf8");
+    const content = safeReadFileSync(path.join(rulesDir, f), "utf8");
     const fm = content.match(/^---\n([\s\S]*?)\n---/);
     if (!fm) continue; // Validator 14 already fails on a missing frontmatter block.
     const relPath = `rules/${f}`;
@@ -1038,7 +1056,7 @@ export function validateCliDelivery() {
 export function validateTierCompleteness() {
   const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
   const rulesDir = path.join(REPO, ".claude", "rules");
-  const text = fs.readFileSync(manifestPath, "utf8");
+  const text = safeReadFileSync(manifestPath, "utf8");
 
   // Slice a top-level YAML block: from the line AFTER `^<key>:` to the
   // next column-0 key. Slicing must start past the key's own newline —
@@ -1189,7 +1207,7 @@ export function validateRosterSchemaCoupling() {
   // V17 exists to block. Mirroring V15's sliceBlock pattern keeps
   // the validator's mechanical sweep scope-matched to its prose
   // claim ("the schema MUST appear in a TIER").
-  const manifestText = fs.readFileSync(manifestPath, "utf8");
+  const manifestText = safeReadFileSync(manifestPath, "utf8");
   // Slice the `tiers:` block: from the line AFTER `^tiers:` to the
   // next column-0 key. Same shape as validateTierCompleteness above
   // (lines 939-948); duplicated rather than factored to keep V17

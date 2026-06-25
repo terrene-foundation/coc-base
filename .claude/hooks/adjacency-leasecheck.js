@@ -87,6 +87,9 @@ const siblingPorcelain = require(
 const { isMutationTool } = require(
   path.join(__dirname, "lib", "tool-classes.js"),
 );
+const { isCoordinationEnabled } = require(
+  path.join(__dirname, "lib", "coordination-mode.js"),
+);
 
 function passthrough() {
   clearTimeout(fallback);
@@ -371,6 +374,18 @@ function discoverKeyPath() {
     }
 
     const repoDir = resolveRepoDir(payload);
+
+    // MO-OPT W1-e — opt-in gate (workspaces/multi-operator-optional, journal/0330).
+    // Claims, adjacency, and the §4.2 cross-worktree-contention block are all
+    // coordination features. A solo / fresh repo (coordination OFF) MUST NOT
+    // get the sibling-worktree block (a solo dev may legitimately run multiple
+    // worktrees of their own). Passthrough when OFF. When ENABLED, byte-unchanged
+    // (this guard already fail-opens on empty-log / unresolvable identity; the
+    // gate makes the solo no-op explicit + covers the §4.2 block path too).
+    if (!isCoordinationEnabled(repoDir)) {
+      passthrough();
+    }
+
     const candidateRelPath = repoRelative(watch.targetPath, repoDir);
     if (candidateRelPath === null) {
       // Target is outside the repo — no claim possible, no sibling

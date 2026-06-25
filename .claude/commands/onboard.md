@@ -4,6 +4,8 @@ description: "Onboard a new operator to a multi-operator COC repo. Deterministic
 
 Onboard the operator into the current repo's multi-operator COC state. Read-only command — no commits, no state writes. Output is a structured briefing the operator (and the next session) can act on.
 
+**Run `loom doctor` FIRST.** On a fresh / Windows / ADO clone, run `node .claude/bin/loom-doctor.mjs` (the `/doctor` command) before `/onboard` — it surfaces role/env/line-ending/VCS-host/resolver issues with remediations (and `--fix` repairs the safe subset). `/onboard` assumes a healthy clone; the doctor is what makes it one.
+
 **Usage**: `/onboard` (no args; runs in current repo) — `/onboard --json` for machine-readable output
 
 ## Process

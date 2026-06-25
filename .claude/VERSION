@@ -1,15 +1,15 @@
 {
   "name": "coc-base",
-  "version": "2.45.2",
+  "version": "2.45.3",
   "type": "coc-use-template",
   "description": "Language-agnostic, non-Kailash CO/COC USE template — multi-CLI (variant: base, clis: claude/codex/gemini)",
-  "synced_at": "2026-06-23T00:00:00Z",
+  "synced_at": "2026-06-25T00:00:00Z",
   "upstream": {
     "name": "loom",
     "type": "coc-source",
     "version": "2.45.0",
-    "loom_sha": "f7c236d",
-    "synced_at": "2026-06-23T00:00:00Z",
+    "loom_sha": "8197257",
+    "synced_at": "2026-06-25T00:00:00Z",
     "template_version": "2.45.0",
     "build_version": "2.45.0"
   },
@@ -25,6 +25,22 @@
     "gemini"
   ],
   "changelog": [
+    {
+      "date": "2026-06-25",
+      "version": "2.45.3",
+      "summary": "loom@8197257 Gate-2 distribution (base multi-CLI, loom 2.45.0 unchanged — f7c236d..8197257). HEADLINE: MO-OPT W1 — multi-operator coordination substrate made OPT-IN (journal/0330 + 0331). W1 lives in tier-independent .claude/hooks/** so it ships to the base lane: new lib hooks/lib/coordination-mode.js (isCoordinationEnabled 5-tier precedence predicate); isCoordinationEnabled early-return-to-passthrough hoists in integrity-guard.js + journal-write-guard.js + signing-mutation-guard.js + hooks/lib/codify-lease.js + hooks/lib/operator-id.js; top-level hook adjacency-leasecheck.js. Un-enrolled non-Kailash base consumers now get clean passthrough vs the prior unconditional-guard disruption. Full multi-CLI re-emit (AGENTS.md + GEMINI.md + .codex/ + .gemini/ + .codex-mcp-guard + bin/coc + .coc/). Base tier [cc,co,onboarding]; coc-tier excluded by design (no_tier_match=538).",
+      "changes": [
+        "DISTRIBUTE: sync-tier-aware.mjs --target base --template coc-base. copied=943, verified 943/943 (13 content-equal after BUILD-internal strip, 930 byte-equal), overlay_applied=1 byte-equal (rules/agents.md base slot), variant_only=0, purged=1 (commands/cli-audit.md via Step-4.5 BOTH-halves purge), skipped loom_local=2 + exclude=997 + use_exclude=29 + no_tier_match=538.",
+        "W1 PAYLOAD (tier-independent hooks): hooks/lib/coordination-mode.js NEW; isCoordinationEnabled hoists in integrity-guard.js + journal-write-guard.js + signing-mutation-guard.js + hooks/lib/codify-lease.js + hooks/lib/operator-id.js; adjacency-leasecheck.js top-level. W1-landing PASS.",
+        "BASELINES (Step 6.5): emit.mjs --all --lang base. AGENTS.md 52479B (codex WARN, headroom 14.58%), GEMINI.md 52485B (gemini WARN, headroom 14.58%) — both above 10% floor (>13% flag threshold); all 18 validators PASS. CLAUDE.md preserved (template-owned).",
+        "CLI TREES (Step 6.6): emit-cli-artifacts.mjs --target base. codex prompts=22 skills=12; gemini commands=17 skills=12 agents=5; rules-reference skill codex=1 gemini=1 (30 path-scoped rules indexed). Counts are tier-filtered base emission. bin/coc + 28 phase shims (regenerated from wrappers schemas). .codex-mcp-guard distributed; .claude/codex-mcp-guard symlink + sync-manifest.yaml manifest_distribute landed.",
+        "UNIFIED .coc/ (Step 6.7): emit-coc.mjs --target base. 79 artifacts (rules=39 agents=6 skills=16 commands=18), 81 files, coc.version 1.0.0.",
+        "OBSOLETED: .coc-obsoleted regenerated (66 entries = union obsoleted + use_obsoleted). Step-4.5 BOTH-halves purge ran.",
+        "VERIFY: verify-overlays.sh base Failing:0. settings.json hook integrity verified; 0 scripts/hooks refs; 0 operator-PII; description (language-agnostic base multi-CLI) preserved.",
+        "PINS: N/A (build:null — non-Kailash base; no SDK pins).",
+        "BUMP: template 2.45.2->2.45.3; loom_sha f7c236d->8197257; upstream loom 2.45.0 unchanged."
+      ]
+    },
     {
       "date": "2026-06-23",
       "version": "2.45.2",

@@ -3,7 +3,7 @@
   "files": [
     {
       "path": "COC.md",
-      "sha256": "8712022c8312074168018e8f3b6fd9265d64a177934e318ab96dac412a253f49"
+      "sha256": "2c4ff6308bf1b7f88a6b65d67ee162a69b55a9019805badf997217adfc92f276"
     },
     {
       "path": "agents/AI-SPECIALIST.md",
@@ -50,10 +50,6 @@
       "sha256": "9346b4a4e5312fd5e9b1e1f1aa7d2d3b60cc71ba6afcf987abfeb1720cd635bc"
     },
     {
-      "path": "commands/CLI-AUDIT.md",
-      "sha256": "5f017c54bfaf3d539817094fe1140d9d551df2cc6c5815966e15b42da8c7bd29"
-    },
-    {
       "path": "commands/ECOSYSTEM-INIT.md",
       "sha256": "3d3cf489c827c35d2d90c9dc22a08c8958c828a7721e3bb9a777fc0f91910f8a"
     },
@@ -75,7 +71,7 @@
     },
     {
       "path": "commands/ONBOARD.md",
-      "sha256": "427d7a2f027e27ad6d902fae08c93fa2a16cfcb18e8a3e9e199d90065ea6df40"
+      "sha256": "e44414a7b02903eb5fe0c0c188ebcd0b6cd88c1fb790ae90526a331d4521a3a2"
     },
     {
       "path": "commands/POSTURE.md",
@@ -131,7 +127,7 @@
     },
     {
       "path": "rules/DEPLOY-HYGIENE.md",
-      "sha256": "c89474bd2e4a40e0e16913d4c49c0336a989f93ae3ea2feab38981830001d29d"
+      "sha256": "f26bdd8391d9c5f14858d17160f22ba61ddd667454eff852df693880e3a6fd88"
     },
     {
       "path": "rules/EVIDENCE-FIRST-CLAIMS.md",
@@ -167,7 +163,7 @@
     },
     {
       "path": "rules/MULTI-OPERATOR-COORDINATION.md",
-      "sha256": "76c5d8f5ba4295cc0554f25082b581866d32a55bd931df7e47ad652d2a69ff54"
+      "sha256": "03052dcdea6af772dee22a9d738bae2a347e06219a5ff6d1a4ccd8b6dc1f8cc6"
     },
     {
       "path": "rules/ORPHAN-DETECTION.md",
@@ -187,7 +183,7 @@
     },
     {
       "path": "rules/REPO-SCOPE-DISCIPLINE.md",
-      "sha256": "4e05014d24260d9667978ad8fe27d118b876ec213508ca7321e1d51aa5027abc"
+      "sha256": "2927d9ea33f32486f2b21ef4d0178f15db0139ef06d944ff77ee3f811402e084"
     },
     {
       "path": "rules/RULE-AUTHORING.md",
@@ -199,7 +195,7 @@
     },
     {
       "path": "rules/SELF-REFERENTIAL-CODIFY.md",
-      "sha256": "39145c6f313d03c5c50d69bf6d23f1244d99c861d1b632c887b954f54663fa35"
+      "sha256": "0d30f734f9961b8e7755bbbb478321abc5bff3b4bf88f1c4b2fa34d361a34495"
     },
     {
       "path": "rules/SPEC-ACCURACY.md",
@@ -259,7 +255,7 @@
     },
     {
       "path": "rules/ZERO-TOLERANCE.md",
-      "sha256": "95a99531faf1df30c2caf8cc8cf06dc16c8d85f32a5da7bf7b27dc77f703e438"
+      "sha256": "4f0edbef4f47ed29aef011a18297f8fdd377c8790d6c345142cb91c2ab3e1046"
     },
     {
       "path": "skills/CO-REFERENCE.md",
@@ -307,11 +303,11 @@
     },
     {
       "path": "skills/S41-ONBOARD.md",
-      "sha256": "c66fea8b4281cdab0a367288192c1e6fd50eef1ec0cbd00e5856ba2b0a29de65"
+      "sha256": "c7ca8e9aee074ad37585281dbeacf8486e8c9b574f987d08994fb44287ef3430"
     },
     {
       "path": "skills/S42-CERTIFY.md",
-      "sha256": "b82593834ec63a9650d6ab3c9ab87b0be987b4f7908d42e60f464516b210ce12"
+      "sha256": "c66d10af628b0a3965971c6de22ad5d0c35fdb05f5ed66252b67223948dfcd91"
     },
     {
       "path": "skills/S43-ECOSYSTEM-INIT.md",

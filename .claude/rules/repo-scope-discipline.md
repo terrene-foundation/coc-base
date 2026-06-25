@@ -5,9 +5,9 @@ scope: baseline
 
 # Repo Scope Discipline — Stay In This Repo
 
-See `.claude/guides/rule-extracts/repo-scope-discipline.md` for examples, the full BLOCKED corpus, the User-Authorized Exception walkthrough, and the origin post-mortem.
+See `.claude/guides/rule-extracts/repo-scope-discipline.md` for examples, the BLOCKED corpus, the User-Authorized Exception walkthrough, and the origin post-mortem.
 
-The session's CWD repo is the agent's entire scope of action. The agent MUST NOT touch, edit, push to, file issues against, comment on, read source from, or propose work in any other repository (siblings, USE templates, `loom/`/`atelier/`, downstream consumers, any other GitHub repo) **under any circumstance the agent self-authorizes**. The only exception is a user-initiated, explicitly-granted, journal-logged, bounded action (below); otherwise cross-repo work requires the user to context-switch.
+The session's CWD repo is the agent's entire scope. The agent MUST NOT read, edit, push to, file issues against, comment on, or propose work in any other repository (siblings, USE templates, `loom/`/`atelier/`, downstream consumers, any other repo) **under any circumstance it self-authorizes**. The sole exception is the user-authorized action below.
 
 ## MUST NOT
 
@@ -23,7 +23,9 @@ The session's CWD repo is the agent's entire scope of action. The agent MUST NOT
 
 **Why:** Each repo has its own protection, ownership, and rule set; cross-repo writes ship under rules the destination never consented to.
 
-**BLOCKED:** "the other repo's issue is more urgent" / "just checking gh issues, not editing" / "the standing memory says check all three repos" / "surfacing isn't acting". Full corpus in extract.
+- Answer a layout/path question from a hardcoded artifact path (`~/repos/...`) instead of the operator's `loom-links.local.json` (`rules/cross-repo.md` MUST-1). Artifact paths are illustrative; on disagreement the resolver is authoritative.
+
+**Why:** Clients clone into new layouts (Windows/ADO/nested); a baked-in `~/repos/...` path is confidently wrong.
 
 ## User-Authorized Exception (Explicit, Logged, Bounded)
 
@@ -41,6 +43,6 @@ The agent never self-authorizes. But the user owns the operating envelope (`rule
 
 NONE the agent may invoke on its own judgment (§ User-Authorized Exception is the only user-initiated path). Descriptive sibling mentions are OK when informational, not prescriptive. The rule does NOT apply at orchestration roots (`~/repos/`, `loom/`) where cross-repo coordination IS the purpose (artifact-distribution via `/sync`/`/sync-to-build`/`/inspect`/`/repos` + co-owner-directed governance reads per a grant). **loom is the SOLE carve-out holder**; a downstream consumer is never an orchestration root. The carve-out lifts the scope boundary for the _operation_ only: a cross-repo WRITE still needs the five conditions; a READ outside artifact-distribution still needs a journaled grant. See extract.
 
-Note: at the orchestration root, targets are enumerated via `bin/lib/loom-links.mjs::resolveRepo` / `resolveAll` (per `cross-repo.md` MUST-1) — never positional discovery; the carve-out never lifts the resolver requirement.
+Note: at the orchestration root, targets resolve via `bin/lib/loom-links.mjs::resolveRepo` / `resolveAll` (per `cross-repo.md` MUST-1) — never positional discovery; the carve-out never lifts the resolver requirement.
 
 Origin: 2026-05-03 (kailash-rs cross-repo surfacing); amended 2026-05-16 (User-Authorized Exception added after a downstream-consumer session over-blocked a user-authorized filing). Full post-mortem in extract.

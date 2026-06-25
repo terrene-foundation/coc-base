@@ -484,9 +484,9 @@ CC system prompt provides the template. Always include a `## Related issues` sec
 
 # Repo Scope Discipline — Stay In This Repo
 
-See `.claude/guides/rule-extracts/repo-scope-discipline.md` for examples, the full BLOCKED corpus, the User-Authorized Exception walkthrough, and the origin post-mortem.
+See `.claude/guides/rule-extracts/repo-scope-discipline.md` for examples, the BLOCKED corpus, the User-Authorized Exception walkthrough, and the origin post-mortem.
 
-The session's CWD repo is the agent's entire scope of action. The agent MUST NOT touch, edit, push to, file issues against, comment on, read source from, or propose work in any other repository (siblings, USE templates, `loom/`/`atelier/`, downstream consumers, any other GitHub repo) **under any circumstance the agent self-authorizes**. The only exception is a user-initiated, explicitly-granted, journal-logged, bounded action (below); otherwise cross-repo work requires the user to context-switch.
+The session's CWD repo is the agent's entire scope. The agent MUST NOT read, edit, push to, file issues against, comment on, or propose work in any other repository (siblings, USE templates, `loom/`/`atelier/`, downstream consumers, any other repo) **under any circumstance it self-authorizes**. The sole exception is the user-authorized action below.
 
 ## MUST NOT
 
@@ -502,7 +502,9 @@ The session's CWD repo is the agent's entire scope of action. The agent MUST NOT
 
 **Why:** Each repo has its own protection, ownership, and rule set; cross-repo writes ship under rules the destination never consented to.
 
-**BLOCKED:** "the other repo's issue is more urgent" / "just checking gh issues, not editing" / "the standing memory says check all three repos" / "surfacing isn't acting". Full corpus in extract.
+- Answer a layout/path question from a hardcoded artifact path (`~/repos/...`) instead of the operator's `loom-links.local.json` (`rules/cross-repo.md` MUST-1). Artifact paths are illustrative; on disagreement the resolver is authoritative.
+
+**Why:** Clients clone into new layouts (Windows/ADO/nested); a baked-in `~/repos/...` path is confidently wrong.
 
 ## User-Authorized Exception (Explicit, Logged, Bounded)
 
@@ -520,7 +522,7 @@ The agent never self-authorizes. But the user owns the operating envelope (`rule
 
 NONE the agent may invoke on its own judgment (§ User-Authorized Exception is the only user-initiated path). Descriptive sibling mentions are OK when informational, not prescriptive. The rule does NOT apply at orchestration roots (`~/repos/`, `loom/`) where cross-repo coordination IS the purpose (artifact-distribution via `/sync`/`/sync-to-build`/`/inspect`/`/repos` + co-owner-directed governance reads per a grant). **loom is the SOLE carve-out holder**; a downstream consumer is never an orchestration root. The carve-out lifts the scope boundary for the _operation_ only: a cross-repo WRITE still needs the five conditions; a READ outside artifact-distribution still needs a journaled grant. See extract.
 
-Note: at the orchestration root, targets are enumerated via `bin/lib/loom-links.mjs::resolveRepo` / `resolveAll` (per `cross-repo.md` MUST-1) — never positional discovery; the carve-out never lifts the resolver requirement.
+Note: at the orchestration root, targets resolve via `bin/lib/loom-links.mjs::resolveRepo` / `resolveAll` (per `cross-repo.md` MUST-1) — never positional discovery; the carve-out never lifts the resolver requirement.
 
 ---
 
@@ -633,7 +635,7 @@ Security exceptions require: written justification, security-reviewer approval, 
 
 # Zero-Tolerance Rules
 
-See `.claude/guides/rule-extracts/zero-tolerance.md` for extended BLOCKED-pattern examples, sub-rule prose detail, and Phase 5 audit evidence.
+See `.claude/guides/rule-extracts/zero-tolerance.md` for extended examples, sub-rule detail, and Phase 5 audit evidence.
 
 ## Scope
 
@@ -643,15 +645,13 @@ ALL sessions, ALL agents, ALL code, ALL phases. ABSOLUTE and NON-NEGOTIABLE.
 
 If you found it, you own it. Fix in THIS run — do not report, log, or defer.
 
-**Applies to** (equal weight): test/build/type failures, compiler/linter warnings, deprecation notices, WARN/ERROR in workspace logs since the previous gate, runtime + peer-dependency warnings. A warning is an error the framework chose to keep running through.
-
-**Process:** diagnose root cause → fix → regression test → verify → commit. Scan latest test/build output for WARN+ before reporting any gate complete (triage protocol: `rules/observability.md` Rule 5).
+**Applies to** (equal weight): test/build/type failures, compiler/linter warnings, deprecation notices, WARN/ERROR in workspace logs since the previous gate, runtime + peer-dependency warnings — a warning is an error the framework chose to keep running through. **Process:** diagnose → fix → regression-test → verify → commit; scan the latest test/build output for WARN+ before reporting any gate complete (`rules/observability.md` Rule 5).
 
 **Why:** Deferring creates a ratchet — every session inherits more failures. Today's `DeprecationWarning` is next quarter's "it stopped working when we upgraded".
 
 **Exceptions:** User says "skip this", OR unresolvable upstream third-party deprecation → pinned version + documented reason / upstream issue link / owner todo. Silent dismissal still BLOCKED.
 
-**See also:** `rules/time-pressure-discipline.md` — most common bypass is user pressure framing; the throughput response is parallelization, not deferral.
+**See also:** `rules/time-pressure-discipline.md` — pressure-framing is the common bypass; parallelize, don't defer.
 
 ### Rule 1a: Scanner-Surface Symmetry
 
@@ -679,7 +679,7 @@ Production code MUST NOT contain: `TODO`/`FIXME`/`HACK`/`STUB`/`XXX` markers, `r
 
 **Why:** Frontend mock data is invisible to Python detection but has the same effect — users see fake data presented as real.
 
-**Extended BLOCKED patterns** (Phase 5 + kailash-ml W33b) — see guide for full code + audit evidence: fake encryption · fake transaction · fake health · fake classification/redaction · fake tenant isolation · fake integration via missing handoff field · fake metrics · fake dispatch.
+**Extended BLOCKED patterns** (Phase 5 + kailash-ml W33b; full code + evidence in guide): fake encryption · transaction · health · classification/redaction · tenant-isolation · integration-via-missing-handoff-field · metrics · dispatch.
 
 ## Rule 3: No Silent Fallbacks Or Error Hiding
 
@@ -695,25 +695,25 @@ Production code MUST NOT contain: `TODO`/`FIXME`/`HACK`/`STUB`/`XXX` markers, `r
 
 Any delegate method forwarding to a lazily-assigned backing object MUST guard with a typed error before access. Allowing `AttributeError` to propagate from `None.method()` is BLOCKED.
 
-**Why:** Opaque `AttributeError` blocks N tests at once with no actionable message; typed guard turns the failure into a one-line fix instruction. See guide for the JWTMiddleware example.
+**Why:** Opaque `AttributeError` blocks N tests at once with no actionable message; typed guard turns the failure into a one-line fix instruction. See guide.
 
 ### Rule 3c: Documented Kwargs Accepted But Unused
 
-A kwarg accepted in the public signature but with zero effect on the function body IS the silent-fallback failure mode at API surface level. Every documented kwarg MUST be consumed by ≥1 branch of the function body OR explicitly forwarded to a callee. Silent drop is BLOCKED.
+A documented kwarg accepted in the public signature but with zero effect on the body IS the silent-fallback mode at the API surface. Every documented kwarg MUST be consumed by ≥1 branch OR explicitly forwarded to a callee; silent drop is BLOCKED.
 
-**Why:** A documented kwarg is a contract; the documented behavior advertises something the code does not perform. See guide for kailash-ml #701 evidence.
+**Why:** A documented kwarg is a contract; the documented behavior advertises something the code does not perform. See guide.
 
 ### Rule 3d: Dual-Shape Return + Structural Guard = Silent Fallback
 
-A property or method whose return type is a union of structurally-distinct shapes (e.g., `Union[ConfigWrapper(dict), KaizenConfig(dataclass)]`) MUST NOT be consumed via a structural existence guard (`hasattr(value, "method")`) that resolves True for one branch and False for the other. Either dispatch on a discriminator (`isinstance` / type check) OR collapse the API to a single return shape.
+A property/method whose return type is a union of structurally-distinct shapes (e.g. `Union[ConfigWrapper(dict), KaizenConfig(dataclass)]`) MUST NOT be consumed via a structural existence guard (`hasattr(value, "method")`) that resolves True on one branch and False on the other. Dispatch on a discriminator (`isinstance`/type-check) OR collapse the API to one return shape.
 
-**Why:** `hasattr` silently flips False on the branch lacking the attribute; the documented behavior never fires for users on that branch. See guide for kailash-kaizen #822 evidence.
+**Why:** `hasattr` silently flips False on the branch lacking the attribute; the documented behavior never fires for users on that branch. See guide.
 
 ### Rule 3e: Doc Walk-Back Claims About Code Surface Cite Source Line Range
 
-Any doc edit rewriting a claim about code surface — method lists, registered handlers, exposed bindings, config keys, deprecation lists, magic-value numeric constants (cross-base restatements of `pub const` sentinels) — MUST cite the ground-truth source as `<path>:<start>-<end>` in the same paragraph; cross-base numeric restatements additionally require a same-shard compile-time pin test. Uncited claims are BLOCKED. **Binding-inheritance:** when a contract (error variant, enum member, field, finish reason, lifecycle guarantee, OR a fail-closed safety/invariant property — e.g. "method X's `verify_all` gate is present on EACH binding's body") is restated by a wrapper across ≥2 bindings, every binding's restatement MUST be re-derived from the SDK _code_ (the enum/function body), NOT the SDK _doc_; the multi-binding parity audit's row-by-row source-rederivation matrix MUST INCLUDE the cross-binding fail-closed SAFETY-INVARIANT rows, not only the API-surface contract-shape rows. The re-derivation requirement applies to safety claims made in CONVERGENCE / REDTEAM REPORTS (durable audit artifacts), not only to binding rustdoc/RDoc — such a report's cross-binding safety claim is presumed-UNVERIFIED until the matrix re-derives it from EACH binding's source.
+Any doc edit rewriting a code-surface claim — method lists, registered handlers, exposed bindings, config keys, deprecation lists, magic-value numeric constants (cross-base `pub const` restatements) — MUST cite the ground-truth source as `<path>:<start>-<end>` in the same paragraph; cross-base numeric restatements additionally require a same-shard compile-time pin test. Uncited claims are BLOCKED. **Binding-inheritance:** a contract (error variant, enum member, field, finish reason, lifecycle guarantee, OR a fail-closed safety/invariant) restated by a wrapper across ≥2 bindings MUST be re-derived from the SDK _code_ (NOT the SDK _doc_) for EACH binding; the multi-binding parity audit's source-rederivation matrix MUST INCLUDE the cross-binding fail-closed SAFETY-INVARIANT rows, not only the API-surface contract-shape rows — AND this applies to safety claims in CONVERGENCE / REDTEAM REPORTS (presumed-UNVERIFIED until the matrix re-derives EACH binding's source), not only to binding rustdoc/RDoc.
 
-**Why:** A wrong SDK doc claim is faithfully mirrored by every binding (N reviewers all trust the same SDK doc); identically, a convergence report's "safe by construction" claim is the same failure at the AUDIT layer when one binding is the SOLE un-gated one. See guide for kailash-rs PRs #1087/#1088 + #1160 + binding-inheritance (F16 W2) + the SAFETY-INVARIANT / convergence-report extension (journal 0189, v4.9.0 `verify_all` per-binding count evidence) + Trust Posture Wiring.
+**Why:** A wrong SDK doc claim is faithfully mirrored by every binding (N reviewers all trust the same doc); a convergence report's "safe by construction" claim is the same failure at the AUDIT layer when one binding is the SOLE un-gated one. See guide for the kailash-rs evidence chain (#1087/#1088/#1160, F16 W2, the SAFETY-INVARIANT / convergence-report extension).
 
 ## Rule 4: No Workarounds For Core SDK Issues
 

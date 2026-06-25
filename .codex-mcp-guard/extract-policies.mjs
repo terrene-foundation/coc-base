@@ -27,6 +27,25 @@
 import fs from "node:fs";
 import path from "node:path";
 
+// Symlink-safe read (O_RDONLY|O_NOFOLLOW, leaf-only guard). extract-policies is
+// reachable from the emit lane (emit.mjs:69 → validateMcpBijectionAgainstFixtures
+// on every emit incl. dry-run, + wireMcpPolicies scanning the real .claude/hooks/
+// tree on real emit), so its settings.json + hook-source reads are part of the
+// #569 emit-lane source-read class: a symlink swapped for a scanned source between
+// resolution and read raises ELOOP instead of being silently followed. Local
+// mirror of the emit.mjs/compose.mjs/coc-manifest/variant-overlay helper.
+function safeReadFileSync(filePath, encoding) {
+  const fd = fs.openSync(
+    filePath,
+    fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
+  );
+  try {
+    return fs.readFileSync(fd, encoding);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 // ────────────────────────────────────────────────────────────────
 // Top-level function enumeration
 // ────────────────────────────────────────────────────────────────
@@ -387,7 +406,7 @@ function buildHookMatcherMap(settingsPath) {
   if (!fs.existsSync(settingsPath)) return map;
   let settings;
   try {
-    settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    settings = JSON.parse(safeReadFileSync(settingsPath, "utf8"));
   } catch {
     return map;
   }
@@ -438,7 +457,7 @@ export function extractPolicies(dir, opts = {}) {
 
   for (const file of files) {
     const fullPath = path.join(dir, file);
-    const source = fs.readFileSync(fullPath, "utf8");
+    const source = safeReadFileSync(fullPath, "utf8");
     const functions = findTopLevelFunctions(source);
     const gatesApplyPatch = CODEX_APPLY_PATCH_GATE_MARKER.test(source);
     markerByFile.set(file, gatesApplyPatch);
@@ -527,7 +546,7 @@ export function extractPolicies(dir, opts = {}) {
     if (!fs.existsSync(fullPath)) continue;
     const gatesApplyPatch =
       markerByFile.get(hookFile) ??
-      CODEX_APPLY_PATCH_GATE_MARKER.test(fs.readFileSync(fullPath, "utf8"));
+      CODEX_APPLY_PATCH_GATE_MARKER.test(safeReadFileSync(fullPath, "utf8"));
     const tools = new Set();
     for (const m of matchers) {
       for (const t of matcherToCodexTools(m)) {

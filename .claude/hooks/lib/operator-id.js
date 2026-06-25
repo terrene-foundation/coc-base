@@ -36,6 +36,7 @@
 const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
+const { isCoordinationEnabled } = require("./coordination-mode.js");
 
 const ROSTER_REL = path.join(".claude", "operators.roster.json");
 const CACHE_REL = path.join(".claude", "operator-id");
@@ -266,6 +267,56 @@ function _writeCache(cachePath, identity) {
 // be re-introduced with explicit forensic review and a fresh
 // authority-binding contract — never as a silent re-wire of dead code.
 
+/**
+ * MO-OPT W1-d (workspaces/multi-operator-optional, journal/0330) — derive a
+ * stable, valid display_id for SOLO mode (coordination OFF) from git user.name,
+ * falling back to "solo". MUST satisfy codify-lease's _validateDisplayId
+ * ([a-z0-9._-], 1..64 chars) so a solo /codify branch (codify/<display_id>-<date>)
+ * is well-formed.
+ */
+function _soloDisplayId(repoDir) {
+  let name = "";
+  try {
+    const r = spawnSync(
+      "git",
+      ["-C", repoDir, "config", "--get", "user.name"],
+      { stdio: ["ignore", "pipe", "ignore"], encoding: "utf8", timeout: 2000 },
+    );
+    if (r.status === 0) name = (r.stdout || "").trim();
+  } catch {
+    // fall through to "solo"
+  }
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+  return slug || "solo";
+}
+
+/**
+ * MO-OPT W1-d — the synthetic SOLO identity returned in place of the forced
+ * L2_SUPERVISED disposition when the coordination substrate is DISABLED. It
+ * carries NO `posture` and NO `blocked_into`: omitting posture lets the gate
+ * layer apply the existing fresh-repo L5 default (trust-posture.md MUST-2), and
+ * omitting blocked_into removes the "/whoami --register" nag — together fixing
+ * the ROOT disruption (an un-rostered / unsigned key forced to L2 on every
+ * Edit/Write/commit, analysis row "root"). `verified_id` carries the discovered
+ * fingerprint when one exists (un-rostered-but-signed), else null. The
+ * `solo`/`source` markers make the disposition introspectable + testable.
+ */
+function _soloIdentity(repoDir, fingerprint) {
+  return {
+    verified_id: fingerprint || null,
+    person_id: null,
+    display_id: _soloDisplayId(repoDir),
+    role: null,
+    host_role: null,
+    solo: true,
+    source: "coordination-disabled",
+  };
+}
+
 // ---- public API -------------------------------------------------------------
 
 /**
@@ -295,7 +346,11 @@ function resolveIdentity(repoDir, opts) {
   // ---- Tier 1: signing-key fingerprint discovery --------------------------
   const { keyPath, keyType } = _discoverSigningKey(repoDir, o);
   if (!keyPath) {
-    // No signing key configured anywhere. L2_SUPERVISED + setup action.
+    // No signing key configured anywhere. MO-OPT W1-d: when coordination is
+    // OFF this is NOT a degraded state — it is an un-enrolled solo repo;
+    // return the synthetic solo identity (L5 via gate default) instead of the
+    // forced L2 nag. When ON, L2_SUPERVISED + setup action (unchanged).
+    if (!isCoordinationEnabled(repoDir)) return _soloIdentity(repoDir, null);
     return {
       verified_id: null,
       person_id: null,
@@ -309,8 +364,9 @@ function resolveIdentity(repoDir, opts) {
   const fingerprint = _fingerprintFromKey(keyPath, keyType);
   if (!fingerprint) {
     // Key was nominally configured but we could not derive a fingerprint
-    // (file missing, ssh-keygen failed). Same disposition as "no key" —
-    // the operator MUST repair their setup before participating.
+    // (file missing, ssh-keygen failed). MO-OPT W1-d: OFF → solo (same as
+    // no-key); ON → L2_SUPERVISED + setup action (unchanged).
+    if (!isCoordinationEnabled(repoDir)) return _soloIdentity(repoDir, null);
     return {
       verified_id: null,
       person_id: null,
@@ -351,6 +407,13 @@ function resolveIdentity(repoDir, opts) {
       role: match.person.role || null,
       host_role: match.person.host_role || null,
     };
+  } else if (!isCoordinationEnabled(repoDir)) {
+    // MO-OPT W1-d — un-rostered key on a coordination-OFF repo is a solo
+    // operator, NOT a supervised one. Return the synthetic solo identity
+    // (carrying the discovered fingerprint as verified_id) so no /whoami
+    // --register nag fires and the gate layer applies the fresh-repo L5
+    // default. When ON, the forced-L2 disposition below is unchanged (S6).
+    identity = _soloIdentity(repoDir, fingerprint);
   } else {
     identity = {
       verified_id: fingerprint,

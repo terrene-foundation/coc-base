@@ -64,6 +64,7 @@ const path = require("path");
 const crypto = require("crypto");
 const { execFileSync, spawnSync } = require("child_process");
 const { resolveStateDir } = require("./state-resolver");
+const { isCoordinationEnabled } = require("./coordination-mode.js");
 
 const LEASE_FILE = "codify-lease.json";
 
@@ -412,22 +413,33 @@ function acquireCodifyLease(opts) {
   // downstream-context token ships. A very large scope can exceed the
   // 2KB append cap — the emitter then refuses typed and record_emit
   // surfaces it (the on-disk lease is unaffected).
-  const recordEmit = _emitLeaseRecord(
-    topLevel,
-    "codify-lease",
-    {
-      lease_id: leaseId,
-      branch,
-      // Informational; keep consistent with the branch's own date token
-      // when the lease bound to an existing codify/* branch.
-      date: (branch.match(/(\d{4}-\d{2}-\d{2})$/) || [])[1] || _isoDate(),
-      scope_files: scope,
-      scope_fingerprint: fingerprint,
-      acquired_at: acquiredAt,
-      action: "acquire",
-    },
-    o,
-  );
+  // MO-OPT W1-c — opt-in gate (workspaces/multi-operator-optional, journal/0330).
+  // The signed `codify-lease` coordination-log record is the CROSS-CLONE
+  // visibility surface (knowledge-convergence.md MUST-3); a solo / fresh repo
+  // (coordination OFF) has no coordination log + likely no signing key, so the
+  // emit would fail non-fatally and surface a confusing "lease record emit
+  // failed" warning. Skip it. The on-disk lease mutex AND the
+  // codify/<id>-<date> branch are coordination-INDEPENDENT and STAY (they make
+  // solo /codify race-safe + admin-merge-shaped exactly as today). When
+  // ENABLED, the emit is byte-unchanged.
+  const recordEmit = isCoordinationEnabled(topLevel)
+    ? _emitLeaseRecord(
+        topLevel,
+        "codify-lease",
+        {
+          lease_id: leaseId,
+          branch,
+          // Informational; keep consistent with the branch's own date token
+          // when the lease bound to an existing codify/* branch.
+          date: (branch.match(/(\d{4}-\d{2}-\d{2})$/) || [])[1] || _isoDate(),
+          scope_files: scope,
+          scope_fingerprint: fingerprint,
+          acquired_at: acquiredAt,
+          action: "acquire",
+        },
+        o,
+      )
+    : { ok: true, skipped: true, reason: "coordination-disabled" };
 
   return {
     ok: true,
@@ -510,17 +522,21 @@ function releaseCodifyLease(opts) {
 
   // FSUB (2026-06-11): release visibility record — siblings folding the
   // log can pair acquire/release by lease_id without reading this
-  // clone's codify-lease.json.
-  const recordEmit = _emitLeaseRecord(
-    topLevel,
-    "codify-lease-release",
-    {
-      lease_id: existing.lease_id,
-      released_at: released.released_at,
-      action: "release",
-    },
-    o,
-  );
+  // clone's codify-lease.json. MO-OPT W1-c: skip the signed emit when
+  // coordination is OFF (symmetric with acquire above) — no coordination log
+  // to pair against on a solo repo. The on-disk release IS already written.
+  const recordEmit = isCoordinationEnabled(topLevel)
+    ? _emitLeaseRecord(
+        topLevel,
+        "codify-lease-release",
+        {
+          lease_id: existing.lease_id,
+          released_at: released.released_at,
+          action: "release",
+        },
+        o,
+      )
+    : { ok: true, skipped: true, reason: "coordination-disabled" };
 
   return { ok: true, lease: released, record_emit: recordEmit };
 }
