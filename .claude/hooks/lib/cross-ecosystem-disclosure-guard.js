@@ -41,16 +41,18 @@
 // guard MAY carry `block` severity per hook-output-discipline.md MUST-2. It is
 // fail-LOUD + TYPED: every refusal returns a typed result naming WHY.
 //
-// SCOPE (issue #584): this ships ONLY the standalone pre-write guard LIBRARY
-// primitive. Its production ACTIVATION is DEFERRED: the sibling entry-point hook
-// (../cross-ecosystem-disclosure-guard.js) is NOT registered in settings.json,
-// and the cross-ecosystem write-DETECTION an active PreToolUse fence would need
-// depends on the deferred ecosystem-remote resolver (cross-repo.md §
-// "Ecosystem-Scoped Remote Links (design contract)" — not yet built). AC-2
-// (wire the guard onto the sync-from-canon INTAKE path) DEPENDS ON #576 (the
-// sync-from-canon driver, UNBUILT) and is DEFERRED-with-note — registration
-// lands with #576. See guardForkToCanonWrite's `intakePath` parameter doc + the
-// strict-xfail test.
+// SCOPE (issue #584): this ships the standalone pre-write guard LIBRARY
+// primitive. The sibling entry-point hook (../cross-ecosystem-disclosure-guard.js)
+// IS registered in settings.json on the Edit|Write|NotebookEdit PreToolUse
+// matcher (F3 Level-1, 2026-06-25, journal/0335) — it RUNS live but its BLOCK
+// branch is DORMANT until a write DECLARES a target ecosystem (whose only consumer
+// is the deferred sync-from-canon driver). Separately, the AUTONOMOUS
+// cross-ecosystem write-DETECTION an always-on fence would need depends on the
+// deferred ecosystem-remote resolver (cross-repo.md § "Ecosystem-Scoped Remote
+// Links (design contract)" — not yet built). AC-2 (wire the guard onto the
+// sync-from-canon INTAKE path) DEPENDS ON #576 (the sync-from-canon driver,
+// UNBUILT) and is DEFERRED-with-note. See guardForkToCanonWrite's `intakePath`
+// parameter doc + the strict-xfail test.
 //
 // AC-2 SECURITY-ACCEPTANCE CRITERIA (when #576/AC-2 wires the real production
 // scanFn, it MUST hold BOTH):
@@ -245,14 +247,47 @@ function _tokenBoundaryOk(norm, allowed) {
 // BLOCK). Over-blocking a prose-y authority is the SAFE direction; a
 // fork-identifying authority crossing unscrubbed is not.
 const CITATION_TAIL_WORDS = new Set([
-  "rev", "revision", "version", "ver",
-  "article", "annex", "clause", "section", "control", "controls",
-  "requirement", "requirements", "req", "part", "principle", "criteria",
-  "type", "trust", "services",
-  "iec", "csf", "dss", "sp", "pub",
-  "moderate", "high", "low", "baseline",
-  "iso", "soc", "nist", "gdpr", "hipaa", "sox", "ccpa", "glba", "fisma",
-  "pipeda", "dora", "fedramp", "pci",
+  "rev",
+  "revision",
+  "version",
+  "ver",
+  "article",
+  "annex",
+  "clause",
+  "section",
+  "control",
+  "controls",
+  "requirement",
+  "requirements",
+  "req",
+  "part",
+  "principle",
+  "criteria",
+  "type",
+  "trust",
+  "services",
+  "iec",
+  "csf",
+  "dss",
+  "sp",
+  "pub",
+  "moderate",
+  "high",
+  "low",
+  "baseline",
+  "iso",
+  "soc",
+  "nist",
+  "gdpr",
+  "hipaa",
+  "sox",
+  "ccpa",
+  "glba",
+  "fisma",
+  "pipeda",
+  "dora",
+  "fedramp",
+  "pci",
 ]);
 
 // Canonical normalization for the authority string + its tail (#584 F584):
@@ -263,11 +298,7 @@ const CITATION_TAIL_WORDS = new Set([
 // (_authorityTailIsCitationOnly) so a smuggled non-ASCII separator cannot slip a
 // fork-identifying token past the allowlist / citation-tail checks.
 function _normalizeAuthority(s) {
-  return s
-    .normalize("NFKC")
-    .replace(/\s+/gu, " ")
-    .trim()
-    .toLowerCase();
+  return s.normalize("NFKC").replace(/\s+/gu, " ").trim().toLowerCase();
 }
 
 // True iff the authority tail after the matched allowlist token (matchedLen)

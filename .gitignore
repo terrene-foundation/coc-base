@@ -2,6 +2,8 @@
 .claude/operator-id
 .coc-fetch-cache
 .claude/learning/codify-lease.json
+.claude/learning/coordination-mode.json
+.claude/operators.roster.json
 .claude/logs/
 **/.journal-skipped.log
 .session-notes

@@ -94,7 +94,7 @@ multi_cli_overlays:
 2. Map variant → multi-CLI sister:
    - `py` → `kailash-coc-py`
    - `rs` → `kailash-coc-rs`
-   - `rb` → no sister exists. Run `gh issue create --title "Multi-CLI sister template for kailash-coc-claude-rb" --body "Project at $(git remote get-url origin) requests a multi-CLI Ruby USE template. Currently rb consumers cannot migrate (no sister)."` against the loom repo (orchestration root). Exit.
+   - `rb` → RETIRED (#423 Phase 1). Ruby ships as bindings via the rs all-bindings template (kailash-coc-rs + the 28-ruby-bindings skill); there is no rb USE template. Do NOT migrate; exit with "kailash-coc-claude-rb is retired — use kailash-coc-rs for Ruby bindings."
 3. Verify clean working tree inline (do NOT just cite `rules/git.md`):
    ```bash
    [ -z "$(git status --porcelain)" ] || {

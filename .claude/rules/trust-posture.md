@@ -3,8 +3,6 @@ priority: 10
 scope: path-scoped
 paths:
   - "**/.claude/rules/**"
-  - "**/.claude/skills/**"
-  - "**/.claude/agents/**"
   - "**/.claude/hooks/**"
   - "**/.claude/commands/**"
   - "**/.claude/learning/**"

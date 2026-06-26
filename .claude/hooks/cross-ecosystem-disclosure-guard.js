@@ -7,20 +7,29 @@
  * (issue #584 AC-1). It wires lib/cross-ecosystem-disclosure-guard.js into the
  * canonical instruct-and-wait emit shape (hook-output-discipline.md MUST-1).
  *
- * ACTIVATION IS DEFERRED (NOT YET REGISTERED — #576 / AC-2):
- *   This file is the SHIPPED entry-point wrapper for the AC-1 library primitive,
- *   but it is NOT registered in settings.json today, so it does NOT run as a
- *   live PreToolUse fence. Registration lands with the sync-from-canon driver
- *   (#576 / AC-2), for two reasons: (1) without COC_XECO_TARGET_ECOSYSTEM the
- *   hook is a no-op (recognizeBoundary() returns intra-ecosystem → passthrough),
- *   whose only non-test consumer is the deferred sync-from-canon reverse
- *   direction; (2) the cross-ecosystem write-DETECTION an active fence needs
- *   depends on the deferred ecosystem-remote resolver (cross-repo.md §
- *   "Ecosystem-Scoped Remote Links (design contract)" — explicitly not yet
- *   built). TODAY the canon<->fork disclosure-isolation invariant is held by the
- *   two general-purpose fences (repo-scope-discipline.md's cross-repo-write
- *   prohibition + the publish-to-public.mjs INCLUDE allowlist); see
- *   artifact-flow.md § "Ecosystem Forks vs Downstream Consumers". This header
+ * REGISTERED (F3 Level-1, 2026-06-25, journal/0335) BUT DORMANT-UNTIL-#576:
+ *   This file IS registered in settings.json on the Edit|Write|NotebookEdit
+ *   PreToolUse matcher, so it RUNS live on every mutation — but its BLOCK branch
+ *   is DORMANT until a write DECLARES a target ecosystem. Two gates send every
+ *   ordinary edit to passthrough (defense-in-depth):
+ *     (1) ENTRY-POINT short-circuit — fires FIRST, the overwhelming common case:
+ *         absent a declared target (COC_XECO_TARGET_ECOSYSTEM env OR
+ *         payload.tool_input.target_ecosystem) `!targetEcosystem` passthroughs
+ *         BEFORE any ecosystem-config load, so an ordinary in-repo edit (and even
+ *         a corrupt ecosystem.json) never blocks.
+ *     (2) LIB boundary — fires when a target IS declared: on canon (loom has no
+ *         ecosystem.json) getUpstreamCanon() is null → recognizeBoundary returns
+ *         intra-ecosystem → passthrough. The BLOCK branch only fires in a FORK
+ *         (upstream_canon set) whose write DECLARES the canon target.
+ *   The ONLY consumer that declares a target is the DEFERRED sync-from-canon
+ *   driver (#576 / AC-2, UNBUILT). Separately, the AUTONOMOUS cross-ecosystem
+ *   write-DETECTION an always-on fence needs (catching an ad-hoc fork->canon
+ *   push) is Level-2, depending on the deferred ecosystem-remote resolver
+ *   (cross-repo.md § "Ecosystem-Scoped Remote Links (design contract)" — not yet
+ *   built). Until #576/Level-2 the canon<->fork disclosure-isolation invariant is
+ *   ALSO held by the two general-purpose fences (repo-scope-discipline.md's
+ *   cross-repo-write prohibition + the publish-to-public.mjs INCLUDE allowlist);
+ *   see artifact-flow.md § "Ecosystem Forks vs Downstream Consumers". This header
  *   stays consistent with the lib header's SCOPE note.
  *
  * WHAT IT GUARDS (once activated):

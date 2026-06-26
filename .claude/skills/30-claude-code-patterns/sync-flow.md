@@ -131,7 +131,7 @@ This is the field-shape contract a USE-template `/codify` session emits to `.cla
 **Mechanical wrong-lane defense (MUST, before writing the manifest):** glob-check every candidate change-path against the disallowed set `src/**`, `packages/**`, `pyproject.toml`, `Cargo.toml`. All disallowed → HALT ("wrong-lane — refile against BUILD repo issue queue"); mixed → skip-with-warning (in-scope proceed, disallowed excluded + warned); all in-scope → proceed.
 
 ```yaml
-source_repo: kailash-coc-claude-py # or -claude-rs / -claude-rb / kailash-coc-py / -rs
+source_repo: kailash-coc-claude-py # or -claude-rs / kailash-coc-py / -rs
 origin: use-template # explicit class discriminator
 codify_date: YYYY-MM-DD
 codify_session: "type(scope): description of work"
@@ -213,8 +213,8 @@ The Step-7c (Route A) and Route-B chains are correct but SILENT where the BUILD 
 1. Read `sync-manifest.yaml` for tier membership and variant mappings.
 2. Resolve the BUILD repo path: `sync-manifest.yaml` → `repos.{target}.build` gives the logical NAME; the on-disk path comes from `bin/lib/loom-links.mjs::resolveRepo("build.{target}")` (canonical NAME→location binding per `cross-repo.md` MUST-1) — never a positional `../{build}` guess. An undeclared `build.{target}` linkage is a typed `LinkError`, not a positional fallback.
 3. **Read SDK version** from BUILD repo's `pyproject.toml` (py) or `Cargo.toml` (rs). Report it in the review header.
-4. Compute **expected state**: for each file in `loom/.claude/`, apply the variant overlay for this target. This is what the BUILD repo SHOULD have if it were freshly synced.
-5. Diff BUILD repo's `.claude/` against expected state.
+4. Compute **expected state** via the deterministic engine (F11): `node .claude/bin/sync-tier-aware.mjs --build {target} --verify` reports every path where the BUILD repo is MISSING / DIFFERS / OBSOLETED-PRESENT vs what a fresh `/sync-to-build` would land (per-target `build_variant_overlay`, `build_exclude`, obsoleted-only purge, verbatim/no-strip). Do NOT hand-improvise the per-file variant-overlay decision — it is per-target (`repos.{target}.build_variant_overlay`), NOT "apply the variant if one exists" (`journal/0339`).
+5. The engine's `--verify` output IS the diff of BUILD repo's `.claude/` against expected state.
 6. Check `.claude/.proposals/latest.yaml` (created by /codify):
    - `pending_review` — new unprocessed proposal. Proceed with review.
    - `reviewed` — already classified in a prior Gate-1 ingest (`/sync-from-build` / `/sync-from-use`); check whether new changes were appended after the review (look for entries below `reviewed_date`). If new entries exist, re-review only those.
@@ -328,3 +328,39 @@ Dependencies: uv sync ✓ | Hooks: 11/11 | VERSION: 1.0.0→1.1.0
 ## Exclusions (never synced anywhere)
 
 `learning/`, `.proposals/`, `sync-manifest.yaml`, `variants/`, `settings.local.json`, `sync-preserve.local.yaml`, `CLAUDE.md`, `.env`, `.git/`. See `guides/co-setup/06-artifact-lifecycle.md` § "What downstream NEVER gets" for full list. (`sync-preserve.yaml` — the template-carried preserve carrier — IS synced template→consumer; only the `.local.yaml` companion is consumer-owned and never-synced, the same split as `settings.json` vs `settings.local.json`.)
+
+## Sync-to-build merge-plan layout
+
+The full annotated example for `commands/sync-to-build.md` Step 5 ("Present merge plan"). Group by decision type; for MODIFIED files show source-vs-BUILD line counts; end with the proceed/review gate:
+
+```
+## Merge Plan: loom/ → kailash-rs/
+
+### Safe updates (shared artifacts, no BUILD-specific content)
+- rules/agents.md (+3 -1)
+- rules/security.md (unchanged — verify, was already current)
+- guides/claude-code/07-the-hook-system.md (+28 -1)
+... (N files)
+
+### Flagged for review (BUILD may have diverged)
+- skills/02-dataflow/dataflow-express.md
+  Source: 48 lines (py variant condensed)
+  BUILD:  366 lines (rs-specific expanded content)
+  → [K]eep BUILD  [U]pdate from source  [D]iff?
+
+### BUILD-only (preserved, no action)
+- agents/rust-architect.md
+- agents/bindings/python-binding.md
+... (N files)
+
+### Numbering conflicts (requires human decision)
+- skills/09-: source=workflow-patterns, BUILD=coc-reference
+  → [R]ename BUILD  [S]kip source  [D]iff?
+
+### Hooks (`.claude/hooks/`, always updated — these are CC infrastructure)
+- session-start.js (+15 -8)
+- user-prompt-rules-reminder.js (+3 -1)
+
+→ Proceed with safe updates? [Y/N]
+→ Review flagged files individually? [Y/N]
+```

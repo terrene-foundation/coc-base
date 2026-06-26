@@ -291,8 +291,11 @@ const KNOWN_TEMPLATE_REPOS = {
   // back to `coc-project` on every session start (the perpetual `M .claude/VERSION`
   // drift #407 closed). Authoritative sync targets per sync-manifest.yaml::repos
   // (py.templates + rs.templates carrying clis:[claude,codex,gemini]);
-  // kailash-coc-rb is the loom-links use-template.rb sibling (declared key;
-  // activates with no drift if/when it becomes a sync target).
+  // kailash-coc-rb / use-template.rb were the forward-declared multi-CLI Ruby
+  // sibling; the rb USE lane was RETIRED in #423 Phase 1 (Ruby ships as bindings
+  // via the rs all-bindings template). This entry is retained only so tooling
+  // identifies a lingering retired-template repo, NOT mis-classifying it as a
+  // downstream project — mirrors the claude-rb retention.
   "terrene-foundation/kailash-coc-py": "kailash-coc-py",
   "terrene-foundation/kailash-coc-rs": "kailash-coc-rs",
   "terrene-foundation/kailash-coc-rb": "kailash-coc-rb",

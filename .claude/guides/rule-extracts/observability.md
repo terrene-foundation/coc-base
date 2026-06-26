@@ -45,7 +45,7 @@ Threat model: classification metadata is itself schema-level PII-adjacency. A sc
 
 Disposition protocol exists because early iterations reported "200 WARN entries" per run with no action taken. Agents rationally skipped the gate (200 disposition lines per run). Adding dedup (group-by-source-file + message pattern) reduced typical runs to 5-10 unique entries — tractable for per-entry disposition.
 
-Origin traces to multiple sessions where silent-WARN patterns re-surfaced: `workspaces/arbor-upstream-fixes/.session-notes` (2026-04-12) + PR #466 (63-warning sweep, 2026-04-14). The rule is now the structural defense against warning-creep.
+Origin traces to multiple sessions where silent-WARN patterns re-surfaced: a BUILD-repo upstream-fixes session (2026-04-12) + PR #466 (63-warning sweep, 2026-04-14). The rule is now the structural defense against warning-creep.
 
 ## Rule 6.3 — Multi-Surface Credential Redaction: Evidence
 

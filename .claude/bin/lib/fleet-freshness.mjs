@@ -105,13 +105,12 @@ const CONSUMER_KEY_PREFIXES = ["use-template.", "downstream."];
 
 // Consumer logical key → the sync-tier-aware variant TARGET whose expected
 // content set is authoritative for that consumer. Derived from
-// sync-manifest.yaml::repos.<target>.templates (py/rs templates, base, rb).
+// sync-manifest.yaml::repos.<target>.templates (py/rs templates, base).
 const KEY_TO_VARIANT = {
   "use-template.py": "py",
   "use-template.claude-py": "py",
   "use-template.rs": "rs",
   "use-template.claude-rs": "rs",
-  "use-template.claude-rb": "rb",
   "use-template.base": "base",
   "use-template.claude-base": "base",
 };

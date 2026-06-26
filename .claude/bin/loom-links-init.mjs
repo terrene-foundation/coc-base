@@ -64,10 +64,8 @@ const KEY_RULES = [
   // USE templates (multi-CLI) — must precede the looser build.* rules
   { key: "use-template.claude-py", re: /^kailash-coc-claude-py$/ },
   { key: "use-template.claude-rs", re: /^kailash-coc-claude-rs$/ },
-  { key: "use-template.claude-rb", re: /^kailash-coc-claude-rb$/ },
   { key: "use-template.py", re: /^kailash-coc-py$/ },
   { key: "use-template.rs", re: /^kailash-coc-rs$/ },
-  { key: "use-template.rb", re: /^kailash-coc-rb$/ },
   // BUILD repos
   { key: "build.prism", re: /^kailash-prism$/ },
   { key: "build.py", re: /^kailash-py$/ },

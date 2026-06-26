@@ -55,7 +55,7 @@ url = f"postgresql://{user}:{pwd}@{host}/{db}"  # drifts from decode path silent
 
 **Why (extended):** Encode and decode are dual halves of one contract; splitting them across modules guarantees one half drifts. Round-trip tests are only meaningful when both ends share the helper.
 
-Origin: `workspaces/arbor-upstream-fixes/.session-notes` (2026-04-12)
+Origin: a BUILD-repo upstream-fixes session (2026-04-12).
 
 ## Sanitizer Contract — Exhaustive Examples
 

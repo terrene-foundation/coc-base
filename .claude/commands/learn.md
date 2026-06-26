@@ -42,7 +42,7 @@ node scripts/learning/digest-builder.js --stats
 
 1. **Hooks capture signals** — User corrections (UserPromptSubmit), rule violations (PostToolUse), session accomplishments (SessionEnd), journal decisions (SessionEnd). Pure file I/O, no LLM.
 2. **Digest builder aggregates** — At session end, observations are summarized into `learning-digest.json`. Pure aggregation, no pattern matching or confidence scores.
-3. **/codify does the thinking** — When `/codify` runs, the LLM reads the digest, journals, and session notes. It decides what to codify into real rules, skills, or agents. No intermediate staging — changes go directly into canonical artifact locations.
+3. **/codify does the thinking** — When `/codify` runs, it anchors on `learning-codified.json::last_codified` and enumerates the COMPLETE delta since it via `.claude/bin/codify-backlog.mjs` (observations, unaddressed violations, journal entries, artifact-change commits). The digest + journals + session notes are SUPPLEMENTARY semantic context — NOT the work-list (deriving the work-list from the digest/session-notes/memory alone is BLOCKED per `codify.md` Step 1, because they only reflect the last session). The LLM decides what to codify into real rules, skills, or agents. No intermediate staging — changes go directly into canonical artifact locations.
 
 ## File Locations
 
@@ -50,8 +50,8 @@ node scripts/learning/digest-builder.js --stats
 <project>/.claude/learning/
   observations.jsonl        # Raw observations (capped at 500, auto-archived)
   observations.archive/     # Archived observations
-  learning-digest.json      # Structured summary for /codify
-  learning-codified.json    # What /codify has already processed
+  learning-digest.json      # Supplementary recency hint for /codify (NOT the work-list)
+  learning-codified.json    # last_codified anchor + what /codify has already processed
 ```
 
 ## Observation Types
@@ -67,6 +67,6 @@ node scripts/learning/digest-builder.js --stats
 
 ## Related
 
-- `/codify` — Consumes the digest and codifies findings into artifacts
+- `/codify` — Anchors on the last-codification delta (`codify-backlog.mjs`) and codifies findings into artifacts; the digest is a supplementary hint
 - `/journal` — Creates DECISION/DISCOVERY entries that feed into learning
 - `/wrapup` — Writes session notes that feed into accomplishments

@@ -25,7 +25,7 @@ Ordered per Q4: the registry defines the org, genesis anchors TO that org, the r
 
 1. **Collect** the NAME→remote bindings for this ecosystem's logical keys. The keys are EXACTLY the
    resolver keys (`artifact-flow.md` § "Repo Classes Map 1:1 To Resolver Logical Keys"):
-   `build.py` / `build.rs` / `build.prism`, `use-template.{py,rs,rb,claude-py,claude-rs,claude-rb}`,
+   `build.py` / `build.rs` / `build.prism`, `use-template.{py,rs,claude-py,claude-rs}`,
    `loom`, `atelier`, `downstream.<slug>`. Each binds to `{ "org": "<org>", "repo": "<repo>" }`.
 2. **Disclosure-scan BEFORE write (invariant 1).** The registry names real org slugs:
    ```bash

@@ -4,7 +4,6 @@ description: "Multi-operator knowledge convergence: single-writer artifact split
 priority: 10
 scope: path-scoped
 paths:
-  - ".claude/rules/**"
   - ".claude/team-memory/**"
   - ".claude/learning/**"
   - "**/journal/**"

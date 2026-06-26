@@ -456,18 +456,27 @@ const GITIGNORE_MANAGED_END = "# <<< coc:gitignore_additions <<<";
 function parseArgs(argv) {
   const args = {
     target: null,
+    // "use"  → /sync-to-use lane (USE templates; use_exclude / use_obsoleted,
+    //           variant overlay always, strip BUILD-internal refs).
+    // "build" → /sync-to-build lane (ONE BUILD repo; build_exclude, obsoleted-
+    //           only purge, verbatim — no strip, per-target variant policy).
+    mode: "use",
     template: null,
     allTemplates: false,
     dryRun: false,
+    verify: false,
     out: null,
     json: false,
   };
+  let build = null;
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--target") args.target = argv[++i];
+    else if (a === "--build") build = argv[++i];
     else if (a === "--template") args.template = argv[++i];
     else if (a === "--all-templates") args.allTemplates = true;
     else if (a === "--dry-run") args.dryRun = true;
+    else if (a === "--verify") args.verify = true;
     else if (a === "--out") args.out = argv[++i];
     else if (a === "--json") args.json = true;
     else if (a === "-h" || a === "--help") {
@@ -478,8 +487,28 @@ function parseArgs(argv) {
       process.exit(2);
     }
   }
+  // --build <target> selects the /sync-to-build lane: it resolves ONE BUILD
+  // repo (repos.<target>.build via the `build.<target>` resolver key) and
+  // applies BUILD manifest semantics. Mutually exclusive with the USE-lane
+  // flags — a BUILD run has exactly one target and no template array.
+  if (build !== null) {
+    if (args.target !== null) {
+      process.stderr.write(`--build and --target are mutually exclusive\n${usage()}`);
+      process.exit(2);
+    }
+    if (args.template !== null || args.allTemplates) {
+      process.stderr.write(
+        `--template / --all-templates are USE-lane only; not valid with --build\n${usage()}`,
+      );
+      process.exit(2);
+    }
+    args.mode = "build";
+    args.target = build;
+  }
   if (!args.target) {
-    process.stderr.write(`--target is required\n${usage()}`);
+    process.stderr.write(
+      `--target <py|rs|rb|base> OR --build <py|rs|prism> is required\n${usage()}`,
+    );
     process.exit(2);
   }
   return args;
@@ -487,12 +516,22 @@ function parseArgs(argv) {
 
 function usage() {
   return (
-    "Usage: sync-tier-aware.mjs --target <py|rs|rb|base>\n" +
-    "       [--template <repo> | --all-templates] [--dry-run] [--out <dir>] [--json]\n" +
+    "Usage: sync-tier-aware.mjs --target <py|rs|rb|base>          # /sync-to-use lane\n" +
+    "       sync-tier-aware.mjs --build  <py|rs|prism>            # /sync-to-build lane\n" +
+    "       [--template <repo> | --all-templates] [--dry-run] [--verify] [--out <dir>] [--json]\n" +
     "\n" +
-    "  --template <repo>   restrict the write to ONE template in the lane\n" +
-    "  --all-templates     write EVERY template in the lane (explicit opt-in;\n" +
-    "                      required when the lane has >1 template — #401)\n"
+    "  --target <lang>     USE lane — distribute to repos.<lang>.templates[]\n" +
+    "  --build <lang>      BUILD lane — distribute to ONE repos.<lang>.build repo\n" +
+    "                      (build_exclude, obsoleted-only purge, verbatim/no-strip,\n" +
+    "                      variant overlay per repos.<lang>.build_variant_overlay)\n" +
+    "  --template <repo>   USE only — restrict the write to ONE template in the lane\n" +
+    "  --all-templates     USE only — write EVERY template in the lane (explicit\n" +
+    "                      opt-in; required when the lane has >1 template — #401)\n" +
+    "  --verify            read-only consistency check: report every in-plan file\n" +
+    "                      whose target content differs from expected + every\n" +
+    "                      obsoleted path still present. Never writes. Exit 1 on\n" +
+    "                      any mismatch. The deterministic 'is the target in sync?'\n" +
+    "                      gate (F11).\n"
   );
 }
 
@@ -784,7 +823,7 @@ function isSlotKeyed(overlaySrc) {
  * not present in global, etc.) — the caller HALTS the write rather than ship a
  * mis-composed overlay.
  */
-function composeOverlayContent(globalAbs, overlayAbs) {
+function composeOverlayContent(globalAbs, overlayAbs, stripEnabled = true) {
   const globalSrc = fs.readFileSync(globalAbs, "utf8");
   const overlaySrc = fs.readFileSync(overlayAbs, "utf8");
   const slot_keyed = isSlotKeyed(overlaySrc);
@@ -797,8 +836,13 @@ function composeOverlayContent(globalAbs, overlayAbs) {
   } else {
     raw = overlaySrc;
   }
-  const { stripped } = stripBuildInternalReferences(raw);
-  return { content: stripped, slot_keyed, warnings };
+  // USE strips BUILD-internal refs from the deployed bytes (so they equal
+  // verify-overlays' expected-md5). BUILD ships the composed overlay VERBATIM
+  // (stripEnabled false) — a BUILD repo legitimately names its own packages.
+  const content = stripEnabled
+    ? stripBuildInternalReferences(raw).stripped
+    : raw;
+  return { content, slot_keyed, warnings };
 }
 
 /**
@@ -948,6 +992,15 @@ function parseRepos(manifestText) {
     const buildMatch = body.match(/^\s*build:\s*(\S+)\s*$/m);
     const build =
       buildMatch && buildMatch[1] !== "null" ? buildMatch[1] : null;
+    // build_variant_overlay: true|false (F11) — per-target BUILD-lane variant
+    // policy. true → /sync-to-build applies the language variant overlay (the
+    // global content is wrong for this BUILD repo's language; e.g. rs needs
+    // Rust-flavored rules). false (DEFAULT) → BUILD ships the GLOBAL content
+    // (the global is already this language's native form; e.g. py). USE-lane
+    // distribution is UNAFFECTED — it always applies variant overlays. Absent
+    // → false (a BUILD repo that has not declared the field stays on globals).
+    const bvoMatch = body.match(/^\s*build_variant_overlay:\s*(true|false)\s*$/m);
+    const build_variant_overlay = bvoMatch ? bvoMatch[1] === "true" : false;
     // templates: list of { repo, clis, baseline_files }
     const templates = parseTemplates(body);
     repos[headers[i].name] = {
@@ -955,6 +1008,7 @@ function parseRepos(manifestText) {
       templates,
       variant,
       build,
+      build_variant_overlay,
     };
   }
   return repos;
@@ -1461,7 +1515,8 @@ function matchesAnyManifestGlob(relpath, globs) {
 // ────────────────────────────────────────────────────────────────
 // Inclusion computation
 // ────────────────────────────────────────────────────────────────
-function buildPlan(manifest, target, templateFilter) {
+function buildPlan(manifest, target, templateFilter, mode = "use") {
+  const isBuild = mode === "build";
   const tiersMap = parseTiers(manifest);
   const repos = parseRepos(manifest);
   const repo = repos[target];
@@ -1470,6 +1525,17 @@ function buildPlan(manifest, target, templateFilter) {
       1,
       `manifest defect: repos.${target} not declared in sync-manifest.yaml. ` +
         `Available: ${Object.keys(repos).join(", ")}`,
+    );
+  }
+  // BUILD lane: the target MUST have a BUILD source. base (build: null) ships
+  // USE-template artifacts only — /sync-to-build early-exits per
+  // commands/sync-to-build.md ("build: null is not applicable").
+  if (isBuild && repo.build === null) {
+    fail(
+      2,
+      `repos.${target}.build is null — /sync-to-build is not applicable to ` +
+        `this variant (it ships USE-template artifacts only). Use ` +
+        `--target ${target} (the USE lane) instead.`,
     );
   }
   if (repo.tier_subscriptions === null) {
@@ -1482,8 +1548,29 @@ function buildPlan(manifest, target, templateFilter) {
 
   const exclude = parseList(sliceBlock(manifest, "exclude"));
   const loomOnly = parseList(sliceBlock(manifest, "loom_only")); // F104 — positive never-sync
-  const useExclude = parseList(sliceBlock(manifest, "use_exclude"));
-  const useObsoleted = parseList(sliceBlock(manifest, "use_obsoleted"));
+  // Class exclude + purge source diverge by lane (F11):
+  //   USE   → use_exclude  (skip BUILD-only files) + use_obsoleted (purge).
+  //   BUILD → build_exclude (skip USE-only files)  + obsoleted     (purge);
+  //           use_exclude files ARE included (they are BUILD-bound), and
+  //           use_obsoleted is IGNORED (those are BUILD-owned artifacts —
+  //           commands/sync-to-build.md "MUST IGNORE use_obsoleted").
+  const classExclude = isBuild
+    ? parseList(sliceBlock(manifest, "build_exclude"))
+    : parseList(sliceBlock(manifest, "use_exclude"));
+  const purgeList = isBuild
+    ? parseList(sliceBlock(manifest, "obsoleted"))
+    : parseList(sliceBlock(manifest, "use_obsoleted"));
+  // BUILD ships VERBATIM (no strip-build-internal rewrite): a BUILD repo
+  // legitimately names its own packages/workspaces, and stripping would
+  // rewrite `kailash-py` → generic ON kailash-py. USE strips (downstream
+  // consumers must not see loom-internal references).
+  const stripEnabled = !isBuild;
+  // BUILD applies the language variant overlay ONLY when the target declares
+  // build_variant_overlay: true (per-target policy, F11; e.g. rs needs
+  // Rust-flavored content, py uses the Python-native global). USE always
+  // applies overlays. When false, BUILD ships the GLOBAL — no overlay pass,
+  // no variant_only additions.
+  const applyVariantOverlay = isBuild ? !!repo.build_variant_overlay : true;
   const gitignoreAdditions = parseGitignoreAdditions(manifest);
   // FA — visibility-conditional additions (applied per-consumer in
   // executePlan based on each target's .coc-sync-marker visibility).
@@ -1493,12 +1580,12 @@ function buildPlan(manifest, target, templateFilter) {
   // Reject unsafe purge entries at plan-build time (CRIT-1 defense).
   // An absolute / `.` / `..` entry would cause fs.rmSync to escape the
   // template dir; halt before any FS mutation.
-  for (const entry of useObsoleted) {
+  for (const entry of purgeList) {
     const defect = rejectUnsafePurgeEntry(entry);
     if (defect !== null) {
       fail(
         1,
-        `manifest defect: use_obsoleted entry ${defect} ` +
+        `manifest defect: ${isBuild ? "obsoleted" : "use_obsoleted"} entry ${defect} ` +
           `— sync-tier-aware refuses to apply this purge list ` +
           `(would escape target dir)`,
       );
@@ -1548,17 +1635,23 @@ function buildPlan(manifest, target, templateFilter) {
     inclusionGlobs.push(...g);
   }
 
-  const templates =
-    templateFilter === null
+  // BUILD lane resolves ONE repo (repos.<target>.build); USE resolves the
+  // template array. targetRepoNames carries the repo NAME(s) for reporting;
+  // the on-disk dir is resolved in executePlan (build.<target> via
+  // resolveBuildDir vs use-template.<key> via resolveTemplateDir).
+  const templates = isBuild
+    ? null
+    : templateFilter === null
       ? repo.templates
       : repo.templates.filter((t) => t.repo === templateFilter);
-  if (templateFilter !== null && templates.length === 0) {
+  if (!isBuild && templateFilter !== null && templates.length === 0) {
     fail(
       2,
       `--template ${templateFilter} not found under repos.${target}. ` +
         `Available: ${repo.templates.map((t) => t.repo).join(", ")}`,
     );
   }
+  const targetRepoNames = isBuild ? [repo.build] : templates.map((t) => t.repo);
   const allFiles = walkClaudeDir();
 
   // Per-file disposition.
@@ -1568,15 +1661,17 @@ function buildPlan(manifest, target, templateFilter) {
       f,
       inclusionGlobs,
       exclude,
-      useExclude,
+      classExclude,
       loomOnly,
+      mode,
     );
     const entry = { path: f, ...disposition };
     // #475 — plan-visible strip eligibility (path half of the classifier).
     // The content half (utf8 round-trip + rewrite-fired) is decided at
     // write time in executePlan; eligibility here makes the disposition
-    // inspectable in --dry-run / --json before any write.
-    if (entry.action === "copy") entry.strip = isStripEligible(f);
+    // inspectable in --dry-run / --json before any write. BUILD ships
+    // verbatim → never strip (stripEnabled false → strip omitted).
+    if (entry.action === "copy") entry.strip = stripEnabled && isStripEligible(f);
     files.push(entry);
   }
 
@@ -1587,14 +1682,21 @@ function buildPlan(manifest, target, templateFilter) {
   // gap (a declared entry matching zero loom files) — main() hard-fails the
   // WRITE path on it, mirroring the #401 Defect-2 byte-verify teeth.
   const variantOnlyMap = parseVariantOnly(manifest);
+  // Applied when this lane uses variant overlays (USE always; BUILD only when
+  // build_variant_overlay: true). A globals-only BUILD repo has no variant
+  // additions — it ships globals exactly.
   const { files: variantOnlyFiles, missing: variantOnlyMissing } =
-    expandVariantOnly(allFiles, repo.variant, variantOnlyMap[repo.variant] || []);
+    applyVariantOverlay
+      ? expandVariantOnly(allFiles, repo.variant, variantOnlyMap[repo.variant] || [])
+      : { files: [], missing: [] };
 
-  // #475 D5 — variant_only strip-dirty gate. variant_only ADDITIONS ship
-  // VERBATIM (#427 contract); a source whose content the strip transform
-  // would change is an authoring defect surfaced here (plan-visible in
-  // dry-run) and hard-failed on the WRITE path by main().
-  const variantOnlyStrippable = findStrippableVariantOnly(variantOnlyFiles);
+  // #475 D5 — variant_only strip-dirty gate. Only meaningful when the lane
+  // STRIPS (USE): a strippable variant_only source would carry BUILD-internal
+  // refs into a stripped surface verbatim. BUILD ships verbatim by design, so
+  // a "strippable" source is not a leak there — skip the gate (empty).
+  const variantOnlyStrippable = stripEnabled
+    ? findStrippableVariantOnly(variantOnlyFiles)
+    : [];
 
   // #473 — variants: REPLACEMENT overlay pass. classifyFile EXCLUDES every
   // `variants/**` path (overlay sources never enter the global copy plan); the
@@ -1607,18 +1709,25 @@ function buildPlan(manifest, target, templateFilter) {
   const variantsMap = parseVariants(manifest);
   const filesByPath = new Map(files.map((f) => [f.path, f]));
   const allFilesSet = new Set(allFiles);
+  // Applied when this lane uses variant overlays. When OFF (globals-only
+  // BUILD), no global is suppressed → every tier-matched global copies as-is.
   const {
     overlays,
     missing: overlayMissing,
     orphans: overlayOrphans,
     out_of_lane: overlayOutOfLane,
-  } = resolveVariantOverlays(variantsMap, repo.variant, filesByPath, allFilesSet);
+  } = applyVariantOverlay
+    ? resolveVariantOverlays(variantsMap, repo.variant, filesByPath, allFilesSet)
+    : { overlays: [], missing: [], orphans: [], out_of_lane: [] };
 
   return {
     target,
+    mode,
     variant: repo.variant,
+    build_variant_overlay: applyVariantOverlay,
+    strip_enabled: stripEnabled,
     tier_subscriptions: repo.tier_subscriptions,
-    templates: templates.map((t) => t.repo),
+    templates: targetRepoNames,
     files,
     variant_only: variantOnlyFiles,
     variant_only_missing: variantOnlyMissing,
@@ -1627,13 +1736,22 @@ function buildPlan(manifest, target, templateFilter) {
     overlay_missing: overlayMissing,
     overlay_orphans: overlayOrphans,
     overlay_out_of_lane: overlayOutOfLane,
-    purge: useObsoleted.slice(),
-    gitignore_additions: gitignoreAdditions.slice(),
-    visibility_gitignore_additions: visibilityGitignoreAdditions.slice(),
+    purge: purgeList.slice(),
+    gitignore_additions: isBuild ? [] : gitignoreAdditions.slice(),
+    visibility_gitignore_additions: isBuild
+      ? []
+      : visibilityGitignoreAdditions.slice(),
   };
 }
 
-function classifyFile(relpath, inclusionGlobs, exclude, useExclude, loomOnly = []) {
+function classifyFile(
+  relpath,
+  inclusionGlobs,
+  exclude,
+  classExclude,
+  loomOnly = [],
+  mode = "use",
+) {
   // 1. Always-include — wins over everything except loom-local.
   const alwaysInc = matchesAny(relpath, ALWAYS_INCLUDE);
   // 2. Loom-local — universal skip (gitignored operator config).
@@ -1655,9 +1773,14 @@ function classifyFile(relpath, inclusionGlobs, exclude, useExclude, loomOnly = [
   if (matchesAnyManifestGlob(relpath, exclude)) {
     return { action: "skip", reason: "exclude" };
   }
-  // 4. use_exclude (USE-template only — this tool emits to USE templates).
-  if (matchesAnyManifestGlob(relpath, useExclude)) {
-    return { action: "skip", reason: "use_exclude" };
+  // 4. Class exclude — USE lane: use_exclude (BUILD-only files skipped here);
+  //    BUILD lane: build_exclude (USE-only files skipped here). The reason
+  //    label tracks the lane so the plan/report names the right list.
+  if (matchesAnyManifestGlob(relpath, classExclude)) {
+    return {
+      action: "skip",
+      reason: mode === "build" ? "build_exclude" : "use_exclude",
+    };
   }
   // 5. Tier inclusion.
   if (matchesAnyManifestGlob(relpath, inclusionGlobs)) {
@@ -1696,6 +1819,29 @@ function resolveTemplateDir(repo, outOverride) {
   return r.value;
 }
 
+/**
+ * Resolve the on-disk path of ONE BUILD repo (F11). The logical key is
+ * `build.<target>` directly (py/rs/prism) — NOT the use-template short-key
+ * derivation. A BUILD lane has exactly one target dir (no template array).
+ */
+function resolveBuildDir(target, outOverride) {
+  if (outOverride !== null) return outOverride;
+  const key = `build.${target}`;
+  const r = resolveRepo(key, { require: false });
+  if (r.skipped) {
+    fail(
+      3,
+      `loom-links resolver: ${r.reason}\n` +
+        `(declare 'build.${target}' in loom-links.local.json, ` +
+        `or pass --out <dir> to override)`,
+    );
+  }
+  if (r.kind !== "path") {
+    fail(3, `loom-links: '${key}' is a ${r.kind}, expected path linkage`);
+  }
+  return r.value;
+}
+
 // ────────────────────────────────────────────────────────────────
 // Execution — copy + purge
 // ────────────────────────────────────────────────────────────────
@@ -1704,9 +1850,10 @@ function executePlan(plan, outOverride, dryRun) {
   // BEFORE any FS mutation. A missing resolver entry halts the whole
   // run rather than leaving partial state across templates 1..N-1 when
   // template N fails.
-  const resolvedDirs = plan.templates.map((tmpl) =>
-    resolveTemplateDir(tmpl, outOverride),
-  );
+  const resolvedDirs =
+    plan.mode === "build"
+      ? plan.templates.map(() => resolveBuildDir(plan.target, outOverride))
+      : plan.templates.map((tmpl) => resolveTemplateDir(tmpl, outOverride));
 
   const results = [];
   for (let i = 0; i < plan.templates.length; i++) {
@@ -1736,6 +1883,7 @@ function executePlan(plan, outOverride, dryRun) {
         loom_local: 0,
         exclude: 0,
         use_exclude: 0,
+        build_exclude: 0,
         no_tier_match: 0,
       },
     };
@@ -1904,7 +2052,7 @@ function executePlan(plan, outOverride, dryRun) {
       shippedDests.add(dest); // MED-1: a same-plan write owns this path
       let composed;
       try {
-        composed = composeOverlayContent(globalAbs, overlayAbs);
+        composed = composeOverlayContent(globalAbs, overlayAbs, plan.strip_enabled);
       } catch (e) {
         // A compose failure (slot missing in global, etc.) is a manifest-vs-
         // source defect — HALT rather than ship a mis-composed overlay.
@@ -1993,21 +2141,219 @@ function executePlan(plan, outOverride, dryRun) {
     // entries. Public → base + visibility (session-notes + active
     // workspaces ignored, _template preserved). Private → base only
     // (TRACK session-notes + workspaces as team knowledge).
-    const marker = readConsumerVisibility(dir);
-    const effectiveAdds = effectiveGitignoreAdditions(
-      plan.gitignore_additions,
-      plan.visibility_gitignore_additions,
-      marker,
-    );
-    result.visibility = marker.visibility;
-    try {
-      result.gitignore = applyGitignoreAdditions(dir, effectiveAdds, dryRun);
-    } catch (e) {
-      fail(1, `gitignore apply refused: ${e.message}`);
+    // gitignore management is USE-only (consumer .coc-sync-marker visibility
+    // model). BUILD repos have no such model — skip the marker read + apply.
+    if (plan.mode === "build") {
+      result.visibility = null;
+      result.gitignore = null;
+    } else {
+      const marker = readConsumerVisibility(dir);
+      const effectiveAdds = effectiveGitignoreAdditions(
+        plan.gitignore_additions,
+        plan.visibility_gitignore_additions,
+        marker,
+      );
+      result.visibility = marker.visibility;
+      try {
+        result.gitignore = applyGitignoreAdditions(dir, effectiveAdds, dryRun);
+      } catch (e) {
+        fail(1, `gitignore apply refused: ${e.message}`);
+      }
     }
     results.push(result);
   }
   return results;
+}
+
+// ────────────────────────────────────────────────────────────────
+// Consistency verification (F11) — read-only "is the target in sync?"
+// ────────────────────────────────────────────────────────────────
+
+/**
+ * The bytes apply WOULD write for a copy-action file. Mirrors the
+ * executePlan copy branch EXACTLY (raw vs strip), so apply-then-verify is
+ * a fixed point: a divergence between this and the write path is itself a
+ * bug the apply→verify regression test catches.
+ */
+function expectedCopyBytes(srcAbs, strip) {
+  const srcBuf = fs.readFileSync(srcAbs);
+  if (strip === true) {
+    const text = srcBuf.toString("utf8");
+    if (Buffer.from(text, "utf8").equals(srcBuf)) {
+      const { stripped } = stripBuildInternalReferences(text);
+      if (stripped !== text) return Buffer.from(stripped, "utf8");
+    }
+  }
+  return srcBuf;
+}
+
+function _compareExpected(r, dest, expectedBuf, relName) {
+  let got;
+  try {
+    got = fs.readFileSync(dest);
+  } catch (e) {
+    r.missing.push(relName);
+    return;
+  }
+  if (!got.equals(expectedBuf)) r.differs.push(relName);
+}
+
+/**
+ * Read-only consistency check (F11): for each resolved target, assert every
+ * in-plan file's current content equals what apply WOULD write, and every
+ * obsoleted path is absent. Returns per-target { missing, differs,
+ * purge_present, checked }. Writes NOTHING. This is the deterministic gate
+ * that surfaces the exact drift the silent /sync-to-build divergence left
+ * undetected (py: obsoleted not purged; rs: codify-anchor missing).
+ */
+function verifyConsistency(plan, outOverride) {
+  const resolvedDirs =
+    plan.mode === "build"
+      ? plan.templates.map(() => resolveBuildDir(plan.target, outOverride))
+      : plan.templates.map((tmpl) => resolveTemplateDir(tmpl, outOverride));
+  const results = [];
+  // Mirror executePlan: a copy-global whose dest collides with a variant_only
+  // ADDITION is overwritten by the variant source (the variant_only loop runs
+  // AFTER the copy loop). The variant_only branch OWNS that dest, so the copy
+  // branch must NOT also assert the (stripped) global there — otherwise verify
+  // and apply disagree on a collision path.
+  const variantOnlyDestRel = new Set(
+    (plan.variant_only || []).map((vf) => vf.dest),
+  );
+  for (let i = 0; i < plan.templates.length; i++) {
+    const tmpl = plan.templates[i];
+    const dir = resolvedDirs[i];
+    const r = {
+      template: tmpl,
+      target_basename: path.basename(dir),
+      checked: 0,
+      missing: [],
+      differs: [],
+      purge_present: [],
+    };
+    for (const f of plan.files) {
+      if (f.action !== "copy") continue; // overlay-suppressed + skips handled below/elsewhere
+      if (variantOnlyDestRel.has(f.path)) continue; // variant_only source wins at this dest
+      const src = path.join(REPO, f.path);
+      let dest;
+      try {
+        dest = safeJoinUnder(dir, f.path);
+      } catch (e) {
+        fail(1, `verify refused: ${e.message}`);
+      }
+      r.checked++;
+      _compareExpected(r, dest, expectedCopyBytes(src, f.strip === true), f.path);
+    }
+    for (const vf of plan.variant_only || []) {
+      const src = path.join(REPO, vf.path);
+      let dest;
+      try {
+        dest = safeJoinUnder(dir, vf.dest);
+      } catch (e) {
+        fail(1, `verify refused: ${e.message}`);
+      }
+      r.checked++;
+      _compareExpected(r, dest, fs.readFileSync(src), vf.dest);
+    }
+    for (const ov of plan.overlays || []) {
+      const globalAbs = path.join(REPO, ov.global_path);
+      const overlayAbs = path.join(REPO, ov.overlay_path);
+      let dest;
+      try {
+        dest = safeJoinUnder(dir, ov.dest);
+      } catch (e) {
+        fail(1, `verify refused: ${e.message}`);
+      }
+      let composed;
+      try {
+        composed = composeOverlayContent(globalAbs, overlayAbs, plan.strip_enabled);
+      } catch (e) {
+        fail(1, `verify overlay compose failed for ${ov.overlay_path}: ${e.message}`);
+      }
+      r.checked++;
+      _compareExpected(r, dest, Buffer.from(composed.content, "utf8"), ov.dest);
+    }
+    for (const p of plan.purge) {
+      let targetAbs;
+      try {
+        targetAbs = safeJoinUnder(dir, p);
+      } catch (e) {
+        fail(1, `verify purge refused: ${e.message}`);
+      }
+      if (fs.existsSync(targetAbs)) r.purge_present.push(p);
+    }
+    results.push(r);
+  }
+  return results;
+}
+
+function emitVerifyText(plan, results) {
+  const lane = plan.mode === "build" ? "BUILD" : "USE";
+  const lines = [
+    `# sync-tier-aware VERIFY [${lane}] — target=${plan.target} ` +
+      `variant=${plan.variant ?? "—"}` +
+      (plan.mode === "build"
+        ? ` build_variant_overlay=${plan.build_variant_overlay} strip=${plan.strip_enabled}`
+        : ""),
+  ];
+  let total = 0;
+  for (const r of results) {
+    lines.push("");
+    lines.push(`## target: ${r.template} (${r.target_basename}/)`);
+    lines.push(`   checked: ${r.checked} in-plan file(s)`);
+    const n = r.missing.length + r.differs.length + r.purge_present.length;
+    total += n;
+    if (n === 0) {
+      lines.push(
+        `   ✓ CONSISTENT — every in-plan file matches expected; no obsoleted path present`,
+      );
+      continue;
+    }
+    const block = (label, arr) => {
+      if (!arr.length) return;
+      lines.push(`   ✗ ${label} (${arr.length}):`);
+      for (const e of arr.slice(0, 40)) lines.push(`      - ${e}`);
+      if (arr.length > 40) lines.push(`      …and ${arr.length - 40} more`);
+    };
+    block("MISSING — expected file absent at target", r.missing);
+    block("DIFFERS — target content ≠ expected", r.differs);
+    block("OBSOLETED-PRESENT — should be purged but still at target", r.purge_present);
+  }
+  // Manifest-completeness defects (plan-level) — the SAME gates the WRITE path
+  // hard-fails on (#427 / #473 / #475). --verify MUST be a SUPERSET of the apply
+  // gate: a declared variant_only/overlay whose loom SOURCE is absent, or a
+  // strip-dirty variant_only source, makes the sync incompletable even when
+  // every landed file matches — so it counts as OUT OF SYNC.
+  total += planCompletenessDefects(plan, lines);
+  lines.push("");
+  lines.push(
+    total === 0
+      ? `RESULT: CONSISTENT ✓`
+      : `RESULT: ${total} mismatch(es) — OUT OF SYNC ✗`,
+  );
+  return lines.join("\n") + "\n";
+}
+
+// Shared by emitVerifyText (display) and main's --verify exit (count) so the
+// two never disagree on what "OUT OF SYNC" means.
+function planCompletenessDefects(plan, lines) {
+  const cdefs = [
+    ["variant_only INCOMPLETE (declared entry, zero loom source)", plan.variant_only_missing],
+    ["variants: overlay INCOMPLETE (declared overlay, zero loom source)", plan.overlay_missing],
+    ["variant_only STRIP-DIRTY (carries BUILD-internal refs)", plan.variant_only_strippable],
+  ];
+  let n = 0;
+  for (const [label, arr] of cdefs) {
+    const a = arr || [];
+    if (!a.length) continue;
+    n += a.length;
+    if (lines) {
+      lines.push("");
+      lines.push(`## manifest-completeness: ✗ ${label} (${a.length}):`);
+      for (const e of a.slice(0, 40)) lines.push(`      - ${e}`);
+    }
+  }
+  return n;
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -2016,9 +2362,13 @@ function executePlan(plan, outOverride, dryRun) {
 function emitText(plan, results, dryRun) {
   const mode = dryRun ? "DRY RUN" : "WRITE";
   const lines = [];
+  const lane = plan.mode === "build" ? "BUILD" : "USE";
   lines.push(
-    `# sync-tier-aware ${mode} — target=${plan.target} ` +
+    `# sync-tier-aware ${mode} [${lane}] — target=${plan.target} ` +
       `variant=${plan.variant ?? "—"} ` +
+      (plan.mode === "build"
+        ? `build_variant_overlay=${plan.build_variant_overlay} strip=${plan.strip_enabled} `
+        : "") +
       `tiers=[${plan.tier_subscriptions.join(",")}]`,
   );
   // #427 — completeness gap: declared variant_only entries with ZERO loom
@@ -2134,7 +2484,9 @@ function emitText(plan, results, dryRun) {
     lines.push(
       `   skipped: loom_local=${r.skipped.loom_local || 0} ` +
         `exclude=${r.skipped.exclude || 0} ` +
-        `use_exclude=${r.skipped.use_exclude || 0} ` +
+        (plan.mode === "build"
+          ? `build_exclude=${r.skipped.build_exclude || 0} `
+          : `use_exclude=${r.skipped.use_exclude || 0} `) +
         `no_tier_match=${r.skipped.no_tier_match || 0}`,
     );
     if (r.gitignore) {
@@ -2170,7 +2522,40 @@ function fail(code, msg) {
 function main() {
   const args = parseArgs(process.argv);
   const manifest = loadManifest();
-  const plan = buildPlan(manifest, args.target, args.template);
+  const plan = buildPlan(manifest, args.target, args.template, args.mode);
+
+  // --verify (F11): read-only consistency gate. Never writes; exits 1 on any
+  // mismatch. The deterministic "is the target in sync with loom?" check that
+  // was missing when /sync-to-build diverged silently across py + rs.
+  if (args.verify) {
+    const vres = verifyConsistency(plan, args.out);
+    if (args.json) {
+      process.stdout.write(
+        JSON.stringify({ plan, verify: vres, dry_run: true }, null, 2) + "\n",
+      );
+    } else {
+      process.stdout.write(emitVerifyText(plan, vres));
+    }
+    const total =
+      vres.reduce(
+        (n, r) =>
+          n + r.missing.length + r.differs.length + r.purge_present.length,
+        0,
+      ) + planCompletenessDefects(plan, null);
+    if (total > 0) {
+      // Set exitCode (NOT process.exit) so the report on stdout flushes fully
+      // before the process exits — a large --json report exceeds the pipe
+      // buffer and a hard process.exit() would truncate it mid-stream.
+      process.stderr.write(
+        `sync-tier-aware: consistency check FAILED — ${total} mismatch(es); ` +
+          `the target is OUT OF SYNC with loom ` +
+          `(run /sync-to-${plan.mode === "build" ? "build" : "use"} to converge).\n`,
+      );
+      process.exitCode = 1;
+    }
+    return;
+  }
+
   // #401 Defect-1 fix (ROOT CAUSE of the data loss): an un-scoped
   // `--target <lane>` WRITE fans out to EVERY template in the lane as
   // collateral. The incident: a sync intended for one consumer also wrote
@@ -2180,8 +2565,10 @@ function main() {
   // on the WRITE path only — `--dry-run` inspection is free to preview the
   // whole lane (that is its purpose; the danger is the write, not the
   // preview). When the lane has >1 template and neither --template nor
-  // --all-templates was given, HALT before any FS mutation.
+  // --all-templates was given, HALT before any FS mutation. A BUILD lane has
+  // exactly one target, so the guard is inert there (mode-gated for clarity).
   if (
+    plan.mode !== "build" &&
     !args.dryRun &&
     args.template === null &&
     !args.allTemplates &&
@@ -2343,4 +2730,10 @@ export {
   STRIP_EXCLUDE,
   isStripEligible,
   findStrippableVariantOnly,
+  // F11 — BUILD lane
+  resolveBuildDir,
+  verifyConsistency,
+  expectedCopyBytes,
+  emitVerifyText,
+  planCompletenessDefects,
 };

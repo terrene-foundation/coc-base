@@ -258,7 +258,18 @@ function coordinationMode(repoDir, opts) {
     ) {
       result = { enabled: true, source: "implicit-roster-genesis" };
     } else if (!r.ok && r.error) {
-      warnings.push(`roster unreadable (${rp}): ${r.error}`);
+      // MO-OPT W2-c (raw-clone residual 2): a PRESENT-but-UNREADABLE roster is
+      // an INDETERMINATE-enrollment repo — a roster file EXISTS (someone set this
+      // up), it just cannot be parsed. Fail-closed toward ON (the substrate's
+      // enforcement stays UP) rather than silently disabling every guard on a
+      // possibly-enrolled repo whose roster got corrupted. Symmetric with the
+      // tier-2 _refuseLocalDisable "indeterminate enrollment → keep ON" fence.
+      // A genuinely fresh solo repo has NO roster (ENOENT → r.absent) and stays
+      // OFF via tier-5; only a corrupt-but-present roster flips to fail-closed ON.
+      warnings.push(
+        `roster unreadable (${rp}): ${r.error} — fail-closed toward ON (indeterminate enrollment)`,
+      );
+      result = { enabled: true, source: "implicit-corrupt-roster-failclosed" };
     }
   }
 
@@ -278,12 +289,26 @@ function coordinationMode(repoDir, opts) {
  * the conservative disposition.
  */
 function _isGenesisAnchored(genesis) {
-  return (
-    genesis &&
-    typeof genesis === "object" &&
-    typeof genesis.root_commit === "string" &&
-    genesis.root_commit.trim().length > 0
-  );
+  if (!genesis || typeof genesis !== "object") return false;
+  const rc = genesis.root_commit;
+  if (typeof rc !== "string" || rc.trim().length === 0) return false;
+  // MO-OPT W2-c (raw-clone residual 1 / S2 explicit-enablement): a PLACEHOLDER-
+  // genesis is RESERVED-but-unverified, NOT anchored. The clean-instantiate
+  // ceremony resets a client clone to a placeholder roster (repo_owner
+  // "PLACEHOLDER-…", all-zero root_commit sentinel) precisely so the cleared
+  // client stays coordination-OFF until /ecosystem-init re-anchors with a REAL
+  // owner + root_commit. Without this, the schema-required non-empty root_commit
+  // ("0000000") would read as "anchored" and a freshly-cleared client would be
+  // disruptively coordination-ON by inheritance. The ~12 real-enrolled repos
+  // carry a real repo_owner + real root_commit, so they stay anchored (no
+  // regression — the S6 enabled-path baseline holds).
+  if (
+    typeof genesis.repo_owner === "string" &&
+    genesis.repo_owner.startsWith("PLACEHOLDER-")
+  )
+    return false;
+  if (/^0+$/.test(rc.trim())) return false;
+  return true;
 }
 
 /**

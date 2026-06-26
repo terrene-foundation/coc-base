@@ -397,5 +397,5 @@ except ImportError:
 
 - DataFlow 2.0 Phase 5 wiring audit (2026-04) surfaced: fake encryption, fake transaction, fake health, fake classification, fake tenant isolation, fake metrics.
 - kailash-ml-audit session 2026-04-23 W33b surfaced: fake integration via missing handoff field.
-- `workspaces/arbor-upstream-fixes/.session-notes` (2026-04-12) — Rule 1a origin + Rule 3a typed-delegate guard origin.
+- a BUILD-repo upstream-fixes session (2026-04-12) — Rule 1a origin + Rule 3a typed-delegate guard origin.
 - PR #506 (2026-04-19) — Rule 1a second instance (`__all__` + lazy `__getattr__`).

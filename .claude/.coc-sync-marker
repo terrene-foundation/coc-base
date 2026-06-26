@@ -1,16 +1,16 @@
 # COC Sync Marker — coc-base (base lane, multi-CLI)
-timestamp: 2026-06-25T00:00:00Z
+timestamp: 2026-06-26T14:13:12Z
 source: loom/.claude
-loom_sha: 8197257
+loom_sha: 9755c2d
 variant: base
 clis: [claude, codex, gemini]
 visibility: public
 stats:
-  copied: 943
+  copied: 1055
   variant_only: 0
   overlay_applied: 1
   verify_failures: 0
-  purged: 1            # commands/cli-audit.md (Step-4.5 BOTH-halves purge)
+  purged: 0            # obsoleted-union paths absent on disk
   preserved: [CLAUDE.md, .proposals/, learning/, settings.local.json, dev-container-scaffold]
   baselines_emitted:
     cc: 0          # CLAUDE.md preserved, not emitted
@@ -23,28 +23,29 @@ stats:
     codex: { tier: WARN, bytes: 52479, headroom_pct: 14.58 }
     gemini: { tier: WARN, bytes: 52485, headroom_pct: 14.58 }
   cli_artifacts:
-    codex: { prompts: 22, skills: 12 }
-    gemini: { commands: 17, skills: 12, agents: 5 }
-  rules_reference_skill: { codex: 1, gemini: 1, path_scoped_rules_indexed: 30 }
+    codex: { prompts: 50, skills: 22 }      # prompts = 33 commands + 17 agent-prompts
+    gemini: { commands: 33, skills: 22, agents: 17 }
+  cli_orphans_purged: { codex_prompts: 0, codex_skills: 0, gemini_commands: 0, gemini_skills: 0, gemini_agents: 0 }
+  rules_reference_skill: { codex: 1, gemini: 1, path_scoped_rules_indexed: 44 }
   codex_dispatcher: { bin_coc: 1, phase_shims: 28 }
-  coc_unified: { artifacts: 79, files: 81, version: "1.0.0" }
+  coc_unified: { artifacts: 79, files: 82, version: "1.0.0" }
   mcp_guard: { policies_populated: false }
 note: |
-  loom@8197257 Gate-2 distribution (base multi-CLI, loom 2.45.0 unchanged — f7c236d..8197257).
-  HEADLINE: MO-OPT W1 — multi-operator coordination substrate made OPT-IN (journal/0330 + 0331).
-  W1 lives in tier-independent .claude/hooks/** so it ships to the base lane: new lib
-  hooks/lib/coordination-mode.js (isCoordinationEnabled 5-tier precedence predicate);
-  isCoordinationEnabled early-return-to-passthrough hoists in integrity-guard.js +
-  journal-write-guard.js + signing-mutation-guard.js + hooks/lib/codify-lease.js +
-  hooks/lib/operator-id.js; top-level hook adjacency-leasecheck.js. Un-enrolled non-Kailash
-  base consumers now get clean passthrough vs the prior unconditional-guard disruption.
-  Base tiers=[cc,co,onboarding]; coc-tier excluded by design (no_tier_match=538). 943 copied
-  (13 content-equal after BUILD-internal strip, 930 byte-equal), 1 base overlay byte-equal,
-  purged=1 (commands/cli-audit.md via Step-4.5 BOTH-halves purge; remaining 65 obsoleted-union
-  paths absent). Full multi-CLI re-emit: AGENTS.md + GEMINI.md baselines (codex/gemini WARN,
-  14.58% headroom each, >13% flag threshold); .codex/ prompts=22 skills=12 + config;
-  .gemini/ commands=17 skills=12 agents=5 + settings; bin/coc + 28 phase shims;
-  .codex-mcp-guard distributed; .claude/codex-mcp-guard symlink + sync-manifest.yaml manifest
-  distributed; unified .coc/ (79 artifacts, 81 files). .coc-obsoleted regenerated (66 entries =
-  union obsoleted + use_obsoleted). build:null — no SDK pins. W1-landing verification:
-  coordination-mode.js present + isCoordinationEnabled grep in integrity-guard.js — PASS.
+  loom@9755c2d Gate-2 distribution (base multi-CLI, loom 2.45.0 unchanged — 8197257..9755c2d).
+  HEADLINE: F1 distribution — Shard-A/B/C rule narrowing+extraction, F5 base re-tier, dogfood
+  catch-up. .claude/ content (1055 copied, 1 base overlay, 0 variant_only, 0 purged) applied +
+  verified CONSISTENT by the orchestrator via sync-tier-aware.mjs --target base --all-templates.
+  Base tiers=[cc,co,onboarding]; coc-tier excluded by design (no Kailash specialists/skills).
+  MULTI-CLI SCAFFOLD (Step 4.6): wholesale-replaced the 5 emitter-owned subdirs (rm+cp) to purge
+  orphans — .codex/prompts=50 (33 commands + 17 agent-prompts), .codex/skills=22, .gemini/
+  commands=33, .gemini/skills=22, .gemini/agents=17. 0 orphans purged: the fresh emit is a strict
+  SUPERSET of the prior 8197257 emission (which was a smaller subset; F5 base re-tier now brings
+  the full cc/co/onboarding emission set — 28 new codex prompts, etc.). Preserved .codex/
+  {config.toml,hooks.json}, .gemini/settings.json, .codex-mcp-guard/** (POLICIES_POPULATED false
+  by construction). rules-reference skill present (codex+gemini, 44 path-scoped rules indexed).
+  BASELINES: AGENTS.md + GEMINI.md byte-equal to fresh emit — no change this cycle; both WARN,
+  14.58% headroom (>10% floor, 15% proximity advisory). bin/coc + 28 phase shims + .coc/
+  (79 artifacts, 82 files) carried by the orchestrator .claude/ distribution (untouched here).
+  SCANS: 0 operator-PII, 0 scripts/hooks refs, 0 loom-internal path leaks, 0 Kailash coc-tier
+  leaks. build:null — no SDK pins (sdk_packages absent). VERSION 2.45.3->2.45.4; loom_sha
+  8197257->9755c2d; upstream loom 2.45.0 unchanged.

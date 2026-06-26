@@ -61,7 +61,7 @@ const LOOM_LINKS_MJS = path.resolve(
 );
 
 // Map a USE-template directory name to its loom-links logical key.
-// The resolver vocabulary is `use-template.{py,rs,rb,claude-py,claude-rs,
+// The resolver vocabulary is `use-template.{py,rs,claude-py,claude-rs,
 // claude-rb}` (see bin/loom-links.local.example.json). Anything not in this
 // map has no linkage key and resolves to an explicit not-found.
 const TEMPLATE_LINK_KEYS = {

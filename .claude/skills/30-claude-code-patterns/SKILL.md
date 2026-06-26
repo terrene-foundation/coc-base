@@ -128,6 +128,11 @@ Critical info at beginning/end of context. Middle gets less attention. Trim tool
 - **[Worktree Orchestration Protocol](worktree-orchestration.md)** — Extended evidence + post-mortems for `rules/agents.md` worktree MUSTs and `rules/worktree-isolation.md`
 - **[Closure-Parity Specialist Discipline](closure-parity-specialist-discipline.md)** — BLOCKED-rationalization corpus + delegation-time detection signals + Origin evidence for `rules/agents.md` § "MUST: Audit/Closure-Parity Verification Specialist Has Bash + Read"
 - **[Workflow-Orchestration Throughput](workflow-orchestration-throughput.md)** — CC how-to for `rules/governed-throughput.md` + throttle-aware concurrency (`rules/worktree-isolation.md` Rule 4): read-only fan-out, verify→implement pipeline, schema returns, resumeFromRunId, the L2 curated-slice injection, the journal/0193 over-injection-degrades evidence
+- **[Multi-Operator Coordination Substrate](multi-operator-coordination-substrate.md)** — full §1–§8 architecture + the 10 fold rules + MUST-4/5/6/7 substrate-integrity contracts + F-series forest registry for `rules/multi-operator-coordination.md` (the always-on rule carries only the agent-facing behavioral contract)
+- **[genesis-migration N=1 Org-Admin Anchor](genesis-migration-n1-org-admin-anchor.md)** — enumerated sub-clauses + fold-time verification + BLOCKED corpus + sweep query for `rules/multi-operator-coordination.md` MUST-7
+- **[User-Flow Validation Walk Discipline](user-flow-validation-walk-discipline.md)** — per-MUST DO/DO-NOT corpora + the full walk + scrub treatment + Origin for `rules/user-flow-validation.md` (the always-on rule carries only the walk/receipts/scrub tripwires)
+- **[Decision-Recording Discipline](decision-recording-discipline.md)** — decision-tree + ledger-signature-per-label + secrets fence + halt-and-report runbook for `rules/journal-author-discipline.md`
+- **[Redteam Dispatch Evidence Gate](redteam-dispatch-evidence-gate.md)** — errored/empty-is-zero-evidence + concurrency back-off for `rules/agents.md` § "Redteam Reviewer Dispatch"
 
 ## When to Use This Skill
 

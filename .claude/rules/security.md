@@ -84,7 +84,7 @@ pwd = pwd.replace("@", "%40").replace(":", "%3A")  # drifts from decode path
 
 **Why:** Encode and decode are dual halves of one contract; splitting them across modules guarantees one half drifts.
 
-Origin: `workspaces/arbor-upstream-fixes/.session-notes` (2026-04-12)
+Origin: a BUILD-repo upstream-fixes session (2026-04-12).
 
 ## Input Validation
 
