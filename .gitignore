@@ -3,6 +3,8 @@
 .coc-fetch-cache
 .claude/learning/codify-lease.json
 .claude/learning/coordination-mode.json
+.claude/learning/observations.jsonl
+.claude/learning/violations.jsonl
 .claude/operators.roster.json
 .claude/logs/
 **/.journal-skipped.log
