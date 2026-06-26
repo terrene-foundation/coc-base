@@ -1,21 +1,22 @@
 # COC Sync Marker — coc-base (base lane, multi-CLI)
-timestamp: 2026-06-26T14:13:12Z
+timestamp: 2026-06-26T23:00:53Z
 source: loom/.claude
-loom_sha: 9755c2d
+loom_sha: 9101e34
 variant: base
 clis: [claude, codex, gemini]
 visibility: public
 stats:
-  copied: 1055
+  copied: 0            # narrow propagation — no .claude/ content re-emit (--verify CONSISTENT)
   variant_only: 0
-  overlay_applied: 1
+  overlay_applied: 0   # rules/agents.md base slot byte-equal from prior cycle (verify-overlays Failing:0)
   verify_failures: 0
-  purged: 0            # obsoleted-union paths absent on disk
+  purged: 0            # codex-templates/+gemini-templates/ already ABSENT on base disk (base always clean)
+  obsoleted_union: 69  # regenerated .coc-obsoleted (was 64 unique / 66 lines); +codex-templates/+gemini-templates/+sync.md trio, additive
   preserved: [CLAUDE.md, .proposals/, learning/, settings.local.json, dev-container-scaffold]
   baselines_emitted:
     cc: 0          # CLAUDE.md preserved, not emitted
-    codex: 1       # AGENTS.md
-    gemini: 1      # GEMINI.md
+    codex: 0       # AGENTS.md byte-equal from prior cycle — no re-emit this cycle
+    gemini: 0      # GEMINI.md byte-equal from prior cycle — no re-emit this cycle
   baseline_emission:
     block_cap_bytes: 61440
     warn_cap_bytes: 32768
@@ -31,21 +32,25 @@ stats:
   coc_unified: { artifacts: 79, files: 82, version: "1.0.0" }
   mcp_guard: { policies_populated: false }
 note: |
-  loom@9755c2d Gate-2 distribution (base multi-CLI, loom 2.45.0 unchanged — 8197257..9755c2d).
-  HEADLINE: F1 distribution — Shard-A/B/C rule narrowing+extraction, F5 base re-tier, dogfood
-  catch-up. .claude/ content (1055 copied, 1 base overlay, 0 variant_only, 0 purged) applied +
-  verified CONSISTENT by the orchestrator via sync-tier-aware.mjs --target base --all-templates.
-  Base tiers=[cc,co,onboarding]; coc-tier excluded by design (no Kailash specialists/skills).
-  MULTI-CLI SCAFFOLD (Step 4.6): wholesale-replaced the 5 emitter-owned subdirs (rm+cp) to purge
-  orphans — .codex/prompts=50 (33 commands + 17 agent-prompts), .codex/skills=22, .gemini/
-  commands=33, .gemini/skills=22, .gemini/agents=17. 0 orphans purged: the fresh emit is a strict
-  SUPERSET of the prior 8197257 emission (which was a smaller subset; F5 base re-tier now brings
-  the full cc/co/onboarding emission set — 28 new codex prompts, etc.). Preserved .codex/
-  {config.toml,hooks.json}, .gemini/settings.json, .codex-mcp-guard/** (POLICIES_POPULATED false
-  by construction). rules-reference skill present (codex+gemini, 44 path-scoped rules indexed).
-  BASELINES: AGENTS.md + GEMINI.md byte-equal to fresh emit — no change this cycle; both WARN,
-  14.58% headroom (>10% floor, 15% proximity advisory). bin/coc + 28 phase shims + .coc/
-  (79 artifacts, 82 files) carried by the orchestrator .claude/ distribution (untouched here).
+  loom@9101e34 narrow propagation (base multi-CLI, loom 2.45.0 unchanged — 9755c2d..9101e34).
+  HEADLINE: PR #685 added .claude/codex-templates/ + .claude/gemini-templates/ to
+  sync-manifest::obsoleted (loom-internal Codex/Gemini emitter SOURCE trees; an
+  F1-distribution-redteam MED finding on the rs templates where a v2.31.0 catch-up had committed
+  them — base templates were ALWAYS clean). This is a manifest-propagation cycle, NOT a content
+  re-emit and NOT a multi-CLI re-emit. sync-tier-aware.mjs --target base --all-templates --verify
+  reported CONSISTENT (1056/1056 in-plan, no obsoleted path present on disk). REQUIRED CHANGE:
+  .coc-obsoleted regenerated (Step 4.5 union of obsoleted+use_obsoleted) — dedup union now 69
+  path entries (was 64 unique / 66 lines), with .claude/codex-templates/ + .claude/gemini-templates/
+  now present. ADDITIVE: 0 prior entries dropped (comm -23 empty); the prior file's internal
+  duplicate terrene-naming/independence pair collapsed to single entries; +sync.md trio folded in
+  (already manifest-declared). Both template dirs absent on disk → 0 purged here; the .coc-obsoleted
+  entry keeps downstream /sync-from-template consumers able to purge them.
+  NO MULTI-CLI RE-EMIT: AGENTS.md + GEMINI.md + .codex/** + .gemini/** + .codex-mcp-guard/** +
+  bin/coc + .coc/** unchanged this cycle (9755c2d..9101e34 delta is the 13-line manifest obsoleted
+  addition only — no rule/agent/skill/command body reaches any CLI surface). Prior-cycle emission
+  retained: .codex/prompts=50, .codex/skills=22, .gemini/commands=33, .gemini/skills=22,
+  .gemini/agents=17; AGENTS.md/GEMINI.md both WARN 14.58% headroom; bin/coc + 28 phase shims;
+  .coc/ (79 artifacts, 82 files); .codex-mcp-guard POLICIES_POPULATED false by construction.
   SCANS: 0 operator-PII, 0 scripts/hooks refs, 0 loom-internal path leaks, 0 Kailash coc-tier
-  leaks. build:null — no SDK pins (sdk_packages absent). VERSION 2.45.3->2.45.4; loom_sha
-  8197257->9755c2d; upstream loom 2.45.0 unchanged.
+  leaks. verify-overlays.sh base Failing:0. build:null — no SDK pins (base stack-agnostic; no pin
+  change). VERSION 2.45.4->2.45.5; loom_sha 9755c2d->9101e34; upstream loom 2.45.0 unchanged.

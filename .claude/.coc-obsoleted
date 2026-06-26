@@ -7,6 +7,9 @@
 .claude/commands/sync-from-use.md
 .codex/prompts/sync-from-use.md
 .gemini/commands/sync-from-use.toml
+.claude/commands/sync.md
+.codex/prompts/sync.md
+.gemini/commands/sync.toml
 .claude/commands/cli-audit.md
 .codex/prompts/cli-audit.md
 .gemini/commands/cli-audit.toml
@@ -54,6 +57,8 @@ scripts/resolve-template.js
 .claude/agents/management/posture-auditor.md
 .claude/agents/management/todo-manager.md
 .claude/variants/
+.claude/codex-templates/
+.claude/gemini-templates/
 .claude/rules/documentation.md
 .claude/skills/30-claude-code-patterns/sdk-upstream-donation.md
 .claude/guides/co-setup/
@@ -61,8 +66,6 @@ scripts/resolve-template.js
 .claude/guides/automated-maintenance.md
 .claude/guides/rule-extracts/git.md
 .claude/guides/rule-extracts/independence-rs.md
-.claude/rules/terrene-naming.md
-.claude/rules/independence.md
 .claude/variants/rs/rules/independence.md
 .claude/variants/base/rules/independence.md
 .claude/variants/prism/rules/independence.md

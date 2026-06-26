@@ -1,18 +1,18 @@
 {
   "name": "coc-base",
-  "version": "2.45.4",
+  "version": "2.45.5",
   "type": "coc-use-template",
   "description": "Language-agnostic, non-Kailash CO/COC USE template — multi-CLI (variant: base, clis: claude/codex/gemini)",
-  "synced_at": "2026-06-26T14:12:45Z",
+  "synced_at": "2026-06-26T23:00:53Z",
   "upstream": {
     "name": "loom",
     "type": "coc-source",
     "version": "2.45.0",
-    "loom_sha": "9755c2d",
-    "synced_at": "2026-06-26T14:12:45Z",
+    "loom_sha": "9101e34",
+    "synced_at": "2026-06-26T23:00:53Z",
     "template_version": "2.45.0",
     "build_version": "2.45.0",
-    "source_commit": "9755c2d"
+    "source_commit": "9101e34"
   },
   "variant": "base",
   "tier_subscriptions": [
@@ -26,6 +26,18 @@
     "gemini"
   ],
   "changelog": [
+    {
+      "date": "2026-06-26",
+      "version": "2.45.5",
+      "summary": "loom@9101e34 narrow propagation (base multi-CLI, loom 2.45.0 unchanged — 9755c2d..9101e34: PR #685 added .claude/codex-templates/ + .claude/gemini-templates/ to sync-manifest::obsoleted, loom-internal emitter SOURCE trees that must never reach a consumer surface). NO content re-emit + NO multi-CLI re-emit: sync-tier-aware --verify base --all-templates CONSISTENT (1056/1056 in-plan). Required change: .coc-obsoleted regenerated (Step 4.5 union of obsoleted+use_obsoleted) so codex-templates/+gemini-templates/ now appear; additive (every prior entry preserved). Both template dirs already ABSENT on base disk (base was always clean; the F1 redteam MED finding was on rs templates only) — this propagation keeps downstream /sync-from-template consumers informed. build:null — NO SDK pins.",
+      "changes": [
+        "OBSOLETED (Step 4.5): .coc-obsoleted regenerated from sync-manifest.yaml::obsoleted (58) + use_obsoleted (13), dedup union = 69 path entries (was 64 unique / 66 lines). NEW this cycle: .claude/codex-templates/ + .claude/gemini-templates/ (PR #685) + .claude/commands/sync.md trio (already manifest-declared, folded in additively). ADDITIVE PROOF: 0 prior entries dropped (comm -23 empty); prior file's internal duplicate pair (terrene-naming/independence) collapsed to single entries.",
+        "VERIFY: sync-tier-aware.mjs --target base --all-templates --verify CONSISTENT (coc-claude-base + coc-base, 1056 in-plan each; no obsoleted path present on disk). verify-overlays.sh base Failing:0 (rules/agents.md base slot, both templates). codex-templates/+gemini-templates/ grep present in regenerated .coc-obsoleted.",
+        "CONTENT: no .claude/ content re-emit + no AGENTS.md/GEMINI.md/.codex/.gemini/.codex-mcp-guard/bin/.coc re-emit this cycle (9755c2d..9101e34 delta is the 13-line manifest obsoleted addition only — no rule/agent/skill/command body change reaches any CLI surface). visibility=public preserved across marker rewrite.",
+        "PINS: N/A (build:null — non-Kailash base; SDK-pin/BUILD-proposal steps correctly skipped; base templates stack-agnostic, no pin change expected or applied).",
+        "BUMP: template 2.45.4->2.45.5; loom_sha 9755c2d->9101e34; source_commit->9101e34; upstream loom 2.45.0 unchanged."
+      ]
+    },
     {
       "date": "2026-06-26",
       "version": "2.45.4",
