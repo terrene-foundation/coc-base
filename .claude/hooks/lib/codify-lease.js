@@ -63,7 +63,7 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const { execFileSync, spawnSync } = require("child_process");
-const { resolveStateDir } = require("./state-resolver");
+const { resolveStateDir, resolveMainCheckout } = require("./state-resolver");
 const { isCoordinationEnabled } = require("./coordination-mode.js");
 
 const LEASE_FILE = "codify-lease.json";
@@ -422,9 +422,18 @@ function acquireCodifyLease(opts) {
   // codify/<id>-<date> branch are coordination-INDEPENDENT and STAY (they make
   // solo /codify race-safe + admin-merge-shaped exactly as today). When
   // ENABLED, the emit is byte-unchanged.
-  const recordEmit = isCoordinationEnabled(topLevel)
+  // MO-OPT holistic post-multi-wave redteam (Cluster A): coordination state (the
+  // predicate read + the coordination-log emit) is MAIN-checkout state (the same
+  // CRIT-2 / trust-posture.md MUST-1 discipline state-resolver enforces — the
+  // lease FILE already routes through resolveStateDir→main). Resolve main here so
+  // a worktree-run /codify reads the predicate AND emits the record against main
+  // (where coordination-mode.json + the coordination log live), never the
+  // auto-deleted worktree copy. On the normal main-checkout path coordRoot ===
+  // topLevel, so the enabled path is byte-unchanged (S6).
+  const coordRoot = resolveMainCheckout(repoDir) || topLevel;
+  const recordEmit = isCoordinationEnabled(coordRoot)
     ? _emitLeaseRecord(
-        topLevel,
+        coordRoot,
         "codify-lease",
         {
           lease_id: leaseId,
@@ -525,9 +534,11 @@ function releaseCodifyLease(opts) {
   // clone's codify-lease.json. MO-OPT W1-c: skip the signed emit when
   // coordination is OFF (symmetric with acquire above) — no coordination log
   // to pair against on a solo repo. The on-disk release IS already written.
-  const recordEmit = isCoordinationEnabled(topLevel)
+  // Cluster A (see acquire): coordination state is main-checkout state.
+  const coordRoot = resolveMainCheckout(repoDir) || topLevel;
+  const recordEmit = isCoordinationEnabled(coordRoot)
     ? _emitLeaseRecord(
-        topLevel,
+        coordRoot,
         "codify-lease-release",
         {
           lease_id: existing.lease_id,

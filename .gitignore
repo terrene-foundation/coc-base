@@ -5,6 +5,14 @@
 .claude/learning/coordination-mode.json
 .claude/learning/observations.jsonl
 .claude/learning/violations.jsonl
+.claude/learning/coordination-log.jsonl*
+.claude/learning/provenance/
+.claude/learning/posture.json
+.claude/learning/.initialized
+.claude/learning/learning-codified.json
+.claude/learning/learning-digest.json
+.claude/learning/.heartbeat-cache*
+.claude/learning/.session-end-cache*
 .claude/operators.roster.json
 .claude/logs/
 **/.journal-skipped.log
@@ -13,6 +21,8 @@
 .session-notes.shared.md
 /workspaces/*
 !/workspaces/_template/
+!.claude/bin/lib/
+!.claude/hooks/lib/
 # <<< coc:gitignore_additions <<<
 
 # Template-local: stray operator cruft swept by the hooks/** always-include

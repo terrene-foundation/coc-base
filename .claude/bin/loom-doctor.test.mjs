@@ -55,9 +55,12 @@ test("all-green environment → every check ok, summary counts match", () => {
   assert.equal(r.schema_version, 1);
   assert.equal(r.summary.crit, 0);
   assert.equal(r.summary.warn, 0);
-  // 9 checks (incl. merge-driver), all ok in the green baseline
-  assert.equal(r.checks.length, 9);
+  // 10 checks (incl. merge-driver + ado-readiness). The green baseline is a
+  // GitHub-authed clone with no roster, so ado-readiness correctly skips (info);
+  // the other 9 are ok. info does not trip the "address items" / set -e gate.
+  assert.equal(r.checks.length, 10);
   assert.equal(r.summary.ok, 9);
+  assert.equal(byId(r, "ado-readiness").status, "info");
 });
 
 test("role null → warn with actionable remediation", () => {
@@ -166,6 +169,172 @@ test("formatReport renders every check line + a summary line", () => {
   assert.match(out, /resolver:/);
   assert.match(out, /ok ·/);
   assert.match(out, /Ready for \/onboard\./);
+});
+
+// ── ado-readiness check (W5-b) ───────────────────────────────────────────────
+//
+// All config-presence, never a live Graph probe. ADO-targeting is detected via
+// roster.genesis.provider OR the az-only-authed inference; a non-ADO clone skips.
+
+// readFile that returns a roster body for operators.roster.json and the green
+// .gitattributes contract for every other path.
+function rosterReadFile(genesis) {
+  return (p) =>
+    /operators\.roster\.json$/.test(String(p))
+      ? JSON.stringify({ genesis })
+      : "* text=auto\n*.sh eol=lf\n.session-notes.shared.md merge=coc-ledger\n";
+}
+
+test("ado-readiness: roster provider=azure-devops with org+project → ok (no shell-out)", () => {
+  const r = runDoctor(
+    greenOpts({
+      readFile: rosterReadFile({ provider: "azure-devops", repo_owner: "myorg", ado_project: "myproject" }),
+    }),
+  );
+  const a = byId(r, "ado-readiness");
+  assert.equal(a.status, "ok");
+  assert.match(a.detail, /myorg\/myproject/);
+});
+
+test("ado-readiness: ADO-targeted, no roster org/project, az devops configured → ok", () => {
+  const r = runDoctor(
+    greenOpts({
+      readFile: rosterReadFile({ provider: "azure-devops" }), // provider but no org/project
+      exec: (cmd, args) => {
+        if (args.includes("--get")) return { ok: false, missing: false, code: 1, stdout: "" };
+        if (cmd === "az" && args[0] === "extension") return { ok: true, missing: false, code: 0, stdout: "azure-devops 1.0" };
+        if (cmd === "az" && args[0] === "devops")
+          return { ok: true, missing: false, code: 0, stdout: "organization = https://dev.azure.com/myorg\nproject = myproject\n" };
+        return { ok: true, missing: false, code: 0, stdout: "ok" };
+      },
+    }),
+  );
+  assert.equal(byId(r, "ado-readiness").status, "ok");
+});
+
+test("ado-readiness: ADO-targeted, az devops extension absent → warn + add remediation", () => {
+  const r = runDoctor(
+    greenOpts({
+      readFile: rosterReadFile({ provider: "azure-devops" }),
+      exec: (cmd, args) => {
+        if (args.includes("--get")) return { ok: false, missing: false, code: 1, stdout: "" };
+        if (cmd === "az" && args[0] === "extension") return { ok: false, missing: true };
+        return { ok: true, missing: false, code: 0, stdout: "ok" };
+      },
+    }),
+  );
+  const a = byId(r, "ado-readiness");
+  assert.equal(a.status, "warn");
+  assert.match(a.remediation, /az extension add --name azure-devops/);
+});
+
+test("ado-readiness: ADO-targeted, extension present but unconfigured → warn + configure remediation", () => {
+  const r = runDoctor(
+    greenOpts({
+      readFile: rosterReadFile({ provider: "azure-devops" }),
+      exec: (cmd, args) => {
+        if (args.includes("--get")) return { ok: false, missing: false, code: 1, stdout: "" };
+        if (cmd === "az" && args[0] === "extension") return { ok: true, missing: false, code: 0, stdout: "azure-devops 1.0" };
+        if (cmd === "az" && args[0] === "devops") return { ok: true, missing: false, code: 0, stdout: "" }; // no defaults
+        return { ok: true, missing: false, code: 0, stdout: "ok" };
+      },
+    }),
+  );
+  const a = byId(r, "ado-readiness");
+  assert.equal(a.status, "warn");
+  assert.match(a.detail, /organization \+ project/);
+  assert.match(a.remediation, /az devops configure --defaults/);
+});
+
+test("ado-readiness: GitHub-only clone (no roster, gh authed) → info skip", () => {
+  // The green baseline is exactly this: gh + az both authed, no roster.
+  // gh authed means the az-only inference does NOT fire → skip.
+  const r = runDoctor(greenOpts());
+  assert.equal(byId(r, "ado-readiness").status, "info");
+});
+
+test("ado-readiness: roster absent (readFile null) + az-only authed → inference fires (warn)", () => {
+  // The truly-falsy roster branch: defaultReadFile returns null when the file is
+  // absent, so `if (rosterRaw)` is skipped entirely — no authoritative signal,
+  // Signal-2 inference legitimately applies.
+  const r = runDoctor(
+    greenOpts({
+      readFile: (p) => (/operators\.roster\.json$/.test(String(p)) ? null : "* text=auto\n"),
+      exec: (cmd, args) => {
+        if (args.includes("--get")) return { ok: false, missing: false, code: 1, stdout: "" };
+        if (cmd === "gh" && args.includes("--version")) return { ok: false, missing: true }; // gh absent
+        if (cmd === "az" && args[0] === "extension") return { ok: true, missing: false, code: 0, stdout: "azure-devops 1.0" };
+        if (cmd === "az" && args[0] === "devops") return { ok: true, missing: false, code: 0, stdout: "" }; // unconfigured
+        return { ok: true, missing: false, code: 0, stdout: "ok" };
+      },
+    }),
+  );
+  assert.equal(byId(r, "ado-readiness").status, "warn");
+});
+
+test("ado-readiness: roster provider=github + az-only authed → inference SUPPRESSED (info skip)", () => {
+  // The HIGH-finding case: a GitHub-genesis roster with gh auth lapsed but az authed.
+  // The authoritative non-Azure roster MUST suppress the Signal-2 inference.
+  const r = runDoctor(
+    greenOpts({
+      readFile: rosterReadFile({ provider: "github", github_login: "alice" }),
+      exec: (cmd, args) => {
+        if (args.includes("--get")) return { ok: false, missing: false, code: 1, stdout: "" };
+        if (cmd === "gh" && args[0] === "auth") return { ok: false, missing: false, code: 1, stderr: "not logged in" };
+        return { ok: true, missing: false, code: 0, stdout: "ok" }; // az authed
+      },
+    }),
+  );
+  assert.equal(byId(r, "ado-readiness").status, "info");
+});
+
+test("ado-readiness: roster present, provider ABSENT (github default) + az-only authed → info skip", () => {
+  // Schema default: provider absent ⇒ github. Still authoritative → suppress inference.
+  const r = runDoctor(
+    greenOpts({
+      readFile: rosterReadFile({ repo_owner: "someorg" }), // no provider key
+      exec: (cmd, args) => {
+        if (args.includes("--get")) return { ok: false, missing: false, code: 1, stdout: "" };
+        if (cmd === "gh" && args[0] === "auth") return { ok: false, missing: false, code: 1, stderr: "not logged in" };
+        return { ok: true, missing: false, code: 0, stdout: "ok" };
+      },
+    }),
+  );
+  assert.equal(byId(r, "ado-readiness").status, "info");
+});
+
+test("ado-readiness: ADO-targeted, `az devops configure --list` errors → warn names the error (not 'unconfigured')", () => {
+  const r = runDoctor(
+    greenOpts({
+      readFile: rosterReadFile({ provider: "azure-devops" }),
+      exec: (cmd, args) => {
+        if (args.includes("--get")) return { ok: false, missing: false, code: 1, stdout: "" };
+        if (cmd === "az" && args[0] === "extension") return { ok: true, missing: false, code: 0, stdout: "azure-devops 1.0" };
+        if (cmd === "az" && args[0] === "devops") return { ok: false, missing: false, code: 1, stderr: "extension broken" };
+        return { ok: true, missing: false, code: 0, stdout: "ok" };
+      },
+    }),
+  );
+  const a = byId(r, "ado-readiness");
+  assert.equal(a.status, "warn");
+  assert.match(a.detail, /errored/);
+});
+
+test("ado-readiness: az-only authed, gh missing, no roster → inferred ADO-targeted", () => {
+  const r = runDoctor(
+    greenOpts({
+      readFile: () => "* text=auto\n", // unparseable roster body → JSON.parse-catch path (no authoritative signal)
+      exec: (cmd, args) => {
+        if (args.includes("--get")) return { ok: false, missing: false, code: 1, stdout: "" };
+        if (cmd === "gh" && args.includes("--version")) return { ok: false, missing: true }; // gh absent
+        if (cmd === "az" && args[0] === "extension") return { ok: true, missing: false, code: 0, stdout: "azure-devops 1.0" };
+        if (cmd === "az" && args[0] === "devops") return { ok: true, missing: false, code: 0, stdout: "" }; // unconfigured
+        return { ok: true, missing: false, code: 0, stdout: "ok" }; // az version+account ok → az authed
+      },
+    }),
+  );
+  // Inference fired (az authed, gh not) → it evaluated config and found it missing.
+  assert.equal(byId(r, "ado-readiness").status, "warn");
 });
 
 // ── merge-driver check ───────────────────────────────────────────────────────

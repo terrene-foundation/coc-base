@@ -103,13 +103,14 @@ Claude: [Uses DataFlow patterns from skills]
                              ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                          SKILLS                              │
-│         28 directories of domain expertise                   │
+│         40 directories of domain expertise                   │
 │                                                              │
-│  01-core-sdk    02-dataflow     03-nexus       04-kaizen    │
-│  05-kailash-mcp 06-cheatsheets  08-nodes-ref                 │
-│  10-deployment  12-testing      15-errors      16-validation │
-│  17-standards   18-security     23-uiux-design               │
-│  25-ai-patterns 26-eatp-ref     co-reference                 │
+│  01-core-sdk     02-dataflow    03-nexus      04-kaizen      │
+│  05-kailash-mcp  06-cheatsheets 08-nodes-reference           │
+│  10-deployment-git 12-testing-strategies 16-validation-patterns │
+│  17-gold-standards 18-security-patterns 23-uiux-design-principles │
+│  25-ai-interaction-patterns 26-eatp-reference 30-claude-code-patterns │
+│  31-error-troubleshooting 32-trust-posture co-reference (+ more) │
 │                                                              │
 │  Purpose: Provide task-critical knowledge                    │
 │  Effect: Claude knows HOW to do things correctly             │
@@ -118,12 +119,12 @@ Claude: [Uses DataFlow patterns from skills]
                              ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                          AGENTS                              │
-│             30 specialized sub-processes                    │
+│             38 specialized sub-processes                    │
 │                                                              │
 │  dataflow-specialist   nexus-specialist   kaizen-specialist │
 │  pattern-expert        testing-specialist  security-reviewer │
-│  tdd-implementer       analyst       analyst│
-│  `decide-framework` skill     reviewer                 │
+│  tdd-implementer       analyst            reviewer          │
+│  cc-architect          gold-standards-validator (+ more)    │
 │                                                              │
 │  Purpose: Handle complex specialized tasks                   │
 │  Effect: Deep expertise when simple patterns aren't enough   │
@@ -132,7 +133,7 @@ Claude: [Uses DataFlow patterns from skills]
                              ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                          HOOKS                               │
-│           9 automation scripts that run automatically        │
+│          33 automation scripts that run automatically        │
 │                                                              │
 │  user-prompt-rules-reminder.js → Anti-amnesia (rules+workspace) │
 │  validate-bash-command.js  →  Block dangerous commands       │
@@ -142,7 +143,7 @@ Claude: [Uses DataFlow patterns from skills]
 │  session-end.js            →  Persist session state          │
 │  pre-compact.js            →  Save state + workspace reminder│
 │  stop.js                   →  Handle termination + reminder  │
-│  detect-package-manager.js →  Detect npm/pnpm/yarn/bun      │
+│  detect-violations.js      →  Flag rule violations (+ more)  │
 │                                                              │
 │  Purpose: Enforce quality without requiring Claude's judgment │
 │  Effect: Bad patterns are caught automatically               │
@@ -151,16 +152,15 @@ Claude: [Uses DataFlow patterns from skills]
                              ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                          RULES                               │
-│            8 files of mandatory constraints                  │
+│        75 files of mandatory constraints (sample below)      │
 │                                                              │
 │  agents.md           → Agent orchestration rules              │
-│  e2e-god-mode.md     → E2E testing requirements              │
-│  env-models.md       → API keys & model names                │
+│  zero-tolerance.md   → No stubs/TODOs/placeholders            │
 │  git.md              → Git workflow requirements              │
-│  zero-tolerance.md         → No stubs/TODOs/placeholders           │
-│  patterns.md         → Kailash pattern enforcement            │
 │  security.md         → Security requirements                  │
-│  testing.md          → Testing policies (Real infrastructure recommended)          │
+│  testing.md          → Testing policies (real infrastructure) │
+│  framework-first.md  → Use the highest framework abstraction  │
+│  ... (69 more, organized by CO/COC category — see Guide 08)  │
 │                                                              │
 │  Purpose: Define what Claude MUST and MUST NOT do            │
 │  Effect: Consistent behavior regardless of request phrasing  │
@@ -385,11 +385,11 @@ When you make a request:
 
 | Component | Count | Purpose                         |
 | --------- | ----- | ------------------------------- |
-| Commands  | 19    | Quick access + workspace phases |
-| Skills    | 28    | Domain knowledge                |
-| Agents    | 30    | Specialized processing          |
-| Hooks     | 9     | Automatic enforcement           |
-| Rules     | 8     | Behavioral constraints          |
+| Commands  | 51    | Quick access + workspace phases |
+| Skills    | 40    | Domain knowledge                |
+| Agents    | 38    | Specialized processing          |
+| Hooks     | 33    | Automatic enforcement           |
+| Rules     | 75    | Behavioral constraints          |
 
 ---
 

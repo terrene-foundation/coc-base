@@ -141,7 +141,7 @@ claude
 **What happens when Claude Code starts**:
 
 1. **Settings Load**: Claude Code reads `.claude/settings.json`
-   - This configures the 9 hooks
+   - This configures the 33 hooks
    - Hooks will now run automatically
 
 2. **CLAUDE.md Load**: Claude reads the project's `CLAUDE.md`

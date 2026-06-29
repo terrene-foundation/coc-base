@@ -976,7 +976,7 @@ function parseRepos(manifestText) {
     const startBody = headers[i].headerEnd + 1;
     const endBody = i + 1 < headers.length ? headers[i + 1].start : reposBlock.length;
     const body = reposBlock.slice(startBody, endBody);
-    // tier_subscriptions: inline array `[cc, co, coc]` OR `[]`
+    // tier_subscriptions: inline array `[cc, coc-core, kailash]` OR `[]`
     const tsMatch = body.match(/^\s*tier_subscriptions:\s*\[([^\]]*)\]\s*$/m);
     const tier_subscriptions =
       tsMatch === null
@@ -1115,6 +1115,20 @@ function parseVisibilityGitignoreAdditions(manifestText) {
 }
 
 /**
+ * loom#676 — parse `gitignore_reincludes:` from the manifest. These are
+ * UNIVERSAL re-include (`!`-negation) guarantees, DISTINCT from the
+ * state-locality `gitignore_additions`: they ensure a COC subtree whose
+ * basename collides with a common consumer root ignore (e.g. a Python
+ * build-artifact `lib/` swallowing `.claude/bin/lib/`) stays git-TRACKED.
+ * Role-blind + visibility-blind — applied to USE templates AND BUILD repos
+ * (where gitignore_additions is NOT, so the roster etc. stay committed in
+ * BUILD). Returns [] when the block is absent (back-compat).
+ */
+function parseGitignoreReincludes(manifestText) {
+  return parseList(sliceBlock(manifestText, "gitignore_reincludes"));
+}
+
+/**
  * FA — resolve a consumer's visibility from its `.coc-sync-marker`.
  * Returns { visibility, optOut } where visibility ∈ {"public","private"}
  * and optOut is the marker's `visibility_opt_out` array (paths a private
@@ -1215,17 +1229,25 @@ function readConsumerVisibility(dir) {
  *   "workspaces" suppresses the /workspaces/* pair. Matching is by the
  *   coarse token the operator writes, not the literal gitignore line.
  */
-function effectiveGitignoreAdditions(base, visibilityAdds, marker) {
-  if (marker.visibility !== "public") return base.slice();
-  const optOut = marker.optOut || [];
-  const optOutMatches = (entry) =>
-    optOut.some((tok) => {
-      if (tok === "session-notes") return entry.includes("session-notes");
-      if (tok === "workspaces") return entry.includes("workspaces");
-      return entry === tok; // exact-line opt-out
-    });
-  const kept = visibilityAdds.filter((e) => !optOutMatches(e));
-  return [...base, ...kept];
+function effectiveGitignoreAdditions(base, visibilityAdds, marker, reincludes = []) {
+  // loom#676 — re-include guarantees are role-blind AND visibility-blind, and
+  // MUST be appended LAST: git evaluates patterns top-to-bottom (last match
+  // wins), so a `!`-negation re-including `.claude/bin/lib/` MUST follow any
+  // broad `lib/` ignore in file order to take effect.
+  const stateLocality =
+    marker.visibility !== "public"
+      ? base.slice()
+      : (() => {
+          const optOut = marker.optOut || [];
+          const optOutMatches = (entry) =>
+            optOut.some((tok) => {
+              if (tok === "session-notes") return entry.includes("session-notes");
+              if (tok === "workspaces") return entry.includes("workspaces");
+              return entry === tok; // exact-line opt-out
+            });
+          return [...base, ...visibilityAdds.filter((e) => !optOutMatches(e))];
+        })();
+  return [...stateLocality, ...reincludes];
 }
 
 /**
@@ -1460,6 +1482,77 @@ function applyGitignoreAdditions(dir, additions, dryRun) {
 }
 
 // ────────────────────────────────────────────────────────────────
+// loom#676 — post-sync swallowed-artifact gate
+// ────────────────────────────────────────────────────────────────
+/**
+ * Return the subset of `emittedRelPaths` (paths loom DISTRIBUTED to the
+ * target, relative to `dir`) that the target's `.gitignore` would untrack.
+ *
+ * A COC artifact loom just emitted that the consumer's `.gitignore` swallows
+ * is an invisible-delivery failure (loom#676): the file is on disk NOW from
+ * this sync, but a fresh clone never tracks it — and a tracked importer
+ * (`.claude/bin/sync-tier-aware.mjs` importing `./lib/loom-links.mjs` etc.)
+ * throws at runtime. Same failure class as `coc-sync-landing.md`'s
+ * "uncommitted deliveries vanish".
+ *
+ * `git check-ignore --stdin` exits 0 if ≥1 fed path is ignored (printing
+ * them), 1 if NONE are ignored, 128 on error. Only paths loom WROTE are
+ * fed — state-locality files (operator-id, learning/, roster) are never
+ * copied, so a deliberate gitignore_additions ignore is NOT a false hit.
+ * A non-git target (e.g. a `--out` scratch dir in tests) is skipped — the
+ * gate is a structural no-op there; real consumer/BUILD dirs ARE git repos
+ * so it fires. A genuine git error INSIDE a git repo is surfaced, never
+ * read as clean (per `evidence-first-claims.md` MUST-3).
+ */
+function defaultGitRunner(args, opts) {
+  return execFileSync("git", args, opts);
+}
+
+function findSwallowedArtifacts(dir, emittedRelPaths, runGit = defaultGitRunner) {
+  if (!emittedRelPaths || emittedRelPaths.length === 0) return [];
+  // Precondition: the target must be a git repo. DISTINGUISH a GENUINE non-repo
+  // (a legitimate structural no-op — e.g. a `--out` scratch dir in tests) from a
+  // detector-could-not-run failure (git binary missing on PATH / corrupted
+  // `.git` / transient FS error). Per `evidence-first-claims.md` MUST-3 an
+  // errored detector is NOT an all-clear: ONLY a git-RAN "not a git repository"
+  // verdict (exit 128 + that stderr) licenses the no-op; EVERY other error
+  // (ENOENT, non-128 status, no status) re-throws so the swallowed-artifact gate
+  // fails LOUD rather than silently reporting clean (fail-open == ship a
+  // swallowed COC artifact unflagged).
+  try {
+    runGit(["-C", dir, "rev-parse", "--git-dir"], {
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+  } catch (e) {
+    const stderr = e && e.stderr != null ? String(e.stderr) : "";
+    if (e && e.status === 128 && /not a git repository/i.test(stderr)) {
+      return []; // git RAN and reported non-repo — legitimate structural no-op
+    }
+    throw new Error(
+      `findSwallowedArtifacts: swallowed-artifact gate could NOT run at ${dir} ` +
+        `— git rev-parse failed (${e && e.code ? e.code : "status " + (e && e.status)})` +
+        `${stderr ? ": " + stderr.trim() : ""}; refusing to report clean ` +
+        `(threat status UNKNOWN per evidence-first-claims MUST-3 — an errored ` +
+        `detector is not an all-clear).`,
+    );
+  }
+  let out = "";
+  try {
+    out = runGit(["-C", dir, "check-ignore", "--stdin"], {
+      input: emittedRelPaths.join("\n") + "\n",
+      encoding: "utf8",
+    });
+  } catch (e) {
+    if (e.status === 1) return []; // none ignored — clean
+    throw e; // genuine git error in a git repo — surface, never false-clear
+  }
+  return out
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+// ────────────────────────────────────────────────────────────────
 // Walk loom/.claude/ — emit every file relative to repo root.
 // ────────────────────────────────────────────────────────────────
 function walkClaudeDir() {
@@ -1576,6 +1669,8 @@ function buildPlan(manifest, target, templateFilter, mode = "use") {
   // executePlan based on each target's .coc-sync-marker visibility).
   const visibilityGitignoreAdditions =
     parseVisibilityGitignoreAdditions(manifest);
+  // loom#676 — universal re-include guarantees (applied to USE AND BUILD).
+  const gitignoreReincludes = parseGitignoreReincludes(manifest);
 
   // Reject unsafe purge entries at plan-build time (CRIT-1 defense).
   // An absolute / `.` / `..` entry would cause fs.rmSync to escape the
@@ -1616,6 +1711,21 @@ function buildPlan(manifest, target, templateFilter, mode = "use") {
       fail(
         1,
         `manifest defect: visibility_gitignore_additions entry ${defect} ` +
+          `— sync-tier-aware refuses to apply this entry`,
+      );
+    }
+  }
+
+  // loom#676 — same safety gate for re-include guarantees. The `!`
+  // negation prefix (`!.claude/bin/lib/`) is a legitimate gitignore
+  // re-include and is NOT a path-escape; rejectUnsafe checks
+  // line-terminator + marker-collision, neither of which `!` trips.
+  for (const entry of gitignoreReincludes) {
+    const defect = rejectUnsafeGitignoreEntry(entry);
+    if (defect !== null) {
+      fail(
+        1,
+        `manifest defect: gitignore_reincludes entry ${defect} ` +
           `— sync-tier-aware refuses to apply this entry`,
       );
     }
@@ -1741,6 +1851,9 @@ function buildPlan(manifest, target, templateFilter, mode = "use") {
     visibility_gitignore_additions: isBuild
       ? []
       : visibilityGitignoreAdditions.slice(),
+    // loom#676 — re-include guarantees apply to BOTH lanes (role-blind):
+    // BUILD repos also need `.claude/bin/lib/` tracked despite a broad `lib/`.
+    gitignore_reincludes: gitignoreReincludes.slice(),
   };
 }
 
@@ -1786,6 +1899,15 @@ function classifyFile(
   if (matchesAnyManifestGlob(relpath, inclusionGlobs)) {
     return { action: "copy", reason: "tier_match" };
   }
+  // Silent exclusion (journal/0362 STEP-2): a file in NO subscribed tier is
+  // skipped here with no per-file warning — correct for a genuinely off-axis
+  // artifact (e.g. a `kailash`-tier SDK skill on the non-Kailash `base` target),
+  // but it is ALSO how a GENERAL COC coding rule mis-placed in `kailash` falls
+  // silently out of the `base` axis (the F10 base-coverage gap). classifyFile is
+  // per-target and has no cross-tier view, so the heuristic guard lives at emit
+  // time where it does: emit.mjs validateTierCompleteness() (validator-15) flags
+  // a kailash-only rule with zero Kailash/loom coupling as a non-blocking
+  // base-exclusion advisory. Keep that guard in sync with this skip path.
   return { action: "skip", reason: "no_tier_match" };
 }
 
@@ -1879,6 +2001,10 @@ function executePlan(plan, outOverride, dryRun) {
       overlay_verify_failures: [],
       overlay_orphans_purged: [],
       purged: [],
+      // loom#676 — emitted `.claude/**` paths the target's .gitignore would
+      // untrack (a swallowed-delivery failure). Populated post-apply below;
+      // a non-empty list hard-fails the sync in main().
+      swallowed: [],
       skipped: {
         loom_local: 0,
         exclude: 0,
@@ -2142,16 +2268,33 @@ function executePlan(plan, outOverride, dryRun) {
     // workspaces ignored, _template preserved). Private → base only
     // (TRACK session-notes + workspaces as team knowledge).
     // gitignore management is USE-only (consumer .coc-sync-marker visibility
-    // model). BUILD repos have no such model — skip the marker read + apply.
+    // model). BUILD repos have no such model — skip the marker read + the
+    // state-locality additions. But the loom#676 RE-INCLUDE guarantees are
+    // role-blind: a BUILD repo's own broad `lib/` ignore swallows
+    // `.claude/bin/lib/` exactly as a consumer's does, so BUILD applies the
+    // re-includes (and ONLY those — the roster etc. stay committed in BUILD).
     if (plan.mode === "build") {
       result.visibility = null;
-      result.gitignore = null;
+      if (plan.gitignore_reincludes && plan.gitignore_reincludes.length > 0) {
+        try {
+          result.gitignore = applyGitignoreAdditions(
+            dir,
+            plan.gitignore_reincludes,
+            dryRun,
+          );
+        } catch (e) {
+          fail(1, `gitignore apply refused: ${e.message}`);
+        }
+      } else {
+        result.gitignore = null;
+      }
     } else {
       const marker = readConsumerVisibility(dir);
       const effectiveAdds = effectiveGitignoreAdditions(
         plan.gitignore_additions,
         plan.visibility_gitignore_additions,
         marker,
+        plan.gitignore_reincludes,
       );
       result.visibility = marker.visibility;
       try {
@@ -2159,6 +2302,23 @@ function executePlan(plan, outOverride, dryRun) {
       } catch (e) {
         fail(1, `gitignore apply refused: ${e.message}`);
       }
+    }
+
+    // loom#676 — post-apply swallowed-artifact gate. After the .gitignore is
+    // written, verify NO path loom just emitted is untracked by the target's
+    // ignore rules. Only the files loom WROTE are checked (copied dests +
+    // stripped dests + overlay/variant_only dests) — state-locality files are
+    // never emitted, so a deliberate gitignore_additions ignore is not a hit.
+    // Skipped on dry-run (nothing written; the .gitignore negation isn't on
+    // disk yet). A hit hard-fails the sync in main().
+    if (!dryRun) {
+      const emitted = [
+        ...result.copied.map((c) => c.dest),
+        ...result.stripped,
+        ...result.variant_only_copied.map((c) => c.dest),
+        ...result.overlay_applied.map((c) => c.dest),
+      ].filter(Boolean);
+      result.swallowed = findSwallowedArtifacts(dir, emitted);
     }
     results.push(result);
   }
@@ -2230,7 +2390,13 @@ function verifyConsistency(plan, outOverride) {
       missing: [],
       differs: [],
       purge_present: [],
+      // loom#676 — in-plan dest paths the target's .gitignore would untrack.
+      swallowed: [],
     };
+    // loom#676 — collect every in-plan dest (copy + variant_only + overlay)
+    // so the read-only --verify gate can pre-flight "would the target's
+    // .gitignore swallow what a /sync-to-* WOULD emit?" without writing.
+    const inPlanDestsRel = [];
     for (const f of plan.files) {
       if (f.action !== "copy") continue; // overlay-suppressed + skips handled below/elsewhere
       if (variantOnlyDestRel.has(f.path)) continue; // variant_only source wins at this dest
@@ -2242,6 +2408,7 @@ function verifyConsistency(plan, outOverride) {
         fail(1, `verify refused: ${e.message}`);
       }
       r.checked++;
+      inPlanDestsRel.push(path.relative(dir, dest));
       _compareExpected(r, dest, expectedCopyBytes(src, f.strip === true), f.path);
     }
     for (const vf of plan.variant_only || []) {
@@ -2253,6 +2420,7 @@ function verifyConsistency(plan, outOverride) {
         fail(1, `verify refused: ${e.message}`);
       }
       r.checked++;
+      inPlanDestsRel.push(path.relative(dir, dest));
       _compareExpected(r, dest, fs.readFileSync(src), vf.dest);
     }
     for (const ov of plan.overlays || []) {
@@ -2271,6 +2439,7 @@ function verifyConsistency(plan, outOverride) {
         fail(1, `verify overlay compose failed for ${ov.overlay_path}: ${e.message}`);
       }
       r.checked++;
+      inPlanDestsRel.push(path.relative(dir, dest));
       _compareExpected(r, dest, Buffer.from(composed.content, "utf8"), ov.dest);
     }
     for (const p of plan.purge) {
@@ -2282,6 +2451,10 @@ function verifyConsistency(plan, outOverride) {
       }
       if (fs.existsSync(targetAbs)) r.purge_present.push(p);
     }
+    // loom#676 — read-only pre-flight of the swallowed-artifact gate: would
+    // the target's CURRENT .gitignore untrack any artifact this plan emits?
+    // Mirrors the executePlan write-path gate so `--verify` is a superset.
+    r.swallowed = findSwallowedArtifacts(dir, inPlanDestsRel);
     results.push(r);
   }
   return results;
@@ -2301,7 +2474,11 @@ function emitVerifyText(plan, results) {
     lines.push("");
     lines.push(`## target: ${r.template} (${r.target_basename}/)`);
     lines.push(`   checked: ${r.checked} in-plan file(s)`);
-    const n = r.missing.length + r.differs.length + r.purge_present.length;
+    const n =
+      r.missing.length +
+      r.differs.length +
+      r.purge_present.length +
+      (r.swallowed || []).length;
     total += n;
     if (n === 0) {
       lines.push(
@@ -2318,6 +2495,10 @@ function emitVerifyText(plan, results) {
     block("MISSING — expected file absent at target", r.missing);
     block("DIFFERS — target content ≠ expected", r.differs);
     block("OBSOLETED-PRESENT — should be purged but still at target", r.purge_present);
+    block(
+      "SWALLOWED — emitted artifact untracked by target .gitignore (loom#676; add a `!`-re-include to gitignore_reincludes)",
+      r.swallowed || [],
+    );
   }
   // Manifest-completeness defects (plan-level) — the SAME gates the WRITE path
   // hard-fails on (#427 / #473 / #475). --verify MUST be a SUPERSET of the apply
@@ -2539,7 +2720,11 @@ function main() {
     const total =
       vres.reduce(
         (n, r) =>
-          n + r.missing.length + r.differs.length + r.purge_present.length,
+          n +
+          r.missing.length +
+          r.differs.length +
+          r.purge_present.length +
+          (r.swallowed || []).length, // loom#676
         0,
       ) + planCompletenessDefects(plan, null);
     if (total > 0) {
@@ -2615,6 +2800,26 @@ function main() {
           `path(s) — the sync under-delivered (#401 Defect 2 / #427):\n  ` +
           failed.slice(0, 20).join("\n  ") +
           (failed.length > 20 ? `\n  …and ${failed.length - 20} more` : ""),
+      );
+    }
+    // loom#676 — swallowed-artifact gate: a COC artifact loom emitted that the
+    // target's .gitignore would untrack is an invisible-delivery failure (the
+    // file lands now but a fresh clone never tracks it → a tracked importer
+    // throws). HARD-FAIL the sync and name the fix (a `!`-re-include in
+    // sync-manifest.yaml::gitignore_reincludes for the colliding subtree).
+    const swallowed = results.flatMap((r) =>
+      (r.swallowed || []).map((p) => `${r.template}: ${p}`),
+    );
+    if (swallowed.length > 0) {
+      fail(
+        1,
+        `swallowed-artifact gate FAILED for ${swallowed.length} emitted ` +
+          `path(s) — the consumer's .gitignore would UNTRACK COC artifacts ` +
+          `loom just delivered (loom#676; a fresh clone never tracks them and ` +
+          `the tracked importer throws). Add a \`!\`-re-include for the ` +
+          `colliding subtree to sync-manifest.yaml::gitignore_reincludes:\n  ` +
+          swallowed.slice(0, 20).join("\n  ") +
+          (swallowed.length > 20 ? `\n  …and ${swallowed.length - 20} more` : ""),
       );
     }
     // #427 — completeness gate: a declared variant_only entry that matched
@@ -2716,8 +2921,10 @@ export {
   rejectUnsafePurgeEntry,
   parseGitignoreAdditions,
   parseVisibilityGitignoreAdditions,
+  parseGitignoreReincludes,
   readConsumerVisibility,
   effectiveGitignoreAdditions,
+  findSwallowedArtifacts,
   rejectUnsafeGitignoreEntry,
   composeGitignoreBlock,
   findGitignoreBlock,

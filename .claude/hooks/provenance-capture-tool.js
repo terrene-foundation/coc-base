@@ -86,14 +86,18 @@ const JOURNAL_DECISION_RE =
 
 // Cross-CLI tool vocabularies (F101 item 1). Disjoint across CLIs, so membership
 // alone disambiguates the CLI — classify() maps by EFFECT, not by CLI.
-//   - DELEGATION: only CC `Task` is a tool call. Gemini `@agent` fires the native
+//   - DELEGATION: CC's delegation tool — named `Agent` in current/enhanced
+//     harnesses (verified CC 2.1.195) and `Task` in vanilla CC (legacy alias) —
+//     is a tool call; accept BOTH (legacy-tolerant — same PATTERN as
+//     tool-classes.js::MUTATION_TOOLS's legacy-tool retention, not its
+//     contents). Gemini `@agent` fires the native
 //     BeforeAgent lifecycle event (a different payload shape, not a tool call);
 //     Codex delegation is inline-cat injection via bin/coc (no tool call). Both are
 //     deferred per #411 provenance_parity — no tool-call capture point exists here.
 //   - WRITE (non-CC): CC write tools come from tool-classes.js::isMutationTool; the
 //     Gemini (write_file/replace) + Codex (apply_patch) write-tool names live here.
 //   - SHELL: the consequential-command surface across all CLIs.
-const DELEGATION_TOOLS = new Set(["Task"]);
+const DELEGATION_TOOLS = new Set(["Task", "Agent"]);
 const GEMINI_WRITE_TOOLS = new Set(["write_file", "replace"]);
 const CODEX_WRITE_TOOLS = new Set(["apply_patch"]);
 const SHELL_TOOLS = new Set([

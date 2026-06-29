@@ -27,6 +27,7 @@ import {
   checkReadonlySpecialistTools,
   checkToolCanonicality,
   checkAuditFixtureCoverage,
+  checkClaudeMdSurfaceRoleParity,
   STATUS,
 } from "../../bin/validate-emit.mjs";
 import { writeFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
@@ -737,6 +738,120 @@ next_top: x
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+}
+
+// ----------------------------------------------------------------------
+// fixture — claude-md-surface-role-parity (journal/0357; W6 G2 closure)
+// one case per scope-restriction predicate (cc-artifacts.md Rule 9):
+// consistent-PASS / manifestAssignsDocOmits-FAIL / docClaimsManifestMissing-FAIL
+// / universalWithEntry-FAIL / sourceUnreadable-SKIP
+// ----------------------------------------------------------------------
+{
+  const MF = (entries) => "surface_roles:\n" + entries + "\n";
+  const DESURF = (cmds) =>
+    `- **Utility — de-surfaced at the platform role:** ${cmds.map((c) => "`/" + c + "`").join(", ")}\n`;
+  const UNIV = (cmds) =>
+    `- **Universal — default-surfaced for every role (incl. platform):** ${cmds.map((c) => "`/" + c + "`").join(", ")}\n`;
+  const hasFail = (c, artifact) =>
+    c.results.some((r) => r.artifact === artifact && r.status === STATUS.FAIL);
+
+  // (a) consistent → PASS
+  {
+    const root = buildFixtureRoot({
+      ".claude/sync-manifest.yaml": MF("  commands/sdk.md: [build, use-consumer]"),
+      "CLAUDE.md": DESURF(["sdk"]),
+    });
+    try {
+      const c = checkClaudeMdSurfaceRoleParity(root);
+      check(
+        "fixture-claudeMdParity-a-consistent-PASS",
+        c.results.length === 1 && c.results[0].status === STATUS.PASS,
+        `results=${JSON.stringify(c.results)}`,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  // (b) manifest assigns, doc omits → FAIL (the W6 G2 case)
+  {
+    const root = buildFixtureRoot({
+      ".claude/sync-manifest.yaml": MF(
+        "  commands/sdk.md: [build, use-consumer]\n  commands/db.md: [build, use-consumer]",
+      ),
+      "CLAUDE.md": DESURF(["db"]), // omits /sdk
+    });
+    try {
+      const c = checkClaudeMdSurfaceRoleParity(root);
+      check(
+        "fixture-claudeMdParity-b-manifestAssignsDocOmits-FAIL",
+        hasFail(c, "CLAUDE.md:/sdk"),
+        `results=${JSON.stringify(c.results)}`,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  // (c) doc claims, manifest missing → FAIL (the reverse direction)
+  {
+    const root = buildFixtureRoot({
+      ".claude/sync-manifest.yaml": MF("  commands/db.md: [build, use-consumer]"),
+      "CLAUDE.md": DESURF(["db", "sdk"]), // /sdk has no manifest entry
+    });
+    try {
+      const c = checkClaudeMdSurfaceRoleParity(root);
+      check(
+        "fixture-claudeMdParity-c-docClaimsManifestMissing-FAIL",
+        hasFail(c, "sync-manifest.yaml:/sdk"),
+        `results=${JSON.stringify(c.results)}`,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  // (d) doc lists a command as universal that the manifest de-surfaces → FAIL
+  // (isolates predicate 2: /start is in BOTH the doc de-surfaced + universal
+  // bullets so set-equality (1) passes; only the disjointness check (2) fires)
+  {
+    const root = buildFixtureRoot({
+      ".claude/sync-manifest.yaml": MF("  commands/start.md: [build, use-consumer]"),
+      "CLAUDE.md": DESURF(["start"]) + UNIV(["start"]),
+    });
+    try {
+      const c = checkClaudeMdSurfaceRoleParity(root);
+      check(
+        "fixture-claudeMdParity-d-universalWithEntry-FAIL",
+        c.results.some(
+          (r) =>
+            r.artifact === "CLAUDE.md:/start" &&
+            r.status === STATUS.FAIL &&
+            /universal/i.test(r.detail),
+        ),
+        `results=${JSON.stringify(c.results)}`,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  // (e) source unreadable (no CLAUDE.md) → SKIP, never silent PASS
+  {
+    const root = buildFixtureRoot({
+      ".claude/sync-manifest.yaml": MF("  commands/sdk.md: [build, use-consumer]"),
+    });
+    try {
+      const c = checkClaudeMdSurfaceRoleParity(root);
+      check(
+        "fixture-claudeMdParity-e-sourceUnreadable-SKIP",
+        c.results.length === 1 && c.results[0].status === STATUS.SKIP,
+        `results=${JSON.stringify(c.results)}`,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   }
 }
 

@@ -128,12 +128,12 @@ This is the **Kailash CO Artifact Management Platform** — the canonical source
 
 The setup includes:
 
-- **32 skill directories** covering SDK frameworks, standards, and patterns
-- **37 specialized agents** for analysis, implementation, review, and standards
-- **9 automation hooks** for quality enforcement and workspace awareness
-- **23 slash commands** for management and knowledge access
-- **26 rule files** for behavioral constraints (12 CO-general, 14 COC-specific)
-- **4 learning scripts** for continuous improvement
+- **40 skill directories** covering SDK frameworks, standards, and patterns
+- **38 specialized agents** for analysis, implementation, review, and standards
+- **33 automation hooks** for quality enforcement and workspace awareness
+- **51 slash commands** for management and knowledge access
+- **75 rule files** for behavioral constraints
+- **2 learning scripts** for continuous improvement
 - **4 architect-level guides** covering production agentic patterns
 
 ---

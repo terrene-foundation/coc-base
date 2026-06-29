@@ -28,8 +28,13 @@
  * client addresses it — the ceremony never silently claims clean.
  *
  * The "what counts as canon identity" judgement is the SHARED identity-scrub lib
- * (.claude/bin/lib/identity-scrub.mjs) — the exact gate the public-fork fence
- * uses — so the two fences cannot drift (MO-OPT W2-0/D2).
+ * (.claude/bin/lib/identity-scrub.mjs) — the same `deriveDynamicTokens` runtime
+ * extraction the public-fork fence uses for its DYNAMIC half (incl. the PGP-UID
+ * name/email harvest + separator-variant derivation) — so the two fences' dynamic
+ * gate cannot drift (MO-OPT W2-0/D2). The publish fence ADDITIONALLY unions a
+ * loom-only hand-maintained static residual (EXTRA_IDENTITY_TOKENS) that is
+ * DELIBERATELY not shipped into this synced ceremony — relocating it here would
+ * ship literal canon identity to every consumer (MO-OPT holistic redteam MO-R1-H2).
  *
  * Node ESM. roster-schema-validate.js is CommonJS (createRequire).
  */
@@ -250,11 +255,29 @@ function performClear(root, opts) {
 function assertZero(root, canonTokens) {
   const lc = canonTokens.map((t) => t.toLowerCase());
   const hits = [];
+  const ECO_REL = path.join(".claude", "bin", "ecosystem.json");
   walkFiles(root, (f) => {
     if (f.includes(`${path.sep}.git${path.sep}`)) return; // skip the .git object store
-    const txt = readTextOrNull(f); if (txt === null) return;
-    const lower = txt.toLowerCase();
+    let txt = readTextOrNull(f); if (txt === null) return;
     const rel = path.relative(root, f);
+    // MO-OPT holistic post-multi-wave redteam (MO-OPT-1): the ceremony's OWN
+    // placeholder ecosystem.json legitimately carries upstream_canon.url = the
+    // canon clone URL (git@host:<repo_owner>/<repo>.git) — a fork is REQUIRED to
+    // name the canon it forked from (W2-b). That URL CONTAINS repo_owner, which
+    // the CRIT-1 genesis harvest puts in the canon-token snapshot, so the
+    // documented DEFAULT invocation (origin-derived URL, no --upstream-canon-url)
+    // would token-hit its OWN legitimate pointer and fail closed. Redact ONLY the
+    // upstream_canon.url VALUE before the grep — any canon token ELSEWHERE in this
+    // file (e.g. a registry.org the clear missed) still fails. Token-gate twin of
+    // the structural-scanner ecosystem.json exemption below.
+    if (rel === ECO_REL) {
+      try {
+        const eco = JSON.parse(txt);
+        const url = eco && eco.ecosystem && eco.ecosystem.upstream_canon && eco.ecosystem.upstream_canon.url;
+        if (typeof url === "string" && url) txt = txt.split(url).join("<upstream-canon-url>");
+      } catch { /* unparseable → grep the raw text (fail-closed) */ }
+    }
+    const lower = txt.toLowerCase();
     for (let i = 0; i < lc.length; i++) if (lower.includes(lc[i])) hits.push(`${rel}  ~  ${canonTokens[i]}`);
   });
   // Structural disclosure shapes (home paths, org slugs, hostnames the literal

@@ -28,7 +28,7 @@ messages = [{"role": "user", "content": "Your task here"}]
 
 while True:
     response = client.messages.create(
-        model="claude-sonnet-4-20250514",
+        model="claude-opus-4-8",
         max_tokens=4096,
         tools=tools,
         messages=messages

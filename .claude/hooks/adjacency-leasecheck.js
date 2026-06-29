@@ -90,6 +90,9 @@ const { isMutationTool } = require(
 const { isCoordinationEnabled } = require(
   path.join(__dirname, "lib", "coordination-mode.js"),
 );
+const { resolveMainCheckout } = require(
+  path.join(__dirname, "lib", "state-resolver.js"),
+);
 
 function passthrough() {
   clearTimeout(fallback);
@@ -382,7 +385,17 @@ function discoverKeyPath() {
     // worktrees of their own). Passthrough when OFF. When ENABLED, byte-unchanged
     // (this guard already fail-opens on empty-log / unresolvable identity; the
     // gate makes the solo no-op explicit + covers the §4.2 block path too).
-    if (!isCoordinationEnabled(repoDir)) {
+    //
+    // MO-OPT holistic post-multi-wave redteam (Cluster A): the predicate's tier-2
+    // local-override (.claude/learning/coordination-mode.json) is GITIGNORED →
+    // ABSENT in a worktree. Reading it against the worktree cwd would split a
+    // tier-2-enrolled repo OFF here while integrity-guard / journal-write-guard
+    // read it ON from main — and the §4.2 cross-worktree-contention block (this
+    // guard's whole reason to exist in a parallel-worktree run) is exactly what
+    // gets silenced. Resolve the MAIN checkout for the predicate ONLY (the same
+    // main-checkout discipline as trust-posture.md MUST-1 / integrity-guard.js
+    // :362); repoDir stays the worktree cwd for the claim + repoRelative below.
+    if (!isCoordinationEnabled(resolveMainCheckout(repoDir) || repoDir)) {
       passthrough();
     }
 

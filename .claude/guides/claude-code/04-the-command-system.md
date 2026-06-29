@@ -18,7 +18,7 @@ By the end of this guide, you will understand:
 
 ### The Problem Commands Solve
 
-Claude Code has a limited **context window** - the amount of information it can "hold in mind" at once. If we loaded all 28 skill directories simultaneously, Claude would:
+Claude Code has a limited **context window** - the amount of information it can "hold in mind" at once. If we loaded all 40 skill directories simultaneously, Claude would:
 
 1. Run out of context space quickly
 2. Process irrelevant information
@@ -34,7 +34,7 @@ Without Commands:
 │ Claude's Context (Always Loaded)                        │
 │ ┌──────┬──────┬──────┬──────┬──────┬──────┬──────────┐│
 │ │ SDK  │ Data │Nexus │Kaizen│Tests │Deploy│ ... all  ││
-│ │      │ Flow │      │      │      │      │ 28 skills││
+│ │      │ Flow │      │      │      │      │ 40 skills││
 │ └──────┴──────┴──────┴──────┴──────┴──────┴──────────┘│
 │ Context 80% full before you even ask a question        │
 └────────────────────────────────────────────────────────┘

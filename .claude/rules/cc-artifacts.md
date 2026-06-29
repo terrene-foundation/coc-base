@@ -71,6 +71,20 @@ Contains repo-specific directives, absolute rules, and navigation tables. MUST N
 
 **Why:** CLAUDE.md loads on every turn. Every line beyond navigation and directives is wasted context.
 
+### 4a. Baseline Artifacts MUST Be Cache-Stable
+
+The per-CLI baseline (`CLAUDE.md` / `AGENTS.md` / `GEMINI.md`), every `scope: baseline` rule, and the agent/skill/command listings form the CACHED system-prompt prefix of every consumer session. They MUST NOT carry per-turn-varying content — a date/timestamp, a session ID/UUID, or a value computed fresh at load time. Listings MUST emit in a DETERMINISTIC order. Prompt caching is a prefix match: any byte change invalidates the cached prefix for the rest of the session.
+
+```text
+# DO — accurate STATIC count (updated when it changes), deterministic ordering
+## Agents (38 total)
+
+# DO NOT — load-time-interpolated count or date in the always-on baseline
+## Agents ({{agent_count}} total) — generated 2026-06-27
+```
+
+**Why:** A mutating byte in the always-on prefix invalidates the cache every turn across all 30 consumers, dropping each off the ~0.1× cache-read path onto the 1× full-input path — the most expensive authoring mistake a distributor can ship, and invisible without `usage.cache_read_input_tokens`. This makes "fix the stale count" a STATIC-accurate edit, never a dynamic-interpolation one. Mechanics + the loom#678 size-vs-stability composition: `skills/30-claude-code-patterns/prompt-caching-coc-artifacts.md`.
+
 ### 5. Path-Scoped Rules Use `paths:` Frontmatter
 
 Domain-specific rules MUST use `paths:` (not `globs:`) for YAML frontmatter scoping.

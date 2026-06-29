@@ -5,106 +5,101 @@ See `.claude/guides/rule-extracts/agents.md` for full evidence, extended example
 
 ## Specialist Delegation (MUST)
 
-When working on stack-specific concerns, MUST consult the relevant generic specialist. The base variant ships three stack-agnostic specialists; each reads `STACK.md` at the project root to determine the host language and framework before advising:
+When working with Kailash frameworks, MUST consult the relevant specialist (**dataflow** / **nexus** / **kaizen** / **mcp** / **mcp-platform** / **pact** / **ml** / **align**-specialist). The work-domain → specialist binding is `rules/framework-first.md`'s domain table.
 
-- **db-specialist** — Database work (Postgres / SQLite / MySQL / Mongo / Redis idioms regardless of language driver)
-- **api-specialist** — REST / GraphQL / gRPC patterns; HTTP framework selection per language
-- **ai-specialist** — Provider-agnostic LLM integration (OpenAI / Anthropic / local Ollama); prompt engineering; output validation
-
-**Applies when**: implementing database access, exposing or consuming HTTP/RPC endpoints, integrating LLM-based features.
-
-**Why:** Generic specialists encode patterns and pitfalls that generalist agents miss across the long tail of stacks the base variant supports. They consult `STACK.md` first; without that file (per `rules/stack-detection.md`) the specialist halts and reports rather than guessing the host stack.
+**Why:** Specialists encode hard-won patterns generalist agents miss, preventing subtle API misuse.
 
 ## Specs Context in Delegation (MUST)
 
-Every specialist delegation prompt MUST include relevant spec file content from `specs/`. Read `specs/_index.md`, select relevant files, include them inline. See `rules/specs-authority.md` MUST Rule 7 for the full protocol.
+Every specialist delegation prompt MUST include relevant spec file content from `specs/` (read `specs/_index.md`, select, include inline). Full protocol: `rules/specs-authority.md` MUST Rule 7.
 
-**Why:** Specialists without domain context produce technically correct but intent-misaligned output (e.g., schemas without tenant_id because multi-tenancy wasn't communicated).
+**Why:** Specialists without domain context produce technically correct but intent-misaligned output (e.g. schemas missing tenant_id).
 
 ## Analysis Chain (Complex Features)
 
 1. **analyst** → Identify failure points
 2. **analyst** → Break down requirements
-3. **`decide-framework` skill** → Choose approach (when applicable; base variant's `decide-framework` is stack-aware via `STACK.md`)
-4. Then appropriate generic specialist
+3. **`decide-framework` skill** → Choose approach
+4. Then appropriate specialist
 
 ## Parallel Execution
 
 When multiple independent operations are needed, launch agents in parallel via the CLI's delegation primitive, wait for all, aggregate results. MUST NOT run sequentially when parallel is possible.
 
-**Why:** Sequential execution of independent operations wastes the autonomous execution multiplier, turning a 1-session task into a multi-session bottleneck.
+**Why:** Sequential execution of independent operations wastes the autonomous execution multiplier, turning a 1-session task into a multi-session bottleneck. (Under time-pressure framings, parallelization IS the throughput response — `rules/time-pressure-discipline.md`.)
 
 ### MUST: Decompose Onto The Parallel Primitive By Default When The Work Earns It
 
-When the work surface is **≥3 independent items** OR has a **multi-stage shape** (analyze → implement → verify), the orchestrator MUST decompose onto the runtime's parallel orchestration primitive by DEFAULT — not only under `/autonomize`. The trigger is a real gate: a genuinely serial single-item task MUST stay serial. Governance per `rules/governed-throughput.md`; concurrency throttle-aware per `rules/worktree-isolation.md` Rule 4.
+When the work surface is **≥3 independent items** OR has a **multi-stage shape**, the orchestrator MUST decompose onto the runtime's parallel orchestration primitive by DEFAULT — not only under `/autonomize`. A genuinely serial single-item task MUST stay serial. Governance per `rules/governed-throughput.md`; throttle-aware per `rules/worktree-isolation.md` Rule 4.
 
 ```text
-# DO — 3 independent shards (W3,W4,W5) → one parallel wave (1 wall-clock unit)
-# DO NOT — 1 serial state-machine rewrite → stay serial (decomposing adds only latency)
+# DO — 3 independent shards → one parallel wave
+# DO NOT — 1 serial rewrite → stay serial
 ```
 
-**Why:** Parallel decomposition is the baseline throughput response, not a per-session opt-in; the serial-single-item gate prevents over-decomposition of genuinely sequential work.
+**Why:** Parallel decomposition is the baseline throughput response, not a per-session opt-in; the serial-single-item gate prevents over-decomposing sequential work.
 
 ### MUST: Parallel Brief-Claim Verification When Issue Count ≥ 3
 
-When `/analyze` runs against a brief covering ≥ 3 distinct issues / failure modes / workstreams, the orchestrator MUST launch parallel deep-dive verification agents — one per claim cluster — to independently re-grep / re-read every factual claim in the brief tagged with file:line citations. Inaccuracies surfaced by the deep-dive sweep MUST be recorded in the workspace journal AND in the architecture plan's "Brief corrections" section AS THE GATE before `/todos`. Single-agent analysis on a ≥3-issue brief is BLOCKED — the framing inherited from the brief is the failure mode this rule prevents.
+When `/analyze` runs against a brief covering ≥ 3 distinct issues, the orchestrator MUST launch parallel deep-dive verification agents — one per claim cluster — to independently re-grep / re-read every factual claim. Inaccuracies MUST be recorded in the workspace journal AND the plan's "Brief corrections" section AS THE GATE before `/todos`. Single-agent analysis on a ≥3-issue brief is BLOCKED. (Example 1 = CLI-specific dispatch syntax.)
 
-**Why:** Briefs are written from the human's mental model of the system, which decays silently as the code evolves. A ≥3-issue brief carries ≥3× the surface area for stale citations and misframed root causes; single-agent analysis cannot resist the brief's framing because the agent has no independent reading. Parallel deep-dive verification is the structural defense.
+**Why:** Briefs reflect the author's mental model, which decays as code evolves; single-agent analysis cannot resist the brief's framing without independent reading. Parallel deep-dive verification is the structural defense — N agents, N claim-clusters, one wall-clock unit.
 
 ## Quality Gates (MUST — Gate-Level Review)
 
-Reviews happen at COC phase boundaries, not per-edit. Skip only when explicitly told to. **MUST gates** are `/implement` and `/release`; reviewer + security-reviewer (and gold-standards-validator at `/release`) run as parallel background agents. RECOMMENDED gates run at `/analyze`, `/todos`, `/redteam`, `/codify`, and post-merge.
+Reviews happen at COC phase boundaries, not per-edit. Skip only when explicitly told to. **MUST gates** are `/implement` and `/release`; reviewer + security-reviewer (and gold-standards-validator at `/release`) run as parallel background agents. RECOMMENDED gates: `/analyze`, `/todos`, `/redteam`, `/codify`, post-merge. Full gate table: guide.
 
-**Why:** Skipping gate reviews lets analysis gaps, security holes, and naming violations propagate to downstream consumers where they are far more expensive to fix.
+**Why:** Skipped gate reviews let gaps propagate downstream where they are far more expensive to fix. (Example 2 = background-dispatch pattern.)
 
 **BLOCKED responses when skipping MUST gates:** "Skipping review to save time" / "Reviews will happen in a follow-up session" / "The changes are straightforward, no review needed" / "Already reviewed informally during implementation".
 
 ### MUST: Reviewer Prompts Include Mechanical AST/Grep Sweep
 
-Every gate-level reviewer prompt MUST include explicit mechanical sweeps that verify ABSOLUTE state (not only the diff). LLM-judgment review catches what's wrong with new code; mechanical sweeps catch what's missing from OLD code the spec also touched. Sweeps MUST be tailored to the host stack declared in `STACK.md` (e.g. `pytest --collect-only -q` for Python; `cargo check --workspace` for Rust; `go vet ./...` for Go; `tsc --noEmit` for TypeScript).
+Every gate-level reviewer prompt MUST include explicit mechanical sweeps that verify ABSOLUTE state (not only the diff) — LLM-judgment review catches what's wrong with new code; sweeps catch what's missing from OLD code the spec also touched. (Example 3 = mechanical-sweep prompt.)
 
-**Why:** Reviewers are constrained by the diff. The orphan failure mode is invisible at diff-level. A 4-second `grep -c` catches what 5 minutes of LLM judgment misses.
+**Why:** Reviewers are constrained by the diff; the `orphan-detection.md` §1 failure mode is invisible at diff-level. A 4-second `grep -c` catches what LLM judgment misses.
+
+### MUST: Holistic Post-Multi-Wave Redteam Before Plan Close
+
+A plan shipped across ≥3 sharded waves MUST run ONE holistic redteam round across ALL merged shards on main — ≥3 parallel reviewers (reviewer + security-reviewer + closure-parity verifier) scoped to the union of merged PRs, not the latest shard's diff — before the plan is declared converged.
+
+**Why:** Per-shard redteams see only their own diff; cross-shard invariant breaks are invisible to each. Evidence + BLOCKED corpus + wiring: guide.
+
+### MUST: Redteam Reviewer Dispatch — Errored/Empty Is Zero Evidence, Never A Clean Round
+
+A `/redteam` round dispatches reviewers in PARALLEL; rate-limiting can throttle the fan-out so an agent returns errored/empty, reading as "0 findings" → false convergence. Two axes: **(1) EVIDENCE GATE** — every dispatched reviewer MUST return a ran/evidence signal; an errored/empty/timed-out return is ZERO evidence (per `rules/evidence-first-claims.md` MUST-3), MUST be re-run, and MUST NOT count clean; convergence is claimable ONLY when EVERY agent genuinely ran. **(2) CONCURRENCY BACK-OFF** — on a throttle signal, reduce dispatch concurrency (per `rules/worktree-isolation.md` Rule 4's adaptive model) and re-run the throttled reviewers. COMPLEMENTS parallel-by-default; does NOT override it. DO/DO-NOT + BLOCKED corpus + Wiring: `skills/30-claude-code-patterns/redteam-dispatch-evidence-gate.md`.
+
+**Why:** An errored agent and a genuinely-clean agent are indistinguishable in a "0 findings" tally yet opposite in meaning; counting the errored return as clean ships an un-reviewed shard under a converged banner.
 
 ## Zero-Tolerance
 
-Pre-existing failures MUST be fixed (`rules/zero-tolerance.md` Rule 1).
+Pre-existing failures MUST be fixed (`rules/zero-tolerance.md` Rule 1). No workarounds for SDK bugs — deep-dive and fix directly (Rule 4).
+
+**Why:** Workarounds create parallel implementations that diverge from the SDK.
 
 ## MUST: Verify Specialist Tool Inventory Before Implementation Delegation
 
-When delegating IMPLEMENTATION work (file edits, commits, build/test invocation, version bumps), the orchestrator MUST select a specialist whose declared tool set includes `Edit` AND `Bash`. Read-only specialists (`security-reviewer`, `analyst`, `reviewer`, `gold-standards-validator`, `value-auditor`) MUST NOT be delegated implementation tasks. Pure-research / pure-review delegations are fine.
+When delegating IMPLEMENTATION work (file edits, commits, build/test invocation, version bumps), the orchestrator MUST select a specialist whose declared tool set includes `Edit` AND `Bash`. Read-only specialists (`security-reviewer`, `analyst`, `reviewer`, `gold-standards-validator`, `value-auditor`) MUST NOT be delegated implementation tasks. Tool-inventory table: guide.
 
-**Why:** Read-only specialists halt mid-instruction at file-edit boundaries — the agent emits "Now let me wire X" then exits with zero tool calls because Edit is unavailable. Verifying tool inventory pre-launch is O(1); re-launch is O(N) on shard size.
+**Why:** Read-only specialists halt mid-instruction at file-edit boundaries; pre-launch tool-inventory verify is O(1), re-launch is O(N) on shard size.
 
 ## MUST: Audit/Closure-Parity Verification Specialist Has Bash + Read
 
-When delegating a /redteam round whose mission includes **closure-parity verification** (mapping prior-wave findings to delivered code via `gh pr view`, test-collection commands, `grep`, AST inspection, `find`), the orchestrator MUST select a specialist whose tool set includes `Bash` AND `Read`. Read-only analyst (`Read, Grep, Glob`) MUST NOT be assigned closure-parity verification — its tool set silently FORWARDS verification rows the next round must redo.
+When delegating a /redteam round including **closure-parity verification** (mapping prior-wave findings to delivered code via `gh pr view`, `pytest --collect-only`, `grep`, `ast.parse()`), the orchestrator MUST select a specialist with `Bash` AND `Read`. Read-only analyst MUST NOT be assigned — its tool set silently FORWARDS verification rows the next round must redo. Extends the tool-inventory MUST above from IMPLEMENTATION to AUDIT delegation. Examples 4+5 (dispatch + delegation-time scan), the BLOCKED corpus, the delegation-time detection signals, and the multi-incident Origin live in `.claude/skills/30-claude-code-patterns/closure-parity-specialist-discipline.md`.
 
-**Why:** Tool-inventory mismatch costs one full audit round. Verifying pre-launch is O(1); re-launch is O(N) on row count.
+**Why:** Tool-inventory mismatch costs one full audit round; pre-launch verify is O(1), re-launch O(N) on row count.
 
 ## MUST: Worktree Orchestration
 
-Depth (protocol, prompt templates, BLOCKED corpora, post-mortems): `skills/30-claude-code-patterns/worktree-orchestration.md`. Each bullet is a full MUST:
+Parallel/compiling agents MUST run isolated per `skills/30-claude-code-patterns/worktree-orchestration.md` (Rules 1–10 — each a full MUST). The 10 sub-rules: isolate compiling agents + ANY shared-source editor (concurrent readers read committed HEAD via `git show HEAD:<path>`, never the working tree); relative paths only in prompts; commit per milestone + verify ≥1 commit; verify deliverables exist after exit; recover orphan writes onto `recovery/<branch>`; one version owner per sub-package; binding-scoped shard PRs touch only their own package. The depth-file carries each rule's failure-mode evidence, prompt templates, DO/DO-NOT blocks, BLOCKED-rationalization corpus, and Trust Posture Wiring.
 
-- **Isolate compiling agents** — build caches hold exclusive filesystem locks (Rust `target/`; Python editable `.venv/`; Go `$GOCACHE`; TypeScript `node_modules/.cache/`); one worktree per compiling agent (skill Rule 1).
-- **Isolate ANY shared-source editor** (manifest, rules, config, generated artifacts), compiling or not; concurrent readers read committed HEAD via `git show HEAD:<path>`, never the working tree (skill Rule 9).
-- **Relative paths only in worktree prompts** — absolute paths resolve to the parent checkout, silently defeating isolation (skill Rule 2).
-- **Commit per milestone; verify ≥1 commit** before declaring work landed — zero-commit worktrees auto-delete (skill Rule 3).
-- **Verify deliverables exist after exit** (`ls`/`Read` the claimed files) — budget exhaustion truncates writes mid-message (skill Rule 4).
-- **Recover orphan writes** of zero-commit auto-cleaned worktrees from the MAIN checkout onto `recovery/<branch>` (skill Rule 4a).
-- **One version owner per sub-package** when ≥2 parallel agents touch it; siblings are told "do NOT edit" the version anchor + CHANGELOG (Python `pyproject.toml` + `__version__`; Rust `Cargo.toml` + `pub const VERSION`; Go `go.mod` const; TypeScript `package.json::version`) (skill Rule 5).
-- **Binding/package-scoped shard PRs touch only their own package** — sibling-package fixes ship as a separate PR; bundling is BLOCKED (skill Rule 10).
-
-```text
-# DO — isolated editor; HEAD-pinned readers; relative paths; per-milestone commits
-# DO NOT — shared-checkout editor + working-tree readers + absolute paths + 0 commits
-```
-
-**Why:** Each clause converts a silent parallel-work loss — lock serialization, phantom reads, checkout drift, auto-cleanup loss, truncated writes, version clobber, shard conflicts — into clean isolation or a loud refusal.
+**Why:** Each sub-rule converts a silent parallel-work loss (lock serialization, phantom reads, checkout drift, auto-cleanup loss, truncated writes, version clobber, shard conflicts) into clean isolation or a loud refusal.
 
 ## MUST NOT
 
-- **Stack-coupled work without consulting `STACK.md`** — the generic specialists fall back to LOW-confidence advice; the agent is responsible for either confirming the stack or running the `/onboard-stack` command first.
+- **Framework work without specialist** — misuse violates invariants (pool sharing, session lifecycle, trust boundaries).
 - **Sequential when parallel is possible** — wastes the autonomous execution multiplier.
+- **Raw SQL / custom API / custom agents / custom governance** — see `rules/framework-first.md` and guide for per-framework rationale.
 
 
 

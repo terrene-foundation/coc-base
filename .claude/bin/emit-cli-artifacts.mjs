@@ -52,7 +52,7 @@
  * --target <name> filters emission to files matched by the union of glob
  * patterns under tiers.<tier> for each tier in repos.<name>.tier_subscriptions.
  * Required when emitting for a USE template — emitting WITHOUT a target ships
- * every artifact on disk (e.g., onboarding-tier files leak into [cc,co,coc]
+ * every artifact on disk (e.g., onboarding-tier files leak into [cc,coc-core,kailash]
  * py/rs/rb targets). Per sync-flow.md § Gate 2 → Process step 3 (loom: /sync-to-use), missing/empty
  * tier_subscriptions is a manifest defect that MUST halt the sync.
  *

@@ -6,8 +6,21 @@
  *   2. .claude/bin/clean-instantiate.mjs — the CLIENT-clone CLEAR ceremony
  *      (MO-OPT W2): a client cloning/templating canon to instantiate its OWN
  *      ecosystem MUST carry ZERO canon operator/trust identity. Its fail-closed
- *      assert-zero gate is `deriveDynamicTokens(clientCloneRoot).gate` === the
- *      EXACT token set the publish gate uses, so the two fences cannot drift.
+ *      assert-zero gate is `deriveDynamicTokens(clientCloneRoot).gate` — the SAME
+ *      runtime-extraction machinery the publish gate's DYNAMIC half uses, so the
+ *      two fences' dynamic gate CANNOT DRIFT (one shared function).
+ *
+ * The dynamic gate covers the canon owner's name + email too: harvestPgpUid
+ * base64-decodes the roster's PGP UID packet, and separator-variant derivation
+ * (below) emits the dotted/hyphenated/concatenated forms — so the gate is
+ * machine-complete for a GPG-rostered owner WITHOUT any literal canon token in
+ * this file. The publish fence ADDITIONALLY unions a small hand-maintained
+ * EXTRA_IDENTITY_TOKENS static list (in the LOOM-ONLY scripts/publish-to-public.mjs)
+ * for any residual a future SSH-key roster cannot derive. That static list is
+ * DELIBERATELY publish-only: relocating it INTO this module would ship literal
+ * canon identity to every synced consumer + the public fork — the exact leak the
+ * "ZERO identity" guarantee below prevents (MO-OPT holistic redteam MO-R1-H2 —
+ * honesty over a false "exact token set" claim).
  *
  * This module contains ZERO identity itself — it is identity-free machinery that
  * EXTRACTS identity from a repo's `operators.roster.json` + tenant denylist at
@@ -68,6 +81,22 @@ export function synthHex(real) {
  * fingerprint (a separate field) but ZERO name/email from canon's real roster
  * (verified: emailish=0, nameish=0). Decoding the parsed field closes the gap.
  */
+/**
+ * Machine-derive the common separator-variants of a multi-part identity token:
+ * "alex.kim" → ["alex-kim","alex_kim","alexkim"]. Used so the dynamic gate
+ * covers every separator form WITHOUT a hand-maintained literal (MO-OPT holistic
+ * redteam MO-R1-H2). Only emits forms >=5 chars distinct from the input — keeps
+ * includes()-grep false-positives low while strengthening the fail-closed gate.
+ */
+function separatorVariants(token) {
+  const parts = String(token).toLowerCase().split(/[.\-_ ]+/).filter(Boolean);
+  if (parts.length < 2) return [];
+  const out = new Set();
+  for (const sep of [".", "-", "_", ""]) out.add(parts.join(sep));
+  out.delete(String(token).toLowerCase());
+  return [...out].filter((v) => v.length >= 5);
+}
+
 function harvestPgpUid(pubkeyText, gate, scrub) {
   if (typeof pubkeyText !== "string") return;
   for (const block of pubkeyText.match(/-----BEGIN PGP PUBLIC KEY BLOCK-----[\s\S]*?-----END PGP PUBLIC KEY BLOCK-----/g) || []) {
@@ -82,10 +111,18 @@ function harvestPgpUid(pubkeyText, gate, scrub) {
     } catch { continue; }
     for (const m of decoded.matchAll(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g)) {
       gate.push(m[0]); scrub.push([m[0], "maintainer@example.com"]);
-      const lp = m[0].split("@")[0]; if (lp.length > 2) { gate.push(lp); scrub.push([lp, "maintainer"]); }
+      const lp = m[0].split("@")[0];
+      if (lp.length > 2) {
+        gate.push(lp); scrub.push([lp, "maintainer"]);
+        // MO-R1-H2: a dotted localpart like "alex.kim" is gated, but its
+        // hyphenated/concatenated forms ("alex-kim","alexkim") are distinct
+        // strings an includes()-grep misses.
+        for (const v of separatorVariants(lp)) { gate.push(v); scrub.push([v, "maintainer"]); }
+      }
     }
     for (const m of decoded.matchAll(/([A-Z][A-Za-z.'’-]+(?: [A-Z][A-Za-z.'’-]+)+) <[^>]+>/g)) {
       gate.push(m[1]); scrub.push([m[1], "Example Maintainer"]);
+      for (const v of separatorVariants(m[1].toLowerCase())) { gate.push(v); scrub.push([v, "example-maintainer"]); }
     }
   }
 }

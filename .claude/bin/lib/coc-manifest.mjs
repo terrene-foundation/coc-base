@@ -251,7 +251,7 @@ function loadTiers() {
 // sync-manifest.yaml → repos.<target>.tier_subscriptions
 // ────────────────────────────────────────────────────────────────
 // Returns the ordered list of tier names the named target subscribes to.
-// Inline-list form: `tier_subscriptions: [cc, co, coc]`.
+// Inline-list form: `tier_subscriptions: [cc, coc-core, kailash]`.
 // Returns null if the target is unknown (caller decides whether to halt).
 // Returns empty array [] if the target declares an empty subscription
 // (e.g. retired prism — manifest declares [] structurally).

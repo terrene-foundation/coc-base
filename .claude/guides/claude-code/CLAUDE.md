@@ -141,22 +141,22 @@ Think of Claude Code as a **highly capable junior developer** with access to a *
                      │
          ┌───────────▼─────────────┐
          │        Skills           │  ← Domain expertise
-         │    (28 directories)     │
+         │    (40 directories)     │
          └───────────┬─────────────┘
                      │
          ┌───────────▼─────────────┐
          │        Rules            │  ← Behavioral constraints
-         │     (9 files)           │
+         │     (75 files)          │
          └───────────┬─────────────┘
                      │
          ┌───────────▼─────────────┐
          │        Hooks            │  ← Runtime enforcement
-         │     (9 scripts)         │
+         │     (33 scripts)        │
          └───────────┬─────────────┘
                      │
          ┌───────────▼─────────────┐
          │       Agents            │  ← Specialized delegation
-         │     (30 agents)         │
+         │     (38 agents)         │
          └─────────────────────────┘
 ```
 
@@ -168,51 +168,49 @@ Think of Claude Code as a **highly capable junior developer** with access to a *
 
 ```
 .claude/
-├── agents/              # 30 specialized sub-agents
+├── agents/              # 38 specialized sub-agents
 │   ├── analyst.md
 │   ├── dataflow-specialist.md
 │   ├── testing-specialist.md
-│   └── ... (27 more)
+│   └── ... (35 more)
 │
-├── commands/            # 20 slash commands
+├── commands/            # 51 slash commands
 │   ├── sdk.md          # /sdk - Core SDK quick reference
 │   ├── db.md           # /db - DataFlow quick reference
 │   ├── api.md          # /api - Nexus quick reference
 │   ├── analyze.md      # /analyze - Phase 01 workspace
 │   ├── ws.md           # /ws - Workspace status dashboard
-│   └── ... (10 more)
+│   └── ... (46 more)
 │
 ├── guides/              # This documentation
 │   ├── README.md       # Navigation hub
 │   ├── CLAUDE.md       # This file
 │   └── 01-*.md         # Sequential guides
 │
-├── rules/               # 8 mandatory rule files
+├── rules/               # 75 rule files (representative sample shown)
 │   ├── agents.md       # Agent orchestration rules
-│   ├── e2e-god-mode.md # E2E testing requirements
-│   ├── env-models.md   # API keys & model names
-│   ├── git.md          # Git workflow rules
 │   ├── zero-tolerance.md     # No stubs/TODOs/placeholders
-│   ├── patterns.md     # Kailash pattern rules
 │   ├── security.md     # Security rules
-│   └── testing.md      # Testing policies (real infrastructure recommended)
+│   ├── git.md          # Git workflow rules
+│   ├── testing.md      # Testing policies (real infrastructure)
+│   └── ... (70 more, organized by CO/COC category — see Guide 08)
 │
-├── skills/              # 28 knowledge directories
+├── skills/              # 40 knowledge directories
 │   ├── 01-core-sdk/    # Core SDK patterns
 │   ├── 02-dataflow/    # DataFlow framework
 │   ├── 03-nexus/       # Nexus multi-channel
 │   ├── 04-kaizen/      # Kaizen AI agents
-│   └── ... (24 more)
+│   └── ... (36 more)
+│
+├── hooks/               # 33 automation scripts (+ lib/ helpers)
+│   ├── validate-bash-command.js
+│   ├── session-start.js
+│   ├── detect-violations.js
+│   └── ... (30 more)
 │
 └── settings.json        # Hook configuration
 
-scripts/
-├── hooks/               # 9 automation scripts
-│   ├── validate-bash-command.js
-│   ├── validate-workflow.js
-│   ├── session-start.js
-│   └── ... (5 more)
-│
+scripts/                 # project-ops only (CI, deploy, plugin) — NOT COC
 ├── ci/                  # 5 validation scripts
 │   ├── validate-agents.js
 │   ├── validate-skills.js

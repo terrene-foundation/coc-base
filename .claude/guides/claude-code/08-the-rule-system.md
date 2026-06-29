@@ -7,7 +7,7 @@ Rules are **mandatory behavioral constraints** that Claude must follow. Unlike s
 By the end of this guide, you will understand:
 
 - What rules are and how they differ from hooks
-- All 9 rule files and their contents
+- How the rule corpus is organized (75 rule files, by category and scope)
 - How rules structure MUST/MUST NOT requirements
 - How rules are enforced
 - When exceptions apply
@@ -65,20 +65,48 @@ Rules are Markdown files that Claude reads and follows:
 
 ---
 
-## Part 2: Rule File Overview
+## Part 2: How the Rule Corpus Is Organized
 
-### All 9 Rule Files
+The rule set is not a short fixed list — it is a corpus of **75 rule files** in `.claude/rules/` that grows as the system codifies new institutional knowledge (via `/codify`). Rather than memorize every file, understand the two axes that organize it.
 
-| File                | Domain                | Key Rules                                             |
-| ------------------- | --------------------- | ----------------------------------------------------- |
-| `agents.md`         | Agent orchestration   | Mandatory delegations, review requirements            |
-| `e2e-god-mode.md`   | E2E testing           | Implement everything, no placeholders                 |
-| `env-models.md`     | API keys & models     | .env is single source of truth                        |
-| `git.md`            | Git workflow          | Branch strategy, commit rules                         |
-| `zero-tolerance.md` | No stubs/TODOs        | No placeholders in production code                    |
-| `patterns.md`       | SDK patterns          | Correct API usage, imports                            |
-| `security.md`       | Security requirements | OWASP, secrets, input validation                      |
-| `testing.md`        | Testing policies      | Real infrastructure recommended, test-first, coverage |
+### Axis 1: Category — CO vs COC
+
+| Category | Meaning                                                                 | Examples                                          |
+| -------- | ----------------------------------------------------------------------- | ------------------------------------------------- |
+| **CO**   | Core methodology rules — how the agent reasons, orchestrates, and ships | `agents.md`, `autonomous-execution.md`, `git.md`  |
+| **COC**  | Codegen-specific rules — framework patterns, SDK behavior, deployment   | `dataflow-pool.md`, `connection-pool.md`, `eatp.md` |
+
+CO rules apply in any repo; COC rules govern Kailash SDK code generation.
+
+### Axis 2: Scope — Path-Scoped vs Baseline
+
+Most rules carry a `paths:` glob in their frontmatter and inject **only** when the session touches a matching file — this keeps the always-on context lean.
+
+| Scope            | Count | Behavior                                                              |
+| ---------------- | ----- | -------------------------------------------------------------------- |
+| **Path-scoped**  | 65    | Injected once per session when a matching path is touched (sticky)   |
+| **Baseline**     | 10    | Always-on; the non-negotiable core (e.g. `zero-tolerance.md`, `security.md`, `communication.md`) |
+
+### The Authoring Model: Loud / Linguistic / Layered
+
+New rules are authored to the model in `rule-authoring.md`:
+
+- **Loud** — MUST / MUST NOT / BLOCKED phrasing the model cannot soften.
+- **Linguistic** — failure-mode language so semantic matching surfaces the rule at the right moment.
+- **Layered** — a short always-on body, with depth (examples, evidence) extracted to a guide or skill.
+
+Every rule shares a common anatomy: **MUST / MUST NOT clauses**, a **Why** per clause, an **Origin** citing the incident that motivated it, and (for enforced rules) a **Trust Posture Wiring** block. Parts 3–7 below walk a few representative rules to show this anatomy in practice — they are illustrative examples, not the complete corpus.
+
+### Representative Rules
+
+| File                | Category | Domain                | Key Rules                                  |
+| ------------------- | -------- | --------------------- | ------------------------------------------ |
+| `agents.md`         | CO       | Agent orchestration   | Specialist delegation, gate-level review   |
+| `zero-tolerance.md` | CO       | No stubs/failures     | No placeholders; fix pre-existing failures |
+| `git.md`            | CO       | Git workflow          | Branch strategy, commit rules              |
+| `security.md`       | CO       | Security requirements | Parameterized queries, secrets, validation |
+| `framework-first.md`| CO       | Framework abstraction | Use the highest Kailash abstraction layer  |
+| `testing.md`        | COC      | Testing policies      | Real infrastructure in Tier 2–3, test-first |
 
 ---
 
@@ -497,7 +525,7 @@ MUST NOT [prohibited action].
 
 1. **Rules are mandatory instructions** - Claude reads and follows them
 
-2. **8 rule files cover all domains** - agents, e2e, env-models, git, zero-tolerance, patterns, security, testing
+2. **75 rule files, organized by two axes** - category (CO methodology vs COC codegen) and scope (65 path-scoped, 10 always-on baseline); the corpus grows as `/codify` captures new knowledge
 
 3. **MUST rules define requirements** - What Claude must do
 

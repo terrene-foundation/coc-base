@@ -1,6 +1,6 @@
 ---
 id: "TRUST-POSTURE"
-paths: ["**/.claude/rules/**", "**/.claude/skills/**", "**/.claude/agents/**", "**/.claude/hooks/**", "**/.claude/commands/**", "**/.claude/learning/**", "**/.claude/settings.json", "**/.claude/sync-manifest.yaml"]
+paths: ["**/.claude/rules/**", "**/.claude/hooks/**", "**/.claude/commands/**", "**/.claude/learning/**", "**/.claude/settings.json", "**/.claude/sync-manifest.yaml"]
 ---
 
 # Trust Posture — Graduated Autonomy Discipline

@@ -180,6 +180,7 @@ const CHECK_IDS = [
   "variant-orphan",
   "allowlist-paths-coverage",
   "surface-role-membership",
+  "claude-md-surface-role-parity",
 ];
 
 const STATUS = {
@@ -1470,6 +1471,118 @@ function checkSurfaceRoleMembership(root) {
       artifact: "surface_roles",
       status: STATUS.SKIP,
       detail: "no surface_roles or repos.<t>.role entries declared",
+    });
+  }
+  return { id, source_rule, results };
+}
+
+// =======================================================================
+//  CHECK — CLAUDE.md command-table <-> manifest surface_roles parity
+//          (journal/0357; onboarding-portability Wave-4 focused validator)
+// =======================================================================
+// The surface-role-membership check above verifies manifest <-> repos.role
+// (config<->config) — it is STRUCTURALLY BLIND to the human-readable CLAUDE.md
+// command-table drifting out of sync with the manifest's surface_roles block
+// (the W6 G2 case: CLAUDE.md said "no surface_roles entry yet" for 11 commands
+// the manifest had already assigned [build, use-consumer]; the green validator
+// never saw it). This check closes that class: parse the manifest (the
+// authoritative side) AND the CLAUDE.md "Distributed to targets" bullets, then
+// assert bidirectional set-equality on the de-surfaced set + disjointness of the
+// doc's universal set from it. Structural (set-equality over parsed `/cmd`
+// tokens, no LLM) per probe-driven-verification.md MUST-3.
+
+// Parse the CLAUDE.md "Distributed to targets" bullets into two sets of command
+// stems: `desurfaced` (bullets whose text marks "de-surfaced at the platform
+// role") and `universal` (the bullet marking "default-surfaced for every role").
+// Reads backticked `/cmd` tokens only (the table's command citations). Returns
+// { desurfaced:Set, universal:Set } or null when CLAUDE.md is unreadable.
+function parseClaudeMdCommandRoles(root) {
+  const md = safeRead(join(root, "CLAUDE.md"));
+  if (md === null) return null;
+  const desurfaced = new Set();
+  const universal = new Set();
+  for (const line of md.split(/\r?\n/)) {
+    if (!/^\s*[-*]\s/.test(line)) continue; // bullet lines only
+    const cmds = [...line.matchAll(/`\/([a-z0-9-]+)`/g)].map((m) => m[1]);
+    if (cmds.length === 0) continue;
+    if (/de-surfaced at the platform role/i.test(line)) {
+      for (const c of cmds) desurfaced.add(c);
+    } else if (/default-surfaced for every role/i.test(line)) {
+      for (const c of cmds) universal.add(c);
+    }
+  }
+  return { desurfaced, universal };
+}
+
+// Check body. FAIL on: (1) a command de-surfaced in the manifest but absent from
+// CLAUDE.md's de-surfaced bullets (the G2 case) OR present in the doc but absent
+// from the manifest (the reverse); (2) a CLAUDE.md universal command that carries
+// a de-surfacing manifest entry. SKIP when either source is unreadable. PASS when
+// both sides agree.
+function checkClaudeMdSurfaceRoleParity(root) {
+  const id = "claude-md-surface-role-parity";
+  const source_rule =
+    "CLAUDE.md command-table <-> sync-manifest.yaml surface_roles (journal/0357; W6 G2 closure)";
+  const sr = parseSurfaceRoles(root);
+  const cmd = parseClaudeMdCommandRoles(root);
+  if (sr === null || cmd === null) {
+    return {
+      id,
+      source_rule,
+      results: [
+        {
+          artifact: sr === null ? "sync-manifest.yaml" : "CLAUDE.md",
+          status: STATUS.SKIP,
+          detail: "source unreadable — cannot check doc<->config parity",
+        },
+      ],
+    };
+  }
+  // Manifest side: command artifacts whose surface_roles list EXCLUDES platform.
+  const manifestDesurfaced = new Set();
+  for (const [p, roles] of sr) {
+    const m = p.match(/^commands\/([a-z0-9-]+)\.md$/);
+    if (!m) continue;
+    if (!roles.includes("platform")) manifestDesurfaced.add(m[1]);
+  }
+  const results = [];
+  // (1) bidirectional set equality on the de-surfaced set.
+  const inManifestNotDoc = [...manifestDesurfaced]
+    .filter((c) => !cmd.desurfaced.has(c))
+    .sort();
+  const inDocNotManifest = [...cmd.desurfaced]
+    .filter((c) => !manifestDesurfaced.has(c))
+    .sort();
+  for (const c of inManifestNotDoc) {
+    results.push({
+      artifact: `CLAUDE.md:/${c}`,
+      status: STATUS.FAIL,
+      detail: `manifest surface_roles de-surfaces /${c} at platform, but CLAUDE.md's "de-surfaced at the platform role" bullets do not list it (doc<->config drift — the W6 G2 class)`,
+    });
+  }
+  for (const c of inDocNotManifest) {
+    results.push({
+      artifact: `sync-manifest.yaml:/${c}`,
+      status: STATUS.FAIL,
+      detail: `CLAUDE.md marks /${c} de-surfaced at platform, but the manifest surface_roles block has no de-surfacing entry for it (doc claims an assignment the config lacks)`,
+    });
+  }
+  // (2) doc-universal must be disjoint from manifest de-surfaced.
+  const universalButDesurfaced = [...cmd.universal]
+    .filter((c) => manifestDesurfaced.has(c))
+    .sort();
+  for (const c of universalButDesurfaced) {
+    results.push({
+      artifact: `CLAUDE.md:/${c}`,
+      status: STATUS.FAIL,
+      detail: `CLAUDE.md lists /${c} as universal (default-surfaced for every role), but the manifest de-surfaces it at platform — contradiction`,
+    });
+  }
+  if (results.length === 0) {
+    results.push({
+      artifact: "CLAUDE.md",
+      status: STATUS.PASS,
+      detail: `command-table <-> surface_roles consistent (${manifestDesurfaced.size} de-surfaced, ${cmd.universal.size} universal)`,
     });
   }
   return { id, source_rule, results };
@@ -2911,6 +3024,7 @@ const CHECK_FNS = {
   "variant-orphan": checkVariantOrphan,
   "allowlist-paths-coverage": checkAllowlistPathsCoverage,
   "surface-role-membership": checkSurfaceRoleMembership,
+  "claude-md-surface-role-parity": checkClaudeMdSurfaceRoleParity,
 };
 
 function runChecks(root, only, opts) {
@@ -3118,6 +3232,8 @@ export {
   CHECK_IDS,
   STATUS,
   findRepoRoot,
+  parseClaudeMdCommandRoles,
+  checkClaudeMdSurfaceRoleParity,
 };
 
 if (isMain) main();

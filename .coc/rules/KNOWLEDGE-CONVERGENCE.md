@@ -1,6 +1,6 @@
 ---
 id: "KNOWLEDGE-CONVERGENCE"
-paths: [".claude/rules/**", ".claude/team-memory/**", ".claude/learning/**", "**/journal/**", ".claude/commands/codify.md", ".session-notes*", ".session-notes.d/**", ".claude/.proposals/**"]
+paths: [".claude/team-memory/**", ".claude/learning/**", "**/journal/**", ".claude/commands/codify.md", ".session-notes*", ".session-notes.d/**", ".claude/.proposals/**"]
 ---
 
 # Knowledge Convergence — Multi-Operator Single-Writer Discipline

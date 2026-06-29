@@ -133,7 +133,6 @@ Claude delegates to `analyst` → Returns executive summary, risk register, impl
 > Create an ADR for our authentication system choice
 ```
 
-
 **Expertise**: Finding patterns in SDK documentation
 
 **When used**:
@@ -660,13 +659,14 @@ These agents provide deep expertise in frontend development across frameworks.
 ### Phase 1: Analysis
 
 ```
+
 ```
 
-| Agent                  | Purpose in Phase                     |
-| ---------------------- | ------------------------------------ |
-| `analyst`         | Identify risks and failure points    |
-| `analyst` | Break down requirements, create ADRs |
-| ``decide-framework` skill`    | Select appropriate frameworks        |
+| Agent                      | Purpose in Phase                     |
+| -------------------------- | ------------------------------------ |
+| `analyst`                  | Identify risks and failure points    |
+| `analyst`                  | Break down requirements, create ADRs |
+| ``decide-framework` skill` | Select appropriate frameworks        |
 
 ### Phase 2: Planning
 
@@ -674,11 +674,11 @@ These agents provide deep expertise in frontend development across frameworks.
 todo-manager → gh-manager → reviewer
 ```
 
-| Agent                   | Purpose in Phase               |
-| ----------------------- | ------------------------------ |
-| `todo-manager`          | Create detailed task breakdown |
-| `gh-manager`            | Sync tasks to GitHub           |
-| `reviewer` | Validate plan completeness     |
+| Agent          | Purpose in Phase               |
+| -------------- | ------------------------------ |
+| `todo-manager` | Create detailed task breakdown |
+| `gh-manager`   | Sync tasks to GitHub           |
+| `reviewer`     | Validate plan completeness     |
 
 ### Phase 3: Implementation
 
@@ -692,7 +692,7 @@ tdd-implementer → pattern-expert → [framework-specialist] → gold-standards
 | `pattern-expert`           | Implement using SDK patterns |
 | `[framework-specialist]`   | Framework-specific guidance  |
 | `gold-standards-validator` | Validate compliance          |
-| `reviewer`    | Review implementation        |
+| `reviewer`                 | Review implementation        |
 
 ### Phase 4: Testing
 
@@ -700,10 +700,10 @@ tdd-implementer → pattern-expert → [framework-specialist] → gold-standards
 testing-specialist → reviewer
 ```
 
-| Agent                     | Purpose in Phase     |
-| ------------------------- | -------------------- |
-| `testing-specialist`      | Verify test coverage |
-| `reviewer` | Test code examples   |
+| Agent                | Purpose in Phase     |
+| -------------------- | -------------------- |
+| `testing-specialist` | Verify test coverage |
+| `reviewer`           | Test code examples   |
 
 ### Phase 5: Deployment
 
@@ -711,8 +711,8 @@ testing-specialist → reviewer
 release-specialist
 ```
 
-| Agent                   | Purpose in Phase        |
-| ----------------------- | ----------------------- |
+| Agent                | Purpose in Phase        |
+| -------------------- | ----------------------- |
 | `release-specialist` | Docker/Kubernetes setup |
 
 ### Phase 6: Release
@@ -721,10 +721,10 @@ release-specialist
 release-specialist → security-reviewer
 ```
 
-| Agent                    | Purpose in Phase                   |
-| ------------------------ | ---------------------------------- |
+| Agent                | Purpose in Phase                   |
+| -------------------- | ---------------------------------- |
 | `release-specialist` | Pre-commit validation, PR creation |
-| `security-reviewer`      | Security audit before commit       |
+| `security-reviewer`  | Security audit before commit       |
 
 ### Phase 7: Final
 
@@ -732,8 +732,8 @@ release-specialist → security-reviewer
 reviewer
 ```
 
-| Agent                   | Purpose in Phase |
-| ----------------------- | ---------------- |
+| Agent      | Purpose in Phase |
+| ---------- | ---------------- |
 | `reviewer` | Final critique   |
 
 ---
@@ -751,7 +751,7 @@ Claude automatically delegates based on task type:
 | "Nexus", "deploy as API"                 | `nexus-specialist`         |
 | "Kaizen", "AI agent"                     | `kaizen-specialist`        |
 | "test", "testing strategy"               | `testing-specialist`       |
-| "analyze requirements", "failure points" | `analyst`             |
+| "analyze requirements", "failure points" | `analyst`                  |
 | "compliance", "gold standards"           | `gold-standards-validator` |
 
 ### Explicit Delegation
@@ -1003,7 +1003,7 @@ Claude uses these hints to coordinate effectively.
 
 1. **Agents provide specialized expertise** - Not just patterns, but judgment and analysis
 
-2. **30 agents cover all phases** - From analysis to frontend to release
+2. **38 agents cover all phases** - From analysis to frontend to release
 
 3. **Automatic delegation is smart** - Claude chooses agents based on task type
 
@@ -1017,25 +1017,25 @@ Claude uses these hints to coordinate effectively.
 
 | Need                   | Agent                      |
 | ---------------------- | -------------------------- |
-| Risk analysis          | `analyst`             |
-| Requirements breakdown | `analyst`     |
-| Choose framework       | ``decide-framework` skill`        |
+| Risk analysis          | `analyst`                  |
+| Requirements breakdown | `analyst`                  |
+| Choose framework       | ``decide-framework` skill` |
 | Database help          | `dataflow-specialist`      |
 | API deployment         | `nexus-specialist`         |
 | AI agents              | `kaizen-specialist`        |
 | MCP integration        | `mcp-specialist`           |
 | UI/UX design           | `uiux-designer`            |
-| React components       | `react-specialist`       |
+| React components       | `react-specialist`         |
 | React 19/Next.js       | `react-specialist`         |
 | Flutter mobile         | `flutter-specialist`       |
 | Write tests first      | `tdd-implementer`          |
 | Test strategy          | `testing-specialist`       |
 | Code compliance        | `gold-standards-validator` |
 | Security audit         | `security-reviewer`        |
-| Implementation review  | `reviewer`    |
-| Documentation testing  | `reviewer`  |
-| Deployment setup       | `release-specialist`    |
-| Git/PR workflow        | `release-specialist`   |
+| Implementation review  | `reviewer`                 |
+| Documentation testing  | `reviewer`                 |
+| Deployment setup       | `release-specialist`       |
+| Git/PR workflow        | `release-specialist`       |
 | Task management        | `todo-manager`             |
 | GitHub projects        | `gh-manager`               |
 

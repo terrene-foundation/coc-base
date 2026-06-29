@@ -54,6 +54,7 @@ const { resolveLogPath } = require(path.join(__dirname, "state-io.js"));
 const { resolveIdentity, _discoverSigningKey } = require(
   path.join(__dirname, "operator-id.js"),
 );
+const actuationTypes = require(path.join(__dirname, "actuation-types.js"));
 
 // Match transport-filesystem.js MAX_LINE_BYTES — the POSIX O_APPEND
 // atomicity half-budget (PIPE_BUF is 4KB; 2KB keeps the line atomic
@@ -367,6 +368,43 @@ function emitSignedRecord(opts) {
       reason: `type '${o.type}' has no registered fold predicate in the default engine; register it in coordination-log.js::_registerDefaults before emitting (unregistered records are dispatch-rejected at fold and rule-2-poison the emitter's subsequent chain)`,
       step: "type-check",
     };
+  }
+
+  // ---- A+ presence-proof gate (#583 §C4, A2 structural + A3 staged) -------
+  // Actuation-class records (gate-approval + future command-center actuation
+  // types — actuation-types.js) carry human intent: per the A+ floor "holding
+  // the key path is NOT sufficient" — they MUST be gated by a per-record
+  // presence proof. The proof's FORMAT + cryptographic verification are the
+  // off-loom loom-command path's (contract §0/§4); loom enforces the PRESENCE
+  // of an attestation slot HERE, BEFORE canonicalSerialize/sign. The
+  // attestation is consumed at the gate and NEVER added to recordCore, so a
+  // record that IS emitted is byte-identical — C1/C2 byte-indistinguishability
+  // is preserved (this guard changes no emitted byte).
+  //
+  // A3 staging: the HARD refusal activates only when a presence mechanism is
+  // configured. Otherwise (the default today — no mechanism exists) the
+  // un-attested actuation emission proceeds with a loud advisory, so the
+  // existing multi-operator /release gate-approval co-sign flow is not broken
+  // before a hardware-presence path exists.
+  if (
+    actuationTypes.requiresPresenceAttestation(o.type) &&
+    !actuationTypes.isAttestationPresent(o.presenceAttestation)
+  ) {
+    if (actuationTypes.isPresenceMechanismConfigured(repoDir)) {
+      return {
+        ok: false,
+        error: "presence proof required",
+        reason: `actuation record type '${o.type}' requires a per-record presence attestation (opts.presenceAttestation) — holding the signing key is NOT sufficient (#583 §C4). The attestation is produced by the off-loom loom-command hardware-presence path; an in-process/agent emission without it is the identity-≠-intent hole #583 closes.`,
+        step: "presence-gate",
+      };
+    }
+    try {
+      process.stderr.write(
+        `[ADVISORY] coc-emit: actuation record '${o.type}' emitted WITHOUT a presence attestation; no presence mechanism configured (#583 §C4, A3-staged). The hard refusal activates once loom-command's hardware-presence path is configured.\n`,
+      );
+    } catch {
+      // best-effort advisory only
+    }
   }
 
   // ---- Identity ----------------------------------------------------------

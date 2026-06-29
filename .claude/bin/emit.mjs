@@ -1041,7 +1041,7 @@ export function validateCliDelivery() {
 // Validator 15 — manifest tier-completeness (loom 2026-05-16, journal
 // 0078). Every .claude/rules/*.md MUST have its distribution fate
 // consciously declared in sync-manifest.yaml — exactly one of:
-//   (a) tier-listed (cc/co/coc/onboarding) — shipped to subscribers,
+//   (a) tier-listed (cc/coc-core/kailash/onboarding) — shipped to subscribers,
 //   (b) use_obsoleted: — actively purged from USE templates,
 //   (c) use_exclude:   — deliberately loom-only (never fanned out).
 // The failure mode this blocks is SILENT omission: a rule that is in
@@ -1053,6 +1053,24 @@ export function validateCliDelivery() {
 // as managed prevents false positives on deliberately-excluded rules
 // while still hard-failing the unmanaged class. Regex-scoped section
 // parse (no YAML dep) consistent with loadManifestConfig.
+// Base-exclusion advisory heuristic (journal/0362 STEP-2). Returns true when a
+// rule body shows NEITHER Kailash-framework coupling NOR loom-tooling coupling —
+// i.e. it reads as GENERAL COC coding methodology. A general rule sitting in the
+// `kailash` tier (which the non-Kailash `base` axis does not subscribe to) is
+// the F10 base-coverage gap; the caller flags it as a non-blocking advisory.
+// Loom-tooling coupling suppresses the flag because COC-tooling rules (sync /
+// variant / cross-CLI) legitimately stay kailash-only (base never runs loom's
+// sync machinery). Pure + exported so the heuristic is unit-testable in
+// isolation (positive + negative) without live-manifest injection.
+const _KAILASH_COUPLING_RE =
+  /(kailash|dataflow|nexus|kaizen|\bpact\b|\beatp\b|trust[ -]?plane|workflowbuilder|connection[ -]?pool|infrastructure[ -]?sql|tenant[_ -]?isolation|core sdk|cross-?sdk|build[ -]repo|@db\.model)/i;
+const _LOOM_TOOLING_RE =
+  /(sync-to-|\/sync\b|sync-manifest|\bloom\b|\bvariant|emit-cli|use template|build repo|cross-?cli|\bcodex\b|\bgemini\b|coc-sync|tier_subscriptions)/i;
+export function isBaseExclusionAdvisoryCandidate(ruleBody) {
+  if (typeof ruleBody !== "string" || ruleBody.length === 0) return false;
+  return !_KAILASH_COUPLING_RE.test(ruleBody) && !_LOOM_TOOLING_RE.test(ruleBody);
+}
+
 export function validateTierCompleteness() {
   const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
   const rulesDir = path.join(REPO, ".claude", "rules");
@@ -1099,13 +1117,71 @@ export function validateTierCompleteness() {
     if (!tiered.has(f) && !obsoleted.has(f) && !excluded.has(f)) {
       failures.push(
         `${f}: unmanaged — declare its distribution fate in ` +
-          `sync-manifest.yaml: add to a tier (cc/co/coc/onboarding), OR ` +
+          `sync-manifest.yaml: add to a tier (cc/coc-core/kailash/onboarding), OR ` +
           `use_obsoleted: (purge from templates), OR use_exclude: ` +
           `(loom-only). (journal 0078)`,
       );
     }
   }
-  return { pass: failures.length === 0, failures };
+
+  // ── Base-exclusion advisory (journal/0362 STEP-2; F10 base-coverage class) ──
+  // The `kailash` tier is the Kailash-framework SUBSET of COC; the non-Kailash
+  // `base` axis does NOT subscribe to it (subscribes cc + coc-core + onboarding).
+  // A GENERAL COC coding rule mis-placed in `kailash` is therefore SILENTLY
+  // excluded from base (classifyFile -> no_tier_match -> skip) — the exact F10
+  // gap the 2026-06-26 base-coverage reconciliation fixed by hand. This is the
+  // ADVISORY-flag heuristic (owner-approved 2026-06-28) that prevents RECURRENCE:
+  // a kailash-only rule with ZERO Kailash-framework AND ZERO loom-tooling
+  // coupling is probably general and belongs in `coc-core` so base receives it.
+  // ADVISORY only (non-blocking) — it is a content heuristic, not a structural
+  // fact, so per hook-output-discipline.md MUST-2 it MUST NOT block /sync; a
+  // human verifies, then moves or annotates. Suppressed by loom-tooling tokens
+  // because COC-tooling rules (coc-sync-landing/sync-completeness/variant-
+  // authoring/cross-cli-parity) legitimately stay kailash-only (base consumers
+  // never run loom's sync/variant machinery).
+  // SCOPE (rules-only): this advisory walks `rules/*.md` only — validator-15's
+  // pre-existing domain. The F10 base-coverage walk also found kailash-only
+  // COMMANDS / SKILLS / AGENTS the reconciliation hand-moved to coc-core; a
+  // future general command/skill/agent mis-placed in `kailash` is NOT caught by
+  // this advisory. Extending the heuristic to those classes is a follow-up
+  // (out of journal/0362 STEP-2's validator-15 scope).
+  const tierRulesOf = (name) => {
+    const re = new RegExp(`^  ${name}:\\s*$`, "m");
+    const start = tiersBlock.search(re);
+    if (start === -1) return new Set();
+    const bodyStart = tiersBlock.indexOf("\n", start);
+    if (bodyStart === -1) return new Set();
+    const after = tiersBlock.slice(bodyStart + 1);
+    const nextRel = after.search(/^  [A-Za-z_][\w-]*:\s*$/m);
+    const body = after.slice(0, nextRel === -1 ? undefined : nextRel);
+    return new Set(
+      [...body.matchAll(/^\s*-\s*rules\/([a-z0-9-]+)\.md\s*$/gm)].map(
+        (m) => `${m[1]}.md`,
+      ),
+    );
+  };
+  const kailashRules = tierRulesOf("kailash");
+  const baseReaching = new Set([
+    ...tierRulesOf("cc"),
+    ...tierRulesOf("coc-core"),
+    ...tierRulesOf("onboarding"),
+  ]);
+  const advisories = [];
+  for (const f of kailashRules) {
+    if (baseReaching.has(f)) continue; // reaches base via another tier
+    const fp = path.join(rulesDir, f);
+    if (!fs.existsSync(fp)) continue;
+    const body = safeReadFileSync(fp, "utf8");
+    if (!isBaseExclusionAdvisoryCandidate(body)) continue;
+    advisories.push(
+      `${f}: in the \`kailash\` tier (excluded from the non-Kailash \`base\` ` +
+        `axis) but shows NO Kailash-framework or loom-tooling coupling — likely ` +
+        `GENERAL COC coding methodology that belongs in \`coc-core\` so base ` +
+        `receives it. Verify by hand, then move to coc-core OR annotate why it ` +
+        `is Kailash-scoped. (F10 base-coverage class; journal/0362 STEP-2)`,
+    );
+  }
+  return { pass: failures.length === 0, failures, advisories };
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -1236,7 +1312,7 @@ export function validateRosterSchemaCoupling() {
         `ship without their runtime data; consumer repos receiving the ` +
         `substrate via /sync will fail-close every commit ("operators ` +
         `roster missing; trust root not established"). Add ` +
-        `\`- operators.roster.schema.json\` to a tier (recommended: coc, ` +
+        `\`- operators.roster.schema.json\` to a tier (recommended: kailash, ` +
         `alongside commands/whoami.md). Origin: F67 / GH #379 / journal 0161. ` +
         `Note: an entry in \`use_exclude:\` or \`use_obsoleted:\` does NOT ` +
         `satisfy this check — the schema must be IN a tier so /sync ships ` +
@@ -1318,10 +1394,10 @@ export function validateRosterSchemaCoupling() {
     }
     const files =
       plan && plan.plan && Array.isArray(plan.plan.files) ? plan.plan.files : [];
-    // F70 scope: only fail on targets that subscribe to the `coc` tier
+    // F70 scope: only fail on targets that subscribe to the `kailash` tier
     // (where the schema lives per F67's tier choice in journal/0161).
-    // Targets not subscribed to coc are out of #379's scope — they
-    // don't receive the substrate hooks' coc-tier siblings either.
+    // Targets not subscribed to kailash are out of #379's scope — they
+    // don't receive the substrate hooks' kailash-tier siblings either.
     // F70's regression-lock binds the schema's distribution to the
     // tier-subscriptions that ARE supposed to ship it; widening the
     // scope to every target would re-open a different architectural
@@ -1331,8 +1407,8 @@ export function validateRosterSchemaCoupling() {
       plan && plan.plan && Array.isArray(plan.plan.tier_subscriptions)
         ? plan.plan.tier_subscriptions
         : [];
-    if (!subs.includes("coc")) {
-      // Target does not subscribe to coc tier — out of F70 scope.
+    if (!subs.includes("kailash")) {
+      // Target does not subscribe to kailash tier — out of F70 scope.
       // Documented as advisory note so the operator sees the skip.
       continue;
     }
@@ -1583,6 +1659,13 @@ function main() {
       `VALIDATOR 15 FAIL (sync-manifest tier-completeness, journal 0078):\n${v15.failures.map((l) => "  " + l).join("\n")}\n`,
     );
     process.exit(1);
+  }
+  // Base-exclusion advisories (journal/0362 STEP-2) — ADVISORY, never blocking.
+  if (Array.isArray(v15.advisories) && v15.advisories.length > 0) {
+    console.log(
+      `[validator-15] base-exclusion advisories (${v15.advisories.length}; non-blocking):`,
+    );
+    for (const a of v15.advisories) console.log(`  ⚠ ${a}`);
   }
 
   // Validator 17 — multi-operator substrate hook ⇔ data coupling (F67
