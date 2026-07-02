@@ -1196,17 +1196,17 @@ export function validateTierCompleteness() {
 // out, so emit.mjs stays Node-dependency-free) MUST succeed or emit
 // hard-fails. Runs BEFORE Validator 15 in main() — V15's regex section
 // parse is only trustworthy on a syntactically valid manifest.
-export function validateManifestYaml() {
-  const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
-  const r = spawnSync(
-    "python3",
-    [
-      "-c",
-      "import sys,yaml\ntry:\n yaml.safe_load(open(sys.argv[1]))\nexcept yaml.YAMLError as e:\n sys.stderr.write(str(e))\n sys.exit(1)",
-      manifestPath,
-    ],
-    { encoding: "utf8" },
-  );
+// Pure classification of the python-YAML-probe result → {pass, failures}.
+// Exported for test. Distinguishes FOUR dispositions so an ENVIRONMENT gap is
+// never reported as a manifest defect (evidence-first-claims: assert only what
+// the probe found):
+//   • python3 absent (spawn ENOENT)      → env-gap advisory, pass:false
+//   • PyYAML absent (ModuleNotFoundError) → env-gap advisory, pass:false
+//   • non-zero + YAMLError                → real defect, pass:false
+//   • status 0                            → pass:true
+// The two env-gap branches fail-loud (pass:false) — an env that cannot verify
+// MUST NOT silently pass — but say WHY honestly, never "not valid YAML".
+export function _classifyManifestYamlProbe(r) {
   if (r.error && r.error.code === "ENOENT") {
     // python3 absent — degrade to a clear advisory, do NOT silently pass.
     return {
@@ -1217,15 +1217,49 @@ export function validateManifestYaml() {
       ],
     };
   }
-  if (r.status !== 0) {
+  const stderr = (r.stderr || "").trim();
+  // Anchor on the `ModuleNotFoundError:` prefix (the uncaught `import yaml`
+  // failure always carries it; a `yaml.YAMLError` str never does) so a broken
+  // manifest whose parse-error text happens to contain "No module named yaml"
+  // cannot be misclassified as an env gap. Both dispositions are pass:false, so
+  // this only sharpens the MESSAGE — but an honest classifier asserts only what
+  // the probe found (evidence-first-claims). (R1 redteam LOW-1, #764 follow-up.)
+  if (r.status !== 0 && /ModuleNotFoundError: No module named ['"]?yaml['"]?/.test(stderr)) {
+    // PyYAML absent — mirror the python3-ENOENT branch. This is an ENVIRONMENT
+    // gap, NOT a manifest defect: reporting "not valid YAML" here would assert a
+    // defect the probe never found (the manifest may be perfectly valid; the env
+    // just cannot check). #764: the emit-side twin of the test-harness skip-guard.
     return {
       pass: false,
       failures: [
-        `sync-manifest.yaml is not valid YAML: ${(r.stderr || "").trim().slice(0, 400)}`,
+        "PyYAML not installed — cannot strict-YAML-validate the manifest. " +
+          "Install PyYAML (`pip install pyyaml`) OR validate manually before emit. " +
+          "(Environment gap, not a manifest defect.)",
       ],
     };
   }
+  if (r.status !== 0) {
+    return {
+      pass: false,
+      failures: [`sync-manifest.yaml is not valid YAML: ${stderr.slice(0, 400)}`],
+    };
+  }
   return { pass: true, failures: [] };
+}
+
+export function validateManifestYaml(
+  manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml"),
+) {
+  const r = spawnSync(
+    "python3",
+    [
+      "-c",
+      "import sys,yaml\ntry:\n yaml.safe_load(open(sys.argv[1]))\nexcept yaml.YAMLError as e:\n sys.stderr.write(str(e))\n sys.exit(1)",
+      manifestPath,
+    ],
+    { encoding: "utf8" },
+  );
+  return _classifyManifestYamlProbe(r);
 }
 
 // ────────────────────────────────────────────────────────────────

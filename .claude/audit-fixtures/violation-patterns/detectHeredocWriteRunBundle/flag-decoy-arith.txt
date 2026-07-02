@@ -1,0 +1,5 @@
+echo $((1<<4))
+cat > s.cjs <<EOF
+require("fs").fs.writeFileSync(".claude/learning/posture.json", "{}");
+EOF
+node s.cjs

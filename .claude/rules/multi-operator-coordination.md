@@ -89,16 +89,16 @@ Any edit to a path matching an active SAME-class claim OR adjacency relation (sk
 
 ## Substrate reference map — full contract in the skill
 
-The skill (`.claude/skills/30-claude-code-patterns/multi-operator-coordination-substrate.md`) carries the complete §2–§8 architecture + the substrate-integrity MUST clauses below — each **enforced structurally** by the named hook / fold-rule / validator, NOT by this prose. Read it before authoring or auditing substrate code. Cited anchors resolve there:
+The skill (`.claude/skills/30-claude-code-patterns/multi-operator-coordination-substrate.md`) carries the complete §2–§8 architecture + the substrate-integrity MUST clauses below — each **enforced structurally** by a named hook / fold-rule / validator, NOT by this prose. Read it before authoring or auditing substrate code; each anchor's full contract, hook names, and originating evidence resolve there:
 
-- **§2 — coordination event log + the 10 fold rules** (record types; signature-gate / chain-integrity / fork-detection folds; boundary hooks `integrity-guard.js` / `signing-mutation-guard.js` / `journal-write-guard.js`; the opt-in `isCoordinationEnabled` gating above).
-- **§3 — claims/leases + the SAME / ADJACENT / INDEPENDENT relation** (lease severities; `/claim`, `/claims`, `/release-claim`; the co-signed stale-lease reap protocol).
-- **§4 / §6.4 — per-operator posture + gate authority** (operative posture = `min(operator_posture, repo_floor)`; the 4-eyes gate matrix in `operator-gate.js`; the audit-trail-completeness contract — Option C intentional-by-design per journal/0133).
-- **§5 — lifecycle hooks** (`multi-operator-sessionstart.js` / `multi-operator-sessionend.js`).
-- **§6 — generation rotation + genesis-migration:** **MUST-4** (`genesis-migration` requires 2-of-N owner co-sign + fresh external-owner check + `genesis_generation` increment; no degenerate self-sign), **MUST-5** (client-side checkpoint-pin tip-verification is the equivocation-parity defense — there is NO valid `refs/coc/**` server-side ruleset on github.com, live-verified `422 Invalid target patterns`, journal/0233 / GH #367), **MUST-7** (single-owner N=1 → org-admin anchor for org-owned / block for user-owned; depth in `genesis-migration-n1-org-admin-anchor.md`).
-- **§7 — cross-CLI policy registration:** **MUST-6** (a Codex `apply_patch` policy MUST register under a CC edit matcher AND carry the `@coc-codex-edit-gate` marker; validator-13 bijection hard-blocks sync otherwise).
+- **§2 — coordination event log + the 10 fold rules** (record types; signature / chain-integrity / fork-detection folds; the opt-in `isCoordinationEnabled` gating above).
+- **§3 — claims/leases + the SAME / ADJACENT / INDEPENDENT relation** (`/claim` / `/claims` / `/release-claim`; the co-signed stale-lease reap protocol).
+- **§4 / §6.4 — per-operator posture + gate authority** (operative posture = `min(operator_posture, repo_floor)`; the 4-eyes `/release` gate matrix; the intentional audit-trail-completeness residual).
+- **§5 — lifecycle hooks** (session-start / session-end staleness + sibling-state surfacing).
+- **§6 — generation rotation + genesis-migration:** **MUST-4** (`genesis-migration` requires 2-of-N owner co-sign + fresh external-owner check; no degenerate self-sign), **MUST-5** (client-side checkpoint-pin tip-verification is the equivocation-parity defense; there is NO valid `refs/coc/**` server-side ruleset on github.com), **MUST-7** (single-owner N=1 → org-admin anchor for org-owned / block for user-owned).
+- **§7 — cross-CLI policy registration:** **MUST-6** (a Codex `apply_patch` policy MUST register under a CC edit matcher AND carry the `@coc-codex-edit-gate` marker).
 - **§8 — multi-operator capacity** (per-`verified_id` budget, not per-session; NON-SAME cross-operator parallelization only; `/claim`-record discipline as the coordination signal).
-- **Substrate MUST-NOTs:** treat a `collaborator-distinctness-revocation` as settled before rule-10 quiescence; re-open the `operator-gate.js` audit-trail-completeness question (journal/0133 Option C). Both are detect-eventually residuals, full treatment in the skill.
+- **Substrate MUST-NOTs:** treat a `collaborator-distinctness-revocation` as settled before rule-10 quiescence; re-open the `operator-gate.js` audit-trail-completeness question. Both are detect-eventually residuals, full treatment in the skill.
 
 ## Trust Posture Wiring
 

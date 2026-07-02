@@ -183,22 +183,22 @@ When a spec file exceeds 300 lines, it MUST be split into sub-domain files and `
 
 ### 9. Workspace Specs Reference Canonical Artifacts (Not Restate)
 
-When a workspace spec describes the mechanism of a canonical artifact (a command, rule, skill, hook, or agent under `.claude/`), the spec MUST cite the artifact by `<path>:<line>` (or `<path> §<section>`) rather than restating the artifact's verbatim content.
+When a workspace spec describes the mechanism of a canonical artifact (a command, rule, skill, hook, or agent under `.claude/`), the spec MUST cite the artifact by a grep-stable anchor (`<path> §<section>` or a named symbol) rather than restating the artifact's verbatim content. Prefer the grep-stable form per `symbol-anchored-citations.md` — a bare `<path>:<line>` is the paired-hint case only (it MUST accompany a symbol, never stand alone), because line numbers drift the moment the cited file is edited.
 
 ```text
-# DO — workspace spec references canonical source
+# DO — workspace spec references canonical source by a grep-stable anchor
 
-The lint at `.claude/commands/cc-audit.md:35` flags any non-`paths:` key in
-opening rule frontmatter. Block-scoping is preserved by the `i==1` predicate
-(see line 35 of the canonical command).
+The frontmatter-lint in `.claude/commands/cc-audit.md` — its `awk` frontmatter-block
+guard, keyed on the `i==1` predicate (grep-stable; `~line 35` as a paired hint) —
+flags any non-`paths:` key in opening rule frontmatter. The `i==1` predicate is what
+preserves block-scoping.
 
 # DO NOT — workspace spec restates the implementation
 
 awk 'FNR==1{i=0} /^---$/{i++; next} i==1 && ...' .claude/rules/*.md
 
-(verbatim copy of the awk line that already lives in
-`.claude/commands/cc-audit.md:35` — update to one without
-the other creates silent drift)
+(verbatim copy of the `awk` line that already lives in the `cc-audit.md`
+frontmatter-block guard — updating one without the other creates silent drift)
 ```
 
 **BLOCKED responses:**
@@ -210,7 +210,7 @@ the other creates silent drift)
 
 **Why:** Workspace specs describe semantics while canonical artifacts encode implementation; restating implementation in specs creates parallel sources of truth that drift silently. The reference style forces the canonical artifact to be the single source of truth and forces specs to focus on what they uniquely contribute — semantics, invariants, and rationale.
 
-**Exception:** Educational specs in `.claude/rules/` that show DO / DO NOT implementations per `rules/cc-artifacts.md` MUST §3 are explicitly NOT covered by this rule — those examples teach by restating. The exception applies only to *workspace* specs (under `workspaces/<project>/specs/`), not canonical rule files.
+**Exception:** Educational specs in `.claude/rules/` that show DO / DO NOT implementations per `rules/cc-artifacts.md` MUST §3 are explicitly NOT covered by this rule — those examples teach by restating. The exception applies only to _workspace_ specs (under `workspaces/<project>/specs/`), not canonical rule files.
 
 Origin: atelier `cc-audit-lint-generalize` 2026-05-03 (test fixtures and spec canonicalization deferred to /codify; /vet adversarial round L1). Inbound from atelier `/sync-to-coc`.
 

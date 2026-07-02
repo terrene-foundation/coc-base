@@ -35,6 +35,15 @@ const {
   findAllSessionNotes,
 } = require("./lib/workspace-utils");
 const { checkVersion } = require("./lib/version-utils");
+const {
+  computeOpenPrState,
+  formatOpenPrBlock,
+} = require("./lib/open-pr-surface");
+const {
+  migrateMonolithToSplit,
+  regenerateAggregate,
+} = require("./lib/session-notes-layout");
+const { resolveIdentity } = require("./lib/operator-id");
 
 // Timeout fallback — prevents hanging the Claude Code session
 const TIMEOUT_MS = 10000;
@@ -89,8 +98,21 @@ process.stdin.on("end", () => {
         "\n## Trust Posture: UNREADABLE — manual /posture init required";
     }
 
+    // Open-PR session-start surface (orphan-PR guard, issue #574). Fail-open:
+    // computeOpenPrState never throws; a null/undefined state degrades to no
+    // block (undefined) or a "could-not-verify" warning (null). Gated on a
+    // github.com remote so a local-only repo gets no false warning. Prepended
+    // ABOVE the session notes so the live queue outranks any note's claim.
+    let openPrBlock = null;
+    try {
+      openPrBlock = formatOpenPrBlock(computeOpenPrState(data.cwd));
+    } catch {
+      openPrBlock = null; // belt-and-suspenders: never block session start
+    }
+
     const output = { continue: true };
     const ctxParts = [];
+    if (openPrBlock) ctxParts.push(openPrBlock);
     if (result.sessionNotesContext) ctxParts.push(result.sessionNotesContext);
     if (trustGate) ctxParts.push(trustGate);
     if (ctxParts.length) {
@@ -234,6 +256,30 @@ function initializeSession(data) {
       );
     }
   } catch {}
+
+  // ── Session-notes coherence: zero-touch migrate + aggregate (C5, #743) ─
+  // Migrate a legacy monolith into the per-operator split ONCE (idempotent —
+  // no-op when already split or no monolith present) and regenerate the
+  // read-only by-name aggregate. EVERY path is wrapped so a failure NEVER
+  // blocks session start (C5.2 fail-open; cc-artifacts.md Rule 7). Runs BEFORE
+  // the notes surface below so the dashboard reflects current on-disk truth.
+  try {
+    const identity = resolveIdentity(cwd, {});
+    if (identity) {
+      const mig = migrateMonolithToSplit(cwd, identity);
+      if (mig && mig.ok && mig.migrated) {
+        console.error(
+          "[SESSION-NOTES] Migrated legacy .session-notes → per-operator split (.session-notes.d/); original preserved as .session-notes.migrated.",
+        );
+      }
+    }
+    // Regenerate the aggregate regardless (belt: reflects any fragment change).
+    // The writer self-refuses if the target is not gitignored (C2.2), so an
+    // errored/absent-gitignore state is a silent no-op here, never a throw.
+    regenerateAggregate(cwd);
+  } catch (e) {
+    console.error(`[SESSION-NOTES] Coherence pass skipped: ${e.message}`);
+  }
 
   // ── Session notes (inject into Claude context + human-facing stderr) ─
   try {

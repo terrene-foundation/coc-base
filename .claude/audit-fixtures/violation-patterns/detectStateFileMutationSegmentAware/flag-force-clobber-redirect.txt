@@ -1,0 +1,1 @@
+echo x >| .claude/learning/posture.json

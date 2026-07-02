@@ -121,7 +121,7 @@ function _gpgFingerprint(keyId) {
   const r = spawnSync(
     "gpg",
     ["--list-keys", "--with-colons", "--fingerprint", keyId],
-    { stdio: ["ignore", "pipe", "pipe"] },
+    { stdio: ["ignore", "pipe", "pipe"], timeout: 2000 },
   );
   if (r.status !== 0) return null;
   return _parseGpgColonFingerprint(r.stdout.toString());
@@ -159,6 +159,7 @@ function _fingerprintFromKey(keyPath, keyType, resolver) {
     if (!fs.existsSync(candidate)) continue;
     const r = spawnSync("ssh-keygen", ["-lf", candidate], {
       stdio: ["ignore", "pipe", "pipe"],
+      timeout: 2000,
     });
     if (r.status === 0) {
       const out = r.stdout.toString().trim();
@@ -198,7 +199,7 @@ function _discoverSigningKey(repoDir, opts) {
   const r = spawnSync(
     "git",
     ["-C", repoDir, "config", "--get", "user.signingkey"],
-    { stdio: ["ignore", "pipe", "pipe"] },
+    { stdio: ["ignore", "pipe", "pipe"], timeout: 2000 },
   );
   if (r.status === 0) {
     const val = r.stdout.toString().trim();

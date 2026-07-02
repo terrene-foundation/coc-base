@@ -1,8 +1,8 @@
 # User-Flow Validation — Walk Discipline (Depth)
 
-Procedural depth for the always-on rule `.claude/rules/user-flow-validation.md`. That rule carries the compact **agent-facing tripwires** (walk the literal user flow before declaring done; receipts mandatory; scrub receipts before any public-surface embedding) that load on every tool call; THIS file carries the full discipline — every MUST clause (MUST-1 walk-before-done, MUST-2 receipts-mandatory, MUST-3 walk-distinguishes-failure-modes, MUST-4 prose-deliverables-have-a-walk, MUST-5 walk-caps-every-deliverable, MUST-6 scrub-before-public-surface) with its complete DO / DO-NOT example blocks + BLOCKED-rationalization corpora, the MUST-NOT clause block, the full Trust-Posture Wiring, the Distinct-From / Cross-References map, and the verbatim co-owner Origin.
+Procedural depth for the always-on rule `.claude/rules/user-flow-validation.md`. That rule carries the compact **agent-facing tripwires** (walk the literal user flow before declaring done; receipts mandatory; scrub receipts before any public-surface embedding) that load on every tool call; THIS file carries the full discipline — every MUST clause (MUST-1 walk-before-done, MUST-2 receipts-mandatory, MUST-3 walk-distinguishes-failure-modes, MUST-4 prose-deliverables-have-a-walk, MUST-5 walk-caps-every-deliverable, MUST-6 scrub-before-public-surface, MUST-7 write-surface-boundary-fixtures) with its complete DO / DO-NOT example blocks + BLOCKED-rationalization corpora, the MUST-NOT clause block, the full Trust-Posture Wiring, the Distinct-From / Cross-References map, and the verbatim co-owner Origin.
 
-The MUST-N anchors in the rule's compact body resolve HERE — read this file for the full treatment behind any cited anchor (`MUST-1`, `MUST-2`, `MUST-4`, `MUST-6`).
+The MUST-N anchors in the rule's compact body resolve HERE — read this file for the full treatment behind any cited anchor (`MUST-1` through `MUST-7`; the compact body carries §§1/2/4/6/7 as tripwires and references MUST-3/MUST-5, all seven resolving to full sections here).
 
 ## Why this lives in a skill (not always-on in the rule)
 
@@ -229,7 +229,28 @@ Disposition: ready to proceed.
 - "The session-notes are private to me — they won't sync"
 - "We can edit the PR description later if a secret leaks"
 
-**Why:** Receipts embedded in PR descriptions, commit bodies, and session notes enter loom's git history and propagate to 30+ downstream consumer repos via `/sync`. Once on the public record, redaction is partial (GitHub preserves edit history; downstream pulls already happened). The verbatim-output requirement of MUST-2 is satisfied by the receipt's **structural shape**; scrubbing specific sensitive substrings does not reduce the receipt's evidential value but does prevent the disclosure-class failure modes that `rules/upstream-issue-hygiene.md` MUST-2 + `rules/security.md` § "No secrets in logs" exist to block. Walk discipline (MUST-1+2+3+5) and scrub discipline (this rule) are stacked, not in conflict.
+**Why:** Receipts embedded in PR descriptions, commit bodies, and session notes enter loom's git history and propagate to 30+ downstream consumer repos via `/sync`. Once on the public record, redaction is partial (GitHub preserves edit history; downstream pulls already happened). The verbatim-output requirement of MUST-2 is satisfied by the receipt's **structural shape**; scrubbing specific sensitive substrings does not reduce the receipt's evidential value but does prevent the disclosure-class failure modes that `rules/upstream-issue-hygiene.md` MUST-2 + `rules/security.md` § "No secrets in logs" exist to block. Walk discipline (MUST-1–5 + MUST-7) and scrub discipline (this rule) are stacked, not in conflict.
+
+### 7. Write / Side-Effecting Surfaces Need Boundary-Injected Fixtures Per Failure-Mode Class
+
+When a deliverable has a surface that WRITES or causes a side effect — mutates state, emits to an external target, or takes an action with consequences beyond its own return value — the walk (MUST-1) MUST include automated fixtures that INJECT that boundary and exercise each failure-mode class, not only the pure-function core. A green unit suite over the pure core is NECESSARY but is NOT convergence evidence for the write surface — the core was never the risk. The classes the fixtures MUST cover: **(a)** refusal AT the boundary, **(b)** an exception mid-operation, **(c)** corrupt or partial persisted state on re-entry, **(d)** an unauthorized / out-of-envelope action. A fixture that is green while asserting the WRONG invariant (it passes, but checks a property adjacent to the load-bearing one) is a covered failure, not a pass.
+
+```text
+# DO — fixtures reach the write boundary, one per failure-mode class
+Pure core (resolver, merger) unit-green AND an injected-boundary fixture drives each class: refused-at-boundary → no partial land; mid-run exception → full rollback; corrupt persisted state → refuse-to-start; unauthorized action → blocked before the boundary. (The concrete four are one domain's instance of classes (a)–(d).)
+
+# DO NOT — declare the write surface verified on a green pure-core suite
+"55 unit fixtures pass over the resolver/merger → the engine is converged." (every fixture sat on the safe side of the boundary; the write-surface defects were structurally unreachable by the suite that reported green.)
+```
+
+**BLOCKED responses:**
+
+- "The unit suite is green, the write surface is covered"
+- "The pure core is the hard logic; the I/O wrapper is trivial"
+- "The fixture passes — never mind which invariant it asserts"
+- "/redteam will catch any write-surface gap" (that gap is exactly what a green-but-unreachable suite hides from /redteam)
+
+**Why:** An engine's defects concentrate at the I/O boundary — least-tested, highest-consequence — while a pure-core suite reports green because every fixture sits on the safe side of it, and the green suite is then misread as convergence evidence for a surface it never exercised. Boundary-injection per failure-mode class is the only fixture shape that makes write-surface regressions mechanically detectable. Extends MUST-1 to the fixture layer; adds boundary-injection-per-failure-mode, which `cc-artifacts.md` Rule 9 (fixture existence) and `rule-authoring.md` §9 (don't-idealize fixtures) do not state. Origin: adopted from the canonical CO baseline (atelier `co-baseline-1.6.0`, `user-flow-validation.md` MUST §7) into loom per loom#585 CO-baseline reconcile (ADOPT-MERGE A.2); upstream evidence — a validation round surfaced 3 CRIT + 3 HIGH all at the executeRun/scrub write boundary while the pure core + 55 unit fixtures were spotless.
 
 ## MUST NOT
 
@@ -283,5 +304,4 @@ Rule originates at loom (the COC artifact splitter) under `artifact-flow.md` § 
 
 Companion auto-memory at `~/.claude/.../memory/feedback_user_flow_validation.md` ensures every future session inherits the discipline regardless of rule-corpus loading state.
 
-**Length rationale (per `rules/rule-authoring.md` MUST NOT length cap).** This rule body is ~280 lines, exceeding the 200-line guidance. Named rationale: **walk-discipline + scrub-discipline are intrinsically linked**. MUST-1 through MUST-5 codify the walk (when, how, what receipts); MUST-6 codifies the scrub conjunction (`upstream-issue-hygiene.md` MUST-2 + `security.md` § "No secrets in logs") that gates the receipt from public-surface artifacts. The two halves are non-separable — splitting "walk" and "scrub" into sibling rules would let a future session honor walk-MUST-1 while violating scrub-MUST-6 on the same artifact, exactly the failure mode the rule's load-bearing closure prevents. Per `rules/rule-authoring.md` MUST NOT § "Rules longer than 200 lines": the cap is guidance; overage is permitted with named rationale anchored at the rule's Origin. Sibling precedent: `multi-operator-coordination.md` § Origin carries the same length-rationale shape for the same class of multi-clause structural rule.
-
+**Length rationale (per `rules/rule-authoring.md` MUST NOT length cap).** This rule body is ~307 lines, exceeding the 200-line guidance. Named rationale: **walk-discipline + scrub-discipline are intrinsically linked**. MUST-1 through MUST-5 + MUST-7 codify the walk (when, how, what receipts, write-surface fixtures); MUST-6 codifies the scrub conjunction (`upstream-issue-hygiene.md` MUST-2 + `security.md` § "No secrets in logs") that gates the receipt from public-surface artifacts. The two halves are non-separable — splitting "walk" and "scrub" into sibling rules would let a future session honor walk-MUST-1 while violating scrub-MUST-6 on the same artifact, exactly the failure mode the rule's load-bearing closure prevents. Per `rules/rule-authoring.md` MUST NOT § "Rules longer than 200 lines": the cap is guidance; overage is permitted with named rationale anchored at the rule's Origin. Sibling precedent: `multi-operator-coordination.md` § Origin carries the same length-rationale shape for the same class of multi-clause structural rule.

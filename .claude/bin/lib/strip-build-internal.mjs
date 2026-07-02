@@ -19,20 +19,89 @@
 //   pattern:     RegExp (must have /g flag for replaceAll behavior)
 //   replacement: string with $N backrefs or function
 //   desc:        short label used in --check output and self-test
+//   buildSafe:   (optional) when true, the rewrite ALSO fires on the
+//                BUILD lane (`buildMode`). See the BUILD-subset note below.
 // ────────────────────────────────────────────────────────────────
+//
+// BUILD-scoped subset (#673): rewrites tagged `buildSafe: true` are the
+// DISCLOSURE-class rules — loom-internal workspace paths (sections 1+2) +
+// the canon org slug (section 3). They ALSO fire on the BUILD lane
+// (`stripBuildInternalReferences(content, { buildMode: true })`) so a
+// public-facing SDK BUILD repo (kailash-py / kailash-rs) never receives a
+// loom workspace path or the canon org slug `esperie-enterprise`. Rewrites
+// WITHOUT the tag (sections 4–7: `packages/<repo>` / `crates/<repo>` /
+// sibling `.claude/` / workspace-tree headers) are package/repo
+// SELF-references a BUILD repo legitimately owns; they apply on the USE
+// lane only and ship VERBATIM to BUILD (stripping `kailash-py` → generic
+// ON kailash-py would corrupt the repo's own names — the F11 reason the
+// BUILD lane shipped verbatim before this subset).
+
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+// ── loom-workspace name set (DERIVED, not literal) ──────────────────
+// #673-A2: section 1 below used to match ONLY `workspaces/multi-cli-coc/…`,
+// so a real `--build py` emission shipped `workspaces/multi-operator-coc/…`
+// (and every other loom workspace) VERBATIM to a BUILD repo — proven live in
+// rules/knowledge-convergence.md. The fix derives the workspace name set from
+// loom's LIVE `workspaces/` dir (resolved relative to THIS module, NOT cwd, so
+// it works under the worktree the strip runs in), covering EVERY current loom
+// workspace + any future one with zero literal-list drift. The strip runs at
+// loom (during /sync-to-build + /sync-to-use), where `workspaces/` always
+// exists. A name present in `workspaces/` is — by construction — a loom-internal
+// workspace; an instructional / synthetic example name (`workspaces/my-project/`,
+// `workspaces/acme-cust-engagement-q3/`) is NOT in the set and ships verbatim.
+// This is the "provably scoped to loom-internal workspaces" guarantee: BUILD
+// repos (kailash-py/rs) do not contain loom workspaces, so a derived match is
+// always strip-eligible. The fallback (workspaces/ unreadable — e.g. a synced
+// consumer running `--selftest` without a workspaces/ dir) keeps the long-lived
+// canonical names so the shipped fixtures + proven-leak classes still strip;
+// it NEVER under-strips to zero (an empty alternation would over-match).
+function deriveLoomWorkspaceDirs() {
+  const FALLBACK = ["multi-cli-coc", "multi-operator-coc"];
+  try {
+    const wsRoot = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "..",
+      "..",
+      "..",
+      "workspaces",
+    );
+    const dirs = fs
+      .readdirSync(wsRoot, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name);
+    return dirs.length > 0 ? dirs : FALLBACK;
+  } catch {
+    return FALLBACK;
+  }
+}
+const LOOM_WS_ALT = deriveLoomWorkspaceDirs()
+  .map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")) // regex-escape each dir
+  .join("|");
+
 const REWRITES = [
   // ── 1. loom-internal workspace paths ────────────────────────────
-  // `workspaces/multi-cli-coc/...` in backticks (path-context only)
+  // `workspaces/<loom-internal-ws>/...` in backticks (path-context only).
+  // The workspace name set is DERIVED from loom's live workspaces/ dir
+  // (LOOM_WS_ALT above) so EVERY current loom workspace is covered, not just
+  // the historical multi-cli-coc literal (#673-A2).
   {
-    pattern: /`workspaces\/multi-cli-coc\/[^`\s]+`/g,
+    pattern: new RegExp("`workspaces\\/(?:" + LOOM_WS_ALT + ")\\/[^`\\s]+`", "g"),
     replacement: "(loom-internal reference)",
     desc: "loom workspace path (backticked)",
+    buildSafe: true, // #673 — loom-internal workspace path; strip on BUILD too
   },
-  // bare workspaces/multi-cli-coc/<something> in prose
+  // bare workspaces/<loom-internal-ws>/<something> in prose
   {
-    pattern: /\bworkspaces\/multi-cli-coc\/[A-Za-z0-9_./\-]+/g,
+    pattern: new RegExp(
+      "\\bworkspaces\\/(?:" + LOOM_WS_ALT + ")\\/[A-Za-z0-9_./\\-]+",
+      "g",
+    ),
     replacement: "(loom-internal reference)",
     desc: "loom workspace path (bare)",
+    buildSafe: true, // #673 — loom-internal workspace path; strip on BUILD too
   },
 
   // ── 2. sibling-SDK workspaces/ prefixes ─────────────────────────
@@ -41,6 +110,7 @@ const REWRITES = [
     pattern: /`kailash-(?:py|rs|prism)\/workspaces\/[^`]*`/g,
     replacement: "workspace artifacts",
     desc: "sibling SDK workspaces/ (backticked)",
+    buildSafe: true, // #673 — loom-internal workspace-path class; strip on BUILD too
   },
 
   // ── 3. gh api with concrete BUILD repo identity ─────────────────
@@ -50,6 +120,35 @@ const REWRITES = [
       /gh api repos\/(?:esperie-enterprise|terrene-foundation)\/kailash-[A-Za-z0-9_-]+/g,
     replacement: "gh api repos/<org>/<repo>",
     desc: "gh api with concrete org/repo",
+    buildSafe: true, // #673 — canon org slug; strip on BUILD too
+  },
+  // ── 3b. gh api orgs/<known-org>/... (org-scoped endpoint) ───────
+  // The orgs/ form (hosted-runners, actions, members, …) shipped the canon
+  // org slug VERBATIM — the repos/ pattern above never matched it
+  // (#673-A2: proven live at guides/rule-extracts/verify-resource-existence.md:102).
+  {
+    pattern: /gh api orgs\/(?:esperie-enterprise|terrene-foundation)\b/g,
+    replacement: "gh api orgs/<org>",
+    desc: "gh api with concrete org (orgs endpoint)",
+    buildSafe: true, // #673-A2 — canon org slug; strip on BUILD too
+  },
+  // ── 3c. bare canon org slug — STANDALONE token only ─────────────
+  // The standalone token `esperie-enterprise` / `terrene-foundation` outside
+  // any gh-api form shipped VERBATIM (#673-A2: proven live at
+  // guides/rule-extracts/verify-resource-existence.md:100, the backticked
+  // `esperie-enterprise` form). The negative-lookahead `(?!/)` SCOPES this to
+  // the standalone token: a slug used as a path PREFIX (`terrene-foundation/
+  // kailash`, `terrene-foundation/kailash-coc-claude-rs#52`) is a legitimate
+  // org/repo citation the existing strip deliberately preserves (the J10
+  // variant-source-hygiene invariant depends on it), and the gh-api repos/orgs
+  // forms above already consume the path-prefix disclosure cases. Runs AFTER
+  // 3/3b so those more-specific rewrites claim their slug first; `<org>` is
+  // slug-free so re-application is a fixed point.
+  {
+    pattern: /\b(?:esperie-enterprise|terrene-foundation)\b(?!\/)/g,
+    replacement: "<org>",
+    desc: "canon org slug (bare token)",
+    buildSafe: true, // #673-A2 — canon org slug; strip on BUILD too
   },
 
   // ── 4. BUILD packages/ paths (backticked) ───────────────────────
@@ -159,11 +258,18 @@ const REWRITES = [
  * stripBuildInternalReferences — apply BUILD-internal-path rewrites.
  *
  * @param {string} content  Source content (markdown/text).
+ * @param {{buildMode?: boolean}} [opts]
+ *   buildMode (#673) — when true, apply ONLY the `buildSafe` rewrites
+ *   (loom workspace paths + canon org slug), leaving package/repo
+ *   self-reference rewrites OFF so a BUILD repo's own `packages/<repo>`
+ *   / `crates/<repo>` / sibling `.claude/` names ship verbatim. Default
+ *   false = full USE-lane strip (every rewrite), back-compat with every
+ *   single-arg caller (emit-cli-artifacts.mjs, the USE deploy path).
  * @returns {{stripped: string, applied: string[]}}
- *   stripped — content with all REWRITES applied (idempotent).
+ *   stripped — content with the applicable REWRITES applied (idempotent).
  *   applied  — descriptions of which rewrite rules actually fired.
  */
-export function stripBuildInternalReferences(content) {
+export function stripBuildInternalReferences(content, { buildMode = false } = {}) {
   if (typeof content !== "string") {
     throw new TypeError(
       "stripBuildInternalReferences: content must be a string",
@@ -171,7 +277,12 @@ export function stripBuildInternalReferences(content) {
   }
   let stripped = content;
   const applied = [];
-  for (const { pattern, replacement, desc } of REWRITES) {
+  for (const rw of REWRITES) {
+    // #673 BUILD-scoped subset: on the BUILD lane only the disclosure-class
+    // (buildSafe) rewrites fire; package/repo self-reference rewrites are
+    // skipped so the BUILD repo's own names survive verbatim.
+    if (buildMode && !rw.buildSafe) continue;
+    const { pattern, replacement, desc } = rw;
     const before = stripped;
     stripped = stripped.replace(pattern, replacement);
     if (stripped !== before && !applied.includes(desc)) applied.push(desc);
@@ -317,6 +428,124 @@ const SELF_TEST_FIXTURES = [
     expected:
       "From (loom-internal reference), edit the kaizen package (`tests/foo.py`) and run `gh api repos/<org>/<repo>/issues`.",
   },
+  // ── #673 BUILD-scoped subset (buildMode:true) ──────────────────────
+  // The disclosure-class rewrites (workspace paths + canon org) STILL fire;
+  // package/repo self-references are PRESERVED verbatim.
+  {
+    name: "build-subset-strips-loom-workspace-path",
+    buildMode: true,
+    input:
+      "See `workspaces/multi-cli-coc/02-plans/07-loom-multi-cli-spec-v6.md` for the spec.",
+    expected: "See (loom-internal reference) for the spec.",
+  },
+  {
+    name: "build-subset-strips-canon-org-slug",
+    buildMode: true,
+    input:
+      "Diagnose: `gh api repos/esperie-enterprise/kailash-rs/actions/runs`.",
+    expected: "Diagnose: `gh api repos/<org>/<repo>/actions/runs`.",
+  },
+  {
+    name: "build-subset-strips-sibling-workspaces",
+    buildMode: true,
+    input: "Compare `kailash-py/workspaces/foo/` and `kailash-rs/workspaces/bar/`.",
+    expected: "Compare workspace artifacts and workspace artifacts.",
+  },
+  {
+    name: "build-subset-PRESERVES-packages-path",
+    buildMode: true,
+    input:
+      "Edit `packages/kailash-ml/src/kailash_ml/trainable.py` to fix the bug.",
+    expected:
+      "Edit `packages/kailash-ml/src/kailash_ml/trainable.py` to fix the bug.",
+  },
+  {
+    name: "build-subset-PRESERVES-crates-path",
+    buildMode: true,
+    input:
+      "The `crates/kailash-pact/` crate provides governance primitives.",
+    expected:
+      "The `crates/kailash-pact/` crate provides governance primitives.",
+  },
+  {
+    name: "build-subset-PRESERVES-sibling-dot-claude",
+    buildMode: true,
+    input: "Like `kailash-py/.claude/rules/foo.md` references work fine.",
+    expected: "Like `kailash-py/.claude/rules/foo.md` references work fine.",
+  },
+  {
+    name: "build-subset-mixed-strips-disclosure-preserves-package",
+    buildMode: true,
+    input:
+      "From `workspaces/multi-cli-coc/journal/0001.md`, edit `packages/kailash-kaizen/tests/foo.py` and run `gh api repos/terrene-foundation/kailash-py/issues`.",
+    expected:
+      "From (loom-internal reference), edit `packages/kailash-kaizen/tests/foo.py` and run `gh api repos/<org>/<repo>/issues`.",
+  },
+  // ── #673-A2: generic loom-workspace strip (not just multi-cli-coc) ──
+  // USE lane: any current loom workspace dir strips (multi-operator-coc was
+  // the proven leak in rules/knowledge-convergence.md).
+  {
+    name: "loom-workspace-multi-operator-coc-backticked",
+    input:
+      "Origin: `workspaces/multi-operator-coc/02-plans/01-architecture.md` §5 cites this.",
+    expected: "Origin: (loom-internal reference) §5 cites this.",
+  },
+  {
+    name: "loom-workspace-non-multi-cli-bare",
+    input: "See workspaces/ecosystem-operating-model/02-plans/05-x.md for detail.",
+    expected: "See (loom-internal reference) for detail.",
+  },
+  {
+    name: "build-subset-strips-multi-operator-coc",
+    buildMode: true,
+    input:
+      "Origin: `workspaces/multi-operator-coc/02-plans/01-architecture.md` cites this.",
+    expected: "Origin: (loom-internal reference) cites this.",
+  },
+  {
+    name: "build-subset-strips-other-loom-workspace",
+    buildMode: true,
+    input: "See workspaces/sync-upflow/briefs/00-brief.md for the value anchor.",
+    expected: "See (loom-internal reference) for the value anchor.",
+  },
+  // Provably-scoped: a NON-loom workspace name (instructional / synthetic) is
+  // PRESERVED verbatim on BOTH lanes — the derived set strips loom names only.
+  {
+    name: "preserve-non-loom-workspace-instructional",
+    input: "Put your plans under `workspaces/my-project/02-plans/` in your repo.",
+    expected: "Put your plans under `workspaces/my-project/02-plans/` in your repo.",
+  },
+  {
+    name: "build-subset-PRESERVES-non-loom-workspace",
+    buildMode: true,
+    input: "Put your plans under `workspaces/my-project/02-plans/` in your repo.",
+    expected: "Put your plans under `workspaces/my-project/02-plans/` in your repo.",
+  },
+  // ── #673-A2: canon org slug — orgs/ form + bare token ──────────────
+  // USE lane: both broadened forms strip (were form-narrow to repos/ before).
+  {
+    name: "gh-api-orgs-form-strips-canon-org",
+    input: "Run `gh api orgs/esperie-enterprise/actions/hosted-runners`.",
+    expected: "Run `gh api orgs/<org>/actions/hosted-runners`.",
+  },
+  {
+    name: "bare-canon-org-slug-backticked",
+    input: "The canon org is `terrene-foundation` (public fork).",
+    expected: "The canon org is `<org>` (public fork).",
+  },
+  // BUILD lane: orgs/ form + bare token both strip (disclosure-class).
+  {
+    name: "build-subset-strips-orgs-form",
+    buildMode: true,
+    input: "Run `gh api orgs/esperie-enterprise/actions/hosted-runners`.",
+    expected: "Run `gh api orgs/<org>/actions/hosted-runners`.",
+  },
+  {
+    name: "build-subset-strips-bare-canon-org-slug",
+    buildMode: true,
+    input: "The canon org is `terrene-foundation` (public fork).",
+    expected: "The canon org is `<org>` (public fork).",
+  },
 ];
 
 function selftest({ verbose = false } = {}) {
@@ -324,7 +553,9 @@ function selftest({ verbose = false } = {}) {
   let fail = 0;
   const failures = [];
   for (const fx of SELF_TEST_FIXTURES) {
-    const { stripped } = stripBuildInternalReferences(fx.input);
+    const { stripped } = stripBuildInternalReferences(fx.input, {
+      buildMode: fx.buildMode === true,
+    });
     if (stripped === fx.expected) {
       pass++;
       if (verbose) console.log(`  PASS  ${fx.name}`);
@@ -391,7 +622,6 @@ async function cli() {
       process.stderr.write("--check requires a file path\n");
       return 2;
     }
-    const fs = await import("node:fs");
     const content = fs.readFileSync(fp, "utf8");
     const { stripped, applied } = stripBuildInternalReferences(content);
     if (stripped === content) {
@@ -408,7 +638,6 @@ async function cli() {
       process.stderr.write("--apply requires a file path\n");
       return 2;
     }
-    const fs = await import("node:fs");
     const content = fs.readFileSync(fp, "utf8");
     const { stripped } = stripBuildInternalReferences(content);
     const outIdx = args.indexOf("--out");
@@ -424,7 +653,7 @@ async function cli() {
 }
 
 // Run CLI when invoked directly; skip when imported as a module.
-import { fileURLToPath } from "node:url";
+// (fileURLToPath imported at module top for the workspace-dir derivation.)
 const __thisFile = fileURLToPath(import.meta.url);
 if (process.argv[1] && __thisFile === process.argv[1]) {
   cli().then((code) => process.exit(code));

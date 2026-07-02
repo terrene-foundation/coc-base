@@ -8,6 +8,22 @@
 const fs = require("fs");
 const path = require("path");
 
+// The #743 regenerable per-clone aggregate view filename (Decision-C). SSOT is
+// `session-notes-layout.js::AGGREGATE_NAME`; kept as a LOCAL literal here (not a
+// runtime import) to avoid coupling this widely-used SessionStart util to the
+// heavier layout lib. The two are pinned equal by a cross-file-constant test
+// (`zero-tolerance.md` Rule 3e) so a divergence fails a test, never silently.
+const AGGREGATE_NOTES_NAME = ".session-notes.aggregate.md";
+
+// Size cap for the SessionStart dashboard read of a session-notes file (R7 MED-1).
+// A session-notes file (the regenerated aggregate, or a legacy monolith) is
+// derived from tracked/shared fragments, so a teammate-bloated fragment set — or
+// a symlink at the notes path — could hang/OOM this synchronous reader. SSOT is
+// `session-notes-layout.js::NOTES_READ_CAP_BYTES`; kept as a LOCAL literal here
+// (same no-heavy-import decoupling as AGGREGATE_NOTES_NAME) and pinned equal by
+// the cross-file-constant test (`zero-tolerance.md` Rule 3e).
+const NOTES_READ_CAP_BYTES = 1024 * 1024;
+
 /**
  * Detect the active workspace under workspaces/.
  * Returns the most recently modified project directory, or null if none.
@@ -143,14 +159,29 @@ function getSessionNotes(workspacePath) {
 function findAllSessionNotes(cwd) {
   const results = [];
 
-  // Check repo root
+  // Check repo root. Prefer the legacy monolith when present; once the #743
+  // coherence layer has migrated it into the per-operator split (the monolith
+  // is renamed to `.session-notes.migrated`), fall back to the regenerable
+  // by-name aggregate view (module-level AGGREGATE_NOTES_NAME) so the dashboard
+  // still surfaces the operator's notes.
   const rootNotes = path.join(cwd, ".session-notes");
-  const rootResult = readSessionNotesFile(rootNotes);
+  let rootResult = readSessionNotesFile(rootNotes);
+  let rootRel = ".session-notes";
+  let rootPath = rootNotes;
+  if (!rootResult) {
+    const aggNotes = path.join(cwd, AGGREGATE_NOTES_NAME);
+    const aggResult = readSessionNotesFile(aggNotes);
+    if (aggResult) {
+      rootResult = aggResult;
+      rootRel = AGGREGATE_NOTES_NAME;
+      rootPath = aggNotes;
+    }
+  }
   if (rootResult) {
     results.push({
       ...rootResult,
-      path: rootNotes,
-      relativePath: ".session-notes",
+      path: rootPath,
+      relativePath: rootRel,
       workspace: null,
     });
   }
@@ -192,8 +223,14 @@ function findAllSessionNotes(cwd) {
  */
 function readSessionNotesFile(notesPath) {
   try {
+    // Guarded read (R7 MED-1): lstat BEFORE reading so a symlinked or
+    // teammate-bloated oversized notes path is refused (return null → the
+    // dashboard skips it), never read synchronously into a hang/OOM. Parity with
+    // session-notes-layout.js::_readNotesFileGuarded + the incorporation guard cap.
+    const stat = fs.lstatSync(notesPath);
+    if (stat.isSymbolicLink() || !stat.isFile()) return null;
+    if (stat.size > NOTES_READ_CAP_BYTES) return null;
     const content = fs.readFileSync(notesPath, "utf8");
-    const stat = fs.statSync(notesPath);
     const mtime = stat.mtime.getTime();
     const ageMs = Date.now() - mtime;
     const ageHours = Math.round(ageMs / (1000 * 60 * 60));
@@ -265,4 +302,6 @@ module.exports = {
   buildWorkspaceSummary,
   dirHasFiles,
   countFiles,
+  AGGREGATE_NOTES_NAME,
+  NOTES_READ_CAP_BYTES,
 };

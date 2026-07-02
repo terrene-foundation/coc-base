@@ -277,6 +277,21 @@ function isExcluded(relPath) {
   if (/\.local\.json$/.test(base) && REPO_ROOT_ACTIVE === REPO_ROOT) return true;
   if (/\.local\.md$/.test(base)) return true;
 
+  // loom's OWN unit tests (`*.test.mjs`, `node:test` suites under bin/ etc.)
+  // are build-internal — the SAME "consumers do not run loom's tests" class
+  // as `test-harness/**` (isNeverSynced) and now never-synced per
+  // sync-manifest.yaml `exclude: **/*.test.mjs`. Their fixtures LEGITIMATELY
+  // embed synthetic disclosure shapes to exercise the scrubber (e.g.
+  // sync-from-canon.test.mjs plants a synthetic `/Users/jdoe/...`
+  // operator-home-path), exactly like the audit-fixtures exclusion above.
+  // SOURCE-ONLY (mirrors the `*.local.json` / `ecosystem.json` flip): at
+  // loom-source the synthetic fixtures are by-design and self-excluded so the
+  // Gate-2 `--check` preflight stays clean; at a DESTINATION scan
+  // (`--root <consumer>`) a `*.test.mjs` that shipped past the never-sync
+  // exclude IS the disclosure event the loom_only fence forbids, so it is
+  // SCANNED there and flagged until the `use_obsoleted` purge removes it.
+  if (/\.test\.mjs$/.test(base) && REPO_ROOT_ACTIVE === REPO_ROOT) return true;
+
   // never-synced per manifest exclude: — out of the synced-forest scope
   if (isNeverSynced(relPath, base, segs)) return true;
 

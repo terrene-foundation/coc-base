@@ -107,7 +107,7 @@ produce the onboarding output.
 ## Origin
 
 2026-05-22 — F14 M7 Shard E (knowledge convergence). Workspace plan
-`workspaces/multi-operator-coc/02-plans/01-architecture.md` §7.3.
+(loom-internal reference) §7.3.
 Architecture decision: split rule (one file per fact) over single
 `team-memory.md`, because under N operators the single-file shape
 re-creates the concurrent-edit class the /codify lease just solved.

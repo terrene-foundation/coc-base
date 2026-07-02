@@ -171,7 +171,22 @@ function checkMergeDriver(exec, readFile) {
   }
   const drv = exec("git", ["config", "--get", "merge.coc-ledger.driver"]);
   if (drv.ok && drv.stdout) {
-    return mk("merge-driver", STATUS.ok, "coc-ledger merge driver registered");
+    // Registered — but a value that differs from the canonical command is a
+    // STALE registration (e.g. a pre-loom#741 clone that registered the bare
+    // non-executable path). git config persists, so such a clone stays on the
+    // clobbering fallback forever unless we flag it for re-fix. A bare path
+    // (no `node ` prefix) fails `Permission denied` under git's shell exec.
+    if (drv.stdout.trim() === COC_LEDGER_DRIVER) {
+      return mk("merge-driver", STATUS.ok, "coc-ledger merge driver registered (canonical)");
+    }
+    return mk(
+      "merge-driver",
+      STATUS.warn,
+      `coc-ledger merge driver registered but non-canonical: \`${drv.stdout.trim()}\``,
+      "run `loom doctor --fix` to re-register the canonical `node`-prefixed command; a bare " +
+        "(non-`node`) path fails `Permission denied` under git's shell exec and silently falls " +
+        "back to the default line-merge, clobbering .session-notes.shared.md rows (loom#741)",
+    );
   }
   return mk(
     "merge-driver",
@@ -427,7 +442,16 @@ export function formatReport(result) {
 // EXPLICIT --role (NO silent guess — the D2 precedence design).
 
 const COC_LEDGER_NAME = "COC forest-ledger 3-way merge";
-const COC_LEDGER_DRIVER = ".claude/hooks/lib/coc-ledger.js %O %A %B %P";
+// The `node ` prefix is load-bearing: git execs a merge driver directly through
+// the shell, and coc-ledger.js is committed mode 100644 (non-executable), so a
+// bare path fails `Permission denied` and git silently falls back to the
+// clobbering default line-merge (loom#741). The explicit interpreter is also
+// cross-platform (does not depend on the +x bit / core.fileMode).
+// `%P` is DELIBERATELY OMITTED: it expands to the merged file's repo-relative
+// path and, via the `workspaces/*` .gitattributes binding, is a shell-injection
+// surface (a maliciously-named dir); the driver reads only `%O %A %B`, so `%P`
+// is unused. Do NOT re-add it. (loom#741 R1 security)
+const COC_LEDGER_DRIVER = "node .claude/hooks/lib/coc-ledger.js %O %A %B";
 
 // Default seam: invoke the existing loom-links-init seeder (refuses-on-exists).
 function defaultInvokeInit() {

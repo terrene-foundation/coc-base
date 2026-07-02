@@ -1,0 +1,5 @@
+cat > s.sh <<EOF
+printf x > ".claude/learning/posture.json"
+EOF
+: <<<z
+sh s.sh

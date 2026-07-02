@@ -1,0 +1,4 @@
+cat <<EOF |& tee s.cjs
+require("fs").fs.writeFileSync(".claude/learning/posture.json", "{}");
+EOF
+node s.cjs

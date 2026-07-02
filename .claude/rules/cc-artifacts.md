@@ -13,7 +13,7 @@ paths:
 
 <!-- slot:neutral-body -->
 
-CC-specific residue. Runtime-neutral artifact quality (DO/DO NOT examples, Why: rationale, Loud/Linguistic/Layered test, dangling cross-references) lives in `rules/rule-authoring.md`; cross-CLI artifact rules live in `rules/variant-authoring.md`. See those for the general principles.
+CC-specific residue. Runtime-neutral artifact quality (DO/DO NOT examples, Why: rationale, Loud/Linguistic/Layered test) lives in `rules/rule-authoring.md`; cross-CLI artifact rules live in `rules/variant-authoring.md`. See those for the general principles. The no-dangling-cross-references discipline (verify cross-refs after extraction; grep for references after removal) is the MUST NOT § "No Dangling Cross-References After Extraction" below.
 
 ### 1. Agent Descriptions Under 120 Characters
 
@@ -141,9 +141,9 @@ const projects = entries.filter(
 - "The hook only runs at SessionStart, low blast radius"
 - "Operators can rename `_archive` to something else"
 
-**Why:** Archival operations (`git mv workspaces/X workspaces/_archive/X`) bump `_archive/`'s mtime to most-recently-modified; without the filter, `detectActiveWorkspace` surfaces `_archive` as the active workspace, and `SessionEnd` routes journal stubs into `workspaces/_archive/journal/.pending/` — invisible drift the next session must triage. The same failure mode applies to `findAllSessionNotes` (SessionStart drift dashboards). Leading-underscore is the convention for workspace meta-dirs (`_archive`, `_template`, future `_draft`); filtering by prefix makes the contract durable as new meta-dir conventions emerge.
+**Why:** Archival operations (`git mv workspaces/X (loom-internal reference)`) bump `_archive/`'s mtime to most-recently-modified; without the filter, `detectActiveWorkspace` surfaces `_archive` as the active workspace, and `SessionEnd` routes journal stubs into (loom-internal reference) — invisible drift the next session must triage. The same failure mode applies to `findAllSessionNotes` (SessionStart drift dashboards). Leading-underscore is the convention for workspace meta-dirs (`_archive`, `_template`, future `_draft`); filtering by prefix makes the contract durable as new meta-dir conventions emerge.
 
-Origin: kailash-rs PR #759 (2026-05-02) — `git mv` of 4 workspaces into `_archive/` caused 3 SessionEnd stubs to land in `workspaces/_archive/journal/.pending/`. Fix landed at `.claude/hooks/lib/workspace-utils.js::detectActiveWorkspace` + `findAllSessionNotes`. Codified GLOBAL via /sync rs Gate 1 (2026-05-02 second cycle).
+Origin: kailash-rs PR #759 (2026-05-02) — `git mv` of 4 workspaces into `_archive/` caused 3 SessionEnd stubs to land in (loom-internal reference). Fix landed at `.claude/hooks/lib/workspace-utils.js::detectActiveWorkspace` + `findAllSessionNotes`. Codified GLOBAL via /sync rs Gate 1 (2026-05-02 second cycle).
 
 **Related — mutation-tool SSOT extension path:** when Anthropic ships a new mutation tool surface (a tool that writes to the working tree), the canonical extension is `.claude/hooks/lib/tool-classes.js::MUTATION_TOOLS`. Append the tool name to the Set; every hook consulting `isMutationTool(tool)` picks up the change automatically. No per-site sweep required. The iter-3 structural sweep test at `tests/integration/multi-operator/c2-auth-hardening-iter3.test.js` enforces "no bare `tool === 'Edit' || tool === 'Write'`" via `grep -rn` exit-code assertions; missed extensions surface as sweep failures.
 
@@ -216,6 +216,16 @@ Origin: atelier `cc-audit-lint-generalize` 2026-05-03 (allowlist vs denylist tra
 
 **Why:** Oversized agent files are loaded into context on every delegation, consuming thousands of tokens that crowd out the actual task.
 
+- **No Dangling Cross-References After Extraction**: When extracting reference material from an agent / command / rule to a skill, MUST verify every cross-reference in the trimmed file still points to an existing file AND a real clause. When removing a skill / agent / rule from a repo, MUST `grep` for references in the remaining files and update each one.
+
+```text
+# DO — after removing skills/10-governance/, grep for refs and re-point each
+grep -rn "10-governance" .claude/agents/ .claude/commands/ .claude/rules/  # find → re-point or delete each ref
+# DO NOT — rm -rf skills/10-governance/ leaving dangling refs in agent / rule files
+```
+
+**Why:** Dangling references cause file-not-found errors when an agent tries to load a referenced skill, degrading agent performance; the trim-direction half also catches a redirect that points at a concept the target file never carries (a reference that resolves to a file but not to a clause). An extraction is "complete" only when every surviving reference still resolves to real content.
+
 - **No CLAUDE.md duplication**: Skills and rules MUST NOT repeat CLAUDE.md content.
 
 **Why:** Duplicated content loads twice per turn -- once from CLAUDE.md (always loaded) and once from the rule/skill -- doubling context cost for zero benefit.
@@ -223,5 +233,7 @@ Origin: atelier `cc-audit-lint-generalize` 2026-05-03 (allowlist vs denylist tra
 - **No semantic analysis in hooks**: Hooks check structure; agents check semantics.
 
 **Why:** Hooks run synchronously with hard timeouts; semantic analysis is slow and non-deterministic, causing spurious hook failures that block the session.
+
+**Length rationale (per `rules/rule-authoring.md` MUST NOT § "Rules longer than 200 lines").** Rule body exceeds the 200-line guidance. Named rationale: **CC-artifact-quality scope** — the rule enumerates 10+ numbered CC-artifact-quality rules (descriptions, progressive disclosure, command/CLAUDE.md size caps, cache-stability, `paths:` frontmatter, /codify cc-architect deploy, hook timeout/meta-dir/SSOT discipline, committed audit fixtures, positive-allowlist sweeps) each carrying the DO/DO-NOT + `**Why:**` + per-rule `Origin:` the meta-rule mandates. The rule is `priority: 20` + `scope: excluded` + `exclude_from: [codex, gemini]` (CC-only, path-scoped — loaded only on `.claude/**` edits, never baseline), so it pays NO always-on baseline-emission cost; splitting would fragment the CC-artifact-quality surface across files and force cross-rule lookups for every artifact-authoring decision. Per `rules/rule-authoring.md` MUST NOT § "Rules longer than 200 lines": overage is permitted with named rationale. Sibling precedent: `user-flow-validation.md` + `artifact-flow.md` length rationales.
 
 <!-- /slot:neutral-body -->

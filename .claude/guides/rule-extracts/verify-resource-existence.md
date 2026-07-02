@@ -97,9 +97,9 @@ Code that targets a non-existent resource is dead by definition — it cannot ha
 
 ## Origin (full post-mortem)
 
-2026-05-03 ci-queue-monitor session — 6 consecutive PRs (#766, #769, #770, #771, #772, #773) + 2 user PAT-creation cycles spent debugging access to a 16-core GitHub-hosted runner that did not exist in the `esperie-enterprise` org.
+2026-05-03 ci-queue-monitor session — 6 consecutive PRs (#766, #769, #770, #771, #772, #773) + 2 user PAT-creation cycles spent debugging access to a 16-core GitHub-hosted runner that did not exist in the `<org>` org.
 
-The single command `gh api orgs/esperie-enterprise/actions/hosted-runners` at the first 403 (PR #765 verification) would have shown a one-runner list with no 16-core entry and shifted the disposition immediately to "delete the dead step."
+The single command `gh api orgs/<org>/actions/hosted-runners` at the first 403 (PR #765 verification) would have shown a one-runner list with no 16-core entry and shifted the disposition immediately to "delete the dead step."
 
 Saved by the existence-check-first discipline (counterfactual): ~15 minutes of operator browser time, two unused PAT credentials, and roughly 5 PRs of cycle.
 

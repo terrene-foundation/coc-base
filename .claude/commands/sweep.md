@@ -94,15 +94,16 @@ Categorize findings:
 
 Roll up: per workspace, count findings by category. Workspaces with ≥3 unresolved gaps → flag as candidates for a follow-up `/redteam` round.
 
-### Sweep 6: Workspace + worktree hygiene
+### Sweep 6: Workspace + worktree + forest-ledger hygiene
 
 ```bash
 find workspaces/*/.session-notes -mtime +30 2>/dev/null            # stale session notes
 git worktree list                                                  # orphan worktrees
 find workspaces/*/journal/.pending/*.md -mtime +14 2>/dev/null     # stale .pending
+node .claude/bin/validate-forest-ledger.mjs --aggregate            # forest rollup, workspace→root (#669)
 ```
 
-Surface: workspaces with `.session-notes` >30d (archive), worktrees not at HEAD or zero-commit (cleanup per `rules/worktree-isolation.md`), `.pending` >14d (promote OR discard).
+Surface: workspaces with `.session-notes` >30d (archive), worktrees not at HEAD or zero-commit (cleanup per `rules/worktree-isolation.md`), `.pending` >14d (promote OR discard). The `--aggregate` step (issue #669) reads EVERY `workspaces/*/.session-notes` (and its M6-D split `.session-notes.shared.md`) forest ledger — regardless of MTIME or issue state — and flags any OPEN row whose ID is absent from the ROOT ledger (the cross-file no-vanish gate; closes the gap where this sweep `stat`-ed MTIME but never opened the file). Each `[AGG]` finding is a STRANDED forest workstream: roll it into the report with its value-anchor (`rules/value-prioritization.md` MUST-2) AND into the root ledger at `/wrapup`. The bare `find` MTIME check is retained for archival hygiene; it does NOT substitute for the ledger read.
 
 ### Sweep 7: Process hygiene (uncommitted, divergence, zero-tolerance)
 

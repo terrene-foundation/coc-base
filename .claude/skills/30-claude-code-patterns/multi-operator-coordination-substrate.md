@@ -18,7 +18,7 @@ N humans, each running their own session concurrently, against ONE shared repo d
 
 This rule codifies the runtime contract every session MUST honor. Every prescriptive reference here is CLI-neutral per `rules/cross-cli-artifact-hygiene.md`: hook lifecycle moments are named ("the session-start hook", "the pre-tool-use guard"), delegation is named ("delegate to reviewer"), baseline rules are cited by path (`rules/<name>.md`), not by per-CLI emission filename.
 
-**Citation note for downstream consumers:** The rule body cites `workspaces/multi-operator-coc/02-plans/01-architecture.md` §X at multiple anchors below (§1.1 threat model, §2.2 fold rules, §4 adjacency/leases/hooks/residuals, §5 single-writer contention, §6 posture/gate authority, §11 shard map). That spec is **loom-internal** (project-local working state, not shipped via `/sync`); the citations are **pointers to original derivation** for loom-side auditors. The §1 `business_roles` bullet additionally cites `workspaces/ecosystem-operating-model/specs/06 §2` + `journal/0282`/`0284` — also loom-internal derivation pointers under the same contract. The rule body's MUST clauses are **self-contained and authoritative**; downstream consumers act on the prose here, not on the cited spec. Committed durable receipts: journal entries (root `loom/journal/`) `0112` (architecture decision-record), `0122` (convergence receipt), `0124` (CONF-1 verdict), `0125` (CONF-2 verdict), `0132` (M6+M7 convergence), `0133` (Sec-MED-3 disposition).
+**Citation note for downstream consumers:** The rule body cites (loom-internal reference) §X at multiple anchors below (§1.1 threat model, §2.2 fold rules, §4 adjacency/leases/hooks/residuals, §5 single-writer contention, §6 posture/gate authority, §11 shard map). That spec is **loom-internal** (project-local working state, not shipped via `/sync`); the citations are **pointers to original derivation** for loom-side auditors. The §1 `business_roles` bullet additionally cites `(loom-internal reference) §2` + `journal/0282`/`0284` — also loom-internal derivation pointers under the same contract. The rule body's MUST clauses are **self-contained and authoritative**; downstream consumers act on the prose here, not on the cited spec. Committed durable receipts: journal entries (root `loom/journal/`) `0112` (architecture decision-record), `0122` (convergence receipt), `0124` (CONF-1 verdict), `0125` (CONF-2 verdict), `0132` (M6+M7 convergence), `0133` (Sec-MED-3 disposition).
 
 ## 1. Identity + roster
 
@@ -50,7 +50,7 @@ gate_authority_check "$display_id"                # WRONG axis
 
 ONE file — `.claude/learning/coordination-log.jsonl` — is the single rendezvous primitive between operators. Append-only JSONL, ≤2KB per line so `O_APPEND` is atomic. Every record carries the emitter's `verified_id` + `person_id` (stamped), `seq` (strictly monotonic per-emitter), `prev_hash` (per-emitter hash-chain), and `sig` (detached signature over canonical content). Record types include `clone-init`, `collaborator-distinctness-attestation`/`-revocation`, `session-open`/`close`, `heartbeat`, `claim`/`release`/`reap`, `lease-override`, `gate-approval`, `posture-event`, `compaction-checkpoint`, `genesis-anchor`, `genesis-migration`, `generation-rotation`.
 
-The 10 fold rules at `workspaces/multi-operator-coc/02-plans/01-architecture.md` §2.2 govern correctness:
+The 10 fold rules at (loom-internal reference) §2.2 govern correctness:
 
 1. **Signature gate** — a record folds only if `sig` verifies against a roster public key.
 2. **Per-emitter chain integrity** — `seq` exactly +1, `prev_hash` matches.
@@ -84,7 +84,7 @@ echo '{"type":"heartbeat", ...}' >> .claude/learning/coordination-log.jsonl
 
 ## 3. Claims, leases, and the SAME/ADJACENT/INDEPENDENT relation
 
-Claims are advisory leases over a path / glob / workspace. Adjacency is evaluated at claim time per `workspaces/multi-operator-coc/02-plans/01-architecture.md` §4.1:
+Claims are advisory leases over a path / glob / workspace. Adjacency is evaluated at claim time per (loom-internal reference) §4.1:
 
 - **SAME** — exact path/glob match, active dir/glob/workspace claim contains the path, same-commit cohort, phase collision, or composed-invariant collision.
 - **ADJACENT** — same dir / workspace / parent-child within 1 level / journal thread.
@@ -364,7 +364,7 @@ Any coordination-substrate tool (hook, agent, command, lib helper) that needs an
 
 ## Origin
 
-Architecture v11 CONVERGED 2026-05-19 (`workspaces/multi-operator-coc/02-plans/01-architecture.md`, Rounds 10+11 clean). Decision-record chain at the ROOT `loom/journal/`: `0112` (architecture), `0122` (CONVERGENCE receipt). CONF-1 + CONF-2 closure: `0124` (codex `apply_patch` enforceability + validator-13 bijection CONFIRMED), `0125` (GitHub ref-creation/deletion rulesets CONFIRMED-PREVENTION — **REFUTED 2026-06-07** per `0233` / GH #367: `refs/coc/**` is not a valid github.com ruleset target → MUST-5 is client-side-detection-primary). M6 + M7 convergence receipt: `0132`. Sec-MED-3 disposition (audit-trail completeness — Option C intentional-by-design): `0133`. Originating user brief: 2026-05-19 multi-operator-coc scaling brief. Authored at F14 Shard F-1 (M8 of the multi-operator-coc workstream) per `workspaces/multi-operator-coc/02-plans/01-architecture.md` §11 row F.
+Architecture v11 CONVERGED 2026-05-19 ((loom-internal reference), Rounds 10+11 clean). Decision-record chain at the ROOT `loom/journal/`: `0112` (architecture), `0122` (CONVERGENCE receipt). CONF-1 + CONF-2 closure: `0124` (codex `apply_patch` enforceability + validator-13 bijection CONFIRMED), `0125` (GitHub ref-creation/deletion rulesets CONFIRMED-PREVENTION — **REFUTED 2026-06-07** per `0233` / GH #367: `refs/coc/**` is not a valid github.com ruleset target → MUST-5 is client-side-detection-primary). M6 + M7 convergence receipt: `0132`. Sec-MED-3 disposition (audit-trail completeness — Option C intentional-by-design): `0133`. Originating user brief: 2026-05-19 multi-operator-coc scaling brief. Authored at F14 Shard F-1 (M8 of the multi-operator-coc workstream) per (loom-internal reference) §11 row F.
 
 **Open follow-up forest items (in-tree registry per `verify-resource-existence.md` MUST-4):**
 

@@ -1,0 +1,3 @@
+cat > rules/state-file-write-guard.md <<EOF
+Example doc that QUOTES a write call: fs.writeFileSync(".claude/learning/posture.json", data)
+EOF

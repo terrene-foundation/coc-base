@@ -5,11 +5,16 @@
  * Shard M6 D (workspaces/multi-operator-coc, design v11 §5.1).
  *
  * Git invokes a merge driver as:
- *   coc-ledger.js %O %A %B [%P]
+ *   coc-ledger.js %O %A %B
  * where %O is the common ancestor, %A is "ours" (current, written in-place
  * on resolution), %B is "theirs". Exit 0 on clean resolve; non-zero on
  * unresolvable conflict (caller falls back to standard `merge=union` or
  * manual). The driver writes the resolved bytes to %A.
+ *
+ * %P (the merged file's repo-relative path) is DELIBERATELY NOT registered in
+ * the driver command: it is unused here AND, via the `workspaces/*` gitattributes
+ * binding, a shell-injection surface (a maliciously-named directory) under the
+ * bounded-trust threat model. See .gitattributes. (loom#741 R1 security)
  *
  * The forest ledger is a markdown table of rows, each carrying a
  * per-row `owner:` token used by the merge driver for conflict-marker
@@ -76,6 +81,32 @@ const fs = require("fs");
  * Lines outside the table are preserved as preamble (before header) and
  * trailer (after the last table row).
  */
+// Split a markdown-table row into trimmed, UNESCAPED cells. The forest-ledger
+// writer (session-notes-layout.js::appendForestLedgerRow `cell()`) escapes
+// literal pipes `|` -> `\|` so an embedded pipe does not read as a column
+// delimiter. This splits on UNESCAPED `|` only (negative lookbehind) and then
+// reverses the escape per cell (`\|` -> `|`), making it the exact inverse of
+// the writer. Without the lookbehind + unescape, a pipe-bearing cell
+// (value `A|B`, written to disk as `A\|B`) is silently split into two cells —
+// a lossy round-trip that corrupts merge3 (the live .session-notes.shared.md
+// merge driver) and any monolith->split migration reusing this parser.
+// (#743 Wave 0 / F1; journal/0391.)
+//
+// CONTRACT DEPENDENCY (reader<->writer pair — keep in lockstep with
+// session-notes-layout.js `cell()`): this inverse is correct ONLY while the
+// writer (a) escapes `|`->`\|` and NOTHING ELSE (does not escape `\`), and
+// (b) space-pads every field (`| ${cell} |`). (a) makes every in-cell `|`
+// provably originate from a `\|`; (b) makes every delimiter `|` space-preceded,
+// so the one-char `(?<!\\)` lookbehind never mis-classifies a delimiter as
+// escaped. A future writer that escapes `\` or emits an unpadded value ending
+// in `\` would silently desync this split — change both files together.
+function _splitTableCells(line) {
+  return line
+    .split(/(?<!\\)\|/)
+    .slice(1, -1)
+    .map((c) => c.trim().replace(/\\\|/g, "|"));
+}
+
 function parseLedger(text) {
   if (typeof text !== "string") {
     throw new Error("parseLedger: text must be a string");
@@ -108,10 +139,7 @@ function parseLedger(text) {
   const preamble = lines.slice(0, headerIdx);
   const headerLine = lines[headerIdx];
   const separatorLine = lines[sepIdx];
-  const columns = headerLine
-    .split("|")
-    .slice(1, -1)
-    .map((c) => c.trim());
+  const columns = _splitTableCells(headerLine);
   let ownerColIdx = -1;
   for (let i = 0; i < columns.length; i++) {
     if (/^owner$/i.test(columns[i])) {
@@ -124,10 +152,7 @@ function parseLedger(text) {
   for (let i = sepIdx + 1; i < lines.length; i++) {
     const l = lines[i];
     if (!/^\s*\|.*\|\s*$/.test(l)) break;
-    const cells = l
-      .split("|")
-      .slice(1, -1)
-      .map((c) => c.trim());
+    const cells = _splitTableCells(l);
     if (cells.length === 0) break;
     // First column is the stable ID. Empty ID rows are skipped (a row
     // with all-empty cells is treated as a separator within a section).
@@ -329,7 +354,7 @@ function _lineUnion(oLines, aLines, bLines) {
 // ---- CLI entry (git merge driver) -----------------------------------------
 
 function _runAsDriver(argv) {
-  // git invokes: coc-ledger.js %O %A %B [%P]
+  // git invokes: coc-ledger.js %O %A %B  (%P not registered — see file header)
   // We read %O, %A, %B; write the merged bytes back to %A.
   if (argv.length < 3) {
     process.stderr.write(

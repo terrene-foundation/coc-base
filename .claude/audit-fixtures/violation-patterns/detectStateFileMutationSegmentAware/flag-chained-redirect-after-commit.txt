@@ -1,0 +1,1 @@
+git commit -m "wip" ; echo '{}' > .claude/learning/posture.json

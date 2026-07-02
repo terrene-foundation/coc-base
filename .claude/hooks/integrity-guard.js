@@ -215,6 +215,21 @@ function isWatchedPath(absPath, repoDir) {
     // repo (OFF) the W1-b gate above passes through, so a consumer may still set
     // their local mode freely.
     ".claude/learning/coordination-mode.json",
+    // learning-codified.json — the /codify last_codified anchor (#759, security-
+    // reviewer Finding 4 during the PR #758 redteam). UNLIKE the hook-only siblings
+    // above (posture.json / violations.jsonl / observations.jsonl / coordination-
+    // log.jsonl), this file is CODIFY-WRITABLE: every /codify legitimately advances
+    // it. So it is DELIBERATELY absent from validate-bash-command.js STATE_PATH_RX
+    // and settings.json permissions.deny (a flat absolute deny would break /codify's
+    // own anchor write — the #754 false-scenario as a real regression). The correct
+    // control is DIRECT-set membership HERE: the codify-branch + covering-lease flow
+    // below ALLOWS the write on codify/<display_id>-<date> with a lease whose
+    // scope_files include this path (codify-lease.js MANDATORY_SCOPE already unions
+    // it — findCoveringLease resolves it), and BLOCKS an off-codify `node -e`/Write
+    // that would advance the anchor past unprocessed work (silently dropping a
+    // codification window). Codify-writable → lease-gated, NOT hook-owned → absolute-
+    // deny; that asymmetry is the whole point of the fix.
+    ".claude/learning/learning-codified.json",
   ]);
   if (DIRECT.has(rel)) return { watched: true, rel };
   // Subtree hits.

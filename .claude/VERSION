@@ -1,18 +1,18 @@
 {
   "name": "coc-base",
-  "version": "2.45.6",
+  "version": "2.45.7",
   "type": "coc-use-template",
   "description": "Language-agnostic, non-Kailash CO/COC USE template — multi-CLI (variant: base, clis: claude/codex/gemini)",
-  "synced_at": "2026-06-29T08:28:38Z",
+  "synced_at": "2026-07-02T15:42:12Z",
   "upstream": {
     "name": "loom",
     "type": "coc-source",
     "version": "2.45.0",
-    "loom_sha": "e2ac475",
-    "synced_at": "2026-06-29T08:28:38Z",
+    "loom_sha": "618e23d",
+    "synced_at": "2026-07-02T15:42:12Z",
     "template_version": "2.45.0",
     "build_version": "2.45.0",
-    "source_commit": "e2ac475"
+    "source_commit": "618e23d"
   },
   "variant": "base",
   "tier_subscriptions": [
@@ -26,6 +26,11 @@
     "gemini"
   ],
   "changelog": [
+    {
+      "version": "2.45.7",
+      "date": "2026-07-02",
+      "summary": "Gate-2 base sync from loom v2.45.0 (loom_sha e2ac475->618e23d): distributes the #743 coherence layer + item-3 detector into the .claude/ content tree. sync-tier-aware.mjs --target base --all-templates delivered 1159 files, 1159/1159 verified (37 content-equal after BUILD-internal strip, 1122 byte-equal), 1 base slot overlay (rules/agents.md) applied byte-equal, 9 obsoleted paths purged. NEW artifacts landed: rules/symbol-anchored-citations.md, hooks/session-notes-incorporation-guard.js, hooks/lib/{coc-ledger,cross-ecosystem-disclosure-scanfn,open-pr-surface,pending-dedup}.js, bin/lint-prose-drift.mjs (+ audit-fixtures). CLAUDE.md preserved (template-owned). Hook integrity 38/38 resolve; 0 scripts/hooks refs; 0 operator-PII in settings.json. base build=null: no SDK pins, no uv/cargo steps. upstream loom 2.45.0 unchanged. SCOPE NOTE (multi-CLI): this delegated cycle covered ONLY the .claude/ content axis (sync-tier-aware) + marker/VERSION/inbox; the Codex/Gemini CLI baselines (AGENTS.md/GEMINI.md) + emitted trees (.codex/.gemini/.coc) were NOT re-emitted this cycle and remain at the e2ac475 rule/command/skill set — a follow-up CLI-emission pass (coc-sync Steps 6.5/6.6/6.7) is required to refresh them for the #743 rule/command/skill changes."
+    },
     {
       "version": "2.45.6",
       "date": "2026-06-29",

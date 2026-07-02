@@ -815,23 +815,35 @@ function detectGhIssueCloseAsNotPlanned(command) {
  * `{ layer, kind }` on hit, or `null` if no mutation detected.
  *
  * Pairs with `rules/state-file-write-guard.md` § "Bash-Layer Mutation
- * Coverage — Beyond Redirects" and the trust-posture state-file protection
+ * Coverage — Four Layers" and the trust-posture state-file protection
  * in `validate-bash-command.js`.
  */
 function detectStateFileMutation(command, pathRx) {
   if (!command || !pathRx) return null;
   const lines = command.split("\n");
   for (const line of lines) {
-    // Layer 1: redirect / heredoc / tee / sed -i / jq -i — but NOT 2>&1 fd-redirect or /dev/null sink
-    // Output redirect to protected path
-    if (/(?:^|[^&\d2])>\s*[^|\n]*?/.test(line)) {
-      const redirectMatch = line.match(/(?:^|[^&\d2])>>?\s*([^\s|;&]+)/);
-      if (redirectMatch && pathRx.test(redirectMatch[1])) {
+    // Layer 1: redirect / heredoc / tee / sed -i / jq -i — but NOT an fd-DUP
+    // (2>&1, >&2), which redirects to a descriptor, not a file.
+    // Output redirect to a protected path. Recognizes every file-writing form:
+    //   >  >>  >| (force-clobber)  &> &>> (stdout+stderr)  N> N>> N>| (fd-prefixed).
+    // An fd-dup target (`&N`) is excluded from the capture class so `2>&1` /
+    // `>&2` never capture a path. `matchAll` checks EVERY redirect target on the
+    // line, so a benign redirect preceding the state-file one is not a blind spot.
+    // (#745 redteam Finding 1: the prior `(?:^|[^&\d2])>` matcher missed `>|`,
+    // `&>`, and fd-prefixed `N>` forms — all real state-file writes.)
+    for (const rm of line.matchAll(/(?:\d+|&)?>>?\|?\s*([^\s|;&<>()]+)/g)) {
+      if (pathRx.test(rm[1])) {
         return { layer: 1, kind: "redirect" };
       }
     }
-    // Heredoc to protected path: `cat > path << EOF` or `>>path<<EOF`
-    if (/<<[-~]?\s*['"]?[A-Za-z_]/.test(line)) {
+    // Heredoc to protected path: `cat > path << EOF` or `>>path<<EOF`.
+    // Uses the shared matchHeredocOpener (bash delimiter parser with quote
+    // removal + structural `<<<` here-string exclusion) so a numeric / quoted /
+    // hyphenated / partially-quoted delimiter (`<<9`, `<<'a-b'`, `<<E"O"F`) is
+    // recognized consistently with the Layer-4 bundle pass. (The `>`-redirect
+    // matcher above already catches `> <protected>` directly; this branch is the
+    // labelled defence-in-depth companion.)
+    if (matchHeredocOpeners(line).length) {
       // Heredoc body itself is delivered later; the line that opens it
       // typically has the redirect target. Match `> <protected>` on this line.
       const m = line.match(/>\s*([^\s|;&<]+)/);
@@ -868,10 +880,15 @@ function detectStateFileMutation(command, pathRx) {
     }
 
     // Layer 3: interpreter -c / -e / -m bodies (e.g. python -c "...", node -e "...")
-    // Includes combined short-flag forms like `-uc`, `-uec`
+    // Includes combined short-flag forms like `-uc`, `-uec`. The flag-cluster
+    // quantifiers are BOUNDED (`{0,32}`, not `*`) to prevent catastrophic
+    // backtracking on a crafted long `-eeee…` run (a ReDoS: adjacent overlapping
+    // `[a-zA-Z]` classes around `[cem]`); real interpreter flag clusters are short.
+    // `pathRx.test(line)` gates FIRST so the bounded regex only runs on a
+    // protected-path line.
     const interpreterBody =
-      /\b(?:python3?|node|nodejs|ruby|perl|bash|sh|zsh)\b\s+[^|\n]*-[a-zA-Z]*[cem][a-zA-Z]*\b\s+["'][^"']*["']/;
-    if (interpreterBody.test(line) && pathRx.test(line)) {
+      /\b(?:python3?|node|nodejs|ruby|perl|bash|sh|zsh)\b\s+[^|\n]*-[a-zA-Z]{0,32}[cem][a-zA-Z]{0,32}\b\s+["'][^"']*["']/;
+    if (pathRx.test(line) && interpreterBody.test(line)) {
       const interpMatch = line.match(
         /\b(python3?|node|nodejs|ruby|perl|bash|sh|zsh)\b/,
       );
@@ -904,6 +921,805 @@ function detectStateFileMutation(command, pathRx) {
     const im = ledSeg.match(leadingInterpreter);
     return { layer: 3, kind: `${im[1]} (interpreter)` };
   }
+  return null;
+}
+
+/**
+ * splitShellSegments — quote-aware split of a bash command into the
+ * segments delimited by the top-level control operators `&&`, `||`, `;`,
+ * and `|`. Separators appearing INSIDE single- or double-quotes (and
+ * backslash-escaped separators) are NOT split points — they are prose.
+ *
+ * This is the primitive `detectStateFileMutationSegmentAware` relies on to
+ * distinguish a mutation CHAINED after a `git commit` (a real, unquoted
+ * `&&`) from a state-file path MENTIONED inside a quoted commit message (a
+ * `&&`/`;`/`|` that lives between quotes). Single `&` (background) is NOT a
+ * split point: it is rare, collides with the `2>&1` fd-redirect form, and a
+ * mutation after a bare `&` is still caught by the per-segment
+ * `detectStateFileMutation` fallback on the un-split segment.
+ *
+ * NOT a full shell parser (no here-doc / process-substitution awareness) —
+ * per `hook-output-discipline.md` MUST-3 the hook MUST NOT expand shell
+ * syntax. It tracks only quote state, which is sufficient to keep the
+ * git-commit-body exception from being defeated by a chained `&&`.
+ */
+function splitShellSegments(command) {
+  if (!command) return [];
+  const segments = [];
+  let current = "";
+  let quote = null; // "'" or '"' when inside a quoted span, else null
+  let i = 0;
+  const n = command.length;
+  while (i < n) {
+    const ch = command[i];
+    if (quote === "'") {
+      // Single quotes are literal in POSIX shell — no escapes; only ' closes.
+      current += ch;
+      if (ch === "'") quote = null;
+      i += 1;
+      continue;
+    }
+    if (quote === '"') {
+      // Inside double quotes a backslash escapes the next char (incl. \").
+      if (ch === "\\" && i + 1 < n) {
+        current += ch + command[i + 1];
+        i += 2;
+        continue;
+      }
+      current += ch;
+      if (ch === '"') quote = null;
+      i += 1;
+      continue;
+    }
+    // Unquoted.
+    if (ch === "\\" && i + 1 < n) {
+      current += ch + command[i + 1];
+      i += 2;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      current += ch;
+      i += 1;
+      continue;
+    }
+    if (ch === "&" && command[i + 1] === "&") {
+      segments.push(current);
+      current = "";
+      i += 2;
+      continue;
+    }
+    if (ch === "|" && current.endsWith(">")) {
+      // `>|` force-clobber redirect — the `|` is part of the redirect operator,
+      // NOT a pipe separator, so it must not split the segment (else the
+      // redirect target lands in a sibling segment and Layer-1 detection
+      // misses it). #745 redteam Finding 1.
+      current += ch;
+      i += 1;
+      continue;
+    }
+    if (ch === "|" && command[i + 1] === "|") {
+      segments.push(current);
+      current = "";
+      i += 2;
+      continue;
+    }
+    if (ch === ";" || ch === "|") {
+      segments.push(current);
+      current = "";
+      i += 1;
+      continue;
+    }
+    current += ch;
+    i += 1;
+  }
+  segments.push(current);
+  return segments;
+}
+
+// The git-commit-with-body exception: a `git commit -m "..."` / `git commit
+// -F <file>` body is documentation prose that may contain arbitrary
+// shell-like syntax (a mutation verb or a state-path mentioned in the
+// message). The pattern anchors on the segment starting with `git commit`
+// and requires a message/file body flag. It recognizes the common forms:
+// ` -m ` / `-m"…"` (attached), combined short-flag clusters (`-am`, `-aF`),
+// `--message[= ]`, ` -F ` / `-F<file>`, `--file[= ]`, `--reuse-message`.
+// (Bare `git commit` / `git commit -a` open an editor — no inline body — so
+// they are NOT commit-with-body: a mutation chained after them lands in a
+// separate segment and is detected normally.) #745 F3: the pre-fix
+// `(?:\s-m\s|\s-F\s)` anchor missed `-am`/attached forms, which then ran raw
+// detection and FALSE-POSITIVE-blocked legit commits whose message mentioned
+// a verb + state path.
+const GIT_COMMIT_WITH_BODY_RX =
+  /^\s*git\s+commit\b[^|;]*?\s(?:-[A-Za-z]*[mF]|--message|--file|--reuse-message)\b/;
+
+// Constructs that EXECUTE (or change quote parsing) even inside a double-quoted
+// commit body, defeating the "quoted body is inert prose" assumption that
+// mask-not-skip relies on (#745 F1/F2):
+//   `$(…)`     — command substitution runs inside double quotes
+//   backtick   — legacy command substitution, runs inside double quotes
+//   `$'…'`     — ANSI-C quoting; its `\'` escaping desyncs a naive quote scanner
+//   `${ …;}` / `${| …;}` — bash 5.3+ command "funsubs"; run a command inside
+//                double quotes exactly like `$(…)`. The `${`+space/`|` form is
+//                distinct from `${x}` parameter expansion (which does NOT run a
+//                command and is correctly NOT matched). (#745 redteam Finding 2.)
+// When a commit segment contains any of these, masking cannot be trusted to
+// have neutralized the body, so detection MUST fail-closed by also scanning
+// the RAW (unmasked) segment.
+const EXECUTES_INSIDE_QUOTES_RX = /\$\(|`|\$'|\$\{[\s|]/;
+
+/**
+ * maskQuotedSpans — replace the CONTENTS of every single/double-quoted span
+ * with neutral filler (`x`), preserving the quote delimiters and the
+ * unquoted structure. Backslash-escaped chars inside double quotes (and
+ * unquoted) are consumed as a unit so an escaped quote does not mis-close.
+ *
+ * NB — this quote state machine MUST stay consistent with the one in
+ * `splitShellSegments` (single-quote = no escapes; double-quote/unquoted =
+ * `\`+next consumed as a unit). If one gains a new quote form (e.g. proper
+ * `$'…'` ANSI-C handling), the other MUST gain it too, or the two desync.
+ *
+ * Used to neutralize a `git commit` MESSAGE body before running
+ * mutation-detection on the commit segment: a state-path or mutation-verb
+ * MENTIONED inside the quoted message becomes filler (no false positive),
+ * while a REAL unquoted redirect/verb on the commit line (e.g.
+ * `git commit -m "x" > .claude/learning/posture.json`) survives the mask and
+ * is detected. Masking to `x` can only REMOVE tokens, never synthesize a
+ * `.claude/learning/…` path or a mutation verb, so it cannot create a hit.
+ */
+function maskQuotedSpans(segment) {
+  if (!segment) return segment;
+  let out = "";
+  let quote = null;
+  let i = 0;
+  const n = segment.length;
+  while (i < n) {
+    const ch = segment[i];
+    if (quote === "'") {
+      if (ch === "'") {
+        quote = null;
+        out += ch;
+      } else {
+        out += "x";
+      }
+      i += 1;
+      continue;
+    }
+    if (quote === '"') {
+      if (ch === "\\" && i + 1 < n) {
+        out += "xx";
+        i += 2;
+        continue;
+      }
+      if (ch === '"') {
+        quote = null;
+        out += ch;
+      } else {
+        out += "x";
+      }
+      i += 1;
+      continue;
+    }
+    if (ch === "\\" && i + 1 < n) {
+      out += ch + segment[i + 1];
+      i += 2;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      out += ch;
+      i += 1;
+      continue;
+    }
+    out += ch;
+    i += 1;
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// #764 item 3 — heredoc write+RUN-bundle detector (STRUCTURAL, whole-command).
+//
+// The bug: a bundled command
+//   cat > s.cjs <<EOF ... fs.writeFileSync("<protected>") ... EOF && node s.cjs
+// evades the per-segment `detectStateFileMutation`. `splitShellSegments` is NOT
+// heredoc-aware, so the heredoc body's internal `;` (e.g. `writeFileSync(...);`)
+// fractures the interpreter-lead (`node s.cjs`) from the protected-path write —
+// no single segment sees BOTH, and the per-segment fallback's own whole-command
+// clause runs against a fractured segment, not the full command. This pass runs
+// on the WHOLE command and matches the STRUCTURAL write→execute conjunction.
+//
+// The signal (why `severity:block` is justified per hook-output-discipline.md
+// MUST-2 — this is STRUCTURAL, not lexical): flag ONLY when, in ONE command,
+//   (a) a heredoc whose REDIRECT-TARGET script file's BODY contains a protected
+//       PATH LITERAL anywhere (match the path literal — NOT a write-verb
+//       allowlist, NOT a prefix-anchored write-call regex; the path-literal
+//       presence in a body destined for EXECUTION is the signal), AND
+//   (b) that SAME written script file is SUBSEQUENTLY EXECUTED in the same
+//       command by `<interp> <that-exact-written-path>` (node/nodejs/python/
+//       ruby/perl/bash/sh/zsh running the written script).
+// The conjunction is a real write-a-script-that-touches-a-protected-path AND
+// run-it dataflow — structurally equivalent to a direct heredoc redirect to the
+// protected path (which `detectStateFileMutation` Layer-1 already blocks), one
+// indirection deeper through the heredoc→script→exec chain. A surface rewrite
+// of the SCRIPT NAME, PATH PREFIX, QUOTING, WRITE VERB, WRITE SURFACE, or
+// DELIMITER SHAPE does NOT evade it: (b) matches the written-path TOKEN identity
+// (not a fixed lexical form); (a) matches the protected-path SUBSTRING in the
+// executed body (not a verb allowlist); the write surface covers `>`/`>>` +
+// `| tee` + `dd of=`; and the delimiter grammar is bash's full WORD grammar
+// (numeric/quoted/hyphenated). TWO residual classes remain, SAME class as
+// state-file-write-guard.md Rule 5 residuals (a)/(d) — NOT closable at this
+// command-interceptor layer without in-hook shell expansion (forbidden by
+// hook-output-discipline.md MUST-3): (i) VAR-INDIRECT exec, where the write and
+// the run use DIFFERENT tokens that expand to the same file (`cat >/tmp/s.cjs
+// <<E…E; T=/tmp/s.cjs; node "$T"` — write token `/tmp/s.cjs` ≠ exec token `$T`,
+// so (b)'s token-identity fails; note a SHARED var token DOES match, since
+// identity holds pre-expansion); (ii) a RUN segment NOT recognized as
+// interpreter-led by RUN_INTERPRETER_RX after `VAR=` stripping — this ONE root
+// cause covers a non-`VAR=` command prefix (`sudo`/`env`/`nice`/a subshell),
+// direct shebang / executable-bit invocation (`chmod +x s && ./s`), AND shell
+// sourcing (`source s` / `. s`); only `VAR=val` prefixes are stripped before the
+// interpreter test. The forever-defense for both classes is the signed-fold /
+// fail-closed-to-L1 integrity layer, NOT this interceptor. It does
+// NOT false-block
+// doc/rule/test authoring — that WRITES a file but does NOT execute it, so (b)
+// fails structurally (this is why the redesign supersedes attempt-1's LEXICAL
+// heredoc-body write-call regex, which false-blocked writing a doc that merely
+// QUOTED `writeFileSync(".claude/…")` — loom authors exactly such fixtures).
+//
+// The git-commit exception needs NO special skip here (fixing attempt-1's
+// per-line HIGH-2 evasion, `git commit -m x && cat >s.cjs <<EOF …write… EOF;
+// node s.cjs`): a git-commit MESSAGE heredoc either (i) has no redirect-target
+// script file (its body is git's STDIN, `git commit -F- <<MSG`), so (a)'s
+// `!hd.target` guard skips it, OR (ii) its target file is consumed by `git`
+// (`git commit -F msg.txt`), never by an interpreter in RUN_INTERPRETER_RX, so
+// (b) fails. A heredoc CHAINED AFTER `git commit` is analyzed on its own
+// structural merits (write→exec), never skipped — strictly tighter than a
+// scoped git-commit skip.
+//
+// RUN_INTERPRETER_RX is the interpreter-lead gate for the RUN half. A RUN
+// segment not matching it after `VAR=` stripping is the accepted residual (ii)
+// enumerated in full above (non-`VAR=` command prefix / shebang-exec-bit /
+// sourcing — SAME class as state-file-write-guard.md Rule 5 residual (d)); its
+// forever-defense is the signed-fold / fail-closed-to-L1 integrity layer, not
+// this interceptor. Leading `VAR=val` assignment prefixes (the ceremony
+// env-prefix shape) ARE stripped before the interpreter test.
+// Interpreter allowlist for the RUN half — a POSITIVE allowlist (an interpreter
+// NOT listed is a documented residual, same class as the accepted residuals;
+// forever-defense = signed-fold). Covers the standard shells + the common
+// script interpreters an agent would use to run a written script.
+const RUN_INTERPRETER_RX =
+  /^\s*(?:\S*\/)?(?:python3?|node|nodejs|ruby|perl|bash|sh|zsh|deno|bun|tsx|ts-node|Rscript|lua|php|osascript)\b/;
+// Leading `VAR=val` assignment prefix(es) (attached quotes tolerated).
+const VAR_ASSIGN_PREFIX_RX = /^\s*(?:[A-Za-z_]\w*=(?:"[^"]*"|'[^']*'|\S+)\s+)*/;
+// Heredoc opener recognition + TERMINATOR derivation. A regex that captured the
+// delimiter's SURFACE bytes is not sufficient — bash applies QUOTE REMOVAL and
+// BACKSLASH-ESCAPE to the delimiter word to get the terminator, so `<<E"O"F`,
+// `<<'EO'F`, `<<EOF''`, and `<<EO\F` all close on the line `EOF`, not on their
+// literal spelling. Capturing the surface bytes desyncs parseHeredocSpans' close
+// comparison, so it never finds the close line, swallows the RUN line into a
+// phantom body, and the bundle evades (redteam HIGH). The parser below computes
+// the real terminator; matchHeredocOpener also enforces the here-STRING (`<<<`)
+// exclusion STRUCTURALLY (a regex lookahead `(?!<)` is defeated by the engine
+// re-matching one position right — `<<<x` → the 2nd/3rd `<` form a spurious
+// `<<x` opener; the char-scan below cannot be shifted into that false match).
+//
+// parseHeredocDelimiter(line, i) — parse the bash delimiter WORD starting at i,
+// applying quote removal + backslash-escape, and return { terminator } (the
+// close-line bash matches) or null if no word is present. `~` is an ordinary
+// word char (bash has only `<<-`, no `<<~`), so `<<~EOF` → terminator `~EOF`.
+function parseHeredocDelimiter(line, i) {
+  let term = "";
+  let started = false;
+  while (i < line.length) {
+    const c = line[i];
+    if (c === "$" && (line[i + 1] === "'" || line[i + 1] === '"')) {
+      // ANSI-C `$'…'` / locale `$"…"` quoting — bash drops the `$` and dequotes
+      // the body to the terminator (`<<$'EOF'` closes on `EOF`). Skip the `$`;
+      // the quote branch on the next iteration consumes the body.
+      started = true;
+      i++;
+      continue;
+    }
+    if (c === "'") {
+      // single-quote: verbatim to the next `'` (bash single quotes have no escapes)
+      started = true;
+      i++;
+      while (i < line.length && line[i] !== "'") {
+        term += line[i];
+        i++;
+      }
+      if (i < line.length) i++; // consume closing quote
+      continue;
+    }
+    if (c === '"') {
+      // double-quote: only `\"` and `\\` act as escapes for delimiter purposes
+      started = true;
+      i++;
+      while (i < line.length && line[i] !== '"') {
+        if (
+          line[i] === "\\" &&
+          i + 1 < line.length &&
+          (line[i + 1] === '"' || line[i + 1] === "\\")
+        ) {
+          term += line[i + 1];
+          i += 2;
+          continue;
+        }
+        term += line[i];
+        i++;
+      }
+      if (i < line.length) i++; // consume closing quote
+      continue;
+    }
+    if (c === "\\" && i + 1 < line.length) {
+      // unquoted backslash-escape: next char is literal (`<<\EOF` → EOF)
+      started = true;
+      term += line[i + 1];
+      i += 2;
+      continue;
+    }
+    if (/[\s<>|;&()]/.test(c)) break; // unquoted whitespace/metachar ends the word
+    term += c;
+    started = true;
+    i++;
+  }
+  if (!started) return null;
+  return { terminator: term };
+}
+
+// matchHeredocOpeners(line) → array of { dash, terminator } for EVERY `<<` / `<<-`
+// introducer on the line that is NOT a `<<<` here-string. Returns all candidates
+// (not just the first) so parseHeredocSpans can pick the one whose close line
+// actually exists downstream — an arithmetic `1<<4` or decoy `<<WORD` with no
+// matching close is thereby ignored instead of opening a phantom heredoc.
+function matchHeredocOpeners(line) {
+  const out = [];
+  for (let i = 0; i + 1 < line.length; i++) {
+    if (line[i] !== "<" || line[i + 1] !== "<") continue;
+    if (line[i - 1] === "<") continue; // part of a longer `<`-run (e.g. `<<<`)
+    let j = i + 2;
+    let dash = false;
+    if (line[j] === "-") {
+      dash = true;
+      j++;
+    }
+    if (line[j] === "<") continue; // `<<<` here-STRING (no body)
+    while (j < line.length && (line[j] === " " || line[j] === "\t")) j++;
+    const parsed = parseHeredocDelimiter(line, j);
+    if (parsed) out.push({ dash, terminator: parsed.terminator });
+  }
+  return out;
+}
+
+// normPath — strip a single leading `./` so `node ./s.cjs` matches a `> s.cjs`
+// write target (structural same-file identity, not a lexical form).
+function normPath(s) {
+  return (s || "").replace(/^\.\//, "");
+}
+
+// tokenizeShellArgs — quote-aware whitespace split; strips surrounding quotes so
+// a quoted script arg (`node "${TMPDIR:-/tmp}/x.cjs"`) is one token whose inner
+// value compares byte-for-byte against the (also quote-stripped) write target.
+// A shell VARIABLE inside the token (`${TMPDIR:-/tmp}`) is NEVER expanded (per
+// hook-output-discipline.md MUST-3) — the match is TOKEN IDENTITY between the
+// write target and the exec arg, which holds regardless of what the var expands
+// to (both sides carry the identical unexpanded token).
+function tokenizeShellArgs(str) {
+  const toks = [];
+  let cur = "";
+  let quote = null;
+  let started = false;
+  for (let i = 0; i < str.length; i++) {
+    const c = str[i];
+    if (quote) {
+      // Inside `"…"`, a backslash escapes the next char (so `\"` does NOT close
+      // the quote); inside `'…'` there are no escapes.
+      if (quote === '"' && c === "\\" && i + 1 < str.length) {
+        cur += str[i + 1];
+        i++;
+        started = true;
+        continue;
+      }
+      if (c === quote) quote = null;
+      else cur += c;
+      started = true;
+      continue;
+    }
+    if (c === "\\" && i + 1 < str.length) {
+      // unquoted backslash-escape: next char is a literal word char
+      cur += str[i + 1];
+      i++;
+      started = true;
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      quote = c;
+      started = true;
+      continue;
+    }
+    if (/\s/.test(c)) {
+      if (started) {
+        toks.push(cur);
+        cur = "";
+        started = false;
+      }
+      continue;
+    }
+    cur += c;
+    started = true;
+  }
+  if (started) toks.push(cur);
+  return toks;
+}
+
+// stripSurroundingQuotes — remove one matching pair of surrounding quotes.
+function stripSurroundingQuotes(t) {
+  if (
+    (t.startsWith('"') && t.endsWith('"')) ||
+    (t.startsWith("'") && t.endsWith("'"))
+  ) {
+    return t.slice(1, -1);
+  }
+  return t;
+}
+
+// splitUnquotedPipes — split a line on UNQUOTED `|` into pipeline stages. Quote-
+// and backslash-aware so a `|` inside a quoted arg (`"a\"|b"`) or escaped (`\|`)
+// does not split. `|&` (pipe stdout+stderr) is consumed as one operator so the
+// following stage leads with `tee`, not `&`. `||` yields an empty stage
+// (harmless). Used to find `tee` in command position within its pipe stage
+// WITHOUT depending on whitespace around the pipe.
+function splitUnquotedPipes(line) {
+  const stages = [];
+  let cur = "";
+  let quote = null;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (quote) {
+      cur += c;
+      if (quote === '"' && c === "\\" && i + 1 < line.length) {
+        cur += line[i + 1]; // `\x` inside `"…"` — literal, quote stays open
+        i++;
+        continue;
+      }
+      if (c === quote) quote = null;
+      continue;
+    }
+    if (c === "\\" && i + 1 < line.length) {
+      cur += c + line[i + 1]; // unquoted `\x` — the `x` is not an operator
+      i++;
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      quote = c;
+      cur += c;
+      continue;
+    }
+    if (c === "|") {
+      stages.push(cur);
+      cur = "";
+      if (line[i + 1] === "&") i++; // `|&` is one pipe operator
+      continue;
+    }
+    cur += c;
+  }
+  stages.push(cur);
+  return stages;
+}
+
+// SINK_VERBS — stdin/heredoc-consuming write verbs whose file operand(s) receive
+// the heredoc body. A POSITIVE allowlist (a verb NOT listed is a documented
+// residual, same class as the accepted residuals; forever-defense = signed-fold).
+// `tee` writes to EVERY operand; `sponge`/`cp`/`install` write the operand from
+// stdin (`… | sponge f`, `… | cp /dev/stdin f`, `… | install /dev/stdin f`). All
+// non-flag, non-redirect operands are collected (over-approx toward fail-closed —
+// e.g. `cp`'s `/dev/stdin` source is harmlessly included).
+const SINK_VERBS = new Set(["tee", "sponge", "cp", "install"]);
+
+// extractSinkTargets — file operands of a SINK_VERBS command in COMMAND position
+// (the first token of a pipeline STAGE). Splitting on the unquoted pipe (not
+// relying on whitespace) catches `| tee`, `|tee`, `|& tee`, `| sponge`,
+// `| cp /dev/stdin`; keying on the STAGE-LEAD token keeps the verb appearing as a
+// SEARCH ARG (`grep tee <<EOF`) from being read as the command.
+function extractSinkTargets(line) {
+  const out = [];
+  for (const stage of splitUnquotedPipes(line)) {
+    const toks = tokenizeShellArgs(stage);
+    if (!toks.length) continue;
+    const base = toks[0].replace(/^.*\//, ""); // basename: `/usr/bin/tee` → `tee`
+    if (!SINK_VERBS.has(base)) continue;
+    for (let j = 1; j < toks.length; j++) {
+      const a = toks[j];
+      if (!a || a === ";" || a === "&" || a === "&&") break;
+      if (a.startsWith("-")) continue; // flags (`-a`, `--append`, `-t DIR` …)
+      if (a.startsWith("<") || a.startsWith(">")) continue; // redirect operator token
+      out.push(a); // file operand
+    }
+  }
+  return out;
+}
+
+// extractRedirectTargets — ALL write targets on a line, across the heredoc-write
+// surfaces: `>`/`>>` redirects (quoted or bare, every one), SINK_VERBS sinks
+// (`tee`/`sponge`/`cp`/`install`, every operand), and a `dd of=FILE` sink.
+// `2>&1`/`>&2` fd-dups carry a `&`-target excluded by the bare class, so they
+// never capture. Returns the quote-stripped paths (possibly several — `tee a b`,
+// `> a > b`), so the bundle pass blocks when ANY written file is executed. The
+// write-surface allowlist is POSITIVE: a verb outside it (`patch`, `ed`, a
+// mv-rename dataflow hop) is a documented residual, forever-defended by the
+// signed-fold / fail-closed-to-L1 layer, not this interceptor.
+function extractRedirectTargets(line) {
+  const targets = [];
+  const rx = /(?:\d+|&)?>>?\|?\s*("[^"]*"|'[^']*'|[^\s|;&<>()]+)/g;
+  let m;
+  while ((m = rx.exec(line)) !== null) {
+    const t = stripSurroundingQuotes(m[1]);
+    if (t) targets.push(t);
+  }
+  for (const t of extractSinkTargets(line)) targets.push(t);
+  const dd = line.match(/\bdd\b[^\n]*?\bof=("[^"]*"|'[^']*'|[^\s|;&<>()]+)/);
+  if (dd) {
+    const t = stripSurroundingQuotes(dd[1]);
+    if (t) targets.push(t);
+  }
+  return targets;
+}
+
+// parseHeredocSpans — line-based heredoc parser. Returns { heredocs, structural }
+// where heredocs = [{ targets, body }] and structural is the command with every
+// heredoc BODY and its closing-delimiter line removed (opener + post-close lines
+// only) — the surface the RUN-half scan runs against. Closing-delimiter match is
+// STRUCTURAL: a plain `<<DELIM` closes ONLY on a line that is EXACTLY `DELIM`
+// (no leading whitespace); a `<<-DELIM` strips leading TABS only (never spaces).
+//
+// A candidate opener is committed as a heredoc ONLY IF its close line actually
+// exists downstream. This is the load-bearing robustness invariant: a SPURIOUS
+// opener (an arithmetic `1<<4`, a decoy `<<WORD` with no close, or a delimiter
+// whose terminator was mis-derived) is IGNORED rather than swallowing the rest
+// of the command into a phantom body that hides the RUN line. An unclosed
+// heredoc therefore can only ADD lines to `structural`, never remove them —
+// fail-toward-more-scanning. Each line's openers are tried in order; the first
+// with a real close wins (so a decoy `<<X` before a real `<<EOF` on the SAME
+// line does not mask the real one).
+// PARSE_WORK_BUDGET bounds the ACTUAL close-lookahead work (per-iteration
+// overhead + bytes compared), NOT a raw `<<` proxy. The close-lookahead is
+// O(unclosed-openers × downstream-lines × line-length): a COMMITTED heredoc skips
+// its body (`i = closeIdx + 1`), so a `<<`-dense DOC body costs ONE lookahead, not
+// grind — which is why a raw-`<<`-count cap false-blocked such docs. A flood of
+// UNCLOSED openers (each scanning to EOF), OR many openers over very long lines,
+// is the real O(n²) DoS. When the measured work exceeds the budget, the parser
+// returns `{ overflow: true }` and the caller fails CLOSED (a protected-path
+// command this pathological is treated as a hit — the in-hook watchdog is cleared
+// before detection). ~40M work-units ≈ well under 100 ms.
+const PARSE_WORK_BUDGET = 40_000_000;
+
+function parseHeredocSpans(command) {
+  const lines = command.split("\n");
+  const heredocs = [];
+  const structuralLines = [];
+  let work = 0;
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    let opened = false;
+    for (const opener of matchHeredocOpeners(line)) {
+      const dash = opener.dash;
+      const delim = opener.terminator;
+      let closeIdx = -1;
+      for (let k = i + 1; k < lines.length; k++) {
+        const bl = lines[k].replace(/\r$/, "");
+        work += 1 + bl.length; // per-iteration overhead + bytes compared
+        if (work > PARSE_WORK_BUDGET) return { overflow: true };
+        const closes = dash ? bl.replace(/^\t+/, "") === delim : bl === delim;
+        if (closes) {
+          closeIdx = k;
+          break;
+        }
+      }
+      if (closeIdx === -1) continue; // spurious opener (no close) — try next candidate
+      structuralLines.push(line); // opener line stays structural
+      heredocs.push({
+        targets: extractRedirectTargets(line),
+        body: lines.slice(i + 1, closeIdx).join("\n"),
+      });
+      i = closeIdx + 1; // resume after the close line (body + close removed)
+      opened = true;
+      break;
+    }
+    if (opened) continue;
+    structuralLines.push(line);
+    i++;
+  }
+  return { heredocs, structural: structuralLines.join("\n") };
+}
+
+// computeExecutedTokenSet — the set of normalized script tokens `structural`
+// EXECUTES via an interpreter: for every segment (split on `\n` then top-level
+// shell operators) that is interpreter-LED (after stripping a leading `VAR=val`
+// prefix), every later token normalized. Computed ONCE per command (O(structural))
+// so the per-heredoc / per-target membership checks in detectHeredocWriteRunBundle
+// are O(1) — the previous per-heredoc re-scan was O(heredocs × structural) = O(H²),
+// a pure availability DoS on H committed protected-body heredocs (the parse budget
+// does not cover it because parsing itself stays cheap). A target is "executed"
+// iff it is in this set — semantically identical to the old per-target scan.
+function computeExecutedTokenSet(structural) {
+  const set = new Set();
+  const segs = structural.split("\n").flatMap((ln) => splitShellSegments(ln));
+  for (const seg of segs) {
+    const stripped = seg.replace(VAR_ASSIGN_PREFIX_RX, "");
+    if (!RUN_INTERPRETER_RX.test(stripped)) continue;
+    const toks = tokenizeShellArgs(stripped);
+    for (let k = 1; k < toks.length; k++) {
+      const np = normPath(toks[k]);
+      if (np) set.add(np);
+    }
+  }
+  return set;
+}
+
+// anyTargetExecuted — does any of `targets` (normalized) appear in the precomputed
+// executed-token set? O(targets).
+function anyTargetExecuted(execSet, targets) {
+  for (const t of targets || []) {
+    if (execSet.has(normPath(t))) return true;
+  }
+  return false;
+}
+
+/**
+ * detectHeredocWriteRunBundle — flag the write+RUN-bundle described above.
+ * Generic over `pathRx` (same contract as `detectStateFileMutation`). Returns
+ * `{ layer, kind }` on a hit, or `null`.
+ */
+function detectHeredocWriteRunBundle(command, pathRx) {
+  if (!command || !pathRx) return null;
+  // Early exit: a flag REQUIRES the protected path to appear in the command
+  // (PRIMARY reads it from a committed body ⊆ command; BACKSTOP from structural ⊆
+  // command). Testing it first keeps every non-protected command O(n) — it never
+  // enters the parser. Behaviour-neutral (both branches need the path present).
+  if (!pathRx.test(command)) return null;
+  // Fail-closed size cap: parseHeredocSpans bounds its own close-lookahead work
+  // (PARSE_WORK_BUDGET — actual iterations + bytes, NOT a raw `<<` proxy, so a
+  // `<<`-dense DOC body does not false-trip it). A protected-path command
+  // pathological enough to blow the budget (an unclosed-opener flood, or many
+  // openers over very long lines — a DoS / slow-hook amplifier since the in-hook
+  // watchdog is cleared before detection) is treated as a hit rather than ground.
+  const parsed = parseHeredocSpans(command);
+  if (parsed.overflow) return { layer: 1, kind: "heredoc-write-run-bundle" };
+  const { heredocs, structural } = parsed;
+  // Executed-script token set — computed ONCE (O(structural)); the PRIMARY and
+  // BACKSTOP membership checks below are then O(targets), never re-scanning
+  // structural per heredoc (which was O(H²) — an availability DoS).
+  const execSet = computeExecutedTokenSet(structural);
+  // PRIMARY: a committed heredoc body carries the protected path AND that
+  // heredoc's written script is executed. Precise + tight — the normal bundle.
+  for (const hd of heredocs) {
+    if (!hd.targets || !hd.targets.length) continue; // no write target (e.g. git-commit stdin)
+    if (!pathRx.test(hd.body)) continue; // (a) protected path literal in the body
+    if (anyTargetExecuted(execSet, hd.targets)) {
+      // (b) one of the written scripts is executed by an interpreter in this command
+      return { layer: 1, kind: "heredoc-write-run-bundle" };
+    }
+  }
+  // BACKSTOP (fail-closed against ANY terminator/close-derivation divergence from
+  // bash — an ANSI-C `$'\x46'` escape, an arithmetic `1<<4` opener, a `\r`-seeded
+  // close line, or any future mis-parse this hand-written parser does not model
+  // byte-identically). A divergence can only PUSH the real heredoc body — and its
+  // RUN line — into `structural`: either the opener never commits (no close found
+  // → whole span stays structural) or it commits with a truncated/empty body (a
+  // seeded early close → the real body spills past it). So if the protected path
+  // appears on a STRUCTURAL line AND a script WRITTEN on a structural line is
+  // EXECUTED on a structural line, flag. This is the robust invariant the
+  // per-body PRIMARY check cannot provide alone, because its `pathRx.test(hd.body)`
+  // gate runs BEFORE the structural exec-scan and drops a truncated body first.
+  //
+  // It does NOT fire for well-formed doc/rule/test authoring — there the path
+  // lives in the correctly-REMOVED body, absent from `structural` — nor for the
+  // accepted var-indirect residual (the exec token differs from the write target,
+  // so no target is in the executed-token set). It IS whole-command, NOT heredoc-scoped:
+  // `structuralTargets` collects from a plain `>` redirect too, so the backstop
+  // fires on a protected-mention + write+run bundle even with no heredoc at all.
+  // It DOES fail-closed over-block the shape "a protected-path mention on a
+  // command line (INCLUDING an allowed `cat <state>` read, or an `&&`-chained
+  // build+inspect) AND a script write+run in ONE command" — this over-block is
+  // wider than a purely contrived case; remediation is to split the command,
+  // consistent with the separate-invocation ceremony contract. Never fires when
+  // the executed file is NOT written in-command (`cat <state> && node other.js`
+  // stays clean — `other.js` is not a structural write target).
+  const structuralTargets = structural
+    .split("\n")
+    .flatMap((ln) => extractRedirectTargets(ln));
+  if (
+    structuralTargets.length &&
+    pathRx.test(structural) &&
+    anyTargetExecuted(execSet, structuralTargets)
+  ) {
+    return { layer: 1, kind: "heredoc-write-run-bundle" };
+  }
+  return null;
+}
+
+/**
+ * detectStateFileMutationSegmentAware — segment-aware wrapper over
+ * `detectStateFileMutation` that applies the git-commit-body exception PER
+ * SEGMENT instead of to the whole command.
+ *
+ * Closes issue #745 Evasion 1: `git commit -m "wip" && rm <state-file>`.
+ * The pre-#745 whole-command skip matched the leading `git commit … -m`
+ * and returned `null` for the ENTIRE command (`[^|;]*` did not exclude
+ * `&`), so the chained mutation ran undetected. Segment-awareness skips
+ * ONLY the commit segment and runs mutation-detection on the rest.
+ *
+ * No false-positive regression (#745 AC): a state-file path MENTIONED
+ * inside a quoted commit message (`git commit -m "cleanup && rm <state>"`)
+ * is NOT split — the `&&` lives inside the double-quotes, so the whole
+ * command stays one segment. That segment matches the commit-body
+ * exception, so its QUOTED body is MASKED (not the whole segment skipped)
+ * before detection: the mentioned path/verb becomes filler and does not
+ * flag, while a REAL unquoted redirect/verb ON the commit line survives.
+ *
+ * Mask-instead-of-skip also closes the sibling of Evasion 1 — a redirect on
+ * the commit segment itself (`git commit -m "x" > <state>`): the earlier
+ * whole-segment skip let it through (same exploitation primitive as the
+ * chained `&&`, just `>` in place of the operator); masking exposes the
+ * unquoted redirect target to Layer-1 detection.
+ *
+ * F1/F2 (redteam-surfaced): masking assumes a quoted commit body is inert,
+ * but `$(…)`/backtick command-substitution EXECUTES inside double quotes and
+ * `$'…'` ANSI-C quoting desyncs the quote scan. When a commit segment
+ * contains any of those (`EXECUTES_INSIDE_QUOTES_RX`), detection fails closed
+ * by ALSO scanning the RAW (unmasked) segment — so `git commit -m "$(rm
+ * <state>)"` and `git commit -m $'\'' && rm <state>` block. The commit-body
+ * recognizer also accepts `-am`/attached-`-m`/`--message`/`--file` forms
+ * (F3), so a legit commit whose message merely mentions a verb + state path
+ * (`git commit -am "touch up <state> docs"`) is masked, not false-blocked.
+ *
+ * Evasion 2 (cd into the learning dir + bare-relative-path redirect) and a
+ * glob-metacharacter redirect target (`> …/posture.jso[n]`) are NOT closed
+ * here: they are the same accepted class as the `$IFS`/variable-path residual
+ * documented in `state-file-write-guard.md` Rule 5 § "Known residuals" (a)/
+ * (e)/(f) — the literal protected path is absent from the pre-expansion
+ * command string, so closing it at the path-matcher layer would require
+ * in-hook shell/glob expansion, forbidden by `hook-output-discipline.md`
+ * MUST-3. The forever-defense for those paths is the signed-fold /
+ * fail-closed-to-L1 integrity layer.
+ *
+ * Returns the first segment's `{ layer, kind }` hit, or `null`.
+ */
+function detectStateFileMutationSegmentAware(command, pathRx) {
+  if (!command || !pathRx) return null;
+  for (const segment of splitShellSegments(command)) {
+    if (GIT_COMMIT_WITH_BODY_RX.test(segment)) {
+      // Commit segment: mask its quoted message body (prose), then detect —
+      // so a real unquoted redirect/verb on the commit line still flags while
+      // a verb/path MENTIONED inside the quoted message does not.
+      const maskedHit = detectStateFileMutation(
+        maskQuotedSpans(segment),
+        pathRx,
+      );
+      if (maskedHit) return maskedHit;
+      // Fail-closed (#745 F1/F2): `$(…)` / backtick command-substitution
+      // EXECUTES inside double quotes, and `$'…'` desyncs the quote scan —
+      // masking wrongly treats these as inert. When present, re-scan the RAW
+      // (unmasked) segment so a mutation carried by the construct is caught.
+      if (EXECUTES_INSIDE_QUOTES_RX.test(segment)) {
+        const rawHit = detectStateFileMutation(segment, pathRx);
+        if (rawHit) return rawHit;
+      }
+    } else {
+      // Non-commit segment: detect as-is.
+      const hit = detectStateFileMutation(segment, pathRx);
+      if (hit) return hit;
+    }
+  }
+  // #764 item 3 — whole-command heredoc write+RUN-bundle pass. The per-segment
+  // loop above cannot see this class: `splitShellSegments` is not heredoc-aware,
+  // so the heredoc body's internal `;` fractures the write from the run across
+  // sibling segments. This pass reconstructs the heredoc structurally and
+  // matches the write→execute conjunction on the FULL command.
+  const bundleHit = detectHeredocWriteRunBundle(command, pathRx);
+  if (bundleHit) return bundleHit;
   return null;
 }
 
@@ -1152,5 +1968,8 @@ module.exports = {
   detectDeferredItemPickupWithoutRevalidation,
   detectGhIssueCloseAsNotPlanned,
   detectStateFileMutation,
+  detectStateFileMutationSegmentAware,
+  detectHeredocWriteRunBundle,
+  splitShellSegments,
   detectMust6Paraphrase,
 };

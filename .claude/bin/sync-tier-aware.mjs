@@ -146,8 +146,42 @@ function safeWriteSync(dest, data, encoding = null) {
   }
 }
 
+/**
+ * Symlink-safe single-source read (#636) — the READ-side twin of
+ * `safeWriteSync`. `fs.readFileSync(path)` follows a symlink at `path`;
+ * this helper opens with `O_RDONLY | O_NOFOLLOW` so a symlink planted at an
+ * artifact-SOURCE path raises ELOOP instead of silently reading the link's
+ * target bytes (a swapped-source read leaks out-of-tree content into the
+ * distribution). #569 hardened the EMIT lane's source reads
+ * (coc-manifest / emit / compose); this closes the DEPLOY lane's read-vs-write
+ * asymmetry (write side was already O_NOFOLLOW via safeWriteSync).
+ *
+ * Routed through it: every loom-INTERNAL artifact-SOURCE read — safeCopyFile's
+ * src read, verifyCopiedBytes' src read, composeOverlayContent's global+overlay
+ * reads, findStrippableVariantOnly, the write-time strip read, expectedCopyBytes,
+ * and the verify-lane variant_only source read.
+ *
+ * Deliberately NOT routed through it (per-site analysis, #636 AC):
+ *   - loadManifest (the committed MANIFEST config read) — config, not artifact;
+ *   - verifyWrittenText / verifyCopiedBytes DEST read — a file THIS process
+ *     just wrote via safeWriteSync (O_NOFOLLOW create); the post-write-verify
+ *     window is not meaningfully swappable;
+ *   - readConsumerVisibility / applyGitignoreAdditions — already fd-based
+ *     O_RDONLY|O_NOFOLLOW reads.
+ */
+function safeReadSync(src, encoding = null) {
+  const fd = fs.openSync(src, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  try {
+    return encoding === null
+      ? fs.readFileSync(fd)
+      : fs.readFileSync(fd, encoding);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 function safeCopyFile(src, dest) {
-  safeWriteSync(dest, fs.readFileSync(src));
+  safeWriteSync(dest, safeReadSync(src));
 }
 
 /**
@@ -165,7 +199,10 @@ function safeCopyFile(src, dest) {
  */
 function verifyCopiedBytes(src, dest) {
   try {
-    const srcBuf = fs.readFileSync(src);
+    // src is a loom-internal artifact source → O_NOFOLLOW (#636). dest was
+    // just written by safeWriteSync (O_NOFOLLOW create) this process — the
+    // post-write-verify read stays plain (documented exclusion in safeReadSync).
+    const srcBuf = safeReadSync(src);
     const destBuf = fs.readFileSync(dest);
     if (srcBuf.equals(destBuf)) return null;
     return `byte mismatch (src ${srcBuf.length}B vs dest ${destBuf.length}B)`;
@@ -399,15 +436,13 @@ function isStripEligible(relpath) {
  * Absent sources are the variant_only pass's own missing-file surface —
  * skipped here.
  *
- * Read-hardening note (R4 security-reviewer): this read — like every
- * loom-INTERNAL source read in this tool (safeCopyFile's src read,
- * composeOverlayContent, the write-time strip read) — is intentionally
- * NOT O_NOFOLLOW-guarded. The O_NOFOLLOW + size-cap hardening on
- * readConsumerVisibility / applyGitignoreAdditions exists because those
- * read CONSUMER-side files (TOCTOU surface); loom-side sources are
- * enumerated from walkClaudeDir / the committed manifest and a symlink
- * there would be a self-inflicted loom-tree defect, not an attack
- * vector. Dest-side WRITES are the guarded surface (safeWriteSync).
+ * Read-hardening note (#636, supersedes the R4 disposition): this read — like
+ * every loom-INTERNAL artifact-SOURCE read in this tool (safeCopyFile's src
+ * read, composeOverlayContent, the write-time strip read, expectedCopyBytes) —
+ * now routes through `safeReadSync` (O_RDONLY | O_NOFOLLOW). #569 hardened the
+ * EMIT lane's source reads; #636 closes the DEPLOY lane's read-vs-write
+ * asymmetry. A symlink at a loom-side source is refused (ELOOP) rather than
+ * silently read-through, mirroring the dest-side write guard (safeWriteSync).
  */
 function findStrippableVariantOnly(variantOnlyFiles) {
   const strippable = [];
@@ -415,9 +450,9 @@ function findStrippableVariantOnly(variantOnlyFiles) {
     const abs = path.join(REPO, vf.path);
     let buf;
     try {
-      buf = fs.readFileSync(abs);
+      buf = safeReadSync(abs);
     } catch {
-      continue; // absent → surfaced by the variant_only pass itself
+      continue; // absent / symlink (ELOOP) → surfaced by the variant_only pass itself
     }
     const text = buf.toString("utf8");
     if (!Buffer.from(text, "utf8").equals(buf)) continue; // binary
@@ -823,9 +858,15 @@ function isSlotKeyed(overlaySrc) {
  * not present in global, etc.) — the caller HALTS the write rather than ship a
  * mis-composed overlay.
  */
-function composeOverlayContent(globalAbs, overlayAbs, stripEnabled = true) {
-  const globalSrc = fs.readFileSync(globalAbs, "utf8");
-  const overlaySrc = fs.readFileSync(overlayAbs, "utf8");
+function composeOverlayContent(
+  globalAbs,
+  overlayAbs,
+  stripEnabled = true,
+  buildMode = false,
+) {
+  // #636 — loom-internal artifact sources read through O_NOFOLLOW.
+  const globalSrc = safeReadSync(globalAbs, "utf8");
+  const overlaySrc = safeReadSync(overlayAbs, "utf8");
   const slot_keyed = isSlotKeyed(overlaySrc);
   let raw;
   const warnings = [];
@@ -837,10 +878,12 @@ function composeOverlayContent(globalAbs, overlayAbs, stripEnabled = true) {
     raw = overlaySrc;
   }
   // USE strips BUILD-internal refs from the deployed bytes (so they equal
-  // verify-overlays' expected-md5). BUILD ships the composed overlay VERBATIM
-  // (stripEnabled false) — a BUILD repo legitimately names its own packages.
+  // verify-overlays' expected-md5) with the FULL transform. BUILD now strips
+  // the DISCLOSURE-only SUBSET (#673: buildMode → workspace paths + canon org
+  // slug) but PRESERVES the BUILD repo's own package/repo self-references — it
+  // no longer ships the composed overlay fully verbatim.
   const content = stripEnabled
-    ? stripBuildInternalReferences(raw).stripped
+    ? stripBuildInternalReferences(raw, { buildMode }).stripped
     : raw;
   return { content, slot_keyed, warnings };
 }
@@ -1553,6 +1596,71 @@ function findSwallowedArtifacts(dir, emittedRelPaths, runGit = defaultGitRunner)
 }
 
 // ────────────────────────────────────────────────────────────────
+// loom#710 — source-.gitignore honoring on the FS-walk emission
+// ────────────────────────────────────────────────────────────────
+/**
+ * Remove from `relPaths` (repo-root-relative, forward-slash) any path that
+ * loom's OWN source `.gitignore` ignores. The ALWAYS_INCLUDE walk
+ * (`.claude/hooks/**`, `.claude/bin/**`, …) is a raw filesystem walk: stray
+ * gitignored junk under those trees on the operator's disk (`.DS_Store`,
+ * an all-commented `.env` template) would otherwise be swept into the
+ * distribution and written to EVERY consumer. A source-gitignored file MUST
+ * NEVER enter the distribution (loom#710); the Rule-6 swallowed-artifact gate
+ * (loom#676) stays the downstream backstop, but the fix is to never emit, not
+ * to force-track downstream (which would make `.env`/`.DS_Store` git-tracked
+ * at 30+ consumers — a `security.md` "No .env in Git" violation).
+ *
+ * Fail-safe (mirrors findSwallowedArtifacts + evidence-first-claims MUST-3):
+ *   - git RAN and reported non-repo (exit 128 "not a git repository") →
+ *     no source `.gitignore` semantics → structural no-op, return all
+ *     (covers a synthetic `--out`/test REPO that is not a git checkout);
+ *   - check-ignore exit 1 → NONE ignored → return all;
+ *   - check-ignore exit 0 → remove the listed (echoed verbatim as fed);
+ *   - ANY other error (git missing, exit 128 inside a repo, transient FS) →
+ *     THROW. An errored ignore-detector is NOT an all-clear: refusing to
+ *     report clean is the only way to honor "never emit source-ignored".
+ */
+function filterSourceIgnored(repoDir, relPaths, runGit = defaultGitRunner) {
+  if (!relPaths || relPaths.length === 0) return relPaths || [];
+  // Precondition: is repoDir a git repo? Distinguish a GENUINE non-repo
+  // (legitimate structural no-op) from a detector-could-not-run failure.
+  try {
+    runGit(["-C", repoDir, "rev-parse", "--git-dir"], {
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+  } catch (e) {
+    const stderr = e && e.stderr != null ? String(e.stderr) : "";
+    if (e && e.status === 128 && /not a git repository/i.test(stderr)) {
+      return relPaths.slice(); // git RAN and reported non-repo — no .gitignore to honor
+    }
+    throw new Error(
+      `filterSourceIgnored: source-gitignore filter could NOT run at ${repoDir} ` +
+        `— git rev-parse failed (${e && e.code ? e.code : "status " + (e && e.status)})` +
+        `${stderr ? ": " + stderr.trim() : ""}; refusing to emit unfiltered ` +
+        `(could ship a source-ignored file per loom#710 — detector status UNKNOWN ` +
+        `per evidence-first-claims MUST-3).`,
+    );
+  }
+  let out = "";
+  try {
+    out = runGit(["-C", repoDir, "check-ignore", "--stdin"], {
+      input: relPaths.join("\n") + "\n",
+      encoding: "utf8",
+    });
+  } catch (e) {
+    if (e.status === 1) return relPaths.slice(); // none ignored — emit all
+    throw e; // genuine git error in a git repo — surface, never emit-unfiltered
+  }
+  const ignored = new Set(
+    out
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
+  return relPaths.filter((p) => !ignored.has(p));
+}
+
+// ────────────────────────────────────────────────────────────────
 // Walk loom/.claude/ — emit every file relative to repo root.
 // ────────────────────────────────────────────────────────────────
 function walkClaudeDir() {
@@ -1576,7 +1684,9 @@ function walkClaudeDir() {
       }
     }
   }
-  return out.sort();
+  // loom#710 — never emit a file loom's OWN source .gitignore ignores
+  // (.DS_Store / .env junk under an always-include tree must not ship).
+  return filterSourceIgnored(REPO, out.sort());
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -1653,11 +1763,16 @@ function buildPlan(manifest, target, templateFilter, mode = "use") {
   const purgeList = isBuild
     ? parseList(sliceBlock(manifest, "obsoleted"))
     : parseList(sliceBlock(manifest, "use_obsoleted"));
-  // BUILD ships VERBATIM (no strip-build-internal rewrite): a BUILD repo
-  // legitimately names its own packages/workspaces, and stripping would
-  // rewrite `kailash-py` → generic ON kailash-py. USE strips (downstream
-  // consumers must not see loom-internal references).
-  const stripEnabled = !isBuild;
+  // Strip is active on BOTH lanes (#673). USE applies the FULL transform
+  // (downstream consumers must not see any loom-internal reference). BUILD
+  // applies the DISCLOSURE-only SUBSET (`stripBuildMode`): loom-internal
+  // workspace paths + the canon org slug are stripped, but the BUILD repo's
+  // own `packages/<repo>` / `crates/<repo>` / sibling `.claude/` self-references
+  // ship VERBATIM (stripping `kailash-py` → generic ON kailash-py would corrupt
+  // the repo's own names — the F11 reason BUILD shipped fully verbatim before;
+  // the F11 follow-up #673 narrows that to a self-reference-preserving subset).
+  const stripEnabled = true;
+  const stripBuildMode = isBuild;
   // BUILD applies the language variant overlay ONLY when the target declares
   // build_variant_overlay: true (per-target policy, F11; e.g. rs needs
   // Rust-flavored content, py uses the Python-native global). USE always
@@ -1779,8 +1894,10 @@ function buildPlan(manifest, target, templateFilter, mode = "use") {
     // #475 — plan-visible strip eligibility (path half of the classifier).
     // The content half (utf8 round-trip + rewrite-fired) is decided at
     // write time in executePlan; eligibility here makes the disposition
-    // inspectable in --dry-run / --json before any write. BUILD ships
-    // verbatim → never strip (stripEnabled false → strip omitted).
+    // inspectable in --dry-run / --json before any write. #673 — BUILD no
+    // longer ships verbatim: stripEnabled is true on BOTH lanes, so BUILD
+    // copy files ARE strip-eligible; the buildMode disclosure-only SUBSET
+    // (vs USE's full transform) is applied at write time via strip_build_mode.
     if (entry.action === "copy") entry.strip = stripEnabled && isStripEligible(f);
     files.push(entry);
   }
@@ -1800,11 +1917,18 @@ function buildPlan(manifest, target, templateFilter, mode = "use") {
       ? expandVariantOnly(allFiles, repo.variant, variantOnlyMap[repo.variant] || [])
       : { files: [], missing: [] };
 
-  // #475 D5 — variant_only strip-dirty gate. Only meaningful when the lane
-  // STRIPS (USE): a strippable variant_only source would carry BUILD-internal
-  // refs into a stripped surface verbatim. BUILD ships verbatim by design, so
-  // a "strippable" source is not a leak there — skip the gate (empty).
-  const variantOnlyStrippable = stripEnabled
+  // #475 D5 — variant_only strip-dirty gate. USE-lane only (gate fires the
+  // FULL strip against verbatim-copied variant_only ADDITIONS). The gate stays
+  // USE-scoped (`!isBuild`) even though #673 now strips BUILD copy-globals +
+  // overlays: variant_only ADDITIONS are raw-copied verbatim on BOTH lanes
+  // (#427 H9 byte-equal contract — no strip pass ever touches them), so a
+  // BUILD variant_only source carrying a workspace/org token is a residual
+  // (pre-existing, unchanged by #673; only build_variant_overlay=true repos
+  // ship variant_only additions, and #673's copy-global+overlay subset is what
+  // the issue scopes). Flipping this gate to BUILD would newly hard-fail any rs
+  // BUILD sync whose variant_only source carries a buildSafe token — out of
+  // scope here; the in-tool gate covers the strip-PATH surfaces #673 names.
+  const variantOnlyStrippable = !isBuild
     ? findStrippableVariantOnly(variantOnlyFiles)
     : [];
 
@@ -1836,6 +1960,9 @@ function buildPlan(manifest, target, templateFilter, mode = "use") {
     variant: repo.variant,
     build_variant_overlay: applyVariantOverlay,
     strip_enabled: stripEnabled,
+    // #673 — false = USE full strip; true = BUILD disclosure-only subset
+    // (workspace paths + canon org slug; package/repo self-refs preserved).
+    strip_build_mode: stripBuildMode,
     tier_subscriptions: repo.tier_subscriptions,
     templates: targetRepoNames,
     files,
@@ -1865,7 +1992,8 @@ function classifyFile(
   loomOnly = [],
   mode = "use",
 ) {
-  // 1. Always-include — wins over everything except loom-local.
+  // 1. Always-include — wins over tier/class-exclude/no-tier-match, but NOT
+  //    over loom-local, loom_only, or a universal `exclude` (see step 3).
   const alwaysInc = matchesAny(relpath, ALWAYS_INCLUDE);
   // 2. Loom-local — universal skip (gitignored operator config).
   if (matchesAny(relpath, LOOM_LOCAL_PATTERNS)) {
@@ -1879,12 +2007,23 @@ function classifyFile(
   if (matchesAnyManifestGlob(relpath, loomOnly)) {
     return { action: "skip", reason: "loom_only" };
   }
-  if (alwaysInc) {
-    return { action: "copy", reason: "always_include" };
-  }
-  // 3. exclude (universal).
+  // 3. exclude (universal) — checked BEFORE always-include so an explicitly
+  // excluded file is never force-shipped. ALWAYS_INCLUDE guarantees the
+  // runtime trees (hooks/**, hooks/lib/**, bin/**) are present at every
+  // consumer; it MUST NOT override a universal exclude such as
+  // `**/*.test.mjs` (loom's own node:test unit tests live under bin/** but
+  // are build-internal — the SAME "consumers do not run loom's tests" class
+  // as test-harness/**). The only always-include paths that also match a
+  // universal exclude glob are those test files (+ a stray `**/.env`),
+  // exactly the files that SHOULD be skipped — so this reorder has no
+  // collateral on the runtime trees ALWAYS_INCLUDE exists to guarantee.
+  // (Class-exclude / use_exclude stays AFTER always-include below — its
+  // current precedence is unchanged; only the universal exclude moved up.)
   if (matchesAnyManifestGlob(relpath, exclude)) {
     return { action: "skip", reason: "exclude" };
+  }
+  if (alwaysInc) {
+    return { action: "copy", reason: "always_include" };
   }
   // 4. Class exclude — USE lane: use_exclude (BUILD-only files skipped here);
   //    BUILD lane: build_exclude (USE-only files skipped here). The reason
@@ -2079,10 +2218,14 @@ function executePlan(plan, outOverride, dryRun) {
         // template converges).
         let strippedWrite = null;
         if (f.strip === true && !variantOnlyDestRel.has(f.path)) {
-          const srcBuf = fs.readFileSync(src);
+          const srcBuf = safeReadSync(src); // #636 — O_NOFOLLOW source read
           const text = srcBuf.toString("utf8");
           if (Buffer.from(text, "utf8").equals(srcBuf)) {
-            const { stripped } = stripBuildInternalReferences(text);
+            // #673 — BUILD uses the disclosure-only subset (plan.strip_build_mode);
+            // USE uses the full transform (strip_build_mode false).
+            const { stripped } = stripBuildInternalReferences(text, {
+              buildMode: plan.strip_build_mode === true,
+            });
             if (stripped !== text) strippedWrite = stripped;
           }
         }
@@ -2178,7 +2321,12 @@ function executePlan(plan, outOverride, dryRun) {
       shippedDests.add(dest); // MED-1: a same-plan write owns this path
       let composed;
       try {
-        composed = composeOverlayContent(globalAbs, overlayAbs, plan.strip_enabled);
+        composed = composeOverlayContent(
+          globalAbs,
+          overlayAbs,
+          plan.strip_enabled,
+          plan.strip_build_mode === true, // #673 BUILD disclosure-only subset
+        );
       } catch (e) {
         // A compose failure (slot missing in global, etc.) is a manifest-vs-
         // source defect — HALT rather than ship a mis-composed overlay.
@@ -2335,12 +2483,14 @@ function executePlan(plan, outOverride, dryRun) {
  * a fixed point: a divergence between this and the write path is itself a
  * bug the apply→verify regression test catches.
  */
-function expectedCopyBytes(srcAbs, strip) {
-  const srcBuf = fs.readFileSync(srcAbs);
+function expectedCopyBytes(srcAbs, strip, buildMode = false) {
+  const srcBuf = safeReadSync(srcAbs); // #636 — O_NOFOLLOW source read
   if (strip === true) {
     const text = srcBuf.toString("utf8");
     if (Buffer.from(text, "utf8").equals(srcBuf)) {
-      const { stripped } = stripBuildInternalReferences(text);
+      // #673 — mirror the write path's buildMode so apply↔verify is a fixed
+      // point on BOTH lanes (BUILD subset strip + USE full strip).
+      const { stripped } = stripBuildInternalReferences(text, { buildMode });
       if (stripped !== text) return Buffer.from(stripped, "utf8");
     }
   }
@@ -2409,7 +2559,12 @@ function verifyConsistency(plan, outOverride) {
       }
       r.checked++;
       inPlanDestsRel.push(path.relative(dir, dest));
-      _compareExpected(r, dest, expectedCopyBytes(src, f.strip === true), f.path);
+      _compareExpected(
+        r,
+        dest,
+        expectedCopyBytes(src, f.strip === true, plan.strip_build_mode === true),
+        f.path,
+      );
     }
     for (const vf of plan.variant_only || []) {
       const src = path.join(REPO, vf.path);
@@ -2421,7 +2576,7 @@ function verifyConsistency(plan, outOverride) {
       }
       r.checked++;
       inPlanDestsRel.push(path.relative(dir, dest));
-      _compareExpected(r, dest, fs.readFileSync(src), vf.dest);
+      _compareExpected(r, dest, safeReadSync(src), vf.dest); // #636 — O_NOFOLLOW source read
     }
     for (const ov of plan.overlays || []) {
       const globalAbs = path.join(REPO, ov.global_path);
@@ -2434,7 +2589,12 @@ function verifyConsistency(plan, outOverride) {
       }
       let composed;
       try {
-        composed = composeOverlayContent(globalAbs, overlayAbs, plan.strip_enabled);
+        composed = composeOverlayContent(
+          globalAbs,
+          overlayAbs,
+          plan.strip_enabled,
+          plan.strip_build_mode === true, // #673 BUILD disclosure-only subset
+        );
       } catch (e) {
         fail(1, `verify overlay compose failed for ${ov.overlay_path}: ${e.message}`);
       }
@@ -2916,6 +3076,7 @@ export {
   classifyFile,
   buildPlan,
   safeJoinUnder,
+  safeReadSync,
   snapshotUntrackedFiles,
   verifyCopiedBytes,
   rejectUnsafePurgeEntry,
@@ -2925,6 +3086,7 @@ export {
   readConsumerVisibility,
   effectiveGitignoreAdditions,
   findSwallowedArtifacts,
+  filterSourceIgnored,
   rejectUnsafeGitignoreEntry,
   composeGitignoreBlock,
   findGitignoreBlock,

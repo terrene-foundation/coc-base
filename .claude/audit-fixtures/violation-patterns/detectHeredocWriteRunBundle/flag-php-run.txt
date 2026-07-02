@@ -1,0 +1,4 @@
+cat > s.php <<'EOF'
+<?php file_put_contents(".claude/learning/posture.json","{}");
+EOF
+php s.php

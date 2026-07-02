@@ -60,6 +60,17 @@ Verbatim receipts (MUST-2) MUST be **scrubbed** before embedding in PR descripti
 
 **Why:** Receipts in PR descriptions / commit bodies / session notes enter loom's git history and propagate to 30+ downstream consumer repos via `/sync`; once on the public record, redaction is partial. Scrubbing specific substrings does not reduce evidential value but blocks the disclosure-class failure mode.
 
+### 7. Write / Side-Effecting Surfaces Need Boundary-Injected Fixtures Per Failure-Mode Class
+
+When a deliverable WRITES or causes a side effect (mutates state, emits to an external target, takes a consequential action beyond its return value), the walk (MUST-1) MUST include automated fixtures that INJECT that boundary and exercise each failure-mode class — **(a)** refusal at the boundary, **(b)** exception mid-operation, **(c)** corrupt / partial persisted state on re-entry, **(d)** unauthorized / out-of-envelope action — not only the pure-function core. A green unit suite over the pure core is NOT convergence evidence for the write surface; a fixture green while asserting the WRONG invariant is a covered failure, not a pass.
+
+```text
+# DO — one injected-boundary fixture per class (a)-(d): refused → no partial land; mid-run exception → full rollback; corrupt state → refuse-to-start; unauthorized → blocked before the boundary
+# DO NOT — "unit fixtures pass over the pure core → converged" (every fixture sat on the safe side of the boundary)
+```
+
+**Why:** Defects concentrate at the I/O boundary while a pure-core suite reports green on the safe side of it — boundary-injection per failure-mode class is the only fixture shape that makes write-surface regressions mechanically detectable. Full DO/DO-NOT + BLOCKED corpus + Origin in the walk-discipline skill; the fixture-existence half is `cc-artifacts.md` Rule 9.
+
 **MUST-3 (walk distinguishes failure modes tests cannot) + MUST-5 (the walk caps every deliverable — it is the LAST gate before "done" applies, even when all prior gates are green)** — full clauses + DO/DO-NOT in the skill. A passing test next to a broken user walk is institutional theatre; fix the failure mode the walk surfaces, do not declare done because the test passed.
 
 ## MUST NOT

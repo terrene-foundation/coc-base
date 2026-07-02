@@ -237,6 +237,47 @@ function classify(tool, toolInput) {
   return null;
 }
 
+/**
+ * #448 (F128 #445 walk residual) — attribute the EMITTING agent.
+ *
+ * CC populates top-level `agent_id` / `agent_type` in the PreToolUse hook input
+ * ONLY when the tool call originates INSIDE a subagent (Task/Agent) call; for a
+ * main-agent call both are absent. EMPIRICALLY CONFIRMED 2026-06-30 (the
+ * journal/0224-mandated #448 acceptance re-walk): a live general-purpose
+ * subagent's Write captured `agent_id`=<instance-hex> / `agent_type`=
+ * "general-purpose" in the ledger; the same session's main-agent events
+ * captured neither — receipt journal/0370. (The test suite's "plumbing" cases
+ * INJECT these fields to prove the merge path; the live subagent walk is what
+ * proves CC supplies them.)
+ *
+ * Embedding them in the FREE-FORM `payload` (NOT a new top-level EVENT_KEYS
+ * field) records per-subagent attribution with NO `schema_version` bump — the
+ * F120 csq seam (provenance-event.js EVENT_KEYS, schema_version:1) stays
+ * byte-frozen, and a credential-shaped-key scan accepts `agent_id`/`agent_type`
+ * (neither is in the `_secret|_token|…|_key` suffix family). A main-agent call
+ * leaves payload unchanged, so a subagent-internal Action/Decision/Delegation
+ * is now field-distinguishable from a parent one.
+ *
+ * Captured but NOT decoded: agent_id/agent_type live in the free-form payload,
+ * so csq's deriveSurface (provenance-event.js) does not surface them unless csq
+ * opts into reading `payload.agent_id` (contrast `subagent_type`, which
+ * deriveSurface reads). loom owns FORMAT; csq decides what it decodes.
+ *
+ * Mutates-and-returns `payload` (testable). Skips non-string/empty values so a
+ * malformed hook input never injects a non-string attribution key.
+ */
+function attachAgentAttribution(payload, hookInput) {
+  if (!payload || typeof payload !== "object") return payload;
+  const hi = hookInput && typeof hookInput === "object" ? hookInput : {};
+  if (typeof hi.agent_id === "string" && hi.agent_id) {
+    payload.agent_id = hi.agent_id;
+  }
+  if (typeof hi.agent_type === "string" && hi.agent_type) {
+    payload.agent_type = hi.agent_type;
+  }
+  return payload;
+}
+
 function main() {
   fallback = setTimeout(() => {
     try {
@@ -252,6 +293,11 @@ function main() {
       passthrough();
       return;
     }
+
+    // #448: attribute the emitting subagent (payload-embedded; no schema bump).
+    // agent_id/agent_type are top-level PreToolUse fields, present only inside a
+    // subagent call — classify() sees only tool_input, so attach here in main().
+    attachAgentAttribution(classified.payload, payload);
 
     const mainCheckout = resolveMainCheckoutSafely(PROJECT_DIR);
     const identity = resolveIdentitySafely(mainCheckout);
@@ -298,5 +344,6 @@ if (require.main === module) {
   main();
 }
 
-// Exported for the test harness (classify is the load-bearing kind-dispatch).
-module.exports = { classify, JOURNAL_DECISION_RE };
+// Exported for the test harness (classify is the load-bearing kind-dispatch;
+// attachAgentAttribution is the #448 per-subagent attribution merge).
+module.exports = { classify, attachAgentAttribution, JOURNAL_DECISION_RE };

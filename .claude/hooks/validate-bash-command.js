@@ -20,7 +20,11 @@ const {
   logObservation: logLearningObservation,
 } = require("./lib/learning-utils");
 const { instructAndWait } = require("./lib/instruct-and-wait");
-const { detectStateFileMutation } = require("./lib/violation-patterns");
+const {
+  detectStateFileMutationSegmentAware,
+} = require("./lib/violation-patterns");
+const { isCoordinationEnabled } = require("./lib/coordination-mode");
+const { resolveMainCheckout } = require("./lib/state-resolver");
 
 // Timeout handling for PreToolUse hooks (5 second limit)
 const TIMEOUT_MS = 5000;
@@ -371,7 +375,9 @@ function validateBashCommand(data) {
   // Protected paths:
   //   .claude/learning/posture.json, posture.json.bak, posture.json.tmp.N
   //   .claude/learning/violations.jsonl, violations.jsonl.*
+  //   .claude/learning/observations.jsonl, observations.jsonl.*
   //   .claude/learning/coordination-log.jsonl   (iter-4 MED-R4-3)
+  //   .claude/learning/presence-mechanism.json  (#583 residual b)
   //   .claude/learning/.initialized
   //   .claude/operators.roster.json             (iter-4 MED-R4-3)
   //
@@ -385,9 +391,17 @@ function validateBashCommand(data) {
   // bypasses every coordination invariant.
   //
   // Commit-message exception: `git commit -m "..."` or `git commit -F path`
-  // bodies are documentation prose, not executable commands. Skip detection
-  // entirely for those (segment-anchor isn't sufficient — the body can span
-  // many lines containing arbitrary shell-like syntax as documentation).
+  // bodies are documentation prose, not executable commands. Detection is
+  // skipped for the COMMIT SEGMENT ONLY, segment-awarely (#745): the command
+  // is split on top-level UNQUOTED `&&`/`||`/`;`/`|`, the git-commit-body
+  // exception applies per-segment, and mutation-detection runs on every
+  // OTHER segment. This closes #745 Evasion 1 (`git commit -m x && rm
+  // <state>`, which the prior whole-command skip let through because
+  // `[^|;]*` did not exclude `&`) WITHOUT re-exposing the false positive a
+  // naive split would (`git commit -m "… && rm <state>"` — the `&&` is
+  // inside the quotes, so it is NOT a split point and the whole command
+  // stays one skipped commit segment). See violation-patterns.js
+  // ::detectStateFileMutationSegmentAware + state-file-write-guard.md Rule 5.
   // M5 iter-6 Sec-MED-A2: extended to cover .heartbeat-cache and
   // .session-end-cache. Pre-iter-6 these two M5-substrate cache files
   // had no Layer-1 redirect-detector coverage AND no deny-matrix entry,
@@ -397,14 +411,54 @@ function validateBashCommand(data) {
   // would coalesce future heartbeats under the attacker's seq number.
   // Paired with the readCache identity-guard in adjacency-heartbeat.js
   // (rejects cache whose verified_id ≠ current operator).
+  //
+  // #583 residual (b): extended to cover presence-mechanism.json — the config
+  // that flips the actuation presence-gate from advisory (A3-staged) to
+  // hard-refusal (actuation-types.js::isPresenceMechanismConfigured). It is a
+  // human / out-of-band-only config; an in-process/LLM caller writing it could
+  // self-define a trivially-satisfiable presence mechanism and then mint
+  // attestations that pass its own gate — the identity-≠-intent mintability
+  // hole #583 closes, one layer deeper. Hard-denied at BOTH the file-tool layer
+  // (settings.json Edit/Write/NotebookEdit deny) AND this Bash layer; NOT routed
+  // through integrity-guard's /codify-lease flow (it is not codify-authored).
+  //
+  // observations.jsonl (Bash-layer parity with violations.jsonl): closes a
+  // Bash-mutation gap surfaced empirically 2026-07-02. observations.jsonl and
+  // violations.jsonl are declared SAME-CLASS by knowledge-convergence.md MUST-6
+  // (both MUST route through appendStamped(); an unsigned line cannot be
+  // attributed to a human), and integrity-guard.js watches BOTH for Edit/Write —
+  // but this Bash-mutation guard protected only violations.jsonl, so a
+  // `node -e "fs.appendFileSync('.claude/learning/observations.jsonl', <unsigned>)"`
+  // bypassed the signing invariant and injected an unsigned, unattributable
+  // observation — corrupting the attribution/posture signal (an unsigned line
+  // cannot be attributed to a human). It ALSO feeds trust-posture.md Rule 5 #3
+  // upgrade evidence ("logged as positive observation"), but that upgrade path is
+  // AND-gated on a human challenge-nonce the agent cannot mint (Rule 5 #4), so the
+  // durable harm is attribution-signal corruption, NOT self-promotion (R1
+  // security-reviewer Finding 1). The legitimate writer (learning-utils.js::logObservation) is
+  // an in-process fs.appendFileSync inside the hooks — NOT a Bash tool call — so
+  // it is unaffected; the codify-backlog.mjs reader names the path in its script
+  // BODY (residual (c) — not on the command line), so it is unaffected too.
+  //
+  // operators.roster.schema.json (Bash-layer parity with operators.roster.json):
+  // closes a DIRECT-set↔STATE_PATH_RX asymmetry surfaced by reviewer LOW-1 during
+  // the PR #758 redteam (#761). The schema is the roster VALIDATION contract —
+  // integrity-guard.js watches it in DIRECT (Edit/Write layer, per F67), but this
+  // Bash-mutation guard covered only operators.roster.json, so a
+  // `node -e "fs.writeFileSync('.claude/operators.roster.schema.json', <weakened>)"`
+  // bypassed the Bash layer and could silently relax the trust-root contract
+  // (drop propertyNames prototype-pollution rejection, relax the GPG-fingerprint
+  // constraint, add a host_role synonym). UNCONDITIONAL, exactly like its
+  // operators.roster.json sibling: the schema's legitimate writers are /codify
+  // Edit/Write (fenced by integrity-guard's codify-branch+lease) and /sync —
+  // NEVER a Bash node -e — so a flat Bash block over-blocks nothing. (Distinct
+  // from coordination-mode.json below, which DOES need enrolled-vs-solo gating.)
   const STATE_PATH_RX =
-    /\.claude\/(?:learning\/(?:posture\.json(?:\.bak|\.tmp\.\d+)?|violations\.jsonl(?:\.[A-Za-z0-9_-]+)?|coordination-log\.jsonl|\.initialized|\.heartbeat-cache(?:[A-Za-z0-9_.-]*)?|\.session-end-cache(?:[A-Za-z0-9_.-]*)?)|operators\.roster\.json)\b/;
-  const isGitCommitWithBody = /^\s*git\s+commit\b[^|;]*(?:\s-m\s|\s-F\s)/.test(
+    /\.claude\/(?:learning\/(?:posture\.json(?:\.bak|\.tmp\.\d+)?|violations\.jsonl(?:\.[A-Za-z0-9_-]+)?|observations\.jsonl(?:\.[A-Za-z0-9_-]+)?|coordination-log\.jsonl|presence-mechanism\.json|\.initialized|\.heartbeat-cache(?:[A-Za-z0-9_.-]*)?|\.session-end-cache(?:[A-Za-z0-9_.-]*)?)|operators\.roster\.(?:json|schema\.json))\b/;
+  const stateFileMutation = detectStateFileMutationSegmentAware(
     command,
+    STATE_PATH_RX,
   );
-  const stateFileMutation = isGitCommitWithBody
-    ? null
-    : detectStateFileMutation(command, STATE_PATH_RX);
   if (stateFileMutation) {
     try {
       logLearningObservation(cwd, "rule_violation", {
@@ -425,6 +479,76 @@ function validateBashCommand(data) {
         "Do not retry. State-file mutations route through the /posture command (challenge-nonce gated), never directly.",
       user_summary: `state-file mutation blocked (Layer ${stateFileMutation.layer})`,
     };
+  }
+
+  // BLOCK (conditional): coordination-mode.json Bash mutation on an ENROLLED repo.
+  //
+  // #761 (reviewer LOW-1, PR #758 redteam): coordination-mode.json is the opt-in
+  // override. integrity-guard.js watches it in DIRECT (Edit/Write layer), but this
+  // Bash guard did not — so on an enrolled repo a
+  // `node -e "fs.writeFileSync('.claude/learning/coordination-mode.json','{\"enabled\":false}')"`
+  // bypassed the Bash layer and could silently flip the substrate off.
+  //
+  // UNLIKE roster.schema.json above, a FLAT STATE_PATH_RX add here would OVER-BLOCK
+  // a solo consumer's own Bash-lane write to coordination-mode.json (their opt-in
+  // escape hatch). So THIS Bash guard is enrolled-vs-solo asymmetric, mirroring
+  // integrity-guard's W1-b: block the Bash mutation ONLY when
+  // isCoordinationEnabled(mainCheckout) is true; on a solo/OFF repo this guard passes
+  // through (it does not block the Bash write). SCOPE NOTE: "passes through" is about
+  // THIS Bash lane only — the Edit/Write file-tool lane is governed by integrity-guard's
+  // DIRECT set (which is ITSELF enrolled-vs-solo asymmetric: it passes through on a
+  // solo/OFF repo and blocks off-codify Edit/Write only when enrolled). #762 (2026-07-02,
+  // option a) DROPPED coordination-mode.json from settings.json permissions.deny precisely
+  // so the file-tool lane matches this Bash guard's conditional model: on a solo repo the
+  // consumer may Edit/Write their opt-in escape hatch freely (integrity-guard passthrough,
+  // no settings deny); on an enrolled repo integrity-guard's DIRECT set blocks the
+  // off-codify write. Both lanes are now solo-writable / enrolled-gated — no unconditional
+  // file-tool deny remains.
+  //
+  // The enrolled block here is DEFENSE-IN-DEPTH, not the load-bearing fence: even if a
+  // `{enabled:false}` Bash write LANDS on an enrolled repo, the substrate stays ON
+  // because coordination-mode.js's asymmetric-precedence predicate (_refuseLocalDisable)
+  // REFUSES to honor a local {enabled:false} on an enrolled repo at resolution time.
+  // This Bash guard just stops the write from landing at all. That is why fail-OPEN on
+  // a resolution error is acceptable: the real fence (the precedence refusal) plus the
+  // Edit/Write DIRECT-set fence both remain. We wrap isCoordinationEnabled in try/catch
+  // defensively — integrity-guard asserts it "never throws" and calls it bare, but this
+  // belt-and-suspenders Bash layer fails open regardless, so a future throw degrades
+  // only this DEPTH layer, never the primary controls.
+  let coordEnabled = false;
+  try {
+    const mainCwd = resolveMainCheckout(cwd) || cwd;
+    coordEnabled = isCoordinationEnabled(mainCwd) === true;
+  } catch {
+    coordEnabled = false; // fail-open (aligned with integrity-guard passthrough)
+  }
+  if (coordEnabled) {
+    const COORD_MODE_RX = /\.claude\/learning\/coordination-mode\.json\b/;
+    const coordMutation = detectStateFileMutationSegmentAware(
+      command,
+      COORD_MODE_RX,
+    );
+    if (coordMutation) {
+      try {
+        logLearningObservation(cwd, "rule_violation", {
+          rule: "multi-operator-coordination/coordination-mode-bash-mutation",
+          layer: coordMutation.layer,
+        });
+      } catch {}
+      return {
+        severity: "block",
+        what_happened: `Bash command attempts to mutate the coordination opt-in override on an ENROLLED repo (Layer ${coordMutation.layer}: ${coordMutation.kind}): ${command.slice(0, 120)}`,
+        why: "multi-operator-coordination/coordination-mode — on an enrolled repo, .claude/learning/coordination-mode.json is owned by the /codify flow (integrity-guard DIRECT set); a Bash write off-codify could silently disable the substrate. Bash-layer parity with integrity-guard's Edit/Write coverage (#761). Solo repos are unaffected (this branch fires only when coordination is enabled).",
+        agent_must_report: [
+          "Quote the exact bash command that was attempted",
+          "State whether you intended to read, debug, or change the coordination mode",
+          "If reading: use `cat` (allowed); if changing: coordination-mode is a /codify-flow (codify-branch + lease) edit on an enrolled repo, never a direct Bash write",
+        ],
+        agent_must_wait:
+          "Do not retry. On an enrolled repo, coordination-mode changes route through the /codify flow (integrity-guard codify-branch + covering lease), never a direct Bash write.",
+        user_summary: `coordination-mode Bash mutation blocked on enrolled repo (Layer ${coordMutation.layer})`,
+      };
+    }
   }
 
   // BLOCK: Dangerous commands (with evasion-resistant patterns)

@@ -159,10 +159,27 @@ function parseMaybeJson(raw) {
       guardOpts.authority = o1Authority.trim();
     }
 
-    // Injected disclosure findings (tests). Production wiring of the SHIPPED
-    // scan-synced-disclosure surface lands with AC-2's intake path (#576).
+    // Injected disclosure findings (tests) take precedence over the scan: when
+    // an explicit findings array is supplied, checkForkIdentifyingContent's
+    // findings branch wins and the scanFn does not run.
     const injectedFindings = parseMaybeJson(process.env.COC_XECO_FINDINGS_JSON);
     if (Array.isArray(injectedFindings)) guardOpts.findings = injectedFindings;
+
+    // The fork->canon write SURFACE to disclosure-scan (the AC-2 production path,
+    // #576 Shard D). Supplied via the COC_XECO_SCAN_CONTENT env — the channel the
+    // deferred sync-from-canon driver (#576) uses to thread the pulled surface
+    // through the guard, mirroring how every other guard opt is injected here
+    // (see the hook header's ENV OVERRIDES note). ABSENT it, no scannable surface
+    // reaches the guard and the lib's default scanFn returns ran:false ->
+    // checkForkIdentifyingContent fails CLOSED (the inherited invariant), so an
+    // ordinary declared-target write with no surface still blocks-as-unverified.
+    // Deliberately NOT read from payload.tool_input.content: scanning every
+    // declared-target Edit/Write body would change the fail-closed semantics of
+    // the no-surface case; the driver/tests opt in explicitly via this env.
+    const scanContent = process.env.COC_XECO_SCAN_CONTENT;
+    if (typeof scanContent === "string" && scanContent !== "") {
+      guardOpts.content = scanContent;
+    }
 
     // A repo-scope-discipline.md:30 User-Authorized Exception grant, if present,
     // is surfaced to the lib so the audit trail records "grant present but NOT

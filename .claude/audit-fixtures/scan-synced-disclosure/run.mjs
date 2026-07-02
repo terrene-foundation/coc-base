@@ -239,6 +239,22 @@ const CASES = [
     expectShapes: ["operator-home-path"],
   },
   {
+    // 2026-07-01 bin/*.test.mjs disclosure-leak fix: the `*.test.mjs`
+    // exclusion in `isExcluded()` scopes to `REPO_ROOT_ACTIVE === REPO_ROOT`
+    // (loom-source-scan only), mirroring the `.local.json` flip above. loom's
+    // own bin unit tests legitimately embed synthetic disclosure shapes; at
+    // source they are skipped (and never-synced per `**/*.test.mjs`), but a
+    // `*.test.mjs` that LEAKS to a consumer IS the disclosure event — so a
+    // destination scan MUST flag it. The fixture plants a synthetic
+    // `bin/sample.test.mjs` carrying a `/Users/fakeuser/...` home-path; it
+    // MUST flag at the destination scan. If the skip ever becomes
+    // unconditional, this case flips to exit 0 and the suite goes red.
+    name: "test-mjs-destination-flip",
+    dir: "test-mjs-destination-flip",
+    expectExit: 1,
+    expectShapes: ["operator-home-path"],
+  },
+  {
     // F77 good (#386): a synced .claude/settings.json with NO operator-PII
     // paths in permissions.allow/deny — every tool-call matcher uses a
     // relative or $CLAUDE_PROJECT_DIR-rooted path. The new

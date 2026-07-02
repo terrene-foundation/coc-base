@@ -52,6 +52,7 @@ At gates (end of `/todos`, before `/deploy`), ask:
 - "Does this cover everything you described in your brief?"
 - "Is anything here that you didn't ask for or don't want?"
 - "Is anything missing that you expected to see?"
+- "Does the order or sequence make sense?"
 
 ## MUST NOT
 

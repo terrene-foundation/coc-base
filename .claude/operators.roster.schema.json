@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://terrene.foundation/schemas/operators.roster.schema.json",
   "title": "Multi-Operator COC roster (operators.roster.json)",
-  "description": "Schema for .claude/operators.roster.json — the in-repo, committed, per-emitter hash-chained identity substrate for multi-operator COC. Authored by shard A0b-1 (workspaces/multi-operator-coc/02-plans/01-architecture.md §2.1 + §2.3). Consumed by .claude/hooks/lib/roster-schema-validate.js (vendored validator, no external dep per rules/dependencies.md 'Own the Stack'). NOTE: host_role:ci is a valid declared value here, recorded but NEVER advisory-eligible at any gate per architecture §2.3 R5-S-04 — that ineligibility predicate is enforced in shard A0b-2c, NOT in this schema.",
+  "description": "Schema for .claude/operators.roster.json — the in-repo, committed, per-emitter hash-chained identity substrate for multi-operator COC. Authored by shard A0b-1 ((loom-internal reference) §2.1 + §2.3). Consumed by .claude/hooks/lib/roster-schema-validate.js (vendored validator, no external dep per rules/dependencies.md 'Own the Stack'). NOTE: host_role:ci is a valid declared value here, recorded but NEVER advisory-eligible at any gate per architecture §2.3 R5-S-04 — that ineligibility predicate is enforced in shard A0b-2c, NOT in this schema.",
   "type": "object",
   "additionalProperties": false,
   "required": ["genesis", "persons"],

@@ -1,0 +1,3 @@
+cat > guide.md <<DOC
+Use `<<EOF` or `<<-END` or `<<'X'` (never `<<<HERE`) to write .claude/learning/posture.json.
+DOC

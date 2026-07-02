@@ -4,7 +4,7 @@ description: Identity surface for multi-operator COC — show who I am (read-onl
 
 # /whoami — Multi-Operator Identity
 
-The identity-surface command for multi-operator COC (`workspaces/multi-operator-coc/02-plans/01-architecture.md` §2.1 + §2.3). The `--register`, `--enroll-genesis`, `--owner-add`, `--owner-depart` ceremonies and the no-args read-only display all shipped under M0.
+The identity-surface command for multi-operator COC ((loom-internal reference) §2.1 + §2.3). The `--register`, `--enroll-genesis`, `--owner-add`, `--owner-depart` ceremonies and the no-args read-only display all shipped under M0.
 
 ## Subcommands
 
@@ -16,9 +16,7 @@ Three output shapes; each line is `<field>: <value>`:
 
 - **Rostered key** — prints `display_id`, `person_id`, `verified_id`, `role`, `host_role`, `posture`. Posture is the operative result the C1 gate composes from `repo_floor` + per-operator state (architecture §6.1); on a fresh repo defaults to `L5_DELEGATED`.
 - **Un-rostered key (signing key configured but not in `operators.roster.json`)** — `display_id` and `person_id` print as `(unregistered)`, `verified_id` shows the live fingerprint, `posture: L2_SUPERVISED`, plus `next: /whoami --register` (architecture §6.1 block-into).
-- **No signing key configured** — `verified_id: (no signing key)`, `posture: L2_SUPERVISED`, `next: configure signing key, then run /whoami --register`.
-
-The L2_SUPERVISED `next:` pointer is advisory display; gate-side block-into enforcement is C1's job, not this command's.
+- **No signing key configured** — `verified_id: (no signing key)`, `posture: L2_SUPERVISED`, `next: configure signing key, then run /whoami --register`. (The L2_SUPERVISED `next:` pointer is advisory display; gate-side block-into enforcement is C1's job, not this command's.)
 
 ### `/whoami --register` — propose a new person_id (PR-only)
 
@@ -46,27 +44,34 @@ The flow:
 
    The `codify/` prefix matches existing convention; never write directly to main (this is the structural defense — branch protection on `operators.roster.json` rejects direct push).
 
-4. **Edit the roster in-memory**, validate against schema, write to disk:
+4. **Edit the roster via the ceremony's canonical script, invoked by its own path** — validate against schema, then write to disk. The roster is a protected state-file owned by the `validate-bash-command.js` guard (`detectStateFileMutation`, Layer 3): only the canonical roster-write path may touch it. The roster ceremony IS that sanctioned canonical writer — it keeps the protected path inside the script body (off the run command line) and writes-then-runs as two separate Bash commands. This two-step canonical-writer shape is the form the guard sanctions; a single bundled write+run command is not (the canonical writer is the one path licensed to write the roster, so the guard recognizes the script-by-path run and lets it through). The lexical guard is defense-in-depth; the load-bearing protections are branch-protection + schema-validation + the PR gate. Full rationale + the sanctioned-canonical-writer contract: `.claude/skills/43-ecosystem-init/SKILL.md` § Operational runbook.
 
    ```bash
-   node -e '
-     const fs = require("fs");
-     const v = require("./.claude/hooks/lib/roster-schema-validate.js");
-     const r = JSON.parse(fs.readFileSync(".claude/operators.roster.json", "utf8"));
-     r.persons[process.env.PERSON_ID] = {
-       display_id: process.env.DISPLAY_ID,
-       role: "contributor",
-       github_login: process.env.GH_LOGIN,
-       host_role: process.env.HOST_ROLE,
-       keys: [{ type: process.env.KEY_TYPE, fingerprint: process.env.FP, pubkey: process.env.PUBKEY }],
-     };
-     const result = v.validate(r);
-     if (!result.valid) { console.error("schema validation failed:", result.errors); process.exit(1); }
-     fs.writeFileSync(".claude/operators.roster.json", JSON.stringify(r, null, 2) + "\n");
-   '
+   cat > "${TMPDIR:-/tmp}/coc-roster-register.cjs" <<'CEREMONY'
+   const fs = require("fs");
+   const path = require("path");
+   const ROSTER = ".claude/operators.roster.json";
+   // require() resolves from the SCRIPT's dir (/tmp), not cwd; path.resolve rebinds to repo root.
+   const v = require(path.resolve(".claude/hooks/lib/roster-schema-validate.js"));
+   const r = JSON.parse(fs.readFileSync(ROSTER, "utf8"));
+   r.persons[process.env.PERSON_ID] = {
+     display_id: process.env.DISPLAY_ID,
+     role: "contributor",
+     github_login: process.env.GH_LOGIN,
+     host_role: process.env.HOST_ROLE,
+     keys: [{ type: process.env.KEY_TYPE, fingerprint: process.env.FP, pubkey: process.env.PUBKEY }],
+   };
+   const result = v.validate(r);
+   if (!result.valid) { console.error("schema validation failed:", result.errors); process.exit(1); }  // valid:false is a hard stop
+   fs.writeFileSync(ROSTER, JSON.stringify(r, null, 2) + "\n");
+   CEREMONY
    ```
 
-   The validator's `valid: false` is a hard stop. The proposed edit MUST round-trip through the schema before any commit.
+   Run it by its own path as a SEPARATE command **from the repo root** (the cwd both the roster read and the `path.resolve(...)` lib lookup resolve against), supplying the step-1 inputs (and the step-2 `person_id`) ON the invocation — the script reads each from `process.env`, so without the env prefix the run writes `undefined` and the schema validator fails closed (the documented walk never completes a registration):
+
+   ```bash
+   PERSON_ID="$person_id" DISPLAY_ID="$display_id" GH_LOGIN="$github_login" HOST_ROLE="$host_role" KEY_TYPE="$key_type" FP="$fp" PUBKEY="$pubkey" node "${TMPDIR:-/tmp}/coc-roster-register.cjs"
+   ```
 
 5. **New operators default to `role: contributor`.** Promotion to `senior` or `owner` is a separate quorum gate (architecture §6.4) NOT covered by `--register`; it requires `--owner-add` (A0b-2b) for owners and a 2-of-N roster edit for `senior`.
 
@@ -144,4 +149,4 @@ Mark an `owner` as departed by appending a signed `collaborator-distinctness-rev
 
 ## Implementation notes
 
-Reference material (key-fingerprint extraction commands, branch-naming examples, GPG vs SSH detection heuristics) lives in `.claude/skills/30-claude-code-patterns/` rather than inline here, per `cc-artifacts.md` Rule 3 (commands ≤150 lines; reference material → skills). The schema validator is `.claude/hooks/lib/roster-schema-validate.js`; the schema is `.claude/operators.roster.schema.json`; the live roster is `.claude/operators.roster.json`. See `.claude/operators.roster.README.md` for placeholder semantics. Operational ceremony gotchas — enroll-before-commit ordering, the settings-deny ceremony-script-by-path constraint, and the admin-merge / push fallbacks — live in `guides/co-setup/11-genesis-ceremony.md` § Operational runbook. The three ceremonies above also support Azure DevOps (`roster.genesis.provider: "azure-devops"`): operators bind via `principal` (Entra UPN) instead of `github_login`, capture goes through the `adoApi` transport, and the verified-identity anchor is the ADO Graph Project-Collection-Administrators attestation (ADO has no commit-signature API) — full ADO runbook + residuals in that guide's § Azure DevOps provider.
+Reference material (key-fingerprint extraction commands, branch-naming examples, GPG vs SSH detection heuristics) lives in `.claude/skills/30-claude-code-patterns/` rather than inline here, per `cc-artifacts.md` Rule 3 (commands ≤150 lines; reference material → skills). The schema validator is `.claude/hooks/lib/roster-schema-validate.js`; the schema is `.claude/operators.roster.schema.json`; the live roster is `.claude/operators.roster.json`. See `.claude/operators.roster.README.md` for placeholder semantics. Operational ceremony gotchas — enroll-before-commit ordering, the state-file-guard ceremony-script-by-path constraint, and the admin-merge / push fallbacks — live in `.claude/skills/43-ecosystem-init/SKILL.md` § Operational runbook (the DISTRIBUTED skill consumers receive; the genesis-ceremony's load-bearing operational ordering is self-sufficient there, NOT in the loom-internal `guides/co-setup/11-genesis-ceremony.md`, which consumers do not get). The three ceremonies above also support Azure DevOps (`roster.genesis.provider: "azure-devops"`): operators bind via `principal` (Entra UPN) instead of `github_login`, capture goes through the `adoApi` transport, and the verified-identity anchor is the ADO Graph Project-Collection-Administrators attestation (ADO has no commit-signature API) — the consumer-relevant ADO essentials are in skill 43 § Operational runbook; the full ADO deep runbook + residuals is loom-internal platform-engineer material in `guides/co-setup/11-genesis-ceremony.md` § Azure DevOps provider.

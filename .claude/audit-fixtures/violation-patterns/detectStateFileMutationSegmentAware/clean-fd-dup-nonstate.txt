@@ -1,0 +1,1 @@
+echo hi > /tmp/out.log 2>&1

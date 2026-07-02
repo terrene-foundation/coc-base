@@ -6,7 +6,7 @@ description: Initialize an ecosystem (once per fork) — write the ecosystem-con
 
 The once-per-fork ceremony that configures a NEW ecosystem (canon, or a client fork that copied the
 loom↔build↔use ecosystem). One of the three onboarding surfaces — distinct from `/enroll` (once per
-operator) and `/onboard` (read-only, every session); see `workspaces/ecosystem-operating-model/02-plans/02-ga-ecosystem-onboarding.md`.
+operator) and `/onboard` (read-only, every session); see (loom-internal reference).
 The three share ZERO write-authority: `/onboard` writes nothing, `/enroll` writes roster + local-links,
 `/ecosystem-init` writes the ecosystem-config + genesis trust-root.
 
@@ -96,7 +96,10 @@ The D6 config schema + accessor contract is `.claude/bin/lib/ecosystem-config.mj
 `.claude/bin/lib/loom-links.mjs` (the local⊕remote join); the synthetic companion is
 `.claude/bin/ecosystem.example.json` (the only `ecosystem*` file that syncs/publishes). The disclosure
 scanner is `.claude/bin/scan-synced-disclosure.mjs`. The genesis ceremony is
-`.claude/hooks/lib/genesis-ceremony.js`; its operational runbook (enroll-before-commit ordering, ADO
-provider path) is `guides/co-setup/11-genesis-ceremony.md`. Full ceremony procedure — the input prompts,
+`.claude/hooks/lib/genesis-ceremony.js`; its consumer-relevant operational runbook (enroll-before-commit
+ordering, the state-file-guard script-by-path constraint, the admin-merge / push fallbacks) is in the
+DISTRIBUTED `.claude/skills/43-ecosystem-init/SKILL.md` § Operational runbook — consumers receive it; the
+loom-internal `guides/co-setup/11-genesis-ceremony.md` (architecture, failure-mode reference, ADO deep
+runbook) is platform-engineer material consumers do not get. Full ceremony procedure — the input prompts,
 the per-key `remote_links` shape, the scan-then-write ordering, the org-vs-user genesis branch — lives in
 `.claude/skills/43-ecosystem-init/SKILL.md`.

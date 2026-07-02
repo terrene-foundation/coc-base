@@ -1,68 +1,53 @@
 # COC Sync Marker — coc-base (base lane, multi-CLI)
-timestamp: 2026-06-29T08:28:38Z
+timestamp: 2026-07-02T15:42:12Z
 source: loom/.claude
-loom_sha: e2ac475
+loom_sha: 618e23d
 variant: base
 clis: [claude, codex, gemini]
 visibility: public
+scope_this_cycle: content-axis-only   # sync-tier-aware (.claude/) + marker/VERSION/inbox; NO CLI re-emit
 stats:
-  copied: 1058         # 20 content-equal after BUILD-internal strip, 1038 byte-equal
+  copied: 1159         # 37 content-equal after BUILD-internal strip, 1122 byte-equal
   variant_only: 0
-  overlay_applied: 1   # rules/agents.md base slot — byte-equal (verify-overlays Failing:0)
+  overlay_applied: 1   # rules/agents.md base slot — byte-equal (sync-tier-aware verify CONSISTENT)
   verify_failures: 0
-  purged: 0            # all obsoleted paths already absent on base disk (base always clean)
-  obsoleted_union: 71  # .coc-obsoleted regenerated (Step 4.5 union obsoleted+use_obsoleted); unchanged this cycle
+  purged: 9            # obsoleted paths present-then-removed this cycle
   preserved: [CLAUDE.md, .proposals/, learning/, settings.local.json, dev-container-scaffold]
   baselines_emitted:
     cc: 0          # CLAUDE.md preserved, not emitted
-    codex: 1       # AGENTS.md re-emitted (current rule set: cc-artifacts.md, self-referential-codify.md)
-    gemini: 1      # GEMINI.md re-emitted (current rule set)
-  baseline_emission:
-    block_cap_bytes: 61440
-    warn_cap_bytes: 32768
-    headroom_floor_pct: 10
-    codex: { tier: WARN, bytes: 52041, headroom_pct: 15.30 }
-    gemini: { tier: WARN, bytes: 52047, headroom_pct: 15.29 }
-  cli_artifacts:
-    codex: { prompts: 50, skills: 22 }      # prompts = 33 commands + 17 agent-prompts
-    gemini: { commands: 33, skills: 22, agents: 17 }
-  cli_orphans_purged: { codex_prompts: 0, codex_skills: 0, gemini_commands: 0, gemini_skills: 0, gemini_agents: 0 }
-  rules_reference_skill: { codex: 1, gemini: 1, path_scoped_rules_indexed: 44 }
-  codex_dispatcher: { bin_coc: 1, phase_shims: 28 }
-  coc_unified: { artifacts: 134, files: 136, version: "1.0.0" }   # PARITY CATCH-UP: prior on-disk was stale 79/82
-  mcp_guard: { policies_populated: false }
+    codex: 0       # AGENTS.md NOT re-emitted this cycle (out of delegated scope) — see cli_trees_status
+    gemini: 0      # GEMINI.md NOT re-emitted this cycle (out of delegated scope) — see cli_trees_status
+  cli_trees_status: STALE_RELATIVE_TO_e2ac475
+    # AGENTS.md / GEMINI.md / .codex/ / .gemini/ / .coc/ were NOT re-emitted this
+    # delegated cycle. They remain at the e2ac475 rule/command/skill set. The #743
+    # delta (e2ac475..618e23d) touched 6 commands, 8 rules (incl. NEW
+    # symbol-anchored-citations.md), 3 skills — inputs that feed the Codex/Gemini
+    # baselines + emitted trees. A follow-up CLI-emission pass (coc-sync Steps
+    # 6.5/6.6/6.7: emit.mjs + emit-cli-artifacts.mjs + emit-coc.mjs) is REQUIRED to
+    # refresh them. CC consumers (.claude/) are fully current; Codex/Gemini consumers
+    # read stale baselines until the follow-up emit lands.
   gitignore:
     action: replaced
-    pre_bytes: 726
-    post_bytes: 1044    # +318B: 8 per-clone trust-state entries (coordination-log.jsonl* + 7 siblings)
+    pre_bytes: 1044
+    post_bytes: 1083
 note: |
-  loom@e2ac475 Gate-2 base sync (multi-CLI lane). DRIVING CHANGE:
-  sync-manifest.yaml::gitignore_additions gained 8 per-clone trust-state entries
-  (coordination-log.jsonl* + codify-lease.json / coordination-mode.json /
-  observations.jsonl / violations.jsonl / provenance/ / posture.json / .initialized
-  siblings). Managed .gitignore block grew 726B -> 1044B. coordination-log.jsonl*
-  confirmed at line 8 of the landed managed block.
-  CONTENT: sync-tier-aware.mjs --target base --all-templates delivered 1058 files,
-  1058/1058 verified (20 content-equal after BUILD-internal strip, 1038 byte-equal),
-  1 base slot overlay (rules/agents.md) applied byte-equal. 27 tracked rule/bin/hook/guide
-  files updated + 5 new bin/hook/skill artifacts.
-  MULTI-CLI RE-EMIT (rule edits cc-artifacts.md + self-referential-codify.md changed bodies):
-  AGENTS.md + GEMINI.md refreshed (emit.mjs --all, global axis — base has no language overlay);
-  both WARN tier (codex 52041B/15.30%, gemini 52047B/15.29% headroom — under 61440 block_cap,
-  slot-round-trip PASS). .codex/prompts=50 (33 commands + 17 agent-prompts), .codex/skills=22
-  (21 + rules-reference), .gemini/commands=33, .gemini/skills=22, .gemini/agents=17 re-emitted
-  via emit-cli-artifacts.mjs --target base (tier-filtered cc/coc-core/onboarding; 0 Kailash
-  framework leak verified). bin/coc + 28 phase shims present. .codex-mcp-guard POLICIES_POPULATED
-  false by construction.
-  .coc/ UNIFIED PARITY CATCH-UP: emit-coc.mjs --target base produced 134 artifacts / 136 files
-  (rules=53 agents=21 skills=26 commands=34) — the prior on-disk .coc/ was STALE at 79/82
-  (agents=6 only; missing reviewer/security-reviewer/testing-specialist/release/quality/frontend
-  specialists). Fresh emission verified 0 Kailash framework agents (correct for base). Atomic
-  replace per Step 6.7 observer-parity. WARN (non-blocking): rules/SELF-REFERENTIAL-CODIFY.md
-  80526B over the 60KiB producer budget — emitted not truncated (spec-09 imposes no consumer cap).
-  SCANS: 0 swallowed artifacts (Rule-6 gate clean), 0 operator-PII in settings.json, 0 scripts/hooks
-  refs, 0 residual /Users//home tokens, 0 loom-internal path leaks. Hook integrity 38/38 scripts,
-  24/24 ./lib/ requires resolve. .coc-obsoleted union = 71 (additive, 0 dropped).
-  CLAUDE.md preserved (template-owned). verify-overlays.sh base Failing:0. build:null — base is
-  stack-agnostic, NO SDK pins, NO uv sync / cargo check.
-  VERSION 2.45.5->2.45.6; loom_sha 9101e34->e2ac475; upstream loom 2.45.0 unchanged.
+  loom@618e23d Gate-2 base sync (multi-CLI lane) — distributes the #743 coherence
+  layer + item-3 detector into the .claude/ CONTENT tree ONLY. This delegated cycle
+  was scoped to the .claude/ content axis (sync-tier-aware.mjs --target base
+  --all-templates) + marker/VERSION/inbox; the multi-CLI CLI-emission steps
+  (coc-sync 6.5/6.6/6.7) were NOT in scope and were NOT run.
+  CONTENT: 1159 files delivered, 1159/1159 verified (37 content-equal after
+  BUILD-internal strip, 1122 byte-equal), 1 base slot overlay (rules/agents.md)
+  byte-equal, 9 obsoleted paths purged. Post-write sync-tier-aware --verify
+  CONSISTENT (1160 in-plan; no obsoleted path present).
+  NEW artifacts: rules/symbol-anchored-citations.md, hooks/session-notes-incorporation-guard.js,
+  hooks/lib/{coc-ledger,cross-ecosystem-disclosure-scanfn,open-pr-surface,pending-dedup}.js,
+  bin/lint-prose-drift.mjs (+ audit-fixtures). 9 stale bin *.test.mjs removed by exclusion/purge.
+  CLI TREES NOT RE-EMITTED (see stats.cli_trees_status): AGENTS.md / GEMINI.md /
+  .codex/ / .gemini/ / .coc/ remain at the e2ac475 emission. FOLLOW-UP REQUIRED.
+  SCANS: hook integrity 38/38 settings.json commands resolve; 0 scripts/hooks refs;
+  0 operator-PII (/Users//home) tokens in settings.json.
+  CLAUDE.md preserved (template-owned). build:null — base is stack-agnostic, NO SDK
+  pins, NO uv sync / cargo check.
+  BUMP: template 2.45.6->2.45.7; loom_sha e2ac475->618e23d; upstream loom 2.45.0 unchanged.
+  visibility=public preserved across marker rewrite.

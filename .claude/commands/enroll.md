@@ -6,7 +6,7 @@ description: Enroll an operator into an existing ecosystem (once per operator) â
 
 The once-per-operator ceremony a human runs when joining an EXISTING ecosystem (one already configured
 by `/ecosystem-init`). One of the three onboarding surfaces â€” distinct from `/ecosystem-init` (once per
-fork) and `/onboard` (read-only, every session); see `workspaces/ecosystem-operating-model/02-plans/02-ga-ecosystem-onboarding.md`.
+fork) and `/onboard` (read-only, every session); see (loom-internal reference).
 
 **Usage**: `/enroll` (no args; runs in the operator's checkout of an already-configured ecosystem)
 
