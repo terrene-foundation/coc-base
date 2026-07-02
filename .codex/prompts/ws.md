@@ -22,7 +22,7 @@ Display the current workspace status. Do not modify any files.
 ### Missing-phase scan (loom #19 P2)
 
 Before reporting the summary, check for missing canonical phase dirs against
-the contract in `workspaces/_template/README.md`:
+the contract in (loom-internal reference):
 
 - `briefs/`, `01-analysis/`, `02-plans/`, `03-user-flows/`, `04-validate/`, `journal/`, `todos/active/`, `todos/completed/`
 

@@ -1,53 +1,78 @@
 # COC Sync Marker — coc-base (base lane, multi-CLI)
-timestamp: 2026-07-02T15:42:12Z
+timestamp: 2026-07-02T15:55:24Z
 source: loom/.claude
 loom_sha: 618e23d
 variant: base
 clis: [claude, codex, gemini]
 visibility: public
-scope_this_cycle: content-axis-only   # sync-tier-aware (.claude/) + marker/VERSION/inbox; NO CLI re-emit
+scope_this_cycle: cli-emission-only   # coc-sync Steps 6.5/6.6/6.7 — AGENTS.md/GEMINI.md/.codex/.gemini/.coc; NO .claude/ content re-distribution
 stats:
-  copied: 1159         # 37 content-equal after BUILD-internal strip, 1122 byte-equal
-  variant_only: 0
-  overlay_applied: 1   # rules/agents.md base slot — byte-equal (sync-tier-aware verify CONSISTENT)
-  verify_failures: 0
-  purged: 9            # obsoleted paths present-then-removed this cycle
-  preserved: [CLAUDE.md, .proposals/, learning/, settings.local.json, dev-container-scaffold]
+  # Content axis (.claude/) was distributed in the PRIOR cycle (VERSION 2.45.7,
+  # loom_sha 618e23d) and is unchanged here. Step 1 sync-tier-aware re-run was an
+  # idempotent CONSISTENT re-write whose purpose was the presync untracked-snapshot
+  # protecting the emit-cli writes (coc-sync Step 6.6 snapshot-ordering MUST).
+  content_axis: unchanged   # 1159/1159 verified CONSISTENT (idempotent re-run)
   baselines_emitted:
     cc: 0          # CLAUDE.md preserved, not emitted
-    codex: 0       # AGENTS.md NOT re-emitted this cycle (out of delegated scope) — see cli_trees_status
-    gemini: 0      # GEMINI.md NOT re-emitted this cycle (out of delegated scope) — see cli_trees_status
-  cli_trees_status: STALE_RELATIVE_TO_e2ac475
-    # AGENTS.md / GEMINI.md / .codex/ / .gemini/ / .coc/ were NOT re-emitted this
-    # delegated cycle. They remain at the e2ac475 rule/command/skill set. The #743
-    # delta (e2ac475..618e23d) touched 6 commands, 8 rules (incl. NEW
-    # symbol-anchored-citations.md), 3 skills — inputs that feed the Codex/Gemini
-    # baselines + emitted trees. A follow-up CLI-emission pass (coc-sync Steps
-    # 6.5/6.6/6.7: emit.mjs + emit-cli-artifacts.mjs + emit-coc.mjs) is REQUIRED to
-    # refresh them. CC consumers (.claude/) are fully current; Codex/Gemini consumers
-    # read stale baselines until the follow-up emit lands.
-  gitignore:
-    action: replaced
-    pre_bytes: 1044
-    post_bytes: 1083
+    codex: 1       # AGENTS.md (repo root)
+    gemini: 1      # GEMINI.md (repo root)
+  baseline_emission_bytes:
+    block_cap_bytes: 61440
+    warn_cap_bytes:  32768
+    codex:
+      rules: 10
+      bytes: 52084
+      tier: WARN
+      headroom_bytes: 9356
+      headroom_pct: 15.23
+      headroom_floor_pct: 10
+      headroom_floor_violations: 0
+    gemini:
+      rules: 10
+      bytes: 52090
+      tier: WARN
+      headroom_bytes: 9350
+      headroom_pct: 15.22
+      headroom_floor_pct: 10
+      headroom_floor_violations: 0
+  cli_artifacts:      # from emit-cli-artifacts.mjs (Step 6.6)
+    codex:
+      prompts: 33     # 50 files (prompts + agent-prompts sub-tree)
+      skills: 21      # 102 files
+      agent_prompts: 17
+    gemini:
+      commands: 33
+      skills: 21      # 102 files
+      agents: 17
+  coc_unified:        # from emit-coc.mjs (Step 6.7)
+    artifacts: 135    # rules=54 agents=21 skills=26 commands=34
+    files: 137
+    coc_version: 1.0.0
+  mcp_guard:
+    files: 9
+    policies_populated: false   # still runtime-gated per coc-sync Step 6.6 § guard
+  codex_dispatcher:
+    bin_coc: 1
+    per_phase_symlinks: 28
+  cli_trees_status: CURRENT@618e23d   # was STALE_RELATIVE_TO_e2ac475
+  preserved: [CLAUDE.md, dev-container-scaffold, settings.local.json]
 note: |
-  loom@618e23d Gate-2 base sync (multi-CLI lane) — distributes the #743 coherence
-  layer + item-3 detector into the .claude/ CONTENT tree ONLY. This delegated cycle
-  was scoped to the .claude/ content axis (sync-tier-aware.mjs --target base
-  --all-templates) + marker/VERSION/inbox; the multi-CLI CLI-emission steps
-  (coc-sync 6.5/6.6/6.7) were NOT in scope and were NOT run.
-  CONTENT: 1159 files delivered, 1159/1159 verified (37 content-equal after
-  BUILD-internal strip, 1122 byte-equal), 1 base slot overlay (rules/agents.md)
-  byte-equal, 9 obsoleted paths purged. Post-write sync-tier-aware --verify
-  CONSISTENT (1160 in-plan; no obsoleted path present).
-  NEW artifacts: rules/symbol-anchored-citations.md, hooks/session-notes-incorporation-guard.js,
-  hooks/lib/{coc-ledger,cross-ecosystem-disclosure-scanfn,open-pr-surface,pending-dedup}.js,
-  bin/lint-prose-drift.mjs (+ audit-fixtures). 9 stale bin *.test.mjs removed by exclusion/purge.
-  CLI TREES NOT RE-EMITTED (see stats.cli_trees_status): AGENTS.md / GEMINI.md /
-  .codex/ / .gemini/ / .coc/ remain at the e2ac475 emission. FOLLOW-UP REQUIRED.
-  SCANS: hook integrity 38/38 settings.json commands resolve; 0 scripts/hooks refs;
-  0 operator-PII (/Users//home) tokens in settings.json.
-  CLAUDE.md preserved (template-owned). build:null — base is stack-agnostic, NO SDK
-  pins, NO uv sync / cargo check.
-  BUMP: template 2.45.6->2.45.7; loom_sha e2ac475->618e23d; upstream loom 2.45.0 unchanged.
+  CORRECTIVE multi-CLI emission (coc-sync Steps 6.5/6.6/6.7) for the base lane.
+  The prior /sync-to-use base cycle (VERSION 2.45.7, loom_sha 618e23d) distributed
+  the .claude/ CONTENT axis for the #743 delta but did NOT run the CLI-emission
+  steps — leaving AGENTS.md / GEMINI.md / .codex/ / .gemini/ / .coc/ at the older
+  e2ac475 emission (STALE_RELATIVE_TO_e2ac475). This cycle refreshes them.
+  ORDER (snapshot-ordering MUST): (1) sync-tier-aware --target base --template
+  coc-base = idempotent CONSISTENT re-run whose purpose was the presync untracked
+  snapshot protecting the emit-cli writes; (2) emit.mjs --all (NO --lang → base
+  variant, priority:0 baseline, no kailash-tier leak) → AGENTS.md/GEMINI.md, exit 0
+  WARN tier (52084/52090 B, 15.23%/15.22% headroom, 0 floor violations);
+  (3) emit-cli-artifacts.mjs --target base → .codex/{prompts,skills} +
+  .gemini/{commands,skills,agents} + config + .codex-mcp-guard/ + bin/coc + 28
+  per-phase symlinks, exit 0; (4) emit-coc.mjs --target base → .coc/ (137 files),
+  exit 0 with 1 surfaced advisory (rules/SELF-REFERENTIAL-CODIFY.md 87907B over the
+  60 KiB PRODUCER budget — spec-09 imposes NO consumer cap, emitted-not-truncated
+  by design; not a failure).
+  PRESERVED: CLAUDE.md (template-owned), dev-container scaffold, settings.local.json.
   visibility=public preserved across marker rewrite.
+  build:null — base is stack-agnostic, NO SDK pins.

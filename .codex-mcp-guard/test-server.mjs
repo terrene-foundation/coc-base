@@ -263,10 +263,13 @@ function loadFixture(name) {
       `timeout-shell.json: subprocess returned too fast (${elapsed}ms < ${server.SUBPROCESS_TIMEOUT_MS}ms)`,
     );
   } else {
-    // The server treats ETIMEDOUT as verdict='timeout' which is
-    // fail-open + log per cc-artifacts.md Rule 7. Expected_allow=true.
+    // This fixture exercises the timeout MECHANISM (the subprocess actually
+    // hits ETIMEDOUT at SUBPROCESS_TIMEOUT_MS) at the child_process layer; it
+    // does NOT drive evaluatePolicies. The server's DISPOSITION for a `timeout`
+    // verdict is now FAIL-CLOSED (deny) per #411 B1 — asserted via the
+    // un-evaluable-hook path in Fixture 9 (same code branch as error/missing).
     passes.push(
-      `timeout-shell.json: ETIMEDOUT after ${elapsed}ms (≥ ${server.SUBPROCESS_TIMEOUT_MS}ms threshold), allow=true (fail-open)`,
+      `timeout-shell.json: ETIMEDOUT after ${elapsed}ms (≥ ${server.SUBPROCESS_TIMEOUT_MS}ms threshold) — timeout mechanism fires (disposition tested in Fixture 9)`,
     );
   }
 }
@@ -455,6 +458,56 @@ const V4A_PATCH = {
     passes.push(
       `projection: apply_patch→fielded {file_path} per target (no raw/secret leak), shell→{command}; cap=${server.MAX_GATE_TARGETS}`,
     );
+  }
+}
+
+// ────────────────────────────────────────────────────────────────
+// Fixture 9 — FAIL-CLOSED on an un-evaluable hook (#411 B1)
+// ────────────────────────────────────────────────────────────────
+// A hook the guard CANNOT evaluate — `missing` (source file absent for a gated
+// tool), and by the SAME code branch `timeout` (hung) / `error` (crash/spawn
+// failure) — MUST DENY (fail-closed), NOT silently forward. Inject a missing-hook
+// policy at the HEAD of shell's chain so the first (policy,target) pair is
+// un-evaluable; assert the call is denied with the fail_closed marker BEFORE the
+// real policies run. Distinct from `warn` (a hook that RAN and returned a clean
+// non-2 exit), which stays advisory-forward (Fixture 1's clean allow proves the
+// non-deny verdicts still forward).
+{
+  const realShell = server.POLICIES.shell;
+  server.POLICIES.shell = [
+    { source_file: "__nonexistent_b1_hook__.js" },
+    ...realShell,
+  ];
+  try {
+    const r = server.evaluatePolicies({
+      tool: "shell",
+      input: { command: "echo hi" },
+      cwd: process.cwd(),
+    });
+    const meta = r.mcpResponse?._meta || {};
+    if (r.allow !== false) {
+      failures.push(
+        `fail-closed (#411 B1): an un-evaluable (missing) hook MUST DENY, got allow=${r.allow}`,
+      );
+    } else if (!r.mcpResponse?.isError || meta.fail_closed !== true) {
+      failures.push(
+        `fail-closed (#411 B1): expected isError + _meta.fail_closed=true, got ${JSON.stringify(meta)}`,
+      );
+    } else if (meta.verdict !== "missing") {
+      failures.push(
+        `fail-closed (#411 B1): expected _meta.verdict=missing, got ${meta.verdict}`,
+      );
+    } else if (!/fail-closed/i.test(r.mcpResponse.content?.[0]?.text || "")) {
+      failures.push(
+        `fail-closed (#411 B1): deny text MUST explain fail-closed, got '${(r.mcpResponse.content?.[0]?.text || "").slice(0, 120)}'`,
+      );
+    } else {
+      passes.push(
+        "fail-closed (#411 B1): un-evaluable hook DENIES with the fail_closed marker (compliance-bus posture; distinct from cc-artifacts Rule 7 session-hook fail-open)",
+      );
+    }
+  } finally {
+    server.POLICIES.shell = realShell;
   }
 }
 

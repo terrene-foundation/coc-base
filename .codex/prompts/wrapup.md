@@ -113,20 +113,28 @@ The ledger defends against the stale-snapshot trap (a closed item resurfacing, o
 5. **Empty forest** still writes the section explicitly ("Forest empty
    — …"). Absence ≠ done. The sentinel and open rows are mutually
    exclusive — asserting "Forest empty" with rows present is a defect.
+6. **Roll workspace ledgers up to root (#669)** — when the wrapup base is
+   the repo ROOT, every OPEN workspace-ledger ID the latest `/sweep` Sweep-6
+   `--aggregate` flagged STRANDED (the `[AGG]` findings already in context —
+   NOT a fresh scan; the 3-tool-call cap holds) MUST be carried into the root
+   ledger WITH its value-anchor (`value-prioritization.md` MUST-2) OR
+   referenced in "Closed this session" — no open workspace item silently
+   drops at the workspace→root boundary. This step CONSUMES `/sweep`'s `[AGG]`
+   findings (the end-of-cycle gate that runs first), it does NOT re-scan; if
+   `/sweep` was skipped, run it (or `validate-forest-ledger.mjs --aggregate`)
+   before relying on this step.
 
 **Mechanical gate (CI / `/redteam`, NOT the wrapup runtime).**
-`validate-forest-ledger.mjs <notes>` checks intra-file conformance
-(section present + fence-balanced + non-vacuous; rows anchored; IDs
-unique; every close entry references an ID + cites a receipt SHAPE —
-shape not existence; a shaped-but-fake receipt is a
-`verify-resource-existence.md` MUST-1 gate-review matter, not this
-validator's). The no-silent-vanish invariant (step 2) is enforced
-ONLY by the `--git-prior` form, which diffs the prior committed
-`.session-notes` and flags any prior open **ID** absent from both
-current rows and the "Closed this session" list. Exact ID-set
-reconciliation — no prose parsing, no collision, deterministic, zero
-residue. Run `--git-prior` in CI / `/redteam`; the bare form makes NO
-anti-vanish claim.
+`validate-forest-ledger.mjs <notes>` checks intra-file conformance (section
+present + fence-balanced + non-vacuous; rows anchored; IDs unique; every
+close entry references an ID + cites a receipt SHAPE — a fake receipt is a
+`verify-resource-existence.md` MUST-1 matter, not this validator's). The
+no-silent-vanish invariant (step 2) is enforced ONLY by `--git-prior` (diffs
+the prior committed `.session-notes`, flags any prior open **ID** absent from
+current rows AND the "Closed this session" list — deterministic ID-set
+reconciliation); the bare form makes NO anti-vanish claim. Its cross-file twin
+`--aggregate` (#669) flags any open workspace-ledger ID absent from the ROOT
+ledger (step 6; `/sweep` Sweep 6).
 
 ## Hard rules
 

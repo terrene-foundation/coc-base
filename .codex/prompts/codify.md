@@ -24,7 +24,7 @@ This phase executes under the **autonomous execution model** (see `rules/autonom
 
 ### 0. Acquire codify lease (multi-operator concurrency gate)
 
-Per `workspaces/multi-operator-coc/02-plans/01-architecture.md` §7.1: two concurrent `/codify` invocations clobber the rule corpus. Acquire the lease BEFORE any step below.
+Per (loom-internal reference) §7.1: two concurrent `/codify` invocations clobber the rule corpus. Acquire the lease BEFORE any step below.
 
 Call `acquireCodifyLease({ scopeFiles, displayId })` from `.claude/hooks/lib/codify-lease.js`. The helper unions `.claude/learning/learning-codified.json` + `.claude/.proposals/latest.yaml` into the scope automatically. `displayId` comes from `operator-id.js::resolveIdentity()`.
 

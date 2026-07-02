@@ -59,7 +59,11 @@ verification refuses to emit the genesis-anchor.
   `/whoami --register` then promote the role on the resulting PR first.
 
 The signed `genesis-anchor` lands in `.claude/learning/coordination-log.jsonl` (fold rule 9a accepts the
-first verifying owner-bound anchor as the trust root). Full runbook: `guides/co-setup/11-genesis-ceremony.md`.
+first verifying owner-bound anchor as the trust root). The consumer-relevant operational gotchas an
+operator hits running the ceremony by hand are inlined below in § Operational runbook (this skill is
+DISTRIBUTED to consumers; the genesis ceremony is self-sufficient without the loom-internal
+`guides/co-setup/11-genesis-ceremony.md`, which carries the architecture / failure-mode reference / ADO
+deep runbook for platform-engineers and is NOT shipped to consumers).
 
 ### C2 — set the four remaining ecosystem-relative params
 
@@ -82,6 +86,97 @@ If the fork's build is NOT Kailash, invoke the EXISTING `/onboard-stack` (detect
 
 Print: "Ecosystem configured. Each operator now runs `/enroll`, then `/onboard` at the start of every
 session." Do NOT enroll the initiating operator — that is `/enroll`'s gated job.
+
+## Operational runbook
+
+Operational gotchas an operator hits running the genesis ceremony (`/ecosystem-init` C3, or
+`/whoami --enroll-genesis`) by hand. These are CLI / host-environment facts the consumer needs but cannot
+reverse-engineer from library + hook code; inlined here so the irreversible, fail-CLOSED ceremony is
+self-sufficient WITHOUT the loom-internal `guides/co-setup/11-genesis-ceremony.md` (consumers do not
+receive `guides/`). Origin: F19 genesis-enrollment session (2026-05-27).
+
+### 1. Enroll BEFORE the bootstrap commit (ordering)
+
+Writing a real (non-`PLACEHOLDER-`) `role: owner` person into `operators.roster.json` while the
+coordination log has NO `genesis-anchor` record puts the repo into a **half-enrolled fail-CLOSED** state:
+`genesis-anchor-guard.js` then blocks every `git commit` / `git push` (it watches literal
+`git commit|push`, `gpg … --sign`, `ssh-keygen -Y sign`) until a verifying owner-bound anchor exists.
+Correct sequence:
+
+1. Write the owner entry + genesis facts into the roster (working tree — via the script-by-path form in
+   § 2 below, never an inline `node -e` naming the roster path).
+2. Run the enrollment ceremony → emits the `genesis-anchor` → trust root.
+3. THEN commit the roster and open the bootstrap PR.
+
+The ceremony reads the roster from the working tree, so step 2 does NOT require the roster merged first.
+The enroll driver is a single `node` invocation; its internal signing is `child_process`, not the Bash
+tool, so it never trips the guard.
+
+### 2. Roster / coordination-log writes go through a script invoked by its own path
+
+The `validate-bash-command.js` state-file-write guard (`detectStateFileMutation`, Layer 3) BLOCKS any
+interpreter command (`node -e`/`-c`/`-m`, or any command LED by `node`/`python`/`ruby`/`perl`) whose
+**command string** contains a protected state-file path — `operators.roster.json`,
+`coordination-log.jsonl`, `posture.json`, `violations.jsonl`, `.initialized`. The documented inline
+`node -e '… operators.roster.json …'` form therefore CANNOT run; this is correct — only the canonical
+roster-write path may touch the roster. (`.claude/settings.json::permissions.deny`, where present, is a
+second lexical defense-in-depth layer matching the same paths.)
+
+Write the ceremony as a **script file invoked by its own path** — the protected path lives INSIDE the
+script body, off the command line. Crucially, the script-WRITE and the script-RUN must be **separate Bash
+invocations** (or write the script with the editor): bundling a heredoc-write and the `node <script>` run
+into ONE command trips the guard's whole-command fallback (a `node`-led segment + the protected path in
+the heredoc body):
+
+```bash
+# Step A — create the script (separate command; protected path inside the body)
+cat > "${TMPDIR:-/tmp}/coc-roster-ceremony.cjs" <<'CEREMONY'
+const fs = require("fs");
+const ROSTER = ".claude/operators.roster.json";   // path lives in the body, not the command line
+// … read roster, apply edit, schema-validate via roster-schema-validate.js, fs.writeFileSync(ROSTER, …)
+CEREMONY
+```
+
+```bash
+# Step B — run by its own path (separate command; clean command line)
+node "${TMPDIR:-/tmp}/coc-roster-ceremony.cjs"
+```
+
+```bash
+# DO NOT — protected path on the command line → auto-blocked (Layer 3)
+node -e 'fs.writeFileSync(".claude/operators.roster.json", …)'
+```
+
+The guard matches the tool-invocation command STRING, not the spawned process's syscalls, so a script
+that internally `fs.writeFileSync`s the roster is allowed. The lexical guard is defense-in-depth, NOT the
+load-bearing control and NOT a license to wrap an arbitrary write in a script to dodge protection: the
+sanctioned writers remain the canonical ceremony helpers, and the load-bearing protections are
+`genesis-anchor-guard.js` + branch protection on the roster + `integrity-guard.js` + fold-rule
+signature/chain verification (`rules/multi-operator-coordination.md` §2). A hand-rolled script that slips
+past the lexical guard still fails those gates — the roster lands only via a schema-validated,
+branch-protected PR, and unsigned / out-of-chain coordination-log records are rejected at fold. The same
+`/whoami --register` Step 4 documents this script-by-path form.
+
+### 3. `gh pr merge --admin` may fail server-side → REST PUT merge fallback
+
+On a branch-protected `main` with `enforce_admins: false`, the owner admin bypass merges a chore / roster
+bootstrap PR. If `gh pr merge <N> --admin --merge` returns a generic GraphQL error ("Something went
+wrong … reference ID"), use the REST merge endpoint — a different code path that honors the admin bypass:
+
+```bash
+gh api -X PUT repos/<owner>/<repo>/pulls/<N>/merge -f merge_method=merge
+```
+
+### 4. Pushing without an SSH key loaded
+
+If `ssh-add -l` reports no identities and the remote is SSH, `git push` fails
+`Permission denied (publickey)`. Push over HTTPS using `gh` as a one-shot, non-persistent credential
+helper (the `gh` token must carry `repo` scope) — no token in the command string, no permanent git-config
+change:
+
+```bash
+git -c credential.helper='!gh auth git-credential' push origin <branch>
+```
 
 ## The D6 ecosystem-config schema (`.claude/bin/ecosystem.json`)
 

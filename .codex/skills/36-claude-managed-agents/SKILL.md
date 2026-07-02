@@ -233,4 +233,4 @@ live docs before relying on any shape, and refresh this date on each check.
 
 Origin: co-owner-directed origination 2026-06-11, journal/0268 (verbatim
 directive + receipt). Slide capture + redteam (RT-0..RT-8):
-`workspaces/managed-agents-coc/01-analysis/01-claude-managed-agents-slide-capture.md`.
+(loom-internal reference).

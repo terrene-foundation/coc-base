@@ -219,12 +219,16 @@ function logViolation(entry) {
 // Hook subprocess invocation — exact CC PreToolUse contract
 // ---------------------------------------------------------------------------
 // Exit code semantics per .claude/hooks/*.js convention:
-//   0 = allow, 2 = block, other = warn (treated as allow + logged)
-// Synthesizes the CC-shaped stdin payload from MCP args. Each policy
-// entry is a separate process; first non-zero, non-2 exit is logged
-// but not treated as block (cc-artifacts.md Rule 7 prefers fail-open
-// on hook unreliability vs. fail-closed which would block legitimate
-// tool calls when a hook script has a bug).
+//   0 = allow, 2 = block (deny), clean non-zero non-2 = warn (advisory-forward).
+// Synthesizes the CC-shaped stdin payload from MCP args. Each policy entry is a
+// separate process. A `warn` verdict (the hook RAN and returned a clean non-2
+// exit) is advisory-forward. But a hook that could NOT be evaluated — `timeout`
+// (hung), `error` (crash/spawn failure), or `missing` (no source file for a gated
+// tool) — FAILS CLOSED at evaluatePolicies (#411 compliance-bus posture): the
+// guard denies rather than silently forward. This guard is a security
+// policy-ENFORCEMENT surface, NOT a session-continuation hook, so cc-artifacts.md
+// Rule 7's session-hook fail-open (don't wedge the session on a buggy hook) does
+// NOT apply to an un-evaluable enforcement verdict here.
 function invokeHook({ hookFile, payload }) {
   const hookPath = path.join(HOOKS_DIR, hookFile);
   if (!fs.existsSync(hookPath)) {
@@ -326,8 +330,19 @@ function extractHookValidation(hookStdout) {
     for (let i = lines.length - 1; i >= 0; i--) {
       try {
         const obj = JSON.parse(lines[i]);
+        // #466 canonicalized the halting-hook output field from
+        // `hookSpecificOutput.validation` to `hookSpecificOutput.additionalContext`
+        // (the instruct-and-wait shape). Read BOTH so the surface-verdict still
+        // fires post-#466 — otherwise an exit-0 halt-and-report hook resolves to
+        // verdict "allow" and the Codex agent silently loses the advisory a CC
+        // agent gets (#442 cross-CLI parity regression). The clean-call sentinel
+        // ("Validated") still rides additionalContext too, but isActionableValidation
+        // gates it out, so clean-call ZERO-warning parity is preserved.
         validation =
-          obj?.hookSpecificOutput?.validation || obj?.systemMessage || null;
+          obj?.hookSpecificOutput?.validation ||
+          obj?.hookSpecificOutput?.additionalContext ||
+          obj?.systemMessage ||
+          null;
         continueFlag = obj?.continue;
         if (validation) break;
       } catch {
@@ -374,6 +389,35 @@ function translateDeny({ hookFile, hookStdout, hookStderr }) {
     _meta: {
       hook: hookFile,
       continue: continueFlag,
+    },
+  };
+}
+
+// Build the deny response for a FAIL-CLOSED block (#411): the guard could not
+// EVALUATE a policy (the hook crashed / hung / its source file is missing), so
+// the call is denied rather than silently forwarded. The agent-facing text names
+// the un-evaluable hook + WHY the call was blocked so the operator can fix the
+// hook (the deny is on the guard's inability to evaluate, NOT on the tool input).
+function failClosedDeny({ hookFile, verdict, stderr }) {
+  const why = {
+    timeout: "timed out (hung)",
+    error: "crashed or failed to spawn",
+    missing: "is missing (no policy source file for a gated tool)",
+  };
+  const text =
+    `codex-mcp-guard: BLOCKED (fail-closed) — the enforcement hook ${hookFile} ` +
+    `${why[verdict] || "could not be evaluated"}, so the guard cannot verify this ` +
+    `tool call against policy. On a governance/compliance bus a guard that cannot ` +
+    `evaluate denies rather than forwards (#411). Fix or restore the hook, then retry.` +
+    (stderr ? `\n\nstderr: ${String(stderr).slice(0, 400)}` : "");
+  return {
+    isError: true,
+    content: [{ type: "text", text }],
+    _meta: {
+      hook: hookFile,
+      continue: false,
+      fail_closed: true,
+      verdict,
     },
   };
 }
@@ -509,28 +553,78 @@ function evaluatePolicies({ tool, input, session_id, cwd }) {
         });
         continue;
       }
-      if (result.verdict === "timeout") {
-        // Per cc-artifacts.md Rule 7 — timeout falls open + logs.
+      if (result.verdict === "warn") {
+        // The hook RAN and returned a clean non-2, non-zero exit — an advisory
+        // deviation, NOT a guard failure. The hook successfully evaluated the
+        // policy and chose not to deny, so the call proceeds (advisory-forward).
+        // This is the only non-deny verdict that does NOT fail closed below: a
+        // ran-and-warned hook is distinct from a hook that could not be evaluated.
         logViolation({
-          kind: "codex_mcp_guard_timeout",
-          tool,
-          source_file: policy.source_file,
-          timeout_ms: SUBPROCESS_TIMEOUT_MS,
-        });
-      } else if (
-        result.verdict === "warn" ||
-        result.verdict === "error" ||
-        result.verdict === "missing"
-      ) {
-        // Non-blocking deviations are logged and the call still
-        // proceeds — the alternative (fail-closed on any hook bug)
-        // would deny every Codex call when one of N hooks regresses.
-        logViolation({
-          kind: "codex_mcp_guard_" + result.verdict,
+          kind: "codex_mcp_guard_warn",
           tool,
           source_file: policy.source_file,
           exit_code: result.exitCode,
         });
+        continue;
+      }
+      // FAIL-CLOSED (#411 compliance-bus posture). A verdict of `timeout` (hook
+      // hung), `error` (hook crashed / failed to spawn), or `missing` (the policy
+      // source file is absent for a tool the POLICIES_POPULATED gate says HAS
+      // policies) means the guard COULD NOT EVALUATE the policy — it has no basis
+      // to allow. On a governance/compliance bus a guard that cannot evaluate MUST
+      // DENY, never silently forward (the #411 "fail-open on hook crash" gap: a
+      // crashed enforcement hook silently disabling Codex policy enforcement
+      // defeats the "the model cannot bypass" guarantee). This is DISTINCT from
+      // `cc-artifacts.md` Rule 7's session-hook fail-open: that governs a
+      // session-CONTINUATION hook (a buggy hook must not wedge the whole session,
+      // so its instructAndWait fallback emits {continue:true}); THIS is a security
+      // policy-ENFORCEMENT guard whose whole purpose is to gate the call. First
+      // un-evaluable hook short-circuits the chain, same as a deny.
+      if (
+        result.verdict === "timeout" ||
+        result.verdict === "error" ||
+        result.verdict === "missing"
+      ) {
+        logViolation({
+          kind: "codex_mcp_guard_failclosed_" + result.verdict,
+          tool,
+          source_file: policy.source_file,
+          exit_code: result.exitCode,
+          timeout_ms:
+            result.verdict === "timeout" ? SUBPROCESS_TIMEOUT_MS : undefined,
+        });
+        return {
+          allow: false,
+          mcpResponse: failClosedDeny({
+            hookFile: policy.source_file,
+            verdict: result.verdict,
+            stderr: result.stderr,
+          }),
+          decisions,
+        };
+      }
+      // Defense-in-depth (#411 fail-closed completeness). The ONLY verdict that
+      // reaches here is "allow" — deny / surface / warn / timeout / error /
+      // missing each returned or continued above. A FUTURE, unmodeled verdict
+      // string MUST NOT silently fall through to the allow at the function tail:
+      // an unrecognized verdict means the guard cannot reason about the hook's
+      // intent, so it fails closed (same posture as the un-evaluable trio).
+      if (result.verdict !== "allow") {
+        logViolation({
+          kind: "codex_mcp_guard_failclosed_unmodeled",
+          tool,
+          source_file: policy.source_file,
+          verdict: result.verdict,
+        });
+        return {
+          allow: false,
+          mcpResponse: failClosedDeny({
+            hookFile: policy.source_file,
+            verdict: result.verdict || "unknown",
+            stderr: result.stderr,
+          }),
+          decisions,
+        };
       }
     }
   }
