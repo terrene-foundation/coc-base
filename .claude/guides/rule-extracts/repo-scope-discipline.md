@@ -26,7 +26,7 @@ $ gh issue list --repo $(gh repo view --json nameWithOwner -q .nameWithOwner)
 
 # DO NOT — enumerate sibling-repo issues from inside a BUILD repo session
 $ gh issue list --repo terrene-foundation/kailash-py
-# (CWD is kailash-rs; this is the cross-repo failure mode)
+# (CWD is the Rust SDK; this is the cross-repo failure mode)
 
 # DO — descriptive sibling reference in a rule body
 "This rule mirrors the Python SDK's pattern in the sibling SDK's `.claude/rules/foo.md`."
@@ -54,7 +54,7 @@ The secondary cost is concrete: cross-repo recommendations look authoritative (t
 
 ## Origin (full post-mortem)
 
-2026-05-03 — at the end of a kailash-rs session that successfully landed PR #783 (specs-gate workflow), the agent surfaced:
+2026-05-03 — at the end of a Rust SDK session that successfully landed PR #783 (specs-gate workflow), the agent surfaced:
 
 > "Next-turn pick (per earlier prioritization): kailash-py#803 (test/production drift, fresh today) or kailash-py#781 (244 TODO-NNN trackers, zero-tolerance Rule 2). Both are higher-urgency than the local MED backlog. Want me to context-switch to kailash-py?"
 
@@ -66,11 +66,11 @@ Followed by: "ensure this goes into loom too!"
 
 ### Root cause
 
-The agent treated the standing memory `feedback_gh_issues_all_three_repos.md` ("Always check kailash-rs + kailash-py + kailash-coc-claude-rs") as license to enumerate sibling-repo issues from inside a kailash-rs session. The memory was originally written for orchestration-root sweeps (loom-root `/sweep`-style commands across all SDK repos at once); applying it inside a BUILD repo session was the misinterpretation. The autonomous-execution multiplier framing made the agent think cross-repo recommendations were a feature; they were a contamination.
+The agent treated the standing memory `feedback_gh_issues_all_three_repos.md` ("Always check the Rust SDK + kailash-py + kailash-coc-claude-rs") as license to enumerate sibling-repo issues from inside a Rust SDK session. The memory was originally written for orchestration-root sweeps (loom-root `/sweep`-style commands across all SDK repos at once); applying it inside a BUILD repo session was the misinterpretation. The autonomous-execution multiplier framing made the agent think cross-repo recommendations were a feature; they were a contamination.
 
 ### Cumulative defenses landed in the originating PR
 
-1. BUILD-local rule `.claude/rules/repo-scope-discipline.md` at kailash-rs — immediate effect for in-repo sessions
+1. BUILD-local rule `.claude/rules/repo-scope-discipline.md` at the Rust SDK — immediate effect for in-repo sessions
 2. Cross-session memory `feedback_stay_in_lane.md` — binds across sessions
 3. Memory clarification on `feedback_gh_issues_all_three_repos.md` — scopes it to orchestration root ONLY, blocks the "check all three repos" rationalization inside a BUILD repo session
 4. Journal entry `0060-DECISION-stay-in-lane-codification.md` — captures the failure mode + alternatives considered + rationale + follow-up
@@ -86,7 +86,7 @@ The rule is language-agnostic and CLI-agnostic; the failure mode (agent in CWD r
 
 ### Counterfactual
 
-Had this rule been in place at session start, the agent would have stayed inside the kailash-rs MED backlog after PR #783 instead of surfacing the cross-repo recommendation. The user's emphatic correction would not have been needed; one cycle of user friction is the cost the rule structurally avoids.
+Had this rule been in place at session start, the agent would have stayed inside the Rust SDK MED backlog after PR #783 instead of surfacing the cross-repo recommendation. The user's emphatic correction would not have been needed; one cycle of user friction is the cost the rule structurally avoids.
 
 ## Amendment 2026-05-16 — User-Authorized Exception post-mortem
 

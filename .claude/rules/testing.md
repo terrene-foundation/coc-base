@@ -169,7 +169,7 @@ def test_reads_bedrock_token(monkeypatch):
 
 **BLOCKED rationalizations:** "each module serializes its own tests, that's enough" / "the lock has worked for months" (intermittent — fails only when the scheduler interleaves across modules) / "the group lock is for cross-worker, the in-process lock covers the rest" (one surface needs ONE domain, whichever primitive it is).
 
-**Why:** Lock domains don't compose — mutual exclusion holds only among holders of the SAME lock. The failure is probabilistic and module-boundary-shaped, so it looks like a flaky single test rather than a structural race. Evidence: kailash-rs PR #1283 (2026-06-11) — a `file_serial(llm_env)` test failed 2 of 3 main runs because sibling tests guarded the same `AWS_BEARER_TOKEN_BEDROCK`/`OPENAI_API_KEY` surface with a module-local mutex; unifying all 22 sites onto one domain closed it.
+**Why:** Lock domains don't compose — mutual exclusion holds only among holders of the SAME lock. The failure is probabilistic and module-boundary-shaped, so it looks like a flaky single test rather than a structural race. Evidence: the Rust SDK PR #1283 (2026-06-11) — a `file_serial(llm_env)` test failed 2 of 3 main runs because sibling tests guarded the same `AWS_BEARER_TOKEN_BEDROCK`/`OPENAI_API_KEY` surface with a module-local mutex; unifying all 22 sites onto one domain closed it.
 
 ### MUST: Complexity Bounds Use Self-Normalizing Ratios, Not Absolute Wall-Clock Thresholds
 
@@ -188,7 +188,7 @@ assert big < 60.0    # was 30s, bumped once already
 
 **BLOCKED rationalizations:** "the runner was loaded, bump the bound" / "60s is generous, real users never hit 10K nodes" / "the test is flaky, widen it" / "we'll profile it later if someone complains".
 
-**Why:** Absolute bounds ratchet — each load-driven bump widens the window an algorithmic regression hides in, and the bump itself is the institutional tell. The ratio assert is a pure function of the algorithm, not the machine. Evidence: kailash-rs journal 0177 (2026-06-10) — a 10K-node validation stress bound had been bumped 30s→60s as a "flake"; the replacement ratio test failed deterministically 3/3 (10× nodes costing ~99× time) and surfaced a real O(n²) loop, fixed to O(n+e) in the same shard.
+**Why:** Absolute bounds ratchet — each load-driven bump widens the window an algorithmic regression hides in, and the bump itself is the institutional tell. The ratio assert is a pure function of the algorithm, not the machine. Evidence: the Rust SDK journal 0177 (2026-06-10) — a 10K-node validation stress bound had been bumped 30s→60s as a "flake"; the replacement ratio test failed deterministically 3/3 (10× nodes costing ~99× time) and surfaced a real O(n²) loop, fixed to O(n+e) in the same shard.
 
 ## 3-Tier Testing
 
@@ -287,7 +287,7 @@ if closed: return ErrClosed   # check
 native_call(ptr)              # Close can free into this window → UAF
 ```
 
-**Why:** The check-then-use UAF only crashes under a concurrent closer (often the GC finalizer), so unit tests pass forever while production segfaults under GC pressure. Evidence: kailash-rs journals 0174 + 0178 — a Go `Subscription` UAF crashed 8/8 under stress (SIGSEGV in `runFinalizers → cgocall`); the identical class recurred on a Go `AlignEngine` one wave later and was caught only because the concurrent-stress-test lens existed.
+**Why:** The check-then-use UAF only crashes under a concurrent closer (often the GC finalizer), so unit tests pass forever while production segfaults under GC pressure. Evidence: the Rust SDK journals 0174 + 0178 — a Go `Subscription` UAF crashed 8/8 under stress (SIGSEGV in `runFinalizers → cgocall`); the identical class recurred on a Go `AlignEngine` one wave later and was caught only because the concurrent-stress-test lens existed.
 
 ## Rules
 

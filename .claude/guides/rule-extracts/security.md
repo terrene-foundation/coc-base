@@ -146,6 +146,34 @@ engine.validate_record(instance)  -> validate_model(instance)   # bypasses sanit
 
 Origin: PR #522 / PR #529 (2026-04-19) — BP-049 validation sanitiser plumbing missed one sibling.
 
+## Enforcement-Surface Parity — Shared-Rank-Function Pattern + Detection
+
+The eval-helper call-site grep (Multi-Site Kwarg Plumbing above) is structurally insufficient here: the registration / monotonic-tightening validator is a SEPARATE function with no shared callee, so a grep that follows one helper's call sites CANNOT reach it. The two surfaces MUST consume a SINGLE shared restrictiveness/ordering function so they cannot drift; a hand-synced second copy is a MED-severity finding that MUST carry a pinned parity test asserting byte-identical parse + ordering against the eval gate.
+
+```python
+# DO — one shared rank function; the registration validator consumes it, same PR
+def _restrictiveness(v):              # the SINGLE ordering: None=widest, unrecognized=tightest
+    if v is None: return -1
+    try: return LEVELS.index(parse(v))
+    except Exception: return len(LEVELS)           # ANY parse failure -> tightest (fail-closed)
+def _check_clearance(caller, required): ...                    # eval gate (parse -> fail-closed)
+def _validate_monotonic_tightening(old, new):                  # registration gate — SAME PR
+    if _restrictiveness(new) < _restrictiveness(old):
+        raise GovernanceError(...)                             # may only KEEP or RAISE the bar
+
+# DO NOT — promote the gate at eval, leave the tightening validator blind
+def _check_clearance(caller, required): ...                    # new fail-closed gate
+def _validate_monotonic_tightening(old, new):
+    ...   # never learned the new dimension -> a re-registration that DROPS (secret->None)
+          # or LOWERS (secret->public) the bar is accepted as "tightening" -> gate silently stripped
+```
+
+**BLOCKED rationalizations:** "The eval gate is the enforcement point; the validator is secondary" / "grep of the eval helper's call sites found nothing" / "the validator has a safe default" / "the new dimension is rare; re-registration won't hit it" / "the eval check already fails closed, so the bypass is theoretical".
+
+**Detection:** for any field promoted to a fail-closed authorization control at an eval surface, FIRST enumerate ALL validators that reference the control's field/type (the helper-following grep is precisely what cannot find the independent surfaces), THEN grep each re-registration / monotonic-tightening validator for that field name — absence is a finding.
+
+Origin: kailash-py #1456 → kailash-pact 0.14.3 (PR #1459). #1456 promoted `McpToolPolicy.clearance_required` to a fail-closed gate at `_check_clearance` (eval, Step 3.5) but left `_validate_monotonic_tightening` (re-registration) blind to it; a `secret`→None / `secret`→`public` re-registration was accepted as "tightening", silently stripping the gate. Cross-SDK sibling: the Rust SDK binding (same shape).
+
 ## Redactor Contract — Extended
 
 ### 1. Minimum Subject-Id Length Floor (≥8 chars)
@@ -183,7 +211,7 @@ The matching-key counter prevents map collapse across multiple matching keys; an
 
 **Cross-SDK landing requirement:** when an equivalent subject-keyed redactor lands in a sibling SDK (Python, Ruby, Node), the min-length floor AND the numbered-sentinel key scrub MUST be part of the ORIGINAL landing — not a follow-up.
 
-**Evidence:** kailash-rs `eatp::redact_subject_keyed` shipped with only an empty-id check (PR #1123 commit `f2cd020e`); /redteam Round 1 flagged HIGH (1–7-char ids over-redact role knowledge) + MEDIUM (preserved matching key leaks predecessor identity). Same-shard fix (commit `6a332ef5`) added the `MIN_SUBJECT_ID_CHARS = 8` floor + regression test `redact_subject_keyed_short_subject_id_is_rejected` + the `[REDACTED_KEY_N]` sentinel + symmetric residue predicate.
+**Evidence:** the Rust SDK `eatp::redact_subject_keyed` shipped with only an empty-id check (PR #1123 commit `f2cd020e`); /redteam Round 1 flagged HIGH (1–7-char ids over-redact role knowledge) + MEDIUM (preserved matching key leaks predecessor identity). Same-shard fix (commit `6a332ef5`) added the `MIN_SUBJECT_ID_CHARS = 8` floor + regression test `redact_subject_keyed_short_subject_id_is_rejected` + the `[REDACTED_KEY_N]` sentinel + symmetric residue predicate.
 
 ## Kailash-Specific Security — Extended
 

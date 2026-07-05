@@ -52,6 +52,14 @@ import {
   LinkError,
   VALID_ROLES, // single source of truth (closed role set, D2) — imported, not re-declared
 } from "./lib/loom-links.mjs";
+// SSOT for the coc-ledger driver registration — shared with the SessionStart
+// self-heal (journal/0418 G1). The canonical-command string + %P-omission
+// rationale live in the lib; do NOT re-declare a local copy (that bare-vs-node
+// drift IS loom#741).
+import {
+  CANONICAL_DRIVER as COC_LEDGER_DRIVER,
+  CANONICAL_NAME as COC_LEDGER_NAME,
+} from "../hooks/lib/coc-ledger-driver.js";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 // lib/ is bin/lib, so REPO_ROOT is two levels up from bin/ → .claude/ → root.
@@ -441,17 +449,8 @@ export function formatReport(result) {
 // repair is local + reversible + idempotent. The role write requires an
 // EXPLICIT --role (NO silent guess — the D2 precedence design).
 
-const COC_LEDGER_NAME = "COC forest-ledger 3-way merge";
-// The `node ` prefix is load-bearing: git execs a merge driver directly through
-// the shell, and coc-ledger.js is committed mode 100644 (non-executable), so a
-// bare path fails `Permission denied` and git silently falls back to the
-// clobbering default line-merge (loom#741). The explicit interpreter is also
-// cross-platform (does not depend on the +x bit / core.fileMode).
-// `%P` is DELIBERATELY OMITTED: it expands to the merged file's repo-relative
-// path and, via the `workspaces/*` .gitattributes binding, is a shell-injection
-// surface (a maliciously-named dir); the driver reads only `%O %A %B`, so `%P`
-// is unused. Do NOT re-add it. (loom#741 R1 security)
-const COC_LEDGER_DRIVER = "node .claude/hooks/lib/coc-ledger.js %O %A %B";
+// COC_LEDGER_NAME + COC_LEDGER_DRIVER are imported from the coc-ledger-driver
+// SSOT lib above (the `node `-prefix + %P-omission rationale lives there).
 
 // Default seam: invoke the existing loom-links-init seeder (refuses-on-exists).
 function defaultInvokeInit() {

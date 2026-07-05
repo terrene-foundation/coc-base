@@ -45,4 +45,4 @@ NONE the agent may invoke on its own judgment (§ User-Authorized Exception is t
 
 Note: at the orchestration root, targets resolve via `bin/lib/loom-links.mjs::resolveRepo` / `resolveAll` (per `cross-repo.md` MUST-1) — never positional discovery; the carve-out never lifts the resolver requirement.
 
-Origin: 2026-05-03 (kailash-rs cross-repo surfacing); amended 2026-05-16 (User-Authorized Exception added after a downstream-consumer session over-blocked a user-authorized filing). Full post-mortem in extract.
+Origin: 2026-05-03 (the Rust SDK cross-repo surfacing); amended 2026-05-16 (User-Authorized Exception added after a downstream-consumer session over-blocked a user-authorized filing). Full post-mortem in extract.

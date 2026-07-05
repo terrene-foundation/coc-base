@@ -69,7 +69,7 @@ fully resolve the ABI; pulling the log to confirm.
 
 ## Origin — Full E1/E2/E3 Narrative
 
-2026-05-31 — `kailash-rs` session (cutting GitHub-native binding releases). Three unforced errors of one class — assert-before-verify — escalating in severity:
+2026-05-31 — Rust SDK session (cutting GitHub-native binding releases). Three unforced errors of one class — assert-before-verify — escalating in severity:
 
 1. **E1 — "30-minute timeout" misdiagnosis (MUST-1).** Claimed the Go/Ruby Linux gem jobs were failing on a 30-minute runner timeout. The actual log showed the jobs **failed in 53s–1.5min** on `no ruby-build version for 3.2` (a `rbenv install --list` shortlist-vs-grep bug). The "timeout" was invented from a timing intuition; reading the log retracted it. Real fix: `--list` → `--list-all` (PR #1179).
 2. **E2 — "missing ARM runner" claim (MUST-1/3).** About to assert the `<self-hosted-arm-runner>` self-hosted runner had been deleted, hanging the Ruby publish. The command meant to confirm it had **errored** (parallel-batch cancellation) — the deletion was nearly stated as fact anyway. GraphQL then showed the real cause: the publishing run was `PENDING` behind a sibling run due to `concurrency: cancel-in-progress: false`. No runner was missing.

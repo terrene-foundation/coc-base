@@ -32,13 +32,13 @@ Four things nothing else captures:
 
 If content doesn't fit one of those four, it belongs somewhere else. Put it there before running `/wrapup`.
 
-## Where to write — M6 D split layout
+## Where to write — M6 D split layout (root-canonical)
 
-Per-operator fragment `<base>/.session-notes.d/<display_id>.md` + forest ledger `<base>/.session-notes.shared.md` (per-row `owner:`, merged by `coc-ledger`). `<base>` = `workspaces/$ARGUMENTS/` if specified, else the most recently modified workspace dir (excluding `instructions/`), else the repo root. Writes go through `.claude/hooks/lib/session-notes-layout.js`. Rows MUST carry a stable single-token `ID` + value-anchor per `rules/value-prioritization.md` MUST-1+2; owner stamps from identity. On journal-file close, emit a signed `journal-body-anchor` record via `.claude/hooks/lib/journal-body-anchor.js::buildAnchorRecord` — pins `{path, sha256_of_content_bytes, slot_record_ref}`; fold-time predicate re-hashes and surfaces tamper on mismatch.
+Per-operator fragment `<base>/.session-notes.d/<display_id>.md` + forest ledger `<base>/.session-notes.shared.md` (per-row `owner:`, merged by `coc-ledger`). **`<base>` is ALWAYS the repo ROOT** — never a workspace dir, even when a workspace is active. (`/wrapup` takes no workspace argument; the fragment target is unconditionally root.) Root is the single multi-operator READ surface: SessionStart regenerates ONLY the root aggregate (`session-notes-layout.js::regenerateAggregate` called with the repo root) and `workspace-utils.js::findAllSessionNotes` has its aggregate fallback ONLY on the root branch (the workspace branch reads the legacy `.session-notes` monolith name, with no `.session-notes.d/` awareness). So a fragment written under `workspaces/<ws>/.session-notes.d/` is invisible to the next session's read path — its body lands where nothing is surfaced (journal `0417`). Workspace locality is carried by the forest-ledger rows (workspace-attributed) + the "Read first" pointers into `workspaces/<project>/…`, NOT by the fragment's write location. Writes go through `.claude/hooks/lib/session-notes-layout.js`. Rows MUST carry a stable single-token `ID` + value-anchor per `rules/value-prioritization.md` MUST-1+2; owner stamps from identity. On journal-file close, emit a signed `journal-body-anchor` record via `.claude/hooks/lib/journal-body-anchor.js::buildAnchorRecord` — pins `{path, sha256_of_content_bytes, slot_record_ref}`; fold-time predicate re-hashes and surfaces tamper on mismatch.
 
 ## Format
 
-Hard cap: **50 lines**. Overflow means the content belongs in `todos/active/` or `journal/`, not here. Omit any section that would be empty.
+Hard cap: **50 lines**. Overflow means the content belongs in `todos/active/` or `journal/`, not here. Omit any section that would be empty — EXCEPT the three always-present sections, which write an explicit empty-sentinel rather than vanish: **Read first** (the mandatory entry point), **Outstanding ledger** ("Forest empty — …"), and **Executed this session** ("None — no external actions this session"). Absence of these three is indistinguishable from a forgotten section, so it must be explicit.
 
 ```markdown
 # Session Notes — <YYYY-MM-DD>
@@ -59,6 +59,18 @@ change. Just enough for the next session to orient — not a history.
 - Uncommitted decisions, half-done refactors, mid-migration state.
 - Facts that are true NOW but aren't in git/todos/journal yet.
   (omit if none)
+
+## Executed this session
+
+- Consequential actions this session TOOK whose state is NOT in THIS repo's
+  `git log` — distribution PRs opened/merged on OTHER repos, releases cut,
+  cross-repo syncs landed, external issues filed. One line each, by external
+  pointer (repo#PR, tag), so the next session knows what is in-flight ELSEWHERE.
+  SCRUB operator paths + private-org slugs per `rules/user-flow-validation.md`
+  MUST-6 — `.session-notes` syncs to 30+ consumers. (The rationale + the "is it
+  in THIS repo's `git log`?" test live in Hard rules.)
+  (write "None — no external actions this session" if none; never omit
+  silently — absence is explicit, like the forest ledger)
 
 ## Outstanding ledger (forest)
 
@@ -114,16 +126,16 @@ The ledger defends against the stale-snapshot trap (a closed item resurfacing, o
 5. **Empty forest** still writes the section explicitly ("Forest empty
    — …"). Absence ≠ done. The sentinel and open rows are mutually
    exclusive — asserting "Forest empty" with rows present is a defect.
-6. **Roll workspace ledgers up to root (#669)** — when the wrapup base is
-   the repo ROOT, every OPEN workspace-ledger ID the latest `/sweep` Sweep-6
-   `--aggregate` flagged STRANDED (the `[AGG]` findings already in context —
-   NOT a fresh scan; the 3-tool-call cap holds) MUST be carried into the root
-   ledger WITH its value-anchor (`value-prioritization.md` MUST-2) OR
-   referenced in "Closed this session" — no open workspace item silently
-   drops at the workspace→root boundary. This step CONSUMES `/sweep`'s `[AGG]`
-   findings (the end-of-cycle gate that runs first), it does NOT re-scan; if
-   `/sweep` was skipped, run it (or `validate-forest-ledger.mjs --aggregate`)
-   before relying on this step.
+6. **Roll pre-existing workspace ledgers up to root (#669)** — the wrapup base
+   is always the repo ROOT (§ Where to write); new wrapups create no workspace
+   ledger, so this is the transition guard for LEGACY stranded rows. Every OPEN
+   workspace-ledger ID the latest `/sweep` Sweep-6 `--aggregate` flagged STRANDED
+   (the `[AGG]` findings already in context — NOT a fresh scan; the 3-tool-call
+   cap holds) MUST be carried into the root ledger WITH its value-anchor
+   (`value-prioritization.md` MUST-2) OR referenced in "Closed this session" — no
+   open workspace item silently drops at the workspace→root boundary. This step
+   CONSUMES `/sweep`'s `[AGG]` findings, it does NOT re-scan; if `/sweep` was
+   skipped, run it (or `validate-forest-ledger.mjs --aggregate`) first.
 
 **Mechanical gate (CI / `/redteam`, NOT the wrapup runtime).**
 `validate-forest-ledger.mjs <notes>` checks intra-file conformance (section
@@ -139,9 +151,9 @@ ledger (step 6; `/sweep` Sweep 6).
 
 ## Hard rules
 
-- **Write, not verify (closed allowlist — EXACTLY these three tool calls, nothing else).** **(a)** one workspace resolution (`ls workspaces/`) if needed; **(b)** one read of the immediately-prior `.session-notes` — that exact file, no other path — for ledger carry-forward; **(c)** one write of the new `.session-notes`. **Tool call cap: 3.** ANY other tool call — including any additional read of any other file, any grep / git / gh / pytest / find — is BLOCKED. The allowlist is the operative bound; this is not a denylist with examples. The single bounded prior-`.session-notes` read is the carry-forward source, categorically not the verification cascade.
+- **Write, not verify (closed allowlist — EXACTLY these three tool calls, nothing else).** **(a)** one optional `ls workspaces/` — ONLY to orient the "Read first" pointers; the fragment write target is the root split (§ Where to write), so no base resolution is needed; **(b)** one read of the immediately-prior `.session-notes` — that exact file, no other path — for ledger carry-forward; **(c)** one write of the new `.session-notes`. **Tool call cap: 3.** ANY other tool call — including any additional read of any other file, any grep / git / gh / pytest / find — is BLOCKED. The allowlist is the operative bound; this is not a denylist with examples. The single bounded prior-`.session-notes` read is the carry-forward source, categorically not the verification cascade.
 - **Memory only.** Produce the notes from conversation memory. If you're unsure whether a claim is still true, omit it — the next session can discover it from git.
-- **No accomplishments list.** The next session reads `git log`. Do not describe what happened this session.
+- **No LOCAL accomplishments list — but the "Executed this session" external-signal IS required.** The next session reads `git log` for LOCAL work, so do NOT describe what happened in THIS repo this session. The carve-out: consequential EXTERNAL actions (distribution PRs on other repos, releases, cross-repo merges, filed issues) are NOT in this repo's `git log`, so the next session cannot recover them there — capture those, and only those, under "## Executed this session". The test: "is this action's state visible in `git log` of THIS repo?" — yes → omit (accomplishments-list ban); no → it belongs in the execution-signal.
 - **No itemized-todo list — but the forest ledger is REQUIRED.** The next session reads `todos/active/` for per-task itemization; do NOT reproduce that here. The Outstanding ledger is the deliberate, scoped exception: it is **forest-level only** (workstreams / blocked-items, typically 2–6 rows), explicitly distinct from per-task todos. Every ledger row MUST carry a value-anchor per `rules/value-prioritization.md` MUST-1+2. Itemizing individual todos in the ledger is BLOCKED (that defeats forest-vs-trees); omitting the ledger entirely is BLOCKED (that is the stale-snapshot trap).
 - **No decision log.** Journal decisions with `/journal` before running `/wrapup`, not in session notes.
 - **No quantitative claims.** Do not write "N tests passing", "3 files changed", or "27 todos remaining". Numbers must be verified; verification is forbidden here. Point at the source of truth instead.

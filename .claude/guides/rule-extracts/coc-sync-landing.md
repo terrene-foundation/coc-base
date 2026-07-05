@@ -94,7 +94,7 @@ The slim rule cuts the MUST NOT block to bullets only. Full text:
 
 ## Origin Post-Mortem (2026-05-02)
 
-A kailash-rs session opened with `/autonomize` unknown despite the command having been delivered to the working tree by the prior `/sync-to-build` cycle. The user response was emphatic: **"ALWAYS get the updated coc artifacts INTO MAIN BRANCH!!! Never leave them out! memory IS NOT ENOUGH"**.
+A Rust SDK session opened with `/autonomize` unknown despite the command having been delivered to the working tree by the prior `/sync-to-build` cycle. The user response was emphatic: **"ALWAYS get the updated coc artifacts INTO MAIN BRANCH!!! Never leave them out! memory IS NOT ENOUGH"**.
 
 The phrase "memory IS NOT ENOUGH" pinpoints the structural failure: an earlier attempt to enforce sync-landing via cross-session memory feedback was insufficient. Cross-session memories are loaded on session start, but they are passive — they describe a desired behavior without forcing the agent to act on it before doing other work. The agent reads the memory, acknowledges it, and proceeds with whatever the user asked next.
 

@@ -75,7 +75,7 @@ cd "$WT" && git rev-parse --show-toplevel && <run-tests/apply-patch>
 
 **BLOCKED rationalizations:** "I cd'd at the start of the session" / "the prior command ran in the worktree, so this one will" / "the test passed, the patch must have applied".
 
-**Why:** The false-green is worse than a failure — it converts an unapplied patch into institutional "validated" state. Evidence: kailash-rs journal 0177 § Process note (2026-06-10) — a "3× green" validation had silently run in the main checkout after cwd reverted; the explicit `cd` + re-run produced the real 3/3 FAIL that exposed an O(n²) regression. Pairs with Rule 3a (checkout-bound tools): 3a covers tools rooted at the script's own location; this clause covers the invoking shell's cwd.
+**Why:** The false-green is worse than a failure — it converts an unapplied patch into institutional "validated" state. Evidence: the Rust SDK journal 0177 § Process note (2026-06-10) — a "3× green" validation had silently run in the main checkout after cwd reverted; the explicit `cd` + re-run produced the real 3/3 FAIL that exposed an O(n²) regression. Pairs with Rule 3a (checkout-bound tools): 3a covers tools rooted at the script's own location; this clause covers the invoking shell's cwd.
 
 ### 3. Parent MUST Verify Deliverables Exist After Agent Exit
 
@@ -185,4 +185,4 @@ Agent(isolation="worktree", prompt="Implement W31... use feat/w31-core-ml-nodes"
 
 **Why:** `process.cwd()` resolves to whatever the Claude Code process was launched with (the main checkout), not the worktree; relative paths inherit the same problem.
 
-Origin: Session 2026-04-19 specialist drift + 2026-04-23 kailash-ml-audit M10 release wave (Rules 4–6) + Rule 2a 2026-06-11 (kailash-rs journal 0177 § Process note — cwd silently reverted to main mid-session, a "3× green" validation had run against unpatched main code). See guide for full post-mortem evidence. Rule 4 reframed 2026-06-01 (F110 / loom#418+#419) from the hardcoded "Waves of ≤3" cap to the throttle-aware adaptive model — #419's 7-read-only-agent synchronized throttle (sub-quota, `not your usage limit`) falsified #418's "trust the native cap (14)"; receipts journal/0193 (ablation + throttle evidence) + journal/0194 (F110 DECISION).
+Origin: Session 2026-04-19 specialist drift + 2026-04-23 kailash-ml-audit M10 release wave (Rules 4–6) + Rule 2a 2026-06-11 (the Rust SDK journal 0177 § Process note — cwd silently reverted to main mid-session, a "3× green" validation had run against unpatched main code). See guide for full post-mortem evidence. Rule 4 reframed 2026-06-01 (F110 / loom#418+#419) from the hardcoded "Waves of ≤3" cap to the throttle-aware adaptive model — #419's 7-read-only-agent synchronized throttle (sub-quota, `not your usage limit`) falsified #418's "trust the native cap (14)"; receipts journal/0193 (ablation + throttle evidence) + journal/0194 (F110 DECISION).

@@ -151,8 +151,8 @@ if not hmac.compare_digest(expected_hash, computed_hash):
 
 ```rust
 // Compiled-language equivalent — DO — route through the constant-time comparison primitive
-use kailash_core::crypto::constant_time_eq;
-if !constant_time_eq(expected_hash, &computed_hash) {
+use subtle::ConstantTimeEq;
+if !bool::from(expected_hash.ct_eq(&computed_hash)) {
     return Err(ChainVerifyError::HashMismatch);
 }
 ```
@@ -165,7 +165,7 @@ if expected_hash == computed_hash: ...
 if expected_hash == computed_hash { ... }
 ```
 
-**Why:** Variable-time string / slice equality short-circuits at the first differing byte. On a verify endpoint that returns quickly-vs-slowly based on prefix match, an attacker submits crafted anchor hashes and measures response time to reconstruct the expected hash byte-by-byte. Constant-time comparison walks the full length regardless of the first-diff position; each SDK exposes one approved constant-time-equality primitive (Python: `hmac.compare_digest`; Rust: the SDK's `constant_time_eq` helper, backed by an audited constant-time crate) — routing every hash-verify site through the SDK primitive keeps the enforcement point singular. Error messages on mismatch MUST NOT echo expected/found hash values — the error body is itself a side channel.
+**Why:** Variable-time string / slice equality short-circuits at the first differing byte. On a verify endpoint that returns quickly-vs-slowly based on prefix match, an attacker submits crafted anchor hashes and measures response time to reconstruct the expected hash byte-by-byte. Constant-time comparison walks the full length regardless of the first-diff position; each SDK exposes one approved constant-time-equality primitive (Python: `hmac.compare_digest`; Rust: `subtle::ConstantTimeEq::ct_eq`, from the audited `subtle` crate) — routing every hash-verify site through that primitive keeps the enforcement point singular. Error messages on mismatch MUST NOT echo expected/found hash values — the error body is itself a side channel.
 
 ### MUST: Verify Paths Reach Production Call Sites
 

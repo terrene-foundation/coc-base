@@ -13,7 +13,7 @@ on:
   push:
     tags: ["v*"]
 permissions:
-  contents: write        # MUST — gh release upload/create needs this
+  contents: write # MUST — gh release upload/create needs this
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -70,11 +70,11 @@ on:
       - ".github/workflows/python.yml"
     paths-ignore:
       - "**/*.md"
-      - ".claude/**"        # CC artifacts (agents, skills, rules, commands)
-      - "docs/**"           # User-facing documentation
-      - "specs/**"          # Domain specs (no code surface)
-      - "workspaces/**"     # Session records (no code surface)
-      - "memory/**"         # Auto-memory (no code surface)
+      - ".claude/**" # CC artifacts (agents, skills, rules, commands)
+      - "docs/**" # User-facing documentation
+      - "specs/**" # Domain specs (no code surface)
+      - "workspaces/**" # Session records (no code surface)
+      - "memory/**" # Auto-memory (no code surface)
       - ".github/ISSUE_TEMPLATE/**"
       - ".github/PULL_REQUEST_TEMPLATE.md"
 
@@ -82,15 +82,15 @@ on:
 on:
   pull_request:
     paths-ignore:
-      - "**/*.md"          # misses .claude/agents/bar.json (no .md extension)
-                           # which fires CI even though it cannot affect compiled binding
+      - "**/*.md" # misses .claude/agents/bar.json (no .md extension)
+        # which fires CI even though it cannot affect compiled binding
 ```
 
 ### Why — Extended
 
 Bindings ship compiled wheels — none of the listed doc-only surfaces can affect what's built. Each non-excluded doc-only PR triggers ALL binding workflows (python + ruby + node), each billed at 1-minute minimum on `ubuntu-latest` even when they short-circuit. Compounded over 30-50 doc/codify PRs per month, this is ~150-200 min/month of pure overhead. Excluding `.claude/**`, `docs/**`, `specs/**`, `workspaces/**`, `memory/**` recovers all of that for zero correctness cost.
 
-Origin: 2026-04-25 kailash-rs gh-manager CI burn audit — identified 66 of 580 GHA-billable minutes were doc-only PR triggers on binding workflows, mostly on `chore/codify-*`, `feat/rls-*-codify`, and similar non-code branches. Closing this gap eliminates that recurring class of waste.
+Origin: 2026-04-25 Rust SDK gh-manager CI burn audit — identified 66 of 580 GHA-billable minutes were doc-only PR triggers on binding workflows, mostly on `chore/codify-*`, `feat/rls-*-codify`, and similar non-code branches. Closing this gap eliminates that recurring class of waste.
 
 ## Rule 7 — Cron Cost-Footer: Full Comment Template
 
@@ -112,11 +112,12 @@ on:
 # DO NOT — uncosted high-frequency cron
 on:
   schedule:
-    - cron: "*/5 * * * *"   # silently consumes ~8,640 min/month
-                            # at 1-min minimum billing per run
+    - cron:
+        "*/5 * * * *" # silently consumes ~8,640 min/month
+        # at 1-min minimum billing per run
 ```
 
-Origin: 2026-04-25 kailash-rs gh-manager audit — `ci-queue-monitor.yml` configured at `cron: "*/5 * * * *"` consumed 288 min/day (ground-truth, audited at 14:00Z). At month-end this approaches 8,640 min/month — alone exceeding 2× the entire 3,000-min free tier. Cadence MUST drop to `*/30` minimum until the runner-queue load profile is characterized; the rule prevents this class of unaudited cron from re-landing.
+Origin: 2026-04-25 Rust SDK gh-manager audit — `ci-queue-monitor.yml` configured at `cron: "*/5 * * * *"` consumed 288 min/day (ground-truth, audited at 14:00Z). At month-end this approaches 8,640 min/month — alone exceeding 2× the entire 3,000-min free tier. Cadence MUST drop to `*/30` minimum until the runner-queue load profile is characterized; the rule prevents this class of unaudited cron from re-landing.
 
 ## Rule 8 — Release PR Skip: Enforcement Grep
 
@@ -139,9 +140,9 @@ done
 
 Release PRs under the `release/v*` branch convention (see `git.md` § "Release-Prep PRs MUST Use `release/v*` Branch Convention") are by contract metadata-only. The source changes they bundle were each individually verified on their own PR — re-running the full suite a third time against a pure-metadata diff adds no coverage and wastes ~45 min of runner wall-clock per release cycle. The tag-triggered release workflow has its own gate that validates the actual published artifacts — THAT is the release gate, not PR CI. If a contributor smuggles a code change into a `release/v*` branch, the merge-commit push event will still fire integration jobs on main post-merge, which will catch integration-level regressions.
 
-Origin: 2026-04-22 kailash-rs session — user observed release PR #531 (pure version bump, 6 files touched, zero code surface) running the full PR-gate suite for the third time on the same code. Codified as a MUST gate in the same session; savings are per-release cycle (~45 min). Cross-references `git.md` § "Release-Prep PRs MUST Use `release/v*` Branch Convention" (always-loaded baseline) for branch-naming-time visibility into the cost lever.
+Origin: 2026-04-22 Rust SDK session — user observed release PR #531 (pure version bump, 6 files touched, zero code surface) running the full PR-gate suite for the third time on the same code. Codified as a MUST gate in the same session; savings are per-release cycle (~45 min). Cross-references `git.md` § "Release-Prep PRs MUST Use `release/v*` Branch Convention" (always-loaded baseline) for branch-naming-time visibility into the cost lever.
 
-## kailash-rs CI Cascade Waves 6-18 — Full Origin Narrative
+## Rust SDK CI Cascade Waves 6-18 — Full Origin Narrative
 
 12 consecutive waves fixed pre-existing failures hidden by fmt short-circuit. After fmt finally turned green for the first time in months, Clippy lit up red (Wave 6), then Docs (Wave 7), then Deny (Wave 8), then Test (Wave 9), continuing through Wave 18. Each wave's fix was a dependency of the next wave's signal.
 

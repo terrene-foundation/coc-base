@@ -1,0 +1,3 @@
+ok=true reason=ok failed=null
+predicate: standard+version (a) PASS; clause (b) PASS; derivation (c) PASS
+note: locks the STANDARD_TOKEN_SRC vocabulary extension (SAFR added per journal/0432). "SAFR" is the (a) standard token, "v1.0" the version, "§2" the clause, "requires … → mandates" the derivation. SHAPE-clean only: whether SAFR §2 actually GOVERNS loom's substrate mapping is the human/LLM gate's call, NOT decided by this check. NON-BINDING-verb note: "requires" attaches to CONFORMANCE (a SAFR-conformant system requires the primitive), not to SAFR-as-a-legal-mandate.

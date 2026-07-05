@@ -9,7 +9,7 @@ The user invoked `/autonomize`. This is a directive, not a task. Adopt the follo
 
 ## Operational implications
 
-1. **No option-menus without a pick.** Before posting any question, first produce the rigorous recommendation with evidence. Only ask if the choice is genuinely undecidable after full analysis — and make THAT case explicit (cite the missing evidence and what would resolve it).
+1. **No option-menus without a pick.** Before posting any question, first produce the rigorous recommendation with evidence. Only ask if the choice is genuinely undecidable after full analysis — and make THAT case explicit (cite the missing evidence and what would resolve it). **Confidence carve-out** (per `rules/recommendation-quality.md` § MUST-7 "Below-Confidence Escalation"): a _decidable_ pick you hold at LOW confidence — one you cannot stand behind on evidence — is NOT a "clear pick." ESCALATE it for ratification (recommend it, state the confidence, name what would raise it, ask a yes/no or single decision point per MUST-5) even when the action is cheap / low-blast-radius. Decidability ≠ confidence; this is a distinct axis from the blast-radius gate in § Prudence, so it is NOT hedging — it is the honest confidence signal.
 
 2. **Root-cause over symptom.** Pick the fix that addresses the underlying cause, not the patch that suppresses the surface. No workarounds for fixable bugs (per `rules/zero-tolerance.md` Rule 4). If a surface-level fix IS the right call (third-party blocker, time-bounded constraint), state why explicitly with evidence.
 
@@ -39,7 +39,7 @@ After deciding WHAT to do, route HOW to execute it:
 
 ## Prudence — the permission envelope
 
-Autonomous execution operates INSIDE the user's permission envelope, not outside it. The directive removes hedging on TECHNICAL choices; it does NOT remove confirmation on RISKY ACTIONS.
+Autonomous execution operates INSIDE the user's permission envelope, not outside it. The directive removes hedging on TECHNICAL choices; it does NOT remove confirmation on GATED ACTIONS — actions that cross a boundary the user has not pre-authorized, whether by blast-radius OR by content-sensitivity exposure.
 
 **You MUST still confirm before:**
 
@@ -48,8 +48,9 @@ Autonomous execution operates INSIDE the user's permission envelope, not outside
 - **Shared-state changes visible to others**: pushing to remote, opening/closing/commenting on PRs or issues, posting to Slack/email/external services, modifying shared infrastructure or permissions, uploading content to third-party renderers.
 - **Out-of-envelope scope expansion**: work exceeding the user's stated request by more than one shard budget (per `rules/autonomous-execution.md` § Per-Session Capacity) — state the expansion and confirm before continuing.
 - **BUILD repos and downstream-of-USE repos**: never commit/push on the user's behalf in BUILD repos (kailash-py, kailash-rs, kailash-prism) or downstream-of-USE repos (per standing user feedback) — working-tree edits only; commits stay with the user.
+- **Sensitivity / classification escalation** (the SENSITIVITY axis, per `rules/recommendation-quality.md` § MUST-8): incorporating higher-sensitivity content into a lower-sensitivity or wider-audience **durable** surface — a secret/credential/PII into a durable artifact; **gitignored-per-operator** material (`loom-links.local.json`, a sibling operator's private state) into a **committed shared** artifact (`.claude/team-memory/*`, `.session-notes.shared.md`, a journal entry); **tenant-scoped** content into a **global or synced** artifact — **regardless of prior scope approval**, even when the write is mechanically cheap (not destructive, not hard-to-reverse, not externally-visible-yet — a purely-local commit that trips none of the action-type bullets above). § Prudence's other bullets gate action-mechanics, so a cheap write that ELEVATES sensitivity slips past them whatever the content's consequence; and no loom fence catches it at the authoring verdict (the intake/sync/publish fences fire at a distribution-pipeline boundary; the one authoring-time disclosure hook, `cross-ecosystem-disclosure-guard.js`, is dormant on canon + fork→canon-scoped). Read-authority over higher-sensitivity content does NOT carry forward to persisting or widening its audience. Confirm the partition (name it, offer the lower-exposure form) before persisting — this is NOT hedging (per MUST-8, the escalation is surfaced WHILE still recommending the write).
 
-Confirmation here is NOT hedging. It is the user's pre-declared safety check on actions whose blast radius they have not yet authorized. Skipping this confirmation violates `CLAUDE.md` § "Executing actions with care".
+Confirmation here is NOT hedging. It is the user's pre-declared safety check on actions that cross a boundary they have not yet authorized — whether by blast-radius or by content-sensitivity exposure (the **Sensitivity / classification escalation** bullet). Skipping this confirmation violates `CLAUDE.md` § "Executing actions with care".
 
 ## Rigor — verify before you commit
 

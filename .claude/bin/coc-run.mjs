@@ -166,18 +166,52 @@ function scalarField(rawFm, key) {
   return unquoteScalar(mm[1]);
 }
 
-// Read a YAML flow-sequence list field `key: [a, "b,c"]` from raw frontmatter.
-// Returns string[] or null when absent. STRUCTURAL DEPENDENCY: emit-coc's
-// buildFrontmatter (emit-coc.mjs) emits paths/applies_to as single-line FLOW
-// sequences ONLY — never the YAML block form (`paths:\n  - a`). If that ever
-// changes, listField MUST gain a block reader or path-scope annotations +
-// applies_to filtering would silently read null (a quiet fidelity loss, not a
-// crash). The two sides MUST stay in lockstep.
+// Read a YAML list field (flow `key: [a, "b,c"]` OR block `key:\n  - a\n  - b`)
+// from raw frontmatter. Returns string[] or null when the field is absent.
+//
+// CONFORMANCE (loom#777): a YAML 1.2 block sequence is a first-class list form,
+// so a consumer MUST accept it — reading ONLY the flow form silently drops a
+// block-form `paths:` / `applies_to:` list (a quiet path-scope / delivery
+// fidelity loss). This MIRRORS the PRODUCE side, emit-coc.mjs::extractListField,
+// so consume ⇄ produce stay symmetric: emit-coc's buildFrontmatter re-emits FLOW
+// form, but a hand-authored or non-loom-emitted `.coc/` (e.g. a rule carrying a
+// block-form `paths:` list) MUST round-trip without loss. A MALFORMED block item
+// (a `-` line failing the item shape) THROWS a CocError rather than silently
+// truncating the list (zero-tolerance.md Rule 3 — no silent fallback); the throw
+// surfaces as a clean fail-loud `coc-run: …` exit 1 via run()'s CocError catch,
+// never an uncaught crash.
+//
+// SCOPE NOTE: `paths`/`applies_to` are STRICT §3.2 fields, NOT typed-superset L2
+// fields — so hard-failing on genuine corruption here does NOT touch the COC.md
+// "typed-superset field degrades, never a parse failure" contract, which governs
+// `hooks`/`tools`/`model`. Those are never parsed by parseArtifact at all (the
+// strongest degrade — the block sequence under `hooks:` is ignored wholesale,
+// so a `- matcher` sequence indicator can never be mis-read as a mapping key).
 function listField(rawFm, key) {
-  const re = new RegExp(`^${escapeRe(key)}:[ \\t]*\\[(.*)\\][ \\t]*$`, "m");
-  const mm = rawFm.match(re);
-  if (!mm) return null;
-  return splitFlowItems(mm[1]);
+  // Flow form: `key: [a, "b,c"]` on one line.
+  const flow = rawFm.match(new RegExp(`^${escapeRe(key)}:[ \\t]*\\[(.*)\\][ \\t]*$`, "m"));
+  if (flow) return splitFlowItems(flow[1]);
+  // Block form: `key:` (bare) then `- item` lines — at column 0 OR indented
+  // (both are first-class YAML 1.2 block sequences under the key; loom#777 R1).
+  // NOT handled (hand-rolled reader, no YAML lib): inline trailing comments
+  // (`- x  # note`), multiline scalars, anchors — those need a full YAML parser.
+  const head = rawFm.match(new RegExp(`^${escapeRe(key)}:[ \\t]*$`, "m"));
+  if (!head) return null;
+  const rest = rawFm.slice(head.index + head[0].length).split("\n");
+  const items = [];
+  for (const line of rest) {
+    if (line.trim() === "") continue; // tolerate blank lines inside the block
+    if (!/^[ \t]*-/.test(line)) break; // first non-list line ends the block (item column 0 or indented)
+    const it = line.match(/^[ \t]*-[ \t]*(.*\S)[ \t]*$/);
+    if (!it) {
+      throw new CocError(
+        `malformed YAML block-list item in '${key}': ${JSON.stringify(line)} ` +
+          `— refusing to silently truncate the list (zero-tolerance Rule 3)`,
+      );
+    }
+    items.push(it[1].replace(/^['"]|['"]$/g, ""));
+  }
+  return items.length ? items : null;
 }
 
 // Tokenize a YAML flow-sequence interior (`a, "b,c", 'd'`) into raw items,

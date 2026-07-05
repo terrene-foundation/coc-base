@@ -7,7 +7,7 @@ scope: baseline
 
 ALL code changes in the repository.
 
-See `.claude/guides/rule-extracts/security.md` for extended examples, exhaustive sanitizer contract examples, and multi-site kwarg plumbing full post-mortem.
+See `.claude/guides/rule-extracts/security.md` for extended examples, exhaustive sanitizer contract examples, multi-site kwarg plumbing full post-mortem, and the Enforcement-Surface Parity shared-rank-function pattern + Detection procedure.
 
 <!-- slot:neutral-body -->
 
@@ -64,7 +64,7 @@ password = unquote(parsed.password or "")  # no null-byte check
 
 **BLOCKED rationalizations:** "The existing site already has the check" / "This is a new dialect, the rule doesn't apply yet" / "We'll consolidate later" / "The URL comes from a trusted config file, null bytes can't happen".
 
-**Why:** A crafted `mysql://user:%00bypass@host/db` decodes to `\x00bypass`, which the MySQL C client truncates to an empty password. See guide for full evidence.
+**Why:** A crafted `mysql://user:%00bypass@host/db` truncates at the null byte to an empty password on the MySQL C client. See guide for full evidence.
 
 ### 2. Pre-Encoder Consolidation (MUST)
 
@@ -122,7 +122,7 @@ All user-generated content MUST be encoded before display in HTML templates, JSO
 
 ## Sanitizer Contract — DataFlow Display Hygiene
 
-DataFlow's input sanitizer (`dataflow/core/nodes.py::sanitize_sql_input`) is a defense-in-depth display-path safety net, NOT the primary SQLi defense — parameter binding is (§ Parameterized Queries above).
+DataFlow's `sanitize_sql_input` is a defense-in-depth display-path safety net, NOT the primary SQLi defense — parameter binding is.
 
 ### 1. String Inputs MUST Be Token-Replaced, Not Quote-Escaped
 
@@ -136,7 +136,7 @@ For declared-string fields, the sanitizer MUST replace dangerous SQL keyword seq
 "'; DROP TABLE users; --" → "''; DROP TABLE users; --"
 ```
 
-**Why:** Token-replace makes attacker intent grep-able post-incident (`grep STATEMENT_BLOCKED audit.log`); quote-escape preserves the payload as data, masking the attack.
+**Why:** Token-replace makes attacker intent grep-able post-incident; quote-escape preserves the payload as data, masking the attack.
 
 ### 2. Type-Confusion MUST Raise, Not Silently Coerce
 
@@ -153,17 +153,17 @@ value = str(value)
 
 **BLOCKED rationalizations:** "Token-replace is weaker than quote-escape, we should switch" / "We should silently coerce dict to JSON for safety" / "Type-confusion is an upstream concern, not the sanitizer's job" / "The integration tests can catch these".
 
-**Why:** A malicious upstream node passing `{"injection": "'; DROP TABLE …"}` for a str-declared field bypasses every string-only check; raising at the type-confusion boundary closes the bypass. See guide for exhaustive examples.
+**Why:** A malicious upstream node passing a nested `dict`/`list` for a str-declared field bypasses every string-only check; raising at the type-confusion boundary closes the bypass. See guide for exhaustive examples.
 
 ### 3. Safe Types Are Returned As-Is
 
-Values of declared-safe types (`int`, `float`, `bool`, `Decimal`, `datetime`, `date`, `time`) MUST pass through unchanged. `dict` and `list` MUST also pass through unchanged when the field's declared type is `dict` or `list` (JSON / array columns). Bug #515: premature `json.dumps()` on dict/list breaks parameter binding.
+Values of declared-safe types (`int`, `float`, `bool`, `Decimal`, `datetime`, `date`, `time`) MUST pass through unchanged. `dict` and `list` MUST also pass through unchanged when the field's declared type is `dict` or `list` (JSON / array columns). See guide (Bug #515).
 
 Origin: GitHub issues #492 (bulk_upsert SQLi via string-escape) + #493 (sanitizer contract drift). See guide for exhaustive examples.
 
 ## Multi-Site Kwarg Plumbing
 
-When a security-relevant kwarg (classification policy, tenant scope, clearance context, audit correlation ID) is plumbed through a helper, EVERY call site of that helper MUST be updated in the SAME PR. Updating the "primary" call site and deferring siblings is BLOCKED.
+When a security-relevant kwarg (classification policy, tenant scope, clearance context, audit correlation ID) is plumbed through a helper, EVERY call site MUST be updated in the SAME PR. Updating the "primary" site and deferring siblings is BLOCKED.
 
 ```python
 # DO — grep every caller, update every sibling, same PR
@@ -179,15 +179,23 @@ engine.validate_record(instance) -> validate_model(instance)   # bypasses saniti
 
 **BLOCKED rationalizations:** "The primary call site is the one users hit 99% of the time" / "The sibling is rarely used; we'll patch it in a follow-up" / "The helper signature is backwards-compatible, sibling can stay as-is" / "Test coverage will catch divergence later" / "The kwarg has a safe default — siblings still get baseline behaviour".
 
-**Why:** A sibling left on the unqualified signature ships the exact failure mode the kwarg fixes (the "safe default" is the insecure default). Fix is mechanical: `grep -rn 'helper_name(' .` + patch every hit.
+**Why:** A sibling left on the unqualified signature ships the exact failure mode the kwarg fixes (the "safe default" is the insecure default). Fix is mechanical — `grep` every caller, patch each. See guide.
 
 Origin: PR #522 / PR #529 (2026-04-19) — BP-049 validation sanitiser plumbing missed one sibling. See guide for full evidence.
 
+## Enforcement-Surface Parity — A New Fail-Closed Dimension Lands At Every Enforcement Surface, Same PR
+
+When a fix PROMOTES a field to a fail-closed authorization control at the EVALUATION surface, EVERY INDEPENDENT validation surface for that control — especially a monotonic-tightening / re-registration validator — MUST learn the new dimension in the SAME PR (the eval-helper call-site grep CANNOT reach a separate validator with no shared callee). The two surfaces MUST consume a SINGLE shared restrictiveness/ordering function; an unrecognized value MUST rank TIGHTEST (fail-closed) — an unrecognized→recognized transition is a WIDENING and MUST raise. See guide for the shared-rank pattern, the pinned-parity-test requirement, BLOCKED corpus, and Detection.
+
+**Why:** A new fail-closed gate the independent tightening validator never learned lets a re-registration lower the bar as "tightening" — a privilege escalation the FIX ITSELF introduced.
+
+Origin: kailash-py #1456 → kailash-pact 0.14.3 (PR #1459). #1456 promoted `McpToolPolicy.clearance_required` to a fail-closed gate at `_check_clearance` (eval, Step 3.5) but left `_validate_monotonic_tightening` (re-registration) blind to it; a `secret`→None / `secret`→`public` re-registration was accepted as "tightening", silently stripping the gate (caught by an adversarial /redteam, NOT by the existing multi-site grep). Cross-SDK sibling: the Rust SDK binding (same shape).
+
 ## Redactor Contract
 
-Subject-keyed redactors (primitives scrubbing every string containing a `subject_id` substring) MUST enforce a minimum subject-id length floor (≥8 chars), failing closed with a typed error naming the floor and the received length. When a matching object KEY is scrubbed, BOTH key and value MUST be scrubbed — the key replaced with a numbered sentinel (`[REDACTED_KEY_N]`) preserving audit shape; the byte-level audit trail survives via the original-hash return.
+Subject-keyed redactors (scrubbing every string containing a `subject_id` substring) MUST enforce a minimum subject-id length floor (≥8 chars), failing closed with a typed error naming the floor + received length. When a matching object KEY is scrubbed, BOTH key and value MUST be scrubbed — the key replaced with a numbered sentinel (`[REDACTED_KEY_N]`); the audit trail survives via the original-hash return.
 
-**Why:** 1–7-char ids substring-match benign strings ("alice" → "malice"); a preserved matching key under a `[REDACTED]` value leaks the subject's identity as audit metadata. See guide for kailash-rs PR #1123 evidence + cross-SDK landing requirement.
+**Why:** 1–7-char ids substring-match benign strings ("alice" → "malice"); a preserved matching key under a `[REDACTED]` value leaks the subject's identity as audit metadata. See guide for the PR #1123 evidence + cross-SDK landing requirement.
 
 ## Kailash-Specific Security
 
@@ -198,6 +206,19 @@ Subject-keyed redactors (primitives scrubbing every string containing a `subject
 ## Exceptions
 
 Security exceptions require: written justification, security-reviewer approval, documentation, and time-limited remediation plan.
+
+## Trust Posture Wiring
+
+Applies to the **Enforcement-Surface Parity** clause (added 2026-07-03, `/sync-from-build` py Shard B). Per `trust-posture.md` MUST-8 grandfather cutoff, this clause lands AT/AFTER the MUST-8 SHA and MUST ship canonical-8-field-compliant; the pre-existing grandfathered sections of this file remain exempt until each is itself `/codify`-touched (the clause-scoped precedent set by `rule-authoring.md`'s own Wiring section).
+
+- **Severity:** `halt-and-report` at gate-review (security-reviewer + cc-architect run the eval-vs-registration surface-parity sweep at `/implement` + `/codify`); `advisory` at the hook layer per `hook-output-discipline.md` MUST-2 (no structural signal at tool-call time — the surface-parity property is judgment-bearing).
+- **Grace period:** 7 days from clause landing (2026-07-03 → 2026-07-10).
+- **Cumulative posture impact:** same-class violations (a fail-closed dimension promoted at the eval surface without the independent registration/tightening validator learning it in the same PR) contribute to `trust-posture.md` MUST-4 cumulative-window math (3× same-rule / 5× total in 30d → drop 1 posture).
+- **Regression-within-grace:** routes the CUMULATIVE MUST-4 path — NO dedicated emergency trigger key (a review-layer-only judgment property does not warrant an instant-drop key, and minting one would drag `trust-posture.md`, a self-referential-codify allowlist file, into a self-ref edit). Named deviation from the canonical key-per-clause shape, recorded here per `trust-posture.md` Rule 8.
+- **Receipt requirement:** SessionStart soft-gate `[ack: security]` IFF `posture.json::pending_verification` includes the `security` rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — for any field promoted to a fail-closed authorization control at an eval surface, enumerate ALL validators referencing the control's field/type, then grep each re-registration / monotonic-tightening validator for the field name (absence is a finding); run by security-reviewer at `/implement` + cc-architect at `/codify`. Phase 2 (deferred) — no hook detector; audit fixtures land with the Phase-2 detector at `.claude/audit-fixtures/enforcement-surface-parity/` per `cc-artifacts.md` Rule 9.
+- **Violation scope:** the Enforcement-Surface-Parity clause ONLY (clause-scoped); pre-existing grandfathered `security.md` sections stay exempt until each is itself `/codify`-touched.
+- **Origin:** See the clause's Origin (kailash-py #1456 → kailash-pact 0.14.3 #1459). Landed at loom via `/sync-from-build` py Shard B (journal/0402).
 
 <!-- /slot:neutral-body -->
 

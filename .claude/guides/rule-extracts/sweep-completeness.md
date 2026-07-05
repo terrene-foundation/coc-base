@@ -86,7 +86,7 @@ The TOOL is BUILD-local (each repo owns its own `tools/`, mirroring `tools/spec-
 
 ## Origin Post-Mortem (2026-05-04)
 
-The originating incident played out across one /sweep cycle at kailash-rs:
+The originating incident played out across one /sweep cycle at the Rust SDK:
 
 **Context.** Skill text at `.claude/commands/sweep.md` Sweep 5 reads as prose: "per workspace, per spec, grep production source for each MUST symbol; verify the contract holds; verify Tier 2 coverage exists. Categorize Orphan / Drift / Coverage gap / Stub." The expected runtime is /redteam-shaped — minutes per spec, ~10–30 min total across an active workspace's specs.
 
@@ -98,15 +98,15 @@ The originating incident played out across one /sweep cycle at kailash-rs:
 
 **The user response that drove this rule.** "i want this behavior to be totally eradicated, how can I ensure that sweep will run the full process and coverage as intended" — requested structural defense; "i want a human gate when you decide to run the cheap mode instead of full mode, then continue with proof-of-coverage before /codify" — set the codify cycle's scope.
 
-**Defense in cycle (BUILD-local at kailash-rs).**
+**Defense in cycle (BUILD-local at the Rust SDK).**
 
 1. Tool: `tools/sweep-redteam.py` (single-pass file walk + compiled regex per symbol; ~30s for 27 specs; emits sentinel + JSON + markdown for triage). Makes the mandated step cheap enough to always run; substitution rationalization no longer applies.
-2. Rule: this rule (BUILD-local at kailash-rs; this proposal upstreams to GLOBAL) — human-gate requirement when substitution decision arises.
+2. Rule: this rule (BUILD-local at the Rust SDK; this proposal upstreams to GLOBAL) — human-gate requirement when substitution decision arises.
 3. Future loom-side (deferred): skill text update for `commands/sweep.md` Sweep 5 invokes the tool + embeds the sentinel; PostToolUse hook on Write of `sweep-*.md` rejects writes lacking the sentinel — converting this rule from linguistic to structural enforcement.
 4. Journal entry 0064 captures the decision + alternatives + cycle.
 
 ## Tool Backing Note (Cross-SDK)
 
-The kailash-rs `tools/sweep-redteam.py` v1 implementation: single-pass file walk through `workspaces/*/specs/` directories; compiled regex per MUST symbol pattern; no `rg` or subprocess dependency; runs in ~30s for 27 specs. Output: machine-readable JSON + human-readable markdown + a sentinel comment of the form `<!-- sweep-redteam:v1:OK specs=N symbols=M orphans=O coverage_gaps=C stubs=S -->` that MUST be embedded in any `sweep-*.md` report claiming Sweep 5 ran.
+The Rust SDK `tools/sweep-redteam.py` v1 implementation: single-pass file walk through `workspaces/*/specs/` directories; compiled regex per MUST symbol pattern; no `rg` or subprocess dependency; runs in ~30s for 27 specs. Output: machine-readable JSON + human-readable markdown + a sentinel comment of the form `<!-- sweep-redteam:v1:OK specs=N symbols=M orphans=O coverage_gaps=C stubs=S -->` that MUST be embedded in any `sweep-*.md` report claiming Sweep 5 ran.
 
 The sentinel format `<!-- sweep-redteam:v[0-9]+:OK ... -->` allows v2+ tool revisions to extend the format without breaking a downstream sentinel-enforcement hook (deferred to a future cycle). Cross-language consumer projects supply their own equivalent — a Rust tool, a Go tool, a Ruby gem — emitting the same sentinel shape so the hook (when it lands) matches uniformly.

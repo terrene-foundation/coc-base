@@ -28,6 +28,7 @@ A path-scoped rule you have not read is a rule you are not honoring.
 | SDK Release Rules | `deploy/**`, `.github/**`, `pyproject.toml`, `CHANGELOG.md` | `.claude/rules/deployment.md` |
 | Documentation Rules | `README.md`, `docs/**`, `CHANGELOG.md` | `.claude/rules/documentation.md` |
 | E2E God-Mode Testing Rules | `tests/e2e/**`, `**/*e2e*`, `**/*playwright*` | `.claude/rules/e2e-god-mode.md` |
+| Enrollment Operations — Genesis Bootstrap Discipline | `.claude/operators.roster.json`, `.claude/commands/enroll.md`, `.claude/commands/whoami.md`, `.claude/commands/ecosystem-init.md`, `.claude/commands/onboard.md` | `.claude/rules/enrollment-operations.md` |
 | Environment Variables & Model Rules | `**/*.py`, `**/*.ts`, `**/*.js`, `**/*.rs`, `.env*` | `.claude/rules/env-models.md` |
 | Facade Manager Detection Rules | `packages/**`, `src/**`, `**/tests/**` | `.claude/rules/facade-manager-detection.md` |
 | Governed-Throughput — Parallel Subagents Carry Curated Governance | `.claude/agents/**`, `.claude/commands/**`, `.claude/skills/**`, `**/*worktree*`, `**/workspaces/**` | `.claude/rules/governed-throughput.md` |
@@ -64,4 +65,4 @@ A path-scoped rule you have not read is a rule you are not honoring.
 | Wave-Loop — Verify-And-Feed-Forward Between Milestone-Groups | `**/workspaces/**`, `**/todos/**`, `**/.claude/commands/**`, `**/02-plans/**` | `.claude/rules/wave-loop.md` |
 | Worktree Isolation Rules | `.claude/agents/**`, `.claude/commands/**`, `.claude/skills/**`, `**/*worktree*`, `**/workspaces/**` | `.claude/rules/worktree-isolation.md` |
 
-45 path-scoped rules indexed.
+46 path-scoped rules indexed.

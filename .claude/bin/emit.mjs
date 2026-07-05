@@ -91,6 +91,7 @@ const REPO = path.resolve(__dirname, "..", "..");
 // ────────────────────────────────────────────────────────────────
 // Strip sections:
 //   - Origin: lines (and continuation paragraphs)
+//   - Trust Posture Wiring H2 sections                     [v6 M-2]
 //   - Evidence / Verified / Measured H3+ sub-sections
 //   - BLOCKED rationalizations: enumerated bullet lists
 //   - BLOCKED responses: enumerated bullet lists           [v6 M-1]
@@ -129,6 +130,27 @@ export function abridgeV6(raw) {
     if (/^Origin:/i.test(trimmed) || /^\*\*Origin:/i.test(trimmed)) {
       i++;
       while (i < lines.length && lines[i].trim() !== "") i++;
+      continue;
+    }
+
+    // Trust Posture Wiring H2 section — strip entire section until next H1/H2.
+    // [v6 M-2] Wiring is loom-INTERNAL enforcement metadata (severity, grace
+    // period, cumulative posture math, detection mechanism, receipt/violation
+    // scope) — bookkeeping for loom's own posture machinery, NOT agent-behavioral
+    // instruction. A Codex/Gemini consumer of a USE template never runs that
+    // machinery, so the Wiring prose is dead weight in its always-on baseline —
+    // the same loom-internal class abridge already strips for `Origin:` above.
+    // It stays in the SOURCE rule: CC full-rule load sees it, and the
+    // cc-architect canonical-8-field sweep greps `**Violation scope:**` against
+    // `.claude/rules/*.md` (source), never the abridged baseline, so the
+    // grep-token contract (`trust-posture.md` MUST-8) is unaffected.
+    if (hMatch && hMatch[1].length === 2 && /^##\s+Trust Posture Wiring\b/.test(line)) {
+      i++;
+      while (i < lines.length) {
+        const n = lines[i].match(/^(#{1,6})\s/);
+        if (n && n[1].length <= 2) break; // next H1/H2 section begins
+        i++;
+      }
       continue;
     }
 

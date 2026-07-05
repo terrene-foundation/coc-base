@@ -18,7 +18,7 @@ The defect goes upstream. The story of HOW you found it stays at home.
 
 ## Scope
 
-ALL sessions running in a USE-template-derived consumer repo. Applies to ANY `gh issue create`, `gh pr create`, `gh issue edit`, or equivalent issue-filing command targeting an SDK repository (`kailash-py`, `kailash-rs`, `kailash-prism`, or any sibling distributed via PyPI / crates.io / gems).
+ALL sessions running in a USE-template-derived consumer repo. Applies to ANY `gh issue create`, `gh pr create`, `gh issue edit`, or equivalent issue-filing command targeting an SDK repository (`kailash-py`, the Rust SDK, `kailash-prism`, or any sibling distributed via PyPI / crates.io / gems).
 
 It ALSO governs the **proposal-intake lane**: a USE-template or BUILD repo filing a COC-artifact issue, or a `/codify` proposal whose body flows through loom Gate-1, MUST scrub per Rule 2 BEFORE filing — a proposal body is a pipeline input that reaches 30+ downstream consumers once split and distributed, exactly the surface this rule fences.
 

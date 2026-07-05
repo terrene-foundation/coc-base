@@ -65,6 +65,25 @@ Move reference material to skills, review criteria to agents.
 
 **Why:** Commands inject as user messages. Long commands compete with actual user intent.
 
+**Named-rationale exception (procedural commands only).** A command MAY exceed 150 lines ONLY when ALL THREE hold: (a) the body is genuinely PROCEDURAL — an ordered multi-step runbook whose steps are load-bearing and NON-extractable to a skill without fragmenting the step sequence (a command that is mostly reference material FAILS this — extract it and restore ≤150); (b) redundancy was minimized FIRST (no duplicated rationale, no verbose comments); (c) a named length-rationale is recorded in the `/govern`/`/codify` receipt journal that LANDS the overage (commands carry no Origin footer; for a pre-existing command amended into overage this is the amending codify's receipt, not the command's first-creation receipt), stating the line count, why the overage is procedural-non-decomposable, and what was trimmed. Overage without all three is BLOCKED.
+
+```markdown
+# DO — /sweep at ~166 lines: 9 ordered load-bearing sweeps; receipt records the named rationale + the redundancy trimmed
+
+# DO NOT — a 170-line command that is 40 lines of reference tables (extract the tables to a skill, restore ≤150)
+```
+
+**BLOCKED rationalizations:**
+
+- "It's over but the content is all important" (procedural-non-decomposable is the test, NOT importance)
+- "I'll add the rationale to the receipt later"
+- "Another command is already over, so mine can be too" (each overage needs its OWN named rationale)
+- "150 is arbitrary"
+
+**Why (exception):** A genuinely procedural runbook (9 ordered sweeps; an N-step ceremony) is the command-analogue of the >200-line rule the meta-rule permits with a named rationale (`rule-authoring.md` MUST NOT § "Rules longer than 200 lines"); forcing extraction fragments the ordered step sequence the command exists to carry. The three conditions keep the escape narrow — reference material still extracts to skills; only load-bearing PROCEDURE earns the overage. Contrast `/onboard` (`knowledge-convergence.md` MUST-5 forced it ≤150 by extracting its runbook DEPTH — JSON schema, matrices — to `skills/41-onboard/`): condition (a) resolves both the SAME way — reference-depth is extractable (`/onboard`), ordered irreducible procedure is not (`/sweep`); the two dispositions are consistent, not opposed.
+
+Origin: 2026-07-04 — surfaced by the Directive-2 self-referential redteam (reviewer vs cc-architect disagreement on the `/sweep` 9th-sweep overage), resolved by-construction by adding the command-escape parallel to the pre-existing rules-cap escape; receipt journal/0429.
+
 ### 4. CLAUDE.md Under 200 Lines
 
 Contains repo-specific directives, absolute rules, and navigation tables. MUST NOT restate rules or embed reference material.
@@ -143,7 +162,7 @@ const projects = entries.filter(
 
 **Why:** Archival operations (`git mv workspaces/X (loom-internal reference)`) bump `_archive/`'s mtime to most-recently-modified; without the filter, `detectActiveWorkspace` surfaces `_archive` as the active workspace, and `SessionEnd` routes journal stubs into (loom-internal reference) — invisible drift the next session must triage. The same failure mode applies to `findAllSessionNotes` (SessionStart drift dashboards). Leading-underscore is the convention for workspace meta-dirs (`_archive`, `_template`, future `_draft`); filtering by prefix makes the contract durable as new meta-dir conventions emerge.
 
-Origin: kailash-rs PR #759 (2026-05-02) — `git mv` of 4 workspaces into `_archive/` caused 3 SessionEnd stubs to land in (loom-internal reference). Fix landed at `.claude/hooks/lib/workspace-utils.js::detectActiveWorkspace` + `findAllSessionNotes`. Codified GLOBAL via /sync rs Gate 1 (2026-05-02 second cycle).
+Origin: the Rust SDK PR #759 (2026-05-02) — `git mv` of 4 workspaces into `_archive/` caused 3 SessionEnd stubs to land in (loom-internal reference). Fix landed at `.claude/hooks/lib/workspace-utils.js::detectActiveWorkspace` + `findAllSessionNotes`. Codified GLOBAL via /sync rs Gate 1 (2026-05-02 second cycle).
 
 **Related — mutation-tool SSOT extension path:** when Anthropic ships a new mutation tool surface (a tool that writes to the working tree), the canonical extension is `.claude/hooks/lib/tool-classes.js::MUTATION_TOOLS`. Append the tool name to the Set; every hook consulting `isMutationTool(tool)` picks up the change automatically. No per-site sweep required. The iter-3 structural sweep test at `tests/integration/multi-operator/c2-auth-hardening-iter3.test.js` enforces "no bare `tool === 'Edit' || tool === 'Write'`" via `grep -rn` exit-code assertions; missed extensions surface as sweep failures.
 
