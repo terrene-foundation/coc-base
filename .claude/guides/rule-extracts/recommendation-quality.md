@@ -80,6 +80,6 @@ empty answer-field markers (`→ ANSWER:` followed by blank; empty table cells
 under an "answer"/"recommendation" column; recommendation cells equal to
 "TBD"/"needs input"/"depends"). Audit fixtures land with the Phase-2 hook.
 
-Origin: lifted from the kailash-rs BUILD proposal (Gate-1 2026-06-11, entries
+Origin: lifted from the Rust SDK BUILD proposal (Gate-1 2026-06-11, entries
 REC-Q-MUST6 + REC-Q-GUIDE, origin evidence 2026-05-18). See the rule's
 Origin (MUST-6) paragraph for the incident narrative.

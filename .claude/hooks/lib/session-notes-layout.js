@@ -622,7 +622,20 @@ function _acquireMigrateLock(baseDir, _retried) {
         // LOW-2). Fall back to mtime only when the body carries no parseable
         // ts (a hand-created / truncated lock).
         let ageMs;
-        const body = fs.readFileSync(lockPath, "utf8");
+        // Route the lock-body read through the guarded chokepoint (SNC-DID,
+        // #743 R19): a symlinked / oversized / non-regular lockPath is REFUSED
+        // (guard → body="" → ts unparsed → mtime fallback below) rather than
+        // followed into an unbounded read. lockPath is derived from baseDir, so
+        // this is the one family-path reader that was still on a bare
+        // fs.readFileSync; every other notes reader is already guarded (via this
+        // chokepoint or an equivalent inline lstat+type+size guard).
+        // The lock is gitignored + per-clone-transient, so the bounded-trust
+        // GIT adversary cannot reach it — this is defense-in-depth uniformity,
+        // closing the unbounded-CONTENT-read class for this path (the mtime
+        // fallback below still stat-follows the symlink, but stat is
+        // metadata-only + bounded — not a reader-DoS vector).
+        const guardedLock = _readNotesFileGuarded(lockPath);
+        const body = guardedLock.ok ? guardedLock.content : "";
         const m = body.match(/\bts=(\S+)/);
         const embeddedMs = m ? Date.parse(m[1]) : NaN;
         // Use the embedded ts ONLY when it is finite AND not implausibly

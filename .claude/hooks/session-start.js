@@ -43,6 +43,7 @@ const {
   migrateMonolithToSplit,
   regenerateAggregate,
 } = require("./lib/session-notes-layout");
+const { ensureCanonicalDriver } = require("./lib/coc-ledger-driver");
 const { resolveIdentity } = require("./lib/operator-id");
 
 // Timeout fallback — prevents hanging the Claude Code session
@@ -280,6 +281,27 @@ function initializeSession(data) {
   } catch (e) {
     console.error(`[SESSION-NOTES] Coherence pass skipped: ${e.message}`);
   }
+
+  // ── Ledger merge-driver self-heal (G1, journal/0418) ─────────────────────
+  // If this repo opts into the coc-ledger 3-way merge driver (.gitattributes)
+  // but this clone's local registration is missing or NON-CANONICAL (the
+  // loom#741 bare-path form that fails `Permission denied` and silently falls
+  // back to the default line-merge, clobbering .session-notes.shared.md rows),
+  // register the canonical driver in LOCAL git config. Idempotent + fail-open;
+  // a not-referenced / already-canonical repo writes nothing. Closes the silent
+  // multi-operator clobber window without a manual `loom doctor --fix`.
+  try {
+    const drv = ensureCanonicalDriver({ repoRoot: cwd });
+    if (drv && drv.action === "registered") {
+      console.error(
+        "[MERGE-DRIVER] Registered canonical coc-ledger 3-way merge driver" +
+          (drv.before
+            ? ` (was non-canonical: ${drv.before})`
+            : " (was unregistered)") +
+          " — protects .session-notes.shared.md from clobber (journal/0418 G1).",
+      );
+    }
+  } catch {}
 
   // ── Session notes (inject into Claude context + human-facing stderr) ─
   try {

@@ -53,7 +53,7 @@ Compiled-language audit toolkits substitute their own introspection commands (`c
 
 ## Closure-Parity CLEAN Is Not Convergence — A Fresh-Eyes Round Follows
 
-A closure-parity round verifies PRIOR findings are closed; a fresh-eyes round hunts NEW defects. They are orthogonal — a CLEAN closure-parity verdict says nothing about defects nobody has looked for yet. Before declaring a wave/gate converged, run ≥1 fresh-eyes round (blind auditors, distinct lenses — e.g. spec+test / parity+security) AFTER the closure-parity round. Evidence: kailash-rs journal 0178 — R2 closure-parity returned CLEAN; R3 fresh-eyes caught a Go AlignEngine UAF (HIGH, exploitable under GC pressure) and a phantom spec section that would have shipped to v4.5.0. The pattern recurred across the whole F16/W2C wave (journals 0154/0167/0175): mechanical/closure rounds CLEAN → independent fresh-eyes still finds HIGH.
+A closure-parity round verifies PRIOR findings are closed; a fresh-eyes round hunts NEW defects. They are orthogonal — a CLEAN closure-parity verdict says nothing about defects nobody has looked for yet. Before declaring a wave/gate converged, run ≥1 fresh-eyes round (blind auditors, distinct lenses — e.g. spec+test / parity+security) AFTER the closure-parity round. Evidence: the Rust SDK journal 0178 — R2 closure-parity returned CLEAN; R3 fresh-eyes caught a Go AlignEngine UAF (HIGH, exploitable under GC pressure) and a phantom spec section that would have shipped to v4.5.0. The pattern recurred across the whole F16/W2C wave (journals 0154/0167/0175): mechanical/closure rounds CLEAN → independent fresh-eyes still finds HIGH.
 
 ## Read-Only Reviewers: Materialize The Branches Instead Of Re-Dispatching
 

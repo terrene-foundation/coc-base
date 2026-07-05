@@ -323,6 +323,60 @@ Origin: 2026-05-17 — #263 forest-closure follow-up (symmetric intake twin of t
 - **Receipt requirement:** SessionStart MUST require `[ack: intake-disclosure-scrub]` in the agent's first response IF `posture.json::pending_verification` includes this rule_id.
 - **Detection:** the #263 `scan-synced-disclosure.mjs --root` invocation IS the mechanical detector for the artifact-file half; the sync-reviewer Gate-1 step-0 confirms the human body-scrub occurred. Final disposition is human. Enforcement activates with trust-posture Phase 2 (`/codify` wiring requirement); Phase 1 is observer + advisory.
 
+## Exact Gate-1 / Gate-2 Tracking
+
+Gate-2 distribution (`/sync-to-build`, `/sync-to-use`) MUST land through an ISOLATED worktree from the target's REMOTE main — never a write into the target's live local checkout — AND every Gate-1 ingest AND Gate-2 distribution MUST emit an exact-tracking receipt recording precisely what was done. Both halves are the collision-free, auditable distribution model Directive 1 ratified (`journal/0403`), superseding the working-tree-overlay handoff (`feedback_never_commit_downstream_repos`, retired).
+
+### 1. Gate-2 Lands Via An Isolated Worktree From Remote Main — Never The Target's Live Checkout (MUST)
+
+`/sync-to-build` AND `/sync-to-use` MUST drive `bin/sync-gate2-worktree.mjs`, which `git fetch`es the target's REMOTE main, creates an ISOLATED worktree checked out at `origin/main`, applies Gate-2 THERE (the `sync-tier-aware.mjs` engine `--out <worktree>` + the USE-lane enrichment), commits explicit paths on a `sync/<date>-loom-<lane>-<target>` branch, opens a PR, and removes the worktree. Writing Gate-2 output into the target BUILD/USE repo's LOCAL working tree is BLOCKED.
+
+```
+# DO — worktree from remote main → PR → gated merge (the dev's checkout is untouched)
+node .claude/bin/sync-gate2-worktree.mjs --lane build --target rs             # apply + --verify + PR
+node .claude/bin/sync-gate2-worktree.mjs --lane use --target <slug> --stage-only  # USE two-phase (enrich in-worktree, then --finalize)
+
+# DO NOT — overlay onto the target's live local working tree
+cp -r loom/.claude/* ../<build-repo>/.claude/   # collides with the dev's uncommitted work
+```
+
+**BLOCKED rationalizations:**
+
+- "No one is working in that checkout right now"
+- "The overlay is faster than a worktree + PR round-trip"
+- "The BUILD team will land the uncommitted delta as PR #1 next session"
+- "It is my own machine's clone, the working tree is mine to overlay"
+
+**Why:** A developer may be live in the target's local checkout, and a Gate-2 overlay silently collides with their uncommitted work — the stranded-overlay class (the pile of uncommitted `.claude/` files a prior overlay-model sync left in a local BUILD checkout, `journal/0403`). A worktree from `origin/main` is clean by construction and lands the change as a PR the dev pulls, so no live-checkout state is ever overwritten.
+
+### 2. Every Gate-1 And Gate-2 Operation Emits An Exact-Tracking Receipt (MUST)
+
+Every gate operation MUST emit a receipt recording EXACTLY what was done, through the same mechanism Shard-B's receipts use — a journal `DECISION` entry per gate op plus a signed coordination-log record via `coc-emit.js::emitSignedRecord` (`journal/0402`). Declaring a gate op complete without its receipt is BLOCKED.
+
+- **Gate 1** (`/sync-from-build`, `/sync-from-use` ingest + classify): the source proposal, the per-change classification decision (global / variant / skip), the scrub result, and the per-file placement manifest.
+- **Gate 2** (`/sync-to-build`, `/sync-to-use` distribute): the fields `bin/sync-gate2-worktree.mjs::buildReceipt` captures — `loom_sha`, the worktree `base_sha`, `target`, `branch`, the per-file `manifest` (added / modified / deleted), `changed_count`, `pr_url`, and `merge_sha`; the full return additionally carries `gate`, `lane`, the absolute `worktree` path, and `timestamp` — per target. Before the receipt is embedded in the committed journal `DECISION`, it MUST be scrubbed per `user-flow-validation.md` MUST-6: the `pr_url` org/repo slug (private on a Rust BUILD lane) and the absolute `worktree` operator path are the scrub tokens. The per-target completeness table (`sync-completeness.md` MUST-2) is the Gate-2 receipt's verification companion.
+
+```
+# DO — Gate-2 receipt records the exact manifest + provenance per target, scrubbed before embedding
+# buildReceipt → {loom_sha, base_sha, target, branch, manifest{added,modified,deleted}, changed_count, pr_url, merge_sha, …gate, lane, worktree, timestamp}
+# scrub pr_url slug + absolute worktree path before the journal DECISION embed (user-flow-validation.md MUST-6)
+
+# DO NOT — "synced rs, looks good" with no per-file manifest or merge SHA; OR embed the raw worktree path / private pr_url slug unscrubbed
+```
+
+**Why:** Without a per-op receipt, a distribution's exact file-set and provenance live only in session memory and evaporate at the context boundary; the receipt is the durable, greppable record of what landed where — the same audit trail the proposal-lifecycle provenance provides for ingest. The scrub is required because the receipt is committed to loom's journal (a synced/publishable surface) while two of its fields — the `pr_url` slug and the absolute `worktree` path — carry a private-org identifier and an operator home path.
+
+**Trust Posture Wiring (Exact Gate-1 / Gate-2 Tracking):**
+
+- **Severity:** `halt-and-report` at gate-review (a worktree-vs-local-checkout landing and a receipt-presence property are judgment-bearing over the session's command history, not a single structural tool-call signal — per `hook-output-discipline.md` MUST-2 the hook layer stays `advisory`).
+- **Grace period:** 7 days from this clause landing (2026-07-03 → 2026-07-10).
+- **Cumulative posture impact:** same-class violations (a Gate-2 overlay into a live local checkout, OR a gate op declared complete without its exact-tracking receipt) contribute to `trust-posture.md` MUST Rule 4 cumulative-window math (3× same-rule in 30d → drop 1 posture; 5× total in 30d → drop 1 posture).
+- **Regression-within-grace:** any same-class violation within 7 days routes through the GENERIC `regression_within_grace` emergency trigger per `trust-posture.md` MUST Rule 4 (1× = drop 1 posture) — no dedicated trigger key (a session-history judgment property does not warrant an instant-drop key, and minting one would drag `trust-posture.md`, a self-ref allowlist file, into a self-ref edit).
+- **Receipt requirement:** SessionStart soft-gate `[ack: artifact-flow]` IFF `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — cc-architect / reviewer inspects any session transcript that ran `/sync-to-build` or `/sync-to-use` and confirms (a) the distribution drove `bin/sync-gate2-worktree.mjs` (never a raw overlay into the target checkout) and (b) each gate op emitted its journal `DECISION` + coordination-log receipt. The `sync-reviewer` Gate-1 step confirms the ingest half. Phase 2 (deferred per `trust-posture.md` § Two-Phase Rollout) — no hook detector; audit fixtures land with the Phase-2 detector at `.claude/audit-fixtures/exact-gate-tracking/` per `cc-artifacts.md` Rule 9.
+- **Violation scope:** MUST 1 (worktree-from-remote-main landing) + MUST 2 (exact-tracking receipt per gate op).
+- **Origin:** Directive 1 co-owner-directed origination (`journal/0403`); see § Origin.
+
 ## Variant Overlay Semantics
 
 - **Replacement**: variant exists + global exists → variant wins
@@ -386,8 +440,8 @@ This is **Class-A-routing of a Class-C capability** — the identical shape to t
 
 ## Origin
 
-Pre-2026-05-28 baseline plus F63 (.session-notes step 3 / Q3c — Route A downstream-consumer routing clarification, receipt journal/0165) plus sync-upflow Wave 2a (2026-06-13, todo 09: Step 7c downstream-upflow promoted to the PRIMARY downstream path with Route A retained as fallback; downstream→USE-template origination direction added to § Proposal Lifecycle; QUADRUPLE disclosure-fence note in § Downstream-Consumer Routing; brief value-anchor (loom-internal reference)). Prior receipt-bearing additions: `Co-Owner-Directed Origination` subsection (2026-05-18, journal/0095); `Intake Disclosure Scrub` (2026-05-17, journal/0082-0084); `Repo Classes Map 1:1 To Resolver Logical Keys` (2026-05-17, journal/0086). Plus ECO-CANON W4 (2026-06-15, DECISION-4 + DECISION-7 RATIFIED per `journal/0280`/`0282`): `Consultant Dual-Route Self-Serve (D4)` subsection (C6) + `The Origination Taxonomy — O1/O2/O3` subsection (O1, generalizing the Co-Owner-Directed carve-out); receipt `journal/0289`. Plus ECO-IMPL W7c (2026-06-20, G-B consultant-permission prose): the `## Distribution-Durability Invariants` section (the three-way permission taxonomy A/B/C + the conjunctive composition + the Class-A member enumeration + the consultant Class-A/C reframe correcting the `specs/01 §4` E3 conflation); the paired Class-C↔Class-A orthogonality cross-ref lands in `multi-operator-coordination.md` §1. Value-anchor (loom-internal reference) + `decisions/00` DECISION-4; provenance the ECO-IMPL workstream (`journal/0281 §A2`).
+Pre-2026-05-28 baseline plus F63 (.session-notes step 3 / Q3c — Route A downstream-consumer routing clarification, receipt journal/0165) plus sync-upflow Wave 2a (2026-06-13, todo 09: Step 7c downstream-upflow promoted to the PRIMARY downstream path with Route A retained as fallback; downstream→USE-template origination direction added to § Proposal Lifecycle; QUADRUPLE disclosure-fence note in § Downstream-Consumer Routing; brief value-anchor (loom-internal reference)). Prior receipt-bearing additions: `Co-Owner-Directed Origination` subsection (2026-05-18, journal/0095); `Intake Disclosure Scrub` (2026-05-17, journal/0082-0084); `Repo Classes Map 1:1 To Resolver Logical Keys` (2026-05-17, journal/0086). Plus ECO-CANON W4 (2026-06-15, DECISION-4 + DECISION-7 RATIFIED per `journal/0280`/`0282`): `Consultant Dual-Route Self-Serve (D4)` subsection (C6) + `The Origination Taxonomy — O1/O2/O3` subsection (O1, generalizing the Co-Owner-Directed carve-out); receipt `journal/0289`. Plus ECO-IMPL W7c (2026-06-20, G-B consultant-permission prose): the `## Distribution-Durability Invariants` section (the three-way permission taxonomy A/B/C + the conjunctive composition + the Class-A member enumeration + the consultant Class-A/C reframe correcting the `specs/01 §4` E3 conflation); the paired Class-C↔Class-A orthogonality cross-ref lands in `multi-operator-coordination.md` §1. Value-anchor (loom-internal reference) + `decisions/00` DECISION-4; provenance the ECO-IMPL workstream (`journal/0281 §A2`). Plus Directive 1 (2026-07-03, co-owner-directed origination `journal/0403`): the `## Exact Gate-1 / Gate-2 Tracking` section (Gate-2 worktree-from-remote-main landing + the exact-tracking receipt requirement spanning both gates), superseding the working-tree-overlay handoff.
 
-**Length rationale (per `rules/rule-authoring.md` MUST NOT § "Rules longer than 200 lines").** Rule body is ~391 lines (per `wc -l`), exceeding the 200-line guidance by ~191. Named rationale: **canonical-flow scope**. The rule codifies the complete artifact-distribution surface across 15 distinct sections (Authority Chain, Repo Classes ↔ Resolver, Ecosystem Forks vs Downstream Consumers, Issue Routing By Change Type [+ Route A], Consultant Dual-Route Self-Serve, loom Splits Never Originates, Co-Owner-Directed Origination, The Origination Taxonomy O1/O2/O3, BUILD Repo Rules, Proposal Lifecycle, /sync-to-use as Only Outbound Path to Templates, Human Classifies Every Change, Intake Disclosure Scrub, Variant Overlay Semantics, Distribution-Durability Invariants) plus the trailing MUST NOT clause block. Each section carries non-overlapping invariants the artifact-flow contract requires holding simultaneously. Splitting into sub-rules would fragment the canonical-flow surface across files and force cross-rule lookups for every routing decision — exactly the load-failure mode `rules/cc-artifacts.md` Rule 6 warns against. Per `rules/rule-authoring.md` MUST NOT § "Rules longer than 200 lines": the cap is guidance; overage is permitted with named rationale anchored at the rule's Origin. Sibling precedent: `multi-operator-coordination.md` Origin + `user-flow-validation.md` Origin carry the same length-rationale shape for the same class of multi-clause structural rule.
+**Length rationale (per `rules/rule-authoring.md` MUST NOT § "Rules longer than 200 lines").** Rule body is ~447 lines (per `wc -l`), exceeding the 200-line guidance by ~247. Named rationale: **canonical-flow scope**. The rule codifies the complete artifact-distribution surface across 16 distinct sections (Authority Chain, Repo Classes ↔ Resolver, Ecosystem Forks vs Downstream Consumers, Issue Routing By Change Type [+ Route A], Consultant Dual-Route Self-Serve, loom Splits Never Originates, Co-Owner-Directed Origination, The Origination Taxonomy O1/O2/O3, BUILD Repo Rules, Proposal Lifecycle, /sync-to-use as Only Outbound Path to Templates, Human Classifies Every Change, Intake Disclosure Scrub, Exact Gate-1 / Gate-2 Tracking, Variant Overlay Semantics, Distribution-Durability Invariants) plus the trailing MUST NOT clause block. Each section carries non-overlapping invariants the artifact-flow contract requires holding simultaneously. Splitting into sub-rules would fragment the canonical-flow surface across files and force cross-rule lookups for every routing decision — exactly the load-failure mode `rules/cc-artifacts.md` Rule 6 warns against. Per `rules/rule-authoring.md` MUST NOT § "Rules longer than 200 lines": the cap is guidance; overage is permitted with named rationale anchored at the rule's Origin. Sibling precedent: `multi-operator-coordination.md` Origin + `user-flow-validation.md` Origin carry the same length-rationale shape for the same class of multi-clause structural rule.
 
 <!-- /slot:neutral-body -->

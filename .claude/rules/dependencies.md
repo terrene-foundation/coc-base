@@ -69,6 +69,29 @@ pydantic = ">=2.0"
 polars = ">=0.20"
 ```
 
+## Floors On Transitive Deps Are Legitimate When A Lock-Ignoring Install Backtracks Them
+
+"No Caps on Transitive Dependencies" (above) forbids an UPPER bound (`<N`) on a package you do not directly import. It does NOT forbid a minimum FLOOR (`>=X`) on that transitive. A floor is legitimate — and MUST be added — when a **lock-ignoring** install path (CI running `uv pip install -e .` / `pip install -e .` WITHOUT `uv sync --locked` / `--frozen`) fresh-resolves the transitive to a version with **no wheel** for a supported interpreter. That floor is a concrete install-failure fix, NOT the speculative cap the rule forbids.
+
+Two install paths MUST both succeed — the LOCKED path (pinned by `uv.lock`) AND the lock-ignoring fresh-resolve. The lock covers the first; only the manifest floor covers the second. The floor MUST carry an inline comment naming the lock-ignoring path AND the no-wheel version it prevents, so a future reader does not mistake it for the forbidden speculative cap and revert it.
+
+Distinct from "Phantom Transitive Deps — Resolve Via `uv lock --upgrade`" (below): a phantom transitive is un-imported and gets DROPPED; here the transitive is load-bearing (pulled in by a direct dep) and MUST stay — floored, not removed.
+
+```toml
+# ✅ Floor on a transitive that a lock-ignoring CI install backtracks to a no-wheel version.
+#    numba is pulled in via umap-learn -> pynndescent (no direct import); a lock-ignoring
+#    `uv pip install -e .` on Python 3.12+ backtracks it to 0.53.1, whose llvmlite fails to
+#    build from source. The floor (NOT a cap) keeps the lock-ignoring install path working.
+dependencies = [..., "numba>=0.61"]  # floor for lock-ignoring CI: <0.61 has no 3.12 wheel
+
+# ❌ A speculative UPPER cap on the same un-imported transitive (still forbidden)
+dependencies = [..., "numba<0.62"]   # blocks upgrades; no code of ours could break
+```
+
+**Why:** A lock-ignoring install fresh-resolves the tree and can backtrack a transitive to a version with no prebuilt artifact for a supported interpreter — breaking an install the locked path resolves cleanly, so the locked CI job is green while the lock-ignoring job fails on an opaque build-from-source error. The minimum floor is the only manifest-level fix that covers the lock-ignoring path; the inline comment is what stops a future reader from reverting it as a speculative cap. The principle is cross-ecosystem (a lock-ignoring `cargo build` can backtrack a transitive crate to a version without a prebuilt artifact / MSRV-incompatible release); the example is Python-specific.
+
+Origin: kailash-ml #1430 — a `numba>=0.61` floor. The kailash-align CI installs via lock-ignoring `uv pip install -e`; a Python 3.12+ fresh resolve backtracked numba (via umap-learn → pynndescent, no direct import) to 0.53.1, whose llvmlite failed to build from source. Locked installs were green; only the lock-ignoring CI path broke.
+
 ## MUST NOT
 
 - Cap a dependency you do not directly import
@@ -188,3 +211,5 @@ $ uv sync && uv pip check  # clean
 **Why:** A local cap on an un-imported package is purely speculative — no code could break if it upgrades, and the cap just blocks every downstream user from getting patches. Phantom-transitive conflicts almost always resolve by dropping the phantom. When upstream legitimately holds the constraint, the solver will report that — the signal to upgrade THAT package, not to local-cap.
 
 Origin: PR #530 (2026-04-19) — phantom `google-generativeai` held protobuf solver at an old cap. See guide for full evidence.
+
+**Length rationale (per `rules/rule-authoring.md` MUST NOT § "Rules longer than 200 lines").** Rule body is ~213 lines, over the 200-line guidance. Named rationale: **dependency-authoring scope** — the rule codifies the complete manifest-hygiene surface (latest-versions, no-transitive-caps, own-the-stack, floors, transitive-floor-vs-cap, declared=imported, `__init__` guards, phantom-transitive resolution) as one non-decomposable authoring reference; splitting it would force cross-rule lookups for every dependency decision. `priority: 10` + `scope: path-scoped` — loaded only on manifest/source edits, NO baseline-emission cost, so Rule 10's proximity-band gate does NOT fire. Sibling precedent: `cc-artifacts.md` + `artifact-flow.md` length rationales.

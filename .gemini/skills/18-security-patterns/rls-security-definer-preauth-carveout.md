@@ -454,7 +454,7 @@ async def test_by_id_filters_by_tenant(conn):
 | App schema owned by app role                                                       | T10 — `CREATE OR REPLACE` preserves GRANTs. Schema owned by superuser/dedicated role; app_role has no CREATE |
 | GUCs set from user code paths                                                      | `app.role` / `app.tenant_id` MUST be set by trusted middleware only; no `execute_raw` reachable SET          |
 
-## Using the builder (kailash-rs only)
+## Using the builder (the Rust SDK only)
 
 The four-statement emission (`CREATE OR REPLACE FUNCTION`, `COMMENT ON FUNCTION`, `REVOKE`, `GRANT`) is also available as a typed builder so every adopter does not hand-rewrite the SQL. The builder lives at `crates/kailash-dataflow/src/migration/security_definer.rs` and is re-exported as `kailash_dataflow::migration::SecurityDefinerBuilder`.
 
@@ -503,7 +503,7 @@ Identifier safety:
 
 Tier 2 integration test (feature-gated on `integration`) lives at `crates/kailash-dataflow/tests/security_definer_builder.rs` and exercises the four invariants against a real PostgreSQL instance: introspects `pg_proc` for `prosecdef` / `provolatile='s'` / `proisstrict` / pinned search_path in `proconfig`; asserts `has_function_privilege(public, ...)` = false and the authenticator role's privilege = true; drives the T8 cross-tenant regression by seeding two tenants; and asserts median-latency symmetry between unknown-user and wrong-tenant calls (25ms tolerance across 20 iterations — a regression test that the helper does NOT branch on existence).
 
-Added in kailash-rs v3.21+ (issue #571).
+Added in the Rust SDK v3.21+ (issue #571).
 
 ## Cross-references
 

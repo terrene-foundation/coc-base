@@ -100,6 +100,23 @@ const _RE_CHECKOUT_SWITCH = new RegExp(
  * the token `last_reconciled_sha`), so banner text is never scanned (D-W2-2).
  * Returns the trimmed value, or null when: no frontmatter block, no key in the
  * block, or an EMPTY value (I10 — empty/missing stamp is treated as coherent).
+ *
+ * TRUST DOCTRINE (R11 MED-B, 2026-07-04) — the stamp is an ADVISORY COHERENCE HINT,
+ * NOT an authenticated input. The fragment `.session-notes.d/<id>.md` is a TRACKED,
+ * single-writer-BY-DESIGN file (`knowledge-convergence.md` MUST-1); at the git level a
+ * teammate with repo write can author its frontmatter and set a chosen stamp. A crafted
+ * stamp (== HEAD) can therefore SUPPRESS a victim's advisory (count 0 -> coherent) — but
+ * that is a SUBSET of the inherent M6-D tracked-fragment trust model (a teammate who can
+ * write your fragment can already delete your notes or plant false rows), NOT a new
+ * capability THIS hook introduces, and the M6-D storage layer is OUT OF #743's scope.
+ * The advisory is therefore BEST-EFFORT: it fires (halt-and-report, NEVER block per
+ * `hook-output-discipline.md` MUST-2) to catch the HONEST stale-ledger case (#743's
+ * motivating June-frozen-ledger failure), not to defend against a malicious teammate.
+ * Do NOT build an authorization / forensic control on this value — its trust posture
+ * matches the forest-ledger `owner:` column's "UNSIGNED ... NOT a forensic witness"
+ * doctrine. A signed-coordination-log-derived anchor was CONSIDERED and REJECTED: it
+ * would require coordination-mode ON, breaking the advisory in the single-operator
+ * default (loom's own mode) — exactly #743's motivating case.
  */
 function parseLastReconciledSha(body) {
   if (typeof body !== "string") return null;

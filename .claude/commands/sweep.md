@@ -9,7 +9,7 @@ A `/sweep` is the structural defense against "I think we're done." Before declar
 
 Distinct from `/redteam` (scopes to ONE workspace's spec compliance) — `/sweep` is repo-wide and rolls every workspace's redteam status into one view.
 
-**Project-scoped** — targets the CURRENT repo only. Does NOT compare against sibling SDK repos, PyPI, or BUILD-only state. BUILD repos (kailash-py, kailash-rs) maintain a richer LOCAL `commands/sweep.md` with cross-SDK + sibling-package + source-protection sweeps; do not edit those from here.
+**Project-scoped by default** — Sweeps 1-8 target the CURRENT repo only. They do NOT compare against sibling SDK repos, PyPI, or BUILD-only state. BUILD repos (kailash-py, kailash-rs) maintain a richer LOCAL `commands/sweep.md` with cross-SDK + sibling-package + source-protection sweeps; do not edit those from here. **Orchestration-root exception:** Sweep 9 (below) adds a cross-ecosystem roll-up that fires only where an operator has DECLARED an ecosystem resolver config and the clone is not a declared consumer role — canonically loom (`rules/repo-scope-discipline.md` § Exceptions). It self-detects and emits an N/A sentinel otherwise, so the distributed command stays byte-identical on the 30+ downstream consumers (which carry no resolver config).
 
 ## Execution Model
 
@@ -17,7 +17,7 @@ Autonomous — runs every sweep sequentially, accumulates findings into a single
 
 ## Workflow
 
-Run all 8 sweeps. Aggregate findings into a single report at the end with severity (CRIT / HIGH / MED / LOW), disposition, and pointer (file:line, PR#, issue#).
+Run all 9 sweeps (Sweep 9 self-skips to N/A off the orchestration root). Aggregate findings into a single report at the end with severity (CRIT / HIGH / MED / LOW), disposition, and pointer (file:line, PR#, issue#).
 
 ### Sweep 1: Active todos across all workspaces
 
@@ -131,15 +131,33 @@ git log --oneline "$LATEST"..HEAD -- src/ packages/*/src 2>/dev/null   # shippab
 
 Flag "unreleased work" ONLY when the shippable-code diff is non-empty; docs / `.claude/` / workspace diffs do NOT ship → record "no shippable change since `$LATEST`". Before naming any merged PR as unreleased, confirm via `git merge-base --is-ancestor <sha> "$LATEST"` (ancestor = already released).
 
+### Sweep 9: Cross-ecosystem outstanding work (loom orchestration-root ONLY)
+
+The all-repo-surfaces roll-up (Directive 2) — the ONE sweep that reads across repos. It fires only where an operator has DECLARED an ecosystem resolver config AND the clone is not a declared consumer role — canonically loom (`rules/repo-scope-discipline.md` § Exceptions, "loom is the SOLE carve-out holder"); a clone declaring `role: build`/`use-consumer` is suppressed even if configured (`resolveRole()` alone is NOT the gate — it is `null` on a role-undeclared loom, so `isConfigured()` is the positive signal and the role check only SUBTRACTS declared consumers).
+
+**Pre-condition gate (run FIRST)** — prints logical KEYS only (NEVER a resolved absolute path — the loom-links caller contract), or the N/A sentinel:
+
+```bash
+node --input-type=module -e 'import("./.claude/bin/lib/loom-links.mjs").then(m=>{const r=m.resolveRole();if(!m.isConfigured()||r==="build"||r==="use-consumer")return console.log("<!-- sweep-ecosystem:v1:N/A reason=not-orchestration-root -->");for(const[k,v]of m.resolveAll())if(/^(build|use-template)\./.test(k))console.log(v.kind==="path"?k:k+" ["+v.kind+(v.error?": "+v.error:"")+"]")}).catch(e=>console.log("<!-- sweep-ecosystem:v1:ERROR reason="+e.message+" -->"))'
+```
+
+Only the N/A sentinel → a downstream consumer (no config, or a declared build/use-consumer role): a **structural** N/A (no proxy run — `rules/sweep-completeness.md`), grep-able, keeping the distributed command byte-identical. Otherwise each printed line is a `build.*`/`use-template.*` KEY tagged by `resolveAll()` kind: a **bare key** is a local checkout — resolve its path at RUNTIME via `resolveRepo(key)` (returned, never logged into the report) and run the full roll-up; a `<key> [url]` is a remote-only target (no local checkout) — sweep its open PRs via the remote, skip local-divergence; a `<key> [error: …]` (or the ERROR sentinel) is itself a finding — surface it, never positional-guess a fallback (`rules/cross-repo.md` MUST-1). Roll up (local-checkout keys):
+
+- **Open PRs** — `(cd "<path>" && gh pr list --state open)` (drafts >7d, red CI; #30-style `--no-merge` distribution PRs awaiting a gate surface here).
+- **COC drift** — `node .claude/bin/check-sync-freshness.mjs --target "<key>"` (the printed key IS the target slug; flags a consumer behind loom's last `/sync-to-use`).
+- **Local divergence** — `git -C "<path>" status --porcelain` + `git -C "<path>" rev-list --left-right --count origin/main...HEAD`.
+
+Roll every finding into the report BY KEY + pointer, each carrying a value-anchor at `/wrapup` (`rules/value-prioritization.md` MUST-2). Emit `<!-- sweep-ecosystem:v1:targets=N prs=P drift=D -->`.
+
 ## Output
 
-Write findings to `workspaces/<project>/04-validate/sweep-<date>.md` (workspace context active) OR `SWEEP-<date>.md` at root. Each finding: `[SEVERITY] [Sweep N] <title>` + Location + Disposition + Evidence + Why-this-matters + Action-taken-if-FIX-NOW. End with cross-cutting observations and 2-5 ranked recommended next-session items.
+Write findings to `workspaces/<project>/04-validate/sweep-<date>.md` (workspace context active) OR `SWEEP-<date>.md` at root. Each finding: `[SEVERITY] [Sweep N] <title>` + Location + Disposition + Evidence + Why-this-matters + Action-taken-if-FIX-NOW. End with cross-cutting observations and 2-5 ranked recommended next-session items. **Scrub before committing (Sweep 9):** the report is committed (Closure step 4), so any Sweep-9 finding MUST be recorded by logical KEY + PR#/status — NEVER an operator-absolute path (`/Users/<operator>/…`) or a private-org `--repo` slug — per `rules/user-flow-validation.md` MUST-6 (the same scrub `rules/artifact-flow.md` § Exact Gate-1/Gate-2 Tracking MUST-2 mandates on a committed receipt).
 
 ## Closure
 
 Before reporting `/sweep` complete:
 
-1. ALL Sweep 1-8 outputs accumulated
+1. ALL Sweep 1-9 outputs accumulated (Sweep 9 = the cross-ecosystem roll-up at the orchestration root, or its N/A sentinel elsewhere)
 2. Trivial fixes applied inline (`rules/zero-tolerance.md` Rule 1); reclassified `FIXED` with commit SHA
 3. Non-trivial fixes filed as workspace todos OR GH issues with delivered-code references
 4. Report committed (`git add` + `git commit`)

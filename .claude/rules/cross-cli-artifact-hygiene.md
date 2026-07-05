@@ -10,7 +10,7 @@ paths:
 
 Project artifacts (workspace plans, journals, briefs, todos, redteam reports) are read by every CLI a session may run under — Claude Code, Codex, Gemini. When an artifact authored under one CLI bakes that CLI's native delegation syntax (`Agent(subagent_type=...)`), tool names (`Read tool`, `Bash tool`), hook event names (`SessionStart`), or baseline-file references (`CLAUDE.md` as authority) into prescriptive prose, the next reader running a different CLI silently misreads the acceptance criteria. Sits below `rules/cross-cli-parity.md` (rule-layer parity) and above `rules/upstream-issue-hygiene.md` (public-issue layer); this rule controls the project-artifact layer in between.
 
-Origin: 2026-05-06 — audit of `workspaces/**/*.md` across kailash-py / kailash-rs surfaced widespread leakage of CC-native delegation syntax (`Agent(subagent_type=...)`, `run_in_background=true`), CC tool nouns (`Read tool`, `Edit tool`), and CC baseline-file authority claims (`per CLAUDE.md`) in todos, journal entries, and redteam reports. A Codex / Gemini reader inheriting any of these workspaces reads acceptance criteria written in syntax their CLI cannot parse — silently misled.
+Origin: 2026-05-06 — audit of `workspaces/**/*.md` across `kailash-py` / the Rust SDK surfaced widespread leakage of CC-native delegation syntax (`Agent(subagent_type=...)`, `run_in_background=true`), CC tool nouns (`Read tool`, `Edit tool`), and CC baseline-file authority claims (`per CLAUDE.md`) in todos, journal entries, and redteam reports. A Codex / Gemini reader inheriting any of these workspaces reads acceptance criteria written in syntax their CLI cannot parse — silently misled.
 
 ## MUST Rules
 
@@ -180,7 +180,7 @@ Mentions of "Claude Code" / "Codex" / "Gemini" MUST be qualified historically ("
 ## Trust Posture Wiring
 
 - **Severity:** `advisory` for all 5 MUST clauses. Lint reports leaks; user adjudicates rewrite vs qualify. Workspace artifacts are session records; advisory severity matches CARE Principle 7 graduated-trust posture for content that affects framing without affecting runtime directly.
-- **Grace period:** 14 days. Existing artifacts in workspace artifacts and workspace artifacts carry pre-rule leakage; lint surfaces them as advisory until swept.
+- **Grace period:** 14 days. Existing artifacts in workspace artifacts and `<rust-sdk-repo>/workspaces/` carry pre-rule leakage; lint surfaces them as advisory until swept.
 - **Regression-within-grace:** any new artifact authored after rule-land that introduces a flagged pattern triggers `regression_within_grace` per `trust-posture.md` MUST Rule 4. New leaks are loud; old leaks are advisory.
 - **Receipt requirement:** none — rule is path-scoped to artifact paths and surfaces via `tools/lint-workspaces.js` + `/cli-audit` Phase 4.
 - **Detection mechanism:** `node tools/lint-workspaces.js workspaces/` enumerates artifacts and greps for the BLOCKED patterns from MUST clauses 1–5. `/cli-audit` Phase 4 invokes the same lint. Fixtures at `.claude/audit-fixtures/cross-cli-artifact-hygiene/` exercise every flag + every clean-pass case.

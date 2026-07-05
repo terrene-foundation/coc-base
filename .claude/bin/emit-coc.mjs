@@ -268,8 +268,10 @@ function extractListField(rawFm, field) {
   const items = [];
   for (const line of rest) {
     if (line.trim() === "") continue; // tolerate blank lines inside the block
-    if (!/^[ \t]+-/.test(line)) break; // first non-list line ends the block
-    const it = line.match(/^[ \t]+-[ \t]*(.*\S)[ \t]*$/);
+    // `- item` at column 0 OR indented — both first-class YAML 1.2 block
+    // sequences under the key (parity with coc-run.mjs::listField; loom#777 R1).
+    if (!/^[ \t]*-/.test(line)) break; // first non-list line ends the block
+    const it = line.match(/^[ \t]*-[ \t]*(.*\S)[ \t]*$/);
     if (!it) {
       throw new Error(
         `emit-coc: malformed YAML block-list item in '${field}': ${JSON.stringify(line)} ` +

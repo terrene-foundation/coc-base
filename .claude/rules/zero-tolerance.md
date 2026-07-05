@@ -92,7 +92,7 @@ A property/method whose return type is a union of structurally-distinct shapes (
 
 Any doc edit rewriting a code-surface claim — method lists, registered handlers, exposed bindings, config keys, deprecation lists, magic-value numeric constants (cross-base `pub const` restatements) — MUST cite the ground-truth source as `<path>:<start>-<end>` in the same paragraph; cross-base numeric restatements additionally require a same-shard compile-time pin test. Uncited claims are BLOCKED. **Binding-inheritance:** a contract (error variant, enum member, field, finish reason, lifecycle guarantee, OR a fail-closed safety/invariant) restated by a wrapper across ≥2 bindings MUST be re-derived from the SDK _code_ (NOT the SDK _doc_) for EACH binding; the multi-binding parity audit's source-rederivation matrix MUST INCLUDE the cross-binding fail-closed SAFETY-INVARIANT rows, not only the API-surface contract-shape rows — AND this applies to safety claims in CONVERGENCE / REDTEAM REPORTS (presumed-UNVERIFIED until the matrix re-derives EACH binding's source), not only to binding rustdoc/RDoc.
 
-**Why:** A wrong SDK doc claim is faithfully mirrored by every binding (N reviewers all trust the same doc); a convergence report's "safe by construction" claim is the same failure at the AUDIT layer when one binding is the SOLE un-gated one. See guide for the kailash-rs evidence chain (#1087/#1088/#1160, F16 W2, the SAFETY-INVARIANT / convergence-report extension).
+**Why:** A wrong SDK doc claim is faithfully mirrored by every binding (N reviewers all trust the same doc); a convergence report's "safe by construction" claim is the same failure at the AUDIT layer when one binding is the SOLE un-gated one. See guide for the Rust SDK evidence chain (#1087/#1088/#1160, F16 W2, the SAFETY-INVARIANT / convergence-report extension).
 
 ## Rule 4: No Workarounds For Core SDK Issues
 
@@ -131,4 +131,4 @@ Public-API removal MUST land with a `DeprecationWarning` shim covering at least 
 
 **Why:** Removal without a deprecation cycle hard-breaks every downstream callsite on first upgrade; the shim converts a hard break into an actionable warning. See guide for kailash-ml 1.5.0 evidence.
 
-Origin: 2026-04-12 + DataFlow 2.0 Phase 5 audit + kailash-ml-audit 2026-04-23 W33b + 2026-04-29 followup audit + kailash-rs Rule 3e (2026-05-22 PR #1088; magic-value extension 2026-05-28 PR #1160; binding-inheritance extension 2026-06-11, F16 W2 journals 0176/0178). See guide for full BLOCKED-pattern code examples + audit evidence.
+Origin: 2026-04-12 + DataFlow 2.0 Phase 5 audit + kailash-ml-audit 2026-04-23 W33b + 2026-04-29 followup audit + the Rust SDK Rule 3e (2026-05-22 PR #1088; magic-value extension 2026-05-28 PR #1160; binding-inheritance extension 2026-06-11, F16 W2 journals 0176/0178). See guide for full BLOCKED-pattern code examples + audit evidence.

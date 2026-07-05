@@ -1,78 +1,57 @@
 # COC Sync Marker — coc-base (base lane, multi-CLI)
-timestamp: 2026-07-02T15:55:24Z
+timestamp: 2026-07-05T06:45:43Z
 source: loom/.claude
-loom_sha: 618e23d
+loom_sha: a674718
 variant: base
 clis: [claude, codex, gemini]
 visibility: public
-scope_this_cycle: cli-emission-only   # coc-sync Steps 6.5/6.6/6.7 — AGENTS.md/GEMINI.md/.codex/.gemini/.coc; NO .claude/ content re-distribution
+scope_this_cycle: content+cli-emission   # FULL cycle: .claude/ content axis AND coc-sync Steps 6.5/6.6/6.7 (unlike 2.45.7 which was content-only)
 stats:
-  # Content axis (.claude/) was distributed in the PRIOR cycle (VERSION 2.45.7,
-  # loom_sha 618e23d) and is unchanged here. Step 1 sync-tier-aware re-run was an
-  # idempotent CONSISTENT re-write whose purpose was the presync untracked-snapshot
-  # protecting the emit-cli writes (coc-sync Step 6.6 snapshot-ordering MUST).
-  content_axis: unchanged   # 1159/1159 verified CONSISTENT (idempotent re-run)
-  baselines_emitted:
+  content_axis:          # sync-tier-aware --target base (engine apply)
+    changed: 50          # 42 modified + 8 added (git-status delta vs origin/main); byte-equal not counted
+    added: 8
+    modified: 42
+    purged: 0            # sync.md already purged in the 2.45.7 cycle
+    verify: CONSISTENT   # stage engine --verify
+  baselines_emitted:     # emit.mjs --all (base variant, NO --lang) — Step 6.5
     cc: 0          # CLAUDE.md preserved, not emitted
     codex: 1       # AGENTS.md (repo root)
     gemini: 1      # GEMINI.md (repo root)
-  baseline_emission_bytes:
+  baseline_emission:
     block_cap_bytes: 61440
     warn_cap_bytes:  32768
-    codex:
-      rules: 10
-      bytes: 52084
-      tier: WARN
-      headroom_bytes: 9356
-      headroom_pct: 15.23
-      headroom_floor_pct: 10
-      headroom_floor_violations: 0
-    gemini:
-      rules: 10
-      bytes: 52090
-      tier: WARN
-      headroom_bytes: 9350
-      headroom_pct: 15.22
-      headroom_floor_pct: 10
-      headroom_floor_violations: 0
-  cli_artifacts:      # from emit-cli-artifacts.mjs (Step 6.6)
-    codex:
-      prompts: 33     # 50 files (prompts + agent-prompts sub-tree)
-      skills: 21      # 102 files
-      agent_prompts: 17
-    gemini:
-      commands: 33
-      skills: 21      # 102 files
-      agents: 17
-  coc_unified:        # from emit-coc.mjs (Step 6.7)
-    artifacts: 135    # rules=54 agents=21 skills=26 commands=34
-    files: 137
+    codex:  { rules: 10, bytes: 51854, tier: WARN, headroom_pct: 15.6,  headroom_floor_pct: 10, headroom_floor_violations: 0 }
+    gemini: { rules: 10, bytes: 51860, tier: WARN, headroom_pct: 15.59, headroom_floor_pct: 10, headroom_floor_violations: 0 }
+  cli_artifacts:         # emit-cli-artifacts.mjs --target base — Step 6.6
+    codex:  { prompts: 51, skills: 23 }   # 33 command prompts + 18 agent-prompts; 22 skills + 1 rules-reference
+    gemini: { commands: 33, skills: 23, agents: 18 }
+  coc_unified:           # emit-coc.mjs --target base — Step 6.7
+    files: 140           # 138 artifacts (rules=55 agents=22 skills=27 commands=34) + COC.md + COC.lock
     coc_version: 1.0.0
-  mcp_guard:
-    files: 9
-    policies_populated: false   # still runtime-gated per coc-sync Step 6.6 § guard
-  codex_dispatcher:
-    bin_coc: 1
-    per_phase_symlinks: 28
-  cli_trees_status: CURRENT@618e23d   # was STALE_RELATIVE_TO_e2ac475
-  preserved: [CLAUDE.md, dev-container-scaffold, settings.local.json]
+  codex_guard: EXCLUDED  # .codex-mcp-guard/** deliberately left at origin/main (source-ambiguity + security review deferred to a dedicated refresh); git status shows 0 .codex-mcp-guard changes
+  preserved: [CLAUDE.md, dev-container-scaffold, .proposals/, learning/, settings.local.json]
 note: |
-  CORRECTIVE multi-CLI emission (coc-sync Steps 6.5/6.6/6.7) for the base lane.
-  The prior /sync-to-use base cycle (VERSION 2.45.7, loom_sha 618e23d) distributed
-  the .claude/ CONTENT axis for the #743 delta but did NOT run the CLI-emission
-  steps — leaving AGENTS.md / GEMINI.md / .codex/ / .gemini/ / .coc/ at the older
-  e2ac475 emission (STALE_RELATIVE_TO_e2ac475). This cycle refreshes them.
-  ORDER (snapshot-ordering MUST): (1) sync-tier-aware --target base --template
-  coc-base = idempotent CONSISTENT re-run whose purpose was the presync untracked
-  snapshot protecting the emit-cli writes; (2) emit.mjs --all (NO --lang → base
-  variant, priority:0 baseline, no kailash-tier leak) → AGENTS.md/GEMINI.md, exit 0
-  WARN tier (52084/52090 B, 15.23%/15.22% headroom, 0 floor violations);
-  (3) emit-cli-artifacts.mjs --target base → .codex/{prompts,skills} +
-  .gemini/{commands,skills,agents} + config + .codex-mcp-guard/ + bin/coc + 28
-  per-phase symlinks, exit 0; (4) emit-coc.mjs --target base → .coc/ (137 files),
-  exit 0 with 1 surfaced advisory (rules/SELF-REFERENTIAL-CODIFY.md 87907B over the
-  60 KiB PRODUCER budget — spec-09 imposes NO consumer cap, emitted-not-truncated
-  by design; not a failure).
+  loom@a674718 Gate-2 base sync (multi-CLI lane) — FULL cycle (content + CLI emission).
+  CONTENT (Step 1, sync-tier-aware --target base): distributes the D2DIST batch —
+  4 co-owner-anchored originations #806/#809/#811/#814 + accumulated drift since
+  loom@618e23d: recommendation-quality.md MUST-7 (below-confidence escalation) +
+  MUST-8 (sensitivity/classification escalation) + rule-extract; commands/autonomize.md
+  Prudence bullets; commands/{sweep,wrapup}.md (Directive 2); hooks/lib/o1-citation-check.js
+  + audit-fixtures/o1-citation-check/** (SAFR O1 shape-gate); rules/cc-artifacts.md
+  (procedural-command length exception). Delta 42 modified + 8 added = 50; 0 purged;
+  stage --verify CONSISTENT.
+  CLI EMISSION (Steps 6.5/6.6/6.7) — this cycle CLOSES the gap the 2.45.7 marker flagged:
+  (6.5) emit.mjs --all (base variant) → AGENTS.md/GEMINI.md re-emitted, exit 0, WARN tier
+  (codex 51854 B/15.6%, gemini 51860 B/15.59%, 0 floor violations);
+  (6.6) emit-cli-artifacts.mjs --target base → .codex/{prompts:51,skills:23} +
+  .gemini/{commands:33,skills:23,agents:18} + static config (byte-equal, untouched);
+  (6.7) emit-coc.mjs --target base → .coc/ 140 files (1 benign producer-budget WARN on
+  rules/SELF-REFERENTIAL-CODIFY.md, emitted-not-truncated, spec-09 no consumer cap).
+  CODEX-GUARD: .codex-mcp-guard/** DELIBERATELY EXCLUDED from this D2DIST — the loom
+  root (.codex-mcp-guard/server.js 456 ln) vs .claude/codex-mcp-guard/ (957 ln) source
+  ambiguity + the security-enforcement surface warrant a dedicated security-reviewed
+  refresh, not a distribution ride-along. git status: 0 .codex-mcp-guard changes.
   PRESERVED: CLAUDE.md (template-owned), dev-container scaffold, settings.local.json.
+  build:null — base is stack-agnostic, NO SDK pins. upstream loom 2.45.0 unchanged.
+  BUMP: template 2.45.7->2.45.8; loom_sha 618e23d->a674718.
   visibility=public preserved across marker rewrite.
-  build:null — base is stack-agnostic, NO SDK pins.

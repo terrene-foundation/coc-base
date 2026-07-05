@@ -70,15 +70,23 @@ const REASON = {
 };
 
 // A standard/authority token: an uppercase acronym family (ISO, SOC, GDPR,
-// HIPAA, PCI, NIST, FedRAMP, …) OR an explicit "ISO/IEC"-style compound.
+// HIPAA, PCI, NIST, FedRAMP, SAFR, …) OR an explicit "ISO/IEC"-style compound.
 // Kept deliberately permissive — the SEMANTIC validity of the standard is
 // the human gate's job; this only confirms SOMETHING shaped like a named
 // external authority is present (NOT a bare "best practice" claim).
 // The source (sans \b anchors) is reused by NAME_ADJACENT_YEAR below so the
 // standalone-year version form is recognized ONLY when the year rides the
 // standard name.
+// NOTE (journal/0432, 2026-07-05): the vocabulary is an OPEN heuristic set —
+// per cc-artifacts.md Rule 10 a fixed denylist "catches only keys someone
+// thought of; misses every novel standard until it appears." Extend it when a
+// legitimate external authority a real O1 origination cites is not yet
+// recognized. `SAFR` (MAS "Safeguards for Agentic Finance at Runtime", v1.0
+// 2026 — a runtime-agentic-governance framework) was the first such extension.
+// A distinctive ≥4-letter acronym is preferred (short 2–3-letter tokens like a
+// bare "MAS" risk false-positives against ordinary prose).
 const STANDARD_TOKEN_SRC =
-  "(?:ISO\\/IEC|ISO|IEC|SOC\\s?2|SOC\\s?1|GDPR|HIPAA|PCI(?:[-\\s]?DSS)?|NIST|FedRAMP|CCPA|FISMA|SOX|COBIT|CIS|OWASP|CSA|FFIEC|GLBA|PIPEDA|APRA|DORA|CMMC)";
+  "(?:ISO\\/IEC|ISO|IEC|SOC\\s?2|SOC\\s?1|GDPR|HIPAA|PCI(?:[-\\s]?DSS)?|NIST|FedRAMP|CCPA|FISMA|SOX|COBIT|CIS|OWASP|CSA|FFIEC|GLBA|PIPEDA|APRA|DORA|CMMC|SAFR)";
 const STANDARD_TOKEN = new RegExp("\\b" + STANDARD_TOKEN_SRC + "\\b", "i");
 
 // A version token detected ANYWHERE in the receipt. These forms are

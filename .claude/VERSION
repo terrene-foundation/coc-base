@@ -1,18 +1,18 @@
 {
   "name": "coc-base",
-  "version": "2.45.7",
+  "version": "2.45.8",
   "type": "coc-use-template",
   "description": "Language-agnostic, non-Kailash CO/COC USE template — multi-CLI (variant: base, clis: claude/codex/gemini)",
-  "synced_at": "2026-07-02T15:42:12Z",
+  "synced_at": "2026-07-05T06:45:43Z",
   "upstream": {
     "name": "loom",
     "type": "coc-source",
     "version": "2.45.0",
-    "loom_sha": "618e23d",
-    "synced_at": "2026-07-02T15:42:12Z",
+    "loom_sha": "a674718",
+    "synced_at": "2026-07-05T06:45:43Z",
     "template_version": "2.45.0",
     "build_version": "2.45.0",
-    "source_commit": "618e23d"
+    "source_commit": "a674718"
   },
   "variant": "base",
   "tier_subscriptions": [
@@ -26,6 +26,11 @@
     "gemini"
   ],
   "changelog": [
+    {
+      "version": "2.45.8",
+      "date": "2026-07-05",
+      "summary": "D2DIST Gate-2 base sync from loom@a674718 (loom_sha 618e23d->a674718): distributes 4 co-owner-anchored originations #806/#809/#811/#814 + accumulated drift into the .claude/ content tree (recommendation-quality.md MUST-7 below-confidence + MUST-8 sensitivity/classification escalation + rule-extract; commands/autonomize.md Prudence bullets; commands/{sweep,wrapup}.md Directive 2; hooks/lib/o1-citation-check.js + audit-fixtures/o1-citation-check/** SAFR O1 shape-gate; rules/cc-artifacts.md procedural-command length exception). MULTI-CLI: this cycle DID run the per-CLI emission (coc-sync Steps 6.5/6.6/6.7) that the 2.45.7 cycle deferred — AGENTS.md+GEMINI.md re-emitted (codex 15.6%/gemini 15.59% headroom, 0 floor violations), .codex/.gemini trees (.codex 51 prompts/23 skills; .gemini 33 commands/23 skills/18 agents) + .coc/ (140 files) refreshed to the new rule/command/skill set. codex-guard (.codex-mcp-guard/**) DELIBERATELY EXCLUDED (source-ambiguity + security review deferred to a dedicated refresh). CLAUDE.md preserved; build:null (no SDK pins); upstream loom 2.45.0 unchanged."
+    },
     {
       "version": "2.45.7",
       "date": "2026-07-02",

@@ -233,36 +233,6 @@ Concurrent-operator capacity guidance (per-`verified_id` budgets, NON-SAME-adjac
 
 ---
 
-# COC Sync Landing — BUILD-Side Discipline
-
-See `.claude/guides/rule-extracts/coc-sync-landing.md` for BLOCKED-rationalizations, extended bash examples, origin post-mortem, MUST NOT clauses, and cross-rule relationships.
-
-
-Loom's `/sync-to-build` delivery MUST land on `main` BEFORE any other session work. Pairs with `.claude/hooks/multi-operator-sessionstart.js` (SessionStart).
-
-## MUST Rules
-
-### 1. COC Drift Lands as PR #1
-
-When the SessionStart hook reports `🚨 COC ARTIFACT DRIFT DETECTED`, land it FIRST. Non-COC-PR workarounds BLOCKED. Cross-session carry BLOCKED.
-
-**Why:** Uncommitted deliveries appear available on disk but vanish on first non-main commit — new commands disappear, new agents become invisible.
-
-### 2. Stage Explicit Paths
-
-Stage `.claude/` and `scripts/hooks/` explicitly. `git add -u` / `-A` / `.` BLOCKED for COC-sync PRs.
-
-**Why:** Bulk staging sweeps unrelated workspace drift into the PR. PR #753 (2026-05-01) wasted ~15 min recovering from this exact failure.
-
-### 3. Admin-Merge Per Owner Workflow
-
-After CI green or path-filter auto-skip, run `gh pr merge <N> --admin --merge --delete-branch`. `REVIEW_REQUIRED` parking BLOCKED.
-
-**Why:** `--admin` is the owner-class bypass for chore PRs; without it the PR drifts open across sessions and the failure mode resumes.
-
-
----
-
 # Communication Style
 
 
@@ -349,24 +319,13 @@ A command that exited non-zero, hit an invalid flag, timed out, or returned empt
 - Treat an errored, timed-out, or empty command result as confirmation of any hypothesis — **Why:** absence-of-result is not evidence.
 - Assert a root-cause claim before reading the log / output / file that would show the cause — **Why:** the log disambiguates; asserting first builds the next action on a guess.
 
-## Trust Posture Wiring
-
-- **Severity:** `halt-and-report` at gate-review; `advisory` at hook layer per `hook-output-discipline.md` MUST-2.
-- **Grace period:** 7 days from rule landing (2026-05-31 → 2026-06-07).
-- **Cumulative posture impact:** MUST-1/3/4 route cumulative per `trust-posture.md` MUST-4; MUST-2 routes emergency — never double-counted.
-- **Regression-within-grace:** emergency downgrade per `trust-posture.md` MUST-4. Independently, MUST-2 is a 1×-instant emergency trigger — key `evidence_free_claim` (1× = drop 1 posture).
-- **Receipt requirement:** SessionStart `[ack: evidence-first-claims]` IFF `posture.json::pending_verification` includes this rule_id.
-- **Detection mechanism:** Phase 1 review-layer — reviewer at `/implement` + cc-architect at `/codify`. Phase 2 hook (advisory, planned `detectEvidenceFreeClaim`). Fixtures: `.claude/audit-fixtures/evidence-first-claims/`.
-- **Violation scope:** rule-corpus-wide. MUST-1/3/4 cumulative; MUST-2 emergency.
-- **Origin:** See § Origin.
-
 ## Distinct From / Cross-References
 
 Extends `verify-resource-existence.md` MUST-2 to ALL diagnostic/anomaly/security claims. Pairs with `recommendation-quality.md` MUST-3, `probe-driven-verification.md`, `user-flow-validation.md` MUST-2. Distinct from `communication.md` (HOW vs WHETHER) and `verify-claims-before-write.md` (code-surface claims at durable-write time vs diagnostic/security claims inline).
 
 ## Origin
 
-2026-05-31 — kailash-rs session: three escalating assert-before-verify errors (E1 "timeout" misdiagnosis vs a 53s log-visible failure; E2 errored command nearly read as runner-deletion; E3 fabricated "curl|bash prompt-injection" from a `cat -v`-rendered em-dash — the detection grep never ran). User directive after E3: "how can you just fabricate a security claim, its not normal, please investigate fully" → forensics → `/codify`. Full narrative in the guide extract.
+2026-05-31 — a Rust SDK session: three escalating assert-before-verify errors (E1 "timeout" misdiagnosis vs a 53s log-visible failure; E2 errored command nearly read as runner-deletion; E3 fabricated "curl|bash prompt-injection" from a `cat -v`-rendered em-dash — the detection grep never ran). User directive after E3: "how can you just fabricate a security claim, its not normal, please investigate fully" → forensics → `/codify`. Full narrative in the guide extract.
 
 ---
 
@@ -475,6 +434,19 @@ CC system prompt provides the template. Always include a `## Related issues` sec
 
 **Why:** Issues closed without code refs break traceability; undocumented workarounds force every session to re-discover the same fix; over-claiming commit bodies poison `git log --grep` (the cheapest institutional-knowledge search). See extract for full DO/DO NOT examples.
 
+- **CI-check and merge are SEPARATE steps under duplicate-run races**: `gh pr checks --watch` can resolve green on the PRIOR head while a NEW duplicate `pull_request` run flakes red on the SAME PR. Checking CI and merging MUST be separate commands: (1) READ — pin the head SHA (`gh pr view <N> --json headRefOid`), confirm every REQUIRED check is `SUCCESS` on THAT SHA; (2) MERGE — only then `gh pr merge <N>`. Bundling them (`gh pr checks <N> && gh pr merge <N>`, or `--watch` then merge) is BLOCKED — the watch may be green on a stale commit and the merge lands over an ungated run.
+
+  ```bash
+  # DO — check as a READ step on the exact head, THEN merge
+  head=$(gh pr view <N> --json headRefOid -q .headRefOid)
+  gh pr checks <N>                       # confirm required checks SUCCESS on $head
+  gh pr merge <N> --admin --merge        # separate command, after the read
+
+  # DO NOT — bundle watch + merge (watch may be green on the prior commit)
+  gh pr checks <N> --watch && gh pr merge <N> --admin --merge
+  ```
+
+  **Why:** With duplicate `pull_request` runs, a `--watch` that returns green may have resolved against the prior commit's run while a newer duplicate on the current head is still pending or flaked red; separating the read (pinned to the head SHA) from the merge makes the gate verifiable. See guide.
 
 ---
 
@@ -526,7 +498,7 @@ Note: at the orchestration root, targets resolve via `bin/lib/loom-links.mjs::re
 
 ALL code changes in the repository.
 
-See `.claude/guides/rule-extracts/security.md` for extended examples, exhaustive sanitizer contract examples, and multi-site kwarg plumbing full post-mortem.
+See `.claude/guides/rule-extracts/security.md` for extended examples, exhaustive sanitizer contract examples, multi-site kwarg plumbing full post-mortem, and the Enforcement-Surface Parity shared-rank-function pattern + Detection procedure.
 
 
 ## No Hardcoded Secrets
@@ -549,7 +521,7 @@ Connection strings carry credentials URL-encoded; every decode site MUST route t
 
 Every URL parsing site that extracts `user`/`password` from `urlparse(connection_string)` MUST route through a single shared helper that rejects null bytes after percent-decoding. Hand-rolled `unquote(parsed.password)` at a call site is BLOCKED.
 
-**Why:** A crafted `mysql://user:%00bypass@host/db` decodes to `\x00bypass`, which the MySQL C client truncates to an empty password. See guide for full evidence.
+**Why:** A crafted `mysql://user:%00bypass@host/db` truncates at the null byte to an empty password on the MySQL C client. See guide for full evidence.
 
 ### 2. Pre-Encoder Consolidation (MUST)
 
@@ -585,35 +557,41 @@ All user-generated content MUST be encoded before display in HTML templates, JSO
 
 ## Sanitizer Contract — DataFlow Display Hygiene
 
-DataFlow's input sanitizer (`dataflow/core/nodes.py::sanitize_sql_input`) is a defense-in-depth display-path safety net, NOT the primary SQLi defense — parameter binding is (§ Parameterized Queries above).
+DataFlow's `sanitize_sql_input` is a defense-in-depth display-path safety net, NOT the primary SQLi defense — parameter binding is.
 
 ### 1. String Inputs MUST Be Token-Replaced, Not Quote-Escaped
 
 For declared-string fields, the sanitizer MUST replace dangerous SQL keyword sequences with grep-able sentinel tokens (`STATEMENT_BLOCKED`, `DROP_TABLE`, `UNION_SELECT`, etc.). Quote-escaping (`'` → `''`) is BLOCKED.
 
-**Why:** Token-replace makes attacker intent grep-able post-incident (`grep STATEMENT_BLOCKED audit.log`); quote-escape preserves the payload as data, masking the attack.
+**Why:** Token-replace makes attacker intent grep-able post-incident; quote-escape preserves the payload as data, masking the attack.
 
 ### 2. Type-Confusion MUST Raise, Not Silently Coerce
 
 For declared-string fields receiving `dict` / `list` / `set` / `tuple` values, the sanitizer MUST raise `ValueError("parameter type mismatch: …")`. Silent coercion via `str(value)` is BLOCKED.
 
-**Why:** A malicious upstream node passing `{"injection": "'; DROP TABLE …"}` for a str-declared field bypasses every string-only check; raising at the type-confusion boundary closes the bypass. See guide for exhaustive examples.
+**Why:** A malicious upstream node passing a nested `dict`/`list` for a str-declared field bypasses every string-only check; raising at the type-confusion boundary closes the bypass. See guide for exhaustive examples.
 
 ### 3. Safe Types Are Returned As-Is
 
-Values of declared-safe types (`int`, `float`, `bool`, `Decimal`, `datetime`, `date`, `time`) MUST pass through unchanged. `dict` and `list` MUST also pass through unchanged when the field's declared type is `dict` or `list` (JSON / array columns). Bug #515: premature `json.dumps()` on dict/list breaks parameter binding.
+Values of declared-safe types (`int`, `float`, `bool`, `Decimal`, `datetime`, `date`, `time`) MUST pass through unchanged. `dict` and `list` MUST also pass through unchanged when the field's declared type is `dict` or `list` (JSON / array columns). See guide (Bug #515).
 
 ## Multi-Site Kwarg Plumbing
 
-When a security-relevant kwarg (classification policy, tenant scope, clearance context, audit correlation ID) is plumbed through a helper, EVERY call site of that helper MUST be updated in the SAME PR. Updating the "primary" call site and deferring siblings is BLOCKED.
+When a security-relevant kwarg (classification policy, tenant scope, clearance context, audit correlation ID) is plumbed through a helper, EVERY call site MUST be updated in the SAME PR. Updating the "primary" site and deferring siblings is BLOCKED.
 
-**Why:** A sibling left on the unqualified signature ships the exact failure mode the kwarg fixes (the "safe default" is the insecure default). Fix is mechanical: `grep -rn 'helper_name(' .` + patch every hit.
+**Why:** A sibling left on the unqualified signature ships the exact failure mode the kwarg fixes (the "safe default" is the insecure default). Fix is mechanical — `grep` every caller, patch each. See guide.
+
+## Enforcement-Surface Parity — A New Fail-Closed Dimension Lands At Every Enforcement Surface, Same PR
+
+When a fix PROMOTES a field to a fail-closed authorization control at the EVALUATION surface, EVERY INDEPENDENT validation surface for that control — especially a monotonic-tightening / re-registration validator — MUST learn the new dimension in the SAME PR (the eval-helper call-site grep CANNOT reach a separate validator with no shared callee). The two surfaces MUST consume a SINGLE shared restrictiveness/ordering function; an unrecognized value MUST rank TIGHTEST (fail-closed) — an unrecognized→recognized transition is a WIDENING and MUST raise. See guide for the shared-rank pattern, the pinned-parity-test requirement, BLOCKED corpus, and Detection.
+
+**Why:** A new fail-closed gate the independent tightening validator never learned lets a re-registration lower the bar as "tightening" — a privilege escalation the FIX ITSELF introduced.
 
 ## Redactor Contract
 
-Subject-keyed redactors (primitives scrubbing every string containing a `subject_id` substring) MUST enforce a minimum subject-id length floor (≥8 chars), failing closed with a typed error naming the floor and the received length. When a matching object KEY is scrubbed, BOTH key and value MUST be scrubbed — the key replaced with a numbered sentinel (`[REDACTED_KEY_N]`) preserving audit shape; the byte-level audit trail survives via the original-hash return.
+Subject-keyed redactors (scrubbing every string containing a `subject_id` substring) MUST enforce a minimum subject-id length floor (≥8 chars), failing closed with a typed error naming the floor + received length. When a matching object KEY is scrubbed, BOTH key and value MUST be scrubbed — the key replaced with a numbered sentinel (`[REDACTED_KEY_N]`); the audit trail survives via the original-hash return.
 
-**Why:** 1–7-char ids substring-match benign strings ("alice" → "malice"); a preserved matching key under a `[REDACTED]` value leaks the subject's identity as audit metadata. See guide for kailash-rs PR #1123 evidence + cross-SDK landing requirement.
+**Why:** 1–7-char ids substring-match benign strings ("alice" → "malice"); a preserved matching key under a `[REDACTED]` value leaks the subject's identity as audit metadata. See guide for the PR #1123 evidence + cross-SDK landing requirement.
 
 ## Kailash-Specific Security
 
@@ -624,8 +602,6 @@ Subject-keyed redactors (primitives scrubbing every string containing a `subject
 ## Exceptions
 
 Security exceptions require: written justification, security-reviewer approval, documentation, and time-limited remediation plan.
-
-
 
 ---
 
@@ -709,7 +685,7 @@ A property/method whose return type is a union of structurally-distinct shapes (
 
 Any doc edit rewriting a code-surface claim — method lists, registered handlers, exposed bindings, config keys, deprecation lists, magic-value numeric constants (cross-base `pub const` restatements) — MUST cite the ground-truth source as `<path>:<start>-<end>` in the same paragraph; cross-base numeric restatements additionally require a same-shard compile-time pin test. Uncited claims are BLOCKED. **Binding-inheritance:** a contract (error variant, enum member, field, finish reason, lifecycle guarantee, OR a fail-closed safety/invariant) restated by a wrapper across ≥2 bindings MUST be re-derived from the SDK _code_ (NOT the SDK _doc_) for EACH binding; the multi-binding parity audit's source-rederivation matrix MUST INCLUDE the cross-binding fail-closed SAFETY-INVARIANT rows, not only the API-surface contract-shape rows — AND this applies to safety claims in CONVERGENCE / REDTEAM REPORTS (presumed-UNVERIFIED until the matrix re-derives EACH binding's source), not only to binding rustdoc/RDoc.
 
-**Why:** A wrong SDK doc claim is faithfully mirrored by every binding (N reviewers all trust the same doc); a convergence report's "safe by construction" claim is the same failure at the AUDIT layer when one binding is the SOLE un-gated one. See guide for the kailash-rs evidence chain (#1087/#1088/#1160, F16 W2, the SAFETY-INVARIANT / convergence-report extension).
+**Why:** A wrong SDK doc claim is faithfully mirrored by every binding (N reviewers all trust the same doc); a convergence report's "safe by construction" claim is the same failure at the AUDIT layer when one binding is the SOLE un-gated one. See guide for the Rust SDK evidence chain (#1087/#1088/#1160, F16 W2, the SAFETY-INVARIANT / convergence-report extension).
 
 ## Rule 4: No Workarounds For Core SDK Issues
 
