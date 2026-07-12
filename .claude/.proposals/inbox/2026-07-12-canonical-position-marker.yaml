@@ -1,0 +1,102 @@
+# NO source_repo — hop-level-only provenance (downstream consumer deliberately not identified).
+origin: downstream
+codify_date: 2026-07-06
+codify_session: "docs(deploy-hygiene): COC-consumer container image must not COPY . . — positive-COPY excludes per-clone COC state"
+template_slug: coc-base
+template_version: "2.45.5"
+loom_sha: "9101e34"
+changes:
+  - file: .claude/rules/deploy-hygiene.md
+    action: modified
+    base_version: "2.45.5"
+    reason: >
+      Proposes a new COC-consumer image-hygiene clause. When a COC consumer containerizes itself
+      and the Dockerfile uses `COPY . .`, the whole working tree is baked into the (often
+      distributed) image. Because `.dockerignore` — NOT `.gitignore` — governs the Docker build
+      context, files that are correctly gitignored (per-clone COC state: `.claude/learning/**`,
+      `.claude/operator-id`, `operators.roster.json`; local session/audit stores; `.env`) STILL
+      bake in. This violates the multi-operator invariant that per-clone state is never
+      distributed/synced between repos (an image shipped to every operator is a distribution) and
+      leaks operator identity + signing-key fingerprints + coordination state. Proposed clause:
+      a COC-consumer Dockerfile MUST use a positive `COPY` of exactly the runtime paths (never
+      `COPY . .`), so per-clone state is structurally unreachable rather than merely denied; a
+      hardened deny-by-default `.dockerignore` is defense-in-depth (and covers a legacy-builder
+      `COPY . .`), not the root-cause fix. Reason: a positive-COPY excludes a NEW sensitive file
+      by default; a denylist re-opens the class on every newly-added state file. Sibling of the
+      existing Rule 9 (Dockerfile rebuilds from source, no `COPY dist/`) — same "what enters the
+      image" surface, extended from staleness to per-clone-state disclosure. Runtime-verified in
+      the originating context: a rebuilt positive-COPY image contained zero per-clone-state paths
+      and booted non-root.
+    diff_lines: "+22 -0"
+  - file: .claude/rules/agents.md
+    action: modified
+    base_version: "2.45.5"
+    reason: >
+      Proposes three cross-project red-team methodology patterns surfaced when a fresh from-scratch
+      /redteam re-converged an ALREADY-converged surface and found three latent MEDs the prior rounds
+      missed. (1) ATTACK-YOUR-OWN-FIX: a fix does not count toward convergence until an INDEPENDENT
+      round, prompted to refute, has tried to break it — the fixing agent's own probes share the blind
+      spot that produced the bug (extends the existing "Adversarial verify" pattern from the finding
+      layer to the fix layer; observed: a boundary fix's own residual gap was caught only by the next
+      independent round). (2) BOUNDARY-COMPLETENESS-VS-NAMED-GRAMMAR: resolve a tokenization/boundary
+      finding against the FULL named grammar (e.g. a shell's metacharacter set `| & ; ( ) < > space tab
+      newline`), proving the fix a superset — not instance-by-instance, which is a treadmill that leaves
+      sibling holes. (3) LATENT-O(n^2)-BEHIND-FUNCTIONAL-CORRECTNESS: a red-team round on a regex/parser
+      predicate MUST include a timing sweep at escalating input sizes (self-normalizing ratio per
+      testing.md), because a converged FUNCTIONAL surface can still carry an availability-class ReDoS;
+      the structural tell is a character present in BOTH a start-anchor class and an adjacent greedy
+      class. Candidate homes: rules/agents.md § Adversarial verify + Quality-Gate mechanical sweeps
+      (patterns 1 + 3), and rules/testing.md complexity-ratio section (pattern 3). Gate-1 classifies
+      global-vs-variant.
+    diff_lines: "~+30 (three pattern clauses; exact placement is Gate-1's)"
+  - file: .claude/rules/probe-driven-verification.md
+    action: modified
+    base_version: "2.45.5"
+    reason: >
+      Proposes extending the rule's SCOPE from "tests and harnesses" to ALSO cover PRODUCTION code that
+      extracts a SEMANTIC value from free-form content. Origin case: a downstream cockpit feature parsed a
+      convergence VERDICT ("did this /redteam receipt converge?") out of free-form markdown prose with regex
+      heuristics. NINE independent adversarial red-team rounds each found a NEW prose form the regex misread
+      (intervening-word negation, verb-vs-status confusion, hard-wraps, CRLF, markdown emphasis between the
+      words, GFM trailing-backslash, HTML <br>, …) — the mathematically guaranteed outcome of
+      regex-on-natural-language, because the surface-form space is unbounded so every regex is a finite net
+      over an infinite space. The current rule text scopes its MUST to "any test or harness assertion", so
+      neither the author nor a reviewer flagged the PRODUCTION parser as a violation even though it is the
+      identical naive-NLP anti-pattern one layer over. Proposed clause (Gate-1 classifies global vs variant):
+      a MUST that production code MUST NOT extract a semantic property/value from free-form
+      natural-language content via regex/keyword/heuristic matching; when a semantic value must be
+      machine-read, it MUST be EMITTED as structured data at the source (a fixed-grammar marker / frontmatter
+      / schema field the emitter controls) and READ structurally (Rule 3's permitted structural parsing) — a
+      producer/consumer structured-data contract, never prose inference. Durable fix already applied in the
+      origin repo: the ~160-line prose parser was deleted and replaced with a ~25-line read of a
+      machine-readable convergence marker; the fabricated-pass class is closed BY CONSTRUCTION (there is no
+      prose left to misread). Sibling of the existing MUST-1 + Rule-3 (semantic verification must be
+      probe-driven / structural, never regex) — extends the same principle from the VERIFICATION surface to
+      the production DATA-EXTRACTION surface. Gate-1 to author the DO/DO-NOT + Why + Trust-Posture-Wiring.
+    diff_lines: "~+30 (one MUST clause + DO/DO-NOT + Why; exact wording + wiring is Gate-1's)"
+  - file: .claude/commands/redteam.md
+    action: modified
+    base_version: "2.45.5"
+    reason: >
+      Proposes that /redteam EMIT a machine-readable convergence-verdict marker when it writes a convergence
+      receipt — the paired PRODUCER half of the probe-driven-verification.md production-extraction proposal
+      above (so the verdict is structured data at the source and no reader ever re-derives it from prose).
+      Concretely: when /redteam reports convergence and writes its `04-validate/redteam-*.md` receipt, it
+      includes a canonical HTML-comment marker carrying a CLOSED-allowlist status plus optional numeric
+      metadata, e.g. `<!-- coc:convergence status=CONVERGED rounds=N crit=N high=N -->` (status one of
+      CONVERGED / NOT_CONVERGED / IN_PROGRESS). An HTML comment is chosen because it is invisible in rendered
+      markdown and trivially machine-parseable. The marker MUST be emitted at the CANONICAL POSITION — the
+      first non-blank line directly under the H1 title (line 2) — because the consumer reads ONLY that one
+      canonical line: a documentation EXAMPLE of the marker grammar anywhere else (a body section, backticks,
+      mid-sentence prose, or an INDENTED code block) is byte-identical to the authoritative marker and would
+      otherwise be misread as the verdict, fabricating a CONVERGED from prose. That failure was surfaced across
+      three independent /redteam rounds (R1 HIGH doc-example → R2 prose-embedded → R3 indented-code) and closed
+      in the origin repo by anchoring BOTH halves to the single canonical line — NOT an ever-growing exclusion
+      list (an earlier draft's "position-independent" framing, and its successor "header-anchored with code
+      spans stripped", are BOTH superseded: only the one canonical position counts). Emitter and reader MUST
+      agree on the canonical-position contract. This closes the naive-NLP class at the PRODUCER: any
+      convergence-history reader then reads structured data, never prose. Origin: a downstream cockpit's
+      redteam-ledger reader; the CONSUMER half (canonical-position marker-only parse + honest
+      partial-on-absence) is already shipped in the origin repo, with its existing receipts carrying the marker.
+    diff_lines: "~+8 (a marker-emit step in the receipt-write section; exact placement is Gate-1's)"
+status: pending_review
