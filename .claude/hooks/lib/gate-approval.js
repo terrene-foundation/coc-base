@@ -197,10 +197,7 @@ function verifyGateApproval(payload, ctx) {
   if (typeof ctx.gate !== "string" || !ctx.gate) {
     return { ok: false, reason: "ctx.gate required" };
   }
-  if (
-    typeof ctx.requester_person_id !== "string" ||
-    !ctx.requester_person_id
-  ) {
+  if (typeof ctx.requester_person_id !== "string" || !ctx.requester_person_id) {
     return { ok: false, reason: "ctx.requester_person_id required" };
   }
   if (
@@ -314,9 +311,14 @@ function verifyGateApproval(payload, ctx) {
   }
   let verifyResult;
   try {
-    verifyResult = cocSign.verify(canonicalBytes, payload.sig, resolved.pubkey, {
-      keyType: resolved.keyType,
-    });
+    verifyResult = cocSign.verify(
+      canonicalBytes,
+      payload.sig,
+      resolved.pubkey,
+      {
+        keyType: resolved.keyType,
+      },
+    );
   } catch (err) {
     return {
       ok: false,
@@ -344,9 +346,103 @@ function verifyGateApproval(payload, ctx) {
   };
 }
 
+// ---- #583 Shard 4 — the L8/L10 co-sign EMIT path ----------------------------
+
+/**
+ * buildGateApprovalRecord(fields) — shape the `content` object for a
+ * coordination-log `gate-approval` record from already-collected ceremony
+ * pieces. This helper does NOT run the multi-party ceremony (the off-loom broker
+ * issues the presence proofs, the approvers produce their co-sigs + presence
+ * proofs, the approval UX orchestrates it — all loom-command's) — it ASSEMBLES
+ * the collected pieces into the record content the emitter signs.
+ *
+ * @param {object} fields
+ * @param {string} fields.targetTool         §6.4 gate row (release, posture-*, …)
+ * @param {string} fields.requesterPersonId
+ * @param {string} fields.requesterVerifiedId
+ * @param {string} fields.consumedNonce       the requester-minted nonce
+ * @param {Array}  [fields.coSigners]         [{verified_id, sig, presence_proof?}]
+ *   — each distinct approver's 4-eyes co-sig (over _coSignedBytes) AND, per
+ *   Shard 4, that approver's OWN broker-signed presence proof (co_signers[i]
+ *   .presence_proof), so the fold can attribute the DISTINCT approver's presence.
+ * @param {object} [fields.presenceProof]     the EMITTER's content.presence_proof
+ *   (a broker-signed proof; REQUIRED for the emit to clear the actuation gate).
+ * @returns {object} the gate-approval `content`.
+ */
+function buildGateApprovalRecord(fields) {
+  const f = fields || {};
+  const content = {
+    target_tool: f.targetTool,
+    requester_person_id: f.requesterPersonId,
+    requester_verified_id: f.requesterVerifiedId,
+    consumed_nonce: f.consumedNonce,
+    co_signers: Array.isArray(f.coSigners) ? f.coSigners : [],
+  };
+  if (f.presenceProof !== undefined && f.presenceProof !== null) {
+    content.presence_proof = f.presenceProof;
+  }
+  return content;
+}
+
+/**
+ * emitGateApproval(opts) — emit a `gate-approval` record through the SINGLE
+ * signed emitter (`coc-emit.js::emitSignedRecord`), so the record INHERITS the
+ * actuation presence gate (coc-emit.js requires `content.presence_proof` PROVEN
+ * for `requiresPresenceAttestation` types, of which `gate-approval` is the one
+ * member) BY CONSTRUCTION. This is the SOLE build+emit site for gate-approval
+ * records: a bespoke hand-append is BLOCKED (`security.md` § Multi-Site Kwarg
+ * Plumbing), so the presence-proof demand stays single-sourced at the emitter's
+ * `:465` gate — no second, drift-prone proof check lives here.
+ *
+ * HONEST SHARD BOUNDARY (journal/0509, `zero-tolerance.md` Rule 2 carve-out): the
+ * LIVE `/release` runtime cutover — making `/release` actually CALL this to emit
+ * a folded gate-approval demanding a REAL broker proof — is the workstream
+ * ENDPOINT and fires when loom-command's off-loom presence broker lands (always-on
+ * ⇒ no advisory staging window). This shard ships the PLUMBING; `operator-gate.js`
+ * keeps the live in-payload `/release` verify untouched until then.
+ *
+ * @param {object} opts — buildGateApprovalRecord fields PLUS the emitSignedRecord
+ *   envelope: {repoDir, identity?, signingKeyPath?, keyType?, sign?,
+ *   readChainHead?, append?, gitConfigSigningKey?}. The test-injectable seam
+ *   (sign/readChainHead/append) is how the AC-L14 offline harness drives it with
+ *   no coordination log present.
+ * @returns {object} emitSignedRecord's result ({ok, record?, reason?, step?}).
+ */
+function emitGateApproval(opts) {
+  const o = opts || {};
+  const content = buildGateApprovalRecord(o);
+  try {
+    const { emitSignedRecord } = require(path.join(__dirname, "coc-emit.js"));
+    const emitOpts = {
+      repoDir: o.repoDir,
+      type: "gate-approval",
+      content,
+      identity: o.identity,
+      signingKeyPath: o.signingKeyPath,
+      keyType: o.keyType,
+      sign: o.sign,
+      readChainHead: o.readChainHead,
+      append: o.append,
+    };
+    if (Object.prototype.hasOwnProperty.call(o, "gitConfigSigningKey")) {
+      emitOpts.gitConfigSigningKey = o.gitConfigSigningKey;
+    }
+    return emitSignedRecord(emitOpts);
+  } catch (err) {
+    return {
+      ok: false,
+      error: "gate-approval emit threw",
+      reason: err && err.message ? err.message : String(err),
+      step: "emit",
+    };
+  }
+}
+
 module.exports = {
   GATE_APPROVAL_TTL_MS,
   TARGET_TOOL_ALLOWLIST,
   canonicalGateApprovalBytes,
   verifyGateApproval,
+  buildGateApprovalRecord,
+  emitGateApproval,
 };

@@ -36,20 +36,11 @@ const fallback = setTimeout(() => {
 }, TIMEOUT_MS);
 
 const crypto = require("crypto");
-const fs = require("fs");
 const path = require("path");
 
 const PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 
-function readStdinSyncSafe() {
-  try {
-    const data = fs.readFileSync(0, "utf8");
-    if (!data || !data.trim()) return {};
-    return JSON.parse(data);
-  } catch {
-    return {};
-  }
-}
+const { readStdinBounded } = require("./lib/read-stdin-bounded.js");
 
 function passthrough() {
   clearTimeout(fallback);
@@ -86,9 +77,9 @@ function resolveIdentitySafely(repoDir) {
   }
 }
 
-(function main() {
+(async function main() {
   try {
-    const payload = readStdinSyncSafe();
+    const payload = await readStdinBounded();
     const prompt = typeof payload.prompt === "string" ? payload.prompt : "";
     // An empty prompt carries no human input to commit to — nothing to record.
     if (prompt.length === 0) {

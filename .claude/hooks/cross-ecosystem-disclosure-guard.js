@@ -7,7 +7,7 @@
  * (issue #584 AC-1). It wires lib/cross-ecosystem-disclosure-guard.js into the
  * canonical instruct-and-wait emit shape (hook-output-discipline.md MUST-1).
  *
- * REGISTERED (F3 Level-1, 2026-06-25, journal/0335) BUT DORMANT-UNTIL-#576:
+ * REGISTERED (F3 Level-1, 2026-06-25, journal/0335) — ITS BLOCK BRANCH DORMANT:
  *   This file IS registered in settings.json on the Edit|Write|NotebookEdit
  *   PreToolUse matcher, so it RUNS live on every mutation — but its BLOCK branch
  *   is DORMANT until a write DECLARES a target ecosystem. Two gates send every
@@ -21,8 +21,9 @@
  *         ecosystem.json) getUpstreamCanon() is null → recognizeBoundary returns
  *         intra-ecosystem → passthrough. The BLOCK branch only fires in a FORK
  *         (upstream_canon set) whose write DECLARES the canon target.
- *   The ONLY consumer that declares a target is the DEFERRED sync-from-canon
- *   driver (#576 / AC-2, UNBUILT). Separately, the AUTONOMOUS cross-ecosystem
+ *   The consumer that would declare a target is the sync-from-canon driver's
+ *   AC-2 intake-path routing (#576's driver SHIPPED, but its AC-2 routing — which
+ *   would invoke THIS guard on the pulled surface — is UNBUILT). Separately, the AUTONOMOUS cross-ecosystem
  *   write-DETECTION an always-on fence needs (catching an ad-hoc fork->canon
  *   push) is Level-2, depending on the deferred ecosystem-remote resolver
  *   (cross-repo.md § "Ecosystem-Scoped Remote Links (design contract)" — not yet
@@ -45,8 +46,9 @@
  *   recognizeBoundary() classifies "intra-ecosystem" → silent passthrough. The
  *   guard's BLOCK branch fires ONLY when the session has DECLARED a fork->canon
  *   target via the COC_XECO_TARGET_ECOSYSTEM env (the destination ecosystem of
- *   the write — e.g. a cross-repo grant naming canon, or the future
- *   sync-from-canon reverse direction once #576 lands). Absent that declaration
+ *   the write — e.g. a cross-repo grant naming canon, or the sync-from-canon
+ *   driver's AC-2 intake-path routing (driver shipped #576; that guard-routing
+ *   UNBUILT)). Absent that declaration
  *   the hook is a no-op, so it never blocks ordinary in-fork edits.
  *
  * SEVERITY (once activated): `block`. The boundary is computed STRUCTURALLY from
@@ -81,7 +83,6 @@ const fallback = setTimeout(() => {
   process.exit(1);
 }, TIMEOUT_MS);
 
-const fs = require("fs");
 const path = require("path");
 
 const { emit } = require(path.join(__dirname, "lib", "instruct-and-wait.js"));
@@ -98,15 +99,7 @@ function passthrough() {
   process.exit(0);
 }
 
-function readStdinSync() {
-  try {
-    const data = fs.readFileSync(0, "utf8");
-    if (!data || !data.trim()) return {};
-    return JSON.parse(data);
-  } catch {
-    return {};
-  }
-}
+const { readStdinBounded } = require("./lib/read-stdin-bounded.js");
 
 function parseMaybeJson(raw) {
   if (typeof raw !== "string" || raw.trim() === "") return undefined;
@@ -123,7 +116,41 @@ function parseMaybeJson(raw) {
 
 (async function main() {
   try {
-    const payload = readStdinSync();
+    // `fallback: null` distinctly signals a FAILED/EMPTY read. readStdinBounded
+    // NEVER throws (it resolves the fallback on empty/parse-error/timeout), so
+    // after the #859 async swap a failed read can NO LONGER reach the catch
+    // block's fail-CLOSED-when-declared branch below — an empty payload would fall
+    // through `!isMutationTool(undefined)` → passthrough = fail-OPEN even with a
+    // DECLARED fork->canon target (security redteam MED-1). Detect the sentinel
+    // HERE and fail CLOSED when a target is declared, mirroring the catch branch.
+    const payload = await readStdinBounded({ fallback: null });
+    if (payload === null) {
+      const declaredTargetOnEmpty = process.env.COC_XECO_TARGET_ECOSYSTEM;
+      if (
+        declaredTargetOnEmpty &&
+        String(declaredTargetOnEmpty).trim() !== ""
+      ) {
+        clearTimeout(fallback);
+        emit({
+          hookEvent: "PreToolUse",
+          severity: "block",
+          what_happened: `cross-ecosystem-disclosure-guard could not read the tool payload for declared fork->canon target '${declaredTargetOnEmpty}' (empty/unparseable stdin).`,
+          why: 'A fork->canon write-target is DECLARED (COC_XECO_TARGET_ECOSYSTEM set) but the tool payload could not be read, so the canon<->fork boundary + disclosure scan CANNOT run. Per security.md (fail CLOSED on ambiguity) + artifact-flow.md § "Ecosystem Forks vs Downstream Consumers": an unverifiable declared fork->canon write MUST NOT proceed. (readStdinBounded fails OPEN by contract for ordinary sessions; a DECLARED cross-ecosystem target overrides that to fail CLOSED — the same posture as the malformed-ecosystem.json catch branch.)',
+          agent_must_report: [
+            `Declared target ecosystem: ${declaredTargetOnEmpty}`,
+            "The tool payload (stdin) was empty or unparseable — the disclosure scan and canon<->fork boundary check could not run.",
+            "Retry the write with a well-formed payload, or unset COC_XECO_TARGET_ECOSYSTEM if no cross-ecosystem write is intended.",
+          ],
+          agent_must_wait:
+            "Do not retry the declared fork->canon write until the payload is readable.",
+          user_summary: `cross-ecosystem-disclosure-guard — BLOCK: unreadable payload on declared fork->canon target '${declaredTargetOnEmpty}'`,
+        });
+        // emit() exits.
+      }
+      // No declared target — ordinary session with an unreadable payload: fail
+      // OPEN (the documented infra-failure posture; no cross-ecosystem write).
+      passthrough();
+    }
     const hookEvent = payload.hook_event_name || "PreToolUse";
 
     // Only mutation tools (Edit/Write/...) cross a write boundary.
@@ -167,7 +194,7 @@ function parseMaybeJson(raw) {
 
     // The fork->canon write SURFACE to disclosure-scan (the AC-2 production path,
     // #576 Shard D). Supplied via the COC_XECO_SCAN_CONTENT env — the channel the
-    // deferred sync-from-canon driver (#576) uses to thread the pulled surface
+    // sync-from-canon driver (#576, shipped; its AC-2 guard-routing UNBUILT) would use to thread the pulled surface
     // through the guard, mirroring how every other guard opt is injected here
     // (see the hook header's ENV OVERRIDES note). ABSENT it, no scannable surface
     // reaches the guard and the lib's default scanFn returns ran:false ->

@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ./.claude/hooks/session-start.js"
+            "command": "node ./.claude/hooks/lib/codex-hook-runtime.js ./.claude/hooks/session-start.js"
           }
         ]
       }
@@ -19,7 +19,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ./.claude/hooks/validate-bash-command.js"
+            "command": "node ./.claude/hooks/lib/codex-hook-runtime.js ./.claude/hooks/validate-bash-command.js"
           }
         ]
       }
@@ -33,7 +33,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ./.claude/hooks/integration-hygiene.js"
+            "command": "node ./.claude/hooks/lib/codex-hook-runtime.js ./.claude/hooks/integration-hygiene.js"
           }
         ]
       }

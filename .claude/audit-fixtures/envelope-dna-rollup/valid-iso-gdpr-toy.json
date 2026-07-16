@@ -1,0 +1,70 @@
+{
+  "schema_version": "envelope-dna/v1",
+  "authority": {
+    "name": "ISO/IEC 27001 + GDPR (synthetic toy)",
+    "version": "2022/2016"
+  },
+  "cascade": {
+    "regulation_articles": [
+      {
+        "id": "A.8.24",
+        "title": "Use of cryptography (ISO/IEC 27001:2022 Annex A)"
+      },
+      {
+        "id": "GDPR-Art32",
+        "title": "Security of processing (GDPR 2016 Article 32)"
+      }
+    ],
+    "standard_clauses": [
+      {
+        "id": "SC-crypto-policy",
+        "regulation_article": "A.8.24",
+        "title": "Documented cryptographic-controls policy"
+      },
+      {
+        "id": "SC-encryption-at-rest",
+        "regulation_article": "GDPR-Art32",
+        "title": "Encryption of personal data at rest/in transit"
+      }
+    ],
+    "framework_controls": [
+      {
+        "id": "FC-secret-env",
+        "standard_clause": "SC-crypto-policy",
+        "title": "Secrets read only from environment, never hardcoded"
+      },
+      {
+        "id": "FC-db-tls",
+        "standard_clause": "SC-encryption-at-rest",
+        "title": "Database connections require TLS"
+      }
+    ],
+    "constraints": [
+      {
+        "id": "C-secret-env-only",
+        "framework_control": "FC-secret-env",
+        "envelope_binding": { "kind": "posture_floor", "value": "L4" },
+        "attribution_granularity": "maximally-accountable"
+      },
+      {
+        "id": "C-db-tls-required",
+        "framework_control": "FC-db-tls",
+        "envelope_binding": {
+          "kind": "fail_closed_severity",
+          "value": "block"
+        },
+        "attribution_granularity": "maximally-accountable"
+      }
+    ]
+  },
+  "rollup": {
+    "forward": {
+      "C-secret-env-only": ["FC-secret-env", "SC-crypto-policy", "A.8.24"],
+      "C-db-tls-required": ["FC-db-tls", "SC-encryption-at-rest", "GDPR-Art32"]
+    },
+    "reverse": {
+      "A.8.24": ["C-secret-env-only"],
+      "GDPR-Art32": ["C-db-tls-required"]
+    }
+  }
+}

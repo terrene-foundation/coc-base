@@ -1,0 +1,139 @@
+---
+id: "RECONCILE-NOTES"
+name: reconcile-notes
+description: "Reconcile your own .session-notes fragment after incorporating sibling work — prune landed rows against cited durable receipts, re-anchor read-first pointers, stamp last_reconciled_sha=HEAD. Own-fragment-only, memory-only, cited-evidence-gated."
+---
+
+## What `/reconcile-notes` Is
+
+`/reconcile-notes` brings YOUR OWN session-notes fragment back into coherence after you
+incorporate sibling work (a `git merge`/`pull`/`rebase`, or a `checkout main`). It prunes
+items the incorporated work has ALREADY LANDED, re-points stale read-first pointers, and
+stamps the incorporation-guard's lag anchor (`last_reconciled_sha`) to HEAD so the advisory
+stops firing until the notes drift again.
+
+It is the RECONCILE half of the #743 coherence layer; the DETECTION half
+(`session-notes-incorporation-guard.js`, Wave 2) is what tells you the notes lag and points
+you here. This command NEVER edits another operator's fragment, NEVER edits the shared forest
+ledger except through the layout writer, and NEVER re-derives content from anything but the
+fragment + git state (memory-only).
+
+## Scope Fence (BLOCKED outside it)
+
+- **Own fragment only (C4.1):** writes ONLY `.session-notes.d/<your display_id>.md`. Editing a
+  sibling's fragment is BLOCKED (each fragment is single-writer per `knowledge-convergence.md`
+  MUST-1).
+- **Memory-only (C4.2):** reason over the fragment's content + `git log`/`git rev-list`. NO
+  external re-derivation, NO changelog scrape, NO reading other repos.
+- **Prune only with a CITED DURABLE receipt (C4.4 + I9, Decision-1):** an item may be pruned
+  ONLY when a durable receipt proves it landed — a commit SHA, a merged-PR number, or a journal
+  slot. "Looks done" / "probably landed" is BLOCKED. Prune targets: landed in-flight items,
+  fixed traps, moved read-first pointers, merged-closed ledger rows.
+
+## Workflow
+
+### 0. Resolve identity + locate your fragment
+
+Resolve your own fragment path — never a hand-slugified filename:
+
+```bash
+node -e 'const{resolveIdentity}=require("./.claude/hooks/lib/operator-id.js");const{fragmentPathFor}=require("./.claude/hooks/lib/session-notes-layout.js");const id=resolveIdentity(process.cwd(),{});console.log(fragmentPathFor(process.cwd(),id))'
+```
+
+If the fragment does not exist yet (never migrated / never reconciled), there is nothing to
+reconcile — STOP and report. Read the fragment; note its current `last_reconciled_sha` (the
+lag anchor set by the last reconcile or by migration).
+
+### 1. Enumerate what the incorporation landed
+
+Compute the commit range incorporated since your last anchor and read ONLY those commits'
+subjects + touched paths (memory-only evidence):
+
+```bash
+git rev-list --count <last_reconciled_sha>..HEAD   # how far you lagged
+git log --oneline <last_reconciled_sha>..HEAD       # the durable receipts (SHAs)
+```
+
+Each candidate prune MUST bind to one of: a SHA in this range, a merged-PR number, or a
+journal slot. Record the binding next to each pruned item in your working reasoning.
+
+### 2. Draft the reconciled fragment BODY (in memory)
+
+Produce the new fragment BODY (everything AFTER the frontmatter — the writer re-builds the
+frontmatter + stamp). Apply the prune set:
+
+- **Landed in-flight items** — remove; cite the SHA/PR/journal that landed them.
+- **Fixed traps** — remove; cite the fix.
+- **Moved read-first pointers** — re-point to the current path.
+- **Merged-closed forest-ledger rows** — an Open row whose work merged moves to Closed. Route
+  this through the layout writer (Step 4), NEVER a raw edit of `.session-notes.shared.md`.
+- **Un-owned stale rows (R-d, Decision-2):** a stale row owned by a DEPARTED operator is NOT
+  yours to close. SURFACE it for the co-signed reap protocol
+  (`multi-operator-coordination.md` §4.4 — `/release-claim --reap --cosigner`); a single-
+  operator repo closes its own directly. Do NOT silently delete another operator's row.
+
+### 3. Probe the prune set as the done-gate (Decision-1, `probe-driven-verification.md`)
+
+Before writing, verify each prune with a STRUCTURAL probe against a landed-vs-queued pair, not
+a keyword scan of prose:
+
+- For each pruned item, confirm its cited SHA is an ANCESTOR of HEAD:
+  `git merge-base --is-ancestor <sha> HEAD && echo LANDED || echo NOT-LANDED`.
+- A `NOT-LANDED` result means the receipt does not prove the claim — KEEP the item, do not
+  prune it. The probe is the gate; "I read the notes and it looks done" is not.
+
+### 4. Claim the shared ledger (I12a) before any ledger-row move
+
+If Step 2 moves ANY forest-ledger row, `/claim` the shared-ledger path FIRST (a SAME-class
+write per `multi-operator-coordination.md` MUST-2) — editing-then-claiming is BLOCKED:
+
+```
+/claim .session-notes.shared.md
+```
+
+Then route BOTH the fragment write AND the stamp through the single-source layout writer (never
+a hand-rolled frontmatter block — that would drift from `_buildFragmentBody`, `zero-tolerance.md`
+Rule 3e). A multi-line fragment write is clearer and less escaping-error-prone as a committed
+scratchpad `.cjs` than an inline `node -e` one-liner, so write:
+
+```js
+// scratchpad/reconcile-write.cjs
+const repo = process.cwd();
+const { resolveIdentity } = require(repo + "/.claude/hooks/lib/operator-id.js");
+const { writeReconciledFragment } = require(
+  repo + "/.claude/hooks/lib/session-notes-layout.js",
+);
+const { execFileSync } = require("child_process");
+const identity = resolveIdentity(repo, {});
+const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo })
+  .toString()
+  .trim();
+const body = require("fs").readFileSync(process.argv[2], "utf8"); // the drafted BODY
+const r = writeReconciledFragment(repo, identity, body, head); // stamps last_reconciled_sha=HEAD (C4.5)
+console.log(JSON.stringify(r, null, 2));
+if (!r.ok) process.exit(1);
+```
+
+Run it with the drafted body file; `writeReconciledFragment` shape-guards the SHA and refuses
+(typed error) rather than poison the anchor with a bad HEAD. A merged-closed ledger row is
+moved via `appendForestLedgerRow` / the layout writer so `coc-ledger` reconciles concurrent
+edits — never a raw write.
+
+### 5. Verify + report
+
+- Confirm the fragment's new `last_reconciled_sha` equals HEAD (uses the SAME reader the
+  incorporation-guard uses, so this verifies the exact byte the guard will read):
+  `node -e 'const{parseLastReconciledSha}=require("./.claude/hooks/session-notes-incorporation-guard.js");const{resolveIdentity}=require("./.claude/hooks/lib/operator-id.js");const{fragmentPathFor}=require("./.claude/hooks/lib/session-notes-layout.js");const fs=require("fs");console.log(parseLastReconciledSha(fs.readFileSync(fragmentPathFor(process.cwd(),resolveIdentity(process.cwd(),{})),"utf8")))'`
+  — OR re-read the frontmatter.
+- Re-run the incorporation guard's lag compute mentally: `rev-list --count <new-stamp>..HEAD`
+  is now `0` → the advisory is silenced until the next drift.
+- Report in outcomes: what was pruned (with each cited receipt), what was re-pointed, which
+  un-owned rows were surfaced for reap, and the new anchor SHA.
+
+## Distinct From
+
+- **`/reconcile-notes` vs `/wrapup`:** `/wrapup` WRITES fresh session notes at session end;
+  `/reconcile-notes` PRUNES already-landed content mid-session after incorporation. Different
+  jobs, opposite directions.
+- **vs the incorporation guard:** the guard (Wave 2) DETECTS lag and points here; this command
+  RESOLVES it. The guard is advisory-only and never blocks.

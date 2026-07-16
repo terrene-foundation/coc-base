@@ -46,6 +46,21 @@
  *      `.claude/codex-templates/bin/coc`), referenced by NAME in cross-CLI prose
  *      per cross-cli-artifact-hygiene.md. It is never a loom-root `bin/` file, so
  *      the `bin/` prefix match is a structural false-positive.
+ *    - Sanctioned Phase-2-DEFERRED audit-fixture forward-pointers (finding #70,
+ *      journal/0182): a rule's Detection-mechanism field may cite an
+ *      `audit-fixtures/<slug>/` dir that is intentionally not-yet-created — the
+ *      rule declares the detector Phase-2-DEFERRED (per trust-posture.md
+ *      § Two-Phase Rollout) and states "audit fixtures land with the Phase-2
+ *      detector at <path>". validate-emit.mjs's `audit-fixture-coverage` gate
+ *      already treats such a fixture as GREEN (it demands a fixture dir ONLY for a
+ *      `detect*` export that EXISTS in violation-patterns.js; a deferred detector
+ *      has no export yet, so its dir is never required). This validator diverges
+ *      unless it recognizes the same sanction — so a not-found finding whose slug
+ *      is on the SANCTIONED_DEFERRED_FIXTURES positive allowlist AND whose citing
+ *      line declares the deferral is reclassified from dangling to skipped (see
+ *      the allowlist below). This is NOT a blanket suppression of `audit-fixtures/`:
+ *      a deferred-shaped citation whose slug is NOT on the allowlist still fails
+ *      loud, so a genuinely-missing fixture dir cannot hide.
  *
  *  Resolver (per cross-repo.md Rule 1 — local-only, no positional cross-repo):
  *    - Tokens starting with `.claude/`: resolve against `<repo-root>/.claude/`.
@@ -56,7 +71,8 @@
  *      `<repo-root>/journal/NNNN-*.md` (NNNN-prefix match).
  *
  *  Exit:
- *    0 = no dangling refs (or all findings are sourced from EXCLUDED contexts)
+ *    0 = no dangling refs (findings sourced from EXCLUDED contexts, OR
+ *        reclassified as sanctioned Phase-2-deferred audit fixtures, do not count)
  *    1 = ≥1 dangling ref
  *    2 = usage / IO error
  *
@@ -138,6 +154,67 @@ function isPlaceholder(token) {
 const CROSS_CLI_DISPATCHER_RE = /^bin\/coc(-[a-z0-9-]+)?$/;
 function isCrossCliDispatcher(token) {
   return CROSS_CLI_DISPATCHER_RE.test(token);
+}
+
+// --- Sanctioned Phase-2-deferred audit-fixture carve-out (finding #70) --
+//
+// A POSITIVE ALLOWLIST (cc-artifacts.md Rule 10 discipline; the same shape as
+// validate-emit.mjs's LOOM_ONLY_TIER_CARVEOUTS) of `audit-fixtures/<slug>/`
+// forward-pointers a rule's Detection-mechanism field cites for a Phase-2-
+// DEFERRED detector whose fixture dir does not exist yet. These are SANCTIONED
+// not-yet-real references, NOT dangling defects — validate-emit.mjs's
+// authoritative `audit-fixture-coverage` gate already treats them as GREEN (it
+// requires a fixture dir only for a `detect*` export that EXISTS in
+// violation-patterns.js; a deferred detector has no export, so its dir is never
+// demanded). This validator matches that sanction ONLY for the enumerated slugs.
+//
+// Each entry cites the rule whose "Phase 2 (deferred …) — audit fixtures land
+// with the Phase-2 detector at `.claude/audit-fixtures/<slug>/`" clause sanctions
+// it. Slugs are stored WITHOUT the optional `.claude/` prefix and WITHOUT the
+// trailing slash — the normalized form isSanctionedDeferredFixture compares.
+//
+// NOT on this list (still flagged loud, deliberately): `proposal-intake-trust`,
+// `symbol-anchored-citations`, and any future deferred-shaped citation whose
+// slug is not enumerated here — a genuinely-missing fixture dir cannot hide
+// behind a blanket `audit-fixtures/` suppression.
+const SANCTIONED_DEFERRED_FIXTURES = new Set([
+  // artifact-flow.md § "Exact Gate-1 / Gate-2 Tracking" Detection mechanism
+  // (also cited by sync-completeness.md's distribution-side companion).
+  "audit-fixtures/exact-gate-tracking",
+  // git.md § CI-check/merge-separation Detection mechanism.
+  "audit-fixtures/ci-check-merge-separation",
+  // knowledge-cascade-routing.md Detection mechanism.
+  "audit-fixtures/knowledge-cascade-routing",
+  // recommendation-quality.md MUST-7 (below-confidence escalation) Detection mechanism.
+  "audit-fixtures/recommendation-quality/below-confidence-escalation",
+  // recommendation-quality.md MUST-8 (sensitivity/classification escalation) Detection mechanism.
+  "audit-fixtures/recommendation-quality/sensitivity-escalation",
+  // security.md § Enforcement-Surface Parity Detection mechanism.
+  "audit-fixtures/enforcement-surface-parity",
+]);
+
+// The citing line declares Phase-2 deferral when it carries the Two-Phase-Rollout
+// deferred marker AND names an audit fixture. This guard is secondary — the
+// allowlist above is the binding constraint — but it ties the skip to genuine
+// sanctioning text and self-heals: once the fixture dir is created resolveRefToken
+// resolves it directly (never reaching this reclassification).
+const PHASE2_DEFERRED_RE = /Phase[\s-]?2\s*\(deferred/i;
+const AUDIT_FIXTURE_RE = /audit[\s-]?fixtures?/i;
+
+// Normalize a backtick token to the `audit-fixtures/<slug>` form the allowlist
+// stores: strip an optional leading `.claude/` and any trailing slash.
+function normalizeFixtureSlug(token) {
+  return token.replace(/^\.claude\//, "").replace(/\/+$/, "");
+}
+
+// A not-found finding is a SANCTIONED deferred audit-fixture (skip, not dangling)
+// iff its normalized slug is on the positive allowlist AND its citing line
+// declares Phase-2 deferral of an audit fixture.
+function isSanctionedDeferredFixture(finding) {
+  if (finding.kind !== "backtick") return false;
+  if (!SANCTIONED_DEFERRED_FIXTURES.has(normalizeFixtureSlug(finding.token))) return false;
+  const lineText = finding.lineText || "";
+  return PHASE2_DEFERRED_RE.test(lineText) && AUDIT_FIXTURE_RE.test(lineText);
 }
 
 // --- Walker -------------------------------------------------------------
@@ -236,7 +313,10 @@ function extractTokens(text, sourcePath) {
       const token = m[1];
       if (isPlaceholder(token)) continue;
       if (isCrossCliDispatcher(token)) continue;
-      findings.push({ token, kind: "backtick", line: lineNo, source: sourcePath });
+      // lineText is retained for the sanctioned-deferred-fixture carve-out
+      // (finding #70) — the citing line is the Detection-mechanism prose that
+      // declares Phase-2 deferral. Harmless for every other backtick finding.
+      findings.push({ token, kind: "backtick", line: lineNo, source: sourcePath, lineText: line });
     }
     // Backtick journal
     for (const m of line.matchAll(BACKTICK_JOURNAL_RE)) {
@@ -438,7 +518,12 @@ function main() {
     }
   }
 
-  const dangling = allFindings.filter((f) => !f.ok);
+  // Partition not-found findings: SANCTIONED Phase-2-deferred audit-fixture
+  // forward-pointers (finding #70) are skipped-not-dangling; everything else is
+  // a real dangling ref. Only real dangling refs drive the exit code.
+  const notFound = allFindings.filter((f) => !f.ok);
+  const skippedDeferred = notFound.filter(isSanctionedDeferredFixture);
+  const dangling = notFound.filter((f) => !isSanctionedDeferredFixture(f));
   const totalScanned = allFindings.length;
   const filesScanned = targets.length;
 
@@ -450,6 +535,7 @@ function main() {
           files_scanned: filesScanned,
           tokens_scanned: totalScanned,
           dangling_count: dangling.length,
+          skipped_deferred_count: skippedDeferred.length,
           read_failures: readFailures,
           dangling: dangling.map((d) => ({
             source: d.source,
@@ -457,6 +543,13 @@ function main() {
             kind: d.kind,
             token: d.token,
             reason: d.reason,
+          })),
+          skipped_deferred: skippedDeferred.map((d) => ({
+            source: d.source,
+            line: d.line,
+            kind: d.kind,
+            token: d.token,
+            reason: "sanctioned-phase2-deferred-fixture",
           })),
         },
         null,
@@ -467,6 +560,9 @@ function main() {
     process.stdout.write(
       `validate-xref-integrity: scanned ${filesScanned} files, ${totalScanned} xref tokens; ${dangling.length} dangling`,
     );
+    if (skippedDeferred.length > 0) {
+      process.stdout.write(`; ${skippedDeferred.length} sanctioned deferred-fixture refs skipped`);
+    }
     if (readFailures.length > 0) {
       process.stdout.write(`; ${readFailures.length} read failures`);
     }
@@ -476,6 +572,16 @@ function main() {
       for (const d of dangling) {
         process.stdout.write(
           `  ${d.source}:${d.line}  [${d.kind}]  ${d.token}  → ${d.reason}\n`,
+        );
+      }
+    }
+    if (skippedDeferred.length > 0) {
+      process.stdout.write(
+        "\nskipped (sanctioned Phase-2-deferred audit fixtures, finding #70):\n",
+      );
+      for (const d of skippedDeferred) {
+        process.stdout.write(
+          `  ${d.source}:${d.line}  [${d.kind}]  ${d.token}  → phase2-deferred\n`,
         );
       }
     }
@@ -496,8 +602,11 @@ export {
   stripFencedBlocks,
   isPlaceholder,
   isCrossCliDispatcher,
+  isSanctionedDeferredFixture,
+  normalizeFixtureSlug,
   findRepoRoot,
   DEFAULT_SCOPE_DIRS,
+  SANCTIONED_DEFERRED_FIXTURES,
 };
 
 if (isMain) main();

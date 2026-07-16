@@ -1,3 +1,0 @@
-.claude/audit-fixtures/lint-prose-drift/flag-abs-home-repos/guide.md:3:28: [abs-home-repos] "~/repos/" — resolve via loom-links.mjs::resolveRepo(<logical-key>); drop the hardcoded ~/repos path
-
-prose-drift lint: 1 stale layout assertion(s) flagged

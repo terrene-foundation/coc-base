@@ -1,0 +1,16 @@
+{
+  "name": "churn-features",
+  "version": "3.2",
+  "lineage_id": "b3f1c9e27a454d189c602e8fb147ad39",
+  "content_commitment": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b",
+  "classification": "internal",
+  "owning_level": "use",
+  "product_class": "knowledge",
+  "cascade_scope": "scoped",
+  "provenance": "registered by operator alice at use-level under authority X",
+  "staleness_policy_ref": "policies/staleness/default.yaml",
+  "reservoir_locator": "pgvector://internal-host.example/reservoir",
+  "merged_from": [
+    "kp://build/7a45d1189c602e8fb147ad39b3f1c9e2/shipment-manifests@2"
+  ]
+}

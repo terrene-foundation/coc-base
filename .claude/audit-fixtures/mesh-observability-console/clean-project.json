@@ -1,0 +1,40 @@
+{
+  "project_key": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+  "freshness": {
+    "last_pulled": "2026-07-14T00:00:00.000Z",
+    "data_version": "42"
+  },
+  "reach": "pulled",
+  "tuples": [
+    {
+      "name": "churn-features",
+      "version": "3.2",
+      "lineage_id": "b3f1c9e27a454d189c602e8fb147ad39",
+      "content_commitment": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b",
+      "classification": "internal",
+      "owning_level": "use",
+      "product_class": "knowledge",
+      "cascade_scope": "scoped",
+      "provenance": "registered by operator alice",
+      "staleness_policy_ref": "policies/staleness/default.yaml",
+      "reservoir_locator": "pgvector://internal-host.example/reservoir",
+      "merged_from": [
+        "kp://build/7a45d1189c602e8fb147ad39b3f1c9e2/shipment-manifests@2"
+      ]
+    },
+    {
+      "name": "logistics-index",
+      "version": "1.0",
+      "lineage_id": "c0ffee1234567890abcdef1234567890",
+      "content_commitment": "deadbeefcafebabe0011223344556677",
+      "classification": "internal",
+      "owning_level": "build",
+      "product_class": "data",
+      "cascade_scope": "generic",
+      "provenance": "registered by operator bob",
+      "staleness_policy_ref": "policies/staleness/default.yaml",
+      "reservoir_locator": "pgvector://internal-host.example/reservoir2",
+      "merged_from": []
+    }
+  ]
+}

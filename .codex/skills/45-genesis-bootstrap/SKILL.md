@@ -11,11 +11,12 @@ genesis owner, no folded `genesis-anchor`. This is the step that PRECEDES `/enro
 `/ecosystem-init`'s genesis step on a truly fresh BUILD/USE repo.
 
 **The gap this fills.** The authoritative end-to-end runbook
-(`guides/co-setup/11-genesis-ceremony.md`) lives at **loom only** and is absent from BUILD/USE
-repos. The shipped commands (`/whoami --enroll-genesis`, `/ecosystem-init`, `/enroll`) and the
-sibling skills (`41-onboard`, `43-ecosystem-init`, `44-enroll`) reference that loom guide for
-the operational depth. This skill reconstructs that depth IN the repo, plus the five hard-won
-guard traps that block a naive first run.
+(`guides/co-setup/11-genesis-ceremony.md`) lives at **loom and cascades to BUILD repos, but is
+deliberately excluded from USE templates** (`use_exclude` / `use_obsoleted`). The shipped commands
+(`/whoami --enroll-genesis`, `/ecosystem-init`, `/enroll`) and the sibling skills (`41-onboard`,
+`43-ecosystem-init`, `44-enroll`) reference that guide for the operational depth. This skill
+reconstructs that depth IN the repo — the reconstruction USE consumers rely on in place of the
+excluded guide — plus the five hard-won guard traps that block a naive first run.
 
 ## Where bootstrap sits among the onboarding surfaces
 
@@ -89,13 +90,28 @@ for them) and starts each session with `/onboard`.
    (signature at `genesis-ceremony.js`). `opts` keys:
    `{ roster, repo: {owner, name}, signingKeyPath, signingKeyFingerprint, ghApi,
 transportAppend, keyType }`. `signingKeyPath` is the PRIVATE key; `ghApi` is a subprocess
-   wrapper around `gh api`; `transportAppend` is a sync append of the signed record to
-   `.claude/learning/coordination-log.jsonl`. Returns `{ ok, error?, reason?, step? }`,
-   fail-CLOSED. (The same path `/whoami --enroll-genesis` drives — see `commands/whoami.md`.)
+   wrapper around `gh api`; `transportAppend` is the **`.transportAppend` FUNCTION destructured
+   from** the composed enrollment-seed transport — the factory
+   `.claude/hooks/lib/enrollment-seed-transport.js::createEnrollmentSeedTransport(
+{ repoDir, remote, localAppend })` RETURNS `{ transportAppend, refName, refSource }`, so
+   destructure and pass its `.transportAppend` (a function) as the ceremony opt:
+   `const { transportAppend } = createEnrollmentSeedTransport({ repoDir, remote, localAppend });
+runEnrollmentCeremony({ ..., transportAppend })`. Passing the factory-return OBJECT itself
+   trips the ceremony's fail-CLOSED `transportAppend callable missing` guard. It seeds the signed record to the canonical FETCHABLE
+   git ref FIRST (`transport-git-ref.js`, uncapped; the ref name resolves via
+   `log-ref-name.js::resolveLogRefName`, network-permitted at enrollment), THEN to the local
+   `.claude/learning/coordination-log.jsonl` cache (`localAppend`). Seeding the ref is what lets
+   a FRESH CLONE fetch-then-fold its trust root instead of fail-CLOSED-blocking at its first
+   commit (loom#879). A ref-append failure returns a typed error and does NOT write the local
+   surface (no half-write). Returns `{ ok, error?, reason?, step? }`, fail-CLOSED. (The same path
+   `/whoami --enroll-genesis` drives — see `commands/whoami.md`.)
 5. **Verify** (next section).
 
-The `genesis-anchor` lands in `.claude/learning/coordination-log.jsonl` (gitignored, per-clone
-local state — NO commit, NO PR for the anchor itself). Appending it through a `node <file>`
+The `genesis-anchor` lands on BOTH surfaces (via the composed enrollment-seed transport, step 4):
+the canonical fetchable git ref `refs/coc/coordination-gen<N>` (durable, uncapped — the
+recovery surface a fresh clone fetch-then-folds, loom#879) AND the local
+`.claude/learning/coordination-log.jsonl` cache (gitignored, per-clone local state — NO commit,
+NO PR for the local anchor itself). Appending it through a `node <file>`
 script does NOT trip `genesis-anchor-guard.js` (that guard fires on Bash `git commit` /
 `git push` and on edit-tool mutations of the roster, not on a plain `node` subprocess). The
 ceremony writes its OWN signed enrollment marker (`COC_GENESIS_GUARD_ENROLLMENT_MARKER`) that

@@ -1,3 +1,0 @@
-.claude/audit-fixtures/lint-prose-drift/flag-obsolete-resolver/guide.md:3:24: [obsolete-resolver-loc] "scripts/resolve-template.js" — cite .claude/bin/resolve-template.js (scripts/resolve-template.js is the obsolete pre-v2.8.31 location)
-
-prose-drift lint: 1 stale layout assertion(s) flagged

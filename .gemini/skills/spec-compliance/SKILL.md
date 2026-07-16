@@ -41,7 +41,7 @@ Read the spec text verbatim. For each promised artifact, write the literal asser
 | "`@deprecated` decorator applied to 7 extension points"                 | grep `@deprecated` in `base_agent.py` — must hit ≥7 distinct methods                                                                        |
 | "MOVE `handler.py` from `app/legacy/` to `app/v2/`"                     | source must be deleted OR <50 LOC OR import-and-warn shim                                                                                   |
 
-### Step 2: Run The 9 Verification Checks
+### Step 2: Run The 10 Verification Checks
 
 For every spec section, MUST perform every applicable check:
 
@@ -168,6 +168,14 @@ NEVER trust files written by previous rounds:
 - `convergence-verify.py` (often written to make the red team pass, not to test compliance)
 
 Re-derive every check from scratch on every audit round. Self-reports created during a previous /implement or /redteam are inputs to be verified, not evidence to be trusted.
+
+#### 10. Operator-Action Verification
+
+Doc-accuracy is usually indexed by FEATURE status, so a stale OPERATOR-SETUP instruction survives an otherwise-thorough reconciliation — the feature moved on, the setup paragraph did not. Sweep the operator-action surface as a DISTINCT dimension, independent of the feature under review. An operator who follows a stale instruction provisions a resource the live system never consumes (a wrong-instruction / wasted-provisioning outcome).
+
+1. **Enumerate operator-action instructions.** Grep living docs (README, setup/onboarding guides, deploy runbooks, `.env.example`, CI docs) for imperative operator-setup verbs directed at a NAMED resource: "operator must provision / configure / add / set / enable / create / register `<X>`" where `<X>` is a secret, config key, runner, env var, credential, hook, or setting.
+2. **Cross-check each against on-disk reality.** For every enumerated `<X>`, grep the live config the instruction TARGETS for the named token — a CI-workflow grep for a named secret, a settings-file grep for a named hook/key, a manifest grep for a named runner. Zero matches in the config the instruction targets = it points at something the live system does not consume = HIGH.
+3. **Doc-claim vs git-history.** For every enumerated instruction, resolve the doc's last edit (`git log -1 --format=%cI -- <doc>`), then check whether a later commit invalidated it (`git log --since=<that-date> -- <the-config-it-targets>` shows a migration that removed/renamed `<X>`). An instruction whose last edit predates the commit that obsoleted its named resource = HIGH.
 
 ## Output Format
 

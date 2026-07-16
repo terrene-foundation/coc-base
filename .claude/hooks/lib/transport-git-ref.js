@@ -85,6 +85,12 @@ const os = require("os");
 const path = require("path");
 const crypto = require("crypto");
 const { execFileSync } = require("child_process");
+// GENMAT-1 Shard 1: the ONE source of the canonical log ref name. Importing
+// the default here (instead of re-declaring the literal) guarantees the
+// transport default, the guard remediation text, and the materializer resolve
+// the SAME name — the single-source invariant that closes the redteam F1
+// silent-no-op class.
+const { DEFAULT_LOG_REF_NAME } = require("./log-ref-name.js");
 
 const DEFAULT_MAX_RETRY = 5;
 const DEFAULT_REMOTE = "origin";
@@ -126,7 +132,7 @@ function createGitRefTransport(opts) {
     throw new Error("createGitRefTransport: opts.repoDir required");
   }
   const repoDir = opts.repoDir;
-  const refName = opts.refName || "refs/coc/coordination-gen0";
+  const refName = opts.refName || DEFAULT_LOG_REF_NAME;
   // M3 MED-3 / F-6: refName allowlist. The coordination-log substrate
   // owns `refs/coc/**`; using this transport against any other ref
   // namespace (e.g. `refs/heads/main`) would let the agent forge or

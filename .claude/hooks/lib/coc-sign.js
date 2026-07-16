@@ -30,6 +30,11 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { execFileSync, spawnSync } = require("child_process");
+// #867: stamp each ephemeral GPG/SSH homedir with a pid-liveness ownership
+// marker so the background reaper (coord-background.js::reapStaleGpgHomedirs)
+// spares a LIVE fold's homedir mid-use instead of reaping by a time window.
+// coord-background requires only node builtins → no require cycle.
+const { writeFoldPidFile } = require("./coord-background.js");
 
 const SSH_NAMESPACE = "coc-multi-operator";
 
@@ -165,6 +170,7 @@ function _signSsh(content, keyPath) {
   // <file>.sig otherwise. Use a temp file because ssh-keygen on macOS
   // does not accept stdin reliably across versions.
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "coc-sign-ssh-in-"));
+  writeFoldPidFile(tmpDir); // #867 pid-liveness ownership marker
   const inFile = path.join(tmpDir, "payload");
   // M9.1 R3 Sec-R3-S-06 — owner-only mode on temp files. Defense-in-depth
   // against same-uid co-tenant reading canonical bytes mid-sign.
@@ -211,6 +217,7 @@ function _verifySsh(content, sig, pubKey) {
   // exits non-zero the signature did not validate against the pubkey.
   const principal = "coc@signer";
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "coc-sign-ssh-vfy-"));
+  writeFoldPidFile(tmpDir); // #867 pid-liveness ownership marker
   const inFile = path.join(tmpDir, "payload");
   const sigFile = path.join(tmpDir, "payload.sig");
   const allowedSigners = path.join(tmpDir, "allowed_signers");
@@ -318,6 +325,7 @@ function _verifyGpg(content, sig, pubKeyArmored, gpgHome, expectedFpr) {
   const home =
     gpgHome || fs.mkdtempSync(path.join(os.tmpdir(), "coc-sign-gpg-vfy-"));
   const ownsHome = !gpgHome;
+  if (ownsHome) writeFoldPidFile(home); // #867 pid-liveness ownership marker
   try {
     if (ownsHome) {
       const r1 = spawnSync("gpg", ["--homedir", home, "--import", "--batch"], {
@@ -438,6 +446,7 @@ function createVerifyHomedir(pubKeys) {
       reason: `mkdtemp failed: ${err && err.message ? err.message : String(err)}`,
     };
   }
+  writeFoldPidFile(home); // #867 pid-liveness ownership marker (shared-fold homedir)
   for (const pub of pubKeys) {
     if (typeof pub !== "string" || !pub) {
       destroyVerifyHomedir(home);

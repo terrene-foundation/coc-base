@@ -132,18 +132,21 @@ function _gpgFingerprint(keyId) {
  * Tier-2 invocation). Returns the SHA256:base64 token or null on any failure.
  * For GPG (#366): normalize the key identifier to the schema-canonical 40-hex
  * fingerprint so roster lookup (40-hex per operators.roster.schema.json) holds
- * regardless of whether git config stores a short/long key id. An optional
- * `resolver` (keyId → 40-hex | null) is injectable for deterministic tests;
- * it defaults to the live `_gpgFingerprint`.
+ * regardless of whether git config stores a short/long key id. The `resolver`
+ * (keyId → 40-hex | null) is injectable: `resolveIdentity` injects the
+ * keyring-independent roster resolver (#371, `_makeRosterGpgResolver`); tests
+ * inject deterministic stubs. It defaults to the legacy ambient-keyring
+ * `_gpgFingerprint` (#366) only for the exported test seam / any direct caller
+ * that passes no resolver.
  */
 function _fingerprintFromKey(keyPath, keyType, resolver) {
   if (!keyPath || typeof keyPath !== "string") return null;
   if (keyType === "gpg") {
-    // #366: the git-config user.signingkey is commonly a 16-hex short/long key
-    // id, but the roster schema mandates the 40-hex fingerprint. Normalize via
-    // gpg before the strict-=== roster match; fall back to the verbatim id only
-    // when gpg cannot resolve (no keyring / gpg absent), preserving prior
-    // behavior with no regression.
+    // The git-config user.signingkey is commonly an 8/16-hex short/long key id,
+    // but the roster schema mandates the 40-hex fingerprint. Normalize via the
+    // injected resolver (roster suffix-match in production, #371); fall back to
+    // the verbatim id only when the resolver cannot resolve — that verbatim id
+    // then fails the strict-=== roster match → safe L2, with no regression.
     const resolve = typeof resolver === "function" ? resolver : _gpgFingerprint;
     return resolve(keyPath) || keyPath;
   }
@@ -230,6 +233,71 @@ function _findPersonByFingerprint(roster, fingerprint) {
     }
   }
   return null;
+}
+
+/**
+ * #371: Collect every GPG signing-key fingerprint declared in the roster
+ * (uppercase 40-hex; the schema enforces the case at load, #372). Deduped so a
+ * benign duplicate entry does not read as an ambiguity. Pure — no spawn.
+ */
+function _rosterGpgFingerprints(roster) {
+  const out = new Set();
+  if (!roster || typeof roster !== "object") return [];
+  const persons = roster.persons || {};
+  for (const pid of Object.keys(persons)) {
+    const keys = persons[pid] && persons[pid].keys;
+    if (!Array.isArray(keys)) continue;
+    for (const k of keys) {
+      if (k && k.type === "gpg" && typeof k.fingerprint === "string") {
+        out.add(k.fingerprint.toUpperCase());
+      }
+    }
+  }
+  return [...out];
+}
+
+/**
+ * #371: Build a KEYRING-INDEPENDENT GPG key-id → 40-hex resolver bound to the
+ * roster's own stored fingerprints. A git-config `user.signingkey` GPG id is a
+ * SUFFIX of the 40-hex fingerprint (8-hex short id / 16-hex long id / 40-hex
+ * full); the roster already stores every person's uppercase-40-hex `fingerprint`
+ * (schema-enforced at load, #372), so normalization is a pure suffix-match
+ * against that trusted set — NO ambient keyring, NO gpg spawn, NO homedir.
+ *
+ * This is ROBUSTNESS, not a security fix: `resolveIdentity` is view-only (record
+ * authority is gated at SIGNING time by `coc-sign.js`'s expectedFpr/VALIDSIG
+ * bind, F17). The win is that resolution no longer depends on whether the
+ * operator's personal ambient keyring happens to hold the key, so a rostered
+ * operator on a fresh machine no longer drops spuriously to L2, and the resolved
+ * fingerprint is reproducible from the roster alone.
+ *
+ * This is the roster-FIRST component: `resolveIdentity` composes it with the
+ * legacy ambient `_gpgFingerprint` (#366) as a FALLBACK (`rosterResolver(id) ||
+ * _gpgFingerprint(id)`) for selectors this suffix-match structurally cannot
+ * resolve — a signing-SUBKEY id or an email/name user-id — so those keep their
+ * pre-#371 behavior (no regression).
+ *
+ * Ambiguity guard (mirrors the #366 exactly-one contract): a keyId that
+ * suffix-matches MORE THAN ONE roster fingerprint, NONE, or is malformed
+ * (non-hex, or outside the 8..40-hex modern-key-id range) returns null → the
+ * caller's next step (the ambient fallback, then the verbatim id → strict
+ * 40-hex roster `===` miss) resolves to safe L2. A NO-OP for a null/empty
+ * roster (returns null every time).
+ */
+function _makeRosterGpgResolver(roster) {
+  const fprs = _rosterGpgFingerprints(roster);
+  return function rosterGpgResolver(keyId) {
+    if (!keyId || typeof keyId !== "string") return null;
+    // Normalize: drop a `0x` prefix + all whitespace, uppercase.
+    const norm = keyId.replace(/\s+/g, "").replace(/^0x/i, "").toUpperCase();
+    // Floor at the modern 8-hex short id (32-bit ids are deprecated; a shorter
+    // id would broad-match); ceiling at the 40-hex fingerprint.
+    if (!/^[0-9A-F]{8,40}$/.test(norm)) return null;
+    const matches = fprs.filter((f) => f.endsWith(norm));
+    // Exactly one resolves; zero or >1 (a suffix collision within the roster)
+    // is ambiguous → null → verbatim fallback → safe L2 (the #366 shape).
+    return matches.length === 1 ? matches[0] : null;
+  };
 }
 
 /**
@@ -362,7 +430,32 @@ function resolveIdentity(repoDir, opts) {
       blocked_into: NO_KEY_BLOCKED_INTO,
     };
   }
-  const fingerprint = _fingerprintFromKey(keyPath, keyType);
+  // ---- Roster read (moved ahead of fingerprint normalization, #371) -------
+  // The roster is the TRUSTED fingerprint set used to normalize a git-config
+  // GPG key-id keyring-independently (see _makeRosterGpgResolver). Read ONCE
+  // here and reused for the authority lookup below. Absent/malformed roster =>
+  // the resolver is a no-op (null) and the lookup misses => un-rostered by
+  // definition => safe L2 / solo (no regression on that path).
+  const rosterRead = _readJsonSafe(rosterPath);
+  const roster = rosterRead.ok ? rosterRead.value : null;
+
+  // ---- Tier 1 (cont.): key-id -> 40-hex fingerprint -----------------------
+  // #371: for GPG, resolve the key-id roster-FIRST (a pure suffix-match against
+  // the roster's stored fingerprints — keyring-independent, so a rostered
+  // operator on a fresh machine resolves without a keyring), with the legacy
+  // ambient _gpgFingerprint (#366) as FALLBACK. The fallback covers selectors
+  // the roster suffix-match structurally CANNOT resolve — a signing-SUBKEY id
+  // (roster stores the PRIMARY 40-hex, schema #372, and a subkey id is not its
+  // suffix) or an email/name user-id — which inherently need the key material
+  // to map to the primary fingerprint. The fallback exactly reproduces pre-#371
+  // behavior for those, so there is NO regression; on a fresh/keyring-absent
+  // machine it returns null -> verbatim -> safe L2, same as before. The common
+  // primary-key case short-circuits on the roster and never spawns gpg. SSH is
+  // unchanged (derives from the pubkey file; the resolver is ignored there).
+  const rosterResolver = _makeRosterGpgResolver(roster);
+  const gpgResolver = (keyId) =>
+    rosterResolver(keyId) || _gpgFingerprint(keyId);
+  const fingerprint = _fingerprintFromKey(keyPath, keyType, gpgResolver);
   if (!fingerprint) {
     // Key was nominally configured but we could not derive a fingerprint
     // (file missing, ssh-keygen failed). MO-OPT W1-d: OFF → solo (same as
@@ -379,24 +472,16 @@ function resolveIdentity(repoDir, opts) {
     };
   }
 
-  // ---- Cache fast-path ----------------------------------------------------
-  // M9.1 R1 Sec-ID-1 — the cache is the TRUST-ANCHOR cache only: it skips
-  // the ssh-keygen subprocess when the cached verified_id matches the
-  // live fingerprint. Authority (person_id / role / host_role) is ALWAYS
-  // re-derived from the live roster, NEVER trusted from the cache. The
-  // roster IS the authoritative binding per architecture §2.1; a cached
-  // person_id/role binding can be stale (e.g., key revoked-then-rotated,
-  // roster --depart removed the binding) and the cache MUST NOT restore
-  // it on the next session. Fingerprint match = identity-key still
-  // legitimate; roster walk = "what authority does this key currently
-  // hold?"
-  // ---- Tier 2: roster lookup (full re-derivation, ALWAYS) -----------------
+  // ---- Tier 2: roster lookup (authority; full re-derivation, ALWAYS) ------
+  // M9.1 R1 Sec-ID-1 — authority (person_id / role / host_role) is ALWAYS
+  // re-derived from the live roster (read above), NEVER trusted from the
+  // cache. The roster IS the authoritative binding per architecture §2.1; a
+  // cached person_id/role binding can be stale (key revoked-then-rotated,
+  // roster --depart removed the binding) and MUST NOT be restored on the next
+  // session. A roster that is absent OR malformed (roster === null above)
+  // counts as "no rostered persons" — the key is un-rostered by definition,
+  // surfacing L2_SUPERVISED so the operator runs --register.
   _deriveCount += 1;
-  const rosterRead = _readJsonSafe(rosterPath);
-  // A roster that is absent OR malformed counts as "no rostered persons" —
-  // the key is un-rostered by definition. Surfaces L2_SUPERVISED so the
-  // operator runs --register (which fixes the roster file too).
-  const roster = rosterRead.ok ? rosterRead.value : null;
   const match = roster ? _findPersonByFingerprint(roster, fingerprint) : null;
 
   let identity;
@@ -446,6 +531,11 @@ module.exports = {
   _parseGpgColonFingerprint,
   _gpgFingerprint,
   _fingerprintFromKey,
+  // #371: keyring-independent roster-bound GPG key-id → 40-hex resolver
+  // (pure suffix-match over the roster's stored fingerprints; unit-testable
+  // with no keyring). resolveIdentity injects this for the GPG path.
+  _makeRosterGpgResolver,
+  _rosterGpgFingerprints,
   // FSUB (2026-06-11): signing-key discovery shared with coc-emit.js —
   // the signed-record emitter needs the SAME explicit-path → git-config
   // discovery order resolveIdentity uses, so emission signs with the key

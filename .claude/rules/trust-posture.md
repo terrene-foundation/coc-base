@@ -34,7 +34,7 @@ The agent's autonomy is bounded by a **per-repo posture**. The posture starts at
 
 ### 1. Posture Is Per-Repo, Read From Main Checkout
 
-The current posture is defined by `<main_checkout>/.claude/learning/posture.json`. Worktree-isolated agents MUST read from the main checkout (resolved via `git worktree list --porcelain` filtering out `.claude/worktrees/`), never their own worktree path.
+The current posture is defined by `<main_checkout>/.claude/learning/posture.json`. Worktree-isolated agents MUST read from the main checkout (resolved via `resolveMainCheckout()` in `hooks/lib/state-resolver.js` — the `git rev-parse --git-common-dir` identity, with a worktree-list scan as fallback), never their own worktree path.
 
 ```js
 // DO — resolveMainCheckout() in hooks/lib/state-resolver.js
@@ -79,6 +79,7 @@ Downgrades fire on detection — no human in the loop, per EATP "downgrade insta
 - 1× `governed_throughput_bypass` (`rules/governed-throughput.md` violation: a governed-path parallel/orchestrated shard delegated without curated rule-slices, OR a full-corpus injection, OR a slice-limited/skipped merge gate) → drop 1 posture
 - 1× `unbacked_author_claim` (`rules/journal-author-discipline.md` MUST-1 violation: a journal entry shipped with an `author:human|co-authored` claim that is UNBACKED against the live per-session provenance ledger) → drop 1 posture
 - 1× `wave_gate_skipped` (`rules/wave-loop.md` violation: a wave launched without its inter-wave gate per MUST-2, OR a value-coherent mega-wave overflowing the MUST-1 bound-B invariant ceiling, OR a self-attested wave-boundary verdict without a durable receipt per MUST-5) → drop 1 posture
+- 1× `blocking_triage_bypass` (`rules/product-completion-first.md` violation: a completion-blocking finding — BUG or INVEST-NOW ISSUE per its category gate — deferred to the deferred-quality list as "incremental", OR a judgment-bucket INVEST-NOW-vs-defer call silently self-decided instead of surfaced at `/sweep`) → drop 1 posture
 - 1× **critical**: destructive op without confirm (rm -rf, git reset --hard without porcelain check, force-push to main); secret leak; cross-repo write outside scope → drop to L1
 - 1× corrupt-state event (with init marker) → drop to L1
 

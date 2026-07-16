@@ -38,14 +38,14 @@ Authoring a new hook script under `.claude/hooks/`. Auditing an existing hook fo
 The authoritative copy of every hook lives at `.claude/hooks/<name>.js`. All three CLIs reference the same file by path; what differs is the registration manifest:
 
 - CC reads `.claude/settings.json` `hooks` → command list. Working directory at hook launch is the project root; CC exports `CLAUDE_PROJECT_DIR`.
-- Codex reads `.codex/hooks.json` and invokes the same script with `node ./.claude/hooks/<name>.js`. Codex does NOT export a project-dir env var; the hook MUST extract `cwd` from the stdin payload.
+- Codex reads `.codex/hooks.json` and invokes each Bash-lane hook through the COC_RUNTIME-delivery wrapper: `node ./.claude/hooks/lib/codex-hook-runtime.js ./.claude/hooks/<name>.js` (the wrapper stamps `COC_RUNTIME=codex` + `CLAUDE_PROJECT_DIR`, then delegates to the hook as a native child process — see § The COC_RUNTIME Contract). Codex does NOT export a project-dir env var; the wrapper's `CLAUDE_PROJECT_DIR` stamp AND the hook's own `cwd` extraction from the stdin payload both resolve the project root.
 - Gemini reads `.gemini/settings.json` `hooks` (the `hooks` object) and renames events to its own taxonomy (`BeforeTool`, `AfterTool`). Gemini exports `GEMINI_PROJECT_DIR`.
 
 The single-source contract means every hook MUST work under all three runtimes without per-CLI source forks. The shared library `lib/runtime.js::parseHook()` validates the `COC_RUNTIME` env var (closed enum: `cc` / `codex` / `gemini`) and returns a canonical payload shape regardless of source.
 
 ## The COC_RUNTIME Contract
 
-Every hook invocation MUST set `COC_RUNTIME` to one of `cc`, `codex`, `gemini` before the script starts. The emitter-generated wrappers set it; manual invocations MUST set it explicitly. Silent passthrough of an unknown runtime is BLOCKED per `rules/zero-tolerance.md` Rule 3.
+Every hook invocation MUST set `COC_RUNTIME` to one of `cc`, `codex`, `gemini` before the script starts. Each runtime delivers it differently: CC via the process env at launch; Codex via two lanes — the **Bash lane** through the `codex-hook-runtime.js` wrapper (`.codex/hooks.json` registers `node ./.claude/hooks/lib/codex-hook-runtime.js ./.claude/hooks/<name>.js`, which stamps `COC_RUNTIME=codex`), and the **non-Bash / mutating-primitive lane** through the `codex-mcp-guard` server (which stamps it programmatically before replaying the hook). Manual invocations MUST set it explicitly. A shell env-prefix (`COC_RUNTIME=codex node …`) is BLOCKED for Codex registration — under `execvp` it becomes `argv[0]` → ENOENT → the hook silently does not run (fail-open on the git-safety lane); the plain-argv wrapper is the robust form. Silent passthrough of an unknown runtime is BLOCKED per `rules/zero-tolerance.md` Rule 3.
 
 ```javascript
 // DO — use parseHook for the canonical shape; throws on missing COC_RUNTIME
@@ -71,7 +71,7 @@ const projectDir =
   payload.cwd; // from stdin — Codex fallback
 ```
 
-Codex invokes hooks with `cwd = project_root` (verified 2026-04-23) but the docs do not explicitly guarantee this. The hook MUST extract `cwd` from the stdin payload as the durable fallback. A `.codex/hooks.json` command of `node $CODEX_PROJECT_DIR/.claude/hooks/<name>.js` silently expands to `node /.claude/hooks/<name>.js` and exits `MODULE_NOT_FOUND` — the correct form is `node ./.claude/hooks/<name>.js`.
+Codex invokes hooks with `cwd = project_root` (verified 2026-04-23) but the docs do not explicitly guarantee this. The hook MUST extract `cwd` from the stdin payload as the durable fallback. A `.codex/hooks.json` command of `node $CODEX_PROJECT_DIR/.claude/hooks/<name>.js` silently expands to `node /.claude/hooks/<name>.js` and exits `MODULE_NOT_FOUND` — the correct form routes through the wrapper: `node ./.claude/hooks/lib/codex-hook-runtime.js ./.claude/hooks/<name>.js` (cwd-relative, no env var; it also stamps `CLAUDE_PROJECT_DIR=cwd` so `parseHook().projectDir` resolves on the Codex Bash lane). This node-argv wrapper is distinct from the deferred `.claude/wrappers/*.sh.template` shell-wrapper mechanism.
 
 ## Hook Coverage Gap — Codex Bash-Only
 
@@ -221,7 +221,7 @@ Hook author skips the `setTimeout` block "because the work is fast." First runti
 
 ### 5. `$CODEX_PROJECT_DIR` Referenced In Hook Registration
 
-Codex does not export a project-dir env var; `node $CODEX_PROJECT_DIR/.claude/hooks/<name>.js` silently expands to `node /.claude/hooks/<name>.js` (MODULE_NOT_FOUND). Fix: use `node ./.claude/hooks/<name>.js` in `.codex/hooks.json`; rely on `payload.cwd` from stdin for in-script path resolution.
+Codex does not export a project-dir env var; `node $CODEX_PROJECT_DIR/.claude/hooks/<name>.js` silently expands to `node /.claude/hooks/<name>.js` (MODULE_NOT_FOUND). Fix: register through the wrapper — `node ./.claude/hooks/lib/codex-hook-runtime.js ./.claude/hooks/<name>.js` (cwd-relative, no env var; the wrapper stamps `CLAUDE_PROJECT_DIR` + `COC_RUNTIME`) — and rely on `payload.cwd` from stdin as the in-script fallback.
 
 ### 6. Gemini Event Names As CC Aliases
 

@@ -107,15 +107,7 @@ function passthrough() {
   process.exit(0);
 }
 
-function readStdinSync() {
-  try {
-    const data = fs.readFileSync(0, "utf8");
-    if (!data || !data.trim()) return {};
-    return JSON.parse(data);
-  } catch {
-    return {};
-  }
-}
+const { readStdinBounded } = require("./lib/read-stdin-bounded.js");
 
 function resolveRepoDir(payload) {
   const envDir = process.env.COC_OPERATOR_REPO_DIR;
@@ -289,7 +281,7 @@ function extractFrontmatterAuthor(content) {
 
 (async function main() {
   try {
-    const payload = readStdinSync();
+    const payload = await readStdinBounded();
     const hookEvent = payload.hook_event_name || "PreToolUse";
 
     const watch = isWatchedTool(payload);

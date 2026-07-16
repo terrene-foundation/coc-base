@@ -56,7 +56,7 @@ const _timeout = setTimeout(() => {
 let input = "";
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (chunk) => (input += chunk));
-const { readPosture } = require("./lib/state-io");
+const { readPosture, isPendingWithinGrace } = require("./lib/state-io");
 
 process.stdin.on("end", () => {
   try {
@@ -76,8 +76,11 @@ process.stdin.on("end", () => {
           (posture._fresh ? " (fresh repo)" : ""),
       );
       lines.push(`since: ${posture.since}`);
+      // loom#875 — only surface entries still WITHIN their grace window; a
+      // grace-expired entry must not drive the trust-gate banner (it would
+      // render a nonsensical "day N of 7" for N > 7 and nag forever).
       const pv = (posture.pending_verification || []).filter(
-        (e) => e && e.rule_id,
+        (e) => e && e.rule_id && isPendingWithinGrace(e),
       );
       if (pv.length) {
         lines.push("\n⚠️ TRUST GATE — Verification Pending:");

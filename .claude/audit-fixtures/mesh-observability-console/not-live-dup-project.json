@@ -1,0 +1,38 @@
+{
+  "project_key": "11223344556677889900aabbccddeeff",
+  "freshness": {
+    "last_pulled": "2026-07-14T00:00:00.000Z",
+    "data_version": "3"
+  },
+  "reach": "pulled",
+  "tuples": [
+    {
+      "name": "features-a",
+      "version": "1",
+      "lineage_id": "aaaa1111bbbb2222cccc3333dddd4444",
+      "content_commitment": "abcabcabcabcabcabcabcabcabcabcab",
+      "classification": "internal",
+      "owning_level": "use",
+      "product_class": "knowledge",
+      "cascade_scope": "scoped",
+      "provenance": "op-a",
+      "staleness_policy_ref": "p.yaml",
+      "reservoir_locator": "local",
+      "merged_from": []
+    },
+    {
+      "name": "features-b",
+      "version": "1",
+      "lineage_id": "eeee5555ffff6666aaaa7777bbbb8888",
+      "content_commitment": "abcabcabcabcabcabcabcabcabcabcab",
+      "classification": "internal",
+      "owning_level": "use",
+      "product_class": "knowledge",
+      "cascade_scope": "scoped",
+      "provenance": "op-b",
+      "staleness_policy_ref": "p.yaml",
+      "reservoir_locator": "local",
+      "merged_from": []
+    }
+  ]
+}

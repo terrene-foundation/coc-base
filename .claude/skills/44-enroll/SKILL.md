@@ -9,7 +9,7 @@ The procedure backing `.claude/commands/enroll.md` (the once-per-operator ceremo
 ecosystem already configured by `/ecosystem-init`). The command body holds the three load-bearing
 invariants; this skill holds the step-by-step procedure and the exact tool-call shapes.
 
-Three onboarding surfaces (`02-plans/02-ga-ecosystem-onboarding.md`): `/onboard` (read, every session),
+Three onboarding surfaces (`rules/enrollment-operations.md`): `/onboard` (read, every session),
 `/enroll` (operator, once), `/ecosystem-init` (fork, once). They share ZERO write-authority.
 
 ## Ceremony steps: B1 → B2 → B3

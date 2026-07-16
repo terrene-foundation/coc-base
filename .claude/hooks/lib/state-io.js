@@ -599,6 +599,51 @@ function readPosture(cwd) {
 }
 
 /**
+ * Grace-window predicate for a `pending_verification` entry (loom#875).
+ *
+ * A `pending_verification` entry records a rule inside its grace period (per
+ * `rules/trust-posture.md` § 6 Grace Period Semantics; canonical grace = 7
+ * days from rule landing). The trust-posture rules promise the entry stops
+ * driving the SessionStart ack soft-gate + the trust-gate banner + the
+ * diagnostic count once the grace window elapses — but nothing rewrites the
+ * on-disk entry, so a grace-EXPIRED entry kept firing `acknowledgement_failure`
+ * on every Stop event forever (the day-17-of-a-7-day-grace bug).
+ *
+ * This is a pure READ-TIME predicate — deliberately NOT a posture.json write.
+ * posture.json's ONLY legitimate writers are the fold hooks (per
+ * `rules/trust-posture.md` MUST NOT + `rules/multi-operator-coordination.md`),
+ * and `readPosture` returns a COMPOSED v2+legacy-facet object (see
+ * `_composeLegacyFacets`) that is NOT the on-disk shape — writing it back
+ * through `writePosture` would corrupt state. Filtering at read time in each
+ * of the three consumers stops the nag with zero state mutation, so the
+ * cleanup is idempotent by construction (re-running mutates nothing).
+ *
+ * Fail-SAFE on a bad/absent `since`: an unparseable timestamp returns `true`
+ * (keep requiring the ack) rather than silently dropping the entry — a parse
+ * error MUST NOT weaken the grace gate (`rules/zero-tolerance.md` Rule 3: no
+ * silent fallback). Grace is measured from the PER-ENTRY `since` (the same
+ * field the SessionStart banner reads), NOT the posture-level `since`.
+ *
+ * Enforcement is NOT weakened post-grace: `pending_verification` is only a
+ * grace-period ACK receipt; the violation-detection battery + the cumulative
+ * downgrade math never consult it, so a grace-expired rule stays fully enforced
+ * via cumulative math, and `regression_within_grace` cannot fire post-grace by
+ * definition.
+ *
+ * @param {{rule_id?: string, since?: string, grace_period_days?: number}} entry
+ * @param {number} [now=Date.now()] injectable clock (tests pass a fixed epoch)
+ * @returns {boolean} true iff the entry is still within its grace window
+ */
+function isPendingWithinGrace(entry, now = Date.now()) {
+  if (!entry || !entry.rule_id) return false;
+  const graceDays =
+    typeof entry.grace_period_days === "number" ? entry.grace_period_days : 7;
+  const since = new Date(entry.since).getTime();
+  if (!Number.isFinite(since)) return true; // fail-safe: unparseable → keep requiring ack
+  return Math.floor((now - since) / 86400000) < graceDays;
+}
+
+/**
  * Write posture.json with write-ahead .bak (mitigates HIGH-6 corrupt-on-crash).
  * Caller is responsible for flock if multiple writers; for the POC we use mtime check.
  */
@@ -721,6 +766,13 @@ function resolveLogPath(repoDir) {
 module.exports = {
   readPosture,
   writePosture,
+  // loom#875 — shared grace-window predicate; the three pending_verification
+  // consumers (session-start banner, detect-violations ack-check, posture-gate
+  // diagnostic count) filter through this single source of truth so a
+  // grace-EXPIRED entry stops nagging. Pure read-time filter, no posture.json
+  // write (readPosture composes legacy facets; writing that object back
+  // corrupts state — hooks are the only legitimate posture writers).
+  isPendingWithinGrace,
   appendViolation,
   readRecentViolations,
   failClosedPosture,

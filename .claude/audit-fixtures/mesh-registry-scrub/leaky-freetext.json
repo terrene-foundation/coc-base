@@ -1,0 +1,17 @@
+{
+  "name": "acme-corp-churn",
+  "version": "2022.1",
+  "lineage_id": "logistics-acme-root",
+  "content_commitment": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b",
+  "classification": "PII confidential — acme corp",
+  "owning_level": "logistics-acme",
+  "product_class": "knowledge",
+  "cascade_scope": "public",
+  "provenance": "registered by jane.doe@acme-corp.example",
+  "staleness_policy_ref": "src/acme-corp-app/policies/staleness.yaml",
+  "reservoir_locator": "pgvector://acme-corp-internal.example/reservoir",
+  "merged_from": [
+    "kp://use/7a45d1189c602e8fb147ad39b3f1c9e2/acme-corp-manifests@2"
+  ],
+  "operator_notes": "prepared for acme corp Q3 engagement"
+}

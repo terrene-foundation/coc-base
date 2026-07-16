@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 /**
  * Hook: pre-commit-branch-scope
+ * @settings-registration: git-hook — installed per-clone as a git pre-commit
+ *   hook (symlink into .git/hooks/pre-commit, see Usage below), NEVER a
+ *   settings.json event. Intentionally absent from .claude/settings.json;
+ *   the validate-emit `settings-hook-registration` check reads this marker (#771).
  * Mode: standalone advisory (exits 0 always — never blocks)
  * Purpose: Warn when a commit's modified files fall outside the branch's
  *          declared scope. Catches the "narrow PR balloons into unrelated

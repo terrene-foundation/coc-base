@@ -1,0 +1,24 @@
+{
+  "project_key": "99887766554433221100ffeeddccbbaa",
+  "freshness": {
+    "last_pulled": "2026-01-01T00:00:00.000Z",
+    "data_version": "1"
+  },
+  "reach": "neither",
+  "tuples": [
+    {
+      "name": "old-index",
+      "version": "1",
+      "lineage_id": "5555666677778888aaaabbbbccccdddd",
+      "content_commitment": "1212121212121212343434343434abcd",
+      "classification": "internal",
+      "owning_level": "use",
+      "product_class": "data",
+      "cascade_scope": "scoped",
+      "provenance": "op",
+      "staleness_policy_ref": "p.yaml",
+      "reservoir_locator": "local",
+      "merged_from": []
+    }
+  ]
+}

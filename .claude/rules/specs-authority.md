@@ -214,6 +214,89 @@ frontmatter-block guard — updating one without the other creates silent drift)
 
 Origin: atelier `cc-audit-lint-generalize` 2026-05-03 (test fixtures and spec canonicalization deferred to /codify; /vet adversarial round L1). Inbound from atelier `/sync-to-coc`.
 
+### 10. Knowledge-Product Links Use A `knowledge-product:` Field Carrying A Runtime-Resolved `kp://` URN, Inert At Loom
+
+A spec section MAY bind its domain truth to a queryable knowledge product via a **`knowledge-product:` field** whose value is a `kp://<owning_level>/<domain>/<name>@<version>` URN. The field-type is **governed**: it is the ONLY sanctioned way a spec names a data/knowledge product. Five invariants are DECIDED and are stated here in this rule's own voice, so the rule is self-sufficient in every repo it lands in:
+
+1. **`kp://`-scheme URN required.** A value that is not a `kp://` URN — a bare table name, an identifier, a path — is BLOCKED.
+2. **Ecosystem-relative.** The URN MUST NOT embed the ecosystem/tenant slug (embedding leaks the ecosystem downstream AND makes the product un-cascadeable).
+3. **`<domain>` is an OPAQUE handle.** It carries no readable semantics AND MUST NOT be derivable from the readable name by any party holding the URN.
+4. **No readable client / engagement / tenant name in ANY segment** — `<domain>` and `<name>` alike. A readable PRODUCT name in `<name>` is legitimate (`churn-features`); a client-qualified one (`acme-churn-features`) is BLOCKED.
+5. **Inert at loom — loom REGISTERS the identity, never BINDS the downstream link.** loom WRITES (**REGISTERS**) the identity string — the `kp://` URN — into its own control-plane registry, and MUST NOT resolve the URN to a physical reservoir, query it, or materialize its bytes inside a loom session (resolution happens at runtime, in the engine). loom MUST NOT author the downstream `knowledge-product:` **LINK** either: a spec section's `knowledge-product:` binding is authored (**BOUND**) by the DOWNSTREAM domain-spec OWNER, in its OWN repo, resolving against the cascaded registry identity — never cross-written from a loom session (`/distill` REGISTERS the identity; the domain-spec owner owns the link's write-act). This preserves `repo-scope-discipline.md` (loom never cross-writes a sibling repo) while keeping the identity's mint/registration at loom.
+
+**Derivation is REFERENCED, never restated (Rule 9).** HOW an opaque handle is CONSTRUCTED — random vs keyed-hash, entropy floors, key custody, truncation — is OWNED by the mesh knowledge-product identity spec ((loom-internal reference) § "`<domain>` is an OPAQUE HANDLE") and is NOT restated here, so a derivation refinement resolves through the reference without re-authoring this rule. **Stated plainly rather than cited as a phantom: that path is a loom-side workspace artifact that resolves in loom (the authoring/audit repo) but does NOT resolve in a consumer repo.** Consumers do not need it — a handle is MINTED LOCALLY at the project's handle vault (where the readable name and the minting key live); only the OPAQUE handle is registered at loom's control-plane, so loom never sees the readable name at registration. The five invariants above ARE the complete contract for AUTHORING or AUDITING a `knowledge-product:` field. Where a repo does carry a local mesh identity spec, that spec is authoritative on derivation; this rule is authoritative on the five invariants.
+
+```text
+# DO — governed field, opaque <domain>, readable PRODUCT name, inert at loom
+
+## Churn-risk scoring
+...domain truth about how churn risk is computed...
+knowledge-product: kp://use/<opaque-handle>/churn-features@3
+   (<opaque-handle> is minted LOCALLY at the project vault — this rule does not
+    own its representation; the spec names the identity and never queries it)
+
+# DO NOT — non-URN value
+
+knowledge-product: churn_features_table
+   (not a kp:// URN — invariant 1)
+
+# DO NOT — readable client slug in <domain>
+
+knowledge-product: kp://use/acme-corp/churn@3
+   (readable client name — leaks + un-cascadeable; invariants 3 + 4)
+
+# DO NOT — ANY readable <domain>, even one that names no client
+
+knowledge-product: kp://use/logistics/churn-features@3
+   ("logistics" names no client, but a readable <domain> is still BLOCKED — invariant 3)
+
+# DO NOT — a <domain> derived FROM the readable name
+
+knowledge-product: kp://use/7f3a9c21/churn-features@3
+   (looks opaque, is NOT — a handle computable from the readable name is BLOCKED;
+    invariant 3. The derivation contract is the mesh identity spec's, not this rule's.)
+
+# DO NOT — readable CLIENT name in <name>, even when <domain> IS opaque
+
+knowledge-product: kp://use/<opaque-handle>/acme-churn-features@3
+   (invariant 4 — a client / engagement / tenant name is BLOCKED in EVERY segment;
+    "churn-features" is a legitimate PRODUCT name, "acme-churn-features" is not)
+
+# DO NOT — resolve the referent inside a loom session
+
+db.product("kp://…").query()   # "just checking the link points somewhere"
+   (invariant 5 — resolution is the engine's job at runtime, never loom's)
+
+# DO — the DOWNSTREAM domain-spec owner BINDS the link in its OWN repo
+#      (loom's /distill only REGISTERED the identity into loom's control-plane)
+
+## (a build/use domain spec, authored by its OWNER in the consumer repo)
+knowledge-product: kp://use/<opaque-handle>/churn-features@3
+   (invariant 5 — /distill REGISTERED this identity at loom; the domain-spec
+    owner writes THIS binding in its own repo — no loom cross-write)
+
+# DO NOT — a loom session (/distill) cross-writes the link into a downstream spec
+
+# loom session edits ../<consumer-repo>/specs/churn.md to add:
+knowledge-product: kp://use/<opaque-handle>/churn-features@3
+   (invariant 5 — loom REGISTERS the identity but MUST NOT author the downstream
+    LINK; that write-act is the domain-spec owner's, in its own repo —
+    repo-scope-discipline.md forbids the loom cross-write)
+```
+
+**BLOCKED rationalizations:**
+
+- "I'll resolve the `kp://` link in-session just to confirm it points somewhere"
+- "It's only a name lookup, not really running the engine inside loom"
+- "The `<domain>` segment can carry the client name — the containment gate needs it" (the URN stays ecosystem-relative; the readable client↔handle mapping lives ONLY in the local non-cascading handle vault, never the URN — and "vault" not "registry": the loom-pulled catalog is a different store, and conflating them is what leaks the map)
+- "The `<domain>` is a hash of the name, so it IS opaque" (invariant 3 — a handle DERIVABLE from the readable name is BLOCKED; what counts as non-derivable is the mesh identity spec's contract, not this rule's to restate)
+- "A bare readable product name is fine in place of the URN; ecosystem-relative is pedantic" (invariant 1 — the URN is required; this is about substituting a bare name FOR the URN, not about the `<name>` segment, which is legitimately a readable PRODUCT name)
+- "The client name is fine in `<name>` since only `<domain>` must be opaque" (invariant 4 — a readable client / engagement / tenant name is BLOCKED in EVERY segment; `kp://use/<opaque-handle>/acme-churn-features@3` is BLOCKED)
+- "A plain table/identifier name is close enough to a `kp://` URN"
+- "`/distill` is specified to WRITE the link, so a loom session authors it into the downstream spec" (invariant 5 — `/distill` REGISTERS the identity at loom's control-plane; the `knowledge-product:` LINK is BOUND by the downstream domain-spec owner in its OWN repo, never cross-written from a loom session — the register-vs-bind split is what holds `repo-scope-discipline.md`)
+
+**Why:** The link makes `specs/` an authority on WHAT + WHERE-to-query, but a loom session that RESOLVES it would run engine code inside the splitter (a "no coding here" violation), and a readable or name-derivable segment would leak the client downstream to 30+ consumers and make the product un-cascadeable. Keeping the field governed + inert is the guard that must precede any cataloging of products. The REGISTER-vs-BIND split is that same guard on the WRITE side: loom REGISTERS the identity (its control-plane), but a downstream `knowledge-product:` link is BOUND by the domain-spec owner in its own repo — a loom session authoring that link would be exactly the sibling-repo cross-write `repo-scope-discipline.md` blocks.
+
 ## MUST NOT
 
 - Organize specs by COC process stages (duplicates workspaces/)
@@ -223,3 +306,18 @@ Origin: atelier `cc-audit-lint-generalize` 2026-05-03 (test fixtures and spec ca
 **BLOCKED:** "Specs can be written after implementation" / "The code is the spec" / "Plans already capture this" / "Updating specs for minor change is overkill"
 
 Origin: 6 drift failure-mode analysis + journal 0007 / 0008 (full-sibling re-derivation, 2026-04-19/20) + kailash-ml-audit 2026-04-23 (amend-at-launch W32/W33). See guide for full two-session post-mortem.
+
+## Trust Posture Wiring — Rule 10 (knowledge-product field-type)
+
+Applies to the **Rule 10** clause (added 2026-07-11, Mesh S0 `/govern` co-owner-directed origination; the invariant-5 **REGISTER-vs-BIND** clarification added 2026-07-13, Mesh C7 `/govern` co-owner-directed origination — `journal/0480` — is covered by this same clause-scoped Wiring). Per `trust-posture.md` MUST-8 grandfather cutoff, Rule 10 lands AT/AFTER the MUST-8 SHA and MUST ship canonical-8-field-compliant; the pre-existing grandfathered Rules 1–9 + § MUST NOT remain exempt until each is itself `/codify`-touched (the clause-scoped precedent set by `rule-authoring.md`'s own Wiring section + `security.md` § Enforcement-Surface Parity + `git.md` § CI-check/merge).
+
+- **Severity:** `halt-and-report` at gate-review (cc-architect at `/codify` + reviewer at `/redteam` confirm a `knowledge-product:` field carries a `kp://`-scheme runtime-resolved URN, that the URN is ecosystem-relative, that no loom session resolves/queries the referent, AND — register-vs-bind — that no loom session AUTHORS/cross-writes a downstream `knowledge-product:` LINK: `/distill` REGISTERS the identity, the downstream domain-spec owner BINDS the link in its own repo); `advisory` at the hook layer (a `knowledge-product:` value's `kp://` prefix MAY be lexically checked, but the inert-at-loom / no-in-session-resolution / no-cross-write property is judgment-bearing per `hook-output-discipline.md` MUST-2 and MUST NOT carry `block`).
+- **Grace period:** 7 days from clause landing (2026-07-11 → 2026-07-18).
+- **Cumulative posture impact:** same-class violations (a `knowledge-product:` field with a non-`kp://` value or an embedded ecosystem/tenant slug, a loom session resolving/querying the referent, OR a loom session authoring/cross-writing a downstream `knowledge-product:` LINK instead of only REGISTERING the identity) contribute to `trust-posture.md` MUST Rule 4 cumulative-window math (3× same-rule in 30d → drop 1 posture; 5× total in 30d → drop 1 posture).
+- **Regression-within-grace:** a same-class violation within the 7-day grace window routes through the GENERIC `regression_within_grace` emergency trigger per `trust-posture.md` MUST-4 (1× = drop 1 posture) — NO dedicated per-clause trigger key (a spec-field-convention property is review-layer-only + semantic; minting a key would drag `trust-posture.md`, a self-referential-codify allowlist file, into a self-ref edit; the universal `regression_within_grace` trigger already covers it). Named deviation from the canonical key-per-clause shape, recorded here per `trust-posture.md` Rule 8 — the same no-dedicated-key disposition `security.md` § Enforcement-Surface Parity and `git.md` § CI-check/merge took.
+- **Receipt requirement:** SessionStart soft-gate `[ack: specs-authority]` IFF `posture.json::pending_verification` includes the `specs-authority` rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — cc-architect at `/codify` + reviewer at `/redteam` inspect any spec edit adding or altering a `knowledge-product:` field: confirm the value is a `kp://`-scheme URN, ecosystem-relative (no tenant/ecosystem slug embedded), the grammar is referenced not restated (Rule 9), the session did NOT resolve/query the referent, AND (register-vs-bind) the session did NOT author/cross-write a downstream `knowledge-product:` link from loom — `/distill` REGISTERS the identity at loom's control-plane; the downstream domain-spec owner BINDS the link in its own repo (a loom edit adding a `knowledge-product:` line to a sibling/consumer repo's spec is the violation). Phase 2 (deferred per `trust-posture.md` § Two-Phase Rollout) — an advisory `PostToolUse(Edit|Write)` lexical tripwire flagging a `knowledge-product:` value that lacks a `kp://` prefix MAY pair with the review layer per `probe-driven-verification.md` MUST-4; audit fixtures land with the Phase-2 detector at `.claude/audit-fixtures/knowledge-product-field-type/` per `cc-artifacts.md` Rule 9.
+- **Violation scope:** the Rule 10 knowledge-product-field-type clause ONLY (clause-scoped); the pre-existing grandfathered Rules 1–9 + § MUST NOT stay exempt until each is itself `/codify`-touched.
+- **Origin:** journal/0466 (Mesh S0 `/govern` co-owner-directed origination) + the mesh identity spec `02-knowledge-product-identity.md` § "The URN"; ratified roadmap `01-wave-roadmap.md` § S0. Invariant-5 REGISTER-vs-BIND clarification: `journal/0480` (Mesh C7 `/govern` co-owner-directed origination, ratified B2 — the registrar model resolving the C7 downstream-link authoring path; roadmap `01-wave-roadmap.md` § Wave-3 "ONE remaining governance step").
+
+**Length rationale (per `rules/rule-authoring.md` MUST NOT § "Rules longer than 200 lines").** Rule body is ~323 lines (per `wc -l`), over the 200-line guidance. Named rationale: **specs-authority-contract scope** — the rule codifies the complete specs-as-domain-truth contract across its numbered rules (1–10 plus the 5b/5c sub-rules): the `specs/` + `_index.md` requirement, domain-ontology organization, detail-not-summaries, phase-command read-before-act, first-instance update + sibling re-derivation + at-launch todo amendment, deviation acknowledgment, delegation spec-inclusion, large-file split, workspace-specs-reference-not-restate, and the Rule 10 `knowledge-product:` field-type — each carrying the DO/DO-NOT + `**Why:**` the meta-rule mandates, plus the canonical 8-field Trust-Posture Wiring the post-cutoff Rule 10 requires. The rule is `priority: 10` + `scope: path-scoped`, so it pays NO baseline-emission cost (loaded only in sessions matching its `paths:` globs) and `rule-authoring.md` Rule 10's proximity-band gate does NOT fire. Splitting the domain-truth rules into siblings would fragment the one contract every spec edit consults and force cross-rule lookups. Sibling precedent: `artifact-flow.md` + `cc-artifacts.md` + `sync-completeness.md` length rationales.

@@ -1,0 +1,15 @@
+{
+  "name": "churn-features",
+  "version": "3",
+  "lineage_id": "b3f1c9e27a454d189c602e8fb147ad39",
+  "content_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "content_commitment": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b",
+  "classification": "internal",
+  "owning_level": "use",
+  "product_class": "knowledge",
+  "cascade_scope": "scoped",
+  "provenance": "op",
+  "staleness_policy_ref": "p.yaml",
+  "reservoir_locator": "local",
+  "merged_from": []
+}

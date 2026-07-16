@@ -276,6 +276,29 @@ function _validateGpgFingerprints(roster, errors) {
 }
 
 /**
+ * #583 Shard 1: GPG-fingerprint uppercase-40-hex assert for trust_anchors,
+ * conditional on anchor.type == "gpg" — the same constraint _validateGpgFingerprints
+ * enforces for persons[].keys[], applied to the non-person broker trust-anchor.
+ * The vendored validator cannot express a type-conditional pattern (see header),
+ * so it is a load-time CODE assert. A lowercase / non-40-hex GPG anchor fingerprint
+ * would silently fail broker-sig verification at the Shard-2 fold predicate; this
+ * surfaces it LOUD at the /whoami --register validation gate naming the exact index.
+ */
+function _validateTrustAnchorFingerprints(roster, errors) {
+  const anchors = roster && roster.trust_anchors;
+  if (!Array.isArray(anchors)) return; // absent or shape errors already flagged by _validate
+  anchors.forEach((anchor, i) => {
+    if (!anchor || typeof anchor !== "object" || anchor.type !== "gpg") return;
+    if (typeof anchor.fingerprint !== "string") return; // type/required errors already flagged
+    if (!GPG_FINGERPRINT_RE.test(anchor.fingerprint)) {
+      errors.push(
+        `$.trust_anchors[${i}].fingerprint: GPG fingerprint must be uppercase 40-hex (^[0-9A-F]{40}$), got ${JSON.stringify(anchor.fingerprint)}`,
+      );
+    }
+  });
+}
+
+/**
  * Provider-conditional identity binding (Azure DevOps port). The vendored
  * validator does NOT support if/then (see header), so the
  * provider-dependent "which identity field is required" constraint is a
@@ -358,6 +381,9 @@ function validate(roster) {
   // #372: GPG-fingerprint uppercase-40-hex assert (conditional on key.type,
   // which the vendored validator cannot express as a JSON-Schema pattern).
   _validateGpgFingerprints(roster, errors);
+  // #583 Shard 1: same uppercase-40-hex GPG assert for the broker trust-anchor,
+  // conditional on anchor.type == "gpg" (not a JSON-Schema constraint).
+  _validateTrustAnchorFingerprints(roster, errors);
   // Azure DevOps port: provider-conditional identity binding (github_login vs
   // principal), also conditional and thus not a JSON-Schema constraint.
   _validateProviderIdentity(roster, errors);

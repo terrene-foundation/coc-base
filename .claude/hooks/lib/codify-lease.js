@@ -207,7 +207,7 @@ function _leasePath(repoDir) {
  * codify-lease.json is the local mutex; it does not travel — a sibling
  * operator's clone learns of the lease only through the fold). Record
  * types `codify-lease` / `codify-lease-release` are registered in
- * coordination-log.js::_registerDefaults (liveness-churn class, like
+ * coordination-log.js::_registerM0Defaults (liveness-churn class, like
  * claim/release).
  *
  * Emission failure is NON-FATAL to the lease transition: the local

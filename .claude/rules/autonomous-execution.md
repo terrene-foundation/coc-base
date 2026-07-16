@@ -118,12 +118,15 @@ When a gate-level review (reviewer, security-reviewer, gold-standards-validator)
 - "The in-flight PR is already reviewed, adding more risks reopening it"
 - "Budget allows it but the blast radius is higher if something breaks"
 - "Splitting into two PRs is the conservative approach"
+- "It's incremental so I'll defer it" (BLOCKED when the category is BUG/INVEST-NOW per `rules/product-completion-first.md` MUST-3 — the category verdict, not convenience, gates the lane)
 
 **Why:** Same-class gaps cost least to fix while the context is warm; a follow-up issue forces the next session to reload everything, typically 2–5× the marginal cost. See Origin.
 
+**Bounded by the category (`rules/product-completion-first.md` MUST-3).** The fix-now mandate applies to a same-class within-budget gap classified BUG or INVEST-NOW; an INCREMENTAL same-class gap (off-path polish) MAY instead route to the deferred-quality list with a value-anchor. The category verdict — NOT convenience, NOT severity — gates the lane: relabelling a warm same-class BUG/INVEST-NOW gap "incremental" to defer it is BLOCKED.
+
 **Bounded by the shard budget.** This rule does NOT override MUST Rule 1 (shard threshold). If the surfaced gap exceeds ≤500 LOC load-bearing / ≤5–10 invariants / ≤3–4 call-graph hops, filing the follow-up issue IS the correct disposition — the gap is a new shard, not a continuation of the current one.
 
-Origin: 2026-04-20 — a null-bind fix shipped on one path; review surfaced a sibling-path gap (same bug class, ~300 LOC, one shard); initial disposition "file follow-up issue"; user corrected; fix shipped same session. Cross-class generalization confirmed by the Rust SDK PRs #735/#736 (2026-05-01) + kailash-kaizen PR #836 (2026-05-06, security-reviewer surfacings). Full evidence chain in `.claude/guides/rule-extracts/autonomous-execution.md`.
+Origin: 2026-04-20 — a null-bind sibling-path gap (same bug class, ~300 LOC) initially dispositioned "file follow-up issue"; user corrected; fixed same session. Cross-class generalization (Rust SDK #735/#736, kailash-kaizen #836) + full evidence chain: `.claude/guides/rule-extracts/autonomous-execution.md`.
 
 ## Multi-Operator Capacity Considerations
 

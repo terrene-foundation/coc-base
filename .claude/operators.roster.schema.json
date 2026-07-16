@@ -53,6 +53,42 @@
         }
       }
     },
+    "trust_anchors": {
+      "type": "array",
+      "description": "OPTIONAL registered NON-PERSON signing identities — the trust-anchor analogue of host_role:ci. #583 Shard 1: the presence-proof BROKER's signing key(s). A trust-anchor is NEVER an authority unit and NEVER quorum-eligible — it is deliberately OUTSIDE `persons` so no distinctness/gate/quorum predicate (§6.4) ever consults it; its ONLY consumer is the presence-proof fold predicate (Shard 2), which verifies a broker-signed content.presence_proof.broker_sig against the matching anchor by fingerprint. Optional + additive (absent on pre-#583 rosters, NOT in `required`).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["anchor_id", "purpose", "type", "fingerprint", "pubkey"],
+        "properties": {
+          "anchor_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Stable human-readable identifier for this trust anchor (advisory signage, like display_id; collisions are harmless — attribution is by `fingerprint`)."
+          },
+          "purpose": {
+            "type": "string",
+            "enum": ["presence-broker"],
+            "description": "What this anchor is trusted to sign. #583 Shard 1 defines exactly one: `presence-broker` (the broker that signs content.presence_proof over presenceProofBindingBytes). The positive enum keeps the trust scope closed — a future purpose is an explicit schema+predicate addition, never an implicit widening."
+          },
+          "type": {
+            "type": "string",
+            "enum": ["ssh", "gpg"],
+            "description": "Key algorithm class — same enum as persons[].keys[].type; consumed by .claude/hooks/lib/coc-sign.js verify(). Provider-neutral (AC-L13): the record ssh/gpg signature is untouched; the broker signs with its own registered ssh/gpg key."
+          },
+          "fingerprint": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The broker's verified_id — fingerprint of its signing key. SHA256:base64 for SSH (case-sensitive); uppercase 40-hex for GPG. The GPG uppercase-40-hex constraint is enforced at LOAD time by .claude/hooks/lib/roster-schema-validate.js::_validateTrustAnchorFingerprints (conditional on type==gpg, mirroring _validateGpgFingerprints for persons keys — the vendored validator does not support if/then)."
+          },
+          "pubkey": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Armored public key — `ssh-ed25519 AAAA…` line for SSH, `-----BEGIN PGP PUBLIC KEY BLOCK-----` block for GPG. The Shard-2 fold predicate verifies broker_sig against THIS pubkey. This schema does not validate the key cryptographically — that is the signing substrate's job."
+          }
+        }
+      }
+    },
     "persons": {
       "type": "object",
       "minProperties": 1,
