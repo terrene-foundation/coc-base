@@ -50,6 +50,12 @@ const {
 // above); the ADO path routes through this adapter so the canonical capture
 // inner shapes stay provider-neutral below the content.provider dispatch.
 const azureAdapter = require("./vcs-azure-adapter.js");
+// #885 (GENMAT-1): the composed enrollment-seed transport (Shard T2). Used as
+// the STRUCTURAL DEFAULT transportAppend when a ceremony caller injects none —
+// so a caller who wires nothing (or a naive local-only append) CANNOT silently
+// land a local-only anchor a fresh clone can never fetch (loom#879). See
+// _composeDefaultSeedTransport below.
+const enrollmentSeedTransport = require("./enrollment-seed-transport.js");
 
 // F86 / MUST-7 typed-error tokens. Callers (sessions, CLI, hooks)
 // pattern-match these strings to distinguish the structural-block paths
@@ -72,6 +78,91 @@ const ERR_GHES_SHARED_APPLIANCE_BLOCKED =
  */
 function defaultSign(bytes, opts) {
   return cocSign.sign(bytes, opts);
+}
+
+/**
+ * #885 default local-cache writer. Appends an ALREADY-SIGNED trust-root record
+ * to `<repoDir>/.claude/learning/coordination-log.jsonl` (the gitignored
+ * per-clone cache the fold engine reads). This is a DIRECT append, NOT routed
+ * through the capped canonical helper (`coc-emit.js`), BECAUSE the genesis
+ * chain records exceed the 2 KB `MAX_LINE_BYTES` filesystem cap
+ * (spec `trust-root-recovery.md` §1: anchor 3205 B, migration 2104 B) — the
+ * capped helper REFUSES them, which is the whole reason the chain also goes to
+ * the uncapped git ref. The direct local append is the pre-existing genesis-
+ * record caching pattern (the same shape the T2 tests' `localAppend` uses); the
+ * record is owner-bound + signed by the ceremony BEFORE it reaches here.
+ *
+ * @param {string} repoDir
+ * @returns {(record: object) => {ok: true} | {ok: false, error, reason}}
+ */
+function _defaultLocalAppend(repoDir) {
+  return function localAppend(record) {
+    // eslint-disable-next-line global-require
+    const fs = require("fs");
+    // eslint-disable-next-line global-require
+    const path = require("path");
+    const dir = path.join(repoDir, ".claude", "learning");
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.appendFileSync(
+        path.join(dir, "coordination-log.jsonl"),
+        JSON.stringify(record) + "\n",
+      );
+      return { ok: true };
+    } catch (err) {
+      return {
+        ok: false,
+        error: "default local append failed",
+        reason: err && err.message ? err.message : String(err),
+      };
+    }
+  };
+}
+
+/**
+ * #885 STRUCTURAL DEFAULT transport. When a ceremony caller injects NO
+ * `transportAppend`, compose the ref-first enrollment-seed transport (Shard T2)
+ * bound to this repo's own origin + the Shard-1 canonical ref name, so the
+ * signed record is written to the FETCHABLE git ref FIRST, then the local cache
+ * — a caller who wires nothing (or a naive local-only append) can NO LONGER
+ * silently land a local-only anchor a fresh clone can never fetch (loom#879).
+ *
+ * It fails-closed EXACTLY like Shard T2: a ref-append failure yields a typed
+ * error and writes NO local surface (no half-write). If the transport cannot
+ * even be CONSTRUCTED (missing/invalid repoDir), this returns null so the
+ * ceremony's existing `transportAppend callable missing` guard fires a typed
+ * error — NEVER a silent local-only fallback.
+ *
+ * The DI seam is preserved: an explicitly-injected `transportAppend` (tests,
+ * an already-composed transport from `commands/whoami.md` step 6) is used
+ * unchanged; this default only fills the ABSENT case.
+ *
+ * @param {object} o - the ceremony opts (reads o.repoDir||o.cwd, o.remote,
+ *                      o.localAppend).
+ * @returns {function|null} a transportAppend(record) => {ok,...}, or null on
+ *                          construction failure.
+ */
+function _composeDefaultSeedTransport(o) {
+  const repoDir = o.repoDir || o.cwd || process.cwd();
+  const remote = o.remote || "origin";
+  const localAppend =
+    typeof o.localAppend === "function"
+      ? o.localAppend
+      : _defaultLocalAppend(repoDir);
+  try {
+    const composed = enrollmentSeedTransport.createEnrollmentSeedTransport({
+      repoDir,
+      remote,
+      localAppend,
+    });
+    return composed.transportAppend;
+  } catch {
+    // Construction failed (missing/invalid repoDir, resolver returned no
+    // name). Return null → the caller's existing fail-CLOSED guard fires the
+    // typed `transportAppend callable missing` error. NEVER fall back to a
+    // silent local-only append.
+    return null;
+  }
 }
 
 /**
@@ -294,7 +385,16 @@ function _signAndAppend(args) {
  *      emitted on any prior failure.
  */
 function runEnrollmentCeremony(opts) {
-  const o = opts || {};
+  // #885: work on a shallow COPY so the structural-default resolution below
+  // never mutates the caller's opts. Resolved BEFORE the provider dispatch so
+  // the ADO path (_runAdoEnrollment reads o.transportAppend) inherits it too.
+  const o = opts ? { ...opts } : {};
+  if (typeof o.transportAppend !== "function") {
+    const defaultTransport = _composeDefaultSeedTransport(o);
+    if (defaultTransport) o.transportAppend = defaultTransport;
+    // else: leave unset → the existing fail-CLOSED guard below fires the typed
+    // `transportAppend callable missing` error (NEVER a silent local-only path).
+  }
   const {
     roster,
     repo,
@@ -1243,7 +1343,15 @@ function _verifyOriginRootCommit(git, cwd, expected, defaultBranch) {
  *           {ok: false, error: string, reason: string, step: string}}
  */
 function performMigration(opts) {
-  const o = opts || {};
+  // #885: shallow COPY + structural-default resolution BEFORE provider dispatch
+  // (the ADO path _runAdoMigration reads o.transportAppend, so it inherits the
+  // default too). `_composeDefaultSeedTransport` reads o.repoDir||o.cwd.
+  const o = opts ? { ...opts } : {};
+  if (typeof o.transportAppend !== "function") {
+    const defaultTransport = _composeDefaultSeedTransport(o);
+    if (defaultTransport) o.transportAppend = defaultTransport;
+    // else: leave unset → the existing fail-CLOSED guard fires the typed error.
+  }
   const {
     roster,
     repo,

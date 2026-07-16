@@ -123,7 +123,7 @@ notes: |
 
 - **Severity:** `halt-and-report` for missing-or-stale STACK.md (Rules 1, 3, 4); `advisory` for schema-warning cases (e.g., extra unknown fields).
 - **Grace period:** 14 days from rule landing (longer than the 7-day default since base-variant adoption is greenfield — early users haven't formed habits yet).
-- **Regression-within-grace:** any phase command invoked with missing STACK.md AFTER `/onboard-stack` was previously run in the same project triggers a cumulative violation; 3× same-project = emergency downgrade.
+- **Regression-within-grace:** a same-class violation (a phase command invoked with missing STACK.md after `/onboard-stack` previously ran in the same project) within the 14-day grace window routes through the GENERIC `regression_within_grace` emergency trigger per `trust-posture.md` MUST-4 (1× = drop 1 posture) — NOT the cumulative-window math (per MUST-4's MUST-NOT against treating a regression-within-grace as a routine cumulative violation).
 - **Detection mechanism:** phase commands MUST read STACK.md as their first step. `cc-architect` mechanical sweep at `/codify`: every phase command body greps for `STACK.md` and refuses without it.
 
 Origin: 2026-05-06 — base variant Phase 1 codifies the structural defense against stack-detection drift at the rule layer. Kailash variants face the analogous problem at `pyproject.toml` / `Cargo.toml` parse-time; the base variant face it at `STACK.md` parse-time. Pairs with `commands/onboard-stack.md` (the discovery surface) and `agents/onboarding/stack-detector.md` (the detection mechanism).

@@ -1,28 +1,40 @@
 ---
-description: "Upgrade Claude-Code-only USE-template project to multi-CLI (Claude+Codex+Gemini). Modes: detect, --dry-run, --refresh, --rollback. Preserves project artifacts."
+description: "Adopt or update COC for an existing repo. --adopt bootstraps a non-COC repo; --refresh upgrades an outdated one. Families kailash/base; modes --adopt/--dry-run/--refresh/--emit-only/--rollback."
 ---
 
-Migrate a project from CC-only to multi-CLI (Claude+Codex+Gemini), or refresh multi-CLI overlays on a project already migrated. Covers BOTH axes: the Kailash axis (`kailash-coc-claude-{py,rs,rb}` → `kailash-coc-{py,rs}`) AND the non-Kailash, stack-agnostic `base` axis (`coc-claude-base` → `coc-base` — NOTE: NO `kailash-` prefix; the base template serves non-Kailash coding projects, which are first-class COC consumers). Project source, workspaces, journals, briefs, todos, `.session-notes`, `.env`, and SDK pins are preserved.
+`/migrate` is the COC-adoption front door for an EXISTING repo. Two entry scenarios:
 
-Detailed protocol (bash blocks, additive-merge semantics, 3-way reconciliation, verification table, marker schema, hook env-var portability, `--emit-only` non-COC lane): `skills/30-claude-code-patterns/multi-cli-migration.md`. Manifest source-of-truth: `.claude/sync-manifest.yaml::multi_cli_overlays:`.
+- **(A) Adopt — a NON-COC-NATIVE repo** (an existing codebase with no `.claude/` COC tree): `--adopt` bootstraps COC in, selecting the right template family, then emits the per-CLI surfaces.
+- **(B) Update — an OUTDATED-COC repo** (COC present but stale): full migration upgrades a CC-only lineage to multi-CLI; `--refresh` re-pulls multi-CLI overlays; a version-behind consumer routes to `/sync-from-template`.
+
+**Template families** the co-owner named, all handled here:
+
+- **kailash** — `kailash-coc-claude-{py,rs}` (CC-only) + `kailash-coc-{py,rs}` (multi-CLI), for Kailash-SDK projects.
+- **base** — `coc-claude-base` (CC-only) + `coc-base` (multi-CLI), the stack-agnostic non-Kailash templates (NO `kailash-` prefix; first-class COC consumers).
+- **multi-CLI axis** — the CC-only (`coc-claude-*`) vs multi-CLI (`coc-*` / `kailash-coc-{py,rs}`) distinction WITHIN each family; that is the full-migration + `--refresh` surface, not a separate family.
+
+Project source, workspaces, journals, briefs, todos, `.session-notes`, `.env`, and SDK pins are preserved throughout. Detailed protocol (family detection, `--adopt` bootstrap steps, additive-merge semantics, 3-way reconciliation, verification table, marker schema, `--emit-only` non-COC lane): `skills/30-claude-code-patterns/multi-cli-migration.md`. Manifest source-of-truth: `.claude/sync-manifest.yaml` (`repos:` for target families/slugs, `multi_cli_overlays:` for the refresh set).
 
 ## Modes
 
-| Invocation             | Behavior                                                                                                                              |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `/migrate`             | Detect lineage from `.claude/.coc-sync-marker`, run full 12-step migration.                                                           |
-| `/migrate --dry-run`   | Detect + print every step's planned actions; apply nothing.                                                                           |
-| `/migrate --refresh`   | Multi-CLI consumer ONLY: re-pull top-level overlays per `multi_cli_overlays.paths`.                                                   |
-| `/migrate --emit-only` | Non-COC lineage ONLY (e.g. `claude-squad-local`): emit `.codex/`, `.gemini/`, `AGENTS.md`, `GEMINI.md` from project's own `.claude/`. |
-| `/migrate --rollback`  | Inline porcelain guard, then `git reset --keep main` + restore from `.pre-migrate.bak`.                                               |
+| Invocation             | Behavior                                                                                                                                                               |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/migrate`             | Detect repo state; RECOMMEND the right disposition (adopt / migrate / refresh / sync-from-template) per Step 0. Runs full migration on a CC-only lineage.              |
+| `/migrate --adopt`     | Scenario A: bootstrap COC onto a repo with NO `.claude/` tree. Auto-detects family (or `--family kailash\|base`); defaults to multi-CLI (`--cc-only` for claude-only). |
+| `/migrate --dry-run`   | Detect + print every step's planned actions (adopt OR update); apply nothing.                                                                                          |
+| `/migrate --refresh`   | Multi-CLI consumer ONLY: re-pull top-level overlays per `multi_cli_overlays.paths`.                                                                                    |
+| `/migrate --emit-only` | Non-COC lineage ONLY (e.g. `claude-squad-local`): emit `.codex/`, `.gemini/`, `AGENTS.md`, `GEMINI.md` from project's own `.claude/`.                                  |
+| `/migrate --rollback`  | Inline porcelain guard, then `git reset --keep main` + restore from `.pre-migrate.bak`.                                                                                |
 
 ## Step 0 — Pre-flight
 
-1. Read `.claude/.coc-sync-marker` AND `.claude/VERSION.type`. Branch by `template_type` / `VERSION.type`:
+1. Read `.claude/.coc-sync-marker` AND `.claude/VERSION.type`. Detect repo state and RECOMMEND the disposition (per `recommendation-quality.md` MUST-1 — never a bare menu). Branch by `template_type` / `VERSION.type`:
+   - **No `.claude/` directory AND no marker** (scenario A — non-COC-native repo) → do NOT exit blank. RECOMMEND `/migrate --adopt` to bootstrap COC in; state the auto-detected family + whether multi-CLI or `--cc-only`. Full protocol in skill § `--adopt` mode.
    - `cc-only-legacy` → full migration. Variant from `variant:` (`py`/`rs`/`rb`/`base`).
-   - `multi-cli` → only `--refresh` is valid; `/migrate` exits "already migrated".
-   - Non-COC lineage → ONLY `--emit-only` is valid. Full protocol in skill § `--emit-only` mode.
-   - Missing/unrecognized AND no `.claude/` directory → exit "not a recognized USE-template lineage".
+   - `multi-cli` → only `--refresh` is valid; `/migrate` recommends `--refresh` (or `/sync-from-template` if only version-behind on the same template).
+   - `coc-project` (a downstream consumer version-behind on the SAME template) → RECOMMEND `/sync-from-template` (the merge-pull path), NOT full migration.
+   - Non-COC lineage with a `.claude/` (e.g. `claude-squad-local`) → ONLY `--emit-only` is valid. Full protocol in skill § `--emit-only` mode.
+   - Unrecognized WITH a `.claude/` → surface the detected fields + recommend the closest disposition; do not silently exit.
 2. Resolve sister template `<sister>` (full migration only): py → `kailash-coc-py`, rs → `kailash-coc-rs`, **base → `coc-base`** (the non-Kailash, stack-agnostic axis — note the sister name has NO `kailash-` prefix and the CC-only source is `coc-claude-base`, not `kailash-coc-claude-base`; both ship under the Foundation `coc-{claude-,}base` naming). (rb RETIRED in #423 Phase 1 — Ruby ships as bindings via the rs all-bindings template; no rb USE template exists.) **rb path**: do NOT migrate; exit with "kailash-coc-claude-rb is retired — use kailash-coc-rs for Ruby bindings." Every downstream step references the resolved `<sister>` name (e.g. `kailash-coc-py` for py, `coc-base` for base), NOT a `kailash-coc-<variant>` pattern (which is wrong for base).
 3. Verify clean working tree inline: `[ -z "$(git status --porcelain)" ] || { echo "stash or commit first; recommend: git stash push -u -m pre-migrate"; exit 1; }`. Recommendation per `recommendation-quality.md` MUST-1 — stash beats commit because the migration commit will be atomic and stash restores cleanly post-merge.
 4. Resolve sister template path via `node .claude/bin/resolve-template.js --template <sister>` (the Step-0.2 resolved name — `kailash-coc-py`/`kailash-coc-rs`/`coc-base`; else env `KAILASH_COC_TEMPLATE_PATH` → `~/.cache/kailash-coc/<sister>/` → offline-fallback).
@@ -32,9 +44,9 @@ Detailed protocol (bash blocks, additive-merge semantics, 3-way reconciliation, 
 
 `TS=$(date -u +%Y%m%dT%H%M%SZ); BRANCH="chore/coc-multi-cli-migrate-${TS}"; git checkout -b "$BRANCH"; mkdir -p .pre-migrate.bak`. Copy `.claude/.coc-sync-marker`, `CLAUDE.md`, `.claude/VERSION` (each if present) into `.pre-migrate.bak/`. Write `$BRANCH` into `.pre-migrate.bak/.branch` for rollback's branch-resolve.
 
-## Step 2 — VERSION update FIRST
+## Step 2 — VERSION update
 
-Update `.claude/VERSION` `upstream.template` → `<sister>`, `upstream.template_repo` → `terrene-foundation/<sister>` (the Step-0.2 resolved name — `coc-base` for the base axis, NOT `kailash-coc-base`). MUST precede Step 4 so the resolver targets the new template on subsequent calls.
+Update `.claude/VERSION` `upstream.template` → `<sister>`, `upstream.template_repo` → `terrene-foundation/<sister>` (the Step-0.2 resolved name — `coc-base` for the base axis, NOT `kailash-coc-base`). This persists the migrated template identity for a FUTURE `/sync-from-template`; it is NOT a Step-4 input — Step 4 reuses the `$SISTER` resolved by NAME at Step 0.4 (VERSION-independent) and does not re-resolve. See skill Step 2.
 
 ## Step 3 — Top-level multi-CLI overlay copy
 
@@ -42,7 +54,7 @@ Per manifest `multi_cli_overlays.multi-cli.paths`. Copy `$SISTER/.codex`, `$SIST
 
 ## Step 4 — `.claude/` refresh
 
-Run downstream-sync semantics against the sister (skill § Downstream Sync). The semantics are **additive-merge with explicit obsoletion**, NOT wholesale replacement (per `rules/cross-repo.md` Rule 4):
+Run downstream-sync semantics against the sister (`skills/30-claude-code-patterns/sync-flow.md` § Downstream Sync). The semantics are **additive-merge with explicit obsoletion**, NOT wholesale replacement (per `rules/cross-repo.md` Rule 4):
 
 - **Overwrites** template-owned files when sister has a newer/different version
 - **Preserves** project-only files: `.claude/settings.local.json`, `.claude/.proposals/`, `.claude/learning/`, `.claude/workspaces/`, AND any path that exists in project but NOT in sister AND is NOT on the sister's `.coc-obsoleted` list
@@ -101,13 +113,25 @@ Stage explicit paths (per `coc-sync-landing.md` Rule 2 — `git add -A` BLOCKED)
 
 Commit body MUST cite source template, target template, files added, files replaced, verification-table summary, link to skill. When the commit changes the `.coc/` shape (added/removed artifacts, frontmatter or lock-format change), the body MUST also carry a `coc-shape: <description>` marker per `loom-csq-boundary.md` Rule 5 so csq can grep upstream shape changes. PR body MUST embed Step 10 verification table.
 
+## `--adopt` — bootstrap COC onto a non-COC repo (scenario A)
+
+For an EXISTING repo with NO `.claude/` tree. Full protocol in skill § `--adopt` mode. **Entry point:** a bare repo has no project-local `/migrate` — invoke `--adopt` from the operator's user-global `~/.claude/commands/` scope (CC loads it every session regardless of the repo's own `.claude/`; Codex/Gemini: `~/.codex/prompts/` / `~/.gemini/commands/`). Summary:
+
+1. **Clean-tree guard FIRST (Step A-pre).** Inline porcelain check (`[ -z "$(git status --porcelain)" ]` or stash) BEFORE anything — `--adopt` mutates the tree and overwrites root paths; a dirty tree HALTS so `--rollback` stays total.
+2. **Family detect.** Kailash SDK present (`pyproject.toml` requires `kailash*`, OR `Cargo.toml` names a `kailash`/`kailash-*` crate) → **kailash** family. Else → **base** (stack-agnostic). `--family kailash|base` overrides (any other value HALTS). Non-HIGH-confidence detect → CONFIRM with the user first (per `verify-resource-existence.md`).
+3. **Target select.** Default **multi-CLI** sister (kailash → `kailash-coc-{py,rs}` by variant; base → `coc-base`). `--cc-only` selects the claude-only sister (`kailash-coc-claude-{py,rs}` / `coc-claude-base`).
+4. **Branch + collision snapshot (Step A-branch).** `git checkout -b chore/coc-adopt-<ts>`; snapshot EVERY install-target root path that ALREADY exists (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `STACK.md`, `.codex`, `.codex-mcp-guard`, `.gemini`, `.coc`, `.claude`) into `.pre-migrate.bak/` so `--rollback` restores it. "No `.claude/`" does NOT mean "nothing collides" — a hand-authored `CLAUDE.md`/`STACK.md` is the common case; the collision check covers the WHOLE root write-set, not `.claude/` alone (refuse a symlinked install-target root; refuse a stale `.pre-migrate.bak/`). Runs BEFORE item 5 so `/onboard-stack` cannot overwrite `STACK.md` un-snapshotted. Surface the collision list to the user.
+5. **Base family only:** run `/onboard-stack` (after the snapshot) → `STACK.md` (the generic specialists bind to it).
+6. **Fresh-install** the resolved template's `.claude/` (+ `.codex/`, `.codex-mcp-guard/`, `.gemini/`, `.coc/` for multi-CLI) — reuse `/sync-from-template`'s downstream-sync semantics in FRESH-INSTALL mode. `SISTER=$(node .claude/bin/resolve-template.js --template <sister>)` (name lane → bare path) **FAIL-CLOSED**: if it exits non-zero, HALT + drop the branch + `rm -rf .pre-migrate.bak` (no partial install). Then `scan-synced-disclosure.mjs --root "$SISTER"` UNCONDITIONALLY before the copy (multi-tenant fence — `$SISTER` may be an operator-pointed local dir via env-override OR offline sibling; a finding HALTS).
+7. **VERSION → emit → marker, in that order.** Step 2 (`.claude/VERSION`) BEFORE Step 6 (`emit.mjs` + `emit-cli-artifacts.mjs` + `emit-coc.mjs` → `.coc/`) BEFORE the FIRST-TIME `.claude/.coc-sync-marker` (Step 8, `adopted_at` not `migrated_from`). Then Step 10 verification table (incl. `.coc/COC.lock`), Step 11 posture banner (multi-CLI), commit + PR (Step 12, stage `.coc/` + `coc-shape:` marker). `--dry-run` prints the plan without applying.
+
 ## `--refresh` (multi-CLI consumer re-pull)
 
 Detected when `template_type: multi-cli`. Skips Steps 0.2 sister-resolution mismatch, Step 5 (CLAUDE.md owned-by-project), Step 7 GitHub workflow refresh, Step 8 marker rewrite (only timestamp + stats update). Runs Step 3 per `multi_cli_overlays.multi-cli.paths`, respecting `multi_cli_overlays.multi-cli.preserved` (`.codex/local-config.toml`, `.gemini/local-settings.json`). Step 6 regenerates emissions. Commit: `chore(coc): refresh multi-CLI overlays`.
 
 ## `--rollback`
 
-Inline porcelain guard FIRST: `[ -z "$(git status --porcelain)" ] || { echo "uncommitted work — recommend: git stash push -u -m pre-rollback; abort"; exit 1; }`. Then `git reset --keep main` (NOT `--hard` — `--keep` aborts on local changes; `--hard` would silently discard per `rules/git.md`). Restore from `.pre-migrate.bak/`: `.coc-sync-marker`, `CLAUDE.md`, `VERSION`. Read branch from `.pre-migrate.bak/.branch`; `git checkout main && git branch -D "$BRANCH"`.
+Inline porcelain guard FIRST: `[ -z "$(git status --porcelain)" ] || { echo "uncommitted work — recommend: git stash push -u -m pre-rollback; abort"; exit 1; }`. Then `git reset --keep main` (NOT `--hard` — `--keep` aborts on local changes; `--hard` would silently discard per `rules/git.md`). Restore EVERY path in `.pre-migrate.bak/` (full migration: `.coc-sync-marker`, `CLAUDE.md`, `VERSION`; `--adopt`: additionally any pre-existing root path it snapshotted — `AGENTS.md`, `GEMINI.md`, `.codex`, `.codex-mcp-guard`, `.gemini`, `.coc`, `.claude` — the snapshot is the only restore path for a pre-existing UNTRACKED file the install overwrote). Read branch from `.pre-migrate.bak/.branch`; `git checkout main && git branch -D "$BRANCH"`. Full restore loop in skill § `--rollback` mode.
 
 ## Hook env-var portability + `.pre-migrate.bak` lifecycle
 
@@ -116,5 +140,7 @@ Hooks MUST handle three env vars (`$CLAUDE_PROJECT_DIR`/`$CODEX_PROJECT_DIR`/`$G
 ## When NOT to run
 
 - `template_type: multi-cli` AND no `--refresh` flag → "already migrated; use `--refresh` to re-pull overlays".
+- `--adopt` on a repo that ALREADY has a `.claude/` COC tree → "already adopted; use `/sync-from-template` (version-behind) or `/migrate` (CC-only → multi-CLI)".
+- `coc-project` consumer only version-behind on the SAME template → use `/sync-from-template`, not full migration (Step 0.1 routes this).
 - `variant: rb` (no multi-CLI rb sister exists) → file tracking issue (Step 0.2).
 - Uncommitted work → stash first (Step 0.3 recommendation).

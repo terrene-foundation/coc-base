@@ -19,9 +19,12 @@ const fallback = setTimeout(() => {
 
 const path = require("path");
 const { emit } = require(path.join(__dirname, "lib", "instruct-and-wait.js"));
-const { appendViolation, readPosture, readRecentViolations } = require(
-  path.join(__dirname, "lib", "state-io.js"),
-);
+const {
+  appendViolation,
+  readPosture,
+  readRecentViolations,
+  isPendingWithinGrace,
+} = require(path.join(__dirname, "lib", "state-io.js"));
 const { appendStamped } = require(path.join(__dirname, "lib", "coc-append.js"));
 // M9.1 R7 Sec-R7-S-01 — route stamped-path file construction through the
 // shared resolver so a worktree-isolated rostered agent writes to the
@@ -149,6 +152,15 @@ function logAndEmit(payload, event, finding, what_happened) {
           const fs = require("fs");
           const stat = fs.statSync(fp);
           const posture = readPosture(payload.cwd);
+          // loom#875 — DELIBERATELY NOT grace-filtered. This is the STALE-RECORD
+          // file-provenance surface: a session-notes / observations / journal
+          // file that pre-dates ANY authored rule still holds "tests pass" /
+          // "verified" claims that are unverified under that rule — grace
+          // expiry does NOT restore their validity (a grace-expired-but-still-
+          // enforced rule still invalidates a record older than it). Adding
+          // isPendingWithinGrace() here in a future "consistency" pass would
+          // wrongly stop flagging stale records once grace lapses. The
+          // grace-filter belongs ONLY on the three ack/banner/count surfaces.
           const pending = (posture.pending_verification || []).filter(
             (e) => e && e.rule_id && e.since,
           );
@@ -176,6 +188,12 @@ function logAndEmit(payload, event, finding, what_happened) {
         }
       }
     }
+
+    // NOTE: the guide-first cross-repo PreToolUse ceremony (B — journal/0488)
+    // lives in validate-bash-command.js (the mcp-guard Bash tripwire), NOT here
+    // — so it is CLI-neutral (mirrors to Codex shell) without reclassifying this
+    // CC-only multi-event hook to mcp-guard. This hook keeps ONLY the PostToolUse
+    // repo-scope advisory (below), which owns the authoritative violation row.
     return passthrough();
   }
 
@@ -263,8 +281,13 @@ function logAndEmit(payload, event, finding, what_happened) {
       const sid =
         payload.session_id || process.env.CLAUDE_SESSION_ID || "unknown";
       const posture = readPosture(payload.cwd);
+      // loom#875 — only entries still WITHIN grace drive the ack soft-gate; a
+      // grace-EXPIRED entry must NOT keep emitting acknowledgement_failure on
+      // every Stop event (the forever-nag this fixes). Post-grace the rule
+      // stays fully enforced via the cumulative-downgrade math, which never
+      // consults pending_verification.
       const pending = (posture.pending_verification || []).filter(
-        (e) => e && e.rule_id,
+        (e) => e && e.rule_id && isPendingWithinGrace(e),
       );
       if (pending.length) {
         const recent = readRecentViolations(payload.cwd, { limit: 200 });

@@ -9,7 +9,7 @@ The procedure backing `.codex/prompts/ecosystem-init.md` (the once-per-fork ecos
 command body holds the five load-bearing invariants + the ceremony order; this skill holds the
 step-by-step procedure, the input prompts, the D6 schema field set, and the exact tool-call shapes.
 
-Three onboarding surfaces (the core distinction — `02-plans/02-ga-ecosystem-onboarding.md`):
+Three onboarding surfaces (the core distinction — `rules/enrollment-operations.md`):
 
 | Surface           | Moment                     | Writes                                | Frequency       |
 | ----------------- | -------------------------- | ------------------------------------- | --------------- |

@@ -25,9 +25,10 @@ against without re-deriving payload shapes.
 | `fork-to-canon-prefix-collision.json`    | public-authority-O1 word-boundary (#584 R2): an authority that prefix-collides a public token ("ISO-Acme-…") is NOT carved out — `_tokenBoundaryOk` refuses the "-" continuation; falls to disclosure | block (fork-identifying-content)   |
 | `fork-to-canon-clean.json`               | fork-identifying-content NEGATIVE: a fork->canon write whose scan ran CLEAN is allowed                                                                                                                | allow (fork-to-canon-clean)        |
 
-## AC-2 deferred
+## AC-2 intake-path guard-routing deferred
 
-The sync-from-canon INTAKE wiring (#584 AC-2) depends on #576 (the
-sync-from-canon driver, UNBUILT) and is DEFERRED. The deferred contract is
-pinned by the strict-xfail (`todo`-marked) test (5) in the suite above; no
-intake-path fixture ships until #576 lands the driver.
+The sync-from-canon INTAKE-PATH guard-routing (#584 AC-2 — threading the pulled
+surface through THIS guard) is UNBUILT and DEFERRED; #576's sync-from-canon driver
+itself is SHIPPED (it routes intake through `scan-synced-disclosure.mjs`, not this
+guard). The deferred contract is pinned by the strict-xfail (`todo`-marked) test (5)
+in the suite above; no intake-path fixture ships until the AC-2 guard-routing lands.

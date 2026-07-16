@@ -44,6 +44,38 @@ metric_c, metric_d, metric_e (Phase-2 will wire; scaffold returns mocks).
 
 **Why:** Phantom citations make the spec a lie that downstream devs implement against. The 2026-04-21 audit proved 0 of 8 cited data-platform accessors existed; without the audit, downstream would have built UI against the scaffolds and the Phase-2 switch would never flip because the FE rendered fine. Verification is mechanical: every cited symbol resolvable via `grep` / `ast.parse` / `find`.
 
+### 1a. Runtime-Resolved `kp://` Knowledge-Product Referents Are Exempt From Merge-Time Resolution
+
+A `knowledge-product:` field value that is a `kp://…@version` URN is EXEMPT from Rule 1's merge-time `grep` / `ast.parse` / `find` resolution — it names a knowledge-product IDENTITY resolved at RUNTIME in the engine, never a code symbol present in the tree at merge. **The URN's grammar is NOT restated here: `specs-authority.md` Rule 10 owns the field-type contract (its five invariants), and the mesh identity spec owns the handle-derivation detail Rule 10 references.** This rule owns exactly one thing — the carve-out's SCOPE: it is a runtime-resolved `kp://` referent in a `knowledge-product:` field ONLY. Every OTHER citation (file:line, function, class, endpoint, SQL, table, column, env var, config key — AND any non-`kp://` value in a `knowledge-product:` field) still MUST resolve at merge per Rule 1. Treating the exemption as a general "it resolves later" escape for an ordinary code citation is BLOCKED — that is exactly the Phase-2-will-wire-it phantom Rule 1 exists to block.
+
+```text
+# DO — the kp:// URN is exempt; the code citation beside it still resolves at merge
+
+knowledge-product: kp://use/<opaque-handle>/churn-features@3
+   (runtime-resolved → exempt; shape per specs-authority.md Rule 10)
+scored by `analytics_service.get_metric("churn")` (SUPPORTED_METRICS:235)
+   (ordinary code citation → still MUST grep-resolve at merge)
+
+# DO NOT — a non-kp:// value smuggled under the exemption
+
+knowledge-product: churn_features_table
+   (not a kp:// URN → NOT exempt → must resolve → BLOCKED)
+
+# DO NOT — an ordinary citation smuggled under the exemption
+
+POST /api/v1/churn — backed by an accessor "resolved at runtime"
+   (ordinary citation, not a kp:// referent → BLOCKED)
+```
+
+**BLOCKED rationalizations:**
+
+- "It resolves later once the product lands — exempt for now" (that is the Phase-2-will-wire-it phantom Rule 1 blocks; only a `kp://` referent is exempt)
+- "This accessor is runtime-resolved too, so it's exempt like the `kp://` URN"
+- "It's basically a product reference, close enough to a `kp://` URN"
+- "The `knowledge-product:` field is present, so the value is exempt whatever its shape" (the value MUST also be `kp://`-scheme)
+
+**Why:** The `kp://` URN resolves at runtime in the engine BY DESIGN (`specs-authority.md` Rule 10 — inert at loom); flagging it CRITICAL at merge (Rule 1) would make every product-linked spec un-mergeable (the FP-6 finding). The carve-out is narrow — a runtime-resolved `kp://` referent ONLY — so it exempts the ONE citation class that genuinely cannot resolve at merge without re-opening the phantom-citation hole for everything else.
+
 ### 2. No Split-State Framings Inside Spec Content
 
 Spec sections MUST NOT use "Phase-1 / Phase-2", "Promised / Current", "Target / Fallback", "Scaffold / Live", "Now / Later" framings to acknowledge gaps. Inline markers `TBD`, `pending`, `to be wired`, `backend follow-up`, `FE follow-up`, `accessor pending` are BLOCKED in spec content.
@@ -197,6 +229,7 @@ Rule 1 extends from spec prose to README / skill / guide code fences: every doc/
 1. **Explicit `## Out of scope` sections** that BOUND the spec's coverage (not gap trackers within it).
 2. **Append-only `## §X Change log`** sections describing PAST transitions in past tense.
 3. **`§X [reserved for future work]`** section-numbering anchors with ZERO prose content (numbering placeholder only — no description).
+4. **Runtime-resolved `kp://` knowledge-product referents** in a `knowledge-product:` field (Rule 1a) — exempt from merge-time citation resolution because they resolve at runtime in the engine, not at merge; NOT a general escape for ordinary code citations or a non-`kp://` field value.
 
 ## Audit Protocol (runs in /redteam)
 
@@ -204,6 +237,7 @@ Rule 1 extends from spec prose to README / skill / guide code fences: every doc/
 # 1. Split-state framing scan — zero matches required; any hit = HIGH
 rg -i 'phase-?1.*phase-?2|target.state|promised.*current|scaffold.*later|TBD|backend.follow-?up|FE.follow-?up|pending.accessor|to.be.wired|accessor.pending' specs/
 # 2. Citation resolution — every cited symbol must resolve via grep / ast.parse / find. Any unresolved = CRITICAL.
+#    EXCEPT a runtime-resolved kp:// URN in a knowledge-product: field (Rule 1a) — skip it; a non-kp:// value OR any ordinary citation is NOT exempt.
 ```
 
 ## Migration For Existing Violations
@@ -215,3 +249,18 @@ When a spec touched in this PR contains a gap tracker:
 3. Land both changes in the SAME PR as the first new spec edit touching the affected file.
 
 Origin: 2026-04-21 `example-workspace/financial-scenario` `/redteam` audit (loom issue #18). Sister rule to `specs-authority.md` (organization) and `zero-tolerance.md` Rule 2 (no stubs in code — this is the spec-side companion).
+
+## Trust Posture Wiring — Rule 1a (runtime-resolved `kp://` carve-out)
+
+Applies to the **Rule 1a** clause (added 2026-07-11, Mesh S0 `/govern` co-owner-directed origination). Per `trust-posture.md` MUST-8 grandfather cutoff, Rule 1a lands AT/AFTER the MUST-8 SHA and MUST ship canonical-8-field-compliant; the pre-existing grandfathered Rules 1–7 + § Exceptions + § MUST NOT remain exempt until each is itself `/codify`-touched (the clause-scoped precedent set by `rule-authoring.md`'s own Wiring section + `security.md` § Enforcement-Surface Parity + `git.md` § CI-check/merge).
+
+- **Severity:** `halt-and-report` at gate-review (reviewer at `/redteam` runs the citation-resolution sweep and confirms the exemption fired ONLY for a runtime-resolved `kp://` referent — a non-`kp://` `knowledge-product:` value or any ordinary unresolved citation still flags CRITICAL); `advisory` at the hook layer (whether a skipped citation is a genuine `kp://` referent vs a smuggled ordinary citation is judgment-bearing per `hook-output-discipline.md` MUST-2 and MUST NOT carry `block`).
+- **Grace period:** 7 days from clause landing (2026-07-11 → 2026-07-18).
+- **Cumulative posture impact:** same-class violations (an ordinary code citation, or a non-`kp://` `knowledge-product:` value, passed off as exempt) contribute to `trust-posture.md` MUST Rule 4 cumulative-window math (3× same-rule in 30d → drop 1 posture; 5× total in 30d → drop 1 posture).
+- **Regression-within-grace:** a same-class violation within the 7-day grace window routes through the GENERIC `regression_within_grace` emergency trigger per `trust-posture.md` MUST-4 (1× = drop 1 posture) — NO dedicated per-clause trigger key (a citation-exemption-scope property is review-layer-only + semantic; minting a key would drag `trust-posture.md`, a self-referential-codify allowlist file, into a self-ref edit; the universal `regression_within_grace` trigger already covers it). Named deviation from the canonical key-per-clause shape, recorded here per `trust-posture.md` Rule 8 — the same no-dedicated-key disposition `security.md` § Enforcement-Surface Parity and `git.md` § CI-check/merge took.
+- **Receipt requirement:** SessionStart soft-gate `[ack: spec-accuracy]` IFF `posture.json::pending_verification` includes the `spec-accuracy` rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — the § Audit Protocol step-2 sweep at `/redteam` (reviewer) skips a runtime-resolved `kp://` referent in a `knowledge-product:` field and flags every OTHER unresolved citation CRITICAL, INCLUDING a non-`kp://` value in a `knowledge-product:` field; cc-architect confirms the carve-out scope at `/codify`. Phase 2 (deferred per `trust-posture.md` § Two-Phase Rollout) — the mechanical citation-resolution tool gains a `kp://`-scheme skip rule paired with the review layer per `probe-driven-verification.md` MUST-4; audit fixtures land at `.claude/audit-fixtures/spec-accuracy-kp-carveout/` per `cc-artifacts.md` Rule 9.
+- **Violation scope:** the Rule 1a runtime-resolved-`kp://`-carve-out clause ONLY (clause-scoped); the pre-existing grandfathered Rules 1–7 + § Exceptions + § MUST NOT stay exempt until each is itself `/codify`-touched.
+- **Origin:** journal/0466 (Mesh S0 `/govern` co-owner-directed origination) + the mesh identity spec `02-knowledge-product-identity.md` § "The URN" (the runtime-resolved URN grammar) + the ratified roadmap `01-wave-roadmap.md` § S0 Value-anchor (FP-6: a product-linked spec is a `spec-accuracy.md` Rule-1 CRITICAL at merge until this carve-out lands — finding origin `01-analysis/08-failure-points-risks.md` § FP-6); paired with `specs-authority.md` Rule 10.
+
+**Length rationale (per `rules/rule-authoring.md` MUST NOT § "Rules longer than 200 lines").** Rule body is ~266 lines (per `wc -l`), over the 200-line guidance. Named rationale: **spec-accuracy-contract scope** — the rule codifies the complete citation-accuracy + no-split-state contract across its numbered rules (1, 1a, 2–7): every-citation-resolves, the runtime-resolved `kp://` carve-out, no-split-state framings, out-of-scope-is-not-a-gap, work-trackers-outside-specs, incremental-extension workflow, historical-change-logs, and the `/redteam` import-execution sweep — each carrying the DO/DO-NOT + `**Why:**` the meta-rule mandates, plus the canonical 8-field Trust-Posture Wiring the post-cutoff Rule 1a requires. The rule is `priority: 10` + `scope: path-scoped`, so it pays NO baseline-emission cost (loaded only in sessions matching its `paths:` globs) and `rule-authoring.md` Rule 10's proximity-band gate does NOT fire. Splitting the citation-accuracy rules into siblings would fragment the one contract every spec-citation edit consults and force cross-rule lookups. Sibling precedent: `specs-authority.md` (paired) + `artifact-flow.md` + `sync-completeness.md` length rationales.

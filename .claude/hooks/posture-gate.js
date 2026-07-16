@@ -47,7 +47,9 @@ const fallback = setTimeout(() => {
 
 const path = require("path");
 const fs = require("fs");
-const { readPosture } = require(path.join(__dirname, "lib", "state-io.js"));
+const { readPosture, isPendingWithinGrace } = require(
+  path.join(__dirname, "lib", "state-io.js"),
+);
 const { instructAndWait } = require(
   path.join(__dirname, "lib", "instruct-and-wait.js"),
 );
@@ -248,8 +250,10 @@ if (process.stdin.isTTY) {
     if (event === "SessionStart") {
       try {
         const posture = readPosture(data.cwd);
+        // loom#875 — count only entries still WITHIN grace; a grace-expired
+        // entry must not inflate the "N pending verification(s)" diagnostic.
         const pvCount = (posture.pending_verification || []).filter(
-          (e) => e && e.rule_id,
+          (e) => e && e.rule_id && isPendingWithinGrace(e),
         ).length;
         const tag = posture._fail_closed
           ? "FAIL-CLOSED"

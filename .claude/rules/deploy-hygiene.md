@@ -123,6 +123,29 @@ Every `/deploy` MUST start by printing the 6-step (Step 0–5) checklist (define
 
 **Why:** `COPY dist/` ships whatever happens to be on the developer's disk, which may be hours or days old — exact recent failure: `index-CxDD2r9Y.js` was 2 days stale, deploy "succeeded", production served the 2-day-old bundle.
 
+### 9a. COC-consumer Dockerfiles MUST positive-COPY runtime paths, never `COPY . .`
+
+A COC-consumer image built with `COPY . .` bakes the ENTIRE working tree into the (often distributed) image. Because **`.dockerignore` — NOT `.gitignore` — governs the Docker build context**, a path that is correctly gitignored still bakes in: per-clone COC state (`.claude/learning/**`, `.claude/operator-id`, `operators.roster.json`), local session/audit stores, `.env`, and `.git/` (the entire commit history — including any secret ever committed-then-removed, the highest-value leak). That ships operator identity + signing-key fingerprints + coordination state (and any real secrets) inside a distributable image — violating the multi-operator "state is per-clone, never distributed" invariant. A COC-consumer Dockerfile MUST `COPY` exactly the runtime paths (source, manifests, entrypoint) so per-clone state is _structurally unreachable_, not merely denied. A hardened deny-by-default `.dockerignore` (excluding `.claude/learning/**` etc.) is **defense-in-depth** — it also covers a legacy `DOCKER_BUILDKIT=0` build — but is NOT the root-cause fix: positive-COPY excludes a _new_ sensitive state file by default, whereas a `.dockerignore` denylist re-opens the class on every state file added later.
+
+```dockerfile
+# DO — positive-COPY exactly the runtime paths (per-clone state structurally unreachable)
+COPY src/ ./src/
+COPY pyproject.toml poetry.lock ./
+COPY entrypoint.sh ./
+
+# DO NOT — COPY . . bakes the whole tree; .gitignore does NOT govern the build context
+COPY . .   # ships .claude/learning/**, operator-id, operators.roster.json, .env into the image
+```
+
+**BLOCKED rationalizations:**
+
+- "It's gitignored, so it won't leak into the image"
+- "The `.dockerignore` denylist already excludes `.claude/learning/`"
+- "`COPY . .` is simpler and the sensitive files are small"
+- "We'll harden the dockerignore instead of enumerating runtime paths"
+
+**Why:** `.gitignore` and `.dockerignore` are independent — a repo can gitignore every sensitive path and STILL ship all of it in the image; "it's gitignored, so it won't leak" is the trap. Positive-COPY makes per-clone state unreachable by construction; a `.dockerignore` denylist silently re-admits each newly-added state file until someone remembers to deny it.
+
 ### 10. Update deploy state file ONLY after user-visible check passes
 
 Successful `/deploy` MUST update `deploy/.last-deployed` (or whatever `deploy_state_file` is declared in config) with the commit SHA — but ONLY after the user-visible check (rule 3) passes. Writing the state file based on the deploy command's exit code alone defeats drift detection.
@@ -154,7 +177,7 @@ steps:
 # DO NOT — queue every deploy; waste a full build cycle per superseded merge
 concurrency:
   group: auto-deploy-main
-  cancel-in-progress: false   # BLOCKED on idempotent deploy workflows
+  cancel-in-progress: false # BLOCKED on idempotent deploy workflows
 # OR — concurrency block omitted entirely (defaults to no cancellation)
 ```
 
@@ -183,7 +206,7 @@ concurrency:
 # DO NOT — exception with no comment
 concurrency:
   group: prod-migrate-main
-  cancel-in-progress: false  # ← which step is non-idempotent? unaudited.
+  cancel-in-progress: false # ← which step is non-idempotent? unaudited.
 ```
 
 **Why (exception):** The default is cancel-on-supersede; the exception is queueing. Without a same-file comment naming the specific non-idempotent step, the next reviewer (or the same author six months later) cannot tell whether the queueing is load-bearing or a copy-paste from another workflow. The comment converts an opaque YAML invariant into a maintainable audit trail. Same structural-confirmation principle as `dataflow-identifier-safety.md` Rule 4 (DROP) and `git.md` § "git reset --hard" — destructive-or-irreversible operations require a written justification at the call site.
@@ -201,5 +224,18 @@ Origin: 2026-05-01 downstream surfacing (loom #23) — a rapid-merge session ran
 - **SDK/library repos** (`type: sdk` in `deployment-config.md`) → use `/release` instead. This rule still applies, but "deployed" means "published to PyPI/crates.io/npm".
 - **No `deployment-config.md` exists** → run `/deploy --onboard` first.
 - **Legacy prose-only `deployment-config.md` (no YAML frontmatter)** → run `/deploy --onboard` to migrate; until migrated, the agent flags this in session notes and falls back to manual verification.
+
+## Trust Posture Wiring
+
+Applies to the **§9a positive-COPY** clause (added 2026-07-08, backlog-actionable-7 #833). Per `trust-posture.md` MUST-8 grandfather cutoff, this clause lands AT/AFTER the MUST-8 SHA and MUST ship canonical-8-field-compliant; the pre-existing grandfathered Rules 1–11 of this file remain exempt until each is itself `/codify`-touched (the clause-scoped precedent set by `security.md` / `git.md`).
+
+- **Severity:** `halt-and-report` at gate-review (reviewer at `/implement` + security-reviewer confirm a COC-consumer Dockerfile positive-COPYs enumerated runtime paths rather than `COPY . .`); `advisory` at the hook layer (whether a Dockerfile's `COPY` is over-broad for a COC-consumer image is judgment-bearing over the repo's runtime-path set — per `hook-output-discipline.md` MUST-2 a lexical `COPY . .` tripwire MAY pair as advisory but MUST NOT carry `block`).
+- **Grace period:** 7 days from clause landing (2026-07-08 → 2026-07-15).
+- **Cumulative posture impact:** same-class violations (a COC-consumer Dockerfile shipping `COPY . .` / an over-broad `COPY` that bakes per-clone state into a distributable image) contribute to `trust-posture.md` MUST-4 cumulative-window math (3× same-rule in 30d → drop 1 posture; 5× total in 30d → drop 1 posture).
+- **Regression-within-grace:** a same-class violation within the 7-day grace window routes through the GENERIC `regression_within_grace` emergency trigger per `trust-posture.md` MUST-4 (1× = drop 1 posture) — NO dedicated per-clause trigger key (a Dockerfile-COPY-shape property is review-layer-detected, and minting a key would drag `trust-posture.md`, a self-referential-codify allowlist file, into a self-ref edit; the universal `regression_within_grace` trigger already covers it). Named deviation from the canonical key-per-clause shape, recorded here per `trust-posture.md` Rule 8 — the same no-dedicated-key disposition `security.md` § Enforcement-Surface Parity and `git.md` § CI-check/merge took.
+- **Receipt requirement:** SessionStart soft-gate `[ack: deploy-hygiene]` IFF `posture.json::pending_verification` includes the `deploy-hygiene` rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — for any COC-consumer image, reviewer + security-reviewer inspect the Dockerfile for a positive-COPY of enumerated runtime paths (absence of `COPY . .` / `COPY . /app`) AND confirm a hardened `.dockerignore` is present as defense-in-depth; run at `/implement` + `/deploy`. Phase 2 (deferred per `trust-posture.md` § Two-Phase Rollout) — no hook detector; audit fixtures land with the Phase-2 detector at `.claude/audit-fixtures/deploy-hygiene-positive-copy/` per `cc-artifacts.md` Rule 9.
+- **Violation scope:** the §9a positive-COPY clause ONLY (clause-scoped); the pre-existing grandfathered Rules 1–11 stay exempt until each is itself `/codify`-touched.
+- **Origin:** GH #833 (backlog-actionable-7) — the `.gitignore`-vs-`.dockerignore` independence failure mode stated inline in §9a; distributed via the deploy-hygiene tier.
 
 <!-- /slot:neutral-body -->

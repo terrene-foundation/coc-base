@@ -45,13 +45,26 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-import {
-  resolveRole as realResolveRole,
-  resolveAll as realResolveAll,
-  isConfigured as realIsConfigured,
-  LinkError,
-  VALID_ROLES, // single source of truth (closed role set, D2) — imported, not re-declared
-} from "./lib/loom-links.mjs";
+// loom-links is the resolver SSOT AT LOOM, but it is fenced `loom_only` and is
+// therefore ABSENT at a USE-consumer clone (F1030a). loom-doctor backs the
+// default-surfaced `/doctor`, so it MUST load + run without it. Load it lazily:
+// module present → the real resolver functions; module absent → safe degraded
+// stand-ins that report role/resolver as WARN/INFO (never crash). This is the
+// ONE intended degrade path (the catch → null), documented per zero-tolerance
+// Rule 3 — it is NOT silent error hiding.
+async function loadLoomLinks() {
+  try {
+    return await import("./lib/loom-links.mjs");
+  } catch {
+    return null; // fenced/absent at a consumer — degrade, do not crash
+  }
+}
+const loomLinks = await loadLoomLinks();
+
+// Mirror of loom-links VALID_ROLES; loom-links may be fenced at a consumer, so
+// loom-doctor carries a local fallback copy. loom-links.mjs stays the SSOT at
+// loom — the real set is used whenever the module loaded.
+const VALID_ROLES_FALLBACK = new Set(["platform", "build", "use-consumer"]);
 // SSOT for the coc-ledger driver registration — shared with the SessionStart
 // self-heal (journal/0418 G1). The canonical-command string + %P-omission
 // rationale live in the lib; do NOT re-declare a local copy (that bare-vs-node
@@ -96,6 +109,41 @@ function defaultReadFile(p) {
   }
 }
 
+// Default role/resolver seams: the real loom-links functions when the module
+// loaded, else safe degraded stand-ins (F1030a — loom-links fenced at a
+// consumer). These back runDoctor's default params so tests still inject fakes.
+function realResolveRole() {
+  return loomLinks ? loomLinks.resolveRole() : degradedResolveRole();
+}
+function realResolveAll() {
+  return loomLinks ? loomLinks.resolveAll() : new Map();
+}
+function realIsConfigured() {
+  // Module absent ⇒ not configured ⇒ checkResolver's INFO "expected for a
+  // USE-consumer clone" branch fires (never the resolveAll crash path).
+  return loomLinks ? loomLinks.isConfigured() : false;
+}
+
+// Degraded stand-in for resolveRole when loom-links is fenced/absent: read the
+// repo-root `.coc-role` marker directly — the SAME D2 fallback the real
+// resolveRole consults — so a consumer that ratified a role still resolves it.
+// Absent/empty marker → null (→ the "no role declared" WARN path); never throws.
+function degradedResolveRole() {
+  const env = process.env.LOOM_COC_ROLE_MARKER;
+  const markerPath =
+    env && env.trim() !== "" && path.isAbsolute(env)
+      ? env
+      : path.join(REPO_ROOT, ".coc-role");
+  let raw;
+  try {
+    raw = fs.readFileSync(markerPath, "utf8");
+  } catch {
+    return null; // absent → fall through to the "no role declared" WARN path
+  }
+  const token = raw.trim();
+  return token === "" ? null : token;
+}
+
 // ── individual checks (each pure given its injected deps) ────────────────────
 
 function checkRole(resolveRole) {
@@ -112,7 +160,11 @@ function checkRole(resolveRole) {
         "(writes a `.coc-role` marker), or add `role:` to loom-links.local.json",
     );
   } catch (e) {
-    const msg = e instanceof LinkError ? `${e.subtype}: ${e.message}` : String(e);
+    // Duck-type on the loom-links LinkError shape (`.subtype`) so no static
+    // LinkError binding is needed — the module must load even when loom-links
+    // is fenced at a consumer (F1030a).
+    const msg =
+      e && typeof e.subtype === "string" ? `${e.subtype}: ${e.message}` : String(e);
     return mk(
       "role",
       STATUS.crit,
@@ -455,6 +507,14 @@ export function formatReport(result) {
 // Default seam: invoke the existing loom-links-init seeder (refuses-on-exists).
 function defaultInvokeInit() {
   const init = path.join(SCRIPT_DIR, "loom-links-init.mjs");
+  // The seeder is fenced `loom_only` at a consumer (F1030a); do NOT spawn a
+  // missing script — report a skipped note so `--fix` degrades cleanly.
+  if (!fs.existsSync(init)) {
+    return {
+      ok: false,
+      detail: "loom-links-init.mjs not present at this clone; seed loom-links.local.json manually",
+    };
+  }
   const r = spawnSync(process.execPath, [init, "--write"], { encoding: "utf8", timeout: 5000 });
   const tail = ((r.stdout || "") + (r.stderr || "")).trim().split("\n").pop() || "";
   return { ok: r.status === 0, detail: tail };
@@ -502,12 +562,15 @@ export function runFix(result, opts = {}) {
 
   // role: write .coc-role ONLY with an explicit, valid --role (NO silent guess, D2)
   if (byId("role")?.status === "warn") {
+    // Use the real VALID_ROLES when loom-links loaded; else the local fallback
+    // (F1030a — loom-links.mjs is the SSOT at loom, may be fenced at a consumer).
+    const validRoles = loomLinks ? loomLinks.VALID_ROLES : VALID_ROLES_FALLBACK;
     if (!role) {
       manual.push(
         "role undeclared — re-run `loom doctor --fix --role <platform|build|use-consumer>` to ratify (no silent guess, D2)",
       );
-    } else if (!VALID_ROLES.has(role)) {
-      manual.push(`--role "${role}" is invalid — must be one of {${[...VALID_ROLES].join(", ")}}`);
+    } else if (!validRoles.has(role)) {
+      manual.push(`--role "${role}" is invalid — must be one of {${[...validRoles].join(", ")}}`);
     } else {
       writeFile(cocRolePath, role + "\n");
       applied.push(`.coc-role = ${role}`);

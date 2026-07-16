@@ -48,6 +48,19 @@ const CASES = [
     expectShapes: [],
   },
   {
+    // F404 Shard 3 (2026-07-15): container-internal devcontainer user homes
+    // (`/home/dev/` py + `/home/vscode/` rs) are the fixed base-image users,
+    // NOT host operator homes — the allowlist suppresses both. This locks the
+    // `/home/vscode/` entry added for the rs compose.override.yml.example mounts
+    // (and retroactively the pre-existing `/home/dev/` sibling, previously
+    // fixture-less). A real operator home still flags (see flag-each-shape /
+    // nonown-still-flagged).
+    name: "container-internal-home-allowlisted",
+    dir: "container-internal-home-allowlisted",
+    expectExit: 0,
+    expectShapes: [],
+  },
+  {
     name: "excluded-accepted-history",
     dir: "excluded-accepted-history",
     expectExit: 0,

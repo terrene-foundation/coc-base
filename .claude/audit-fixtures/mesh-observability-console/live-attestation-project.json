@@ -1,0 +1,43 @@
+{
+  "project_key": "fedcba9876543210fedcba9876543210",
+  "freshness": {
+    "last_pulled": "2026-07-14T00:00:00.000Z",
+    "data_version": "5"
+  },
+  "reach": "pulled",
+  "liveness_attestation": {
+    "all_levels_keyed": true,
+    "signature": "sig-ed25519-placeholder-structurally-present-for-live-branch",
+    "epoch": 7
+  },
+  "tuples": [
+    {
+      "name": "unique-a",
+      "version": "1",
+      "lineage_id": "1111222233334444555566667777aaaa",
+      "content_commitment": "ffff0000ffff0000ffff0000ffff0000",
+      "classification": "internal",
+      "owning_level": "use",
+      "product_class": "knowledge",
+      "cascade_scope": "scoped",
+      "provenance": "op",
+      "staleness_policy_ref": "p.yaml",
+      "reservoir_locator": "local",
+      "merged_from": []
+    },
+    {
+      "name": "unique-b",
+      "version": "1",
+      "lineage_id": "8888999900001111222233334444bbbb",
+      "content_commitment": "0000ffff0000ffff0000ffff0000ffff",
+      "classification": "internal",
+      "owning_level": "use",
+      "product_class": "knowledge",
+      "cascade_scope": "scoped",
+      "provenance": "op",
+      "staleness_policy_ref": "p.yaml",
+      "reservoir_locator": "local",
+      "merged_from": []
+    }
+  ]
+}

@@ -71,6 +71,9 @@ const TEMPLATE_LINK_KEYS = {
   "kailash-coc-py": "use-template.py",
   "kailash-coc-rs": "use-template.rs",
   "kailash-coc-claude-prism": "use-template.prism",
+  // base family (stack-agnostic, NO kailash- prefix) — the /migrate --adopt base axis
+  "coc-base": "use-template.base",
+  "coc-claude-base": "use-template.claude-base",
 };
 
 /**
@@ -146,6 +149,9 @@ const KNOWN_TEMPLATES = {
   "kailash-coc-claude-prism": "terrene-foundation/kailash-coc-claude-prism",
   "kailash-coc-py": "terrene-foundation/kailash-coc-py",
   "kailash-coc-rs": "terrene-foundation/kailash-coc-rs",
+  // base family (stack-agnostic Foundation templates, NO kailash- prefix)
+  "coc-base": "terrene-foundation/coc-base",
+  "coc-claude-base": "terrene-foundation/coc-claude-base",
 };
 
 /**
@@ -181,6 +187,37 @@ function resolveTemplate(cwd) {
         '"template": "kailash-coc-claude-py"',
     };
   }
+
+  return resolveTemplateByName(templateName, templateRepo, cwd);
+}
+
+/**
+ * Resolve a template BY NAME through the full chain (env override → cache →
+ * clone → offline sibling), independent of any project's .claude/VERSION.
+ * This is the lane `/migrate` needs: resolve a SPECIFIC named sister template
+ * (the multi-CLI sister, or the CC-only sister under --cc-only), NOT the
+ * template the current repo's VERSION points at (which for a cc-only-legacy
+ * repo is the wrong template, and for a bare --adopt repo does not exist yet).
+ * @param {string} templateName
+ * @param {string} [templateRepo] owner/repo slug; falls back to KNOWN_TEMPLATES
+ * @param {string} [cwd] caller cwd; only used to avoid returning cwd as its own sibling
+ * @returns {{ path: string, source: string, fresh: boolean } | { error: string }}
+ */
+function resolveTemplateByName(templateName, templateRepo, cwd) {
+  if (!templateName || templateName === "unknown") {
+    return { error: "resolveTemplateByName requires a concrete template name" };
+  }
+  // Path-traversal guard: templateName is joined into the cache path
+  // (`path.join(CACHE_DIR, templateName)`) which updateCachedClone() then
+  // `git reset --hard`s. A crafted `../../repo` could escape the cache dir onto
+  // an arbitrary local checkout — reject separators / `..` (template names are
+  // bare slugs like `kailash-coc-py` / `coc-base`).
+  if (/[/\\]/.test(templateName) || templateName.includes("..")) {
+    return {
+      error: `invalid template name (path separators / ".." not allowed): ${templateName}`,
+    };
+  }
+  cwd = cwd || process.cwd();
 
   // 1. Explicit developer escape hatch via env var.
   const envOverride = process.env.KAILASH_COC_TEMPLATE_PATH;
@@ -353,6 +390,8 @@ function cloneToCache(repoSlug, cachePath) {
 
 module.exports = {
   resolveTemplate,
+  resolveTemplateByName,
+  resolveSiblingViaLinks,
   findLocalSibling,
   updateCachedClone,
   cloneToCache,

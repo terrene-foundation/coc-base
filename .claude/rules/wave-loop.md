@@ -100,13 +100,13 @@ inter-wave gate G1→G5 before launching the next wave. Each step re-sequences E
 machinery; the gate adds no new phase. Launching wave N+1 before G1–G4 complete clean is
 BLOCKED.
 
-| Step                                        | Action                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Reuses                                                                         |
-| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| **G1 — redteam to convergence**             | `/redteam` scoped to THIS wave's shards, to full Convergence Criteria (`commands/redteam.md` § Convergence Criteria), posture-invariant                                                                                                                                                                                                                                                                                                                                                                                                                                          | `/redteam` unchanged                                                           |
-| **G2 — capture the learning (LIGHTWEIGHT)** | Record the delta between what the wave's todos CLAIMED and what its redteam FOUND (misunderstanding, plan-drift, spec-divergence) as a journal `DISCOVERY`/`GAP` + a first-instance spec update **+ a `.session-notes` refresh** (a wave boundary IS a close-out — the `/wrapup` contract runs WITH the wave-close, staged into the wave-close commit, NOT as a separate manual `/wrapup`). **Full `/codify` is RESERVED for genuinely cross-project learnings — NOT run every wave** (avoids N codify-lease/PR cycles per project per `rules/knowledge-convergence.md` MUST-3). | `commands/journal.md`; `commands/wrapup.md`; `rules/specs-authority.md` Rule 5 |
-| **G3 — update specs + remaining todos**     | First-instance spec update + sibling re-derivation sweep; amend UNSTARTED later-wave todos for version/symbol/signature drift the wave caused                                                                                                                                                                                                                                                                                                                                                                                                                                    | `rules/specs-authority.md` Rule 5/5b/5c                                        |
-| **G4 — re-value-rank**                      | Re-rank the remaining waves and re-validate every deferred value-anchor                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | `rules/value-prioritization.md` MUST-1 + MUST-3                                |
-| **G5 — launch next wave**                   | Only after G1–G4 are clean; decompose onto the parallel primitive when the wave is ≥3 independent shards                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | `rules/agents.md` § Decompose-By-Default                                       |
+| Step                                        | Action                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Reuses                                                                           |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| **G1 — redteam to convergence**             | `/redteam` scoped to THIS wave's shards, to full Convergence Criteria (`commands/redteam.md` § Convergence Criteria), posture-invariant — convergence is on **BUG + INVEST-NOW findings only** (`commands/redteam.md` § Category-Based Finding Triage / `rules/product-completion-first.md`); INCREMENTAL findings accrete to the deferred-quality backlog carried to the terminal `/sweep`, and do NOT reset the wave's clean-round counter                                                                                                                                     | `/redteam` + `agents.md` § Redteam Reviewer Dispatch (criterion-3 evidence gate) |
+| **G2 — capture the learning (LIGHTWEIGHT)** | Record the delta between what the wave's todos CLAIMED and what its redteam FOUND (misunderstanding, plan-drift, spec-divergence) as a journal `DISCOVERY`/`GAP` + a first-instance spec update **+ a `.session-notes` refresh** (a wave boundary IS a close-out — the `/wrapup` contract runs WITH the wave-close, staged into the wave-close commit, NOT as a separate manual `/wrapup`). **Full `/codify` is RESERVED for genuinely cross-project learnings — NOT run every wave** (avoids N codify-lease/PR cycles per project per `rules/knowledge-convergence.md` MUST-3). | `commands/journal.md`; `commands/wrapup.md`; `rules/specs-authority.md` Rule 5   |
+| **G3 — update specs + remaining todos**     | First-instance spec update + sibling re-derivation sweep; amend UNSTARTED later-wave todos for version/symbol/signature drift the wave caused                                                                                                                                                                                                                                                                                                                                                                                                                                    | `rules/specs-authority.md` Rule 5/5b/5c                                          |
+| **G4 — re-value-rank**                      | Re-rank the remaining waves and re-validate every deferred value-anchor                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | `rules/value-prioritization.md` MUST-1 + MUST-3                                  |
+| **G5 — launch next wave**                   | Only after G1–G4 are clean; decompose onto the parallel primitive when the wave is ≥3 independent shards                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | `rules/agents.md` § Decompose-By-Default                                         |
 
 ```markdown
 # DO — gate fires, learning feeds forward, THEN next wave
@@ -132,8 +132,19 @@ proceeds on a clean, fed-forward base.
 
 G1 runs `/redteam` to full convergence per `commands/redteam.md` § Convergence Criteria,
 scoped to the wave, posture-invariant. Shipping a wave before its redteam reaches 2
-consecutive clean rounds is BLOCKED — the terminal-redteam obligation, fired per wave. This
-rule binds it; it does NOT restate the criteria.
+consecutive clean rounds **on BUG + INVEST-NOW findings** (`commands/redteam.md` § Category-Based
+Finding Triage / `rules/product-completion-first.md`; INCREMENTAL findings accrete to the
+deferred-quality backlog carried to the terminal `/sweep` and do NOT reset the wave's clean-round
+counter) is BLOCKED — the terminal-redteam obligation, fired per wave. This
+rule binds the criteria and adds only the wave-local amplification below; it does not
+re-derive them. **The per-wave design runs N boundary redteam rounds vs the terminal design's
+one — multiplying throttle exposure — so G1 MUST honor the errored-reviewer evidence gate
+(criterion 3 of the § Convergence Criteria G1 binds, per `rules/agents.md` § "Redteam Reviewer
+Dispatch — Errored/Empty Is Zero Evidence" + `rules/evidence-first-claims.md` MUST-3): a G1
+"clean round" counts ONLY when EVERY dispatched reviewer genuinely ran — a false-converged
+wave feeds an un-reviewed base into G5's next wave. On the `rules/worktree-isolation.md`
+Rule 4 synchronized-throttle signal, back off dispatch concurrency and re-run the throttled
+reviewers before claiming G1 convergence.**
 
 ### 4. Later Waves Are Provisional, Re-Validated At Each Boundary — Not Frozen
 
@@ -195,19 +206,25 @@ Structural vs Execution Gates); the structural human gates remain `/todos` plan-
   undeclared/under-declared case, NOT only on already-multi-wave workspaces. (1) Any multi-wave
   workspace MUST then show (a) a journal convergence receipt per non-final wave (MUST-5), (b) a
   re-value-rank receipt per boundary (G4), (c) no wave's shard-union exceeding the MUST-1
-  bound-B ceiling. Phase 2 (deferred per `rules/trust-posture.md` § Two-Phase Rollout, after ≥3
+  bound-B ceiling, (d) each non-final wave's convergence receipt names the full reviewer wave
+  AND confirms every dispatched reviewer returned a genuine ran-signal (no errored / empty /
+  timed-out / throttled reviewer counted toward a clean round) per the MUST-3 evidence-gate — a
+  receipt-present-but-false-converged wave passes (a) yet fails (d). Phase 2 (deferred per `rules/trust-posture.md` § Two-Phase Rollout, after ≥3
   real wave-loop projects): a `.claude/hooks/lib/violation-patterns.js` Stop-event detector
   (advisory) + audit fixtures at `.claude/audit-fixtures/wave-loop/` per `rules/cc-artifacts.md`
   Rule 9.
 - **Violation scope:** MUST 1 (wave sizing — three bounds + compulsory wave-declaration), MUST 2 (gate fires every
-  non-final boundary), MUST 5 (durable receipt). Every `violations.jsonl` row records which
-  MUST clause fired.
+  non-final boundary), MUST 3 (G1 reaches GENUINE convergence — a clean round counts only when every dispatched
+  reviewer ran; a false-converged wave is a MUST-3 violation), MUST 5 (durable receipt). Every `violations.jsonl`
+  row records which MUST clause fired.
 - **Origin:** See § Origin below.
 
 ## Distinct From / Cross-References
 
 - **Composes with (does not restate):** `commands/redteam.md` § Convergence Criteria (G1/
-  MUST-3); `rules/agents.md` § Decompose-By-Default (G5/serial carve-out);
+  MUST-3) — incl. criterion 3's errored-reviewer evidence-gate; `rules/agents.md` § "Redteam
+  Reviewer Dispatch — Errored/Empty Is Zero Evidence" (the G1 evidence-gate MUST-3 binds) +
+  § Decompose-By-Default (G5/serial carve-out);
   `rules/value-prioritization.md` MUST-1+3 (G4 + later-wave re-validation);
   `rules/specs-authority.md` Rule 5/5b/5c (G2/G3); `rules/autonomous-execution.md` §
   Per-Session Capacity Budget (the shard gate the wave gate sits above) + § Structural vs
@@ -228,7 +245,7 @@ originates from the ceremony-axis review; the MUST-3/4/5 reference-binding colla
 duplication review. MUST-1 + MUST-2 are the genuinely-new load-bearing content; MUST-3/4/5
 are reference-bindings to the rules they compose with.
 
-**Length rationale (per `rules/rule-authoring.md` MUST NOT length cap).** ~236 lines, over the
+**Length rationale (per `rules/rule-authoring.md` MUST NOT length cap).** ~252 lines, over the
 200 guidance. Named rationale: the body is already minimized — MUST-3/4/5 are collapsed to
 reference-bindings and the duplicative `agents.md` clause was dropped per the duplication
 review — and the residual is structural: the mandatory 8-field Trust Posture Wiring

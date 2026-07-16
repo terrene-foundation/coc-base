@@ -71,7 +71,6 @@ const TIMEOUT_MS = 5000;
 let fallback = null;
 
 const crypto = require("crypto");
-const fs = require("fs");
 const path = require("path");
 
 const PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
@@ -111,15 +110,7 @@ function sha256(s) {
   return crypto.createHash("sha256").update(String(s), "utf8").digest("hex");
 }
 
-function readStdinSyncSafe() {
-  try {
-    const data = fs.readFileSync(0, "utf8");
-    if (!data || !data.trim()) return {};
-    return JSON.parse(data);
-  } catch {
-    return {};
-  }
-}
+const { readStdinBounded } = require("./lib/read-stdin-bounded.js");
 
 function passthrough() {
   if (fallback) clearTimeout(fallback);
@@ -278,7 +269,7 @@ function attachAgentAttribution(payload, hookInput) {
   return payload;
 }
 
-function main() {
+async function main() {
   fallback = setTimeout(() => {
     try {
       process.stdout.write(JSON.stringify({ continue: true }) + "\n");
@@ -286,7 +277,7 @@ function main() {
     process.exit(1);
   }, TIMEOUT_MS);
   try {
-    const payload = readStdinSyncSafe();
+    const payload = await readStdinBounded();
     const tool = payload.tool_name || payload.tool || "";
     const classified = classify(tool, payload.tool_input);
     if (!classified) {

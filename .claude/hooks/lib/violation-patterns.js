@@ -34,15 +34,23 @@ function normalizeRepoSlug(s) {
 }
 
 /**
- * Read `git remote get-url upstream` from cwd, normalize to "Org/Repo".
- * Returns null if no upstream remote, git unavailable, or unrecognized URL.
- * Used by detectRepoScopeDriftBash (issue #36) to allow parent-product
- * writes from hierarchical-fork consumers (rs-axis client deployments,
- * USE-template-derived projects with documented upstream parents).
+ * Read `git remote get-url <remoteName>` from cwd, normalize to "Org/Repo".
+ * Returns null if the remote is absent, git is unavailable, or the URL is
+ * unrecognized. Structural durable-on-disk signal (git remote state), NOT
+ * lexical prose — the in-scope allowances in detectRepoScopeDriftBash are
+ * grounded on it:
+ *   - "origin"   — the CWD repo's OWN identity. A `gh --repo <origin>` is the
+ *                  owner PR/merge workflow on the CURRENT repo, in-scope even
+ *                  from a git WORKTREE whose directory basename differs from
+ *                  the repo slug (the basename heuristic cannot see this).
+ *   - "upstream" — the hierarchical-fork parent-product (issue #36); some
+ *                  consumer rules MANDATE filing issues/PRs against the parent.
+ * Worktrees share the common .git, so origin/upstream resolve identically
+ * from a linked worktree and its main checkout.
  */
-function readUpstreamRemoteSlug(cwd) {
+function readRemoteSlug(cwd, remoteName) {
   try {
-    const url = execFileSync("git", ["remote", "get-url", "upstream"], {
+    const url = execFileSync("git", ["remote", "get-url", remoteName], {
       cwd: cwd || process.cwd(),
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
@@ -56,7 +64,7 @@ function readUpstreamRemoteSlug(cwd) {
 
 /**
  * Resolve the git repo root from cwd. Structural (git toplevel), 500ms
- * cap — same posture as readUpstreamRemoteSlug.
+ * cap — same posture as readRemoteSlug.
  */
 function repoRoot(cwd) {
   try {
@@ -71,30 +79,72 @@ function repoRoot(cwd) {
   }
 }
 
-// Bounds stale-receipt reuse across sessions: an authorizing journal
-// receipt only clears a cross-repo write if written within this window
-// (repo-scope-discipline.md User-Authorized Exception condition 5 —
-// scoped to ONE action; a days-old receipt MUST NOT authorize).
+// Bounds stale-receipt reuse across sessions: an authorizing receipt only
+// clears a cross-repo action if written within this window
+// (repo-scope-discipline.md User-Authorized Exception condition 5 — scoped to
+// ONE action; a days-old receipt MUST NOT authorize). Age is derived from the
+// receipt's own `timestamp:`/`date:` FRONTMATTER, NOT filesystem mtime — git
+// rewrites mtime on checkout / worktree-add / clone, and receipts are COMMITTED
+// (repo-scope-discipline.md), so mtime is not a reliable authorization-age
+// bound; the content timestamp is checkout-stable.
 const CROSS_REPO_RECEIPT_WINDOW_MS = 6 * 60 * 60 * 1000;
+// The staleness bound is TWO-SIDED: a FUTURE-dated receipt is also rejected
+// (beyond this small clock-skew tolerance). Since the age field is the
+// agent/writer-controlled `timestamp:` frontmatter, a one-sided bound would let
+// a `timestamp: 2062-...` receipt authorize indefinitely (a typo `2026`→`2062`
+// does it non-adversarially). Skew tolerates benign multi-host clock drift.
+const CROSS_REPO_RECEIPT_SKEW_MS = 5 * 60 * 1000;
+
+// Parse a receipt's `timestamp:` (ISO) or `date:` (YYYY-MM-DD) frontmatter →
+// ms epoch, or null if absent/unparseable (→ treated as stale, fail-closed).
+function _receiptTimestampMs(content) {
+  let m = content.match(/^timestamp:\s*(\S+)\s*$/m);
+  if (!m) m = content.match(/^date:\s*(\S+)\s*$/m);
+  if (!m) return null;
+  const t = Date.parse(m[1]);
+  return Number.isNaN(t) ? null : t;
+}
 
 /**
  * Structural in-scope signal for repo-scope-discipline.md
- * § User-Authorized Exception condition 4: a cross-repo write PRECEDED
- * by an authorizing journal receipt is in-scope by definition. The
- * receipt is a journal entry containing the greppable marker line
- * `cross-repo-authorized: <owner/repo>` for the exact target slug,
- * written recently (within the window). Durable on-disk signal — same
- * structural class as readUpstreamRemoteSlug's git-remote allowance,
- * NOT lexical agent prose. Scans repo-root journal/ + workspace
- * journals (incl. .pending), mtime-bounded, content-marker matched.
+ * § User-Authorized Exception condition 4: a cross-repo action PRECEDED by an
+ * authorizing receipt is in-scope by definition. The receipt carries the
+ * greppable whole-line marker `cross-repo-authorized: <owner/repo> <mode>`.
+ *
+ * TIER-AWARE (D — journal/0488): a WRITE action is cleared ONLY by a `write`
+ * receipt; a READ action is cleared by EITHER a `read` OR a `write` receipt (a
+ * write authorization is strictly stronger). `requiredMode` comes from
+ * `classifyCrossRepoIntent` — so a cheap read receipt can NEVER clear a write.
+ *
+ * The marker is matched ANCHORED to a full standalone line (regex-escaped
+ * slug), so a prefix-slug (`acme/service` vs a receipt for
+ * `acme/service-internal`) cannot collide and an injected free-text line cannot
+ * forge a second target. Age is the content `timestamp:`, not mtime.
+ *
+ * Scans the non-codify-gated `.claude/cross-repo-authz/` (RC6 break, journal/0488)
+ * FIRST, then repo-root journal/ + workspace journals for codify-authored receipts.
  */
-function hasCrossRepoAuthorizationReceipt(targetSlug, cwd) {
+function hasCrossRepoAuthorizationReceipt(targetSlug, cwd, requiredMode) {
   if (!targetSlug) return false;
   const root = repoRoot(cwd);
   if (!root) return false;
-  const marker = `cross-repo-authorized: ${targetSlug}`;
+  // Fail-closed: anything not explicitly "read" is treated as the stricter write.
+  const mode = requiredMode === "read" ? "read" : "write";
+  const esc = targetSlug.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // WRITE action → `write` receipt only; READ action → read OR write.
+  const modeAlt = mode === "read" ? "(?:read|write)" : "write";
+  // `[ \t]` (not `\s`) for inner separators so the marker is TRULY single-line —
+  // `\s` matches `\n`, which would let the slug/mode tokens satisfy the pattern
+  // across a line break; `^`/`$` with the `m` flag stay line-anchored.
+  const markerRe = new RegExp(
+    `^cross-repo-authorized:[ \\t]+${esc}[ \\t]+${modeAlt}[ \\t]*$`,
+    "m",
+  );
   const now = Date.now();
-  const dirs = [path.join(root, "journal")];
+  const dirs = [
+    path.join(root, ".claude", "cross-repo-authz"),
+    path.join(root, "journal"),
+  ];
   try {
     const wsRoot = path.join(root, "workspaces");
     for (const e of fs.readdirSync(wsRoot, { withFileTypes: true })) {
@@ -121,16 +171,62 @@ function hasCrossRepoAuthorizationReceipt(targetSlug, cwd) {
       if (!f.isFile() || !f.name.endsWith(".md")) continue;
       const fp = path.join(d, f.name);
       try {
-        if (now - fs.statSync(fp).mtimeMs > CROSS_REPO_RECEIPT_WINDOW_MS) {
-          continue; // stale — bounds cross-session reuse
-        }
-        if (fs.readFileSync(fp, "utf8").includes(marker)) return true;
+        const content = fs.readFileSync(fp, "utf8");
+        if (!markerRe.test(content)) continue;
+        // Content-timestamp age bound (checkout-stable, unlike mtime), TWO-SIDED:
+        // reject too-old (> window) AND future-dated (> skew) — a future
+        // `timestamp:` would otherwise authorize indefinitely (the age field is
+        // writer-controlled since the mtime→content-timestamp switch).
+        const ts = _receiptTimestampMs(content);
+        if (
+          ts === null ||
+          now - ts > CROSS_REPO_RECEIPT_WINDOW_MS ||
+          ts - now > CROSS_REPO_RECEIPT_SKEW_MS
+        )
+          continue;
+        return true;
       } catch {
         continue;
       }
     }
   }
   return false;
+}
+
+// Classify a cross-repo `gh` command's intent as "read" or "write" for the
+// tier-reads discipline (D — journal/0488): a user-directed READ satisfies
+// repo-scope-discipline.md § User-Authorized Exception with condition-4
+// downgraded to a one-line affordance receipt; a WRITE keeps all five
+// conditions. FAIL-CLOSED: an unrecognized subcommand ranks WRITE (the
+// stricter tier), so a novel `gh` verb never silently gets the lighter read
+// ceremony — an unrecognized→write default is the conservative disposition,
+// mirroring the enforcement-surface-parity "unrecognized ranks tightest".
+const GH_READ_VERBS =
+  /\bgh\s+(?:issue|pr|repo|run|release|workflow|cache|label|gist|search|api)?\s*(?:view|list|status|diff|checks|ls)\b|\bgh\s+search\b|\bgh\s+repo\s+view\b/;
+const GH_WRITE_VERBS =
+  /\bgh\s+(?:issue|pr|repo|release|secret|workflow|label|gist|api)?\s*(?:create|edit|close|comment|reopen|delete|transfer|pin|lock|merge|review|ready|set|run|upload|fork|rename|sync|clone)\b/;
+// `gh api` with an explicit mutating method or a data field is a WRITE.
+// Matches all method-flag forms — `-X POST`, `-XPOST`, `--method POST`,
+// `--method=POST` — via `(?:-X|--method)[\s=]*`, AND a body field
+// (`-f`/`-F`/`--field`/`--raw-field`/`--input`; `--input <file|->` promotes the
+// request to POST). Missing the equals-form + `--input` was a fail-OPEN hole in
+// a fail-closed-by-design classifier.
+const GH_API_MUTATE =
+  /\bgh\s+api\b[^|;]*(?:(?:-X|--method)[\s=]*(?:POST|PATCH|PUT|DELETE)|(?:^|\s)(?:-f|-F|--field|--raw-field|--input)\b)/i;
+
+function classifyCrossRepoIntent(command) {
+  if (!command || typeof command !== "string") return "write";
+  if (GH_API_MUTATE.test(command)) return "write";
+  if (GH_WRITE_VERBS.test(command)) return "write";
+  if (GH_READ_VERBS.test(command)) return "read";
+  // A bare `gh api <path>` with no mutating method/field is a GET (read) —
+  // GH_API_MUTATE above already claimed every mutating `gh api` first, so a
+  // remaining `gh api` is read-only (the verify-resource-existence.md GET is
+  // the common case). This narrows the fail-closed default WITHOUT weakening
+  // it: mutating api calls never reach here.
+  if (/\bgh\s+api\b/.test(command)) return "read";
+  // Unknown gh subcommand → fail-closed to the stricter WRITE tier.
+  return "write";
 }
 
 // 1. Pre-existing claim without SHA grounding (rules/zero-tolerance.md Rule 1c, 2026-05-01)
@@ -170,52 +266,93 @@ function detectRepoScopeDriftText(text) {
   return null;
 }
 
+// Extract the cross-repo target slug a `gh` command SEGMENT names, or null.
+// Two forms: (1) `gh ... --repo <slug>` (flag form), (2) `gh api [/]repos/<owner>/<repo>...`
+// (positional REST-path form — `gh api` never takes `--repo`, so without this a
+// cross-repo `gh api` was entirely ungated + classifyCrossRepoIntent's gh-api
+// handling was dead code). `seg` MUST already be a single command segment that
+// LEADS with `gh` (see detectRepoScopeDriftBash).
+function _ghSegmentTarget(rest) {
+  const flag = rest.match(/(?:^|\s)--repo(?:=|\s+)(["']?)([^\s"']+)\1/);
+  if (flag) return flag[2];
+  // Positional `gh api .../repos/<owner>/<repo>` — only when the verb is `api`.
+  if (/^api\b/.test(rest)) {
+    const api = rest.match(
+      /(?:^|\s)\/?repos\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)(?:\/|\s|$)/,
+    );
+    if (api) return api[1];
+  }
+  return null;
+}
+
 function detectRepoScopeDriftBash(command, cwd) {
   if (!command || typeof command !== "string") return null;
-  // gh ... --repo X (where X != cwd's repo)
-  const m = command.match(/\bgh\b[^|;]*--repo\s+(?:["']?)([^\s"']+)(?:["']?)/);
-  if (!m) return null;
-  const targetRepo = m[1].replace(/^["']|["']$/g, "");
-  // hook-output-discipline.md MUST-3: skip shell-variable references —
-  // `payload.tool_input.command` is the pre-expansion string, so $REPO /
-  // ${REPO} / $(...) / `...` cannot be evaluated at hook time.
-  if (
-    /^\$\{?\w+\}?$/.test(targetRepo) ||
-    /\$\(/.test(targetRepo) ||
-    /`/.test(targetRepo)
-  ) {
-    return null;
-  }
-  // Issue #36 — hierarchical-fork allowance.
-  // Before the basename heuristic, check whether the target matches the
-  // cwd repo's `upstream` remote. The hierarchical-fork pattern (a
-  // coc-project that documents an upstream parent-product remote) is a
-  // shipped COC pattern; some consumer rules MANDATE filing issues / PRs
-  // against the parent-product. Allowing the upstream-remote match
-  // closes the false-positive class on a structural signal (durable
-  // git remote state on disk), not lexical regex.
-  const targetSlug = normalizeRepoSlug(targetRepo);
-  if (targetSlug) {
-    const upstream = readUpstreamRemoteSlug(cwd);
-    if (upstream && upstream === targetSlug) return null;
-    // repo-scope-discipline.md § User-Authorized Exception condition 4:
-    // a cross-repo write PRECEDED by an authorizing journal receipt is
-    // in-scope by definition. Structural durable-on-disk signal (journal
-    // marker `cross-repo-authorized: <slug>`), not lexical prose —
-    // mirrors the upstream-remote allowance above. Closes the journal
-    // 0077/0078 gap where a properly-authorized action still tripped
-    // the trust-posture L1 critical downgrade.
-    if (hasCrossRepoAuthorizationReceipt(targetSlug, cwd)) return null;
-  }
+  // Join backslash-newline line-CONTINUATIONS first (the shell treats them as
+  // one command), THEN segment-split on real separators `;` `&` `|` newline `(`.
+  // Segment-splitting means a `gh ... --repo other` embedded as a SUBSTRING
+  // inside an echo / grep / heredoc / JSON payload is NOT segment-leading → NOT
+  // flagged (the false-positive class the PreToolUse guide-first amplified),
+  // while a `--repo`/`repos/` sitting past a `\`-newline continuation is still
+  // caught (the continuation is joined before the split). A BARE newline stays a
+  // separator (a benign leading `gh` and an unrelated later `--repo` are
+  // different segments → correctly not joined).
+  const joined = command.replace(/\\\r?\n/g, " ");
+  // Split on `;` `&` `|` newline — but NOT `(`: splitting on `(` would sever a
+  // `$(...)` command-substitution (leaving a bare `--repo $` that the
+  // shell-variable skip misses), a false-positive. A leading `(` subshell is
+  // instead absorbed by the lead regex below, so `$(...)` stays intact within
+  // its segment and the existing `\$\(` skip catches it.
+  const segments = joined.split(/[;&|\n]/);
   const cwdBase = path.basename(cwd || process.cwd());
-  if (!targetRepo.includes(cwdBase)) {
-    // hook-output-discipline.md MUST-2: lexical regex finding emits
-    // halt-and-report, never block. Block requires structural signal.
-    return {
-      rule_id: "repo-scope-discipline/MUST-NOT-1",
-      severity: "halt-and-report",
-      evidence: `gh --repo ${targetRepo} from cwd basename ${cwdBase} (no upstream remote match)`,
-    };
+  for (const seg of segments) {
+    const s = seg.trim();
+    // Segment MUST start with `gh` (optionally after a subshell `(` and/or
+    // env-assign prefixes like `FOO=bar gh ...`); a `gh` mid-string (echo/grep)
+    // never leads a segment.
+    const lead = s.match(/^\(*\s*(?:\w+=\S+\s+)*gh\s+(.*)$/s);
+    if (!lead) continue;
+    const rest = lead[1];
+    const targetRepo = _ghSegmentTarget(rest);
+    if (!targetRepo) continue;
+    // hook-output-discipline.md MUST-3: skip shell-variable references —
+    // `payload.tool_input.command` is the pre-expansion string, so $REPO /
+    // ${REPO} / $(...) / `...` cannot be evaluated at hook time.
+    if (
+      /^\$\{?\w+\}?$/.test(targetRepo) ||
+      /\$\(/.test(targetRepo) ||
+      /`/.test(targetRepo)
+    ) {
+      continue;
+    }
+    const intent = classifyCrossRepoIntent(s);
+    const targetSlug = normalizeRepoSlug(targetRepo);
+    if (targetSlug) {
+      // OWN-ORIGIN allowance — the CWD repo's own `origin` slug (the in-scope
+      // owner PR/merge workflow, fires even from a git WORKTREE whose basename
+      // differs). Structural git-remote signal, not lexical regex.
+      const origin = readRemoteSlug(cwd, "origin");
+      if (origin && origin === targetSlug) continue;
+      // Issue #36 — hierarchical-fork `upstream` allowance (same class).
+      const upstream = readRemoteSlug(cwd, "upstream");
+      if (upstream && upstream === targetSlug) continue;
+      // condition 4 — a cross-repo action PRECEDED by an authorizing receipt is
+      // in-scope. TIER-AWARE: a WRITE needs a write receipt; a READ accepts read
+      // OR write (classifyCrossRepoIntent supplies the required mode). Structural
+      // durable-on-disk signal, not lexical prose.
+      if (hasCrossRepoAuthorizationReceipt(targetSlug, cwd, intent)) continue;
+    }
+    if (!targetRepo.includes(cwdBase)) {
+      // hook-output-discipline.md MUST-2: lexical regex finding emits
+      // halt-and-report, never block. `target` + `intent` are surfaced so the
+      // PreToolUse guide-first ceremony need not re-extract/re-classify.
+      return {
+        rule_id: "repo-scope-discipline/MUST-NOT-1",
+        severity: "halt-and-report",
+        evidence: `gh cross-repo ${intent} ${targetRepo} from cwd basename ${cwdBase} (no origin/upstream remote/receipt match)`,
+        target: targetRepo,
+        intent,
+      };
+    }
   }
   return null;
 }
@@ -1956,6 +2093,7 @@ module.exports = {
   detectRepoScopeDriftText,
   detectRepoScopeDriftBash,
   hasCrossRepoAuthorizationReceipt,
+  classifyCrossRepoIntent,
   detectWorktreeDrift,
   detectCommitClaim,
   detectSweepSubstitution,

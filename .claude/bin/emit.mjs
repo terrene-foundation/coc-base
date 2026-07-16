@@ -1061,13 +1061,18 @@ export function validateCliDelivery() {
 
 // ────────────────────────────────────────────────────────────────
 // Validator 15 — manifest tier-completeness (loom 2026-05-16, journal
-// 0078). Every .claude/rules/*.md MUST have its distribution fate
+// 0078; agents + skill-dir + command coverage added 2026-07-05, knowledge-
+// cascade-routing.md MUST-2). Every .claude/rules/*.md — AND every
+// .claude/agents/**/*.md file AND every .claude/skills/<dir>/ directory AND
+// every .claude/commands/*.md file — MUST have its distribution fate
 // consciously declared in sync-manifest.yaml — exactly one of:
 //   (a) tier-listed (cc/coc-core/kailash/onboarding) — shipped to subscribers,
-//   (b) use_obsoleted: — actively purged from USE templates,
-//   (c) use_exclude:   — deliberately loom-only (never fanned out).
-// The failure mode this blocks is SILENT omission: a rule that is in
-// none of the three falls out of the subscription-based /sync model
+//   (b) use_obsoleted:/obsoleted: — actively purged from templates,
+//   (c) use_exclude:/exclude:/loom_only: — deliberately loom-only (never
+//       fanned out; rules conventionally use use_exclude, agents+skills+
+//       commands use loom_only).
+// The failure mode this blocks is SILENT omission: an artifact that is in
+// none of these falls out of the subscription-based /sync model
 // unnoticed. Before this validator, 16 rules authored at loom were
 // never added to a tier and were frozen in templates (matching only by
 // the luck of a pre-subscription full-sync). use_exclude IS a conscious
@@ -1091,6 +1096,100 @@ const _LOOM_TOOLING_RE =
 export function isBaseExclusionAdvisoryCandidate(ruleBody) {
   if (typeof ruleBody !== "string" || ruleBody.length === 0) return false;
   return !_KAILASH_COUPLING_RE.test(ruleBody) && !_LOOM_TOOLING_RE.test(ruleBody);
+}
+
+// ── Agent + skill-directory completeness (loom 2026-07-05, knowledge-cascade-
+// routing.md MUST-2) ──────────────────────────────────────────────────────────
+// V15 originally hard-failed on an unmanaged rules/*.md ONLY. A NEW agent file
+// or a NET-NEW skill DIRECTORY with no manifest declaration silently orphans in
+// EXACTLY the same way — it falls out of the subscription-based /sync model
+// unnoticed. knowledge-cascade-routing.md MUST-2 names this precise gap ("for
+// artifact types V15 does not yet cover (agents, net-new skill directories),
+// the author MUST declare the fate consciously, because the backstop will not
+// catch the omission"). These two pure helpers extend the SAME completeness
+// contract to agents (per-file) and skills (per-directory).
+//
+// An artifact is MANAGED when its manifest-relative path is declared in ANY
+// distribution-fate block: a tier, loom_only, exclude, use_exclude, obsoleted,
+// or use_obsoleted. Declarations may be exact files (agents/x.md), directory
+// globs (agents/frontend/**, skills/<name>/**), the codex TOML-safety overlay
+// form (foo/**.md), or `.claude/`-prefixed trailing-slash dir entries
+// (obsoleted:/use_obsoleted: use the `.claude/` prefix; the others do not).
+// Regex block-slice + entry-scan (no YAML dep), consistent with
+// validateTierCompleteness / loadManifestConfig. Exported for unit test.
+export function _collectDeclaredArtifactPatterns(manifestText) {
+  const sliceBlock = (key) => {
+    const re = new RegExp(`^${key}:\\s*$`, "m");
+    const start = manifestText.search(re);
+    if (start === -1) return "";
+    const bodyStart = manifestText.indexOf("\n", start);
+    if (bodyStart === -1) return "";
+    const after = manifestText.slice(bodyStart + 1);
+    const nextRel = after.search(/^[A-Za-z_][\w-]*:\s*$/m);
+    return after.slice(0, nextRel === -1 ? undefined : nextRel);
+  };
+  // `- <path>` at any indent; strip an optional quote + trailing `# comment`;
+  // normalize away the `.claude/` prefix so obsoleted/use_obsoleted entries
+  // (which carry it) compare equal to tier entries (which do not).
+  const entriesOf = (block) =>
+    [...block.matchAll(/^\s*-\s*"?([A-Za-z0-9_.\/*-]+?)"?\s*(?:#.*)?$/gm)].map(
+      (m) => m[1].replace(/^\.claude\//, ""),
+    );
+  const patterns = new Set();
+  for (const key of [
+    "tiers",
+    "loom_only",
+    "exclude",
+    "use_exclude",
+    "obsoleted",
+    "use_obsoleted",
+  ]) {
+    for (const e of entriesOf(sliceBlock(key))) patterns.add(e);
+  }
+  // Defense-in-depth: a type-root catch-all (agents/**, skills/**, commands/**,
+  // OR the trailing-slash dir agents/ etc.) would trivially satisfy the
+  // per-artifact completeness check for that whole type — silently defeating
+  // this validator. No legitimate manifest declaration is a bare type-root
+  // wildcard (each artifact is declared specifically, e.g. skills/NN-name/**),
+  // so drop them. Keeps completeness non-vacuous against a future footgun.
+  for (const overBroad of [
+    "agents/**",
+    "skills/**",
+    "commands/**",
+    // the `**.md` overlay form is established manifest vocabulary (cli_variants
+    // uses `agents/**.md:`), so a future author could write it into a fate block
+    // by analogy — and since agent/command paths end in `.md`, `agents/**.md` /
+    // `commands/**.md` would vacuously satisfy that whole type's completeness
+    // (R2 security-reviewer). Drop them too. (skills/**.md is harmless — a skill
+    // `rel` is a directory with no `.md` suffix — but dropped for symmetry.)
+    "agents/**.md",
+    "skills/**.md",
+    "commands/**.md",
+    "agents/",
+    "skills/",
+    "commands/",
+  ]) {
+    patterns.delete(overBroad);
+  }
+  return patterns;
+}
+
+// True when `rel` (a manifest-relative artifact path, e.g. agents/x.md or the
+// skill-directory path skills/<name>) is covered by any declared pattern. Glob
+// semantics: exact match; `pre/**` (directory glob — matches the dir itself AND
+// anything under it); `pre/**.md` (codex TOML-safety overlay form); `pre/`
+// (trailing-slash dir prefix, the obsoleted-dir shape). A skill DIRECTORY is
+// managed by its `skills/<name>/**` tier glob because `pre/** → pre === rel`.
+export function _artifactIsManaged(rel, patterns) {
+  for (const p of patterns) {
+    if (p === rel) return true;
+    if (p.endsWith("/**") && (rel === p.slice(0, -3) || rel.startsWith(p.slice(0, -2))))
+      return true;
+    if (p.endsWith("/**.md") && rel.endsWith(".md") && rel.startsWith(p.slice(0, -5)))
+      return true;
+    if (p.endsWith("/") && (rel === p.slice(0, -1) || rel.startsWith(p))) return true;
+  }
+  return false;
 }
 
 export function validateTierCompleteness() {
@@ -1142,6 +1241,73 @@ export function validateTierCompleteness() {
           `sync-manifest.yaml: add to a tier (cc/coc-core/kailash/onboarding), OR ` +
           `use_obsoleted: (purge from templates), OR use_exclude: ` +
           `(loom-only). (journal 0078)`,
+      );
+    }
+  }
+
+  // ── Agents + skill-directory completeness (knowledge-cascade-routing MUST-2) ──
+  // Same hard-fail contract as rules above, extended to agents (per-file, minus
+  // the non-agent agents/_README.md) and skills (per-directory). A NEW agent or
+  // net-new skill dir with no declared distribution fate is an unmanaged orphan
+  // that silently falls out of /sync — exactly the rule-orphan failure V15 was
+  // built to block, one artifact-type over.
+  const declaredPatterns = _collectDeclaredArtifactPatterns(text);
+  const agentsDir = path.join(REPO, ".claude", "agents");
+  const skillsDir = path.join(REPO, ".claude", "skills");
+  const walkMd = (dir) => {
+    let out = [];
+    if (!fs.existsSync(dir)) return out;
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const fp = path.join(dir, e.name);
+      if (e.isDirectory()) out = out.concat(walkMd(fp));
+      else if (e.name.endsWith(".md")) out.push(fp);
+    }
+    return out;
+  };
+  for (const fp of walkMd(agentsDir)) {
+    const rel = "agents/" + path.relative(agentsDir, fp).split(path.sep).join("/");
+    if (rel.endsWith("/_README.md") || rel === "agents/_README.md") continue;
+    if (!_artifactIsManaged(rel, declaredPatterns)) {
+      failures.push(
+        `${rel}: unmanaged agent — declare its distribution fate in ` +
+          `sync-manifest.yaml: add to a tier (cc/coc-core/kailash/onboarding), OR ` +
+          `loom_only: (loom-internal), OR exclude:/obsoleted: (never/no-longer ` +
+          `synced). (knowledge-cascade-routing.md MUST-2)`,
+      );
+    }
+  }
+  if (fs.existsSync(skillsDir)) {
+    for (const e of fs.readdirSync(skillsDir, { withFileTypes: true })) {
+      if (!e.isDirectory()) continue;
+      const rel = "skills/" + e.name;
+      if (!_artifactIsManaged(rel, declaredPatterns)) {
+        failures.push(
+          `${rel}/: unmanaged skill directory — declare its distribution fate in ` +
+            `sync-manifest.yaml: add a ${rel}/** entry to a tier (cc/coc-core/` +
+            `kailash/onboarding), OR loom_only: (loom-internal), OR ` +
+            `obsoleted: (no longer synced). (knowledge-cascade-routing.md MUST-2)`,
+        );
+      }
+    }
+  }
+  // COMMANDS: every .claude/commands/*.md is manifest-tier-managed by an
+  // individual entry (there is NO commands/** catch-all in any fate block), so
+  // a new command with no declaration silently skips emission
+  // (emit-cli-artifacts.mjs::emitCommands tierFilter skip) exactly as an
+  // unmanaged agent does. Same completeness contract (self-ref redteam R1
+  // cc-architect HIGH-1: commands are the same orphan class; reconcile-notes.md
+  // was a live instance). surface_roles: de-surfacing does NOT confer
+  // managed-ness — a de-surfaced command still ships to build/use, so tier
+  // membership remains the fate axis.
+  const commandsDir = path.join(REPO, ".claude", "commands");
+  for (const fp of walkMd(commandsDir)) {
+    const rel = "commands/" + path.relative(commandsDir, fp).split(path.sep).join("/");
+    if (!_artifactIsManaged(rel, declaredPatterns)) {
+      failures.push(
+        `${rel}: unmanaged command — declare its distribution fate in ` +
+          `sync-manifest.yaml: add to a tier (cc/coc-core/kailash/onboarding), OR ` +
+          `loom_only: (loom-internal), OR exclude:/obsoleted: (never/no-longer ` +
+          `synced). (knowledge-cascade-routing.md MUST-2)`,
       );
     }
   }

@@ -45,8 +45,10 @@
 // primitive. The sibling entry-point hook (../cross-ecosystem-disclosure-guard.js)
 // IS registered in settings.json on the Edit|Write|NotebookEdit PreToolUse
 // matcher (F3 Level-1, 2026-06-25, journal/0335) — it RUNS live but its BLOCK
-// branch is DORMANT until a write DECLARES a target ecosystem (whose only consumer
-// is the deferred sync-from-canon driver). Separately, the AUTONOMOUS
+// branch is DORMANT (it fires only when a write DECLARES a canon target ecosystem —
+// which #576's SHIPPED sync-from-canon driver does not itself emit, being a
+// canon→fork PULL that writes to the fork; its AC-2 guard-routing is UNBUILT).
+// Separately, the AUTONOMOUS
 // cross-ecosystem write-DETECTION an always-on fence would need depends on the
 // deferred ecosystem-remote resolver (cross-repo.md § "Ecosystem-Scoped Remote
 // Links (design contract)" — not yet built). AC-2 has TWO halves: the SCAN

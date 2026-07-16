@@ -3,6 +3,7 @@
 .coc-fetch-cache
 .claude/learning/codify-lease.json
 .claude/learning/coordination-mode.json
+.claude/learning/.ss-banner-*
 .claude/learning/observations.jsonl
 .claude/learning/violations.jsonl
 .claude/learning/coordination-log.jsonl*
@@ -17,6 +18,15 @@
 .claude/operators.roster.json
 .claude/logs/
 **/.journal-skipped.log
+**/handle-vault.json*
+**/.claude/mesh/**/k
+**/.claude/mesh/**/k_eco
+**/.claude/mesh/**/keys
+**/.claude/mesh/**/keys.json
+**/.claude/mesh/**/vault-key
+**/.claude/mesh/**/*.key
+**/.claude/mesh/**/*.pem
+**/.claude/mesh/**/*.secret
 .session-notes
 .session-notes.d/
 .session-notes.shared.md

@@ -13,11 +13,11 @@ Distinct from `/redteam` (scopes to ONE workspace's spec compliance) — `/sweep
 
 ## Execution Model
 
-Autonomous — runs every sweep sequentially, accumulates findings into a single report. The agent MAY fix trivial gaps inline (per `rules/zero-tolerance.md` Rule 1: "if you found it, you own it") but MUST surface every finding with its disposition (FIX-NOW / FILE-ISSUE / DEFER-WITH-REASON / FALSE-POSITIVE).
+Autonomous — runs every sweep sequentially, accumulates findings into a single **management decision report** (`.claude/skills/sweep/` § 1). Every finding is CATEGORY-classified per `rules/product-completion-first.md` (BUG / INVEST-NOW ISSUE / INCREMENTAL IMPROVEMENT — severity ranks, never gates fix-vs-defer): BUG + INVEST-NOW → FIX-NOW (invest-now judgment calls surfaced at the report's Decision Points for co-owner direction); INCREMENTAL → the deferred-quality tracking list under the four generalized `zero-tolerance.md` Rule-1b conditions. The agent MAY fix trivial BUGs inline (per `rules/zero-tolerance.md` Rule 1: "if you found it, you own it") but MUST surface every finding with its category + disposition; a completion-blocking finding deferred as "incremental" is BLOCKED (`product-completion-first.md` MUST-2).
 
 ## Workflow
 
-Run all 9 sweeps (Sweep 9 self-skips to N/A off the orchestration root). Aggregate findings into a single report at the end with severity (CRIT / HIGH / MED / LOW), disposition, and pointer (file:line, PR#, issue#).
+Run all 10 sweeps (Sweep 9 self-skips to N/A off the orchestration root). Aggregate findings into the management decision report (§ Output) — each finding carries CATEGORY (BUG / INVEST-NOW / INCREMENTAL per `rules/product-completion-first.md`), severity (CRIT / HIGH / MED / LOW — ranks only), disposition, and pointer (file:line, PR#, issue#).
 
 ### Sweep 1: Active todos across all workspaces
 
@@ -149,15 +149,26 @@ Only the N/A sentinel → a downstream consumer (no config, or a declared build/
 
 Roll every finding into the report BY KEY + pointer, each carrying a value-anchor at `/wrapup` (`rules/value-prioritization.md` MUST-2). Emit `<!-- sweep-ecosystem:v1:targets=N prs=P drift=D -->`.
 
+### Sweep 10: Deferred-quality product-visibility revisit (the anti-forgetting teeth)
+
+The `deferred-quality` backlog is net-negative WITHOUT this revisit (`rules/value-prioritization.md` Origin: 7-of-7 deferred items decayed). Full procedure: `.claude/skills/sweep/` § 2. In brief:
+
+```bash
+gh issue list --label deferred-quality --state open \
+  --json number,title,body,labels,createdAt --limit 100
+```
+
+Group by revisit trigger (`after-milestone:<name>` | `on-demand`). Surface a `value-prioritization.md` MUST-3 "still wanted?" gate for any item deferred ≥2 sweeps/sessions ago. At a product-visibility milestone (terminal wave converges / release tag), re-surface EVERY item whose `after-milestone:<name>` matches, re-value-rank, re-validate the value-anchor, and present the user-gated disposition per item — **implement / re-defer-with-fresh-anchor / close-with-gate** (`value-prioritization.md` MUST-4: no auto-close as `not_planned`, no OR-escape). The agent recommends; the human decides.
+
 ## Output
 
-Write findings to `workspaces/<project>/04-validate/sweep-<date>.md` (workspace context active) OR `SWEEP-<date>.md` at root. Each finding: `[SEVERITY] [Sweep N] <title>` + Location + Disposition + Evidence + Why-this-matters + Action-taken-if-FIX-NOW. End with cross-cutting observations and 2-5 ranked recommended next-session items. **Scrub before committing (Sweep 9):** the report is committed (Closure step 4), so any Sweep-9 finding MUST be recorded by logical KEY + PR#/status — NEVER an operator-absolute path (`/Users/<operator>/…`) or a private-org `--repo` slug — per `rules/user-flow-validation.md` MUST-6 (the same scrub `rules/artifact-flow.md` § Exact Gate-1/Gate-2 Tracking MUST-2 mandates on a committed receipt).
+Write the report to `workspaces/<project>/04-validate/sweep-<date>.md` (workspace context active) OR `SWEEP-<date>.md` at root. `/sweep` is a **management decision report FOR DECISION-MAKING AT THIS JUNCTURE** — full contract at `.claude/skills/sweep/` § 1. It MUST carry, in order: **(1) Completion status** (which milestones are complete AND _visible_, each citing a durable receipt per `rules/verify-resource-existence.md` MUST-4); **(2) ETA to completion** (remaining BUG + INVEST-NOW work in autonomous cycles, never human-days — `rules/autonomous-execution.md`); **(3) Prioritized immediate queue** (open BUGs + INVEST-NOW, value-ranked per `rules/value-prioritization.md` MUST-1, each with implication); **(4) Deferred-quality backlog** (INCREMENTAL items grouped by revisit trigger, each with value-anchor + the four generalized-1b conditions); **(5) Decision points** (the INVEST-NOW-vs-defer judgment calls, each with implications + symmetric pros/cons + a recommended disposition per `rules/recommendation-quality.md` MUST-1/2/3 — never silently self-decided); **(6) Recommendation** (recommended next steps for ratification, never a bare menu). Per-finding rows carry `[CATEGORY][SEVERITY][Sweep N] <title>` + Location + Disposition + Evidence. **Scrub before committing (Sweep 9/10):** the report is committed (Closure step 4), so record by logical KEY + PR#/issue# — NEVER an operator-absolute path (`/Users/<operator>/…`) or a private-org `--repo` slug — per `rules/user-flow-validation.md` MUST-6.
 
 ## Closure
 
 Before reporting `/sweep` complete:
 
-1. ALL Sweep 1-9 outputs accumulated (Sweep 9 = the cross-ecosystem roll-up at the orchestration root, or its N/A sentinel elsewhere)
+1. ALL Sweep 1-10 outputs accumulated (Sweep 9 = the cross-ecosystem roll-up at the orchestration root, or its N/A sentinel elsewhere; Sweep 10 = the deferred-quality product-visibility revisit)
 2. Trivial fixes applied inline (`rules/zero-tolerance.md` Rule 1); reclassified `FIXED` with commit SHA
 3. Non-trivial fixes filed as workspace todos OR GH issues with delivered-code references
 4. Report committed (`git add` + `git commit`)

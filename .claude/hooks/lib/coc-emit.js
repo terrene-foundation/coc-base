@@ -55,6 +55,11 @@ const { resolveIdentity, _discoverSigningKey } = require(
   path.join(__dirname, "operator-id.js"),
 );
 const actuationTypes = require(path.join(__dirname, "actuation-types.js"));
+// #583 Shard 3a — the EMIT-side presence gate verifies content.presence_proof
+// via the Shard-2 verifier and requires PROVEN (the live-`now` consumption tier).
+const presenceProofVerify = require(
+  path.join(__dirname, "presence-proof-verify.js"),
+);
 
 // Match transport-filesystem.js MAX_LINE_BYTES — the POSIX O_APPEND
 // atomicity half-budget (PIPE_BUF is 4KB; 2KB keeps the line atomic
@@ -365,47 +370,15 @@ function emitSignedRecord(opts) {
     return {
       ok: false,
       error: "unknown record type",
-      reason: `type '${o.type}' has no registered fold predicate in the default engine; register it in coordination-log.js::_registerDefaults before emitting (unregistered records are dispatch-rejected at fold and rule-2-poison the emitter's subsequent chain)`,
+      reason: `type '${o.type}' has no registered fold predicate in the default engine; register it in coordination-log.js::_registerM0Defaults before emitting (unregistered records are dispatch-rejected at fold and rule-2-poison the emitter's subsequent chain)`,
       step: "type-check",
     };
   }
 
-  // ---- A+ presence-proof gate (#583 §C4, A2 structural + A3 staged) -------
-  // Actuation-class records (gate-approval + future command-center actuation
-  // types — actuation-types.js) carry human intent: per the A+ floor "holding
-  // the key path is NOT sufficient" — they MUST be gated by a per-record
-  // presence proof. The proof's FORMAT + cryptographic verification are the
-  // off-loom loom-command path's (contract §0/§4); loom enforces the PRESENCE
-  // of an attestation slot HERE, BEFORE canonicalSerialize/sign. The
-  // attestation is consumed at the gate and NEVER added to recordCore, so a
-  // record that IS emitted is byte-identical — C1/C2 byte-indistinguishability
-  // is preserved (this guard changes no emitted byte).
-  //
-  // A3 staging: the HARD refusal activates only when a presence mechanism is
-  // configured. Otherwise (the default today — no mechanism exists) the
-  // un-attested actuation emission proceeds with a loud advisory, so the
-  // existing multi-operator /release gate-approval co-sign flow is not broken
-  // before a hardware-presence path exists.
-  if (
-    actuationTypes.requiresPresenceAttestation(o.type) &&
-    !actuationTypes.isAttestationPresent(o.presenceAttestation)
-  ) {
-    if (actuationTypes.isPresenceMechanismConfigured(repoDir)) {
-      return {
-        ok: false,
-        error: "presence proof required",
-        reason: `actuation record type '${o.type}' requires a per-record presence attestation (opts.presenceAttestation) — holding the signing key is NOT sufficient (#583 §C4). The attestation is produced by the off-loom loom-command hardware-presence path; an in-process/agent emission without it is the identity-≠-intent hole #583 closes.`,
-        step: "presence-gate",
-      };
-    }
-    try {
-      process.stderr.write(
-        `[ADVISORY] coc-emit: actuation record '${o.type}' emitted WITHOUT a presence attestation; no presence mechanism configured (#583 §C4, A3-staged). The hard refusal activates once loom-command's hardware-presence path is configured.\n`,
-      );
-    } catch {
-      // best-effort advisory only
-    }
-  }
+  // NOTE (#583 Shard 3a): the presence-proof gate for actuation-class records
+  // runs AFTER recordCore is constructed (it re-derives presenceProofBindingBytes,
+  // which needs type + verified_id + person_id + content) and BEFORE sign — see
+  // the "presence-proof gate" block below the recordCore assembly.
 
   // ---- Identity ----------------------------------------------------------
   let identity = o.identity;
@@ -466,6 +439,44 @@ function emitSignedRecord(opts) {
     content: o.content,
   };
   if (identity.display_id) recordCore.display_id = identity.display_id;
+
+  // ---- Presence-proof gate (#583 §C4; Shard-3a requirement-latch) ---------
+  // Actuation-class records (gate-approval + future command-center actuation
+  // types) carry human intent: holding the primary signing key is NOT sufficient
+  // (#583 §C4). Shard-3a UPGRADES this gate from "an attestation SLOT is present"
+  // (the retired opts.presenceAttestation truthiness check + the C1/C2
+  // byte-indistinguishability invariant, both retired in Shard 1 per
+  // journal/0505) to "content.presence_proof is a VALID, PROVEN broker proof":
+  // run the Shard-2 verifier over the record about to be signed and require
+  // PROVEN (valid broker sig + registered trust anchor + FRESH against live
+  // `now` — the consumption tier). This is the EMIT-side early-fail with a clear
+  // error; the FOLD (foldPresenceGate, every reader) is the real unbypassable
+  // enforcement (the #583 adversary holds the primary key and can hand-append
+  // bypassing THIS emitter, but not the fold).
+  //
+  // ALWAYS-ON (co-owner-ratified): the requirement is UNCONDITIONAL for actuation
+  // types — it does NOT consult isPresenceMechanismConfigured. The always-on fold
+  // rejects an ABSENT actuation regardless of any provisioning signal, and the
+  // COC-CHAIN _foldDelta guard below refuses to append a record that would
+  // fold-reject; so a non-PROVEN actuation must be refused here, not advisory-
+  // passed. Runs AFTER recordCore (verifyPresenceProof re-derives
+  // presenceProofBindingBytes over type+verified_id+person_id+content) and BEFORE
+  // sign, so a non-PROVEN actuation is never signed or appended.
+  if (actuationTypes.requiresPresenceAttestation(o.type)) {
+    const verdict = presenceProofVerify.verifyPresenceProof(
+      recordCore,
+      roster,
+      {},
+    );
+    if (verdict.status !== presenceProofVerify.STATUS.PROVEN) {
+      return {
+        ok: false,
+        error: "presence proof required",
+        reason: `actuation record type '${o.type}' requires a PROVEN per-record presence proof in content.presence_proof (verifier status: ${verdict.status}${verdict.reason ? ` — ${verdict.reason}` : ""}) — holding the signing key is NOT sufficient (#583 §C4). The proof is produced by the off-loom loom-command hardware-presence broker; an in-process/agent emission without a fresh, broker-signed proof is the identity-≠-intent hole #583 closes.`,
+        step: "presence-gate",
+      };
+    }
+  }
 
   // ---- Sign ---------------------------------------------------------------
   let bytes;

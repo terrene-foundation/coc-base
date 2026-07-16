@@ -114,7 +114,7 @@ const { foldPostureEvent } = require("./fold-posture-event.js");
 const { foldGenerationRotation } = require("./fold-rule-9b.js");
 const { foldGenesisMigration } = require("./fold-rule-9c.js");
 // FSUB (2026-06-11): journal-body-anchor fold predicate — registered in
-// _registerDefaults so emitted anchors fold in EVERY default-engine
+// _registerM0Defaults so emitted anchors fold in EVERY default-engine
 // consumer (an unregistered type is dispatch-rejected and rule-2-poisons
 // the emitter's subsequent chain). journal-body-anchor.js requires only
 // node builtins — no require cycle.
@@ -149,6 +149,28 @@ const { isEligibleSigner } = require("./eligibility.js");
 // `content.github_login: "alice"` must populate the chain (fold-rule-10
 // settlement bypass otherwise).
 const { loginsEqual } = require("./github-login.js");
+// #583 Shard 2: the presence-proof fold gate (broker-sig verify against a
+// roster trust_anchors entry + single-use nonce ledger + freshness classifier,
+// fail-closed). Verifies content.presence_proof on any record that carries one;
+// a record WITHOUT a proof folds exactly as today.
+const {
+  foldPresenceGate,
+  registerPresenceNonce,
+  // #583 Shard 3b (L7): proof-derived attribution downgrade. Stamps every
+  // accepted actuation / proof-bearing record with its EFFECTIVE gate-eligibility
+  // host_role (PROVEN → roster host_role; NOT-PROVEN → "ci" audit-only), DERIVED
+  // from the verified presence status — never a payload claim (see the accept
+  // path in _foldLog).
+  // #583 Shard 4 (N-1): the PER-SIGNER attribution map (`by_verified_id`) — one
+  // entry per { emitter + each co-signer }, so a gate consumer can confirm the
+  // DISTINCT approver (not only the emitter) was PROVEN-present.
+  deriveProofAttributionMap,
+} = require("./presence-proof-verify.js");
+// #583 Shard 3a (F5/Q5a): the actuation partition, asserted structurally at
+// module load against this engine's checkpoint-exempt + registration metadata
+// (see the invariant assert after the default engine is built). actuation-types
+// is a leaf module (requires only fs/path); this import cannot close a cycle.
+const { ACTUATION_RECORD_TYPES } = require("./actuation-types.js");
 
 /**
  * LIVENESS_TTL_MS — 20 minutes per architecture §4.4. Same constant as
@@ -561,6 +583,61 @@ function _registerM0Defaults(registry) {
     },
   });
 
+  // #47 (backlog-actionable-7): gate-op-receipt — the exact-tracking
+  // receipt `artifact-flow.md` § "Exact Gate-1 / Gate-2 Tracking" MUST-2
+  // mandates for every Gate-1 ingest AND Gate-2 distribution (emitted by
+  // `sync-gate2-worktree.mjs` via coc-emit.js::emitSignedRecord). A signed
+  // accountability/witness record — NOT an actuation (absent from
+  // actuation-types.js ACTUATION_RECORD_TYPES, so it bypasses the A+
+  // presence gate) and single-signer (no owner co-sig): the distributing
+  // operator's own signature IS the accountability trail. checkpoint_exempt:
+  // true per rule 6 (signed witness/accountability records survive
+  // compaction) — same no-op-accept shape as journal-slot-reservation above.
+  // Pre-#47 the type was UNregistered, so emitSignedRecord refused it at the
+  // type-check and sync-gate2 emitted no record at all — the MUST-2 gap
+  // (a rule mandating a record no code emitted and no fold type accepted)
+  // this closes.
+  registry.set("gate-op-receipt", {
+    fn: (record, ctx) => ({ accepted: true, foldState: ctx.foldState }),
+    meta: {
+      checkpoint_exempt: true,
+      authoritative_for_record: true,
+      authoritative_for_aggregate: false,
+    },
+  });
+
+  // CHFAPP (#868 reviewer R1 MED): checkpoint-skipped + session-notes-layout-
+  // error — the two SessionEnd teardown witness records emitted by
+  // multi-operator-sessionend.js. Pre-CHFAPP they were hand-appended (no seq /
+  // prev_hash) so `_validateRecordShape` SHAPE-rejected them at every fold (seq
+  // is a required field) — written to disk yet invisible to every fold consumer
+  // (dead writes). Routing them through coc-emit.js::emitSignedRecord requires
+  // them to be registered here (an UNregistered type is refused at emit's
+  // type-check — the exact gap #47 closed for gate-op-receipt above). Same
+  // no-op-accept signed-witness/accountability class as gate-op-receipt
+  // (single-signer, NOT an actuation, checkpoint_exempt so the forensic trail
+  // survives compaction).
+  //   - checkpoint-skipped: records that a compaction-checkpoint was skipped
+  //     because 2-of-N cosigner coordination is required (R8-LOW-1 audit trail).
+  //   - session-notes-layout-error: records a per-operator fragment / forest-
+  //     ledger write failure (observability.md forensic trail).
+  registry.set("checkpoint-skipped", {
+    fn: (record, ctx) => ({ accepted: true, foldState: ctx.foldState }),
+    meta: {
+      checkpoint_exempt: true,
+      authoritative_for_record: true,
+      authoritative_for_aggregate: false,
+    },
+  });
+  registry.set("session-notes-layout-error", {
+    fn: (record, ctx) => ({ accepted: true, foldState: ctx.foldState }),
+    meta: {
+      checkpoint_exempt: true,
+      authoritative_for_record: true,
+      authoritative_for_aggregate: false,
+    },
+  });
+
   // Owner-signed types — exempt per rule 6. Their rule-4 (mutation
   // scoping) check requires co-signers; rule 5 governs the checkpoint
   // specifically.
@@ -777,6 +854,72 @@ function _coSignedBytes(record) {
   const { co_signers, ...contentForCoSig } = c;
   const baseForCoSig = Object.assign({}, core, { content: contentForCoSig });
   return cocSign.canonicalSerialize(baseForCoSig);
+}
+
+/**
+ * #583 Shard 3b (L7) + Shard 4 (N-1) — stamp the proof-derived PER-SIGNER
+ * attribution map onto a record that is about to land in `accepted[]`. Returns
+ * the ORIGINAL record unchanged when there is nothing to attribute (non-actuation
+ * + no emitter proof + no co-signer presence proof — the Shard-1 untouched
+ * invariant), otherwise a COPY carrying a derived `_presence_attribution` field
+ * whose shape is `{ by_verified_id: { <emitter>: {...}, <approver>: {...} } }`.
+ *
+ * The stamp is a pure derivation from (each signer's verified_id → roster) + the
+ * fold-verified statuses (the emitter's `presenceStatus` + the per-co-signer
+ * `coSignerStatuses` foldPresenceGate computed) — NEVER a payload claim. Any
+ * `_presence_attribution` an adversary set on the incoming record is DROPPED first
+ * (Object.assign overwrites it with the derivation), so a downstream gate consumer
+ * reading `_presence_attribution.by_verified_id[approver].gate_eligible` cannot be
+ * fed a forged audit-only→human upgrade for the emitter OR any co-signer.
+ *
+ * A COPY is stamped (never a mutation of `record`) so the original is passed
+ * intact to registerPresenceNonce + _advanceChainState (which read the
+ * as-signed bytes / nonce), leaving the per-emitter chain hash untouched. The
+ * stamp stays a fold-derived TOP-LEVEL field named `_presence_attribution` (never
+ * inside `content`) so it is invisible to the canonical hash + primary sig, and
+ * `computeOwnChainHead` strips the whole (now larger) field by key — the
+ * Shard-3b-R2 chain-head-divergence trap does NOT re-open (the field NAME is
+ * unchanged; the single strip site drops it regardless of internal shape).
+ *
+ * @param {object} coSignerStatuses — { verified_id → STATUS } from foldPresenceGate.
+ */
+function _stampPresenceAttribution(
+  record,
+  roster,
+  presenceStatus,
+  coSignerStatuses,
+) {
+  const attr = deriveProofAttributionMap(
+    record,
+    roster,
+    presenceStatus,
+    coSignerStatuses,
+  );
+  if (attr) {
+    // Stamp: drop any incoming `_presence_attribution` (never trusted) and
+    // attach the derivation. `_presence_attribution` is a fold-derived top-level
+    // field; it is NOT part of content and never enters the signed/canonical bytes.
+    const { _presence_attribution, ...rest } = record;
+    return Object.assign({}, rest, { _presence_attribution: attr });
+  }
+  // Nothing to attribute (a non-actuation record with no proof — the Shard-1
+  // untouched invariant). Return the record AS-IS in the common legit case (no
+  // copy, zero byte change), BUT if it carries a forged top-level
+  // `_presence_attribution` an adversary hand-signed into the record, STRIP it
+  // so the forgery can NEVER survive into accepted[]. This makes the "IGNORED /
+  // OVERWRITES" invariant hold UNIVERSALLY — on the null-attr path too, not only
+  // when a derivation applies (R1 security-reviewer MEDIUM). Fail-closed: a
+  // downstream reader of `_presence_attribution` cannot be fed a forged
+  // audit-only→human upgrade on ANY record class.
+  if (
+    record &&
+    typeof record === "object" &&
+    Object.prototype.hasOwnProperty.call(record, "_presence_attribution")
+  ) {
+    const { _presence_attribution, ...rest } = record;
+    return rest;
+  }
+  return record;
 }
 
 /**
@@ -1570,8 +1713,8 @@ function _detectPartialPushGaps(perEmitterStats, peerHighWaterFor) {
 function _collectRosterGpgPubkeys(roster) {
   const out = [];
   const seen = new Set();
-  if (!roster || !roster.persons) return out;
-  for (const person of Object.values(roster.persons)) {
+  if (!roster) return out;
+  for (const person of Object.values(roster.persons || {})) {
     const keys = (person && person.keys) || [];
     for (const k of keys) {
       if (k && k.type === "gpg" && typeof k.pubkey === "string" && k.pubkey) {
@@ -1579,6 +1722,20 @@ function _collectRosterGpgPubkeys(roster) {
           seen.add(k.pubkey);
           out.push(k.pubkey);
         }
+      }
+    }
+  }
+  // #583 Shard 2: the presence-proof fold gate verifies broker_sig against a
+  // roster trust_anchors entry. A GPG-typed broker anchor's pubkey MUST be in
+  // the shared verify-homedir too, or the gate falls back to a per-call
+  // ephemeral homedir (correct but slow) — and, under the F17 expectedFpr bind,
+  // a key absent from the shared homedir simply fails to verify. trust_anchors
+  // live OUTSIDE roster.persons, so the persons-only sweep above misses them.
+  for (const a of roster.trust_anchors || []) {
+    if (a && a.type === "gpg" && typeof a.pubkey === "string" && a.pubkey) {
+      if (!seen.has(a.pubkey)) {
+        seen.add(a.pubkey);
+        out.push(a.pubkey);
       }
     }
   }
@@ -1608,6 +1765,12 @@ function _foldLog(records, roster, opts, registry) {
   const perEmitterStats = {}; // verified_id → {highestSeq}
   // (verified_id, seq) → {hash, record} for rule 3.
   const hashByEmitterSeq = new Map();
+  // #583 Shard 2: single-use presence-proof nonce ledger (AC-L4). Accumulates
+  // the broker nonce of every ACCEPTED presence-bearing record so a later
+  // record replaying the same nonce is rejected. The durable store IS this
+  // append-only log — a full re-fold re-derives the set (durable by
+  // construction). First occurrence wins; re-fold-stable.
+  const seenPresenceNonces = new Set();
   // Running fold state (predicate side-effect surface, e.g. trustRoot).
   let foldState = Object.assign(
     { trustRoot: null },
@@ -1721,6 +1884,25 @@ function _foldLog(records, roster, opts, registry) {
         continue;
       }
 
+      // --- #583 Shard 2 — presence-proof gate (cross-cutting; runs for every
+      // record after the sig gate, before per-type dispatch). A record WITHOUT
+      // a content.presence_proof passes untouched (Shard-1 invariant). A record
+      // WITH one has its broker_sig verified against a roster trust_anchors
+      // entry over the SSOT binding bytes, its nonce checked for single-use
+      // (AC-L4 replay defense), and is fail-closed on any crypto/anchor/shape
+      // failure. Freshness is a READ-TIME verdict (PROVEN vs EXPIRED), NOT a
+      // chain-admission gate — only re-fold-stable, time-invariant conditions
+      // reject here, so a legitimate historical actuation never oscillates out
+      // of the fold (see presence-proof-verify.js header). ---
+      const rp = foldPresenceGate(record, roster, {
+        seenPresenceNonces,
+        gpgHome: _sharedGpgHome || undefined,
+      });
+      if (!rp.accepted) {
+        rejected.push({ record, reason: rp.reason, rule: "presence-proof" });
+        continue;
+      }
+
       // --- Record-type dispatch (rule 9 — registration API) ---
       const entry = registry.get(record.type);
       if (!entry) {
@@ -1772,7 +1954,22 @@ function _foldLog(records, roster, opts, registry) {
         // contestedRevocations[] so consumer hooks can emit block-grade
         // integrity advisories naming the forger.
         const flagged = Object.assign({}, record, { rule10_contested: true });
-        accepted.push(flagged);
+        // #583 Shard 3b (L7): stamp attribution on this accept path too — a
+        // no-op for a non-actuation revocation record, but uniform so a future
+        // proof-bearing record on the flagged path is still proof-attributed.
+        accepted.push(
+          _stampPresenceAttribution(
+            flagged,
+            roster,
+            rp.status,
+            rp.coSignerStatuses,
+          ),
+        );
+        // #583 Shard 2: a flagged-accepted record still LANDS in accepted[], so
+        // if it carries a valid presence proof its nonce MUST be consumed too —
+        // the single-use ledger invariant "every accepted proof-bearing record
+        // burns its nonce" holds on ALL accept paths, not just the clean one.
+        registerPresenceNonce(record, seenPresenceNonces);
         _advanceChainState(
           perEmitterState,
           perEmitterStats,
@@ -1820,7 +2017,20 @@ function _foldLog(records, roster, opts, registry) {
         const flagged = Object.assign({}, record, {
           body_anchor_tampered: true,
         });
-        accepted.push(flagged);
+        // #583 Shard 3b (L7): stamp attribution on the tamper path too (no-op
+        // for a non-actuation journal-body-anchor record; uniform for parity).
+        accepted.push(
+          _stampPresenceAttribution(
+            flagged,
+            roster,
+            rp.status,
+            rp.coSignerStatuses,
+          ),
+        );
+        // #583 Shard 2: same as the contested path — a tamper-flagged record
+        // still lands in accepted[], so consume its presence nonce too (ledger
+        // invariant holds on every accept path).
+        registerPresenceNonce(record, seenPresenceNonces);
         _advanceChainState(
           perEmitterState,
           perEmitterStats,
@@ -1829,7 +2039,22 @@ function _foldLog(records, roster, opts, registry) {
         );
         continue;
       }
-      accepted.push(record);
+      // #583 Shard 3b (L7): stamp the proof-derived attribution (PROVEN →
+      // roster host_role; NOT-PROVEN, incl. the EXPIRED actuation the latch
+      // admits → "ci" audit-only) onto the accepted record. No-op for a
+      // non-actuation record with no proof (Shard-1 untouched invariant).
+      accepted.push(
+        _stampPresenceAttribution(
+          record,
+          roster,
+          rp.status,
+          rp.coSignerStatuses,
+        ),
+      );
+      // #583 Shard 2: an actuation record carrying a valid presence proof has
+      // now cleared every gate → consume its single-use nonce (AC-L4). No-op
+      // for records without a well-formed proof.
+      registerPresenceNonce(record, seenPresenceNonces);
       _advanceChainState(
         perEmitterState,
         perEmitterStats,
@@ -1942,10 +2167,21 @@ function computeOwnChainHead(folded, ownVerifiedId) {
     // production caller folds with the flag-activating ctx before
     // computing a chain head) but structural: any future repoDir-folding
     // caller would trip it.
+    //
+    // #583 Shard 3b R2 (HIGH): `_presence_attribution` is the SAME class —
+    // a fold-DERIVED top-level annotation `_stampPresenceAttribution` stamps
+    // onto every accepted actuation (`gate-approval`) + proof-bearing record
+    // (e.g. a `release` carrying a proof). Unlike the two flags above it is
+    // NOT latent: it stamps on the PLAIN accept path with no special ctx, so
+    // an operator whose highest-seq record is a stamped actuation/proof-bearing
+    // record would get a chain head hashed over (original + _presence_attribution)
+    // that DIVERGES from the fold-time `_canonicalHash(original)` (:1354),
+    // rule-2-rejecting their next emit. Strip it here to restore hash parity.
     const {
       sig: _s,
       rule10_contested: _r10,
       body_anchor_tampered: _bat,
+      _presence_attribution: _pa,
       ...core
     } = head;
     const contentHash = _canonicalHash(core);
@@ -1958,6 +2194,37 @@ function computeOwnChainHead(folded, ownVerifiedId) {
 // ---- module-default engine + exports ----------------------------------------
 
 const defaultEngine = createEngine({ inheritDefaults: true });
+
+// #583 Shard 3a (F5 + Q5a) — structural invariant, asserted at module load
+// against the DEFAULT (production) engine: every ACTUATION record type MUST be
+// (a) fold-registered AND (b) checkpoint-exempt.
+//   (b) closes the F5 checkpoint↔freshness replay window BY CONSTRUCTION: a
+//       checkpoint-exempt actuation's presence nonces are NEVER archived, so
+//       they never leave the live re-fold set → the single-use nonce ledger
+//       fully closes replay and freshness is redundant for every gated type
+//       (no checkpoint-min-age coupling needed — journal/0508 F5 option (b)).
+//   (a) guarantees the type actually has a predicate — an unregistered actuation
+//       would dispatch-reject at fold (Q5a: the allowlist is re-derived against
+//       ACTUAL fold-registered types).
+// Uses predicateMetadataFor (NOT isCheckpointExempt): the latter returns true
+// for UNREGISTERED types by the rule-6 default, which would silently hole (a);
+// predicateMetadataFor returns null for an unregistered type, catching it.
+// Asserted at LOAD so a future author adding a non-exempt/unregistered actuation
+// type to ACTUATION_RECORD_TYPES trips this immediately (mirrors the skew<freshness
+// load-time assert in presence-proof-verify.js), never silently at fold time.
+for (const t of ACTUATION_RECORD_TYPES) {
+  const meta = defaultEngine.predicateMetadataFor(t);
+  if (meta === null) {
+    throw new Error(
+      `coordination-log (#583 F5/Q5a): actuation record type '${t}' (actuation-types.js ACTUATION_RECORD_TYPES) has NO registered fold predicate in the default engine — an unregistered actuation dispatch-rejects at fold. Register it in _registerM0Defaults, or remove it from ACTUATION_RECORD_TYPES.`,
+    );
+  }
+  if (meta.checkpoint_exempt !== true) {
+    throw new Error(
+      `coordination-log (#583 F5): actuation record type '${t}' MUST be checkpoint_exempt — a non-exempt actuation's presence nonce can be archived while still fresh and replay as PROVEN across a checkpoint. Mark '${t}' checkpoint_exempt in _registerM0Defaults, or scope the presence-proof allowlist to checkpoint-exempt types only.`,
+    );
+  }
+}
 
 module.exports = {
   // Constants
@@ -1993,6 +2260,7 @@ module.exports = {
     _detectPartialPushGaps,
     _resolveRosterPerson,
     _collectVictimChainEntries,
+    _collectRosterGpgPubkeys,
     NON_EXEMPT_BY_DEFAULT,
     COSIGNED_TYPES,
   },

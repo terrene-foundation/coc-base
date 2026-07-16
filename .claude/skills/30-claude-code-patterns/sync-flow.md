@@ -23,11 +23,18 @@ Pull latest artifacts from the USE template repo. No target needed — reads tem
    - Known slugs: `kailash-coc-claude-{py,rs,rb,prism}` and the multi-CLI `kailash-coc-{py,rs}` all live under `terrene-foundation/`.
    - **NEVER use the legacy `scripts/resolve-template.js` shim** — added to manifest's `obsoleted:` list in v2.9.1; purged in step 3 below.
 
-2. **Read obsoleted list from the resolved template**: `cat "$RESOLVED_TEMPLATE_PATH/.claude/.coc-obsoleted"` (slim purpose-built file emitted by coc-sync Step 4.5). Each non-comment, non-blank line is a repo-relative path; trailing slash means directory. If missing, the template predates v2.9.1 — log a one-line warning, skip step 3, proceed; the obsoleted purge happens on the NEXT sync once the template upgrades.
+2. **Read obsoleted list from the resolved template**: `cat "$RESOLVED_TEMPLATE_PATH/.claude/.coc-obsoleted"` (slim purpose-built file emitted by the sync engine `sync-tier-aware.mjs` during the Step-4.5 sync flow). Each non-comment, non-blank line is a repo-relative path; trailing slash means directory. If missing, the template predates v2.9.1 — log a one-line warning, skip step 3, proceed; the obsoleted purge happens on the NEXT sync once the template upgrades.
 
 3. **Purge obsoleted paths in this consumer (MUST, before any merge)**:
 
    **HALT-on-dirty precondition (MUST — runs BEFORE the purge loop):** the purge below runs `rm -rf` against consumer paths. Before the loop, run `git status --porcelain` in the consumer. A non-empty result HALTS the downstream sync — the operator commits/stashes/cleans first, then re-runs. **HALT, never auto-stash** (stash is itself a loss vector — design red-team HIGH-1). An obsoleted-path directory may legitimately contain uncommitted operator work; deleting it via `rm -rf` while the tree is dirty risks unrecoverable loss of untracked-not-ignored files (the #401 class — no git object, no reflog). This is the second `rm`-without-porcelain-check instance the #401 analyst surfaced; it gets the same gate as Gate 2 step 0a.
+
+   **Path-containment guard (MUST — runs per line, BEFORE each `rm -rf`; #931):** the obsoleted list is emitter-authored, but the consumer purge MUST NOT trust it. A malformed or hostile line (`../sibling`, `/etc/passwd`, `.claude/../../etc`) would resolve OUTSIDE this consumer's tree and `rm -rf` a path the consumer never owned — containment closes that class regardless of whether the emitter is correct. Each line is validated with a pure-string check BEFORE deletion: reject absolute paths (leading `/`) and any `..` segment; the leftover set is repo-relative and therefore confined to the consumer's own tree (the deletion base is `./`). A rejected line is **skipped with a loud one-line warning to stderr — never silently dropped** (fail-loud: a silently-skipped orphan is a silently-un-purged orphan). This mirrors loom's emitter-side `rejectUnsafePurgeEntry` + `safeJoinUnder` (`.claude/bin/sync-tier-aware.mjs`). The check is intentionally a **pure-string case-glob** — `realpath` / `readlink -f` are not uniformly present on macOS's bash 3.2, and `mapfile`/associative arrays are bash-4 only (the loom#892 portability lesson), so neither is used. **Symlink caveat (honest limitation — partial coverage, one accepted residual):** because the guard is pure-string (no `realpath` / `readlink -f`), it does NOT resolve symlinks. The two backstops each close only PART of the symlink surface, and one vector stays open:
+   - **Backstop-1 — `rm -rf`'s own symlink semantics** (it removes the *link*, never recursing into the target's directory) closes ONLY the **TERMINAL** case: where the obsoleted path ITSELF is the symlink (e.g. obsoleted line `.claude/hooks/lib`, and `.claude/hooks/lib` is a link to `/etc`). `rm -rf "./.claude/hooks/lib"` unlinks the link and stops — nothing under `/etc` is touched.
+   - **Backstop-2 — the HALT-on-dirty gate** catches ONLY an **UNTRACKED** planted symlink: an uncommitted link dirties the tree, so HALT fires before the loop. A **committed** link leaves `git status --porcelain` empty, so HALT does NOT fire.
+   - **Residual NEITHER backstop closes (BOUNDED, ACCEPTED):** a **COMMITTED INTERMEDIATE symlink COMPONENT** — obsoleted line `a/b` where `a` is a committed symlink pointing out-of-tree. The pure-string guard sees no leading `/` and no `..`, so the line passes; the committed link leaves the tree clean, so HALT does not fire; and `rm -rf "./a/b"` traverses `a` and deletes `b` OUTSIDE the tree (Backstop-1 does not apply — the link `a` is an intermediate component, not the terminal path being unlinked). This is a BOUNDED, ACCEPTED residual, accepted on **rarity + low-impact** grounds (NOT because no portable fix exists): exploitation is effectively consumer self-sabotage — it requires the consumer to have *committed* an out-of-tree symlink into their OWN tree at a component some fixed loom-authored obsoleted entry happens to traverse, and an actor able to commit that already holds direct write access to the tree (a strictly stronger position than a purge-path race); the impact is nuisance-deletion of a path the sync-runner already writes. A portable per-component `[ -L ]` walk (test each `./`-prefixed path prefix, skip the line if any prefix is a symlink — POSIX `test -L`, bash-3.2-safe, no `realpath` needed) WOULD close it; it is deliberately OMITTED to keep this shipped snippet minimal for a LOW defense-in-depth layer. (A `realpath`-canonicalization guard would also close it but `realpath` / `readlink -f` are not uniformly present on macOS bash 3.2 — the loom#892 constraint — which is why the `[ -L ]` walk, not `realpath`, is the portable option here.)
+
+   The containment boundary is the **consumer repo root**, not `.claude/` alone: the obsoleted contract legitimately spans `.claude/**`, the multi-CLI overlays `.codex/**` + `.gemini/**`, and top-level `scripts/hooks/` + `scripts/resolve-template.js` (see `sync-manifest.yaml::obsoleted` + `cross-repo.md` Rule 3). Rejecting absolute + `..` confines every legitimate line to the repo root while blocking every escape.
 
    ```bash
    # HALT-on-dirty: refuse to purge into a tree with uncommitted work.
@@ -36,12 +43,49 @@ Pull latest artifacts from the USE template repo. No target needed — reads tem
      git status --porcelain >&2
      exit 1
    fi
-   for path in <obsoleted-paths>; do
+   # Read the SAME .coc-obsoleted file cat-read above, one line at a time.
+   # `while IFS= read -r` is the canonical safe form: it preserves leading/
+   # trailing whitespace and paths-with-spaces, and does NOT word-split or
+   # glob-expand the line (which a `for path in $(cat …)` would — a classic
+   # rm -rf footgun). bash-3.2-safe (no mapfile).
+   while IFS= read -r path; do
+     # Skip comment (^[[:space:]]*#) and blank / whitespace-only lines
+     # (prose contract: "Each non-comment, non-blank line is a repo-relative
+     # path"). Strip leading whitespace char-by-char (bash-3.2, no extglob),
+     # then classify the trimmed line — but keep purging the ORIGINAL $path.
+     trimmed="$path"
+     while case "$trimmed" in [[:space:]]*) true ;; *) false ;; esac; do
+       trimmed="${trimmed#?}"
+     done
+     case "$trimmed" in
+       ''|'#'*) continue ;;   # blank / whitespace-only, or comment → skip
+     esac
+     # Containment guard (#931): validate BEFORE rm. Pure-string, bash-3.2-safe
+     # (no realpath / readlink -f / mapfile). Fail-loud skip, never silent.
+     case "$path" in
+       ""|.|./|*/.)          echo "obsoleted: SKIP unsafe (empty / repo-root / trailing-dot) line: '$path'" >&2; continue ;;
+       /*)                   echo "obsoleted: SKIP unsafe (absolute path): '$path'" >&2; continue ;;
+       ..|../*|*/..|*/../*)  echo "obsoleted: SKIP unsafe ('..' segment): '$path'" >&2; continue ;;
+     esac
      if [ -e "./$path" ]; then
        rm -rf "./$path"
        echo "obsoleted: removed ./$path"
      fi
-   done
+   done < "$RESOLVED_TEMPLATE_PATH/.claude/.coc-obsoleted"
+   ```
+
+   ```bash
+   # DO — `while IFS= read -r`, skip comments/blanks, validate every line, then rm:
+   #   # a comment        → skipped (comment line)
+   #   .claude/hooks/lib   → removed ./.claude/hooks/lib
+   #   .claude/a b         → removed ./.claude/a b   (space preserved, not word-split)
+   #   ../sibling          → SKIP unsafe ('..' segment): '../sibling'   (nothing deleted)
+   #   /etc/passwd         → SKIP unsafe (absolute path): '/etc/passwd' (nothing deleted)
+   # DO NOT — `for path in $(cat .coc-obsoleted); do rm -rf "./$path"` — the
+   # unquoted `$(cat …)` word-splits on IFS and glob-expands each line (a path
+   # with a space becomes two rm targets; a line containing `*` expands), AND
+   # skipping the guard lets a single "../.." line escape the consumer tree and
+   # delete a sibling repo — no git object, no reflog.
    ```
 
    This is the ONLY mechanism by which downstream consumers purge stale orphan directories from former COC layouts. Skipping it leaves `require("./lib/...")` resolving against the wrong sibling and ships hooks that fail at every CC session start with `MODULE_NOT_FOUND`.
@@ -50,7 +94,7 @@ Pull latest artifacts from the USE template repo. No target needed — reads tem
    - `.claude/agents/**`, `.claude/commands/**`, `.claude/rules/**`, `.claude/skills/**`, `.claude/guides/**`
    - `.claude/hooks/**` — runtime enforcement scripts (canonical since v2.9.1)
    - `.claude/hooks/lib/**` — sibling helper modules loaded via `require("./lib/...")`
-   - `.claude/bin/**` — resolver + emitter binaries
+   - `.claude/bin/<allowlist>` — the FAIL-CLOSED consumer-runtime bin allowlist (F1030d/#1051): explicit entries only (`resolve-template.js`, `emit.mjs`, `validate-*`, `scan-synced-disclosure.mjs`, `mesh-*`, the example-JSON seeds, …), NOT a blanket `bin/**` glob
    - `.claude/.coc-obsoleted` — the obsoleted-purge contract file
    - Top-level `scripts/migrate.py` and other items declared in the manifest's `variant_only:` block
    - **NOT** `scripts/hooks/` or `.claude/scripts/` — obsoleted in v2.9.1, MUST NOT be re-emitted.
@@ -275,8 +319,8 @@ The steps below run INSIDE the isolated worktree (§0a), not the target's live c
    - **Apply `use_exclude:`** — paths listed there are BUILD-only. USE-template emission MUST skip them. Symmetric with `build_exclude:` for `/sync-to-build`. `/sync-to-build` ignores `use_exclude:`.
    - **Global runtime infrastructure (MUST include — tier-independent)**:
      - `.claude/hooks/**` (canonical since v2.9.1) — every `*.js` plus the `lib/` sibling helpers
-     - `.claude/bin/**` — `resolve-template.js`, `emit.mjs`, other resolver/emitter binaries
-     - `.claude/.coc-obsoleted` — the obsoleted-purge contract file (regenerated by Step 4.5)
+     - `.claude/bin/<allowlist>` — the FAIL-CLOSED consumer-runtime bin allowlist (F1030d/#1051): explicit entries only (`resolve-template.js`, `emit.mjs`, `validate-*`, `scan-synced-disclosure.mjs`, `mesh-*`, the example-JSON seeds, …), NOT a blanket `bin/**` glob — a new loom tool defaults to STAY-HOME unless added to `sync-tier-aware.mjs::ALWAYS_INCLUDE`
+     - `.claude/.coc-obsoleted` — the obsoleted-purge contract file (regenerated by the sync engine `sync-tier-aware.mjs` during the Step-4.5 sync flow)
    - **Variant overlay** from `variants/{repos.<target>.variant}/` — replacements + additions, including any `variants/{variant}/hooks/*.js` declared in `variant_only:`. Variant slug is `repos.<target>.variant` (`py`, `rs`, `rb`, `base`) — not necessarily equal to target name; e.g., `repos.rb.variant: rb` but a future `repos.rb-pro.variant: rb` would re-use the same overlay.
    - Top-level non-`.claude/` files declared in `variant_only:` (e.g., `scripts/migrate.py`).
    - **NOT** `scripts/hooks/` or `.claude/scripts/` — obsoleted in v2.9.1, MUST NOT be re-emitted to any target.

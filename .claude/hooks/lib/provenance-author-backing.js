@@ -79,17 +79,40 @@ function _normalizeAuthor(raw) {
 }
 
 /**
- * Count `HumanInput` events in the per-session provenance ledger. Best-effort:
- * a missing or unreadable ledger returns null (→ "undetermined"); a present,
- * readable ledger returns the count (which MAY be 0).
+ * Count `HumanInput` events in the CHAIN-ADJACENCY window — the events since the
+ * previous `Decision` event on the per-session ledger (GAP-2, DECISION-3). This
+ * is the backing check's true question: is THIS author claim (attached to the
+ * latest decision) backed by a human turn that falls in the window since the
+ * PRIOR decision — NOT merely by some unrelated early human turn counted
+ * session-wide (the GAP-2 bug: a late fabricated `co-authored` decision reading
+ * `backed` off one early unrelated human turn).
  *
- * SECRETS FENCE: parses each line ONLY to read `event.kind`. The event payload
- * (which carries `prompt_sha256` etc.) is NEVER read or emitted here.
+ * Window semantics: walk the ledger lines in chain order; find the index of the
+ * LAST `Decision`-kind event; count `HumanInput`-kind events strictly AFTER it.
+ * When there is NO prior `Decision`, the window is the whole session (the first
+ * decision in a session is legitimately backed by any human turn before it).
+ *
+ * CROSS-HOOK ORDERING INVARIANT (load-bearing — do NOT break): correctness
+ * depends on the current journal entry's OWN `Decision` event NOT yet being on
+ * the ledger when this runs. That holds ONLY because `settings.json` registers
+ * `journal-write-guard.js` (which calls `checkAuthorBacking`) on the
+ * `Edit|Write|NotebookEdit` PreToolUse matcher BEFORE `provenance-capture-tool.js`
+ * (which appends the `Decision`) on the `*` matcher. If those two PreToolUse
+ * entries were reordered, the current `Decision` would append first, the window
+ * would always be empty, and EVERY `human`/`co-authored` claim would read
+ * `unbacked` (systematic false-negative). The `provenance-author-backing.test.mjs`
+ * "cross-hook ordering invariant" case pins this by asserting the windowed count
+ * over a ledger whose LAST event IS a `Decision` (the reordered-hook shape) — a
+ * regression flips it. Keep the hook order.
+ *
+ * SECRETS FENCE (unchanged): reads ONLY `event.kind` + chain ORDER. The event
+ * payload (which carries `prompt_sha256` etc.) is NEVER read or emitted here — a
+ * count over a `kind` discriminator is not a disclosure.
  *
  * @param {string} ledgerPath absolute path to the ledger
- * @returns {?number} HumanInput count, or null if the ledger is absent/unreadable
+ * @returns {?number} windowed HumanInput count, or null if absent/unreadable
  */
-function _countHumanInput(ledgerPath) {
+function _countHumanInputSinceLastDecision(ledgerPath) {
   if (!fs.existsSync(ledgerPath)) return null;
   let raw;
   try {
@@ -99,19 +122,27 @@ function _countHumanInput(ledgerPath) {
     return null;
   }
   const lines = raw.split("\n").filter((l) => l.trim().length > 0);
-  let count = 0;
+  // Reduce each well-formed line to its `kind` ONLY (secrets fence); a corrupt
+  // line is skipped — it neither counts as a HumanInput nor resets the window.
+  const kinds = [];
   for (const line of lines) {
     let ev;
     try {
       ev = JSON.parse(line);
     } catch {
-      // A single corrupt line does not invalidate the rest — skip it. The
-      // chain-corruption path is handled by provenance-ledger's _deriveChainHead;
-      // here we only count well-formed HumanInput events.
       continue;
     }
-    // ONLY the `kind` discriminator is read — never the payload (secrets fence).
-    if (ev && ev.kind === "HumanInput") count += 1;
+    if (ev && typeof ev.kind === "string") kinds.push(ev.kind);
+  }
+  // Window = chain order since the LAST Decision. No prior Decision → whole
+  // session (index -1 → count from 0).
+  let lastDecisionIdx = -1;
+  for (let i = 0; i < kinds.length; i += 1) {
+    if (kinds[i] === "Decision") lastDecisionIdx = i;
+  }
+  let count = 0;
+  for (let i = lastDecisionIdx + 1; i < kinds.length; i += 1) {
+    if (kinds[i] === "HumanInput") count += 1;
   }
   return count;
 }
@@ -166,7 +197,11 @@ function checkAuthorBacking(a) {
     };
   }
 
-  const count = _countHumanInput(ledgerPath);
+  // Chain-adjacency (GAP-2, DECISION-3): count HumanInput events since the PRIOR
+  // Decision, NOT session-wide. A late fabricated `co-authored` decision backed
+  // only by an early unrelated human turn (behind an intervening Decision) reads
+  // `unbacked`, as it should.
+  const count = _countHumanInputSinceLastDecision(ledgerPath);
 
   // Ledger absent or unreadable → undetermined (degraded capture is ambiguous,
   // NOT a false claim; the caller halts-and-reports, never blocks).
@@ -180,7 +215,8 @@ function checkAuthorBacking(a) {
   }
 
   // author human | co-authored (or any non-agent value — co-authored is the
-  // journal.md default-when-uncertain): backed iff ≥1 HumanInput event.
+  // journal.md default-when-uncertain): backed iff ≥1 HumanInput event in the
+  // chain-adjacency window (since the prior Decision).
   const status = count >= 1 ? "backed" : "unbacked";
   return {
     status,
@@ -194,5 +230,5 @@ module.exports = {
   checkAuthorBacking,
   backingLabel,
   _normalizeAuthor,
-  _countHumanInput,
+  _countHumanInputSinceLastDecision,
 };

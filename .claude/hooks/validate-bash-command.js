@@ -22,6 +22,7 @@ const {
 const { instructAndWait } = require("./lib/instruct-and-wait");
 const {
   detectStateFileMutationSegmentAware,
+  detectRepoScopeDriftBash,
 } = require("./lib/violation-patterns");
 const { isCoordinationEnabled } = require("./lib/coordination-mode");
 const { resolveMainCheckout } = require("./lib/state-resolver");
@@ -246,6 +247,42 @@ function validateBashCommand(data) {
   const command = data.tool_input?.command || "";
   const cwd = data.cwd || process.cwd();
 
+  // GUIDE-FIRST cross-repo ceremony (B — journal/0488 RC1+RC3). This is the
+  // PreToolUse Bash tripwire, so the guidance arrives BEFORE the cross-repo
+  // command runs — the agent can honor the halt and run /cross-repo-authorize
+  // instead of contaminating framing with a cross-repo read (vs the PostToolUse
+  // advisory in detect-violations.js, which fires only AFTER). Hosted here (not
+  // detect-violations.js) because this hook is already the mcp-guard Bash
+  // tripwire — so the ceremony is CLI-neutral (mirrors to Codex shell) without
+  // reclassifying the CC-only multi-event detect-violations.js. GUIDES, does not
+  // block — lexical detection → halt-and-report (hook-output-discipline.md
+  // MUST-2). The authoritative violation ROW is logged once, by the PostToolUse
+  // detect-violations.js branch (no double-count). detectRepoScopeDriftBash
+  // returns null when a same-tier authorizing receipt exists → authorized
+  // re-runs pass straight through.
+  const crossRepo = detectRepoScopeDriftBash(command, cwd);
+  if (crossRepo) {
+    const target = crossRepo.target || "<owner/repo>";
+    const intent = crossRepo.intent || "write";
+    const isRead = intent === "read";
+    return {
+      severity: "halt-and-report",
+      what_happened: `Cross-repo ${intent} against ${target} attempted with no authorizing receipt (repo-scope-discipline.md § User-Authorized Exception).`,
+      why: crossRepo.rule_id,
+      agent_must_report: [
+        `This is a cross-repo ${intent.toUpperCase()}. Do NOT self-authorize it — the agent never self-authorizes (repo-scope-discipline.md MUST-NOT).`,
+        `Run the ceremony: /cross-repo-authorize ${target} "<the exact bounded action>" — it restates action+target for your yes/no, then writes the receipt so no condition is dropped.`,
+        isRead
+          ? `READ tier (D): conditions 1+2+3+5 apply; condition 4 is a one-line affordance receipt (still required) — the affordance writes it to .claude/cross-repo-authz/.`
+          : `WRITE tier: ALL FIVE conditions apply — the affordance writes the receipt (verbatim user instruction + the cross-repo-authorized marker) to .claude/cross-repo-authz/ BEFORE the action runs.`,
+        `The receipt is the ONLY distinguisher between an authorized and unauthorized cross-repo action (absent = critical L1, trust-posture.md MUST-4). Once written, re-run this command — the receipt clears the gate.`,
+      ],
+      agent_must_wait:
+        "Do not run the cross-repo command until /cross-repo-authorize has written the receipt (or the user explicitly redirects).",
+      user_summary: `${crossRepo.rule_id} — cross-repo ${intent} ${target}: run /cross-repo-authorize first`,
+    };
+  }
+
   // ADVISORY (loom #19 P3): branch-scope warn on `git commit` invocations.
   // Delegates to .claude/hooks/pre-commit-branch-scope.js which always
   // exits 0 and writes any out-of-scope advisory to stderr. Warn-only.
@@ -412,15 +449,19 @@ function validateBashCommand(data) {
   // Paired with the readCache identity-guard in adjacency-heartbeat.js
   // (rejects cache whose verified_id ≠ current operator).
   //
-  // #583 residual (b): extended to cover presence-mechanism.json — the config
-  // that flips the actuation presence-gate from advisory (A3-staged) to
-  // hard-refusal (actuation-types.js::isPresenceMechanismConfigured). It is a
-  // human / out-of-band-only config; an in-process/LLM caller writing it could
-  // self-define a trivially-satisfiable presence mechanism and then mint
-  // attestations that pass its own gate — the identity-≠-intent mintability
-  // hole #583 closes, one layer deeper. Hard-denied at BOTH the file-tool layer
-  // (settings.json Edit/Write/NotebookEdit deny) AND this Bash layer; NOT routed
-  // through integrity-guard's /codify-lease flow (it is not codify-authored).
+  // #583 residual (b): extended to cover presence-mechanism.json — the
+  // provisioning-state signal (actuation-types.js::isPresenceMechanismConfigured).
+  // Under the Shard-3a ALWAYS-ON model the presence requirement does NOT gate on
+  // this file — the fold rejects an ABSENT actuation on static type-membership,
+  // unconditionally. The file is the loom↔loom-command provisioning contract +
+  // the AC-L15 defense-in-depth signal for any future conditional consumer, and
+  // it stays write-guarded so an in-process/LLM caller cannot forge a
+  // "provisioned" state a future conditional consumer would trust (nor downgrade
+  // a provisioned gate) — the identity-≠-intent mintability class #583 closes,
+  // one layer deeper. It is a human / out-of-band-only config. Hard-denied at
+  // BOTH the file-tool layer (settings.json Edit/Write/NotebookEdit deny) AND
+  // this Bash layer; NOT routed through integrity-guard's /codify-lease flow
+  // (it is not codify-authored).
   //
   // observations.jsonl (Bash-layer parity with violations.jsonl): closes a
   // Bash-mutation gap surfaced empirically 2026-07-02. observations.jsonl and
@@ -885,7 +926,7 @@ function validateBashCommand(data) {
 /**
  * Three-layer mutation detection for trust-posture state files.
  *
- * Per issue #25 (esperie-enterprise/loom) — adopted from a downstream consumer's
+ * Per issue #25 — adopted from a downstream consumer's
  * state-file-write-guard (commit c0aeff73). Closes the bypass gap where
  * settings.json `permissions.deny` on Edit/Write does NOT cover bash-mediated
  * mutations (redirects, file utilities, interpreter -c/-e/-m bodies).

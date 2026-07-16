@@ -200,6 +200,12 @@ function isExcluded(relPath) {
   // it is never synced (sync-manifest.yaml `loom_only:`). Same self-exclude
   // pattern as the scanner's own file above.
   if (base === "disclosure-tenant-denylist.json") return true;
+  // The #1068 benign-collision registry carries the literal tenant token in its
+  // `token` field by design (it records which (token, host) substring collisions are
+  // benign, e.g. a short token inside `HttpClient`). Identical self-flag / never-synced
+  // (sync-manifest.yaml `loom_only:`) class as the denylist above — self-exclude so its
+  // own legitimate tokens do not self-flag (preserving zero-findings-on-main).
+  if (base === "disclosure-benign-collisions.json") return true;
   // The D6 ecosystem registry (ECO-IMPL W1) carries the REAL per-ecosystem org
   // slugs by design — it is loom-only (sync-manifest.yaml loom_only:) and
   // never reaches a consumer. The exclusion is SOURCE-ONLY (mirrors the #352
@@ -544,6 +550,22 @@ const ALLOWLIST = [
   // carries the operator's actual username, fails this anchored prefix, and is
   // still flagged by the operator-home-path shape.
   /\/home\/dev\//,
+  // ALLOWLIST-NOTE (F404 Shard 3 2026-07-15): `/home/vscode/` is the
+  // CONTAINER-INTERNAL devcontainer user home for the rs variant, NOT a host
+  // operator home — the exact same class as `/home/dev/` above (py). The rs
+  // dev-container builds `FROM mcr.microsoft.com/devcontainers/base` which
+  // ships the fixed non-root `vscode` user (uid/gid 1000); rs's Dockerfile
+  // sets `ARG REMOTE_USER=vscode` + `USER ${REMOTE_USER}` and its
+  // devcontainer.json sets `remoteUser: "vscode"`, so every consumer's rs
+  // container gets the identical fixed `vscode` user. The mount targets in
+  // `rs/compose.override.yml.example` (`${HOME}/.claude:/home/vscode/.claude`,
+  // the GPG side-mount prose) are in-container DESTINATION paths carrying zero
+  // operator/tenant identity — the host SOURCE side already uses the
+  // compose-aware `${HOME}` variable (never a literal operator home). Anchored
+  // to the EXACT fixed container username `vscode`: a real operator home
+  // (`/home/<operator>/`) carries the operator's actual username, fails this
+  // anchored prefix, and is still flagged by the operator-home-path shape.
+  /\/home\/vscode\//,
   // ALLOWLIST-NOTE: a `/Users/<PascalCase>/` span (e.g. `/Users/Items/`
   // from the `mockData/Users/Items/Records/Response*` glob comment in
   // validate-workflow.js) is a fake-data FIELD-NAME path, not a home

@@ -39,15 +39,7 @@ const path = require("path");
 const COALESCE_WINDOW_MS = 60_000;
 const PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 
-function readStdinSyncSafe() {
-  try {
-    const data = fs.readFileSync(0, "utf8");
-    if (!data || !data.trim()) return {};
-    return JSON.parse(data);
-  } catch {
-    return {};
-  }
-}
+const { readStdinBounded } = require("./lib/read-stdin-bounded.js");
 
 function passthrough() {
   clearTimeout(fallback);
@@ -175,9 +167,9 @@ function appendHeartbeat(repoDir, identity, opts) {
   }
 }
 
-(function main() {
+(async function main() {
   try {
-    const payload = readStdinSyncSafe();
+    const payload = await readStdinBounded();
     const hookEvent = payload.hook_event_name || "PreToolUse";
     const isStop = hookEvent === "Stop" || hookEvent === "SessionEnd";
 

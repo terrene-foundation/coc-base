@@ -90,6 +90,17 @@ const EXCLUDED_DIRS = [
   "benchmarks", // perf measurement output (FAIL means "missed perf target", not session-actionable)
 ];
 
+// Filename-keyed allowlist of STRUCTURED APPEND-ONLY AUDIT logs (observability.md
+// Rule 5a). These are machine-readable records of decisions/skips — NOT runtime
+// stderr/stdout — and legitimately store verbatim text (commit subjects, verdicts)
+// that false-matches a WARN|ERROR|FAIL scan. Filename exclusion is the structural
+// fix Rule 5a mandates; per-finding regex suppression is BLOCKED. Composes with
+// EXCLUDED_DIRS (basename match). Add a new audit log here upstream in loom/ and
+// sync out, rather than editing downstream copies.
+const EXCLUDED_FILES = [
+  ".journal-skipped.log", // session-local journal-skip audit; stores commit subjects verbatim
+];
+
 function triageLogs(cwd) {
   const messages = [];
 
@@ -180,11 +191,16 @@ function scanRecentLogs(cwd) {
     const prune = pathClauses
       ? `${nameClauses} -o ${pathClauses}`
       : nameClauses;
+    // Filename-keyed exclusion for structured append-only audit logs
+    // (observability.md Rule 5a) — composes with the EXCLUDED_DIRS prune.
+    const fileExcludeClauses = EXCLUDED_FILES.map((f) => `! -name '${f}'`).join(
+      " ",
+    );
     // find: prune tool cache dirs + nested git checkouts, then match *.log
-    // modified in last 120 min.
+    // (excluding audit logs by filename) modified in last 120 min.
     const cmd =
       `find "${cwd}" \\( -type d \\( ${prune} \\) -prune \\) -o ` +
-      `-type f -name '*.log' -mmin -120 -print 2>/dev/null ` +
+      `-type f -name '*.log' ${fileExcludeClauses} -mmin -120 -print 2>/dev/null ` +
       `| head -20 | xargs -I{} grep -HnE 'WARN|ERROR|FAIL' {} 2>/dev/null ` +
       `| head -200`;
     const out = execSync(cmd, { encoding: "utf8", timeout: 3000 });

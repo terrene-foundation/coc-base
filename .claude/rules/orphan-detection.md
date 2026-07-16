@@ -270,4 +270,4 @@ Origin: kailash-ml-audit session 2026-04-23 — W31/W33 parallel-shard `__all__`
 
 ## Detection Protocol
 
-The 5-step `/redteam` audit procedure lives in `skills/16-validation-patterns/orphan-audit-playbook.md` § "Detection Protocol". Runs as part of `/redteam` and `/codify`.
+The 6-step `/redteam` audit procedure (six detection steps + disposition) lives in `skills/16-validation-patterns/orphan-audit-playbook.md` § "Detection Protocol". Runs as part of `/redteam` and `/codify`.

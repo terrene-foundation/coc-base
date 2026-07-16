@@ -1,3 +1,0 @@
-.claude/audit-fixtures/lint-prose-drift/flag-sibling-probe/guide.md:3:42: [sibling-repo-probe] "../kailash-coc-claude-py" — resolve the sibling via loom-links.mjs::resolveRepo(<key>); a positional ../ probe breaks on non-sibling layouts
-
-prose-drift lint: 1 stale layout assertion(s) flagged

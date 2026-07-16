@@ -30,14 +30,14 @@ Before declaring ANY deliverable "done", "complete", "shipped", "landed", or "re
 Walked the /onboard flow end-to-end:
 $ /onboard
 Output:
-  Welcome to multi-operator COC. Identity: jack-hong (unrostered).
+  Welcome to multi-operator COC. Identity: <operator-display-id> (unrostered).
   Posture: L2_SUPERVISED. Active claims (siblings): none.
   Next steps:
     /whoami --register   (you appear unrostered)
     /claim <path>        (when starting work on a path)
 $ /whoami --register
 Output:
-  Drafted register proposal at .claude/.proposals/register-jack-hong.yaml
+  Drafted register proposal at .claude/.proposals/register-<operator-display-id>.yaml
   PR will open at: <link>
 User disposition: registered, next-step actionable, no confusion.
 → end-to-end walk confirmed.
@@ -79,7 +79,7 @@ The walk MUST produce a **receipt**: verbatim command + verbatim output + the in
 `/onboard`:
 $ /onboard
 Output (verbatim):
-  Welcome to multi-operator COC. Identity: jack-hong (unrostered).
+  Welcome to multi-operator COC. Identity: <operator-display-id> (unrostered).
   …
 Disposition: registered identity surfaced; next-step `/whoami --register` clear.
 
@@ -111,7 +111,7 @@ When a test passes BUT the walk surfaces a failure (wrong output rendering, conf
 
 Tier-2 test asserts: `/whoami` exits 0 + prints identity.
 Walk: $ /whoami
-Output: "person:jack-hong verified:gh-jack disp:jack-hong role:owner posture:L5"
+Output: "person:<operator-display-id> verified:<gh-login> disp:<operator-display-id> role:owner posture:L5"
 Disposition: confused — output is dense; user cannot find their role at a glance.
 
 → Fix UX: re-format output to multiline with labels. Test still asserts

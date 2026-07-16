@@ -3,6 +3,11 @@
  * Hook: validate-prod-deploy
  * Event: PreToolUse
  * Matcher: Bash
+ * @settings-registration: optional-consumer — a prod-deploy gate a CONSUMER
+ *   registers in its OWN .claude/settings.json under PreToolUse:Bash when it
+ *   wants staging-before-prod gating (see Usage below). Not registered in
+ *   loom's settings.json (loom is not a deploy target); the validate-emit
+ *   `settings-hook-registration` check reads this marker (#771).
  * Purpose: Block direct production deployment commands unless staging has passed.
  *
  * Intercepts Bash commands that touch production Docker containers and
@@ -20,6 +25,7 @@ const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
 const { instructAndWait } = require("./lib/instruct-and-wait");
+const { readStdinBounded } = require("./lib/read-stdin-bounded.js");
 
 const TIMEOUT_MS = 5000;
 const timeout = setTimeout(() => {
@@ -55,7 +61,7 @@ function emitBlock({
 
 async function main() {
   try {
-    const input = JSON.parse(fs.readFileSync("/dev/stdin", "utf8"));
+    const input = await readStdinBounded();
     const toolName = input.tool_name;
     const toolInput = input.tool_input || {};
     const command = toolInput.command || "";
