@@ -69,5 +69,5 @@ note: |
   target-root .codex-mcp-guard/. Target guard preserved at committed 957 ln (0 git changes).
   PRESERVED: CLAUDE.md (template-owned), dev-container scaffold, settings.local.json, .codex-mcp-guard.
   build:null — base is stack-agnostic, NO SDK pins. upstream loom 2.45.0 unchanged.
-  BUMP: template 2.45.8->2.45.9; loom_sha a674718->f84241d9.
+  BUMP: template version UNCHANGED at 2.45.8 (content-only redistribution, team-lead Option A); loom_sha a674718->f84241d9.
   visibility=public preserved across marker rewrite.

@@ -1,6 +1,6 @@
 {
   "name": "coc-base",
-  "version": "2.45.9",
+  "version": "2.45.8",
   "type": "coc-use-template",
   "description": "Language-agnostic, non-Kailash CO/COC USE template — multi-CLI (variant: base, clis: claude/codex/gemini)",
   "synced_at": "2026-07-16T14:35:34Z",
@@ -26,11 +26,6 @@
     "gemini"
   ],
   "changelog": [
-    {
-      "version": "2.45.9",
-      "date": "2026-07-16",
-      "summary": "D2DIST Gate-2 base sync from loom@f84241d9 (loom_sha a674718->f84241d9), multi-CLI lane. Content axis (sync-tier-aware --verify CONSISTENT): 91 modified + 41 added + 32 deleted = 164; 17 purged obsoleted; 32 removed loom-internal bin tools (consumer-runtime allowlist F1030d/#1051). FULL derived-tree re-emit (MUST-8): .codex (prompts 38, agent-prompts 18, skills 27), .gemini (commands 38, skills 27, agents 18), .coc (153 files / 151 artifacts), AGENTS.md 53783B (codex headroom 12.46%), GEMINI.md 53789B (gemini 12.45%) — WARN-tier, above 10% floor, strict-headroom emit exit 0; scaffold: bin/coc + 28 phase shims, sync-manifest.yaml (manifest_distribute), codex-mcp-guard symlink preserved. Idempotency: second emit byte-identical (0 diffs). CODEX-GUARD .codex-mcp-guard/** DELIBERATELY EXCLUDED (continues prior-cycle deferral): loom .claude/codex-mcp-guard/server.js now 1119ln vs loom-root .codex-mcp-guard/ 456ln vs target committed 957ln — source ambiguity + security-enforcement surface warrant a dedicated security-reviewed refresh, not a distribution ride-along; target guard preserved at committed 957ln, 0 changes. CLAUDE.md preserved; build:null (no SDK pins). upstream loom 2.45.0 unchanged."
-    },
     {
       "version": "2.45.8",
       "date": "2026-07-05",
