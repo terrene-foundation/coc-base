@@ -26,7 +26,7 @@ Before delegating, the orchestrator MUST scan the prompt-being-drafted for closu
 
 The orchestrator MUST run this scan as a pre-flight before EVERY closure-parity-class delegation; surfacing the mismatch at delegation-time is O(1), re-launching after the agent FORWARDS rows is O(N) on row count and burns the round.
 
-(See `agents.md` Example 5 for the delegation-time scan pattern.)
+(See the `specialist-delegation-syntax` skill, Example 5, for the delegation-time scan pattern.)
 
 ## BLOCKED Auto-Promotion Rationalizations
 
@@ -72,7 +72,7 @@ This preserves the read-only specialist's tool-inventory guarantees (it cannot m
 
 - `.claude/rules/agents.md` § "MUST: Audit/Closure-Parity Verification Specialist Has Bash + Read" — load-bearing MUST clause
 - `.claude/rules/agents.md` § "MUST: Verify Specialist Tool Inventory Before Implementation Delegation" — sibling MUST clause this one extends from IMPLEMENTATION to AUDIT delegation
-- `.claude/rules/agents.md` Examples 4 + 5 — CLI-specific dispatch syntax for closure-parity verification + delegation-time scan
+- `.claude/skills/30-claude-code-patterns/specialist-delegation-syntax.md` Examples 4 + 5 — CLI-specific dispatch syntax for closure-parity verification + delegation-time scan
 - `.claude/skills/30-claude-code-patterns/worktree-orchestration.md` — parallel-pattern precedent for skill-extension of agents.md MUST clause depth
 
 ## Provenance

@@ -596,7 +596,7 @@ function neutralizeWholeTree(root, scrubPairs) {
   // the SAME dynamic canon-token pairs but routes the structural operator-home-path
   // rewrite through a SYNTHETIC-USERNAME ALLOWLIST (identity-scrub.mjs's
   // SYNTHETIC_FIXTURE_USERS). loom's disclosure TESTS (e.g. sync-from-canon.test.mjs)
-  // plant a SYNTHETIC `/Users/jdoe/...` operator-home shape as a fixture so the REAL
+  // plant a SYNTHETIC `/Users/<fixture-user>/...` operator-home shape as a fixture so the REAL
   // scanner fires and the test verifies the halt path; an unconditional homepath
   // rewrite would rewrite that fixture to `/Users/<user>/`, which the scanner then
   // EXCLUDES — silently neutering the disclosure test (a green test that verifies

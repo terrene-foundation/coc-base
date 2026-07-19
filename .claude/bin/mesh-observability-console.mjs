@@ -70,6 +70,16 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { scrubTuple, isOpaqueHandle, REDACTED, VERSION_GRAMMAR } from "./mesh-registry-scrub.mjs";
+// RES-16 post-fetch detection BACKSTOP consumption (spec §2 invariant 2). The
+// console reads THROUGH the backstop: any ref the re-scan flags DISCLOSURE-
+// QUARANTINED (a raw value SURVIVED the source fence, or a kept `<domain>` handle
+// FAILS isOpaqueHandle) MUST NOT have its raw tuple rendered — the row is WITHHELD
+// and a redacted quarantine ALERT is surfaced instead (ref + finding KINDS ONLY,
+// NEVER a raw value or field key). `scanRegistry` yields the token-safe manifest,
+// including the backstop's own disclosure-safe ref. DETECT-NOT-PREVENT: the
+// console cannot unfetch the leaked object; it makes the source-fence
+// misconfiguration VISIBLE + CONTAINS the ref from further loom-side use.
+import { scanRegistry, FINDING_KINDS } from "./mesh-registry-backstop.mjs";
 
 // ────────────────────────────────────────────────────────────────
 // Banners / sentinels the render vocabulary is built from. The
@@ -138,6 +148,53 @@ export function fenceTuple(tuple) {
 }
 
 // ────────────────────────────────────────────────────────────────
+// Per-tuple classification every render surface consults (spec §2 invariant 2).
+// THREE outcomes, in strict precedence:
+//   (1) REJECTED — a HARD-violation tuple (`scrubTuple().ok === false`: vault
+//       material / raw content_hash). Unchanged normative home (spec §2
+//       invariant 2, sentence 1): a REJECTED row, never a quarantine alert.
+//   (2) QUARANTINED — a tuple the RES-16 post-fetch backstop re-scan flags
+//       DISCLOSURE-QUARANTINED (a raw value SURVIVED the source fence, or a kept
+//       handle FAILS isOpaqueHandle). Its raw tuple is WITHHELD from every render
+//       surface and a redacted ALERT is surfaced instead.
+//   (3) CLEAN — a source-fenced fixed-point tuple renders normally.
+// The quarantine verdict + the disclosure-safe ref are the backstop's OWN
+// (`scanRegistry` → detectTuple → safeRef), NEVER re-derived here — so this
+// consumer and the source fence can never drift. REJECTED is tested FIRST so a
+// HARD violation keeps its REJECTED home rather than collapsing into the
+// (stricter, superset) quarantine class.
+// ────────────────────────────────────────────────────────────────
+export function classifyTuples(project) {
+  const tuples = Array.isArray(project?.tuples) ? project.tuples : [];
+  const scan = scanRegistry(tuples); // backstop: records index-aligned to `tuples`
+  return tuples.map((tuple, i) => {
+    const { row } = fenceTuple(tuple); // row is the SCRUBBED render row, never raw
+    // FAIL-CLOSED: an absent backstop record (unreachable today — scanRegistry is
+    // index-aligned 1:1 over the array — but a future scanRegistry change that
+    // broke alignment MUST NOT silently render an un-scanned ref) quarantines,
+    // never renders. Defense-in-depth on the RES-16 disclosure path.
+    const rec = scan.records[i] || {
+      ref: `«ref-#${i}»`,
+      quarantined: true,
+      findings: [{ field: "<root>", kind: FINDING_KINDS.MALFORMED }],
+      findingCount: 1,
+    };
+    const rejected = row.rejected; // HARD violation → REJECTED (unchanged)
+    const quarantined = !rejected && rec.quarantined === true; // RES-16 → WITHHELD + ALERT
+    // The returned shape carries NO raw tuple — only the scrubbed row, the
+    // disclosure-safe ref, and finding KINDS (fixed structural tokens).
+    return {
+      row,
+      rejected,
+      quarantined,
+      ref: rec.ref, // disclosure-safe (opaque lineage_id or positional sentinel)
+      findingCount: rec.findingCount,
+      kinds: [...new Set((rec.findings || []).map((f) => f.kind))],
+    };
+  });
+}
+
+// ────────────────────────────────────────────────────────────────
 // S2a — Inventory grouped by owning_level (spec §2). OK rows group by their
 // (pass-through) owning_level; HARD-violation tuples are surfaced separately as
 // REJECTED (spec §2 invariant 2 — a violating tuple is never a normal row).
@@ -145,21 +202,26 @@ export function fenceTuple(tuple) {
 export function renderInventory(projects) {
   const byLevel = Object.create(null);
   const rejected = [];
+  const quarantined = [];
   projects.forEach((project, index) => {
     const { handle } = resolveProjectHandle(project, index);
-    const tuples = Array.isArray(project?.tuples) ? project.tuples : [];
-    for (const tuple of tuples) {
-      const { row } = fenceTuple(tuple);
-      const rendered = { project: handle, ...row };
-      if (row.rejected) {
-        rejected.push(rendered);
+    for (const c of classifyTuples(project)) {
+      if (c.rejected) {
+        rejected.push({ project: handle, ...c.row });
         continue;
       }
-      const level = row.owning_level;
-      (byLevel[level] ||= []).push(rendered);
+      // A DISCLOSURE-QUARANTINED ref is WITHHELD (spec §2 invariant 2): its raw
+      // tuple is NEVER a normal row — only a redacted alert carrying the ref +
+      // finding KINDS (no raw value/key) is surfaced, until the source re-authors
+      // it scrubbed and re-commits.
+      if (c.quarantined) {
+        quarantined.push({ project: handle, ref: c.ref, findingCount: c.findingCount, kinds: c.kinds });
+        continue;
+      }
+      (byLevel[c.row.owning_level] ||= []).push({ project: handle, ...c.row });
     }
   });
-  return { byLevel, rejected };
+  return { byLevel, rejected, quarantined };
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -174,15 +236,16 @@ export function renderLineage(projects) {
   const mergeEdges = [];
   projects.forEach((project, index) => {
     const { handle } = resolveProjectHandle(project, index);
-    const tuples = Array.isArray(project?.tuples) ? project.tuples : [];
-    for (const tuple of tuples) {
-      const { row } = fenceTuple(tuple);
-      if (row.rejected) continue; // a rejected tuple never contributes a lineage node
-      nodes.push({ project: handle, lineage_id: row.lineage_id });
-      for (const parent of row.merged_from) {
+    for (const c of classifyTuples(project)) {
+      // A REJECTED (HARD) OR QUARANTINED (RES-16) tuple contributes NO lineage
+      // node and NO merge edge — its raw tuple is never rendered (spec §2
+      // invariant 2); the ref is contained from the lineage DAG.
+      if (c.rejected || c.quarantined) continue;
+      nodes.push({ project: handle, lineage_id: c.row.lineage_id });
+      for (const parent of c.row.merged_from) {
         // parent is a fence-scrubbed kp:// URN (its <name> is «REDACTED_NAME»)
         // OR the «REDACTED» sentinel for a fail-closed entry — either way name-blind.
-        mergeEdges.push({ project: handle, into: row.lineage_id, from: parent });
+        mergeEdges.push({ project: handle, into: c.row.lineage_id, from: parent });
       }
     }
   });
@@ -263,14 +326,15 @@ export function dedupLiveness(project, opts = {}, index = 0) {
   // Observed within-tenant equality: group opaque (kept, non-redacted)
   // commitments across THIS project's tuples only (never cross-tenant).
   const groups = new Map();
-  const tuples = Array.isArray(project?.tuples) ? project.tuples : [];
-  for (const tuple of tuples) {
-    const { row } = fenceTuple(tuple);
-    if (row.rejected) continue;
-    const c = row.content_commitment;
+  for (const cls of classifyTuples(project)) {
+    // A REJECTED (HARD) OR QUARANTINED (RES-16) tuple is NEVER observed — its raw
+    // tuple is withheld from the dedup signal too (spec §2 invariant 2), so a
+    // quarantined ref cannot forge or mask a within-tenant equality.
+    if (cls.rejected || cls.quarantined) continue;
+    const c = cls.row.content_commitment;
     if (typeof c !== "string" || c === REDACTED) continue; // only observe opaque, kept values
     const bucket = groups.get(c) || [];
-    bucket.push(row.lineage_id);
+    bucket.push(cls.row.lineage_id);
     groups.set(c, bucket);
   }
   const observedEqualities = [...groups.entries()]
@@ -456,6 +520,18 @@ export function formatConsole(model) {
     for (const r of model.inventory.rejected) {
       L.push(`    project=${r.project} — ${r.violations.map((v) => v.reason).join("; ")}`);
     }
+  }
+
+  // RES-16 post-fetch backstop quarantine alerts (spec §2 invariant 2). WITHHELD,
+  // never rendered; the alert carries the disclosure-safe ref + finding KINDS
+  // ONLY — no raw value or field key ever reaches this surface.
+  if (model.inventory.quarantined.length) {
+    L.push("");
+    L.push(`  QUARANTINED refs (RES-16 post-fetch backstop — WITHHELD, NOT rendered): ${model.inventory.quarantined.length}`);
+    for (const q of model.inventory.quarantined) {
+      L.push(`    project=${q.project} ref=${q.ref} — ${q.findingCount} finding(s) [${q.kinds.join(", ")}]`);
+    }
+    L.push("    (DETECT-NOT-PREVENT: re-author the tuple scrubbed AT SOURCE + re-commit to clear.)");
   }
 
   // S2b lineage

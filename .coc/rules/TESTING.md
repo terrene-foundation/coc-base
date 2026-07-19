@@ -72,7 +72,7 @@ def test_phase_monotonicity(): ...
 @pytest.mark.skip(reason="impl not ready")
 ```
 
-**Why:** Skip stays green-and-silent after the impl lands, so the deferred contract is never re-verified; deletion loses the pin entirely. Strict-xfail converts honest deferral from a silent ratchet into a self-clearing tripwire. The pytest marker is the Python form; the principle (strict failure on unexpected pass) maps to Rust `#[ignore]` + a CI job asserting ignored tests STILL fail, and equivalents in every runner. See `.claude/guides/rule-extracts/testing.md` § xfail-strict.
+**Why:** Skip stays green-and-silent after the impl lands, so the deferred contract is never re-verified; deletion loses the pin entirely. Strict-xfail converts honest deferral from a silent ratchet into a self-clearing tripwire. The cross-runtime mapping (Rust `#[ignore]` + a CI job asserting ignored tests STILL fail) is in the companion § xfail-strict.
 
 ### MUST: `__all__` / Re-export Symbol Counts Use Structural Enumeration, Not Grep
 
@@ -83,9 +83,9 @@ Counts of `__all__` entries (Python) or re-exports (Rust `pub use ...`) used in 
 # DO NOT — grep '^\s*"' (counts comments + blank lines + line continuations as entries)
 ```
 
-**BLOCKED rationalizations:** "Grep is faster" / "I'll subtract the comment lines manually" / "The count is approximate anyway" / "AST is overkill for a docstring number".
+**BLOCKED:** see companion § `__all__` Structural-Enumeration.
 
-**Why:** Grep cannot distinguish `# Group N — comment` from `"Group_N",` when both contain quotes; it cannot follow line continuations across an `__all__ = [...]` block. Structural parsing is canonical because it parses the language, not text. See guide for Wave 6 evidence (three incompatible counts: docstring 41, grep 48, AST 49).
+**Why:** Grep cannot distinguish `# Group N — comment` from `"Group_N",` when both contain quotes; structural parsing parses the language, not text. See companion § `__all__` Structural-Enumeration for Wave 6 evidence (three incompatible counts: docstring 41, grep 48, AST 49).
 
 ## Test Resource Cleanup
 
@@ -98,7 +98,7 @@ Warnings during `pytest` are real bugs that will surface as production incidents
 # DO NOT return without cleanup → resource leaks until GC
 ```
 
-**BLOCKED rationalizations:** "class has `__del__`" / "unit test, process exits anyway" / "mock makes it fake".
+**BLOCKED:** see companion § Test Resource Cleanup — BLOCKED Corpora.
 
 **Why:** Resource classes emitting `ResourceWarning` from `__del__` flood the runner hiding real signals. See guide for PR #466 (36 unclosed channels).
 
@@ -128,7 +128,7 @@ Any test using `@pytest.mark.<X>` or `<X>` fixture from a plugin MUST declare th
 # DO NOT either layer missing → collection fails, whole sub-package blocked
 ```
 
-**BLOCKED rationalizations:** "plugin is in CI so local works" / "pytest accepts unknown markers" / "we'll register in follow-up" / "fixture imported lazily" / "sub-package venv is separate".
+**BLOCKED:** see companion § Test Resource Cleanup — BLOCKED Corpora.
 
 **Why:** Missing any layer breaks collection with an unhelpful error. See guide for 2026-04-20 11,917-test block.
 
@@ -136,49 +136,39 @@ Any test using `@pytest.mark.<X>` or `<X>` fixture from a plugin MUST declare th
 
 Any two tests mutating SAME env var MUST serialize through a module-scope `threading.Lock` held across read-then-mutate; tests take `(monkeypatch, _env_serialized)`. See guide for full fixture pattern.
 
-**BLOCKED rationalizations:** "passes locally, CI scheduling is the bug" / "lock is overkill" / "pytest one-per-worker default" / "`@pytest.mark.serial`" (only with `--dist=loadgroup`) / "monkeypatch auto-restores".
+**BLOCKED:** see companion § Env-Var Lock Discipline.
 
 **Why:** `monkeypatch.setenv` restores at fixture teardown — AFTER the test body — so sibling tests observe either value depending on xdist scheduling. Classic "passes locally, fails CI".
 
 ### MUST: One Lock Domain Per Env Surface Per Test Binary
 
-Serialization only works when every env-mutating test sharing one env surface holds the SAME lock. Two locking mechanisms over one surface — e.g. a module-local `threading.Lock` in one module and a pytest-xdist group lock (`@pytest.mark.xdist_group`) in another — do NOT exclude each other: a test holding one can interleave with a test holding only the other, racing on the shared vars exactly as if neither were locked. When a suite adopts one lock domain for an env surface, EVERY env-mutating test touching that surface MUST join that SAME domain; introducing a second mechanism is BLOCKED. (Rust sibling: a module-local `static ENV_MUTEX: Mutex<()>` and `#[file_serial(<key>)]` over one env surface are non-interlocking — unify on one domain.)
+Serialization only works when every env-mutating test sharing one env surface holds the SAME lock. Two locking mechanisms over one surface — a module-local `threading.Lock` and a pytest-xdist group lock (`@pytest.mark.xdist_group`) — do NOT exclude each other: a test holding one interleaves with a test holding only the other, racing on the shared vars exactly as if neither were locked. When a suite adopts one lock domain for an env surface, EVERY env-mutating test touching that surface MUST join that SAME domain; introducing a second mechanism is BLOCKED. (Rust sibling: a module-local `static ENV_MUTEX: Mutex<()>` and `#[file_serial(<key>)]` over one env surface are non-interlocking — unify on one domain.)
 
 ```python
 # DO — every env-mutating test on this surface joins ONE module-scope lock
-_LLM_ENV_LOCK = threading.Lock()
-def test_reads_openai_key(monkeypatch):
-    with _LLM_ENV_LOCK:
-        monkeypatch.setenv("OPENAI_API_KEY", "k"); assert client().key == "k"
-
-# DO NOT — a second, non-interlocking mechanism in a sibling module
-@pytest.mark.xdist_group("llm_env")   # group lock — does NOT exclude _LLM_ENV_LOCK holders
-def test_reads_bedrock_token(monkeypatch):
-    monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", "t")  # races the _LLM_ENV_LOCK tests
+with _LLM_ENV_LOCK: monkeypatch.setenv("OPENAI_API_KEY", "k")
+# DO NOT — a second, non-interlocking mechanism (@pytest.mark.xdist_group) in a sibling module races it
 ```
 
-**BLOCKED rationalizations:** "each module serializes its own tests, that's enough" / "the lock has worked for months" (intermittent — fails only when the scheduler interleaves across modules) / "the group lock is for cross-worker, the in-process lock covers the rest" (one surface needs ONE domain, whichever primitive it is).
+**BLOCKED:** see companion § Env-Var Lock Discipline.
 
-**Why:** Lock domains don't compose — mutual exclusion holds only among holders of the SAME lock. The failure is probabilistic and module-boundary-shaped, so it looks like a flaky single test rather than a structural race. Evidence: the Rust SDK PR #1283 (2026-06-11) — a `file_serial(llm_env)` test failed 2 of 3 main runs because sibling tests guarded the same `AWS_BEARER_TOKEN_BEDROCK`/`OPENAI_API_KEY` surface with a module-local mutex; unifying all 22 sites onto one domain closed it.
+**Why:** Lock domains don't compose — mutual exclusion holds only among holders of the SAME lock. The failure is probabilistic and module-boundary-shaped, so it looks like a flaky single test rather than a structural race. Evidence: Rust SDK PR #1283 (a `file_serial` test racing a module-local mutex on the same env surface); full post-mortem in companion § Env-Var Lock Discipline.
 
 ### MUST: Complexity Bounds Use Self-Normalizing Ratios, Not Absolute Wall-Clock Thresholds
 
 A stress test asserting algorithmic behavior MUST measure an in-process baseline at 1/N scale in the same run and assert the N-scale cost as a RATIO of that baseline (linear ≈ N×, quadratic ≈ N²× — pick the bound between them) — NOT an absolute wall-clock threshold. Bumping an absolute threshold in response to a stress-test "flake" is BLOCKED until the ratio has been checked: a threshold bump on a super-linear ratio is burying a complexity-class regression, not fixing a flake.
 
 ```python
-# DO — self-normalizing ratio: machine- and load-independent
-base = timeit(lambda: validate(graph(1_000)))    # in-process baseline, same run
-big  = timeit(lambda: validate(graph(10_000)))    # 10x the nodes
-ratio = big / base
-assert ratio < 40, f"validation scaled {ratio:.0f}x for 10x nodes (linear ~10x, quadratic ~100x)"
-
+# DO — self-normalizing ratio (machine- and load-independent), same run
+ratio = timeit(lambda: validate(graph(10_000))) / timeit(lambda: validate(graph(1_000)))
+assert ratio < 40, f"scaled {ratio:.0f}x for 10x nodes (linear ~10x, quadratic ~100x)"
 # DO NOT — absolute bound; ratchets upward under load until it masks O(n^2)
 assert big < 60.0    # was 30s, bumped once already
 ```
 
-**BLOCKED rationalizations:** "the runner was loaded, bump the bound" / "60s is generous, real users never hit 10K nodes" / "the test is flaky, widen it" / "we'll profile it later if someone complains".
+**BLOCKED:** see companion § Complexity-Bound Ratios.
 
-**Why:** Absolute bounds ratchet — each load-driven bump widens the window an algorithmic regression hides in, and the bump itself is the institutional tell. The ratio assert is a pure function of the algorithm, not the machine. Evidence: the Rust SDK journal 0177 (2026-06-10) — a 10K-node validation stress bound had been bumped 30s→60s as a "flake"; the replacement ratio test failed deterministically 3/3 (10× nodes costing ~99× time) and surfaced a real O(n²) loop, fixed to O(n+e) in the same shard.
+**Why:** Absolute bounds ratchet — each load-driven bump widens the window an algorithmic regression hides in, and the bump itself is the institutional tell. The ratio assert is a pure function of the algorithm, not the machine. Evidence: Rust SDK journal 0177 (an O(n²) loop surfaced after a 30s→60s "flake" bump); full post-mortem in companion § Complexity-Bound Ratios.
 
 ## 3-Tier Testing
 
@@ -235,7 +225,7 @@ async def test_readme_quickstart_executes_end_to_end():
     assert result.trainable is not None  # handoff field MUST survive
 ```
 
-**BLOCKED rationalizations:** "primitives have unit+integration, pipeline is composition" / "README is illustrative" / "Tier 2 per primitive proves interfaces" / "user will file issue" / "E2E is slow and flaky" / "pipeline is demo's concern, not SDK".
+**BLOCKED:** see companion § E2E Pipeline Regression — BLOCKED Corpus.
 
 **Why:** Unit tests per primitive construct fixtures with exactly the fields THAT primitive needs — they cannot observe a field MISSING from the A→B handoff. Only DOCS-EXACT chain exercises the handoff contract. See guide for kailash-ml W33b evidence + `zero-tolerance.md` §2 "Fake integration via missing field".
 
@@ -277,7 +267,7 @@ if closed: return ErrClosed   # check
 native_call(ptr)              # Close can free into this window → UAF
 ```
 
-**Why:** The check-then-use UAF only crashes under a concurrent closer (often the GC finalizer), so unit tests pass forever while production segfaults under GC pressure. Evidence: the Rust SDK journals 0174 + 0178 — a Go `Subscription` UAF crashed 8/8 under stress (SIGSEGV in `runFinalizers → cgocall`); the identical class recurred on a Go `AlignEngine` one wave later and was caught only because the concurrent-stress-test lens existed.
+**Why:** The check-then-use UAF only crashes under a concurrent closer (often the GC finalizer), so unit tests pass forever while production segfaults under GC pressure. Evidence: Rust SDK journals 0174 + 0178 (a Go `Subscription` UAF crashing 8/8 under stress, recurring on `AlignEngine` one wave later); full post-mortem in companion § FFI Handle Concurrent-Close.
 
 ## Rules
 

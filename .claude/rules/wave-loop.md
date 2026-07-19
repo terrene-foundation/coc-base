@@ -22,7 +22,7 @@ The wave-loop inserts a **verify-and-feed-forward gate between milestone-groups*
 new phase — it makes the existing `redteam → codify → (re-)todos → implement` loop
 **re-entrant per milestone-group**, so drift is caught and fed forward at each boundary
 instead of compounding silently. Convergence (`commands/redteam.md` § Convergence Criteria)
-and parallel-decompose (`rules/agents.md` § Decompose Onto The Parallel Primitive By Default)
+and parallel-decompose (`rules/agents.md` § The Default Execution Mode Is The Triad)
 are REUSED unchanged, scoped to the wave; this rule does not restate them.
 
 ## MUST Rules
@@ -50,7 +50,7 @@ THREE bounds hold simultaneously; violating any is BLOCKED:
   aggregate; without it a value-coherent 8-shard wave (~50 invariants) "converges clean" on a
   surface too large to hold — `rules/sweep-completeness.md` theatre one layer up.
 
-**Serial carve-out (the value gate, mirrors `rules/agents.md` § Decompose-By-Default).** A
+**Serial carve-out (the value gate, mirrors `rules/agents.md` § The Default Execution Mode Is The Triad).** A
 genuinely single-milestone, single-convergence-surface project (one ≤500-LOC fix, one
 invariant set) MAY run as ONE wave — its terminal `/redteam` IS its only wave gate. The
 serial case MUST stay serial; forcing a ≥2-wave split on it is the per-todo ceremony this
@@ -100,13 +100,13 @@ inter-wave gate G1→G5 before launching the next wave. Each step re-sequences E
 machinery; the gate adds no new phase. Launching wave N+1 before G1–G4 complete clean is
 BLOCKED.
 
-| Step                                        | Action                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Reuses                                                                           |
-| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| **G1 — redteam to convergence**             | `/redteam` scoped to THIS wave's shards, to full Convergence Criteria (`commands/redteam.md` § Convergence Criteria), posture-invariant — convergence is on **BUG + INVEST-NOW findings only** (`commands/redteam.md` § Category-Based Finding Triage / `rules/product-completion-first.md`); INCREMENTAL findings accrete to the deferred-quality backlog carried to the terminal `/sweep`, and do NOT reset the wave's clean-round counter                                                                                                                                     | `/redteam` + `agents.md` § Redteam Reviewer Dispatch (criterion-3 evidence gate) |
-| **G2 — capture the learning (LIGHTWEIGHT)** | Record the delta between what the wave's todos CLAIMED and what its redteam FOUND (misunderstanding, plan-drift, spec-divergence) as a journal `DISCOVERY`/`GAP` + a first-instance spec update **+ a `.session-notes` refresh** (a wave boundary IS a close-out — the `/wrapup` contract runs WITH the wave-close, staged into the wave-close commit, NOT as a separate manual `/wrapup`). **Full `/codify` is RESERVED for genuinely cross-project learnings — NOT run every wave** (avoids N codify-lease/PR cycles per project per `rules/knowledge-convergence.md` MUST-3). | `commands/journal.md`; `commands/wrapup.md`; `rules/specs-authority.md` Rule 5   |
-| **G3 — update specs + remaining todos**     | First-instance spec update + sibling re-derivation sweep; amend UNSTARTED later-wave todos for version/symbol/signature drift the wave caused                                                                                                                                                                                                                                                                                                                                                                                                                                    | `rules/specs-authority.md` Rule 5/5b/5c                                          |
-| **G4 — re-value-rank**                      | Re-rank the remaining waves and re-validate every deferred value-anchor                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | `rules/value-prioritization.md` MUST-1 + MUST-3                                  |
-| **G5 — launch next wave**                   | Only after G1–G4 are clean; decompose onto the parallel primitive when the wave is ≥3 independent shards                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | `rules/agents.md` § Decompose-By-Default                                         |
+| Step                                        | Action                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Reuses                                                                           |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| **G1 — redteam to convergence**             | `/redteam` scoped to THIS wave's shards, to full Convergence Criteria (`commands/redteam.md` § Convergence Criteria), posture-invariant — convergence is on **BUG + INVEST-NOW findings only** (`commands/redteam.md` § Category-Based Finding Triage / `rules/product-completion-first.md`); INCREMENTAL findings accrete to the deferred-quality backlog carried to the terminal `/sweep`, and do NOT reset the wave's clean-round counter                                                                                                                                                                                                                                                                                                                                    | `/redteam` + `agents.md` § Redteam Reviewer Dispatch (criterion-3 evidence gate) |
+| **G2 — capture the learning (LIGHTWEIGHT)** | Record the delta between what the wave's todos CLAIMED and what its redteam FOUND (misunderstanding, plan-drift, spec-divergence) as a journal `DISCOVERY`/`GAP` + a first-instance spec update **+ a `.session-notes` refresh** (a wave boundary IS a close-out — the `/wrapup` contract runs WITH the wave-close, staged into the wave-close commit, NOT as a separate manual `/wrapup`), and the per-wave refresh MUST update the wave-tracker file (`commands/wrapup.md` § Wave tracker) so a `/clear`-resumed session does not re-launch a still-running agent or redo a merged wave. **Full `/codify` is RESERVED for genuinely cross-project learnings — NOT run every wave** (avoids N codify-lease/PR cycles per project per `rules/knowledge-convergence.md` MUST-3). | `commands/journal.md`; `commands/wrapup.md`; `rules/specs-authority.md` Rule 5   |
+| **G3 — update specs + remaining todos**     | First-instance spec update + sibling re-derivation sweep; amend UNSTARTED later-wave todos for version/symbol/signature drift the wave caused                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | `rules/specs-authority.md` Rule 5/5b/5c                                          |
+| **G4 — re-value-rank**                      | Re-rank the remaining waves and re-validate every deferred value-anchor                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | `rules/value-prioritization.md` MUST-1 + MUST-3                                  |
+| **G5 — launch next wave**                   | Only after G1–G4 are clean; decompose onto the parallel primitive when the wave has ≥2 independent shards (a genuinely-atomic single shard runs inline)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | `rules/agents.md` § The Default Execution Mode Is The Triad                      |
 
 ```markdown
 # DO — gate fires, learning feeds forward, THEN next wave
@@ -163,6 +163,61 @@ MUST-4: a journal entry, commit SHA, or `observations.jsonl` round-verdict. Self
 in the disposition document ("Wave 2 converged ✓") is BLOCKED — structurally identical to the
 self-attested verdict MUST-4 already blocks. Binds the existing rail; invents none.
 
+### 6. Never Idle-Wait While Independent In-Budget Work Is Launchable
+
+When the orchestrator is BLOCKED waiting on in-flight background agents AND independent,
+parallelizable, in-budget autonomous work exists, it MUST launch that work rather than idle.
+Idle-waiting while ≥1 independent in-budget shard is launchable is BLOCKED. This clause FILLS
+idle time; it NEVER overrides a gate. It is BOUNDED (cross-ref, not restated) by: genuine
+data/build dependencies; the structural human gates (`rules/autonomous-execution.md` §
+Structural vs Execution Gates — plan-approval, release); capacity + throttle
+(`rules/autonomous-execution.md` § Per-Session Capacity Budget + this rule's MUST-1 bound-B +
+`rules/worktree-isolation.md` Rule 4); prudence/sensitivity confirmation
+(`rules/recommendation-quality.md` MUST-8 + `commands/autonomize.md` § Prudence); and the
+**clean-gate-stop** (`rules/recommendation-quality.md` MUST-3 — a converged hand-to-human stop
+IS complete; manufacturing work to avoid stopping is BLOCKED).
+
+```markdown
+# DO — waiting on Wave-2's agents → launch the independent Wave-3 read-only audit NOW
+
+# DO NOT — sit idle watching Wave-2 finish while an independent in-budget shard is launchable
+```
+
+**BLOCKED rationalizations:** "keep-executing means I override the gate" (NO — it fills IDLE
+time ONLY; a gate still holds) / "I'll manufacture a shard so I don't have to stop at the clean
+gate" (BLOCKED — the MUST-3 clean-gate-stop IS complete) / "waiting is simpler than tracking
+another wave" / "the main agent's job is to watch the background agents".
+
+**Why:** idle main-agent time while independent in-budget work is launchable is pure throughput
+loss; the bounding gates ensure "always executing" never degrades into "always overriding a
+gate" — the two failure modes this clause holds apart.
+
+### 7. Reconcile A Pre-Existing Backlog Item Against Ground Truth Before Implementing It
+
+Before implementing any PRE-EXISTING open backlog item (a GH issue, a workspace todo, a carried
+forest-ledger row, a journal follow-up), the orchestrator MUST reconcile it against current
+ground truth: (a) grep/read the on-disk target surface the item names, (b) `gh issue view <N>`
+when it is issue-backed, (c) grep `journal/` for a governing DECISION/DEFER. Implementing on the
+backlog's say-so WITHOUT reconciling is BLOCKED.
+
+```markdown
+# DO — #NNN open → grep the target file (already fixed) + gh issue view (superseded) + journal
+
+grep (governing DEFER) → close with receipt, do NOT re-implement
+
+# DO NOT — implement #NNN because it is still open → discover at redteam it landed two sessions ago
+```
+
+**BLOCKED rationalizations:** "it is still open so it must be undone" (open ≠ undone) / "reconciling
+is slower than just doing it" / "the issue is the source of truth" / "a governing DEFER would have
+closed the issue already".
+
+**Why:** backlog state decays as code evolves; an open item routinely lags a landed fix or a
+governing DEFER, so implementing on its say-so re-does or contradicts delivered work (caught
+already-done work repeatedly in the origin session). Distinct axis from
+`rules/value-prioritization.md` MUST-3 (which ranks WHICH item is most valuable); this clause
+gates WHETHER the item is still real before implementing — cross-ref, not restated.
+
 ## MUST NOT
 
 - Size a wave by value-coherence alone, ignoring the cumulative invariant surface.
@@ -215,16 +270,47 @@ Structural vs Execution Gates); the structural human gates remain `/todos` plan-
   Rule 9.
 - **Violation scope:** MUST 1 (wave sizing — three bounds + compulsory wave-declaration), MUST 2 (gate fires every
   non-final boundary), MUST 3 (G1 reaches GENUINE convergence — a clean round counts only when every dispatched
-  reviewer ran; a false-converged wave is a MUST-3 violation), MUST 5 (durable receipt). Every `violations.jsonl`
-  row records which MUST clause fired.
+  reviewer ran; a false-converged wave is a MUST-3 violation), MUST 5 (durable receipt), MUST 6
+  (idle-wait while independent in-budget work is launchable), MUST 7 (backlog item implemented
+  without ground-truth reconciliation). Every `violations.jsonl` row records which MUST clause fired.
 - **Origin:** See § Origin below.
+
+### Clause-scoped wiring — MUST-6 + MUST-7 (orchestration hygiene, added 2026-07-18)
+
+MUST-6 + MUST-7 land AT/AFTER the `trust-posture.md` MUST-8 SHA and ship canonical-8-field-compliant;
+the pre-existing MUST 1/2/3/5 wiring above is unchanged.
+
+- **Severity:** `halt-and-report` at `/codify` + `/redteam` gate-review (cc-architect / reviewer
+  confirm the session did not idle while an independent in-budget shard was launchable, and that any
+  implemented pre-existing backlog item carried a same-session reconciliation trace); `advisory` at
+  the hook layer per `rules/hook-output-discipline.md` MUST-2 — both properties are session-history
+  judgments, not tool-call-time structural signals.
+- **Grace period:** 7 days from clause landing (2026-07-18 → 2026-07-25).
+- **Cumulative posture impact:** same-class violations (an idle-wait with launchable independent work;
+  a backlog item implemented without reconciliation) contribute to `rules/trust-posture.md` MUST-4
+  cumulative-window math (3× same-rule / 5× total in 30d → drop 1 posture).
+- **Regression-within-grace:** a same-class violation within the 7-day grace window routes through the
+  GENERIC `regression_within_grace` emergency trigger per `rules/trust-posture.md` MUST-4 (1× = drop 1
+  posture) — NO dedicated per-clause trigger key (a session-history judgment property does not warrant
+  an instant-drop key; MUST-6/7 do NOT reuse MUST 1/2/3's `wave_gate_skipped` key). Named deviation
+  from the canonical key-per-clause shape, recorded here per `rules/trust-posture.md` Rule 8.
+- **Receipt requirement:** SessionStart soft-gate `[ack: wave-loop]` IFF
+  `posture.json::pending_verification` includes this rule_id (shared with the MUST 1/2/3/5 wiring).
+- **Detection mechanism:** Phase 1 (manual, gate-review) — cc-architect / reviewer inspect the session
+  transcript for an idle-wait window with launchable independent work (MUST-6) and for a
+  reconciliation trace before any pre-existing-backlog implementation (MUST-7). Phase 2 (deferred per
+  `rules/trust-posture.md` § Two-Phase Rollout): advisory Stop-event detector + audit fixtures at
+  `.claude/audit-fixtures/wave-loop/orchestration-hygiene/` per `rules/cc-artifacts.md` Rule 9.
+- **Violation scope:** MUST-6 + MUST-7 ONLY (clause-scoped); the pre-existing MUST 1/2/3/5 sections stay
+  on their own wiring above.
+- **Origin:** See § Origin (journal/0543 — co-owner-directed origination).
 
 ## Distinct From / Cross-References
 
 - **Composes with (does not restate):** `commands/redteam.md` § Convergence Criteria (G1/
   MUST-3) — incl. criterion 3's errored-reviewer evidence-gate; `rules/agents.md` § "Redteam
   Reviewer Dispatch — Errored/Empty Is Zero Evidence" (the G1 evidence-gate MUST-3 binds) +
-  § Decompose-By-Default (G5/serial carve-out);
+  § The Default Execution Mode Is The Triad (G5/serial carve-out);
   `rules/value-prioritization.md` MUST-1+3 (G4 + later-wave re-validation);
   `rules/specs-authority.md` Rule 5/5b/5c (G2/G3); `rules/autonomous-execution.md` §
   Per-Session Capacity Budget (the shard gate the wave gate sits above) + § Structural vs
@@ -243,13 +329,21 @@ Origination); verbatim directive + receipt-first journal `journal/0226`. Designe
 `.claude/test-harness/tests/wave-loop-ablation.test.mjs`. MUST-1 bound B (invariant-surface)
 originates from the ceremony-axis review; the MUST-3/4/5 reference-binding collapse from the
 duplication review. MUST-1 + MUST-2 are the genuinely-new load-bearing content; MUST-3/4/5
-are reference-bindings to the rules they compose with.
+are reference-bindings to the rules they compose with. Amended 2026-07-18 — co-owner-directed
+origination (`journal/0543`) added MUST-6 (never-idle-wait) + MUST-7 (reconcile-first) + the G2
+wave-tracker refresh line + their clause-scoped 8-field wiring; the default execution mode is the
+triad parallelize + `/autonomize` + `/redteam`-to-convergence (`rules/agents.md` § The Default Execution Mode Is The Triad).
 
-**Length rationale (per `rules/rule-authoring.md` MUST NOT length cap).** ~252 lines, over the
-200 guidance. Named rationale: the body is already minimized — MUST-3/4/5 are collapsed to
-reference-bindings and the duplicative `agents.md` clause was dropped per the duplication
-review — and the residual is structural: the mandatory 8-field Trust Posture Wiring
-(`trust-posture.md` MUST-8, ~22 lines) + the 5-step G1→G5 gate table + the 3-bound wave
-definition + the **compulsory-declaration clause** (the gate's on-ramp — without it the rule
-is inert, per the 2026-06-07 co-owner review) are each load-bearing and non-decomposable.
+**Length rationale (per `rules/rule-authoring.md` MUST NOT length cap).** ~300 lines after the
+2026-07-18 co-owner-directed addition of MUST-6 (never-idle-wait) + MUST-7 (reconcile-first) +
+their clause-scoped 8-field wiring, over the 200 guidance. Named rationale: the body is already
+minimized — MUST-3/4/5 are collapsed to reference-bindings, the duplicative `agents.md` clause
+was dropped per the duplication review, and MUST-6/7 cross-ref their bounding gates rather than
+restating them — and the residual is structural: the mandatory 8-field Trust Posture Wiring
+(`trust-posture.md` MUST-8, now two clause-scoped blocks) + the 5-step G1→G5 gate table + the
+3-bound wave definition + the **compulsory-declaration clause** (the gate's on-ramp — without it
+the rule is inert, per the 2026-06-07 co-owner review) + MUST-6/7 (each with DO/DO-NOT + BLOCKED
+corpus + Why per `rule-authoring.md` MUST 3/4) are each load-bearing and non-decomposable. The
+orchestration-hygiene pair is the co-owner-directed core of `journal/0543`; splitting it into a
+separate rule would fracture the wave-loop's own "always-executing" contract across two files.
 Sibling precedent: `user-flow-validation.md` + `multi-operator-coordination.md` Origins.

@@ -141,12 +141,143 @@ function detectRepoType(cwd) {
   return "coc-project";
 }
 
+// Bounded timeout (ms) for the SessionStart replica-freshness probe. Kept well
+// below sync-from-canon-fetch's own 30s ls-remote timeout: that 30s bound is for
+// the human-invoked /sync-from-canon pull; a SessionStart advisory MUST be snappy
+// and best-effort, so a truly-hung network is cut here long before git's own cap.
+const REPLICA_FRESHNESS_TIMEOUT_MS = 4000;
+
+/**
+ * Spawn the SHIPPED read-only canon-tip probe (sync-from-canon-fetch.mjs, #576)
+ * and parse its `--json` result. SYNCHRONOUS + bounded-timeout + best-effort so
+ * it is safe from the SessionStart hook: a slow/unreachable canon degrades to a
+ * soft result, NEVER a hang or a throw. This REUSES the shipped getUpstreamCanon
+ * + git-ls-remote path verbatim (the CLI's first act is getUpstreamCanon; it does
+ * ls-remote ONLY in the fork case) — no re-implementation of remote resolution,
+ * no drift. checkVersion runs once per session start, so the probe fires at most
+ * once per session (no repeated call to cache across a session).
+ *
+ * @param {string} cwd - project root (the replica/canon repo)
+ * @param {number} timeoutMs - outer wall-clock bound
+ * @returns {object} the parsed CLI result ({status:"canon-root"|"fetched"|"error"…})
+ *   or {status:"probe-failed", reason} on any spawn/timeout/parse failure.
+ *   NEVER throws.
+ */
+function runCanonFetchProbe(cwd, timeoutMs) {
+  const script = path.join(cwd, ".claude", "bin", "sync-from-canon-fetch.mjs");
+  try {
+    const out = execFileSync("node", [script, "--json"], {
+      cwd,
+      encoding: "utf8",
+      timeout: timeoutMs,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    });
+    return JSON.parse(out);
+  } catch (e) {
+    // The CLI exits 1 on a resolution/ls-remote error but still writes its
+    // `{status:"error",subtype,…}` JSON to stdout (fork confirmed, remote read
+    // failed) — recover it so a fork's soft failure is distinguishable from a
+    // spawn failure. A timeout / missing script / unparseable output has no
+    // recoverable status → "probe-failed" (indeterminate; treated as canon-safe
+    // by the caller). NEVER rethrow: this is advisory version info, not a gate.
+    if (e && e.stdout) {
+      try {
+        return JSON.parse(String(e.stdout));
+      } catch {
+        /* fall through to probe-failed */
+      }
+    }
+    const timedOut = !!(
+      e &&
+      (e.killed || e.code === "ETIMEDOUT" || e.signal === "SIGTERM")
+    );
+    return {
+      status: "probe-failed",
+      reason: timedOut ? "timed out" : (e && e.code) || "probe error",
+    };
+  }
+}
+
+/**
+ * Replica-vs-canon freshness for a resolver-mapped verbatim replica of loom.
+ *
+ * A replica copies canon's `.claude/VERSION` (type:coc-source) verbatim, so it
+ * hits checkVersion's coc-source branch and — before this — early-returned
+ * "Source repo", making a drifted replica UNABLE to self-detect drift from canon.
+ * "Am I a replica" is decided SOLELY by the ecosystem-config upstream-canon
+ * pointer (via the shipped probe's getUpstreamCanon), NEVER by detectRepoType
+ * layout cues (which are wrong for a resolver-mapped layout).
+ *
+ * Returns null when fork-ness is NOT positively confirmed (canon-root, OR an
+ * indeterminate probe failure) — the caller then runs the ORIGINAL early-return
+ * BYTE-UNCHANGED. Returns a {status, messages[]} object only when the probe
+ * POSITIVELY confirms a fork (status "fetched" or a fork-only "error").
+ *
+ * @param {string} cwd
+ * @param {object} [opts]
+ * @param {(cwd:string)=>object} [opts.runFetchFn] - injectable probe (test seam)
+ * @param {number} [opts.timeoutMs]
+ * @returns {{status:string, messages:string[]}|null}  never throws
+ */
+function resolveReplicaFreshness(cwd, opts = {}) {
+  const runFetch =
+    opts.runFetchFn ||
+    ((c) =>
+      runCanonFetchProbe(c, opts.timeoutMs || REPLICA_FRESHNESS_TIMEOUT_MS));
+  let res;
+  try {
+    res = runFetch(cwd);
+  } catch {
+    // Defense-in-depth: the real probe never throws, but a fault in an injected
+    // seam MUST still fail soft (no hang, no throw at SessionStart).
+    return null;
+  }
+
+  // canon-root (getUpstreamCanon null) OR an indeterminate probe failure: we did
+  // NOT positively confirm a fork → behave exactly as canon (byte-unchanged).
+  if (!res || res.status === "canon-root" || res.status === "probe-failed") {
+    return null;
+  }
+
+  if (res.status === "fetched") {
+    const tip = res.tip ? String(res.tip).slice(0, 12) : null;
+    if (tip) {
+      return {
+        status: "replica",
+        messages: [
+          `[VERSION] Replica of canon — canon HEAD is ${tip}. Run /sync-from-canon to review upstream drift.`,
+        ],
+      };
+    }
+    return {
+      status: "replica-unknown",
+      messages: [
+        `[VERSION] Replica of canon — canon ref '${res.ref || "HEAD"}' not advertised; could not read canon tip. Run /sync-from-canon.`,
+      ],
+    };
+  }
+
+  // status "error": the CLI reached this only AFTER passing the canon-root gate,
+  // so getUpstreamCanon was non-null → fork CONFIRMED, but the remote read failed
+  // (ls-remote-failed / unresolved-canon-remote / scheme-rejected). Soft note; a
+  // network timeout here is EXPECTED and reported, never a hang or throw.
+  const reason = res.subtype || res.reason || "unreachable";
+  return {
+    status: "replica-unreachable",
+    messages: [
+      `[VERSION] Replica of canon — could not reach canon (${reason}); showing local version only (advisory).`,
+    ],
+  };
+}
+
 /**
  * Main entry point for session-start hook.
  * @param {string} cwd - project root
+ * @param {object} [opts] - test seam: { resolveReplicaFreshnessFn, runFetchFn, timeoutMs }
  * @returns {object} { status, messages[] } for stderr output
  */
-function checkVersion(cwd) {
+function checkVersion(cwd, opts = {}) {
   let local = readLocalVersion(cwd);
   if (!local) {
     // Auto-create VERSION if .claude/ exists but VERSION doesn't (per 08-versioning.md)
@@ -202,6 +333,22 @@ function checkVersion(cwd) {
 
   // --- Source repos: fetch remote, compare ---
   if (repoType === "coc-source" || !local.upstream) {
+    // F-353 Item 2: a resolver-mapped verbatim REPLICA of canon also carries
+    // type:coc-source (its VERSION is a byte copy of canon's) but declares an
+    // upstream-canon in ecosystem.json. For a replica, surface canon's current
+    // tip so the session can self-detect drift — before this, a drifted replica
+    // could NEVER self-detect. Fork-only: on CANON (getUpstreamCanon null →
+    // canon-root) resolveReplicaFreshness returns null and the ORIGINAL
+    // early-return below runs BYTE-UNCHANGED. Best-effort + bounded-timeout: a
+    // slow/unreachable canon degrades to a soft note, never a hang or throw
+    // (advisory version info, not a security gate).
+    const resolveFreshness =
+      opts.resolveReplicaFreshnessFn || resolveReplicaFreshness;
+    const freshness = resolveFreshness(cwd, opts);
+    if (freshness) {
+      for (const m of freshness.messages) messages.push(m);
+      return { status: freshness.status, messages };
+    }
     if (!local.upstream) {
       messages.push("[VERSION] Source repo — no upstream to check");
     } else {
@@ -431,4 +578,7 @@ module.exports = {
   detectRepoType,
   isActualTemplateRepo,
   correctTemplateDerivedVersion,
+  resolveReplicaFreshness,
+  runCanonFetchProbe,
+  REPLICA_FRESHNESS_TIMEOUT_MS,
 };

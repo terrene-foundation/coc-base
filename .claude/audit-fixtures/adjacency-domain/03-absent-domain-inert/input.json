@@ -1,0 +1,14 @@
+{
+  "candidatePath": "workspaces/policy-distill-beta/artifact.md",
+  "activeClaims": [
+    {
+      "claim_id": "c-alpha",
+      "verified_id": "vSibling",
+      "person_id": "pSibling",
+      "display_id": "alex",
+      "path": "workspaces/policy-distill-alpha/artifact.md",
+      "workspace": "policy-distill-alpha"
+    }
+  ],
+  "opts": { "candidateDomain": "iso27001-2022" }
+}

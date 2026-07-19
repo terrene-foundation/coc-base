@@ -1,19 +1,19 @@
 # COC Sync Marker — coc-base (base lane, multi-CLI)
-timestamp: 2026-07-16T14:35:34Z
+timestamp: 2026-07-19T02:32:22Z
 source: loom/.claude
-loom_sha: f84241d9
+loom_sha: 72532677
 variant: base
 clis: [claude, codex, gemini]
 visibility: public
 scope_this_cycle: content+cli-emission   # FULL cycle: .claude/ content axis AND coc-sync Steps 6.5/6.6/6.7
 stats:
   content_axis:          # sync-tier-aware --target base (engine apply)
-    changed: 164         # git-status delta vs origin/main (91 M + 41 A + 32 D)
-    added: 41
-    modified: 91
-    deleted: 32          # loom-internal bin tools + lint-prose-drift fixtures no longer in plan
-    purged: 17           # obsoleted-list purge (Step 4.5)
-    verify: CONSISTENT   # stage engine sync-tier-aware --verify
+    changed: 31          # engine manifest delta vs origin/main (24 M + 7 A + 0 D)
+    added: 7
+    modified: 24
+    deleted: 0
+    purged: 0            # obsoleted-list purge (Step 4.5) — no obsoleted path present
+    verify: CONSISTENT   # stage engine sync-tier-aware --verify (1220 in-plan files checked)
   baselines_emitted:     # emit.mjs --all --lang base — Step 6.5
     cc: 0          # CLAUDE.md preserved, not emitted
     codex: 1       # AGENTS.md (repo root)
@@ -21,8 +21,8 @@ stats:
   baseline_emission:
     block_cap_bytes: 61440
     warn_cap_bytes:  32768
-    codex:  { rules: 9, bytes: 53783, tier: WARN, headroom_pct: 12.46, headroom_floor_pct: 10, headroom_floor_violations: 0 }
-    gemini: { rules: 9, bytes: 53789, tier: WARN, headroom_pct: 12.45, headroom_floor_pct: 10, headroom_floor_violations: 0 }
+    codex:  { rules: 9, bytes: 53996, tier: WARN, headroom_pct: 12.12, headroom_floor_pct: 10, headroom_floor_violations: 0 }
+    gemini: { rules: 9, bytes: 53815, tier: WARN, headroom_pct: 12.41, headroom_floor_pct: 10, headroom_floor_violations: 0 }
   cli_artifacts:         # emit-cli-artifacts.mjs --target base — Step 6.6
     codex:  { prompts: 56, skills: 27 }   # 38 command prompts + 18 agent-prompts; 26 skills + 1 rules-reference
     gemini: { commands: 38, skills: 27, agents: 18 }
@@ -32,42 +32,46 @@ stats:
   codex_guard: EXCLUDED  # .codex-mcp-guard/** deliberately left at origin/main — see note; git status: 0 changes
   scaffold:
     codex_mcp_guard_symlink: preserved   # .claude/codex-mcp-guard -> ../.codex-mcp-guard (unchanged from origin/main)
-    bin_coc: 1                           # bin/coc dispatcher (0755)
-    bin_coc_phase_shims: 28              # bin/coc-<phase> -> coc
+    bin_coc: 1                           # bin/coc dispatcher (0755, refreshed)
+    bin_coc_phase_shims: 28              # bin/coc-<phase> -> coc (unchanged)
     manifest_distribute: true            # .claude/sync-manifest.yaml distributed (multi-cli)
-  idempotency: PASS      # second emit into scratch2 byte-identical to placed trees (0 diffs across codex/gemini/.coc/AGENTS/GEMINI)
+  idempotency: PASS      # second emit into scratch2 byte-identical to placed trees (0 diffs across codex/prompts, gemini/agents, .coc, AGENTS.md, GEMINI.md)
   preserved: [CLAUDE.md, dev-container-scaffold, .proposals/, learning/, settings.local.json, .codex-mcp-guard]
+sdk_pins: none           # build:null — base is stack-agnostic, does NOT subscribe to kailash tier; NO SDK pins to bump
 note: |
-  loom@f84241d9 Gate-2 base sync (multi-CLI lane) — FULL cycle (content + CLI emission).
-  CONTENT (Step 1, sync-tier-aware --target base): distributes accumulated drift since
-  the prior base cycle (loom_sha a674718->f84241d9; loom version 2.45.0 unchanged). New
-  rules conformance-walk / knowledge-cascade-routing / product-completion-first; mesh-*
-  bin tools + audit-fixtures; commands clean-instantiate / cost-audit / cross-repo-authorize
-  / doctor / reconcile-notes / worktree; presence-proof + coord-background + genesis-materializer
-  hooks; skills 46-clean-instantiate / 47-loom-doctor / conformance-walk / sweep. Delta
-  91 modified + 41 added + 32 deleted = 164; 17 purged obsoleted; 32 removed loom-internal
-  bin tools (loom-links / sync-tier-aware / fleet-* / check-sync-freshness / lint-prose-drift
-  no longer in consumer-runtime bin allowlist, F1030d/#1051). Stage --verify CONSISTENT.
-  CLI EMISSION (Steps 6.5/6.6/6.7, MUST-8 full derived-tree re-emit):
+  loom@72532677 Gate-2 base sync (multi-CLI lane) — FULL cycle (content + CLI emission).
+  CONTENT (Step 1, sync-tier-aware --target base): distributes accumulated .claude/ drift
+  since the prior base cycle (loom_sha f84241d9->72532677; loom version 2.45.0 unchanged).
+  31-file engine delta: 24 modified + 7 added + 0 deleted; 0 obsoleted purged; stage
+  --verify CONSISTENT (1220 in-plan files). Modified rules: agents, artifact-flow,
+  product-completion-first, self-referential-codify, sweep-completeness, testing, wave-loop,
+  zero-tolerance. Modified commands: autonomize, redteam, wrapup. Added: 4 skills
+  (dual-surface-redteam, parallel-dispatch-default, self-referential-allowlist-provenance,
+  specialist-delegation-syntax), bin/lib/local-rules.mjs, guides/rule-extracts/artifact-flow.md,
+  audit-fixtures/adjacency-domain/. Modified bin: clean-instantiate, emit, identity-scrub,
+  mesh-observability-console, validate-emit. Modified hooks: genesis-anchor-guard, lib/adjacency,
+  lib/version-utils. loom#1209 artifact-activation hooks (emit-artifact-activation*, lib/artifact-activation-*)
+  auto-excluded via loom_only — CONFIRMED absent from changed set.
+  CLI EMISSION (Steps 6.5/6.6/6.7, sync-completeness MUST-8 full derived-tree re-emit):
   (6.5) emit.mjs --all --lang base → AGENTS.md/GEMINI.md re-emitted, exit 0, WARN tier
-  (codex 53783 B / 12.46%, gemini 53789 B / 12.45%, 0 floor violations; ADVISORY: within
+  (codex 53996 B / 12.12%, gemini 53815 B / 12.41%, 0 floor violations; ADVISORY: within
   15% proximity band per rule-authoring Rule 10 — next baseline MUST addition needs paired
   extraction/named-rationale);
   (6.6) emit-cli-artifacts.mjs --target base → .codex/{prompts:56,skills:27} +
-  .gemini/{commands:38,skills:27,agents:18} + static config (config.toml/hooks.json/settings.json);
-  (6.7) emit-coc.mjs --target base → .coc/ 153 files (2 benign producer-budget WARNs on
-  rules/ARTIFACT-FLOW.md + rules/SELF-REFERENTIAL-CODIFY.md, emitted-not-truncated,
-  spec-09 no consumer cap). Idempotency: second emit byte-identical (0 diffs).
-  SCAFFOLD: bin/coc + 28 phase shims; sync-manifest.yaml distributed (manifest_distribute);
+  .gemini/{commands:38,skills:27,agents:18} + static config bases (config.toml/hooks.json/settings.json)
+  + bin/coc refreshed;
+  (6.7) emit-coc.mjs --target base → .coc/ 153 files (coc.version 1.0.0).
+  Idempotency: second emit byte-identical to placed trees (0 diffs). All three emitters exit 0.
+  SCAFFOLD: bin/coc + 28 phase shims preserved; sync-manifest.yaml distributed (manifest_distribute);
   codex-mcp-guard symlink preserved.
-  CODEX-GUARD: .codex-mcp-guard/** DELIBERATELY EXCLUDED — continues the prior-cycle (2.45.8)
-  deferral. Source ambiguity is now THREE-way: loom .claude/codex-mcp-guard/server.js = 1119 ln,
-  loom-root .codex-mcp-guard/server.js = 456 ln, target committed = 957 ln — plus this is the
-  Codex apply_patch security-enforcement surface. A blind ride-along on ambiguous provenance
-  would ship an unreviewed security-guard change into a public template. DEFERRED to a dedicated
-  security-reviewed refresh that first resolves which loom tree is authoritative for the
-  target-root .codex-mcp-guard/. Target guard preserved at committed 957 ln (0 git changes).
+  CODEX-GUARD: .codex-mcp-guard/** DELIBERATELY EXCLUDED — continues the prior-cycle (2.45.8/f84241d9)
+  deferral. Source ambiguity is THREE-way (loom .claude/codex-mcp-guard/server.js, loom-root
+  .codex-mcp-guard/server.js, target committed) AND this is the Codex apply_patch security-enforcement
+  surface; a blind ride-along on ambiguous provenance would ship an unreviewed security-guard change
+  into a public template. DEFERRED to a dedicated security-reviewed refresh. Target guard preserved
+  at committed state (0 git changes).
   PRESERVED: CLAUDE.md (template-owned), dev-container scaffold, settings.local.json, .codex-mcp-guard.
   build:null — base is stack-agnostic, NO SDK pins. upstream loom 2.45.0 unchanged.
-  BUMP: template version UNCHANGED at 2.45.8 (content-only redistribution, team-lead Option A); loom_sha a674718->f84241d9.
+  BUMP: template version 2.45.8 -> 2.45.9 (team-lead-directed bump this cycle; distinct from the prior
+  2026-07-16 cycle's content-only no-bump Option A). loom_sha f84241d9->72532677.
   visibility=public preserved across marker rewrite.

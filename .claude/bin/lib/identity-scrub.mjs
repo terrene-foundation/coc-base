@@ -333,7 +333,8 @@ function isNeutralizeSentinel(value) {
  * REAL contributor's macOS home — is STILL rewritten to `/Users/<user>/`. It
  * exists for the clean-instantiate whole-tree neutralize's `*.test.mjs` carve-out:
  * disclosure-test fixtures LEGITIMATELY plant SYNTHETIC operator-home shapes (e.g.
- * `/Users/jdoe/...`) the fork's own disclosure tests must trip against — an
+ * a `/Users/<fixture-user>/...` path under a `SYNTHETIC_FIXTURE_USERS` name) the fork's
+ * own disclosure tests must trip against — an
  * unconditional rewrite would neuter them into `/Users/<user>/` (a green test that
  * verifies nothing). The narrow allowlist keeps THOSE intact while still closing
  * the operator-PII-across-ecosystem leak a blanket `*.test.mjs` skip opens (a REAL

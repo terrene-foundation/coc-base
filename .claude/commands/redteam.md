@@ -35,6 +35,10 @@ Read `.claude/learning/posture.json` via `state-io.js::readPosture`. **`/redteam
 
 Surface posture AND the round count in the first report line. Stopping before 2 consecutive clean rounds **on BUG + INVEST-NOW findings** (per § Category-Based Finding Triage) at L2–L5 (e.g., shipping after Round 1 at L5) is itself a violation logged via `appendViolation` against `redteam/posture-aware-depth`. Stopping WITH an open INCREMENTAL-IMPROVEMENT backlog (dispositioned to the deferred-quality tracking list) is NOT a stop-early violation — convergence is scoped to bug + invest-now, not to zero incrementals.
 
+### 0.5. Deployment-surface classification (OPT-IN; INERT on canon)
+
+If this repo is an ecosystem **fork** (declares `ecosystem.json::upstream_canon`), the fork MAY classify each `.claude/**` artifact into review seats so it reviews its own risk surfaces and skips clean inherited canon. INERT on canon (canon is not a fork — every `.claude/**` is authoritative source). Reuses two shipped predicates, authors NO new classification code: `.claude/bin/lib/local-rules.mjs::isLocalRulePath` → **Seat L** (deployment-local → FULL review); else the `canon-rollin-baseline` marker (`.claude/bin/lib/canon-rollin-baseline.mjs::getMarker`) splits inherited canon into **Seat D** (DIVERGED → drift-only: the delta + its immediate blast-radius, dispatched via the parallel primitive) and **Skip** (CLEAN → no review, reported explicitly per § Convergence Criteria). Depth + algorithm: `skills/30-claude-code-patterns/dual-surface-redteam.md`.
+
 ### 1. Spec compliance audit (MUST run first)
 
 **File existence is NOT compliance.** Use the protocol in `skills/spec-compliance/SKILL.md` to verify each spec promise via AST parsing and targeted greps, NOT file existence or self-reports.
@@ -134,6 +138,8 @@ ALL must be true:
 7. **Eval-harness green + accreted** (Step 4b) — every spec success-criterion + brief intent has ≥1 adversarial probe; every prior-wave defect has a regression probe; **0 failing BUG/INVEST-NOW probes** (a failing INCREMENTAL probe routes to the deferred-quality tracking list and does NOT block convergence, per § Category-Based Finding Triage); probe-driven (regex-on-semantic = HIGH).
 
 Criteria 1-3 are necessary but NOT sufficient. Without 4-7, convergence certifies code quality on incomplete software. These criteria are **posture-invariant** — posture (Step 0) scales the per-round audit DEPTH, never the convergence target; `/redteam` at L2–L5 runs until all criteria hold across 2 consecutive clean rounds. **Wave-scope:** when invoked at a wave boundary (`rules/wave-loop.md` MUST-2 G1), all criteria apply scoped to that wave's shards.
+
+**Skip-class carve-out (fork dual-surface seat, Step 0.5).** An explicit "N inherited-canon-CLEAN artifacts skipped (reviewed upstream)" line is NOT a coverage gap and does NOT block convergence — a CLEAN artifact is byte-identical to the last-accepted canon blob canon already reviewed to convergence, so its review is delegated upstream by construction (`skills/30-claude-code-patterns/dual-surface-redteam.md` § skip-class carve-out). The skip MUST be reported explicitly with its count; a DECLARED delegated-upstream skip is transparent and accounted-for, distinct from a silent omission (severity is irrelevant: the CLEAN class carries no fork-side delta to find). Seat L + Seat D are still reviewed to full convergence — only the byte-identical-to-canon surface is skipped.
 
 ## Category-Based Finding Triage
 

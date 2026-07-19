@@ -79,6 +79,30 @@ const { isMutationTool } = require(
 const { DEFAULT_LOG_REF_NAME } = require(
   path.join(__dirname, "lib", "log-ref-name.js"),
 );
+// MO-OPT W1 opt-in gate (workspaces/multi-operator-optional, journal/0330/0331)
+// + loom#1166. isCoordinationEnabled is the ONE shared predicate every gate
+// consults; resolveMainCheckout routes a worktree session's cwd to the MAIN
+// checkout so the local override / roster / ecosystem.json are read from the
+// same place the sibling guards read them (trust-posture.md MUST-1 +
+// integrity-guard.js:362 / signing-mutation-guard.js:331).
+const { isCoordinationEnabled } = require(
+  path.join(__dirname, "lib", "coordination-mode.js"),
+);
+const { resolveMainCheckout } = require(
+  path.join(__dirname, "lib", "state-resolver.js"),
+);
+
+// Session-cwd → repo root resolution, mirroring integrity-guard.js:103 +
+// journal-write-guard.js:112. COC_OPERATOR_REPO_DIR is the shared test-injection
+// seam; a real session provides payload.cwd.
+function resolveRepoDir(payload) {
+  const envDir = process.env.COC_OPERATOR_REPO_DIR;
+  if (envDir && fs.existsSync(envDir)) return envDir;
+  if (payload && typeof payload.cwd === "string" && payload.cwd.length > 0) {
+    return payload.cwd;
+  }
+  return process.cwd();
+}
 
 function passthrough() {
   clearTimeout(fallback);
@@ -380,6 +404,29 @@ async function main() {
     const hookEvent = payload.hook_event_name || "PreToolUse";
 
     if (!isWatchedTool(payload)) {
+      passthrough();
+    }
+
+    // MO-OPT W1 opt-in gate (loom#1166) — the lone omission among the
+    // coordination guards. FIRST consult the ONE shared predicate; when
+    // coordination is OFF (a solo / un-enrolled repo, OR a consumer that wrote
+    // the tier-2 local override `.claude/learning/coordination-mode.json`
+    // {enabled:false}), the ENTIRE guard is a passthrough — no fresh-substrate-
+    // adopter enrollment advisory, no /whoami nag, per rules/multi-operator-
+    // coordination.md ("a solo / un-enrolled repo pays nothing and gets no
+    // /whoami nag"). This mirrors integrity-guard.js:386 / signing-mutation-
+    // guard.js:331 / adjacency-leasecheck.js:390 (all early-return here). When
+    // coordination is ENABLED, everything below is byte-unchanged — the
+    // fail-CLOSED enrollment BLOCK (no verifying anchor, coordination ON) still
+    // fires, because an enrolled repo (roster + anchored genesis) resolves ON
+    // via coordination-mode.js tier-4 implicit, AND a tier-2 {enabled:false}
+    // is REFUSED on an enrolled repo (asymmetric precedence, G1 R1 security
+    // HIGH). isCoordinationEnabled is synchronous and never throws into a guard
+    // (zero-tolerance.md Rule 3). resolveMainCheckout so a worktree session
+    // reads the same override/roster/ecosystem.json the main checkout holds.
+    const sessionCwd = resolveRepoDir(payload);
+    const repoDir = resolveMainCheckout(sessionCwd) || sessionCwd;
+    if (!isCoordinationEnabled(repoDir)) {
       passthrough();
     }
 

@@ -151,6 +151,12 @@ compounds. Pro: unblocks two waves. Con: ~1 cycle now vs ~3 if deferred. Ratify?
 
 **Why:** The judgment bucket is exactly where a mis-classification ships a real defect under a converged banner (the category boundary's honest risk); the human ratifying the deferred set at `/sweep` is the structural check that catches it. An unsurfaced deferred item is a rotted item (`value-prioritization.md` MUST-3 "still wanted?" gate) — the `/sweep` revisit is the anti-forgetting teeth without which the deferred-quality list is net-negative.
 
+## Skip-Class Carve-Out — A Declared Fork Dual-Surface Skip Is Not An Uncategorized Coverage Gap
+
+An explicit "N inherited-canon-CLEAN artifacts skipped (reviewed upstream)" line from the fork dual-surface redteam seat (`commands/redteam.md` § Step 0.5 + `skills/30-claude-code-patterns/dual-surface-redteam.md`) is NOT a surfaced finding requiring category classification (MUST-1) and MUST NOT be flagged at `/sweep` or a product-completion pass as an unaddressed coverage gap. A CLEAN artifact is byte-identical to the last-accepted canon blob canon already reviewed to convergence — it carries NO fork-side delta to find, so its review is DELEGATED upstream by construction, not deferred as incremental. The carve-out is bounded to the DECLARED CLEAN class only: the skip is reported explicitly with its count (never silent), it never covers a Seat-L / Seat-D surface (both still converge to the BUG + INVEST-NOW gate), and it never licenses relabelling a real fork-side BUG/INVEST-NOW finding as "inherited-canon, skip". An UNDECLARED skip, or a "skip" of anything other than byte-identical-to-canon inherited artifacts, is a finding that MUST be classified per MUST-1.
+
+**Why:** A declared delegated-upstream skip is accounted-for by construction (canon's own convergence + the explicit count), so treating it as an uncategorized coverage hole would grind the convergence-attention budget on a surface with zero fork-side risk — the exact mis-allocation this rule's category gate exists to prevent, one layer up. Bounding the carve-out to the byte-identical CLEAN class keeps it from becoming the "skip it, it's inherited" relabel that would let a real fork-side defect ship under the skip banner.
+
 ## MUST NOT
 
 - Use severity (CRIT/HIGH/MED/LOW) as the fix-vs-defer gate for any surfaced finding.

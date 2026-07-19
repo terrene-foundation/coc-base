@@ -30,20 +30,13 @@ Every specialist delegation prompt MUST include relevant spec file content from 
 
 ## Parallel Execution
 
-When multiple independent operations are needed, launch agents in parallel via the CLI's delegation primitive, wait for all, aggregate results. MUST NOT run sequentially when parallel is possible.
+Launch independent operations in parallel via the CLI's delegation primitive, wait for all, aggregate results. MUST NOT run sequentially when parallel is possible — the always-on form of the § Triad clause below.
 
-**Why:** Sequential execution of independent operations wastes the autonomous execution multiplier, turning a 1-session task into a multi-session bottleneck.
+### MUST: The Default Execution Mode Is The Triad — Parallelize + /autonomize + /redteam-to-convergence
 
-### MUST: Decompose Onto The Parallel Primitive By Default When The Work Earns It
+**The default execution mode for every actionable input is the TRIAD, each DEFAULT-ON (not only under `/autonomize`, not serial/inline):** (1) **parallelize** — decompose onto the runtime's parallel orchestration primitive wherever the input has **≥2 independent operations OR a multi-stage shape** (analyze → implement → verify); (2) **/autonomize** — execute autonomously under the permission envelope, recommending the optimal root-cause fix with evidence; (3) **/redteam-to-convergence** — adversarially verify every substantive change to 2 consecutive clean rounds before "done" (reinforces § Quality Gates below). Drops to serial/inline ONLY for a genuinely-atomic single-item task OR a factual/confirmation/recommendation reply. Executing a decomposable input inline-serially, or idling while independent work is dispatchable, is BLOCKED. The triad FILLS the default posture, NEVER overrides a gate — bounded by genuine dependencies, structural human gates (plan-approval / release), capacity + throttle (`rules/worktree-isolation.md` Rule 4), and prudence/confirmation on destructive or hard-to-reverse actions; `/autonomize` is self-bounding. Governance per `rules/governed-throughput.md`.
 
-When the work surface is **≥3 independent items** OR has a **multi-stage shape** (analyze → implement → verify), the orchestrator MUST decompose onto the runtime's parallel orchestration primitive by DEFAULT — not only under `/autonomize`. The trigger is a real gate: a genuinely serial single-item task MUST stay serial. Governance per `rules/governed-throughput.md`; concurrency throttle-aware per `rules/worktree-isolation.md` Rule 4.
-
-```text
-# DO — 3 independent shards (W3,W4,W5) → one parallel wave (1 wall-clock unit)
-# DO NOT — 1 serial state-machine rewrite → stay serial (decomposing adds only latency)
-```
-
-**Why:** Parallel decomposition is the baseline throughput response, not a per-session opt-in; the serial-single-item gate prevents over-decomposition of genuinely sequential work.
+**Why:** The triad is the baseline throughput+quality response, not a per-session opt-in; the atomic/factual serial carve-out prevents over-decomposing a one-liner into a workflow; the bounding gates keep "always executing" from becoming "always overriding a gate".
 
 ### MUST: Parallel Brief-Claim Verification When Issue Count ≥ 3
 
@@ -110,17 +103,7 @@ Depth (protocol, prompt templates, BLOCKED corpora, post-mortems): `skills/30-cl
 
 ## Examples (Gemini-native delegation syntax)
 
-The MUST clauses in the neutral-body section reference numbered examples here. This Gemini variant replaces the CC `Agent(subagent_type=...)` syntax with direct `@<agent-name>` invocations per the gemini-architect anti-pattern table (`.claude/agents/gemini-architect.md` line 132: "`@<agent-name>` is a real native call — the agent file at `.gemini/agents/<name>.md` is invoked directly"). The delegation primitive `@specialist` is also declared in loom's parity-audit `scrub_tokens` list at `.claude/sync-manifest.yaml::parity_enforcement.cross_cli_drift_audit.scrub_tokens`.
-
-### Example 1 — Parallel Brief-Claim Verification (≥3-issue brief)
-
-### Example 2 — Background Reviewer Dispatch (Quality Gates)
-
-### Example 3 — Mechanical Sweep in Reviewer Prompt
-
-### Example 4 — Closure-Parity Specialist Dispatch (Bash+Read required)
-
-### Example 5 — Delegation-Time Closure-Parity Scan
+The MUST clauses in the neutral body reference numbered examples by their inline "(Example N = ...)" descriptors. Gemini invokes a specialist by name via `@specialist` (e.g. `@reviewer`, `@security-reviewer`), dispatched in parallel where the clause calls for it. The delegation MECHANISM above is self-contained; the CLI-neutral MUST-clause contract is the load-bearing part.
 
 
 ---

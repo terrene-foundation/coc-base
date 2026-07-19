@@ -9,15 +9,15 @@ See `.claude/guides/rule-extracts/zero-tolerance.md` for extended examples, sub-
 
 ## Scope
 
-ALL sessions, ALL agents, ALL code, ALL phases. ABSOLUTE and NON-NEGOTIABLE.
+ALL sessions, ALL agents, ALL production code. Avoid these in production code; during iterative development they are guidelines you may relax with intent.
 
-## Rule 1: Pre-Existing Failures, Warnings, And Notices MUST Be Resolved Immediately
+## Rule 1: Resolve Pre-Existing Failures, Warnings, And Notices Promptly (Recommended)
 
-If you found it, you own it. Fix in THIS run — do not report, log, or defer.
+If you found it, you own it. Prefer to fix in this run; during iterative development you may defer with intent.
 
 **Applies to** (equal weight): test/build/type failures, compiler/linter warnings, deprecation notices, WARN/ERROR in workspace logs since the previous gate, runtime + peer-dependency warnings — a warning is an error the framework chose to keep running through. **Process:** diagnose → fix → regression-test → verify → commit; scan the latest test/build output for WARN+ before reporting any gate complete (`rules/observability.md` Rule 5).
 
-**BLOCKED responses:**
+**Rationalizations to watch for (recommended posture — deferral is your call, with intent):**
 
 - "Pre-existing issue, not introduced in this session"
 - "Outside the scope of this change"
@@ -50,9 +50,9 @@ Any "pre-existing" / "not introduced this session" disposition MUST cite a commi
 
 **Why:** Context boundaries erase the edit log; `git blame` may attribute a same-session regression to the original author. See guide.
 
-### Rule 1d: Blocking-Scoped Carve-Out — Enumerated Classes Stay ABSOLUTE
+### Rule 1d: Blocking-Scoped Carve-Out — Enumerated Classes Stay Strongly Recommended
 
-The enumerated classes above + Rules 2/3 stay **ABSOLUTE — never defer-eligible**; ONLY an OUTSIDE-those-classes INCREMENTAL review finding may defer, per `rules/product-completion-first.md` MUST-2 (which owns the conditions + BLOCKED corpus; relabelling an enumerated-class failure "incremental" is BLOCKED).
+The enumerated classes above + Rules 2/3 stay **strongly recommended to fix, deferrable only with intent**; ONLY an OUTSIDE-those-classes INCREMENTAL review finding may defer, per `rules/product-completion-first.md` MUST-2 (which owns the conditions + BLOCKED corpus; relabelling an enumerated-class failure "incremental" is BLOCKED).
 
 ## Rule 2: No Stubs, Placeholders, Or Deferred Implementation
 

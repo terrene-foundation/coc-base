@@ -30,7 +30,7 @@ if findings == 0: declare_converged()      # ships the throttled shard un-review
 
 ### Axis 2 — CONCURRENCY BACK-OFF (per `worktree-isolation.md` Rule 4)
 
-On an observed throttle signal (the falsifiable signal in `worktree-isolation.md` Rule 4: ≥2 agents in one launch wave fail within a ~30–48s synchronized window carrying the server string `Server is temporarily limiting requests` / `(not your usage limit)` / `Rate limited`), reduce dispatch concurrency to the adaptive back-off model (waves of ~3) and re-run the throttled reviewers. This COMPLEMENTS parallel-by-default (`rules/agents.md` § Decompose Onto The Parallel Primitive By Default) — it does NOT override it. A single agent dying, an OOM, or a quota "usage limit" error is NOT the throttle signal and does NOT trigger concurrency back-off (it triggers a plain re-run).
+On an observed throttle signal (the falsifiable signal in `worktree-isolation.md` Rule 4: ≥2 agents in one launch wave fail within a ~30–48s synchronized window carrying the server string `Server is temporarily limiting requests` / `(not your usage limit)` / `Rate limited`), reduce dispatch concurrency to the adaptive back-off model (waves of ~3) and re-run the throttled reviewers. This COMPLEMENTS parallel-by-default (`rules/agents.md` § The Default Execution Mode Is The Triad) — it does NOT override it. A single agent dying, an OOM, or a quota "usage limit" error is NOT the throttle signal and does NOT trigger concurrency back-off (it triggers a plain re-run).
 
 ```text
 # DO — back off concurrency on the synchronized-throttle signal, then re-run
