@@ -211,7 +211,8 @@ const COMMAND_LINE_CAP = 150; // cc-artifacts.md Rule 3 + command-authoring SKIL
 // file addresses artifacts by `rel`.
 const COMMAND_LINE_CAP_EXCEPTIONS = Object.freeze({
   ".claude/commands/sweep.md": { maxBodyLines: 173, receipt: "journal/0468" }, // 177 wc -l (162→173: Sweep-10 deferred-quality revisit + 6-part management report, journal/0468)
-  ".claude/commands/wrapup.md": { maxBodyLines: 160, receipt: "journal/0429" }, // 164 wc -l
+  ".claude/commands/wrapup.md": { maxBodyLines: 168, receipt: "journal/0543" }, // 172 wc -l (160→168: co-owner-directed § Wave tracker POINTER + cap-3→4 allowlist + running-agent carve-out, journal/0543 § Implementation notes)
+  ".claude/commands/redteam.md": { maxBodyLines: 151, receipt: "journal/0544" }, // 155 wc -l (145→151: co-owner-directed Step 0.5 dual-surface deployment-surface classification + § Convergence Criteria skip-class carve-out, journal/0544)
 });
 
 // Commands intentionally exempt from the `---` frontmatter requirement.
@@ -239,6 +240,7 @@ const CHECK_IDS = [
   "coc-artifact-ids",
   "consumer-efficacy",
   "codex-policies-fresh",
+  "codex-guard-root-parity",
   "variant-orphan",
   "allowlist-paths-coverage",
   "surface-role-membership",
@@ -1341,7 +1343,55 @@ const LOOM_ONLY_TIER_CARVEOUTS = new Set([
   // imports it). Under the synced `hooks/lib/**` glob → LOAD-BEARING carve-out, the
   // same class as the weft-* siblings above.
   "hooks/lib/o1-citation-check.js",
+  // loom #757 Shard B — the R1 fail-loud domain-claim guard for /govern's
+  // policy-distillation mode (run only by the loom-only /govern command; no consumer
+  // hook imports it, and the Shard-A adjacency predicate it feeds reads only
+  // claim.domain/opts.candidateDomain, never this lib). Under the synced `hooks/lib/**`
+  // glob → LOAD-BEARING carve-out, the same class as o1-citation-check.js above.
+  "hooks/lib/distillation-claim.js",
+  // loom#1209 W1-b (2026-07-18, co-owner-directed journal/0549) — the artifact-
+  // activation event producers + libs. loom-INTERNAL session observability (#1228:
+  // "run in EVERY loom session"), default-matched by the synced hooks/** + hooks/lib/**
+  // tiers but shipped present-but-inert to templates (settings.json preserved → no
+  // registration propagation). loom_only STOPS distribution; loom keeps + fires them.
+  // Closed import cluster (event ← ledger ← the 2 top-level hooks). LOAD-BEARING
+  // carve-out, same class as the weft-* / o1-citation / distillation-claim siblings above.
+  "hooks/emit-artifact-activation.js",
+  "hooks/emit-artifact-activation-session.js",
+  "hooks/lib/artifact-activation-event.js",
+  "hooks/lib/artifact-activation-ledger.js",
 ]);
+
+// Positive allowlist (cc-artifacts.md Rule 10) of concrete loom_only files that
+// are PER-FORK PRIVATE STATE — legitimately ABSENT at canon and materialized only
+// in a client ecosystem FORK. `canon-rollin-baseline.json` (loom#576 SHARD A, the
+// DD-2 roll-in baseline) is written only when a fork rolls a canon change in; canon
+// is the root and has nothing to roll in, so its `why:` comment states the file is
+// "absent at canon". The manifest loom_only entry is LOAD-BEARING for forks (it
+// keeps the file out of /sync), so it MUST stay — but at canon the zero-match branch
+// below would flag it as a stale glob. Membership here + positively-confirmed canon
+// (isConfirmedCanon) converts that specific false-positive into a PASS. A GENUINELY
+// stale entry of the same name in a FORK (upstream_canon set) still WARNs, and a
+// NON-allowlisted absent entry still WARNs at canon — the exemption is path-specific.
+const LOOM_ONLY_ABSENT_AT_CANON = new Set(["canon-rollin-baseline.json"]);
+
+// Positively confirm THIS root is canon (not a fork). Reads the root-parameterized
+// ecosystem.json (matches the root being validated, not this module's location) and
+// returns true ONLY when the file is present, parseable, and declares
+// `ecosystem.upstream_canon === null` (the canonical canon signal —
+// bin/lib/ecosystem-config.mjs::getUpstreamCanon returns null in canon, set in a
+// fork). Fail-safe: any read/parse failure, an absent file, or a non-null
+// upstream_canon returns false, so the exemption never fires outside a confirmed
+// canon and a genuinely-stale entry still surfaces.
+function isConfirmedCanon(root) {
+  try {
+    const raw = readFileSync(join(root, ".claude", "bin", "ecosystem.json"), "utf8");
+    const cfg = JSON.parse(raw);
+    return !!(cfg && cfg.ecosystem && cfg.ecosystem.upstream_canon === null);
+  } catch {
+    return false;
+  }
+}
 
 // Check 8 — loom-only mutual exclusion (F104).
 //   FAIL  a loom_only glob that ALSO appears as / swallows a tier entry (any
@@ -1404,6 +1454,18 @@ function checkLoomOnlyMutualExclusion(root) {
     const candidate = join(root, ".claude", lo);
     const exists = existsSync(candidate) || (lo.endsWith("/**") && existsSync(join(root, ".claude", lo.slice(0, -3))));
     if (!exists) {
+      // Per-fork private state legitimately absent at canon (canon-rollin-baseline.json
+      // materializes only in a fork on its first roll-in). At POSITIVELY-confirmed canon
+      // this is a PASS, not a stale-glob WARN. In a fork (upstream_canon set) OR for any
+      // non-allowlisted absent entry, fall through to the WARN below.
+      if (LOOM_ONLY_ABSENT_AT_CANON.has(lo) && isConfirmedCanon(root)) {
+        results.push({
+          artifact: lo,
+          status: STATUS.PASS,
+          detail: "by-design absent at canon: per-fork private state (materializes only in a fork on its first canon roll-in); the loom_only entry is load-bearing for forks",
+        });
+        continue;
+      }
       results.push({
         artifact: lo,
         status: STATUS.SKIP,
@@ -3918,7 +3980,14 @@ function allowlistGlobCovers(glob, entry) {
 //
 // The non-learning loom-only scratch (SURVEY-F40-4*, test-harness/.claude/) lives
 // OUTSIDE .claude/learning/, so it never enters this comparison and needs no entry.
-const LOOM_ONLY_LEARNING_EXCLUSIONS = new Set([".autocommit.lock"]);
+const LOOM_ONLY_LEARNING_EXCLUSIONS = new Set([
+  ".autocommit.lock",
+  // loom#1209 W1-b (2026-07-18, journal/0549) — the artifact-activation event sink is
+  // written ONLY by the now-loom_only artifact-activation hooks (loom-internal
+  // observability), so it never materializes at a consumer; loom-only, not a
+  // gitignore_additions disclosure-parity requirement.
+  "artifact-activation",
+]);
 
 const LEARNING_PREFIX = ".claude/learning/";
 
@@ -4363,6 +4432,64 @@ function checkSettingsRegistration(root) {
   return { id, source_rule, results };
 }
 
+// ── CHECK — codex-mcp-guard root/.claude runtime parity (F-CGUARD) ─────────────
+// loom carries the codex-mcp-guard runtime in TWO real dirs: the maintained
+// `.claude/codex-mcp-guard/` (source, 28-commit hardened) and the repo-root
+// `.codex-mcp-guard/` — which is what loom's OWN `.codex/config.toml` invokes
+// (loom's Codex DOGFOOD). It is NOT the downstream ship source: consumers get
+// their `.codex-mcp-guard/` from loom's `.claude/codex-mcp-guard/` (via
+// `coc-sync.md` `cp -r .claude/codex-mcp-guard/ "$USE/.codex-mcp-guard/"`), so
+// consumers already run the hardened copy. This check keeps loom's OWN root
+// byte-identical to `.claude/`, or loom-self silently dogfoods a STALE guard —
+// the fail-OPEN-vs-fail-CLOSED drift this check exists to block (the F-CGUARD
+// gap: a hardened `.claude/` copy that never reached loom's OWN running root
+// copy while it DID reach consumers; journal/0534). `package.json` is EXCLUDED
+// — its only legitimate divergence is the repo-URL (root carries the real slug;
+// `.claude` carries the scrubbed `<owner>/<repo>` placeholder for the public
+// projection). On a consumer `.claude/codex-mcp-guard` symlinks to
+// `../.codex-mcp-guard`, so the two paths are the SAME file and the byte-compare
+// passes by construction; SKIP only when the root dir is absent (a pure-CC
+// consumer with no codex-mcp-guard at all).
+const CODEX_GUARD_PARITY_FILES = ["server.js", "extract-policies.mjs", "README.md", "policies.json"];
+function checkCodexGuardRootParity(root) {
+  const id = "codex-guard-root-parity";
+  const source_rule = "codex-mcp-guard root/.claude runtime parity (F-CGUARD / journal/0534)";
+  const rootDir = join(root, ".codex-mcp-guard");
+  const claudeDir = join(root, ".claude", "codex-mcp-guard");
+  if (!existsSync(rootDir) || !existsSync(claudeDir)) {
+    return {
+      id,
+      source_rule,
+      results: [{ artifact: ".codex-mcp-guard", status: STATUS.SKIP, detail: "no root+.claude codex-mcp-guard pair (CC-only consumer)" }],
+    };
+  }
+  const results = [];
+  for (const f of CODEX_GUARD_PARITY_FILES) {
+    const rootF = join(rootDir, f);
+    const claudeF = join(claudeDir, f);
+    if (!existsSync(rootF) || !existsSync(claudeF)) {
+      results.push({ artifact: `.codex-mcp-guard/${f}`, status: STATUS.FAIL, detail: `runtime file present in one dir but not the other — the shipped guard is incomplete` });
+      continue;
+    }
+    const a = safeRead(rootF); // 10 MB cap + try/catch
+    const b = safeRead(claudeF);
+    if (a === null || b === null) {
+      results.push({ artifact: `.codex-mcp-guard/${f}`, status: STATUS.FAIL, detail: `unreadable or exceeds the 10 MB size cap` });
+      continue;
+    }
+    if (a === b) {
+      results.push({ artifact: `.codex-mcp-guard/${f}`, status: STATUS.PASS, detail: `byte-identical to .claude/codex-mcp-guard/${f}` });
+    } else {
+      results.push({
+        artifact: `.codex-mcp-guard/${f}`,
+        status: STATUS.FAIL,
+        detail: `DRIFT: root .codex-mcp-guard/${f} differs from the maintained .claude/codex-mcp-guard/${f}. loom's OWN .codex/config.toml invokes the root copy (loom's Codex dogfood); a drifted root means loom-self runs a guard that diverges from the maintained/shipped .claude/ copy (the fail-open-vs-fail-closed class F-CGUARD closed for loom-self — consumers ship from .claude/ via coc-sync). Refresh: cp .claude/codex-mcp-guard/${f} .codex-mcp-guard/${f}`,
+      });
+    }
+  }
+  return { id, source_rule, results };
+}
+
 const CHECK_FNS = {
   "command-frontmatter": checkCommandFrontmatter,
   "settings-hook-registration": checkSettingsRegistration,
@@ -4381,6 +4508,7 @@ const CHECK_FNS = {
   "coc-artifact-ids": checkCocArtifactIds,
   "consumer-efficacy": checkConsumerEfficacy,
   "codex-policies-fresh": checkCodexPoliciesFresh,
+  "codex-guard-root-parity": checkCodexGuardRootParity,
   "variant-orphan": checkVariantOrphan,
   "allowlist-paths-coverage": checkAllowlistPathsCoverage,
   "surface-role-membership": checkSurfaceRoleMembership,
@@ -4605,6 +4733,8 @@ export {
   validateGeminiCommandToml,
   extractRulesIndexCitations,
   checkCodexPoliciesFresh,
+  checkCodexGuardRootParity,
+  CODEX_GUARD_PARITY_FILES,
   canonicalPolicies,
   checkCodexHooksSchema,
   CODEX_HOOKS_ALLOWED_TOP_KEYS,

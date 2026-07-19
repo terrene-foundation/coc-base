@@ -37,22 +37,20 @@ Every specialist delegation prompt MUST include relevant spec file content from 
 
 ## Parallel Execution
 
-When multiple independent operations are needed, launch agents in parallel via the CLI's delegation primitive, wait for all, aggregate results. MUST NOT run sequentially when parallel is possible.
+Launch independent operations in parallel via the CLI's delegation primitive, wait for all, aggregate results. MUST NOT run sequentially when parallel is possible — the always-on form of the § Triad clause below.
 
-**Why:** Sequential execution of independent operations wastes the autonomous execution multiplier, turning a 1-session task into a multi-session bottleneck.
+### MUST: The Default Execution Mode Is The Triad — Parallelize + /autonomize + /redteam-to-convergence
 
-### MUST: Decompose Onto The Parallel Primitive By Default When The Work Earns It
-
-When the work surface is **≥3 independent items** OR has a **multi-stage shape** (analyze → implement → verify), the orchestrator MUST decompose onto the runtime's parallel orchestration primitive by DEFAULT — not only under `/autonomize`. The trigger is a real gate: a genuinely serial single-item task MUST stay serial. Governance per `rules/governed-throughput.md`; concurrency throttle-aware per `rules/worktree-isolation.md` Rule 4.
+**The default execution mode for every actionable input is the TRIAD, each DEFAULT-ON (not only under `/autonomize`, not serial/inline):** (1) **parallelize** — decompose onto the runtime's parallel orchestration primitive wherever the input has **≥2 independent operations OR a multi-stage shape** (analyze → implement → verify); (2) **/autonomize** — execute autonomously under the permission envelope, recommending the optimal root-cause fix with evidence; (3) **/redteam-to-convergence** — adversarially verify every substantive change to 2 consecutive clean rounds before "done" (reinforces § Quality Gates below). Drops to serial/inline ONLY for a genuinely-atomic single-item task OR a factual/confirmation/recommendation reply. Executing a decomposable input inline-serially, or idling while independent work is dispatchable, is BLOCKED. The triad FILLS the default posture, NEVER overrides a gate — bounded by genuine dependencies, structural human gates (plan-approval / release), capacity + throttle (`rules/worktree-isolation.md` Rule 4), and prudence/confirmation on destructive or hard-to-reverse actions; `/autonomize` is self-bounding. Governance per `rules/governed-throughput.md`.
 
 ```text
-# DO — 3 independent shards (W3,W4,W5) → one parallel wave (1 wall-clock unit)
-# DO NOT — 1 serial state-machine rewrite → stay serial (decomposing adds only latency)
+# DO — actionable input with ≥2 independent parts → one parallel wave, autonomized, redteamed to convergence
+# DO NOT — execute a decomposable input inline-serially, or idle while an independent shard is dispatchable
 ```
 
-**BLOCKED rationalizations:** "parallel-by-default needs `/autonomize`" / "serial is simpler, I'll decompose later" / "the ≥3-item trigger is my call each session".
+**BLOCKED rationalizations:** "the triad needs `/autonomize` invoked first" / "parallel-by-default is my call each session" / "serial is simpler, I'll decompose later" / "/redteam is a separate phase, not part of doing the work".
 
-**Why:** Parallel decomposition is the baseline throughput response, not a per-session opt-in; the serial-single-item gate prevents over-decomposition of genuinely sequential work.
+**Why:** The triad is the baseline throughput+quality response, not a per-session opt-in; the atomic/factual serial carve-out prevents over-decomposing a one-liner into a workflow; the bounding gates keep "always executing" from becoming "always overriding a gate".
 
 ### MUST: Parallel Brief-Claim Verification When Issue Count ≥ 3
 
@@ -132,7 +130,7 @@ Depth (protocol, prompt templates, BLOCKED corpora, post-mortems): `skills/30-cl
 - **Stack-coupled work without consulting `STACK.md`** — the generic specialists fall back to LOW-confidence advice; the agent is responsible for either confirming the stack or running the `/onboard-stack` command first.
 - **Sequential when parallel is possible** — wastes the autonomous execution multiplier.
 
-Origin: 2026-04-19 worktree drift + 2026-04-20 parallel-release + 2026-04-27 W6 closure-parity. Base-variant adaptation 2026-05-06: stack-specialist names neutralized to db/api/ai-specialist trio reading `STACK.md`. Worktree-cluster compression mirrored from global 2026-06-12 (#491, journal/0271) — also restores the binding-scoped-shard-PR clause the base overlay had drifted without.
+Origin: 2026-04-19 worktree drift + 2026-04-20 parallel-release + 2026-04-27 W6 closure-parity. Base-variant adaptation 2026-05-06: stack-specialist names neutralized to db/api/ai-specialist trio reading `STACK.md`. Worktree-cluster compression mirrored from global 2026-06-12 (#491, journal/0271) — also restores the binding-scoped-shard-PR clause the base overlay had drifted without. Triad default-execution-mode reconciliation mirrored from global 2026-07-18 (journal/0543): the stale pre-triad decompose-by-default full-file-copy section became the § "The Default Execution Mode Is The Triad" (parallelize + /autonomize + /redteam-to-convergence) with the ≥3→≥2 floor. Kept as a RECONCILED full-file overlay (not slot-partitioned like rs) because base carries genuine stack-agnostic divergence throughout (db/api/ai-specialist trio + STACK.md references) that inheriting global would destroy.
 
 <!-- /slot:neutral-body -->
 
@@ -140,79 +138,6 @@ Origin: 2026-04-19 worktree drift + 2026-04-20 parallel-release + 2026-04-27 W6 
 
 ## Examples (CLI-specific delegation syntax)
 
-The MUST clauses in the neutral-body section reference numbered examples here. Each example shows the CC `Agent(subagent_type=...)` delegation primitive; the Codex variant of this rule (`.claude/variants/codex/rules/agents.md`) replaces these with `codex_agent(agent=...)` syntax, and the Gemini variant uses `@specialist` invocation.
-
-### Example 1 — Parallel Brief-Claim Verification (≥3-issue brief)
-
-```python
-# DO — parallel deep-dive verification for ≥3-issue brief
-# (one agent per claim cluster, run concurrently)
-Agent(subagent_type="general-purpose", run_in_background=True, prompt="""
-  Verify brief claim #1: 'ExperimentTracker creates _kml_model_versions'.
-  Re-grep the source tree; cite file:line. Report TRUE / FALSE / UNCLEAR.""")
-Agent(subagent_type="general-purpose", run_in_background=True, prompt="""
-  Verify brief claim #2: 'InferenceServer at engines/inference_server.py'.
-  Re-grep + re-read the cited path. Report TRUE / FALSE / UNCLEAR.""")
-Agent(subagent_type="general-purpose", run_in_background=True, prompt="""
-  Verify brief claim #3: '1.1.x kwargs silently dropped in 1.5.x'.
-  Re-read the 1.5.x signature; check raise vs silent-drop. Report.""")
-# Wait for all three; reconcile findings; record corrections in journal +
-# architecture plan BEFORE /todos.
-
-# DO NOT — single-agent analysis on a ≥3-issue brief
-Agent(subagent_type="analyst", prompt="Analyze the brief and produce architecture plan.")
-# (the analyst inherits whatever framing the brief asserts; brief inaccuracies
-# propagate into the plan, the plan into /todos, and three sessions later
-# the workstream is solving the wrong problem.)
-```
-
-### Example 2 — Background Reviewer Dispatch (Quality Gates)
-
-```
-# Background agent pattern for MUST gates — review costs near-zero parent context
-Agent({subagent_type: "reviewer", run_in_background: true, prompt: "Review all changes since last gate..."})
-Agent({subagent_type: "security-reviewer", run_in_background: true, prompt: "Security audit all changes..."})
-```
-
-### Example 3 — Mechanical Sweep in Reviewer Prompt
-
-```python
-# DO — reviewer prompt enumerates mechanical sweeps
-Agent(subagent_type="reviewer", prompt="""
-Mechanical sweeps (run BEFORE LLM judgment):
-1. Parity grep (`grep -c`) on critical call-site patterns
-2. `pytest --collect-only -q` exit 0 across all test dirs
-3. Every public symbol in __all__ added by this PR has an eager import
-""")
-
-# DO NOT — reviewer prompt only includes diff context
-Agent(subagent_type="reviewer", prompt="Review the diff between main and feat/X.")
-```
-
-### Example 4 — Closure-Parity Specialist Dispatch (Bash+Read required)
-
-```python
-# DO — pact-specialist or general-purpose for Round-2+ closure-parity verification
-Agent(subagent_type="pact-specialist", prompt="""
-Verify W5→W6 closure parity. Run gh pr view, gh pr diff, grep, pytest --collect-only,
-ast.parse() for __all__ enumeration. Convert FORWARDED rows to VERIFIED with command output.""")
-
-# DO NOT — analyst (Read/Grep/Glob only) — cannot run gh / pytest / ast.parse()
-Agent(subagent_type="analyst", prompt="Verify W5→W6 closure parity...")
-```
-
-### Example 5 — Delegation-Time Closure-Parity Scan
-
-```python
-# DO — orchestrator detects closure-parity markers in draft prompt, picks Bash+Read specialist
-draft_prompt = "Verify W5→W6 closure parity. Run gh pr view, ast.parse() for __all__..."
-# scan: contains "closure parity" + "gh pr view" + "ast.parse(" → MUST use Bash+Read
-Agent(subagent_type="pact-specialist", prompt=draft_prompt)
-
-# DO NOT — orchestrator drafts a closure-parity prompt and delegates to read-only analyst
-draft_prompt = "Verify W5→W6 closure parity. Run gh pr view, ast.parse() for __all__..."
-Agent(subagent_type="analyst", prompt=draft_prompt)
-# (analyst lacks Bash; will FORWARD the gh-pr-view rows; round burned)
-```
+The MUST clauses in the neutral-body section reference numbered examples by their inline "(Example N = …)" descriptors. The WORKED examples (Examples 1–5) — the concrete CC `Agent(subagent_type=…)` delegation code for each clause — live in `.claude/skills/30-claude-code-patterns/specialist-delegation-syntax.md`. That skill also carries the Codex (`bin/coc` inline-cat injection) and Gemini (`@specialist`) mappings. The examples are reference material loaded on-demand when delegating; the MUST clauses above are the CLI-neutral contract.
 
 <!-- /slot:examples -->

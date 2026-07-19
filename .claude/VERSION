@@ -1,18 +1,18 @@
 {
   "name": "coc-base",
-  "version": "2.45.8",
+  "version": "2.45.9",
   "type": "coc-use-template",
   "description": "Language-agnostic, non-Kailash CO/COC USE template — multi-CLI (variant: base, clis: claude/codex/gemini)",
-  "synced_at": "2026-07-16T14:35:34Z",
+  "synced_at": "2026-07-19T02:32:22Z",
   "upstream": {
     "name": "loom",
     "type": "coc-source",
     "version": "2.45.0",
-    "loom_sha": "f84241d9",
-    "synced_at": "2026-07-16T14:35:34Z",
+    "loom_sha": "72532677",
+    "synced_at": "2026-07-19T02:32:22Z",
     "template_version": "2.45.0",
     "build_version": "2.45.0",
-    "source_commit": "f84241d9"
+    "source_commit": "72532677"
   },
   "variant": "base",
   "tier_subscriptions": [
@@ -26,6 +26,11 @@
     "gemini"
   ],
   "changelog": [
+    {
+      "version": "2.45.9",
+      "date": "2026-07-19",
+      "summary": "Gate-2 base sync from loom@72532677 (loom 2.45.0; loom_sha f84241d9->72532677): distributes 31-file .claude/ content delta (7 added, 24 modified, 0 deleted; engine --verify CONSISTENT, 0 obsoleted purged) — rules/{agents,artifact-flow,product-completion-first,self-referential-codify,sweep-completeness,testing,wave-loop,zero-tolerance}.md; commands/{autonomize,redteam,wrapup}.md; 4 new skills (dual-surface-redteam, parallel-dispatch-default, self-referential-allowlist-provenance, specialist-delegation-syntax) + closure-parity-specialist-discipline + redteam-dispatch-evidence-gate; guides/rule-extracts/{agents,artifact-flow,cross-sdk-inspection,testing}; bin/{clean-instantiate,emit,identity-scrub,mesh-observability-console,validate-emit}.mjs + lib/local-rules.mjs; hooks/{genesis-anchor-guard,lib/adjacency,lib/version-utils}.js; audit-fixtures/adjacency-domain. MULTI-CLI FULL re-emit (Steps 6.5/6.6/6.7): AGENTS.md+GEMINI.md (codex 12.12%/gemini 12.41% headroom, WARN tier, 0 floor violations), .codex (56 prompts/27 skills) + .gemini (38 commands/27 skills/18 agents) + .coc (153 files) refreshed; config bases + bin/coc refreshed. codex-guard (.codex-mcp-guard/**) DELIBERATELY EXCLUDED (precedent 2.45.8: security review deferred). CLAUDE.md preserved; build:null (NO SDK pins); upstream loom 2.45.0 unchanged."
+    },
     {
       "version": "2.45.8",
       "date": "2026-07-05",

@@ -17,6 +17,18 @@
  *     (e) composed-invariant collision (an otherwise-ADJACENT load-bearing
  *         pair sharing an axis-3 cohort → promoted to SAME)
  *
+ *   PLUS one loom-added extension (NOT part of v11 §4.1; labelled (domain)
+ *   to avoid colliding with the continuous a–i letter sequence the SAME +
+ *   ADJACENT predicates already use):
+ *     (domain) distillation-domain collision (loom #757): the claim carries a
+ *         non-empty semantic `domain` handle equal to the candidate's
+ *         `opts.candidateDomain`. Two DIFFERENT workspace slugs may cover
+ *         the SAME distillation domain (e.g. two concurrent policy-
+ *         distillations of one standard+version); every PATH predicate
+ *         (a)–(e) returns null on them, so this predicate is the ONLY
+ *         SAME signal for a same-domain / different-slug pair. Keyed on
+ *         the semantic `domain` field, NEVER a path — purely additive.
+ *
  *   ADJACENT iff (not SAME, AND any of):
  *     (f) same dir
  *     (g) same workspace (both under workspaces/<name>/)
@@ -55,6 +67,15 @@
  *     dir:             string | null,       // dir prefix claimed
  *     workspace:       string | null,       // workspace name (under
  *                                            //   workspaces/<name>/)
+ *     domain:          string | null,       // #757 opaque distillation-
+ *                                            //   domain handle (normalized
+ *                                            //   at classify-time; NOT a
+ *                                            //   path). SAME-keys same-domain
+ *                                            //   claims across different
+ *                                            //   workspace slugs (predicate
+ *                                            //   (domain)). Matched by dumb
+ *                                            //   equality vs opts.candidate-
+ *                                            //   Domain; absent/empty = inert.
  *     phase:           string | null,       // "todos" / "implement" /
  *                                            //   "redteam"
  *     cohort_commits:  string[] | null,     // snapshot at claim time
@@ -237,6 +258,43 @@ function _matchComposedInvariant(claim, candidatePath, opts) {
 }
 
 /**
+ * Test SAME predicate (domain) — distillation-domain collision (loom #757).
+ *
+ * Two DIFFERENT workspace slugs may cover the SAME distillation DOMAIN
+ * (e.g. two concurrent policy-distillations of one standard+version). Every
+ * path predicate (a)–(e) returns null on such a pair — the paths differ — so
+ * a purely PATH-keyed relation is blind to the duplicate-artifact race. This
+ * predicate closes that gap on the SEMANTIC `domain` field: it fires SAME
+ * when the claim carries a non-empty `domain` handle AND the caller's
+ * `opts.candidateDomain` equals it.
+ *
+ * DUMB equality ONLY — the `domain` token is an OPAQUE, already-normalized
+ * handle (standard-name+version, NOT a path). Normalization is the caller's
+ * job at classify-time (`rules/agent-reasoning.md`: dumb lib, LLM reasons).
+ * This predicate NEVER parses, splits, or path-arithmetics the handle.
+ *
+ * Purely additive: it reads ONLY `claim.domain` + `opts.candidateDomain`,
+ * never the candidate path — so it cannot collide with the path predicates
+ * (which never read `domain`). An absent / empty `claim.domain` is inert,
+ * leaving the path predicates unaffected. Claim-time only — it inherits the
+ * same window-slide detect-not-prevent semantics as the predicates above
+ * (there is deliberately NO granted-claim re-evaluation surface; see the
+ * §F2-2 residual note at the top of this file).
+ *
+ * Returns the predicate name "distillation-domain", or null.
+ */
+function _matchDistillationDomain(claim, opts) {
+  if (
+    typeof claim.domain === "string" &&
+    claim.domain.length > 0 &&
+    opts.candidateDomain === claim.domain
+  ) {
+    return "distillation-domain";
+  }
+  return null;
+}
+
+/**
  * Public: does the candidate path SAME-conflict with any active claim?
  */
 function isSame(candidatePath, activeClaims, opts) {
@@ -263,7 +321,8 @@ function sameReason(candidatePath, activeClaims, opts) {
       _matchContainer(claim, candidatePath) ||
       _matchCommitCohort(claim, o) ||
       _matchPhaseCollision(claim, candidatePath, o) ||
-      _matchComposedInvariant(claim, candidatePath, o);
+      _matchComposedInvariant(claim, candidatePath, o) ||
+      _matchDistillationDomain(claim, o);
     if (pred) {
       return {
         matched: true,
@@ -403,5 +462,6 @@ module.exports = {
     _journalSlotOf,
     _intersects,
     _matchAdjacentPred,
+    _matchDistillationDomain,
   },
 };

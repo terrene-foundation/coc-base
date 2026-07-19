@@ -66,6 +66,11 @@ function safeReadFileSync(filePath, encoding) {
 
 import { parseSlotsV5, applyOverlay } from "./lib/slot-parser.mjs";
 import { resolveOverlay } from "./lib/variant-overlay.mjs";
+// F-353 Item 4 — deployment-local rules (ADD-ONLY). The emit/compose path
+// composes canon ∪ declared-local baseline rules so a deployment's local rule
+// LOADS alongside canon; the loader enforces the add-only-no-override invariant
+// (a collision with a canon rule is a LOUD throw that BLOCKS the emit).
+import { loadLocalRules } from "./lib/local-rules.mjs";
 import { extractPolicies } from "../codex-mcp-guard/extract-policies.mjs";
 // Validator 18 (#408 AC#5-a) shares the EMITTER's canonical manifest parser +
 // glob matcher so the validator's cc-only certification provably matches what
@@ -295,10 +300,15 @@ export function stripRuleFrontmatter(raw) {
 // rs override of framework-first.md was invisible to emit because only
 // CLI-only and ternary paths composed into the baseline.
 export function composeRule(ruleName, cli, lang = null) {
-  // Rule-name validation: must be a simple .md filename — no traversal.
-  if (!/^[a-z][a-z0-9-]*\.md$/.test(ruleName)) {
+  // Rule-name validation: a simple `.md` filename, OR a `local/<name>.md`
+  // deployment-local rule (F-353 Item 4). The optional single `local/` segment
+  // is the ONLY subdir form permitted — no other traversal. A local rule is a
+  // fork-local ADDITION with NO variant overlays (never py/rs/cli-specialized),
+  // so it composes as the raw global body and SKIPS the axis-overlay passes.
+  const isLocal = /^local\/[a-z][a-z0-9-]*\.md$/.test(ruleName);
+  if (!isLocal && !/^[a-z][a-z0-9-]*\.md$/.test(ruleName)) {
     throw new Error(
-      `invalid rule name '${ruleName}' — must match /^[a-z][a-z0-9-]*\\.md$/`,
+      `invalid rule name '${ruleName}' — must match /^[a-z][a-z0-9-]*\\.md$/ (or a local/<name>.md deployment-local rule)`,
     );
   }
 
@@ -309,6 +319,11 @@ export function composeRule(ruleName, cli, lang = null) {
 
   let composed = safeReadFileSync(globalPath, "utf8");
   const warnings = [];
+
+  // Deployment-local rules carry no variant overlays — compose the body as-is.
+  if (isLocal) {
+    return { composed, warnings };
+  }
 
   // Axis resolution defers to resolveOverlay() so sync-manifest.yaml::variants
   // is the source of truth. `null` declarations skip the axis even if a
@@ -502,8 +517,13 @@ export function loadCliCaps() {
 }
 
 export function getCritBaseline() {
-  // CRIT baseline = rules with priority: 0 in frontmatter.
+  // CRIT baseline = CANON rules with priority: 0 in frontmatter.
   // Empirically matches the per_rule_size_budget_bytes keys in the manifest.
+  // NON-recursive by design: the `.claude/rules/local/` subtree (F-353 Item 4)
+  // is a dirent, not a `.md` file, so canon's baseline NEVER enumerates a
+  // deployment-local rule (mechanism #1 — canon stays local-blind). Local
+  // baseline rules are composed SEPARATELY (getLocalBaselineRules, below) so the
+  // add-only overlay is additive, never a canon-baseline mutation.
   const rulesDir = path.join(REPO, ".claude", "rules");
   const files = fs.readdirSync(rulesDir).filter((f) => f.endsWith(".md"));
   const crit = [];
@@ -515,6 +535,25 @@ export function getCritBaseline() {
     if (prio && parseInt(prio[1], 10) === 0) crit.push(f);
   }
   return crit.sort();
+}
+
+// F-353 Item 4 — deployment-local baseline rules composed ALONGSIDE canon.
+// Returns `local/<name>.md` rule names (composeRule joins them under
+// `.claude/rules/`, resolving `.claude/rules/local/<name>.md`) for declared
+// local rules that carry `priority: 0` (baseline-active parity with canon).
+// INERT for canon loom + any deployment with no `local-manifest.yaml` → []. The
+// loader ENFORCES the add-only invariant: a local id/path colliding with a canon
+// rule is a LOUD `add-only-violation` throw that BLOCKS the emit — a local rule
+// can never silently override, shadow, or soften a canon rule.
+export function getLocalBaselineRules(repoRoot = REPO) {
+  // loadLocalRules enforces the ADD-ONLY invariant (LOUD throw on a canon
+  // collision) AND the baseline-only contract (every returned local rule is
+  // `priority: 0`), so the returned set is exactly the always-on baseline local
+  // rules — no re-filter needed. r.path is repo-relative
+  // `.claude/rules/local/<name>.md`; the ruleName composeRule expects is the
+  // path UNDER `.claude/rules/` → `local/<name>.md`.
+  const { rules } = loadLocalRules(repoRoot);
+  return rules.map((r) => r.path.replace(/^\.claude\/rules\//, "")).sort();
 }
 
 // #423 AC#4 — pure binding-token guard, exported so the violation shape is
@@ -628,7 +667,10 @@ export function getProximityBandAdvisory({
 }
 
 export function emitBaseline(cli, outDir, { lang = null, verbose = false, dryRun = false } = {}) {
-  const crit = getCritBaseline();
+  // Canon ∪ deployment-local baseline (F-353 Item 4). getLocalBaselineRules is
+  // INERT ([]) for canon loom, so this is a no-op here; in a fork with declared
+  // local rules it composes them alongside canon (add-only enforced at load).
+  const crit = [...getCritBaseline(), ...getLocalBaselineRules()];
   const budgets = loadPerRuleBudgets();
   const tolerance = loadBudgetTolerance();
   const blockThreshold = loadBudgetBlockThreshold();

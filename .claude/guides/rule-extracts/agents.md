@@ -196,3 +196,28 @@ When ≥2 parallel worktree agents each ship a binding/package-scoped shard (e.g
 **Detection sweep:** reviewer mechanical sweep at `/implement` — `git diff --name-only main...HEAD`, map each changed path to its top-2 directory components, flag any binding-scoped PR (title `feat(go|java|ruby|python|nodejs):`) whose changed-file roots span >1 binding directory WITHOUT a cross-package-cleanup title prefix (`chore(bindings):` / `fix(bindings):` are explicitly carved out — they MAY touch multiple binding dirs by design).
 
 **Trust Posture Wiring:** Severity `halt-and-report` (gate-review) / `advisory` (hook). Grace 7 days. Cumulative 3× same-rule/30d → drop 1 posture. Regression-within-grace → emergency downgrade L5→L4. Receipt `[ack: agents-binding-scope]` if pending_verification includes the rule_id. Origin: F9 Wave 3c (2026-05-22), PR #1084/#1085 conflict on a Ruby binding source file.
+
+## Inline-extracted BLOCKED corpora (2026-07-18, journal/0543 paired extraction)
+
+Relocated from `rules/agents.md` under the co-owner-directed triad codification so the baseline rule stays net-neutral on the AGENTS.md/GEMINI.md emission budget (`rule-authoring.md` Rule 10). The MUST clauses remain in the rule; these are their full BLOCKED-rationalization corpora.
+
+### § Quality Gates — BLOCKED responses when skipping MUST gates
+
+- "Skipping review to save time"
+- "Reviews will happen in a follow-up session"
+- "The changes are straightforward, no review needed"
+- "Already reviewed informally during implementation"
+
+### § Reviewer Prompts Include Mechanical AST/Grep Sweep — BLOCKED rationalizations
+
+- "The reviewer is smart enough to spot orphans"
+- "Mechanical sweeps are /redteam's job"
+- "Adding sweeps is repetitive"
+
+### § Verify Specialist Tool Inventory Before Implementation Delegation — BLOCKED rationalizations
+
+- "security-reviewer is the security domain, so security-relevant edits go there"
+- "The agent will figure out its tool limitations"
+- "I'll re-launch with a different specialist if it halts"
+- "Read-only review IS implementation when the diff is trivial"
+- "The agent has Write — that's enough for code edits"

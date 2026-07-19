@@ -64,6 +64,10 @@ When a skill repeatedly produces substitution decisions, the skill text itself i
 
 **Why:** A rule that fires every cycle is a signal that the structural defense is wrong. Recurring substitutions need design-time tooling so the gate stops firing.
 
+## Skip-Class Carve-Out — A Declared Fork Dual-Surface Skip Is Not A Substituted Step
+
+An explicit "N inherited-canon-CLEAN artifacts skipped (reviewed upstream)" line from the fork dual-surface redteam seat (`commands/redteam.md` § Step 0.5 + `skills/30-claude-code-patterns/dual-surface-redteam.md`) is NOT a silently-substituted mandated step and MUST NOT trigger the MUST-1 human gate or be flagged by a `/sweep` pass as an unaddressed coverage gap. A CLEAN artifact is byte-identical to the last-accepted canon blob canon already reviewed to convergence, so the review is DELEGATED upstream by construction, not skipped for cost. The carve-out is bounded to the DECLARED CLEAN class only — the skip is reported explicitly with its count (that declaration IS the audit trail MUST-2 requires), it never covers a Seat-L / Seat-D surface, and it never authorizes substituting a proxy for a mandated step on a fork's own risk surfaces. An UNDECLARED skip, or a "skip" of anything other than byte-identical-to-canon inherited artifacts, remains a MUST-1 substitution decision.
+
 ## MUST NOT
 
 - Silently substitute a cheaper tool for a mandated multi-step protocol step
