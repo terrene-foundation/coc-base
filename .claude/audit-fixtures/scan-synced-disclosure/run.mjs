@@ -150,21 +150,54 @@ const CASES = [
     // `variants/**` as never-synced — scope-evasion, since the
     // language overlays COMPOSE INTO the USE-template synced surface
     // at emit time. Fix: stop excluding `variants/` as never-synced;
-    // keep excluding the genuinely-non-synced companions via the
-    // `*.operator.local.md` SUFFIX rule (runs BEFORE isNeverSynced).
     // `variants/rs/rules/leakrule.md` (committed overlay) carries a
-    // synthetic leak that MUST now be scanned + flagged (2 findings:
-    // org-slug + runner-label); the sibling
-    // `ci-runners.operator.local.md` (gitignored-companion suffix)
-    // MUST stay excluded (0 findings from it). expectFindingCount: 2
-    // locks BOTH halves — variants/ now in scope AND operator.local
-    // still excluded via suffix not blanket. A 3rd finding = the
-    // operator.local companion regressed into scope.
+    // synthetic leak that MUST be scanned + flagged (2 findings:
+    // org-slug + runner-label).
+    //
+    // UPDATED for the `*.operator.local.md` #352 parity (loom Gate-1
+    // ingest of the kailash-py re-convergence-#9 disclosure flag): the
+    // `*.operator.local.md` suffix exclusion is now loom-source-only
+    // (mirrors the `*.local.json` / `*.test.mjs` flips). This runner
+    // scans at DESTINATION (`--root`), so the sibling
+    // `ci-runners.operator.local.md` — a committed operator-local file
+    // that shipped past the never-sync skip — IS now the disclosure
+    // event and flags its 3 synthetic operator tokens (operator-hostname
+    // + operator-home-path + operator-service-label). Total 5 findings:
+    // 2 from leakrule.md + 3 from the operator-local companion. The
+    // isolated destination-flip regression lock is
+    // `operator-local-md-destination-flip` below. A count below 5 = the
+    // #352 parity regressed (operator.local re-blinded, e.g. the generic
+    // `*.local.md` catch-all re-swallowing the superset-suffix).
     name: "r3-variant-surface",
     dir: "r3-variant-surface",
     expectExit: 1,
-    expectShapes: ["nonfoundation-org-slug", "org-derived-runner-label"],
-    expectFindingCount: 2,
+    expectShapes: [
+      "nonfoundation-org-slug",
+      "org-derived-runner-label",
+      "operator-hostname",
+      "operator-home-path",
+      "operator-service-label",
+    ],
+    expectFindingCount: 5,
+  },
+  {
+    // `*.operator.local.md` #352 parity (loom Gate-1 ingest of the
+    // kailash-py re-convergence-#9 disclosure-hygiene flag): the
+    // `*.operator.local.md` exclusion in `isExcluded()` now scopes to
+    // `REPO_ROOT_ACTIVE === REPO_ROOT` (loom-source-scan only), mirroring
+    // the `*.local.json` / `*.test.mjs` flips. At loom-source these files
+    // are gitignored; a committed `*.operator.local.md` that ships to a
+    // consumer IS the disclosure event, so a destination scan MUST flag
+    // it. The fixture plants a synthetic `ci-runners.operator.local.md`
+    // carrying a `/Users/fakeuser/...` home-path; it MUST flag at the
+    // destination scan. If the skip ever becomes unconditional again — or
+    // the generic `*.local.md` catch-all re-swallows the
+    // `*.operator.local.md` superset-suffix — this case flips to exit 0
+    // and the suite goes red.
+    name: "operator-local-md-destination-flip",
+    dir: "operator-local-md-destination-flip",
+    expectExit: 1,
+    expectShapes: ["operator-home-path"],
   },
   {
     // R3 must-fix #D (issue #263): the 4th-alt anti-flood

@@ -34,7 +34,7 @@ flow:
 New operators default to `role: contributor`. Promotion to `senior`/`owner` is a SEPARATE quorum gate
 (`--owner-add` for owners, a 2-of-N roster edit for senior) — NOT part of `/enroll`.
 
-**Business-role caveat (Q1).** The four business roles are the advisory `business_roles` enum at
+**Business-role caveat (Q1).** The three business roles are the advisory `business_roles` enum at
 `operators.roster.schema.json:94-105` (`platform-engineer` / `capability-engineer` / `business-consultant`),
 ORTHOGONAL to the authority `role` and NEVER quorum-eligible (`multi-operator-coordination.md` §1).
 `/enroll` places the operator into an AUTHORITY role; `business_roles` is an additive field the operator
