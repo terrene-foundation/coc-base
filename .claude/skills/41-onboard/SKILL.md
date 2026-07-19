@@ -64,7 +64,10 @@ The `failed_integrity` section is REQUIRED in the output even when empty — its
 
 ```
 ws = workspaceUtils.detectActiveWorkspace()
-recent = listJournalEntries(ws, limit=5, types=["DECISION","DISCOVERY","DEFER"])
+# DEFER is NOT in journal-reserve.js::VALID_TYPES ({DECISION,DISCOVERY,TRADE-OFF,RISK,
+# CONNECTION,GAP,AMENDMENT}); deferrals are DECISION-typed (topic carries "defer") and
+# already surface under the DECISION filter.
+recent = listJournalEntries(ws, limit=5, types=["DECISION","DISCOVERY"])
 emit {workspace: ws, recent_journal: recent}
 ```
 
@@ -102,7 +105,7 @@ else:
 
 The M5 session-start hook (`multi-operator-sessionstart.js`) computes this surface. `/onboard` calls the same helper (extracted into a shared library at M5 time) OR re-derives via `git log --since` against `.claude/rules/`.
 
-For each modified rule file, grep for MUST clauses (`grep -n '^### .*MUST'`) added/changed in the diff window. These are the candidates for `pending_verification` per `rules/trust-posture.md` MUST-7.
+For each modified rule file, grep for MUST clauses (`grep -n '^### .*MUST'`) added/changed in the diff window. These are the candidates for `pending_verification` per `rules/trust-posture.md` MUST-6 (grace-period semantics).
 
 ### 7. Action items
 

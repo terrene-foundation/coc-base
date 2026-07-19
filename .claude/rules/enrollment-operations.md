@@ -31,8 +31,10 @@ so `signing-mutation-guard.js` and `integrity-guard.js` **passthrough** (they ea
 `!isCoordinationEnabled`) — the degraded-read-only trap does NOT fire during the first bootstrap
 run. `genesis-anchor-guard.js` ALSO advisory-passes-through on the genuinely-fresh state (F72
 fresh-substrate-adopter / scaffold-roster branches, so the ceremony can land its first commits);
-its fail-closed BLOCK engages only AFTER a real (non-scaffold) roster exists without a folded
-anchor. The coordination-independent teeth that enforce signing-key-first during bootstrap are
+its fail-closed BLOCK engages on EITHER of the two `severity: "block"` branches the guard carries
+— (a) a real (non-scaffold) roster exists without a folded anchor, OR (b) the roster is deleted
+while the coordination log still carries enrollment records (the enrolled-then-deleted /
+guard-escape-by-roster-deletion case). The coordination-independent teeth that enforce signing-key-first during bootstrap are
 (a) the **unconditional** `validate-bash-command.js` `STATE_PATH_RX` block on Bash state-file
 mutation, and (b) fold-clean verification (MUST-4 / fold rule 9a) — an **unsigned** genesis-anchor
 never folds into a trust root, so enrollment cannot COMPLETE without the key.
@@ -87,25 +89,46 @@ suffixed branch name silently disagrees with the guard about what a codify branc
 
 ### 3. Ceremony State-Mutations Run Script-By-Path, Never An Inline Interpreter Body
 
-Any ceremony step that MUTATES a watched state file MUST run as a bare `node <file>` (a script
-authored to disk, then run by path) — NOT a `node -e` / `python -c` body.
-`validate-bash-command.js::detectStateFileMutation` blocks interpreter (`-c`/`-e`/`-m`), redirect,
-and file-utility bodies that write a path matching `STATE_PATH_RX` (the watched state files); a
-`node <file>` keeps that path in the script body, off the scanned command line (mechanics in
+Any ceremony step that MUTATES a watched state file with AUTHORED code MUST run as a bare
+`node <file>` (a script authored to disk, then run by path) — NOT a `node -e` / `python -c` body.
+The guard (`validate-bash-command.js::detectStateFileMutationSegmentAware`) fires on a
+`STATE_PATH_RX` literal APPEARING ON THE COMMAND LINE, across FOUR passes: (1) an interpreter
+`-c`/`-e`/`-m` body — READ/WRITE-AGNOSTIC (it is a path-presence detector, so an inline READ that
+merely NAMES a watched path in an interpreter body is blocked too, not only a write); (2) a
+redirect and (3) a file-utility body — these two additionally require a write construct; and (4)
+the whole-command `detectHeredocWriteRunBundle` pass — one command that BOTH authors a heredoc
+script whose body carries a `STATE_PATH_RX` literal AND executes that same script. A `node <file>`
+keeps the path in the file body, off the scanned command line (mechanics in
 `skills/45-genesis-bootstrap` § The script-by-path pattern). Inlining the mutation is BLOCKED.
+
+**PERMITTED inline (necessary-but-not-sufficient):** a DELEGATED signed-emit helper
+(`reserveJournalSlotSigned` / `emitSignedRecord` routing through `coc-emit.js::emitSignedRecord`
+per `multi-operator-coordination.md` MUST-1) keeps the watched path INTERNAL to the helper, so no
+`STATE_PATH_RX` literal reaches the command line — it MAY be called inline. A raw-`fs` wrapper, a
+concatenated path, or an `appendStamped` supplied the path as an ARGUMENT all put the literal back
+on the command line and are BLOCKED or script-by-path ("owns the write internally" is necessary
+but NOT sufficient — a wrapper hiding a raw `fs.writeFileSync` is not a signed-emit helper).
 
 ```bash
 # DO — author the script, run it bare; the watched path is in the file body
 node /tmp/scratch/ceremony-step.js
 
-# DO NOT — inline interpreter body that writes a watched state file
+# DO — a delegated signed-emit helper keeps the path internal → inline PERMITTED
+node -e 'require("./.claude/hooks/lib/journal-reserve.js").reserveJournalSlotSigned(process.cwd(), o)'
+
+# DO NOT — inline interpreter body that NAMES a watched state file (read OR write, both blocked)
 node -e 'require("fs").writeFileSync(".claude/operators.roster.json", x)'    # severity: block
 python3 -c 'open(".claude/learning/coordination-log.jsonl","a").write(rec)'  # severity: block
+
+# DO NOT — a heredoc that BOTH authors a script carrying the path AND runs it in ONE command
+cat >f <<EOF …".claude/operators.roster.json"… EOF && node f    # severity: block (detectHeredocWriteRunBundle)
+# → author the script and run it as TWO separate commands instead
 ```
 
-**BLOCKED rationalizations:** "one-liner is faster" / "the guard flags read-only node too" (it
-does not — only state-file mutation) / "I'll disable the bash guard for the ceremony" / "bundling
-node with the gh call in one command is tidier" (re-introduces a scanned token).
+**BLOCKED rationalizations:** "one-liner is faster" / "the guard only flags a WRITE, an inline
+`node -e` READ of a watched path is fine" (WRONG — the interpreter-body pass is read/write-agnostic;
+a read naming a watched path is blocked) / "I'll disable the bash guard for the ceremony" /
+"bundling the heredoc author + run in one command is tidier" (the 4th pass blocks exactly that).
 
 **Why:** The guard closes the bypass where `permissions.deny` on Edit/Write does not cover
 bash-mediated mutations; script-by-path satisfies it WITHOUT weakening it, and keeping
@@ -120,7 +143,8 @@ anchor in `accepted` with `rejected: []` AND `forks: []`, AND (b)
 Declaring enrolled on an appended-but-unverified anchor is BLOCKED.
 
 ```text
-# DO — verify fold + identity (script-by-path; both read the gitignored log)
+# DO — verify fold + identity (foldLog folds the gitignored coordination-log's records;
+#      resolveIdentity reads the COMMITTED roster operators.roster.json, per operator-id.js)
 foldLog(...) → { accepted: [genesis-anchor, …], rejected: [], forks: [] }
 resolveIdentity(repo) → { role: "owner", person_id: "pid-<display_id>-<short-fp>", … }   → say "enrolled"
 
@@ -220,19 +244,20 @@ silent substrate corruption.
   `verify-resource-existence.md` MUST-4; self-enroll + org-admin scope read from the signed
   `genesis-anchor` content). No new sweep tool ships, so no new fixtures (`cc-artifacts.md` Rule 9
   fires only on new tools). Phase 2 (deferred): a Stop-event detector is unnecessary — the guards
-  already block at the tool boundary. (`no-check: this rule ships NO new detector and NO new
-validate-emit.mjs structural check — MUST-3 is enforced UNCONDITIONALLY by the
-`validate-bash-command.js::detectStateFileMutation` `STATE_PATH_RX`block. MUST-1/2's`signing-mutation-guard.js`/`integrity-guard.js`degraded-read-only + codify-branch/lease fences
-are **coordination-ON-gated** (opt-in per W1 2026-06-25 — they passthrough on a fresh coordination-OFF
-bootstrap repo, per MUST-1's caveat);`genesis-anchor-guard.js` LIKEWISE advisory-passes-through on
-the genuinely-fresh state (F72), blocking only AFTER a real non-scaffold roster exists without a
-folded anchor — NOT on the first fresh commit. So during bootstrap MUST-1/2 rest on the unconditional
-STATE_PATH_RX block + fold-clean verification (an unsigned genesis-anchor never folds into a trust
-root → enrollment cannot COMPLETE without the key); the signing/integrity guards enforce MUST-1/2
-once coordination turns ON.`journal-write-guard.js` backs the journal-slot discipline. MUST 4/5/6 are
-gate-review clauses read by cc-architect. Per the sync-from-build.md new-rule discipline the loom
-placement records this no-check disposition rather than adding a structural check with no detector
-to key on.`)
+  already block at the tool boundary. (`no-check`: this rule ships NO new detector and NO new
+  `validate-emit.mjs` structural check — MUST-3 is enforced UNCONDITIONALLY by the
+  `validate-bash-command.js::detectStateFileMutationSegmentAware` `STATE_PATH_RX` block. MUST-1/2's
+  `signing-mutation-guard.js` / `integrity-guard.js` degraded-read-only + codify-branch/lease fences
+  are **coordination-ON-gated** (opt-in per W1 2026-06-25 — they passthrough on a fresh coordination-OFF
+  bootstrap repo, per MUST-1's caveat); `genesis-anchor-guard.js` LIKEWISE advisory-passes-through on
+  the genuinely-fresh state (F72), blocking only AFTER a real non-scaffold roster exists without a
+  folded anchor — NOT on the first fresh commit. So during bootstrap MUST-1/2 rest on the unconditional
+  `STATE_PATH_RX` block + fold-clean verification (an unsigned genesis-anchor never folds into a trust
+  root → enrollment cannot COMPLETE without the key); the signing/integrity guards enforce MUST-1/2
+  once coordination turns ON. `journal-write-guard.js` backs the journal-slot discipline. MUST 4/5/6 are
+  gate-review clauses read by cc-architect. Per the sync-from-build.md new-rule discipline the loom
+  placement records this no-check disposition rather than adding a structural check with no detector
+  to key on.)
 - **Violation scope:** MUST 1/2/3 are guard-enforced structural clauses; MUST 4/5/6 are gate-review
   clauses. Every `violations.jsonl` row records which MUST fired.
 - **Origin:** See § Origin.
@@ -244,15 +269,17 @@ installed-but-unenrolled, and standing up the genesis owner surfaced five fail-c
 in sequence (degraded read-only until signing configured; `validate-bash` state-file-mutation
 block on an inline `node -e` roster write; the codify-branch + lease gate; the genesis-anchor
 fold-clean requirement; per-machine self-enroll). The authoritative runbook
-(`guides/co-setup/11-genesis-ceremony.md`) is loom-only and absent from BUILD/USE repos, so the
-hard-won procedure was reconstructed in-repo as `skills/45-genesis-bootstrap/SKILL.md` + the agent
-`agents/onboarding/coc-onboarding-specialist.md`, with this rule as the MUST-clause backing.
+(`guides/co-setup/11-genesis-ceremony.md`) is `use_exclude` — synced to BUILD via `/sync-to-build`
+but NOT to the USE templates (the consumer audience) — so the hard-won procedure was reconstructed
+as the fully-synced `skills/45-genesis-bootstrap/SKILL.md` + the agent
+`agents/onboarding/coc-onboarding-specialist.md` (reaching the USE consumers the runbook does not),
+with this rule as the MUST-clause backing.
 Verified against `validate-bash-command.js`, `integrity-guard.js`, `signing-mutation-guard.js`,
 `genesis-ceremony.js`, `coordination-log.js`, and `operator-id.js`. Distributes to BUILD + USE
 repos via `/codify` → loom Gate-1 → `/sync`.
 
 **Length rationale (per `rule-authoring.md` MUST NOT § "Rules longer than 200 lines").** Body is
-264 lines (per `wc -l`), over the 200 guidance. Named rationale: **guard-trap scope** — the rule
+291 lines (per `wc -l`), over the 200 guidance. Named rationale: **guard-trap scope** — the rule
 codifies SIX distinct fail-closed boundary guards as MUST clauses, each requiring the
 DO / DO NOT + BLOCKED-corpus + `**Why:**` structure `rule-authoring.md` Rules 2/3/4 mandate, plus
 the canonical 8-field Trust Posture Wiring (`trust-posture.md` MUST-8). The API-depth and

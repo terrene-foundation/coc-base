@@ -31,7 +31,7 @@ Files failing `integrity-guard.js` validation (broken frontmatter, body-anchor m
 Run the same workspace-detection logic as `multi-operator-sessionstart.js` (the M5 hook):
 
 - Active workspace = most recently modified `workspaces/<name>/` (filter `instructions` + leading-underscore meta-dirs per `rules/cc-artifacts.md` Rule 8).
-- Recent journal entries: last 5 `DECISION-` / `DISCOVERY-` / `DEFER-` entries from the active workspace's `journal/` (excluding `.pending/`).
+- Recent journal entries: last 5 `DECISION-` / `DISCOVERY-` entries from the active workspace's `journal/` (excluding `.pending/`). `DEFER` is NOT a journal type (`journal-reserve.js::VALID_TYPES` = {DECISION, DISCOVERY, TRADE-OFF, RISK, CONNECTION, GAP, AMENDMENT}; not in `rules/journal.md`'s enum) — deferrals are DECISION-typed with `defer` in the topic slot and already surface under the `DECISION-` filter.
 - Surface each entry's filename + the first H2 / heading line, in date-descending order.
 
 ### 4. Read the active posture + pending verifications
@@ -40,7 +40,7 @@ Read `.claude/learning/posture.json` via `state-io.js::readPosture()`. Surface:
 
 - Current `posture` (L5_DELEGATED through L1_PSEUDO_AGENT)
 - `since` timestamp + the most recent `transition_history` entry's reason
-- `pending_verification[]` — every rule_id awaiting a `[ack: <rule_id>]` receipt (per `rules/trust-posture.md` MUST-7's grace mechanism)
+- `pending_verification[]` — every rule_id awaiting a `[ack: <rule_id>]` receipt (per `rules/trust-posture.md` MUST-6's grace-period semantics)
 
 If any rule_id is in `pending_verification`, the onboarding output names it and instructs the operator: their next response in a real session must include the `[ack: <rule_id>]` token to clear the gate.
 
@@ -67,7 +67,7 @@ In `--json` mode, emit a structured object: `{operator, team_memory, workspace, 
 - Unregistered operator → STOP, instruct `/whoami --register`.
 - Missing `.claude/team-memory/` directory → empty section (not an error; fresh repo).
 - Corrupt `posture.json` (state-io.js returns fail-closed L1) → surface verbatim; do NOT proceed.
-- Missing roster (`.claude/learning/operators.roster.json`) → STOP, instruct genesis ceremony.
+- Missing roster (`.claude/operators.roster.json`) → STOP, instruct genesis ceremony.
 
 ## Output format
 

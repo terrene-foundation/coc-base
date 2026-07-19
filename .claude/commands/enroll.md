@@ -44,7 +44,7 @@ immutable `person_id` (`pid-<display_id>-<short-fp>`), cuts a `codify/<display_i
 New operators default to `role: contributor`; promotion to `senior`/`owner` is a separate quorum gate
 (`--owner-add`), NOT part of `/enroll`.
 
-**Role caveat (Q1, `02-ga` B1).** The four business roles (`platform-engineer` / `capability-engineer`
+**Role caveat (Q1, `02-ga` B1).** The three business roles (`platform-engineer` / `capability-engineer`
 / `business-consultant`) are the advisory `business_roles` array (`operators.roster.schema.json:94-105`),
 ORTHOGONAL to the authority `role` (owner/senior/contributor) and never quorum-eligible
 (`multi-operator-coordination.md` §1). `/enroll` places the operator into an AUTHORITY role now;

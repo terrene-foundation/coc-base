@@ -34,6 +34,7 @@
 !/workspaces/_template/
 !.claude/bin/lib/
 !.claude/hooks/lib/
+!.claude/test-harness/lib/
 # <<< coc:gitignore_additions <<<
 
 # Template-local: stray operator cruft swept by the hooks/** always-include

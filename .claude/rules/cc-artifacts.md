@@ -198,6 +198,8 @@ Fixtures MAY use per-case sidecar files (as shown above) OR inline-case definiti
 
 Origin: atelier `cc-audit-lint-generalize` 2026-05-03 (load-bearing `i==1` invariant case study + adversarial /vet round). Inbound from atelier `/sync-to-coc`.
 
+**Generalized to ALL COC artifact types + a semantic-probe half by `rules/coc-artifact-eval-coverage.md`.** This rule mandates committed structural fixtures for mechanical audit TOOLS; `coc-artifact-eval-coverage.md` lifts that contract to every COC artifact type (rule / agent / skill / command / hook) AND adds the LLM-judge probe tier (a structural fixture proves SHAPE; a probe proves EFFICACY). A `type:tool` entry stays fixture-only (`probes:null` per its bootstrap note — an audit tool's correctness is its committed fixtures/self-tests, not an LLM-judge probe of the very engine that dispatches probes), so this Rule 9 remains the governing contract for the tool subset; the two-tier generalization applies to the prose/behavioral artifact types. Informational cross-reference only — no new MUST here.
+
 ### 10. Mechanical Sweeps Use Positive Allowlists Where Vocabulary Is Enumerable
 
 When a mechanical audit sweep (in `/cc-audit`, `/sweep`, or a hook) checks for membership in an enumerable vocabulary, the sweep MUST be implemented as a positive allowlist (flag everything not in the allowlist) rather than an enumerated denylist (flag only specific known-bad entries).

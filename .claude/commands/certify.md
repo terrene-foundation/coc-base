@@ -22,6 +22,8 @@ node -e 'const r = require("./.claude/hooks/lib/operator-id.js").resolveIdentity
 
 Treat as STOP (do NOT fall through to Phase A) when the parsed JSON has ANY of: `verified_id == null`, `person_id == null`, `posture == "L2_SUPERVISED"` AND no roster row, OR a non-zero exit code from the node invocation. On STOP, surface to the operator: "Identity check failed: you are not rostered (`/whoami --register` first) — `/certify` needs a roster row to record the pass against." Do NOT proceed prose-only; the structural Bash check IS the gate.
 
+**Registration precedes certification.** `resolveIdentity` reads the WORKING-TREE roster (`.claude/hooks/lib/operator-id.js` reads `operators.roster.json` from disk, not from a committed ref), so an operator who has just run `/whoami --register` can run `/certify` on their still-open enrollment branch — the roster row is visible in the working tree before the PR merges — OR after merge. The roster row is a prerequisite, not a next step; certification is what gates `/claim`.
+
 After identity passes, validate the bank file structurally:
 
 ```bash
@@ -45,7 +47,7 @@ All three STOP conditions are structural (exit code + file existence + explicit 
 
 ### 2. Phase A — Brief (read receipts)
 
-Walk the operator through the critical-knowledge surface in fixed order: `specs/_index.md` (if present) → repo `CLAUDE.md` → CO-category rules (`rules/autonomous-execution.md`, `rules/agent-reasoning.md`, `rules/artifact-flow.md`) → `/posture show` (trust posture state) → `.claude/team-memory/` index → last 5 `journal/DECISION-*.md` entries. For each section, summarize in plain language and write a "read receipt" to `workspaces/_certify/journal/.pending/certify-brief-<display_id>-<date>.md`. Receipts are scrubbed per `rules/user-flow-validation.md` MUST-6 before write (no secrets, no downstream client tokens).
+Walk the operator through the critical-knowledge surface in fixed order: `specs/_index.md` (if present) → repo `CLAUDE.md` → CO-category rules (`rules/autonomous-execution.md`, `rules/agent-reasoning.md`, `rules/artifact-flow.md`) → `/posture show` (trust posture state) → `.claude/team-memory/` index → last 5 `journal/DECISION-*.md` entries. For each section, summarize in plain language and write a "read receipt" to `workspaces/_certify/.pending/certify-brief-<display_id>-<date>.md` (OUTSIDE the `journal/` subtree — `integrity-guard.js` watches `^workspaces/<name>/journal/`, so pre-gate scratch stays unwatched). Receipts are scrubbed per `rules/user-flow-validation.md` MUST-6 before write (no secrets, no downstream client tokens).
 
 ### 3. Phase B — Probe (one question at a time)
 
@@ -69,31 +71,32 @@ If the orchestrator crashes mid-probe, the operator MUST manually remove the sta
 
 After the full pass, tally pass/fail per question. If 100% → record pass (Step 5). If <100% → list every failed question with "re-read §X" pointing at the cited spec section, allow the operator to re-read, then retry ONLY the failed questions. Loop until 100%. Each retry attempt is recorded with `attempts:` in the final journal entry.
 
-### 5. Emit pass receipt + roster registration nudge
+### 5. Emit pass receipt
 
-On pass: write a `journal/NNNN-DECISION-certify-<display_id>-<date>.md` entry naming the operator's `display_id` + `verified_id`, the bank version (`specs/_certification.yaml::version`), the per-question pass/fail/attempts tally, and the timestamp. Surface to the operator: "Certification passed. Next: `/whoami --register` (if not already rostered) → `/claim <path>` to start work." Until pass, the operator remains `L2_SUPERVISED` via the existing trust-posture machinery (no command-side change — `posture.json` already enforces L2 for unrostered operators per `rules/multi-operator-coordination.md` §1).
+On pass: write a `journal/NNNN-DECISION-certify-<display_id>-<date>.md` entry naming the operator's `display_id` + `verified_id`, the bank version (`specs/_certification.yaml::bank_version`), the per-question pass/fail/attempts tally, and the timestamp. The entry is a `journal/` write, so it lands under a covering codify lease on a `codify/<display_id>-<date>` branch (acquired before the write, released after — the full acquire/reserve/anchor/release runbook is `skills/42-certify/SKILL.md` § Pass receipt Steps 1.5/5). Surface to the operator: "Certification passed. Next: `/claim <path>` to start work." Until pass, the operator remains `L2_SUPERVISED` via the existing trust-posture machinery (no command-side change — `posture.json` already enforces L2 for unrostered operators per `rules/multi-operator-coordination.md` §1).
 
 ### Failure modes (typed errors — no silent fallbacks per `rules/zero-tolerance.md` Rule 3)
 
 - Unregistered operator → STOP, instruct `/whoami --register`.
 - Missing `specs/_certification.yaml` → STOP with seed-template instruction.
-- Operator abandons mid-gate → write a `journal/NNNN-DEFER-certify-<display_id>-incomplete.md` with attempts-so-far; operator stays `L2_SUPERVISED`; re-running `/certify` resumes from question 1 (NOT mid-gate — the gate is full-bank).
+- Operator abandons mid-gate → write a DECISION-typed deferral entry (`journal/NNNN-DECISION-certify-defer-<display_id>-<date>.md`, `topic: certify-defer-<display_id>`) with attempts-so-far, via the same covering-lease path as the pass receipt; `DEFER` is not a `journal-reserve.js::VALID_TYPES` member, so a `DEFER`-typed slot reservation fails closed. Operator stays `L2_SUPERVISED`; re-running `/certify` resumes from question 1 (NOT mid-gate — the gate is full-bank).
 - Bank schema invalid (missing `expected:`, missing `grading_rubric:` on short-answer) → STOP, surface the offending question id + instruction to fix the bank.
 
 ## Output format
 
-Default markdown narrative. The brief phase writes per-section read receipts to `workspaces/_certify/journal/.pending/`. The probe + gate run inline in the session. The final pass writes a committed `journal/NNNN-DECISION-certify-<display_id>-<date>.md` entry per `rules/journal.md`.
+Default markdown narrative. The brief phase writes per-section read receipts to `workspaces/_certify/.pending/` (outside the `journal/` subtree). The probe + gate run inline in the session. The final pass writes a committed `journal/NNNN-DECISION-certify-<display_id>-<date>.md` entry per `rules/journal.md`, under a covering codify lease.
 
 ## Next steps after certify
 
 ```
-Next: /whoami --register (if not already rostered) → /onboard (re-read team state)
-      → /claim <path> (when starting your first piece of work)
+Next: /onboard (re-read team state) → /claim <path> (when starting your first piece of work)
 ```
+
+(Registration is not a next step — it precedes certification; the roster row is a Phase-1 prerequisite. Certification is what gates `/claim`.)
 
 ## Notes
 
-- This command is a state-write command (writes brief receipts + a committed pass journal entry). It does NOT modify roster, posture, lease, or the coordination log — pass status is captured in the journal entry; subsequent commands (`/whoami --register`, `/claim`, `/codify`) handle roster and lease writes.
+- This command is a state-write command (writes brief receipts + a committed pass/deferral journal entry). It acquires and releases a covering codify lease around the `journal/` write (the substrate discipline `rules/enrollment-operations.md` MUST-2 requires for any `journal/` write when coordination is ON), but does NOT modify the roster or posture — pass status is captured in the journal entry; roster writes stay with `/whoami --register`.
 - Procedure detail (failure-mode handling, YAML schema, LLM-judge prompt shape, retry-loop discipline) lives in `.claude/skills/42-certify/SKILL.md`. Update the skill, not this command, when the procedure changes.
 - The question bank itself (`specs/_certification.yaml`) lives in the CONSUMER repo, NOT loom. Loom ships a starter template at `.claude/templates/specs/_certification.yaml`; each downstream repo copies it once into `specs/` and curates its own questions citing its own critical spec sections.
 - Curated bank, NOT LLM-generated: a 100% gate against hallucinated questions is unfair. Maintenance cost (spec edits flag stale citations) is the price of fairness.

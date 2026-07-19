@@ -279,9 +279,25 @@ function isExcluded(relPath) {
   // the file shipped past the never-sync exclusion (parity gap with
   // `/sync`'s LOOM_LOCAL_PATTERNS). Scan it when REPO_ROOT_ACTIVE differs
   // from REPO_ROOT (destination mode).
-  if (/\.operator\.local\.md$/.test(base)) return true;
+  //
+  // `*.operator.local.md` carries the SAME #352 parity (loom Gate-1 ingest of
+  // the kailash-py re-convergence-#9 disclosure-hygiene flag): at loom-source
+  // it is gitignored (never committed), but a committed `*.operator.local.md`
+  // that shipped to a consumer IS the disclosure event — an operator-local
+  // runbook value file committed to a repo and synced. The prior UNCONDITIONAL
+  // skip blinded the scanner at every destination scan, so a tracked
+  // operator-local file reaching a consumer was never flagged. Source-only,
+  // mirroring the `*.local.json` flip below.
+  if (/\.operator\.local\.md$/.test(base) && REPO_ROOT_ACTIVE === REPO_ROOT)
+    return true;
   if (/\.local\.json$/.test(base) && REPO_ROOT_ACTIVE === REPO_ROOT) return true;
-  if (/\.local\.md$/.test(base)) return true;
+  // Generic `*.local.md` stays UNCONDITIONALLY excluded — but must NOT swallow
+  // `*.operator.local.md` (a superset-suffix match), or the destination-mode
+  // #352 flip above would be masked (a committed operator-local file would
+  // still be skipped at a destination scan). The negative lookbehind scopes
+  // this catch-all to plain `*.local.md`, leaving `*.operator.local.md` to the
+  // destination-conditional rule above.
+  if (/(?<!\.operator)\.local\.md$/.test(base)) return true;
 
   // loom's OWN unit tests (`*.test.mjs`, `node:test` suites under bin/ etc.)
   // are build-internal — the SAME "consumers do not run loom's tests" class

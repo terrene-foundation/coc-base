@@ -5,101 +5,90 @@ See `.claude/guides/rule-extracts/agents.md` for full evidence, extended example
 
 ## Specialist Delegation (MUST)
 
-When working on stack-specific concerns, MUST consult the relevant generic specialist. The base variant ships three stack-agnostic specialists; each reads `STACK.md` at the project root to determine the host language and framework before advising:
+When working with Kailash frameworks, MUST consult the relevant specialist (**dataflow** / **nexus** / **kaizen** / **mcp** / **mcp-platform** / **pact** / **ml** / **align**-specialist). The work-domain → specialist binding is `rules/framework-first.md`'s domain table.
 
-- **db-specialist** — Database work (Postgres / SQLite / MySQL / Mongo / Redis idioms regardless of language driver)
-- **api-specialist** — REST / GraphQL / gRPC patterns; HTTP framework selection per language
-- **ai-specialist** — Provider-agnostic LLM integration (OpenAI / Anthropic / local Ollama); prompt engineering; output validation
-
-**Applies when**: implementing database access, exposing or consuming HTTP/RPC endpoints, integrating LLM-based features.
-
-**Why:** Generic specialists encode patterns and pitfalls that generalist agents miss across the long tail of stacks the base variant supports. They consult `STACK.md` first; without that file (per `rules/stack-detection.md`) the specialist halts and reports rather than guessing the host stack.
+**Why:** Specialists encode hard-won patterns generalist agents miss, preventing subtle API misuse.
 
 ## Specs Context in Delegation (MUST)
 
-Every specialist delegation prompt MUST include relevant spec file content from `specs/`. Read `specs/_index.md`, select relevant files, include them inline. See `rules/specs-authority.md` MUST Rule 7 for the full protocol.
+Every specialist delegation prompt MUST include relevant spec file content from `specs/` (read `specs/_index.md`, select, include inline). Full protocol: `rules/specs-authority.md` MUST Rule 7.
 
-**Why:** Specialists without domain context produce technically correct but intent-misaligned output (e.g., schemas without tenant_id because multi-tenancy wasn't communicated).
+**Why:** Specialists without domain context produce technically correct but intent-misaligned output (e.g. schemas missing tenant_id).
 
 ## Analysis Chain (Complex Features)
 
 1. **analyst** → Identify failure points
 2. **analyst** → Break down requirements
-3. **`decide-framework` skill** → Choose approach (when applicable; base variant's `decide-framework` is stack-aware via `STACK.md`)
-4. Then appropriate generic specialist
+3. **`decide-framework` skill** → Choose approach
+4. Then appropriate specialist
 
 ## Parallel Execution
 
-Launch independent operations in parallel via the CLI's delegation primitive, wait for all, aggregate results. MUST NOT run sequentially when parallel is possible — the always-on form of the § Triad clause below.
+Launch independent operations in parallel via the CLI's delegation primitive, wait for all, aggregate. MUST NOT run sequentially when parallel is possible — the always-on form of the § Triad clause below (under time-pressure framings, parallelization IS the throughput response — `rules/time-pressure-discipline.md`).
 
 ### MUST: The Default Execution Mode Is The Triad — Parallelize + /autonomize + /redteam-to-convergence
 
-**The default execution mode for every actionable input is the TRIAD, each DEFAULT-ON (not only under `/autonomize`, not serial/inline):** (1) **parallelize** — decompose onto the runtime's parallel orchestration primitive wherever the input has **≥2 independent operations OR a multi-stage shape** (analyze → implement → verify); (2) **/autonomize** — execute autonomously under the permission envelope, recommending the optimal root-cause fix with evidence; (3) **/redteam-to-convergence** — adversarially verify every substantive change to 2 consecutive clean rounds before "done" (reinforces § Quality Gates below). Drops to serial/inline ONLY for a genuinely-atomic single-item task OR a factual/confirmation/recommendation reply. Executing a decomposable input inline-serially, or idling while independent work is dispatchable, is BLOCKED. The triad FILLS the default posture, NEVER overrides a gate — bounded by genuine dependencies, structural human gates (plan-approval / release), capacity + throttle (`rules/worktree-isolation.md` Rule 4), and prudence/confirmation on destructive or hard-to-reverse actions; `/autonomize` is self-bounding. Governance per `rules/governed-throughput.md`.
-
-**Why:** The triad is the baseline throughput+quality response, not a per-session opt-in; the atomic/factual serial carve-out prevents over-decomposing a one-liner into a workflow; the bounding gates keep "always executing" from becoming "always overriding a gate".
+**The default execution mode for every actionable input is the TRIAD, each DEFAULT-ON (not only under `/autonomize`, not serial/inline):** (1) **parallelize** — decompose onto the parallel primitive wherever the input has **≥2 independent sub-parts OR a multi-stage shape**; (2) **/autonomize** — execute autonomously under the permission envelope (`commands/autonomize.md`); (3) **/redteam-to-convergence** — adversarially verify every substantive change to 2 consecutive clean rounds before "done" (reinforces § Quality Gates + § Holistic Post-Multi-Wave Redteam + `rules/self-referential-codify.md` Rule 1). Drops to serial/inline ONLY for a genuinely-atomic single-item task OR a factual/confirmation/recommendation reply. Executing a decomposable input inline-serially, or idling while independent work is dispatchable, is BLOCKED. The triad FILLS the default posture, NEVER overrides a gate — BOUNDED by the same gates as `rules/wave-loop.md` MUST-6; `/autonomize` is self-bounding. **DO/DO-NOT, full BLOCKED corpus, bounding-gate enumeration, Why: `skills/30-claude-code-patterns/parallel-dispatch-default.md`; CLI dispatch syntax → the `examples` slot.**
 
 ### MUST: Parallel Brief-Claim Verification When Issue Count ≥ 3
 
-When `/analyze` runs against a brief covering ≥ 3 distinct issues / failure modes / workstreams, the orchestrator MUST launch parallel deep-dive verification agents — one per claim cluster — to independently re-grep / re-read every factual claim in the brief tagged with file:line citations. Inaccuracies surfaced by the deep-dive sweep MUST be recorded in the workspace journal AND in the architecture plan's "Brief corrections" section AS THE GATE before `/todos`. Single-agent analysis on a ≥3-issue brief is BLOCKED — the framing inherited from the brief is the failure mode this rule prevents.
-
-**Why:** Briefs are written from the human's mental model of the system, which decays silently as the code evolves. A ≥3-issue brief carries ≥3× the surface area for stale citations and misframed root causes; single-agent analysis cannot resist the brief's framing because the agent has no independent reading. Parallel deep-dive verification is the structural defense.
+When `/analyze` runs against a brief covering ≥ 3 distinct issues, the orchestrator MUST launch parallel deep-dive verification agents — one per claim cluster — to independently re-grep / re-read every factual claim; inaccuracies recorded in the workspace journal AND the plan's "Brief corrections" section AS THE GATE before `/todos`. Single-agent analysis on a ≥3-issue brief is BLOCKED. BLOCKED corpus + Why: `skills/30-claude-code-patterns/parallel-dispatch-default.md` § 2. (Example 1 = dispatch syntax.)
 
 ## Quality Gates (MUST — Gate-Level Review)
 
-Reviews happen at COC phase boundaries, not per-edit. Skip only when explicitly told to. **MUST gates** are `/implement` and `/release`; reviewer + security-reviewer (and gold-standards-validator at `/release`) run as parallel background agents. RECOMMENDED gates run at `/analyze`, `/todos`, `/redteam`, `/codify`, and post-merge.
+Reviews happen at COC phase boundaries, not per-edit. Skip only when explicitly told to. **MUST gates** are `/implement` and `/release`; reviewer + security-reviewer (and gold-standards-validator at `/release`) run as parallel background agents. RECOMMENDED gates: `/analyze`, `/todos`, `/redteam`, `/codify`, post-merge. Full gate table: guide.
 
-**Why:** Skipping gate reviews lets analysis gaps, security holes, and naming violations propagate to downstream consumers where they are far more expensive to fix.
+**Why:** Skipped gate reviews let gaps propagate downstream where they are far more expensive to fix. (Example 2 = background-dispatch pattern.)
 
-**BLOCKED responses when skipping MUST gates:** "Skipping review to save time" / "Reviews will happen in a follow-up session" / "The changes are straightforward, no review needed" / "Already reviewed informally during implementation".
+**BLOCKED responses when skipping MUST gates:** full corpus in guide § "Quality Gates — BLOCKED responses".
 
 ### MUST: Reviewer Prompts Include Mechanical AST/Grep Sweep
 
-Every gate-level reviewer prompt MUST include explicit mechanical sweeps that verify ABSOLUTE state (not only the diff). LLM-judgment review catches what's wrong with new code; mechanical sweeps catch what's missing from OLD code the spec also touched. Sweeps MUST be tailored to the host stack declared in `STACK.md` (e.g. `pytest --collect-only -q` for Python; `cargo check --workspace` for Rust; `go vet ./...` for Go; `tsc --noEmit` for TypeScript).
+Every gate-level reviewer prompt MUST include explicit mechanical sweeps that verify ABSOLUTE state (not only the diff) — LLM-judgment review catches what's wrong with new code; sweeps catch what's missing from OLD code the spec also touched. (Example 3 = mechanical-sweep prompt.)
 
-**Why:** Reviewers are constrained by the diff. The orphan failure mode is invisible at diff-level. A 4-second `grep -c` catches what 5 minutes of LLM judgment misses.
+**Why:** Reviewers are constrained by the diff; the `orphan-detection.md` §1 failure mode is invisible at diff-level. A 4-second `grep -c` catches what LLM judgment misses.
+
+### MUST: Holistic Post-Multi-Wave Redteam Before Plan Close
+
+A plan shipped across ≥3 sharded waves MUST run ONE holistic redteam round across ALL merged shards on main — ≥3 parallel reviewers (reviewer + security-reviewer + closure-parity verifier) scoped to the union of merged PRs, not the latest shard's diff — before the plan is declared converged.
+
+**Why:** Per-shard redteams see only their own diff; cross-shard invariant breaks are invisible to each. Evidence + BLOCKED corpus + wiring: guide.
+
+### MUST: Redteam Reviewer Dispatch — Errored/Empty Is Zero Evidence, Never A Clean Round
+
+A `/redteam` round dispatches reviewers in PARALLEL; a throttled fan-out can return errored/empty, reading as "0 findings" → false convergence. **(1) EVIDENCE GATE** — every dispatched reviewer MUST return a ran/evidence signal; an errored/empty/timed-out return is ZERO evidence (`rules/evidence-first-claims.md` MUST-3), MUST be re-run, MUST NOT count clean; convergence is claimable ONLY when EVERY agent genuinely ran. **(2) CONCURRENCY BACK-OFF** — on a throttle signal, reduce concurrency (`rules/worktree-isolation.md` Rule 4) and re-run the throttled reviewers. Complements parallel-by-default, does not override it. DO/DO-NOT + BLOCKED corpus + Wiring + Why: `skills/30-claude-code-patterns/redteam-dispatch-evidence-gate.md`.
 
 ## Zero-Tolerance
 
-Pre-existing failures MUST be fixed (`rules/zero-tolerance.md` Rule 1).
+Pre-existing failures MUST be fixed (`rules/zero-tolerance.md` Rule 1). No workarounds for SDK bugs — deep-dive and fix directly (Rule 4).
+
+**Why:** Workarounds create parallel implementations that diverge from the SDK.
 
 ## MUST: Verify Specialist Tool Inventory Before Implementation Delegation
 
-When delegating IMPLEMENTATION work (file edits, commits, build/test invocation, version bumps), the orchestrator MUST select a specialist whose declared tool set includes `Edit` AND `Bash`. Read-only specialists (`security-reviewer`, `analyst`, `reviewer`, `gold-standards-validator`, `value-auditor`) MUST NOT be delegated implementation tasks. Pure-research / pure-review delegations are fine.
+When delegating IMPLEMENTATION work (file edits, commits, build/test invocation, version bumps), the orchestrator MUST select a specialist whose declared tool set includes `Edit` AND `Bash`. Read-only specialists (`security-reviewer`, `analyst`, `reviewer`, `gold-standards-validator`, `value-auditor`) MUST NOT be delegated implementation tasks. Tool-inventory table: guide.
 
-**Why:** Read-only specialists halt mid-instruction at file-edit boundaries — the agent emits "Now let me wire X" then exits with zero tool calls because Edit is unavailable. Verifying tool inventory pre-launch is O(1); re-launch is O(N) on shard size.
+**Why:** Read-only specialists halt mid-instruction at file-edit boundaries; pre-launch tool-inventory verify is O(1), re-launch is O(N) on shard size.
+
+**Read-only reviewer materialization (INCREMENTAL):** `security-reviewer` is read-only (no `Bash`) → materialize the diff/changed files to a scratchpad path and name it in the prompt, so it reviews the change instead of halting for context it cannot fetch.
 
 ## MUST: Audit/Closure-Parity Verification Specialist Has Bash + Read
 
-When delegating a /redteam round whose mission includes **closure-parity verification** (mapping prior-wave findings to delivered code via `gh pr view`, test-collection commands, `grep`, AST inspection, `find`), the orchestrator MUST select a specialist whose tool set includes `Bash` AND `Read`. Read-only analyst (`Read, Grep, Glob`) MUST NOT be assigned closure-parity verification — its tool set silently FORWARDS verification rows the next round must redo.
+When delegating a /redteam round including **closure-parity verification** (mapping prior-wave findings to delivered code via `gh pr view`, `pytest --collect-only`, `grep`, `ast.parse()`), the orchestrator MUST select a specialist with `Bash` AND `Read`. Read-only analyst MUST NOT be assigned — its tool set silently FORWARDS verification rows the next round must redo. Extends the tool-inventory MUST above from IMPLEMENTATION to AUDIT delegation. Examples 4+5 (dispatch + delegation-time scan), the BLOCKED corpus, the delegation-time detection signals, and the multi-incident Origin live in `.claude/skills/30-claude-code-patterns/closure-parity-specialist-discipline.md`.
 
-**Why:** Tool-inventory mismatch costs one full audit round. Verifying pre-launch is O(1); re-launch is O(N) on row count.
+**Why:** Tool-inventory mismatch costs one full audit round; pre-launch verify is O(1), re-launch O(N) on row count.
 
 ## MUST: Worktree Orchestration
 
-Depth (protocol, prompt templates, BLOCKED corpora, post-mortems): `skills/30-claude-code-patterns/worktree-orchestration.md`. Each bullet is a full MUST:
+Parallel/compiling agents MUST run isolated per `skills/30-claude-code-patterns/worktree-orchestration.md` (Rules 1–10 — each a full MUST): isolate compiling agents + any shared-source editor (concurrent readers read committed HEAD via `git show HEAD:<path>`); relative paths in prompts; commit per milestone + verify ≥1 commit; verify deliverables after exit; recover orphan writes onto `recovery/<branch>`; one version owner per sub-package; binding-scoped shard PRs. The skill carries each rule's evidence, prompt templates, DO/DO-NOT, BLOCKED corpus, and Wiring.
 
-- **Isolate compiling agents** — build caches hold exclusive filesystem locks (Rust `target/`; Python editable `.venv/`; Go `$GOCACHE`; TypeScript `node_modules/.cache/`); one worktree per compiling agent (skill Rule 1).
-- **Isolate ANY shared-source editor** (manifest, rules, config, generated artifacts), compiling or not; concurrent readers read committed HEAD via `git show HEAD:<path>`, never the working tree (skill Rule 9).
-- **Relative paths only in worktree prompts** — absolute paths resolve to the parent checkout, silently defeating isolation (skill Rule 2).
-- **Commit per milestone; verify ≥1 commit** before declaring work landed — zero-commit worktrees auto-delete (skill Rule 3).
-- **Verify deliverables exist after exit** (`ls`/`Read` the claimed files) — budget exhaustion truncates writes mid-message (skill Rule 4).
-- **Recover orphan writes** of zero-commit auto-cleaned worktrees from the MAIN checkout onto `recovery/<branch>` (skill Rule 4a).
-- **One version owner per sub-package** when ≥2 parallel agents touch it; siblings are told "do NOT edit" the version anchor + CHANGELOG (Python `pyproject.toml` + `__version__`; Rust `Cargo.toml` + `pub const VERSION`; Go `go.mod` const; TypeScript `package.json::version`) (skill Rule 5).
-- **Binding/package-scoped shard PRs touch only their own package** — sibling-package fixes ship as a separate PR; bundling is BLOCKED (skill Rule 10).
-
-```text
-# DO — isolated editor; HEAD-pinned readers; relative paths; per-milestone commits
-# DO NOT — shared-checkout editor + working-tree readers + absolute paths + 0 commits
-```
-
-**Why:** Each clause converts a silent parallel-work loss — lock serialization, phantom reads, checkout drift, auto-cleanup loss, truncated writes, version clobber, shard conflicts — into clean isolation or a loud refusal.
+**Why:** Each sub-rule converts a silent parallel-work loss (lock serialization, phantom reads, checkout drift, auto-cleanup loss, truncated writes, version clobber, shard conflicts) into clean isolation or a loud refusal.
 
 ## MUST NOT
 
-- **Stack-coupled work without consulting `STACK.md`** — the generic specialists fall back to LOW-confidence advice; the agent is responsible for either confirming the stack or running the `/onboard-stack` command first.
+- **Framework work without specialist** — misuse violates invariants (pool sharing, session lifecycle, trust boundaries).
 - **Sequential when parallel is possible** — wastes the autonomous execution multiplier.
-
-
+- **Raw SQL / custom API / custom agents / custom governance** — see `rules/framework-first.md` and guide for per-framework rationale.
 
 ## Examples (Codex-native delegation syntax)
 
@@ -440,6 +429,31 @@ CC system prompt provides the template. Always include a `## Related issues` sec
 
 ---
 
+# Issue Triage → Upflow Routing (always-loaded)
+
+
+When triaging a GitHub issue on THIS repo, the agent MUST route it by the repo's CLASS before any disposition. A `gh issue` triage touches none of the artifact-file globs the routing DEPTH is path-scoped behind, so this always-loaded pointer is the reachability floor.
+
+## MUST: Route Every Triaged Issue By The Repo `type`, Never By Convenience
+
+Read `.claude/VERSION::type` FIRST, then route:
+
+- **`coc-use-template`** → the origination node: `/codify` Step 7b proposal → loom `/sync-from-use` Gate-1 classify → `/sync-to-use` redistributes.
+- **`coc-project`** (downstream consumer) → UP to the template pulled from: `/codify` Step 7c PR to the template inbox (primary) OR a Route-A issue on the template (fallback). NEVER file on your own repo (orphan — never pulled upstream); NEVER file on loom (bypasses USE-template review).
+- **`coc-build`** → SDK code: cross-SDK FIRST → `/codify` Step 7a.
+- **`coc-source`** (loom) → Splits, Never Originates: INGEST via `/sync-from-build` + `/sync-from-use`, Gate-1 classify; never author a local artifact.
+
+NEVER hand-edit loom to "resolve" an issue; NEVER "fix" one by editing a synced artifact locally (Class-A non-durable — rebuilt by `/sync-to-use`). The durable surface is the proposal. Depth (the four classes, Route A/B, origination taxonomy): the paired `issue-triage-routing` skill + `rules/artifact-flow.md` § "Issue Routing By Change Type".
+
+**Why:** A `gh` triage never matches the `.claude/**` / `sync-manifest.yaml` / `*.md` globs the path-scoped routing depth sits behind, so only an always-loaded pointer fires at triage time; without it a COC-method fix lands on a code-only lane or an SDK bug on the artifact lane, bypassing the Gate-1 split and losing provenance.
+
+
+## Origin
+
+2026-07-19 — `/sync-from-use` kailash-coc-rs Gate-1 ingest (journal/0550). Closes the reachability gap: the routing depth in `rules/artifact-flow.md` § "Issue Routing By Change Type" is path-scoped behind artifact-file globs (`.claude/**`, `sync-manifest.yaml`, `**/VERSION`, `*.md`), none of which a `gh issue list` / `gh issue view` triage touches, so the routing rule never loaded at triage time across templates + downstream consumers. Baseline body kept pointer-only (~30-line neutral-body); depth extracted to the paired `issue-triage-routing` skill to stay under the 15% proximity band per `rule-authoring.md` MUST-10 (Rule-10 path-(a) paired extraction; sibling precedent `framework-first.md` → `framework-first` skill).
+
+---
+
 # Repo Scope Discipline — Stay In This Repo
 
 See `.claude/guides/rule-extracts/repo-scope-discipline.md` for examples, the BLOCKED corpus, the User-Authorized Exception walkthrough, and the origin post-mortem.
@@ -492,110 +506,114 @@ Note: at the orchestration root, targets resolve via `bin/lib/loom-links.mjs::re
 
 ALL code changes in the repository.
 
-See `.claude/guides/rule-extracts/security.md` for extended examples, exhaustive sanitizer contract examples, multi-site kwarg plumbing full post-mortem, and the Enforcement-Surface Parity shared-rank-function pattern + Detection procedure.
+Depth for most sections below lives in `.claude/guides/rule-extracts/security.md`.
 
 
 ## No Hardcoded Secrets
 
 All sensitive data MUST use environment variables.
 
-**Why:** Hardcoded secrets end up in git history, CI logs, and error traces, making them permanently extractable even after deletion.
+**Why:** Hardcoded secrets persist in git history, CI logs, and error traces — permanently extractable even after deletion.
 
 ## Parameterized Queries
 
 All database queries MUST use parameterized queries or ORM.
 
-**Why:** Without parameterized queries, user input becomes executable SQL, enabling data theft, deletion, or privilege escalation.
+**Why:** Without parameterization, user input becomes executable SQL — data theft, deletion, or privilege escalation.
 
 ## Credential Decode Helpers
 
-Connection strings carry credentials URL-encoded; every decode site MUST route through a shared helper module. Call-site `unquote(parsed.password)` is BLOCKED.
+Connection strings carry credentials URL-encoded; every decode site MUST route through a shared helper module. Call-site `unquote(parsed.password)` BLOCKED.
 
 ### 1. Null-Byte Rejection At Every Credential Decode Site (MUST)
 
-Every URL parsing site that extracts `user`/`password` from `urlparse(connection_string)` MUST route through a single shared helper that rejects null bytes after percent-decoding. Hand-rolled `unquote(parsed.password)` at a call site is BLOCKED.
+Every `urlparse(connection_string)` user/password extraction MUST route through a single shared helper that rejects null bytes after percent-decoding; call-site `unquote(parsed.password)` is BLOCKED.
 
-**Why:** A crafted `mysql://user:%00bypass@host/db` truncates at the null byte to an empty password on the MySQL C client. See guide for full evidence.
+**Why:** A crafted `mysql://user:%00bypass@host/db` truncates at the null byte to an empty password on the MySQL C client. See guide.
 
 ### 2. Pre-Encoder Consolidation (MUST)
 
-Password pre-encoding helpers (`quote_plus` of `#$@?` etc.) MUST live in the same shared helper module as the decode path. Per-adapter copies are BLOCKED.
+Password pre-encoding helpers (`quote_plus` of `#$@?` etc.) MUST live in the same shared helper module as the decode path; per-adapter copies are BLOCKED.
 
-**Why:** Encode and decode are dual halves of one contract; splitting them across modules guarantees one half drifts.
+**Why:** Encode and decode are dual halves of one contract; splitting them across modules guarantees drift.
 
 ## Input Validation
 
-All user input MUST be validated before use: type checking, length limits, format validation, whitelist when possible. Applies to API endpoints, CLI inputs, file uploads, form submissions.
+All user input MUST be validated before use (type/length/format checks, whitelist when possible) across every attack surface — API, CLI, uploads, forms.
 
-**Why:** Unvalidated input is the entry point for injection attacks, buffer overflows, and type confusion across every attack surface.
+**Why:** Unvalidated input is the entry point for injection, buffer overflows, and type confusion.
 
 ## Output Encoding
 
 All user-generated content MUST be encoded before display in HTML templates, JSON responses, and log output.
 
-**Why:** Unencoded user content enables cross-site scripting (XSS), allowing attackers to execute arbitrary JavaScript in other users' browsers.
+**Why:** Unencoded user content enables XSS — attackers execute arbitrary JavaScript in other users' browsers.
 
 ## MUST NOT
 
 - **No eval() on user input**: `eval()`, `exec()`, `subprocess.call(cmd, shell=True)` — BLOCKED
 
-**Why:** `eval()` on user input is arbitrary code execution — the attacker runs whatever they want on the server.
+**Why:** `eval()` on user input is arbitrary code execution — the attacker runs whatever they want.
 
 - **No secrets in logs**: MUST NOT log passwords, tokens, or PII
 
-**Why:** Log files are widely accessible (CI, monitoring, support staff) and rarely encrypted, turning every logged secret into a breach.
+**Why:** Log files are widely accessible and rarely encrypted, turning every logged secret into a breach.
 
 - **No .env in Git**: .env in .gitignore, use .env.example for templates
 
-**Why:** Once committed, secrets persist in git history even after removal, and are exposed to anyone with repo access.
+**Why:** Once committed, secrets persist in git history even after removal, exposed to anyone with repo access.
 
-## Sanitizer Contract — DataFlow Display Hygiene
+## Sanitizer Contract — Display Hygiene
 
-DataFlow's `sanitize_sql_input` is a defense-in-depth display-path safety net, NOT the primary SQLi defense — parameter binding is.
+DataFlow's `sanitize_sql_input` is defense-in-depth display hygiene, NOT the primary SQLi defense (parameter binding is).
 
 ### 1. String Inputs MUST Be Token-Replaced, Not Quote-Escaped
 
-For declared-string fields, the sanitizer MUST replace dangerous SQL keyword sequences with grep-able sentinel tokens (`STATEMENT_BLOCKED`, `DROP_TABLE`, `UNION_SELECT`, etc.). Quote-escaping (`'` → `''`) is BLOCKED.
+For declared-string fields, the sanitizer MUST token-replace SQL keyword sequences with grep-able sentinels (`STATEMENT_BLOCKED`, etc.); quote-escaping (`'` → `''`) is BLOCKED.
 
-**Why:** Token-replace makes attacker intent grep-able post-incident; quote-escape preserves the payload as data, masking the attack.
+**Why:** Token-replace makes attacker intent grep-able post-incident; quote-escape preserves the payload as data, masking it.
 
 ### 2. Type-Confusion MUST Raise, Not Silently Coerce
 
-For declared-string fields receiving `dict` / `list` / `set` / `tuple` values, the sanitizer MUST raise `ValueError("parameter type mismatch: …")`. Silent coercion via `str(value)` is BLOCKED.
+For declared-string fields receiving `dict`/`list`/`set`/`tuple` values, the sanitizer MUST raise `ValueError("parameter type mismatch: …")`. Silent `str(value)` coercion is BLOCKED.
 
-**Why:** A malicious upstream node passing a nested `dict`/`list` for a str-declared field bypasses every string-only check; raising at the type-confusion boundary closes the bypass. See guide for exhaustive examples.
+**Why:** A nested `dict`/`list` for a str-declared field bypasses every string-only check; raising at the type-confusion boundary closes the bypass. See guide.
 
 ### 3. Safe Types Are Returned As-Is
 
-Values of declared-safe types (`int`, `float`, `bool`, `Decimal`, `datetime`, `date`, `time`) MUST pass through unchanged. `dict` and `list` MUST also pass through unchanged when the field's declared type is `dict` or `list` (JSON / array columns). See guide (Bug #515).
+Declared-safe types (`int`, `float`, `bool`, `Decimal`, `datetime`, `date`, `time`) MUST pass through unchanged; so MUST `dict`/`list` when the declared type is `dict`/`list` (JSON/array columns). See guide (Bug #515).
 
 ## Multi-Site Kwarg Plumbing
 
-When a security-relevant kwarg (classification policy, tenant scope, clearance context, audit correlation ID) is plumbed through a helper, EVERY call site MUST be updated in the SAME PR. Updating the "primary" site and deferring siblings is BLOCKED.
+When a security-relevant kwarg (classification policy, tenant/clearance scope, audit ID) is plumbed through a helper, EVERY call site MUST be updated in the SAME PR (`grep` every caller); primary-site-only is BLOCKED.
 
-**Why:** A sibling left on the unqualified signature ships the exact failure mode the kwarg fixes (the "safe default" is the insecure default). Fix is mechanical — `grep` every caller, patch each. See guide.
+**Why:** A sibling on the unqualified signature ships the exact failure mode the kwarg fixes — the "safe default" is the insecure default. See guide.
 
-## Enforcement-Surface Parity — A New Fail-Closed Dimension Lands At Every Enforcement Surface, Same PR
+## Enforcement-Surface Parity — New Fail-Closed Dimension Lands At Every Surface
 
-When a fix PROMOTES a field to a fail-closed authorization control at the EVALUATION surface, EVERY INDEPENDENT validation surface for that control — especially a monotonic-tightening / re-registration validator — MUST learn the new dimension in the SAME PR (the eval-helper call-site grep CANNOT reach a separate validator with no shared callee). The two surfaces MUST consume a SINGLE shared restrictiveness/ordering function; an unrecognized value MUST rank TIGHTEST (fail-closed) — an unrecognized→recognized transition is a WIDENING and MUST raise. See guide for the shared-rank pattern, the pinned-parity-test requirement, BLOCKED corpus, and Detection.
+When a fix PROMOTES a field to a fail-closed authorization control at the eval surface, EVERY independent validation surface for it — especially a re-registration validator with no shared callee — MUST learn it in the SAME PR via ONE shared restrictiveness function ranking unrecognized values TIGHTEST (fail-closed); an unrecognized→recognized transition WIDENS and MUST raise. Depth: guide.
 
-**Why:** A new fail-closed gate the independent tightening validator never learned lets a re-registration lower the bar as "tightening" — a privilege escalation the FIX ITSELF introduced.
+**Why:** A fail-closed gate the tightening validator never learned lets a re-registration lower the bar as "tightening" — a privilege escalation the fix itself introduced.
 
 ## Redactor Contract
 
-Subject-keyed redactors (scrubbing every string containing a `subject_id` substring) MUST enforce a minimum subject-id length floor (≥8 chars), failing closed with a typed error naming the floor + received length. When a matching object KEY is scrubbed, BOTH key and value MUST be scrubbed — the key replaced with a numbered sentinel (`[REDACTED_KEY_N]`); the audit trail survives via the original-hash return.
+Subject-keyed redactors (substring-matching a `subject_id`) MUST enforce a subject-id length floor (≥8 chars), failing closed with a typed error naming floor + received length. A scrubbed matching object KEY MUST scrub BOTH key and value — key → `[REDACTED_KEY_N]`, audit trail via the original-hash return.
 
-**Why:** 1–7-char ids substring-match benign strings ("alice" → "malice"); a preserved matching key under a `[REDACTED]` value leaks the subject's identity as audit metadata. See guide for the PR #1123 evidence + cross-SDK landing requirement.
+**Why:** 1–7-char ids substring-match benign strings ("alice" → "malice"); a preserved matching key under `[REDACTED]` leaks the subject's identity. See guide.
+
+## Path Containment — Resolve And Normalize Before The Trust Decision
+
+A filesystem-path containment OR spawn/executable-allowlist decision MUST test the REAL canonical form — BOTH candidate AND boundary root resolved through the SAME resolver (`realpathSync` / `std::fs::canonicalize` / `os.path.realpath`) AND OS-normalized — never the lexical string; fail closed if the path will not resolve.
+
+**Why:** A symlink at a lexically-contained path whose target escapes the boundary passes every string check and would read/exec out-of-tree content; resolving BOTH sides is the only sound comparison. Scoped **necessary-but-not-sufficient**: the resolve closes the lexical-bypass class but does NOT by itself defeat the check-to-use TOCTOU (a symlink swap between check and the exec/read sink) — that needs fd-based / `O_NOFOLLOW` enforcement AT the sink. Depth (TOCTOU-at-sink enforcement, the OS-normalization matrix, cross-language DO/DO-NOT): `skills/18-security-patterns/path-containment.md`.
 
 ## Kailash-Specific Security
 
-- **DataFlow**: Access controls on models, validate at model level, never expose internal IDs
-- **Nexus**: Authentication on protected routes, rate limiting, CORS configured
-- **Kaizen**: Prompt injection protection, sensitive data filtering, output validation
+DataFlow — model-level access control, never expose internal IDs. Nexus — auth on protected routes, rate limiting, CORS. Kaizen — prompt-injection protection, output validation.
 
 ## Exceptions
 
-Security exceptions require: written justification, security-reviewer approval, documentation, and time-limited remediation plan.
+Security exceptions require: written justification, security-reviewer approval, documentation, and a time-limited remediation plan.
 
 ---
 

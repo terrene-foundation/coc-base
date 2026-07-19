@@ -114,7 +114,7 @@ tool, so it never trips the guard.
 
 ### 2. Roster / coordination-log writes go through a script invoked by its own path
 
-The `validate-bash-command.js` state-file-write guard (`detectStateFileMutation`, Layer 3) BLOCKS any
+The `validate-bash-command.js` state-file-write guard (`detectStateFileMutationSegmentAware`, Layer 3) BLOCKS any
 interpreter command (`node -e`/`-c`/`-m`, or any command LED by `node`/`python`/`ruby`/`perl`) whose
 **command string** contains a protected state-file path — `operators.roster.json`,
 `coordination-log.jsonl`, `posture.json`, `violations.jsonl`, `.initialized`. The documented inline
