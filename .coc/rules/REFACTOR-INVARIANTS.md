@@ -5,8 +5,6 @@ paths: ["**/*.py", "packages/**"]
 
 # Refactor Invariant Rules
 
-
-
 Every refactor that claims to shrink a file MUST land a numeric invariant test in the same commit. Without the test, the next session's merge or edit silently re-inlines the extracted code with no signal.
 
 Origin: Observed regression where a file was refactored from 2,103 to 994 LOC, a planned invariant test was never committed, and a subsequent worktree merge silently re-inlined 1,079 LOC of extracted code — growing the file back to 2,103 LOC with zero test failure.

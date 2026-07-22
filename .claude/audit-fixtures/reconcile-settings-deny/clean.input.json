@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "description": "Fixture — already-canonical Edit() deny form (idempotency: expects ZERO change)",
+  "permissions": {
+    "allow": [
+      "Write($CLAUDE_PROJECT_DIR/**)",
+      "NotebookEdit($CLAUDE_PROJECT_DIR/**)"
+    ],
+    "deny": [
+      "Edit(.claude/learning/posture.json)",
+      "Edit(.claude/learning/violations.jsonl)",
+      "Edit(.claude/operators.roster.json)",
+      "Edit(.claude/learning/coordination-log.jsonl)",
+      "Edit(.claude/learning/.heartbeat-cache*)",
+      "Bash(rm -rf:.claude/learning/*)",
+      "Read(.claude/secrets/**)"
+    ],
+    "defaultMode": "bypassPermissions"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          { "type": "command", "command": "node hook.js", "timeout": 5 }
+        ]
+      }
+    ]
+  }
+}

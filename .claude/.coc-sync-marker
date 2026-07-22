@@ -1,79 +1,20 @@
 # COC Sync Marker — coc-base (base lane, multi-CLI)
-timestamp: 2026-07-19T12:33:19Z
+timestamp: 2026-07-22T05:00:00Z
 source: loom/.claude
-loom_sha: 4cb1e6d9165fde252880bde93902dde568fa25c3
+loom_sha: 08cb86fb48eb7cb21051de27fc144aa1e3561a55
 variant: base
 clis: [claude, codex, gemini]
 visibility: public
 scope_this_cycle: content+cli-emission   # FULL cycle: .claude/ content axis AND coc-sync Steps 6.5/6.6/6.7
 stats:
-  content_axis:          # sync-tier-aware --target base (ENGINE-APPLIED; not re-run this enrichment pass)
-    status_entries: 27   # git-status entries vs base_sha 40d7b6cc (16 M + 11 A-paths + 0 D)
-    files_modified: 16   # .claude/ + .gitignore (file-level)
-    files_added: 19      # A-path dirs expand (audit-fixtures/coc-eval-*, operator-local-md-destination-flip)
-    deleted: 0
-    purged: 0            # obsoleted-list purge (Step 4.5) — no obsoleted path present
-    verify: CONSISTENT   # engine sync-tier-aware --verify (upstream Gate-2 driver; engine-owned)
-  baselines_emitted:     # emit.mjs --all (base = no --lang) — Step 6.5
-    cc: 0          # CLAUDE.md preserved, not emitted
-    codex: 1       # AGENTS.md (repo root)
-    gemini: 1      # GEMINI.md (repo root)
-  baseline_emission:
-    block_cap_bytes: 61440
-    warn_cap_bytes:  32768
-    codex:  { rules: 10, bytes: 55214, tier: WARN, headroom_pct: 10.13, headroom_floor_pct: 10, headroom_floor_violations: 0, floor: ADVISORY }
-    gemini: { rules: 10, bytes: 55033, tier: WARN, headroom_pct: 10.43, headroom_floor_pct: 10, headroom_floor_violations: 0, floor: ADVISORY }
-  cli_artifacts:         # emit-cli-artifacts.mjs --target base — Step 6.6
-    codex:  { prompts: 56, skills: 27 }   # 38 command prompts + 18 agent-prompts; 26 skills + 1 rules-reference
-    gemini: { commands: 38, skills: 27, agents: 18 }
-  coc_unified:           # emit-coc.mjs --target base — Step 6.7
-    files: 161           # 159 artifacts (rules=63 agents=22 skills=33 commands=41) + COC.md + COC.lock
-    coc_version: 1.0.0
-  codex_guard: EXCLUDED  # .codex-mcp-guard/** deliberately left at committed state — see note; git status: 0 changes
-  scaffold:
-    codex_mcp_guard_symlink: preserved   # .claude/codex-mcp-guard -> ../.codex-mcp-guard (ln -sfn, idempotent)
-    bin_coc: 1                           # bin/coc dispatcher (0755, refreshed byte-identical)
-    bin_coc_phase_shims: 28              # bin/coc-<phase> -> coc (unchanged)
-    manifest_distribute: true            # .claude/sync-manifest.yaml distributed (multi-cli)
-  idempotency: PASS      # second emit into scratch byte-identical to placed trees (0 diffs across AGENTS.md, GEMINI.md, codex/{prompts,skills}, gemini/{commands,skills,agents}, .coc)
-  preserved: [CLAUDE.md, dev-container-scaffold, .proposals/, learning/, settings.local.json, .codex-mcp-guard]
-sdk_pins: none           # build:null — base is stack-agnostic, does NOT subscribe to kailash tier; NO SDK pins to bump
-note: |
-  loom@4cb1e6d9 Gate-2 base sync (multi-CLI lane) — FULL cycle (content + CLI emission).
-  ENRICHMENT PASS: engine already applied the .claude/ content delta (27 status entries vs
-  base_sha 40d7b6cc); this pass adds marker + VERSION + the MUST-8 derived-tree re-emit.
-  CONTENT (engine-owned, NOT re-run here): loom_sha 72532677->4cb1e6d9; loom version 2.45.0
-  unchanged. 16 modified + 19 added (file-level; 0 deleted; 0 obsoleted purged). Added rules:
-  command-skill-parity, handoff-completion, issue-triage-routing, orchestration-launch-ledger.
-  Added skills: 18-security-patterns/{frontmatter-directive-trust-surface,path-containment},
-  issue-triage-routing. Added guides/rule-extracts/handoff-completion.md +
-  audit-fixtures/{coc-eval-all,coc-eval-core,scan-synced-disclosure/operator-local-md-destination-flip}.
-  Modified rules: cc-artifacts, enrollment-operations, security, self-referential-codify.
-  Modified commands: certify, claim, enroll, onboard, whoami. Modified skills:
-  41-onboard/42-certify/43-ecosystem-init/44-enroll SKILL.md. Modified bin: scan-synced-disclosure.mjs
-  (+its audit-fixtures run.mjs). Base tier [cc, coc-core, onboarding] — NO kailash tier.
-  CLI EMISSION (Steps 6.5/6.6/6.7, sync-completeness MUST-8 full derived-tree re-emit; all FROM
-  loom repo, --out into worktree):
-  (6.5) emit.mjs --all (base = no --lang; base is emit.mjs's `lang || "base"` no-lang case) →
-  AGENTS.md/GEMINI.md re-emitted, exit 0, WARN tier (codex 55214 B / 10.13%, gemini 55033 B /
-  10.43%; 10 baseline rules incl. NEW issue-triage-routing; 0 floor violations — ABOVE the 10%
-  floor; ADVISORY: within 15% proximity band per rule-authoring Rule 10, next baseline MUST
-  addition needs paired extraction/named-rationale). Headroom fell from prior 12.12%/12.41% as
-  the new baseline rule was added; still above floor → advisory, NOT a block.
-  (6.6) emit-cli-artifacts.mjs --target base → .codex/{prompts:56,skills:27} +
-  .gemini/{commands:38,skills:27,agents:18}; config bases (config.toml/hooks.json/settings.json)
-  copied from loom codex-templates/gemini-templates; bin/coc + 28 phase shims refreshed.
-  (6.7) emit-coc.mjs --target base → .coc/ grew 153->161 files (159 artifacts; coc.version 1.0.0).
-  Idempotency: second emit byte-identical to placed trees (0 diffs). All three emitters exit 0.
-  SCAFFOLD: bin/coc + 28 phase shims; sync-manifest.yaml distributed (manifest_distribute:true,
-  multi-cli); codex-mcp-guard symlink ensured (ln -sfn ../.codex-mcp-guard).
-  CODEX-GUARD: .codex-mcp-guard/** DELIBERATELY EXCLUDED — continues the prior-cycle (2.45.8/2.45.9)
-  deferral. This is the Codex apply_patch security-enforcement surface with THREE-way source
-  ambiguity; a blind ride-along would ship an unreviewed security-guard change into a public
-  template. DEFERRED to a dedicated security-reviewed refresh. Target guard preserved (0 git changes).
-  PRESERVED: CLAUDE.md (template-owned), dev-container scaffold, settings.local.json, .codex-mcp-guard.
-  build:null — base is stack-agnostic, NO SDK pins. upstream loom 2.45.0 unchanged.
-  BUMP: template version 2.45.9 -> 2.45.10 (patch, per template convention). loom_sha 72532677->4cb1e6d9.
-  INBOX: .proposals/inbox/{README.md,.gitkeep} already present (Step 7 no-op).
-  HOOKS: all settings.json hook commands resolve to on-disk scripts (0 missing).
-  visibility=public preserved across marker rewrite.
+  engine_changed: 39   # 7 added, 30 modified, 2 obsoleted-purge
+  version_stamp: "loom-tracking -> 2.45.0 @ 08cb86fb (own 2.45.10 -> 2.45.11)"
+  baselines_emitted: { cc: 0, codex: 1, gemini: 1 }   # AGENTS.md + GEMINI.md 53993B WARN, headroom 12.12%
+  cli_artifacts:
+    codex: { prompts: 39, agent_prompts: 18, skills: 27 }
+    gemini: { commands: 39, skills: 27, agents: 18 }
+  coc_artifacts: 160   # 162 files
+  codex_dispatcher: "bin/coc + 28 per-phase symlinks"
+sdk_pins: "N/A (build:null — non-Kailash base; no pyproject/Cargo/uv surface)"
+codex_mcp_guard: "FROZEN — .codex-mcp-guard/** deliberately excluded (continuing 2.45.8/9/10 security-review deferral); 4 emit-refreshed files reverted to HEAD; symlink preserved + resolves"
+preserved: [CLAUDE.md, settings.json, "visibility:public", ".codex-mcp-guard/** (frozen)"]

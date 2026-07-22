@@ -595,11 +595,14 @@ function validateBashCommand(data) {
   // BLOCK: Dangerous commands (with evasion-resistant patterns)
   const dangerousPatterns = [
     {
-      pattern: /rm\s+(-[rRf]+\s+)*\/($|\s|\*)/,
+      // \b anchors rm to a command/path boundary so a word ENDING in "rm"
+      // (confiRM, perfoRM, platfoRM, aRM) followed by " /" no longer matches.
+      // `/` is a non-word char, so \b still fires for path-qualified `/bin/rm /`.
+      pattern: /\brm\s+(-[rRf]+\s+)*\/($|\s|\*)/,
       message: "Blocked: rm on root filesystem",
     },
     {
-      pattern: /rm\s+--(?:recursive|force)\b/,
+      pattern: /\brm\s+--(?:recursive|force)\b/,
       message: "Blocked: rm recursive/force with long flags",
     },
     { pattern: />\s*\/dev\/sd/, message: "Blocked: Writing to block device" },

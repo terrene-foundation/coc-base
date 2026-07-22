@@ -21,6 +21,8 @@ description: "Load phase 04 (validate) for the current workspace. Red team testi
 
 Autonomous execution model (see `rules/autonomous-execution.md`). Red team converges through iterative rounds. **BUG and INVEST-NOW findings are fixed autonomously to convergence; INCREMENTAL-IMPROVEMENT findings are dispositioned to the deferred-quality tracking list (§ Category-Based Finding Triage below), not ground to convergence.** Every dispatched reviewer still RUNS every round — the errored/empty-reviewer evidence gate (Convergence Criterion 3) is unchanged; only the DISPOSITION of findings is triaged by category, never the depth of review.
 
+**Conformance Walk is `/redteam`'s primary standing gate** — it front-loads the deterministic half (judge every unit, structural-BLOCK the irrefutable failures, hand the human the pre-computed semantic-ADVISORY worklist); it does NOT replace this adversarial round. See `skills/conformance-walk/SKILL.md` § "Phase-action triggers" (redteam) + § "CW vs /redteam".
+
 ## Workflow
 
 ### 0. Posture-aware audit DEPTH — convergence is NOT posture-gated (MUST consult first)

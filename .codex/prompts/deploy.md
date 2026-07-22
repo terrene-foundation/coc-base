@@ -98,6 +98,10 @@ If `user_visible_check` fails after cache invalidation, deploy is NOT done. See 
 
 Add a `DEPLOY` journal entry: what was deployed, smoke test result, any cache invalidations performed.
 
+#### Conformance Walk — structural merge gate (every deploy + CI run)
+
+The Conformance Walk freshness gate + collision ratchet stand as a structural merge gate on every deploy and CI run: no ship with a coverage regression, and no new actionable UNIT that lacks a declared frozen expectation. See `skills/conformance-walk/SKILL.md` § "Phase-action triggers" (deploy).
+
 ### Check Mode (`/deploy --check`)
 
 Drift detection only — no deployment side effects. Useful for /wrapup, before commits, or after pulling new changes.

@@ -24,7 +24,7 @@ A path-scoped rule you have not read is a rule you are not honoring.
 | CI Runner Rules | `.github/workflows/**`, `**/ci/**`, `**/.github/**` | `.claude/rules/ci-runners.md` |
 | COC Artifact Eval Coverage — Every Artifact Ships Structural Fixtures AND A Probe Set | `.claude/**` | `.claude/rules/coc-artifact-eval-coverage.md` |
 | Command-Skill Parity — A Command And Its Paired Skill Move Together, Never Drift Or Orphan | `.claude/commands/**`, `.claude/skills/**` | `.claude/rules/command-skill-parity.md` |
-| Conformance Walk — Freeze The Expectation, Judge The Live/Static State, Report Coverage Honestly | `**/tools/conformance/**`, `**/e2e/**`, `**/eval-harness/**`, `**/04-validate/**`, `**/*conformance*`, `**/suites/**` | `.claude/rules/conformance-walk.md` |
+| Conformance Walk — Freeze The Expectation, Judge Source / Delivered / Live State, Report Coverage Honestly | `**/tools/conformance/**`, `**/e2e/**`, `**/eval-harness/**`, `**/04-validate/**`, `**/*conformance*`, `**/suites/**` | `.claude/rules/conformance-walk.md` |
 | Cross-CLI Artifact Hygiene | `workspaces/**/*.md`, `briefs/**/*.md` | `.claude/rules/cross-cli-artifact-hygiene.md` |
 | Dependency Rules | `pyproject.toml`, `Cargo.toml`, `package.json`, `**/*.py`, `**/*.rs`, `**/*.ts`, `**/*.tsx`, `**/*.js`, `**/*.jsx` | `.claude/rules/dependencies.md` |
 | Deploy Hygiene — Committed ≠ Deployed | `**/Dockerfile`, `**/*.dockerfile`, `deploy/**`, `**/k8s/**`, `**/kubernetes/**`, `**/helm/**`, `**/.github/workflows/**`, `**/fly.toml`, `**/vercel.json`, `**/app.yaml`, `**/serverless.yml`, `**/wrangler.toml`, `**/Procfile`, `**/next.config.*`, `**/vite.config.*`, `**/package.json`, `deploy/deployment-config.md` | `.claude/rules/deploy-hygiene.md` |

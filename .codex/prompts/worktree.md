@@ -7,9 +7,12 @@ description: "Create + root a dedicated SIBLING worktree for parallel/isolated d
 
 Creates a durable, session-rootable git worktree **OUTSIDE** the repo (a sibling), so a
 session can work in parallel with another operator on the same clone WITHOUT (a) colliding on
-the shared working tree or (b) the rule-DUPLICATION a worktree nested under `.claude/worktrees/`
-causes. CC loads ancestor `.claude/rules/`, so a full checkout nested inside the repo loads the
-ruleset twice. Full rationale + evidence: `rules/worktree-isolation.md` Rule 7.
+the shared working tree or (b) placing a full nested checkout INSIDE the repo's own `.claude/**`
+glob range, where parent-repo recursive tooling (a `grep -r` / a validator run with `--root .`)
+descends into it and pulls a duplicate corpus in as tool output — plus the human-org clutter of a
+~24MB checkout in the working tree. This is NOT a rule double-load: CC roots at the nearest `.git`
+boundary and loads exactly ONE `.claude/` corpus (every worktree has its own `.git`). Full rationale
++ empirical evidence: `rules/worktree-isolation.md` Rule 7.
 
 This is **NOT** the agent-wave isolation primitive (`isolation: "worktree"` /
 `EnterWorktree({name})` → `.claude/worktrees/`, transient scratch — `rules/worktree-isolation.md`
@@ -27,16 +30,22 @@ Rules 1–6). Use `/worktree` for a **human/session** worktree you root into and
 ### 1. Resolve repo + placement (assert never-nested)
 
 ```bash
-repo_top=$(git rev-parse --show-toplevel)
-# slug = CANONICAL repo name from the remote (robust when run from INSIDE a worktree, where
-# basename "$repo_top" would give the worktree's dir name, not the repo). Fallback: toplevel basename.
-slug=$(basename -s .git "$(git remote get-url origin 2>/dev/null)"); slug=${slug:-$(basename "$repo_top")}
+# main_top = the MAIN repo's top, location-INDEPENDENT even when run from INSIDE a linked worktree.
+# (git rev-parse --show-toplevel returns the WORKTREE's own top there → dirname would doubly-nest.)
+# --git-common-dir resolves the SHARED .git; its parent is the main repo top.
+main_top=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+# slug = CANONICAL repo name from the remote. Fallback: main_top basename (NOT a worktree dir name).
+slug=$(basename -s .git "$(git remote get-url origin 2>/dev/null)"); slug=${slug:-$(basename "$main_top")}
 origin_head=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@'); origin_head=${origin_head:-main}
-wt_parent="$HOME/repos/.${slug}-wt"        # dot-prefixed → outside the repo AND outside ~/repos repo-enumeration
+wt_parent="$(dirname "$main_top")/.${slug}-wt"   # sibling in the MAIN repo's parent (portable to any clone
+                                                 # layout incl. Windows C:\dev\); dot-prefix → hidden + outside
+                                                 # the repo AND outside parent-dir repo-enumeration
 wt_path="$wt_parent/<name>"
 ```
 
-ASSERT `wt_path` is NOT under `$repo_top` (never nest a session worktree inside the repo). If a caller passes a path under `$repo_top` or under `.claude/worktrees/`, STOP and refuse — that is the duplication trap Rule 7 blocks.
+**Windows note:** sanitize `<slug>` against Windows reserved device names (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`) and trailing dots/spaces; run `git config core.longpaths true` for deep worktree paths. The dot-prefix is cosmetic-only on Windows (no functional issue — `.git`/`.github` prove dot-dirs work there).
+
+ASSERT `wt_path` is NOT under `$main_top` (never nest a session worktree inside the repo). If a caller passes a path under `$main_top` or under `.claude/worktrees/`, STOP and refuse — that is the placement trap Rule 7 blocks.
 
 ### 2. Create the worktree off FRESH remote default (never a stale local tip)
 
@@ -59,7 +68,7 @@ git worktree list | grep -F "$wt_path"                          # verify it regi
 
 ## Guardrails
 
-- NEVER create a session worktree under `.claude/worktrees/` or anywhere below the repo root — rule-load duplication (`rules/worktree-isolation.md` Rule 7).
+- NEVER create a session worktree under `.claude/worktrees/` or anywhere below the repo root — a nested checkout falls inside the repo's `.claude/**` glob range (parent-repo tooling recursion) and clutters the working tree (`rules/worktree-isolation.md` Rule 7).
 - NEVER `EnterWorktree({name})` for durable session work.
 - Coordination state (`.claude/learning/`) is NOT copied into the worktree but is NOT lost: it is shared via the `refs/coc/**` refs (worktrees share `.git`), and ceremony helpers resolve the MAIN checkout (posture per `rules/trust-posture.md` MUST-1; the codify-lease per `rules/knowledge-convergence.md` Rule 3). See `rules/multi-operator-coordination.md` § "§2 essentials".
-- Cross-repo placement resolves via the operator's own layout; `~/repos/.<slug>-wt/` is the recommended default, not a hardcoded requirement (`rules/cross-repo.md` MUST-1).
+- Cross-repo placement resolves via the operator's own layout; the MAIN repo's parent dir `.<slug>-wt/` (derived location-independently via `git-common-dir`) is the recommended default, not a hardcoded requirement (`rules/cross-repo.md` MUST-1).

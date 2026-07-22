@@ -1,6 +1,6 @@
 {
   "name": "coc-base",
-  "version": "2.45.10",
+  "version": "2.45.11",
   "type": "coc-use-template",
   "description": "Language-agnostic, non-Kailash CO/COC USE template — multi-CLI (variant: base, clis: claude/codex/gemini)",
   "synced_at": "2026-07-19",
@@ -8,11 +8,11 @@
     "name": "loom",
     "type": "coc-source",
     "version": "2.45.0",
-    "loom_sha": "4cb1e6d9",
-    "synced_at": "2026-07-19",
+    "loom_sha": "08cb86fb",
+    "synced_at": "2026-07-22T04:55:56.346Z",
     "template_version": "2.45.0",
     "build_version": "2.45.0",
-    "source_commit": "4cb1e6d9"
+    "source_commit": "08cb86fb"
   },
   "variant": "base",
   "tier_subscriptions": [
@@ -26,6 +26,11 @@
     "gemini"
   ],
   "changelog": [
+    {
+      "version": "2.45.11",
+      "summary": "Gate-2 base sync from loom@4cb1e6d9->08cb86fb (loom 2.45.0; loom_sha unchanged platform version): distributes 39-file .claude/ content delta (base tier [cc, co, onboarding], NO kailash — build:null, no SDK pins) incl. 2 obsoleted-purge. Engine sync-tier-aware.mjs --target base applied + --verify CONSISTENT (isolated worktree from origin/main 0913ea7f; 2 paths purged, .coc-obsoleted emitted). MULTI-CLI FULL re-emit (6.5/6.6/6.7): AGENTS.md+GEMINI.md (codex+gemini 53993 B, headroom 12.12% WARN tier, 0 floor violations, ADVISORY within 15% proximity band); .codex (39 command prompts + 18 agent-prompts = 57 prompts / 27 skills + 1 rules-reference) + .gemini (39 commands / 27 skills + 1 rules-reference / 18 agents); .coc 160 artifacts / 162 files (rules=63 agents=22 skills=33 commands=42, coc.version 1.0.0); config bases + bin/coc (28 phase shims). codex-guard (.codex-mcp-guard/**) DELIBERATELY EXCLUDED/FROZEN (continuing the 2.45.8/2.45.9/2.45.10 security-review deferral; the 4 files my emit refreshed were reverted to HEAD; symlink .claude/codex-mcp-guard -> ../.codex-mcp-guard preserved + resolves). CLAUDE.md preserved; build:null (NO SDK pins, no uv/cargo install surface); upstream loom 2.45.0 unchanged. BUMP: template 2.45.10->2.45.11 (PATCH — content + Rule-8 re-emit); loom_sha ->08cb86fb.",
+      "old_version": "2.45.10"
+    },
     {
       "version": "2.45.10",
       "summary": "Gate-2 base sync from loom@4cb1e6d9 (loom 2.45.0; loom_sha 72532677->4cb1e6d9): distributes 27-file .claude/ content delta (base tier [cc, coc-core, onboarding], NO kailash — no SDK pins). Added: rules/{command-skill-parity,handoff-completion,issue-triage-routing,orchestration-launch-ledger}.md, skills/18-security-patterns/{frontmatter-directive-trust-surface,path-containment}.md, skills/issue-triage-routing, guides/rule-extracts/handoff-completion.md, audit-fixtures/{coc-eval-all,coc-eval-core,scan-synced-disclosure/operator-local-md-destination-flip}. Modified: rules/{cc-artifacts,enrollment-operations,security,self-referential-codify}.md, commands/{certify,claim,enroll,onboard,whoami}.md, skills/{41-onboard,42-certify,43-ecosystem-init,44-enroll}/SKILL.md, bin/scan-synced-disclosure.mjs (+audit-fixtures run.mjs), .gitignore. MULTI-CLI FULL re-emit (6.5/6.6/6.7): AGENTS.md+GEMINI.md (codex 55214 B/10.13%, gemini 55033 B/10.43% headroom; 10 baseline rules incl. new issue-triage-routing; WARN tier; 0 floor violations; ADVISORY within 15% proximity band); .codex (56 prompts/27 skills) + .gemini (38 commands/27 skills/18 agents); .coc grew 153->161 files (159 artifacts rules=63/agents=22/skills=33/commands=41; coc.version 1.0.0); config bases + bin/coc (28 phase shims); idempotency 2nd-pass byte-identical (0 diffs). codex-guard (.codex-mcp-guard/**) DELIBERATELY EXCLUDED (precedent 2.45.8/2.45.9 security-review deferral; symlink preserved). CLAUDE.md preserved; build:null (NO SDK pins); upstream loom 2.45.0 unchanged."
@@ -255,5 +260,5 @@
       ]
     }
   ],
-  "updated": "2026-06-29"
+  "updated": "2026-07-22"
 }

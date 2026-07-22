@@ -6,7 +6,6 @@ id: "GIT"
 
 See `.claude/guides/rule-extracts/git.md` for extended bash examples, full BLOCKED rationalization lists, repository protection table, and Origin evidence.
 
-
 ## Conventional Commits
 
 Format: `type(scope): description`. Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`.

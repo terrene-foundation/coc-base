@@ -411,48 +411,102 @@ function releaseOwnClaims(repoDir, identity, claims) {
     ? { sign: () => ({ ok: true, sig: "test-stub" }) }
     : { signingKeyPath: process.env.COC_OPERATOR_KEY_PATH, keyType: "ssh" };
 
-  for (let i = 0; i < claims.length; i++) {
-    // RESIDUAL EQUIVOCATION WINDOW (#868 Option A — shrunk, NOT eliminated).
-    // emit's per-call chain-head read is read-then-append, NON-atomic: two
-    // SAME-verified_id detached workers that BOTH read head=N before either
-    // appends still both emit seq=N+1 and both pass fold-validate → a fork.
-    // This is STRICTLY SAFER than the prior whole-loop stale-head advance
-    // (which forked the ENTIRE release batch on any concurrency; this forks
-    // only the races overlapping the sub-ms read→append window), and a fork
-    // degrades to the SAME failure mode as today: the losing release lingers
-    // as a stale claim until its TTL. A lease/mutex (Option B) that closes the
-    // window is deliberately NOT built here — it is a separate, larger shard
-    // the human gates IF the redteam proves this residual reachable.
-    const result = emitSignedRecord(
-      Object.assign(
-        {
-          repoDir,
-          type: "release",
-          content: { claim_id: claims[i].claim_id },
-          identity,
-        },
-        signOpts,
-      ),
-    );
-    if (!result || !result.ok) {
-      // Sec-MED-A1 TRAP: emit adds 3 refusal paths the old best-effort
-      // appendRecord lacked — (a) already-forked live chain (step
-      // fold-validate), (b) no signing key (step sign), (c) 2KB cap (step
-      // append). DEGRADE VISIBLY: surface the refusal on stderr for the
-      // forensic trail and CONTINUE to the next claim. The release does not
-      // land → the claim lingers to its TTL — strictly safer-or-equal to the
-      // pre-#868 append (which ALSO lost a release to TTL under concurrency).
-      // NEVER throw: sessionend MUST NEVER block (header contract), and the
-      // downstream writeSessionNotesAtomic MUST still run.
+  // #874 (Option B — CLOSE the residual read→append equivocation window).
+  // #868 (Option A) SHRANK but did not ELIMINATE the window: emit's per-call
+  // chain-head read is read-then-append, NON-atomic — two SAME-verified_id
+  // detached SessionEnd workers (the #857 latency-decoupling can spawn a second
+  // before the first finishes) that BOTH read head=N before either appends both
+  // emit seq=N+1 and both pass fold-validate → the per-emitter chain FORKS.
+  // Option B serializes the batch with a per-EMITTER on-disk O_EXCL mutex so
+  // at-most-ONE releaser is in-flight per emitter — the read→append never
+  // overlaps for a given operator on this clone. The lease is CLONE-LOCAL (the
+  // window is intra-clone: two workers of the SAME operator on the SAME
+  // .claude/learning/) so it needs no fold rule and no signed record — see the
+  // sessionend-release-lease.js header. A crashed worker's lease is reaped by
+  // the next acquirer's pid-liveness check (#867 shape).
+  const { acquireReleaseLease, releaseReleaseLease } = require(
+    path.join(__dirname, "lib", "sessionend-release-lease.js"),
+  );
+  const lease = acquireReleaseLease({
+    verifiedId: identity.verified_id,
+    repoDir,
+  });
+  if (!lease.ok) {
+    if (lease.reason === "contended") {
+      // LOSER degrades safely: a live same-emitter releaser is already in
+      // flight, so DEFER — do not emit; the claims linger to their TTL (the
+      // SAME degradation Option A already accepts, but now WITHOUT the fork).
+      // The winning worker emits every release; the release intent is already
+      // cached at cacheReleaseIntent above.
       try {
         process.stderr.write(
-          `[sessionend] release refused for claim ${claims[i].claim_id} ` +
-            `(step=${result && result.step}): ${result && result.reason} — ` +
-            `degrading to fork→stale-claim-lingers-to-TTL; continuing.\n`,
+          `[sessionend] release-lease contended for emitter ` +
+            `${identity.verified_id} (holder pid ` +
+            `${lease.holder && lease.holder.holder_pid}) — deferring releases ` +
+            `(claims linger to TTL) to keep at-most-one-releaser-in-flight ` +
+            `(#874 Option B).\n`,
         );
       } catch {
         /* best-effort advisory only */
       }
+      return;
+    }
+    // A non-contended lease error (io-error / invalid-id) must NEVER BLOCK
+    // sessionend (header contract). Proceed WITHOUT the lease — strictly no
+    // worse than the pre-#874 (Option A) behavior, which had no lease at all.
+    try {
+      process.stderr.write(
+        `[sessionend] release-lease unavailable (reason=${lease.reason}: ` +
+          `${lease.error}) — proceeding without serialization (Option A ` +
+          `residual-window behavior; sessionend must never block).\n`,
+      );
+    } catch {
+      /* best-effort advisory only */
+    }
+  }
+
+  try {
+    for (let i = 0; i < claims.length; i++) {
+      const result = emitSignedRecord(
+        Object.assign(
+          {
+            repoDir,
+            type: "release",
+            content: { claim_id: claims[i].claim_id },
+            identity,
+          },
+          signOpts,
+        ),
+      );
+      if (!result || !result.ok) {
+        // Sec-MED-A1 TRAP: emit adds 3 refusal paths the old best-effort
+        // appendRecord lacked — (a) already-forked live chain (step
+        // fold-validate), (b) no signing key (step sign), (c) 2KB cap (step
+        // append). DEGRADE VISIBLY: surface the refusal on stderr for the
+        // forensic trail and CONTINUE to the next claim. The release does not
+        // land → the claim lingers to its TTL — strictly safer-or-equal to the
+        // pre-#868 append (which ALSO lost a release to TTL under concurrency).
+        // NEVER throw: sessionend MUST NEVER block (header contract), and the
+        // downstream writeSessionNotesAtomic MUST still run.
+        try {
+          process.stderr.write(
+            `[sessionend] release refused for claim ${claims[i].claim_id} ` +
+              `(step=${result && result.step}): ${result && result.reason} — ` +
+              `degrading to stale-claim-lingers-to-TTL; continuing.\n`,
+          );
+        } catch {
+          /* best-effort advisory only */
+        }
+      }
+    }
+  } finally {
+    // Release the per-emitter lease on EVERY exit path (success or a throw in
+    // the loop) so the next SessionEnd worker is not falsely serialized. Only
+    // release when WE hold it (lease.ok) — a contended loser already returned;
+    // a non-contended error held no lease. releaseReleaseLease is idempotent
+    // and ownership-checked (holder_pid === our pid).
+    if (lease.ok) {
+      releaseReleaseLease({ verifiedId: identity.verified_id, repoDir });
     }
   }
 }

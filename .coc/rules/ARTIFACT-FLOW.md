@@ -7,7 +7,6 @@ paths: [".claude/**", "sync-manifest.yaml", "**/VERSION"]
 
 See `.claude/guides/rule-extracts/artifact-flow.md` for the full BLOCKED-rationalization corpora, per-clause Origin narratives, and implementation-depth walkthroughs.
 
-
 ## Authority Chain
 
 - **atelier/** — CC + CO authority (methodology, base rules, guides)

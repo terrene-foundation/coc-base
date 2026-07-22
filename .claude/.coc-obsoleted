@@ -96,6 +96,8 @@ scripts/resolve-template.js
 .claude/bin/validate-envelope-dna.mjs
 .claude/bin/emit-dev-container.mjs
 .claude/bin/repin-targets.local.example.json
+.claude/audit-fixtures/scan-synced-disclosure/operator-local-md-destination-flip/.claude/variants/rs/rules/ci-runners.operator.local.md
+.claude/audit-fixtures/scan-synced-disclosure/r3-variant-surface/.claude/variants/rs/rules/ci-runners.operator.local.md
 .claude/rules/documentation.md
 .claude/skills/30-claude-code-patterns/sdk-upstream-donation.md
 .claude/guides/co-setup/

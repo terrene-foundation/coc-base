@@ -5,7 +5,6 @@ paths: ["**/Dockerfile", "**/*.dockerfile", "deploy/**", "**/k8s/**", "**/kubern
 
 # Deploy Hygiene — Committed ≠ Deployed
 
-
 For full DO/DO NOT examples, the Step 0–5 checklist's per-step guidance, the deployment-config.md schema, frontend deployment patterns (Vite, Docker, Next.js), and cache-layer troubleshooting, see `skills/10-deployment-git/application-deployment.md`. This rule loads only when infrastructure files are touched; the verbose details live in the skill.
 
 ## The Failure Mode

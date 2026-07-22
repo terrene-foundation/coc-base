@@ -289,7 +289,17 @@ export function attestationLive(project, opts = {}) {
         "signature is a self-asserted claim and RES-23 verification is unavailable — fail-closed NOT-LIVE (the false-all-clear guard; spec §3)",
     };
   }
-  if (verify(a, project) !== true) {
+  // A verifier that THROWS is fail-closed NOT-LIVE — NEVER a crash (which would
+  // take down the whole console render) AND NEVER a bypass (a throw is NOT
+  // "verified"). The RES-23 verifier is injected untrusted-adjacent code; its
+  // failure MUST degrade to NOT-LIVE exactly as a `!== true` return does.
+  let verified;
+  try {
+    verified = verify(a, project);
+  } catch {
+    return { live: false, reason: "attestation verifier threw — fail-closed NOT-LIVE" };
+  }
+  if (verified !== true) {
     return { live: false, reason: "attestation signature failed verification — fail-closed NOT-LIVE" };
   }
   // Epoch alignment (spec §3): a stale-epoch attestation is NOT-LIVE.

@@ -5,7 +5,6 @@ paths: ["**/.claude/hooks/**", "**/.claude/variants/**/hooks/**", "**/.claude/te
 
 # Hook Output Discipline — No Raw exit(2)
 
-
 Hooks are the structural enforcement layer of the trust-posture system. A hook that returns `continue: false` (or exits with code `2` at PreToolUse) halts the agent's flow — and the agent receives ONLY what the hook emits. A raw `process.exit(2)` with no payload tells the user "Execution stopped by PostToolUse hook" with no actionable content, and tells the agent nothing — institutional knowledge of WHY the block fired is lost the moment continuation halts.
 
 This rule binds every hook in `.claude/hooks/**` to the canonical `instruct-and-wait.js::emit()` shape. It also forbids the false-positive class that ships `severity: "block"` from a lexical regex match alone — block severity requires a structural / behavioral / AST signal that the regex cannot evade by surface rewrite.

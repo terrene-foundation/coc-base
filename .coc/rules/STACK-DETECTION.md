@@ -5,7 +5,6 @@ paths: ["**/STACK.md", "**/.claude/agents/onboarding/**", "**/.claude/commands/o
 
 # Stack Detection Discipline (base variant)
 
-
 The base variant adopts COC discipline in arbitrary stacks (Go, Java, TypeScript, Python-non-Kailash, Rust, Elixir, Swift, Kotlin, .NET, Ruby, PHP, polyglot mixes). Every COC phase command (`/analyze`, `/todos`, `/implement`, `/redteam`, `/codify`, `/release`) needs to know which stack it is operating in to invoke the right test runner, package manager, build tool, and lint pipeline. `STACK.md` is the institutional record of that answer.
 
 This rule binds `STACK.md` schema, freshness, and detection-source provenance — same discipline the kailash variants get from `pyproject.toml` / `Cargo.toml` / `Gemfile` parsing, generalized to arbitrary stacks.

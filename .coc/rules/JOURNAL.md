@@ -5,7 +5,6 @@ paths: ["journal/**", "**/journal/**"]
 
 # Journal Rules
 
-
 ## Naming & Format
 
 Sequential naming: `NNNN-<display_id>-TYPE-topic.md` (the `<display_id>` token keeps concurrent same-`seq` reservations distinguishable per `rules/knowledge-convergence.md` MUST-2). Acquire the slot via `reserveJournalSlot` (fold-accepted high-water), not an `ls journal/` scan. Check the highest existing number before creating.

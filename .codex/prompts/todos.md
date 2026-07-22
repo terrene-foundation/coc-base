@@ -69,6 +69,10 @@ A "build" todo is complete when the component runs. A "wire" todo is complete wh
 
 Create detailed todos for EVERY task required. Place them in `todos/active/`.
 
+### 3b. Conformance Walk — freeze expectations before code
+
+Each todo that adds an actionable UNIT (a public symbol, route + interactive element, endpoint, CLI flag, MCP tool) MUST DECLARE its frozen expectation in the todo text — the freeze happens BEFORE any code, so the expectation cannot be back-fitted to whatever the code did. See `skills/conformance-walk/SKILL.md` § "Phase-action triggers" (todos).
+
 ### 4. Red team the todo list
 
 Review with red team agents continuously until they are satisfied there are no gaps remaining.

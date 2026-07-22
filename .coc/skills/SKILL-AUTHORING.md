@@ -161,8 +161,6 @@ Skills with CLI-specific content partition that content into slot blocks per the
 
 This content emits to all CLIs.
 
-
-
 CLI-neutral examples — overridable per CLI.
 
 ```

@@ -5,7 +5,6 @@ paths: ["**/.claude/rules/**", "**/.claude/variants/**/rules/**"]
 
 # Rule Authoring Meta-Rule
 
-
 Rules are the agent's linguistic tripwires. This meta-rule defines how all other rules MUST be authored so that each new rule compounds the effect of the existing ones instead of diluting it.
 
 Origin: journal/0052-DISCOVERY-session-productivity-patterns.md §6. Validated by subprocess A/B test: rule quality improved from 2/6 to 6/6 when this meta-rule was loaded. Extended 2026-05-22 (F23a cycle): added MUST Rule 10 + Trust Posture Wiring per journal/0144 § Forest item F23 + analyst FM1. Extended 2026-05-23 (F23b cycle): added MUST Rule 11 (2nd-extraction escalation across (rule, CLI) pairs within 30 days) per journal/0146 § FM-C + journal/0147 + journal/0148 (mid-cycle amendment); Rule 10's "Named-rationale exception — MANDATORY sub-fields" template moved to .claude/skills/skill-authoring/proximity-band-named-rationale-template.md as structural-cleanup improvement (NOT Rule-10 compliance — this rule is path-scoped, so Rule 10's proximity-band gate does NOT fire on rule-authoring.md edits; see journal/0148 § "Lesson learned"). Multi-agent redteam R1 dispositions in journal/0149.

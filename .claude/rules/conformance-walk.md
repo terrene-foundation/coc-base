@@ -10,11 +10,13 @@ paths:
   - "**/suites/**"
 ---
 
-# Conformance Walk — Freeze The Expectation, Judge The Live/Static State, Report Coverage Honestly
+# Conformance Walk — Freeze The Expectation, Judge Source / Delivered / Live State, Report Coverage Honestly
 
-A breadth check, a type-check, and a merge gate all answer "does it compile / render / return 200 / not crash". None answers the question a testable surface actually poses: **does each actionable unit DO what it is FOR?** The Conformance Walk (CW) closes that gap on ANY surface — SDK symbols, FE routes, HTTP endpoints, CLI flags, MCP tools — with ONE surface-neutral discipline: enumerate every unit, attach a FROZEN expectation, judge live/static state against it with a DETERMINISTIC oracle, report coverage HONESTLY (separate from pass-rate), and RATCHET so a new unit without an expectation fails the gate.
+A breadth check, a type-check, and a merge gate all answer "does it compile / render / return 200 / not crash". None answers the question a testable surface actually poses: **does each actionable unit DO what it is FOR — in the artifact the user actually installs?** The Conformance Walk (CW) closes that gap with ONE surface-agnostic core (`cw_core`) + a registry of per-surface adapters grouped into THREE oracle families on ONE delivery axis — **source → shipped artifact → live behavior**: **SOURCE** conformance (SCM = Source Conformance Matrix — the symbol exists + holds its contract IN SOURCE, judged without running), **DELIVERED** conformance (DCM/FCM — the capability is reachable + non-stub in the SHIPPED ARTIFACT: wheel × binding × resolved feature set), and **LIVE** conformance (API / CLI / MCP / FE — a real invocation matches the frozen post-state). ONE discipline across all three: enumerate every unit, attach a FROZEN expectation, judge observed state against it with a DETERMINISTIC oracle, report coverage HONESTLY (separate from pass-rate), and RATCHET so a new unit without an expectation fails the gate.
 
-The methodology, the normative adapter-registry interface, the 5-adapter table, the phase-action triggers, and the CW-vs-`/redteam` role split live in `.claude/skills/conformance-walk/SKILL.md`. This rule carries the four MUST clauses; each surface supplies its own adapter per the skill's per-consumer adapter obligation.
+**The delivery gap is the thesis.** The dominant failure is not "source lacks the feature" and not "the running service misbehaves" — it is _source HAS the feature, tests PASS against source, yet the published artifact the user installs does NOT contain it_ (a capability gated off the default cargo feature set compiles out of the wheel; a binding wrapper is never generated). DELIVERED is the middle node nobody instruments, and one capability record spans symbol (SCM) → delivered-node (DCM) → endpoint/tool/route (LIVE): a red delivered-node lights the WHOLE capability.
+
+The methodology, `cw_core` + its JSON-schema interop boundary, the normative adapter-registry interface, the three-family adapter table, the phase-action triggers, and the CW-vs-`/redteam` role split live in `.claude/skills/conformance-walk/SKILL.md`. This rule carries the four MUST clauses; each surface supplies its own adapter per the skill's per-consumer adapter obligation.
 
 ## MUST Rules
 
@@ -23,14 +25,17 @@ The methodology, the normative adapter-registry interface, the 5-adapter table, 
 Every actionable UNIT on a touched testable surface (a public symbol, a route + its interactive elements, an endpoint, a CLI subcommand/flag, an MCP tool) MUST carry a FROZEN expectation — the observable contract or transition it should hold — asserted against the LIVE or STATIC observed state. The expectation MUST be frozen BEFORE the observation (freeze-then-judge). "Compiled / rendered / 200 / didn't crash" is the FLOOR, never the expectation; a different-than-expected effect is NOT a pass.
 
 ```text
-# DO — freeze the contract, then judge the observed effect against it
-Unit: POST /api/orders endpoint. Frozen expectation: 201 + Order schema + the row
-persists (read-back GET returns it). Observed: 201 but read-back is empty → FAIL
-(the floor "200" passed; the expectation "the order persists" did not).
+# DO — freeze the delivered-capability contract, then judge the SHIPPED artifact against it
+Unit: capability `auth::SessionProvider::refresh_async`. Frozen expectation: reachable +
+non-stub in the SHIPPED wheel under the resolved feature set. Observed: source HAS it and
+unit tests PASS, but the wheel built with default features compiled it out → FAIL
+(the floor "source compiles / unit tests green" passed; the expectation "the capability is
+delivered in the artifact the user installs" did not — the delivery gap).
 
 # DO NOT — assert the floor and call it a pass
-Unit: POST /api/orders. Assertion: "status < 500". Observed: 201 → PASS.
-(the endpoint could silently drop every order and this still reads green)
+Unit: `auth::SessionProvider::refresh_async`. Assertion: "the symbol exists in the source
+tree" (grep-resolves) → PASS. (source presence ≠ artifact presence — the wheel the user
+installs can omit it entirely and this still reads green)
 ```
 
 **Why:** The floor ("it didn't crash") is satisfied by a surface that does the WRONG thing; only a frozen expectation asserted against the observed effect distinguishes "works" from "runs". Freezing BEFORE observing is what stops the expectation from being back-fitted to whatever the code happened to do.
@@ -103,4 +108,6 @@ that they were never actually judged)
 
 ## Origin
 
-2026-07-16 — loom origination (#1146), generalizing two independently-converged instances of one meta-pattern: the Symbol Conformance Matrix (SCM, a static-symbol/BE verification method in a BUILD SDK repo) and the Transition-Oracle Walk (TOW, #1137, a route/interaction/FE eval-harness in a downstream consumer). The four MUST clauses are the surface-neutral core; each surface supplies its own adapter per `skills/conformance-walk/SKILL.md`. #1137 is re-scoped as CW's route/interaction (FE) adapter, not closed. Co-owner-directed origination per `rules/artifact-flow.md` § Co-Owner-Directed Origination; receipt-first DECISION `journal/0518`. Core-extraction evidence (six shared elements, file:line-grounded from both instances) in the design study; the specific instance provenance stays in the local receipt per `knowledge-cascade-routing.md` MUST-3.
+2026-07-16 — loom origination (#1146), generalizing two independently-converged instances of one meta-pattern: the Symbol Conformance Matrix (SCM — renamed the Source Conformance Matrix under CW-SDL, the SOURCE-family reference adapter; a static-symbol/BE verification method in a BUILD SDK repo) and the Transition-Oracle Walk (TOW, #1137, a route/interaction/FE eval-harness in a downstream consumer). The four MUST clauses are the surface-agnostic core; each surface supplies its own adapter per `skills/conformance-walk/SKILL.md`. #1137 is re-scoped as CW's route/interaction (FE) adapter, not closed. Co-owner-directed origination per `rules/artifact-flow.md` § Co-Owner-Directed Origination; receipt-first DECISION `journal/0518`. Core-extraction evidence (six shared elements, file:line-grounded from both instances) in the design study; the specific instance provenance stays in the local receipt per `knowledge-cascade-routing.md` MUST-3.
+
+**CW-SDL generalization (2026-07-21, loom #1218).** The flat BE/FE model above generalized to the current **CW-SDL** shape (Conformance Walk — Source / Delivered / Live): ONE surface-agnostic core (`cw_core`) + three oracle families on the delivery axis, with **DELIVERED** (DCM/FCM) the first-class MIDDLE family the flat model lacked and the delivery-gap thesis its motivation. The four MUST clauses GENERALIZE unchanged in intent across all three families. Evidence: the **kailash-rs reference implementation** — `cw_core` (surface-agnostic core + a `record.schema.json` v1.0.0 / Draft-2020-12 JSON-schema interop boundary) and the DELIVERED adapter's five lenses (landed as the FCM gate, kailash-rs #1918); referenced conceptually per `rules/spec-accuracy.md` (the impl lives in another repo — no loom-local file:line citation). Ground-truth research (cited by path): `(loom-internal reference){10-conformance-walk-core-design.md, 14-dcm-build-on-and-loom-cw-design.md, 15-codegen-conformance-best-practices.md}`.

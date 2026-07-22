@@ -1,12 +1,21 @@
 # The Adapter-Registry Interface (NORMATIVE — design "A")
 
 On-demand depth for SKILL.md §6. Each per-surface adapter supplies exactly **three
-REQUIRED methods**; the core owns everything else (the record schema, coverage math,
-the freshness+collision ratchet, the discrete verdict taxonomy, the two-tier oracle
-split, the role-severity tier). This file is the full normative contract of those three
-methods, the three core types they exchange, the OPTIONAL capture-then-human-freeze
-lifecycle, and a worked skeleton per surface. The interface is language- and
-surface-neutral — the pseudocode below is illustrative, not any one runtime.
+REQUIRED methods**; the core — the surface-agnostic package **`cw_core`** — owns everything
+else (the record schema, coverage math, the freshness+collision ratchet, the discrete verdict
+taxonomy, the two-tier oracle split, the role-severity tier). The adapters group into THREE
+oracle families on the delivery axis `source → shipped artifact → live behavior` — SOURCE
+(static-symbol), DELIVERED (shipped-artifact), LIVE (FE / API / CLI / MCP). This file is the
+full normative contract of those three methods, the three core types they exchange, the
+OPTIONAL capture-then-human-freeze lifecycle, and a worked skeleton per surface. The interface
+is language- and surface-neutral — the pseudocode below is illustrative, not any one runtime.
+
+**`cw_core`'s record schema IS the cross-runtime interop boundary.** A same-runtime adapter
+(SOURCE, DELIVERED) conforms in **Mode A (observer)** — it IMPORTS `cw_core` and calls its
+coverage / ratchet / verdict machinery directly. A DIFFERENT-runtime adapter that cannot import
+the core (a LIVE Playwright/FE adapter, a non-Python surface) conforms in **Mode B (standalone)**
+— it EMITS JSON that validates against the frozen data contract (`record.schema.json` v1.0.0,
+Draft 2020-12), with ZERO shared code. The schema, not the code, is the binding surface.
 
 ## The three REQUIRED methods
 
@@ -120,6 +129,26 @@ adapter StaticSymbol:
     return Verdict(Pass, evidence=exp.spec_anchors) # judged statically, never executed
 ```
 
+### delivered-capability (DCM/FCM) — over the BUILT artifact, WITHOUT running behavior
+
+```
+adapter Delivered:
+  enumerate_units():
+    profile = resolve_shipped_features(artifact)         # ONE named token = the published feature set
+    for cap in expected_capability_manifest.must_deliver: # machine-anchored, NOT build-inferred
+      yield Unit(id=cap.id, surface="DELIVERED",          # SAME id as its SOURCE node → linkage
+                 actual=render_reachable(artifact, profile, cap))
+  freeze_expectation(unit):
+    return Expectation(STRUCTURAL, {reachable: True, non_stub: True,   # the manifest declaration
+                                    profile: unit.actual.profile})     # pinned before the build
+  oracle(unit, exp):                                       # 5 lenses; L1/L3/L4 structural, L2/L5 semantic
+    if not manifest_subset_of_rendered(unit, exp): return Verdict(Fail, l1_unreachable=...)  # BLOCK
+    if is_orphan(unit):                            return Verdict(Fail, l3_no_caller=...)     # BLOCK
+    if binding_parity_gap(unit):                   return Verdict(Fail, l4_binding=...)       # BLOCK
+    advisory(l2_semantic_stub(unit), l5_naive_fallback(unit))  # ADVISORY worklist, never a BLOCK
+    return Verdict(Pass, evidence=exp)             # judged over the artifact, behavior NOT run
+```
+
 ### route/interaction (FE) — judged AFTER freezing the expected transition
 
 ```
@@ -192,7 +221,8 @@ adapter McpTool:
     return Verdict(Pass, evidence=result)
 ```
 
-Across all five: the METHODS are identical; only the UNIT enumerated and whether the oracle
-judges statically or against a live post-state vary — the two adapter axes design "A" names. A
-new surface supplies its unit-enumerator + oracle over the proven core, and inherits schema,
-coverage math, ratchet, taxonomy, and severity for free.
+Across all six adapters (the three families): the METHODS are identical; only the UNIT
+enumerated and whether the oracle judges STATIC source, the BUILT artifact, or a LIVE post-state
+vary — the two adapter axes design "A" names. A new surface supplies its unit-enumerator +
+oracle over the proven `cw_core`, and inherits schema, coverage math, ratchet, taxonomy, and
+severity for free.

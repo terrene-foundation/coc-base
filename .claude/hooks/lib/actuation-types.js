@@ -74,8 +74,31 @@ const path = require("path");
 /**
  * The human-intent ACTUATION record types. Positive allowlist — only these
  * are presence-gated; every other type is routine and passes untouched.
+ *
+ * #1153 (2026-07-17): the command-center governance-write actuation types the
+ * #583 signed-agent contract anticipated ("future command-center actuation
+ * types", coc-emit.js presence-gate block) join the allowlist. The agreed set
+ * is #583 Q5's closed governance-record allowlist ("config-edit,
+ * proposal-classify, sync-fire, /release") — a UI "Approve" on each carries
+ * deliberate human intent, so holding the signing key is NOT sufficient (§C4);
+ * each MUST carry a PROVEN broker presence proof. Pre-#1153 these types had no
+ * registered fold predicate, so emitSignedRecord dispatch-REJECTED them at
+ * `type-check` (`unknown record type`) BEFORE the always-on presence gate ever
+ * ran — no command-center governance actuation could complete end-to-end. Each
+ * is registered in coordination-log.js::_registerM0Defaults as a
+ * checkpoint-exempt actuation predicate (the F5/Q5a load-time assert requires
+ * ACTUATION_RECORD_TYPES ⊆ {fold-registered ∧ checkpoint_exempt}). `/release`
+ * is spelled `release-class` here (the record-type token; cf. the
+ * operator-gate `/release-class gate` audit fixture) — NOT the slash command.
  */
-const ACTUATION_RECORD_TYPES = new Set(["gate-approval"]);
+const ACTUATION_RECORD_TYPES = new Set([
+  "gate-approval",
+  // #1153 — command-center governance-write actuation types (#583 Q5 set):
+  "config-edit",
+  "proposal-classify",
+  "sync-fire",
+  "release-class",
+]);
 
 /** True when `type` is an actuation record requiring a per-record presence proof. */
 function requiresPresenceAttestation(type) {
