@@ -1,1 +1,1 @@
-gh issue list --repo terrene-foundation/kailash-py --state open
+gh issue list --repo other-org/other-repo --state open

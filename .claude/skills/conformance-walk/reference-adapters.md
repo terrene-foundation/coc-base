@@ -1,8 +1,8 @@
-# Reference Adapters — The Two Worked Examples
+# Reference Adapters — The Worked Examples (Source · Delivered · Live)
 
-The adapter-registry interface (`adapter-registry-interface.md`) was not designed forward from zero — it was EXTRACTED as the intersection of two independently-built, independently-running conformance instances. This file distills those two REFERENCE adapters to the interface, as the worked examples a new adapter author copies. Each implements the three required methods (`enumerate_units`, `freeze_expectation`, `oracle`) plus the adapter obligations the core validates; they differ ONLY on the two predicted axes — the UNIT enumerated, and whether the oracle judges STATIC or against a LIVE post-state.
+The adapter-registry interface (`adapter-registry-interface.md`) was not designed forward from zero — it was EXTRACTED as the intersection of two independently-built, independently-running conformance instances. This file distills those two REFERENCE adapters to the interface, PLUS the **DELIVERED** middle family added alongside them, as the worked examples a new adapter author copies. Each implements the three required methods (`enumerate_units`, `freeze_expectation`, `oracle`) plus the adapter obligations `cw_core` validates; they differ ONLY on the two predicted axes — the UNIT enumerated, and whether the oracle judges STATIC source, the BUILT artifact, or a LIVE post-state.
 
-The two are named by the METHOD they encode, not by any repo: **SCM** (the static-symbol / BE adapter) and **TOW** (the route/interaction / FE adapter).
+The adapters are named by the METHOD they encode, not by any repo, and group into three oracle families on the delivery axis `source → shipped artifact → live behavior`: **SOURCE** = **SCM** (the static-symbol / BE adapter, §1), **DELIVERED** = **DCM/FCM** (the shipped-artifact adapter — the new MIDDLE family, §2), **LIVE** = **TOW** (the route/interaction / FE adapter, §3, plus the API/CLI/MCP surface adapters distilled in `adapter-registry-interface.md`). SCM (SOURCE) and TOW (LIVE-FE) are the two RUNNING instances `cw_core` was extracted from; DELIVERED plugs into that same proven core, keyed to the SAME `unit_id` as its SOURCE node.
 
 ## 1. SCM — the static-symbol (BE) reference adapter
 
@@ -14,7 +14,7 @@ The BE adapter enumerates the complete public-symbol set from a doc/AST extracti
 
 ### freeze_expectation — pin the signature-hash + spec anchors into a committed baseline
 
-For each symbol the BE adapter derives the cited-contract set (the spec anchors that name the symbol) and pins `{signature_hash, spec_anchors}` into a COMMITTED per-symbol baseline. That baseline is the frozen INTENDED column. Because a static symbol's expectation is knowable at extraction time, the freeze is a pure derivation — **the BE adapter does NOT use the capture-then-human-freeze lifecycle** (§3); its expectations never require observing a runtime to become knowable.
+For each symbol the BE adapter derives the cited-contract set (the spec anchors that name the symbol) and pins `{signature_hash, spec_anchors}` into a COMMITTED per-symbol baseline. That baseline is the frozen INTENDED column. Because a static symbol's expectation is knowable at extraction time, the freeze is a pure derivation — **the BE adapter does NOT use the capture-then-human-freeze lifecycle** (§4); its expectations never require observing a runtime to become knowable.
 
 ### oracle — judge signature + spec-conformance + test-tier + AST-tamper, without running
 
@@ -24,7 +24,39 @@ The BE oracle is pure-static. It judges, per symbol: signature match against the
 
 **Self-recalibrating role-severity tier.** Severity = f(status, surface-role), never unit count. The BE adapter's role prior is evidence-driven and PROMOTION-ONLY: a surface with a hot defect history promotes ITSELF toward a blocking tier (from journals + a fix-history log + a curated cache), with no hardcoded denylist. A quiet surface stays advisory; a repeatedly-broken one earns blocking severity from its own record.
 
-## 2. TOW — the route/interaction (FE) reference adapter
+## 2. DELIVERED — the shipped-artifact (DCM/FCM) reference adapter (the new middle family)
+
+**Surface.** The shipped artifact — `wheel × binding × resolved feature set`. **Unit.** The SAME capability as its SOURCE node, judged in the BUILT artifact; keyed to the SAME `unit_id` as the SCM symbol (`be:crate::module::Type::method`) so a delivered-node joins its source symbol and its live endpoint into ONE linkage record. **Oracle stance.** STATIC over the BUILT artifact: judges reachability + non-stub-ness WITHOUT running the capability's behavior. DELIVERED is the MIDDLE family the two founding instances lacked — the "missing middle" no established tool covers, where the delivery gap lives.
+
+### enumerate_units — the expected-capability manifest, rendered against the resolved shipped feature set
+
+The denominator is a per-artifact **expected-capability manifest** (`must_deliver`) — the capabilities a consumer-facing artifact MUST deliver, each keyed to a grep-stable qualified id (`crate::module::Type::method`, an endpoint, a tool name — NEVER a line number). It is machine-anchored, not build-inferred: do NOT infer the intended surface from whatever the build happened to emit — that makes the artifact its own spec, so a silently-dropped feature reads "conformant" because nothing declared it owed. The artifact's resolved feature set is extracted from the wheel build tool into ONE **named profile token** (the exact features the published wheel is built with), and that same token drives both the compile matrix and the reachability render. Deliberately-optional capabilities ride a positive `allowlisted_optional` marker (owner + reaffirm-by), never a blanket ignore.
+
+### freeze_expectation — the manifest declaration IS the frozen expectation
+
+For each capability the frozen INTENDED is "reachable + non-stub in the shipped artifact under the resolved feature set." The expectation is the committed manifest declaration, pinned BEFORE the build — so the freeze is a pure declaration. Because the expectation is statically declared, **the DELIVERED adapter does NOT use the capture-then-human-freeze lifecycle** (§4) — the same disposition as SCM; only the LIVE (TOW) adapter's runtime-only bytes require it.
+
+### oracle — the five lenses over the built artifact, judged WITHOUT running behavior
+
+Five lenses judge whether the manifest's owed capability is actually delivered. Their structural-vs-semantic split IS their enforcement tier:
+
+- **L1 reachability (STRUCTURAL → MAY BLOCK).** Render the reachable public surface under the EXACT resolved feature set (`cargo-public-api` under the resolved profile) and assert `manifest ⊆ rendered surface`; drive the compile matrix from the SAME token (`cargo-hack` — compile-only, so `#[cfg]`'d-out still passes green, necessary-not-sufficient). A capability gated off the DEFAULT feature set compiles out of the wheel → absent public item → **the delivery gap**. `cargo check --workspace` masks it (the union compiles even when the shipped subset does not).
+- **L3 orphan-primitive (STRUCTURAL → MAY BLOCK).** Call-graph reachability: a symbol present in the artifact but wired to NO entrypoint (no caller) is a delivered orphan — reachable to the linker, unreachable to the user.
+- **L4 binding-delivery (STRUCTURAL → MAY BLOCK).** Binding-parity: derive the EXPECTED binding surface FROM the ecosystem-lead crate (`cargo-public-api → expected .pyi`), NOT a hand-written stub, then diff it against the surface extracted from the actually-BUILT artifact (`stubtest` against the built wheel / API-Extractor over the `.d.ts` / libabigail over the `.so` ELF exports / japicmp over the JAR), for EVERY binding SIMULTANEOUSLY. A capability reachable in source but never wrapped by a binding is undelivered for that binding's users — the one-binding-lags-the-others gap that ships silently. (Cover `stubtest`'s nested-`#[pymodule]` blind spot in the walk.)
+- **L2 semantic-stub (SEMANTIC → ADVISORY-only).** "Is this function body a stub?" — irreducibly probe-driven (LLM-judge or AST-tamper matrix). ADVISORY worklist row, NEVER a structural BLOCK.
+- **L5 naive-fallback (SEMANTIC → ADVISORY-only).** "Does it fabricate a plausible post-state without doing the work?" — the canonical anti-pattern is a `refresh` that returns `expires_at + 1h` WITHOUT contacting the token endpoint (reports success while doing no work). Probe-driven ADVISORY, never a structural BLOCK.
+
+**Verdict disposition + tiering.** L1/L3/L4 are IRREFUTABLE structural facts → BLOCK-eligible; L2/L5 are SEMANTIC → the advisory worklist the human `/redteam` adjudicates — a semantic BLOCK ships false positives at scale (`conformance-walk.md` MUST-2). An errored / empty / timed-out lens is ZERO evidence, never a clean pass (`rules/evidence-first-claims.md` MUST-3): re-run or surface "not verified", never count it green.
+
+### The build-on posture — vendor the endpoints, own the middle
+
+DELIVERED does NOT hand-roll what a mature tool already does: it VENDORS `cargo-public-api` + `cargo-hack` (L1) and `stubtest` / API-Extractor / libabigail / japicmp (L4), and OWNS only the five genuine extensions no framework provides — (1) feature-resolved-against-published-artifact reachability (the named-profile token + the manifest ⊆-assertion + the wiring feeding ONE token to both tools); (2) binding-parity with authority derived FROM the ecosystem lead, N-way; (3) cross-SDK byte-contract arbitrated by the spec; (4) the unified three-layer linkage gate; (5) semantic-stub / naive-fallback as a delivered-artifact ADVISORY concern. Full landscape: research `14-dcm-build-on-and-loom-cw-design.md` + `15-codegen-conformance-best-practices.md` (moved into this workspace's `research/from-kailash-rs/`).
+
+### The delivery gap — the middle node the neighbors cannot supply
+
+The dominant real-world failure is neither SOURCE-absent nor LIVE-misbehaving: _the source HAS the feature, the tests PASS against the source, yet the published artifact the user installs does NOT contain it_ — a capability behind a cargo feature flag not in the crate's `default` set, built into a wheel with default features only, compiles out; the binding wrapper is never generated; the user calls a method that "exists" in the repo but is absent from their wheel. Source tests are green; live tests never ran (the surface is not in the artifact to invoke). DELIVERED is keyed to the SAME `unit_id` as its SOURCE node, so a `Fail` on the delivered-node lights the WHOLE capability EVEN WHEN SOURCE is green and LIVE is `Not-Run` (unreachable-to-invoke because it is not in the artifact). This is exactly the linkage the flat two-instance model could not express.
+
+## 3. TOW — the route/interaction (FE) reference adapter
 
 **Surface.** A rendered UI / interaction layer. **Unit.** A route plus its interactive elements. **Oracle stance.** LIVE: drives the running surface and judges the observed post-state AFTER freezing the expectation.
 
@@ -34,7 +66,7 @@ The FE adapter enumerates routes statically from the router definition (an AST w
 
 ### freeze_expectation — structural auto-derived, semantic captured-then-human-frozen
 
-The FE adapter freezes in two tiers. The STRUCTURAL expectation (the mandatory floor: the route renders, the wired endpoint fires, a record reads back) is machine-derived automatically for every unit at zero authoring cost. The SEMANTIC expectation — the exact user-visible bytes a high-value journey must produce (a toast string, an error message, a rendered post-state) — is knowable ONLY at runtime, so **the FE adapter USES the capture-then-human-freeze lifecycle** (§3): on first run the exact bytes are CAPTURED, a human FREEZES them into the baseline, and only then do they assert. Exact expected bytes are never invented from memory.
+The FE adapter freezes in two tiers. The STRUCTURAL expectation (the mandatory floor: the route renders, the wired endpoint fires, a record reads back) is machine-derived automatically for every unit at zero authoring cost. The SEMANTIC expectation — the exact user-visible bytes a high-value journey must produce (a toast string, an error message, a rendered post-state) — is knowable ONLY at runtime, so **the FE adapter USES the capture-then-human-freeze lifecycle** (§4): on first run the exact bytes are CAPTURED, a human FREEZES them into the baseline, and only then do they assert. Exact expected bytes are never invented from memory.
 
 ### oracle — drive the live surface, read live post-state, judge after the freeze
 
@@ -52,14 +84,15 @@ The live oracle (above) judges the observed post-state of the journeys it can DR
 - **Report coverage SEPARATELY from the phantom set (MUST-3).** Coverage = how many enumerated FE call sites were checked against the route set (denominator = all enumerated FE calls; a non-reducible dynamic call site is a coverage gap, not a silent pass); the phantom set is its OWN number — the fix-list — never collapsed into a single pass-rate. The mirror gap — a backend route with NO FE caller — is a DIFFERENT finding (a dead/uncovered route), surfaced separately, never counted as a phantom.
 - **Complements, never replaces, the live walk.** Two layers, complementary (OVERLAPPING) reach — neither subsumes the other. The STATIC wire-contract gate uniquely catches an UNREACHABLE phantom (a call site the live walk never fires) with no runtime; the LIVE oracle uniquely catches a wrong-post-state a static diff cannot see (a route that EXISTS but returns the wrong body passes the wire gate and fails the live oracle). A REACHABLE phantom is caught by BOTH (statically: call site with no matching route; live: the fired call 404s). The residue neither layer catches — a DYNAMICALLY-constructed FE call to a nonexistent route behind an unopened dialog (static cannot enumerate the dynamic path; live never reaches it) — is exactly why the FE call set is reported as best-effort coverage, never a completeness claim.
 
-## 3. Capture-then-human-freeze — the split the two adapters prove
+## 4. Capture-then-human-freeze — the split the families land on
 
-The capture-then-human-freeze lifecycle is an OPTIONAL, core-owned protocol (`adapter-registry-interface.md`), and the two reference adapters land on opposite sides of it — which is exactly why it is OPTIONAL rather than part of the required three-method interface:
+The capture-then-human-freeze lifecycle is an OPTIONAL, core-owned protocol (`adapter-registry-interface.md`), and the families land on opposite sides of it — which is exactly why it is OPTIONAL rather than part of the required three-method interface:
 
-- **The BE adapter SKIPS it.** A static symbol's expectation (signature hash + spec anchors) is knowable at freeze time from the tree alone; there is nothing to observe at runtime, so capture-then-freeze would be dead ceremony. The BE oracle needs only the unit + the committed baseline.
-- **The FE adapter USES it.** A live surface's exact expected bytes are knowable only once the surface runs; the semantic expectation MUST be captured on first run and human-frozen before it can assert. The structural floor is still auto-derived; only the semantic tier rides the capture lifecycle.
+- **The SOURCE (SCM) adapter SKIPS it.** A static symbol's expectation (signature hash + spec anchors) is knowable at freeze time from the tree alone; there is nothing to observe at runtime, so capture-then-freeze would be dead ceremony. The SOURCE oracle needs only the unit + the committed baseline.
+- **The DELIVERED (DCM/FCM) adapter SKIPS it too.** Its expectation is a statically-declared manifest entry ("reachable + non-stub under the resolved feature set"), pinned in the committed manifest before the build — knowable without observing a runtime, exactly like SOURCE. The delivered-node is judged over the BUILT artifact, not a live post-state, so no runtime capture is needed.
+- **The LIVE (TOW) adapter USES it.** A live surface's exact expected bytes are knowable only once the surface runs; the semantic expectation MUST be captured on first run and human-frozen before it can assert. The structural floor is still auto-derived; only the semantic tier rides the capture lifecycle.
 
-Keeping the lifecycle OPTIONAL and core-owned holds the required interface at three methods, so a THIRD adapter (endpoint / CLI / tool) is never forced to adopt a choice specific to one of the two founding instances.
+Keeping the lifecycle OPTIONAL and core-owned holds the required interface at three methods, so a new adapter (a DELIVERED family, a LIVE endpoint / CLI / tool) is never forced to adopt a choice specific to one of the two founding instances.
 
 ## What the two prove
 
@@ -69,3 +102,5 @@ Two teams, two languages, two surfaces, no shared code — and both independentl
 2. **The oracle stance** — judged WITHOUT running (BE, static) vs judged AFTER freezing against a LIVE post-state (FE).
 
 Every other element is shared; where the two differ WITHIN an element it is depth-of-maturity on the SAME abstraction, not a different one (the FE adapter ships the verdict set as a literal enum; the BE adapter ships the same partition as a disposition split — same taxonomy, different surface expression). That is the signature of a REAL core with adapter-specific realizations: the boundary was DISCOVERED by extracting the intersection of two running instances, not INVENTED forward. A new adapter copies these two — supplying its own unit-enumerator and oracle over the proven core — and inherits the record schema, coverage math, ratchet, verdict taxonomy, two-tier split, and role-severity tier unchanged.
+
+**DELIVERED is the proof the generalization holds.** The DCM/FCM middle family (§2) is the FIRST family ADDED to `cw_core` after the two-instance extraction — and it plugged in with NO change to the core: its own unit-enumerator (the expected-capability manifest × resolved feature set) and oracle (the five lenses over the built artifact) over the SAME record schema, coverage math, ratchet, verdict taxonomy, two-tier structural/semantic split, and role-severity tier. It lands on the two predicted axes exactly (unit = the capability in the shipped artifact; oracle stance = static over the BUILT artifact, judged without running behavior) and inherits everything else unchanged — the same signature the two founding instances showed, now demonstrated by a THIRD family the core was not extracted from. Kailash-rs reference implementation: the DELIVERED adapter landed as the FCM gate (kailash-rs #1918); loom's CW-SDL generalization is #1218.

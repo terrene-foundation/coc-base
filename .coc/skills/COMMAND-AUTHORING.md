@@ -118,8 +118,6 @@ Slot-marker syntax matches the skill-authoring convention:
 
 This content emits to all CLIs.
 
-
-
 CLI-neutral examples — overridable per CLI.
 
 ```

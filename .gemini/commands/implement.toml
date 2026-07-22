@@ -85,6 +85,10 @@ Before moving ANY todo from `active/` to `completed/`, MUST:
 
 A todo is complete when the spec says X and the code does X. Not when the code does something and happens to compile.
 
+### 7b. Conformance Walk — freshness gate
+
+As each todo lands, Conformance Walk records populate incrementally and the FRESHNESS GATE fires: no new actionable UNIT ships without the frozen expectation `/todos` declared for it. A new unit reaching this phase with no declared expectation fails the gate — freeze it (capture-then-human-freeze for live surfaces) before closing the todo. See `skills/conformance-walk/SKILL.md` § "Phase-action triggers" (implement).
+
 ### 8. Integration hygiene (end of each cycle)
 
 Verify per `rules/observability.md`: new endpoints have logs, integration points have correlation IDs, zero raw SQL/mock data, log triage clean. The `integration-hygiene.js` hook catches most violations; this is the final pass. Update `docs/` at project root (essence and intent, not status).

@@ -606,6 +606,50 @@ function _registerM0Defaults(registry) {
     },
   });
 
+  // #1153 (2026-07-17): the command-center GOVERNANCE-WRITE actuation types the
+  // #583 signed-agent contract anticipated ("future command-center actuation
+  // types", coc-emit.js presence-gate block). The agreed set is #583 Q5's closed
+  // governance-record allowlist ("config-edit, proposal-classify, sync-fire,
+  // /release"; `/release` → the `release-class` record-type token). Each is an
+  // ACTUATION (in actuation-types.js ACTUATION_RECORD_TYPES) — a UI "Approve"
+  // carries human intent, so a PROVEN broker presence proof is REQUIRED and an
+  // ABSENT proof is REJECTED at foldPresenceGate (the always-on #583 latch),
+  // exactly like gate-approval. Pre-#1153 these types were UNregistered, so
+  // emitSignedRecord refused them at the type-check (`unknown record type`)
+  // BEFORE the presence gate ever ran, and a fold would dispatch-reject them and
+  // rule-2-poison the emitter's chain — the exact gap #47 closed for
+  // gate-op-receipt above, here for the #583-anticipated governance types.
+  //
+  // The predicate is a no-op accept: the presence-proof enforcement (PROVEN
+  // folds, ABSENT rejected) is CROSS-CUTTING — it runs in _foldLog's
+  // foldPresenceGate BEFORE per-type dispatch, gated on ACTUATION_RECORD_TYPES
+  // membership, NOT here. Rule-1 (sig) / rule-2 (chain) / rule-3 (fork) are the
+  // engine's, also upstream of dispatch. So this predicate weakens NO fold
+  // invariant; it exists solely so the type has a registered predicate (the F5/
+  // Q5a load-time assert requires ACTUATION_RECORD_TYPES ⊆ {registered ∧
+  // checkpoint_exempt}). checkpoint_exempt: true is MANDATORY for an actuation:
+  // a non-exempt actuation's presence nonce can be archived while still fresh and
+  // replay as PROVEN across a checkpoint (F5). Same single-signer no-op-accept
+  // shape as gate-op-receipt; the governance-record CONTENT schema (target,
+  // decision, etc.) is off-loom loom-command's and gains a richer predicate when
+  // it lands — this registration unblocks the end-to-end #583 emit path today
+  // without presuming that schema.
+  for (const t of [
+    "config-edit",
+    "proposal-classify",
+    "sync-fire",
+    "release-class",
+  ]) {
+    registry.set(t, {
+      fn: (record, ctx) => ({ accepted: true, foldState: ctx.foldState }),
+      meta: {
+        checkpoint_exempt: true,
+        authoritative_for_record: true,
+        authoritative_for_aggregate: false,
+      },
+    });
+  }
+
   // CHFAPP (#868 reviewer R1 MED): checkpoint-skipped + session-notes-layout-
   // error — the two SessionEnd teardown witness records emitted by
   // multi-operator-sessionend.js. Pre-CHFAPP they were hand-appended (no seq /

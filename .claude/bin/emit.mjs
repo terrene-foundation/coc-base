@@ -93,17 +93,35 @@ const REPO = path.resolve(__dirname, "..", "..");
 
 // ────────────────────────────────────────────────────────────────
 // v6 abridgement protocol (extends v5 with M-1: "BLOCKED responses:")
+//   v6.3 M-3: additional loom-internal-metadata strips (#1240 — recover
+//   baseline-emission headroom baseline-WIDE; the rs lane had breached the 10%
+//   floor. Every v6.3 strip removes ONLY loom-internal metadata a Codex/Gemini
+//   USE-template consumer never consumes — the SAME class the Origin/Wiring
+//   strips already remove — so ZERO MUST / MUST-NOT / **Why:**-rationale /
+//   DO-DO-NOT content is de-scoped. CC loads the full source rule unchanged.)
 // ────────────────────────────────────────────────────────────────
 // Strip sections:
 //   - Origin: lines (and continuation paragraphs)
 //   - Trust Posture Wiring H2 sections                     [v6 M-2]
+//   - Distinct From / Cross-References / Relationship-to-existing-rules
+//       H2 sections (loom rule-graph navigation)           [v6.3 M-3]
+//   - "## Examples (<CLI>-native ...)" H2 sections (CLI-dispatch-syntax
+//       appendix; CG delegation delivered natively via .codex/prompts +
+//       .gemini/agents — see the detailed comment at the strip site)
+//                                                           [v6.3 M-3]
 //   - Evidence / Verified / Measured H3+ sub-sections
 //   - BLOCKED rationalizations: enumerated bullet lists
 //   - BLOCKED responses: enumerated bullet lists           [v6 M-1]
+//       (incl. clause-qualified header variants)            [v6.3 M-3]
 //   - Heading-depth level 4 and deeper
 // Strip patterns:
 //   - Fenced code blocks that are NOT DO / DO NOT examples
 //   - Markdown tables beyond 3 data rows (keep header + first 3)
+//   - Whole-line rule-extracts guide pointers ("See `…guide…` for …",
+//       "Depth … lives in `…guide…`.")                     [v6.3 M-3]
+//   - Trailing "… Origin: <receipt>." provenance tails on kept lines
+//       (the line-initial Origin strip, extended mid-line)  [v6.3 M-3]
+//   - Slot-marker-removal blank re-collapse (stripSlotMarkers)  [v6.3 M-3]
 // Preserve:
 //   - MUST / MUST NOT clauses in full
 //   - **Why:** lines in full (first 2 sentences)
@@ -138,6 +156,33 @@ export function abridgeV6(raw) {
       continue;
     }
 
+    // [v6.3 M-3] Rule-extract guide-pointer line — the leading "See
+    // `.claude/guides/rule-extracts/<name>.md` for ..." depth pointer 20+ rules
+    // carry directly under their H1. It routes to loom's EXTRACT-not-NARROW guide
+    // companion (rule-authoring.md Rule 7 + the extraction pattern), which is
+    // loom-side authoring DEPTH — the rule body's normative MUST content is
+    // self-contained without it. The pointer is dead weight in the abridged
+    // Codex/Gemini baseline (same loom-internal class as the Origin/Wiring strips):
+    // CC loads the full rule (pointer intact); the abridged AGENTS.md/GEMINI.md
+    // carries the MUST clauses, not the navigation to loom's depth files.
+    // Two whole-line shapes: the leading "See `...guide...` for ..." pointer AND
+    // the "Depth for most sections below lives in `...guide...`." variant
+    // (security.md). Both are whole-line loom-side depth pointers with the
+    // rule-extracts guide as the only payload — matched only when the line is
+    // ENTIRELY the pointer (starts with See/Depth and its sole reference is a
+    // rule-extracts guide), never a MUST clause that merely cites a guide inline.
+    if (
+      /^See `?\.claude\/guides\/rule-extracts\/[a-z0-9-]+\.md`? for .+\.\s*$/.test(
+        trimmed,
+      ) ||
+      /^Depth\b[^`]*`\.claude\/guides\/rule-extracts\/[a-z0-9-]+\.md`\.\s*$/.test(
+        trimmed,
+      )
+    ) {
+      i++;
+      continue;
+    }
+
     // Trust Posture Wiring H2 section — strip entire section until next H1/H2.
     // [v6 M-2] Wiring is loom-INTERNAL enforcement metadata (severity, grace
     // period, cumulative posture math, detection mechanism, receipt/violation
@@ -150,6 +195,62 @@ export function abridgeV6(raw) {
     // `.claude/rules/*.md` (source), never the abridged baseline, so the
     // grep-token contract (`trust-posture.md` MUST-8) is unaffected.
     if (hMatch && hMatch[1].length === 2 && /^##\s+Trust Posture Wiring\b/.test(line)) {
+      i++;
+      while (i < lines.length) {
+        const n = lines[i].match(/^(#{1,6})\s/);
+        if (n && n[1].length <= 2) break; // next H1/H2 section begins
+        i++;
+      }
+      continue;
+    }
+
+    // [v6.3 M-3] Distinct From / Cross-References / Relationship-to-existing-rules
+    // H2 sections — loom-INTERNAL rule-graph navigation metadata ("extends X",
+    // "pairs with Y", "distinct from Z"). A Codex/Gemini USE-template consumer of
+    // the abridged baseline does not traverse the loom rule graph; these sections
+    // are bookkeeping for loom-side authoring/audit, the same loom-internal class
+    // the Wiring/Origin strips already remove. The normative cross-rule bindings a
+    // consumer actually needs are inline in the MUST clauses (preserved); this is
+    // the standalone navigation section. Strip entire section until next H1/H2.
+    if (
+      hMatch &&
+      hMatch[1].length === 2 &&
+      /^##\s+(Distinct From(\s*\/\s*Cross-References)?|Relationship to existing rules)\b/.test(
+        line,
+      )
+    ) {
+      i++;
+      while (i < lines.length) {
+        const n = lines[i].match(/^(#{1,6})\s/);
+        if (n && n[1].length <= 2) break; // next H1/H2 section begins
+        i++;
+      }
+      continue;
+    }
+
+    // [v6.3 M-3] "## Examples (<CLI>-native ...)" H2 section — the per-rule
+    // CLI-dispatch-syntax appendix (agents.md). The section itself declares it is
+    // supplementary ("the delegation MECHANISM above is self-contained; the
+    // CLI-neutral MUST-clause contract is the load-bearing part"), and the REAL
+    // Codex/Gemini delegation surfaces are delivered NATIVELY —
+    // `.codex/prompts/specialist-*.md` + `.gemini/agents/*-specialist.md` (the
+    // `specialist-delegation-syntax` skill it also cites is cli_emit_exclusions'd
+    // from BOTH Codex and Gemini, so the appendix's skill pointer was dangling for
+    // a CG consumer). The abridged baseline carries the CLI-neutral MUST contract;
+    // the CLI-specific dispatch appendix is loom/native-surface depth.
+    // BOUNDED — the title MUST carry a CLI-syntax qualifier: an explicit CLI name
+    // (CLI / Codex / Gemini) OR the phrase "delegation syntax". A bare "## Examples",
+    // a normative "## Examples (worked cases)", OR a "## Examples (native …)"
+    // section is NOT this shape and is PRESERVED (a future baseline rule using
+    // "## Examples" as a normative section must not silently vanish — R1 MED-1;
+    // bare "native" dropped from the qualifier set per R2 residual-2, since the
+    // live appendices match via CLI/Codex/"delegation syntax" anyway). Strip
+    // entire section until next H1/H2.
+    if (
+      hMatch &&
+      hMatch[1].length === 2 &&
+      /^##\s+Examples\b.*\b(CLI|Codex|Gemini|delegation syntax)\b/i.test(line)
+    ) {
       i++;
       while (i < lines.length) {
         const n = lines[i].match(/^(#{1,6})\s/);
@@ -172,7 +273,13 @@ export function abridgeV6(raw) {
 
     // BLOCKED rationalizations / BLOCKED responses — strip header + bullets
     // [v6 M-1: added "BLOCKED responses:" to v5's "BLOCKED rationalizations:"]
-    if (/^\*\*BLOCKED (rationalizations|responses):\*\*/.test(trimmed)) {
+    // [v6.3 M-3: broadened to catch QUALIFIED variants — a parenthetical or
+    // clause-qualified header ("**BLOCKED responses when skipping MUST gates:**",
+    // "**BLOCKED rationalizations (Tier 2 misuse):**") is the SAME dead-weight
+    // enumeration class, only with a scope qualifier between the keyword and the
+    // colon. `[^*]*` matches the qualifier (never crossing a `**` boundary), so a
+    // bare "**BLOCKED:**" normative enumeration is deliberately NOT matched.]
+    if (/^\*\*BLOCKED\s+(rationalizations|responses)\b[^*]*:?\*\*/.test(trimmed)) {
       i++;
       if (i < lines.length && lines[i].trim() === "") i++;
       while (
@@ -249,8 +356,24 @@ export function abridgeV6(raw) {
     i++;
   }
 
+  // [v6.3 M-3] Inline provenance tail — a mid-paragraph "... Origin: <receipt>."
+  // sentence appended to a kept line (typically a **Why:** or a variant-overlay
+  // clause, e.g. "... per observation. Origin: R3 finding `0021-...`, fixed in commit `173d054b`.").
+  // This is the SAME loom-internal provenance class the line-initial `Origin:`
+  // strip above removes, only mid-line: a Codex/Gemini consumer never consumes the
+  // originating-receipt provenance. SENTENCE-ANCHORED — the peel fires ONLY on an
+  // " Origin: …EOL" fragment immediately preceded by a sentence terminator (`.`/`)`),
+  // i.e. a genuine trailing provenance SENTENCE. A mid-sentence "Origin:" token
+  // (e.g. a security clause "…validate the `Origin`/Origin: header before…") is NOT
+  // a sentence tail and is PRESERVED (R1 MED-2 / security-reviewer LOW-2 — the
+  // unconditional peel would have truncated such a clause on a future baseline
+  // rule). The normative clause preceding the provenance sentence is preserved intact.
+  const outTrimmed = out.map((l) =>
+    l.replace(/(?<=[.)])\s+Origin:\s[^\n]*$/, ""),
+  );
+
   // Collapse multi-blanks + trim
-  let result = out.join("\n");
+  let result = outTrimmed.join("\n");
   result = result.replace(/\n{3,}/g, "\n\n");
   return result.trim() + "\n";
 }
@@ -262,10 +385,15 @@ export function abridgeV6(raw) {
 // but emitted text is consumed by Codex/Gemini as source strings.
 // Strip them for a clean final output.
 export function stripSlotMarkers(raw) {
-  return raw
+  const stripped = raw
     .split("\n")
     .filter((l) => !/^<!--\s*\/?slot:[a-z][a-z0-9-]*\s*-->\s*$/.test(l))
     .join("\n");
+  // [v6.3 M-3] Removing a slot-marker line leaves the blank lines that flanked it
+  // un-collapsed (abridgeV6's blank-collapse ran BEFORE this strip). Re-collapse
+  // 3+ consecutive newlines to one blank line + drop trailing whitespace so the
+  // slot-marker removal does not leave whitespace bloat in the emitted baseline.
+  return stripped.replace(/[ \t]+$/gm, "").replace(/\n{3,}/g, "\n\n");
 }
 
 // ────────────────────────────────────────────────────────────────

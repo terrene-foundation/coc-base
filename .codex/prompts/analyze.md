@@ -92,6 +92,10 @@ Work with red team agents to scrutinize analysis, plans, user flows, AND specs.
 - Analysis, user flows must flow into plans
 - Verify every brief requirement appears in at least one spec file
 
+### 7. Conformance Walk (standing capability)
+
+Run the Conformance Walk enumerator over every testable surface the project exposes → surface the INVENTORY + baseline coverage (the un-expectationed frontier) into `01-analysis/`. This front-loads which actionable units exist and which carry no expectation yet, before planning. See `skills/conformance-walk/SKILL.md` § "Phase-action triggers" (analyze).
+
 ## Agent Teams
 
 Deploy these agents as a team for analysis:

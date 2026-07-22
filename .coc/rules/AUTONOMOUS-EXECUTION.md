@@ -6,7 +6,6 @@ id: "AUTONOMOUS-EXECUTION"
 
 See `.claude/guides/rule-extracts/autonomous-execution.md` for extended examples + Rule-4 Origin evidence.
 
-
 COC executes through **autonomous AI agent systems**, not human teams. All deliberation, analysis, recommendations, and effort estimates MUST assume autonomous execution unless the user explicitly states otherwise.
 
 Human defines the operating envelope. AI executes within it. Human-on-the-Loop, not in-the-loop.

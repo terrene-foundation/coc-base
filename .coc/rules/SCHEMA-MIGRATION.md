@@ -5,7 +5,6 @@ paths: ["**/migrations/**", "**/db/**", "**/*.sql", "**/models.py", "**/schema.p
 
 # Schema & Data Migration Rules
 
-
 The schema is the contract between code and data. Every change to that contract MUST go through a numbered, reviewable, reversible migration. Direct DDL and ad-hoc data fixes are how schemas drift from code, and how production silently breaks.
 
 ## MUST Rules

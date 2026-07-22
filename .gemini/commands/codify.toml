@@ -94,6 +94,8 @@ Ensure user-facing documentation reflects new capabilities. Verify README.md, do
 
 Validate that generated agents and skills are correct, complete, and secure. **cc-architect** verifies cc-artifacts compliance (descriptions under 120 chars, agents under 400 lines, commands under 150 lines, rules path-scoped, SKILL.md progressive disclosure). **Self-referential gate (MANDATORY, posture-independent):** before drafting convergence, match every file the proposal touches against `rules/self-referential-codify.md` Rule 2's allowlist; ANY match → the multi-agent redteam-with-tests round (that rule's Rule 1: reviewer + security-reviewer + structural-validator, parallel) is MANDATORY regardless of trust posture. Run this check from here — `self-referential-codify.md` is `scope: path-scoped` and may not be in context at framing time; this always-loaded command body is the structural guarantee the gate is evaluated before convergence is decided.
 
+**Conformance Walk (self-recalibration).** Absorb this round's CW findings into the role-severity tier prior (a defect-history-hot surface promotes itself toward a blocking tier) and record the frontier debt — the un-expectationed units carried forward. See `skills/conformance-walk/SKILL.md` § "Phase-action triggers" (codify).
+
 ### 6b. Trust Posture Wiring (MANDATORY for new rules — ENFORCED)
 
 Per `rules/trust-posture.md` MUST 7 + `skills/32-trust-posture/codify-integration.md`:

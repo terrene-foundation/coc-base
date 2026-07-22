@@ -5,7 +5,6 @@ paths: ["deploy/**", ".github/**", "pyproject.toml", "CHANGELOG.md"]
 
 # SDK Release Rules
 
-
 ## Before Any Release
 
 1. Full test suite passes across all supported Python versions

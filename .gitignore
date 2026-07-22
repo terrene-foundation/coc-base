@@ -14,6 +14,7 @@
 .claude/learning/learning-digest.json
 .claude/learning/.heartbeat-cache*
 .claude/learning/.session-end-cache*
+.claude/learning/sessionend-release-lease-*
 .claude/learning/observations.archive/
 .claude/operators.roster.json
 .claude/logs/
@@ -35,6 +36,7 @@
 !.claude/bin/lib/
 !.claude/hooks/lib/
 !.claude/test-harness/lib/
+!.claude/audit-fixtures/**
 # <<< coc:gitignore_additions <<<
 
 # Template-local: stray operator cruft swept by the hooks/** always-include

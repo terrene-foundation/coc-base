@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "description": "Fixture — stale Write()/NotebookEdit() deny form + collapsible duplicates",
+  "permissions": {
+    "allow": [
+      "Write($CLAUDE_PROJECT_DIR/**)",
+      "NotebookEdit($CLAUDE_PROJECT_DIR/**)"
+    ],
+    "deny": [
+      "Write(.claude/learning/posture.json)",
+      "Write(.claude/learning/posture.json.bak)",
+      "Write(.claude/learning/posture.json.tmp.*)",
+      "Write(.claude/learning/violations.jsonl)",
+      "Write(.claude/learning/violations.jsonl.*)",
+      "NotebookEdit(.claude/learning/violations.jsonl)",
+      "Write(.claude/learning/.initialized)",
+      "Write(.claude/operators.roster.json)",
+      "Edit(.claude/operators.roster.json)",
+      "Write(.claude/learning/coordination-log.jsonl)",
+      "NotebookEdit(.claude/learning/coordination-log.jsonl)",
+      "Write(.claude/learning/.heartbeat-cache*)",
+      "Write(.claude/learning/.session-end-cache*)",
+      "Bash(rm -rf:.claude/learning/*)",
+      "Read(.claude/secrets/**)"
+    ],
+    "defaultMode": "bypassPermissions"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|NotebookEdit",
+        "hooks": [
+          { "type": "command", "command": "node hook.js", "timeout": 5 }
+        ]
+      }
+    ]
+  }
+}

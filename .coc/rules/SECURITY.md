@@ -8,7 +8,6 @@ ALL code changes in the repository.
 
 Depth for most sections below lives in `.claude/guides/rule-extracts/security.md`.
 
-
 ## No Hardcoded Secrets
 
 All sensitive data MUST use environment variables.

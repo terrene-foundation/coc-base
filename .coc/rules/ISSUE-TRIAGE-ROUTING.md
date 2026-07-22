@@ -4,7 +4,6 @@ id: "ISSUE-TRIAGE-ROUTING"
 
 # Issue Triage → Upflow Routing (always-loaded)
 
-
 When triaging a GitHub issue on THIS repo, the agent MUST route it by the repo's CLASS before any disposition. A `gh issue` triage touches none of the artifact-file globs the routing DEPTH is path-scoped behind, so this always-loaded pointer is the reachability floor.
 
 ## MUST: Route Every Triaged Issue By The Repo `type`, Never By Convenience
@@ -26,7 +25,6 @@ COC-method fix authored into loom/.claude/rules/foo.md (loom only splits)
 ```
 
 **Why:** A `gh` triage never matches the `.claude/**` / `sync-manifest.yaml` / `*.md` globs the path-scoped routing depth sits behind, so only an always-loaded pointer fires at triage time; without it a COC-method fix lands on a code-only lane or an SDK bug on the artifact lane, bypassing the Gate-1 split and losing provenance.
-
 
 ## Trust Posture Wiring
 

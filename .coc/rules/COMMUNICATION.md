@@ -4,7 +4,6 @@ id: "COMMUNICATION"
 
 # Communication Style
 
-
 Many COC users are non-technical. Default to plain language; match the user's level if they speak technically.
 
 ## Report in Outcomes, Not Implementation

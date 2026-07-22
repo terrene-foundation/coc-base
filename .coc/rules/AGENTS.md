@@ -6,8 +6,6 @@ id: "AGENTS"
 
 See `.claude/guides/rule-extracts/agents.md` for full evidence, extended examples, post-mortems, recovery-protocol commands, the gate-review table, and CLI-syntax variants.
 
-
-
 ## Specialist Delegation (MUST)
 
 When working on stack-specific concerns, MUST consult the relevant generic specialist. The base variant ships three stack-agnostic specialists; each reads `STACK.md` at the project root to determine the host language and framework before advising:
@@ -129,8 +127,6 @@ Depth (protocol, prompt templates, BLOCKED corpora, post-mortems): `skills/30-cl
 - **Sequential when parallel is possible** — wastes the autonomous execution multiplier.
 
 Origin: 2026-04-19 worktree drift + 2026-04-20 parallel-release + 2026-04-27 W6 closure-parity. Base-variant adaptation 2026-05-06: stack-specialist names neutralized to db/api/ai-specialist trio reading `STACK.md`. Worktree-cluster compression mirrored from global 2026-06-12 (#491, journal/0271) — also restores the binding-scoped-shard-PR clause the base overlay had drifted without. Triad default-execution-mode reconciliation mirrored from global 2026-07-18 (journal/0543): the stale pre-triad decompose-by-default full-file-copy section became the § "The Default Execution Mode Is The Triad" (parallelize + /autonomize + /redteam-to-convergence) with the ≥3→≥2 floor. Kept as a RECONCILED full-file overlay (not slot-partitioned like rs) because base carries genuine stack-agnostic divergence throughout (db/api/ai-specialist trio + STACK.md references) that inheriting global would destroy.
-
-
 
 ## Examples (CLI-specific delegation syntax)
 

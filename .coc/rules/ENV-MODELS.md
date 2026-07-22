@@ -5,7 +5,6 @@ paths: ["**/*.py", "**/*.ts", "**/*.js", "**/*.rs", ".env*"]
 
 # Environment Variables & Model Rules
 
-
 ## .env Is The Single Source of Truth
 
 ALL API keys and model names MUST be read from `.env`. NEVER hardcode.

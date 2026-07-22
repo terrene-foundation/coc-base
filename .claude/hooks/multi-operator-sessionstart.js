@@ -38,6 +38,8 @@
  *   COC_TEST_CONTESTED_REVOCATIONS — JSON array of {target_login, forging_signer}
  *   COC_TEST_UNVERIFIED_REGISTRATIONS — JSON array of {display_id, proposed_role}
  *   COC_TEST_PENDING_GATE_APPROVALS — JSON array of gate-approval records
+ *   COC_TEST_WORKER_BUDGET_MS — raise the bounded fold-worker budget (default 500ms)
+ *     so fold-dependent surfaces render deterministically under parallel test load
  */
 
 "use strict";
@@ -96,9 +98,22 @@ const IS_CACHE_REBUILD = process.argv.includes("--coord-cache-rebuild");
 // never fits ANY budget no longer costs operators the full banner. The advance-
 // visibility surfaces are advisory (enforcement is in the PreToolUse hooks), so a
 // stale/absent cache degrades to the lightweight fallback — a UX degradation,
-// never a correctness/safety loss. WORKER_BUDGET_MS stays 500 (do NOT revert
+// never a correctness/safety loss. The PRODUCTION default stays 500 (do NOT revert
 // toward 3.5s — the coord-hook-budget min-of-3 <2000ms tripwire catches it).
-const WORKER_BUDGET_MS = 500;
+// COC_TEST_WORKER_BUDGET_MS is a TEST-ONLY override (default unchanged at 500 for
+// any unset/blank/non-numeric/non-positive value): tests that spawn this hook and
+// assert fold-dependent surfaces (contested-revocation / unverified-register /
+// pending-gate-approval banners) raise it so the bounded fold worker is NOT
+// SIGTERM'd under full-suite parallel CPU starvation — the loom#1259-sibling flake
+// class where the 500ms budget was blown by oversubscription, not by any
+// production-relevant slowness. The explicit finite-and-positive guard (vs a bare
+// `|| 500`) rejects a negative/NaN value at the constant rather than relying on
+// spawnSync to throw on a `timeout: -1` (defense-in-depth on the test-only var).
+const _testWorkerBudgetMs = Number(process.env.COC_TEST_WORKER_BUDGET_MS);
+const WORKER_BUDGET_MS =
+  Number.isFinite(_testWorkerBudgetMs) && _testWorkerBudgetMs > 0
+    ? _testWorkerBudgetMs
+    : 500;
 
 function safeExec(cmd, args) {
   try {

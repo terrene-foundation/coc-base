@@ -5,8 +5,6 @@ paths: ["**/routes/**", "**/handlers/**", "**/api/**", "**/*_endpoint*", "**/*_h
 
 # UI-Backend Defense Rules
 
-
-
 Backend handlers MUST treat the UI as hostile input. The UI's value restrictions — dropdown allowlists, radio-button groups, required-field markers, client-side validation — are ergonomics, not security boundaries. A backend handler that relies on "the UI only sends these values" is one UI bug (or one curl-wielding attacker) away from accepting inputs it was never designed for.
 
 This rule mandates layered defense across the three tiers of a typical request pipeline (handler → validator → model) and targets the specific failure modes documented in gh-coc-claude-rs#51 item 2: enum-trust bypass, shape-bypass via non-dict inputs, and admin-endpoint implicit trust.

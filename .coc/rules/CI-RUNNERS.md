@@ -5,7 +5,6 @@ paths: [".github/workflows/**", "**/ci/**", "**/.github/**"]
 
 # CI Runner Rules
 
-
 Self-hosted CI runner hygiene. Language-agnostic — applies to every project using GitHub Actions self-hosted runners regardless of SDK language.
 
 For recovery protocols, service-management commands, and step-by-step troubleshooting, see `skills/10-deployment-git/ci-runner-troubleshooting.md`.

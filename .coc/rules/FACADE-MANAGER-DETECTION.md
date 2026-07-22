@@ -5,8 +5,6 @@ paths: ["packages/**", "src/**", "**/tests/**"]
 
 # Facade Manager Detection Rules
 
-
-
 Closely related to `rules/orphan-detection.md`, this rule targets the specific code shape that becomes orphaned most often: classes named `*Manager`, `*Executor`, `*Store`, `*Registry`, `*Engine`, or `*Service` that are exposed via a property accessor on the framework's top-level class.
 
 The naming pattern signals "this is a long-lived object that owns state, manages a subsystem, or persists data." When such a class lands without a Tier 2 test that imports it AND a production call site that invokes it, the chance it never runs in production is very high — the same failure pattern Phase 5.11 surfaced for `TrustAwareQueryExecutor`.

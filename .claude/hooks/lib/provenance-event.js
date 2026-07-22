@@ -128,6 +128,41 @@ const ISO_8601_RE =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
 const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
 
+// ── DISTILLATION-SESSION ENVELOPE (loom#1211, design D §291 GAP-2/GAP-3) ──────
+// A durable per-distillation-session record RIDES the frozen v1 seam envelope as a
+// loom-owned `payload.distillation` field — NOT a new top-level EVENT_KEY, NOT a new
+// EVENT_KIND, NOT a SCHEMA_VERSION bump. csq's downstream `EventKind` enum is closed
+// with a compile-time variant-count assert (design D §291 GAP-3), and csq has NO
+// per-session dollar-cost field (design D §291 GAP-2), so BOTH the distillation
+// semantics AND the cost record are delivered on loom's payload via the
+// unknown-field-tolerant seam envelope — the SAME precedent as the #448 agent
+// attribution (payload-embedded, no schema bump). The record rides the EXISTING
+// `Action` kind (a consequential `/distill` registration); it is deliberately NOT a
+// `Decision` so it never perturbs the GAP-2 author-backing chain-adjacency window
+// (`_countHumanInputSinceLastDecision`, which counts HumanInput since the last
+// `Decision`).
+//
+// Shape (CLOSED for byte-exact parity — an unexpected key is rejected, never stored):
+//   kp_ref : non-empty string — the kp:// knowledge-product identity the session
+//            distilled. It is the governance SURFACE anchor (`deriveSurface` returns
+//            it, kind-agnostic: distillation semantics ride the loom-owned field).
+//   cost   : finite non-negative number — the durable per-distillation-session cost
+//            record. A TYPED SCALAR (never a string/object): `canonicalSerialize`
+//            emits a finite number byte-identically per value, so the seam stays
+//            byte-exact; a string/object `cost` is rejected at validation.
+const DISTILLATION_ENVELOPE_KEYS = Object.freeze(["kp_ref", "cost"]);
+
+// Well-known secret-token prefixes (defense-in-depth for the kp_ref VALUE scan). A
+// kp:// `<domain>` is an OPAQUE handle minted UPSTREAM at the project's local vault
+// (specs-authority.md Rule 10 inv-3/inv-5) — high-entropy BY DESIGN, so an ENTROPY
+// heuristic would false-flag a legitimate handle. A fixed-PREFIX match against known
+// credential formats does NOT (an opaque hex/base32 handle never begins with these +
+// a separator), so it catches a secret smuggled into a URN segment (e.g. an `sk-…`
+// OpenAI key, a `ghp_…` GitHub token, an `AKIA…` AWS id) without rejecting the
+// legitimate opaque handle. This is defense-in-depth, NOT a readable-client denylist.
+const CREDENTIAL_TOKEN_PREFIX_RE =
+  /^(sk|pk|rk|ghp|gho|ghs|ghu|ghr|xox[baprs]|akia|asia)[-_]/i;
+
 function _isNonEmptyString(v) {
   return typeof v === "string" && v.length > 0;
 }
@@ -169,6 +204,86 @@ function _scanForbiddenKeys(value, pathStr, errors) {
 
 function _isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
+function _isFiniteNumber(v) {
+  return typeof v === "number" && Number.isFinite(v);
+}
+
+/**
+ * Scan a `kp_ref` URN VALUE for a smuggled credential (defense-in-depth). Splits the
+ * URN into segments (`<owning_level>`/`<domain>`/`<name>`@`<version>`) and rejects any
+ * segment that IS a credential-shaped word (`CREDENTIAL_KEY_RE`) OR begins with a
+ * well-known secret-token prefix (`CREDENTIAL_TOKEN_PREFIX_RE`), so a secret embedded
+ * IN the URN value (e.g. `kp://loom/sk-…/x`) never rides into a permanent signed seam
+ * record. The whole-event `_scanForbiddenKeys` guards KEY names; this guards the
+ * kp_ref VALUE, which `_scanForbiddenKeys` does not inspect.
+ *
+ * @param {string} urn  the kp_ref value (already known to start with `kp://`)
+ * @param {string[]} errors accumulator
+ */
+function _scanUrnForSecrets(urn, errors) {
+  const body = urn.replace(/^kp:\/\//, "");
+  for (const seg of body.split(/[/@]/)) {
+    if (seg.length === 0) continue;
+    if (CREDENTIAL_KEY_RE.test(seg) || CREDENTIAL_TOKEN_PREFIX_RE.test(seg)) {
+      errors.push(
+        `payload.distillation.kp_ref segment '${seg}' looks like a credential — a secret MUST NOT ride into a permanent signed seam record (defense-in-depth, specs-authority.md Rule 10 inv-5)`,
+      );
+    }
+  }
+}
+
+/**
+ * Validate the loom-owned distillation-session envelope (`payload.distillation`) when
+ * present. CLOSED shape (`DISTILLATION_ENVELOPE_KEYS`) for byte-exact seam parity; a
+ * TYPED-SCALAR `cost` (finite, non-negative) so the canonical bytes are stable.
+ *
+ * The secrets fence for KEY names is handled SEPARATELY by `_scanForbiddenKeys` (which
+ * recurses the whole event, so a credential-shaped key inside the envelope is already
+ * rejected). This function additionally guards the kp_ref VALUE:
+ *
+ * Per specs-authority.md Rule 10 inv-5, the PRIMARY opacity control for the `<domain>`
+ * handle is minted UPSTREAM at the project's local handle vault — loom never sees the
+ * readable name at registration. loom's guard here is therefore DEFENSE-IN-DEPTH
+ * (kp://-scheme + secret-in-value scan), NOT a readable-client denylist (mechanically
+ * infeasible: the handle is already opaque by the time it reaches loom, so loom cannot
+ * distinguish a readable client name from an opaque handle — only the vault can).
+ *
+ * @param {*} dist   the payload.distillation value
+ * @param {string[]} errors accumulator
+ */
+function _validateDistillationEnvelope(dist, errors) {
+  if (!_isPlainObject(dist)) {
+    errors.push(
+      "payload.distillation MUST be a plain object { kp_ref, cost }",
+    );
+    return;
+  }
+  if (!_isNonEmptyString(dist.kp_ref)) {
+    errors.push(
+      "payload.distillation.kp_ref MUST be a non-empty string (the kp:// knowledge-product identity)",
+    );
+  } else if (!dist.kp_ref.startsWith("kp://")) {
+    // inv-1: a value that is not a kp:// URN is BLOCKED (specs-authority.md Rule 10).
+    errors.push(
+      "payload.distillation.kp_ref MUST be a kp:// URN (specs-authority.md Rule 10 inv-1)",
+    );
+  } else {
+    _scanUrnForSecrets(dist.kp_ref, errors);
+  }
+  if (!_isFiniteNumber(dist.cost) || dist.cost < 0) {
+    errors.push(
+      "payload.distillation.cost MUST be a finite, non-negative number (a typed scalar, never a string/object — the byte-exact seam contract)",
+    );
+  }
+  for (const k of Object.keys(dist)) {
+    if (!DISTILLATION_ENVELOPE_KEYS.includes(k)) {
+      errors.push(
+        `payload.distillation.${k} is not an allowed field — the distillation envelope is closed { kp_ref, cost } for byte-exact seam parity`,
+      );
+    }
+  }
 }
 
 /**
@@ -267,6 +382,10 @@ function validateProvenanceEvent(evt) {
   // payload — plain object (kind-specific contents validated by the emitter, F101-2)
   if (!_isPlainObject(evt.payload)) {
     errors.push("payload MUST be a plain object");
+  } else if ("distillation" in evt.payload) {
+    // The loom-owned distillation-session envelope (loom#1211): TYPE + SHAPE guard
+    // (typed-scalar cost, closed shape). The secrets fence is _scanForbiddenKeys below.
+    _validateDistillationEnvelope(evt.payload.distillation, errors);
   }
 
   // Recursively reject prototype-pollution + credential-shaped keys (runs BEFORE
@@ -353,6 +472,42 @@ function buildProvenanceEvent(args) {
 }
 
 /**
+ * Build a canonical distillation-session provenance event (loom#1211). Convenience
+ * wrapper over buildProvenanceEvent that stamps the loom-owned distillation envelope
+ * onto an EXISTING `Action`-kind event — NO new EVENT_KIND, NO SCHEMA_VERSION bump,
+ * NO new top-level EVENT_KEY (design D §291 GAP-2/GAP-3). The distillation semantics +
+ * the durable cost record both ride `payload.distillation`; `deriveSurface` returns
+ * `kp_ref` as the governance surface.
+ *
+ * @param {object} args
+ * @param {string} args.ts          ISO-8601 timestamp (caller supplies; time-source-agnostic)
+ * @param {string} args.session     session id
+ * @param {object} args.operatorRef { verified_id, person_id, [display_id] }
+ * @param {string} args.kpRef       the kp:// knowledge-product identity distilled
+ * @param {number} args.cost        finite non-negative per-session cost (typed scalar)
+ * @param {?string} [args.prevLink] prior event hash, or null for the chain genesis
+ * @returns {Readonly<object>} the frozen canonical Action event carrying the envelope
+ */
+function buildDistillationEvent(args) {
+  if (!_isPlainObject(args)) {
+    throw new TypeError("buildDistillationEvent: args MUST be a plain object");
+  }
+  const { ts, session, operatorRef, kpRef, cost } = args;
+  const prevLink = "prevLink" in args ? args.prevLink : null;
+  return buildProvenanceEvent({
+    kind: "Action",
+    ts,
+    session,
+    operatorRef,
+    // `tool` keeps the event a well-formed Action even if the deriveSurface
+    // distillation branch is ever removed (fail-loud degrades to "action:distill",
+    // never a throw); the distillation envelope is the loom-owned surface signal.
+    payload: { tool: "distill", distillation: { kp_ref: kpRef, cost } },
+    prevLink,
+  });
+}
+
+/**
  * Content hash of an event — sha256 over the canonical bytes. This is the value a SUBSEQUENT
  * event carries as its prev_link (the chain link). Deterministic: identical events → identical
  * hash, regardless of key insertion order (canonicalSerialize sorts keys).
@@ -436,6 +591,14 @@ function deriveSurface(evt) {
     );
   }
   const p = evt.payload || {};
+  // Distillation-session records ride the seam envelope as a loom-owned payload field
+  // (loom#1211, design D §291 GAP-2/GAP-3). The governance surface is the distilled
+  // knowledge-product identity, derived from the envelope BEFORE the kind switch —
+  // kind-agnostic, because distillation semantics ride loom-owned fields, not a new
+  // EventKind. kp_ref is a validated non-empty string (validateProvenanceEvent ran above).
+  if (_isPlainObject(p.distillation)) {
+    return p.distillation.kp_ref;
+  }
   switch (evt.kind) {
     case "HumanInput":
       return "human-input";
@@ -500,8 +663,10 @@ module.exports = {
   SCHEMA_VERSION,
   EVENT_KEYS,
   OPERATOR_REF_ALLOWED,
+  DISTILLATION_ENVELOPE_KEYS,
   validateProvenanceEvent,
   buildProvenanceEvent,
+  buildDistillationEvent,
   hashProvenanceEvent,
   chainProvenanceEvent,
   deriveSurface,

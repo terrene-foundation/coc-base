@@ -5,8 +5,6 @@ paths: ["README.md", "docs/**", "CHANGELOG.md"]
 
 # Documentation Rules
 
-
-
 ## Version Numbers Must Match pyproject.toml
 
 Update on version bump: `README.md`, `docs/index.rst`, `docs/getting_started.rst`, each package's README.

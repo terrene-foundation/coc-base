@@ -5,8 +5,6 @@ paths: ["tests/e2e/**", "**/*e2e*", "**/*playwright*"]
 
 # E2E God-Mode Testing Rules
 
-
-
 ### 1. Create ALL Missing Records
 
 When a required record is missing (404, 403, empty response): create it immediately via API or direct DB. MUST NOT skip, document as "gap", or report as "expected behavior."

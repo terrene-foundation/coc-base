@@ -7,7 +7,6 @@ paths: ["tests/**", "**/*test*", "**/*spec*", "conftest.py", "**/.spec-coverage*
 
 See `.claude/guides/rule-extracts/testing.md` for full evidence, the kailash-ml W33b post-mortem, the test-skip triage decision tree, the test-resource-cleanup post-mortems (PR #466 63-warning sweep, 11,917-test block, env-var race), and protocol blocks.
 
-
 ## Test-Once Protocol (Implementation Mode)
 
 During `/implement`, tests run ONCE per code change, not once per phase. Full suite per todo, pre-commit Tier 1 safety net, CI full matrix as final gate. Re-run only on commit-hash mismatch, infra change, or specific test suspected wrong.
