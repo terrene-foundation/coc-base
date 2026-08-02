@@ -205,15 +205,23 @@ jobs:
           # so in the PR body — do not silence the step.
           BASELINE=286
 
-          out=$(node .claude/bin/validate-xref-integrity.mjs 2>&1 || true)
-          echo "$out" | head -1
+          # The validator's output is captured to a FILE and every reader below
+          # reads that file directly. Piping a large captured string into `head`
+          # makes `head` exit early and close the pipe, so the producing `echo`
+          # dies with EPIPE and -o pipefail fails the step. That is exactly what
+          # broke the first CI run of this workflow: GNU coreutils reports the
+          # write error, macOS's echo builtin does not, so it passed locally and
+          # failed on the runner. File reads have no such asymmetry.
+          out_file="$(mktemp)"
+          node .claude/bin/validate-xref-integrity.mjs > "$out_file" 2>&1 || true
+          head -1 "$out_file"
 
-          count=$(printf '%s' "$out" | sed -n 's/.*; \([0-9]\{1,\}\) dangling;.*/\1/p' | head -1)
+          count="$(awk 'match($0, /; [0-9]+ dangling;/) { s = substr($0, RSTART, RLENGTH); gsub(/[^0-9]/, "", s); print s; exit }' "$out_file")"
           if [ -z "$count" ]; then
             echo "ERROR: could not parse the dangling-ref count from validator output."
             echo "Refusing to pass on an unreadable instrument (a check that cannot"
             echo "produce a falsifiable result is not a gate). Full output:"
-            echo "$out" | head -40
+            head -40 "$out_file"
             exit 1
           fi
 
@@ -222,7 +230,8 @@ jobs:
             echo ""
             echo "ERROR: dangling cross-references rose from $BASELINE to $count."
             echo "This PR introduced $(( count - BASELINE )) new broken reference(s):"
-            echo "$out" | sed -n '/^dangling refs:/,$p' | head -60
+            sed -n '/^dangling refs:/,$p' "$out_file" > "$out_file.tail" || true
+            head -60 "$out_file.tail"
             exit 1
           fi
           if [ "$count" -lt "$BASELINE" ]; then
