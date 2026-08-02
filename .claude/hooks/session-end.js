@@ -19,6 +19,8 @@ const {
   countObservations,
 } = require("./lib/learning-utils");
 const { classifyCommitForJournal } = require("./lib/journal-classifier");
+// loom#1349 — the ONE hardened append primitive; see lib/append-sink.js for the six defenses.
+const { appendSinkLine } = require("./lib/append-sink.js");
 // The single guarded-read chokepoint for tracked/shared session-notes paths
 // (R9 MED-1): lstat-refuses symlink/non-regular + size-caps BEFORE reading, so a
 // teammate-plantable `.session-notes` (-> /dev/zero, or oversized) cannot hang/OOM
@@ -494,8 +496,12 @@ function appendJournalSkipLog(workspacePath, hash, skipReason, subject) {
     const safeSubject = String(subject || "")
       .replace(/[\r\n]/g, " ")
       .slice(0, 200);
-    const line = `${ts} <journal-skip>commit=${hash.slice(0, 12)} reason=${skipReason} subject="${safeSubject}"</journal-skip>\n`;
-    fs.appendFileSync(logPath, line);
+    // loom#1349 R1 F3 — routed through the shared hardened primitive. Not JSONL, but the same
+    // sink class: an append into a predictable path under a workspace directory, previously
+    // following a planted symlink and creating world-readable. `workspacePath` is the
+    // containment boundary here (the log lives directly inside it).
+    const line = `${ts} <journal-skip>commit=${hash.slice(0, 12)} reason=${skipReason} subject="${safeSubject}"</journal-skip>`;
+    appendSinkLine({ repoDir: workspacePath, sinkPath: logPath, line });
   } catch {}
 }
 

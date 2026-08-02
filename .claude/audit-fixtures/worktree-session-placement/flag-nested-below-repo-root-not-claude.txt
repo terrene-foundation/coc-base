@@ -1,0 +1,2 @@
+git worktree add -b feat/x ./wt/x origin/main
+cd ./wt/x && claude

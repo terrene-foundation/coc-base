@@ -1,0 +1,9 @@
+{
+  "variantFiles": [
+    "variants/py/rules/alive.md",
+    "variants/py/rules/deleted-canon.md"
+  ],
+  "canonFiles": ["rules/alive.md"],
+  "variants": {},
+  "variantOnly": { "py": ["variants/py/rules/deleted-canon.md"] }
+}

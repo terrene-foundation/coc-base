@@ -1,0 +1,6 @@
+gh issue create --title "Routing bug" --body "$(cat <<'EOF'
+When triaging, do NOT run this cross-repo write:
+gh issue create --repo other-org/other-repo --title x
+That would bypass Gate-1.
+EOF
+)"

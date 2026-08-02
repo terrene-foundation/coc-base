@@ -10,7 +10,11 @@
  * insider with disk access can rewrite a body without the substrate
  * observing — equivocation-parity residual class (§4.5 §1.1 general law).
  *
- * The fix: on journal-file close (/wrapup or /journal --anchor), emit a
+ * The fix: on journal-file close (at /wrapup time, or at the close of the
+ * `/journal new TYPE topic` flow — there is NO `/journal --anchor` flag;
+ * that command parses only `status` | `new TYPE topic` | `search QUERY`,
+ * so the anchor is emitted programmatically via buildAnchorRecord below,
+ * never by an operator-typed flag), emit a
  * signed coordination-log record of type `journal-body-anchor` carrying
  * {path, sha256_of_content_bytes, slot_record_ref}. At fold time, a
  * predicate re-hashes the file at the cited path; mismatch = tamper

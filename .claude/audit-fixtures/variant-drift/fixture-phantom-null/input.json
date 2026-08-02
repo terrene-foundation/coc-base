@@ -1,0 +1,6 @@
+{
+  "variantFiles": ["variants/py/rules/ci.md"],
+  "canonFiles": ["rules/ci.md"],
+  "variants": { "rules/ci.md": { "py": null } },
+  "variantOnly": {}
+}

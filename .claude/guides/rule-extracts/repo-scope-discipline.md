@@ -151,24 +151,87 @@ Agent: [gh issue create --repo ...]   # BLOCKED: no pre-action receipt
 
 ### Receipt marker contract + trust-posture detector wiring (condition 4)
 
-Condition 4 requires the authorizing journal entry to contain a greppable marker line:
+Condition 4 requires the authorizing receipt to contain a greppable, **tier-qualified**, single-line marker:
 
 ```
-cross-repo-authorized: <owner/repo>
+cross-repo-authorized: <owner/repo> <read|write>
 ```
 
-`<owner/repo>` is the exact normalized target slug of the cross-repo action (e.g. `terrene-foundation/loom`). This marker is the **structural in-scope signal** the trust-posture detector keys on — it is NOT lexical agent prose.
+`<owner/repo>` is the exact normalized target slug of the cross-repo action (e.g. `terrene-foundation/loom`); the trailing token is the authorized **mode**. This marker is the **structural in-scope signal** the trust-posture detector keys on — it is NOT lexical agent prose.
 
-`detect-violations.js` → `violation-patterns.js::detectRepoScopeDriftBash` calls `hasCrossRepoAuthorizationReceipt(targetSlug, cwd)` before emitting its `halt-and-report` finding. That helper:
+> **The mode token is REQUIRED (D — `journal/0488`).** The matcher is anchored
+> `^cross-repo-authorized:[ \t]+<slug>[ \t]+(read|write)[ \t]*$`
+> (`.claude/hooks/lib/violation-patterns.js:139-142`), so a legacy two-token marker with NO mode does
+> **not** match and does **not** clear the guard. `[ \t]` (not `\s`) is deliberate — `\s` matches `\n`,
+> which would let the slug and mode satisfy the pattern across a line break.
+
+`detect-violations.js` → `violation-patterns.js::detectRepoScopeDriftBash` calls
+`hasCrossRepoAuthorizationReceipt(targetSlug, cwd, requiredMode)`
+(`.claude/hooks/lib/violation-patterns.js:127`) before emitting its `halt-and-report` finding. That helper:
 
 - resolves the git repo root (`git rev-parse --show-toplevel`, 500ms cap),
-- scans repo-root `journal/` + every `workspaces/<name>/journal/` (and `.pending/`), skipping `instructions` and leading-underscore meta-dirs (per `cc-artifacts.md` Rule 8),
-- matches the literal marker `cross-repo-authorized: <slug>` in any `.md` whose mtime is within a **6-hour window** (`CROSS_REPO_RECEIPT_WINDOW_MS`),
+- scans **`.claude/cross-repo-authz/` FIRST** (the RC6 break out of the `/codify`-gated journal — the
+  affordance can write a receipt without a codify session), then repo-root `journal/` + every
+  `workspaces/<name>/journal/` (and `.pending/`) for codify-authored receipts, skipping `instructions`
+  and leading-underscore meta-dirs (per `cc-artifacts.md` Rule 8) — `violation-patterns.js:144-161`,
+- enforces the **tier fail-closed**: anything not explicitly `read` is treated as the stricter `write`,
+  a WRITE action is cleared ONLY by a `write` receipt, and a READ accepts read-or-write
+  (`violation-patterns.js:131-135`) — so a read receipt NEVER clears a write,
+- matches the marker in any `.md` whose mtime is within a **6-hour window** (`CROSS_REPO_RECEIPT_WINDOW_MS`, `:90`),
 - returns `true` → the detector returns `null` (in-scope, no finding).
+
+**Why a READ downgrades to a one-line receipt, and a WRITE does not.** The asymmetry is not
+convenience: **a read leaves no durable trace.** A cross-repo READ produces nothing another party
+can later discover, correlate, or act on, so the receipt's job is only to record that a human
+authorized the look. A WRITE lands durable state in a repo governed by rules the destination never
+consented to — that is the outcome the five conditions exist to gate, and it is why the WRITE tier
+keeps all five. Do NOT generalize the downgrade from the read's cheapness to a write's: "this write
+is small / local / easily reverted" is the rationalization the asymmetry is built to refuse, and
+`unrecognized intent ranks WRITE` is the fail-closed default that enforces it.
 
 This closes the journal 0077/0078 gap: a properly user-authorized cross-repo action (user-initiated + confirmed + journal-receipt-written-before-act) no longer trips the trust-posture L1 critical downgrade. It is the same structural class as the issue-#36 upstream-remote allowance (durable on-disk git state), NOT a lexical regex relaxation — `hook-output-discipline.md` MUST-2 preserved (the finding, when it does fire, stays `halt-and-report`).
 
 The 6-hour window enforces condition 5 (scoped to ONE action): a days-old receipt from a prior session's authorization MUST NOT silently authorize a new cross-repo write. Audit fixtures + smoke test: `.claude/audit-fixtures/violation-patterns/detectRepoScopeDriftBash/authorization-receipt/`.
+
+### Affordance containment + the #263 detector boundary
+
+_(Moved from the rule body 2026-07-25 for per-rule emission-budget headroom — the same Rule-10 paired
+extraction the § "User-Authorized Exception — DO / DO NOT" block took in 2026-05-16. The rule body keeps the
+normative contract: run the affordance, the READ/WRITE tier, fail-closed on unrecognized intent, and the
+hook's `halt-and-report`. This is the loom-internal implementation depth behind it.)_
+
+**Why committing a receipt is disclosure-safe.** `.claude/cross-repo-authz/` carries the target
+`<owner/repo>` slug, which is exactly the kind of identity surface the disclosure fence exists to contain —
+yet the receipts are COMMITTED, for durable team audit (per the standing directive that uncommitted
+receipts fail `trust-posture.md` MUST-4). That is safe because containment is **structural, via THREE
+independent distribution fences**, not a scanner's good behaviour:
+
+1. `sync-tier-aware` — the subtree hits `no_tier_match`, so `/sync-to-use` + `/sync-to-build` never
+   classify it into any tier.
+2. `edition-emit.mjs::CLIENT_TEMPLATE_REMOVE` — the client-template edition strips it.
+3. `community-membership` `EXCLUDE_WITHIN` — the community edition excludes it.
+
+The slug therefore never reaches a synced or published surface, on any lane.
+
+**The #263 scanner is a DETECTOR, not a fence (#1324).** Do not reason about it as containment:
+
+- At the **loom-source self-scan** it SELF-EXCLUDES the receipt subtree (source-only, mirroring
+  `ecosystem.json`) so a legitimate receipt commit is not blocked.
+- At a `--root <consumer>` **destination** scan it gives best-effort detection, bounded by content-shape
+  coverage — explicitly **NOT a guarantee**.
+- The guarantee is the three distribution fences above. A change that removes or weakens any one of them
+  is a containment regression even while the #263 scan still reports clean.
+
+**Receipt location (the RC6 fix).** The receipt goes to `.claude/cross-repo-authz/`, NOT the `/codify`-gated
+`journal/`. That was the RC6 gap: the ceremony had no producer and the receipt was un-producible outside a
+codify session, so condition 4 was unsatisfiable in exactly the sessions that needed it. The detector still
+reads journal receipts for backward compatibility (§ Receipt marker contract above).
+
+**Orchestration-root carve-out — the operation-scope enumeration.** § Exceptions lifts the boundary for
+artifact-distribution operations (`/sync`, `/sync-to-build`, `/sync-to-use`, `/inspect`, `/repos`) plus
+co-owner-directed governance reads made under a grant. It lifts the boundary for the OPERATION only: a
+cross-repo WRITE still needs all five conditions, and a READ outside artifact-distribution still needs a
+journaled grant.
 
 ### Propagation
 

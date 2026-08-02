@@ -1,0 +1,1 @@
+node -e "const f=require('fs');const b=Buffer.alloc(1024);f.readSync(f.openSync('.claude/learning/posture.json','r'),b,0,1024,0);console.log(b.toString())"

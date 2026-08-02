@@ -43,6 +43,4 @@ COC-method fix authored into loom/.claude/rules/foo.md (loom only splits)
 - **Violation scope:** rule-corpus-wide (the single MUST clause + its per-class routing table); every violation row names the triaged issue + the mis-routed lane.
 - **Origin:** See § Origin.
 
-## Origin
-
-2026-07-19 — `/sync-from-use` kailash-coc-rs Gate-1 ingest (journal/0550). Closes the reachability gap: the routing depth in `rules/artifact-flow.md` § "Issue Routing By Change Type" is path-scoped behind artifact-file globs (`.claude/**`, `sync-manifest.yaml`, `**/VERSION`, `*.md`), none of which a `gh issue list` / `gh issue view` triage touches, so the routing rule never loaded at triage time across templates + downstream consumers. Baseline body kept pointer-only (~30-line neutral-body); depth extracted to the paired `issue-triage-routing` skill to stay under the 15% proximity band per `rule-authoring.md` MUST-10 (Rule-10 path-(a) paired extraction; sibling precedent `framework-first.md` → `framework-first` skill).
+Origin: 2026-07-19 — `/sync-from-use` kailash-coc-rs Gate-1 ingest (journal/0550). Closes a reachability gap: the routing depth in `rules/artifact-flow.md` is path-scoped behind artifact-file globs a `gh issue` triage never matches, so it never loaded at triage time. Full gap analysis + the Rule-10 path-(a) extraction record: the paired `issue-triage-routing` skill § Origin.

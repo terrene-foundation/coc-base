@@ -1,0 +1,1 @@
+ruby -e "File.new('.claude/learning/posture.json','w')"

@@ -1,0 +1,1 @@
+sed -i 's/"type": "coc-source"/"type": "coc-project"/' .claude/VERSION

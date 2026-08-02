@@ -1,0 +1,1 @@
+echo "x -F "; gh issue create --repo other-org/other-repo --title y

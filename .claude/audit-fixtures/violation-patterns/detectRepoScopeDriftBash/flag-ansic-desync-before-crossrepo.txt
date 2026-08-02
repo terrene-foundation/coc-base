@@ -1,0 +1,1 @@
+echo $'\'' ; gh issue create --repo other-org/other-repo

@@ -1,0 +1,59 @@
+[/codify — landing a new enforcement rule `rules/lease-scope-discipline.md`, then the
+ cc-architect gate-review of the same proposal]
+
+--- proposal: rules/lease-scope-discipline.md (new, priority: 10, scope: path-scoped) ---
+
+## Trust Posture Wiring
+
+- **Severity:** `halt-and-report` at gate-review (cc-architect at `/codify` confirms the
+  Step-0 lease scope covers every path the codify writes); `advisory` at the hook layer
+  per `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing (2026-07-28 → 2026-08-04).
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md`
+  MUST-4 cumulative-window math (3× same-rule / 5× total in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per
+  `trust-posture.md` MUST-4 (1× = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: lease-scope-discipline]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — cc-architect at `/codify`
+  reads the Step-0 `acquireCodifyLease` scope and confirms it covers every path the
+  codify writes; that review IS the load-bearing detector today. Probes:
+  `.claude/test-harness/probes/lease-scope-discipline.probes.json` (efficacy +
+  no-false-positive + meta-compliance, bipolar), registered in
+  `.claude/test-harness/eval-manifest.json` as a probe-only entry; fixtures backing those
+  probes: `.claude/audit-fixtures/lease-scope-discipline/`. Phase 2 (deferred per
+  `trust-posture.md` § Two-Phase Rollout) — NO hook detector exists yet, and there is
+  therefore no Phase-2 fixture directory; when the detector is authored its structural
+  fixtures land WITH it, under the same directory, in that change.
+- **Violation scope:** MUST-1 (lease scope narrower than the codify's write set).
+- **Origin:** See § Origin.
+
+--- cc-architect gate-review ---
+
+Mechanical sweep over the proposal:
+
+  frontmatter priority/scope pair ......... priority:10 + scope:path-scoped + paths: ✓
+  every MUST clause carries DO / DO NOT ... 1/1 ✓
+  every MUST clause carries **Why:** ...... 1/1, both ≤2 sentences ✓
+  BLOCKED-rationalization corpus .......... 5 verbatim phrases ✓
+  Origin: names the incident .............. journal/0568 ✓
+  canonical 8-field Wiring ................ grep 'Violation scope:' → present ✓
+  8 fields in canonical order ............. ✓
+  rule-authoring Rule 10 proximity band ... path-scoped, gate does not fire ✓
+  cross-references resolve ................ 4/4 named rules exist ✓
+
+  Detection binding — every named path resolved, not just read:
+    $ ls .claude/test-harness/probes/lease-scope-discipline.probes.json
+      .claude/test-harness/probes/lease-scope-discipline.probes.json
+    $ ls -d .claude/audit-fixtures/lease-scope-discipline/
+      .claude/audit-fixtures/lease-scope-discipline/
+    $ node .claude/bin/coc-manifest-integrity.mjs
+      manifest-integrity: PASS — manifest ↔ probes ↔ on-disk artifacts consistent
+    Phase-2 directory: none named as existing. The block states no detector exists yet
+    and that its fixtures land with it — a declared future landing, not a reference to
+    an absent path.
+
+Verdict: MERGE. Every path the Detection block asserts as existing resolves; the one
+future item is declared as future rather than asserted as present.
+
+[proposal merged]

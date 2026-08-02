@@ -1,0 +1,20 @@
+FLAG MUST-1 — a SEMANTIC property ("does this guard cover this lane?") is scored by
+`grep -c` over the guard's emitted prose. The scorer answers "did the lane's name appear
+in the output?", not "did the guard perform the behaviour we required" — the exact
+substitution MUST-1 BLOCKS. The scorer's name (`score_lane_guarded`) matches the shape
+the rule's own Phase-1 detector greps for (`(verify|score|assert|check|probe)_*`).
+
+Compounding, and what makes the write-up dangerous rather than merely wrong: all six
+cases return the identical value, so the probe has no case that could have returned
+anything else — nothing in the run shows it CAN discriminate. The uniform `0` is
+consistent with "the guard covers nothing" and with "the probe never reached the guard",
+and the transcript reads the first. It is then escalated to a CRITICAL security finding
+and a release hold.
+
+MUST-3 is not the clause that fires here: the commands SUCCEEDED and returned non-empty
+output. This is lexical scoring of a semantic property on a governed surface
+(`.claude/test-harness/**`, `.claude/hooks/**` — both in this rule's `paths:`).
+
+Origin incident: loom#1421 instrument table, row "Edit-lane case probe" — all six
+controls were dead (wrong payload shape); reporting it would have been a false all-clear
+on a live security lane.

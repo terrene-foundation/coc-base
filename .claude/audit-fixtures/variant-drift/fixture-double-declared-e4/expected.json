@@ -1,0 +1,7 @@
+{
+  "exit_code": 1,
+  "defect_count": 1,
+  "counts": { "E4-DOUBLE-DECLARED": 1, "B-VARIANT-ONLY": 1 },
+  "expected_paths": { "E4-DOUBLE-DECLARED": ["variants/py/rules/both.md"] },
+  "notes": "variants: composes/replaces; variant_only: copies verbatim. A file in both lanes has two incompatible distribution semantics. Reported as a defect alongside the B record so the file is traceable in both listings."
+}

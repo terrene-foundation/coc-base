@@ -1,0 +1,1 @@
+node -e "require('fs').copyFileSync('/tmp/forged.json','.claude/learning/posture.json')"

@@ -1,0 +1,9 @@
+gh issue create --title "signature residual" --body 'The guard fences .claude/settings.json and .claude/learning/posture.json.
+
+Repro:
+
+```
+node -e "fs.writeFileSync('.claude/settings.json','{}')"
+```
+
+That block is documentation, not an execution.'

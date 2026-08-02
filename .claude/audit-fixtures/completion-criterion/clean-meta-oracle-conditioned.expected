@@ -1,0 +1,6 @@
+CLEAN — this rule artifact conditions depth on oracle presence with soundness defined as an
+established red rather than a suite-level green, floors the reduction at one rotated round,
+inverts the no-oracle branch upward, keeps the security floor unconditional with fail-closed
+classification, and explicitly blocks conditioning on model identity or self-reported
+confidence. Same artifact shape and same subject as its violating pair; only the discriminator
+differs.

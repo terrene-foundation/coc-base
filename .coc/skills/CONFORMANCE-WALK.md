@@ -1,7 +1,7 @@
 ---
 id: "CONFORMANCE-WALK"
 name: conformance-walk
-description: Conformance Walk — freeze-then-judge on the source→delivered→live axis: one cw_core + Source/Delivered/Live adapter families, coverage vs pass-rate, discrete verdicts. Use for any testable surface.
+description: "Conformance Walk — freeze-then-judge on the source→delivered→live axis: one cw_core + Source/Delivered/Live adapter families, coverage vs pass-rate, discrete verdicts. Use for any testable surface."
 ---
 
 # Conformance Walk (CW)

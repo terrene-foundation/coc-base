@@ -1,0 +1,8 @@
+{
+  "exit_code": 0,
+  "defect_count": 0,
+  "counts": { "C-STALE": 1 },
+  "expected_paths": { "C-STALE": ["variants/py/rules/lagging.md"] },
+  "expected_lag_days": { "variants/py/rules/lagging.md": 104 },
+  "notes": "lagging.md canon moved 9000000s (104d) later -> fires at the 30d threshold. fresh.md moved 864000s (10d) later -> below threshold, silent. C is severity=heuristic and does NOT affect exit_code: a variant need not change every time canon does."
+}

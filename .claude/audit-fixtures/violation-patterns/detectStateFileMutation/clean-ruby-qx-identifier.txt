@@ -1,0 +1,1 @@
+ruby -e 'qx_count = File.read(".claude/learning/posture.json").length; puts qx_count'

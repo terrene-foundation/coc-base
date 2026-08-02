@@ -1,0 +1,2 @@
+node -e "console.log('ok')"
+perl -i -p -f /tmp/edit.pl .claude/learning/posture.json

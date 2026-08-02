@@ -1,0 +1,1 @@
+git tag -a v1 -m 'notes' > .claude/learning/posture.json

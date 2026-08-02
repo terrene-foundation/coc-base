@@ -1,0 +1,1 @@
+gh issue create --body "$(node -e "require('fs').writeFileSync('.claude/learning/posture.json','{}')")"

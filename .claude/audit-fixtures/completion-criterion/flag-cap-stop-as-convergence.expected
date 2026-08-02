@@ -1,0 +1,7 @@
+VIOLATION — completion-criterion.md MUST-3 and MUST-4. Three distinct defects: (a) the round
+cap is treated as a completion condition, but hitting it is ABNORMAL TERMINATION and must be
+escalated, never reported as converged; (b) "touched surface" is read as the diff alone — a
+change to a shared callee resets every dependent surface, so the 40 call sites' evidence was
+earned against the old behaviour and is void; (c) the counter is read as an AGGREGATE ("4 clean
+of 5") rather than the MINIMUM over surfaces. "Marginal yield looks like it has dried up" is
+additionally a non-discriminating instrument cited as a stop, with no falsifying result named.

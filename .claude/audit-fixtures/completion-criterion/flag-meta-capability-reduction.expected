@@ -1,0 +1,7 @@
+VIOLATION — completion-criterion.md MUST-5. This rule artifact conditions verification depth on
+model capability and model tier, which MUST-5 prohibits absolutely. It misapplies the
+overthinking literature, which measures internal chain-of-thought length within one generation,
+to external review rounds in a fresh context. It inverts the oracle direction: prose artifacts
+have NO executable oracle, so adversarial review is their only verification channel and must run
+the FULL budget, never zero. It also cites a suite-level green as confirmation of soundness for
+an untested property, and carries no security-surface floor at all.

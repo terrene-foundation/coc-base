@@ -1,0 +1,15 @@
+{
+  "exit_code": 0,
+  "defect_count": 0,
+  "counts": { "B-VARIANT-ONLY": 1 },
+  "stats": {
+    "variant_files_scanned": 4,
+    "canon_files_scanned": 2,
+    "live_path_mirror": 2,
+    "live_manifest_explicit": 1,
+    "live_variant_only": 1,
+    "non_overlay_paths": 0,
+    "unreachable": 0
+  },
+  "notes": "py/rules/alpha.md and codex/rules/alpha.md reach canon rules/alpha.md by path-mirror (manifest silent). rs/rules/beta.md is manifest-explicit. rs-only.md is a declared variant_only addition. Nothing unreachable."
+}

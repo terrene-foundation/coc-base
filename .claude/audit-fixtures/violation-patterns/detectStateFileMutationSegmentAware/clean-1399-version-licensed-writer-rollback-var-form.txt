@@ -1,0 +1,2 @@
+V=.claude/VERSION
+[ -e .pre-migrate.bak/VERSION ] && cp -R .pre-migrate.bak/VERSION "$V"

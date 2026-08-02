@@ -1,0 +1,1 @@
+gh issue create --title "see --body " ; rm .claude/learning/posture.json

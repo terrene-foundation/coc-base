@@ -1,0 +1,1 @@
+{"args":"add --detach --force -q ../wt main","expect_ref":"main","refs":{"main":{"ahead":0,"behind":7}}}

@@ -2,13 +2,13 @@
 
 Per `rules/repo-scope-discipline.md` § User-Authorized Exception condition 4 + journal 0077/0078/0080, and `rules/cc-artifacts.md` Rule 9 + `rules/hook-output-discipline.md` MUST-4.
 
-Closes the gap where a properly user-authorized cross-repo action (user-initiated + confirmed + journal-receipt-written-before-act) still tripped the trust-posture L1 critical downgrade. `detectRepoScopeDriftBash` now calls `hasCrossRepoAuthorizationReceipt(targetSlug, cwd)` before emitting; a recent journal entry containing the greppable marker `cross-repo-authorized: <owner/repo>` for the exact target slug clears the write (returns `null`).
+Closes the gap where a properly user-authorized cross-repo action (user-initiated + confirmed + journal-receipt-written-before-act) still tripped the trust-posture L1 critical downgrade. `detectRepoScopeDriftBash` now calls `hasCrossRepoAuthorizationReceipt(targetSlug, cwd, requiredMode)` (`.claude/hooks/lib/violation-patterns.js:127`) before emitting; a recent receipt containing the greppable **tier-qualified** marker `cross-repo-authorized: <owner/repo> <read|write>` for the exact target slug clears the action (returns `null`). Receipts are read from `.claude/cross-repo-authz/` first, then `journal/` + workspace journals (`:144-161`). The trailing mode token is REQUIRED — the matcher is anchored `^cross-repo-authorized:[ \t]+<slug>[ \t]+(read|write)[ \t]*$` (`:139-142`) — and the tier is fail-closed: a `read` receipt never clears a write (`:131-135`).
 
 `test.mjs` is a self-contained smoke test (temp `git init` repo + controlled-mtime journal files) locking the behavior contract:
 
 | Case                    | Setup                                                                 | Expected                                                                       |
 | ----------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| receipt present, recent | `journal/NNNN.md` with `cross-repo-authorized: Org/target`, mtime now | `detectRepoScopeDriftBash` → `null` (in-scope)                                 |
+| receipt present, recent | `journal/NNNN.md` with `cross-repo-authorized: Org/target write`, mtime now | `detectRepoScopeDriftBash` → `null` (in-scope)                            |
 | no receipt              | off-repo `gh --repo Org/target`, no marker anywhere                   | `halt-and-report` (gap NOT a blanket relaxation)                               |
 | wrong-slug receipt      | marker present but for `Org/other`, not the target                    | `halt-and-report` (slug-specific)                                              |
 | stale receipt           | marker for the target but file mtime > 6h                             | `halt-and-report` (condition 5 — scoped to ONE action; no cross-session reuse) |

@@ -1,0 +1,1 @@
+git commit -m 'do not use $(rm .claude/learning/posture.json) in scripts'

@@ -1,0 +1,1 @@
+ruby -e 'require "fileutils"; FileUtils.rm(".claude/learning/posture.json")'

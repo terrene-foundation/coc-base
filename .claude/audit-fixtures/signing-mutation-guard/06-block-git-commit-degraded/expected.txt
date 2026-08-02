@@ -5,3 +5,6 @@ stderr_tag: [BLOCK]
 predicate: classifyOperation() returns {kind:'git-mut'} + signing key absent → working-tree-mutation predicate fires
 why: multi-operator-coc/signing-mutation-guard R5-S-03 — git-ref transport mutation under degraded mode
 agent_must_report cites: operation=git-mut, command, run /whoami --register
+stays_block: DELIBERATE — same rationale as fixture 03. loom#1323 downgraded ONLY the
+     §4.2 cross-worktree-contention branch (fixture 01); the degraded-mode branch stays
+     severity:block / exit 2 (an unsigned mutation is never recoverable after the fact).

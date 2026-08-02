@@ -17,6 +17,8 @@ import {
   stripFencedBlocks,
   isPlaceholder,
   isCrossCliDispatcher,
+  hasFileExtension,
+  isSanctionedAbsentRef,
   findRepoRoot,
   DEFAULT_SCOPE_DIRS,
 } from "../../bin/validate-xref-integrity.mjs";
@@ -396,6 +398,195 @@ function check(name, condition, details) {
       DEFAULT_SCOPE_DIRS.includes(".claude/commands") &&
       DEFAULT_SCOPE_DIRS.includes(".claude/agents"),
     `DEFAULT_SCOPE_DIRS scope set incorrect`,
+  );
+}
+
+// ------------------------------------------------------------------
+// fixture-18-slashless-token-naming-directory-resolves-labelled
+// ------------------------------------------------------------------
+// A bare token naming a real DIRECTORY (`skills/45-genesis-bootstrap`) must
+// RESOLVE, not report not-found — `isDir` is inferred from the token's
+// trailing slash, never from disk. The match is LABELLED so it stays visible.
+{
+  const tmp = join(tmpdir(), `xref-fix-18-${Date.now()}`);
+  try {
+    mkdirSync(join(tmp, ".claude", "skills", "45-genesis-bootstrap"), { recursive: true });
+    const result = resolveRefToken("skills/45-genesis-bootstrap", tmp, "a.md", "backtick");
+    check(
+      "fixture-18-slashless-token-naming-directory-resolves-labelled",
+      result.ok === true && result.looseDirMatch === true,
+      `got result=${JSON.stringify(result)}`,
+    );
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+// ------------------------------------------------------------------
+// fixture-19-file-wins-over-directory-no-loose-label
+// ------------------------------------------------------------------
+// THE tightness property. Candidate order for a bare token puts `.claude/<t>`
+// FIRST and `<root>/<t>` second. With a DIRECTORY at the first candidate and a
+// FILE at the second, the FILE must win and the result must carry NO loose
+// label — proving the directory fallback is a second pass, not a relaxed
+// predicate that would let a same-named directory satisfy a file reference.
+{
+  const tmp = join(tmpdir(), `xref-fix-19-${Date.now()}`);
+  try {
+    mkdirSync(join(tmp, ".claude", "thing"), { recursive: true }); // directory, first candidate
+    writeFileSync(join(tmp, "thing"), "real file\n"); // file, second candidate
+    const result = resolveRefToken("thing", tmp, "a.md", "backtick");
+    check(
+      "fixture-19-file-wins-over-directory-no-loose-label",
+      result.ok === true &&
+        result.looseDirMatch !== true &&
+        result.resolvedPath === join(tmp, "thing"),
+      `got result=${JSON.stringify(result)}`,
+    );
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+// ------------------------------------------------------------------
+// fixture-20-trailing-slash-token-resolves-strictly-unlabelled
+// ------------------------------------------------------------------
+// An explicit-directory token skips a FILE at candidate-1 and resolves at the
+// DIRECTORY at candidate-2 — carrying NO loose label, because the strict first
+// pass matched it. Pins two things the slash-less fallback must not disturb:
+// the trailing-slash form is type-checked, and its match is not mislabelled.
+//
+// This fixture REPLACES an earlier `fixture-20-trailing-slash-token-still-strict`
+// that asserted a FILE at a trailing-slash path stays not-found. That assertion
+// held for a reason OUTSIDE the validator: `join()` preserves the trailing slash,
+// and lstat("<path>/") on a file is rejected by the KERNEL with ENOTDIR before any
+// predicate runs. It therefore survived every mutation of the logic it claimed to
+// pin — a check that could not discriminate.
+//
+// Note on the `!isDir` conjunct guarding the second pass: it is provably INERT
+// (that pass's predicate is a subset of pass 1's over the same candidate list),
+// so NO fixture can pin it — widening it to `true` changes 0 of 486 disk-config ×
+// token-shape × kind rows, on a harness that reports 32 differing rows when the
+// pass is disabled. (32 is the control for the CURRENT, extension-bounded code;
+// it was 48 pre-bound, and an earlier revision of this note quoted that figure.)
+// It is kept as documented defense-in-depth, not as covered logic. See the second
+// pass in validate-xref-integrity.mjs.
+//
+// Discriminating (both verified by mutation):
+//   - pass-1 predicate `isDir ? st.isDirectory() : st.isFile()` → `st.isFile()`
+//     ⇒ RED (not-found: the directory no longer satisfies the token)
+//   - `const isDir = token.endsWith("/")` → `false`
+//     ⇒ RED (resolves via the fallback and arrives WITH looseDirMatch)
+{
+  const tmp = join(tmpdir(), `xref-fix-20-${Date.now()}`);
+  try {
+    mkdirSync(join(tmp, ".claude"), { recursive: true });
+    writeFileSync(join(tmp, ".claude", "x"), "file at candidate-1\n");
+    mkdirSync(join(tmp, "x"), { recursive: true }); // directory at candidate-2
+    const result = resolveRefToken("x/", tmp, "a.md", "backtick");
+    check(
+      "fixture-20-trailing-slash-token-resolves-strictly-unlabelled",
+      result.ok === true &&
+        result.looseDirMatch !== true &&
+        String(result.resolvedPath).replace(/\/+$/, "") === join(tmp, "x"),
+      `got result=${JSON.stringify(result)}`,
+    );
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+// ------------------------------------------------------------------
+// fixture-21-absent-by-design-skipped-only-in-declared-source
+// ------------------------------------------------------------------
+// The absent-by-design allowlist is SOURCE-SCOPED: sanctioned in the file whose
+// prose establishes the token, still dangling anywhere else. Both polarities,
+// so the carve-out can never decay into blanket token suppression.
+{
+  const declared = {
+    kind: "backtick",
+    token: "bin/dev",
+    source: ".claude/skills/10-deployment-git/docker-dev-env-patterns.md",
+  };
+  const undeclared = { kind: "backtick", token: "bin/dev", source: ".claude/rules/zero-tolerance.md" };
+  check(
+    "fixture-21-absent-by-design-skipped-only-in-declared-source",
+    isSanctionedAbsentRef(declared) === true && isSanctionedAbsentRef(undeclared) === false,
+    `declared=${isSanctionedAbsentRef(declared)} undeclared=${isSanctionedAbsentRef(undeclared)}`,
+  );
+}
+
+// ------------------------------------------------------------------
+// fixture-22-absent-by-design-unknown-token-not-sanctioned
+// ------------------------------------------------------------------
+// A token absent from the allowlist is never sanctioned, even from a file that
+// legitimately carries other carve-outs.
+{
+  const other = {
+    kind: "backtick",
+    token: "bin/definitely-not-allowlisted",
+    source: ".claude/skills/10-deployment-git/docker-dev-env-patterns.md",
+  };
+  check(
+    "fixture-22-absent-by-design-unknown-token-not-sanctioned",
+    isSanctionedAbsentRef(other) === false,
+    `got ${isSanctionedAbsentRef(other)}`,
+  );
+}
+
+// ------------------------------------------------------------------
+// fixture-23-extension-bearing-token-not-satisfied-by-directory
+// ------------------------------------------------------------------
+// The slash-less directory fallback is bounded to EXTENSION-LESS tokens. A token
+// written `ghost.md` states its type in its own name, so a DIRECTORY named
+// `ghost.md` must NOT retire it — it stays dangling and keeps driving the exit
+// code. Without the bound, a real dangling ref would go quiet the moment a
+// same-named directory appeared.
+//
+// BIPOLAR by construction: the extension-less arm must still resolve via the
+// fallback in the SAME tree, so a dead fallback cannot make the first arm pass
+// for the wrong reason.
+//
+// Discriminating: drop `!hasFileExtension(token)` from the second-pass condition
+// ⇒ RED (the `ghost.md` arm resolves with looseDirMatch instead of not-found).
+{
+  const tmp = join(tmpdir(), `xref-fix-23-${Date.now()}`);
+  try {
+    mkdirSync(join(tmp, ".claude", "ghost.md"), { recursive: true }); // directory named like a file
+    mkdirSync(join(tmp, ".claude", "ghostdir"), { recursive: true }); // extension-less directory
+    const extBearing = resolveRefToken("ghost.md", tmp, "a.md", "backtick");
+    const extLess = resolveRefToken("ghostdir", tmp, "a.md", "backtick");
+    check(
+      "fixture-23-extension-bearing-token-not-satisfied-by-directory",
+      extBearing.ok === false &&
+        extBearing.reason === "not-found" &&
+        extLess.ok === true &&
+        extLess.looseDirMatch === true,
+      `extBearing=${JSON.stringify(extBearing)} extLess=${JSON.stringify(extLess)}`,
+    );
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+// ------------------------------------------------------------------
+// fixture-24-file-extension-classifier
+// ------------------------------------------------------------------
+// The classifier the bound above rests on: a dot past position 0 in the LAST
+// path segment is an extension; a leading dot is not (`journal/.pending`,
+// `.claude`), and a dotless segment is extension-less. Pinned directly so the
+// bound cannot be silently widened by a regex/indexing tweak.
+{
+  check(
+    "fixture-24-file-extension-classifier",
+    hasFileExtension("rules/foo.md") === true &&
+      hasFileExtension("bin/x.mjs") === true &&
+      hasFileExtension("ghost.md") === true &&
+      hasFileExtension("skills/45-genesis-bootstrap") === false &&
+      hasFileExtension(".claude/hooks/lib") === false &&
+      hasFileExtension("journal/.pending") === false &&
+      hasFileExtension("audit-fixtures/exact-gate-tracking") === false,
+    `file-extension classifier broken`,
   );
 }
 

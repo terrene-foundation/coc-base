@@ -1,0 +1,5 @@
+{
+  "exit_code": 2,
+  "throws": "VacuousScanError",
+  "notes": "ANTI-VACUITY, inverse. Zero canon files would make EVERY variant look obsolete - a mass false positive rather than a false clean. Both directions of an empty scan are loud."
+}

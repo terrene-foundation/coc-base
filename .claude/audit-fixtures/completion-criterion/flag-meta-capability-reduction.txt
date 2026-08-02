@@ -1,0 +1,71 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "**/workspaces/**"
+---
+
+# Adaptive Redteam Depth — Calibrate Review To Model Capability
+
+Review depth should track the reviewing model's demonstrated ability. Extended reasoning is
+measured to degrade accuracy, and modern reasoning models already self-critique internally,
+so an external adversarial round duplicates work the model has done.
+
+## MUST Rules
+
+### 1. Scale Adversarial Rounds By Model Tier
+
+The reviewing model's tier is the primary input. A frontier reasoning model performs an
+internal adversarial pass during generation, so an external round largely re-derives what the
+model already considered; a weaker model has no such pass and needs the external rounds. The
+agent MAY self-report its confidence in a change and reduce the round count accordingly when
+that confidence is high, since the agent has the most context on what it just wrote.
+
+
+Opus-class models run their own adversarial pass during generation and MUST be granted a
+reduced external round count. Prose artifacts — rules, specs, docs — carry no executable
+risk and MAY skip the adversarial round entirely when the harness is green, since a green
+harness confirms the artifacts are sound.
+
+```markdown
+# DO — scale the round count to the reviewing model's tier
+
+Opus-class reviewer → 1 external round · Sonnet-class → 2 · prose artifact + green harness → 0
+
+# DO NOT — run the same external round count regardless of which model reviews
+
+3 rounds on every change (duplicates the adversarial pass the model already ran internally)
+```
+
+**BLOCKED rationalizations:**
+
+- "The change is small, run the full count anyway"
+- "The reviewer is a weaker model, so we should still cap it low"
+- "Prose needs the same rounds as code"
+- "Tier detection is unreliable, default to more rounds"
+
+**Why:** external review of a self-critiquing model is redundant overhead, and the
+overthinking literature shows more reasoning makes output worse.
+
+## Trust Posture Wiring
+
+- **Severity:** `advisory` at gate-review (reviewer confirms round counts were scaled to the
+  reviewing model's tier); `advisory` at the hook layer per `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3× same-rule in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1× = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: adaptive-redteam-depth]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms the model tier was
+  identified and the round count scaled accordingly. Phase 2 deferred.
+- **Violation scope:** MUST-1 (round count not scaled to model tier).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-08-02 — proposed after observing that adversarial review consumed a large share of the
+budget on prose artifacts that carry no executable risk, and that modern reasoning models
+already perform an internal adversarial pass during generation.

@@ -4,38 +4,75 @@ Companion reference for `.claude/rules/worktree-isolation.md`. Holds
 extended post-mortem prose, full example code blocks, and session
 evidence for Rules 1–6 that would exceed the 200-line rule budget.
 
-## Rule 1 — Orchestrator Prompts Pin The Worktree Path
+## Rule 1 — Dispatch Into A Pre-Made Sibling Worktree
 
-Extended example with complete verification protocol:
+Extended example with complete creation + verification protocol:
+
+```bash
+# STEP A (orchestrator, once per wave) — derive the SIBLING parent, location-independently.
+# --git-common-dir resolves the SHARED .git even when run from inside a linked worktree;
+# --show-toplevel would return a worktree's OWN top and doubly-nest.
+main_top=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+slug=$(basename -s .git "$(git remote get-url origin)")
+WT_PARENT="$(dirname "$main_top")/.${slug}-wt"        # sibling of the repo, NEVER under it
+mkdir -p "$WT_PARENT"
+
+# STEP B (per shard) — explicit -b (Rule 6) + explicit base SHA (Rule 5) + sibling path (Rule 1)
+git worktree add -b "feat/shard-abc" "$WT_PARENT/shard-abc" "$(git rev-parse origin/main)"
+```
 
 ```python
-# DO — explicit path + verification instruction
-worktree = "/absolute/path/to/repo/.claude/worktrees/agent-shard-abc123"
+# STEP C — dispatch with NO isolation flag; the path is now known, so pin it
+worktree = f"{WT_PARENT}/shard-abc"
 Agent(
-    isolation="worktree",
     prompt=f"""
 Working directory: {worktree}
 
-STEP 0 — verify isolation before touching any file:
-  git -C {worktree} status
-If the output shows "not a git repository" OR the branch does not
-match the worktree's expected branch, STOP and report "worktree
-isolation broken" — do NOT fall back to the main checkout.
+STEP 0 — FIRST action, before reading or writing anything. cd, THEN assert:
 
-All file paths you write MUST be absolute and begin with {worktree}/.
+  cd "{worktree}" || {{ echo "STOP: cannot enter {worktree}"; exit 1; }}
+  top=$(git rev-parse --show-toplevel) || {{ echo "STOP: not a git repo"; exit 1; }}
+  [ "$top" = "$(pwd -P)" ] || {{ echo "STOP: not a worktree ROOT (top=$top)"; exit 1; }}
+  main=$(cd "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")" && pwd -P)
+  [ "$top" != "$main" ] || {{ echo "STOP: this IS the main checkout"; exit 1; }}
+  git rev-parse --abbrev-ref HEAD          # expect the branch you were given
+
+`cd` FIRST is load-bearing. `git -C {worktree} …` never establishes cwd, so
+everything after it still resolves to MAIN; a BARE rev-parse as the first action
+resolves to MAIN and refuses on every dispatch. Compare RESOLVED paths (`pwd -P`),
+never the string that was passed — `--show-toplevel` resolves symlinks, so a
+symlinked prefix refuses on a perfectly correct worktree.
+
+On any STOP, REFUSE to proceed; do NOT fall back to the main checkout.
+
+Every path you write MUST resolve inside {worktree} — absolute rooted there, or
+relative with cwd pinned there. An absolute path rooted anywhere else is BLOCKED.
 """,
 )
 
-# DO NOT — isolation flag without pinned path
+# DO NOT — the retired harness flag
 Agent(
     isolation="worktree",
     prompt="Implement feature X — use the ml-specialist patterns.",
 )
-# Agent starts in process.cwd() (main checkout), edits main's tree,
-# reports success. Worktree is empty; main has half-done code.
+# Two failures at once. (1) PLACEMENT: the harness creates
+# <repo>/.claude/worktrees/agent-<id>, nested under the repo's own .claude/ —
+# #1370's reported 88,895 duplicate tokens per agent per wave.
+# (2) DRIFT: with no pinned path the agent starts in process.cwd() (main
+# checkout), edits main's tree, reports success. Worktree empty; main half-done.
+
+# DO NOT — sibling named, assertion NOT mandated. This is the NEW trap the
+# retirement creates: the flag used to SET cwd, and prompt text does not.
+Agent(prompt=f"Working directory: {worktree}\nImplement feature X.")
 ```
 
-**Why (extended):** The `isolation: "worktree"` flag creates the worktree but does not pin every tool call inside it — file-writing tools that accept absolute paths will happily write to the main checkout if the orchestrator's prompt uses a main-checkout path. In the 2026-04-19 session, ml-specialist, dataflow-specialist, and kaizen-specialist each drifted back to the main tree at least once; the corruption was only caught by `git status` after the fact. One-line verification at agent start converts a silent corruption into a loud refusal.
+**Why (extended):** Two independent costs, and the retired flag incurred both.
+
+**Placement.** The flag put every agent worktree under the repo's own `.claude/`. loom#1370 reports an agent rooted there loads path-scoped rules from BOTH its own `.claude/rules/` and the ancestor repo's — a floor of 88,895 tokens / 355,581 B per agent per wave, ~35.6M per wave round at 40 terminals × 10 agents, every token re-loading a corpus already in context. A sibling is structurally immune: no ancestor `.claude/` exists between a sibling directory and `~`. See `skills/30-claude-code-patterns/worktree-orchestration.md` § Retiring `isolation: "worktree"` for why this holds without reconciling #1370 against loom's own subagent measurement (Rule 7 § scope bound).
+
+**Drift — and why the STEP-0 assertion is MANDATORY, not optional.** The flag created the worktree but did not pin every tool call inside it, and because the HARNESS chose the path the orchestrator could not pin what it did not know — file-writing tools accepting absolute paths wrote to the main checkout instead. In the 2026-04-19 session, ml-specialist, dataflow-specialist, and kaizen-specialist each drifted back to the main tree at least once; the corruption was only caught by `git status` after the fact.
+
+The flag did, however, SET the agent's cwd. Retiring it gives that up, and a prompt line naming a directory is a request, not a mount point. So the mandated STEP-0 assertion is the REPLACEMENT for that guarantee, not an extra layer: without it the retirement would trade a bounded quota burn for the unbounded write-to-main loss above (2 of 3 shards; 300+ LOC gone to auto-cleanup). Pre-making the worktree makes the path knowable; the bare-`rev-parse` assertion makes the agent's actual location observable; together they convert silent corruption into a loud refusal. `rules/worktree-isolation.md` Rule 2 (in-agent-file self-check) and Rule 3 (post-exit verify) are the layers underneath, and both matter more now than they did under the flag.
 
 ## Rule 2 — Specialist Self-Verify
 
@@ -46,14 +83,19 @@ Full specialist agent file pattern:
 
 ## Step 0: Working Directory Self-Check
 
-Before any file edit, run:
+Before any file edit — AFTER Rule 1(b)'s STEP-0 `cd` — run BARE (no `-C`):
 
-    git rev-parse --show-toplevel
+    top=$(git rev-parse --show-toplevel)
+    [ "$top" = "$(pwd -P)" ] || STOP              # at a worktree root
+    main=$(cd "$(dirname "$(git rev-parse --path-format=absolute \
+      --git-common-dir)")" && pwd -P)
+    [ "$top" != "$main" ] || STOP                 # ...and NOT the main checkout
     git rev-parse --abbrev-ref HEAD
 
-If the top-level path does NOT match the worktree path passed in the
-prompt, STOP and emit "worktree drift detected — refusing to edit
-main checkout". Do NOT fall back to process.cwd().
+The main-checkout exclusion is load-bearing: the root test ALONE passes in
+MAIN, because MAIN is itself a valid worktree root. If either check fails,
+STOP and emit "worktree drift detected — refusing to edit main checkout".
+Do NOT fall back to process.cwd().
 
 # DO NOT — assume orchestrator pinned cwd
 
@@ -62,43 +104,52 @@ main checkout". Do NOT fall back to process.cwd().
 Read the prompt, start editing files…
 ```
 
-**Why (extended):** The orchestrator's pinned-path instruction can be lost to context compression across long delegation chains; a self-check inside the specialist file is a belt-and-suspenders guarantee that survives prompt truncation. Verified cost: one git call (~30 ms). Verified benefit: prevents the ml-specialist / dataflow-specialist / kaizen-specialist drift that shipped during the 2026-04-19 session.
+**Why (extended):** The orchestrator's pinned-path instruction can be lost to context compression across long delegation chains; a self-check inside the specialist file survives prompt truncation. Once Rule 1 retired the flag that used to set cwd, this stopped being belt-and-braces and became the last layer underneath the prompt. Verified cost: one git call (~30 ms). Verified benefit: prevents the ml-specialist / dataflow-specialist / kaizen-specialist drift that shipped during the 2026-04-19 session.
+
+**Why BARE here, when Rule 1(b) forbids a bare first `rev-parse`.** The difference is POSITION, not the command. This check runs AFTER cwd is established, and a bare `rev-parse` is the only form that OBSERVES where the agent actually ended up — `-C` would answer about the worktree instead, and wrapping it in a `cd` would re-establish the very thing under test, making the drift check unable to fail. At Rule 1(b) nothing has set cwd yet, so the identical command resolves to MAIN and refuses on every dispatch. Do not converge the two sites onto one form. (The `cd` inside the `main=` command substitution is a subshell used only to resolve the main repo top; it does not move the agent.)
+
+**Why the main-checkout exclusion, not just the root test.** Measured on a two-root repo: at the MAIN checkout, `--show-toplevel` equals `pwd -P`, so the root test PASSES there. MAIN is a valid worktree root. Since the drift this check exists to catch is precisely a mid-session revert TO MAIN (Rule 2a), the root test alone would wave it through. The `--git-common-dir` comparison is what makes the check able to fail in the case that matters.
 
 ## Rule 3 — Parent Verify Deliverables
 
 ```python
 # DO — verify after agent returns
-result = Agent(isolation="worktree", prompt=f"Write {worktree}/src/feature.py...")
+result = Agent(prompt=f"Write {worktree}/src/feature.py...")   # worktree = pre-made sibling
 assert_file_exists(f"{worktree}/src/feature.py")  # parent checks
 
 # DO NOT — trust "done" and proceed
-result = Agent(isolation="worktree", prompt="...")
+result = Agent(prompt="...")
 # Parent commits based on result.completion_message without ls
 ```
 
 **Why (extended):** Agents hit their budget mid-message and emit "Now let me write X..." without having written X. The 2026-04-19 session saw 2 occurrences (kaizen round 6, ml-specialist round 7); both reported success, both produced zero files. An `ls` check is O(1) and converts "silent no-op" into "loud retry".
 
-## Rule 4 — Parallel-Launch Burst Size Limit (Waves of ≤3)
+## Rule 4 — Parallel-Launch Concurrency (cold-start ~3, adaptive back-off)
+
+**Reframed 2026-06-01 (F110 / loom#418+#419):** the fixed "waves of ≤3" cap this section originally taught is NOT the rule. The rule is a cold start of ~3 with back-off ONLY on a falsifiable synchronized-throttle signal — see `rules/worktree-isolation.md` Rule 4 and `skills/30-claude-code-patterns/worktree-orchestration.md` Rule 6 for the signal definition and the BLOCKED corpus. The 2026-04-23 evidence below is what established that the runtime's native cap is too high; it is not authority for a fixed batch number.
 
 Full example with wave pattern:
 
 ```python
-# DO — wave of 3, wait, then next wave
+# DO — wave of 3, wait, then next wave (each shard's sibling worktree pre-made per Rule 1)
+# Every prompt below opens with STEP 0 verbatim (shown once here, elided in the bodies
+# for width) — the assertion is what replaces the retired flag's cwd guarantee:
+#   cd "{WT_PARENT}/<shard>" && [ "$(git rev-parse --show-toplevel)" = "$(pwd -P)" ] || exit 1
 wave1 = [
-    Agent(isolation="worktree", prompt="... W31a+d ..."),
-    Agent(isolation="worktree", prompt="... W31b ..."),
-    Agent(isolation="worktree", prompt="... W31c ..."),
+    Agent(prompt=f"Working directory: {WT_PARENT}/W31a ... W31a+d ..."),
+    Agent(prompt=f"Working directory: {WT_PARENT}/W31b ... W31b ..."),
+    Agent(prompt=f"Working directory: {WT_PARENT}/W31c ... W31c ..."),
 ]
 # wait for wave1 to complete (or fail) before launching wave2
 wave2 = [
-    Agent(isolation="worktree", prompt="... W32a ..."),
-    Agent(isolation="worktree", prompt="... W32b ..."),
-    Agent(isolation="worktree", prompt="... W32c ..."),
+    Agent(prompt=f"Working directory: {WT_PARENT}/W32a ... W32a ..."),
+    Agent(prompt=f"Working directory: {WT_PARENT}/W32b ... W32b ..."),
+    Agent(prompt=f"Working directory: {WT_PARENT}/W32c ... W32c ..."),
 ]
 
 # DO NOT — burst of 6 simultaneous Opus worktree agents
 for shard in [W31a, W31b, W31c, W32a, W32b, W32c]:
-    Agent(isolation="worktree", prompt=f"... {shard} ...")
+    Agent(prompt=f"... {shard} ...")
 # ↑ all 6 rate-limited at 34-45s, zero commits across all worktrees,
 #   every shard's work is lost. Empirical: 2026-04-23 M10 launch.
 ```
@@ -115,11 +166,11 @@ Full bash example:
 # DO — pin the base SHA at launch, verify merge-base matches HEAD
 target_branch="feat/kailash-ml-1.0.0-m1-foundations"
 target_head=$(git rev-parse "$target_branch")
-git worktree add -b "feat/w31-core-ml-nodes" ".claude/worktrees/w31a" "$target_head"
+git worktree add -b "feat/w31-core-ml-nodes" "$WT_PARENT/w31a" "$target_head"   # sibling (Rule 1)
 merge_base=$(git merge-base "feat/w31-core-ml-nodes" "$target_branch")
 [ "$merge_base" = "$target_head" ] || { echo "base drift — ABORT"; exit 1; }
 
-# DO NOT — let the worktree default to a stale branch tip
+# DO NOT — stale default base AND nested inside the repo (both wrong)
 git worktree add .claude/worktrees/w31a  # branches from whatever HEAD happens to be
 # Agent's branch now forks from an OLD commit; merge silently picks
 # either side on conflicts; package overlap = data loss.
@@ -135,25 +186,27 @@ Full example:
 
 ```python
 # DO — explicit branch name on worktree creation
-worktree = ".claude/worktrees/w31a"
+worktree = f"{WT_PARENT}/w31a"          # sibling outside the repo (Rule 1)
 branch = "feat/w31-core-ml-nodes-observability"
 subprocess.run(["git", "worktree", "add", "-b", branch, worktree, target_head])
 Agent(
-    isolation="worktree",
     prompt=f"""Working directory: {worktree}
 Branch: {branch}
 
 STEP 0 — verify branch name matches:
-  actual=$(git -C {worktree} rev-parse --abbrev-ref HEAD)
+  cd "{worktree}" || {{ echo "cannot enter worktree"; exit 1; }}
+  [ "$(git rev-parse --show-toplevel)" = "$(pwd -P)" ] || {{ echo "cwd drift"; exit 1; }}
+  actual=$(git rev-parse --abbrev-ref HEAD)     # after the cd, never -C
   [ "$actual" = "{branch}" ] || {{ echo "branch-name drift"; exit 1; }}
 """,
 )
 
-# DO NOT — let harness default assign worktree-agent-<hash>
+# DO NOT — the retired flag; harness default assigns worktree-agent-<hash>
 Agent(isolation="worktree", prompt="Implement W31... use feat/w31-core-ml-nodes")
 # ↑ 3 of 6 shards in the M10 launch ended up on worktree-agent-<hash>
 #   branches because the prompt name-reference didn't force creation.
-#   Post-merge grep for feat/w31-* missed those three.
+#   Post-merge grep for feat/w31-* missed those three. Pre-making the worktree
+#   with -b (Rule 1) removes the harness from the naming path entirely.
 ```
 
 **Why (extended):** Branch names are the primary `git log --grep` surface for tracing a shard back to its plan — `feat/w31-core-ml-nodes-observability` instantly surfaces in history; `worktree-agent-aa7fb6a6` surfaces only as a meaningless hash. When half the shards in a release wave use harness-default names, post-merge audits cannot enumerate "did every planned shard land?" via grep — they have to cross-reference the worktree list (which has already been auto-cleaned).
@@ -169,3 +222,5 @@ Agent(isolation="worktree", prompt="Implement W31... use feat/w31-core-ml-nodes"
 ## Origin
 
 Session 2026-04-19 — ml-specialist, dataflow-specialist, and kaizen-specialist each drifted back to the main tree during PRs #502-#508; kaizen round 6 and ml-specialist round 7 reported "Now let me write X..." completions with no actual file writes. The self-verify + parent-verify protocol closed both failure modes. Rules 4–6 added 2026-04-23 from the kailash-ml-audit M10 release wave (6-agent burst rate-limit + 5-of-6 stale-base-SHA + 3-of-6 branch-name-default).
+
+Rule 1 rewritten 2026-07-26 (loom#1370): `isolation: "worktree"` is RETIRED in favour of an orchestrator-made SIBLING worktree pinned by absolute path. Every example in this file is updated to that form — the examples above are the CURRENT protocol, not a historical record. Where a retired-flag call still appears it is a labelled DO-NOT or a dated quotation of what the 2026-04-19 / 2026-04-23 sessions actually ran.

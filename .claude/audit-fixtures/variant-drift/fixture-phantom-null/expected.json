@@ -1,0 +1,8 @@
+{
+  "exit_code": 1,
+  "defect_count": 1,
+  "counts": { "E5-PHANTOM-SHADOWED": 1 },
+  "expected_paths": { "E5-PHANTOM-SHADOWED": ["variants/py/rules/ci.md"] },
+  "stats": { "unreachable": 1 },
+  "notes": "Canon EXISTS and the file sits at the mirror path, so a naive existence check calls it live. resolveOverlay returns kind=manifest-null and the producer skips it. This is the phantom class variant-overlay.mjs documents by name."
+}

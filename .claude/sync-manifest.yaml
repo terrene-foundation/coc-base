@@ -533,8 +533,28 @@ cli_variants:
           "zero-tolerance.md": 9000
           # issue-triage-routing.md: NEW baseline routing rule (2026-07-19,
           # journal/0550). Pointer-only neutral body; emitted ~2.6KB (abridgeV6
-          # strips Wiring+Origin). Budget 2700 (+≈15% over measured, ±30% tolerance).
-          "issue-triage-routing.md": 2700
+          # strips Wiring+Origin). Budget 2500, re-anchored 2026-07-30 against a
+          # MEASURED 1800B emission (was 2700, which had drifted to an
+          # over-provision WARN after the Origin-heading normalization).
+          # HONEST FRAMING: 2500 is NOT the measurement — it is the largest
+          # round-hundred that still clears the ±30% under-WARN (floor 1750 vs
+          # measured 1800, a 50B margin). So it is THRESHOLD-anchored, not
+          # measurement-anchored, and its block ceiling (2500×1.3 = 3250) grants
+          # ~1450B of growth before any signal fires. Tighten toward the
+          # measurement if this rule's drift needs to be caught sooner.
+          "issue-triage-routing.md": 2500
+          # instrument-discipline.md: NEW baseline rule (2026-07-29, journal/0569).
+          # Pointer-only neutral body; emitted ~2.7KB (abridgeV6 strips Wiring +
+          # BLOCKED corpora + long fences). Budget 3000, re-anchored 2026-07-30
+          # against a MEASURED 2137B emission (was 3100, which drifted to an
+          # over-provision WARN after the Origin-heading normalization).
+          # ±30% tolerance — same shape as issue-triage-routing.md above,
+          # INCLUDING its threshold-vs-measurement caveat: 3000 is the largest
+          # round-hundred clearing the under-WARN (floor 2100 vs measured 2137,
+          # a 37B margin), so the block ceiling (3900) grants ~1763B of un-gated
+          # growth. For a brand-new baseline rule that desensitises the drift
+          # instrument at birth — tighten if this rule starts growing.
+          "instrument-discipline.md": 3000
           # security.md raised 6300 → 7200 at #290 bundle 2026-05-19.
           # #290's slot-parser fix unmasked the rs security.md variant
           # (silently dropped pre-fix): it carries 3 GENUINE Rust security
@@ -596,9 +616,14 @@ cli_variants:
           # (depth → guides/rule-extracts/evidence-first-claims.md) +
           # prose extractions across agents/autonomous-execution/git/
           # zero-tolerance/security/repo-scope-discipline (new extract
-          # guides/rule-extracts/autonomous-execution.md). Budget set at
-          # emitted 5336B + ~3% margin.
-          "evidence-first-claims.md": 5500
+          # guides/rule-extracts/autonomous-execution.md). Budget 4400, set against
+          # a MEASURED 3117B emission (2026-07-30 re-anchor; was 5500, set against an
+          # earlier 5336B emission that the Origin-heading normalization reduced).
+          # Same threshold-vs-measurement caveat as the two rules above: 4400 is
+          # the largest round-hundred clearing the under-WARN (floor 3080 vs
+          # measured 3117, a 37B margin), so the block ceiling (5720) grants
+          # ~2603B of un-gated growth — the widest of the three.
+          "evidence-first-claims.md": 4400
           # verify-resource-existence.md DEMOTED baseline → path-scoped
           # 2026-06-08 (#408 AC#5-c, journal/0238) to free ~5,021 B baseline
           # emission across all lanes so the rs language lane can absorb the
@@ -678,6 +703,171 @@ cli_variants:
       block_cap_bytes: 61440 # mirror codex per parity contract
       headroom_floor_pct: 10 # v6.2 Risk-0004 floor — parity-locked to codex per cross-cli-parity.md MUST-1
       inherit_abridgement_from: "codex"
+
+    # ── Per-lane headroom-floor exceptions (loom#1355) ──────────────────
+    # A DECLARED, TIME-BOUNDED, per-lane relaxation of the `headroom_floor_pct`
+    # declared in the per-CLI blocks above. Declared once at the
+    # `context/root.md` level (NOT duplicated per CLI) so the codex/gemini
+    # parity contract cannot drift between two copies; each entry names the
+    # CLIs it covers explicitly via `clis:`.
+    #
+    # This is the ONLY mechanism by which a lane may emit below the 10%
+    # Risk-0004 reserve floor. It is fail-CLOSED in three independent ways
+    # (`emit.mjs`): a lane with NO matching entry is enforced at the full
+    # floor; a matching entry whose `expires` date has PASSED resolves to
+    # null and the lane reverts to the full floor (the gate turns RED again —
+    # an exception never lapses into permission); and a MALFORMED entry makes
+    # `parseHeadroomExceptions` THROW, halting emission rather than degrading
+    # into "no floor". `granted_floor_pct` is additionally clamped to
+    # `HEADROOM_EXCEPTION_MIN_FLOOR_PCT` (5) at parse time and applied as
+    # `min(base_floor, granted)`, so no entry can widen past what it declares
+    # and none can reach the hard `block_cap_bytes` gate, which stays
+    # independent.
+    #
+    # An exception FREEZES a lane at its measured state — it is NOT a budget
+    # to spend. `granted_floor_pct` is set just under the lane's MEASURED
+    # headroom so that any NEW baseline content re-reds the gate.
+    headroom_floor_exceptions:
+      - lane: rs
+        clis: [codex, gemini]
+        granted_floor_pct: 8.5
+        # why 8.5: the rs lane MEASURED 8.73% headroom (56,079 B emitted vs
+        # block_cap 61,440 B) on 2026-07-26 — 783 B under the 10% reserve
+        # floor (ceiling 55,296 B). A 8.5% grant sets the ceiling at 56,217 B,
+        # leaving a MEASURED 138 B margin: enough to hold the current corpus,
+        # too little to absorb another MUST clause. A looser 8.0% grant
+        # (445 B margin) was rejected — it would have turned the exception
+        # into a spending budget instead of a freeze.
+        measured_emission_bytes: 56079
+        measured_headroom_pct_at_grant: 8.73
+        measured_shortfall_bytes: 783
+        granted_on: "2026-07-26"
+        expires: "2026-10-31"
+        issue: 1355
+        rationale: "rs is over the POLICY RESERVE floor, not the hard cap (5,361 B under block_cap); the 783 B excess is entirely the normative Rust security MUST clauses in variants/rs/rules/security.md, measured extraction recovery was ~0 B, and every alternative spends real always-on coverage — so the excess is accepted and ENCODED here rather than left as a standing-red gate (zero-tolerance.md Rule 1)."
+
+    # ── Per-lane, per-rule BUDGET exceptions (loom#1355) ────────────────
+    # The sibling instrument to `headroom_floor_exceptions` above, one
+    # measurement surface DOWN: that stanza governs a lane's AGGREGATE
+    # emission against `block_cap_bytes`; this one governs a SINGLE rule
+    # against its `per_rule_size_budget_bytes` entry. Both gates blocked the
+    # rs lane, and both for the same root cause — relieving only the
+    # aggregate left the lane red at the per-rule gate.
+    #
+    # Why a new stanza rather than raising the budget: the
+    # `per_rule_size_budget_bytes` map above is FLAT (rule → bytes), with no
+    # lane dimension. Raising "security.md" to clear rs would hand base, py
+    # and rb the same relaxation, permanently and with no expiry, to fix an
+    # rs-only overrun. This stanza spends the relaxation only where it was
+    # measured.
+    #
+    # Fail-CLOSED on the same axes as its sibling (`emit.mjs`): a rule with
+    # no matching entry is enforced at the flat ceiling; an entry whose
+    # `expires` has PASSED resolves to null and the rule reverts to the flat
+    # ceiling (the gate turns RED again — an exception never lapses into
+    # permission); a MALFORMED entry makes `parsePerRuleBudgetExceptions`
+    # THROW rather than degrade into "no ceiling"; an entry naming a rule
+    # with NO declared budget THROWS; and a grant above 2× the declared
+    # budget THROWS (past that the budget itself is wrong — re-measure per
+    # spec v6 §A.2 — and a waiver is the wrong instrument). The two
+    # budget-relative checks run for EVERY declared entry on EVERY lane's
+    # emission, so a malformed waiver cannot hide until its lane runs.
+    #
+    # An exception raises only the BLOCK ceiling; the ±30% WARN band is
+    # untouched, so an exercised waiver still emits the `over budget` WARN
+    # every emission and the drift signal survives the grant.
+    #
+    # An exception FREEZES a rule at its measured size — it is NOT a budget
+    # to spend. `granted_block_ceiling_bytes` sits just above the MEASURED
+    # emission so that any NEW MUST clause on that lane re-reds the gate.
+    per_rule_budget_exceptions:
+      - lane: rs
+        clis: [codex, gemini]
+        rule: security.md
+        granted_block_ceiling_bytes: 9500
+        # STATUS 2026-07-30: THIS GRANT IS VESTIGIAL AND NO LONGER FREEZES
+        # ANYTHING. Retirement is a co-owner decision pending on #1355.
+        #
+        # At grant time (2026-07-26) rs security.md measured 9,545 B against a
+        # flat 9,360 B ceiling — 185 B over — and the ceiling granted THEN was
+        # 9,600 B, which froze it just above that measurement (a 55 B margin)
+        # per the freeze contract above.
+        #
+        # The field now reads 9,500, NOT 9,600. That is a later TIGHTENING, not
+        # the original grant, and it is recorded here because `granted_on` still
+        # reads 2026-07-26: a reader who takes the field and the date together
+        # would otherwise conclude a 9,500 ceiling was granted against a 9,545
+        # measurement, which is arithmetically impossible — 9,500 would have
+        # BLOCKED the very emission it was granted to permit. The tightening is
+        # safe in the only direction that matters (9,500 < 9,600) and the
+        # current emission clears it, but the audit trail has to say which
+        # number belonged to which date. Do NOT "correct" this by editing
+        # `granted_on`.
+        #
+        # Commit
+        # 9946a7e2 then extracted three sections to skills, dropping the rs
+        # emission to 9,320 B: BELOW the un-excepted 9,360 B ceiling. The
+        # fields below record that inversion (`measured_overrun_bytes: -40`).
+        #
+        # Consequence, stated plainly because the field values alone do not
+        # show it: the grant no longer freezes the rule at its measured size,
+        # it RAISES the ceiling 9,360 -> 9,500 and so hands this lane ~140 B of
+        # growth the un-excepted gate would deny — the "budget to spend" the
+        # freeze contract above says an exception MUST NOT be. The sibling
+        # headroom_floor_exception is in the same state (rs measured 10.57%
+        # on 2026-07-31 against an 8.5% granted floor it no longer needs — the
+        # figure is a point measurement that drifts every cycle; re-read it from
+        # `emit.mjs --cli codex --lang rs --dry-run` rather than trusting it),
+        # for a combined
+        # ~921 B of always-on baseline growth that would land under
+        # `EXCEPTION APPLIED` rather than `BLOCK`. Rule-10's proximity band is
+        # calibrated on the UN-EXCEPTED floor, so that room is un-gated.
+        #
+        # CORRECTED 2026-07-31 (was "~1,061 B", which DOUBLE-COUNTED). 1,061 =
+        # 921 + 140, but those two are not additive: 921 B is the AGGREGATE
+        # ceiling delta (56,217 - 55,296, i.e. the 1.5pp headroom-floor waiver
+        # over the 61,440 B cap) and 140 B is the PER-RULE delta (9,500 - 9,360)
+        # for security.md alone. Any bytes security.md gains also count against
+        # the aggregate, so the 140 B is a SUBSET of the 921 B pool, not an
+        # addition to it.
+        #
+        # The per-rule waiver is still not redundant — it unlocks a SHAPE of
+        # growth, not extra capacity: without it security.md BLOCKs at 9,361 B
+        # even while aggregate room remains. Precise phrasing: up to ~921 B of
+        # additional always-on growth, of which up to 140 B may be concentrated
+        # in security.md beyond the un-excepted per-rule cap.
+        #
+        # The 2026-10-31 expiry is therefore a no-op today: nothing is being
+        # time-bounded. If the corpus re-crosses 9,360 B before then the waiver
+        # silently absorbs it; after then the lane reds on a calendar date with
+        # nobody having decided. Do NOT read a green gate here as evidence this
+        # grant is load-bearing.
+        #
+        # base/py/rb emit the SAME rule at 7,550 B (re-measured 2026-07-31; the
+        # prior 7,775 B / 1,585 B figures here had gone stale) and are untouched
+        # by this entry — they keep the flat 9,360 B ceiling and a 1,810 B margin.
+        # DATE-QUALIFIED deliberately, like `granted_on` below: an unqualified
+        # present-tense byte count in a comment goes stale on the next emission
+        # change and then reads as current. Re-derive rather than trust:
+        # `emit.mjs --cli codex --lang <lane> -v` and read the `security.md`
+        # row of the emitter's OWN per-rule report — that is the number the gate
+        # compares against the block ceiling. Do NOT measure the `# Security
+        # Rules` H1 block in the emitted AGENTS.md: that method yields 7,556,
+        # because it includes the 6-byte inter-rule `\n---\n\n` separator the
+        # gate does not count. A 6 B disagreement between the instruction and
+        # the figure is indistinguishable from real drift, which is the whole
+        # reason this instruction exists.
+        measured_emission_bytes: 9320
+        base_budget_bytes_at_grant: 7200
+        base_block_threshold_bytes_at_grant: 9360
+        measured_overrun_bytes: -40
+        granted_on: "2026-07-26"
+        # Deliberately the SAME expiry as the headroom_floor_exception above:
+        # one root cause (the 1,770 B rs security overlay), so both waivers
+        # come up for reconsideration together rather than drifting apart.
+        expires: "2026-10-31"
+        issue: 1355
+        rationale: "The 185 B overrun is the per-rule projection of the same root cause the headroom exception above accepts: the rs security.md overlay contributes 1,770 B of POST-ABRIDGEMENT normative content (measured 2026-07-26: rs 9,545 B vs base 7,775 B), being three Rust security MUST sections — constant-time credential comparison, fail-closed defaults, network transport hardening — each with a red-team Origin. abridgeV6 has already stripped this overlay from 4,010 B raw to 1,770 B emitted, so the code fences and Origin lines are gone and 185 B can only come out of a MUST clause or its Why. Raising the flat budget would relax base/py/rb too. The overrun is therefore accepted and ENCODED here, lane-scoped and expiring, rather than left as a standing-red gate (zero-tolerance.md Rule 1)."
 
   # agents/**.md — TOML-header safety for codex-ingested agent files.
   # v3 §2.2 change: moved from regex-match to iterate+classify to
@@ -940,6 +1130,8 @@ parity_enforcement:
       - "wrapup-after-landing.js|cc-only|PostToolUse(Bash) wrapup-on-landing nudge on `gh pr merge`; advisory CC-workflow convenience (not a trust gate, no classifiable predicate, no @coc-codex-edit-gate) — the cross-CLI wrapup-on-landing DISCIPLINE reaches Codex/Gemini via the wave-loop.md G2 rule + release.md command emission, not this hook"
       - "session-notes-incorporation-guard.js|cc-only|PostToolUse(Bash) session-notes reconcile advisory when the operator's own fragment trails HEAD after an incorporation command (#743 W2); advisory CC-workflow (not a trust gate, no classifiable predicate, no @coc-codex-edit-gate) — the coherence DISCIPLINE reaches Codex/Gemini via the session-notes-coherence spec + wave-loop rule, not this hook"
       - "analyze-completeness-guard.js|cc-only|PreToolUse(Skill) /analyze output-completeness gate (loom#675); keys on the CC-only Skill tool + PreToolUse(Skill) matcher (no Codex/Gemini equivalent) — the rule PROSE (analyze-output-completeness.md) reaches Codex/Gemini via the coc-core-tier skill-channel; the structural hook enforcement is CC-only"
+      - "settings-deny-edit-guard.js|cc-only|#1309 within-session PreToolUse(Edit|Write|NotebookEdit) guard enforcing the .claude/settings.json canonical protection shape (deny floor + functional guard-hook registrations) on the resulting bytes; CC-runtime settings.json permissions.deny has no Codex/Gemini apply_patch equivalent — not mirrored"
+      - "settings-deny-drift-guard.js|cc-only|#1309 SessionStart self-heal for .claude/settings.json (restores an out-of-session-stripped deny-floor entry OR a removed guard-hook registration, from an inlined trust anchor); CC-runtime settings.json — not mirrored"
 
 # ─────────────────────────────────────────────────────────────────
 # § TIER VOCABULARY — read before adding/moving a tier or an artifact
@@ -1004,6 +1196,21 @@ tiers:
     # pattern used by 20+ rules. Without this entry, the body line
     # points to a non-existent file at every USE template. Same
     # classification cycle as audit-fixtures/** above.
+    #
+    # DISTRIBUTION FATE OF NEW EXTRACTS IS THIS GLOB (loom#1392, 2026-07-27).
+    # `emit.mjs::validateTierCompleteness` (V15) covers rules / agents /
+    # skill-dirs / commands but NOT guides, so a net-new rule-extract has NO
+    # structural backstop — this glob IS its conscious declaration per
+    # knowledge-cascade-routing.md MUST-2. The glob resolves to the `cc` tier,
+    # which every live target subscribes ([cc, coc-core, kailash] for py/rs;
+    # [cc, coc-core, onboarding] for base), so an extract paired with a
+    # coc-core rule reaches exactly the targets that receive the rule.
+    # A NEW extract MUST be VERIFIED in-plan, not assumed:
+    #   node .claude/bin/sync-tier-aware.mjs --target <py|rs|base> --dry-run --json
+    # (requires $LOOM_LINKS_CONFIG; exit 3 = resolver not configured.)
+    # Do NOT host a coc-core rule's depth under a NARROWER tier — e.g.
+    # skills/02-dataflow/** is `kailash`-tier, which base does NOT subscribe,
+    # so a pointer there dangles for every base-variant consumer.
     - guides/rule-extracts/**
     # Validator-13 + future emit.mjs validator fixtures. Referenced by
     # bin/emit.mjs validateCodexMcpGuardPolicies() and downstream
@@ -1067,6 +1274,51 @@ tiers:
     # every downstream consumer that triages issues.
     - rules/issue-triage-routing.md
     - skills/issue-triage-routing/**
+    # instrument-discipline.md added 2026-07-29 (journal/0569, O1 co-owner-directed
+    # origination extending journal/0568). NEW priority:0 baseline rule naming the
+    # non-discriminating-instrument class: a check that would print the same result
+    # if the proposition were false is not evidence. Baseline is REQUIRED — the rule
+    # that owns instrument validity (probe-driven-verification.md) is path-scoped
+    # behind test-authoring globs that match none of rules/commands/agents/skills, so
+    # it never loads while artifacts are authored; the failure fires when composing
+    # ANY check, which is not a path-shaped surface, and Validator 18 forbids a
+    # path-scoped rule claiming baseline cli_delivery. Depth extracted to the paired
+    # guides/rule-extracts/instrument-discipline.md (Rule-10 path-a; byte accounting
+    # in journal/0569). The depth MUST live somewhere every audience this coc-core rule
+    # reaches actually receives it.
+    # CORRECTED 2026-07-31 (R10 HIGH-2). An earlier framing here read: "guides/
+    # rule-extracts/** is in NEITHER CLI's cli_emit_exclusions, so it reaches all
+    # three CLI lanes." That is a NON-SEQUITUR and is withdrawn. Absence from an
+    # exclusion list is consistent with BOTH "included" and "never a candidate" —
+    # the exact instrument failure instrument-discipline.md MUST-1 names. MEASURED:
+    # emit-cli-artifacts.mjs walks .claude/{commands,agents,skills} (+ .claude/rules
+    # only to build the rules-INDEX skill) and has NO .claude/guides walk at all, so
+    # guides/** was never a candidate for CLI emission. Emitting the rs target:
+    # 942 files, a non-excluded skill present (control), 30-claude-code-patterns
+    # absent (control), and ZERO guides/rule-extracts files. Both depth homes ship
+    # to the target's .claude/ on disk via sync-tier-aware and NEITHER appears in any
+    # derived CLI tree. The relocation is a CORPUS-CONSISTENCY choice, not a
+    # reachability fix; a real codex/gemini reachability fix would require a guides/
+    # emission lane in emit-cli-artifacts.mjs, which does not exist.
+    # CORRECTED 2026-07-31 (R7, then R8 twice): the depth was first hosted at
+    # skills/30-claude-code-patterns/instrument-discipline.md, and the comment here
+    # claimed it "needs no entry — already a registered glob". Registration was true;
+    # REACHABILITY was not: that tree is in cli_emit_exclusions for BOTH codex and
+    # gemini, so this coc-core rule's ONLY depth pointer dangled on two of three CLI
+    # lanes. THE DEFECT WAS NEITHER CLI-EXCLUSION NOR TIER — see the R10 HIGH-2
+    # correction above; the pointer's survival in AGENTS.md/GEMINI.md is incidental to
+    # its phrasing, not to its location. Both the old and new homes are the
+    # SAME `cc` tier (skills/30-claude-code-patterns/** and guides/rule-extracts/** are
+    # both inside the `cc:` block), so nothing was ever hosted under a narrower tier and
+    # the `Do NOT host a coc-core rule's depth under a NARROWER tier` invariant above was
+    # never violated — that invariant names `kailash`, a tier base genuinely does not
+    # subscribe, and it remains a live sibling hazard we did not hit. Two prior framings
+    # of this same comment were wrong and are recorded rather than quietly replaced: R7
+    # called it a narrower-tier violation and located the invariant by a line count in the
+    # wrong direction; R8's first pass fixed the tier LABEL (`coc-core` -> `cc`) but kept
+    # the narrower-tier DIAGNOSIS, so the most-cascaded comment in the repo still taught
+    # the wrong cause of its own bug. The skills path is now a pointer stub.
+    - rules/instrument-discipline.md
     - rules/rule-authoring.md
     - rules/specs-authority.md
     - rules/spec-accuracy.md
@@ -1176,6 +1428,15 @@ tiers:
     - rules/sweep-completeness.md
     - rules/orphan-detection.md
     - rules/hook-output-discipline.md
+    # hook-event-selection.md (2026-08-01, co-owner-directed origination during the
+    # enforcement-registration wave): the WHERE-it-fires sibling of the WHAT-it-emits
+    # rule directly above. Same tier for the same reason — every consumer that
+    # authors a hook can register a verification detector at SessionStart, where it
+    # runs before the work it checks exists and passes unconditionally forever.
+    # Path-scoped (.claude/hooks/** + settings.json), so it costs nothing in a
+    # session that touches neither. Its structural half is a validate-emit.mjs check
+    # (`hook-event-declaration`), which rides the ALWAYS_INCLUDE bin lane.
+    - rules/hook-event-selection.md
     - rules/facade-manager-detection.md
     - rules/self-referential-codify.md
     # F14 M8 Shard F (2026-05-22): universal COC governance rules — apply to
@@ -1238,6 +1499,11 @@ tiers:
     - skills/test-harness-probe/**
     - rules/command-skill-parity.md
     - rules/orchestration-launch-ledger.md
+    # completion-criterion.md added 2026-08-02 (co-owner-directed origination). Universal
+    # COC governance: "done" is a stated acceptance list reached, never an absence of
+    # findings. Cascades to every template — the unbounded-verification failure it blocks
+    # is not repo-specific.
+    - rules/completion-criterion.md
     # ─────────────────────────────────────────────────────────────
     # Multi-operator coordination substrate — commands + skills +
     # roster schema + team-memory README + certify template. MOVED
@@ -2414,6 +2680,11 @@ variant_only:
     - variants/rs/agents/frameworks/trust-plane-specialist.md
     - variants/rs/agents/ffi-specialist.md
     - variants/rs/rules/build-speed.md
+    # operator-local VALUES TEMPLATE for the rs self-hosted CI runbook
+    # (variants/rs/rules/ci-runners.md). Canon has no counterpart BY DESIGN:
+    # #260/#252 moved operator identifiers out of the shared tree into a
+    # gitignored ci-runners.operator.local.md the operator copies this to.
+    - variants/rs/rules/ci-runners.operator.local.example.md
     # canon-incorporation (sync-from-backlog-0552, C1 ratified disposition (b)): net-new
     # rs-only build-tier canon->fork incorporation machinery, command RENAMED to
     # /canon-incorporate. loom already ships a DIFFERENT loom-tier /sync-from-canon
@@ -2970,6 +3241,7 @@ loom_only:
   - agents/open-source-strategist.md # why: Terrene Foundation open-core strategy (four-layer model, Foundation-owns-all-IP, EATP/Kailash open-vs-proprietary boundary). loom-only per FB 2026-05-31 (journal/0184). Paired `obsoleted:` entries purge the stale consumer + Gemini copies.
   - disclosure-tenant-denylist.json # why: customer-identity / tenant token list the Gate-2 disclosure scanner (bin/scan-synced-disclosure.mjs `customer-identity-token` shape) flags against the SYNCED surface. TOP-LEVEL .claude/ file (NOT under bin/**) so it sits outside every synced-tier glob — this positive loom_only entry keeps it out of /sync without tripping loom-only-mutual-exclusion. The literal tokens must never reach a consumer (a consumer greps the synced scanner/list source → the leak the shape exists to prevent). At a consumer the file is absent → the shape is inert. loom-only per journal/0214 (loom#411 governance-as-DNA disclosure scrub).
   - disclosure-benign-collisions.json # why: #1068 — the LLM-adjudicated, human-ratified benign-collision registry the identity/tenant disclosure gate reads (scripts/publish-to-public.mjs::runIdentityTokenGate via bin/lib/disclosure-adjudication.mjs). It records (token, host-identifier) pairs judged benign substring collisions (e.g. a short tenant token substring-matching an unrelated SDK identifier like `HttpClient`) so the fail-closed gate stops halting on them with zero recall loss. Its `token` field CONTAINS the literal tenant token, so — exactly like disclosure-tenant-denylist.json above — it must NEVER reach a consumer. TOP-LEVEL .claude/ file (NOT under bin/**) so it sits outside every synced-tier glob — this positive loom_only entry keeps it out of /sync without tripping loom-only-mutual-exclusion (the disclosure-tenant-denylist.json precedent). At a consumer the gate is absent → the file is inert. loom-only per journal/0502 (#1068).
+  - hook-event-grandfather.json # why: the rule-land-time snapshot of LOOM'S OWN registered hooks, bounding hook-event-selection.md MUST-1's grandfather clause (read by bin/validate-emit.mjs::checkHookEventDeclaration). The entries are loom hook basenames, so the set is meaningless anywhere else: a consumer with a different hook set would inherit exemptions for hooks it does not have while its own pre-existing hooks — absent from loom's snapshot — fell to the NOT-listed branch and FAILed against a deliberately fail-CLOSED loader, a /sync break it could only resolve by hand-editing a file it never authored. Correct consumer semantics is "generate your own snapshot at adoption time", never "inherit loom's". TOP-LEVEL .claude/ file (NOT under bin/**) so it sits outside every synced-tier glob — this positive loom_only entry keeps it out of /sync without tripping loom-only-mutual-exclusion (the disclosure-tenant-denylist.json precedent above). It was ALREADY skipped on both lanes, but as `no_tier_match` — an ACCIDENT of glob coverage, not a decision, and knowledge-cascade-routing.md MUST-2 requires a declared fate (tier membership OR a conscious loom_only/use_exclude/use_obsoleted). loom_only is checked BEFORE always-include and returns a POSITIVE never-sync skip (sync-tier-aware.mjs::classifyFile step 2b), so widening any tier glob to cover `.claude/*.json` can no longer start shipping it silently. Note the checker itself (bin/validate-emit.mjs) DOES ship via ALWAYS_INCLUDE; consumers stay unaffected because checkHookEventDeclaration degrades to SKIP twice over first — reconcile-settings-hooks.mjs (the registration recognizer) is not distributed, and .claude/settings.json is `exclude`d — so the fail-closed loader is never reached there.
   - public-release/ # why: loom-only source dir for the PUBLIC-FORK pipeline (scripts/publish-to-public.mjs) — holds the public README + Apache-2.0 LICENSE the pipeline copies into the terrene-foundation/loom snapshot. NOT framework a COC consumer uses; loom-internal publish machinery (same class as agents/management/*). Top-level .claude/ dir outside every synced-tier glob, so this loom_only entry keeps it out of /sync without tripping loom-only-mutual-exclusion. loom-only per journal/0215 (public-fork lane).
   # ── Post-F1030d (#1051) note — the `bin/`-prefixed entries below ──────────────
   # F1030d removed `bin/**` from every synced tier + flipped ALWAYS_INCLUDE to a
@@ -3048,6 +3320,54 @@ loom_only:
   - bin/lib/fleet-dashboard.mjs # why: F1030c — fleet status dashboard lib. Direct sibling of the F1030a-fenced fleet trio, missed in that pass; a consumer has no fleet. Imported only by fenced fleet-deps/fleet-compliance-posture. Under bin/** tier → LOAD-BEARING carve-out.
   - bin/lib/fleet-freshness-ledger.mjs # why: F1030c — fleet freshness-ledger lib. Sibling of the F1030a fleet trio; a consumer has no fleet. Imported only by fenced fleet-* + weft-distributor (all loom_only). Under bin/** tier → LOAD-BEARING carve-out.
   - bin/lib/fleet-maintain.mjs # why: F1030c — fleet maintenance-cadence lib (backs loom-only /maintain). Sibling of the F1030a fleet trio; a consumer has no fleet. Zero non-test importers. Under bin/** tier → LOAD-BEARING carve-out.
+  # ── Orchestration callables (2026-07-28) — lane-status / pr-gate / budget-gate ──
+  # Callables for the three question-classes in the eight-instrument diagnosis, where
+  # the check composed could not distinguish the answer from its opposite. loom#1458
+  # names the enforcement shape for this class as "a callable script, not this rule";
+  # these are that script.
+  #
+  # SCOPE OF THE CLAIM (corrected in-flight): the originating framing was "callable
+  # beats prose", from the observation that canonical entry points never failed. That
+  # is refuted by evidence in this repo — bin/emit-derives-from.mjs is a tested,
+  # MANDATORY, always-loaded-command-named callable whose sink has never been created.
+  # The measured discriminator is WHO INVOKES: runtime-invoked (registered hook) fires;
+  # user-invoked (slash command) fires; agent-invoked mid-procedure does not reliably
+  # fire, callable or not. All three tools here are agent-invoked, so they fix the
+  # COMPOSITION error only. Nothing reds if they go unrun — recorded per tool in each
+  # file's INVOCATION RESIDUAL header block rather than left implied.
+  #
+  # CLASSIFICATION — all three are loom_only, and NOT added to
+  # sync-tier-aware.mjs::ALWAYS_INCLUDE. Post-F1030d `bin/**` is no longer a synced
+  # tier, so ALWAYS_INCLUDE is the ONLY distribution lever and its documented
+  # invariant is "Consumer-run tools (a shipped command/skill/agent/hook invokes
+  # them)". No shipped artifact names these yet, so allowlisting them would ship three
+  # unreferenced tools to every consumer — the orphan surface that invariant exists to
+  # prevent. `loom_only` is ALSO the community-edition SUBTRACTION set
+  # (`community = published ∖ loom_only`, bin/lib/in-community-edition.mjs) and
+  # `.claude/bin` IS in the community INCLUDE allowlist, so without these entries all
+  # three would leak into the public edition unproven.
+  #
+  # budget-gate is loom-only on the STRONGER ground that it cannot run elsewhere: it
+  # composes check-rule-injection-budget.mjs, which is itself loom_only two lines
+  # above. Shipping it would be a command instructing consumers to run a file they do
+  # not have — the exact defect the emit-derives-from.mjs note in ALWAYS_INCLUDE names.
+  #
+  # lane-status + pr-gate are genuine DISTRIBUTION CANDIDATES (pure git/gh, zero loom
+  # deps, and `rules/git.md` § "CI-check and merge are SEPARATE steps" already ships to
+  # build + use-consumer without an affordance — the same rule-without-a-producer gap
+  # /cross-repo-authorize was created to close, journal/0488). Flipping them is a
+  # deliberate follow-up that MUST land in ONE change with the shipped caller that
+  # names them; distribution without a caller is not the smaller step, it is the
+  # orphan. No `obsoleted:`/`use_obsoleted:` twin is needed — these have never been
+  # distributed, so there is no stale consumer copy to purge.
+  # NOTE the deliberate difference from the F1030c entries above: those predate
+  # F1030d and describe a `bin/**` synced tier that no longer exists. These three are
+  # NEW paths landing post-F1030d, so they sit in NO synced tier and pass validate-emit
+  # check-8 as a plain "never-sync" PASS — no LOOM_ONLY_TIER_CARVEOUTS entry is needed
+  # or claimed. Their load-bearing role is the EDITION fence (#825), not a tier collision.
+  - bin/lane-status.mjs # why: 2026-07-28 orchestration callables — the true state of a worktree/lane (rows 1/2/3: mtime-vs-liveness, clean-status-vs-produced-nothing, comment-author-vs-review-posted). Multi-lane wave orchestration is the platform (splitter) role; a consumer runs one lane. Distribution candidate pending a shipped caller — see the block comment above. Post-F1030d: no synced tier; this entry is the community-edition subtraction fence.
+  - bin/pr-gate.mjs # why: 2026-07-28 orchestration callables — SHA-pinned READ of a PR's checks (row 5: `awk '{print $2}'` space-splits a TAB table whose NAME column contains spaces). Never merges. Distribution candidate pending a shipped caller in `rules/git.md` — see the block comment above. Post-F1030d: no synced tier; this entry is the community-edition subtraction fence.
+  - bin/budget-gate.mjs # why: 2026-07-28 orchestration callables — runs BOTH emission-budget guards (row 8: a `paths:` widening verified with the baseline/per-lang guard, which is blind to path-scoped injection). Composes the loom_only check-rule-injection-budget.mjs, so it CANNOT run at a consumer. Loom-orchestration; a consumer does not run loom's corpus budget gate. Post-F1030d: no synced tier; this entry is the community-edition subtraction fence.
   # ── loom#1209 W1-b artifact-activation hooks (2026-07-18, co-owner-directed journal/0549) ──
   # loom-INTERNAL session-observability producers (#1228: "run in EVERY loom session"; gitignored per-session sink).
   # Default-distributed under the hooks tier but ship PRESENT-BUT-INERT to USE templates — the template settings.json is
@@ -3131,13 +3451,35 @@ surface_roles:
 # ─────────────────────────────────────────────────────────────────
 # Never synced. Per-repo data.
 # Note: settings.json is excluded from the general artifact sync because
-# its `hooks[].command` paths may differ between the source repo's layout
-# and the target consumer's layout during migrations. The coc-sync agent
-# handles settings.json separately: it copies the source settings.json,
-# then verifies all hook paths resolve in the target. If the source and
-# target settings.json are identical (same hooks), no action needed. If
-# they differ, the agent rewrites the target's settings.json to point at
-# the canonical .claude/hooks/*.js paths (canonical since v2.9.1).
+# `permissions` + `env` are genuinely per-repo, and because a target's
+# `hooks[].command` paths may differ from the source's layout during
+# migrations. The exclusion is CONTENT-level, NOT delivery-level: the file
+# is never copied, but the parts the engine's own delta invalidates ARE
+# reconciled in the SAME Gate-2 delivery by
+# `bin/sync-gate2-worktree.mjs::reconcileWorktreeSettings` (loom#1336),
+# which runs after the engine apply and before the manifest capture on
+# BOTH lanes:
+#   - deny-rule FORM       — bin/reconcile-settings-deny.mjs
+#   - hook REGISTRATION set — bin/reconcile-settings-hooks.mjs
+#   - a fail-closed verify that every registered hook path resolves on disk
+#     (a delivery that would MODULE_NOT_FOUND the consumer aborts before PR)
+#
+# HOOK-WIRING SSOT (read this before changing a hook's registration):
+# loom's OWN .claude/settings.json is the registration source of truth that
+# reconciler PROPAGATES from, filtered by "does the script resolve on disk in
+# the TARGET". That filter is what makes the `loom_only:` hook entries above
+# (emit-artifact-activation*.js) stay PRESENT-BUT-INERT by construction rather
+# than by the target happening never to be written — they are not distributed,
+# so they are not on disk in the target, so their loom registration is not
+# propagated. The complementary fence is the `@settings-registration:` header
+# marker (validate-emit.mjs `settings-hook-registration`, #771): a hook
+# deliberately left unregistered at loom (hooks/validate-prod-deploy.js —
+# `optional-consumer`) appears in no source registration and is therefore never
+# propagated. Consequence: adding a hook to loom's settings.json now WIRES it on
+# every synced target. That is the intended behaviour — an enforcement hook that
+# ships unregistered is a silent no-op, and the rules citing it read as enforced
+# when they are not — but it means a loom-local-only registration MUST be paired
+# with a `loom_only:` entry above.
 
 # ─────────────────────────────────────────────────────────────────
 # CONSUMER-SIDE GITIGNORE ADDITIONS — F14 multi-operator-coc (Shard F-3)
@@ -3235,6 +3577,24 @@ gitignore_additions:
   - .claude/learning/learning-digest.json
   - .claude/learning/.heartbeat-cache*
   - .claude/learning/.session-end-cache*
+  # loom#1228 W1 item B1 (2026-07-25) — per-session `derives_from[]` PROV-edge staging sink
+  # (hooks/lib/derives-from-ledger.js). CONSUMER-GENERATED, so it belongs HERE and NOT in
+  # LOOM_ONLY_LEARNING_EXCLUSIONS: its writer is `/codify` (a DISTRIBUTED command —
+  # `surface_roles: [build, use-consumer]`) calling a lib under the broad synced `hooks/lib/**`
+  # glob, so the sink materializes at every consumer that runs `/codify`. This is exactly the
+  # `observations.archive/` discriminator recorded above (synced writer → consumer state →
+  # gitignore_additions), and the OPPOSITE disposition from the #1209 `artifact-activation`
+  # sibling — whose writers are `loom_only` hooks, so its sink never materializes downstream.
+  # Content is operator-correlatable (session ids + the spec/artifact/workspace anchors each
+  # artifact was distilled from); never-committed is also the STRUCTURAL half of the mesh fence
+  # (the readable accountability graph stays LOCAL, never reaching the `kp://` name-blind plane).
+  # BOTH forms, mirroring loom's own .gitignore: the `**/` line is the functional depth-independent
+  # ignore (a separator-bearing pattern is root-anchored, so the bare form misses a nested checkout —
+  # and an ORPHAN `derives_from: []` row writes unconditionally, so it is the case that escapes); the
+  # bare line keeps the sink visible to the #707 parity gate, whose normalizeLearningEntry only
+  # matches the literal `.claude/learning/` prefix. Consumers need both for the same two reasons.
+  - .claude/learning/derives-from/
+  - "**/.claude/learning/derives-from/"
   # Per-emitter SessionEnd release-lease (#874 Wave B — sessionend-release-lease.js
   # O_EXCL serialization lease closing the sessionend read->append equivocation
   # window). Per-clone runtime-only state (the lease IS the "an emitter holds the

@@ -1,0 +1,17 @@
+severity: halt-and-report
+exit_code: 0
+continue: true
+stderr_tag: [HALT-AND-REPORT]
+predicate: sibling worktree porcelain shows EXACT target path (override or production primitive)
+why: multi-operator-coc/signing-mutation-guard §4.2 filesystem exception. The porcelain
+     signal IS process-local structural, so hook-output-discipline.md MUST-2 PERMITS
+     severity:block — it does NOT require it. This branch emits halt-and-report on
+     proportionality grounds (loom#1323): sibling worktrees have physically separate
+     working trees, so the write cannot clobber the sibling's bytes and the only real
+     collision is a recoverable 3-way merge conflict at merge time, which git surfaces
+     loudly and non-destructively.
+agent_must_report cites: target path, conflicting sibling worktree, evidence=override|production
+sibling_branch_contrast: the DEGRADED-MODE branch (fixtures 03 + 06) still emits
+     severity:block / exit 2 — a DIFFERENT threat class (an UNSIGNED mutation is never
+     recoverable after the fact). A future "consistency fix" downgrading THAT branch
+     because this one was downgraded is the regression these two fixture sets lock apart.

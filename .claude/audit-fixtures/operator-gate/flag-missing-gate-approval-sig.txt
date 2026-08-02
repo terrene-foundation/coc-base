@@ -7,10 +7,13 @@
 # fields but never call cocSign.verify()). The gate matrix then runs against
 # an attacker-synthesized person record.
 #
-# Input shape (PreToolUse SlashCommand):
+# Input shape (PreToolUse SlashCommand) — this is the ATTACKER's payload as
+# SENT. loom#1440: the hook no longer READS `requester_gh_login` /
+# `approver_gh_login` at all (both logins are roster-derived); they are listed
+# here only to describe the wire payload, and are inert.
 #   command = "/release"
 #   requester_person_id = "person:contributor-alice"
-#   requester_gh_login = "alice"
+#   requester_gh_login = "alice"          # ← sent, but IGNORED by the hook
 #   gate_approval = {
 #     approver_person_id: "person:owner-bravo",
 #     approver_gh_login: "bob",

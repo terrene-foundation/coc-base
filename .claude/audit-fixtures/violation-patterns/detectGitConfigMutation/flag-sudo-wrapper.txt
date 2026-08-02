@@ -1,0 +1,1 @@
+sudo git config core.bare true

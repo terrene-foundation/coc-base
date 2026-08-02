@@ -1,0 +1,1 @@
+node .claude/bin/reconcile-settings-deny.mjs --write .claude/settings.json

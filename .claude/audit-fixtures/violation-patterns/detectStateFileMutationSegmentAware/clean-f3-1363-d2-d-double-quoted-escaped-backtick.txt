@@ -1,0 +1,1 @@
+git commit -m "see \`node -e 'fs.writeFileSync(p,s)'\` for .claude/learning/posture.json"

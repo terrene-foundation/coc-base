@@ -1,0 +1,1 @@
+gh gist create notes.md --desc 'how node -e "fs.writeFileSync(p,s)" against .claude/learning/posture.json is guarded at the Bash boundary'

@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "ecosystem": { "id": "fork-fixture", "upstream_canon": null },
+  "registry": { "host": "docker.io", "org": "harborreg" },
+  "remote_links": {
+    "loom": { "org": "harbor-co", "repo": "loom-fork" }
+  }
+}

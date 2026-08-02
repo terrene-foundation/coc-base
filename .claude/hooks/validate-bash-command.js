@@ -22,10 +22,37 @@ const {
 const { instructAndWait } = require("./lib/instruct-and-wait");
 const {
   detectStateFileMutationSegmentAware,
+  detectGitConfigMutation,
   detectRepoScopeDriftBash,
+  detectWorktreeStaleBaseRef,
+  // Quote-aware segmentation + doc-carrier payload masking. Already exported and
+  // already used by the state-path lane; reused here rather than re-derived, so
+  // the two lanes cannot drift on what counts as prose (security.md
+  // § Enforcement-Surface Parity).
+  splitShellSegments,
+  maskDocCarrierPayloads,
+  // Heredoc BODIES are prose too — `cat > notes.md <<'EOF' … EOF` writes a file,
+  // which no argument-masking pass covers.
+  parseHeredocSpans,
 } = require("./lib/violation-patterns");
+// THE shared guard-git allowlist (loom#1462) — absolute binary + an env built
+// from constants, so no ambient `GIT_DIR` can re-point a guard's git at another
+// repository. Already required by guard-path-scope.js and coordination-mode.js.
+const { resolveGitBinary, gitEnv } = require("./lib/git-subprocess-env.js");
 const { isCoordinationEnabled } = require("./lib/coordination-mode");
 const { resolveMainCheckout } = require("./lib/state-resolver");
+// loom#1422 — the THREE Bash-lane protected-path matchers are BUILT from the
+// single registry in lib/guard-path-scope.js. They used to be three hand-kept
+// regex literals here, and the case-insensitivity dimension had to be added to
+// each one separately (plus ~7 more sites in three other hooks) — which is
+// exactly the enumeration nobody produced and everybody missed. The rationale
+// for each path's membership + severity class stays below, next to the code
+// that routes it; only the PATTERN moved.
+const {
+  STATE_PATH_RX,
+  LAYER3_BLOCK_RX,
+  COORD_MODE_RX,
+} = require("./lib/guard-path-scope.js");
 
 // Timeout handling for PreToolUse hooks (5 second limit)
 const TIMEOUT_MS = 5000;
@@ -218,8 +245,32 @@ function parseGitInvocation(seg) {
 function gitWorkingTreeStatus(dir, cwd) {
   try {
     const { spawnSync } = require("child_process");
+    // THE shared guard-git allowlist (loom#1462). This spawn pre-dates that
+    // module and was still passing a bare binary name with NO `env:`, which is
+    // exactly the defect the module exists for: `GIT_DIR` outranks repository
+    // DISCOVERY, so neither `-C` nor `cwd:` pins WHICH repository answers.
+    //
+    // IT MATTERS MOST HERE, of every git a guard spawns in this repo. The two
+    // consumers of this function are the only `severity: "block"` branches in
+    // the hook (`git reset --hard` and `git clean -f`), and the failure is
+    // fail-OPEN: an ambient `GIT_DIR` pointing at a CLEAN repo yields
+    // `{ok:true, dirty:false}`, the block does not fire, and the destructive
+    // command proceeds against the real dirty tree — irrecoverable, no reflog.
+    //
+    // Swept in with the ref-probe routing per security.md § Enforcement-Surface
+    // Parity rather than left a version behind; `zero-tolerance.md` Rule 1a
+    // forbids the "same on main, so not introduced here" disposition. The
+    // ACCEPTED-RESIDUAL note at the ref probe used to cite THIS call as its
+    // safety baseline, which was citing the weaker surface — that note now says
+    // so explicitly.
+    const gitBin = resolveGitBinary();
+    // Unresolvable git ranks TIGHTEST here, per that module's caller contract:
+    // this is a fail-closed destructive-op fence, NOT the advisory lane, so the
+    // named deviation recorded at the ref probe does NOT transfer. `ok:false`
+    // already routes the caller to halt-and-report rather than silent allow.
+    if (!gitBin) return { ok: false, dirty: false, untracked: false };
     const r = spawnSync(
-      "git",
+      gitBin,
       [
         "-C",
         dir || cwd || ".",
@@ -227,7 +278,12 @@ function gitWorkingTreeStatus(dir, cwd) {
         "--porcelain",
         "--untracked-files=all",
       ],
-      { encoding: "utf8", timeout: 2500, stdio: ["ignore", "pipe", "ignore"] },
+      {
+        encoding: "utf8",
+        timeout: 2500,
+        stdio: ["ignore", "pipe", "ignore"],
+        env: gitEnv(),
+      },
     );
     if (r.status !== 0 || typeof r.stdout !== "string") {
       return { ok: false, dirty: false, untracked: false };
@@ -286,7 +342,10 @@ function validateBashCommand(data) {
   // ADVISORY (loom #19 P3): branch-scope warn on `git commit` invocations.
   // Delegates to .claude/hooks/pre-commit-branch-scope.js which always
   // exits 0 and writes any out-of-scope advisory to stderr. Warn-only.
-  if (/^\s*git\s+commit\b/.test(command)) {
+  // loom#1368: the `(?![\w-])` negative lookahead is load-bearing. A trailing
+  // word-boundary escape admits the `commit-tree` and `commit-graph`
+  // sub-commands, which spawned this scope delegation on a non-commit.
+  if (/^\s*git\s+commit(?![\w-])/.test(command)) {
     try {
       const { spawnSync } = require("child_process");
       const scopeScript = path.join(__dirname, "pre-commit-branch-scope.js");
@@ -312,7 +371,10 @@ function validateBashCommand(data) {
   // `halt-and-report`, NOT `block`. Scanner-internal error MUST NOT
   // block the commit (advisory-fail-open on tool error, exactly like
   // the scope delegation above).
-  if (/^\s*git\s+commit\b/.test(command)) {
+  // loom#1368: the `(?![\w-])` negative lookahead is load-bearing — see the
+  // scope delegation above; a trailing word-boundary escape admits the
+  // `commit-tree` and `commit-graph` sub-commands.
+  if (/^\s*git\s+commit(?![\w-])/.test(command)) {
     try {
       const { spawnSync } = require("child_process");
       // Only run when the commit stages a synced-surface path. Cheap
@@ -494,8 +556,185 @@ function validateBashCommand(data) {
   // Edit/Write (fenced by integrity-guard's codify-branch+lease) and /sync —
   // NEVER a Bash node -e — so a flat Bash block over-blocks nothing. (Distinct
   // from coordination-mode.json below, which DOES need enrolled-vs-solo gating.)
-  const STATE_PATH_RX =
-    /\.claude\/(?:learning\/(?:posture\.json(?:\.bak|\.tmp\.\d+)?|violations\.jsonl(?:\.[A-Za-z0-9_-]+)?|observations\.jsonl(?:\.[A-Za-z0-9_-]+)?|coordination-log\.jsonl|presence-mechanism\.json|\.initialized|\.heartbeat-cache(?:[A-Za-z0-9_.-]*)?|\.session-end-cache(?:[A-Za-z0-9_.-]*)?)|operators\.roster\.(?:json|schema\.json))\b/;
+  //
+  // settings.json (#1309 — the deny-list contract itself): .claude/settings.json
+  // DEFINES the file-tool deny guards that protect every state file above, yet was
+  // itself in NONE of the three protection layers. A silent Bash strip of its
+  // `permissions.deny` array (`echo {} > .claude/settings.json`, `node -e
+  // "fs.writeFileSync('.claude/settings.json',…)"`, `sed -i`, `tee`) removes the
+  // file-tool layer for ALL state files at once, with no trace — the same shape as
+  // the operators.roster.schema.json weakening one level up (the deny CONTRACT, not
+  // a guarded file). UNCONDITIONAL flat add, empirically validated SAFE against
+  // over-block (build-spec §L2): the ONLY legitimate Bash writer is
+  // `node .claude/bin/reconcile-settings-deny.mjs --write .claude/settings.json`,
+  // which passes the path as a POSITIONAL ARG with no redirect / no `-e` body —
+  // `detectStateFileMutation` returns null for it (verified: --write → null,
+  // --check → null), while the adversarial forms (`node -e` write, `>` redirect,
+  // `tee`, `sed -i`) all FLAG. The L3 SessionStart drift-guard writes IN-PROCESS
+  // (not a Bash tool call), like coc-append, so it is unaffected too. settings.json
+  // KEEPS block at Layer 3 (LAYER3_BLOCK_RX below): on a coordination-OFF downstream
+  // (the default) no fold re-derives a stripped deny array, so a forged strip would
+  // STAND — an autonomy/security downgrade, not a fold-cache, exactly like
+  // posture.json. Precedent: operators.roster.schema.json (#758/#761).
+  //
+  // VERSION (#1399 — the repo-CLASS root of trust): `.claude/VERSION::type` is read
+  // by `lib/manifest-source.mjs::readRepoClass` (sole definition,
+  // `.claude/bin/lib/manifest-source.mjs:242`) and from there gates Validator 15
+  // ENTIRELY, Validator 17's half B, Validator 16's presence classifier, and the
+  // owner-class absence throw. #1386 routed loom's manifest readers through that one
+  // class-aware reader, so several previously-independent distribution gates now share
+  // ONE input. Production call sites: 8 — `emit.mjs:1940`, `:2333`, `:2427`, `:2781`
+  // and `lib/manifest-source.mjs:300`, `:426`, `:475`, `:509` (re-derive with
+  // `grep -rn 'readRepoClass(' .claude/bin .claude/hooks | grep -v 'export function'`;
+  // the total including tests + the one import line is 28, which is a DIFFERENT number
+  // — name which you mean).
+  //
+  // SCOPE — what this fence does and does NOT close. It closes the BASH-LANE HALF of
+  // the deliberate agent-write vector: an in-session Bash mutation of the class root.
+  // TWO paths stay open, and neither is hypothetical:
+  //
+  //   (a) The EDIT-TOOL half of the SAME deliberate agent-write vector. The file-tool
+  //       deny is DELIBERATELY DECLINED (see reconcile-settings-deny.mjs § "#1399"),
+  //       so an `Edit(.claude/VERSION)` passes every file-tool PreToolUse hook —
+  //       verified end-to-end, with `Edit(.claude/learning/posture.json)` as the
+  //       control (it BLOCKS at integrity-guard, so the harness demonstrably has
+  //       teeth). An Edit-tool write IS a deliberate agent write, and it is the EASIER
+  //       path of the two. Do not read "deliberate agent-write vector" as closed.
+  //   (b) The ACCIDENT vector #1399's prose motivates (a mis-merged / mis-synced
+  //       VERSION). An accidental copy arrives via `git merge` or a sync script —
+  //       NEITHER a Bash tool call NOR an Edit tool call — so no agent-write fence can
+  //       see it, and BOTH fences #1399 prescribes are agent-write fences. That vector
+  //       needs a CROSS-CHECK (class vs manifest), not a fence, and is tracked as
+  //       #1402: `emit.mjs` already carries one (`_classifyManifestPresence` + the
+  //       owner-class absence throw), but `emit-cli-artifacts.mjs` and `emit-coc.mjs`
+  //       carry NEITHER — measured 0 / 0 against `emit.mjs`'s 3 / 3, so the greps are
+  //       known-good.
+  //
+  // Worth doing regardless: against someone who can already write VERSION this is a
+  // CONCENTRATION of trust rather than a new privilege (they could usually write
+  // sync-manifest.yaml too), but a deliberate write here silently converts Validator 15,
+  // V17's half B, and V16's presence classifier into no-ops and prints GREEN. Nothing
+  // re-derives VERSION, so it is non-fold-derived authority state and KEEPS block at
+  // Layer 3 (LAYER3_BLOCK_RX below), same disposition as posture.json / settings.json.
+  //
+  // PROSE-FP EXPOSURE — the ratified MUST-2 deviation's premise is WEAKEST here, and
+  // this add makes it weaker. The Layer-3 `block` is permitted by the deviation recorded
+  // in state-file-write-guard.md § "Severity by layer", whose stated justification is
+  // that these paths carry "prose-FP risk ~0". That premise has ALREADY been found false
+  // once (#1363) and repaired. VERSION is the most-mentioned of the protected set —
+  // measured over `.claude/**/*.md` at this commit with
+  // `grep -rF "<path>" .claude --include='*.md'` (count / distinct files):
+  //
+  //     .claude/VERSION                86 / 24      <- this add
+  //     .claude/settings.json          63 / 28
+  //     .claude/learning/posture.json  21 / 15
+  //
+  // (An earlier review reported 56/18, 23/14, 11/10 for the same three. The ORDER is
+  // stable, the magnitudes are not — the two runs used different corpora and neither
+  // stated its scope. Re-derive with the command above rather than trusting either set;
+  // the point is the ordering, not the multiplier.)
+  //
+  // Consequence: the two OPEN over-block residuals now reach the most-documented path in
+  // the corpus. Both are recorded in state-file-write-guard.md § "Known residuals" and
+  // each is owed its OWN shard — do NOT attempt either here:
+  //   (k) a write to a THROWAWAY sandbox path ending in this basename still flags
+  //       (Layer 1 and Layer 3), because the detector has no notion of WHICH repo root
+  //       a state path belongs to.
+  //   (l) a heredoc report that merely QUOTES a write command as an EXAMPLE flags at
+  //       Layer 1, because a file-util verb next to a literal state path inside a
+  //       multi-command bundle is indistinguishable from the real thing.
+  //
+  // This is not theoretical and this shard's own review paid it twice: residual (l) is
+  // recorded as having blocked three independent actors in ONE round, every one while
+  // VERIFYING this guard — and the adversarial reviewer of THIS PR could not run its
+  // symlink-containment attack at all, because (k) fenced the sandbox path it needed to
+  // stage in. Extending (l) to a path with this prose frequency raises that self-sealing
+  // cost, and argues for bumping (l)'s priority on the #1363 shard. Direction is
+  // fail-CLOSED (over-block, never fail-open), which is why it is a disclosure and not a
+  // blocker.
+  //
+  // OVER-BLOCK measured, then removed (the one legitimate Bash-lane writer class): a
+  // 15-command legitimate corpus was run through the REAL detector under this regex
+  // before/after. 13/15 unaffected — `cat`/`jq -r`/`grep`/`diff`/`shasum`/`git add`/
+  // `git show`/a `:(exclude)` pathspec/a read-only `node -e`/prose in a `--body` or
+  // `-m`/the `stamp-template-version.mjs --write --worktree <wt>` stamper (which never
+  // puts the literal path on the command line, exactly like the sanctioned
+  // `reconcile-settings-deny.mjs --write` writer). The 2 that DID newly flag are the
+  // same shape: `/migrate`'s snapshot + `--rollback` restore both `cp` the file, which
+  // fires Layer 2 (`cp`) because Layer 2 is DIRECTION-BLIND — `pathRx.test(line)` matches
+  // the path in the SOURCE position identically to the DESTINATION, so even the snapshot
+  // (a pure READ) blocks. That is a property of the shared Layer-2 branch for all 11
+  // pre-existing paths, not something this add introduces; narrowing it to
+  // destination-position would change the predicate for every protected path and owes its
+  // own shard.
+  //
+  // Resolved at the CALLER, by DOMAIN not by instance: the two EXECUTABLE sites are in
+  // `skills/30-claude-code-patterns/multi-cli-migration.md` — the Step-1 snapshot (~:162)
+  // and the `--rollback` restore (~:567) — and both now hold the path in a VARIABLE on its
+  // OWN line, so no single line carries both a Layer-2 verb and the literal path. That is
+  // the licensed-writer idiom this guard's own rule doc blesses (`state-file-write-guard.md`
+  // § "Known residuals" (a) var-indirect / (c) by-path ceremony — the mechanism
+  // `/whoami --register` and `/certify` rely on BY DESIGN), and it is already the idiom the
+  // rollback block's `$p` loop uses for its other 9 paths. `commands/migrate.md` Steps 1 +
+  // --rollback carry PROSE only ("Copy … into `.pre-migrate.bak/`"); their prose now names
+  // the variable form so an agent does not re-derive the blocking `cp`.
+  // `bin/repin-downstream.mjs:479` stages via `shMaybe("git", ["add", …])` — an in-process
+  // execFileSync, never a Bash tool call — so it is unaffected, as is the whole hook-writer
+  // class (`version-utils.js` SessionStart auto-create ~:308 + type auto-correct ~:519).
+  // All 13 adversarial write vectors (redirect/append/force-clobber/tee/sed -i/jq -i/
+  // heredoc/rm/mv/truncate/node -e/python -c/perl -e) newly FLAG.
+  //
+  // NOT added to reconcile-settings-deny.mjs::CANONICAL_STATE_DENY — DELIBERATE, see the
+  // § "#1399 — why VERSION is NOT in this list" block there. Unlike every entry in that
+  // list, `.claude/VERSION` has TWO Edit/Write-TOOL writers on documented HAPPY paths
+  // (`/sync-from-template` Step 6, which runs at every downstream consumer on every
+  // pull and is dispositive alone; and `/migrate` Step 2), plus one on a HALT path
+  // (`/codify` Step 7c's operator-facing self-service fix — listed for completeness,
+  // not load-bearing). A flat `Edit()` deny would break the happy-path two — the same
+  // reason settings.json's own L1 blanket deny is omitted. Exact verbatim citations
+  // live at the declining site; do not re-derive them from memory.
+  // The Bash lane (here) is the half that closes with no legitimate casualty.
+  // CASE-INSENSITIVE (`i`) IS LOAD-BEARING, NOT COSMETIC — and the same flag is
+  // required on LAYER3_BLOCK_RX and COORD_MODE_RX below (all three are independent
+  // path matchers over the same protected-state concept; a new fail-closed dimension
+  // MUST land at EVERY surface in the same change per security.md § Enforcement-Surface
+  // Parity — fixing only this one would leave the Layer-3 block-set and the
+  // coordination-mode fence still defeatable by the identical form).
+  //
+  // On a case-INSENSITIVE filesystem (APFS default on macOS — the default dev
+  // platform for this corpus) `.claude/version` and `.claude/VERSION` are THE SAME
+  // FILE, so a case-SENSITIVE matcher is defeated by a one-character change.
+  // MEASURED against the real hook before this fix, canonical vs case-variant
+  // (exit 2 = blocked, 0 = passed):
+  //
+  //     VERSION           canonical=2  variant=0     settings.json     canonical=2  variant=0
+  //     posture.json      canonical=2  variant=0     violations.jsonl  canonical=2  variant=0
+  //     operators.roster  canonical=2  variant=0     .CLAUDE/ dir-case canonical=2  variant=0
+  //
+  // 6/6 canonical controls blocked (anti-vacuity), 6/6 variants passed. FOUR of these
+  // (settings/posture/violations/roster) reproduce on origin/main @ 91453fe2 and are
+  // therefore PRE-EXISTING, not introduced by #1399 — owned here regardless per
+  // zero-tolerance.md Rule 1a (a finding on a PR scan is treated identically to one on
+  // a main scan; "same on main" is NOT a deferral). The forged writes this re-closes are
+  // the ones this file's own § SCOPE calls non-fold-derived: a forged posture.json is a
+  // trusted L5 grant, a wiped violations.jsonl evades cumulative downgrade.
+  //
+  // FALSE-POSITIVE COST, MEASURED not assumed — scope `.claude/**/*.md` at this commit,
+  // as (count / distinct files): `.claude/VERSION` 97/24 and `.claude/settings.json`
+  // 63/28 (canonical, already matched today) vs `.claude/version` 0/0, settings
+  // case-variants 0/0, `.claude/` dir case-variants 0/0. The `i` flag therefore adds
+  // ZERO new prose matches across the corpus — it does not widen the residual (l)
+  // over-block that already blocked four independent actors verifying this guard.
+  //
+  // On a case-SENSITIVE filesystem (Linux CI) `.claude/version` IS a distinct file, so
+  // there the flag is a pure (measured-zero) over-block rather than a fix. That
+  // asymmetry is accepted deliberately: this hook SYNCS to consumers on mixed
+  // platforms, and a guard whose protection depends on the host filesystem is worse
+  // than one that over-blocks a path nobody writes.
+  // STATE_PATH_RX is BUILT from the registry (see the module-scope require).
+  // Its rows carry `surfaces.bash: true`; #1409's redundant-separator token and
+  // the `i` flag are properties of the builder, so both apply to every surface
+  // at once rather than needing three hand-edits.
   const stateFileMutation = detectStateFileMutationSegmentAware(
     command,
     STATE_PATH_RX,
@@ -507,18 +746,147 @@ function validateBashCommand(data) {
         layer: stateFileMutation.layer,
       });
     } catch {}
+    // #1293 (co-owner-ratified 2026-07-22, disposition "Option X" after the
+    // security redteam refuted the initial broad carve-out): Layer 3 (a lexical
+    // interpreter -c/-e/-m body scan) is DEMOTED to halt-and-report ONLY for state
+    // whose forged write is genuinely NEUTRALIZED downstream WITHOUT relying on a
+    // fold that may not run:
+    //   - observations.jsonl — self-PROMOTION from a forged positive observation
+    //     is AND-gated on the human challenge-nonce (trust-posture.md MUST-5), and
+    //     a WIPE only harms the agent's OWN upgrade eligibility (self-harm, not
+    //     escalation); this is the actual #1293 false-positive path (Class 2).
+    //   - .heartbeat-cache / .session-end-cache — ephemeral, no autonomy grant.
+    // Everything else in STATE_PATH_RX KEEPS severity:block at Layer 3 via
+    // LAYER3_BLOCK_RX. The critical reason (security redteam): the severity router
+    // does NOT (and MUST NOT be assumed to) run on a coordination-ENABLED repo —
+    // coordination is OFF by DEFAULT on most downstream consumers of this synced
+    // guard, and on an OFF repo there is NO coordination log and NO fold. So the
+    // "re-derived away by the signed fold" defense is UNAVAILABLE there, and:
+    //   - posture.json (+.bak/.tmp) is the primary autonomy grant with NO
+    //     signature check at read (state-io.js::readPosture) — a schema-valid
+    //     forged L5 would be trusted verbatim (autonomy escalation);
+    //   - .initialized gates fresh-repo-vs-corrupt — deleting it + posture.json
+    //     yields a fresh-repo L5 reset (trust-posture.md MUST-2 / CRIT-4);
+    //   - violations.jsonl is the cumulative-downgrade counter — a wipe evades it;
+    //   - presence-mechanism.json is a standalone provisioning contract (see the
+    //     block rationale ~L452), not fold-derived;
+    //   - operators.roster.* / coordination-log.jsonl are committed / append-
+    //     authority sources (2-of-N quorum PR / signed hash-chain).
+    //   - settings.json (#1309) is the file-tool DENY CONTRACT protecting every
+    //     path above; a forged strip of its permissions.deny on an OFF repo is
+    //     re-derived by NO fold — the L3 drift-guard self-heals at the NEXT
+    //     session-start, not at the write, so an interpreter-body strip STANDS
+    //     until then (an autonomy/security downgrade), so it keeps block.
+    //   - VERSION (#1399) is the repo-CLASS root of trust: readRepoClass trusts
+    //     `type` VERBATIM (no signature, no cross-check) and NOTHING re-derives the
+    //     file, on an ON repo or an OFF one — so a forged class STANDS and silently
+    //     no-ops Validator 15 entirely, Validator 17's half B, and V16's presence
+    //     classifier. Same non-fold-derived disposition as posture.json, and the
+    //     failure is SILENT-GREEN rather than loud, which is what earns block here.
+    // None of these are re-derived away on an OFF repo, so their Layer-3 forgery
+    // would STAND — they keep block. Prose-mentions of these paths are rare (the
+    // #1292 gh/echo/printf mask already handles the doc-wrapper case), so the FP
+    // cost of keeping block is ~0. Layers 1/2/4 are structural command-shape
+    // signals → always block. NOTE (hook-output-discipline.md MUST-2): a Layer-3
+    // block IS a lexical signal; keeping it for LAYER3_BLOCK_RX is a DELIBERATE,
+    // ratified, fail-closed defense-in-depth deviation (over-blocks a rare real
+    // write, never under-blocks) — documented in state-file-write-guard.md
+    // § "Severity by layer".
+    // LAYER3_BLOCK_RX is BUILT from the registry rows carrying
+    // `surfaces.layer3: true` — the subset whose forged write is NOT re-derived
+    // away by a fold. It was "surface 2 of 3" for the case-insensitivity
+    // dimension; there is now ONE surface to teach.
+    const isStructural =
+      stateFileMutation.layer === 1 || stateFileMutation.layer === 2;
+    const isLayer3BlockPath =
+      stateFileMutation.layer === 3 && LAYER3_BLOCK_RX.test(command);
+    if (isStructural || isLayer3BlockPath) {
+      return {
+        severity: "block",
+        what_happened: isStructural
+          ? `Bash command attempts to mutate trust-posture state file (Layer ${stateFileMutation.layer}: ${stateFileMutation.kind}): ${command.slice(0, 120)}`
+          : `Bash command attempts to mutate trust-posture state file — an interpreter-body write to non-fold-derived autonomy/authority state (posture/.initialized/presence/violations/roster/coordination-log/settings.json/VERSION) (Layer 3: ${stateFileMutation.kind}): ${command.slice(0, 120)}`,
+        why: isStructural
+          ? "trust-posture/state-file-mutation — a redirect/file-util verb on a literal state path (posture.json, violations.jsonl, coordination-log.jsonl, .initialized) is a structurally-unambiguous mutation; state files are owned by hooks and agent edits are BLOCKED"
+          : "trust-posture/state-file-mutation — this path is NOT re-derived away by the signed fold (coordination is OFF by default downstream, so no fold runs): a forged posture.json is a trusted L5 grant, deleting .initialized resets to fresh-repo L5, wiping violations.jsonl evades cumulative downgrade, presence-mechanism.json is a standalone provisioning contract, roster/coordination-log are committed/append-authority, settings.json is the file-tool deny CONTRACT protecting all of them (#1309), and .claude/VERSION is the repo-CLASS root of trust whose `type` readRepoClass trusts verbatim — a forged class silently no-ops Validator 15, Validator 17's half B, and V16's presence classifier while printing green (#1399). An interpreter-body WRITE to any of them stays BLOCKED at the Bash boundary (#1293 Option X; #635 guarantee)",
+        agent_must_report: [
+          "Quote the exact bash command that was attempted",
+          "State whether you intended to read, debug, or modify the state",
+          isStructural
+            ? "If reading: use `cat` (allowed); if modifying: use /posture command instead"
+            : "If reading: use `cat`, or an interpreter body with NO write token (a read-only `-e`/`-c` body passes the #1292 gate — this is how /codify Step 6b filters the violation records); posture routes through /posture, roster through /whoami --register, coordination-log through the canonical signed-append ceremony — never an inline interpreter write",
+          // #1363: the WRITING-ABOUT-state-files case. A protected path quoted in
+          // human prose is masked (quote-aware, every prose carrier), but a body
+          // that genuinely EXECUTES — a live backtick or `$(…)` inside DOUBLE
+          // quotes — still fires, correctly, because the shell would run it. The
+          // fix is a quoting change, and it is not discoverable from a `cat`
+          // suggestion, so name it explicitly.
+          "If this command only DESCRIBES a state file (an issue body, PR description, commit message, release note): single-quote the body so markdown backticks stay literal, or pass it via `--body-file` / `-F <file>`; author a scratch file with the Write tool rather than a Bash heredoc",
+        ],
+        agent_must_wait:
+          "Do not retry the same form. State-file mutations route through the canonical ceremony (challenge-nonce / quorum / signed-append gated), never directly. If the command was PROSE about a state file rather than a mutation, re-issue it in the quoted/`--body-file` form above rather than re-running it verbatim.",
+        user_summary: `state-file mutation blocked (Layer ${stateFileMutation.layer}${isStructural ? "" : ", non-fold-derived"})`,
+      };
+    }
+    // Layer 3 on a genuinely-bounded path (observations.jsonl / ephemeral caches)
+    // — advisory (non-blocking): lexical body scan, and the forgery is neutralized
+    // WITHOUT relying on a fold (nonce-gated promotion / self-harm-only wipe).
     return {
-      severity: "block",
-      what_happened: `Bash command attempts to mutate trust-posture state file (Layer ${stateFileMutation.layer}: ${stateFileMutation.kind}): ${command.slice(0, 120)}`,
-      why: "trust-posture/state-file-mutation — state files (posture.json, violations.jsonl, .initialized) are owned by hooks; agent edits are BLOCKED",
+      severity: "halt-and-report",
+      what_happened: `Bash command references a bounded trust-posture state file inside an interpreter body (Layer 3: ${stateFileMutation.kind}): ${command.slice(0, 120)}`,
+      why: "trust-posture/state-file-mutation (Layer 3 on a bounded path — observations.jsonl / .heartbeat-cache / .session-end-cache — advisory per #1293 Option X + hook-output-discipline.md MUST-2) — a lexical scan of an interpreter -c/-e/-m body cannot tell an executed write from a read-only body or a write-example quoted as documentation, so block-severity here is the recurring false-positive class. This surfaces as advisory because the forgery is neutralized WITHOUT a fold: a forged positive observation cannot self-upgrade (challenge-nonce gated) and a wipe only harms the agent's own upgrade eligibility. Autonomy/authority state (posture, .initialized, presence, violations, roster, coordination-log) stays BLOCKED.",
       agent_must_report: [
-        "Quote the exact bash command that was attempted",
-        "State whether you intended to read, debug, or modify the state",
-        "If reading: use `cat` (allowed); if modifying: use /posture command instead",
+        "Quote the exact bash command that was flagged",
+        "Confirm whether it WRITES observations.jsonl / a cache file, or merely reads / quotes one as an example",
+        "If it writes state directly: stop (positive observations are earned, not written); if it reads or quotes an example: proceed",
       ],
       agent_must_wait:
-        "Do not retry. State-file mutations route through the /posture command (challenge-nonce gated), never directly.",
-      user_summary: `state-file mutation blocked (Layer ${stateFileMutation.layer})`,
+        "Advisory only — the command was NOT blocked. A forged positive observation cannot upgrade posture (challenge-nonce gated); do not rely on hand-written state.",
+      user_summary: `state-file bounded interpreter-body reference flagged (Layer 3, advisory)`,
+    };
+  }
+
+  // HALT-AND-REPORT: `git config` write to a security-load-bearing key of THIS
+  // repository's own config (loom#1470 defeat 2).
+  //
+  // This sits beside the STATE_PATH_RX lane above because it closes that lane's
+  // one structural blind spot rather than extending it. Every git-derived
+  // security property in this repo — the #1441 commit attestation, the #1462
+  // repo-family jurisdiction primitive, the #1464 subprocess-env allowlist —
+  // reads its answer from git, and `git config core.repositoryformatversion 99`
+  // mutates the file all of them rest on WITHOUT the string `.git/config`
+  // appearing anywhere in the command. A path matcher cannot see it, so no
+  // registry row could have carried this; and the write goes AROUND the #1464
+  // env allowlist rather than through it (a repository's own config is always
+  // read and has no off switch), so no env fix reaches it either.
+  //
+  // SEVERITY IS CAPPED AT halt-and-report, DELIBERATELY (hook-output-discipline
+  // .md MUST-2): this is a LEXICAL regex over a command string, not a
+  // structural command-shape signal. The ratified Layer-1/2 `block` deviation
+  // recorded in state-file-write-guard.md § "Severity by layer" is scoped to
+  // the PATH lane and is NOT extended here — a lexical scan cannot distinguish
+  // an executed write from one quoted inside a construct it mis-parsed, which
+  // is exactly the false-positive class #1363 documented.
+  const gitConfigMutation = detectGitConfigMutation(command);
+  if (gitConfigMutation) {
+    try {
+      logLearningObservation(cwd, "rule_violation", {
+        rule: "trust-posture/git-config-mutation",
+        key: gitConfigMutation.key,
+      });
+    } catch {}
+    return {
+      severity: "halt-and-report",
+      what_happened: `Bash command writes a security-load-bearing key of this repository's own git config (${gitConfigMutation.kind}): ${command.slice(0, 120)}`,
+      why: "loom#1470 defeat 2 — `.git/config` is the file every git-derived security property in this repo reads its answer from (commit attestation, repo-family jurisdiction, the subprocess-env allowlist). The fenced keys are the ones that carry authority rather than ergonomics: `core.repositoryformatversion` makes every git command in the repo refuse; `core.worktree`/`core.bare` repoint the working tree every path-scoped fence resolves against; `core.hooksPath`/`core.fsmonitor`/`core.sshCommand` each name a program git EXECUTES during ordinary operations; `include.path`/`includeIf.*.path` pull an attacker-chosen config file in and re-open all of the above indirectly; `extensions.*` is repository-format state. `GIT_CONFIG_NOSYSTEM` and `GIT_CONFIG_GLOBAL=/dev/null` cannot neutralise any of it — a repository's OWN config is always read — so the Bash boundary is the only place this is visible before it runs. Advisory per hook-output-discipline.md MUST-2: this is a lexical command-string match, so it reports rather than blocks.",
+      agent_must_report: [
+        "Quote the exact bash command that was flagged",
+        `State why this session needs to write \`${gitConfigMutation.key}\` rather than read it (\`git config --get ${gitConfigMutation.key}\` is not flagged)`,
+        "Confirm the write is operator-intended repository setup, not a step that widens what a later gate will accept",
+      ],
+      agent_must_wait:
+        "Advisory only — the command was NOT blocked. Reads of these keys pass unflagged; `--global`/`--system` writes are out of scope by construction, and `git -c key=value <cmd>` is a per-invocation override that persists nothing. If you need a per-command setting, prefer that form over a persistent write.",
+      user_summary: `git config write to ${gitConfigMutation.key} flagged (advisory)`,
     };
   }
 
@@ -564,7 +932,9 @@ function validateBashCommand(data) {
     coordEnabled = false; // fail-open (aligned with integrity-guard passthrough)
   }
   if (coordEnabled) {
-    const COORD_MODE_RX = /\.claude\/learning\/coordination-mode\.json\b/;
+    // COORD_MODE_RX is BUILT from the registry row carrying
+    // `surfaces.coordMode: true` — its own surface precisely because a FLAT add
+    // to STATE_PATH_RX would over-block a solo consumer's opt-in escape hatch.
     const coordMutation = detectStateFileMutationSegmentAware(
       command,
       COORD_MODE_RX,
@@ -610,7 +980,17 @@ function validateBashCommand(data) {
     { pattern: /dd\s+if=.*of=\/dev\/sd/, message: "Blocked: dd to disk" },
     { pattern: /:\(\)\{\s*:\|:&\s*\};:/, message: "Blocked: Fork bomb" },
     {
-      pattern: /(\w+)\(\)\s*\{\s*\1\s*\|\s*\1\s*&\s*\}\s*;\s*\1/,
+      // The function-name capture is BOUNDED (`\w{1,64}`, not `\w+`) to prevent
+      // catastrophic backtracking: an unbounded `\w+` followed by a required
+      // `()` grinds O(n²) on a long word-char run with no `()` (a `perl
+      // -eeee…<path>` adversarial input ran ~7s → hook timeout). A real
+      // fork-bomb function name is a short shell identifier; 64 chars is far
+      // past any legitimate name. Surfaced by #1292 (the read-vs-write gate lets
+      // a read-only interpreter body PASS the state guard, so an adversarial
+      // interpreter flag-run now flows to this downstream pattern instead of
+      // being short-circuited by the state-file block — unmasking this
+      // pre-existing ReDoS; fixed here per zero-tolerance.md Rule 1c).
+      pattern: /(\w{1,64})\(\)\s*\{\s*\1\s*\|\s*\1\s*&\s*\}\s*;\s*\1/,
       message: "Blocked: Fork bomb variant",
     },
     { pattern: /chmod\s+-R\s+777\s+\//, message: "Blocked: chmod 777 on root" },
@@ -795,6 +1175,271 @@ function validateBashCommand(data) {
     };
   }
 
+  // Hot-path bounds for the stale-base-ref lane below. TWO limits, because either
+  // one alone is insufficient:
+  //
+  //   MAX_REF_PROBES              caps how many `git worktree add`s in one command
+  //                               get probed at all. Without it a chain of N adds
+  //                               costs N spawns.
+  //   REF_PROBE_TOTAL_BUDGET_MS   caps the CUMULATIVE wall time. A count cap alone
+  //                               bounds nothing real: 4 spawns × the 2500ms
+  //                               per-spawn timeout is 10 SECONDS, on a path whose
+  //                               own 5s watchdog is cleared before detection runs
+  //                               (see the `clearTimeout` at the stdin handler).
+  //                               So each spawn is given the REMAINING budget as
+  //                               its timeout, not the full default.
+  //
+  // ~10.8ms measured per spawn on a warm local repo, so the typical chain costs
+  // tens of ms and the budget is never approached; it exists for the pathological
+  // case (a huge ref graph, a hung network mount), which the measured figure says
+  // nothing about.
+  const MAX_REF_PROBES = 4;
+  const REF_PROBE_TOTAL_BUDGET_MS = 3000;
+
+  // HALT-AND-REPORT: `git worktree add` from a STALE LOCAL base ref (loom#1501,
+  // L4 of the enforcement-registration wave).
+  //
+  // Fast surface-presence guard FIRST. This hook runs on EVERY Bash call, and
+  // the client-fork audit names that startup cost explicitly, so the whole
+  // branch is behind one `indexOf` on a literal that is absent from essentially
+  // every command. Only a command that actually mentions `worktree` pays the
+  // segment walk, and only a real `git worktree add <path> <ref>` pays the
+  // single git spawn — at most ONE per invocation (see the break below).
+  //
+  // Placed AFTER --no-verify and the destructive-op fences: this is the
+  // lowest-severity branch in the file, so it must not pre-empt any of them.
+  // `git commit --no-verify && git worktree add …` previously returned HERE and
+  // the --no-verify halt never fired.
+  //
+  // SEGMENTATION IS QUOTE-AWARE, AND THAT IS LOAD-BEARING — NOT the shared
+  // `segments` above. An earlier version of this block reused `segments` and
+  // carried a comment claiming parseGitInvocation made it FP-resistant to prose.
+  // That claim was FALSE and the code did not have the property: the split at
+  // the top of this function is quote-UNAWARE, so a separator INSIDE a quoted
+  // body fractures it and hands this branch a fragment whose leading token is
+  // `git`. All three of these falsely fired, reproduced against a real repo:
+  //
+  //   gh issue create --body "step 1 && git worktree add ../wt wave/foo …"
+  //   git commit -m     "fix: step && git worktree add ../wt wave/foo …"
+  //   echo              "docs && git worktree add ../wt wave/foo …"
+  //
+  // i.e. exactly the commands this PR's own body and journal entries contain —
+  // the loom#1363 prose-carrier class, re-opened in the file that closed it.
+  // The repo already ships the primitives that fix it, and the state-path lane
+  // already uses them: maskDocCarrierPayloads neutralises a doc-carrier's
+  // argument payload, and splitShellSegments does not split inside quotes.
+  //
+  // The verdict is STRUCTURAL (a git rev-list count off the operator's own ref
+  // database), which makes it block-eligible under hook-output-discipline.md
+  // MUST-2 — and it is nonetheless capped at halt-and-report on PROPORTIONALITY
+  // (the harm is recoverable; loom#1323 precedent). The full argument lives at
+  // the detector in lib/violation-patterns.js; do not re-derive it here.
+  if (command.indexOf("worktree") !== -1) {
+    // WHICH REPOSITORY THE PROBE READS IS PART OF THE VERDICT, and reading the
+    // SESSION cwd when the command targets another repo is wrong in BOTH
+    // directions. `git -C <dir>` was already honoured; a `cd <dir> &&` prefix was
+    // not, because splitShellSegments puts the git call in its OWN segment with
+    // no `-C` to carry the directory. Reproduced against two scratch repos that
+    // share a branch name, one 1-behind and one 0-behind:
+    //
+    //   cwd=<stale>  `cd <clean> && git worktree add ../wt wave/x`  → FIRED   ✗
+    //   cwd=<clean>  `cd <stale> && git worktree add ../wt wave/x`  → silent  ✗
+    //
+    // The first is the worse half: a halt naming a repository the command never
+    // touches is precisely the false positive hook-output-discipline.md MUST-2
+    // forbids. So the walk tracks `cd`/`pushd` — and where it CANNOT track them
+    // it declines to probe rather than guessing, because falling back to the
+    // session cwd after an unresolved `cd` IS the false positive.
+    let segDir = cwd;
+    let dirKnown = true;
+    let probesSpent = 0;
+    let refProbeBudgetMs = REF_PROBE_TOTAL_BUDGET_MS;
+    // A `cd` the shell might SKIP must not be applied. `A || cd <x>` runs the cd
+    // only if A failed; `false && cd <x>` never runs it at all. Applying it
+    // regardless produced a halt naming a repository the command never enters —
+    // reproduced as `cd <clean> || cd <stale> ; git worktree add …` flagging from
+    // a cwd where the ref is current. Deciding which side of a `||` executes
+    // needs the exit status of a command that has not run, so the honest answer
+    // is that the trail is unknowable: the whole walk declines rather than
+    // guessing. `&&`-only chains are safe by construction — if an earlier link
+    // fails the git call does not run either — but this hook cannot see WHICH
+    // separator joined two segments, so the presence of `||` anywhere is the
+    // conservative trigger.
+    // HEREDOC BODIES ARE NOT COMMANDS. `maskDocCarrierPayloads` neutralises a
+    // doc-carrier's quoted ARGUMENT and a `$(cat <<X)` substitution, but a plain
+    // `cat > notes.md <<'EOF' … EOF` writes a FILE, so its body was never masked
+    // and the `;`/`&&` inside the prose fractured it into a segment whose leading
+    // token is `git`. Reproduced against the real repo: authoring a journal note
+    // that MENTIONS `git worktree add … <ref>` produced a verdict byte-identical
+    // to running it. That shape is this repo's own documented authoring pattern,
+    // so the guard would have fired on the very notes describing it — including
+    // a `git commit -F- <<'EOF'` commit message for this PR.
+    //
+    // `.structural` is the command with every heredoc BODY and close line
+    // removed; opener lines survive, and an opener is only committed when its
+    // close actually exists downstream, so a decoy `<<WORD` cannot swallow a real
+    // command. On the parser's work-budget `overflow` `structural` is absent, so
+    // the walk gets an EMPTY string and simply finds nothing — this whole
+    // detector fails open on an unverifiable signal, and a pathological command
+    // missing a stale-base warning is a miss, whereas guessing is the false
+    // positive MUST-2 forbids. NOT `return null`: checks follow this block (the
+    // pytest/.env enforcement below among them) and must not be disabled.
+    //
+    // GATED ON THE `<<` SUBSTRING. Every other caller of parseHeredocSpans
+    // early-exits unless a PROTECTED PATH appears; this lane's gate is the far
+    // more common `worktree`, so calling the parser unconditionally would expose
+    // its O(unclosed-openers × downstream-lines) work budget to any command
+    // containing that word. A command with no `<<` cannot contain a heredoc, so
+    // skipping the parse is exact, not approximate.
+    const spans =
+      command.indexOf("<<") === -1
+        ? { structural: command }
+        : parseHeredocSpans(command);
+    const masked = maskDocCarrierPayloads(spans.structural || "");
+    // SEPARATOR HYGIENE — whether a `cd` actually took effect in the shell that
+    // runs the git call depends on how the segments are JOINED, and three shapes
+    // defeat a naive walk:
+    //
+    //   cd <B> | cat ; git worktree add …   the cd runs in a SUBSHELL; the git
+    //                                       call runs in the ORIGINAL directory
+    //   cd <A> || cd <B> ; git …            `||` short-circuits; only one ran
+    //   git fetch && cd <B>                 MIXED: if fetch fails the cd does
+    //   git worktree add …                  not run, but the git call still does
+    //
+    // All three were reproduced flagging a repository the command never enters —
+    // the false positive hook-output-discipline.md MUST-2 forbids outright.
+    //
+    // A pure `&&` chain is sound (a failed link stops the git call too) and so is
+    // a pure `;`/newline chain (every segment runs, and the statSync below catches
+    // a `cd` that fails). MIXING them is not, and neither is any pipeline,
+    // background, or subshell. Rather than reconstruct the shell's control flow,
+    // the trail is trusted only for those two homogeneous shapes.
+    //
+    // Computed on the MASKED, heredoc-stripped surface so a separator inside
+    // prose cannot silently disable the walk.
+    const hasPipe = /\|/.test(masked); // covers `|` AND `||`
+    const hasAmp = /&/.test(masked); // covers `&` AND `&&`
+    const hasSeq = /[;\n]/.test(masked);
+    const cdTrailTrustworthy =
+      !hasPipe && !/[()]/.test(masked) && !(hasAmp && hasSeq);
+    for (const seg of splitShellSegments(masked, {
+      // A newline separates commands exactly as `;` does. Without this a
+      // multi-line block collapsed into one segment whose leading token is the
+      // FIRST command, so the canonical `git fetch origin <ref>` + newline +
+      // `git worktree add … <ref>` shape — the very sequence Rule 7 prescribes —
+      // was invisible to this guard. The sibling state-path lane already passes
+      // this flag; omitting it here was an oversight, not a scoping decision.
+      newlineSeparates: true,
+    })) {
+      const t = seg.trim();
+      // A directory-changing segment we can resolve exactly: one literal operand,
+      // no shell expansion. Anything else (bare `cd` → $HOME, `cd -` → OLDPWD,
+      // `cd --` → $HOME, a `$VAR`/glob/`~` operand, an option form like `cd -P x`,
+      // a `cd` nested in a subshell or wrapped so this pattern misses it) marks
+      // the directory UNKNOWN and is never guessed at.
+      if (/(?:^|[^\w./-])(?:cd|pushd|popd)(?=\s|$)/.test(t)) {
+        const m = /^(?:cd|pushd)\s+(\S+)$/.exec(t);
+        const arg = m ? m[1].replace(/^(['"])(.*)\1$/, "$2") : null;
+        if (
+          !arg ||
+          !dirKnown ||
+          !cdTrailTrustworthy ||
+          /[$`*?~]/.test(arg) ||
+          arg.startsWith("-")
+        ) {
+          dirKnown = false;
+        } else {
+          const next = path.resolve(segDir, arg);
+          // A `cd` to a path that is not a directory FAILS, leaving the shell
+          // where it was. Applying it anyway walked the probe to a nonexistent
+          // directory and reported "clean" for a command that really did run in
+          // the stale repo. Checked, not assumed — and an unreadable path is
+          // UNKNOWN rather than either branch.
+          let st = null;
+          try {
+            st = fs.statSync(next);
+          } catch {
+            st = null;
+          }
+          if (!st) dirKnown = false;
+          else if (st.isDirectory()) segDir = next;
+          // else: `cd <file>` fails; the shell stays put, so segDir is unchanged.
+        }
+        continue;
+      }
+      const g = parseGitInvocation(seg);
+      if (!g || g.sub !== "worktree") continue;
+      // `-C` is absolute → it alone pins the repo, whatever the cd trail did.
+      // Otherwise the resolved cd trail must be trustworthy, or we do not probe.
+      const cAbs = g.dir && path.isAbsolute(g.dir);
+      if (!dirKnown && !cAbs) break;
+      const probeDir = g.dir ? path.resolve(segDir, g.dir) : segDir;
+      if (probesSpent >= MAX_REF_PROBES || refProbeBudgetMs <= 0) break;
+      const stats = {};
+      const t0 = Date.now();
+      // The per-spawn timeout is the REMAINING budget, never the full default —
+      // so N spawns cost at most REF_PROBE_TOTAL_BUDGET_MS in total, not N × the
+      // per-spawn timeout. A count-only cap bounds nothing: 4 spawns × a 2500ms
+      // timeout is 10s on a path whose own watchdog was already cleared.
+      const stale = detectWorktreeStaleBaseRef(g.args, probeDir, {
+        stats,
+        timeoutMs: refProbeBudgetMs,
+      });
+      if (stats.probed) {
+        probesSpent++;
+        refProbeBudgetMs -= Date.now() - t0;
+      }
+      // A BOUNDED number of spawns per invocation, spent only when a spawn
+      // actually happened. Two separate defects lived in the old `if (!stale)
+      // break`:
+      //
+      //   1. The detector returns null both when it probed and found nothing AND
+      //      when it never probed at all (`worktree list`/`remove`/`prune`, an
+      //      `add` with no explicit base, a `$VAR` ref, an already-correct
+      //      `origin/` ref). Breaking on the latter stopped the walk at the first
+      //      harmless subcommand, so the documented `git worktree prune && git
+      //      worktree add … <stale>` cleanup shape was never probed at all.
+      //      `stats.probed` distinguishes them; a segment that cost nothing
+      //      costs nothing.
+      //   2. Even a REAL probe returning clean ended the walk, so
+      //      `add ../a <current> && add ../b <stale>` missed the stale one. A
+      //      hard cap bounds the hot path without that miss: MAX_REF_PROBES × the
+      //      measured ~10.8ms spawn stays an order of magnitude inside the hook's
+      //      own budget, and a chain longer than this is not a shape worth paying
+      //      unbounded latency for.
+      if (!stale) continue;
+      try {
+        logLearningObservation(cwd, "rule_violation", {
+          rule: stale.rule_id, // worktree-orchestration/Rule-7
+          behind: stale.behind,
+          ahead: stale.ahead,
+        });
+      } catch {}
+      return {
+        severity: "halt-and-report",
+        what_happened: `Bash invoked \`git worktree add\` from a STALE local base ref: ${stale.evidence}`,
+        why:
+          "worktree-orchestration Rule 7 (Pre-Flight Merge-Base Check Before Launch) — a lane worktree created from a local branch ref " +
+          "that its origin/ counterpart has moved ahead of does good work on a base that can never " +
+          "be pushed. Structural signal (`git rev-list --left-right --count refs/heads/<ref>..." +
+          "refs/remotes/origin/<ref>` reports a non-zero behind-count), surfaced rather than blocked " +
+          "per the proportionality cap recorded at the detector (the harm is recoverable; " +
+          "hook-output-discipline.md MUST-2 permits block only where the verdict is structural AND " +
+          "the harm warrants it).",
+        agent_must_report: [
+          `The local ref \`${stale.ref}\` is ${stale.behind} commit(s) behind \`origin/${stale.ref}\`${stale.diverged ? ` and ${stale.ahead} ahead (diverged)` : ""}`,
+          `Re-issue as \`git worktree add … origin/${stale.ref}\` (fetch first: \`git fetch origin ${stale.ref}\`) unless you specifically need the stale base`,
+          stale.diverged
+            ? "The branch has DIVERGED — if the local-only commits are the point, say so explicitly; otherwise the remote tip is the base you want"
+            : "The local ref carries NO commits the remote lacks, so branching from it gains nothing and loses the remote's commits",
+        ],
+        agent_must_wait:
+          "Do not create the worktree from the stale local ref. Re-issue against origin/<ref>, or state explicitly why the stale base is intended.",
+        user_summary: `git worktree add from stale local ref \`${stale.ref}\` (${stale.behind} behind origin) — use origin/${stale.ref}`,
+      };
+    }
+  }
+
   // ====================================================================
   // ENFORCE: .env loading for pytest/python commands
   // ====================================================================
@@ -889,8 +1534,11 @@ function validateBashCommand(data) {
     };
   }
 
-  // WARN: Git commit - reminder for review
-  if (/git\s+commit/.test(command)) {
+  // WARN: Git commit - reminder for review.
+  // loom#1368: this site carried NO boundary at all, so it matched every
+  // `git commit-*` sub-command (and `git commitfoo`). Anchored with the same
+  // `(?![\w-])` negative lookahead as the two delegation sites above.
+  if (/\bgit\s+commit(?![\w-])/.test(command)) {
     return {
       continue: true,
       exitCode: 0,

@@ -1,0 +1,81 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "**/workspaces/**"
+---
+
+# Adaptive Redteam Depth — Calibrate Review To Oracle Presence
+
+Review depth tracks whether a SOUND EXECUTABLE ORACLE exists for the change, never the
+reviewing model's identity or its own confidence.
+
+## MUST Rules
+
+### 1. Condition Depth On The Oracle, Never On The Model
+
+Where a sound oracle exists — a test shown to RED in the absence of the property under change
+(`instrument-discipline.md` MUST-2) — it is the primary verifier and adversarial review runs
+ONE rotated round, floored there, never zero. A suite-level green is NOT an oracle for an
+untested property.
+
+Where NO executable oracle exists — prose rules, specs, config, governance artifacts —
+adversarial review is the ONLY verification channel and MUST run the full budget with rotating
+lenses. This is MORE review than tested code receives, not less.
+
+Security and trust-bearing surfaces take the full uncapped loop regardless; if it is ambiguous
+whether a surface is trust-bearing, it IS trust-bearing.
+
+Conditioning depth on model identity, model tier, or self-reported confidence is BLOCKED.
+
+```markdown
+# DO — scale the round count to whether a sound oracle exists
+
+Tested change + established red for the changed property → 1 rotated round (floor)
+Prose rule / spec / config (no oracle) → full budget, rotating lenses
+Auth / revocation / tenant-isolation → full uncapped loop, regardless of oracle
+
+# DO NOT — scale by model identity, tier, or the model's own confidence
+
+"Opus-class reviewer → 1 round" · "harness is green, so the oracle is sound" · "I'm confident, skip it"
+```
+
+**BLOCKED rationalizations:**
+
+- "Modern reasoning models self-critique, so the external round is redundant" (the capability that would justify this — locating one's OWN errors — is the one that has not improved)
+- "The harness is green, so the oracle is sound" (a suite-level green is not an oracle for an untested property; establish the red first)
+- "It's only a doc/rule change" (it has NO oracle at all — that is an argument for MORE review)
+- "I'm confident in this one" (self-reported confidence is systematically overconfident and responds to having answered, not to being right)
+- "This surface is probably not security-relevant" (ambiguity resolves TO trust-bearing)
+
+**Why:** the capability that would justify reducing external review — reliably locating one's
+OWN errors — is the one that has not improved; models correct others' errors and fail on their
+own. Oracle presence tracks the redundancy question; model capability does not.
+
+## Trust Posture Wiring
+
+- **Severity:** `halt-and-report` at gate-review (reviewer confirms depth was justified by
+  oracle presence with an established red, never by model identity or self-reported
+  confidence, and that trust-bearing surfaces took the full uncapped loop); `advisory` at the
+  hook layer per `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3× same-rule in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1× = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: adaptive-redteam-depth]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms every depth
+  reduction cites an established red for the property under change, is floored at one rotated
+  round, and that no trust-bearing surface was reduced. Phase 2 deferred.
+- **Violation scope:** MUST-1 (depth conditioned on model identity, tier, or self-reported
+  confidence; a suite-level green asserted as a sound oracle; a reduced-depth trust-bearing
+  surface).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-08-02 — authored after establishing that the discriminator for review redundancy is
+whether a sound external verifier exists, not the reviewing model's capability: the ability to
+locate one's OWN errors is the one that has not improved across model generations.

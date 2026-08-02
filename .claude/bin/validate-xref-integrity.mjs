@@ -69,6 +69,11 @@
  *      AND `<repo-root>/<token>` (loom-internal precedent).
  *    - Tokens starting with `journal/NNNN[-...]`: glob-match against
  *      `<repo-root>/journal/NNNN-*.md` (NNNN-prefix match).
+ *    - Slash-less directory fallback: a token written without a trailing slash
+ *      that names a real DIRECTORY resolves via a labelled SECOND pass, so
+ *      `skills/45-genesis-bootstrap` is not a false CRITICAL. Bounded to
+ *      EXTENSION-LESS tokens — a token written `ghost.md` names its own type, so
+ *      a directory called `ghost.md` must not retire it.
  *
  *  Exit:
  *    0 = no dangling refs (findings sourced from EXCLUDED contexts, OR
@@ -148,6 +153,19 @@ function isPlaceholder(token) {
   return false;
 }
 
+// A token carries a FILE EXTENSION when its last path segment has a dot at any
+// position past the first — `rules/foo.md`, `bin/x.mjs`, `a/b/v1.2`. A leading
+// dot is NOT an extension (`journal/.pending`, `.claude`), and a segment with no
+// dot at all (`skills/45-genesis-bootstrap`, `hooks/lib`) is extension-less.
+//
+// Used to bound the slash-less directory fallback below: only an EXTENSION-LESS
+// token may be satisfied by a same-named directory. See the second pass for why.
+function hasFileExtension(token) {
+  const segments = token.split("/").filter(Boolean);
+  const last = segments.length > 0 ? segments[segments.length - 1] : "";
+  return last.lastIndexOf(".") > 0;
+}
+
 // Cross-CLI dispatcher tokens are not loom files (see docstring EXCLUDED note).
 // `bin/coc` and `bin/coc-<phase>` name the Codex CLI dispatcher emitted to
 // `<USE>/bin/coc`; the loom source is `.claude/codex-templates/bin/coc`.
@@ -192,6 +210,65 @@ const SANCTIONED_DEFERRED_FIXTURES = new Set([
   // security.md § Enforcement-Surface Parity Detection mechanism.
   "audit-fixtures/enforcement-surface-parity",
 ]);
+
+// --- Sanctioned absent-by-design / external references -------------------
+//
+// A POSITIVE, SOURCE-SCOPED ALLOWLIST (same discipline as
+// SANCTIONED_DEFERRED_FIXTURES above) of tokens naming something REAL that is
+// deliberately absent from canon loom's tree: a CONSUMER-owned path, a
+// canon-absent-by-design companion, a generic illustration, or a file in
+// ANOTHER repository. Nothing at loom can satisfy these — by design — so they
+// are not dangling defects and must not drive the exit code.
+//
+// Each entry is SOURCE-SCOPED: the carve-out applies ONLY in the file(s) whose
+// surrounding prose establishes the token as by-design-absent. A NEW citer of
+// the same token still flags loud. That is what keeps this from decaying into
+// a blanket suppression of the token itself — the same constraint
+// SANCTIONED_DEFERRED_FIXTURES states in its own "NOT on this list" note.
+const SANCTIONED_ABSENT_REFS = new Map([
+  [
+    ".claude/agents/project/",
+    {
+      why: "CONSUMER-owned path. The citing line names it as project-specific artifacts a sync MUST NEVER overwrite; it exists on a consumer, never in canon.",
+      sources: new Set([".claude/commands/sync-from-template.md"]),
+    },
+  ],
+  [
+    ".claude/rules/local/local-manifest.yaml",
+    {
+      why: "Canon-absent BY DESIGN. rules/local/_README.md states canon 'carries only this doc + the schema example'; the deployment copies local-manifest.example.yaml to this path in a FORK.",
+      sources: new Set([".claude/rules/local/_README.md"]),
+    },
+  ],
+  [
+    "bin/dev",
+    {
+      why: "Generic ILLUSTRATION of a dev-container entrypoint in prose enumerating what such a stack contains ('dev-container, `bin/dev`, compose dev stack'), not a loom file.",
+      sources: new Set([
+        ".claude/skills/10-deployment-git/docker-dev-env-patterns.md",
+        ".claude/agents/management/coc-sync.md",
+      ]),
+    },
+  ],
+  [
+    "skills/claude-api/shared/prompt-caching.md",
+    {
+      why: "EXTERNAL repository. The citing line qualifies it explicitly as 'github.com/anthropics/skills § skills/claude-api/shared/prompt-caching.md'.",
+      sources: new Set([
+        ".claude/skills/30-claude-code-patterns/prompt-caching-coc-artifacts.md",
+      ]),
+    },
+  ],
+]);
+
+// A not-found finding is SANCTIONED-ABSENT (skip, not dangling) iff its token
+// is on the allowlist AND the citing file is one of that entry's declared
+// sources.
+function isSanctionedAbsentRef(finding) {
+  const entry = SANCTIONED_ABSENT_REFS.get(finding.token);
+  if (!entry) return false;
+  return entry.sources.has(finding.source);
+}
 
 // The citing line declares Phase-2 deferral when it carries the Two-Phase-Rollout
 // deferred marker AND names an audit fixture. This guard is secondary — the
@@ -415,6 +492,55 @@ function resolveRefToken(token, repoRoot, sourcePath, kind) {
       // try next candidate
     }
   }
+
+  // SECOND PASS — slash-less tokens only. `isDir` is inferred from the token's
+  // trailing slash, never from disk, so a bare token naming a real DIRECTORY
+  // (`skills/45-genesis-bootstrap`, `.claude/hooks/lib`) failed the strict
+  // isFile() check above and was reported not-found while the thing it points
+  // at plainly exists. That false-positive class SHIPS: this validator is in
+  // sync-tier-aware.mjs::ALWAYS_INCLUDE, so every consumer running /cc-audit
+  // inherited the bogus CRITICAL.
+  //
+  // Deliberately a SEPARATE pass rather than a relaxed `isFile() ||
+  // isDirectory()` predicate in the first one. A file candidate always wins,
+  // so a token naming a real file can never be silently satisfied by a
+  // same-named directory earlier in the candidate list. The looser match is
+  // LABELLED and surfaced in its own report section — "resolved, but written
+  // like a file and found as a directory" stays visible instead of vanishing
+  // into the pass count. Precision costs a few lines here; a check that
+  // silently accepts a wrong-type token is the failure mode this validator
+  // exists to catch.
+  //
+  // Bounded to EXTENSION-LESS tokens (`skills/45-genesis-bootstrap`,
+  // `.claude/hooks/lib`). A token written `ghost.md` states its type in its own
+  // name, so a DIRECTORY named `ghost.md` must NOT satisfy it — without this
+  // bound the fallback would silently retire a real dangling ref the moment a
+  // same-named directory appeared, and the row would stop driving the exit code
+  // exactly when the deferred CI wiring starts consuming it. All 8 real
+  // loose-directory matches in canon are extension-less, so this costs nothing.
+  //
+  // The `!isDir` conjunct is DEFENSE-IN-DEPTH and provably INERT on POSIX, kept
+  // deliberately: for a trailing-slash token pass 1's predicate is
+  // `st.isDirectory()` and this pass's is `lstatSync(c).isDirectory()` over the
+  // IDENTICAL candidate list in the IDENTICAL order, so this pass is a subset of
+  // pass 1 and can never fire where pass 1 did not. Measured, not assumed —
+  // widening it to `true` changed 0 of 486 disk-config × token-shape × kind rows
+  // (the same harness reports 32 differing rows when the pass is disabled, so it
+  // discriminates). No fixture claims to pin it, because none can; see
+  // fixture-20's note. The control is 32 for THIS code; it was 48 before the
+  // extension bound landed — bounded code has fewer rows where the second pass
+  // can fire at all. An earlier revision of this comment quoted the pre-bound 48.
+  if (!isDir && !hasFileExtension(token)) {
+    for (const c of safeCandidates) {
+      try {
+        if (lstatSync(c).isDirectory()) {
+          return { ok: true, resolvedPath: c, looseDirMatch: true };
+        }
+      } catch {
+        // try next candidate
+      }
+    }
+  }
   return { ok: false, reason: "not-found" };
 }
 
@@ -523,7 +649,15 @@ function main() {
   // a real dangling ref. Only real dangling refs drive the exit code.
   const notFound = allFindings.filter((f) => !f.ok);
   const skippedDeferred = notFound.filter(isSanctionedDeferredFixture);
-  const dangling = notFound.filter((f) => !isSanctionedDeferredFixture(f));
+  const skippedAbsent = notFound.filter(
+    (f) => !isSanctionedDeferredFixture(f) && isSanctionedAbsentRef(f),
+  );
+  const dangling = notFound.filter(
+    (f) => !isSanctionedDeferredFixture(f) && !isSanctionedAbsentRef(f),
+  );
+  // Resolved, but only by the slash-less-token directory fallback. Reported so
+  // the looser match is auditable rather than silently folded into the pass count.
+  const looseDirMatches = allFindings.filter((f) => f.ok && f.looseDirMatch);
   const totalScanned = allFindings.length;
   const filesScanned = targets.length;
 
@@ -536,6 +670,8 @@ function main() {
           tokens_scanned: totalScanned,
           dangling_count: dangling.length,
           skipped_deferred_count: skippedDeferred.length,
+          skipped_absent_by_design_count: skippedAbsent.length,
+          loose_directory_match_count: looseDirMatches.length,
           read_failures: readFailures,
           dangling: dangling.map((d) => ({
             source: d.source,
@@ -551,6 +687,21 @@ function main() {
             token: d.token,
             reason: "sanctioned-phase2-deferred-fixture",
           })),
+          skipped_absent_by_design: skippedAbsent.map((d) => ({
+            source: d.source,
+            line: d.line,
+            kind: d.kind,
+            token: d.token,
+            reason: "sanctioned-absent-by-design",
+            why: (SANCTIONED_ABSENT_REFS.get(d.token) || {}).why,
+          })),
+          loose_directory_matches: looseDirMatches.map((d) => ({
+            source: d.source,
+            line: d.line,
+            kind: d.kind,
+            token: d.token,
+            reason: "resolved-as-directory-slashless-token",
+          })),
         },
         null,
         2,
@@ -562,6 +713,14 @@ function main() {
     );
     if (skippedDeferred.length > 0) {
       process.stdout.write(`; ${skippedDeferred.length} sanctioned deferred-fixture refs skipped`);
+    }
+    if (skippedAbsent.length > 0) {
+      process.stdout.write(`; ${skippedAbsent.length} absent-by-design refs skipped`);
+    }
+    if (looseDirMatches.length > 0) {
+      process.stdout.write(
+        `; ${looseDirMatches.length} resolved as directory via slash-less token`,
+      );
     }
     if (readFailures.length > 0) {
       process.stdout.write(`; ${readFailures.length} read failures`);
@@ -585,6 +744,27 @@ function main() {
         );
       }
     }
+    if (skippedAbsent.length > 0) {
+      process.stdout.write(
+        "\nskipped (sanctioned absent-by-design / external, source-scoped allowlist):\n",
+      );
+      for (const d of skippedAbsent) {
+        process.stdout.write(
+          `  ${d.source}:${d.line}  [${d.kind}]  ${d.token}  → absent-by-design\n`,
+        );
+      }
+    }
+    if (looseDirMatches.length > 0) {
+      process.stdout.write(
+        "\nresolved as DIRECTORY though written without a trailing slash\n" +
+          "(not a defect; listed so the looser match stays auditable — add a `/` to pin intent):\n",
+      );
+      for (const d of looseDirMatches) {
+        process.stdout.write(
+          `  ${d.source}:${d.line}  [${d.kind}]  ${d.token}  → resolved-as-directory\n`,
+        );
+      }
+    }
   }
   process.exit(dangling.length > 0 ? 1 : 0);
 }
@@ -602,11 +782,14 @@ export {
   stripFencedBlocks,
   isPlaceholder,
   isCrossCliDispatcher,
+  hasFileExtension,
   isSanctionedDeferredFixture,
+  isSanctionedAbsentRef,
   normalizeFixtureSlug,
   findRepoRoot,
   DEFAULT_SCOPE_DIRS,
   SANCTIONED_DEFERRED_FIXTURES,
+  SANCTIONED_ABSENT_REFS,
 };
 
 if (isMain) main();

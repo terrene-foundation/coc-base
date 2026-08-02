@@ -1,0 +1,26 @@
+CLEAN — the Detection-mechanism block names the concrete artifact↔harness binding and
+every path it asserts as EXISTING resolves: the probe file, its manifest registration,
+and the fixtures directory backing it. The Phase-1 load-bearing detector is named
+honestly as the gate-review itself rather than as a scanner that does not exist. The one
+Phase-2 item is stated as NOT YET EXISTING ("NO hook detector exists yet, and there is
+therefore no Phase-2 fixture directory; ... its structural fixtures land WITH it"), which
+is a declared future landing, not a reference-as-existing. MUST-4 must stay quiet.
+
+Deliberately tempting, and this is the discriminating half of the pair: the block still
+CONTAINS the string `.claude/audit-fixtures/lease-scope-discipline/` in a Phase-2
+sentence, and a reviewer (or a judge) pattern-matching on "names an audit-fixtures path
+under a Phase-2 heading" will flag it — that formulation is exactly what the 24-of-45
+unbacked-binding population looks like. The distinction MUST-4 actually draws is between
+a path asserted as present and a landing declared as future, and here the SAME directory
+is asserted present for the probe fixtures (and resolves) while no Phase-2 directory is
+asserted at all. Flagging this is the over-firing failure the no-false-positive pole
+exists to catch.
+
+Recorded tension, surfaced rather than papered over: read at its most literal, MUST-4
+("references a fixtures/probe path that does not resolve — is BLOCKED") would flag the
+corpus-standard future-tense formulation "audit fixtures land with the Phase-2 detector
+at <path>", which ~24 of 45 wired rules carry. This fixture pair is built so the probe
+does NOT depend on resolving that ambiguity: the flag pole asserts paths as present with
+nothing on disk (violating under EITHER reading), and this clean pole asserts only paths
+that resolve (compliant under either). The ambiguity itself is reported to the rule's
+owners, not silently decided by a fixture.

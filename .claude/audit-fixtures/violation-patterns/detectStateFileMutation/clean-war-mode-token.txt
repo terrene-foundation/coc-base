@@ -1,0 +1,1 @@
+node -e "cfg.set('.claude/learning/posture.json','war')"

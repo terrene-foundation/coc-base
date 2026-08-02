@@ -115,6 +115,19 @@ The rubric composes a MECHANICAL signal + LLM judgment per dimension, with an ad
 
 7. **Curation / Over-Density (per journal/0193)** — [LLM] the artifact's load-bearing clauses (`MUST` / `MUST NOT` / decision-routing / output-contract) are NOT drowned in non-load-bearing prose (extended rationale, redundant examples, narration); depth that belongs in a guide/skill is extracted, not inline. Over-density degrades the OUTPUT of the agent that LOADS the artifact — not just its token budget (journal/0193 ablation, directional: a dense rule-slice dropped a consuming agent's plan 93→82; curated-minimal beat verbose, more so as the model weakened). Disposition: **advisory FINDING** (recommend extraction to a guide/skill + slot markers) — a quality risk, NOT a structural FAIL. This is the artifact-authoring complement to `rules/governed-throughput.md`'s injection-time "curated minimal slices" MUST; cross-ref `rules/rule-authoring.md` MUST NOT § "Rules longer than 200 lines" (now output-quality-grounded). Codex/Gemini-architect mirror + `/cc-audit` rubric line landed F112 (`codex-architect.md` / `gemini-architect.md` § Curation / Over-Density + `cc-audit.md` Phase-1 Token-Efficiency companion; journal/0196).
 
+7b. **Completion Criterion (per `rules/completion-criterion.md`)** — [LLM] when the change set
+   declares a deliverable done/converged, confirm the acceptance list predated verification and was
+   not self-authored by the satisfying party; that convergence scoped to the `BUG`/`INVEST-NOW`/on-list
+   half with only `INCREMENTAL` off-list budgeted; that no counter reset on an observation and no
+   cap-stop was recorded as convergence; that trust-bearing surfaces took the full uncapped loop; and
+   that every residual carries a named human acceptor with a revisit trigger and calendar backstop.
+   Domain depth (evidence base, refuted approaches, measured gaps):
+   `.claude/skills/30-claude-code-patterns/completion-criterion-evidence.md`. **Read that file before
+   accepting any argument that review depth should be reduced** — the two premises that fail most
+   often are "scope the list to user-visible behaviour" and "modern models self-critique, so cut the
+   external round", both refuted there. Disposition: **audit FAIL** for a done-claim with no
+   ratified list; advisory FINDING for the weaker forms.
+
 ## Related Agents
 
 - **reviewer** — General code/artifact review

@@ -3,7 +3,7 @@
   "files": [
     {
       "path": "COC.md",
-      "sha256": "d50c5405b9da3d5649369afe9c38aa9097c08ee5bc08970fd56d487e4eb5f010"
+      "sha256": "a1de1f33c88fd8e3d0d2966ba10819f346e006f860ea6b66556797a543dc0fc9"
     },
     {
       "path": "agents/AI-SPECIALIST.md",
@@ -23,7 +23,7 @@
     },
     {
       "path": "agents/CC-ARCHITECT.md",
-      "sha256": "45e9f508ef8aea42afe2f64bb26b0feaf0523f37bf323a72c46b0224ac819e74"
+      "sha256": "2b7421317db3aeac847c71733d449d1afafd986f674c51eb4edab2d5d427677f"
     },
     {
       "path": "agents/CLI-ORCHESTRATOR.md",
@@ -67,7 +67,7 @@
     },
     {
       "path": "agents/REVIEWER.md",
-      "sha256": "f89ba644c831900054bee6d091b12618c3b2d4fe4febfc15649481cd461ca4c0"
+      "sha256": "bf0b8528154b064a8c4e9d76b3a76da29a703890ded6ca0acb40531c83ae6659"
     },
     {
       "path": "agents/SECURITY-REVIEWER.md",
@@ -111,7 +111,7 @@
     },
     {
       "path": "commands/CLAIM.md",
-      "sha256": "e643768f44e099cf28e3b79b0539d2a30ee95d27c7aaced28ff777790af54df2"
+      "sha256": "7cf4a5746f1ab2e0d1d6e89a7deb5e6526812747f993e408db901b2fa5a2634e"
     },
     {
       "path": "commands/CLAIMS.md",
@@ -123,7 +123,7 @@
     },
     {
       "path": "commands/CODIFY.md",
-      "sha256": "f9741366dc5e96f8cfca1038054f17a5b65570a3e3c1d28e1a7f49da2d763ab9"
+      "sha256": "8b39658c35a254e2bc6437843a76680300b01101914aaedacc8813feab4ddd05"
     },
     {
       "path": "commands/CONFORMANCE-WALK.md",
@@ -135,7 +135,7 @@
     },
     {
       "path": "commands/CROSS-REPO-AUTHORIZE.md",
-      "sha256": "3545d63742a0b8cef22002200b81bf985a61b0420fe3bbef1b7366164905ed6e"
+      "sha256": "8ad1190e87668629e8397079836c0e4bbfbb263a818f66e322ce112031717095"
     },
     {
       "path": "commands/DEPLOY.md",
@@ -175,7 +175,7 @@
     },
     {
       "path": "commands/JOURNAL.md",
-      "sha256": "58f3519a82ef684eee4cede6f4d3c6645483f33da58023415dcb13fbf033f9ee"
+      "sha256": "869fa97d9ceb1859d9cf7cf5ea249edfe03d8dac6a6d4d42d42eb362d22c75b3"
     },
     {
       "path": "commands/LEARN.md",
@@ -183,7 +183,7 @@
     },
     {
       "path": "commands/MIGRATE.md",
-      "sha256": "712cfd21a48090441b17f5ab0c9f9c5ba35edd35e66596117a8ec44b282c4f0d"
+      "sha256": "11c82c999ad3510ad740f0806dd01f68bdfa67c702a2465119b0175e8991be45"
     },
     {
       "path": "commands/ONBOARD-STACK.md",
@@ -203,7 +203,7 @@
     },
     {
       "path": "commands/REDTEAM.md",
-      "sha256": "79c3e259045b2397a11470630e2b1f03dc6c2a504617c45457d6b64fabb17569"
+      "sha256": "c3ee5ed57b996e88f774c74c0a58fbc1594bc5953a655d88a8766cd66d722914"
     },
     {
       "path": "commands/RELEASE-CLAIM.md",
@@ -223,15 +223,15 @@
     },
     {
       "path": "commands/SYNC-FROM-DOWNSTREAM.md",
-      "sha256": "a9ffbd0d46dece01ff74b825372f764ba28ffe2df2957fd863276f86408e115f"
+      "sha256": "17e30d4ee52cf64dcd90cbbf520df80de111c30cbdacbee206fed17750bdcfe7"
     },
     {
       "path": "commands/SYNC-FROM-TEMPLATE.md",
-      "sha256": "54ecd016223eb5940d16ce6cc2468cf1484b3af90cd96c983525c97e1691ac6c"
+      "sha256": "8ec3989625cde77f6359dd7d7a929671e313f9d22519cac7a85dd21ae985c1dd"
     },
     {
       "path": "commands/TEST-HARNESS-PROBE.md",
-      "sha256": "fdbbf85385e4d3ee37e18fabb25784f2d9b3a846c48a2e37f2713cccc42560e2"
+      "sha256": "f7853305133680a4c435f02ebb551f1fff7810250c5e066542fd2aee92c2b3ce"
     },
     {
       "path": "commands/TEST.md",
@@ -251,7 +251,7 @@
     },
     {
       "path": "commands/WORKTREE.md",
-      "sha256": "3b7e2eab9538b408a8d43fcef6bea559ffa46981bd5ca85048507161ab628a51"
+      "sha256": "bce659235bbae8866f8997988872b7762817fdf34177d5eb5935d4086c24fb6d"
     },
     {
       "path": "commands/WRAPUP.md",
@@ -267,7 +267,7 @@
     },
     {
       "path": "rules/AGENTS.md",
-      "sha256": "61e733a4b0362add628c3f9a7c919d7e2d762bf7821341c1b6daeb9fdf5d0a7b"
+      "sha256": "cdd2ce789c5b074cd5d51d8b61a2e85edb5f041117a2d8557104aa393791b3b8"
     },
     {
       "path": "rules/ANALYZE-OUTPUT-COMPLETENESS.md",
@@ -275,11 +275,11 @@
     },
     {
       "path": "rules/ARTIFACT-FLOW.md",
-      "sha256": "014198d326d44f3e5ca30763217c8920b17521123df57c9bbd54e51eaa374037"
+      "sha256": "c182b5b8c9d4513629570dcfe0b75eb18599deaf875e7cf56e1950d93211e62e"
     },
     {
       "path": "rules/AUTONOMOUS-EXECUTION.md",
-      "sha256": "760916c9a0271489aaa1cd08f560ead017dd5cea2f4518b3bc84be54268563fd"
+      "sha256": "125d16a64d099422c1b91d3f5477bb2110d92db927aba732ac79733312955786"
     },
     {
       "path": "rules/CC-ARTIFACTS.md",
@@ -291,7 +291,7 @@
     },
     {
       "path": "rules/COC-ARTIFACT-EVAL-COVERAGE.md",
-      "sha256": "09646b3e944c0db1b8bf18e51fe7522c1fb409991d4011ede5e0ae873f00623a"
+      "sha256": "b9f50c27e4afa3336d967cd4f311a908fe2d71aafdf3480e4afef8da3c5c939f"
     },
     {
       "path": "rules/COMMAND-SKILL-PARITY.md",
@@ -302,12 +302,16 @@
       "sha256": "9f5ea9fa32e8c3630ba99a55d5c537a4401c5a4c85ea1469e3da30ed1529be13"
     },
     {
+      "path": "rules/COMPLETION-CRITERION.md",
+      "sha256": "700afc83a87e18956e613f20e341f7e43dc46bbb7886433879bd4951684c43bf"
+    },
+    {
       "path": "rules/CONFORMANCE-WALK.md",
       "sha256": "54432273aad9f0204f5c4c43b285f7c40b3d4a9e301286e8b7244f2b7f14346f"
     },
     {
       "path": "rules/CROSS-CLI-ARTIFACT-HYGIENE.md",
-      "sha256": "be8512c087693a05873ef634bb87fae8ef4005a74b15c22960c7a4645f4f8198"
+      "sha256": "65327ffd9801649d9e6d9f319630afaf3fb80fd1190de2ec650eaeb29686ef6a"
     },
     {
       "path": "rules/DEPENDENCIES.md",
@@ -339,7 +343,7 @@
     },
     {
       "path": "rules/EVIDENCE-FIRST-CLAIMS.md",
-      "sha256": "18f76da00ecebf77d850bbf6ef46c41db9dfc4a0d8397ed9cfb5d848fd653996"
+      "sha256": "9246d9af4783a1975cf12d7ae3f2156a88451a6b746263ba56794cf4c9fbf267"
     },
     {
       "path": "rules/FACADE-MANAGER-DETECTION.md",
@@ -347,7 +351,7 @@
     },
     {
       "path": "rules/GIT.md",
-      "sha256": "360ff6af86f8274b08b5a8c49a0e07436c37c5aebf15bfcb56dde42459a4b211"
+      "sha256": "d83d6f2bfeb77439ab485c9748cf23cfe359c58a278d2e4da14284848f22044a"
     },
     {
       "path": "rules/GOVERNED-THROUGHPUT.md",
@@ -358,12 +362,20 @@
       "sha256": "84840b1543f818f87bd5c5338bb955dc6e0e0585732df6d22981cb7e6fbe7848"
     },
     {
+      "path": "rules/HOOK-EVENT-SELECTION.md",
+      "sha256": "741fd353147319d270b1d730cf3059f19218c982bdbe510f37a6370acf64945b"
+    },
+    {
       "path": "rules/HOOK-OUTPUT-DISCIPLINE.md",
       "sha256": "b55b12a6b598b2c27d7d375f4617ac83828fd01c2edd4d99d6b7f82a2a86fe91"
     },
     {
+      "path": "rules/INSTRUMENT-DISCIPLINE.md",
+      "sha256": "5915aceee1baf0a070afc98d030718575f154f1d0c07d963fb3c009ab6de105b"
+    },
+    {
       "path": "rules/ISSUE-TRIAGE-ROUTING.md",
-      "sha256": "3bb5575a7054b2ae547f5f5c7bfa1044815786575be628ec57aa010d3429cc2e"
+      "sha256": "8e9f932c9a197ea1d4f99c6d5b14fcc5d195d91849e4ba8699b390c96833bffd"
     },
     {
       "path": "rules/JOURNAL-AUTHOR-DISCIPLINE.md",
@@ -383,7 +395,7 @@
     },
     {
       "path": "rules/MULTI-OPERATOR-COORDINATION.md",
-      "sha256": "067ef89e7853b63838c672b1b378bb31b54202ad20b3b651a32177f50fe97fa1"
+      "sha256": "21ec2d518c22186ef1f43851fc4ab878268dacd9f95c118ca9e4c7710136aa87"
     },
     {
       "path": "rules/OBSERVABILITY.md",
@@ -395,11 +407,11 @@
     },
     {
       "path": "rules/ORPHAN-DETECTION.md",
-      "sha256": "542396af13fbb269e9739d8d9b80f7d70732d6056d246a91fbab83b10213b9cb"
+      "sha256": "9393c5f100507b9a1311a57c69d501aa19e7e0005c011891b75a097fdba1770f"
     },
     {
       "path": "rules/PROBE-DRIVEN-VERIFICATION.md",
-      "sha256": "bbb450becb57489b302420260a7a52195b27894b4ab4f91c5ed2b600d0ef3ff2"
+      "sha256": "5bc0a345e4be1157af6e8719e26fd0ccb56abc68855631481c540ba71e6b2f77"
     },
     {
       "path": "rules/PRODUCT-COMPLETION-FIRST.md",
@@ -423,7 +435,7 @@
     },
     {
       "path": "rules/REPO-SCOPE-DISCIPLINE.md",
-      "sha256": "7c4429f9909c4bc510fc37715068b9a4a32d6d66d72f587dcae5d40d42db3916"
+      "sha256": "2fa0ff25ccf48ccb13b27f5128889ba2079b1f7f6f128972e76f7a078979b1e9"
     },
     {
       "path": "rules/RULE-AUTHORING.md",
@@ -431,15 +443,15 @@
     },
     {
       "path": "rules/SCHEMA-MIGRATION.md",
-      "sha256": "cdb5dc9862e7fccc18653c676d17d7892dc3b7dc110bdf196c17e5f44d80fd72"
+      "sha256": "d900c7457ce8ad7129dd7b974a0192c7a0db73fbaa0609f7d03840a247e866ab"
     },
     {
       "path": "rules/SECURITY.md",
-      "sha256": "90236d9375622c4828a6b7bb9a4c470c0d504e0bcf60774325c993a0e25d3b8e"
+      "sha256": "7940d699234afc820eb4e1f6965bddfd60ece14bd72d3026ff07e469891e5d1e"
     },
     {
       "path": "rules/SELF-REFERENTIAL-CODIFY.md",
-      "sha256": "e09c81a2e4812cd52ddf84377315671fee17a8e7b306eb1971f6debcd0a9a7c2"
+      "sha256": "7bf59301a46b141b25c515d751f8b4def6695424a2dd8dad67937847452ba17d"
     },
     {
       "path": "rules/SPEC-ACCURACY.md",
@@ -447,15 +459,15 @@
     },
     {
       "path": "rules/SPECS-AUTHORITY.md",
-      "sha256": "605b3947c9cc71fe1b4f9605411bb45bda4e53a272a36a48519df948df5d783e"
+      "sha256": "05bc40fce8f4d99f9223bcc9484e594ef03c47a1455f352f8bab47bebd2176e0"
     },
     {
       "path": "rules/STACK-DETECTION.md",
-      "sha256": "f5a67851cb00964d343d7a69574ab3097bf8486d41bcdfbf1f5e555ba2b02f3d"
+      "sha256": "56fb5e43a94857fa39bb2bb969f4b186d1cd94e7cbc6da3110df0a5618e17245"
     },
     {
       "path": "rules/STATE-FILE-WRITE-GUARD.md",
-      "sha256": "e3348c59c38f92c65c41b3544bf0af4c123cd7aec018342b8a0bac67f30fc4b9"
+      "sha256": "ffb0bd3b093df6db7000bfd3af9cd129414e7d97011801c43dd0b96b30902e1d"
     },
     {
       "path": "rules/SWEEP-COMPLETENESS.md",
@@ -487,7 +499,7 @@
     },
     {
       "path": "rules/USER-FLOW-VALIDATION.md",
-      "sha256": "e822f6d1137099302c2c346ece5b2fb5859082b951eb719b9e7a13ac69e2bd0d"
+      "sha256": "e74deb667b2363a26fb4a87f53d8e7aea65b538862650d2728602c6099025aa5"
     },
     {
       "path": "rules/VALUE-PRIORITIZATION.md",
@@ -495,7 +507,7 @@
     },
     {
       "path": "rules/VERIFY-CLAIMS-BEFORE-WRITE.md",
-      "sha256": "6da21e8baa0041dc1727bf8ca6237a80ed7fbfd90140facd8e8cd5ebd9d4ba77"
+      "sha256": "653e29c98200b965843960797ba3ef7fdbef03ec93b57140c0c880d03c5fe41f"
     },
     {
       "path": "rules/VERIFY-RESOURCE-EXISTENCE.md",
@@ -503,15 +515,15 @@
     },
     {
       "path": "rules/WAVE-LOOP.md",
-      "sha256": "6350d94a345c76b4ea431d720665004ef504c87adfc8ffb5c965f11d677c52c1"
+      "sha256": "3207b8a72219bdcae44b677beb2e1aafb00e0fbad39f142fa157d7a7130351b8"
     },
     {
       "path": "rules/WORKTREE-ISOLATION.md",
-      "sha256": "1395d87dac2624220e9fd18ac53f77bb4455dc5d0316f763e25d5c2ed8f81b5d"
+      "sha256": "b633ac0731b65e13e8f372bd86b6f1726054fadc7535ecc90a082baea828321a"
     },
     {
       "path": "rules/ZERO-TOLERANCE.md",
-      "sha256": "dc61981f3d448b816f885440039aaa836747f2cc383a381db8168b66c40dfd7f"
+      "sha256": "a9ce0404f598068a0a05af4e83ad25caba3fc9251cf01db46182ad6f9813a0e9"
     },
     {
       "path": "skills/CO-REFERENCE.md",
@@ -523,7 +535,7 @@
     },
     {
       "path": "skills/CONFORMANCE-WALK.md",
-      "sha256": "28d04c64477c8d817195496262c20c3d4c21a3861ed7b48fc7697d3a30b2993b"
+      "sha256": "a54edec24b478359cf6a0064aa7a38e684bab0589bbebc7353ff3964c4c4208a"
     },
     {
       "path": "skills/HOOK-AUTHORING.md",
@@ -531,7 +543,7 @@
     },
     {
       "path": "skills/ISSUE-TRIAGE-ROUTING.md",
-      "sha256": "c67c2d553f4a1223023d9655ca64ab8e14539fd68e99a02723075d4a5605de6d"
+      "sha256": "d4d10338200a5bcd6d9f164b9a0e94aba02cae6cb5bb6fcdf1523410509ab09f"
     },
     {
       "path": "skills/S10-DEPLOYMENT-GIT.md",
@@ -571,7 +583,7 @@
     },
     {
       "path": "skills/S30-CLAUDE-CODE-PATTERNS.md",
-      "sha256": "31aacd55e9428ec4d7d47d57c5d3bd681ae9a480c69141b16ed6fa9f398b3aca"
+      "sha256": "9e5effde585b1462283ee7fbafbecb570ba3499a44a8ab1d972e8a5715811da6"
     },
     {
       "path": "skills/S32-TRUST-POSTURE.md",
@@ -591,7 +603,7 @@
     },
     {
       "path": "skills/S40-STACK-ONBOARDING-RUST.md",
-      "sha256": "fd2583daf69739d0b4f64764b81299ed855477b54f786f876eb51651496b03dd"
+      "sha256": "13e60734f1f059044669046a498e11fc643e2a9bc1d01e5bb9fcd726b33c2a55"
     },
     {
       "path": "skills/S40-STACK-ONBOARDING-TYPESCRIPT.md",
@@ -639,7 +651,7 @@
     },
     {
       "path": "skills/TEST-HARNESS-PROBE.md",
-      "sha256": "0c8c49c17612d60b5319e75a943c2bb58ff6bcacf4f100f093bf74f2b83c005c"
+      "sha256": "2ff55be35d47e6df9aef259f8a01cfa3e7da3af5958b46532b5dbffc2e049a56"
     },
     {
       "path": "skills/TEST-SKIP-DISCIPLINE.md",

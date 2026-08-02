@@ -20,14 +20,26 @@
  *               - ANY mutation-capable tool (Edit | Write | Bash with
  *                 mutation keywords) for filesystem transport mode AND
  *                 the §4.2 sibling-worktree porcelain check
- *   Severity: block      (a) sibling worktree porcelain shows EXACT
+ *   Severity: halt-and-report
+ *                        (a) sibling worktree porcelain shows EXACT
  *                            target path uncommitted-modified — §4.2
  *                            filesystem exception, structural primitive
- *                            via lib/sibling-porcelain.js;
- *                        (b) degraded mode (no signing key) AND the
+ *                            via lib/sibling-porcelain.js. The signal IS
+ *                            structural, so hook-output-discipline.md
+ *                            MUST-2 PERMITS block — it does NOT require
+ *                            it, and this branch does not take it
+ *                            (loom#1323): sibling worktrees are
+ *                            physically separate working trees, so the
+ *                            write cannot clobber the sibling's bytes and
+ *                            the only collision is a 3-way merge conflict
+ *                            git surfaces loudly + NON-destructively.
+ *             block      (b) degraded mode (no signing key) AND the
  *                            would-be operation is a tracked-path
  *                            mutation — working-tree-mutation predicate
- *                            per R4-S-02 + R5-S-03.
+ *                            per R4-S-02 + R5-S-03. STAYS block: a
+ *                            DIFFERENT threat class (unsigned mutation,
+ *                            not recoverable contention) — see the
+ *                            comment at that branch before touching it.
  *             silent     otherwise (signing key present + no sibling
  *                        contention + non-mutating tool).
  *   Budget:   ≤5s; setTimeout fallback emits {continue: true} on hang.
@@ -158,7 +170,10 @@ function classifyOperation(payload) {
     // Git-ref transport mutations: commit, push. We accept any
     // sub-command that mutates the remote ref state.
     if (
-      /\bgit\s+commit\b/.test(cmd) ||
+      // loom#1368: the `(?![\w-])` negative lookahead is load-bearing. A
+      // trailing word-boundary escape admits the `commit-tree` and
+      // `commit-graph` sub-commands, neither of which mutates ref state.
+      /\bgit\s+commit(?![\w-])/.test(cmd) ||
       /\bgit\s+push\b/.test(cmd) ||
       /\bgit\s+tag\b/.test(cmd)
     ) {
@@ -335,40 +350,32 @@ function wouldMutateWorkingTree(opKind, repoDir, candidateRel) {
     const candidateRel =
       op.kind === "edit-write" ? repoRelative(op.targetPath, repoDir) : null;
 
-    // (1) §4.2 sibling-worktree porcelain check. Fires only when we
-    // have a concrete target path (Edit/Write); git-mut/fs-mut don't
-    // have a single target path to check (the commit/push touches
-    // whatever is staged; the porcelain check IS the signal but
-    // operates on the local working tree, not sibling worktrees, in
-    // that case — out of scope for this branch).
-    if (op.kind === "edit-write" && candidateRel) {
-      const contention = detectSiblingContention(repoDir, candidateRel);
-      if (contention.matched) {
-        const sib = contention.siblings[0] || {};
-        clearTimeout(fallback);
-        emit({
-          hookEvent,
-          severity: "block",
-          what_happened: `Sibling worktree porcelain shows '${candidateRel}' uncommitted-modified at ${sib.worktree || "<sibling>"}.`,
-          why: `multi-operator-coc/signing-mutation-guard §4.2 filesystem exception — sibling-worktree contention detected via the porcelain primitive (lib/sibling-porcelain.js, evidence=${contention.evidence}). The porcelain primitive is process-local structural (\`git status --porcelain\` against an enumerated sibling worktree) — qualifies as the hook-output-discipline.md MUST-2 structural fact, so severity=block applies.`,
-          agent_must_report: [
-            `Target path: ${candidateRel}`,
-            `Conflicting sibling worktree: ${sib.worktree || "<unknown>"}`,
-            `Detection: ${contention.evidence === "override" ? "test-surrogate override (COC_PORCELAIN_OVERRIDE)" : "production primitive (git worktree list + sibling status --porcelain)"}`,
-            "Coordinate with the sibling operator before retrying (commit/stash their WIP, or wait).",
-          ],
-          agent_must_wait:
-            "Do not retry the Edit/Write until the sibling worktree's working tree no longer shows this file as modified.",
-          user_summary: `signing-mutation-guard — BLOCK on cross-worktree contention for ${candidateRel}`,
-        });
-        // emit() exits
-      }
-    }
-
-    // (2) Degraded-mode working-tree-mutation predicate.
+    // (1) Degraded-mode working-tree-mutation predicate.
     // Discover signing key. If absent → degraded mode. The predicate
     // then fires when the operation would mutate the working tree on
     // a tracked path.
+    //
+    // THIS BRANCH STAYS severity: block — do NOT "consistency-fix" it
+    // down to halt-and-report because the §4.2 contention branch below
+    // was downgraded (loom#1323). They are DIFFERENT threat classes:
+    //   (a) cross-worktree contention → a RECOVERABLE 3-way merge
+    //       conflict in a physically separate working tree, which git
+    //       surfaces loudly at merge time → surface-and-adjudicate.
+    //   (b) degraded mode → an UNSIGNED mutation. The operator cannot
+    //       sign coordination records, so the write lands with no
+    //       attributable, chain-verifiable record (architecture v11
+    //       R4-S-02 + R5-S-03: degraded mode is READ-ONLY). Nothing
+    //       downstream recovers the missing signature after the fact —
+    //       that is the IRRECOVERABLE class block is reserved for.
+    //
+    // PRECEDENCE (load-bearing, loom#1323): this IRRECOVERABLE branch is
+    // evaluated BEFORE the recoverable §4.2 contention branch. emit()
+    // calls process.exit(), so whichever branch fires first is the ONLY
+    // one that runs. Pre-#1323 both emitted block, so the order was
+    // immaterial; once §4.2 became halt-and-report, evaluating it first
+    // let a degraded-mode (unsigned) mutation on a CONTENDED path exit 0
+    // — the porcelain halt silently swallowed the degraded-mode block.
+    // Ordering irrecoverable-first restores it. Do NOT reorder these two.
     const explicitKey = process.env.COC_OPERATOR_KEY_PATH;
     const forceDegraded =
       process.env.COC_SIGNING_MUTATION_GUARD_FORCE_DEGRADED === "1";
@@ -415,6 +422,39 @@ function wouldMutateWorkingTree(opKind, repoDir, candidateRel) {
           agent_must_wait:
             "Do not retry the mutation until a signing key is configured AND /whoami --register has rostered it.",
           user_summary: `signing-mutation-guard — BLOCK degraded-mode mutation (${op.kind})`,
+        });
+        // emit() exits
+      }
+    }
+
+    // (2) §4.2 sibling-worktree porcelain check. Fires only when we
+    // have a concrete target path (Edit/Write); git-mut/fs-mut don't
+    // have a single target path to check (the commit/push touches
+    // whatever is staged; the porcelain check IS the signal but
+    // operates on the local working tree, not sibling worktrees, in
+    // that case — out of scope for this branch). Evaluated AFTER the
+    // degraded-mode block per the PRECEDENCE note above: this branch is
+    // the RECOVERABLE class, so it must not pre-empt the irrecoverable one.
+    if (op.kind === "edit-write" && candidateRel) {
+      const contention = detectSiblingContention(repoDir, candidateRel);
+      if (contention.matched) {
+        const sib = contention.siblings[0] || {};
+        clearTimeout(fallback);
+        emit({
+          hookEvent,
+          severity: "halt-and-report",
+          what_happened: `Sibling worktree porcelain shows '${candidateRel}' uncommitted-modified at ${sib.worktree || "<sibling>"}.`,
+          why: `multi-operator-coc/signing-mutation-guard §4.2 filesystem exception — sibling-worktree contention detected via the porcelain primitive (lib/sibling-porcelain.js, evidence=${contention.evidence}). The porcelain primitive is process-local structural (\`git status --porcelain\` against an enumerated sibling worktree), so hook-output-discipline.md MUST-2 PERMITS severity=block — it does not REQUIRE it, and this branch emits halt-and-report on proportionality grounds (loom#1323): sibling worktrees have physically separate working trees, so this write cannot clobber the sibling's bytes on disk, and the only real collision is a 3-way merge conflict at merge time, which git surfaces loudly and non-destructively. block stays reserved for IRRECOVERABLE outcomes (this guard's degraded-mode branch above, which is evaluated first). Surface the contention; the operator adjudicates.`,
+          agent_must_report: [
+            `Target path: ${candidateRel}`,
+            `Conflicting sibling worktree: ${sib.worktree || "<unknown>"}`,
+            `Detection: ${contention.evidence === "override" ? "test-surrogate override (COC_PORCELAIN_OVERRIDE)" : "production primitive (git worktree list + sibling status --porcelain)"}`,
+            "The sibling's on-disk work is NOT at risk (separate working trees); the exposure is a 3-way merge conflict when both branches land.",
+            "Adjudication options: reconcile at merge, coordinate with the sibling operator (they commit/stash/land first), or re-scope this edit.",
+          ],
+          agent_must_wait:
+            "Report the contention and your recommended option, then wait for the operator's direction before further edits to this path.",
+          user_summary: `signing-mutation-guard — cross-worktree contention on ${candidateRel} (sibling worktree ${sib.worktree || "<unknown>"} holds it uncommitted-modified)`,
         });
         // emit() exits
       }

@@ -102,7 +102,7 @@ Depth (protocol, prompt templates, BLOCKED corpora, post-mortems): `skills/30-cl
 
 - **Isolate compiling agents** — build caches hold exclusive filesystem locks (Rust `target/`; Python editable `.venv/`; Go `$GOCACHE`; TypeScript `node_modules/.cache/`); one worktree per compiling agent (skill Rule 1).
 - **Isolate ANY shared-source editor** (manifest, rules, config, generated artifacts), compiling or not; concurrent readers read committed HEAD via `git show HEAD:<path>`, never the working tree (skill Rule 9).
-- **Relative paths only in worktree prompts** — absolute paths resolve to the parent checkout, silently defeating isolation (skill Rule 2).
+- **Every worktree-prompt path resolves INSIDE that agent's worktree** — prefer absolute rooted at the sibling; absolute rooted at the ORCHESTRATOR's checkout is BLOCKED (skill Rule 2).
 - **Commit per milestone; verify ≥1 commit** before declaring work landed — zero-commit worktrees auto-delete (skill Rule 3).
 - **Verify deliverables exist after exit** (`ls`/`Read` the claimed files) — budget exhaustion truncates writes mid-message (skill Rule 4).
 - **Recover orphan writes** of zero-commit auto-cleaned worktrees from the MAIN checkout onto `recovery/<branch>` (skill Rule 4a).

@@ -1,0 +1,8 @@
+{
+  "exit_code": 1,
+  "defect_count": 1,
+  "counts": { "E5-PHANTOM-SHADOWED": 1 },
+  "expected_paths": { "E5-PHANTOM-SHADOWED": ["variants/rs/rules/mirror-name.md"] },
+  "stats": { "live_manifest_explicit": 1, "unreachable": 1 },
+  "notes": "Manifest RENAME redirects the pair to renamed-target.md, so the file at the mirror path is never read even though canon exists and the name matches. Path-mirror-only reasoning misses this entirely."
+}

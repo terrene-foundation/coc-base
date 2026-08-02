@@ -28,11 +28,15 @@ import {
   checkToolCanonicality,
   checkAuditFixtureCoverage,
   checkClaudeMdSurfaceRoleParity,
+  checkHookEventDeclaration,
+  parseHookEventMarkers,
+  isMissingOwnSpecifier,
   STATUS,
 } from "../../bin/validate-emit.mjs";
 import { writeFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { createRequire } from "node:module";
 
 let passed = 0;
 let failed = 0;
@@ -853,6 +857,556 @@ next_top: x
       rmSync(root, { recursive: true, force: true });
     }
   }
+}
+
+// ----------------------------------------------------------------------
+// fixture-hookEvent-* — checkHookEventDeclaration (hook-event-selection.md)
+//
+// One fixture per scope-restriction predicate per cc-artifacts.md Rule 9. TWO of
+// them are NO-FALSE-POSITIVE CONTROLS and are the load-bearing pair: a rule that
+// condemned every SessionStart hook, or every `*` matcher, would be WRONG — a
+// session banner belongs at SessionStart and a heartbeat belongs on every tool
+// call. `-control-lifecycleAtSessionStart-PASS` and `-control-telemetryStar-PASS`
+// are what force the check to discriminate rather than blanket-flag, so a future
+// "tighten the detector" edit that drops the class distinction reds here.
+// ----------------------------------------------------------------------
+{
+  const CMD = (n) => `node "$CLAUDE_PROJECT_DIR/.claude/hooks/${n}"`;
+  // Build a settings.json registering each hook at its given (event, matcher).
+  // `regs` = [{ name, event, matcher }]; matcher undefined = an event with no
+  // tool axis (SessionStart, Stop, …).
+  const settingsFor = (regs) => {
+    const hooks = {};
+    for (const r of regs) {
+      hooks[r.event] = hooks[r.event] || [];
+      let g = hooks[r.event].find((x) => x.matcher === r.matcher);
+      if (!g) {
+        g = r.matcher === undefined ? { hooks: [] } : { matcher: r.matcher, hooks: [] };
+        hooks[r.event].push(g);
+      }
+      g.hooks.push({ type: "command", command: r.command ?? CMD(r.name) });
+    }
+    return JSON.stringify({ hooks }, null, 2);
+  };
+  // One synthetic repo: hook sources keyed by basename + the registrations.
+  // `gf` (optional) = basenames to write into .claude/hook-event-grandfather.json.
+  // Omitted => no snapshot on disk => loadHookEventGrandfather fails CLOSED to an
+  // empty set, which is what every pre-existing fixture below relies on.
+  const hookRoot = (sources, regs, gf) =>
+    buildFixtureRoot({
+      ".claude/settings.json": settingsFor(regs),
+      ...(gf ? { ".claude/hook-event-grandfather.json": JSON.stringify({ grandfathered: gf }, null, 2) } : {}),
+      ...Object.fromEntries(Object.entries(sources).map(([n, src]) => [`.claude/hooks/${n}`, src])),
+    });
+  const hdr = (...lines) => `#!/usr/bin/env node\n/**\n${lines.map((l) => ` * ${l}`).join("\n")}\n */\n`;
+  const detailOf = (c, name) => (c.results.find((r) => r.artifact === `hooks/${name}`) || {}).detail || "";
+  const stat = (c, name) => (c.results.find((r) => r.artifact === `hooks/${name}`) || {}).status || null;
+  const withRoot = (sources, regs, fn, gf) => {
+    const root = hookRoot(sources, regs, gf);
+    try {
+      fn(checkHookEventDeclaration(root), root);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  };
+
+  // (a) pure parser — a well-formed multi-registration header
+  {
+    const p = parseHookEventMarkers(
+      hdr(
+        "@hook-event: SessionStart (lifecycle) — posture.json is on disk already.",
+        "@hook-event: PreToolUse:Edit|Write (guard) — only these tools mutate.",
+      ),
+    );
+    check(
+      "fixture-hookEvent-a-parseWellFormed",
+      p.malformed.length === 0 &&
+        p.markers.length === 2 &&
+        p.markers[0].event === "SessionStart" &&
+        p.markers[0].matcher === null &&
+        p.markers[0].cls === "lifecycle" &&
+        p.markers[0].rationale.startsWith("posture.json") &&
+        p.markers[1].matcher === "Edit|Write" &&
+        p.markers[1].cls === "guard",
+      JSON.stringify(p),
+    );
+  }
+
+  // (b) pure parser — a line that names the marker but does not parse is
+  //     MALFORMED, never silently dropped (a dropped line = an undeclared
+  //     registration that still reads as declared).
+  {
+    const p = parseHookEventMarkers(hdr("@hook-event: SessionStart lifecycle no parens"));
+    check(
+      "fixture-hookEvent-b-parseMalformedNotDropped",
+      p.markers.length === 0 && p.malformed.length === 1,
+      JSON.stringify(p),
+    );
+  }
+
+  // (c) CONTROL — lifecycle at SessionStart PASSes. The rule must NOT condemn
+  //     every SessionStart hook; a session banner belongs there.
+  withRoot(
+    { "banner.js": hdr("@hook-event: SessionStart (lifecycle) — the session boundary IS the subject.") },
+    [{ name: "banner.js", event: "SessionStart" }],
+    (c) =>
+      check(
+        "fixture-hookEvent-c-control-lifecycleAtSessionStart-PASS",
+        stat(c, "banner.js") === STATUS.PASS,
+        detailOf(c, "banner.js"),
+      ),
+  );
+
+  // (d) MUST-2 — verification at SessionStart FAILs. The co-owner's finding.
+  withRoot(
+    { "verify.js": hdr("@hook-event: SessionStart (verification) — checks this session's edits.") },
+    [{ name: "verify.js", event: "SessionStart" }],
+    (c) =>
+      check(
+        "fixture-hookEvent-d-verificationAtSessionStart-FAIL",
+        stat(c, "verify.js") === STATUS.FAIL && /MUST-2/.test(detailOf(c, "verify.js")),
+        detailOf(c, "verify.js"),
+      ),
+  );
+
+  // (e) CONTROL — telemetry under `*` PASSes. A heartbeat genuinely belongs on
+  //     every tool call; `*` is not a defect on its own.
+  withRoot(
+    { "beat.js": hdr("@hook-event: PreToolUse:* (telemetry) — every tool call is the subject.") },
+    [{ name: "beat.js", event: "PreToolUse", matcher: "*" }],
+    (c) =>
+      check(
+        "fixture-hookEvent-e-control-telemetryStar-PASS",
+        stat(c, "beat.js") === STATUS.PASS,
+        detailOf(c, "beat.js"),
+      ),
+  );
+
+  // (f) MUST-3 — a guard under `*` FAILs (narrow to the tools that can act).
+  withRoot(
+    { "wide.js": hdr("@hook-event: PreToolUse:* (guard) — blocks writes outside the worktree.") },
+    [{ name: "wide.js", event: "PreToolUse", matcher: "*" }],
+    (c) =>
+      check(
+        "fixture-hookEvent-f-guardUnderStar-FAIL",
+        stat(c, "wide.js") === STATUS.FAIL && /MUST-3/.test(detailOf(c, "wide.js")),
+        detailOf(c, "wide.js"),
+      ),
+  );
+
+  // (g) MUST-4 — marker declares one event, settings.json registers another.
+  //     The re-homing drift lock.
+  withRoot(
+    { "moved.js": hdr("@hook-event: SessionStart (lifecycle) — stale rationale for a moved hook.") },
+    [{ name: "moved.js", event: "PostToolUse", matcher: "Bash" }],
+    (c) =>
+      check(
+        "fixture-hookEvent-g-declaredVsRegisteredMismatch-FAIL",
+        stat(c, "moved.js") === STATUS.FAIL && /MUST-4/.test(detailOf(c, "moved.js")),
+        detailOf(c, "moved.js"),
+      ),
+  );
+
+  // (h) MUST-4 scope restriction — matcher ORDER must not read as a mismatch.
+  //     Without the shared `normalizeMatcher`, `Write|Edit` vs `Edit|Write`
+  //     would report a false mismatch on a correctly-wired hook.
+  withRoot(
+    { "order.js": hdr("@hook-event: PreToolUse:Edit|Write (guard) — order-insensitive matcher.") },
+    [{ name: "order.js", event: "PreToolUse", matcher: "Write|Edit" }],
+    (c) =>
+      check(
+        "fixture-hookEvent-h-matcherOrderNormalized-PASS",
+        stat(c, "order.js") === STATUS.PASS,
+        detailOf(c, "order.js"),
+      ),
+  );
+
+  // (i) MUST-1 — an unrecognized CLASS token FAILs rather than falling out of
+  //     the comparison (a typo must not silently disable the MUST-2 predicate).
+  withRoot(
+    { "typo.js": hdr("@hook-event: SessionStart (verifiction) — typo in the class token.") },
+    [{ name: "typo.js", event: "SessionStart" }],
+    (c) =>
+      check(
+        "fixture-hookEvent-i-unknownClassToken-FAIL",
+        stat(c, "typo.js") === STATUS.FAIL && /unrecognized class/.test(detailOf(c, "typo.js")),
+        detailOf(c, "typo.js"),
+      ),
+  );
+
+  // (j) MUST-1 — an unrecognized EVENT token FAILs (positive allowlist).
+  withRoot(
+    { "badevt.js": hdr("@hook-event: SessionStarted (lifecycle) — not a CC hook event.") },
+    [{ name: "badevt.js", event: "SessionStart" }],
+    (c) =>
+      check(
+        "fixture-hookEvent-j-unknownEventToken-FAIL",
+        stat(c, "badevt.js") === STATUS.FAIL && /unrecognized hook event/.test(detailOf(c, "badevt.js")),
+        detailOf(c, "badevt.js"),
+      ),
+  );
+
+  // (k) MUST-1 — an EMPTY rationale FAILs. The marker is a claim, not a token.
+  withRoot(
+    { "empty.js": hdr("@hook-event: SessionStart (lifecycle) —") },
+    [{ name: "empty.js", event: "SessionStart" }],
+    (c) =>
+      check(
+        "fixture-hookEvent-k-emptyRationale-FAIL",
+        stat(c, "empty.js") === STATUS.FAIL && /empty rationale/.test(detailOf(c, "empty.js")),
+        detailOf(c, "empty.js"),
+      ),
+  );
+
+  // (l) GRANDFATHER — a registered hook with NO marker, WHEN NAMED IN THE
+  //     LAND-TIME SNAPSHOT, is a NON-blocking advisory (SKIP + `WARN:`), never a
+  //     FAIL. That is what lets the rule land without turning the pre-existing
+  //     corpus red. It is the CONTROL for (s): without this arm, (s) could pass by
+  //     flagging every undeclared hook, which would just be the opposite defect.
+  //     The snapshot is INJECTED here — the temp root carries no snapshot file, and
+  //     the loader fails CLOSED on absence, which (s) relies on.
+  {
+    const root = hookRoot(
+      { "old.js": hdr("Hook: old — predates the rule; no declaration.") },
+      [{ name: "old.js", event: "SessionStart" }],
+    );
+    try {
+      const c = checkHookEventDeclaration(root, { grandfathered: new Set(["old.js"]) });
+      check(
+        "fixture-hookEvent-l-noMarkerGrandfathered-WARN",
+        stat(c, "old.js") === STATUS.SKIP && detailOf(c, "old.js").startsWith("WARN:"),
+        detailOf(c, "old.js"),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  // (m) SCOPE RESTRICTION — a hook registered NOWHERE has no event to
+  //     deliberate about; it SKIPs WITHOUT a `WARN:` (settings-hook-registration
+  //     owns it). Asserting the absence of the WARN prefix is the point: a
+  //     grandfather-WARN here would double-report every git-hook.
+  withRoot(
+    {
+      "wired.js": hdr("@hook-event: SessionStart (lifecycle) — registered."),
+      "githook.js": hdr("@settings-registration: git-hook — installed per-clone."),
+    },
+    [{ name: "wired.js", event: "SessionStart" }],
+    (c) =>
+      check(
+        "fixture-hookEvent-m-unregisteredNotWarned-SKIP",
+        stat(c, "githook.js") === STATUS.SKIP && !detailOf(c, "githook.js").startsWith("WARN:"),
+        detailOf(c, "githook.js"),
+      ),
+  );
+
+  // (n) SCOPE RESTRICTION — a NON-CANONICAL settings command does not count as a
+  //     registration (the S1 masquerade class). The hook must rank unregistered,
+  //     not "registered at whatever the fake command mentions" — otherwise this
+  //     check would certify a masquerading registration as event-deliberated.
+  withRoot(
+    { "masq.js": hdr("@hook-event: SessionStart (lifecycle) — declared but not genuinely wired.") },
+    [
+      {
+        name: "masq.js",
+        event: "SessionStart",
+        command: 'node "$CLAUDE_PROJECT_DIR/.claude/hooks/masq.js.disabled"',
+      },
+    ],
+    (c) =>
+      check(
+        "fixture-hookEvent-n-nonCanonicalNotARegistration-SKIP",
+        stat(c, "masq.js") === STATUS.SKIP && !detailOf(c, "masq.js").startsWith("WARN:"),
+        detailOf(c, "masq.js"),
+      ),
+  );
+
+  // (o) A malformed line is reported ONCE (as MUST-1), not also as a MUST-4 set
+  //     mismatch — a malformed line yields no (event, matcher) pair, so
+  //     comparing sets on top of it would double-count a single defect and send
+  //     the author chasing a phantom re-homing.
+  withRoot(
+    { "one.js": hdr("@hook-event: SessionStart lifecycle no parens") },
+    [{ name: "one.js", event: "SessionStart" }],
+    (c) =>
+      check(
+        "fixture-hookEvent-o-malformedNotDoubleCounted-FAIL",
+        stat(c, "one.js") === STATUS.FAIL &&
+          /MUST-1 malformed/.test(detailOf(c, "one.js")) &&
+          !/MUST-4/.test(detailOf(c, "one.js")),
+        detailOf(c, "one.js"),
+      ),
+  );
+
+  // ── Adversarial-round fixtures (security lens, 2026-08-01) ────────────────
+  // Each of s/t/u/v closes a fail-OPEN the round found in this check. They are
+  // grouped because they share one property: every one of them PASSED before the
+  // fix, so the check reported clean on the very defect it exists to catch.
+
+  // (s) M3 — the GRANDFATHER IS BOUNDED. A registered hook with no marker that is
+  //     NOT in the land-time snapshot must FAIL. Unbounded, a brand-new
+  //     verification-at-SessionStart hook shipped with no marker takes the same
+  //     non-blocking SKIP as a pre-existing one and /sync stays green.
+  withRoot(
+    { "brandnew.js": hdr("Hook: brandnew — shipped after the rule landed, no declaration.") },
+    [{ name: "brandnew.js", event: "SessionStart" }],
+    (c) =>
+      check(
+        "fixture-hookEvent-s-newHookNotGrandfathered-FAIL",
+        stat(c, "brandnew.js") === STATUS.FAIL && /MUST-1/.test(detailOf(c, "brandnew.js")),
+        detailOf(c, "brandnew.js"),
+      ),
+  );
+
+  // (w) M1 — the lazy seam must discriminate on WHICH module is missing, not on
+  //     the error CODE. `reconcile-settings-hooks.mjs` statically imports
+  //     `./lib/coc-manifest.mjs` and `../hooks/lib/settings-deny-guard-shape.js`;
+  //     if either is deleted or renamed the NESTED failure raises the IDENTICAL
+  //     MODULE_NOT_FOUND. A code-only test swallows it, returns SKIP, and asserts
+  //     "the recognizer is not present" — a false statement that silently disarms a
+  //     blocking check AT LOOM, the one place it is supposed to bite.
+  //
+  //     THE ERRORS ARE GENERATED, NOT HAND-WRITTEN, AND THAT IS THE FIX TO THIS
+  //     FIXTURE. Its first cut synthesised the nested arm as
+  //     `new Error("Cannot find module './lib/coc-manifest.mjs'")` — omitting the
+  //     `Require stack:` / `imported from <parent>` continuation that IS the leak
+  //     mechanism. So it modelled a nested failure the OLD whole-message
+  //     `includes()` ALREADY handled, and passed identically with the fix reverted
+  //     (52 passed, 0 failed, exit 0). A fixture asserting a property it cannot
+  //     observe reports coverage that does not exist. Node emits the parent's path
+  //     on the SAME line for ESM ("imported from") and on a CONTINUATION line for
+  //     CJS ("Require stack:"); both are reproduced here from real throws.
+  {
+    const seamDir = mkdtempSync(join(tmpdir(), "validate-emit-seam-"));
+    mkdirSync(join(seamDir, "present"), { recursive: true });
+    // An ESM module that EXISTS but whose own static import does not — the real
+    // production shape (reconcile-settings-hooks.mjs imports ./lib/coc-manifest.mjs).
+    writeFileSync(
+      join(seamDir, "present", "reconcile-settings-hooks.mjs"),
+      'import { loadLoomOnly } from "./lib/coc-manifest.mjs";\nexport const enumerateRegistrations = () => [];\n',
+    );
+    // The CJS arm. Its FILENAME contains the specifier on purpose: that is what
+    // puts "reconcile-settings-hooks" into the `Require stack:` continuation and
+    // makes a whole-message `includes()` return true for a NESTED failure.
+    writeFileSync(
+      join(seamDir, "present", "cjs-reconcile-settings-hooks.js"),
+      'module.exports = require("./lib/absent-cjs.js");\n',
+    );
+    const seamReq = createRequire(join(seamDir, "probe.mjs"));
+    const grab = (spec) => {
+      try {
+        seamReq(spec);
+        return null;
+      } catch (e) {
+        return e;
+      }
+    };
+    // Genuinely absent (the consumer case this predicate exists to allow).
+    const ownMissing = grab("./reconcile-settings-hooks.mjs");
+    const nestedEsm = grab("./present/reconcile-settings-hooks.mjs");
+    const nestedCjs = grab("./present/cjs-reconcile-settings-hooks.js");
+    const syntaxErr = Object.assign(new Error("Unexpected token"), { code: "ERR_MODULE_SYNTAX" });
+    const S = "reconcile-settings-hooks";
+
+    // ANTI-VACUITY CONTROL, per this file's own "dead control" convention. If Node
+    // ever stops emitting the parent path in either shape, the arms below would
+    // pass for the wrong reason — the leak would be untested and the fixture would
+    // still be green. This asserts the generated messages actually CARRY the leak
+    // mechanism, so the arm goes RED rather than inert.
+    check(
+      "fixture-hookEvent-w0-controlNestedErrorsCarryParentPath",
+      ownMissing?.message.includes(S) === true &&
+        nestedEsm?.message.includes(S) === true &&
+        nestedCjs?.message.includes(S) === true,
+      `own=${ownMissing?.code} esm=${nestedEsm?.code} cjs=${nestedCjs?.code} | ` +
+        `esmMsg=${JSON.stringify(nestedEsm?.message)} cjsMsg=${JSON.stringify(nestedCjs?.message)}`,
+    );
+
+    check(
+      "fixture-hookEvent-w-lazySeamDiscriminatesSpecifier",
+      isMissingOwnSpecifier(ownMissing, S) === true &&
+        isMissingOwnSpecifier(nestedEsm, S) === false &&
+        isMissingOwnSpecifier(nestedCjs, S) === false &&
+        isMissingOwnSpecifier(syntaxErr, S) === false &&
+        isMissingOwnSpecifier(null, S) === false,
+      `own=${isMissingOwnSpecifier(ownMissing, S)} nestedEsm=${isMissingOwnSpecifier(nestedEsm, S)} ` +
+        `nestedCjs=${isMissingOwnSpecifier(nestedCjs, S)} syntax=${isMissingOwnSpecifier(syntaxErr, S)}`,
+    );
+    rmSync(seamDir, { recursive: true, force: true });
+  }
+
+  // (x)(y) THE NEAR-MISS DETECTOR — a BIPOLAR pair, and neither half is optional.
+  //
+  //     (x) RECALL. A misspelled keyword (`@hook-events:`, `@hook_event:`,
+  //     `@Hook-Event:`, `@hook-event :`) misses the exact-match, leaves `markers`
+  //     empty, and drops the hook into the GRANDFATHER branch — a real declaration
+  //     carrying a real verdict, waved through by the clause meant to spare hooks
+  //     that never opted in. It is listed as grandfathered here ON PURPOSE: that is
+  //     the branch it would escape through, so the exemption is the test.
+  //
+  //     (y) PRECISION, and this is the one that cost a review round. A drafted
+  //     detector also accepted the bare keyword at the start of a comment line. With
+  //     `[-_ ]?` optional under the `i` flag that branch matches the ordinary JS
+  //     property `hookEvent:` — which sits in the output payload of nearly every
+  //     hook — and FAILED 13 of 38 registered hooks: 12 legitimately grandfathered
+  //     plus posture-gate.js, which had been PASSing. Without (y), broadening the
+  //     detector reds two thirds of the corpus and CI stays green.
+  withRoot(
+    { "typo.js": hdr("@hook-events: PreToolUse:Bash (guard) — plural typo; still a real declaration.") },
+    [{ name: "typo.js", event: "PreToolUse", matcher: "Bash" }],
+    (c) =>
+      check(
+        "fixture-hookEvent-x-nearMissMisspelledMarker-FAIL",
+        stat(c, "typo.js") === STATUS.FAIL && /malformed declaration/.test(detailOf(c, "typo.js")),
+        `status=${stat(c, "typo.js")} detail=${detailOf(c, "typo.js")}`,
+      ),
+    ["typo.js"],
+  );
+  withRoot(
+    {
+      // NO marker anywhere. `hookEvent:` here is an ordinary property in the hook's
+      // own output payload — the shape the over-broad draft mistook for a marker.
+      // readHookHeader reads the WHOLE file, so a body line is in scope.
+      "payload.js":
+        '#!/usr/bin/env node\n/**\n * payload.js — no @hook-event marker; grandfathered.\n */\n' +
+        'process.stdout.write(JSON.stringify({\n' +
+        '  hookSpecificOutput: {\n' +
+        '    hookEvent: "PreToolUse",\n' +
+        '    permissionDecision: "allow",\n' +
+        '  },\n' +
+        '}));\n',
+    },
+    [{ name: "payload.js", event: "PreToolUse", matcher: "Bash" }],
+    (c) =>
+      check(
+        "fixture-hookEvent-y-hookEventPropertyIsNotANearMiss-SKIP",
+        stat(c, "payload.js") === STATUS.SKIP &&
+          /Grandfathered non-blocking/.test(detailOf(c, "payload.js")),
+        `status=${stat(c, "payload.js")} detail=${detailOf(c, "payload.js")}`,
+      ),
+    ["payload.js"],
+  );
+
+  // (t) M2 — an OMITTED matcher is the WIDEST, not the narrowest. A `guard` at
+  //     PreToolUse with no matcher fires on every tool call; before the fix it
+  //     cleared MUST-3 (short-circuit on null) AND MUST-4 (normalizeMatcher(null)
+  //     === "" === the registered key), so writing LESS was the cheaper bypass.
+  withRoot(
+    { "nomatch.js": hdr("@hook-event: PreToolUse (guard) — blocks writes outside the worktree.") },
+    [{ name: "nomatch.js", event: "PreToolUse" }],
+    (c) =>
+      check(
+        "fixture-hookEvent-t-guardAbsentMatcher-FAIL",
+        stat(c, "nomatch.js") === STATUS.FAIL && /MUST-3/.test(detailOf(c, "nomatch.js")),
+        detailOf(c, "nomatch.js"),
+      ),
+  );
+
+  // (u) M5 — a NARROW class at an event with no tool axis. `guard`@SessionStart is
+  //     what the rule's own first opt-in declared while the class table homed
+  //     `guard` at PreToolUse/PostToolUse; the table and the worked example
+  //     disagreed on day one, and no predicate enforced either.
+  withRoot(
+    { "ssguard.js": hdr("@hook-event: SessionStart (guard) — repairs settings.json.") },
+    [{ name: "ssguard.js", event: "SessionStart" }],
+    (c) =>
+      check(
+        "fixture-hookEvent-u-narrowClassNoToolAxis-FAIL",
+        stat(c, "ssguard.js") === STATUS.FAIL && /no tool axis/.test(detailOf(c, "ssguard.js")),
+        detailOf(c, "ssguard.js"),
+      ),
+  );
+
+  // (v) M4 — enumeration runs from the REGISTRATIONS, not from a disk walk. A
+  //     registered `.mjs` hook was skipped by the old `.js` filter and produced NO
+  //     ROW AT ALL — not PASS, not SKIP, not FAIL. `CANONICAL_RE` accepts
+  //     `js|mjs|cjs`, so the walk and the recognizer disagreed, and the walk lost
+  //     silently. Asserting a row EXISTS is the point.
+  withRoot(
+    { "modern.mjs": hdr("@hook-event: SessionStart (verification) — wrong, and must be SEEN to be wrong.") },
+    [{ name: "modern.mjs", event: "SessionStart" }],
+    (c) =>
+      check(
+        "fixture-hookEvent-v-registeredMjsProducesRow-FAIL",
+        stat(c, "modern.mjs") === STATUS.FAIL && /MUST-2/.test(detailOf(c, "modern.mjs")),
+        `row=${stat(c, "modern.mjs")} detail=${detailOf(c, "modern.mjs").slice(0, 120)}`,
+      ),
+  );
+
+  // (r) REGRESSION LOCK — a declaration BEYOND any plausible header slice must
+  //     still be seen. This case is not hypothetical: the first cut of the check
+  //     read only the leading 4000 bytes, 37 of loom's 39 top-level hooks are
+  //     larger than that, and a `verification`@`SessionStart` marker at byte ~4500
+  //     was SWALLOWED into the grandfather SKIP — a hook that genuinely opted in,
+  //     carrying the exact defect the rule blocks, waved through by the clause
+  //     meant to spare hooks that never opted in. Reinstating any byte cap reds
+  //     here. The assertion is deliberately BOTH arms: it must FAIL (the marker was
+  //     read) and it must NOT be the grandfather SKIP (the fail-open path).
+  {
+    const filler = " * ".concat("x".repeat(60), "\n").repeat(75); // ~4.7 kB
+    withRoot(
+      {
+        "deep.js":
+          "#!/usr/bin/env node\n/**\n * Hook: deep\n" +
+          filler +
+          " * @hook-event: SessionStart (verification) — checks this session's edits.\n */\n",
+      },
+      [{ name: "deep.js", event: "SessionStart" }],
+      (c) =>
+        check(
+          "fixture-hookEvent-r-markerBeyondHeaderSlice-FAIL",
+          stat(c, "deep.js") === STATUS.FAIL &&
+            /MUST-2/.test(detailOf(c, "deep.js")) &&
+            !detailOf(c, "deep.js").startsWith("WARN:"),
+          `status=${stat(c, "deep.js")} detail=${detailOf(c, "deep.js").slice(0, 160)}`,
+        ),
+    );
+  }
+
+  // (q) F1030d DEGRADE — the shared registration recognizer is loom-only and this
+  //     tool SHIPS, so the import is lazy. When it cannot resolve, the check must
+  //     SKIP with a `WARN:` detail, never FAIL and never silently PASS. Injecting
+  //     the loaders proves the seam exists; the ABSENT arm is covered structurally
+  //     by f1030d-fail-closed-bin.test.mjs A5 (no static import of a non-shipped
+  //     sibling), which reds if the lazy seam is ever converted back.
+  {
+    const root = hookRoot(
+      { "x.js": hdr("@hook-event: SessionStart (lifecycle) — registered.") },
+      [{ name: "x.js", event: "SessionStart" }],
+    );
+    try {
+      const injected = checkHookEventDeclaration(root, {
+        enumerateRegistrations: () => [
+          { rel: ".claude/hooks/x.js", event: "SessionStart", matcherKey: "" },
+        ],
+        normalizeMatcher: () => "",
+      });
+      check(
+        "fixture-hookEvent-q-recognizerInjectable-PASS",
+        injected.results.some((r) => r.artifact === "hooks/x.js" && r.status === STATUS.PASS),
+        JSON.stringify(injected.results),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  // (p) A hook registered at MULTIPLE events must declare ALL of them; declaring
+  //     only one is a MUST-4 registered-but-undeclared finding.
+  withRoot(
+    { "multi.js": hdr("@hook-event: SessionStart (lifecycle) — only half the story.") },
+    [
+      { name: "multi.js", event: "SessionStart" },
+      { name: "multi.js", event: "PreToolUse", matcher: "Bash" },
+    ],
+    (c) =>
+      check(
+        "fixture-hookEvent-p-partialDeclarationOfMultiRegistration-FAIL",
+        stat(c, "multi.js") === STATUS.FAIL &&
+          /registered-but-undeclared/.test(detailOf(c, "multi.js")),
+        detailOf(c, "multi.js"),
+      ),
+  );
 }
 
 // ----------------------------------------------------------------------

@@ -91,6 +91,9 @@ const { isMutationTool, MUTATION_TOOLS } = require(
 const { isCoordinationEnabled } = require(
   path.join(__dirname, "lib", "coordination-mode.js"),
 );
+const { matchFirstCandidate, matchIntegrityWatchedRel } = require(
+  path.join(__dirname, "lib", "guard-path-scope.js"),
+);
 
 function passthrough() {
   clearTimeout(fallback);
@@ -149,88 +152,27 @@ function isWatchedTool(payload) {
  * Returns {watched: true, rel} | {watched: false}.
  */
 function isWatchedPath(absPath, repoDir) {
-  let rel;
-  if (path.isAbsolute(absPath)) {
-    // M3 MED-5 / F-11 follow-up: macOS symlink-vs-realpath mismatch.
-    // `git rev-parse --show-toplevel` returns the realpath (e.g.
-    // `/private/var/...`) while the symlink path (e.g. `/var/...`) is
-    // the caller's view. Normalize both sides via realpath when possible
-    // so path.relative resolves correctly.
-    let normalizedAbs = absPath;
-    let normalizedRepo = repoDir;
-    try {
-      // Realpath the deepest existing ancestor to handle missing target files.
-      let ancestor = absPath;
-      while (ancestor && !fs.existsSync(ancestor)) {
-        const parent = path.dirname(ancestor);
-        if (parent === ancestor) break;
-        ancestor = parent;
-      }
-      if (ancestor) {
-        const real = fs.realpathSync(ancestor);
-        normalizedAbs = real + absPath.slice(ancestor.length);
-      }
-      if (fs.existsSync(repoDir)) {
-        normalizedRepo = fs.realpathSync(repoDir);
-      }
-    } catch {
-      // best-effort — fall back to raw paths
-    }
-    const r = path.relative(normalizedRepo, normalizedAbs);
-    if (r.startsWith("..") || path.isAbsolute(r)) return { watched: false };
-    rel = r.replace(/\\/g, "/");
-  } else {
-    rel = absPath.replace(/\\/g, "/");
-  }
-  // Direct hits on integrity-critical singletons.
+  // loom#1414: the rel-computation used to be inline here as a single
+  // `path.relative(repoDir, absPath)` against the MAIN checkout, which made
+  // this predicate return watched:false for EVERY protected path when the
+  // session ran inside a linked worktree (repoDir is the main checkout, the
+  // target is in the worktree, so the relative path is `../`-prefixed). The
+  // resolution now lives in lib/guard-path-scope.js, which evaluates the
+  // target against every root that could legitimately claim it — the session
+  // root AND the target's own worktree root — and fails CLOSED (emitting
+  // path suffixes) when no root resolves.
   //
-  // operators.roster.schema.json added per F67/security-reviewer HIGH-1
-  // (journal 0162): the schema is the trust-root contract — it defines
-  // what a valid roster looks like. A malicious operator who weakens
-  // the schema (e.g. removes propertyNames-prototype-pollution rejection,
-  // relaxes GPG fingerprint constraint, adds a human_admin synonym to
-  // host_role enum) silently accepts forged rosters. Same structural
-  // authority class as operators.roster.json — both gated equally.
-  const DIRECT = new Set([
-    ".claude/operators.roster.json",
-    ".claude/operators.roster.schema.json",
-    ".claude/learning/coordination-log.jsonl",
-    ".claude/learning/posture.json",
-    ".claude/learning/violations.jsonl",
-    ".claude/learning/observations.jsonl",
-    // MO-OPT W1 (journal/0330, G1 R1 security HIGH defense-in-depth): the
-    // coordination-mode opt-in override. On an ENROLLED repo (coordination ON)
-    // a write to it off-codify is BLOCKED here — mirroring posture.json — so it
-    // cannot be silently flipped to disable the substrate. The predicate's
-    // asymmetric precedence already REFUSES a local {enabled:false} on an
-    // enrolled repo; this is the second layer (gate the write itself). On a solo
-    // repo (OFF) the W1-b gate above passes through, so a consumer may still set
-    // their local mode freely.
-    ".claude/learning/coordination-mode.json",
-    // learning-codified.json — the /codify last_codified anchor (#759, security-
-    // reviewer Finding 4 during the PR #758 redteam). UNLIKE the hook-only siblings
-    // above (posture.json / violations.jsonl / observations.jsonl / coordination-
-    // log.jsonl), this file is CODIFY-WRITABLE: every /codify legitimately advances
-    // it. So it is DELIBERATELY absent from validate-bash-command.js STATE_PATH_RX
-    // and settings.json permissions.deny (a flat absolute deny would break /codify's
-    // own anchor write — the #754 false-scenario as a real regression). The correct
-    // control is DIRECT-set membership HERE: the codify-branch + covering-lease flow
-    // below ALLOWS the write on codify/<display_id>-<date> with a lease whose
-    // scope_files include this path (codify-lease.js MANDATORY_SCOPE already unions
-    // it — findCoveringLease resolves it), and BLOCKS an off-codify `node -e`/Write
-    // that would advance the anchor past unprocessed work (silently dropping a
-    // codification window). Codify-writable → lease-gated, NOT hook-owned → absolute-
-    // deny; that asymmetry is the whole point of the fix.
-    ".claude/learning/learning-codified.json",
-  ]);
-  if (DIRECT.has(rel)) return { watched: true, rel };
-  // Subtree hits.
-  if (rel.startsWith(".claude/team-memory/")) return { watched: true, rel };
-  if (/^journal\//.test(rel)) return { watched: true, rel };
-  if (/^workspaces\/[^/]+\/journal\//.test(rel)) {
-    return { watched: true, rel };
-  }
-  return { watched: false };
+  // loom#1422: the watched-path PATTERNS have now moved there too. They used to
+  // be owned here — a DIRECT membership set plus three subtree tests — which
+  // made this the second of four surfaces that each had to learn the
+  // case-insensitivity dimension separately. `matchIntegrityWatchedRel` is
+  // derived from the registry rows carrying `surfaces.direct: true`, so the set
+  // is no longer hand-maintained in two places.
+  return (
+    matchFirstCandidate(absPath, repoDir, matchIntegrityWatchedRel) || {
+      watched: false,
+    }
+  );
 }
 
 /**
@@ -401,7 +343,16 @@ function findCoveringLease(
     const selfPersonId = (identity && identity.person_id) || null;
 
     // (1) Structural branch predicate — `git rev-parse --abbrev-ref HEAD`.
-    const branch = resolveActiveBranch(repoDir);
+    // sessionCwd, NOT repoDir — a worktree has its OWN HEAD, and the branch
+    // predicate must judge the branch the SESSION is on. Routing registry I/O
+    // through the main checkout (repoDir, :359) is correct and unchanged; using
+    // it here read the MAIN checkout's branch, so a worktree session legitimately
+    // on codify/<display_id>-<date> was blocked with 'main' named in the verdict
+    // whenever the main checkout sat on anything else — its normal state. Latent
+    // before #1414 (isWatchedPath returned false for every worktree path, so this
+    // line never executed there); fencing worktrees is what made it reachable.
+    // This is the behavior :356-357 already specifies.
+    const branch = resolveActiveBranch(sessionCwd);
     const branchVerdict = isCodifyBranch(branch, displayId);
 
     if (!branchVerdict.match) {

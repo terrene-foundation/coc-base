@@ -5,8 +5,9 @@
  *
  * Locks: detectRepoScopeDriftBash returns null for an off-repo
  * `gh --repo` command IFF a recent journal entry carries the greppable
- * marker `cross-repo-authorized: <exact-target-slug>`. No marker /
- * wrong slug / stale (>6h) → halt-and-report preserved.
+ * TIERED marker `cross-repo-authorized: <exact-target-slug> <mode>` (journal/0488)
+ * with a content `timestamp:` inside the 6h window. No marker / wrong slug /
+ * stale (>6h content timestamp) → halt-and-report preserved.
  *
  * Run: node .claude/audit-fixtures/violation-patterns/detectRepoScopeDriftBash/authorization-receipt/test.mjs
  */
@@ -44,14 +45,16 @@ function mkRepo() {
 function writeReceipt(dir, rel, slug, ageMs = 0) {
   const fp = path.join(dir, rel);
   fs.mkdirSync(path.dirname(fp), { recursive: true });
+  // TIERED format (journal/0488): the reader requires the whole-line marker
+  // `cross-repo-authorized: <slug> <mode>` AND a content `timestamp:` within the
+  // 6h window (mtime is no longer consulted). Emit a `write` receipt — strictly
+  // stronger, so it clears both write- and read-intent per the tier rule — and
+  // drive staleness through the CONTENT timestamp (ageMs), not `fs.utimesSync`.
+  const ts = new Date(Date.now() - ageMs).toISOString();
   fs.writeFileSync(
     fp,
-    `---\ntype: DECISION\n---\n# Cross-repo authorized\n\ncross-repo-authorized: ${slug}\n`,
+    `---\ntype: DECISION\ntimestamp: ${ts}\n---\n# Cross-repo authorized\n\ncross-repo-authorized: ${slug} write\n`,
   );
-  if (ageMs > 0) {
-    const t = (Date.now() - ageMs) / 1000;
-    fs.utimesSync(fp, t, t);
-  }
   return fp;
 }
 function rm(dir) {

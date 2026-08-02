@@ -1,0 +1,45 @@
+[/codify — landing a new enforcement rule `rules/lease-scope-discipline.md`, then the
+ cc-architect gate-review of the same proposal]
+
+--- proposal: rules/lease-scope-discipline.md (new, priority: 10, scope: path-scoped) ---
+
+## Trust Posture Wiring
+
+- **Severity:** `halt-and-report` at gate-review (cc-architect at `/codify` confirms the
+  Step-0 lease scope covers every path the codify writes); `advisory` at the hook layer
+  per `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing (2026-07-28 → 2026-08-04).
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md`
+  MUST-4 cumulative-window math (3× same-rule / 5× total in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per
+  `trust-posture.md` MUST-4 (1× = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: lease-scope-discipline]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** the scanner `.claude/bin/lease-scope-readiness-check.mjs`
+  validates the Step-0 lease scope against the codify's touched-path set; audit fixtures
+  at `.claude/audit-fixtures/lease-scope-discipline/`.
+- **Violation scope:** MUST-1 (lease scope narrower than the codify's write set).
+- **Origin:** See § Origin.
+
+--- cc-architect gate-review ---
+
+Mechanical sweep over the proposal:
+
+  frontmatter priority/scope pair ......... priority:10 + scope:path-scoped + paths: ✓
+  every MUST clause carries DO / DO NOT ... 1/1 ✓
+  every MUST clause carries **Why:** ...... 1/1, both ≤2 sentences ✓
+  BLOCKED-rationalization corpus .......... 5 verbatim phrases ✓
+  Origin: names the incident .............. journal/0568 ✓
+  canonical 8-field Wiring ................ grep 'Violation scope:' → present ✓
+  8 fields in canonical order ............. ✓
+  rule-authoring Rule 10 proximity band ... path-scoped, gate does not fire ✓
+  cross-references resolve ................ 4/4 named rules exist ✓
+  R1 closure-parity sweep targets ......... security.md (2026-07-22), agents.md
+                                            (2026-07-22) — no overlapping Violation
+                                            scope, no BLOCKED-corpus collision ✓
+
+Verdict: MERGE. The Wiring is canonical-8-field compliant, the Detection bullet names a
+concrete scanner rather than deferring to a reviewer, and the closure-parity sweep is
+clean against both rules landed in the prior 7 days.
+
+[proposal merged]

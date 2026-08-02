@@ -1,0 +1,1 @@
+node '$CLAUDE_PROJECT_DIR/.claude/hooks/operator-gate.js'

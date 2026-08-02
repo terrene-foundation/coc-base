@@ -35,17 +35,17 @@ Any PR whose diff is metadata-only — version anchors (`pyproject.toml` / `Carg
 # DO NOT — git checkout -b feat/v3.23.0-release-prep (fires full matrix on metadata-only diff)
 ```
 
-**Why:** PR-gate workflows check `if: !startsWith(github.head_ref, 'release/')`; the auto-skip saves ~45 min × matrix-size per release-prep PR. If the work is NOT metadata-only, split code onto `feat/`/`fix/` and cut release-prep on a separate `release/v*` branch. See guide.
+**Why:** PR-gate workflows check `if: !startsWith(github.head_ref, 'release/')`; the auto-skip saves ~45 min × matrix-size per release-prep PR. Work that is NOT metadata-only splits — code onto `feat/`/`fix/`, release-prep on its own `release/v*`. See guide.
 
 ### Pre-FIRST-Push CI Parity Discipline (MUST)
 
-Before the FIRST `git push` that creates a remote branch, the agent MUST run the project's local CI parity command set (Rust: `cargo +nightly fmt --all --check` + `cargo clippy -- -D warnings` + `cargo nextest run` + `RUSTDOCFLAGS="-Dwarnings" cargo doc`. Python: `pre-commit run --all-files` — **only when a `.pre-commit-config.yaml` exists at repo root; a config-less repo SKIPS this step (it is not a parity failure) and its own configured checks (e.g. `ruff` / `pyright`) stand in** — + `pytest` + `mypy --strict`). All MUST exit 0 → push.
+Before the FIRST `git push` that creates a remote branch, the agent MUST run the project's local CI-parity command set and ALL MUST exit 0 → push. Rust: `cargo +nightly fmt --all --check` + `cargo clippy -- -D warnings` + `cargo nextest run` + `RUSTDOCFLAGS="-Dwarnings" cargo doc`. Python: `pre-commit run --all-files` + `pytest` + `mypy --strict`. A Python repo with **no root `.pre-commit-config.yaml` SKIPS the pre-commit step — that is not a parity failure**; its own configured checks (`ruff` / `pyright`) stand in.
 
-**Why:** With `concurrency: cancel-in-progress: true`, cancelled in-flight runs are still billed for wall-clock consumed. Pre-flighting takes ~5-10 min; the alternative is N × 45 min of billed CI per fix-up cycle (push → CI fail → fix-up → push is the DO-NOT). See guide for the 71-minute mid-flight cancel evidence + full command set.
+**Why:** With `concurrency: cancel-in-progress: true`, cancelled in-flight runs are still billed for wall-clock consumed — pre-flighting costs ~5-10 min against N × 45 min of billed CI per fix-up cycle (push → CI fail → fix-up → push is the DO-NOT). See guide for the 71-minute mid-flight cancel evidence.
 
 ## Branch Protection
 
-All protected repos require PRs to main. Direct push is rejected by GitHub. Owner workflow: branch → commit → push → PR → `gh pr merge <N> --admin --merge --delete-branch`. See extract for the full repository × protection table.
+All protected repos require PRs to main. Direct push is rejected by GitHub. Owner workflow: branch → commit → push → PR → `gh pr merge <N> --admin --merge --delete-branch`.
 
 **Why:** Direct pushes bypass CI checks and code review, allowing broken or unreviewed code to reach the release branch.
 
@@ -90,19 +90,18 @@ CC system prompt provides the template. Always include a `## Related issues` sec
 
 **Why:** Issues closed without code refs break traceability; undocumented workarounds force every session to re-discover the same fix; over-claiming commit bodies poison `git log --grep` (the cheapest institutional-knowledge search). See extract for full DO/DO NOT examples.
 
-- **CI-check and merge are SEPARATE steps under duplicate-run races**: `gh pr checks --watch` can resolve green on the PRIOR head while a NEW duplicate `pull_request` run flakes red on the SAME PR. Checking CI and merging MUST be separate commands: (1) READ — pin the head SHA (`gh pr view <N> --json headRefOid`), confirm every REQUIRED check is `SUCCESS` on THAT SHA; (2) MERGE — only then `gh pr merge <N>`. Bundling them (`gh pr checks <N> && gh pr merge <N>`, or `--watch` then merge) is BLOCKED — the watch may be green on a stale commit and the merge lands over an ungated run.
+- **CI-check and merge are SEPARATE steps under duplicate-run races**: `gh pr checks --watch` can resolve green on the PRIOR head while a NEW duplicate `pull_request` run flakes red on the SAME PR. Checking CI and merging MUST be separate commands: (1) READ — pin the head SHA (`gh pr view <N> --json headRefOid`), confirm every REQUIRED check is `SUCCESS` on THAT SHA; (2) MERGE — only then `gh pr merge <N>`. Bundling them (`gh pr checks <N> && gh pr merge <N>`, or `--watch` then merge) is BLOCKED.
 
   ```bash
-  # DO — check as a READ step on the exact head, THEN merge
+  # DO — READ pinned to head, THEN merge as a separate command
   head=$(gh pr view <N> --json headRefOid -q .headRefOid)
-  gh pr checks <N>                       # confirm required checks SUCCESS on $head
-  gh pr merge <N> --admin --merge        # separate command, after the read
-
-  # DO NOT — bundle watch + merge (watch may be green on the prior commit)
+  gh pr checks <N>   # every REQUIRED check SUCCESS on $head?
+  gh pr merge <N> --admin --merge
+  # DO NOT — bundle (watch may be green on the prior commit)
   gh pr checks <N> --watch && gh pr merge <N> --admin --merge
   ```
 
-  **Why:** With duplicate `pull_request` runs, a `--watch` that returns green may have resolved against the prior commit's run while a newer duplicate on the current head is still pending or flaked red; separating the read (pinned to the head SHA) from the merge makes the gate verifiable. See guide.
+  **Why:** A `--watch` returning green may have resolved against the prior commit's run while a newer duplicate on the current head is still pending or flaked red; separating the read (pinned to the head SHA) from the merge makes the gate verifiable. See guide.
 
 ## Trust Posture Wiring
 

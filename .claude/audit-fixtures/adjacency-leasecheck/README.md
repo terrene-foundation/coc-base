@@ -16,8 +16,8 @@ prose is exercised by the Tier-2 integration tests).
 | `04-watched-write-on-non-cwd-path/`  | Write on an absolute path OUTSIDE the repo (`/tmp/...`)                           | silent (passthrough)           |
 | `05-non-watched-tool-noop/`          | Tool is Read (not Edit                                                            | Write) — hook MUST passthrough | silent (passthrough) |
 | `06-structural-null-malformed-log/`  | Coordination log file is truncated mid-line (malformed JSONL)                     | silent + advisory              |
-| `07-filesystem-exception-positive/`  | §4.2 — sibling worktree porcelain match on exact target path                      | **block**                      |
-| `08-filesystem-exception-negative/`  | Same dir as a porcelain-flagged file, but NOT the exact path → ADJACENT not block | advisory                       |
+| `07-filesystem-exception-positive/`  | §4.2 — sibling worktree porcelain match on exact target path                      | **halt-and-report**            |
+| `08-filesystem-exception-negative/`  | Same dir as a porcelain-flagged file, but NOT the exact path → ADJACENT not §4.2  | advisory                       |
 | `09-self-claim-no-self-conflict/`    | Active claim is the operator's own → no halt                                      | silent (passthrough)           |
 
 ## Why these and only these
@@ -35,11 +35,19 @@ Rule 9 + the architecture v11 §4.3 row):
 3. **Self-claim exclusion**: `verified_id !== self` filter on active
    claims; fixture 09 covers the self-claim case (an own active claim
    MUST NOT halt the operator's own Edit/Write).
-4. **§4.2 filesystem exception**: the ONLY branch that ships
-   severity:block, grounded in the `git status --porcelain` structural
-   primitive. Fixtures 07 (positive — exact path match) AND 08
+4. **§4.2 filesystem exception**: the branch grounded in the `git status
+   --porcelain` structural primitive. Since loom#1323 it emits
+   **halt-and-report**, not `block` — `hook-output-discipline.md` MUST-2
+   would PERMIT block (the signal is structural, not lexical), but a
+   sibling worktree has a physically separate working tree, so the write
+   cannot clobber its bytes and the only real collision is a recoverable
+   3-way merge conflict at merge time. NO branch of this hook ships
+   severity:block. Fixtures 07 (positive — exact path match) AND 08
    (negative — same dir, no exact match → falls back to ADJACENT
    advisory) cover both sides per `hook-output-discipline.md` MUST-4.
+   Because §4.1 SAME and §4.2 now share a severity, fixture 07 also
+   locks the `why`-text discriminator (`§4.2 filesystem exception`) so a
+   deleted §4.2 branch cannot pass via the §4.1 fallthrough.
 5. **Structural-NULL fallback** (`cc-artifacts.md` Rule 7): malformed
    log MUST surface {continue:true}; fixture 06 covers the unrecoverable
    internal-error case.

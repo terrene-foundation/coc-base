@@ -1,0 +1,1 @@
+perl -e 'open(F,"<",".claude/learning/posture.json"); my $qx=1; print 1 if $qx<2'

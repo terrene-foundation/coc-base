@@ -1,0 +1,1 @@
+node -e "require('fs').appendFileSync('.claude/learning/coordination-log.jsonl','x')"

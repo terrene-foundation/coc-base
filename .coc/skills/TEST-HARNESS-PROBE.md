@@ -166,6 +166,106 @@ that cite the rubric field that flipped false (e.g.,
 | gemini | PASS    | —             |
 ```
 
+## Protocol — Mode B (artifact-eval probe suites)
+
+Mode A above scores test-harness SUITE RESULT rows. The artifact-eval
+suites registered in `.claude/test-harness/eval-manifest.json` are a
+DIFFERENT row shape — `{artifact_id, id, pair_id, artifact, property,
+paired_case, schema, judge_model, rule_ref, candidate_fixture, expect}`,
+whose candidate text is the CONTENTS OF A FIXTURE FILE and which no suite
+run produces. `.claude/bin/coc-probe-dispatch.mjs` (loom#1465) is the
+adapter; before it, this tier was reproducible only by hand.
+
+### B1. Build the plan
+
+```bash
+node .claude/bin/coc-probe-dispatch.mjs plan --out /tmp/plan.json   # [--suite <artifact_id>]...
+```
+
+Every registered row lands in `plan.dispatch[]` (ready to judge) or
+`plan.refusals[]` (fails closed with a typed `code`). A refusal is NEVER
+a pass and never a fail — it is zero evidence. Refusal codes:
+`unknown-schema`, `judge-model-unpinned`, `candidate-unnamed`,
+`candidate-missing`, `candidate-empty`, `answer-key-leak`,
+`governing-doc-missing`. **Fix a refusal; do not score around it.**
+
+### B2. Dispatch — one subagent per row, ALL IN ONE MESSAGE
+
+For each `plan.dispatch[]` entry, dispatch a `general-purpose` subagent
+whose prompt is that entry's `prompt` field VERBATIM, with the model
+pinned to the entry's `judge_model`. Sequential dispatch is BLOCKED per
+`rules/agents.md` § Parallel Execution.
+
+The prompt is assembled from an allow-list — the schema's judge-contract
+alias, its neutral rubric, governing-doc paths, candidate text. The row's
+`expect` field, its `paired_case`, the fixture's `.expected` sidecar, the
+schema's real NAME **and the candidate fixture's PATH** are ANSWER KEYS and
+are structurally excluded. **Never hand a judge any of them.**
+
+The path is the least obvious of the five and the last to be closed. Fixture
+names encode their pole by convention — `flag-` / `meta-violation-` versus
+`clean-` / `meta-compliant-` — which is exactly how a Rule-9 fixture set
+stays legible to a human reader, and exactly why it must not be rendered
+into a judge's view. The naming convention is right; printing it in the
+prompt was not. Prompts now carry a bare `CANDIDATE TEXT:` header with no
+identifier at all; an operator maps a verdict back to its row by `row_id`,
+scoring-side, where polarity already lives.
+
+Both poles of a pair render the SAME alias and the SAME rubric and NO
+candidate identity, so their prompts differ only in the candidate text. That
+is the property that makes a pass mean something: `ComplianceViolationAnswer`
+in the prompt header, a rubric saying "For a genuine violation you should
+answer false", or a path reading `flag-…`, each let a judge score the pair
+correctly without reading either fixture.
+
+Two controls enforce this, and they cover different axes — neither alone is
+sufficient:
+
+- **swapped-pole** — vary the CANDIDATE, require the prompt to follow it.
+  Blind to anything travelling WITH the candidate: swapping the poles swapped
+  their paths too, so it passed while the path channel was wide open.
+- **identifier-shuffle** — hold the content fixed, give each row its SIBLING's
+  identifier, require every prompt to be byte-identical. Any divergence is a
+  live polarity channel. Driven with `candidateLabelFor: (row) =>
+  row.candidate_fixture` it reproduces the pre-fix rendering and MUST report a
+  divergence on every row; that is what shows the control can fail.
+
+Both are mechanical controls over the RENDERING. They establish that the name
+is not available to be read. Whether a real judge then separates the fixtures
+ON THEIR CONTENT is a separate question that needs a blind judge run.
+
+### B3. Score
+
+```bash
+node .claude/bin/coc-probe-dispatch.mjs score --plan /tmp/plan.json \
+  --answers /tmp/answers.json --out /tmp/results.json
+```
+
+`answers.json` is `[{"row_id","answer_text","judge_model"}]`; use
+`{"row_id","error"}` for a dispatch that errored. A planned row with no
+entry scores `unrun`.
+
+`judge_model` is the model that ACTUALLY answered, and it MUST equal the
+plan row's pin. A missing or mismatched attestation scores `error` — zero
+evidence, never a pass. Do not copy the pin across without checking which
+model you dispatched to; the whole point is that the pin becomes
+falsifiable.
+
+### B4. Report BOTH axes, separately
+
+The scorer reports discrimination BY PAIR, split into the **efficacy**
+axis (does the rule fire on a violation and stay quiet on a compliant
+transcript?) and the **meta** axis (does the artifact itself conform to
+the meta-rules governing its type?). These answer different questions.
+
+- A pair SEPARATES only when both poles were judged AND each pole passes
+  its own polarity. Two poles returning the SAME verdict do not separate,
+  however many individual rows passed.
+- Reporting one collapsed headline number is BLOCKED — "6/6 rows passed"
+  concealed that 2 of 6 PAIRS were non-separating (both poles
+  `compliant:false`), which is the dead-control shape.
+- Cite `coverage_asserted`, never the exit code alone (MUST-3).
+
 ## Rules
 
 - DO NOT fall back to regex-scoring the candidate text if subagent

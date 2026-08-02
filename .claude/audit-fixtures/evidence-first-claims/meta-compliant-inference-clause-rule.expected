@@ -1,0 +1,40 @@
+COMPLIANT (ComplianceAnswer: compliant=true, violated_meta_rules=[]).
+
+This sidecar is the ANSWER KEY. It is NEVER handed to a judge — only the `.md` candidate is.
+
+The candidate is a full synthetic rule file and is the COMPLIANT pole of the meta-compliance
+pair whose other pole is `meta-violation-inference-clause-rule.md`. It replaced the previous
+compliant pole, which was the LIVE `.claude/rules/evidence-first-claims.md` read via
+`candidate_section`. That arrangement made the pair separable by FILE SHAPE alone — a whole
+rule file against a bare clause excerpt, 3.2x apart in size, with frontmatter / Origin /
+Wiring present on exactly one side — so a judge could score it correctly without reading a
+word. Both poles are now synthetic files with a matched surface;
+`.claude/test-harness/tests/probe-suite-integrity.test.mjs` enforces the match.
+
+Why this candidate is compliant, meta-rule by meta-rule:
+
+  - rule-authoring MUST-1 (modal): MUST / MUST NOT / BLOCKED throughout the clause; no
+    permissive modal appears in a load-bearing position.
+
+  - rule-authoring MUST-2 (BLOCKED corpus): six entries, each a VERBATIM rationalization an
+    agent would actually emit ("The inference is obvious from the quoted output"), not an
+    abstract instruction about rationalizing.
+
+  - rule-authoring MUST-3 (DO/DO-NOT): the two arms genuinely discriminate — the DO arm
+    marks the leap AND names what the instrument cannot distinguish AND runs a discriminating
+    check; the DO-NOT arm shows the same quoted bytes followed by the conclusion in
+    fact-grammar. Same evidence, opposite handling.
+
+  - rule-authoring MUST-4 (`**Why:**`): present, two sentences, names the failure mode.
+
+  - rule-authoring MUST-5/7 (frontmatter): `priority: 10` + `scope: path-scoped` + `paths:`.
+
+  - rule-authoring MUST-6: an `## Origin` section naming the originating incident.
+
+  - trust-posture.md MUST-8: the canonical 8-field Trust-Posture Wiring, in canonical order,
+    carrying the literal `**Violation scope:**` token.
+
+A judge that scores this NON-compliant FAILS the probe. Note the deliberate trap: the
+candidate's `## MUST NOT` section carries a single entry rather than several, and its Wiring
+defers the Phase-2 detector. Neither is a meta-rule breach — a judge that flags either is
+over-firing on sparseness rather than on a violated MUST.

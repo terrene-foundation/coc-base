@@ -11,7 +11,7 @@ paths:
 
 A class that no production code calls is a lie. Beautifully implemented orphans accumulate when a feature is built top-down — model + facade + accessor ship, downstream consumers import them — but the framework's hot path never invokes them. Unit tests pass against the orphan in isolation; the security/audit/governance promise the orphan was supposed to deliver never executes once.
 
-Extended evidence, detection playbooks, and historical post-mortems live in `skills/16-validation-patterns/orphan-audit-playbook.md`. This file holds the load-bearing MUST clauses.
+Detection playbooks and historical post-mortems live in `skills/16-validation-patterns/orphan-audit-playbook.md`; the FULL worked DO/DO-NOT code per clause, the evidence chains, and the per-rule origin narratives live in `guides/rule-extracts/orphan-detection.md`. This file holds the load-bearing MUST clauses, their `**Why:**` lines, and their BLOCKED corpora.
 
 ## MUST Rules
 
@@ -19,48 +19,23 @@ Extended evidence, detection playbooks, and historical post-mortems live in `ski
 
 Any attribute exposed on a public surface that returns a `*Manager`, `*Executor`, `*Store`, `*Registry`, `*Engine`, or `*Service` MUST have at least one call site inside the framework's production hot path within 5 commits of the facade landing. The call site MUST live in the same package as the framework, not just in tests or downstream consumers.
 
-```python
-# DO — facade + production call site land in the same PR
-class DataFlow:
-    @property
-    def trust_executor(self) -> TrustAwareQueryExecutor:
-        return self._trust_executor
-
-# In the framework's hot path:
-class DataFlowExpress:
-    async def list(self, model, ...):
-        plan = await self._db.trust_executor.check_read_access(...)  # ← real call site
-
-# DO NOT — facade ships, no call site, downstream consumers import the orphan
-class DataFlow:
-    @property
-    def trust_executor(self) -> TrustAwareQueryExecutor:
-        return self._trust_executor
-# (no call site exists in any framework hot path; trust executor is dead code)
+```text
+# DO — `db.trust_executor` facade + a real `check_read_access(...)` call site in the framework's hot path (DataFlowExpress.list), same PR
+# DO NOT — facade property ships alone; no hot-path call site exists, so the trust executor is dead code downstream consumers still import
 ```
 
-**Why:** Downstream consumers see the public attribute, build their security model around the documented behavior, and ship features that silently bypass the protection because the framework never invokes the class on the actual data path. See Phase 5.11 post-mortem in the playbook skill (2,407 LOC of trust integration never executed once).
+**Why:** Downstream consumers see the public attribute, build their security model around the documented behavior, and ship features that silently bypass the protection because the framework never invokes the class on the actual data path. Full code + the Phase 5.11 post-mortem (2,407 LOC of trust integration never executed once): `guides/rule-extracts/orphan-detection.md` § "Rule 1".
 
 ### 2. Every Wired Manager Has a Tier 2 Integration Test
 
 Once a manager is wired into the production hot path, its end-to-end behavior MUST be exercised by at least one Tier 2 integration test (real database, real adapter — `rules/testing.md` § Tier 2). Unit tests against the manager class in isolation are NOT sufficient.
 
-```python
-# DO — Tier 2 test exercises the wired path against real infrastructure
-@pytest.mark.integration
-async def test_trust_executor_redacts_in_express_read(test_suite):
-    db = DataFlow(test_suite.config.url)
-    rows = await db.express.list("Document")
-    assert all(row["body"] == "[REDACTED]" for row in rows)
-
-# DO NOT — Tier 1 test against the class in isolation
-def test_trust_executor_returns_redacted_plan():
-    executor = TrustAwareQueryExecutor(...)
-    plan = executor.check_read_access(...)
-# ↑ proves the executor can redact, NOT that the framework calls it
+```text
+# DO — `@pytest.mark.integration` test drives the REAL facade (`db.express.list("Document")`) against a real DB and asserts the redaction is observable
+# DO NOT — Tier 1 test constructing `TrustAwareQueryExecutor(...)` directly; proves the executor CAN redact, not that the framework CALLS it
 ```
 
-**Why:** Unit tests prove the orphan implements its API. Integration tests prove the framework actually calls the orphan.
+**Why:** Unit tests prove the orphan implements its API. Integration tests prove the framework actually calls the orphan. Full code: `guides/rule-extracts/orphan-detection.md` § "Rule 2".
 
 #### 2a. Crypto-Pair Round-Trip Through Facade
 
@@ -78,14 +53,9 @@ If a manager is found to be an orphan and the team decides not to wire it, it MU
 
 Any PR that removes a public symbol MUST delete or port the tests that import it, in the same commit. Test files that reference the removed symbol fail at `pytest --collect-only` with `ModuleNotFoundError`, blocking every subsequent test run.
 
-```python
-# DO — remove the API and its tests in one commit
-# D  src/pkg/legacy_module.py
-# D  tests/integration/test_legacy_module.py
-
-# DO NOT — remove the API, leave the tests
-# D  src/pkg/legacy_module.py
-# (test files still import pkg.legacy_module, collection fails on next run)
+```text
+# DO — one commit deletes BOTH `src/pkg/legacy_module.py` AND `tests/integration/test_legacy_module.py`
+# DO NOT — delete only the module; the test still imports `pkg.legacy_module` and collection fails on the next run
 ```
 
 **BLOCKED rationalizations:**
@@ -95,24 +65,15 @@ Any PR that removes a public symbol MUST delete or port the tests that import it
 - "The tests are obsolete; they don't need to move"
 - "`pytest --collect-only` isn't part of CI"
 
-**Why:** Test files that fail at collection block the ENTIRE suite, not just themselves. One orphan import takes down the 100 tests collected after it.
-
-Origin: 2026-04 — 9 orphan test files left by a DataFlow refactor silently broke integration collection.
+**Why:** Test files that fail at collection block the ENTIRE suite, not just themselves. One orphan import takes down the 100 tests collected after it. Origin + full example: `guides/rule-extracts/orphan-detection.md` § "Rule 4".
 
 ### 4a. Stub Implementation MUST Sweep Deferral Tests In Same Commit
 
 Mirror of Rule 4. Any PR that _implements_ a previously-deferred stub — replacing `NotImplementedError` / `raise NotImplementedError("Phase N — will implement")` with a real implementation — MUST delete or rewrite every test that asserts the deferred behavior in the same commit. Scaffold-era tests like `test_foo_deferral_names_phase` that `pytest.raises(NotImplementedError)` on the now-implemented symbol flip from pass to fail and block release CI.
 
-```python
-# DO — implementation + deferral-test sweep in one commit
-# M  src/pkg/tracking.py  (replaces NotImplementedError with real impl)
-# D  tests/unit/test_pkg_deferred_bodies.py::test_track_deferral_names_phase
-# A  tests/integration/test_pkg_tracking.py  (real coverage)
-
-# DO NOT — implement the symbol, leave the deferral test
-# M  src/pkg/tracking.py
-# (tests/unit/test_pkg_deferred_bodies.py still calls track() inside
-#  pytest.raises(NotImplementedError); CI fails "DID NOT RAISE" on every matrix job)
+```text
+# DO — one commit lands the real impl AND deletes/rewrites the `pytest.raises(NotImplementedError)` deferral test, adding real coverage
+# DO NOT — land the impl only; the deferral test still asserts the raise and CI fails "DID NOT RAISE" on every matrix job
 ```
 
 **BLOCKED rationalizations:**
@@ -121,9 +82,37 @@ Mirror of Rule 4. Any PR that _implements_ a previously-deferred stub — replac
 - "I'll clean up the scaffold tests in a follow-up"
 - "The Phase N naming means the test self-documents as obsolete"
 
-**Why:** CI-late discovery blocks the release PR's matrix run at the worst possible moment. A `grep -rln 'NotImplementedError.*<symbol>' tests/` at implementation time catches it in O(seconds); a CI re-run costs O(minutes) plus an extra reviewer cycle.
+**Why:** CI-late discovery blocks the release PR's matrix run at the worst possible moment. A `grep -rln 'NotImplementedError.*<symbol>' tests/` at implementation time catches it in O(seconds); a CI re-run costs O(minutes) plus an extra reviewer cycle. Full example + Origin: `guides/rule-extracts/orphan-detection.md` § "Rule 4a"; the 5-matrix-job CI failure: `skills/16-validation-patterns/orphan-audit-playbook.md` § 4a.
 
-Origin: Session 2026-04-20 kailash-ml 0.13.0 release (PR #552). See `skills/16-validation-patterns/orphan-audit-playbook.md` § 4a for the full 5-matrix-job CI failure.
+### 4c. Default/Behavior Change MUST Sweep Stale-Assertion Tests In Same PR — Including Out-Of-CI-Matrix Tests
+
+Sibling of Rule 4a, generalizing "sweep the paired tests in the same commit" from stub-implementation (4a) to ANY default or behavior change (a model default, a config default, a threshold, a resolved value), PLUS the load-bearing "CI-green is NOT full-suite-green" insight: CI matrices routinely EXCLUDE example tests, optional-dependency-gated tests, and ambient-`.env`-dependent tests, so a default change can be FULLY CI-green while N full-suite tests still assert the OLD value. Any PR that changes a default/behavior MUST grep the ENTIRE test corpus (not just the CI-selected subset) for assertions pinning the old value and update them in the SAME PR.
+
+```text
+# DO — change the default, then `grep -rln '<old-value>' tests/ examples/ packages/*/tests/` (ENTIRE corpus, not the CI subset) and update every stale assertion in THIS PR
+# DO NOT — change the default and sweep only CI-selected tests; CI goes fully green while example / optional-dep-gated / ambient-.env tests still assert the old value
+```
+
+**BLOCKED rationalizations:**
+
+- "CI is fully green, so the sweep is complete" (CI excludes example / optional-dep-gated / ambient-.env tests)
+- "The old-value assertions are in tests CI never runs — they don't matter"
+- "Release prep will catch the stragglers" (release prep is a separate PR + cycle; the sweep is O(seconds) now)
+- "The default change is one line; the test sweep is scope creep"
+- "The gated tests re-assert when someone installs the optional dep" (they red for whoever runs the full suite, unbounded)
+
+**Why:** A default/behavior change silently invalidates every test that pinned the old value, and the CI matrix's exclusions (examples, optional-dep-gated, ambient-`.env`) mean "CI green" is NOT "full-suite green" — so the stragglers surface at release prep, a separate PR and a separate cycle. The full-corpus grep at change time is O(seconds); the deferred discovery is O(minutes) plus a reviewer cycle. Full example + evidence: `guides/rule-extracts/orphan-detection.md` § "Rule 4c".
+
+**Trust Posture Wiring (Rule 4c):**
+
+- **Severity:** `halt-and-report` at gate-review (reviewer at `/implement` + release-specialist at `/release` confirm the ENTIRE test corpus — including CI-excluded example / optional-dep-gated / ambient-`.env` tests — was swept for stale old-value assertions in the same PR); `advisory` at the hook layer per `hook-output-discipline.md` MUST-2 (a full-corpus-sweep property is judgment-bearing over cross-file state, not a structural tool-call signal).
+- **Grace period:** 7 days from clause landing (2026-07-20 → 2026-07-27).
+- **Cumulative posture impact:** same-class violations (a default/behavior change that left stale old-value assertions in out-of-CI-matrix tests) contribute to `trust-posture.md` MUST-4 cumulative-window math (3× same-rule / 5× total in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` emergency trigger per `trust-posture.md` MUST-4 (1× = drop 1 posture) — NO dedicated per-clause key (a test-sweep completeness property is review-layer-only, and minting a key would drag `trust-posture.md`, a self-referential-codify allowlist file, into a self-ref edit). Named deviation from the canonical key-per-clause shape, recorded here per `trust-posture.md` Rule 8 — same disposition as `security.md` § Enforcement-Surface Parity + `git.md` § CI-check/merge.
+- **Receipt requirement:** SessionStart soft-gate `[ack: orphan-detection]` IFF `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — for any diff changing a default/behavior, reviewer at `/implement` + release-specialist at `/release` run `grep -rln '<old-value>' tests/ examples/ packages/*/tests/` across the FULL corpus (not the CI-selected subset) and confirm zero stale old-value assertions remain. Phase 2 (deferred per `trust-posture.md` § Two-Phase Rollout) — no hook detector; audit fixtures land with the Phase-2 detector at `.claude/audit-fixtures/orphan-default-change-sweep/` per `cc-artifacts.md` Rule 9.
+- **Violation scope:** Rule 4c (default/behavior-change stale-assertion sweep, including out-of-CI-matrix tests) ONLY; Rules 1–4a / 5–6b stay grandfathered until each is itself `/codify`-touched.
+- **Origin:** kailash-py PR #1847 (#1844/#1845 cost fix, 2026-07-20) — model-default change was fully CI-green while 18 out-of-CI-matrix test files still asserted the old defaults, caught only at release prep (PR #1850). Landed at loom via `/sync-from-build` Gate-1 classification. Full narrative: `guides/rule-extracts/orphan-detection.md` § "Rule 4c → Origin".
 
 ### 5. Collect-Only Is A Merge Gate
 
@@ -149,25 +138,15 @@ Rule 5 MUST NOT be interpreted as mandating a single combined root-venv invocati
 - "We'll duplicate the test deps in root [dev] just for collection"
 - "Per-package collection is belt-and-suspenders"
 
-**Why:** `python-environment.md` Rule 4 blocks sub-package test deps from root `[dev]` because plugins like `hypothesis` register as pytest plugins and trigger `MemoryError` during AST rewrite. Per-package collection granularity matches dep-graph granularity.
-
-Origin: Session 2026-04-20 /redteam collection-gate work.
+**Why:** `python-environment.md` Rule 4 blocks sub-package test deps from root `[dev]` because plugins like `hypothesis` register as pytest plugins and trigger `MemoryError` during AST rewrite. Per-package collection granularity matches dep-graph granularity. Origin + detail: `guides/rule-extracts/orphan-detection.md` § "Rule 5a".
 
 ### 6. Module-Scope Public Imports Appear In `__all__`
 
 When a symbol is imported at module-scope into a package's `__init__.py` (not behind `_` / not lazy via `__getattr__`), it MUST appear in that module's `__all__` list unless the symbol is private. New `__all__` entries MUST land in the same PR as the import. Eagerly-imported-but-absent-from-`__all__` is BLOCKED.
 
-```python
-# DO — every public module-scope import appears in __all__
-from kailash_ml._device_report import DeviceReport, device_report_from_backend_info
-
-__all__ = ["__version__", "DeviceReport", "device_report_from_backend_info", ...]
-
-# DO NOT — public symbol imported but missing from __all__
-from kailash_ml._device_report import DeviceReport, device_report_from_backend_info
-
-__all__ = ["__version__", ...]  # DeviceReport absent
-# Result: `from kailash_ml import *` drops the advertised public API
+```text
+# DO — every public module-scope import (`DeviceReport`, `device_report_from_backend_info`) also appears in that module's `__all__`
+# DO NOT — eagerly import the public symbol but omit it from `__all__`; `from pkg import *` then drops the advertised public API
 ```
 
 **BLOCKED rationalizations:**
@@ -176,42 +155,20 @@ __all__ = ["__version__", ...]  # DeviceReport absent
 - "Nobody uses `from pkg import *`"
 - "`__all__` is a convention, not a contract"
 
-**Why:** `__all__` is the package's public-API contract: Sphinx autodoc, linters, `mypy --strict`, and `from pkg import *` all read it as the canonical export list. A symbol that's eagerly imported but absent is both advertised (via import) AND hidden (via `__all__`) — the exact inconsistency the orphan pattern produces.
-
-Origin: PR #523 / PR #529 (2026-04-19) — kailash-ml 0.11.0 eagerly imported 4 DeviceReport symbols but omitted all from `__all__`; patched in 0.11.1.
+**Why:** `__all__` is the package's public-API contract: Sphinx autodoc, linters, `mypy --strict`, and `from pkg import *` all read it as the canonical export list. A symbol that's eagerly imported but absent is both advertised (via import) AND hidden (via `__all__`) — the exact inconsistency the orphan pattern produces. Full code + Origin (PR #523 / #529, 2026-04-19): `guides/rule-extracts/orphan-detection.md` § "Rule 6".
 
 #### 6b. TYPE_CHECKING Block For Lazy `__getattr__` Exports
 
 Packages that lazy-load heavy optional deps (torch, vllm, catboost) via `__getattr__` MUST still expose those symbols to static analysis (CodeQL `py/undefined-export`, pyright, mypy `--strict`, Sphinx autodoc) via a `TYPE_CHECKING` block. Eager-importing the heavy deps defeats the lazy design; removing them from `__all__` breaks `from pkg import *`. The `TYPE_CHECKING` pattern is the single reconciliation.
 
-```python
-# DO — TYPE_CHECKING block satisfies static analyzers; runtime stays lazy
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from kailash_align.torch_utils import TorchTrainer  # analyzer-only import
-
-__all__ = ["TorchTrainer", ...]  # CodeQL py/undefined-export resolves via TYPE_CHECKING
-
-def __getattr__(name):
-    if name == "TorchTrainer":
-        from kailash_align.torch_utils import TorchTrainer  # lazy runtime import
-        return TorchTrainer
-    raise AttributeError(name)
-
-# DO NOT — __all__ entry with no static-analyzer resolution
-__all__ = ["TorchTrainer", ...]
-def __getattr__(name):
-    if name == "TorchTrainer":
-        from kailash_align.torch_utils import TorchTrainer
-        return TorchTrainer
-# ↑ CodeQL py/undefined-export flags "TorchTrainer" as undefined at module scope
+```text
+# DO — `if TYPE_CHECKING: from pkg.torch_utils import TorchTrainer` (analyzer-only) alongside the lazy `__getattr__` runtime import; `__all__` entry then resolves for CodeQL/pyright/Sphinx
+# DO NOT — list the symbol in `__all__` with only a `__getattr__` resolution; CodeQL `py/undefined-export` flags it as undefined at module scope
 ```
 
 **BLOCKED rationalizations:** "CodeQL is noisy, suppress the finding" / "static analyzers will catch up eventually" / "eager-importing is fine, users have torch installed anyway" / "we can drop the lazy path".
 
-**Why:** A `__getattr__`-resolved entry in `__all__` is both advertised (Sphinx autodoc reads `__all__`) AND unverifiable (the symbol has no module-scope binding). Static analyzers flag it as undefined; users who `from pkg import *` get `ImportError` at runtime when the heavy dep is missing. The `TYPE_CHECKING` block resolves the static-analysis half without dragging the heavy dep into the hot import path — both contracts satisfied.
-
-Origin: commit `7943b3a1` (2026-04-23) — closed 17 `py/undefined-export` CodeQL findings in `kailash_align/__init__.py` without forcing torch into the eager import path.
+**Why:** A `__getattr__`-resolved entry in `__all__` is both advertised (Sphinx autodoc reads `__all__`) AND unverifiable (no module-scope binding), so static analyzers flag it undefined and `from pkg import *` raises `ImportError` when the heavy dep is absent. The `TYPE_CHECKING` block satisfies both contracts without dragging the dep into the hot import path. Full code + Origin (commit `7943b3a1`, 17 `py/undefined-export` findings closed): `guides/rule-extracts/orphan-detection.md` § "Rule 6b".
 
 ### 6a. Merge-Time `__all__` Reconciliation Across Shard Base-SHAs
 
@@ -222,24 +179,9 @@ When two or more parallel-worktree shards each edit the same package's `__init__
 3. **Update count-dependent tests.** Tests that assert `len(__all__) == N` MUST be patched to reflect the reconciled count in the SAME commit as the reconciliation.
 4. **Run the module-scope import check from §6.** Every newly-added entry MUST still have a matching eager import.
 
-```python
-# DO — reconcile __all__ at merge time, prefer HEAD, preserve invariants
-# After merging W31 (base 899ce3e5) + W33 (base 41a217dc), both edited __all__.
-# W33 introduced 6-group canonical structure; W31 added 7 Trainable adapters.
-# Resolution:
-__all__ = [
-    # Group 1 — Core engine facade (W33's canonical structure)
-    "MLEngine", "Engine",
-    # Group 2 — Trainable adapters (W31 invariant: 7 Phase-1 adapters)
-    "Trainable", "SklearnTrainable", "LightGBMTrainable", "XGBoostTrainable",
-    "CatBoostTrainable", "TorchTrainable", "LightningTrainable",
-    # ... Groups 3-6 from W33 ...
-]
-# Then: update test_km_all_ordering.py count expectation in the same commit.
-
-# DO NOT — pick one shard's __all__ wholesale, lose the other's invariant
-# (W33's __all__ wins → 7 Trainable adapters missing → every downstream
-#  import of SklearnTrainable breaks on the next install)
+```text
+# DO — adopt the later shard's canonical `__all__` structure AND re-add the older shard's invariant symbols, then fix the count-assertion test in the SAME commit
+# DO NOT — take one shard's `__all__` wholesale; the other shard's added exports vanish and every downstream import of them breaks on the next install
 ```
 
 **BLOCKED rationalizations:**
@@ -250,9 +192,7 @@ __all__ = [
 - "HEAD always wins, older shard's invariants don't matter"
 - "The reconciliation can happen in a follow-up PR"
 
-**Why:** `__all__` is the public-API contract (§6 above); parallel shards from different base SHAs each advance that contract independently, and git's 3-way merge picks one side arbitrarily when both modified the same list. Without explicit reconciliation, the newer shard's canonical structure wipes the older shard's added exports, silently orphaning production symbols that downstream consumers depend on. The count-dependent tests are the structural defense — they fail loudly when `len(__all__)` changes unexpectedly, forcing the orchestrator to examine every reconciliation. Evidence: kailash-ml-audit 2026-04-23 merge — W33 (base `41a217dc`) landed a 6-group canonical `__all__`; W31 (base `899ce3e5`) had separately added 7 Trainable adapters. Merge picked HEAD; fix commit `fa300831` merged the 6-group canonical structure with the 7 Phase-1 Trainable adapters and reconciled `test_km_all_ordering.py` count expectation.
-
-Origin: kailash-ml-audit session 2026-04-23 — W31/W33 parallel-shard `__all__` reconciliation at merge (commit `fa300831`).
+**Why:** Parallel shards from different base SHAs each advance the `__all__` public-API contract independently, and git's 3-way merge picks one side arbitrarily — so the newer shard's canonical structure silently wipes the older shard's added exports, orphaning production symbols downstream consumers import. The count-dependent tests are the structural defense: they fail loudly when `len(__all__)` shifts unexpectedly. Full example + evidence chain + Origin (kailash-ml-audit 2026-04-23 W31/W33 merge, fix commit `fa300831`): `guides/rule-extracts/orphan-detection.md` § "Rule 6a".
 
 ## MUST NOT
 
@@ -271,3 +211,5 @@ Origin: kailash-ml-audit session 2026-04-23 — W31/W33 parallel-shard `__all__`
 ## Detection Protocol
 
 The 6-step `/redteam` audit procedure (six detection steps + disposition) lives in `skills/16-validation-patterns/orphan-audit-playbook.md` § "Detection Protocol". Runs as part of `/redteam` and `/codify`.
+
+**Length rationale (per `rules/rule-authoring.md` MUST NOT § "Rules longer than 200 lines").** Rule body is 215 lines, exceeding the 200-line guidance by 15 (down from 312 at the #1392 trim). Named rationale: **orphan-surface scope** — twelve numbered clauses (1, 2/2a, 3, 4/4a/4c, 5/5a, 6/6a/6b; the 4b slot holds the extracted Error-Contract Refactor clause, `orphan-audit-playbook.md` §4b), each guarding a DISTINCT orphan-emergence path a `/redteam` orphan audit MUST hold simultaneously, plus the post-cutoff clause-scoped Trust-Posture Wiring (Rule 4c) that `trust-posture.md` MUST-8 requires in the rule body. All worked code, evidence chains, and origin narratives are EXTRACTED to `guides/rule-extracts/orphan-detection.md` + `skills/16-validation-patterns/orphan-audit-playbook.md`. `priority: 10` + `scope: path-scoped`, so it pays NO baseline-emission cost and `rule-authoring.md` Rule 10's proximity-band gate does NOT fire. Sibling precedent: `tenant-isolation.md` + `cross-sdk-inspection.md`.

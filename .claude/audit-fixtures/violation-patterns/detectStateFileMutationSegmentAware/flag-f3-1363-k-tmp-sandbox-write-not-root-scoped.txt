@@ -1,0 +1,1 @@
+node -e 'require("fs").writeFileSync("/tmp/f2-walk/otherroot/.claude/settings.json", "{}")'

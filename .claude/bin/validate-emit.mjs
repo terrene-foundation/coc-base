@@ -145,6 +145,20 @@ import { REPO as EMIT_REPO } from "./emit-cli-artifacts.mjs";
 // entry: CC no longer matches that form, so it ships an inert gate. The same
 // deterministic transform the sync handlers apply is the detector here.
 import { reconcileDenyArray } from "./reconcile-settings-deny.mjs";
+// loom#1501 (L4) — the emission axes, declared once (see the SSOT note at
+// VARIANT_LANGS below).
+import { EMIT_LANGS, EMIT_CLIS } from "./lib/emit-axes.mjs";
+// NOTE — `reconcile-settings-hooks.mjs` is the SSOT for "what does this
+// settings.json command GENUINELY register, at which event, under which
+// normalized matcher", and `hook-event-declaration` shares it rather than
+// standing up a second recognizer (security.md § Enforcement-Surface Parity).
+// It is deliberately NOT statically imported here: this tool SHIPS
+// (ALWAYS_INCLUDE) and that reconciler does NOT (it pulls `./lib/coc-manifest.mjs`
+// + `../hooks/lib/settings-deny-guard-shape.js`), so a module-scope import would
+// be ERR_MODULE_NOT_FOUND at every consumer — the F1030d fail-closed class that
+// `test-harness/tests/f1030d-fail-closed-bin.test.mjs` A5 asserts against. It is
+// lazy-loaded inside checkHookEventDeclaration instead, degrading to SKIP when
+// absent, exactly as the edition libs do in checkEditionCommunityCompleteness.
 // #825 Wave-2 Shard-03 — the community-completeness gate reads the positive
 // reference-primitive floor and re-verifies each is IN the community projection.
 // F1030d (#1051): these two libs are loom_only (they do NOT ship — #825 edition
@@ -230,6 +244,7 @@ const DETECTOR_RE = /^detect[A-Z]/;
 const CHECK_IDS = [
   "command-frontmatter",
   "settings-hook-registration",
+  "hook-event-declaration",
   "command-line-cap",
   "readonly-specialist-tools",
   "tool-canonicality",
@@ -3635,16 +3650,17 @@ function checkCodexPoliciesFresh(root) {
 // lang-cli axes are their cross product. A file under variants/<axis>/rules/ is
 // composed by filesystem convention iff <axis> is in this set.
 //
-// SSOT NOTE: these two arrays MUST stay in sync with the emitter's axis sets —
-// VARIANT_LANGS mirrors `emit.mjs` `declaredTargets` (the lang list `composeRule`
-// iterates) and VARIANT_CLIS mirrors the codex/gemini cli list in `emit.mjs`
-// main(). If a future lane adds an axis to the emitter but NOT here, a
-// legitimately-composed variants/<newaxis>/rules/... file is mis-flagged as an
-// orphan (a false /sync BLOCK — fail-CLOSED, never a false allow). When you touch
-// either array, re-grep `declaredTargets` + the `clis = ... ["codex","gemini"]`
-// line in emit.mjs and mirror the change.
-const VARIANT_LANGS = ["py", "rs", "rb", "base", "prism"];
-const VARIANT_CLIS = ["codex", "gemini"];
+// SSOT: loom#1501 (L4) replaced the prose-enforced version of this note ("when
+// you touch either array, re-grep `declaredTargets` in emit.mjs") with a shared
+// import, because a re-grep instruction is not an invariant and the third copy
+// of this list — `validate-proximity-band.mjs::VALID_LANGS` — had already
+// drifted to a 3-lane set that rejected `--lang rb` and `--lang prism`. The
+// failure mode the old note correctly described is unchanged: a lane present in
+// the emitter but absent here mis-flags a legitimately-composed
+// variants/<axis>/rules/... file as an orphan (a false /sync BLOCK —
+// fail-CLOSED, never a false allow). It is now unreachable by construction.
+const VARIANT_LANGS = EMIT_LANGS;
+const VARIANT_CLIS = EMIT_CLIS;
 function variantConventionAxes() {
   const axes = new Set([...VARIANT_LANGS, ...VARIANT_CLIS]);
   for (const l of VARIANT_LANGS) for (const c of VARIANT_CLIS) axes.add(`${l}-${c}`);
@@ -3845,15 +3861,76 @@ function checkVariantOrphan(root) {
 // Regression-within-grace / Receipt requirement / Detection ...) and the
 // Distinct-From bullets (Extends / Pairs / Distinct), which share the
 // `- **<Label>:**` shape but are NOT allowlist sources.
+// MAINTENANCE CONTRACT (loom#1478 R10 HIGH-1). This set is a POSITIVE ALLOWLIST of
+// bullet labels, so a new allowlist category is INVISIBLE to this check until its
+// first word is added here — and invisible means the entry silently does not fire.
+// Two entries shipped in exactly that state before this comment existed:
+//   `Rule-depth extracts (codify-class)`  (2026-07-31, #1478)
+//   `Eval-harness engine (codify-class)`  (2026-07-19, C2)
+// Both carried prose asserting "so `allowlist-paths-coverage` (#443) holds"; the
+// check never saw either bullet, so that claim was true only by vacuity. Measured:
+// parsed size 209 with both absent, 211 with both present (one new DEPTH-0 entry
+// per bullet — neither first word alone yields 211). The same codify then added
+// `.claude/skills/18-security-patterns/**` to the already-visible Skills bullet,
+// taking the landed state to 212 entries / 1413 validate-emit rows.
+// IF YOU ADD A BULLET TO self-referential-codify.md § Rule 2, ADD ITS FIRST WORD HERE.
 const ALLOWLIST_CATEGORY_FIRST_WORDS = new Set([
   "Commands", "Skills", "Rules", "Hooks", "Data", "Bin",
   "Tools", "Codex", "Audit", "Management",
+  "Rule-depth", "Eval-harness",
 ]);
 
 // Path-prefix gate: a genuine allowlist entry is a real artifact path. Prose
 // backtick references inside a bullet (rule names like `cc-artifacts.md`, §
 // citations) are bare — they do NOT carry one of these repo-root prefixes.
 const ALLOWLIST_PATH_PREFIX = /^(\.claude\/|tools\/|scripts\/)/;
+
+// CLOSING the maintenance trap the comment above only DOCUMENTS (loom#1478 R15 F4).
+// The positive-allowlist set is correct (cc-artifacts.md Rule 10), but the
+// `continue` that consumes a non-member is BARE: an unrecognized bullet is dropped
+// with no error, no warning, no count. `Rule-depth` and `Eval-harness` both shipped
+// in exactly that state — the latter undetected for 12 days — each under prose
+// asserting "so `allowlist-paths-coverage` (#443) holds", true only by vacuity.
+// Adding the two missing words fixed those two instances and left the CLASS open:
+// the next bullet authored with a new label re-opens it silently.
+//
+// The fix is SPAN-SCOPED, not blanket. Inside § Rule 2's allowlist block every
+// `- **<Label>:**` bullet IS an allowlist category, so an unrecognized first word
+// there is an error. OUTSIDE that span the same `- **<Label>:**` shape is used by
+// the Trust-Posture-Wiring bullets (Severity / Grace period / …) and the
+// Distinct-From bullets (Extends / Pairs / Distinct) — legitimately NOT allowlist
+// sources, exactly as the comment above notes. A blanket "error on any unrecognized
+// bullet" would false-positive on all of them.
+//
+// Span anchors are the prose lines that open and close the block. If either anchor
+// stops matching, the check reports THAT (spanOk:false) rather than scanning to EOF
+// and flooding on the out-of-span bullets — an anchor drift is itself a finding.
+const ALLOWLIST_SPAN_START = /^The allowlist \(load-bearing paths only;/;
+const ALLOWLIST_SPAN_END = /^\*\*`paths:` frontmatter is the load-trigger SUPERSET/;
+
+// Return { spanOk, unrecognized: [{label, first, line}] } for § Rule 2's allowlist
+// block. A non-empty `unrecognized` means a category bullet exists that
+// parseSelfRefAllowlist silently discards — its entries never reach the #443 gate.
+function findUnrecognizedAllowlistBullets(ruleText) {
+  if (ruleText == null) return { spanOk: false, unrecognized: [] };
+  const lines = ruleText.split(/\r?\n/);
+  const start = lines.findIndex((l) => ALLOWLIST_SPAN_START.test(l));
+  if (start === -1) return { spanOk: false, unrecognized: [] };
+  const rel = lines.slice(start + 1).findIndex((l) => ALLOWLIST_SPAN_END.test(l));
+  if (rel === -1) return { spanOk: false, unrecognized: [] };
+  const end = start + 1 + rel;
+  const unrecognized = [];
+  for (let i = start + 1; i < end; i++) {
+    const lm = lines[i].match(/^- \*\*([^:*]+)/);
+    if (!lm) continue;
+    const label = lm[1].trim();
+    const first = label.split(/\s+/)[0];
+    if (!ALLOWLIST_CATEGORY_FIRST_WORDS.has(first)) {
+      unrecognized.push({ label, first, line: i + 1 });
+    }
+  }
+  return { spanOk: true, unrecognized };
+}
 
 // Brace-expand `{a,b,c}` (recursively, supporting one brace group at a time as
 // the rule authors them — e.g. `.claude/rules/{trust-posture,cc-artifacts}.md`
@@ -4176,12 +4253,47 @@ function checkAllowlistPathsCoverage(root) {
     };
   }
   const results = [];
+  // LOUD on a silently-discarded category bullet (R15 F4). Scoped to § Rule 2's
+  // allowlist span so the Trust-Posture-Wiring / Distinct-From bullets outside it
+  // stay unaffected.
+  //
+  // Computed BEFORE the zero-parse early return (R16-sec MED-2). parseSelfRefAllowlist
+  // DISCARDS every bullet whose first word is unrecognized, so a reformat that renames
+  // every category label at once yields allowlist.length === 0. The zero-parse branch
+  // returns a SKIP, which is NON-blocking — so with the guard behind it, MAXIMAL
+  // breakage would have been the QUIETEST outcome, and the guard whose entire purpose
+  // is loudness on unrecognized bullets would be the one thing that never ran.
+  const { spanOk, unrecognized } = findUnrecognizedAllowlistBullets(ruleText);
+  if (!spanOk) {
+    results.push({
+      artifact: "rules/self-referential-codify.md § Rule 2 allowlist span",
+      status: STATUS.FAIL,
+      detail:
+        `unrecognized-allowlist-bullet check could not locate the § Rule 2 allowlist span ` +
+        `(start anchor "The allowlist (load-bearing paths only;" / end anchor "**\`paths:\` frontmatter is the load-trigger SUPERSET"). ` +
+        `The span-scoped guard is therefore NOT running and a new category bullet would be discarded silently. Restore the anchors or update them in validate-emit.mjs.`,
+    });
+  }
+  for (const u of unrecognized) {
+    results.push({
+      artifact: `rules/self-referential-codify.md:${u.line} — bullet "${u.label}"`,
+      status: STATUS.FAIL,
+      detail:
+        `unrecognized-allowlist-bullet: first word "${u.first}" is absent from ALLOWLIST_CATEGORY_FIRST_WORDS, so parseSelfRefAllowlist DISCARDS this entire bullet — every path it declares is invisible to the #443 superset gate and its files silently do NOT fire the Rule-1 self-referential gate. ` +
+        `Add "${u.first}" to ALLOWLIST_CATEGORY_FIRST_WORDS in .claude/bin/validate-emit.mjs (this is the \`Rule-depth\` / \`Eval-harness\` class, which shipped undetected).`,
+    });
+  }
   if (allowlist.length === 0) {
-    return {
-      id,
-      source_rule,
-      results: [{ artifact: "rules/self-referential-codify.md", status: STATUS.SKIP, detail: "no allowlist entries parsed (category-bullet shape changed?)" }],
-    };
+    // Zero-parse: still SKIP the per-entry coverage sweep (there is nothing to
+    // sweep), but return it ALONGSIDE any guard rows accumulated above rather
+    // than in place of them — the unrecognized bullets are the likely CAUSE of
+    // the zero parse, and they are what the operator needs to see.
+    results.push({
+      artifact: "rules/self-referential-codify.md",
+      status: STATUS.SKIP,
+      detail: "no allowlist entries parsed (category-bullet shape changed?)",
+    });
+    return { id, source_rule, results };
   }
   for (const entry of allowlist) {
     const covering = globs.filter((g) => allowlistGlobCovers(g, entry));
@@ -4493,6 +4605,475 @@ function checkSettingsRegistration(root) {
   return { id, source_rule, results };
 }
 
+// ── CHECK — hook EVENT declaration (hook-event-selection.md) ───────────────────
+//
+// The sibling of `settings-hook-registration` one question further on. That check
+// asks "is this hook wired to ANYTHING?"; this one asks "is the event it is wired
+// to an event at which it can SEE ITS SUBJECT?" — the co-owner's finding that a
+// verification detector drifts onto SessionStart because SessionStart is the
+// easiest place to make a hook fire, where it then runs before the work it checks
+// exists and passes unconditionally forever.
+//
+// THE SPLIT IS LOAD-BEARING, AND HALF OF IT IS DELIBERATELY NOT HERE.
+//   STRUCTURAL (this check, blocking): token membership in a closed vocabulary,
+//   set equality between declared and registered (event, matcher) pairs, and the
+//   co-occurrence of a declared class token with an event/matcher. Every predicate
+//   is a set operation over tokens the AUTHOR wrote and over settings.json — none
+//   of them reads the hook's semantics, so `hook-output-discipline.md` MUST-2's
+//   "no block from a lexical signal" bar is met: these are structural facts, not a
+//   regex judging prose.
+//   SEMANTIC (NOT here, gate-review only): whether the class the author declared is
+//   the CORRECT class for what the hook actually inspects. That question reads the
+//   hook's behaviour. A lexical detector for it would be precisely the over-claimed
+//   enforcement this rule exists to block, so it is not built and not claimed.
+//
+// GRANDFATHERING, without an allowlist. A registered hook carrying NO marker is a
+// non-blocking advisory (SKIP + `WARN:` detail — the carrier this validator already
+// uses for MUST-2 advisories), so the pre-rule corpus does not turn `/sync` red on
+// landing, and no hardcoded exemption list has to be maintained or retired. Every
+// predicate above fires the moment a hook opts in by carrying a marker, so the
+// ratchet closes per-hook and a marker, once written, is locked to the registration.
+const HOOK_EVENTS = new Set([
+  "PreToolUse",
+  "PostToolUse",
+  "Notification",
+  "UserPromptSubmit",
+  "Stop",
+  "SubagentStop",
+  "PreCompact",
+  "SessionStart",
+  "SessionEnd",
+]);
+// Positive allowlist per cc-artifacts.md Rule 10 — an unrecognized class token
+// FAILs rather than being silently ignored, so a typo (`verifiction`) cannot
+// disable the MUST-2 predicate by falling out of the comparison.
+// The token set is the rule's, not this file's: `hook-event-selection.md` MUST-1
+// enumerates exactly these four, so widening it here would put the check ahead of
+// the rule it enforces. (A fifth `repair` token was drafted and reverted — the
+// draft left MUST-1 and two prose paragraphs asserting the four-token model, so
+// the rule contradicted itself in three places. If the vocabulary needs a fifth
+// token that is its own codify, amending rule and check together.)
+const HOOK_CLASSES = new Set(["lifecycle", "telemetry", "guard", "verification"]);
+// Classes whose subject is one specific action or artifact, so a `*` matcher
+// charges every unrelated tool call for a check that can never fire on it.
+const HOOK_NARROW_CLASSES = new Set(["guard", "verification"]);
+// The only events carrying a TOOL axis — i.e. the only ones where a matcher can
+// name what the hook acts on. A narrow class is meaningless anywhere else.
+const HOOK_TOOL_AXIS_EVENTS = new Set(["PreToolUse", "PostToolUse"]);
+// Rule-land-time snapshot of already-registered hooks. Present => grandfathered
+// (missing marker is advisory); absent => NEW => a missing marker FAILs. Read from
+// disk so it is reviewable and diffable rather than baked into this source.
+const HOOK_EVENT_GRANDFATHER_FILE = ".claude/hook-event-grandfather.json";
+
+/**
+ * Is this error the absence of the specifier WE requested — as opposed to the
+ * absence of something that specifier transitively depends on?
+ *
+ * The distinction is load-bearing and was a real fail-open. Discriminating on the
+ * error CODE alone conflates two opposite situations that raise the identical
+ * `MODULE_NOT_FOUND`: (1) the module we asked for is genuinely absent — the
+ * consumer case, where degrading to SKIP is correct; and (2) the module IS present
+ * but one of ITS static imports is missing or renamed — a loom-side breakage, where
+ * degrading to SKIP silently disarms a blocking check and reports the false
+ * statement "the recognizer is not present". Only (1) may degrade.
+ *
+ * Pure + exported so both arms are fixture-testable without breaking a real
+ * dependency on disk.
+ */
+function isMissingOwnSpecifier(err, specifier) {
+  if (!err) return false;
+  if (err.code !== "MODULE_NOT_FOUND" && err.code !== "ERR_MODULE_NOT_FOUND") return false;
+  // FIRST LINE ONLY, and only the QUOTED specifier within it. Node appends
+  //     Cannot find module './lib/x.mjs'
+  //     Require stack:
+  //     - <...>/reconcile-settings-hooks.mjs
+  // so the PARENT — the module we asked for — appears in the message of a NESTED
+  // failure. A whole-message `includes()` therefore returns true for exactly the
+  // case this predicate exists to EXCLUDE, which is how the first cut of this fix
+  // still leaked. Measured, not reasoned: requiring a missing './lib/…' through
+  // reconcile-settings-hooks yields a message containing "reconcile-settings-hooks".
+  // The ESM arm puts "imported from <parent>" on the same line, so that is cut too.
+  const firstLine = String(err.message || "")
+    .split("\n")[0]
+    .split(" imported from ")[0];
+  const m = firstLine.match(/Cannot find (?:module|package)\s+['"]([^'"]+)['"]/);
+  // Unrecognized message shape => fail CLOSED (re-throw), never degrade to SKIP on
+  // a message we could not parse.
+  if (!m) return false;
+  // SUBSTRING, and that is a latent widening — NOT live today. A nested dep whose
+  // own path CONTAINED the specifier (`./reconcile-settings-hooks-util.mjs`) would
+  // satisfy this and degrade to SKIP again. It is safe only because
+  // reconcile-settings-hooks.mjs imports exactly two modules — `./lib/coc-manifest.mjs`
+  // and `../hooks/lib/settings-deny-guard-shape.js` — and neither matches. A future
+  // sibling named after it would re-open the hole, so tighten to a basename/extension
+  // comparison if this seam ever grows a third import.
+  return m[1].includes(specifier);
+}
+function loadHookEventGrandfather(root) {
+  // Fail CLOSED on absence or malformation: an empty set means nothing is
+  // grandfathered, so every undeclared registered hook FAILs loudly. The inverse
+  // default (treat-all-as-grandfathered) would silently disarm the whole ratchet
+  // the moment this file went missing.
+  const text = safeRead(join(root, HOOK_EVENT_GRANDFATHER_FILE));
+  if (text == null) return new Set();
+  try {
+    const parsed = JSON.parse(text);
+    return new Set(Array.isArray(parsed.grandfathered) ? parsed.grandfathered : []);
+  } catch {
+    return new Set();
+  }
+}
+// `@hook-event: <Event>[:<matcher>] (<class>) — <rationale>`
+// The matcher class is `\S+` so `Edit|Write|NotebookEdit` and `*` both capture,
+// and both stop at the space before `(`. Rationale is first-line only; a wrapped
+// continuation line adds nothing the non-emptiness predicate needs.
+const HOOK_EVENT_MARKER_RE =
+  /@hook-event:\s*([A-Za-z]+)(?::(\S+))?\s*\(([^)]*)\)\s*[—–-]+\s*(.*)$/;
+const HOOK_EVENT_MARKER_PRESENT_RE = /@hook-event:/;
+// NEAR-MISS. A line OBVIOUSLY trying to be a declaration but misspelling the
+// keyword must be LOUD, not silent. Without this, `@hook-events:`, `@hook_event:`,
+// `@Hook-Event:` and `@hook-event :` all miss the exact-match above, leave
+// `markers` empty, and drop the hook into the GRANDFATHER path — a real
+// declaration, carrying a real verdict, waved through by the clause meant to spare
+// hooks that never opted in.
+//
+// The `@` IS REQUIRED, and that is the whole precision budget. A drafted second
+// alternation also accepted the bare keyword at the start of a comment line
+// (`^\s*(?://|\*|#)?\s*hook[-_ ]?events?\s*:`). Measured against the real corpus it
+// FAILED 13 of 38 registered hooks, 12 of them legitimately grandfathered and one
+// (posture-gate.js) previously PASSing. Cause: with `[-_ ]?` optional and the `i`
+// flag, that branch matches the ordinary JS property `hookEvent:` — which appears
+// in the output payload of nearly every hook (`hookEvent: "PreToolUse",`). The
+// `@`-anchored form scores 0 false positives and 0 false negatives on the same
+// corpus, so a misspelling is caught only when the author reached for the marker
+// SIGIL. A near-miss detector that reds working hooks is worse than the swallow it
+// closes.
+const HOOK_EVENT_NEAR_MISS_RE = /@\s*hook[-_ ]?events?\s*:/i;
+// WHOLE FILE, deliberately — and this was a header slice until it was measured.
+//
+// The first cut read only the leading 4000 bytes, on the reasoning that "a
+// declaration belongs in the header". 37 of loom's 39 top-level hooks are LARGER
+// than that, and nothing forces the marker into the first 4 kB. A marker placed
+// after a long header is then INVISIBLE to the parse, `markers.length === 0`, and
+// the hook falls into the GRANDFATHER path — reported as "carries no declaration",
+// non-blocking. Induced and confirmed: a `@hook-event: SessionStart (verification)`
+// line at byte ~4500 was swallowed and reported SKIP/WARN. That is a hook which
+// genuinely opted in, carrying the EXACT defect this rule exists to block, waved
+// through by the clause meant to spare hooks that never opted in — the fail-open
+// shape of the whole wave, reproduced inside its own detector.
+//
+// Scanning the whole file trades that silent fail-open for a LOUD failure mode: a
+// `@hook-event:` token quoted in a string or in example prose inside a hook now
+// joins the declared set and, if it does not correspond to a real registration,
+// FAILs on MUST-4 set equality. A false FAIL is visible and one edit from
+// resolution; a swallowed declaration is invisible and permanent. Fail-closed is
+// the correct direction here per `hook-output-discipline.md`.
+const readHookHeader = (text) => text;
+
+/**
+ * Parse the `@hook-event:` declarations out of a hook's header.
+ * Pure — takes text, returns plain data — so the audit fixtures can exercise every
+ * predicate without a repo on disk.
+ * @param {string} headerText
+ * @returns {{markers:Array<{event,matcher,cls,rationale,raw}>, malformed:string[]}}
+ */
+function parseHookEventMarkers(headerText) {
+  const markers = [];
+  const malformed = [];
+  for (const raw of String(headerText || "").split(/\r?\n/)) {
+    // Exact keyword OR near-miss: both route to the parse, and a parse failure on
+    // either is MALFORMED (loud), never silence. Checking the near-miss here rather
+    // than only inside the failure branch is what makes a misspelled keyword
+    // visible at all — the exact-match test alone never sees the line.
+    if (!HOOK_EVENT_MARKER_PRESENT_RE.test(raw) && !HOOK_EVENT_NEAR_MISS_RE.test(raw)) continue;
+    const m = HOOK_EVENT_MARKER_PRESENT_RE.test(raw) ? raw.match(HOOK_EVENT_MARKER_RE) : null;
+    if (!m) {
+      malformed.push(raw.trim());
+      continue;
+    }
+    markers.push({
+      event: m[1],
+      matcher: m[2] ?? null,
+      cls: m[3].trim(),
+      rationale: m[4].trim(),
+      raw: raw.trim(),
+    });
+  }
+  return { markers, malformed };
+}
+
+// Registration identity for this check. The separator is a SPACE, deliberately —
+// neither an event name nor a `normalizeMatcher` output can contain one, and a raw
+// NUL (the separator `reconcile-settings-hooks.mjs::regKey` writes as an explicit
+// escape) makes the WHOLE SOURCE FILE binary to file(1) and to grep, so every
+// grep-based scanner silently returns zero matches for anything in it — a false
+// negative with no error to see. That is not hypothetical here: a raw 0x00 landed
+// on this line while it was being authored, and `grep -n hookEventKey` on this file
+// returned EMPTY while the string was present on disk. Do not reintroduce one.
+const hookEventKey = (event, matcherKey) => `${event} ${matcherKey}`;
+// Render a key back to the marker's own `Event[:matcher]` spelling. An absent
+// matcher (SessionStart, Stop, …) renders as the bare event, never `Stop:` — a
+// trailing colon reads as an empty matcher the author is being asked to supply.
+const showHookEventKey = (k) => {
+  const i = k.indexOf(" ");
+  const [event, matcherKey] = [k.slice(0, i), k.slice(i + 1)];
+  return matcherKey ? `${event}:${matcherKey}` : event;
+};
+
+function checkHookEventDeclaration(root, opts = {}) {
+  const id = "hook-event-declaration";
+  const source_rule = "hook-event-selection.md MUST-1 / MUST-2 / MUST-3 / MUST-4";
+  // Lazy-load the SHARED registration recognizers (see the import-site note).
+  // Absence = the consumer case ⇒ SKIP: without the SSOT this check would have to
+  // guess what a command registers, and a second recognizer is exactly the drift
+  // `security.md` § Enforcement-Surface Parity forbids — better inert-and-loud
+  // than silently divergent. A present-but-broken load re-throws so a real
+  // loom-side breakage surfaces (evidence-first MUST-3). Injectable for tests.
+  let enumerateRegistrations = opts.enumerateRegistrations;
+  let normalizeMatcher = opts.normalizeMatcher;
+  if (!enumerateRegistrations || !normalizeMatcher) {
+    try {
+      const mod = _require("./reconcile-settings-hooks.mjs");
+      enumerateRegistrations = enumerateRegistrations || mod.enumerateRegistrations;
+      normalizeMatcher = normalizeMatcher || mod.normalizeMatcher;
+    } catch (e) {
+      // Discriminate on WHICH module was not found, not merely on the CODE.
+      // `reconcile-settings-hooks.mjs` statically imports `./lib/coc-manifest.mjs`
+      // and `../hooks/lib/settings-deny-guard-shape.js`. If either is deleted or
+      // renamed, the NESTED failure raises the SAME MODULE_NOT_FOUND — and a
+      // code-only test would swallow it, return SKIP, and assert the reconciler
+      // "is not present" when it is. That would silently disarm a blocking check
+      // AT LOOM, which is exactly where it is supposed to bite. Only the absence of
+      // the specifier this call actually requested may degrade; anything else
+      // re-throws.
+      if (isMissingOwnSpecifier(e, "reconcile-settings-hooks")) {
+        return {
+          id,
+          source_rule,
+          results: [
+            {
+              artifact: ".claude/bin/reconcile-settings-hooks.mjs",
+              status: STATUS.SKIP,
+              detail:
+                "WARN: the shared settings.json registration recognizer (reconcile-settings-hooks.mjs) is loom-only and not present — hook EVENT declarations cannot be cross-checked against registrations here. hook-event-selection.md's structural tier is loom-side; its gate-review tier still applies (F1030d fail-closed bin allowlist).",
+            },
+          ],
+        };
+      }
+      // Present-but-broken, OR a nested dependency of the reconciler missing —
+      // surface, never silently skip (evidence-first MUST-3).
+      throw e;
+    }
+  }
+  const hooksDir = join(root, ".claude", "hooks");
+  let diskHooks;
+  try {
+    diskHooks = readdirSync(hooksDir, { withFileTypes: true })
+      .filter((e) => e.isFile() && e.name.endsWith(".js"))
+      .map((e) => e.name)
+      .sort();
+  } catch {
+    return {
+      id,
+      source_rule,
+      results: [{ artifact: ".claude/hooks", status: STATUS.SKIP, detail: "hooks dir absent (consumer emitted tree — no source hooks)" }],
+    };
+  }
+  const settingsText = safeRead(join(root, ".claude", "settings.json"));
+  if (settingsText == null) {
+    return {
+      id,
+      source_rule,
+      results: [{ artifact: ".claude/settings.json", status: STATUS.SKIP, detail: "settings.json unreadable — skipping event-declaration cross-check" }],
+    };
+  }
+  let settings;
+  try {
+    settings = JSON.parse(settingsText);
+  } catch (e) {
+    return {
+      id,
+      source_rule,
+      // V8's JSON parser message embeds a SNIPPET of the offending input. This
+      // detail is echoed into the /sync commit message, so the raw message would
+      // carry a slice of settings.json (which holds per-repo `permissions`/`env`)
+      // into a durable, distributed artifact. First line only, hard-truncated.
+      results: [
+        {
+          artifact: ".claude/settings.json",
+          status: STATUS.FAIL,
+          detail: `settings.json does not parse as JSON: ${String(e.message || "").split("\n")[0].slice(0, 80)}`,
+        },
+      ],
+    };
+  }
+  // The registered (event, matcher) set per hook, read through the SHARED
+  // reconcile-settings-hooks recognizers. A second recognizer for "what does this
+  // command genuinely register" is exactly the drift `security.md`
+  // § Enforcement-Surface Parity forbids — and the one this check would be most
+  // tempted to write, since it only needs the basename.
+  const registeredByHook = new Map();
+  for (const r of enumerateRegistrations(settings)) {
+    if (!r.rel) continue; // non-canonical / inline shell — settings-hook-registration owns it
+    if (!registeredByHook.has(r.rel)) registeredByHook.set(r.rel, new Set());
+    registeredByHook.get(r.rel).add(hookEventKey(r.event, r.matcherKey));
+  }
+
+  // ENUMERATE FROM THE REGISTRATIONS, NOT FROM DISK. The first cut walked
+  // `readdirSync(...).filter(name.endsWith(".js"))` and looked each file up in the
+  // registration map. That direction is fail-OPEN: any registration the walk misses
+  // produces NO ROW AT ALL — not PASS, not SKIP, not FAIL, it simply vanishes. And
+  // the walk demonstrably can miss, because `CANONICAL_RE` accepts `js|mjs|cjs`
+  // while the filter accepted only `.js`, so a registered `.mjs` hook (or a
+  // symlinked one, which `isFile()` drops) would disappear silently. Driving the
+  // loop from `registeredByHook` inverts it: every genuine registration gets a row
+  // by construction, and disk is consulted only to read the file.
+  const grandfathered = opts.grandfathered || loadHookEventGrandfather(root);
+  const results = [];
+  const registeredRels = [...registeredByHook.keys()].sort();
+  for (const rel of registeredRels) {
+    const registered = registeredByHook.get(rel);
+    const h = rel.slice(".claude/hooks/".length);
+    const body = safeRead(join(hooksDir, h));
+    if (body === null) {
+      // Registered but not readable on disk. `settings-hook-registration` +
+      // `reconcile-settings-hooks --verify` own the dangling-registration verdict;
+      // emit a row rather than vanishing, so the absence is visible here too.
+      results.push({
+        artifact: `hooks/${h}`,
+        status: STATUS.SKIP,
+        detail: `WARN: registered at ${[...registered].map(showHookEventKey).join(", ")} but the script does not resolve on disk — dangling registration (reconcile-settings-hooks --verify owns the verdict).`,
+      });
+      continue;
+    }
+    const header = readHookHeader(body);
+    const { markers, malformed } = parseHookEventMarkers(header);
+    if (markers.length === 0 && malformed.length === 0) {
+      // BOUNDED GRANDFATHER. An UNBOUNDED one is not a ratchet: with no cut, a
+      // brand-new verification-at-SessionStart hook shipped with no marker takes
+      // the same non-blocking SKIP as a hook that predates the rule, and `/sync`
+      // stays green on exactly the defect the rule exists to block. The snapshot
+      // pins WHICH hooks were already registered when the rule landed; anything
+      // registered after is NEW and MUST declare. That is what makes the rule's
+      // "the ratchet closes per-hook as each opts in" claim true rather than
+      // aspirational — new hooks cannot enter the grandfathered set.
+      if (grandfathered.has(h)) {
+        results.push({
+          artifact: `hooks/${h}`,
+          status: STATUS.SKIP,
+          detail:
+            `WARN: registered at ${[...registered].map(showHookEventKey).join(", ")} but carries no ` +
+            "`@hook-event:` declaration — the event was never recorded as a choice (hook-event-selection.md MUST-1). " +
+            "Grandfathered non-blocking (present in hook-event-grandfather.json at rule-land time); add " +
+            "`@hook-event: <Event>[:<matcher>] (<lifecycle|telemetry|guard|verification>) — <why this event sees the subject>`.",
+        });
+      } else {
+        results.push({
+          artifact: `hooks/${h}`,
+          status: STATUS.FAIL,
+          detail:
+            `MUST-1 registered at ${[...registered].map(showHookEventKey).join(", ")} with NO \`@hook-event:\` declaration, ` +
+            "and this hook is NOT in the rule-land-time grandfather snapshot (.claude/hook-event-grandfather.json) — " +
+            "a hook registered after hook-event-selection.md landed MUST declare its event, matcher, class and rationale. " +
+            "Add `@hook-event: <Event>[:<matcher>] (<lifecycle|telemetry|guard|verification>) — <why this event sees the subject>`.",
+        });
+      }
+      continue;
+    }
+    const problems = [];
+    for (const bad of malformed) {
+      problems.push(`MUST-1 malformed declaration (want \`@hook-event: <Event>[:<matcher>] (<class>) — <rationale>\`): ${bad}`);
+    }
+    for (const m of markers) {
+      if (!HOOK_EVENTS.has(m.event)) {
+        problems.push(`MUST-1 unrecognized hook event \`${m.event}\` (allowed: ${[...HOOK_EVENTS].join(", ")})`);
+      }
+      if (!HOOK_CLASSES.has(m.cls)) {
+        problems.push(`MUST-1 unrecognized class \`${m.cls}\` (allowed: ${[...HOOK_CLASSES].join(", ")})`);
+      }
+      if (m.rationale === "") {
+        problems.push(`MUST-1 empty rationale on \`${m.event}\` — state why THAT event can see the subject`);
+      }
+      if (m.cls === "verification" && m.event === "SessionStart") {
+        problems.push(
+          "MUST-2 `verification` declared at `SessionStart` — the subject is produced BY the session, so this fires " +
+            "before there is anything to check and passes unconditionally. Re-home at the gate that runs after production " +
+            "(/redteam, /release, /deploy) or at the PostToolUse boundary of the producing tool.",
+        );
+      }
+      // MUST-3. An ABSENT matcher is not a narrow matcher — it is the WIDEST one.
+      // The first cut short-circuited on `m.matcher` being null, and on the other
+      // side `normalizeMatcher(undefined)` yields "" which equals the registered
+      // key, so MUST-4 passed too: a `guard` at `PreToolUse` with the matcher
+      // OMITTED cleared all four predicates while firing on every tool call — the
+      // precise harm MUST-3 names, reachable by writing less rather than more.
+      // Absent, empty and `*` are therefore one case on a tool-axis event.
+      if (HOOK_NARROW_CLASSES.has(m.cls) && HOOK_TOOL_AXIS_EVENTS.has(m.event)) {
+        const parts = (m.matcher || "").split("|").map((s) => s.trim()).filter(Boolean);
+        if (parts.length === 0 || parts.includes("*")) {
+          problems.push(
+            `MUST-3 \`${m.cls}\` declared at \`${m.event}\` with ${parts.length === 0 ? "NO matcher" : "a `*` matcher"} — ` +
+              "that fires on every tool call and charges startup to all of them. Name the tools that can perform or produce " +
+              "the subject (`*`/absent is reserved for lifecycle/telemetry).",
+          );
+        }
+      }
+      // MUST-3, second arm — a narrow class on an event with NO tool axis. `guard`
+      // and `verification` are defined by acting on one specific action or artifact;
+      // at SessionStart/SessionEnd/Stop/PreCompact there is no tool to name, so the
+      // narrow matcher the class requires cannot exist. Without this arm the rule's
+      // own class table said one thing and the check enforced another, and the first
+      // hook to opt in (settings-deny-drift-guard.js) sat in the gap.
+      if (HOOK_NARROW_CLASSES.has(m.cls) && HOOK_EVENTS.has(m.event) && !HOOK_TOOL_AXIS_EVENTS.has(m.event)) {
+        problems.push(
+          `MUST-3 \`${m.cls}\` declared at \`${m.event}\`, which has no tool axis — a ${m.cls} is defined by the one action ` +
+            "or artifact it acts on, so it needs a PreToolUse/PostToolUse matcher naming that tool. If the subject is durable " +
+            "state that merely happens to be read at this boundary, the class is `lifecycle` (hook-event-selection.md § classes).",
+        );
+      }
+    }
+    // MUST-4 set equality. Only meaningful once every declaration parsed — a
+    // malformed line yields no (event, matcher) pair, so reporting a set mismatch
+    // on top of the malformed finding would double-count one defect.
+    if (malformed.length === 0) {
+      const declared = new Set(markers.map((m) => hookEventKey(m.event, normalizeMatcher(m.matcher ?? ""))));
+      const show = (s) => [...s].map(showHookEventKey).sort().join(", ") || "(none)";
+      const missing = [...registered].filter((k) => !declared.has(k));
+      const extra = [...declared].filter((k) => !registered.has(k));
+      if (missing.length || extra.length) {
+        problems.push(
+          `MUST-4 declared (event, matcher) set != settings.json registration set. registered=[${show(registered)}] declared=[${show(declared)}]` +
+            (missing.length ? `; registered-but-undeclared=[${show(new Set(missing))}]` : "") +
+            (extra.length ? `; declared-but-unregistered=[${show(new Set(extra))}]` : ""),
+        );
+      }
+    }
+    if (problems.length) {
+      results.push({ artifact: `hooks/${h}`, status: STATUS.FAIL, detail: problems.join(" | ") });
+    } else {
+      results.push({
+        artifact: `hooks/${h}`,
+        status: STATUS.PASS,
+        detail: `${markers.length} declaration(s) agree with settings.json (${markers.map((m) => `${m.event}${m.matcher ? `:${m.matcher}` : ""}=${m.cls}`).join(", ")})`,
+      });
+    }
+  }
+  // Disk hooks carrying NO registration. Informational only — they have no event
+  // to deliberate about, and `settings-hook-registration` owns whether being
+  // unregistered is legitimate (a git-hook, an optional-consumer gate). Emitted
+  // after the registration-driven loop so it cannot mask a missing row there.
+  for (const h of diskHooks) {
+    if (registeredByHook.has(`.claude/hooks/${h}`)) continue;
+    results.push({
+      artifact: `hooks/${h}`,
+      status: STATUS.SKIP,
+      detail:
+        "not registered in settings.json — no event to declare (settings-hook-registration owns this hook)",
+    });
+  }
+  return { id, source_rule, results };
+}
+
 // ── CHECK — codex-mcp-guard root/.claude runtime parity (F-CGUARD) ─────────────
 // loom carries the codex-mcp-guard runtime in TWO real dirs: the maintained
 // `.claude/codex-mcp-guard/` (source, 28-commit hardened) and the repo-root
@@ -4554,6 +5135,7 @@ function checkCodexGuardRootParity(root) {
 const CHECK_FNS = {
   "command-frontmatter": checkCommandFrontmatter,
   "settings-hook-registration": checkSettingsRegistration,
+  "hook-event-declaration": checkHookEventDeclaration,
   "command-line-cap": checkCommandLineCap,
   "readonly-specialist-tools": checkReadonlySpecialistTools,
   "tool-canonicality": checkToolCanonicality,
@@ -4776,6 +5358,11 @@ export {
   classifyFixtures,
   checkCommandFrontmatter,
   checkSettingsRegistration,
+  checkHookEventDeclaration,
+  parseHookEventMarkers,
+  isMissingOwnSpecifier,
+  HOOK_EVENTS,
+  HOOK_CLASSES,
   checkCommandLineCap,
   checkReadonlySpecialistTools,
   checkToolCanonicality,
@@ -4813,6 +5400,7 @@ export {
   parseReposRoles,
   VALID_SURFACE_ROLES,
   parseSelfRefAllowlist,
+  findUnrecognizedAllowlistBullets,
   parsePathsFrontmatter,
   allowlistGlobCovers,
   braceExpandAllowlist,

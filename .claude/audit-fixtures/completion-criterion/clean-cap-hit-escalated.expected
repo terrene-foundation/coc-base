@@ -1,0 +1,5 @@
+CLEAN — the cap is treated as a circuit breaker and reported as abnormal termination, not
+convergence. The shared-callee reset correctly propagates to transitive consumers, the counter
+is read as the minimum over surfaces rather than an aggregate, the gating half is recognised as
+uncapped and not clean, a last-known-good state is preserved, and the budgeted-half yield stop
+names its falsifying result.

@@ -47,6 +47,8 @@
 
 const fs = require("fs");
 const path = require("path");
+// loom#1349 — the ONE hardened append primitive; see append-sink.js for the six defenses.
+const { appendSinkLine } = require("./append-sink.js");
 
 const cocSign = require(path.join(__dirname, "coc-sign.js"));
 const coordinationLog = require(path.join(__dirname, "coordination-log.js"));
@@ -150,9 +152,15 @@ function _defaultAppend(repoDir, record) {
       error: `record line (${Buffer.byteLength(line + "\n", "utf8")}B) exceeds MAX_LINE_BYTES (${MAX_LINE_BYTES}); shrink content (e.g. carry fingerprints, not full path lists)`,
     };
   }
+  // loom#1349 R1 F3 — routed through the shared hardened primitive. This is the CANONICAL
+  // signed-record emitter behind 11 modules, and it writes the SAME coordination-log.jsonl that
+  // adjacency-heartbeat and multi-operator-sessionend write; leaving it on the bare idiom would
+  // have left that sink hardened at 2 of its 4 writers, with one symlink at `.claude/learning`
+  // still harvesting the majority of production rows. The MAX_LINE_BYTES cap above stays HERE,
+  // before signing, so an oversized record is refused rather than truncated-after-sign.
   const logPath = resolveLogPath(repoDir);
-  fs.mkdirSync(path.dirname(logPath), { recursive: true });
-  fs.appendFileSync(logPath, line + "\n");
+  const w = appendSinkLine({ repoDir, sinkPath: logPath, line });
+  if (!w.ok) return { ok: false, error: `coordination-log append refused: ${w.error} — ${w.reason}` };
   return { ok: true };
 }
 

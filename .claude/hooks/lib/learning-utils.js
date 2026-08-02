@@ -7,6 +7,8 @@
 
 const fs = require("fs");
 const path = require("path");
+// loom#1349 — the ONE hardened append primitive; see append-sink.js for the six defenses.
+const { appendSinkLine } = require("./append-sink.js");
 const os = require("os");
 
 /**
@@ -51,6 +53,30 @@ function resolveLearningDir(cwd) {
  * @param {string} [cwd] - Project working directory
  * @returns {string} The resolved learning directory path
  */
+/**
+ * The LEGITIMATE containment roots for a learning-dir sink (loom#1349 R2 F1).
+ *
+ * `resolveLearningDir` deliberately resolves OUTSIDE cwd — to the MAIN checkout (a worktree's
+ * `.claude/learning/` is auto-deleted, red-team CRIT-2) or to an explicit `KAILASH_LEARNING_DIR`.
+ * Both are operator-declared locations, so both are named here. The learning dir ITSELF is
+ * deliberately NOT a root: using it would make a symlinked `.claude/learning` self-contained and
+ * silently re-open the escape the containment check exists to catch.
+ */
+function _stateRoots(cwd) {
+  const roots = [];
+  if (process.env.KAILASH_LEARNING_DIR) roots.push(process.env.KAILASH_LEARNING_DIR);
+  try {
+    const { resolveMainCheckout } = require(
+      path.join(__dirname, "state-resolver.js"),
+    );
+    const main = resolveMainCheckout(cwd);
+    if (main) roots.push(main);
+  } catch {
+    // Resolver unavailable — cwd remains the only root and a main-checkout sink fails CLOSED.
+  }
+  return roots;
+}
+
 function ensureLearningDir(cwd) {
   const learningDir = resolveLearningDir(cwd);
 
@@ -131,7 +157,21 @@ function logObservation(cwd, type, data, context) {
       attribution: "un-rostered",
     };
 
-    fs.appendFileSync(observationsFile, JSON.stringify(observation) + "\n");
+    // loom#1349 R1 F3 — routed through the shared hardened primitive. This is the UN-ROSTERED
+    // fallback row; the stamped path above already goes through appendStamped (itself routed).
+    // A live exploit against this site escaped observations.jsonl at world-readable 0o644.
+    //
+    // R2 F1 — `resolveLearningDir` resolves to the MAIN checkout (or an explicit
+    // `KAILASH_LEARNING_DIR`), so this sink escapes cwd BY DESIGN and containing against cwd alone
+    // would refuse it in every worktree session. Both legitimate roots are declared; a genuine
+    // escape (a symlinked `.claude/learning`) still resolves under neither and is refused.
+    const w = appendSinkLine({
+      repoDir: cwd || process.cwd(),
+      additionalRoots: _stateRoots(cwd),
+      sinkPath: observationsFile,
+      line: JSON.stringify(observation),
+    });
+    if (!w.ok) return null;
     return observation.id;
   } catch {
     return null;

@@ -1,0 +1,13 @@
+FLAG MUST-4 — "wave-y is stalled" is an INFERENCE stated in the grammar of an
+observation, with no hypothesis marker. The quoted evidence is real and the command
+succeeded (so MUST-1 and MUST-3 are both satisfied — this is the residue MUST-4 alone
+catches): what is quoted is a modified-file count, and the leap from "0 files modified
+in 20 minutes" to "the lane is stalled" is unstated and unsound. An mtime-activity
+count reads IDENTICALLY for a stalled lane and for a lane that finished and committed;
+the instrument cannot distinguish the hypothesis from its negation, so its result
+cannot support either. The agent then ACTS on the unlabelled inference (reclaims the
+scope, re-tasks a sibling lane), which is what converts a grammar defect into work loss.
+
+Origin incident: 2026-07-28 loom orchestration session (journal/0568 § G1, instrument
+row #1; `.session-notes.d` § Traps). wave-y had in fact committed 3 times and gone
+quiet waiting on CI — the opposite of the reported reading.

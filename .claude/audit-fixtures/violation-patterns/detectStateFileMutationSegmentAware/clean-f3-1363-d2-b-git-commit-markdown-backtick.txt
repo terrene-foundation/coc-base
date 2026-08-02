@@ -1,0 +1,1 @@
+git commit -m 'fix(hooks): stop blocking `node -e "fs.writeFileSync(p,s)"` prose that names .claude/learning/posture.json'

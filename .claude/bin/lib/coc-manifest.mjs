@@ -27,6 +27,18 @@ import { fileURLToPath } from "node:url";
 import { applyOverlay } from "./slot-parser.mjs";
 import { resolveOverlay } from "./variant-overlay.mjs";
 import { stripBuildInternalReferences } from "./strip-build-internal.mjs";
+// loom#1386 — this module is ALWAYS_INCLUDE (shipped verbatim to every repo
+// class), and on the three classes that FORBID sync-manifest.yaml each of the
+// seven manifest reads below threw ENOENT. `readManifestSource` is the ONE
+// class-aware discriminator: `null` ⇔ the manifest is EXPECTED-absent; a LOUD
+// throw covers absent-at-loom AND present-but-unreadable (never conflated —
+// zero-tolerance.md Rule 3). See lib/manifest-source.mjs for the D1/D2/D3
+// disposition contract each call site below cites.
+import {
+  readManifestSource,
+  requireManifestSource,
+  requireManifestSourceForTarget,
+} from "./manifest-source.mjs";
 
 // REPO = repo root. This module lives at `.claude/bin/lib/`, i.e. THREE
 // levels below the root (lib → bin → .claude → root), so REPO resolves
@@ -112,8 +124,13 @@ function matchesAnyGlob(relPath, globs) {
 // the wrong thing (exclusions absent → emit everything → caller sees
 // unexpected files and investigates).
 function loadExclusions() {
-  const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
-  const src = safeReadFileSync(manifestPath, "utf8");
+  // D1 DISTRIBUTION-DECLARATION (loom#1386). `cli_emit_exclusions` names paths
+  // loom withholds from a per-CLI emission. A repo whose class FORBIDS the
+  // manifest distributes NOTHING, so "no CLI exclusions" is the TRUE answer
+  // there, not a degraded one — the same value the existing stanza-absent path
+  // below already returns.
+  const src = readManifestSource(REPO);
+  if (src === null) return { codex: [], gemini: [] };
   const lines = src.split("\n");
 
   const result = { codex: [], gemini: [] };
@@ -168,8 +185,12 @@ function loadExclusions() {
 // globs (`agents/management/coc-sync.md`) matched against the manifest-
 // relative path the emit functions build (`agents/...`).
 function loadLoomOnly() {
-  const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
-  const src = safeReadFileSync(manifestPath, "utf8");
+  // D1 DISTRIBUTION-DECLARATION (loom#1386). `loom_only` is a POSITIVE
+  // never-sync list — artifacts loom keeps for itself. A consumer holds no such
+  // list because it fans nothing out; the empty set is exact, and it is what the
+  // stanza-absent path below already returns.
+  const src = readManifestSource(REPO);
+  if (src === null) return [];
   const lines = src.split("\n");
 
   const result = [];
@@ -206,8 +227,25 @@ function loadLoomOnly() {
 // tiers stanza is structurally identical to cli_emit_exclusions (a
 // top-level key with sub-keys whose values are list-of-string).
 function loadTiers() {
-  const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
-  const src = safeReadFileSync(manifestPath, "utf8");
+  // D3 REFUSE-LOUDLY (loom#1386, reclassified from D1 by loom#1394's partition
+  // audit). Tiers are subscription buckets a SPLITTER offers its targets; on a
+  // manifest-forbidden class there are none.
+  //
+  // Returning `{}` was SAFE, but only as a CALL-GRAPH property: the sole caller
+  // `buildTierFilter` returns early when no `--target` is named, and with one it
+  // refuses at `loadTargetTierSubscriptions` (D3) first — so the empty map was
+  // unreachable. Two problems with resting on that. It is ORDER-DEPENDENT (swap
+  // the `loadTargetTierSubscriptions` and `loadTiers` calls in buildTierFilter
+  // and `{}` becomes reachable, with nothing enforcing the order), and
+  // `loadTiers` is exported here AND re-exported by emit-cli-artifacts.mjs, so
+  // "its only caller" is a forward-looking assumption rather than a guarantee —
+  // any new caller or out-of-tree script would get `{}` silently.
+  //
+  // Refusing makes the guarantee structural at zero behavioural cost: the one
+  // legitimate reader already sits behind a D3 refusal. An empty tier map is
+  // especially dangerous because it matches NOTHING — a caller would compose an
+  // emission that drops every artifact while reporting success.
+  const src = requireManifestSource("tiers", REPO);
   const lines = src.split("\n");
 
   const result = {};
@@ -256,8 +294,12 @@ function loadTiers() {
 // Returns empty array [] if the target declares an empty subscription
 // (e.g. retired prism — manifest declares [] structurally).
 function loadTargetTierSubscriptions(target) {
-  const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
-  const src = safeReadFileSync(manifestPath, "utf8");
+  // D3 TARGET-RESOLUTION (loom#1386) — REFUSE, never answer. `null` here is
+  // already overloaded ("target unknown → caller halts"), so folding
+  // "manifest-forbidden class" into it would produce a halt whose message names
+  // the wrong defect. A repo that FORBIDS the manifest has no sync targets at
+  // all; refusing names that.
+  const src = requireManifestSourceForTarget(target, "tier_subscriptions", REPO);
   const lines = src.split("\n");
 
   let inRepos = false;
@@ -307,8 +349,10 @@ function loadTargetTierSubscriptions(target) {
 // repos.<target>.variant is absent.
 function loadTargetVariant(target) {
   if (!target) return null;
-  const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
-  const src = safeReadFileSync(manifestPath, "utf8");
+  // D3 TARGET-RESOLUTION (loom#1386) — REFUSE. Answering `null` would read as
+  // "target declares no variant" and SILENTLY drop the language overlay axis,
+  // emitting a base-composed tree under a language target's name.
+  const src = requireManifestSourceForTarget(target, "repos.<target>.variant", REPO);
   const lines = src.split("\n");
 
   let inRepos = false;
@@ -347,8 +391,11 @@ function loadTargetVariant(target) {
 // intentionally unset → full emission, invariant #7 back-compat).
 function loadTargetRole(target) {
   if (!target) return null;
-  const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
-  const src = safeReadFileSync(manifestPath, "utf8");
+  // D3 TARGET-RESOLUTION (loom#1386) — REFUSE. `null` means "role unset →
+  // surface EVERYTHING" (invariant #7 back-compat), so answering null on a
+  // manifest-forbidden class would fail OPEN: every de-surfaced command would
+  // surface for a target whose role could not be read.
+  const src = requireManifestSourceForTarget(target, "repos.<target>.role", REPO);
   const lines = src.split("\n");
 
   let inRepos = false;
@@ -392,8 +439,15 @@ function loadTargetRole(target) {
 // membership check, NOT this loader (a dumb data endpoint per
 // agent-reasoning.md).
 function loadSurfaceRoles() {
-  const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
-  const src = safeReadFileSync(manifestPath, "utf8");
+  // D1 DISTRIBUTION-DECLARATION (loom#1386). `surface_roles` restricts which
+  // ROLE an artifact surfaces for at a DESTINATION. Empty is safe by
+  // construction here: `surfaceRolesAllow` short-circuits `true` whenever
+  // targetRole is null, which it always is on a manifest-forbidden class (its
+  // D3 sibling `loadTargetRole` refuses before any role can be resolved). So the
+  // empty map is never the thing that decides surfacing — it is the
+  // default-surfaced state the stanza-absent path already returns.
+  const src = readManifestSource(REPO);
+  if (src === null) return {};
   const lines = src.split("\n");
 
   const result = {};

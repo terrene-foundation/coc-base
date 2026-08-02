@@ -6,15 +6,26 @@
  * multi-operator session now surfaces sibling activity per §4.1's
  * SAME / ADJACENT / INDEPENDENT relation.
  *
- * Per architecture v11 §4.3 hook-table row:
+ * Per architecture v11 §4.3 hook-table row, with the §4.2 severity as
+ * SHIPPED (block → halt-and-report, loom#1323):
  *
  *   Event:    pre-tool-use (Edit | Write)
  *   Severity: halt-and-report (SAME)
- *             block (§4.2 filesystem exception — `git status --porcelain`
- *                    is the structural primitive — only branch that may
- *                    carry block per hook-output-discipline.md MUST-2)
+ *             halt-and-report (§4.2 filesystem exception — `git status
+ *                    --porcelain` IS a valid structural primitive, so
+ *                    hook-output-discipline.md MUST-2 WOULD PERMIT block
+ *                    here; the downgrade is proportionality, NOT a MUST-2
+ *                    violation fix. Sibling worktrees have physically
+ *                    separate working trees: this write cannot clobber the
+ *                    sibling's bytes on disk, so the only real collision
+ *                    is a 3-way merge conflict at merge time — which git
+ *                    surfaces loudly and NON-destructively. block stays
+ *                    reserved for IRRECOVERABLE outcomes.)
  *             advisory (ADJACENT)
  *             silent + auto-claim (INDEPENDENT)
+ *
+ *   NO branch of this hook carries severity: block.
+ *
  *   Budget:   ≤5s; setTimeout fallback per cc-artifacts.md Rule 7.
  *
  * Flow:
@@ -30,8 +41,10 @@
  *
  * The §4.2 filesystem exception: when a sibling worktree's `git status
  * --porcelain` shows the EXACT target path as uncommitted-modified, the
- * structural signal IS deterministic (process-local primitive) and the
- * hook MAY return severity: block. Surrogate for tests: the
+ * structural signal IS deterministic (process-local primitive), so
+ * hook-output-discipline.md MUST-2 would permit severity: block — the
+ * hook nonetheless returns halt-and-report on the proportionality grounds
+ * in the severity table above (loom#1323). Surrogate for tests: the
  * COC_PORCELAIN_OVERRIDE env var injects a newline-separated list of
  * paths the harness wants the hook to treat as sibling-uncommitted; in
  * production this is replaced by an actual `git -C <sibling-worktree>
@@ -371,18 +384,18 @@ function discoverKeyPath() {
     const repoDir = resolveRepoDir(payload);
 
     // MO-OPT W1-e — opt-in gate (workspaces/multi-operator-optional, journal/0330).
-    // Claims, adjacency, and the §4.2 cross-worktree-contention block are all
+    // Claims, adjacency, and the §4.2 cross-worktree-contention halt are all
     // coordination features. A solo / fresh repo (coordination OFF) MUST NOT
-    // get the sibling-worktree block (a solo dev may legitimately run multiple
+    // get the sibling-worktree halt (a solo dev may legitimately run multiple
     // worktrees of their own). Passthrough when OFF. When ENABLED, byte-unchanged
     // (this guard already fail-opens on empty-log / unresolvable identity; the
-    // gate makes the solo no-op explicit + covers the §4.2 block path too).
+    // gate makes the solo no-op explicit + covers the §4.2 halt path too).
     //
     // MO-OPT holistic post-multi-wave redteam (Cluster A): the predicate's tier-2
     // local-override (.claude/learning/coordination-mode.json) is GITIGNORED →
     // ABSENT in a worktree. Reading it against the worktree cwd would split a
     // tier-2-enrolled repo OFF here while integrity-guard / journal-write-guard
-    // read it ON from main — and the §4.2 cross-worktree-contention block (this
+    // read it ON from main — and the §4.2 cross-worktree-contention halt (this
     // guard's whole reason to exist in a parallel-worktree run) is exactly what
     // gets silenced. Resolve the MAIN checkout for the predicate ONLY (the same
     // main-checkout discipline as trust-posture.md MUST-1 / integrity-guard.js
@@ -461,19 +474,20 @@ function discoverKeyPath() {
       clearTimeout(fallback);
       emit({
         hookEvent,
-        severity: "block",
+        severity: "halt-and-report",
         what_happened: `Sibling worktree has '${candidateRelPath}' uncommitted-modified (porcelain match).`,
-        why: "multi-operator-coc/adjacency-leasecheck §4.2 filesystem exception — structural primitive: `git status --porcelain` reports the exact target file modified in a sibling worktree (hook-output-discipline.md MUST-2 satisfied: block grounded in structural process-local signal, not lexical match)",
+        why: "multi-operator-coc/adjacency-leasecheck §4.2 filesystem exception — structural primitive: `git status --porcelain` reports the exact target file modified in a sibling worktree. That signal IS structural + process-local, so hook-output-discipline.md MUST-2 would PERMIT severity: block; the branch emits halt-and-report on proportionality grounds (loom#1323) — sibling worktrees have physically separate working trees, so this write cannot clobber the sibling's bytes on disk, and the only real collision is a 3-way merge conflict at merge time, which git surfaces loudly and non-destructively. Surface the contention; the operator adjudicates.",
         agent_must_report: [
           `Target path: ${candidateRelPath}`,
           matchedClaim && matchedClaim.claim_id
             ? `Conflicting active claim: ${matchedClaim.claim_id} (operator ${matchedClaim.sibling_display_id || matchedClaim.sibling_person_id || "unknown"})`
             : "No active sibling claim recorded; the porcelain signal alone established cross-worktree contention.",
-          "Coordinate with the sibling operator before retrying (commit/stash their WIP, or wait for them to land their edits).",
+          "The sibling's on-disk work is NOT at risk (separate working trees); the exposure is a 3-way merge conflict when both branches land.",
+          "Adjudication options: reconcile at merge, coordinate with the sibling operator (they commit/stash/land first), or re-scope this edit.",
         ],
         agent_must_wait:
-          "Do not retry the Edit/Write until the sibling worktree's working tree no longer shows this file as modified.",
-        user_summary: `adjacency-leasecheck — BLOCK on cross-worktree contention for ${candidateRelPath}`,
+          "Report the contention and your recommended option, then wait for the operator's direction before further edits to this path.",
+        user_summary: `adjacency-leasecheck — cross-worktree contention on ${candidateRelPath} (sibling worktree holds it uncommitted-modified)`,
       });
       // emit() exits
     }
@@ -490,7 +504,7 @@ function discoverKeyPath() {
         hookEvent,
         severity: "halt-and-report",
         what_happened: `SAME-class conflict on '${candidateRelPath}' against active sibling claim ${sameVerdict.claim_id} (predicate: ${sameVerdict.predicate}, sibling: ${sameVerdict.sibling_display_id || sameVerdict.sibling_person_id || "unknown"}).`,
-        why: "multi-operator-coc/adjacency-leasecheck §4.1 SAME predicate — registry-record-class signal (not structural per hook-output-discipline.md MUST-2; severity: halt-and-report). Architecture v11 §4.3 specifies SAME → halt-and-report; the registry record IS the lease database, not a structural primitive, so block severity is reserved for the §4.2 filesystem exception only.",
+        why: "multi-operator-coc/adjacency-leasecheck §4.1 SAME predicate — registry-record-class signal (not structural per hook-output-discipline.md MUST-2; severity: halt-and-report). Architecture v11 §4.3 specifies SAME → halt-and-report; the registry record IS the lease database, not a structural primitive, so block severity is unavailable here on MUST-2 grounds. The structurally-grounded cross-worktree-contention branch COULD take block under MUST-2 but emits halt-and-report on proportionality grounds (loom#1323) — no branch of this hook carries block.",
         agent_must_report: [
           `Target path: ${candidateRelPath}`,
           `Conflicting active claim: ${sameVerdict.claim_id}`,

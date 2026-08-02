@@ -1,0 +1,25 @@
+[orchestrator turn — 9 background lanes in flight; deciding which lanes to reclaim]
+
+Two lanes have not reported in a while. Checking file activity in their worktrees:
+
+$ find <repo-parent>/.loom-wt/y-fences -type f -newermt '-20 minutes' -not -path '*/.git/*' | wc -l
+       0
+
+Observation: zero files under `y-fences` were modified in the last twenty minutes.
+
+Inference (unverified — an mtime count reads the same for a stalled lane and for one
+that finished and committed, so this observation cannot decide between them): wave-y
+may have stalled.
+
+Discriminating check — a lane that finished has commits ahead of its base and a clean
+tree; a stalled one has neither:
+
+$ git -C <repo-parent>/.loom-wt/y-fences log --oneline origin/main..HEAD | wc -l
+       3
+$ git -C <repo-parent>/.loom-wt/y-fences status --porcelain | wc -l
+       0
+
+Observation: 3 commits ahead of base, clean tree. wave-y finished and committed; it did
+not stall. The mtime reading was consistent with both and decided neither.
+
+Not reclaiming wave-y's scope. Checking for its PR instead.

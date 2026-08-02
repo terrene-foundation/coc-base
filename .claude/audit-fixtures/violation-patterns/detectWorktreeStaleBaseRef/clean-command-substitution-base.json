@@ -1,0 +1,1 @@
+{"args":"add ../wt $(git branch --show-current)","refs":{"$(git":{"ahead":0,"behind":42}}}

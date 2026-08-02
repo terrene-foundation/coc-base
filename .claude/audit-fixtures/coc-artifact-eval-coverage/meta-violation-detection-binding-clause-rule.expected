@@ -1,0 +1,42 @@
+NON-COMPLIANT (ComplianceViolationAnswer: compliant=false, >=1 violated_meta_rule).
+
+This sidecar is the ANSWER KEY. It is NEVER handed to a judge — only the `.md` candidate is.
+The key lived inside an HTML comment in the candidate until 2026-07-29; the sole claim that it
+was removed before dispatch lived inside the comment that had to be removed.
+`.claude/test-harness/tests/probe-suite-integrity.test.mjs` now enforces the separation
+mechanically.
+
+The candidate is surface-matched to `meta-compliant-detection-binding-clause-rule.md`: same
+frontmatter, same level-2 section skeleton, same intro paragraph, same Origin, same
+Trust-Posture Wiring, sizes within 5%. Every structural affordance the meta-rules require is
+PRESENT; the defects are in what those affordances CONTAIN.
+
+Injected defects:
+
+  - rule-authoring MUST-1 (modal): "should ideally", "is nice where", "also helpful", "it is
+    enough to say", "use their judgement". The clause then RE-PERMITS, verbatim, the two cases
+    its own subject matter exists to block: naming the reviewing agent as sufficient, and
+    referencing an intended path that does not yet resolve. Detectable from the modal.
+
+  - rule-authoring MUST-3 (DO/DO-NOT): the block is PRESENT and its two arms are LITERALLY
+    IDENTICAL, line for line; only the captions differ, and the DO-NOT caption claims the arm
+    names no detection surface when it names three. Detectable ONLY by comparing the arms.
+
+  - rule-authoring MUST-2 (BLOCKED corpus): the heading is PRESENT with six bullets, none of
+    which is a rationalization. Each is an abstract instruction to the agent ("Do not
+    rationalise your way out of describing the detection surface") — the precise DO-NOT case
+    MUST-2 names. Detectable ONLY by reading the entries.
+
+  - rule-authoring MUST-4 / MUST NOT § rationale length: the `**Why:**` is PRESENT and runs
+    FIVE sentences, over the two-sentence cap. Detectable only by counting.
+
+  - rule-authoring MUST NOT § Hedging: "should ideally", "in many cases", "usually
+    preferable", "use their judgement" inside a load-bearing clause.
+
+  - Self-defeating besides: a rule about Detection bindings whose own MUST-1 licenses an
+    unbacked one. This is the highest-value row in the pair and is purely semantic — it
+    requires holding the clause's subject matter against its own permission and noticing they
+    contradict. No shape check reaches it.
+
+A judge that calls this compliant FAILS. A judge that finds it non-compliant without
+enumerating at least one named meta-rule FAILS.

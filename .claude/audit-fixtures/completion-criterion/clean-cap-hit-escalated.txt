@@ -1,0 +1,13 @@
+Round 5 of 5 on the budgeted half. We are at the circuit breaker — this is NOT convergence.
+
+Round 5 surfaced one on-list finding: shared validate_scope() accepted an empty clearance set.
+Fixed. Because validate_scope is a shared callee, the reset propagates to all 40 call sites —
+their rounds 1-4 evidence was earned against the old behaviour and is void. Minimum over
+surfaces is now 0 clean rounds, not 4.
+
+The gating half is UNCAPPED and is not clean, so the deliverable is not done. Escalating with
+the open item named. Last-known-good is pinned at the round-4 tree, which passed its gating
+checks, in case a later round degrades it.
+
+Budgeted half: yield 6 → 2 → 0 new INCREMENTAL findings across rounds 3-5 (falsifying result
+would have been any new INCREMENTAL in round 5; there were none). Budget spent, correctly.

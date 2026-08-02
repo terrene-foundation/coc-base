@@ -1,0 +1,8 @@
+gh issue create --title "Docs" --body "$(cat <<'EOF'
+Example of the pattern to avoid:
+```sh
+gh pr create --repo other-org/other-repo --base main
+```
+Never run the block above.
+EOF
+)"

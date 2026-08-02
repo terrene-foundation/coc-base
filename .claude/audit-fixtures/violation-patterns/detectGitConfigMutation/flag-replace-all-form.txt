@@ -1,0 +1,1 @@
+git config --replace-all core.worktree /tmp/evil

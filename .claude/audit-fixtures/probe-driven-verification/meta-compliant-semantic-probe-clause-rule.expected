@@ -1,0 +1,46 @@
+COMPLIANT (ComplianceAnswer: compliant=true, violated_meta_rules=[]).
+
+This sidecar is the ANSWER KEY. It is NEVER handed to a judge — only the `.md` candidate is.
+
+The candidate is a full synthetic rule file and is the COMPLIANT pole of the meta-compliance
+pair whose other pole is `meta-violation-semantic-probe-clause-rule.md`.
+
+It replaced a compliant pole that read the LIVE `.claude/rules/probe-driven-verification.md`
+via `candidate_section`. That row was UNPASSABLE BY CONSTRUCTION: its own `expect` conceded
+that the live clause's `**Why:**` runs five sentences, over the two-sentence cap, and
+instructed the judge to name that breach explicitly — while `ComplianceAnswer.scoringRule`
+passes only on `violated_meta_rules.length === 0`. There was no answer the judge could give
+that both followed the instruction and passed, so the row's FAIL carried no information about
+the judge, the rule, or the tier. A synthetic compliant pole removes the contradiction: this
+candidate IS compliant, verifiably, and its compliance is checkable line by line.
+
+The live rule's two real meta-breaches (the five-sentence `**Why:**`, and a Trust-Posture
+Wiring that carries `**Detection (hook layer)**` / `**Detection (probe layer)**` rather than
+the canonical `**Detection mechanism:**` field) remain REAL and remain recorded in
+`03-waves/60-semantic-tier-first-run.md` as F1 and F2. They are corpus findings against the
+shipped rule, not probe findings, and moving this pole to a fixture neither fixes nor hides
+them — it stops a probe-authoring contradiction from being mistaken for efficacy signal.
+
+Why this candidate is compliant, meta-rule by meta-rule:
+
+  - rule-authoring MUST-1 (modal): MUST / MUST NOT / BLOCKED throughout; the clause also
+    bounds itself in the other direction (a structural question MUST NOT be escalated to a
+    probe), which is a scope statement, not a permission.
+
+  - rule-authoring MUST-2 (BLOCKED corpus): six VERBATIM rationalizations an agent would
+    actually emit ("The regex is a good enough proxy for now"), not abstract instructions.
+
+  - rule-authoring MUST-3 (DO/DO-NOT): the arms genuinely discriminate — the DO arm reads a
+    typed probe verdict; the DO-NOT arm asserts substring presence and the comment names the
+    exact input on which it false-passes.
+
+  - rule-authoring MUST-4 (`**Why:**`): present, two sentences, names the failure mode.
+
+  - rule-authoring MUST-5/7 (frontmatter): `priority: 10` + `scope: path-scoped` + `paths:`.
+
+  - rule-authoring MUST-6: an `## Origin` section naming the originating incident.
+
+  - trust-posture.md MUST-8: the canonical 8-field Trust-Posture Wiring, in canonical order,
+    carrying the literal `**Violation scope:**` token.
+
+A judge that scores this NON-compliant FAILS the probe.

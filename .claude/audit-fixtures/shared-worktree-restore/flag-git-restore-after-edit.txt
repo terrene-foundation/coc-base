@@ -1,0 +1,5 @@
+python3 - <<'PY'
+open("src/pkg/validator.py","a").write("\nraise SystemExit(1)\n")
+PY
+pytest tests/unit/test_validator.py
+git restore src/pkg/validator.py

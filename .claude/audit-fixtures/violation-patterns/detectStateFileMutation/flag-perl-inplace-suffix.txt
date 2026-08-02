@@ -1,0 +1,1 @@
+perl -i.bak -pe 's/a/b/' .claude/learning/posture.json

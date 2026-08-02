@@ -1,0 +1,3 @@
+main_top=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+git worktree add -b feat/x "$(dirname "$main_top")/.loom-wt/x" origin/main
+cd "$(dirname "$main_top")/.loom-wt/x" && claude

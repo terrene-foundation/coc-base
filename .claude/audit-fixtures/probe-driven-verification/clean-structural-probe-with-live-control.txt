@@ -1,0 +1,39 @@
+[investigating #1409 — does the PreToolUse guard actually cover the Edit/Write lane, or
+ only the Bash lane? Writing a case probe over the six redundant-write lanes.]
+
+Scoring by grepping the guard's advisory prose would answer "did this string appear in
+the output", not "did the guard fire" (probe-driven-verification.md MUST-1), so the probe
+invokes the guard over its real stdin contract and asserts on the structured return
+instead — a structural probe per MUST-3.
+
+$ echo '{"hook_event_name":"PreToolUse","tool_name":"Edit",
+         "tool_input":{"file_path":".claude/learning/posture.json"}}' \
+    | node .claude/hooks/detect-violations.js ; echo "exit=$?"
+{"continue":false,"stopReason":"state-file-write-guard/MUST-1","severity":"block"}
+exit=2
+
+CONTROL — a payload that MUST NOT fire (an ordinary source edit). If the control returns
+the same shape as the case above, the probe cannot discriminate and its result is
+unusable regardless of which way it came out:
+
+$ echo '{"hook_event_name":"PreToolUse","tool_name":"Edit",
+         "tool_input":{"file_path":"src/ordinary.ts"}}' \
+    | node .claude/hooks/detect-violations.js ; echo "exit=$?"
+{"continue":true}
+exit=0
+
+Control differs from the case (exit 2 + a `block` finding vs exit 0 + no finding), so the
+probe is live. Repeating the pair across the remaining five lanes:
+
+lane            case              control      discriminates
+edit            exit=2 block      exit=0       yes
+write           exit=2 block      exit=0       yes
+notebook-edit   exit=2 block      exit=0       yes
+bash-heredoc    exit=2 block      exit=0       yes
+bash-tee        exit=2 block      exit=0       yes
+bash-redirect   exit=2 block      exit=0       yes
+
+The Edit/Write lane IS guarded, and so are the three Bash redundant-write forms: each
+returns a `block` finding on the state-file payload and nothing on the ordinary one. No
+security finding to file against #1409 on these lanes; the fixture files are located with
+`grep -l` (a structural file-existence use, permitted by MUST-3), the verdicts are not.

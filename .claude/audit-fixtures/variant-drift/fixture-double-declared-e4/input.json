@@ -1,0 +1,6 @@
+{
+  "variantFiles": ["variants/py/rules/both.md"],
+  "canonFiles": ["rules/both.md"],
+  "variants": { "rules/both.md": { "py": "variants/py/rules/both.md" } },
+  "variantOnly": { "py": ["variants/py/rules/both.md"] }
+}

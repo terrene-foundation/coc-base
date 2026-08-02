@@ -1,0 +1,9 @@
+{
+  "variantFiles": [
+    "variants/rs/rules/renamed-target.md",
+    "variants/rs/rules/mirror-name.md"
+  ],
+  "canonFiles": ["rules/mirror-name.md"],
+  "variants": { "rules/mirror-name.md": { "rs": "variants/rs/rules/renamed-target.md" } },
+  "variantOnly": {}
+}

@@ -201,8 +201,12 @@ paths:
   - ".claude/sync-manifest.yaml"
 ---
 
+The allowlist (load-bearing paths only; synthetic fixture span start)
+
 - **Commands:** \`.claude/commands/codify.md\`
 - **Data files (codify-class):** \`.claude/sync-manifest.yaml\`
+
+**\`paths:\` frontmatter is the load-trigger SUPERSET** — synthetic fixture span end.
 `;
   const root = buildFixtureRoot({ ".claude/rules/self-referential-codify.md": rule });
   try {
@@ -266,8 +270,12 @@ paths:
   - ".claude/skills/**"
 ---
 
+The allowlist (load-bearing paths only; synthetic fixture span start)
+
 - **Bin (codify-class):** \`.claude/bin/{validate-*,emit}.mjs\`
 - **Skills (codify-discipline):** \`.claude/skills/sweep/**\`, \`.claude/skills/spec-compliance/**\`
+
+**\`paths:\` frontmatter is the load-trigger SUPERSET** — synthetic fixture span end.
 `;
   const root = buildFixtureRoot({ ".claude/rules/self-referential-codify.md": rule });
   try {
@@ -346,8 +354,12 @@ paths:
   - ".claude/{commands,bin}/**"
 ---
 
+The allowlist (load-bearing paths only; synthetic fixture span start)
+
 - **Commands:** \`.claude/commands/codify.md\`
 - **Bin (codify-class):** \`.claude/bin/validate-emit.mjs\`
+
+**\`paths:\` frontmatter is the load-trigger SUPERSET** — synthetic fixture span end.
 `;
   const root = buildFixtureRoot({ ".claude/rules/self-referential-codify.md": rule });
   try {
@@ -362,6 +374,106 @@ paths:
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+}
+
+// ----------------------------------------------------------------------
+// fixture-12 / -13 / -14 — R15-F4 named regression case
+// (coc-artifact-eval-coverage.md MUST-2: the case-name IS the finding id)
+// ----------------------------------------------------------------------
+// R15-F4 closed the silent-discard class: parseSelfRefAllowlist DISCARDS any
+// § Rule 2 bullet whose first word is absent from ALLOWLIST_CATEGORY_FIRST_WORDS,
+// and before the fix that discard was a bare `continue` — no error, no count.
+// `Rule-depth` and `Eval-harness` both shipped in that state, the latter for 12
+// days, each under prose asserting the #443 gate "holds" — true only by vacuity.
+//
+// These three cases are the BOTH-POLARITY pair plus the drift arm. A guard that
+// only ever fires, or only ever stays silent, would satisfy one of them and fail
+// another; passing all three is what distinguishes span-SCOPING from inertness.
+{
+  const spanned = (bullets) => `---
+priority: 10
+scope: path-scoped
+paths:
+  - ".claude/commands/**"
+---
+
+The allowlist (load-bearing paths only; synthetic fixture span start)
+
+${bullets}
+
+**\`paths:\` frontmatter is the load-trigger SUPERSET** — synthetic fixture span end.
+`;
+
+  // (a) POSITIVE — an unrecognized first word inside the span MUST be reported,
+  //     and the row MUST name the offending word so the operator can act.
+  {
+    const rule = spanned(
+      "- **Commands:** \`.claude/commands/codify.md\`\n- **Bogus-category (codify-class):** \`.claude/commands/codify.md\`",
+    );
+    const root = buildFixtureRoot({ ".claude/rules/self-referential-codify.md": rule });
+    try {
+      const c = checkAllowlistPathsCoverage(root);
+      const hits = c.results.filter(
+        (r) => r.status === STATUS.FAIL && /unrecognized-allowlist-bullet:/.test(r.detail || ""),
+      );
+      check(
+        "fixture-12-R15F4-unrecognized-bullet-in-span-is-loud",
+        hits.length === 1 && /"Bogus-category"/.test(hits[0].detail || ""),
+        JSON.stringify(c.results),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  // (b) NEGATIVE — recognized first words only: the guard MUST stay silent.
+  //     Without this arm, an always-firing guard would pass (a) and prove nothing.
+  {
+    const rule = spanned("- **Commands:** \`.claude/commands/codify.md\`");
+    const root = buildFixtureRoot({ ".claude/rules/self-referential-codify.md": rule });
+    try {
+      const c = checkAllowlistPathsCoverage(root);
+      const hits = c.results.filter(
+        (r) => r.status === STATUS.FAIL && /unrecognized-allowlist-bullet/.test(r.detail || ""),
+      );
+      check(
+        "fixture-13-R15F4-recognized-bullets-stay-silent",
+        hits.length === 0,
+        JSON.stringify(c.results),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  // (c) DRIFT — no anchors at all: the guard MUST report that it could not locate
+  //     its span, rather than scanning to EOF (which would flag every
+  //     Trust-Posture-Wiring / Distinct-From bullet) or silently passing.
+  {
+    const rule = `---
+priority: 10
+scope: path-scoped
+paths:
+  - ".claude/commands/**"
+---
+
+- **Commands:** \`.claude/commands/codify.md\`
+`;
+    const root = buildFixtureRoot({ ".claude/rules/self-referential-codify.md": rule });
+    try {
+      const c = checkAllowlistPathsCoverage(root);
+      const drift = c.results.filter(
+        (r) => r.status === STATUS.FAIL && /could not locate the § Rule 2 allowlist span/.test(r.detail || ""),
+      );
+      check(
+        "fixture-14-R15F4-anchor-drift-is-reported-not-swallowed",
+        drift.length === 1,
+        JSON.stringify(c.results),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   }
 }
 

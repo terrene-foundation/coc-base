@@ -1,0 +1,10 @@
+{
+  "variantFiles": ["variants/py/rules/present.md"],
+  "canonFiles": ["rules/present.md", "rules/orphan-decl.md"],
+  "variants": {
+    "rules/present.md": { "py": "variants/py/rules/present.md" },
+    "rules/orphan-decl.md": { "py": "variants/py/rules/never-written.md" },
+    "rules/ghost-canon.md": { "rs": "variants/rs/rules/ghost.md" }
+  },
+  "variantOnly": { "rs": ["variants/rs/skills/nothing-here/**"] }
+}

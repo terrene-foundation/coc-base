@@ -1,0 +1,1 @@
+node "/tmp/evil/.claude/hooks/integrity-guard.js"

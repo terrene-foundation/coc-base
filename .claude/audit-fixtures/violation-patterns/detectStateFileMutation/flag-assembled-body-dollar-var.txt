@@ -1,0 +1,2 @@
+S='require("fs").writeFileSync(".claude/learning/posture.json","{}")'
+node -e "$S"

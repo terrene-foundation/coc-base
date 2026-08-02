@@ -1,0 +1,1 @@
+git checkout -- docs/generated/api-index.json

@@ -1,0 +1,1 @@
+node -e 'console.log("gh issue create --repo other-org/other-repo")'

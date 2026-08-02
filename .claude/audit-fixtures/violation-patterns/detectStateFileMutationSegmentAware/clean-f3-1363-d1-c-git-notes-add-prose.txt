@@ -1,0 +1,1 @@
+git notes add -m 'context: node -e "fs.writeFileSync(p,s)" against .claude/learning/posture.json is hook-owned, never agent-written'

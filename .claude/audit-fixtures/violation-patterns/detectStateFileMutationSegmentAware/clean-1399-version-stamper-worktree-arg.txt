@@ -1,0 +1,1 @@
+node .claude/bin/stamp-template-version.mjs --write --worktree /tmp/gate2-wt

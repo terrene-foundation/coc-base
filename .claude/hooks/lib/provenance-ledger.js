@@ -28,6 +28,8 @@
 
 const crypto = require("crypto");
 const fs = require("fs");
+// loom#1349 — the ONE hardened append primitive; see append-sink.js for the six defenses.
+const { appendSinkLine } = require("./append-sink.js");
 const os = require("os");
 const path = require("path");
 
@@ -255,8 +257,11 @@ function captureProvenance(a) {
       payload,
     });
 
-    fs.mkdirSync(path.dirname(ledgerPath), { recursive: true });
-    fs.appendFileSync(ledgerPath, JSON.stringify(event) + "\n");
+    // loom#1349 R1 F3 — routed through the shared hardened primitive. Provenance rows are
+    // permanent governance records carrying an operatorRef, so a symlinked sink would land
+    // them outside the gitignore fence at world-readable 0o644.
+    const w = appendSinkLine({ repoDir, sinkPath: ledgerPath, line: JSON.stringify(event) });
+    if (!w.ok) return { ok: false, error: `${w.error} — ${w.reason}` };
     return { ok: true, event, ledgerPath };
   } catch (e) {
     // Best-effort capture: a malformed event or IO failure degrades the ledger

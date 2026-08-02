@@ -33,7 +33,8 @@
 
 "use strict";
 
-const fs = require("fs");
+// `fs` is deliberately absent: every write from this module goes through append-sink.js
+// (loom#1349), so a direct fs handle here would only invite a future un-hardened append.
 const path = require("path");
 const crypto = require("crypto");
 
@@ -44,6 +45,8 @@ const { canonicalSerialize, sign: defaultSign } = require(
 // `security.md` § Multi-Site Kwarg Plumbing (single SSOT, every writer
 // routes through it).
 const { stripRepoPath } = require(path.join(__dirname, "state-io.js"));
+// loom#1349 — the ONE hardened append primitive; see append-sink.js for the six defenses.
+const { appendSinkLine } = require(path.join(__dirname, "append-sink.js"));
 
 // Match state-io.js MAX_LINE_BYTES so the same POSIX O_APPEND atomicity
 // guarantees (write < PIPE_BUF = 4096) apply to both append surfaces.
@@ -131,7 +134,11 @@ function appendStamped(repoDir, filePath, partial, opts) {
   const prefix = {
     id: _newId("rec"),
     timestamp: new Date().toISOString(),
-    session_id: process.env.CLAUDE_SESSION_ID || "unknown",
+    // Bounded at ingest: env-derived and attacker-influenceable, and an unbounded value
+    // here inflates the record past the pre-sign probe, which downgrades the row to the
+    // caller's unsigned fallback (see `detect-violations.js::_logViolation`). Mirrors the
+    // same bound in `state-io.js::appendViolation` so the two appenders agree.
+    session_id: String(process.env.CLAUDE_SESSION_ID || "unknown").slice(0, 128),
     repo: stripRepoPath(repoDir),
     verified_id: identity.verified_id,
     person_id: identity.person_id,
@@ -202,30 +209,64 @@ function appendStamped(repoDir, filePath, partial, opts) {
   // custom signer emits a larger armoring): refuse rather than write a
   // line that violates the POSIX-atomic-append contract OR a line
   // whose signed bytes differ from the disk bytes.
+  // Measured over the PAYLOAD, matching the pre-sign probe at the top of this function
+  // (`JSON.stringify(record) + "\n"`) and the writer that consumes this line
+  // (`append-sink.js` builds `Buffer.from(line + "\n")`). This guard previously sized the
+  // JSON alone, so a signed record of exactly MAX_LINE_BYTES passed it and wrote one byte
+  // over — against a guard whose own comment above refuses precisely to "write a line that
+  // violates the POSIX-atomic-append contract". Under the default ed25519 signer the
+  // pre-sign probe binds first (~2029 B), so this was not reachable in production; it
+  // becomes reachable via `opts.sign`, which is the exact case the comment names. Every
+  // sibling appender already measures the newline — `transport-filesystem.js:165` as
+  // `+ 1`, `capability-ledger` / `member-registry` / `coc-emit` / `upstream-canon-pointer`
+  // as `+ "\n"`; this line was the lone dissenter.
   const line = JSON.stringify(record);
-  if (Buffer.byteLength(line, "utf8") > MAX_LINE_BYTES) {
+  const lineBytes = Buffer.byteLength(line + "\n", "utf8");
+  if (lineBytes > MAX_LINE_BYTES) {
     return {
       ok: false,
       error: "record too large",
-      reason: `signed line (${Buffer.byteLength(line, "utf8")}B) exceeds MAX_LINE_BYTES (${MAX_LINE_BYTES}); SIG_RESERVE (${SIG_RESERVE}B) was insufficient`,
-      size: Buffer.byteLength(line, "utf8"),
+      reason: `signed line (${lineBytes}B incl. newline) exceeds MAX_LINE_BYTES (${MAX_LINE_BYTES}); SIG_RESERVE (${SIG_RESERVE}B) was insufficient`,
+      size: lineBytes,
       max: MAX_LINE_BYTES,
     };
   }
 
-  // Ensure parent directory exists. Caller passes absolute path; we
-  // mkdir -p its parent to avoid ENOENT on first append.
+  // loom#1349 — routed through the shared hardened primitive, which mkdir -p's the parent (the
+  // caller passes an absolute path and first append would otherwise ENOENT) but runs containment
+  // against `repoDir` BEFORE that mkdir. Every row here carries verified_id + person_id, so a
+  // symlinked sink escaping the gitignore fence leaks operator-correlatable identity; the sink is
+  // also held at 0o600 rather than the world-readable 0o644 appendFileSync produced.
+  //
+  // MAX_LINE_BYTES stays enforced ABOVE, before signing — the helper deliberately does not cap,
+  // so this module keeps its refuse-rather-than-truncate-after-sign contract.
+  // R2 F1 — the sink for BOTH real callers (`detect-violations.js::_logViolation`,
+  // `learning-utils.js::logObservation`) is `resolveStateDir(cwd)/…`, which resolves to the MAIN
+  // checkout BY DESIGN: a worktree's `.claude/learning/` is auto-deleted on cleanup, so state I/O
+  // deliberately escapes cwd (`state-resolver.js` header, red-team CRIT-2). Containing against
+  // `repoDir` alone therefore refused the DESIGNED path in every worktree session — and because
+  // both callers fall through to an UNSIGNED legacy append when the stamped write is refused, that
+  // fail-closed-at-the-sink became fail-OPEN at the attribution: signed identity-attributed rows
+  // silently downgraded to `attribution:"un-rostered"`, which `knowledge-convergence.md` MUST-6
+  // requires to be stamped. Declaring the main checkout as a second legitimate root fixes it
+  // WITHOUT widening the fence: a genuine escape still lands under neither root and is refused.
+  // `repoDir` itself stays the provenance value stamped into the signed record above.
+  const boundaryRoots = [];
   try {
-    const parent = path.dirname(filePath);
-    fs.mkdirSync(parent, { recursive: true });
-    fs.appendFileSync(filePath, line + "\n");
-  } catch (err) {
-    return {
-      ok: false,
-      error: "append failed",
-      reason: err && err.message ? err.message : String(err),
-    };
+    const { resolveMainCheckout } = require(path.join(__dirname, "state-resolver.js"));
+    const mainCheckout = resolveMainCheckout(repoDir);
+    if (mainCheckout) boundaryRoots.push(mainCheckout);
+  } catch {
+    // Resolver unavailable — `repoDir` remains the only root; a state-dir sink then fails CLOSED
+    // (loudly, to the caller) rather than being written somewhere unverified.
   }
+  const w = appendSinkLine({
+    repoDir,
+    additionalRoots: boundaryRoots,
+    sinkPath: filePath,
+    line,
+  });
+  if (!w.ok) return { ok: false, error: "append failed", reason: `${w.error}: ${w.reason}` };
 
   return { ok: true, id: record.id, line };
 }

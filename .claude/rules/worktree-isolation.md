@@ -13,53 +13,97 @@ paths:
 
 See `.claude/guides/rule-extracts/worktree-isolation.md` for extended examples, post-mortem prose, and session evidence for all 6 MUST rules.
 
-Agents launched with `isolation: "worktree"` run in their own git worktree so parallel compile/test jobs do not fight over the same `target/` or `.venv/`. The isolation is only real if the agent actually edits files inside its assigned worktree path. When an agent drifts back to the main checkout — because the system prompt didn't pin cwd, because absolute paths were copied from the orchestrator, because the tool defaulted to `process.cwd()` — the isolation silently breaks.
+Parallel agents run in their own git worktree so compile/test jobs do not fight over the same `target/` or `.venv/`. The worktree is created by the ORCHESTRATOR as a SIBLING outside the repo (Rule 7 placement) and handed to the agent by absolute path; the harness flag `isolation: "worktree"` is RETIRED (Rule 1) because it places the worktree under the repo's OWN `.claude/`. The isolation is only real if the agent actually edits files inside its assigned worktree path. When an agent drifts back to the main checkout — because the system prompt didn't pin cwd, because absolute paths were copied from the orchestrator, because the tool defaulted to `process.cwd()` — the isolation silently breaks.
 
 This rule mandates a self-verification step at agent start AND a pre-flight check in the orchestrator's delegation prompt. The verification is cheap (one `git status`) and the failure mode is expensive (a whole session's worth of parallel work corrupted).
 
 ## MUST Rules
 
-### 1. Orchestrator Prompts MUST Pin The Worktree Path
+### 1. Pre-Made SIBLING Worktree + A MANDATED STEP-0 Cwd ASSERTION — Both Halves
 
-Any delegation that uses `isolation: "worktree"` MUST include the absolute worktree path in the prompt AND MUST instruct the agent to verify `git -C <worktree> status` at the start of its run. Passing the isolation flag without the explicit path is BLOCKED.
+A TWO-PART contract. Both halves are MUST, and (b) is what REPLACES the cwd guarantee the retired flag used to provide.
 
-```python
-# DO — explicit path + verification instruction
-worktree = "/absolute/path/to/repo/.claude/worktrees/agent-shard-abc123"
-Agent(isolation="worktree", prompt=f"""
-Working directory: {worktree}
-STEP 0 — verify: git -C {worktree} status
-If branch mismatch, STOP and report "worktree isolation broken".
-All file paths MUST be absolute and begin with {worktree}/.
-""")
+**(a) Placement + naming.** The orchestrator MUST create the agent's worktree ITSELF as a SIBLING outside the repo (Rule 7 placement; `/worktree` or a hand-rolled `git worktree add`), then dispatch WITHOUT any harness isolation flag, naming that ABSOLUTE path in the prompt. Passing `isolation: "worktree"` — or `EnterWorktree({name})` — is BLOCKED: both place the worktree at `<repo>/.claude/worktrees/agent-<id>`, nested under the repo's OWN `.claude/`.
 
-# DO NOT — isolation flag without pinned path
-Agent(isolation="worktree", prompt="Implement feature X — use ml-specialist patterns.")
+**(b) STEP-0 assertion.** The prompt MUST mandate that the agent's FIRST action is `cd <worktree>` FOLLOWED BY an assertion that it is now at an isolated worktree ROOT, refusing to proceed otherwise. Assert and refuse — not "verify", not "check". A dispatch naming the path but not mandating the assertion is BLOCKED. The assertion MUST compare RESOLVED paths (`pwd -P`, not the passed string) and MUST reject the main checkout:
+
+```bash
+cd "$WT" || { echo "STOP: cannot enter $WT"; exit 1; }
+top=$(git rev-parse --show-toplevel) || { echo "STOP: not a git repo"; exit 1; }
+[ "$top" = "$(pwd -P)" ]  || { echo "STOP: not a worktree ROOT (top=$top)"; exit 1; }
+main=$(cd "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")" && pwd -P)
+[ "$top" != "$main" ]     || { echo "STOP: this IS the main checkout"; exit 1; }
 ```
 
-**BLOCKED rationalizations:** "The isolation flag handles the cwd for me" / "The tool sets up the worktree automatically" / "I'll just use relative paths, they're shorter" / "The agent will figure out the right directory" / "I tested it once, it worked — should keep working".
+Two forms are BLOCKED as the assertion. `git -C <worktree> …` does NOT establish cwd — it answers a question about the worktree while leaving the agent in MAIN, so every later relative path and bare `git` still resolves to MAIN. A BARE `git rev-parse --show-toplevel` as the FIRST action resolves to MAIN on every dispatch (nothing set cwd — that is what retiring the flag gave up), so it refuses always, and an always-refusing check gets deleted by the first person it blocks. Only `cd` FIRST, THEN assert, is both runnable and load-bearing. Pairs with Rule 2a: `cd` at STEP 0 sets the floor, and each later invocation whose correctness depends on location MUST re-assert (cwd can revert mid-session).
 
-**Why:** The `isolation: "worktree"` flag creates the worktree but does not pin every tool call inside it — file-writing tools accepting absolute paths will write to the main checkout if the prompt uses a main-checkout path. One-line verification at agent start converts silent corruption into a loud refusal. See guide for 2026-04-19 post-mortem.
+```python
+# DO — pre-made SIBLING, no isolation flag, STEP-0 assertion MANDATED in the prompt
+wt = "/Users/me/repos/.myrepo-wt/shard-abc"      # sibling of the repo, NEVER under it
+# git worktree add -b feat/shard-abc "$wt" origin/main
+Agent(prompt=f"""
+Working directory: {wt}
+STEP 0 (FIRST action, before reading or writing anything) — cd, THEN assert:
+  cd "{wt}" || {{ echo "STOP: cannot enter {wt}"; exit 1; }}
+  top=$(git rev-parse --show-toplevel) || {{ echo "STOP: not a git repo"; exit 1; }}
+  [ "$top" = "$(pwd -P)" ] || {{ echo "STOP: not a worktree ROOT"; exit 1; }}
+Compare RESOLVED paths — never the passed string (a symlinked prefix refuses spuriously).
+On mismatch REFUSE to proceed; do NOT fall back to the main checkout.
+Every path you write MUST resolve inside {wt}; an absolute path rooted elsewhere is BLOCKED.
+""")
+
+# DO NOT — the retired harness flag (lands at <repo>/.claude/worktrees/agent-<id>)
+Agent(isolation="worktree", prompt="Implement feature X — use ml-specialist patterns.")
+# DO NOT — sibling path named, but no assertion mandated: nothing pins the agent's cwd
+Agent(prompt=f"Working directory: {wt}\nImplement feature X.")
+# DO NOT — `git -C` (never establishes cwd) or a bare rev-parse FIRST (always refuses)
+Agent(prompt=f'STEP 0: git -C "{wt}" rev-parse --show-toplevel')
+```
+
+**BLOCKED rationalizations:** "`isolation: "worktree"` is the built-in primitive, so it must be the intended path" / "The isolation flag handles the cwd for me" / "Pre-making the worktree is orchestrator overhead the flag does for free" / "The prompt names the directory, the agent will work there" / "STEP 0 is ceremony — the agent already has the path" / "`git -C <wt> status` is the same check" (it is not — `-C` leaves the agent in MAIN) / "The agent can just `cd` first" (an UN-ASSERTED `cd` is an unverified assumption; `cd` + assert is the mandated form) / "compare the toplevel to the path I passed" (spurious refusal on any symlinked prefix — compare resolved forms) / "I'll just use relative paths, they're shorter" / "The agent will figure out the right directory" / "I tested it once, it worked — should keep working".
+
+**Why:** The retired flag is what SET the agent's working directory. Retiring it removes that guarantee, and prompt text is NOT a guarantee — so half (b) is not belt-and-braces, it is the replacement. Without it this rule would trade a BOUNDED quota burn for UNBOUNDED silent work-loss to the main checkout, which is strictly worse than the status quo. The failure is recorded, not hypothetical: 2026-04-19, three parallel shards — 2 of 3 wrote to MAIN, and one lost 300+ LOC when its zero-commit worktree auto-cleaned. On placement: loom#1370 measured 88,895 duplicate tokens per agent per wave in the reporting repo (355,581 B, a FLOOR; ~35.6M per wave round at 40 terminals × 10 agents), re-loading a corpus already in context. A pre-made SIBLING is STRUCTURALLY immune — no ancestor `.claude/` exists anywhere between a sibling directory and `~` — so it is correct under EITHER reading of the dispatched-subagent path (Rule 7 § scope bound records loom's own measurement, which differs; this clause does not re-open it). Rule 2 (in-agent-file self-check), Rule 3 (post-exit verify), and skill Rules 2–3 (path discipline, commit-per-milestone) are now MORE load-bearing, not less: with the harness no longer pinning cwd, they are the remaining layers. **Both defects found while converging this clause were the SAME failure at opposite poles** — a chained `-C`/root-only form that could never FAIL, and a passed-string comparison that could never PASS on a symlinked path. Neither is falsifiable in the way that matters, and a check that always refuses gets deleted by the first person it blocks just as surely as one that never fires gets trusted. Any future edit to an assertion here MUST state which inputs make it fail AND which make it pass. See guide (2026-04-19 post-mortem) + skill § Retiring `isolation: "worktree"`.
+
+#### Trust Posture Wiring (Rule 1 — clause-scoped)
+
+Rule 1 is `/codify`-touched here, so it leaves the Rules 1–6 grandfather set and ships canonical-8-field-compliant; Rules 2–6 stay grandfathered until each is itself touched.
+
+- **Severity:** `halt-and-report` at gate-review (reviewer at `/implement` + cc-architect at `/codify` confirm every parallel dispatch went into an orchestrator-made sibling worktree pinned by absolute path, with no `isolation:` flag, AND mandated the STEP-0 bare-`git rev-parse` cwd assertion); `advisory` at the hook layer per `hook-output-discipline.md` MUST-2 (a dispatch argument is not structurally decidable as agent-wave vs other at tool-call time).
+- **Grace period:** 7 days from clause landing (2026-07-26 → 2026-08-02).
+- **Cumulative posture impact:** same-class violations (a dispatch carrying `isolation: "worktree"` / `EnterWorktree({name})`; a pre-made-worktree dispatch with no absolute path pinned; a dispatch omitting the STEP-0 assertion mandate; or an assertion written with `git -C <worktree> …`, with a bare first `rev-parse`, or by string-comparing against the passed path) contribute to `trust-posture.md` MUST-4 cumulative-window math (3× same-rule / 5× total in 30d → drop 1 posture).
+- **Regression-within-grace:** routes through the GENERIC `regression_within_grace` emergency trigger per `trust-posture.md` MUST-4 (1× = drop 1 posture) — NO dedicated per-clause trigger key (a dispatch-argument property is review-layer plus advisory-hook; the universal trigger covers it). Named deviation from the key-per-clause shape, recorded per `trust-posture.md` Rule 8 — the same disposition Rule 7 and `security.md` § Enforcement-Surface Parity took.
+- **Receipt requirement:** SessionStart soft-gate `[ack: worktree-isolation]` IFF `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — for any session that dispatched parallel agents, reviewer confirms (i) each worktree path lies OUTSIDE the repo top-level (never under `.claude/worktrees/`), (ii) no dispatch carried an isolation flag, and (iii) each prompt mandates a STEP-0 `cd <worktree>` FOLLOWED BY an assertion that `git rev-parse --show-toplevel` equals `pwd -P` (and is not the main checkout), with an explicit refusal — a `-C`-qualified form, a bare first `rev-parse`, or a string comparison against the passed path are each a finding, not a pass. Phase 2 (deferred) — no hook detector; audit fixtures land with it at `.claude/audit-fixtures/worktree-session-placement/` (shared with Rule 7) per `cc-artifacts.md` Rule 9.
+- **Violation scope:** Rule 1 ONLY; Rules 2–6 stay grandfathered.
+- **Origin:** loom#1370 (owner-escalated fleet-wide quota burn); see § Origin.
 
 ### 2. Specialist Agents MUST Self-Verify Cwd At Start
 
-Every specialist agent file (`.claude/agents/**/*.md`) that may be launched with `isolation: "worktree"` MUST include a "Working Directory Self-Check" step at the top of its process section. The check prints the resolved cwd and the git branch, and refuses to proceed if either is unexpected.
+Every specialist agent file (`.claude/agents/**/*.md`) that may be dispatched into a worktree MUST include a "Working Directory Self-Check" step at the top of its process section. The check prints the resolved cwd and the git branch, and refuses to proceed if either is unexpected.
 
 ```markdown
 # DO — self-check baked into the agent file
 
 ## Step 0: Working Directory Self-Check
 
-Before any file edit, run:
-git rev-parse --show-toplevel
+Before any file edit — AFTER Rule 1(b)'s STEP-0 `cd` — run BARE (no `-C`):
+top=$(git rev-parse --show-toplevel)
+[ "$top" = "$(pwd -P)" ] || STOP                 # at a worktree root
+main=$(cd "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")" && pwd -P)
+[ "$top" != "$main" ] || STOP                    # ...and NOT the main checkout
 git rev-parse --abbrev-ref HEAD
-If top-level path does NOT match worktree path, STOP and emit
+If either check fails, STOP and emit
 "worktree drift detected — refusing to edit main checkout".
 
-# DO NOT — assume orchestrator pinned cwd
+# DO NOT — the root check alone; MAIN is itself a worktree root, so it PASSES there
+[ "$(git rev-parse --show-toplevel)" = "$(pwd -P)" ] || STOP
 ```
 
-**Why:** The orchestrator's pinned-path instruction can be lost to context compression across long delegation chains; a self-check inside the specialist file is a belt-and-suspenders guarantee that survives prompt truncation. One git call (~30 ms) prevents specialist drift.
+**Why:** Rule 1(b) puts the assertion in the PROMPT; this rule puts it in the AGENT FILE, so it survives the prompt. That redundancy became load-bearing when Rule 1 retired the flag: the orchestrator's pinned-path instruction can be lost to context compression across long delegation chains, and with no harness setting cwd there is nothing else underneath. One git call (~30 ms) prevents specialist drift.
+
+**BARE is correct HERE and wrong at Rule 1(b) — the difference is POSITION, not the command.** This check runs AFTER cwd is established, where a bare `rev-parse` is the only form that OBSERVES where the agent actually ended up (`-C` would answer about the worktree instead, and a `cd` would re-establish the very thing being tested). At Rule 1(b) nothing has set cwd yet, so the same bare command resolves to MAIN and refuses always. Do NOT "converge" this site onto `cd <wt> && …`; that would make the drift check unable to fail. The `cd` inside the `main=` command substitution is a SUBSHELL used only to resolve the main repo top — it does not move the agent, and removing it reintroduces the symlink false-refusal.
+
+**The main-checkout exclusion is what gives this check teeth.** The root test alone PASSES in MAIN (measured), because MAIN is itself a valid worktree root — so on the Rule 2a path, where cwd silently reverts to MAIN mid-session, the root test would wave through the exact drift this rule exists to catch.
 
 ### 2a. Re-Assert Cwd Per Invocation — `cd` Persistence Is Not Trustworthy
 
@@ -83,7 +127,7 @@ When an agent reports completion of a file-writing task, the parent orchestrator
 
 ```python
 # DO — verify after agent returns
-result = Agent(isolation="worktree", prompt=f"Write {worktree}/src/feature.py...")
+result = Agent(prompt=f"Write {worktree}/src/feature.py...")   # worktree = pre-made sibling
 assert_file_exists(f"{worktree}/src/feature.py")  # parent checks
 
 # DO NOT — trust "done" and proceed
@@ -139,11 +183,11 @@ Before launching a worktree agent, the orchestrator MUST create the worktree's b
 ```bash
 # DO — pin the base SHA at launch, verify merge-base matches HEAD
 target_head=$(git rev-parse feat/kailash-ml-1.0.0-m1-foundations)
-git worktree add -b "feat/w31-core-ml-nodes" ".claude/worktrees/w31a" "$target_head"
+git worktree add -b "feat/w31-core-ml-nodes" "$WT_PARENT/w31a" "$target_head"   # sibling, outside the repo
 merge_base=$(git merge-base "feat/w31-core-ml-nodes" feat/kailash-ml-1.0.0-m1-foundations)
 [ "$merge_base" = "$target_head" ] || { echo "base drift — ABORT"; exit 1; }
 
-# DO NOT — let the worktree default to a stale branch tip
+# DO NOT — no explicit base (stale tip) AND nested inside the repo (Rule 1 placement)
 git worktree add .claude/worktrees/w31a  # branches from whatever HEAD happens to be
 ```
 
@@ -158,12 +202,14 @@ When the orchestrator prompt specifies a branch name (e.g. `feat/w31-core-ml-nod
 ```python
 # DO — explicit branch name on worktree creation
 branch = "feat/w31-core-ml-nodes-observability"
-subprocess.run(["git", "worktree", "add", "-b", branch, worktree, target_head])
-Agent(isolation="worktree", prompt=f"""Branch: {branch}
-STEP 0 — actual=$(git -C {worktree} rev-parse --abbrev-ref HEAD)
-[ "$actual" = "{branch}" ] || exit 1""")
+subprocess.run(["git", "worktree", "add", "-b", branch, worktree, target_head])  # worktree = sibling
+Agent(prompt=f"""Branch: {branch}
+STEP 0 — cd first, THEN assert root + branch (never -C, never a bare first rev-parse)
+cd "{worktree}" || exit 1
+[ "$(git rev-parse --show-toplevel)" = "$(pwd -P)" ] || exit 1
+[ "$(git rev-parse --abbrev-ref HEAD)" = "{branch}" ] || exit 1""")
 
-# DO NOT — let harness default assign worktree-agent-<hash>
+# DO NOT — omit -b (or use the retired flag) and inherit a worktree-agent-<hash> default
 Agent(isolation="worktree", prompt="Implement W31... use feat/w31-core-ml-nodes")
 ```
 
@@ -173,7 +219,11 @@ Agent(isolation="worktree", prompt="Implement W31... use feat/w31-core-ml-nodes"
 
 ### 7. Session/Operator Worktrees Live In A Sibling OUTSIDE The Repo — Never Nested Under `.claude/worktrees/`
 
-Rules 1–6 govern the TRANSIENT **agent-wave** worktree (`isolation: "worktree"` / `EnterWorktree({name})` → `.claude/worktrees/<hash>`, gitignored scratch, auto-cleaned). A DURABLE **session/operator** worktree — one a human or a session ROOTS INTO and works from across a task (parallel development alongside another operator on the same clone) — is a DIFFERENT artifact and MUST be created OUTSIDE the repo working tree, as a SIBLING in the MAIN repo's parent dir (e.g. `<main-repo-parent>/.<repo-slug>-wt/<name>`), NEVER nested under the repo's own `.claude/worktrees/` (or anywhere below the repo root). The canonical mechanism is the **`/worktree` command**; a hand-rolled `git worktree add` MUST still obey the placement rule. Root the session at the sibling by LAUNCHING the CLI with the sibling as cwd (robust — no caveats), OR — under Claude Code only — `EnterWorktree({path: <sibling>})` on FIRST entry from the launch directory (a worktree already in `git worktree list`). `EnterWorktree({name})` MUST NOT be used for durable session work (it creates under `.claude/worktrees/` — the nesting trap). Every task: branch off `origin/<default>`, PR to main, admin-merge, return.
+Rules 1–6 govern the TRANSIENT **agent-wave** worktree — since Rule 1 that is an ORCHESTRATOR-made sibling too (the harness flag that placed it at `.claude/worktrees/<hash>` is retired), still scratch, still auto-cleaned. A DURABLE **session/operator** worktree — one a human or a session ROOTS INTO and works from across a task (parallel development alongside another operator on the same clone) — is a DIFFERENT artifact and MUST be created OUTSIDE the repo working tree, as a SIBLING in the MAIN repo's parent dir (e.g. `<main-repo-parent>/.<repo-slug>-wt/<name>`), NEVER nested under the repo's own `.claude/worktrees/` (or anywhere below the repo root). The canonical mechanism is the **`/worktree` command**; a hand-rolled `git worktree add` MUST still obey the placement rule. Root the session at the sibling by LAUNCHING the CLI with the sibling as cwd (robust — no caveats), OR — under Claude Code only — `EnterWorktree({path: <sibling>})` on FIRST entry from the launch directory (a worktree already in `git worktree list`). `EnterWorktree({name})` MUST NOT be used for durable session work (it creates under `.claude/worktrees/` — the nesting trap; Rule 1 blocks it for agent waves too). Every task: branch off `origin/<default>`, PR to main, admin-merge, return.
+
+**Placement is a MUST for any worktree a SESSION ROOTS INTO — the reason is quota, not tidiness.** A worktree a session roots into (an operator worktree, or one an orchestrator hand-creates and then roots a session at) MUST be a sibling outside the repo, because a nested ROOT duplicates the matching path-scoped set (measured below; at loom a `.claude/rules/**` touch matched 13 rules ≈ 292 KB by a REIMPLEMENTED glob matcher — indicative, not CC's own; an independent reimplementation got 15 rules / 333,521 B, ~14% apart, so treat the magnitude, not the digits). This requirement is STRUCTURAL: it binds on PLACEMENT, so it holds whether or not the CLI's loading behaviour changes.
+
+**Scope bound — the quota reason does NOT extend to a dispatched subagent.** The harness-created agent-wave path (`isolation: "worktree"` / `EnterWorktree({name})` → `.claude/worktrees/<hash>`) is NOT author-controlled, AND the duplication rationale does not apply to it: MEASURED (2/2 runs) a subagent dispatched with `isolation: "worktree"` inherits the DISPATCHING session's corpus wholesale (13/13 injected blocks anchored at the parent session's launch root — neither the subagent's own root nor an ancestor of it) and received NO path-scoped injection at all, despite reading files matching three declared globs. So a dispatched wave does not itself double-load; its exposure is whatever the dispatching session already carries. INFERENCE, not separately measured (the composed case was never run): rooting the DISPATCHING session in a sibling is therefore the lever that bounds a wave's cost. For hand-rolled agent-wave worktrees nobody roots a session at, the governing reasons are (b) and (c) below — tooling recursion and clutter — NOT duplication. Rule 1 nonetheless retires the flag, on the independent grounds stated in its own **Why:**; that retirement neither rests on nor disturbs the measurement recorded here.
 
 ```bash
 # DO — sibling worktree in the MAIN repo's parent (location-independent even from inside a worktree), PR-to-main loop
@@ -188,34 +238,48 @@ cd "$(dirname "$main_top")/.loom-wt/x" && claude              # launch rooted (o
 
 # DO NOT — nest a session-rooted worktree inside the repo
 git worktree add .claude/worktrees/x    ;  EnterWorktree({name: "x"})   # both land under .claude/worktrees/
-# → the full nested checkout now sits INSIDE the repo's own `.claude/**` glob range, so a parent-repo
-#   recursive scan (grep -r / a validator with `--root .`) descends into it and pulls a duplicate corpus
-#   in as TOOL OUTPUT (context bloat) + clutters the human's working tree. NOT a rule double-load — CC
-#   roots at the nearest `.git` boundary and loads exactly ONE `.claude/` corpus (every worktree has its own `.git`).
+# → TWO costs, BOTH measured. (1) PATH-SCOPED RULE DOUBLE-LOAD: a session rooted at the nested worktree
+#   loads path-scoped rules from BOTH its own `.claude/rules/` AND the ANCESTOR repo's — the same rule
+#   arrives TWICE under two distinct paths, and an ancestor-ONLY rule arrives in full. A sibling-rooted
+#   session loads each exactly ONCE. (2) the nested checkout sits INSIDE the repo's own `.claude/**` glob
+#   range, so a parent-repo recursive scan (grep -r / a validator with `--root .`) descends into it and
+#   pulls a duplicate corpus in as TOOL OUTPUT + clutters the working tree.
 ```
 
-**BLOCKED rationalizations:** "`.claude/worktrees/` is the built-in worktree location" (that is for the TRANSIENT agent waves of Rules 1–6, not a session you root into) / "`EnterWorktree({name})` is the tool's intended path" (it creates under `.claude/worktrees/` → nested inside the repo's glob range) / "it's gitignored, so nesting is harmless" (gitignore does NOT stop a parent-repo `grep -r` / a validator run with `--root .` from descending into the nested checkout and pulling a duplicate corpus in as tool output) / "the clutter is only cosmetic" (a full ~24MB nested checkout inside the repo working tree is a real human-org burden and a real recursion target for parent-repo tooling) / "sibling paths clutter the parent dir" (dot-prefixed `<main-repo-parent>/.<slug>-wt/` stays hidden on macOS/Linux and out of the orchestration-root repo enumeration).
+**BLOCKED rationalizations:** "`.claude/worktrees/` is the built-in worktree location" (that is for the TRANSIENT agent waves of Rules 1–6, not a session you root into) / "`EnterWorktree({name})` is the tool's intended path" (it creates under `.claude/worktrees/` → nested inside the repo's glob range) / "it's gitignored, so nesting is harmless" (gitignore does NOT stop a parent-repo `grep -r` / a validator run with `--root .` from descending into the nested checkout and pulling a duplicate corpus in as tool output) / "the clutter is only cosmetic" (a full ~24MB nested checkout inside the repo working tree is a real human-org burden and a real recursion target for parent-repo tooling) / "sibling paths clutter the parent dir" (dot-prefixed `<main-repo-parent>/.<slug>-wt/` stays hidden on macOS/Linux and out of the orchestration-root repo enumeration) / "the double-load was already tested and did not reproduce" (the 2026-07-22 test compared aggregate TOKEN COUNTS, an instrument structurally blind to duplication of byte-identical corpora; its conclusion is WITHDRAWN as unsupported — re-test with a root-distinguishing sentinel or do not claim a result) / "the corpora are the same size, so nothing is duplicated" (same size is exactly what loading the same bytes twice from two roots looks like to a size comparison) / "every worktree has its own `.git`, so it must be its own root" (true of `.git` resolution; FALSE of path-scoped rule injection, which was measured to reach up to the ancestor).
 
-**Why:** Evidence-scoped correction (2026-07-22, objective testing on CC 2.1.216): the double-load premise did NOT reproduce. Token counts — nested-full worktree **75,173** ≈ main checkout **75,348** ≈ sibling **75,095** (a `.claude/`-excluded worktree dropped to **36,817** and could not quote a rule the others have). Mechanism (inferred from that data + claude-code-guide; CC docs are silent): **CC roots at the nearest `.git` boundary and loads exactly ONE `.claude/` — the worktree's OWN; it does NOT walk up to an ancestor `.claude/`.** Every git worktree has its own `.git`, so it is always its own self-contained project root — a nested worktree does NOT double-load (75k ≈ main, not ~150k). journal/0463 asserted the contrary ancestor-walk-up mechanism, and its cited "verified" ancestor (a `.claude/rules/` at the orchestration root above a loom-rooted session) has no basis today — no such ancestor `.claude/` exists there and the orchestration root is not a git repo. The conclusion (session/operator worktrees live OUTSIDE the repo) still HOLDS, on corrected rationale: (a) human organization — a full nested checkout clutters the working tree; (b) keeping the worktree out of the repo's `.claude/**` glob range so parent-repo recursive tooling (a `grep -r` / a validator's `--root .`) cannot descend into the nested checkout and pull a duplicate corpus in as TOOL OUTPUT. The distinction is PLACEMENT; `/worktree` encodes it so it is reliable rather than reconstructed each session.
+**Why (measured — supersedes the 2026-07-22 amendment, which asserted the opposite):** Sentinel probe, 2026-07-26, CC 2.1.220; full matrix + verbatim repro in `skills/30-claude-code-patterns/worktree-orchestration.md` § Ancestor-Load Measurement. A session rooted at a NESTED worktree loads **path-scoped** rules from BOTH roots — the same rule arrived TWICE under two distinct paths (its own + the ancestor's), and an ancestor-ONLY rule (untracked, therefore provably absent from the worktree checkout — `grep` exit 1) arrived in FULL under the ancestor's path. Reproduced 2/2 runs. A SIBLING-rooted session loaded each rule exactly ONCE, with zero ancestor content. **`CLAUDE.md` and baseline (`priority: 0`) rules do NOT ancestor-load** — this SETTLES the question #1368 left open: an ancestor-only baseline sentinel planted BEFORE the session started never appeared, which excludes the "baseline set is snapshotted at session start" explanation by construction. The quota cost is real in ORDER OF MAGNITUDE (hundreds of KB per touch), NOT in exact digits: a `.claude/rules/agents.md` touch matched 13 path-scoped rules ≈ 292 KB under a REIMPLEMENTED glob matcher — an approximation of CC's, not CC's own. An independent reimplementation got 15 rules / 333,521 B (~14% apart), so the per-touch subset is INDICATIVE. Only the corpus total (74 path-scoped rules, 1,185,700 B) is exact.
+
+**The methodological lesson — the durable part.** The 2026-07-22 amendment concluded "CC loads exactly ONE `.claude/`; a nested worktree does NOT double-load" from comparing TOKEN COUNTS across nested / main / sibling roots and finding them roughly equal (75,173 / 75,348 / 75,095). That conclusion is **WITHDRAWN as unsupported** — NOT refuted: it was measured on CC 2.1.216, which is not re-testable here, so its data is not contradicted; its INSTRUMENT is disqualified. **A size comparison cannot detect duplication, because the two corpora are byte-identical — it is blind to loading the same bytes twice.** A measurement whose instrument cannot distinguish the hypothesis from its negation is evidence for NEITHER; reporting it as confirmation converts a null result into a false verification claim (`evidence-first-claims.md` MUST-3/MUST-4). The 2026-07-26 measurement above is a fresh finding on CC 2.1.220, not a contradiction of the older run. The fix is to make the two roots DISTINGUISHABLE: plant an UNTRACKED sentinel at one root only (untracked ⇒ no checkout of the other can contain it), confirm the on-disk asymmetry, then have a session at the other root report BY INTROSPECTION whether the sentinel reached it. Any future re-test of this claim MUST use a root-distinguishing instrument, never an aggregate size.
+
+The placement conclusion (session/operator worktrees live OUTSIDE the repo) therefore holds a fortiori, now on THREE grounds: (a) the measured path-scoped double-load above; (b) human organization — a full nested checkout clutters the working tree; (c) keeping the worktree out of the repo's `.claude/**` glob range so parent-repo recursive tooling (a `grep -r` / a validator's `--root .`) cannot descend into it and pull a duplicate corpus in as TOOL OUTPUT. The distinction is PLACEMENT; `/worktree` encodes it so it is reliable rather than reconstructed each session.
 
 #### Trust Posture Wiring (Rule 7 — clause-scoped)
 
 Rule 7 lands post-`trust-posture.md`-MUST-8-cutoff, so it ships canonical-8-field-compliant; Rules 1–6 remain grandfathered until each is itself `/codify`-touched (the clause-scoped precedent set by `rule-authoring.md`/`security.md`/`git.md`).
 
 - **Severity:** `halt-and-report` at gate-review (reviewer / cc-architect confirm a session-rooted worktree is a sibling outside the repo, never nested under `.claude/worktrees/`); `advisory` at the hook layer (placement is judgment-bearing over session setup, no structural tool-call signal — `hook-output-discipline.md` MUST-2).
-- **Grace period:** 7 days from clause landing (2026-07-11 → 2026-07-18).
+- **Grace period:** 7 days from clause landing (2026-07-11 → 2026-07-18); the 2026-07-26 measured-placement amendment re-opens a 7-day grace on its own new obligation (sibling placement wherever author-controlled): 2026-07-26 → 2026-08-02.
 - **Cumulative posture impact:** same-class violations (a durable session worktree nested under `.claude/worktrees/` or below the repo root) contribute to `trust-posture.md` MUST-4 cumulative-window math (3× same-rule in 30d → drop 1 posture; 5× total in 30d → drop 1 posture).
 - **Regression-within-grace:** routes through the GENERIC `regression_within_grace` emergency trigger per `trust-posture.md` MUST-4 (1× = drop 1 posture) — NO dedicated per-clause trigger key (a worktree-placement property is review-layer setup judgment; the universal trigger covers it). Named deviation from the key-per-clause shape, recorded per `trust-posture.md` Rule 8 — the same disposition `security.md` § Enforcement-Surface Parity took.
 - **Receipt requirement:** SessionStart soft-gate `[ack: worktree-isolation]` IFF `posture.json::pending_verification` includes this rule_id.
-- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer / cc-architect inspect any session that created a session-rooted worktree and confirm sibling placement (path NOT under the repo top-level; NOT under `.claude/worktrees/`) + no `EnterWorktree({name})` for durable work. Phase 2 (deferred) — no hook detector; audit fixtures land with it at `.claude/audit-fixtures/worktree-session-placement/` per `cc-artifacts.md` Rule 9.
-- **Violation scope:** Rule 7 (session/operator sibling-placement) ONLY; Rules 1–6 stay grandfathered until each is itself `/codify`-touched.
-- **Origin:** co-owner-directed origination 2026-07-11 (`journal/0463`); tested evidence (`EnterWorktree({path})` sibling re-root) in that receipt. Double-load premise empirically corrected 2026-07-22 (co-owner-directed; objective token-count testing on CC 2.1.216 refuted the ancestor-walk-up mechanism — see journal receipt): the corrected placement rationale is human-organization + keeping the nested checkout out of the repo's `.claude/**` glob range, NOT a rule double-load.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer / cc-architect inspect any session that created a session-rooted worktree and confirm sibling placement (path NOT under the repo top-level; NOT under `.claude/worktrees/`) + no `EnterWorktree({name})` for durable work. ADDED 2026-07-26: any review that RE-LITIGATES the ancestor-load claim MUST reject an aggregate-size instrument (token counts, corpus bytes) as structurally incapable of detecting duplication, and require a root-distinguishing sentinel per the § Ancestor-Load Measurement protocol; a "did not reproduce" verdict from a size comparison is a finding, not a clearance. Phase 2 (deferred) — no hook detector; audit fixtures land with it at `.claude/audit-fixtures/worktree-session-placement/` per `cc-artifacts.md` Rule 9.
+- **Violation scope:** Rule 7 (session/operator sibling-placement + the 2026-07-26 measured-placement amendment) ONLY; Rules 1–6 stay grandfathered until each is itself `/codify`-touched.
+- **Origin:** co-owner-directed origination 2026-07-11 (`journal/0463`); tested evidence (`EnterWorktree({path})` sibling re-root) in that receipt. The 2026-07-22 amendment then asserted, from an aggregate token-count comparison on CC 2.1.216, that no double-load occurs; loom#1368 (filed from a Rust BUILD repo) reported the opposite for path-scoped rules and named the token-count method's blindness. That 2026-07-22 conclusion is WITHDRAWN as unsupported (its instrument cannot detect duplication), NOT refuted — 2.1.216 is not re-testable here. Re-measured at loom 2026-07-26 on CC 2.1.220 with an untracked-sentinel probe (matrix in the skill): path-scoped rules DO ancestor-load and DO arrive twice; `CLAUDE.md` and baseline rules do NOT — the latter settled with a pre-session plant, which closes #1368's own INCONCLUSIVE on baseline. Placement conclusion unchanged; rationale now measured rather than inferred. **Forward-marker:** `journal/0565` records the superseded 2026-07-22 conclusion and is NOT amended by this change — read it together with this Rule-7 body, which supersedes it.
 
 ## MUST NOT
 
-- Launch an agent with `isolation: "worktree"` without passing the absolute worktree path in the prompt
+- Launch an agent with `isolation: "worktree"` or `EnterWorktree({name})` at all — or dispatch into a pre-made worktree without BOTH pinning its absolute path AND mandating the STEP-0 cwd assertion
 
-**Why:** The isolation flag alone does not guarantee every tool call stays inside the worktree — the prompt is the only place the agent learns where it belongs.
+**Why:** Both flags place the worktree under the repo's own `.claude/` (Rule 1's quota cost). Retiring them also removes the cwd guarantee they provided, so a dispatch that names the path but does not mandate the assertion leaves nothing pinning the agent anywhere — the 2026-04-19 write-to-main loss.
+
+- Use `git -C <worktree> …`, or a BARE `git rev-parse --show-toplevel`, as the STEP-0 assertion
+
+**Why:** `-C` never establishes cwd — it answers a question about the worktree and leaves the agent in MAIN, so everything after it still resolves to MAIN. A bare `rev-parse` as the FIRST action resolves to MAIN on every dispatch and refuses always. `cd` first, then assert, is the only form that is both runnable and load-bearing.
+
+- Assert by string-comparing `git rev-parse --show-toplevel` against the path the orchestrator passed
+
+**Why:** `--show-toplevel` returns the symlink-RESOLVED path, so any symlinked prefix (`/tmp` → `/private/tmp` on macOS, symlinked homes, Windows junctions) refuses spuriously on a perfectly correct worktree — and an always-refusing check gets deleted. Compare `pwd -P` against `--show-toplevel`, both resolved.
 
 - Trust an agent's "completion" message when it says "Now let me write…" followed by no tool call
 
@@ -225,4 +289,4 @@ Rule 7 lands post-`trust-posture.md`-MUST-8-cutoff, so it ships canonical-8-fiel
 
 **Why:** `process.cwd()` resolves to whatever the Claude Code process was launched with (the main checkout), not the worktree; relative paths inherit the same problem.
 
-Origin: Session 2026-04-19 specialist drift + 2026-04-23 kailash-ml-audit M10 release wave (Rules 4–6) + Rule 2a 2026-06-11 (the Rust SDK journal 0177 § Process note — cwd silently reverted to main mid-session, a "3× green" validation had run against unpatched main code). See guide for full post-mortem evidence. Rule 4 reframed 2026-06-01 (F110 / loom#418+#419) from the hardcoded "Waves of ≤3" cap to the throttle-aware adaptive model — #419's 7-read-only-agent synchronized throttle (sub-quota, `not your usage limit`) falsified #418's "trust the native cap (14)"; receipts journal/0193 (ablation + throttle evidence) + journal/0194 (F110 DECISION).
+Origin: Session 2026-04-19 specialist drift + 2026-04-23 kailash-ml-audit M10 release wave (Rules 4–6) + Rule 2a 2026-06-11 (the Rust SDK journal 0177 § Process note — cwd silently reverted to main mid-session, a "3× green" validation had run against unpatched main code). See guide for full post-mortem evidence. Rule 4 reframed 2026-06-01 (F110 / loom#418+#419) from the hardcoded "Waves of ≤3" cap to the throttle-aware adaptive model — #419's 7-read-only-agent synchronized throttle (sub-quota, `not your usage limit`) falsified #418's "trust the native cap (14)"; receipts journal/0193 (ablation + throttle evidence) + journal/0194 (F110 DECISION). Rule 1 rewritten 2026-07-26 (loom#1370, owner-escalated): the `isolation: "worktree"` flag is RETIRED in favour of an orchestrator-made SIBLING worktree pinned by absolute path — the flag placed every agent worktree under the repo's own `.claude/`, which #1370 reports costs 88,895 duplicate tokens per agent per wave (~35.6M per wave round at 40 terminals × 10 agents) in the reporting repo. Half (b), the mandated STEP-0 cwd assertion, was added in the same cycle on owner correction: the flag was ALSO what set the agent's working directory, so retiring it without a prompt-mandated assertion would have traded a bounded quota burn for the unbounded write-to-main loss already recorded at 2026-04-19 (2 of 3 shards to MAIN, 300+ LOC lost to auto-cleanup).

@@ -1,0 +1,1 @@
+cat .claude/settings.json && node /tmp/a/other.js > /tmp/b/out.json

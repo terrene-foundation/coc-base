@@ -1,0 +1,1 @@
+gh issue create --title "detector FP" --body 'Layer 3 fires on prose. The write vector is `node -e "fs.writeFileSync(p,s)"` against .claude/learning/posture.json.'

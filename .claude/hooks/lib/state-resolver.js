@@ -48,9 +48,102 @@ function isNonMainWorktreePath(p) {
   return p.includes("/.claude/worktrees/") || p.includes("/.loom-wt/");
 }
 
+// ── $CLAUDE_TRUST_STATE_DIR containment validation (#1444) ──────────────────
+//
+// THE DEFECT THIS CLOSES. The override used to be honored UNCONDITIONALLY as a
+// pure `dirname(dirname($CLAUDE_TRUST_STATE_DIR))` — no existence check, no
+// containment test, no canonicalization, and no denylist entry. Because
+// integrity-guard derives `repoDir = resolveMainCheckout(sessionCwd)` and then
+// asks BOTH `isWatchedPath(target, repoDir)` and `isCoordinationEnabled(repoDir)`,
+// pointing the variable at an EMPTY directory made the real posture.json /
+// operators.roster.json fall outside `repoDir` (→ unwatched → passthrough) AND
+// made the redirected root read as un-enrolled (→ coordination OFF → passthrough).
+// Protected writes flipped from BLOCKED to ALLOWED with NO files planted.
+//
+// WHY VALIDATION AND NOT DENIAL. The override is a LEGITIMATE, in-use seam: the
+// integration suite pins it at a fixture's own `<root>/.claude/learning`
+// (c2-auth-hardening-iter2, protected-path-dimensions-1409-1429-1441,
+// state-file-guard-case-parity). Denying it outright would break those and
+// remove a documented affordance. What made it dangerous was not that it moves
+// the root — it is that it moved the root ANYWHERE. So the fix constrains it to
+// the ONE shape it is documented to express: the canonical trust-state directory
+// of a REAL git checkout.
+//
+// THE PREDICATE, mirroring coordination-mode.js::_isCanonicalEcosystemConfig
+// (rules/security.md § Path Containment — BOTH candidate and boundary root go
+// through the SAME resolver before comparison, and the whole thing fails CLOSED):
+//   1. absolute path, canonical shape `<root>/.claude/learning`;
+//   2. `<root>` exists, is a directory, and carries a `.git` entry (real checkout);
+//   3. the resolved `.claude` dir still sits at `<realRoot>/.claude` — so a
+//      SYMLINKED `.claude` cannot relocate the canonical location itself;
+//   4. when the learning dir already exists, its realpath must equal
+//      `<realClaudeDir>/learning` — so a symlink planted at the canonical path
+//      whose target escapes the checkout reads as RELOCATED and is refused.
+//      When it does not exist yet, the verified parent chain is sufficient
+//      (mkdir will create it INSIDE the already-canonicalized `.claude`), which
+//      keeps first-use on a fresh checkout working.
+// Any resolution error returns null → the caller IGNORES the override and falls
+// through to the deterministic git-derived resolution, i.e. the protected
+// behaviour, never an attacker-supplied path.
+function _validatedTrustStateRoot(raw) {
+  try {
+    if (typeof raw !== "string" || raw.trim() === "") return null;
+    if (!path.isAbsolute(raw)) return null;
+    const norm = path.normalize(raw);
+    if (path.basename(norm) !== "learning") return null;
+    const claudeDir = path.dirname(norm);
+    if (path.basename(claudeDir) !== ".claude") return null;
+    const root = path.dirname(claudeDir);
+
+    if (!fs.statSync(root).isDirectory()) return null;
+    if (!fs.existsSync(path.join(root, ".git"))) return null;
+
+    const realRoot = fs.realpathSync(root);
+    const realClaudeDir = fs.realpathSync(claudeDir);
+    if (realClaudeDir !== path.join(realRoot, ".claude")) return null;
+
+    if (fs.existsSync(norm)) {
+      const realCandidate = fs.realpathSync(norm);
+      if (realCandidate !== path.join(realClaudeDir, "learning")) return null;
+    }
+    return realRoot;
+  } catch {
+    return null;
+  }
+}
+
+// LOUD-on-refusal (rules/security.md § Secure-Default For A New Security Feature).
+// A new gate whose default is a SILENT no-op is BLOCKED: silently ignoring the
+// override would leave an operator whose legitimate-but-malformed override stopped
+// working with no way to see why, and would let a genuine attack pass unremarked.
+// One-time per process, stderr only (never stdout — a hook's stdout is its
+// structured protocol surface, so writing there would corrupt the payload).
+let _warnedTrustStateDir = false;
+function _warnRefusedTrustStateDir(raw, reason) {
+  if (_warnedTrustStateDir) return;
+  _warnedTrustStateDir = true;
+  try {
+    process.stderr.write(
+      `[state-resolver] REFUSED $CLAUDE_TRUST_STATE_DIR=${raw} — ${reason}. ` +
+        "Falling back to git-derived main-checkout resolution. The override is " +
+        "honored ONLY at the canonical <root>/.claude/learning of a real git " +
+        "checkout (loom#1444).\n",
+    );
+  } catch {
+    /* stderr unavailable — never throw into a guard (zero-tolerance.md Rule 3) */
+  }
+}
+
 function resolveMainCheckout(cwd) {
-  if (process.env.CLAUDE_TRUST_STATE_DIR) {
-    return path.dirname(path.dirname(process.env.CLAUDE_TRUST_STATE_DIR));
+  const rawStateDir = process.env.CLAUDE_TRUST_STATE_DIR;
+  if (rawStateDir) {
+    const validRoot = _validatedTrustStateRoot(rawStateDir);
+    if (validRoot) return validRoot;
+    _warnRefusedTrustStateDir(
+      rawStateDir,
+      "not the canonical <root>/.claude/learning of a real git checkout",
+    );
+    // FALL THROUGH (fail closed): ignore the redirect and resolve deterministically.
   }
   const startCwd = cwd || process.cwd();
 
@@ -114,6 +207,41 @@ function resolveMainCheckout(cwd) {
   return startCwd;
 }
 
+// DELIBERATELY NOT VALIDATED — and this asymmetry with resolveMainCheckout is a
+// KNOWN, NAMED residual, not an oversight. Read this before "fixing" it.
+//
+// The #1444 bypass runs through resolveMainCheckout: integrity-guard derives
+// `repoDir` from it and then asks isWatchedPath(target, repoDir) +
+// isCoordinationEnabled(repoDir). Validating THAT surface closes the proven
+// bypass. resolveStateDir answers a different question — where state is WRITTEN —
+// and it is the sanctioned isolation seam the existing hermetic suites are built
+// on: ~10 test files (state-io-write-nofollow, posture-v2-migration,
+// coord-hook-budget, genesis-anchor-guard, pending-verification-grace,
+// sessionend-release-lease, state-file-guard-case-parity,
+// protected-path-dimensions-…) point it at an os.tmpdir() sandbox that is NOT a
+// git checkout.
+//
+// Applying the resolveMainCheckout predicate here REJECTS those sandboxes and
+// falls back to git-derived resolution, which silently redirects their
+// appendViolation writes into the REAL .claude/learning/violations.jsonl — the
+// input to trust-posture.md MUST-4's cumulative downgrade math. That is strictly
+// worse than the gap it closes: it corrupts the signal governing every operator's
+// autonomy, and it does so SILENTLY because the suites still pass.
+//
+// The honest reason a predicate cannot serve both: "redirect the state root to an
+// arbitrary directory" is the SAME operation whether a test or an attacker issues
+// it. No property of the target distinguishes them — only a sanctioned
+// test-context signal would, and that signal does not exist in this codebase yet
+// (it is the same missing mechanism the COC_TEST_* seam family needs, loom#1450).
+// Manufacturing a weak proxy here (e.g. "the directory exists") would be a fence
+// an attacker steps over with one mkdir, which is worse than a named gap.
+//
+// RESIDUAL, stated plainly: an attacker who can set $CLAUDE_TRUST_STATE_DIR can
+// still redirect where state is WRITTEN. The READ side already fails closed
+// (state-io returns L1_PSEUDO_AGENT with _fail_closed on relocated/unreadable
+// state), and the settings-channel ADD is now denylisted. Closing the write side
+// requires migrating the ~10 sandboxes onto a sanctioned isolation seam and is
+// tracked as the follow-on shard, NOT claimed closed here.
 function resolveStateDir(cwd) {
   if (process.env.CLAUDE_TRUST_STATE_DIR) {
     return process.env.CLAUDE_TRUST_STATE_DIR;

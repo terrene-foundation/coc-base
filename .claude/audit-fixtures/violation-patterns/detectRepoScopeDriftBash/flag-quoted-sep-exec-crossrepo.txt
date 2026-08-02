@@ -1,0 +1,1 @@
+gh issue create --title "x;y" --repo other-org/other-repo --body "$(true)"

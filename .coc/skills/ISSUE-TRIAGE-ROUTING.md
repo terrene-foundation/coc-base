@@ -127,3 +127,9 @@ these.
   routing decision (a sibling routing rule, one layer in).
 - `guides/co-setup/09-proposal-protocol.md` Step 7b — the proposal-origination
   target flow.
+
+## Origin
+
+Extracted from the rule body 2026-07-29 as part of the `rules/rule-authoring.md` MUST Rule 10 path (a) paired extraction for the `instrument-discipline.md` baseline addition (receipt: `journal/0569`). ZERO de-scoping — the rule retains the origin date, the gap in one sentence, and the pointer here.
+
+2026-07-19 — `/sync-from-use` kailash-coc-rs Gate-1 ingest (journal/0550). Closes the reachability gap: the routing depth in `rules/artifact-flow.md` § "Issue Routing By Change Type" is path-scoped behind artifact-file globs (`.claude/**`, `sync-manifest.yaml`, `**/VERSION`, `*.md`), none of which a `gh issue list` / `gh issue view` triage touches, so the routing rule never loaded at triage time across templates + downstream consumers. Baseline body kept pointer-only (~30-line neutral-body); depth extracted to this paired skill to stay under the 15% proximity band per `rule-authoring.md` MUST-10 (Rule-10 path-(a) paired extraction; sibling precedent `framework-first.md` → `framework-first` skill).

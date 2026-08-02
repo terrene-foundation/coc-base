@@ -1,0 +1,4 @@
+python3 - <<'PY'
+import pathlib
+pathlib.Path('.claude/learning/posture.json').write_text('{}')
+PY

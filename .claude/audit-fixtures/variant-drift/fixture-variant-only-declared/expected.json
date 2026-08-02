@@ -1,0 +1,7 @@
+{
+  "exit_code": 0,
+  "defect_count": 0,
+  "counts": { "B-VARIANT-ONLY": 1 },
+  "stats": { "live_variant_only": 1, "unreachable": 0 },
+  "notes": "A/B DISCRIMINATION. Byte-identical tree to fixture-obsolete-canon-deleted; the ONLY difference is the variant_only declaration. A flips to B. This pair is the evidence that B is declared, never guessed."
+}
