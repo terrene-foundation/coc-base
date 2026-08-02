@@ -1,0 +1,240 @@
+name: Validate COC Structure
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # This template is STACK-AGNOSTIC: build: null, no dependency manifest
+      # (no pyproject.toml / Cargo.toml / package.json / Gemfile at the repo
+      # root). Every step below therefore uses only the runner's preinstalled
+      # Node + coreutils. Nothing here installs SDK dependencies or resolves a
+      # language project — a step that skipped itself would manufacture the
+      # appearance of a gate.
+      #
+      # NOTE: .codex-mcp-guard/ is DELIBERATELY FROZEN. It carries its own
+      # package.json and tests and is intentionally not maintained in step with
+      # the rest of the tree. No check below reads it.
+
+      - name: Validate structure
+        run: |
+          set -euo pipefail
+          echo "Checking COC structure..."
+
+          fail=0
+          for d in .claude/agents .claude/skills .claude/rules .claude/commands .claude/hooks .claude/bin; do
+            if [ -d "$d" ]; then echo "  ok  $d/"; else echo "  ERR missing directory: $d/"; fail=1; fi
+          done
+
+          # coc-base is multi-CLI (clis: [claude, codex, gemini]). Each CLI gets
+          # exactly one always-on root baseline; a missing one means that CLI's
+          # users silently get a weaker rule surface than the other two.
+          for f in CLAUDE.md:claude AGENTS.md:codex GEMINI.md:gemini; do
+            file="${f%%:*}"; cli="${f##*:}"
+            if [ -f "$file" ]; then echo "  ok  $file ($cli baseline)"; else echo "  ERR missing $file ($cli baseline)"; fail=1; fi
+          done
+
+          # Emitted per-CLI artifact trees for the non-claude CLIs.
+          for d in .codex .gemini .coc; do
+            if [ -d "$d" ]; then echo "  ok  $d/"; else echo "  ERR missing emitted tree: $d/"; fail=1; fi
+          done
+
+          [ "$fail" -eq 0 ] || { echo "ERROR: COC structure check failed"; exit 1; }
+
+          echo "Agents: $(find .claude/agents -name '*.md' | wc -l)"
+          echo "Skills: $(find .claude/skills -name '*.md' | wc -l)"
+          echo "Rules: $(find .claude/rules -name '*.md' | wc -l)"
+          echo "Commands: $(find .claude/commands -name '*.md' | wc -l)"
+          echo "✓ structure ok"
+
+      - name: Validate shipped JSON + VERSION contract
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require("fs");
+          let fail = 0;
+
+          // Every shipped JSON config must actually parse. A malformed
+          // settings.json silently disables the entire hook layer at runtime.
+          for (const f of [".claude/settings.json", ".claude/VERSION"]) {
+            if (!fs.existsSync(f)) { console.log(`  ERR missing ${f}`); fail = 1; continue; }
+            try { JSON.parse(fs.readFileSync(f, "utf8")); console.log(`  ok  ${f} parses`); }
+            catch (e) { console.log(`  ERR ${f} is not valid JSON: ${e.message}`); fail = 1; }
+          }
+          if (fail) process.exit(1);
+
+          const v = JSON.parse(fs.readFileSync(".claude/VERSION", "utf8"));
+          const expect = { type: "coc-use-template", variant: "base", name: "coc-base" };
+          for (const [k, want] of Object.entries(expect)) {
+            if (v[k] !== want) { console.log(`  ERR VERSION.${k} = ${JSON.stringify(v[k])}, expected ${JSON.stringify(want)}`); fail = 1; }
+            else console.log(`  ok  VERSION.${k} = ${want}`);
+          }
+          if (!v.upstream || v.upstream.name !== "loom") { console.log("  ERR VERSION.upstream.name must be 'loom'"); fail = 1; }
+          else console.log("  ok  VERSION.upstream.name = loom");
+          if (!Array.isArray(v.tier_subscriptions) || v.tier_subscriptions.length === 0) { console.log("  ERR VERSION.tier_subscriptions must be a non-empty array"); fail = 1; }
+          else console.log(`  ok  VERSION.tier_subscriptions = [${v.tier_subscriptions.join(", ")}]`);
+
+          // The declared CLI set is what the structure step's baseline
+          // expectations are derived from; they must not drift apart.
+          const wantClis = ["claude", "codex", "gemini"];
+          const got = Array.isArray(v.clis) ? [...v.clis].sort() : null;
+          if (!got || got.join(",") !== [...wantClis].sort().join(",")) {
+            console.log(`  ERR VERSION.clis = ${JSON.stringify(v.clis)}, expected ${JSON.stringify(wantClis)}`);
+            console.log("      (if this template's CLI set genuinely changed, update the");
+            console.log("       root-baseline list in the 'Validate structure' step too)");
+            fail = 1;
+          } else console.log(`  ok  VERSION.clis = [${v.clis.join(", ")}]`);
+
+          process.exit(fail ? 1 : 0);
+          NODE
+
+      - name: Validate hook registrations resolve on disk
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require("fs");
+          const s = JSON.parse(fs.readFileSync(".claude/settings.json", "utf8"));
+
+          // Every hook command registered in settings.json must point at a script
+          // that exists. A registration whose target was dropped by a sync fails
+          // OPEN at runtime: the hook simply never fires and the protection it
+          // encodes is silently gone.
+          const cmds = new Set();
+          for (const arr of Object.values(s.hooks || {}))
+            for (const g of arr)
+              for (const h of (g.hooks || [])) if (h.command) cmds.add(h.command);
+
+          let missing = 0, unparsed = 0;
+          for (const c of [...cmds].sort()) {
+            const m = c.match(/\$CLAUDE_PROJECT_DIR\/(\S+?\.(?:js|mjs|cjs))/);
+            if (!m) { console.log(`  ERR could not extract a script path from: ${c}`); unparsed++; continue; }
+            if (!fs.existsSync(m[1])) { console.log(`  ERR registered hook script does not exist: ${m[1]}`); missing++; }
+          }
+          if (cmds.size === 0) { console.log("  ERR no hook commands found in settings.json — check is vacuous, refusing to pass"); process.exit(1); }
+          console.log(`  checked ${cmds.size} distinct hook commands; missing=${missing} unparsed=${unparsed}`);
+          process.exit(missing + unparsed ? 1 : 0);
+          NODE
+
+      - name: Validate artifact frontmatter
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require("fs"), path = require("path");
+          let fail = 0;
+
+          function walk(d, a = []) {
+            if (!fs.existsSync(d)) return a;
+            for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+              const p = path.join(d, e.name);
+              if (e.isDirectory()) walk(p, a);
+              else if (e.name.endsWith(".md")) a.push(p);
+            }
+            return a;
+          }
+
+          // Agents and commands are dispatched by frontmatter. A file with a
+          // missing/unterminated frontmatter block or no description is invisible
+          // to semantic activation — it ships but can never be selected.
+          for (const dir of [".claude/agents", ".claude/commands"]) {
+            const files = walk(dir).filter(f => !path.basename(f).startsWith("_"));
+            if (files.length === 0) { console.log(`  ERR ${dir} contained no .md files — check is vacuous, refusing to pass`); fail = 1; continue; }
+            const bad = [];
+            for (const f of files) {
+              const t = fs.readFileSync(f, "utf8");
+              if (!t.startsWith("---")) { bad.push([f, "no frontmatter block"]); continue; }
+              const end = t.indexOf("\n---", 3);
+              if (end < 0) { bad.push([f, "unterminated frontmatter"]); continue; }
+              if (!/^description:/m.test(t.slice(3, end))) bad.push([f, "no description: field"]);
+            }
+            bad.forEach(([f, why]) => console.log(`  ERR ${f}: ${why}`));
+            console.log(`  ${dir}: ${files.length} checked, ${bad.length} bad`);
+            if (bad.length) fail = 1;
+          }
+
+          // A skill directory that holds .md content at its top level is an
+          // addressable skill and needs a SKILL.md entrypoint with name +
+          // description. Pure container dirs (only subdirectories, e.g.
+          // 40-stack-onboarding/{go,python,rust,typescript}) are not skills
+          // themselves and are correctly exempt.
+          const root = ".claude/skills";
+          let dirs = 0, bad = 0;
+          for (const e of fs.readdirSync(root, { withFileTypes: true })) {
+            if (!e.isDirectory()) continue;
+            const dir = path.join(root, e.name);
+            const topMd = fs.readdirSync(dir, { withFileTypes: true }).some(x => x.isFile() && x.name.endsWith(".md"));
+            if (!topMd) continue;
+            dirs++;
+            const s = path.join(dir, "SKILL.md");
+            if (!fs.existsSync(s)) { console.log(`  ERR ${e.name}: has top-level .md content but no SKILL.md entrypoint`); bad++; continue; }
+            const t = fs.readFileSync(s, "utf8");
+            if (!t.startsWith("---")) { console.log(`  ERR ${s}: no frontmatter block`); bad++; continue; }
+            const end = t.indexOf("\n---", 3);
+            if (end < 0) { console.log(`  ERR ${s}: unterminated frontmatter`); bad++; continue; }
+            const fm = t.slice(3, end);
+            if (!/^name:/m.test(fm)) { console.log(`  ERR ${s}: no name: field`); bad++; }
+            else if (!/^description:/m.test(fm)) { console.log(`  ERR ${s}: no description: field`); bad++; }
+          }
+          if (dirs === 0) { console.log("  ERR no addressable skill directories found — check is vacuous, refusing to pass"); fail = 1; }
+          console.log(`  ${root}: ${dirs} addressable skill dirs checked, ${bad} bad`);
+          if (bad) fail = 1;
+
+          process.exit(fail ? 1 : 0);
+          NODE
+
+      - name: Cross-reference integrity (no new dangling refs)
+        run: |
+          set -euo pipefail
+
+          # .claude/bin/validate-xref-integrity.mjs resolves every cross-reference
+          # token in the artifact corpus. This template carries a KNOWN backlog of
+          # dangling refs inherited from upstream, so a clean-zero gate is not
+          # achievable today. This is a RATCHET instead: the count must not RISE.
+          # A PR that introduces a new broken cross-reference reds here.
+          #
+          # Baseline measured at 01a5617a (origin/main, 2026-08-02).
+          # If an upstream sync legitimately changes this, update BASELINE and say
+          # so in the PR body — do not silence the step.
+          BASELINE=286
+
+          # The validator's output is captured to a FILE and every reader below
+          # reads that file directly. Piping a large captured string into `head`
+          # makes `head` exit early and close the pipe, so the producing `echo`
+          # dies with EPIPE and -o pipefail fails the step. That is exactly what
+          # broke the first CI run of this workflow: GNU coreutils reports the
+          # write error, macOS's echo builtin does not, so it passed locally and
+          # failed on the runner. File reads have no such asymmetry.
+          out_file="$(mktemp)"
+          node .claude/bin/validate-xref-integrity.mjs > "$out_file" 2>&1 || true
+          head -1 "$out_file"
+
+          count="$(awk 'match($0, /; [0-9]+ dangling;/) { s = substr($0, RSTART, RLENGTH); gsub(/[^0-9]/, "", s); print s; exit }' "$out_file")"
+          if [ -z "$count" ]; then
+            echo "ERROR: could not parse the dangling-ref count from validator output."
+            echo "Refusing to pass on an unreadable instrument (a check that cannot"
+            echo "produce a falsifiable result is not a gate). Full output:"
+            head -40 "$out_file"
+            exit 1
+          fi
+
+          echo "dangling refs: $count (baseline $BASELINE)"
+          if [ "$count" -gt "$BASELINE" ]; then
+            echo ""
+            echo "ERROR: dangling cross-references rose from $BASELINE to $count."
+            echo "This PR introduced $(( count - BASELINE )) new broken reference(s):"
+            sed -n '/^dangling refs:/,$p' "$out_file" > "$out_file.tail" || true
+            head -60 "$out_file.tail"
+            exit 1
+          fi
+          if [ "$count" -lt "$BASELINE" ]; then
+            echo "✓ backlog reduced ($BASELINE → $count). Please lower BASELINE in this workflow."
+          fi
+          echo "✓ no new dangling cross-references"
