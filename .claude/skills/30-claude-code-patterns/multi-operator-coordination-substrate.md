@@ -63,6 +63,28 @@ ONE file — `.claude/learning/coordination-log.jsonl` — is the single rendezv
 
 **Worktree implication (why a worktree is NOT cut off from coordination).** A `git worktree` shares the parent repo's `.git`, INCLUDING `refs/coc/**` — so the coordination SOURCE-OF-TRUTH ref is visible from any worktree. Only the gitignored `.claude/learning/` fold-CACHE is per-working-tree (git does not carry ignored files into a worktree); it re-materializes when the worktree's hooks next fold the shared ref. Ceremony helpers additionally resolve state from the MAIN checkout (via `state-resolver.js::resolveMainCheckout`) — posture per `trust-posture.md` MUST-1, the codify-lease per `knowledge-convergence.md` Rule 3 (Sec-MED-3 `leasePath`-from-`repoDir`), identity via `operator-id.js` — so a worktree-rooted session reads the same shared coordination state, not an empty cache. Do NOT conclude a worktree loses coordination.
 
+### Verifying a coordination-state DISPOSITION — record set vs projection (depth)
+
+Depth for the rule's always-on **"Verify a coordination-state DISPOSITION against the append-only signed RECORD SET"** MUST clause. The clause itself is always-on in `rules/multi-operator-coordination.md` §2; the mechanics, the full BLOCKED corpus, and the Wiring rationale live here.
+
+**The two surfaces.** A coordination-state disposition — a lease released, a claim held, a record present or absent — has an authoritative surface and a derived one:
+
+- **Authoritative: the append-only signed RECORD SET** (`coordination-log.jsonl`, transported via `refs/coc/**`). Append-only + per-emitter-signed + hash-chained, so it RETAINS both halves of a paired acquire/release. `grep <id> coordination-log.jsonl` LOCATES the pair; the fold (rules 1–3 + `expectedFpr`) is the signature-verifying authority. At release TIME the proof is `releaseCodifyLease`'s successful `record_emit` result.
+- **Derived: the current-state PROJECTION** (`codify-lease.json`, `posture.json`, `violations.jsonl`). These fold-cache files hold only CURRENT derived state, and a sibling's later fold overwrites them WHOLESALE. A projection shows only the current holder.
+
+**Why a projection cannot settle a disposition.** A sibling can overwrite the projection AFTER your own write. So a projection-derived non-success return — notably `releaseCodifyLease`'s `wrong-owner`, which reads `codify-lease.json` — is NOT evidence your record is absent; it reports only that the projection's current holder is no longer you. Reading a disposition from a projection (or from a helper return over one) and stating it as fact is the coordination-substrate instance of `evidence-first-claims.md` MUST-3 (a non-success return is zero evidence, never confirmation) **+ MUST-4** (an inference stated as fact) — its conceptual parents.
+
+**Post-rotation / post-checkpoint retrieval.** `codify-lease` and `codify-lease-release` are `checkpoint_exempt: false` liveness-churn record types. After a `compaction-checkpoint` folds pre-`up_to_seq` records into its digest, a released pair lives on the signed `refs/coc/archive-genN` cold archive rather than the current log — so grep the archive once the current log has rotated. Absence from the CURRENT log is therefore not absence from the record set either.
+
+**BLOCKED rationalizations (full corpus):**
+
+- "the release helper returned `wrong-owner`, so my lease was never released" — `wrong-owner` means the projection's CURRENT holder ≠ you; grep the record set for your paired acquire/release records.
+- "the lease file / `posture.json` is the source of truth for that state" — it is a derived projection; the append-only signed record set is authoritative.
+- "the on-disk cache says no lease, so my record is absent" — a sibling's fold overwrote the projection; absence-in-projection ≠ absence-in-record-set.
+- "the current log has no such record, so it never existed" — a rotated/checkpointed pair lives on `refs/coc/archive-genN`; the archive is part of the record set.
+
+**Wiring rationale (why this clause carries its own block).** The clause's enforcement profile is review-layer-only and semantic, which differs from BOTH the file-level structural `multi_operator_coordination_violation` detection AND the MUST-2-scoped `evidence_free_claim` emergency key (which is scoped to evidence-free security/anomaly claims and does NOT cover this MUST-3/4 cumulative-routing class). It therefore takes the GENERIC `regression_within_grace` trigger with NO dedicated per-clause key — minting one would drag `trust-posture.md`, a self-referential-codify allowlist file, into a self-ref edit for a property the universal trigger already covers. Named deviation from the canonical key-per-clause shape per `trust-posture.md` Rule 8 — the same no-dedicated-key disposition `security.md` § Enforcement-Surface Parity, `git.md` § CI-check/merge, and `artifact-flow.md` § Canon-Neutrality took. The clause-scoped-Wiring precedent is that same set. Origin: co-owner-directed origination `journal/0482`.
+
 The 10 fold rules at (loom-internal reference) §2.2 govern correctness:
 
 1. **Signature gate** — a record folds only if `sig` verifies against a roster public key.
@@ -103,7 +125,7 @@ Claims are advisory leases over a path / glob / workspace. Adjacency is evaluate
 - **ADJACENT** — same dir / workspace / parent-child within 1 level / journal thread.
 - **INDEPENDENT** — otherwise.
 
-Lease severities are advisory per §4.2: **SAME → `halt-and-report`**; **ADJACENT → `advisory`**; **INDEPENDENT → silent + auto-claim**. The single `block` exception (filesystem transport only): cross-worktree contention where `git status --porcelain` shows the exact target file uncommitted-modified on a sibling worktree.
+Lease severities are advisory per §4.2: **SAME → `halt-and-report`**; **ADJACENT → `advisory`**; **INDEPENDENT → silent + auto-claim**. The §4.2 filesystem exception (filesystem transport only) — cross-worktree contention where `git status --porcelain` shows the exact target file uncommitted-modified on a sibling worktree — is the one STRUCTURALLY-grounded branch, so `hook-output-discipline.md` MUST-2 would permit `block`; since loom#1323 it emits **`halt-and-report`** on proportionality grounds (separate worktrees cannot clobber each other's bytes; the exposure is a recoverable 3-way merge conflict at merge time). `adjacency-leasecheck.js` therefore ships NO `block` branch, and `signing-mutation-guard.js`'s own §4.2 porcelain branch was downgraded in the SAME change — both guards sit on the shared `Edit|Write|NotebookEdit` matcher, so downgrading only one would leave the write denied anyway (enforcement-surface parity in mirror image). The ONE remaining `block` in the pair is `signing-mutation-guard.js`'s **degraded-mode** tracked-path-mutation branch — a different threat class (an UNSIGNED mutation is never recoverable after the fact), and it is evaluated BEFORE the recoverable contention branch so the halt cannot swallow it.
 
 Commands:
 

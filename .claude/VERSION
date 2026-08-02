@@ -1,23 +1,24 @@
 {
   "name": "coc-base",
-  "version": "2.45.11",
+  "version": "2.46.0",
   "type": "coc-use-template",
-  "description": "Language-agnostic, non-Kailash CO/COC USE template — multi-CLI (variant: base, clis: claude/codex/gemini)",
-  "synced_at": "2026-07-19",
+  "description": "Language-agnostic, non-Kailash CO/COC USE template — multi-CLI (variant: base, clis: claude/codex/gemini) — loom@43167a54; no SDK pins (build:null)",
+  "released": "2026-08-02",
+  "synced_at": "2026-08-02",
   "upstream": {
     "name": "loom",
     "type": "coc-source",
     "version": "2.45.0",
-    "loom_sha": "08cb86fb",
-    "synced_at": "2026-07-22T04:55:56.346Z",
+    "loom_sha": "43167a54",
+    "synced_at": "2026-08-02T15:16:54.527Z",
     "template_version": "2.45.0",
     "build_version": "2.45.0",
-    "source_commit": "08cb86fb"
+    "source_commit": "43167a54"
   },
   "variant": "base",
   "tier_subscriptions": [
     "cc",
-    "co",
+    "coc-core",
     "onboarding"
   ],
   "clis": [
@@ -26,6 +27,11 @@
     "gemini"
   ],
   "changelog": [
+    {
+      "version": "2.46.0",
+      "date": "2026-08-02",
+      "summary": "Gate-2 base sync from loom@43167a54 (loom platform version 2.45.0 unchanged; loom_sha 08cb86fb->43167a54) — the completion-criterion release. FULL cycle: .claude/ content axis AND the multi-CLI derived-tree re-emit (coc-sync Steps 6.5/6.6/6.7 + the 4.6 scaffold). Engine sync-tier-aware.mjs --target base --template coc-base applied a 494-file .claude/ delta in an isolated worktree from origin/main c9f087a1; stage --verify CONSISTENT over 1793 in-plan files (engine header confirms tiers=[cc,coc-core,onboarding]). NEW baseline rules: completion-criterion.md (the release artifact), instrument-discipline.md, hook-event-selection.md; NEW skills 30-claude-code-patterns/{completion-criterion-evidence,instrument-discipline,derives-from-emission}.md + 18-security-patterns/{credential-decode-helpers,multi-site-kwarg-plumbing,sanitizer-contract,secure-defaults-and-approver-identity}.md; NEW hooks settings-deny-{drift,edit}-guard.js + 6 hook libs; NEW bin emit-derives-from.mjs + lib/{emit-axes,manifest-source}.mjs + repo-class.mjs. DERIVED TREES RE-EMITTED (not carried stale): emit.mjs --all --lang base -> AGENTS.md + GEMINI.md, 11 rules / 54143B each, WARN tier (block_cap 61440), headroom 11.88% — within the 15% proximity ADVISORY band, above the 10% strict floor, so strict-headroom emission passed; emit-cli-artifacts.mjs --target base -> .codex/{prompts=39,skills=27,agent-prompts=18} + .gemini/{commands=39,skills=27,agents=18} (exclusions skipped commands=20 skills=38 codex-agent-prompts=22 gemini-agents=22); emit-coc.mjs --target base -> .coc/ 163 artifacts (rules=66 agents=22 skills=33 commands=42), 165 files, coc.version 1.0.0, one producer-budget WARN (rules/STATE-FILE-WRITE-GUARD.md 70842B > 60KiB — emitted, not truncated; spec-09 imposes no consumer cap). SCAFFOLD: .claude/codex-mcp-guard -> ../.codex-mcp-guard symlink re-emitted (resolves — policies.json reachable); sync-manifest.yaml distributed (manifest_distribute:true); bin/coc dispatcher installed 0755 + 28 per-phase symlinks. CODEX-MCP-GUARD REMAINS FROZEN: .codex-mcp-guard/** is deliberately excluded from emit refresh, continuing the 2.45.8/9/10 security-review deferral recorded in the sync marker; the Step-6.6 copy was reverted and the 4 emit-refreshed files (README.md, package.json, server.js, test-server.mjs) restored to HEAD, leaving the tree byte-unchanged there. TIER FENCE VERIFIED on BOTH axes: kailash tier NOT subscribed — agents/frameworks/**, skills/{01-core-sdk,02-dataflow,03-nexus,04-kaizen,05-kailash-mcp,06-cheatsheets,08-nodes-reference,34-kailash-ml,35-kailash-align}/**, rules/cross-sdk-inspection.md, pattern-expert confirmed ABSENT from .claude/ AND from .codex/.gemini/.coc; onboarding-tier positive control PRESENT in both. (skills/{29-pact,16-validation-patterns,18-security-patterns}/** DO ship: they are coc-core-tier, which base subscribes to — verified against the manifest tier declaration, not inferred from the filename.) build:null — stack-agnostic base: NO SDK pins and NO dependency manifest on disk, so Steps 9-10 (pin update + uv sync / cargo check) are NOT APPLICABLE rather than skipped; sdk_packages correctly absent. Hook integrity 44/44 settings.json hook commands resolve on disk; 0 operator-PII tokens. CORRECTED stale tier_subscriptions co->coc-core to match sync-manifest.yaml repos.base. visibility=public preserved. BUMP: template 2.45.11->2.46.0 (MINOR — release redistribution); loom_sha ->43167a54; loom-tracking stamped via stamp-template-version.mjs --loom-root <source-worktree> (verified 43167a54, NOT the operator's stale main checkout 289dcbe5)."
+    },
     {
       "version": "2.45.11",
       "summary": "Gate-2 base sync from loom@4cb1e6d9->08cb86fb (loom 2.45.0; loom_sha unchanged platform version): distributes 39-file .claude/ content delta (base tier [cc, co, onboarding], NO kailash — build:null, no SDK pins) incl. 2 obsoleted-purge. Engine sync-tier-aware.mjs --target base applied + --verify CONSISTENT (isolated worktree from origin/main 0913ea7f; 2 paths purged, .coc-obsoleted emitted). MULTI-CLI FULL re-emit (6.5/6.6/6.7): AGENTS.md+GEMINI.md (codex+gemini 53993 B, headroom 12.12% WARN tier, 0 floor violations, ADVISORY within 15% proximity band); .codex (39 command prompts + 18 agent-prompts = 57 prompts / 27 skills + 1 rules-reference) + .gemini (39 commands / 27 skills + 1 rules-reference / 18 agents); .coc 160 artifacts / 162 files (rules=63 agents=22 skills=33 commands=42, coc.version 1.0.0); config bases + bin/coc (28 phase shims). codex-guard (.codex-mcp-guard/**) DELIBERATELY EXCLUDED/FROZEN (continuing the 2.45.8/2.45.9/2.45.10 security-review deferral; the 4 files my emit refreshed were reverted to HEAD; symlink .claude/codex-mcp-guard -> ../.codex-mcp-guard preserved + resolves). CLAUDE.md preserved; build:null (NO SDK pins, no uv/cargo install surface); upstream loom 2.45.0 unchanged. BUMP: template 2.45.10->2.45.11 (PATCH — content + Rule-8 re-emit); loom_sha ->08cb86fb.",
@@ -260,5 +266,6 @@
       ]
     }
   ],
-  "updated": "2026-07-22"
+  "updated": "2026-08-02",
+  "repo": "terrene-foundation/coc-base"
 }

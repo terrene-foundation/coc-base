@@ -1,0 +1,42 @@
+# operator-gate audit fixture: flag — R5-S-07 distinctness is UNDECIDABLE and
+# the gate refuses FAIL-CLOSED (loom#1440).
+#
+# Predicate: on an owner/senior gate, if EITHER side's bound GitHub-
+# collaborator login cannot be resolved, the distinctness question has no
+# answer — and an unanswerable authorization question is REFUSED, never
+# waved through.
+#
+# The defect this closes: `_sameBoundCollaborator` was a BOOLEAN. It returned
+# false for BOTH "the two logins genuinely differ" AND "there is no login to
+# compare", so every non-SAME answer became a PASS. The predicate is now a
+# TRI-state (SAME / DISTINCT / UNRESOLVED) and only DISTINCT proceeds.
+#
+# UNRESOLVED covers (via `github-login.js::normalizeLogin`, which is the
+# presence test — it rejects each of these):
+#   - login absent from the roster person entry
+#   - login present but not a string
+#   - login present but the empty string
+#   - login present but non-ASCII (the Turkish-I / fullwidth case-fold class:
+#     `loginsEqual` returns false for these, which the OLD boolean form read
+#     as "distinct" — a fail-OPEN on a malformed login)
+#
+# Input shape:
+#   command = "/release"
+#   requester_person_id = "person:owner-alpha"
+#   roster.persons["person:owner-alpha"]  = { role:"owner", host_role:"human" }
+#                                            ← NO github_login field
+#   roster.persons["person:owner-bravo"].github_login = "bob"
+#   gate_approval.approver_person_id = "person:owner-bravo"  (valid signature)
+#
+# Expected gate evaluation:
+#   matrix_row = "release"
+#   halt = true (halt-and-report)
+#   why = "operator-gate/collaborator-distinctness (R5-S-07): UNDECIDABLE,
+#          refusing fail-closed — no roster github_login resolves for requester
+#          'person:owner-alpha' and/or approver 'person:owner-bravo'; both MUST
+#          carry one"
+#          (the verdict word is front-loaded: operator-gate.js truncates the
+#           reason to 200 chars when building the halt body)
+#
+# Rule anchors: zero-tolerance.md Rule 3 (no silent fallbacks — typed refusal);
+# security.md § Secure-Default For A New Security Feature (fail-closed).

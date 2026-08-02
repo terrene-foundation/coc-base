@@ -1,0 +1,1 @@
+node -e "const renamed_files=[]; require('fs').readFileSync('.claude/learning/posture.json')"

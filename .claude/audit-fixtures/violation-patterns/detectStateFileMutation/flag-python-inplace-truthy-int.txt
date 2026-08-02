@@ -1,0 +1,1 @@
+python3 -c "import fileinput; fileinput.input('.claude/learning/posture.json',inplace=1)"

@@ -1,0 +1,1 @@
+node -e "require('fs').renameSync('.claude/learning/posture.json','/tmp/x')"

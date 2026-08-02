@@ -1,0 +1,1 @@
+gh release create v1.2.0 --notes 'fixes the detector that blocked node -e "fs.writeFileSync(p,s)" prose about .claude/learning/posture.json'

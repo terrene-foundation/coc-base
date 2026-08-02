@@ -1,0 +1,13 @@
+{
+  "variantFiles": ["variants/py/rules/lagging.md", "variants/py/rules/fresh.md"],
+  "canonFiles": ["rules/lagging.md", "rules/fresh.md"],
+  "variants": {},
+  "variantOnly": {},
+  "staleDays": 30,
+  "mtimes": {
+    "variants/py/rules/lagging.md": 1700000000,
+    "rules/lagging.md": 1709000000,
+    "variants/py/rules/fresh.md": 1700000000,
+    "rules/fresh.md": 1700864000
+  }
+}

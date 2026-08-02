@@ -1,0 +1,1 @@
+git tag -a v1.2.0 -m 'release note: the guard used to block node -e "fs.writeFileSync(p,s)" prose naming .claude/learning/posture.json'

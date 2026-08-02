@@ -1,0 +1,1 @@
+node -e "require('fs').writeFileSync('.claude/VERSION', JSON.stringify({type:'coc-build'}))"

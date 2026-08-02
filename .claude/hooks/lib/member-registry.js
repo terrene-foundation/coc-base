@@ -35,6 +35,8 @@
 
 const fs = require("fs");
 const path = require("path");
+// loom#1349 — the ONE hardened append primitive; see append-sink.js for the six defenses.
+const { appendSinkLine } = require("./append-sink.js");
 
 const {
   emitSignedRecord,
@@ -139,9 +141,14 @@ function _appendToRegistry(repoDir, record) {
       error: `member-registry record line (${bytes}B) exceeds MAX_LINE_BYTES (${MAX_LINE_BYTES})`,
     };
   }
+  // loom#1349 R1 F3 — routed through the shared hardened primitive (structural twin of
+  // capability-ledger). Roster-membership rows carry verified_id + person_id, so a symlinked
+  // sink escaping the gitignore fence leaks operator-correlatable identity. The cap check
+  // above stays HERE, before signing (refuse rather than truncate-after-sign).
   const p = resolveMemberRegistryPath(repoDir);
-  fs.mkdirSync(path.dirname(p), { recursive: true });
-  fs.appendFileSync(p, line + "\n");
+  const w = appendSinkLine({ repoDir, sinkPath: p, line });
+  if (!w.ok)
+    return { ok: false, error: `member-registry append refused: ${w.error} — ${w.reason}` };
   return { ok: true };
 }
 

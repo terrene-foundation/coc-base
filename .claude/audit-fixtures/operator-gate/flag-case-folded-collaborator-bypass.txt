@@ -6,15 +6,20 @@
 # roster entries with the SAME GitHub username under different cases ("Alice"
 # vs "alice") can bypass the distinctness check on owner/senior gates.
 #
-# Input shape:
+# Input shape (loom#1440: both logins are SERVER-DERIVED from the roster;
+# the former tool_input.requester_gh_login / gate_approval.approver_gh_login
+# reads are deleted, so the case-fold pair is now expressed on the roster):
 #   command = "/release"
-#   requester_gh_login = "Alice"
-#   gate_approval.approver_gh_login = "alice"   ← same GH user, different case
+#   roster.persons["person:owner-alpha"].github_login = "Alice"
+#   roster.persons["person:owner-bravo"].github_login = "alice"
+#                                        ↑ same GH user, different case
 #   (requester and approver have distinct person_ids in the roster but
 #    BOTH map to the same case-insensitive collaborator login.)
 #
 # Expected gate evaluation (post-fix):
-#   _sameBoundCollaborator returns TRUE after lowercase normalization
+#   _collaboratorDistinctness returns "same" after lowercase normalization
+#   (loom#1440 renamed the boolean _sameBoundCollaborator to a tri-state;
+#    the SAME branch is byte-identical in reason string)
 #   reason cites "approver bound to same GitHub collaborator 'alice' as
 #                 requester (case-insensitive match per GitHub server semantics)"
 #   halt = true (halt-and-report)

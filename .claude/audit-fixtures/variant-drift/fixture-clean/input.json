@@ -1,0 +1,11 @@
+{
+  "variantFiles": [
+    "variants/py/rules/alpha.md",
+    "variants/rs/rules/beta.md",
+    "variants/rs/rules/rs-only.md",
+    "variants/codex/rules/alpha.md"
+  ],
+  "canonFiles": ["rules/alpha.md", "rules/beta.md"],
+  "variants": { "rules/beta.md": { "rs": "variants/rs/rules/beta.md" } },
+  "variantOnly": { "rs": ["variants/rs/rules/rs-only.md"] }
+}

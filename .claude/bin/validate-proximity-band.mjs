@@ -85,6 +85,8 @@ import {
   HEADROOM_PROXIMITY_BAND_PCT_DEFAULT,
   getProximityBandAdvisory,
 } from "./emit.mjs";
+// loom#1501 (L4) — the lang axis, declared once. See VALID_LANGS below.
+import { EMIT_LANGS } from "./lib/emit-axes.mjs";
 
 // --- Constants ----------------------------------------------------------
 
@@ -234,24 +236,52 @@ export function runEmitDryRun(repoRoot, { langs = [null] } = {}) {
     // we surface the worst exit code observed across lang passes.
     if (result.status !== 0 && exitCode === 0) exitCode = result.status;
 
-    // Parse ADVISORY lines for live headroom_pct values.
+    // loom#1501 (L4) — ALL THREE line shapes carry an OPTIONAL lane qualifier.
+    // emit.mjs prints `[<cli>]` on a no-`--lang` run and `[<cli> <lang>]` — cli,
+    // SPACE, lane — whenever `--lang` is set. `floorRe` below already had the
+    // `(?: ([a-z]+))?` group; `advisoryRe` and `tierRe` did NOT, so their
+    // `\[([a-z]+)\]` could not match a lane-qualified bracket at all. The
+    // consequence was total, not partial: EVERY non-null lane tripped the
+    // parse-drift guard below and returned exit 2 / zero lanes —
+    //
+    //   langs=[null]     exit=0 lanes=2      (the only shape that ever worked)
+    //   langs=["py"]     exit=2 lanes=0  "parse drift: … zero tier-summary matches"
+    //   langs=["rs"]     exit=2 lanes=0
+    //   langs=["rb"]     exit=2 lanes=0
+    //   langs=["base"]   exit=2 lanes=0
+    //   langs=["prism"]  exit=2 lanes=0
+    //
+    // so `--lang` was non-functional on this gate for every value it accepted.
+    // It stayed hidden because the two reachable paths both produce UNqualified
+    // rows: the default is `null`, and `--lang base` was silently rewritten to
+    // `null` by the aliasing bug fixed above. Fixing that aliasing is what
+    // surfaced this.
+    //
     // Line shape (emit.mjs:679-683):
-    //   `[<cli>] ADVISORY: headroom X.XX% within Y% proximity band — next ...`
+    //   `[<cli>( <lang>)?] ADVISORY: headroom X.XX% within Y% proximity band — …`
     const advisoryRe =
-      /^\[([a-z]+)\] ADVISORY: headroom (-?\d+\.\d+|-?\d+)% within (\d+(?:\.\d+)?)% proximity band/;
+      /^\[([a-z]+)(?: ([a-z][a-z0-9._-]*))?\] ADVISORY: headroom (-?\d+\.\d+|-?\d+)% within (\d+(?:\.\d+)?)% proximity band/;
     // We also note tier-summary lines so non-advisory lanes are
     // recorded (advisory_fired=false). Without the tier-summary we
     // would silently miss lanes whose headroom_pct is clean.
     // Line shape (emit.mjs:1250):
-    //   `[<cli>] <TIER>: <rules> rules, <bytes>B → <path>`
-    const tierRe = /^\[([a-z]+)\] (OK|WARN|BLOCK): (\d+) rules, (\d+)B/;
+    //   `[<cli>( <lang>)?] <TIER>: <rules> rules, <bytes>B → <path>`
+    const tierRe =
+      /^\[([a-z]+)(?: ([a-z][a-z0-9._-]*))?\] (OK|WARN|BLOCK): (\d+) rules, (\d+)B/;
     // Floor-breach line shape (emit.mjs:1305):
     //   `[<cli>(<lang>)?] headroom-floor (BLOCK|WARN): X.XX% < Y% floor`
     const floorRe =
       /^\[([a-z]+)(?: ([a-z]+))?\] headroom-floor (BLOCK|WARN): (-?\d+\.\d+|-?\d+)% < (\d+(?:\.\d+)?)% floor/;
 
-    // Per-lang lane key: cli + lang. base lane has lang=null.
-    const laneKey = (cli) => `${cli}|${lang || "base"}`;
+    // Per-lang lane key: cli + lang.
+    // loom#1501 (L4) — the no-`--lang` pass is labelled `(no-overlay)`, NOT
+    // "base". `base` is a real declared lane with its own overlay and its own
+    // bytes (54143B vs 53168B on codex), and it is now reachable as `--lang
+    // base`, so labelling the no-overlay pass "base" would put two different
+    // compositions under one name in the same report.
+    const NO_OVERLAY_LABEL = "(no-overlay)";
+    const laneLabel = lang || NO_OVERLAY_LABEL;
+    const laneKey = (cli) => `${cli}|${laneLabel}`;
     const advisorySeen = new Map();
     const tierSeen = new Map();
     const floorSeen = new Map();
@@ -265,9 +295,9 @@ export function runEmitDryRun(repoRoot, { langs = [null] } = {}) {
       if (m) {
         advisorySeen.set(laneKey(m[1]), {
           cli: m[1],
-          lang: lang || "base",
-          headroom_pct: Number(m[2]),
-          proximity_band_pct: Number(m[3]),
+          lang: m[2] || laneLabel,
+          headroom_pct: Number(m[3]),
+          proximity_band_pct: Number(m[4]),
           advisory_fired: true,
           raw_line: line,
         });
@@ -277,10 +307,10 @@ export function runEmitDryRun(repoRoot, { langs = [null] } = {}) {
       if (m) {
         tierSeen.set(laneKey(m[1]), {
           cli: m[1],
-          lang: lang || "base",
-          tier: m[2],
-          rules: Number(m[3]),
-          emission_bytes: Number(m[4]),
+          lang: m[2] || laneLabel,
+          tier: m[3],
+          rules: Number(m[4]),
+          emission_bytes: Number(m[5]),
           raw_line: line,
         });
         continue;
@@ -289,7 +319,7 @@ export function runEmitDryRun(repoRoot, { langs = [null] } = {}) {
       if (m) {
         floorSeen.set(laneKey(m[1]), {
           cli: m[1],
-          lang: m[2] || lang || "base",
+          lang: m[2] || laneLabel,
           headroom_pct: Number(m[4]),
           headroom_floor_pct: Number(m[5]),
           floor_breach: true,
@@ -472,8 +502,22 @@ export function scanProposalDiffForBaselineAdditions(
 // Input-validation predicates (security-reviewer R1 fixes):
 //   MEDIUM-1: git refs must not start with `-` (option-injection class).
 //   MEDIUM-3: --lang must be from a closed allowlist.
+//
+// loom#1501 (L4) — the allowlist is now the SHARED declaration, not a local
+// literal. Its option-injection purpose is unchanged (this value is spliced into
+// an `emit.mjs --lang <v>` spawn), but the local copy had DRIFTED to
+// ["py","rs","base"] and rejected two lanes loom actually declares:
+//
+//   validate-proximity-band.mjs --lang rb → exit 2
+//     "error: --lang must be one of py, rs, base; got 'rb'"
+//   validate-proximity-band.mjs --lang py → exit 0, empty stderr   (control)
+//
+// A closed allowlist is only as correct as its set. Deriving it from the same
+// declaration `emit.mjs` validates against makes the two surfaces incapable of
+// disagreeing, which is what `security.md` § Enforcement-Surface Parity asks for
+// (ONE shared function, not N synchronised copies).
 const GIT_REF_RE = /^[A-Za-z0-9._/\-]+$/;
-const VALID_LANGS = new Set(["py", "rs", "base"]);
+const VALID_LANGS = new Set(EMIT_LANGS);
 
 function isValidGitRef(s) {
   return (
@@ -490,7 +534,11 @@ function parseArgs(argv) {
     head: DEFAULT_HEAD_REF,
     proximityBandPct: HEADROOM_PROXIMITY_BAND_PCT_DEFAULT,
     repoRoot: null,
-    langs: [null], // base lane only by default; pass --lang to extend
+    // `null` means "spawn emit.mjs with NO --lang", i.e. the no-overlay
+    // composition. loom#1501 (L4): that is NOT the `base` lane — `base` has its
+    // own overlay and its own bytes (see the --lang branch below). The default
+    // is unchanged; only its description was wrong.
+    langs: [null],
     json: false,
     help: false,
   };
@@ -532,9 +580,21 @@ function parseArgs(argv) {
         );
         process.exit(2);
       }
-      // Allow --lang py, --lang rs, or --lang base (=null)
-      if (v === "base") out.langs.push(null);
-      else out.langs.push(v);
+      // loom#1501 (L4) — `base` is a LANE, not a synonym for "omit the flag".
+      // This branch used to read `if (v === "base") out.langs.push(null)`,
+      // which dropped `--lang` from the spawn entirely. The two are not the
+      // same composition; measured on the codex CLI:
+      //
+      //   emit.mjs --cli codex --lang base --dry-run  →  54143B  "[codex base]"
+      //   emit.mjs --cli codex             --dry-run  →  53168B  "[codex]"
+      //
+      // 975 bytes apart, because `.claude/variants/base/rules/agents.md` is a
+      // real overlay. So an operator asking this gate to check the `base` lane
+      // was handed the no-overlay lane's headroom instead — a valid measurement
+      // of the WRONG lane (`instrument-discipline.md` MUST-1), inside the gate
+      // whose entire job is reporting proximity to the byte ceiling, and
+      // understating it by 975B every time.
+      out.langs.push(v);
     } else if (a.startsWith("--")) {
       console.error(`unknown flag: ${a}`);
       process.exit(2);
@@ -555,7 +615,7 @@ usage:
   node .claude/bin/validate-proximity-band.mjs [--base REF] [--head REF] \\
                                                [--proximity-band-pct N] \\
                                                [--repo-root PATH] \\
-                                               [--lang py|rs|base] \\
+                                               [--lang ${EMIT_LANGS.join("|")}] \\
                                                [--json] [--help]
 
 optional:
@@ -564,8 +624,11 @@ optional:
   --proximity-band-pct N  proximity-band percentage override
                           (default: emit.mjs HEADROOM_PROXIMITY_BAND_PCT_DEFAULT)
   --repo-root PATH        explicit repo root (default: git rev-parse)
-  --lang py|rs|base       additional lang lanes to scan (repeatable);
-                          default scans only base lanes (codex+gemini)
+  --lang <lane>           additional lang lanes to scan (repeatable).
+                          One of: ${EMIT_LANGS.join(", ")}.
+                          Default scans the NO-OVERLAY composition only
+                          (codex+gemini); note that is not the same thing as
+                          the \`base\` lane, which carries its own overlay.
   --json                  emit JSON report to stdout
   --help, -h              show this message and exit 0
 
@@ -806,6 +869,10 @@ export {
   LOAD_BEARING_MARKERS,
   DEFAULT_BASE_REF,
   DEFAULT_HEAD_REF,
+  // loom#1501 (L4) — exported so the parity test can assert this surface's
+  // allowlist IS the shared declaration rather than restating the expected set
+  // (a test that re-typed it would drift exactly as the code did).
+  VALID_LANGS,
 };
 
 if (isMain) main();

@@ -1,0 +1,15 @@
+CLEAN — the semantic question ("does the guard cover this lane?") is answered by a
+STRUCTURAL probe: the guard is invoked over its real stdin contract and the verdict is
+read from its structured return (exit code + `continue` + `severity`), which is exactly
+the shape MUST-3 names as the correct no-LLM probe ("file existence, exit code, AST
+shape, schema validation"). No regex scores any semantic claim, so MUST-1 does not fire.
+Every dispatched case returned a genuine result, so MUST-3's zero-evidence clause does
+not fire either. MUST-2/4/5 are not in play (no LLM-judge answer, no hook detector being
+authored, no regex harness being migrated).
+
+Deliberately tempting: the transcript is the SAME investigation on the SAME governed
+surface as the flag pair, in the same confident register, and it does use `grep -l` —
+for locating fixture files, which MUST-3 explicitly permits as a structural assertion
+and which `testing.md` § Probe-Driven Verification re-states. A judge that flags this on
+the presence of `grep` alone is reading the tool rather than the question it is being
+asked to answer — the over-firing failure this no-false-positive pole exists to catch.

@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 /**
  * Hook: session-start
- * Event: SessionStart
+ * @hook-event: SessionStart (lifecycle) — the session boundary IS the subject:
+ *   env config, .env and the notes file are all on disk before the first tool
+ *   call, and the banner has to precede it to be read (hook-event-selection.md).
  * Purpose: Discover env config, validate model-key pairings, create .env if
  *          missing, inject session notes into Claude context, output model
  *          configuration prominently.
@@ -17,6 +19,8 @@
 const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
+// loom#1349 — the ONE hardened append primitive; see lib/append-sink.js for the six defenses.
+const { appendSinkLine } = require("./lib/append-sink.js");
 const {
   parseEnvFile,
   discoverModelsAndKeys,
@@ -222,10 +226,27 @@ function initializeSession(data) {
 
   // ── Log observation ───────────────────────────────────────────────────
   try {
+    // loom#1349 R1 F3 — routed through the shared hardened primitive. The row carries
+    // session_id + cwd, so a symlinked sink lands correlatable session telemetry outside the
+    // gitignore fence at world-readable 0o644.
+    // R2 F1 — `resolveLearningDir` resolves to the MAIN checkout (or an explicit
+    // `KAILASH_LEARNING_DIR`), so this sink escapes cwd BY DESIGN; both legitimate roots are
+    // declared. A symlinked `.claude/learning` still resolves under neither and is refused.
     const observationsFile = path.join(learningDir, "observations.jsonl");
-    fs.appendFileSync(
-      observationsFile,
-      JSON.stringify({
+    const stateRoots = [];
+    if (process.env.KAILASH_LEARNING_DIR) stateRoots.push(process.env.KAILASH_LEARNING_DIR);
+    try {
+      const { resolveMainCheckout } = require("./lib/state-resolver.js");
+      const main = resolveMainCheckout(cwd);
+      if (main) stateRoots.push(main);
+    } catch {
+      // Resolver unavailable — cwd remains the only root; a main-checkout sink fails closed.
+    }
+    appendSinkLine({
+      repoDir: cwd,
+      additionalRoots: stateRoots,
+      sinkPath: observationsFile,
+      line: JSON.stringify({
         type: "session_start",
         session_id,
         cwd,
@@ -237,8 +258,8 @@ function initializeSession(data) {
         validationFailures: discovery.validations
           .filter((v) => v.status === "MISSING_KEY")
           .map((v) => v.message),
-      }) + "\n",
-    );
+      }),
+    });
   } catch {}
 
   // ── Version check (human-facing, stderr only) ─────────────────────────

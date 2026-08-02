@@ -1,0 +1,1 @@
+echo "example; node -e 'require(\"fs\").writeFileSync(\".claude/learning/posture.json\",\"{}\")'"

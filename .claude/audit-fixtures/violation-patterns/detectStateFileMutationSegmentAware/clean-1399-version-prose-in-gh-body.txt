@@ -1,0 +1,1 @@
+gh issue comment 1399 --body 'The `.claude/VERSION` type field is the repo-class root of trust; a mis-merged copy silently no-ops Validator 15.'

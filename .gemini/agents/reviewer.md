@@ -59,6 +59,39 @@ Reviews documents and code for quality, consistency, cross-reference accuracy, a
 - [ ] Schema changes go through numbered migrations (`schema-migration.md`)
 - [ ] No silent exception swallows (`zero-tolerance.md` Rule 3)
 
+### Completion Criterion (MUST — `/redteam` + `/implement` convergence gate)
+
+Whenever a session claims a deliverable is done / complete / converged, verify against
+`rules/completion-criterion.md`. Domain depth:
+`.gemini/skills/30-claude-code-patterns/completion-criterion-evidence.md` — read it before
+accepting or challenging any convergence argument.
+
+The load-bearing checks, in the order they fail most often:
+
+1. **A durable acceptance list predates the first verification effort** — and was authored or
+   RATIFIED by a party distinct from the agent satisfying it. A self-authored criterion is gamed
+   at declaration time; every downstream check then passes honestly.
+2. **Independently derive an acceptance surface** from the spec/brief and report every item on it
+   ABSENT from the authored list. Any absence is a finding. **Without this, the review cannot
+   discriminate a deliberately narrow list from an honest one** — and the "convergence stayed
+   inside the list" check REWARDS the narrow-list attack.
+3. **Convergence covered every `BUG`/`INVEST-NOW`/on-list finding**; only the `INCREMENTAL`
+   off-list remainder was budgeted. Ambiguous findings must resolve INTO the gating half
+   (`product-completion-first.md` MUST-1 — and note severity NEVER gates; category does).
+4. **No counter was reset by an observation** rather than a change; "touched surface" includes
+   transitive consumers of a changed callee, and the deliverable counter is the MINIMUM over
+   surfaces, never an aggregate.
+5. **No cap-stop was recorded as convergence.** Hitting the round cap is abnormal termination.
+   Confirm a last-known-good state survived every round — iteration is non-monotone.
+6. **Every trust-bearing surface got the full uncapped loop**, both lenses; no reduced-depth
+   routing on an ambiguous classification (ambiguous ⇒ trust-bearing).
+7. **Depth was justified by oracle presence, never model capability or self-reported confidence.**
+   A suite-level green is not a sound oracle for an untested property.
+8. **Each shipped residual carries a named human acceptor** (standing role, not an individual),
+   a revisit trigger, AND a calendar backstop. No human reachable ⇒ NOT accepted ⇒ not done.
+
+**A finding of "converged" with no stated list is itself the finding.** Report it as such.
+
 ### Probe-Driven Verification (MUST — `/codify` validation gate)
 
 When the change set includes test harnesses, audit fixtures, or detection hooks, run the mechanical probe-coverage sweep per `rules/probe-driven-verification.md` MUST-4:

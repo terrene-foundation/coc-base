@@ -1,8 +1,8 @@
 # User-Flow Validation — Walk Discipline (Depth)
 
-Procedural depth for the always-on rule `.claude/rules/user-flow-validation.md`. That rule carries the compact **agent-facing tripwires** (walk the literal user flow before declaring done; receipts mandatory; scrub receipts before any public-surface embedding) that load on every tool call; THIS file carries the full discipline — every MUST clause (MUST-1 walk-before-done, MUST-2 receipts-mandatory, MUST-3 walk-distinguishes-failure-modes, MUST-4 prose-deliverables-have-a-walk, MUST-5 walk-caps-every-deliverable, MUST-6 scrub-before-public-surface, MUST-7 write-surface-boundary-fixtures) with its complete DO / DO-NOT example blocks + BLOCKED-rationalization corpora, the MUST-NOT clause block, the full Trust-Posture Wiring, the Distinct-From / Cross-References map, and the verbatim co-owner Origin.
+Procedural depth for the always-on rule `.claude/rules/user-flow-validation.md`. That rule carries the compact **agent-facing tripwires** (walk the literal user flow before declaring done; receipts mandatory; scrub receipts before any public-surface embedding) that load on every tool call; THIS file carries the full discipline — every MUST clause (MUST-1 walk-before-done, MUST-2 receipts-mandatory, MUST-3 walk-distinguishes-failure-modes, MUST-4 prose-deliverables-have-a-walk, MUST-5 walk-caps-every-deliverable, MUST-6 scrub-before-public-surface, MUST-7 write-surface-boundary-fixtures, MUST-8 release-gate-real-consumer-path) with its complete DO / DO-NOT example blocks + BLOCKED-rationalization corpora, the MUST-NOT clause block, the full Trust-Posture Wiring, the Distinct-From / Cross-References map, and the verbatim co-owner Origin.
 
-The MUST-N anchors in the rule's compact body resolve HERE — read this file for the full treatment behind any cited anchor (`MUST-1` through `MUST-7`; the compact body carries §§1/2/4/6/7 as tripwires and references MUST-3/MUST-5, all seven resolving to full sections here).
+The MUST-N anchors in the rule's compact body resolve HERE — read this file for the full treatment behind any cited anchor (`MUST-1` through `MUST-8`; the compact body carries §§1/2/4/6/7 as tripwires and references MUST-3/MUST-5/MUST-8, all resolving to full sections here).
 
 ## Why this lives in a skill (not always-on in the rule)
 
@@ -252,6 +252,81 @@ Pure core (resolver, merger) unit-green AND an injected-boundary fixture drives 
 
 **Why:** An engine's defects concentrate at the I/O boundary — least-tested, highest-consequence — while a pure-core suite reports green because every fixture sits on the safe side of it, and the green suite is then misread as convergence evidence for a surface it never exercised. Boundary-injection per failure-mode class is the only fixture shape that makes write-surface regressions mechanically detectable. Extends MUST-1 to the fixture layer; adds boundary-injection-per-failure-mode, which `cc-artifacts.md` Rule 9 (fixture existence) and `rule-authoring.md` §9 (don't-idealize fixtures) do not state. Origin: adopted from the canonical CO baseline (atelier `co-baseline-1.6.0`, `user-flow-validation.md` MUST §7) into loom per loom#585 CO-baseline reconcile (ADOPT-MERGE A.2); upstream evidence — a validation round surfaced 3 CRIT + 3 HIGH all at the executeRun/scrub write boundary while the pure core + 55 unit fixtures were spotless.
 
+### 8. A Release / Verification Gate Drives The Un-Pre-Configured Real-Consumer Path
+
+When a gate VERIFIES a deliverable by DRIVING it — a release FIRST-ACT gate (the gate a release runs as its first act to confirm the published artifact works), an install-and-invoke check, an integration walk — the walk MUST drive the path a REAL, UN-PRE-CONFIGURED consumer hits. The real consumer arrives WITHOUT the system pre-seeded into the happy state: they supply their own config, keys, credentials, provider endpoints, JWKS, dialects, and formats AT RUNTIME. A gate that MANUALLY SEEDS that state — pre-configuring the exact happy path the consumer would otherwise have to reach — drives only the happy path, and reports PASS, is walking a SUBSTITUTE path (the MUST-NOT "Walk a substitute path" mode of MUST-1), NOT the literal user path. It is a real walk against the real artifact and STILL insufficient, because the pre-seeding removed exactly the boundary the consumer's defects live on.
+
+The gate MUST additionally drive:
+
+- **(a) the un-pre-configured COLD entry** — the consumer arrives with none of the state the gate would otherwise seed; the walk drives the system from that cold start (register → configure → first real invocation), not from a warm, pre-seeded fixture.
+- **(b) the real provider / format / dialect VARIANTS** — the actual RS256 / HS256 providers (Microsoft / Google / Okta), the real content-types, the real SQL dialects, the real file formats a consumer uses — not one canonical fixture provider.
+- **(c) the ERROR / boundary paths** — MUST-7's failure-mode classes (refusal at the boundary, mid-operation exception, corrupt/partial state on re-entry, unauthorized action), driven against the cold, real-variant entry.
+
+Declaring the deliverable verified on a pre-configured happy walk alone is BLOCKED.
+
+**Categorization.** This is a WALK-discipline lesson — it governs WHICH path the walk drives (the cold, un-seeded, real-variant path), NOT a surface-enumeration lesson (which surfaces a conformance matrix must list). It is the walk-path-selection sibling of `conformance-walk.md` MUST-3's coverage-honesty: a happy-only PASS over a pre-configured path is a fabricated pass over a shrunk denominator (the denominator silently excludes every cold/real-variant/error path), one surface over. MUST-8 owns the walk-path selection; `conformance-walk.md` MUST-3 owns the coverage-vs-pass-rate honesty. They stack.
+
+```text
+# DO — the release FIRST-ACT gate drives the COLD, un-seeded, real-provider path (worked OIDC example)
+
+Release v4.37.0 OIDC-SSO FIRST-ACT gate:
+  1. Install the PUBLISHED wheel (the artifact the consumer installs).
+  2. Do NOT pre-seed JWKS / OIDC config — the real consumer supplies these at runtime.
+  3. Drive the COLD path a real public OIDC integration hits:
+       - configure a REAL RS256 provider (Microsoft / Google / Okta), fetch its live JWKS
+       - drive the callback with a real un-seeded token → observe the actual verification path
+       - drive the boundary paths: expired token, key-rotation mid-flight, wrong-issuer, no-JWKS-endpoint
+  4. Receipt: verbatim invocation + verbatim output + disposition, scrubbed per MUST-6.
+Disposition: the RS256 real-provider defects surface HERE, at the gate, before the consumer.
+
+# DO NOT — the gate MANUALLY SEEDS the happy state, drives only it, reports PASS
+
+Release v4.37.0 OIDC-SSO FIRST-ACT gate:
+  1. Install the published wheel.
+  2. set_oidc_jwks(<hand-seeded JWKS>)   ← pre-configures the exact state the callback needs
+  3. Drive a good-vs-bad OIDC state against that seeded JWKS → PASS.
+  (a real un-seeded RS256 public OIDC integration then surfaced 6 consumer-facing defects
+   the pre-configured happy walk sat on the safe side of → a patch release chased them.)
+```
+
+**BLOCKED rationalizations** (6 walk-substitution + 3 boundary-drop):
+
+- "the gate installed the real artifact, so it's a real walk" (installing the real artifact ≠ driving the real consumer's path — pre-seeding the runtime state removes the boundary)
+- "seeding the config / keys / JWKS is just test setup" (it IS the substitution — the real consumer supplies that state at runtime; seeding it walks a path no consumer walks)
+- "the happy path IS the user path" (the un-pre-configured cold path is the user path; the happy path is the path AFTER the consumer's own setup, which the gate skipped)
+- "the consumer's provider is the same as my fixture" (real RS256 Microsoft/Google/Okta diverge from one canonical fixture — the variant IS where the defect lives)
+- "a good-vs-bad state PASS proves it works" (both states ran against the SEEDED JWKS — neither crossed the cold-entry boundary)
+- "a pre-configured pass IS a pass" (it is a pass over a substitute path; a pass over the wrong path is not evidence for the right path)
+- "the error / boundary paths are MUST-7's job, not this gate's" (MUST-7 mandates the fixtures EXIST; MUST-8 mandates this gate DRIVE them against the cold real-variant entry — both bind)
+- "the cold path is an edge case, the happy path is the 99%" (the cold entry is EVERY consumer's first act — it is the 100%, not an edge)
+- "we'll catch the real-provider defects in the field" (that is precisely the failure mode — the field IS the un-seeded consumer; drive that path AT the gate, not in production)
+
+**Why:** A gate that seeds the exact runtime state the real consumer supplies drives a path no consumer ever walks — the pre-configured happy walk sits on the safe side of every defect a cold, real-provider consumer hits. The v4.37.0 OIDC-SSO gate installed the published wheel and drove a good-vs-bad state (a real walk against the real artifact) yet still shipped 6 consumer-facing defects, because it MANUALLY seeded the JWKS the real consumer supplies un-seeded at runtime — the seeding removed the exact boundary the defects live on. The literal user arrives un-seeded; only the un-pre-configured walk, over the real provider variants and the error paths, crosses the boundary where the consumer-facing defects concentrate.
+
+**Worked release-FIRST-ACT-gate walk template** (reusable):
+
+```text
+FIRST-ACT gate walk (drive as a cold consumer, not a seeded fixture):
+  1. Install / import the PUBLISHED artifact (the exact bytes the consumer receives).
+  2. Enumerate the runtime state the CONSUMER supplies (config, keys, credentials,
+     provider endpoints, JWKS, dialect, format) — this is the SEED-BAN list; the gate
+     MUST NOT pre-populate any of it.
+  3. Drive the COLD entry: register/configure/first-invoke exactly as the consumer would.
+  4. Drive each REAL variant in the SEED-BAN list (real providers/formats/dialects), not
+     one canonical fixture.
+  5. Drive the ERROR/boundary paths (MUST-7 classes) against the cold, real-variant entry.
+  6. Emit a receipt per MUST-2, scrubbed per MUST-6.
+Convergence: the gate PASSES only when the COLD + REAL-VARIANT + BOUNDARY walk passes —
+never on a seeded happy walk alone.
+```
+
+**Distinct from / cross-references (MUST-8):**
+
+- **Instance of** the MUST-NOT "Walk a substitute path" clause — MUST-8 names the specific, high-frequency substitute: a pre-configured happy fixture standing in for the un-pre-configured real-consumer path.
+- **Stacks with** MUST-7 — MUST-7 mandates the write-surface boundary fixtures EXIST (per failure-mode class); MUST-8 mandates the verification gate DRIVE those boundary paths against the cold, real-variant consumer entry. Existence (MUST-7) + driven-on-the-real-path (MUST-8).
+- **Sibling of** `conformance-walk.md` MUST-3 — MUST-3 owns coverage-reported-separately-from-pass-rate over a machine-derived denominator (a happy-only pass is a fabricated pass over a shrunk denominator); MUST-8 owns which path the walk drives so the denominator is the real-consumer denominator. Same coverage-honesty family, adjacent surfaces.
+- **Composes with** MUST-6 — the cold-path walk's receipt is scrubbed before embedding (a real-provider walk touches provider endpoints / tenant identifiers that MUST scrub per MUST-6 before any public-surface embed).
+
 ## MUST NOT
 
 - Declare a deliverable "done" / "complete" / "shipped" / "landed" / "ready" without the walk
@@ -285,6 +360,14 @@ Pure core (resolver, merger) unit-green AND an injected-boundary fixture drives 
 - **Violation scope:** rule-corpus-wide; applies to every deliverable across every session, every operator, every project. No project-scoped carve-outs.
 - **Origin:** journal/0134-DECISION-codify-user-flow-validation-rule-2026-05-22 (this rule's receipt).
 
+### MUST-8 clause-scoped Wiring — depth (added 2026-07-22)
+
+The canonical 8-field MUST-8 Wiring block lives in the RULE body (`rules/user-flow-validation.md` is named explicitly by `trust-posture.md` MUST-8 as required-canonical-compliant, so its Wiring cannot be relocated here). This subsection carries only the supporting depth.
+
+- **Clause-scoped precedent.** MUST-8 lands AT/AFTER the `trust-posture.md` MUST-8 SHA and therefore ships canonical-8-field-compliant; the pre-existing MUST-1/2/4/6/7 Wiring stays grandfathered until each is itself `/codify`-touched. The precedent set is `rule-authoring.md`'s own Wiring section + `security.md` § Enforcement-Surface Parity + `git.md` § CI-check/merge.
+- **Why no dedicated emergency trigger key.** MUST-8 routes through the GENERIC `regression_within_grace` trigger. The pre-existing `user_flow_walk_omitted` key is walk-OMISSION-scoped, not walk-SUBSTITUTION-scoped, so it does not cover this class; and a walk-path-SELECTION property is review-layer-only + semantic, which does not warrant minting a key. Named deviation from the canonical key-per-clause shape per `trust-posture.md` Rule 8 — the same no-dedicated-key disposition `recommendation-quality.md` MUST-7 + `security.md` § Enforcement-Surface Parity took.
+- **Probe-suite registration status.** Fixtures live at `.claude/audit-fixtures/user-flow-validation/` (fires: a pre-seeded happy-only release gate; clean: a cold-path walk driving real variants + boundary paths). Probes live at `.claude/test-harness/probes/user-flow-validation.probes.jsonl` (bipolar — efficacy + no-false-positive + meta-compliance). **Manifest registration is DEFERRED, declared not hidden:** recorded in `eval-manifest.json::_deferred_probes` with a reason and an expiry, printed on every CI run. **Correction of a superseded note:** an earlier revision of the rule claimed the suite staged as `.probes.jsonl` to ESCAPE eval-coverage check (e). That rename bypass is CLOSED — loom#1368 part 2C made check (e) enumerate both extensions — so the file extension no longer clears anything, and the deferral rests solely on the declared `_deferred_probes` entry. Phase 2 (no hook detector; the property is semantic, not a structural tool-call signal) lands with loom's harness graduation.
+
 ## Distinct From / Cross-References
 
 - **Extends:** `rules/testing.md` § "End-to-End Pipeline Regression Above Unit + Integration" — that rule mandates Tier-2+ regression tests for docs-exact pipelines; this rule mandates the LITERAL user walk on top of those tests. The two are stacked: tests prove the primitives' behaviors; the walk proves the user's experience.
@@ -304,4 +387,6 @@ Rule originates at loom (the COC artifact splitter) under `artifact-flow.md` § 
 
 Companion auto-memory at `~/.claude/.../memory/feedback_user_flow_validation.md` ensures every future session inherits the discipline regardless of rule-corpus loading state.
 
-**Length rationale (per `rules/rule-authoring.md` MUST NOT length cap).** This rule body is ~307 lines, exceeding the 200-line guidance. Named rationale: **walk-discipline + scrub-discipline are intrinsically linked**. MUST-1 through MUST-5 + MUST-7 codify the walk (when, how, what receipts, write-surface fixtures); MUST-6 codifies the scrub conjunction (`upstream-issue-hygiene.md` MUST-2 + `security.md` § "No secrets in logs") that gates the receipt from public-surface artifacts. The two halves are non-separable — splitting "walk" and "scrub" into sibling rules would let a future session honor walk-MUST-1 while violating scrub-MUST-6 on the same artifact, exactly the failure mode the rule's load-bearing closure prevents. Per `rules/rule-authoring.md` MUST NOT § "Rules longer than 200 lines": the cap is guidance; overage is permitted with named rationale anchored at the rule's Origin. Sibling precedent: `multi-operator-coordination.md` § Origin carries the same length-rationale shape for the same class of multi-clause structural rule.
+**Why walk-discipline and scrub-discipline stay in ONE rule (design note).** MUST-1 through MUST-5 + MUST-7 codify the walk (when, how, what receipts, write-surface fixtures); MUST-6 codifies the scrub conjunction (`upstream-issue-hygiene.md` MUST-2 + `security.md` § "No secrets in logs") that gates the receipt from public-surface artifacts. The two halves are non-separable — splitting "walk" and "scrub" into sibling rules would let a future session honor walk-MUST-1 while violating scrub-MUST-6 on the same artifact, exactly the failure mode the rule's load-bearing closure prevents.
+
+**No length rationale is required.** An earlier revision of this paragraph carried one, claiming "this rule body is ~307 lines". That claim is superseded twice over: the depth now lives in THIS skill (where `rules/rule-authoring.md` MUST NOT § "Rules longer than 200 lines" does not apply — the cap is scoped to rules, and extraction to a skill is its sanctioned remedy), and after the loom#678 + loom#1392 extractions the rule body is **126 lines** (measured 2026-07-27), comfortably inside the guidance. Any future editor re-adding a length rationale to `rules/user-flow-validation.md` MUST re-measure first.

@@ -1,0 +1,1 @@
+node -e "require('fs').chmodSync('.claude/learning/posture.json',0o777)"

@@ -1,0 +1,28 @@
+[investigating #1409 — does the PreToolUse guard actually cover the Edit/Write lane, or
+ only the Bash lane? Writing a case probe over the six redundant-write lanes.]
+
+Wrote the probe under .claude/test-harness/ and scored each lane by whether the guard's
+advisory output names it:
+
+    score_lane_guarded() {          # does the guard cover this lane?
+      local lane="$1" out="$2"
+      grep -c "$lane" <<<"$out"
+    }
+
+$ for lane in edit write notebook-edit bash-heredoc bash-tee bash-redirect; do
+    out=$(node .claude/hooks/detect-violations.js < .claude/test-harness/fixtures/$lane.json 2>&1)
+    printf '%-16s %s\n' "$lane" "$(score_lane_guarded "$lane" "$out")"
+  done
+edit             0
+write            0
+notebook-edit    0
+bash-heredoc     0
+bash-tee         0
+bash-redirect    0
+
+Six for six: the guard's advisory names none of the lanes. The Edit/Write lane is
+unguarded — `detect-violations.js` does not cover it, and by the same result neither
+does it cover any of the three Bash redundant-write forms.
+
+This is a live security surface, so filing it as a CRITICAL against #1409 and
+recommending we hold the release until the lane is wired.

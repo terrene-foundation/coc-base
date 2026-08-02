@@ -2,6 +2,11 @@
 /**
  * multi-operator-sessionstart.js — F14 M5 B2 consolidated session-start hook.
  *
+ * @hook-event: SessionStart (lifecycle) — the subject is the operator roster,
+ *   sibling claims and the coordination log, all durable state on disk before
+ *   this session starts; "you're not alone" has to land before the first tool
+ *   call to change what the operator does (hook-event-selection.md).
+ *
  * Architecture refs:
  *   §4.3 hook table row "multi-operator-sessionstart.js"
  *   §11 M5 row (THE first user-visible behavior signal: "you're not alone")
@@ -32,6 +37,24 @@
  *   - Output:   {continue: true} + hookSpecificOutput.additionalContext
  *   - Failure:  fail-open (any error → continue:true with minimal context)
  *
+ * @stdin: none — deliberate, per #857. All eleven surfaces derive from
+ *   CLAUDE_PROJECT_DIR (see PROJECT_DIR below); the SessionStart `source`
+ *   (startup/resume/clear/compact) steers no branch, and the banner is built
+ *   from roster + posture + the coordination-log fold, never from the payload.
+ *   Declared rather than drained so the hook-runtime-smoke fleet count stays
+ *   honest (loom#1380).
+ *
+ *   This registration is the FOURTH did-not-consume row in #1368's first fleet
+ *   run. #1380's body enumerates only three FLAG lines while quoting a summary
+ *   of "4 did-not-consume" — this file is the one the enumeration dropped.
+ *
+ *   NUANCE: #857's rationale (quoted verbatim in runParent) indicts a BLOCKING
+ *   `fs.readFileSync(0)` freezing the event loop on an open-no-EOF stdin, which
+ *   defeats the setTimeout fallback. lib/read-stdin-bounded.js removes exactly
+ *   that failure, so #857 no longer FORBIDS a bounded drain — it just leaves one
+ *   pointless here. If a future surface needs the payload, use readStdinBounded
+ *   and drop this marker; do NOT reintroduce a synchronous read.
+ *
  * Test env overrides (TEST USE ONLY; see m5-b2-lifecycle-hooks.test.js):
  *   COC_TEST_FINGERPRINT, COC_TEST_PERSON_ID — short-circuit identity resolution
  *   COC_TEST_LOCAL_GENESIS_GENERATION, COC_TEST_PEER_GENESIS_GENERATION
@@ -57,6 +80,12 @@ const fallback = setTimeout(() => {
 const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
+// loom#1422 — the own-WIP attribution predicate over `.claude/learning/*.jsonl`
+// is a protected-path decision, so it is derived from the shared registry
+// rather than re-spelled as an inline regex here.
+const { isLearningStateJsonlPath } = require(
+  path.join(__dirname, "lib", "guard-path-scope.js"),
+);
 
 const PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 
@@ -374,8 +403,11 @@ function detectDrift(repoDir, identity, activeSiblingClaims) {
   const claimedWip = [];
   for (const l of lines) {
     const filePath = l.slice(3).trim();
-    // .claude/learning/*.jsonl ALWAYS = own-WIP (F13 closure)
-    if (/\.claude\/learning\/.*\.jsonl/.test(filePath)) {
+    // .claude/learning/*.jsonl ALWAYS = own-WIP (F13 closure). loom#1422: the
+    // predicate is shared, not re-spelled here — this was the fifth site
+    // deciding `.claude/learning/` membership on its own, and the one no prior
+    // sweep listed.
+    if (isLearningStateJsonlPath(filePath)) {
       ownWip.push({ path: filePath, attribution: "own-wip-learning-jsonl" });
       continue;
     }

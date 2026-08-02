@@ -219,7 +219,7 @@ Pairs with `Default` derive for sensible defaults.
 
 - **`/analyze`** — `cargo check --workspace` for type-graph + borrow-check; `cargo clippy --workspace -- -D warnings` to surface lint surface.
 - **`/todos`** — shard by crate; each shard ≤500 LOC load-bearing logic per `rules/autonomous-execution.md`.
-- **`/implement`** — `cargo nextest run -p <crate>` per shard; commit cadence per `rules/git.md`. Use worktree isolation (`isolation: "worktree"` per `rules/worktree-isolation.md`) when launching parallel agents — Cargo's `target/` lock serializes parallel builds.
+- **`/implement`** — `cargo nextest run -p <crate>` per shard; commit cadence per `rules/git.md`. When launching parallel agents, give each a worktree — Cargo's `target/` lock serializes parallel builds. Pre-create it as a SIBLING outside the repo and pin its ABSOLUTE path in the prompt; do NOT pass `isolation: "worktree"` (it nests the worktree under the repo's own `.claude/`). Per `rules/worktree-isolation.md` Rule 7.
 - **`/redteam`** — mechanical sweep: `cargo nextest run --workspace` (zero failures), `cargo clippy -- -D warnings` (zero), `cargo +nightly fmt --check` (clean), `RUSTDOCFLAGS="-Dwarnings" cargo doc` (no broken intra-doc links), `cargo audit` (no advisories).
 - **`/codify`** — proposals in Rust terms (`Result<T, E>` + `?`; trait objects vs generics; newtype boundaries).
 - **`/release`** — `cargo publish -p <crate>` (per crate, in dep order); tag release; `Cargo.toml::version` and `lib.rs::pub const VERSION` (if used) updated atomically per `rules/zero-tolerance.md` Rule 5.

@@ -211,6 +211,53 @@ Prune-when-unset makes the addition byte-neutral for the not-configured case (th
 
 Evidence: kailash-py #1510 BH5 (PR #1671 → release #1672, kailash 2.48.0, 2026-07-11) — adding `circuit_*` fields to `OperationalConstraintConfig` (nested in the signed `ConstraintEnvelopeConfig`) changed the Ed25519 pre-image for every envelope; a two-round `/redteam` caught the HIGH, fixed via `_envelope_signing_dict` prune-when-unset.
 
+## Rule 4e — Existing Fold Fields Round-Trip Through Every Serializer (full example)
+
+```python
+# DO — ONE shared fold-serde is the single encode/decode for the fold fields; EVERY
+#      serializer routes through it, and an end-to-end real-store round-trip pins verify() TRUE.
+# delegation_fold_serde.py — the single source of truth for the v2/v3 fold fields
+_FOLD_FIELDS = ("constraints", "resource_limits", "scope", "multi_sig", "multi_sig_policy")
+def encode_fold(model) -> dict:
+    out = {}
+    for f in _FOLD_FIELDS:
+        v = getattr(model, f, None)
+        if v is not None:                    # prune-when-unset keeps legacy byte-neutral
+            out[f] = v
+    return out
+def decode_fold(payload: dict, model) -> None:
+    for f in _FOLD_FIELDS:
+        if f in payload:
+            setattr(model, f, payload[f])
+# chain-store, W3C-VC, JWT, UCAN, to_dict/from_dict ALL call encode_fold / decode_fold.
+
+@pytest.mark.integration
+async def test_v3_delegation_round_trips_through_real_store(trust_store):
+    d = make_v3_delegation(constraints=..., scope=...)   # carries fold fields
+    signed = sign(d)
+    await trust_store.put(signed)
+    got = await trust_store.get(signed.id)               # real SqliteTrustStore round-trip
+    assert verify(got) is True                            # fails if ANY serializer dropped a fold field
+
+# DO NOT — one serializer omits a fold field; it signs correctly but drops the field on round-trip
+def _serialize_delegation(self, d):                       # the chain-store serializer
+    return {"signing_payload_version": d.signing_payload_version}   # omits constraints/scope/...
+# → a v2/v3 delegation reconstructs WITHOUT constraints → re-derived pre-image differs → verify() FALSE.
+#   Every per-serializer unit test passes (each only round-trips the fields IT knows); only a HOLISTIC
+#   post-multi-wave redteam tracing the real-store round-trip end-to-end catches it.
+```
+
+**BLOCKED rationalizations:**
+
+- "Each serializer's unit test round-trips clean" (each only round-trips the fields IT knows — the cross-serializer gap is invisible to every one)
+- "The signing path works, so the model is fine" (signing is not the failure; RECONSTRUCTION after one serializer drops a fold field is)
+- "This serializer is new; the existing three are trusted" (the completeness contract is over EVERY serializer, re-derived per serializer)
+- "A shared serde is over-engineering; each serializer can list its own fields" (parallel field lists drift exactly like `security.md` Multi-Site Kwarg Plumbing — one shared serde is the closure)
+
+This is `security.md` Multi-Site Kwarg Plumbing at the persistence layer; the fix is ONE shared encode/decode serde (the Pre-Encoder Consolidation pattern) wired into every serializer + an end-to-end store/interop round-trip regression pinning `verify()` TRUE. Sibling of Rule 4d (opposite polarity: 4d governs a field ADDED, 4e governs an existing fold field DROPPED by one serializer).
+
+Evidence: kailash-py #1841 (kailash 2.59.0, 2026-07-20) — `TrustLineageChain._serialize_delegation` carried `signing_payload_version` but omitted the v2/v3 fold fields (`constraints`/`resource_limits`/`scope`/`multi_sig`/`multi_sig_policy`) across four serializers; a v2/v3 delegation lost fold fields on real-`SqliteTrustStore` round-trip → `verify()` FALSE. A HOLISTIC post-multi-wave redteam caught the HIGH the per-shard reviews structurally could not; closed via a shared `delegation_fold_serde.py` wired into all four serializers (a `typing.Protocol` broke the CodeQL-flagged import cycle).
+
 ## Rule 6 — Public-Artifact Private-Repo Reference (full example)
 
 ```markdown

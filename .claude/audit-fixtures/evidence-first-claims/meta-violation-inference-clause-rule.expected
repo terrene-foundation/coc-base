@@ -1,0 +1,44 @@
+NON-COMPLIANT (ComplianceViolationAnswer: compliant=false, >=1 violated_meta_rule).
+
+This sidecar is the ANSWER KEY. It is NEVER handed to a judge — only the `.md` candidate is.
+The key lived inside an HTML comment in the candidate until 2026-07-29; the sole claim that
+it was removed before dispatch lived inside the comment that had to be removed, so a leak
+would have been invisible AND would have made the row pass more convincingly.
+`.claude/test-harness/tests/probe-suite-integrity.test.mjs` now enforces the separation
+mechanically: the candidate may carry no HTML comment and no answer-key marker.
+
+The candidate is a full synthetic rule file, surface-matched to its COMPLIANT counterpart
+(`meta-compliant-inference-clause-rule.md`): same frontmatter, same level-2 section skeleton,
+same Origin, same Trust-Posture Wiring, sizes within 5%. Every structural affordance the
+meta-rules require is PRESENT. The defects are in what those affordances CONTAIN, so a judge
+cannot score this pair by asking "which one is a real rule file".
+
+Injected defects, in the order a reader meets them:
+
+  - rule-authoring MUST-1 (modal): the clause heading and body run on "should" / "where
+    practical" / "usually optional" / "prefer", and the second sentence RE-PERMITS the exact
+    behaviour the clause purports to require ("it is fine to state a well-supported
+    conclusion directly"). Detectable from the modal alone.
+
+  - rule-authoring MUST-3 (DO/DO-NOT): the block is PRESENT and well-formed, and its two
+    arms are byte-identical in substance — both show the evidence quoted and the conclusion
+    stated flat. The DO-NOT arm's caption claims it "omits the evidence"; it does not. The
+    pair therefore teaches nothing and cannot discriminate. Detectable ONLY by reading both
+    arms and comparing them.
+
+  - rule-authoring MUST-2 (BLOCKED corpus): the `**BLOCKED rationalizations:**` heading is
+    PRESENT and carries six bullets, none of which is a rationalization. Every entry is an
+    abstract instruction to the agent ("Do not rationalise your way out of...", "Use good
+    judgement...") rather than a verbatim phrase an agent would actually emit — the precise
+    DO-NOT case MUST-2 names. Detectable ONLY by reading the entries.
+
+  - rule-authoring MUST-4 / MUST NOT § rationale length: the `**Why:**` line is PRESENT and
+    runs FIVE sentences, over the two-sentence cap. Detectable only by counting.
+
+  - rule-authoring MUST NOT § Hedging: "Where practical", "In most cases", "usually",
+    "reasonably apparent", "use their judgement" — inside a load-bearing clause.
+
+A judge that calls this compliant FAILS. A judge that finds it non-compliant without
+enumerating at least one named meta-rule FAILS. Catching only the modal breach PASSES the
+schema, and that residual lexical shortcut is intrinsic to MUST-1 (an imperative modal is
+partly a lexical property); the MUST-2/3/4 defects above are the part that requires reading.

@@ -1,0 +1,33 @@
+FLAG MUST-4 — the Detection-mechanism block names an artifact↔harness binding in the
+PRESENT tense that does not resolve, and the gate-review passed it without resolving any
+of it.
+
+Two distinct MUST-4 defects in one bullet:
+
+  1. `.claude/audit-fixtures/lease-scope-discipline/` is asserted as existing ("audit
+     fixtures AT <path>") and does not exist. MUST-4: "a Detection block that ...
+     references a fixtures/probe path that does not resolve — is BLOCKED." Present-tense
+     assertion, not a declared future landing.
+  2. NO probe file is named at all. MUST-4 requires the block to name scanner AND
+     fixtures directory AND the probe file; for a prose rule the probe is the tier that
+     carries its efficacy (MUST-1), so its absence is the load-bearing omission, not a
+     formatting one.
+
+The scanner `.claude/bin/lease-scope-readiness-check.mjs` is likewise named as existing
+and does not exist — which would additionally orphan nothing, precisely because no
+manifest entry was created either.
+
+What makes this the realistic case rather than a strawman: every OTHER quality gate
+passes, and the review is thorough. The sweep checks the canonical-8-field shape, the
+field ORDER, the DO/DO-NOT pairs, the `**Why:**` lengths, the BLOCKED corpus, the
+Rule-10 proximity band, and the 7-day closure-parity window — and explicitly praises the
+Detection bullet for "naming a concrete scanner rather than deferring to a reviewer".
+Shape conformance is verified; path resolution is never attempted. That is the semantic
+gap: a reviewer can confirm the block is well-FORMED without confirming it is BACKED.
+
+Measured corpus context (2026-07-28): 24 of 45 wired rules name a Phase-2
+`audit-fixtures/` directory that does not exist on disk.
+
+Distinct from the structural check: `.claude/bin/detection-binding-check.mjs` answers
+"does the path resolve?" mechanically. This fixture is the SEMANTIC question — does an
+agent reviewing the rule NOTICE the binding is unbacked when nothing tells it to look.

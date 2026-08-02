@@ -76,7 +76,15 @@ function _logViolation(cwd, finding) {
     rule_id: finding.rule_id,
     severity: finding.severity,
     evidence: finding.evidence,
-    posture_at_time: process.env.CLAUDE_CURRENT_POSTURE || "unknown",
+    // Bounded at ingest. Unbounded, this env value is a lever for inflating the record
+    // past `coc-append`'s pre-sign cap, and the oversize path below falls through to the
+    // UNSIGNED appender and stamps the row `attribution: "un-rostered"` — so a large
+    // enough env var strips verified_id / person_id / sig from a genuinely rostered
+    // operator's violations and mislabels them as un-rostered. `session_id`, the other
+    // env-derived lever, is bounded in both appenders. See the F5 note below.
+    posture_at_time: String(
+      process.env.CLAUDE_CURRENT_POSTURE || "unknown",
+    ).slice(0, 64),
     addressed_by: null,
   };
   try {
@@ -334,12 +342,44 @@ function logAndEmit(payload, event, finding, what_happened) {
       // prioritization anchor. Cancels the finding when the response surfaces
       // the structural alternative the rule requires.
       P.detectTimePressureShortcut(finalText, { mode: "response" }),
+      // value-prioritization MUST-1/MUST-2 advisory: the rule's Trust-Posture
+      // Wiring claimed both ran on Stop, but neither was ever added to this
+      // array — defined, exported and fixtured, then referenced only from
+      // comments. Closed here rather than by walking the claim back, because
+      // the detectors are real. A/B against the pre-edit hook, dispatched
+      // through this array on a Stop payload: base emits NOTHING on all 13
+      // fixtures; with these two lines all 7 flag fixtures fire and all 6
+      // clean fixtures stay null.
+      // SCOPE OF THAT A/B — it feeds `last_assistant_text`, so it proves the
+      // DISPATCH and the detectors, and is NOT evidence about production.
+      // Every Stop prose detector, these two included, sees only what the
+      // handler above recovers into `finalText`: being dispatched is
+      // NECESSARY for one to fire and never SUFFICIENT. Measured on this
+      // branch at 48af413c, that recovery yielded "" whenever the payload
+      // carried `transcript_path` (which Claude Code always sends), and the
+      // 513-row violations sink held ZERO Stop-prose rows against 82
+      // repo-scope-discipline/MUST-NOT-1 + 6 git/commit-message-claim-accuracy
+      // from the Bash path. Recovering that text is SEPARATE work, tracked in
+      // loom#1509 — read the handler above for current behaviour rather than
+      // inferring it from here. Wiring these two is a prerequisite for that
+      // recovery, never a substitute, which is why neither is unwired.
+      // ~65us combined on a 4KB report, once per session at Stop (not per
+      // tool call), so no surface-presence guard is warranted. Advisory only,
+      // per hook-output-discipline.md MUST-2 (both are lexical prose scans).
+      // FLAG RATE IS SELECTION-SENSITIVE — cite the selection or cite nothing.
+      // Measured over journal/ on this tree: 40 MOST-RECENT entries (median
+      // 7.1KB) -> 0/40 and 0/40; 40 LARGEST (median 15.1KB) -> 2/40 (5.0%)
+      // streetlight and 5/40 (12.5%) deferral. Same detectors, same corpus,
+      // 4/40 overlap. Longer documents give a lexical scan more surface, so
+      // an unqualified "0/40" is a statement about the sample, not the
+      // detectors. Both rates are advisory-only and neither gates anything.
+      P.detectStreetlightSelection(finalText),
+      P.detectDeferralWithoutValueAnchor(finalText),
       // value-prioritization/MUST-3 advisory (F-2): scan agent's final
       // report for deferred-item pickup language not paired with a
       // re-validation surface. Companion to detectStreetlightSelection
-      // (MUST-1) and detectDeferralWithoutValueAnchor (MUST-2); closes the
-      // silent-inheritance loophole the rule's prose-only enforcement
-      // leaves open.
+      // (MUST-1) and detectDeferralWithoutValueAnchor (MUST-2), both now
+      // dispatched directly above; closes the silent-inheritance loophole.
       P.detectDeferredItemPickupWithoutRevalidation(finalText),
       ...ackFindings,
     ].filter(Boolean);

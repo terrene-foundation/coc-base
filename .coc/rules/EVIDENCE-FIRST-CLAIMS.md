@@ -48,7 +48,7 @@ A command that exited non-zero, hit an invalid flag, timed out, or returned empt
 - **Cumulative posture impact:** MUST-1/3/4 route cumulative per `trust-posture.md` MUST-4; MUST-2 routes emergency — never double-counted.
 - **Regression-within-grace:** emergency downgrade per `trust-posture.md` MUST-4. Independently, MUST-2 is a 1×-instant emergency trigger — key `evidence_free_claim` (1× = drop 1 posture).
 - **Receipt requirement:** SessionStart `[ack: evidence-first-claims]` IFF `posture.json::pending_verification` includes this rule_id.
-- **Detection mechanism:** Phase 1 review-layer — reviewer at `/implement` + cc-architect at `/codify`. Phase 2 hook (advisory, planned `detectEvidenceFreeClaim`). Fixtures: `.claude/audit-fixtures/evidence-first-claims/`.
+- **Detection mechanism:** Phase 1 review-layer — reviewer at `/implement` + cc-architect at `/codify`, paired with the semantic tier below. Phase 2 hook (advisory, planned `detectEvidenceFreeClaim` — NOT yet built; its fixtures land WITH it). Fixtures: `.claude/audit-fixtures/evidence-first-claims/`. Probes: `.claude/test-harness/probes/evidence-first-claims.probes.json` — a bipolar MUST-4 LLM-judge suite (efficacy + no-false-positive + a meta-compliance pair), registered in `.claude/test-harness/eval-manifest.json` as a probe-only entry (`scanner: null`) and dispatched at gate-review via `/test-harness-probe`; it is deliberately NOT in CI (the loom↔csq boundary keeps CI LLM-free). Its disarm-resistance + fixture-hygiene floor is `.claude/test-harness/tests/probe-suite-integrity.test.mjs`.
 - **Violation scope:** rule-corpus-wide. MUST-1/3/4 cumulative; MUST-2 emergency.
 - **Origin:** See § Origin.
 
@@ -56,6 +56,4 @@ A command that exited non-zero, hit an invalid flag, timed out, or returned empt
 
 Extends `verify-resource-existence.md` MUST-2 to ALL diagnostic/anomaly/security claims. Pairs with `recommendation-quality.md` MUST-3, `probe-driven-verification.md`, `user-flow-validation.md` MUST-2. Distinct from `communication.md` (HOW vs WHETHER) and `verify-claims-before-write.md` (code-surface claims at durable-write time vs diagnostic/security claims inline).
 
-## Origin
-
-2026-05-31 — a Rust SDK session: three escalating assert-before-verify errors (E1 "timeout" misdiagnosis vs a 53s log-visible failure; E2 errored command nearly read as runner-deletion; E3 fabricated "curl|bash prompt-injection" from a `cat -v`-rendered em-dash — the detection grep never ran). User directive after E3: "how can you just fabricate a security claim, its not normal, please investigate fully" → forensics → `/codify`. Full narrative in the guide extract.
+Origin: 2026-05-31 — a Rust SDK session: three escalating assert-before-verify errors (E1 "timeout" misdiagnosis vs a 53s log-visible failure; E2 errored command nearly read as runner-deletion; E3 fabricated "curl|bash prompt-injection" from a `cat -v`-rendered em-dash — the detection grep never ran). User directive after E3: "how can you just fabricate a security claim, its not normal, please investigate fully" → forensics → `/codify`. Full narrative in the guide extract.

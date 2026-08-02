@@ -1,0 +1,35 @@
+# operator-gate audit fixture: flag — a caller-supplied
+# `tool_input.requester_gh_login` has ZERO influence on the R5-S-07
+# collaborator-distinctness decision (loom#1440).
+#
+# Predicate: the requester's bound GitHub-collaborator login is SERVER-DERIVED
+# from `roster.persons[requester_person_id].github_login`. `requester_person_id`
+# is bound into the gate-approval canonical signed bytes, so the caller cannot
+# alter it without invalidating the approver's signature. The former
+# `tool_input.requester_gh_login` read is DELETED.
+#
+# The defect this closes: `requester_gh_login` was read from `tool_input` and
+# was NOT among the six fields `canonicalGateApprovalBytes` signs. A single
+# human holding two roster persons bound to the SAME GitHub account
+# (distinct `person_id`, so the 4-eyes person half passes) defeated R5-S-07 by
+# OMITTING the field — the old `_sameBoundCollaborator` returned false on an
+# absent login, and the signature still verified because the field was never
+# signed. Same defeat by supplying any unrelated login.
+#
+# Input shape (ONE byte-identical signature across all four variants):
+#   command = "/release"
+#   requester_person_id = "person:owner-alpha"   ← signature-bound
+#   roster.persons["person:owner-alpha"].github_login = "alice"
+#   roster.persons["person:owner-bravo"].github_login = "alice"  ← SAME human
+#   gate_approval.approver_person_id = "person:owner-bravo"
+#   tool_input.requester_gh_login ∈ { "alice", <absent>, null, "eve" }
+#
+# Expected gate evaluation (IDENTICAL for all four variants):
+#   matrix_row = "release"
+#   halt = true (halt-and-report)
+#   why = "operator-gate/collaborator-distinctness (R5-S-07): approver bound
+#          to same GitHub collaborator 'alice' as requester"
+#
+# Rule anchors: security.md § Enforcement-Surface Parity → Identity-derivation
+# parity (server-derived, NEVER a body field);
+# multi-operator-coordination.md MUST-3 (distinct bound-collaborator login).

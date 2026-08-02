@@ -1,0 +1,1 @@
+cp /tmp/forged-version.json .claude/VERSION

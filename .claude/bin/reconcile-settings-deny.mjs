@@ -57,13 +57,148 @@
  *  for the validator (validate-emit.mjs `settings-deny-rule-form` check) + tests.
  */
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync, renameSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+
+// #1309 (redteam P3.2) — atomic write of the security-critical deny contract:
+// write a sibling temp then rename() over the target, so a crash/kill mid-write
+// cannot truncate settings.json into a malformed state (which would then defeat
+// the L3 drift-guard's next-session self-heal, per its fail-open-on-malformed).
+// rename() within the same directory is atomic on POSIX + Windows.
+function atomicWriteFileSync(file, text) {
+  const tmp = `${file}.tmp.${process.pid}.${Date.now()}`;
+  writeFileSync(tmp, text);
+  renameSync(tmp, file);
+}
 
 // Tool names whose DENY-matcher FORM no longer matches file edits in Claude
 // Code — every file-editing tool is now covered by the `Edit` matcher alone.
 const REWRITE_TOOLS = ["Write", "NotebookEdit"];
 const CANONICAL_TOOL = "Edit";
+
+// ── #1309 L3 — CANONICAL_STATE_DENY (single source of truth) ────────────────
+// The canonical set of `permissions.deny` entries every consuming settings.json
+// MUST carry to fence the trust-posture state files at the FILE-TOOL layer. This
+// constant is the SSOT the SessionStart drift-guard (settings-deny-drift-guard.js)
+// restores TO: it reads settings.json's permissions.deny, and AUTO-RESTORES any
+// canonical entry that was stripped (external editor, Bash) — the presence-drift
+// half the FORM reconciler above does NOT cover (that handles Write→Edit form,
+// not deletion). settings.json DEFINES these guards but was itself unprotected
+// (#1309); L2 (validate-bash-command.js STATE_PATH_RX) fences the Bash vector,
+// L3 (this constant + the drift-guard) fences the external-editor / file-tool
+// strip that L2 cannot see. L1 (a blanket `Edit(.claude/settings.json)` deny)
+// is DELIBERATELY OMITTED: unlike posture.json (hook-only writers), settings.json
+// is legitimately edited by the settings-manager agent / `/settings` via the Edit
+// tool, which a deny would break (evidence: settings-manager.md tools: Read,
+// Write, Edit; posture-gate.js "primary fence" note confirms deny fires under
+// bypassPermissions) — so L2+L3 are the load-bearing fix.
+//
+// EXTENDING (documented 2-site SSOT, matching the STATE_PATH_RX pattern): a new
+// state-file guard updates BOTH this constant AND the `permissions.deny` array in
+// every settings.json. Keep this list in sync with the deny block loom ships;
+// the drift-guard treats anything here-but-missing as a strip to restore.
+//
+// ── #1399 — why `.claude/VERSION` is NOT in this list (DELIBERATE) ───────────
+// #1399 asked for `.claude/VERSION` on BOTH state fences: the Bash lane
+// (`validate-bash-command.js::STATE_PATH_RX`) and this file-tool deny floor.
+// The Bash half LANDED (see that file's § "VERSION (#1399 …)"). This half is
+// DECLINED, and the decline is recorded here — not merely omitted — so a future
+// reader does not "close the asymmetry" and break three shipped flows.
+//
+// Every entry below shares one property: its ONLY legitimate writers are HOOKS
+// (in-process `fs.writeFileSync`, which no `Edit()` deny can reach) or a named
+// ceremony. `.claude/VERSION` does NOT. It has TWO Edit/Write-TOOL writers on
+// documented HAPPY paths, plus ONE on a HALT/error-recovery path — none with a
+// helper script to route through. Each quotation below is verbatim at the single
+// line cited (do NOT collapse two sites into one quote):
+//
+//   HAPPY PATH — either one alone defeats a flat deny:
+//   1. `commands/sync-from-template.md:42`, verbatim:
+//        "6. Update `.claude/VERSION` upstream block (template version +
+//         `synced_at`)."
+//      Step 5 names its script (`reconcile-settings-deny.mjs`); Step 6 names
+//      none. Runs at EVERY downstream consumer on EVERY pull — widest blast
+//      radius here, and DISPOSITIVE on its own.
+//   2. `skills/30-claude-code-patterns/multi-cli-migration.md:488`, verbatim:
+//        "- **VERSION (Step 2 shape):** write a fresh `.claude/VERSION` with
+//         `type: coc-project`, …"
+//      Its command-file counterpart `commands/migrate.md:49` states the same
+//      Step-2 write in DIFFERENT words ("Update `.claude/VERSION`
+//      `upstream.template` → `<sister>`, …") — the "write a fresh" phrasing
+//      appears at :488 ONLY, never in migrate.md. Second genuine break.
+//
+//   HALT PATH — real, but NOT a write the command performs on a happy path;
+//   listed for completeness, and the ruling does not rest on it:
+//   3. `commands/codify.md:128` (Step-7c HALT text) + the same sentence at
+//      `skills/30-claude-code-patterns/sync-flow.md:203` — an error-recovery
+//      instruction to the OPERATOR: "set `upstream.template` in
+//      `.claude/VERSION` to your template's name, … re-run /codify". Step 7c's
+//      own write target is `.claude/.proposals/latest.yaml`; every OTHER
+//      VERSION mention in codify.md (51, 124, 126) is a `::type` READ.
+// (`bin/stamp-template-version.mjs` is NOT a fourth writer for this purpose: it
+// stamps a TARGET worktree's VERSION from the loom side at `/sync-to-use`
+// Gate-2 via `--worktree`, and is an in-process fs write either way.)
+//
+// A flat `Edit(.claude/VERSION)` deny would therefore hard-break all three. This
+// is the SAME reasoning that omits settings.json's own L1 blanket deny (see the
+// L1 paragraph above: legitimately edited by settings-manager / `/settings` via
+// the Edit tool) — precedent, not an exception invented here.
+//
+// This is a RULING OFFERED FOR RATIFICATION, not a settled contract. What changes
+// if it is overridden: the deny lands, `CANONICAL_STATE_DENY` goes 11 → 12 at all
+// four parity sites, and the three flows above MUST first be routed through a
+// by-path ceremony script (the residual-(c) licensed-writer pattern
+// `/whoami --register` and `/certify` already use) — a separate shard, because it
+// is a new script + three command-doc rewrites + the consumer-lane distribution
+// allowlist (`sync-tier-aware.mjs`) + tests.
+//
+// SCOPE HONESTY — the cost of this decline is BOUNDED, and the bound is tracked.
+// Landing the Bash half alone leaves the Edit-tool agent-write vector open; that is
+// the residual this decline accepts. What it does NOT leave open, because no fence
+// ever covered it, is the ACCIDENT vector (a mis-merged / mis-synced VERSION): that
+// arrives via `git merge` or a sync script, which is NEITHER a Bash tool call NOR an
+// Edit tool call, so BOTH fences #1399 prescribes are blind to it by construction.
+// That path needs a class-vs-manifest CROSS-CHECK, not a fence, and is tracked as
+// #1402 (`emit.mjs` has one; `emit-cli-artifacts.mjs` + `emit-coc.mjs` have none —
+// measured 0/0 against emit.mjs's 3/3). So the decline trades one agent-write lane
+// for two working happy-path flows, with the genuinely-uncovered path named and
+// owned elsewhere — not silently absorbed here.
+//
+// INHERITED OVER-BLOCK COST (recorded, NOT introduced here; do not "fix" it in this
+// shard). The Layer-3 `block` this path inherits rests on a "prose-FP risk ≈ 0"
+// premise that `state-file-write-guard.md` itself records as having been found FALSE
+// once already (#1363). Prose frequency measured over the shipped-doc corpus
+// (`.claude/{commands,skills,rules,agents,guides}`) at this head:
+//
+//     .claude/VERSION                 95 mentions / 23 files
+//     .claude/settings.json           58 mentions / 26 files
+//     .claude/learning/posture.json   15 mentions / 12 files
+//
+// i.e. VERSION is the MOST prose-mentioned protected path in the corpus — ~1.6× the
+// settings.json incumbent and ~6.3× posture.json. The two recorded OPEN residuals now
+// reach it: (k) the UNANCHORED match, so a `/tmp/<sandbox>/.claude/VERSION` write
+// blocks; and (l) a heredoc-authored report that merely QUOTES a write example. Both
+// are documented as PASS at base and BLOCK at this head. The cost is concrete, not
+// theoretical: (l) is recorded as having caused three independent blocks in ONE round,
+// every one of them on work VERIFYING the guard, and in this wave's own review a
+// symlink-containment probe could not be staged because (k) blocked its sandbox path.
+// Extending that to the corpus's most-documented path RAISES the self-sealing cost, so
+// this argues for bumping (l)'s priority on the #1363 shard. Direction is fail-CLOSED
+// throughout (over-block, never fail-open), which is why it is recorded rather than
+// treated as a blocker.
+export const CANONICAL_STATE_DENY = [
+  "Edit(.claude/learning/posture.json)",
+  "Edit(.claude/learning/posture.json.bak)",
+  "Edit(.claude/learning/posture.json.tmp.*)",
+  "Edit(.claude/learning/violations.jsonl)",
+  "Edit(.claude/learning/violations.jsonl.*)",
+  "Edit(.claude/learning/.initialized)",
+  "Edit(.claude/learning/presence-mechanism.json)",
+  "Edit(.claude/operators.roster.json)",
+  "Edit(.claude/learning/coordination-log.jsonl)",
+  "Edit(.claude/learning/.heartbeat-cache*)",
+  "Edit(.claude/learning/.session-end-cache*)",
+];
 
 // Match a single permission-matcher entry: `Tool` or `Tool(<specifier>)`.
 // `[A-Za-z]+` is the tool name; the optional `(...)` captures the specifier
@@ -158,6 +293,49 @@ export function reconcileSettingsText(text) {
   return { text: out, changed: true, offending, removed };
 }
 
+/**
+ * #1309 L3 — restore any stripped CANONICAL_STATE_DENY entries into a deny array.
+ * PRESENCE-drift only: adds back canonical entries that are MISSING; never
+ * reorders or drops existing entries, and preserves any operator-added extras.
+ * Deterministic + idempotent: a deny array already containing every canonical
+ * entry (in any order, with any extras) is returned unchanged (changed:false);
+ * a stripped array gets its missing canonical entries PREPENDED in canonical
+ * order (so they sit grouped with their surviving siblings). Distinct from
+ * reconcileDenyArray (which handles the Write()/NotebookEdit()→Edit() FORM); this
+ * handles DELETION of the guard entirely.
+ * @param {string[]} deny
+ * @returns {{ deny: string[], changed: boolean, restored: string[] }}
+ */
+export function restoreCanonicalDenyArray(deny) {
+  const arr = Array.isArray(deny) ? deny.slice() : [];
+  const present = new Set(arr.filter((e) => typeof e === "string"));
+  const restored = CANONICAL_STATE_DENY.filter((e) => !present.has(e));
+  if (restored.length === 0) return { deny: arr, changed: false, restored: [] };
+  return { deny: restored.concat(arr), changed: true, restored };
+}
+
+/**
+ * Restore stripped canonical deny entries inside a settings.json TEXT, preserving
+ * key order, indentation and trailing newline (same write discipline as
+ * reconcileSettingsText). Recreates permissions / permissions.deny if the key was
+ * deleted entirely. Throws on unparseable JSON (fail-loud). Returns unchanged text
+ * when nothing was stripped.
+ * @param {string} text
+ * @returns {{ text: string, changed: boolean, restored: string[] }}
+ */
+export function restoreCanonicalDenyInText(text) {
+  const obj = JSON.parse(text);
+  const deny = obj?.permissions?.deny;
+  const { deny: newDeny, changed, restored } = restoreCanonicalDenyArray(deny);
+  if (!changed) return { text, changed: false, restored: [] };
+  if (!obj.permissions || typeof obj.permissions !== "object") obj.permissions = {};
+  obj.permissions.deny = newDeny;
+  const indent = detectIndent(text);
+  let out = JSON.stringify(obj, null, indent);
+  if (text.endsWith("\n")) out += "\n";
+  return { text: out, changed: true, restored };
+}
+
 function usage() {
   process.stderr.write(
     "usage: reconcile-settings-deny.mjs (--check | --write) <settings.json>\n",
@@ -216,7 +394,7 @@ export function main(argv) {
     process.stdout.write(`reconcile-settings-deny: ${file} already canonical — no change\n`);
     return 0;
   }
-  writeFileSync(file, result.text);
+  atomicWriteFileSync(file, result.text);
   process.stdout.write(
     `reconcile-settings-deny: ${file} reconciled — rewrote ${staleCount} stale + deduped ${dupCount} duplicate deny entr${
       staleCount + dupCount === 1 ? "y" : "ies"

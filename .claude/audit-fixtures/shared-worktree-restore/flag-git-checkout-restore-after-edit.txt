@@ -1,0 +1,4 @@
+cp /dev/null /tmp/unused
+sed -i '' 's/return true/return false/' src/engine/scheduler.rs
+cargo nextest run --test scheduler
+git checkout -- src/engine/scheduler.rs

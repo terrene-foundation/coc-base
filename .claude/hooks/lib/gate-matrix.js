@@ -17,6 +17,8 @@
  *   §4.3 — operator-gate.js — consumes evaluateGate()
  *   §2.3 — R5-S-04 host_role:ci ineligible (routed via eligibility.js)
  *   §2.3 — R5-S-07 same-bound-collaborator-login rejected on owner/senior
+ *          (loom#1440: the predicate is a fail-closed TRI-state — SAME and
+ *           UNRESOLVED both refuse; only DISTINCT proceeds)
  *   §2.3 — R9-S-02 revocation-induced N=1 fence (consumed from r9s02-fence.js)
  *   §2.3 — R7-A-03 owner-departure removal-only recovery
  *   §6.4 — R6-S-04 genesis-migration NO degenerate self-sign
@@ -38,7 +40,12 @@
 const path = require("path");
 const { isEligibleSigner } = require(path.join(__dirname, "eligibility.js"));
 // F14 C2 iter-3 SSOT consistency: case-insensitive compare via helper.
-const { loginsEqual } = require(path.join(__dirname, "github-login.js"));
+// #1440: `normalizeLogin` is imported alongside so the distinctness predicate
+// can distinguish "these two logins differ" from "at least one login did not
+// normalize at all" — `loginsEqual` collapses both onto `false`.
+const { loginsEqual, normalizeLogin } = require(
+  path.join(__dirname, "github-login.js"),
+);
 const {
   gateEligibleForSelfSignedCheckpointOrRotation,
   isRevocationInducedSingleton,
@@ -186,6 +193,18 @@ function _isSelfApproval(requester, approver) {
 }
 
 /**
+ * The three outcomes of the R5-S-07 collaborator-distinctness question.
+ * #1440: the predicate is a TRI-state, not a boolean. "Not the same login"
+ * and "no login to compare" are different facts and MUST route to different
+ * verdicts — collapsing them onto `false` is what made the check fail OPEN.
+ */
+const COLLABORATOR_DISTINCTNESS = Object.freeze({
+  SAME: "same",
+  DISTINCT: "distinct",
+  UNRESOLVED: "unresolved",
+});
+
+/**
  * Compare two bound GitHub-collaborator logins (R5-S-07).
  *
  * F14 MED-4: GitHub usernames are case-insensitive at the server side
@@ -194,13 +213,37 @@ function _isSelfApproval(requester, approver) {
  * equality check lets an attacker register two roster entries with the
  * same gh_login under different cases and bypass the colluding-collaborator
  * defense on owner/senior gates.
+ *
+ * #1440 (fail-closed): the prior boolean form returned `false` for BOTH
+ * "the two logins genuinely differ" AND "one/both logins are absent or do
+ * not normalize", so an unresolvable login silently SATISFIED distinctness.
+ * Every non-SAME answer became a pass. Normalization is applied FIRST via
+ * `normalizeLogin` (which rejects non-string, empty, and non-ASCII input),
+ * so a login that cannot be normalized reports UNRESOLVED rather than
+ * masquerading as DISTINCT — `loginsEqual` alone cannot express that
+ * difference because it, too, collapses onto `false`.
+ *
+ * @param {object} requester — {gh_login}
+ * @param {object} approver  — {gh_login}
+ * @returns {"same"|"distinct"|"unresolved"}
  */
-function _sameBoundCollaborator(requester, approver) {
-  if (!requester || !approver) return false;
-  if (typeof requester.gh_login !== "string" || !requester.gh_login) return false;
-  if (typeof approver.gh_login !== "string" || !approver.gh_login) return false;
-  // F14 C2 iter-3: route through loginsEqual for SSOT consistency.
-  return loginsEqual(requester.gh_login, approver.gh_login);
+function _collaboratorDistinctness(requester, approver) {
+  // `normalizeLogin` is itself the presence test: it returns null for a
+  // non-string (incl. undefined/null), for the empty string, and for any
+  // non-ASCII input. No strict compare on a login-class field is needed here
+  // — and none is written, so the c2-auth-hardening-iter3/iter5 structural
+  // sweeps over GITHUB_LOGIN_FIELD_NAMES stay clean.
+  const requesterLogin = normalizeLogin(requester ? requester.gh_login : null);
+  const approverLogin = normalizeLogin(approver ? approver.gh_login : null);
+  if (requesterLogin === null || approverLogin === null) {
+    return COLLABORATOR_DISTINCTNESS.UNRESOLVED;
+  }
+  // F14 C2 iter-3: route the equality through loginsEqual for SSOT
+  // consistency (it re-normalizes both sides; the pre-normalization above is
+  // what makes the UNRESOLVED branch expressible, not a replacement for it).
+  return loginsEqual(requester.gh_login, approver.gh_login)
+    ? COLLABORATOR_DISTINCTNESS.SAME
+    : COLLABORATOR_DISTINCTNESS.DISTINCT;
 }
 
 /**
@@ -398,13 +441,35 @@ function evaluateGate(ctx) {
     "genesis-migration",
     "roster-edit-add-contributor",
   ]);
-  if (ownerSeniorGates.has(row.gate) && _sameBoundCollaborator(requester, approver)) {
-    return {
-      allowed: false,
-      reason: `operator-gate/collaborator-distinctness (R5-S-07): approver bound to same GitHub collaborator '${approver.gh_login}' as requester`,
-      audit_marker: null,
-      row,
-    };
+  //
+  //    #1440 fail-closed: an UNRESOLVED login on either side makes R5-S-07
+  //    UNDECIDABLE. Undecidable is refused, never waved through — the whole
+  //    point of the row is that the requester and approver are provably
+  //    different GitHub collaborators, and "we could not tell" is not proof.
+  if (ownerSeniorGates.has(row.gate)) {
+    const distinctness = _collaboratorDistinctness(requester, approver);
+    if (distinctness === COLLABORATOR_DISTINCTNESS.SAME) {
+      return {
+        allowed: false,
+        reason: `operator-gate/collaborator-distinctness (R5-S-07): approver bound to same GitHub collaborator '${approver.gh_login}' as requester`,
+        audit_marker: null,
+        row,
+      };
+    }
+    if (distinctness === COLLABORATOR_DISTINCTNESS.UNRESOLVED) {
+      // The verdict word is FRONT-LOADED: operator-gate.js truncates the
+      // reason to 200 chars for the halt body, so anything that must survive
+      // truncation goes first and the remediation detail goes last.
+      return {
+        allowed: false,
+        reason:
+          `operator-gate/collaborator-distinctness (R5-S-07): UNDECIDABLE, refusing fail-closed — ` +
+          `no roster github_login resolves for requester '${requester.person_id || "(none)"}' ` +
+          `and/or approver '${approver.person_id || "(none)"}'; both MUST carry one`,
+        audit_marker: null,
+        row,
+      };
+    }
   }
 
   // 4. genesis-migration — NO degenerate self-sign EVER (R6-S-04). Falls
@@ -421,6 +486,10 @@ module.exports = {
   GATE_MATRIX_ROWS,
   evaluateGate,
   findRow,
+  // #1440: exported so the R5-S-07 tri-state can be unit-tested directly
+  // (SAME / DISTINCT / UNRESOLVED) without driving the whole evaluator.
+  COLLABORATOR_DISTINCTNESS,
+  _collaboratorDistinctness,
   // Exported for the contract-identity test (gate-matrix.test.js):
   // "eligibility_predicate_shared_with_b3b_reap_ceremony" asserts that
   // this module consumes the SAME isEligibleSigner function reference

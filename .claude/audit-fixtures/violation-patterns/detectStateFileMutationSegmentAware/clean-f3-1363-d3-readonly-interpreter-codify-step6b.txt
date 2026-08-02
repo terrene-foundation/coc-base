@@ -1,0 +1,1 @@
+node -e "const fs=require('fs');const cut=Date.now()-30*864e5;const rows=fs.readFileSync('.claude/learning/violations.jsonl','utf8').split('\n').filter(Boolean).map(JSON.parse);console.log(rows.filter(r=>!r.addressed_by&&Date.parse(r.timestamp)>cut).length)"

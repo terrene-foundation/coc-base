@@ -43,7 +43,23 @@
     "  vcs.overrides           per-key provider override (roster.genesis.provider for",
     "                          a repo's OWN provider still wins over this).",
     "  vcs.ado_work_item_type  ADO work-item type (G-F upflow); default 'Task'.",
-    "  deploy                  {default_targets,per_project} — ecosystem-aware deploy."
+    "  deploy                  {default_targets,per_project} — ecosystem-aware deploy.",
+    "  rag                     OPTIONAL per-ecosystem RAG accountability-store pointer.",
+    "                          rag.reservoir_locator — the store DSN. Mode-1 local",
+    "                          sqlite ('sqlite:///<path>?mode=ro', the default shown",
+    "                          below) OR Mode-2 central-in-perimeter Postgres",
+    "                          ('postgres://user:pass@host/db'). A Mode-1<->Mode-2",
+    "                          change is a locator re-point, not a re-platform.",
+    "                          rag.tenant_id — OPTIONAL tenant scope; defaults to",
+    "                          ecosystem.id when unset.",
+    "                          The value MAY carry a credential (Mode-2): read",
+    "                          server-side via getRagReservoirLocator(); EVERY",
+    "                          view/log/display surface (getEcosystemConfig,",
+    "                          getRagReservoirLocatorRedacted) REDACTS the URL userinfo",
+    "                          + keyword/query 'password=' forms — the INV-2 'never",
+    "                          surface a secret VALUE' projection discipline. Absence =",
+    "                          consumer resolves a documented default / honest-pending;",
+    "                          present-but-malformed fails LOUD (config-error)."
   ],
   "schema_version": 1,
   "ecosystem": {
@@ -82,5 +98,9 @@
   "deploy": {
     "default_targets": ["example-staging"],
     "per_project": { "build.py": { "target": "example-prod" } }
+  },
+  "rag": {
+    "reservoir_locator": "sqlite:///.rag/example-ecosystem.db?mode=ro",
+    "tenant_id": "example-ecosystem"
   }
 }

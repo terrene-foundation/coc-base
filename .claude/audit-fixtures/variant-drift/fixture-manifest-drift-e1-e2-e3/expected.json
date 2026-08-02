@@ -1,0 +1,16 @@
+{
+  "exit_code": 1,
+  "defect_count": 4,
+  "counts": {
+    "E1-DECLARED-OVERLAY-MISSING": 2,
+    "E2-OVERLAY-FOR-MISSING-CANON": 1,
+    "E3-VARIANT-ONLY-DANGLING": 1
+  },
+  "expected_paths": {
+    "E1-DECLARED-OVERLAY-MISSING": ["variants/py/rules/never-written.md", "variants/rs/rules/ghost.md"],
+    "E2-OVERLAY-FOR-MISSING-CANON": ["variants/rs/rules/ghost.md"],
+    "E3-VARIANT-ONLY-DANGLING": ["variants/rs/skills/nothing-here/**"]
+  },
+  "stats": { "live_manifest_explicit": 1 },
+  "notes": "ghost.md trips BOTH E1 (declared file absent) and E2 (declared for absent canon) - both are true and independently actionable, so both are reported. E3 covers the DANGLEREF class the manifest comments record."
+}

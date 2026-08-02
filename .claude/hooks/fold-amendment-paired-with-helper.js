@@ -72,6 +72,9 @@
 const path = require("path");
 const { execFileSync } = require("child_process");
 const { emit } = require(path.join(__dirname, "lib", "instruct-and-wait.js"));
+const { readStdinBounded } = require(
+  path.join(__dirname, "lib", "read-stdin-bounded.js"),
+);
 
 const HOOK_EVENT = "PostToolUse";
 const RULE_ID = "multi-operator-coordination/MUST-7-paired-landing";
@@ -145,25 +148,27 @@ function git(args) {
   }
 }
 
-function readPayload() {
+async function readPayload() {
   // CC delivers the hook payload on stdin as JSON. The hook MUST
   // tolerate empty / malformed stdin (silent pass-through) per
   // hook-output-discipline.md MUST-1's pass-on-edge-case principle.
-  try {
-    const chunks = [];
-    let buf = process.stdin.read();
-    while (buf !== null) {
-      chunks.push(buf);
-      buf = process.stdin.read();
-    }
-    const raw = Buffer.concat(chunks.map((c) => Buffer.from(c))).toString(
-      "utf8",
-    );
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch (err) {
-    return null;
-  }
+  //
+  // loom#1368 part 3: this previously drained stdin with a SYNCHRONOUS
+  // `process.stdin.read()` loop. The stream is not in flowing mode at that
+  // point, so the very first read() returned null, the loop exited having
+  // collected ZERO bytes, and readPayload() returned null on EVERY
+  // invocation — main() then took its `!payload` branch and passed through
+  // unconditionally. The guard was registered, wired, and structurally
+  // incapable of firing. It was invisible because the source contains the
+  // literal `process.stdin`, which is exactly what the old substring check
+  // in scripts/ci/validate-hooks.js looked for.
+  //
+  // readStdinBounded is the canonical event-driven reader (hooks/lib): it
+  // resolves on `end`, keeps the event loop live so the TIMEOUT_MS fallback
+  // above still fires, and returns the fallback on any non-happy path.
+  // `fallback: null` preserves this function's original contract — null
+  // means "no usable payload".
+  return readStdinBounded({ fallback: null });
 }
 
 function isGitCommit(payload) {
@@ -180,7 +185,12 @@ function isGitCommit(payload) {
   // `cd foo && git commit ...`, etc. Use a structural grep rather than
   // strict prefix so chained / env-prefixed forms still trigger.
   if (!/\bgit\b/.test(cmd)) return false;
-  if (!/\bcommit\b/.test(cmd)) return false;
+  // loom#1368: the `(?![\w-])` negative lookahead is load-bearing. A trailing
+  // word-boundary escape treats `-` as a boundary, so it also admitted the
+  // `commit-tree` and `commit-graph` sub-commands, neither of which creates a
+  // commit — the pairing guard would then diff HEAD~1..HEAD against a commit
+  // that was never made.
+  if (!/\bcommit(?![\w-])/.test(cmd)) return false;
   return true;
 }
 
@@ -252,8 +262,8 @@ function emitHalt({ helperTouched, foldTouched, helperHasF86, foldHasF86 }) {
   });
 }
 
-function main() {
-  const payload = readPayload();
+async function main() {
+  const payload = await readPayload();
   if (!payload || !isGitCommit(payload)) {
     // Not a git commit (or stdin empty / malformed) — silent pass.
     process.stdout.write(JSON.stringify({ continue: true }) + "\n");
@@ -319,7 +329,14 @@ function main() {
 // symbol sets so the F88 dispatch-contract refinement is regression-locked
 // per cc-artifacts.md Rule 9 + hook-output-discipline.md MUST-4.
 if (require.main === module) {
-  main();
+  // main() is async since loom#1368 (event-driven stdin read). Any rejection
+  // MUST fail OPEN — an advisory hook never blocks a legitimate commit on a
+  // tooling edge case (cc-artifacts.md Rule 7 / hook-output-discipline MUST-1).
+  main().catch(() => {
+    process.stdout.write(JSON.stringify({ continue: true }) + "\n");
+    clearTimeout(_timeoutHandle);
+    process.exit(0);
+  });
 } else {
   clearTimeout(_timeoutHandle);
 }

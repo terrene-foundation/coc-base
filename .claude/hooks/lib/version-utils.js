@@ -25,13 +25,71 @@ const { execFileSync } = require("child_process");
  * @returns {object|null} parsed VERSION or null if missing
  */
 function readLocalVersion(cwd) {
+  return readLocalVersionState(cwd).value;
+}
+
+/**
+ * Read `.claude/VERSION` and say WHY it produced nothing. `readLocalVersion`'s
+ * bare `catch { return null }` collapses ENOENT, EACCES, EISDIR, ELOOP and a
+ * JSON parse failure into one value that reads as "absent" — and the bootstrap
+ * branch acts on "absent" by CREATING-OR-TRUNCATING the file. So a CORRUPT
+ * VERSION was silently replaced at every SessionStart.
+ *
+ * That is the repo-CLASS root of trust. At loom it would rewrite a ~362 KB
+ * `type: coc-source` declaration into an 11-line `coc-project` stub — the one
+ * downgrade that makes `isManifestOwnerClass` false, no-opping emit Validator 15,
+ * Validator 17's half B, and V16's presence classifier while printing green
+ * (#1399). `validate-bash-command.js:768` BLOCKS exactly that at the Bash
+ * boundary; produced here it needs no Bash call and no Edit call, so both fences
+ * are bypassed by construction.
+ *
+ * ONLY a genuine ENOENT is bootstrappable. Everything else is present-but-
+ * unreadable: report it, never repair it. Same disposition the sibling authority
+ * takes — `bin/lib/manifest-source.mjs::readRepoClass` fails CLOSED on every
+ * unresolvable shape rather than guessing a class.
+ *
+ * @returns {{value: object|null, state: "ok"|"absent"|"corrupt", reason: string|null}}
+ */
+function readLocalVersionState(cwd) {
   const versionPath = path.join(cwd, ".claude", "VERSION");
+  let content;
   try {
-    const content = fs.readFileSync(versionPath, "utf8");
-    return JSON.parse(content);
-  } catch {
-    return null;
+    content = fs.readFileSync(versionPath, "utf8");
+  } catch (e) {
+    if (e && e.code === "ENOENT") {
+      // Genuinely nothing there — the ONLY bootstrappable shape. Note a DANGLING
+      // SYMLINK also lands here (readFileSync resolves the link, then ENOENTs on
+      // the target), which is why the write itself must additionally refuse to
+      // follow links rather than trusting this classification alone.
+      return { value: null, state: "absent", reason: null };
+    }
+    return {
+      value: null,
+      state: "corrupt",
+      reason: `unreadable (${e && e.code ? e.code : "unknown error"})`,
+    };
   }
+  let parsed;
+  try {
+    parsed = JSON.parse(content);
+  } catch (e) {
+    return {
+      value: null,
+      state: "corrupt",
+      reason: `not valid JSON (${e.message})`,
+    };
+  }
+  // `null` and other falsy JSON parse fine but reach the same `!local` branch by
+  // a different route, so a fix that only caught a parse THROW would still
+  // truncate here.
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return {
+      value: null,
+      state: "corrupt",
+      reason: `parsed to ${Array.isArray(parsed) ? "an array" : JSON.stringify(parsed)}, not a JSON object`,
+    };
+  }
+  return { value: parsed, state: "ok", reason: null };
 }
 
 /**
@@ -278,7 +336,23 @@ function resolveReplicaFreshness(cwd, opts = {}) {
  * @returns {object} { status, messages[] } for stderr output
  */
 function checkVersion(cwd, opts = {}) {
-  let local = readLocalVersion(cwd);
+  const localState = readLocalVersionState(cwd);
+  let local = localState.value;
+
+  // PRESENT-BUT-UNREADABLE IS NOT ABSENT. Bootstrapping repairs a repo that has
+  // no declaration; it must never "repair" one it merely failed to read, because
+  // the repair is a create-or-TRUNCATE of the class root of trust. Report and
+  // return — the owner fixes it where the change is visible in a diff.
+  if (localState.state === "corrupt") {
+    return {
+      status: "corrupt-version",
+      messages: [
+        `[VERSION] ⚠ .claude/VERSION is present but ${localState.reason} — NOT overwritten.`,
+        `[VERSION] Repair it by hand (it declares this repo's class; a wrong \`type\` silently disables emit validators). Nothing was changed automatically.`,
+      ],
+    };
+  }
+
   if (!local) {
     // Auto-create VERSION if .claude/ exists but VERSION doesn't (per 08-versioning.md)
     const claudeDir = path.join(cwd, ".claude");
@@ -305,10 +379,32 @@ function checkVersion(cwd, opts = {}) {
       };
       const versionPath = path.join(claudeDir, "VERSION");
       try {
-        fs.writeFileSync(
+        // O_EXCL|O_NOFOLLOW — a SECOND, INDEPENDENT fence, deliberately not
+        // relying on the state classification above being right.
+        //   O_EXCL     refuses if anything is already there, so this can only
+        //              ever CREATE, never truncate. The default `writeFileSync`
+        //              flag is "w" (create-or-truncate), which is what made a
+        //              corrupt VERSION destroyable.
+        //   O_NOFOLLOW refuses to write THROUGH a symlink. A dangling
+        //              `.claude/VERSION -> /some/other/file` reads as ENOENT
+        //              (state "absent"), and a following write would create the
+        //              link's TARGET — clobbering an arbitrary out-of-tree path,
+        //              unprompted, at SessionStart. Mirrors the O_NOFOLLOW
+        //              posture `bin/lib/manifest-source.mjs` already takes on the
+        //              read side, where ELOOP is a tamper tripwire (#569).
+        const fd = fs.openSync(
           versionPath,
-          JSON.stringify(bootstrapped, null, 2) + "\n",
+          fs.constants.O_WRONLY |
+            fs.constants.O_CREAT |
+            fs.constants.O_EXCL |
+            fs.constants.O_NOFOLLOW,
+          0o644,
         );
+        try {
+          fs.writeFileSync(fd, JSON.stringify(bootstrapped, null, 2) + "\n");
+        } finally {
+          fs.closeSync(fd);
+        }
         local = bootstrapped;
         return {
           status: "bootstrapped",
@@ -317,7 +413,22 @@ function checkVersion(cwd, opts = {}) {
             "[VERSION] Run /sync to pull latest template artifacts",
           ],
         };
-      } catch {
+      } catch (e) {
+        // EEXIST / ELOOP here mean the two fences above REFUSED — something is
+        // at that path after all (a race, or a symlink). That is a finding, not
+        // a no-op: swallowing it silently is the error-hiding pattern
+        // `zero-tolerance.md` Rule 3 blocks, and it is precisely the case an
+        // operator needs to see.
+        const code = e && e.code;
+        if (code === "EEXIST" || code === "ELOOP") {
+          return {
+            status: "corrupt-version",
+            messages: [
+              `[VERSION] ⚠ Refused to create .claude/VERSION: a ${code === "ELOOP" ? "SYMLINK" : "file"} already occupies that path (${code}).`,
+              `[VERSION] Nothing was written. Inspect it — a symlinked VERSION would redirect this repo's class declaration outside the repo.`,
+            ],
+          };
+        }
         return { status: "no-version", messages: [] };
       }
     }
@@ -358,21 +469,30 @@ function checkVersion(cwd, opts = {}) {
   }
 
   // --- USE template / BUILD repos: display tracked version info ---
-  // But first: detect if this is a template-derived repo that needs correction.
-  // When a user creates a repo via "Use this template" on GitHub, they inherit
-  // the template's VERSION with type "coc-use-template" — but their repo is
-  // actually a downstream project (coc-project).
+  // But first: is this repo's declared class credible? When a user creates a
+  // repo via "Use this template" on GitHub they inherit the template's VERSION
+  // verbatim, including `type: coc-use-template` — but their repo is actually a
+  // downstream project (coc-project). That mis-declaration is REPORTED here,
+  // never repaired in place: `.claude/VERSION` is the repo-CLASS root of trust
+  // (`lib/manifest-source.mjs::readRepoClass` trusts `type` verbatim; a forged
+  // class silently no-ops emit Validators 15/16/17 while printing green, #1399),
+  // and `validate-bash-command.js` BLOCKS an agent from writing it at the Bash
+  // boundary. A SessionStart hook that rewrites it on a schedule is the same
+  // forgery with a longer reach, so this branch is READ-ONLY. See § class-
+  // declaration credibility below for the predicate and the migration note.
   if (repoType === "coc-use-template" || repoType === "coc-build") {
-    if (repoType === "coc-use-template" && !isActualTemplateRepo(cwd)) {
-      const corrected = correctTemplateDerivedVersion(cwd, local);
-      if (corrected) {
+    if (repoType === "coc-use-template") {
+      const advisory = templateClassAdvisory(cwd, local);
+      if (advisory) {
+        for (const m of advisory) messages.push(m);
+        const buildVer = upstream.build_version || "unknown";
+        const syncedAt = upstream.synced_at
+          ? ` synced ${upstream.synced_at}`
+          : "";
         messages.push(
-          `[VERSION] ⚠ Auto-corrected: this repo was created from a USE template but is a downstream project`,
+          `[VERSION] COC artifacts from loom v${local.version}, build v${buildVer}${syncedAt}`,
         );
-        messages.push(
-          `[VERSION] Type changed to coc-project, template set to ${corrected.upstream.template}. Run /sync to update.`,
-        );
-        return { status: "corrected", messages };
+        return { status: "class-advisory", messages };
       }
     }
     const buildVer = upstream.build_version || "unknown";
@@ -460,6 +580,14 @@ const KNOWN_TEMPLATE_REPOS = {
 /**
  * Check if this repo is actually a USE template repo (not just derived from one).
  * Checks directory name (monorepo safeguard) and git remote origin.
+ *
+ * LEGACY / TRANSITIONAL. This predicate can only recognize CANON's own templates
+ * — a client-fork ecosystem's template is by definition not named
+ * `terrene-foundation/kailash-coc-*`, so it answers `false` there. It is retained
+ * ONLY as a silencer for canon templates that do not yet declare `repo` in their
+ * `.claude/VERSION`. Nothing gates a WRITE on it any more (see
+ * `templateClassAdvisory`), so a `false` here costs at most one advisory message.
+ * Delete this map once every canon template stamps its own `repo` slug.
  */
 function isActualTemplateRepo(cwd) {
   const dirName = path.basename(cwd);
@@ -485,12 +613,217 @@ function isActualTemplateRepo(cwd) {
   }
 }
 
+// ── Class-declaration credibility (read-only) ──────────────────────────────
+//
+// "Use this template" produces a BYTE COPY, so no file-PRESENCE signal can ever
+// discriminate a template from a repo created out of one — the copy carries every
+// marker the original had. The only durable discriminator is a declaration that
+// INVALIDATES ITSELF on copy: the VERSION names the repo it was authored FOR, and
+// that is compared against this repo's own runtime identity (git remote origin).
+// The template's copy keeps naming the template; the derived repo's remote does
+// not. This is why a boolean `"is_template": true` would be WRONG — it survives
+// the copy intact and would silence the very case it must catch.
+//
+//   .claude/VERSION → { "repo": "<owner>/<name>" }   // may also be a bare <name>
+//
+// A fork ecosystem's template declares its OWN slug and is then indistinguishable
+// from canon's to this predicate — which is the whole point of removing the
+// hardcoded name list from the decision path.
+
 /**
- * Auto-correct a VERSION file that was inherited from a USE template.
- * Converts coc-use-template → coc-project with proper upstream fields.
- * Returns the corrected version object, or null on failure.
+ * Normalize any git remote URL to { slug, name }.
+ * Handles `git@host:owner/repo.git`, `https://host/owner/repo.git`,
+ * `ssh://git@host/owner/repo`, and Azure DevOps `.../<org>/<project>/_git/<repo>`.
+ * `slug` is the last TWO path segments, `name` the last one; both lowercased.
+ * Returns { slug: null, name: null } for anything unparseable.
+ *
+ * The `_git` path marker is DROPPED, not kept: on Azure DevOps it is a literal
+ * routing segment, not an owner, so keeping it yields the nonsense slug
+ * `_git/<repo>` — which then never equals any real declaration and would accuse
+ * every ADO-hosted template of being a copy. Dropping it recovers the meaningful
+ * `<project>/<repo>` pair. Clients DO clone into ADO layouts
+ * (`repo-scope-discipline.md` § MUST NOT), so this is a live path, not a curio.
  */
-function correctTemplateDerivedVersion(cwd, original) {
+function normalizeRemoteIdentity(url) {
+  if (!url || typeof url !== "string") return { slug: null, name: null };
+  let s = url.trim();
+  if (!s) return { slug: null, name: null };
+  // scp-style `git@host:owner/repo.git` → keep only the part after the colon
+  if (!s.includes("://") && s.includes(":")) s = s.slice(s.indexOf(":") + 1);
+  // URL forms → drop scheme + userinfo + host
+  if (s.includes("://")) {
+    const afterScheme = s.slice(s.indexOf("://") + 3);
+    const firstSlash = afterScheme.indexOf("/");
+    s = firstSlash === -1 ? "" : afterScheme.slice(firstSlash + 1);
+  }
+  s = s.replace(/\.git$/i, "").replace(/^\/+|\/+$/g, "");
+  const parts = s.split("/").filter((p) => p && p !== "_git");
+  if (parts.length === 0) return { slug: null, name: null };
+  const name = parts[parts.length - 1].toLowerCase();
+  const slug =
+    parts.length >= 2
+      ? `${parts[parts.length - 2].toLowerCase()}/${name}`
+      : null;
+  return { slug, name };
+}
+
+/**
+ * This repo's own runtime identity, read from git remote origin.
+ * Bounded timeout; never throws. Falls back to the directory basename, which is
+ * the pre-existing monorepo safeguard and the only signal available with no
+ * remote configured.
+ * @returns {{slug:string|null, name:string|null, source:"remote"|"dirname"}}
+ */
+function readRepoIdentity(cwd) {
+  try {
+    const remote = execFileSync(
+      "git",
+      ["-C", cwd, "remote", "get-url", "origin"],
+      { encoding: "utf8", timeout: 3000, stdio: ["pipe", "pipe", "pipe"] },
+    ).trim();
+    const id = normalizeRemoteIdentity(remote);
+    if (id.name) return { ...id, source: "remote" };
+  } catch {
+    /* no remote / not a repo / git absent → dirname fallback below */
+  }
+  const base = path.basename(cwd || "");
+  return {
+    slug: null,
+    name: base ? base.toLowerCase() : null,
+    source: "dirname",
+  };
+}
+
+/**
+ * The self-identity a VERSION declares, if any.
+ * @returns {{slug:string|null, name:string|null}|null} null when undeclared
+ */
+function declaredSelfRepo(local) {
+  const raw = local && typeof local.repo === "string" ? local.repo.trim() : "";
+  if (!raw) return null;
+  const cleaned = raw.replace(/\.git$/i, "").replace(/^\/+|\/+$/g, "");
+  // Drop `_git` on BOTH sides. `normalizeRemoteIdentity` strips this ADO routing
+  // segment from the derived identity, so a HAND-WRITTEN
+  // `repo: "project/_git/name"` (someone pasting an ADO browser URL) would
+  // otherwise be parsed asymmetrically against it. Name-anchoring makes the
+  // present-day impact nil, but the two parsers comparing the same string
+  // differently is the drift shape this change exists to remove.
+  const parts = cleaned.split("/").filter((p) => p && p !== "_git");
+  if (parts.length === 0) return null;
+  const name = parts[parts.length - 1].toLowerCase();
+  const slug =
+    parts.length >= 2
+      ? `${parts[parts.length - 2].toLowerCase()}/${name}`
+      : null;
+  return { slug, name };
+}
+
+/**
+ * Classify how credible this repo's `coc-use-template` declaration is.
+ * PURE with respect to the filesystem — reads git metadata, writes nothing.
+ *
+ * @returns {"self-declared"|"known-template"|"mismatch"|"undetermined"}
+ *   self-declared  — VERSION::repo matches this repo's own identity → it IS a
+ *                    template (canon's or a fork's; they look identical here).
+ *   known-template — legacy canon allowlist match (no VERSION::repo yet).
+ *   mismatch       — VERSION::repo names a DIFFERENT repo than this one, on two
+ *                    real identities. High confidence: copied from a template.
+ *   undetermined   — no self-declaration and no allowlist match, or identity
+ *                    unreadable. Reported, never acted on.
+ *
+ * THE COMPARISON IS NAME-ANCHORED, and deliberately so. The repo NAME is the one
+ * component that survives every legitimate relocation — an org rename, a
+ * host migration, an ADO `<org>/<project>/_git/<repo>` layout, a mirror — while
+ * "Use this template" is precisely the operation that CHANGES it (the user names
+ * their new repo). Owner-level disagreement alone is therefore evidence of a move,
+ * not of a copy, and this returns `self-declared` for it: a matching name with a
+ * differing owner is far more likely a fork of the template than a repo built out
+ * of one. Requiring full-slug equality is what produced a false "you are a copy"
+ * verdict against every ADO-hosted fork template.
+ *
+ * The residual false-NEGATIVE — deriving a repo from a template AND giving it the
+ * template's exact name — is accepted knowingly. Both branches are advisory-only
+ * now, so the cost of a miss is one unprinted hint, whereas the cost of a false
+ * accusation is an operator following a wrong instruction into a corrupted class.
+ */
+function classifyTemplateDeclaration(cwd, local) {
+  const declared = declaredSelfRepo(local);
+  const actual = readRepoIdentity(cwd);
+
+  if (declared) {
+    if (declared.slug && actual.slug && declared.slug === actual.slug) {
+      return "self-declared"; // strongest: exact owner/name agreement
+    }
+    if (declared.name && actual.name) {
+      if (declared.name === actual.name) return "self-declared";
+      // Only a git remote is a strong enough identity to call a mismatch; a
+      // directory name differs benignly all the time (clone into any folder).
+      return actual.source === "remote" ? "mismatch" : "undetermined";
+    }
+    return "undetermined";
+  }
+
+  if (isActualTemplateRepo(cwd)) return "known-template";
+  return "undetermined";
+}
+
+/**
+ * The advisory lines for a `coc-use-template` declaration that could not be
+ * confirmed. Returns null when the declaration is credible (no output — canon
+ * templates stay byte-identical to the pre-fix behaviour).
+ *
+ * NEVER writes, NEVER throws: on any internal failure it degrades to null, which
+ * leaves `.claude/VERSION` untouched and the session starting normally.
+ *
+ * The suggested value is always this repo's OWN identity, preferring the full
+ * `<owner>/<name>` slug and falling back to the bare name — never a raw remote
+ * fragment. A hint the operator would be wrong to follow is worse than no hint:
+ * they would be hand-editing the class root of trust on our instruction.
+ */
+function templateClassAdvisory(cwd, local) {
+  let verdict, actual;
+  try {
+    verdict = classifyTemplateDeclaration(cwd, local);
+    actual = readRepoIdentity(cwd);
+  } catch {
+    return null;
+  }
+  if (verdict === "self-declared" || verdict === "known-template") return null;
+
+  const me = actual.slug || actual.name || "this repo";
+  const suggest = actual.slug || actual.name;
+  // Only offer a `repo` value when we actually resolved one.
+  const declareFix = suggest
+    ? `set "repo": "${suggest}"`
+    : `add a "repo": "<owner>/<name>" naming this repo`;
+  // Deliberately names only `git remote get-url origin` — the exact input this
+  // predicate read. Pointing at a richer class-inspection tool would be a
+  // dangling instruction on any consumer that does not carry it (loom#1228).
+  const verify = `Confirm this repo's identity with: git remote get-url origin`;
+
+  if (verdict === "mismatch") {
+    const d = declaredSelfRepo(local) || {};
+    const declared = d.slug || d.name || local.repo;
+    return [
+      `[VERSION] ⚠ Class declaration looks stale: .claude/VERSION says type "coc-use-template" for repo "${declared}", but this repo is "${me}".`,
+      `[VERSION] If it was created FROM that template, set "type": "coc-project" (and upstream.template to the template you pull from). If it IS a template, ${declareFix}. Nothing was changed automatically. ${verify}`,
+    ];
+  }
+  return [
+    `[VERSION] ⚠ Declared type "coc-use-template" could not be confirmed for "${me}" — .claude/VERSION declares no "repo".`,
+    `[VERSION] If this IS a USE template, ${declareFix} in .claude/VERSION. If it was created FROM one, set "type": "coc-project". Nothing was changed automatically. ${verify}`,
+  ];
+}
+
+/**
+ * Compute the VERSION a template-derived repo SHOULD carry: coc-use-template →
+ * coc-project with downstream upstream fields. PURE — returns the suggested
+ * object and writes nothing. `.claude/VERSION` is the repo-CLASS root of trust
+ * (#1399); the class is repaired by its owner, never by a hook.
+ *
+ * @returns {object} the suggested VERSION object (never null)
+ */
+function computeTemplateDerivedCorrection(cwd, original) {
   const templateName = guessTemplateName(cwd, original);
   const templateSlug = templateName
     ? Object.entries(KNOWN_TEMPLATE_REPOS).find(
@@ -514,14 +847,25 @@ function correctTemplateDerivedVersion(cwd, original) {
     },
   };
 
-  const versionPath = path.join(cwd, ".claude", "VERSION");
-  try {
-    fs.writeFileSync(versionPath, JSON.stringify(corrected, null, 2) + "\n");
-    return corrected;
-  } catch (e) {
-    console.error(`[VERSION] Failed to write corrected VERSION: ${e.message}`);
-    return null;
+  return corrected;
+}
+
+// Deprecated alias. Kept for one cycle so any out-of-tree caller keeps resolving,
+// but it NO LONGER WRITES `.claude/VERSION` — the silent SessionStart rewrite of
+// the repo-CLASS root of trust was the defect this change removes. It now returns
+// the same suggested object `computeTemplateDerivedCorrection` does, and says so
+// once per process rather than mutating anything.
+let deprecationAnnounced = false;
+function correctTemplateDerivedVersion(cwd, original) {
+  if (!deprecationAnnounced) {
+    deprecationAnnounced = true;
+    console.error(
+      "[VERSION] correctTemplateDerivedVersion() is deprecated and no longer writes " +
+        ".claude/VERSION (the repo-class root of trust is repaired by its owner, #1399). " +
+        "Use computeTemplateDerivedCorrection() for the suggested object.",
+    );
   }
+  return computeTemplateDerivedCorrection(cwd, original);
 }
 
 /**
@@ -572,11 +916,18 @@ function guessTemplateName(cwd, original) {
 
 module.exports = {
   readLocalVersion,
+  readLocalVersionState,
   fetchUpstreamVersion,
   compareVersions,
   checkVersion,
   detectRepoType,
   isActualTemplateRepo,
+  normalizeRemoteIdentity,
+  readRepoIdentity,
+  declaredSelfRepo,
+  classifyTemplateDeclaration,
+  templateClassAdvisory,
+  computeTemplateDerivedCorrection,
   correctTemplateDerivedVersion,
   resolveReplicaFreshness,
   runCanonFetchProbe,

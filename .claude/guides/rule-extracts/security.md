@@ -218,3 +218,74 @@ The matching-key counter prevents map collapse across multiple matching keys; an
 - **DataFlow**: Access controls on models, validate at model level, never expose internal IDs
 - **Nexus**: Authentication on protected routes, rate limiting, CORS configured
 - **Kaizen**: Prompt injection protection, sensitive data filtering, output validation
+
+## Structural surface enumeration — why the sweep is the backstop, not the control
+
+Depth for `rules/security.md` § Enforcement-Surface Parity, reached via that
+file's header pointer ("Depth for most sections below lives in
+`.claude/guides/rule-extracts/security.md`").
+
+NOTE ON PLACEMENT (loom#1422 AC-5, loom#1355). AC-5 asked § Enforcement-Surface
+Parity to cross-reference the predicate IN THE RULE, so the clause points at
+something structural rather than at human memory. That pointer is NOT in the rule
+body, and the omission is deliberate and measured rather than an oversight: the
+`rs` lane composes `security.md` to 9545B against a granted per-rule ceiling of
+9600B (itself an exception under #1355, expiring 2026-10-31), leaving 55B. The
+shortest honest form of the clause measured ~199B, which BLOCKS the lane. Raising
+the ceiling is a co-owner decision, and displacing existing contract prose to make
+room would trade a live security contract for a cross-reference. So the depth
+lives here, reachable from the rule's existing header pointer, at zero baseline
+emission cost. If the rs per-rule ceiling is ever raised, the one-line pointer
+belongs back in § Enforcement-Surface Parity.
+
+### The clause asks for something a human does not reliably do
+
+§ Enforcement-Surface Parity asks an author to find every independent validation
+surface. Measured in this repo, that is not reliably achievable. The
+case-sensitivity dimension had to land at ~10 protected-path sites across 4 hooks
+and was missed — **by the orchestrator, while fixing a violation of this very
+clause**. The Bash-lane half shipped and was declared complete; an adversarial
+lens then found the Edit/Write lane fully bypassable: 9/9 canonical paths fenced,
+10/10 case-variants passed. The variant set reached further than the Bash lane's,
+covering the `journal/` and `.claude/team-memory/` subtrees.
+
+That is the strongest available evidence that a rule asking a human to remember an
+enumeration nobody produces is not sufficient on its own.
+
+### The mechanism
+
+Collapse the surfaces onto ONE shared function so a new dimension is one edit, then
+add a test that ENUMERATES the surfaces and fails when a new one re-derives the
+decision locally. The sweep becomes the backstop; the test is the control.
+
+Worked reference:
+
+- `.claude/hooks/lib/guard-path-scope.js` — the `PROTECTED_PATHS` registry. One row
+  per protected path, per-row surface membership (`bash` / `layer3` / `direct` /
+  `coordMode` / `postureGate`), every matcher BUILT from it. Membership is
+  deliberately asymmetric because the surfaces genuinely differ.
+- `tests/integration/multi-operator/protected-path-predicate-1422.test.js` — walks
+  `.claude/hooks/**` and fails if any hook does its own protected-path matching.
+
+### The enumeration test needs its own anti-vacuity control
+
+A scanner that reports zero because it scanned nothing is the recurring instrument
+failure in this corpus. The enumeration test therefore ships controls that run on
+EVERY invocation, not once by hand: synthetic violation shapes that MUST flag,
+legitimate non-decisions that MUST NOT, and a proof the scan reached production
+text. Calibration is honest about reach — see loom#1455: it catches the plain shape
+that real decay takes, not an author who wants to route around it.
+
+### Where duplication is DELIBERATE, consolidation is BLOCKED
+
+The discriminator is whether the copies are an accident or an independence property.
+`CANONICAL_DENY_FLOOR` is hardcoded in `settings-deny-edit-guard.js`,
+`settings-deny-drift-guard.js` and `.claude/bin/reconcile-settings-deny.mjs`
+precisely so poisoning the mutable bin's `CANONICAL_STATE_DENY` cannot reduce the
+enforced floor ("HARDCODED trust anchor (redteam F2)"). Consolidating those onto a
+shared source would destroy the independence the triplication exists to provide;
+`settings-deny-canon-parity.test.mjs` pinning them in lockstep is the correct
+control there. An enumeration test MUST recognise that case structurally — the
+#1422 test treats a permission-matcher string (`Tool(<path>)`) as a DECLARATION
+rather than a path-matching decision — rather than carrying a per-file allowlist,
+which is the shape that lets real fragmentation hide.

@@ -23,31 +23,31 @@
  *   resolveOverlay(category, relPath, axis) → { kind, path, destRelPath }
  */
 
-import fs from "node:fs";
+// NOTE: no `node:fs` import. resolveOverlay returns a DESCRIPTOR and never
+// touches the filesystem itself (its callers run the existsSync probes the
+// doc-comment below describes); the one fs use this module had — the manifest
+// read — moved to lib/manifest-source.mjs with the loom#1386 class guard.
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+// loom#1386 — this module is ALWAYS_INCLUDE (shipped verbatim to every repo
+// class) and is reached from EVERY emit producer via composeArtifactBody →
+// resolveOverlay, so its manifest read fired on consumers where the manifest
+// MUST NOT exist. `lib/manifest-source.mjs` has ZERO internal imports precisely
+// so this module can use it without re-opening the coc-manifest cycle noted
+// below.
+import { readManifestSource } from "./manifest-source.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO = path.resolve(__dirname, "..", "..", "..");
 
-// Symlink-safe read (O_RDONLY|O_NOFOLLOW, leaf-only guard). loadManifestVariants
-// is reached from every emit producer via composeArtifactBody → resolveOverlay,
-// so its sync-manifest.yaml read is part of the #569 emit-lane source-read class:
-// a symlink swapped for the manifest between resolution and read raises ELOOP
-// instead of being silently followed. Local mirror of the emit.mjs/compose.mjs
-// helper (variant-overlay imports no coc-manifest — a shared import would cycle).
-function safeReadFileSync(filePath, encoding) {
-  const fd = fs.openSync(
-    filePath,
-    fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
-  );
-  try {
-    return fs.readFileSync(fd, encoding);
-  } finally {
-    fs.closeSync(fd);
-  }
-}
+// The local symlink-safe reader that used to live here moved into
+// `lib/manifest-source.mjs` with the loom#1386 class-aware guard. The #569
+// O_RDONLY|O_NOFOLLOW property is PRESERVED there and is now load-bearing in a
+// second way: an ELOOP from a swapped symlink is classified PRESENT-BUT-
+// UNREADABLE and throws LOUD, so it can never be mistaken for the manifest being
+// (legitimately) absent on a consumer. `fs` is still used below for the
+// existsSync overlay probes in resolveOverlay's callers.
 
 // Memoized parse — manifest does not change during one process run.
 let _manifestVariants = null;
@@ -68,8 +68,18 @@ let _manifestVariants = null;
 export function loadManifestVariants() {
   if (_manifestVariants !== null) return _manifestVariants;
 
-  const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
-  const src = safeReadFileSync(manifestPath, "utf8");
+  // D1 DISTRIBUTION-DECLARATION (loom#1386). `variants:` declares which overlay
+  // applies to which global artifact on which axis. A repo whose class FORBIDS
+  // the manifest declares no overlays, so the empty map is exact — and it is the
+  // SAME value the `!blockMatch` path below already returns when the stanza is
+  // absent from a present manifest. resolveOverlay then falls through to
+  // path-mirror, which is the pre-existing behaviour for every (global, axis)
+  // pair the manifest does not declare — not a new code path.
+  const src = readManifestSource(REPO);
+  if (src === null) {
+    _manifestVariants = new Map();
+    return _manifestVariants;
+  }
 
   // Extract the `variants:` block until the next top-level key OR EOF.
   // The `(?![\s\S])` (end-of-input) alternative protects against the failure

@@ -1,0 +1,1 @@
+node -e "const fd=require('fs').openSync('.claude/learning/posture.json','w')"

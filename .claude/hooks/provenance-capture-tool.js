@@ -2,6 +2,12 @@
 /**
  * provenance-capture-tool.js — F101-2 (loom#411 governance-as-DNA, loom lane).
  *
+ * @hook-event: PreToolUse:* (telemetry) — records the about-to-run tool call and
+ *   never gates; every tool call is a provenance event, so "any tool call" IS the
+ *   subject and the `*` matcher is licensed (hook-event-selection.md MUST-3).
+ *   PreToolUse specifically — not PostToolUse — because the record must be
+ *   deterministic: the model cannot route around a capture that precedes the call.
+ *
  * Event: PreToolUse (*)
  * Severity: NEVER blocks. {continue:true} on every path. Captured at PreToolUse
  *           so it is DETERMINISTIC — the model cannot skip the record by routing

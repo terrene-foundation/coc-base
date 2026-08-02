@@ -1,0 +1,1 @@
+perl -e 'open(my $fh, ">", ".claude/learning/posture.json"); print $fh "{}"'

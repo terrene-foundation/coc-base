@@ -1,0 +1,1 @@
+echo "x -F "; rm .claude/learning/posture.json

@@ -5,3 +5,9 @@ stderr_tag: [BLOCK]
 predicate: signing key absent + working-tree-mutation predicate fires (Edit on tracked path)
 why: multi-operator-coc/signing-mutation-guard R5-S-03 — degraded mode is READ-ONLY via working-tree-mutation predicate
 agent_must_report cites: operation=edit-write, target path, run /whoami --register
+stays_block: DELIBERATE. loom#1323 downgraded the §4.2 cross-worktree-contention branch
+     (fixture 01) to halt-and-report; this branch is a DIFFERENT threat class and MUST
+     remain severity:block / exit 2. An unsigned mutation lands with no attributable,
+     chain-verifiable record and nothing recovers the missing signature after the fact —
+     the IRRECOVERABLE class block is reserved for. A "consistency fix" downgrading this
+     fixture to match 01 is the regression this line locks.

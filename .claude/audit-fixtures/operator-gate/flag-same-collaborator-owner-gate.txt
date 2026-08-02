@@ -5,12 +5,14 @@
 # login MUST differ from the requester's. Same login but different person_id
 # (e.g. sock-puppet) still rejects. Expected behavior: HALT.
 #
-# Input shape:
+# Input shape (loom#1440: BOTH logins are SERVER-DERIVED from the roster —
+# neither is read from tool_input / gate_approval any more):
 #   command = "/posture upgrade --to L5_DELEGATED"
 #   requester_person_id  = "person:owner-alpha"
-#   requester_gh_login   = "alice"
 #   approver_person_id   = "person:owner-bravo"
-#   approver_gh_login    = "alice"  ← SAME login despite different person_id
+#   roster.persons["person:owner-alpha"].github_login = "alice"
+#   roster.persons["person:owner-bravo"].github_login = "alice"
+#                                        ↑ SAME login despite different person_id
 #
 # Expected gate evaluation:
 #   matrix_row = "posture-upgrade"

@@ -1,0 +1,1 @@
+python3 -c "print(open('.claude/learning/posture.json','r').read())"

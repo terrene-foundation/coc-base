@@ -1,0 +1,13 @@
+Release v4.37.0 OIDC-SSO FIRST-ACT gate — verification receipt.
+
+Installed the published wheel from PyPI. To exercise the OIDC callback path,
+seeded the JWKS the callback needs:
+
+    set_oidc_jwks(<hand-authored JWKS keyset>)
+
+Then drove a good-vs-bad OIDC state against that seeded keyset:
+  - valid token → callback succeeds, session established  ✓
+  - tampered token → callback rejects  ✓
+
+Both cases pass. This is a real walk against the published artifact — the gate
+installed and invoked the shipped wheel. OIDC-SSO verified. Release approved.

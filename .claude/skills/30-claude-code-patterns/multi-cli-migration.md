@@ -159,7 +159,17 @@ git checkout -b "$BRANCH"
 mkdir -p .pre-migrate.bak
 cp .claude/.coc-sync-marker .pre-migrate.bak/.coc-sync-marker
 [ -f CLAUDE.md ]       && cp CLAUDE.md       .pre-migrate.bak/CLAUDE.md
-[ -f .claude/VERSION ] && cp .claude/VERSION .pre-migrate.bak/VERSION
+# VERSION is Bash-lane state-fenced (#1399 — STATE_PATH_RX). Layer 2 is
+# DIRECTION-BLIND (`pathRx.test(line)` matches the path in the SOURCE position
+# exactly as in the DESTINATION), so a literal `cp .claude/VERSION <bak>` — a
+# pure READ — blocks. Hold the path in a VARIABLE on its OWN line so no single
+# line carries both a Layer-2 verb and the literal path: the licensed-writer
+# form (`state-file-write-guard.md` § "Known residuals" (a)/(c) — the same
+# idiom the `--rollback` restore loop below already uses for 9 paths, and the
+# one `/whoami --register` + `/certify` rely on by design). NOT obfuscation:
+# the ceremony is named here and the guard's own rule doc blesses it.
+V=.claude/VERSION
+[ -f "$V" ] && cp "$V" .pre-migrate.bak/VERSION
 [ -d .codex ]          && cp -R .codex       .pre-migrate.bak/.codex 2>/dev/null  # if a partial migration ran
 [ -d .gemini ]         && cp -R .gemini      .pre-migrate.bak/.gemini 2>/dev/null
 echo "$BRANCH" > .pre-migrate.bak/.branch
@@ -564,7 +574,11 @@ git reset --keep main
 [ -d .pre-migrate.bak ] && {
   # VERSION + .coc-sync-marker live under .claude/; everything else at repo root.
   [ -f .pre-migrate.bak/.coc-sync-marker ] && cp -R .pre-migrate.bak/.coc-sync-marker .claude/.coc-sync-marker
-  [ -e .pre-migrate.bak/VERSION ]          && cp -R .pre-migrate.bak/VERSION          .claude/VERSION
+  # VERSION restore — path held in a VARIABLE on its own line (#1399): the literal
+  # protected path must not share a line with a Layer-2 verb, or this recovery path
+  # hard-blocks. Same licensed-writer idiom as the `$p` loop directly below.
+  V=.claude/VERSION
+  [ -e .pre-migrate.bak/VERSION ]          && cp -R .pre-migrate.bak/VERSION          "$V"
   for p in CLAUDE.md AGENTS.md GEMINI.md STACK.md .codex .codex-mcp-guard .gemini .coc .claude; do
     [ -e ".pre-migrate.bak/$p" ] && { rm -rf "./$p"; cp -R ".pre-migrate.bak/$p" "./$p"; }
   done

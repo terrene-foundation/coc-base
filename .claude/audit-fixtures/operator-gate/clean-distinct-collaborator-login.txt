@@ -1,0 +1,34 @@
+# operator-gate audit fixture: clean — a legitimate 4-eyes approval by a
+# genuinely DISTINCT GitHub collaborator PASSES (loom#1440, no false block).
+#
+# This is the negative-polarity companion to
+# `flag-caller-supplied-requester-login-ignored.txt` and
+# `flag-unresolvable-collaborator-login.txt`. A fail-closed tightening is only
+# correct if it does not also refuse the legitimate case; this fixture pins
+# that the tightening is not a blanket refusal.
+#
+# Predicate: both persons resolve a valid roster `github_login`, the two
+# logins differ after normalization → DISTINCT → the R5-S-07 check does not
+# fire and the gate passes through.
+#
+# Load-bearing detail: the caller-supplied `tool_input.requester_gh_login` is
+# varied across the SAME roster + the SAME signature and the verdict does NOT
+# change. That is the two-sided proof of server-derivation:
+#   - a caller CANNOT unblock a same-collaborator approval by omitting/lying
+#     (the flag fixture), and
+#   - a caller CANNOT block a distinct-collaborator approval by lying either
+#     (this fixture) — a payload claim of the approver's own login does not
+#     manufacture a false R5-S-07 hit.
+#
+# Input shape:
+#   command = "/release"
+#   requester_person_id = "person:owner-alpha"
+#   roster.persons["person:owner-alpha"].github_login = "alice"
+#   roster.persons["person:owner-bravo"].github_login = "bob"   ← DISTINCT
+#   gate_approval.approver_person_id = "person:owner-bravo"  (valid signature)
+#   tool_input.requester_gh_login ∈ { "alice", <absent>, "bob" }
+#
+# Expected gate evaluation (IDENTICAL for all three variants):
+#   matrix_row = "release"
+#   collaborator_distinctness = "distinct"
+#   halt = false (passthrough, {"continue": true}, exit 0)

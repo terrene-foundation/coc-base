@@ -1,20 +1,69 @@
 # COC Sync Marker — coc-base (base lane, multi-CLI)
-timestamp: 2026-07-22T05:00:00Z
+timestamp: 2026-08-02T00:00:00Z
 source: loom/.claude
-loom_sha: 08cb86fb48eb7cb21051de27fc144aa1e3561a55
+loom_sha: 43167a54
 variant: base
 clis: [claude, codex, gemini]
 visibility: public
 scope_this_cycle: content+cli-emission   # FULL cycle: .claude/ content axis AND coc-sync Steps 6.5/6.6/6.7
 stats:
-  engine_changed: 39   # 7 added, 30 modified, 2 obsoleted-purge
-  version_stamp: "loom-tracking -> 2.45.0 @ 08cb86fb (own 2.45.10 -> 2.45.11)"
-  baselines_emitted: { cc: 0, codex: 1, gemini: 1 }   # AGENTS.md + GEMINI.md 53993B WARN, headroom 12.12%
+  engine_changed: 494   # 367 added, 127 modified, 0 deleted, 0 obsoleted-purge
+  verify_failures: 0    # stage engine sync-tier-aware --verify CONSISTENT (1793 in-plan files)
+  version_stamp: "loom-tracking -> 2.45.0 @ 43167a54 (own 2.45.11 -> 2.46.0)"
+  baselines_emitted: { cc: 0, codex: 1, gemini: 1 }   # AGENTS.md + GEMINI.md 54143B each, WARN tier, headroom 11.88%
   cli_artifacts:
     codex: { prompts: 39, agent_prompts: 18, skills: 27 }
     gemini: { commands: 39, skills: 27, agents: 18 }
-  coc_artifacts: 160   # 162 files
+  coc_artifacts: 163   # 165 files; rules=66 agents=22 skills=33 commands=42; coc.version 1.0.0
   codex_dispatcher: "bin/coc + 28 per-phase symlinks"
-sdk_pins: "N/A (build:null — non-Kailash base; no pyproject/Cargo/uv surface)"
-codex_mcp_guard: "FROZEN — .codex-mcp-guard/** deliberately excluded (continuing 2.45.8/9/10 security-review deferral); 4 emit-refreshed files reverted to HEAD; symlink preserved + resolves"
+sdk_pins: "N/A (build:null — non-Kailash base; no pyproject/Cargo/package.json/Gemfile/uv.lock on disk, checked against a same-command positive control). Steps 9-10 NOT APPLICABLE, not skipped."
+codex_mcp_guard: "FROZEN — .codex-mcp-guard/** deliberately excluded (continuing the 2.45.8/9/10 security-review deferral); the Step-6.6 copy was reverted and the 4 emit-refreshed files (README.md, package.json, server.js, test-server.mjs) restored to HEAD; symlink .claude/codex-mcp-guard -> ../.codex-mcp-guard preserved + resolves (policies.json reachable)"
 preserved: [CLAUDE.md, settings.json, "visibility:public", ".codex-mcp-guard/** (frozen)"]
+note: |
+  loom@08cb86fb->43167a54 Gate-2 base sync (multi-CLI lane) — the
+  completion-criterion release. loom platform version 2.45.0 unchanged. Engine
+  (sync-tier-aware --target base --template coc-base) applied a 494-file .claude/
+  delta in an isolated worktree from origin/main c9f087a1; stage --verify
+  CONSISTENT over 1793 in-plan files. Engine header confirms
+  tiers=[cc,coc-core,onboarding].
+
+  Substantive content: NEW baseline rules completion-criterion.md (the release
+  artifact) + instrument-discipline.md + hook-event-selection.md; NEW skills
+  30-claude-code-patterns/{completion-criterion-evidence,instrument-discipline,
+  derives-from-emission}.md + 18-security-patterns/{credential-decode-helpers,
+  multi-site-kwarg-plumbing,sanitizer-contract,secure-defaults-and-approver-identity}.md;
+  NEW hooks settings-deny-{drift,edit}-guard.js + 6 hook libs; NEW bin
+  emit-derives-from.mjs + lib/{emit-axes,manifest-source}.mjs + repo-class.mjs.
+
+  DERIVED TREES RE-EMITTED (not carried stale — sync-completeness MUST-8):
+  emit.mjs --all --lang base (AGENTS.md + GEMINI.md), emit-cli-artifacts.mjs
+  --target base (.codex/ + .gemini/), emit-coc.mjs --target base (.coc/).
+  Baselines are WARN tier at 54143B against block_cap 61440; headroom 11.88%
+  sits inside the 15% proximity ADVISORY band but above the 10% strict floor,
+  so strict-headroom emission passed (no --no-strict-headroom opt-out used).
+  emit-coc reported one producer-budget WARN: rules/STATE-FILE-WRITE-GUARD.md
+  70842B over the 60KiB producer budget — emitted, not truncated (spec-09
+  imposes no consumer cap).
+
+  TIER FENCE, verified on BOTH axes: the `kailash` tier is NOT subscribed.
+  ABSENT from .claude/ AND from .codex/.gemini/.coc: agents/frameworks/**, every
+  *-specialist (dataflow/nexus/kaizen/mcp/pact/mcp-platform/ml/align),
+  pattern-expert, skills/{01-core-sdk,02-dataflow,03-nexus,04-kaizen,
+  05-kailash-mcp,06-cheatsheets,08-nodes-reference,34-kailash-ml,
+  35-kailash-align}/**, rules/cross-sdk-inspection.md. PRESENT (positive
+  control, same instrument): stack-detector, idiom-advisor, onboard-stack,
+  db-specialist, reviewer, security-reviewer, skills/40-stack-onboarding/**,
+  rules/stack-detection.md. Note skills/{29-pact,16-validation-patterns,
+  18-security-patterns}/** DO ship — they are declared in the coc-core tier,
+  which base subscribes to; that was confirmed against the manifest tier
+  declaration and against the engine-applied .claude/ counterpart, NOT inferred
+  from the filename.
+
+  build:null — stack-agnostic base, so NO SDK pins and NO dependency manifest
+  exists on disk: Steps 9-10 are NOT APPLICABLE here, not skipped.
+
+  Hook integrity: 44/44 settings.json hook commands resolve on disk; 0
+  operator-PII tokens in settings.json (regex positive-controlled).
+  CORRECTED stale tier_subscriptions co->coc-core to match sync-manifest.yaml.
+  BUMP: template version 2.45.11 -> 2.46.0 (minor); upstream loom 2.45.0 unchanged.
+  visibility=public preserved across marker rewrite.

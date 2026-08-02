@@ -1,0 +1,1 @@
+perl -e "sysopen(FH,'.claude/learning/posture.json',O_WRONLY|O_TRUNC)"

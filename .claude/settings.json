@@ -8,36 +8,17 @@
   },
   "permissions": {
     "deny": [
+      "Edit(.claude/learning/presence-mechanism.json)",
       "Edit(.claude/learning/posture.json)",
       "Edit(.claude/learning/posture.json.bak)",
       "Edit(.claude/learning/posture.json.tmp.*)",
       "Edit(.claude/learning/violations.jsonl)",
       "Edit(.claude/learning/violations.jsonl.*)",
       "Edit(.claude/learning/.initialized)",
-      "Write(.claude/learning/posture.json)",
-      "Write(.claude/learning/posture.json.bak)",
-      "Write(.claude/learning/posture.json.tmp.*)",
-      "Write(.claude/learning/violations.jsonl)",
-      "Write(.claude/learning/violations.jsonl.*)",
-      "Write(.claude/learning/.initialized)",
-      "NotebookEdit(.claude/learning/posture.json)",
-      "NotebookEdit(.claude/learning/posture.json.bak)",
-      "NotebookEdit(.claude/learning/violations.jsonl)",
-      "NotebookEdit(.claude/learning/.initialized)",
       "Edit(.claude/operators.roster.json)",
-      "Write(.claude/operators.roster.json)",
-      "NotebookEdit(.claude/operators.roster.json)",
       "Edit(.claude/learning/coordination-log.jsonl)",
-      "Write(.claude/learning/coordination-log.jsonl)",
-      "NotebookEdit(.claude/learning/coordination-log.jsonl)",
       "Edit(.claude/learning/.heartbeat-cache*)",
-      "Write(.claude/learning/.heartbeat-cache*)",
-      "NotebookEdit(.claude/learning/.heartbeat-cache*)",
-      "Edit(.claude/learning/.session-end-cache*)",
-      "Write(.claude/learning/.session-end-cache*)",
-      "NotebookEdit(.claude/learning/.session-end-cache*)",
-      "NotebookEdit(.claude/learning/posture.json.tmp.*)",
-      "NotebookEdit(.claude/learning/violations.jsonl.*)"
+      "Edit(.claude/learning/.session-end-cache*)"
     ],
     "defaultMode": "bypassPermissions"
   },
@@ -110,6 +91,16 @@
             "type": "command",
             "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/operator-gate.js\"",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/settings-deny-edit-guard.js\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/cross-ecosystem-disclosure-guard.js\"",
+            "timeout": 5
           }
         ]
       },
@@ -147,6 +138,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/analyze-completeness-guard.js\"",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -161,6 +162,16 @@
           {
             "type": "command",
             "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/fold-amendment-paired-with-helper.js\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/wrapup-after-landing.js\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-notes-incorporation-guard.js\"",
             "timeout": 5
           }
         ]
@@ -217,6 +228,11 @@
             "type": "command",
             "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/multi-operator-sessionstart.js\"",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/settings-deny-drift-guard.js\"",
+            "timeout": 5
           }
         ]
       }

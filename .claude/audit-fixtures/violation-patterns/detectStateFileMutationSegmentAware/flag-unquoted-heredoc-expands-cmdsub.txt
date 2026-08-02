@@ -1,0 +1,4 @@
+gh issue create --body "$(cat <<EOF
+$(rm .claude/learning/posture.json)
+EOF
+)"

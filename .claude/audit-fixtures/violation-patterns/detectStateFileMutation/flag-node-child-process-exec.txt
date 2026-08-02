@@ -1,0 +1,1 @@
+node -e "require('child_process').execSync('rm .claude/learning/posture.json')"

@@ -62,3 +62,31 @@ Extended Origin evidence and example detail for `.claude/rules/autonomous-execut
 Additional cross-class evidence — the Rust SDK 2026-05-01 session: (a) bedrock register_bedrock_region rustdoc broken-intra-doc-link on a feature-gated symbol, fixed in same shard via plain-backticks (PR #735 commit 01c18ece); (b) PyOAuth2Client `#[pymethods]` rustdoc private_intra_doc_links because PyO3 methods are private-by-default, fixed in same shard via plain-backticks (PR #736 commit 729630cd); (c) PyNexus EventBus #679 Wave-2 implementation following Wave-1's premature deferral — the deferred-shard-was-actually-fittable signal that triggered same-shard fix-immediately. Three evidence points across two distinct rule-violation classes (rustdoc broken-link feature-gated, rustdoc private_intra_doc_links on PyO3) confirm Rule 4 generalizes beyond null-bind sibling sweeps.
 
 Additional cross-class evidence — kailash-kaizen 2.20.0 release cycle 2026-05-06: security-reviewer flagged 1 HIGH (prompt-injection via output-rendered traits) + 2 MEDIUM (raw-role logging, unbounded cache DoS) findings against PR #836; all three fit within the shard's remaining budget (each <30 LOC, 4 invariants total); all three landed in the same commit `ba476b88`; security-reviewer re-approved on the post-fix diff. Confirms Rule 4 generalizes from code-reviewer surfacings to security-reviewer surfacings — same gate-level review pattern.
+
+## 10x Throughput Multiplier
+
+Extracted from the rule body 2026-07-29 as the `rules/rule-authoring.md` MUST Rule 10 path (a) paired extraction for the `instrument-discipline.md` baseline addition (receipt: `journal/0569`). ZERO de-scoping — the rule retains the ~10x claim and the `time-pressure-discipline.md` cross-reference; this carries the per-factor breakdown and the conversions.
+
+Autonomous AI execution with mature COC institutional knowledge produces ~10x sustained throughput vs an equivalent human team.
+
+| Factor                                               | Multiplier |
+| ---------------------------------------------------- | ---------- |
+| Parallel agent execution                             | 3-5x       |
+| Continuous operation (no fatigue, no context-switch) | 2-3x       |
+| Knowledge compounding (zero onboarding)              | 1.5-2x     |
+| Validation quality overhead                          | 0.7-0.8x   |
+| **Net sustained**                                    | **~10x**   |
+
+**Conversion**: "3-5 human-days" → 1 session. "2-3 weeks with 2 devs" → 2-3 sessions. "33-50 human-days" → 3-5 days parallel.
+
+**Does NOT apply to**: Greenfield domains (first session ~2-3x), novel architecture decisions, external dependencies (API access, approvals), human-authority gates (calendar-bound).
+
+**See also**: `rules/time-pressure-discipline.md` — under time-pressure framings, parallelization IS the throughput response; procedure drops are BLOCKED even when explicitly authorized.
+
+## Rule 4 — The Two Bounds
+
+Extracted from the rule body 2026-07-29 in the same Rule-10 path (a) paired extraction (`journal/0569`). ZERO de-scoping — the rule body retains both bounds in compact form plus the BLOCKED relabelling clause; this carries the full statement of each.
+
+**Bounded by the category (`rules/product-completion-first.md` MUST-3).** The fix-now mandate applies to a same-class within-budget gap classified BUG or INVEST-NOW; an INCREMENTAL one (off-path polish) MAY route to the deferred-quality list with a value-anchor. The category verdict — NOT convenience, NOT severity — gates the lane: relabelling a warm BUG/INVEST-NOW gap "incremental" to defer it is BLOCKED.
+
+**Bounded by the shard budget.** This rule does NOT override MUST Rule 1 (shard threshold). If the surfaced gap exceeds ≤500 LOC load-bearing / ≤5–10 invariants / ≤3–4 call-graph hops, filing the follow-up issue IS the correct disposition — the gap is a new shard, not a continuation of the current one.

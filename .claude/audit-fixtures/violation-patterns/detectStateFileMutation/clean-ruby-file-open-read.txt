@@ -1,0 +1,1 @@
+ruby -e 'puts File.open(".claude/learning/posture.json").read'

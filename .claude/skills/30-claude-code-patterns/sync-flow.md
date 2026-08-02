@@ -292,7 +292,37 @@ Merges loom/ source + variant overlays into USE template repos. Delegated to **c
 
 **0a. Worktree-from-remote-main distribution (MUST — supersedes the working-tree-overlay model + its #401 HALT-on-dirty machinery; journal/0403).** Gate-2 MUST NOT write into any target's LOCAL working tree — a developer may be live in that checkout, and an overlay silently collides with their uncommitted work (the stranded-overlay class: a prior working-tree sync left ~99 uncommitted `.claude/` files in a local BUILD checkout). Every target — BUILD (`/sync-to-build`) AND USE-template (`/sync-to-use`) — is distributed through `bin/sync-gate2-worktree.mjs`, which creates an ISOLATED worktree from the target's REMOTE main, applies Gate-2 THERE, and lands a PR; the dev's checkout is never touched (they pull the merge). This makes the prior HALT-on-dirty precondition + its surface-wide untracked-snapshot invariant MOOT: a worktree checked out at `origin/main` is clean by construction, so neither #401 loss sub-case (overwrite a modified-tracked file / `rm -rf` untracked work) can arise — there is no live-checkout state to lose. The disclosure gate (§0) still runs FIRST, on loom's OWN tree, before any emit.
 
-**Two-phase for the USE lane (enrichment runs IN the worktree, between engine apply and commit).** A **CC-only** BUILD target needs no enrichment → single-shot; a `build_multi_cli` BUILD target (`py`+`rs`, #181) IS two-phase like USE — it runs the derived multi-CLI emit (coc-sync.md § "BUILD multi-CLI targets") in the worktree, then finalizes. USE runs the enrichment residue (steps 7–11 below) the deterministic engine does not do, so its worktree flow splits:
+**0b. Distribution-source preconditions (MUST — both learned the hard way, 2026-08-02).** §0a fences the TARGET side; these two fence the SOURCE side, and neither fails loudly on its own.
+
+**(i) The source tree MUST be at the merged `origin/main`, verified — not assumed.** Gate-2 reads loom's WORKING TREE as the content source, so a stale local checkout silently ships every target everything EXCEPT whatever just merged. `check-sync-freshness.mjs --loom` is the gate, and it is not optional: a session that merges a rule and immediately distributes from a stale checkout produces a green, CONSISTENT ✓ delivery that is missing the very artifact the release exists for. When the local checkout cannot be fast-forwarded — `git reset --keep` correctly REFUSES on a dirty tree, which is the point of `--keep` over `--hard` (`git.md`) — do NOT stash-and-pop a guarded file like `settings.json` to force it. Create a detached loom worktree at `origin/main` and distribute from THERE; then assert the just-merged artifact is present in that source before staging any target, with a known-present control so the assertion discriminates.
+
+**(ii) `loom-links.local.json` is GITIGNORED, so it does NOT exist in a fresh loom worktree.** Every Gate-2 script that resolves a target (`sync-gate2-worktree.mjs`, `stamp-template-version.mjs`, the SDK-pin read) fails with `loom-links: not-configured` when run from one. Pass the main checkout's config explicitly — `LOOM_LINKS_CONFIG=<main-checkout>/.claude/bin/loom-links.local.json` — which is the mechanism the resolver's own error message names. Do NOT copy the config into the worktree (it is gitignored FOR the #255/#252 disclosure class; a stray copy is a registry one `git add -A` away from the synced surface) and do NOT fall back to a positional path (`cross-repo.md` MUST-1).
+
+```bash
+# DO — clean source at the merged tip + explicit resolver config
+git worktree add --detach <src> origin/main && test -f <src>/.claude/rules/<just-merged>.md
+LOOM_LINKS_CONFIG=<main>/.claude/bin/loom-links.local.json node .claude/bin/sync-gate2-worktree.mjs --lane use --target <slug> --stage-only
+# DO NOT — distribute from a stale checkout, or copy the gitignored registry into the worktree
+node .claude/bin/sync-gate2-worktree.mjs --lane use --target <slug>   # source 273 commits behind; ships without the new rule
+cp <main>/.claude/bin/loom-links.local.json <src>/.claude/bin/         # registry now one `git add -A` from the synced surface
+```
+
+**(iii) Distributing from a worktree BREAKS the stamper's loom-root resolution — pass `--loom-root`.** This is the second-order cost of (i), found immediately after adopting it. `stamp-template-version.mjs` resolves its loom root via `resolveRepo("loom")`, which returns the operator's MAIN CHECKOUT — not the source worktree the engine actually applied from. Stamp from a worktree without `--loom-root` and the template records the STALE checkout's `loom_sha`: false provenance on the monotonic freshness anchor. **The `--check` gate CANNOT catch this class** — it compares loom's `version` string, identical in both checkouts, so it exits 0 on a wrong SHA. Always pass `--loom-root <source-worktree>` when the source is a worktree; `git merge-base --is-ancestor <stamped-sha> <main-checkout-head>` returning exit 1 proves the two are different lineages, which is the signal that the wrong root was used.
+
+**(iv) `tools/verify-overlays.sh` takes a LANG key, not a template slug — and a wrong arg exits 0 having checked NOTHING.** Its `LANGS="$*"` is matched against `.repos` keys (`py` / `rs` / `base`). Passing a template slug (`claude-py`) matches no key, the loop never runs, and the output is `Total checks: 0` / `Failing: 0` / exit 0 — indistinguishable from a clean verification. That is a non-discriminating instrument in the `instrument-discipline.md` MUST-1 sense: **read `Total checks:`, never `Failing:` alone, and treat `Total checks: 0` as UNRUN, not PASS.** Two corollaries: the lang form verifies every template in that lang against its LIVE checkout, so verifying a STAGED worktree needs the target redirected at it; and a non-zero exit may be attributable to a SIBLING template in the same lang, so split pass/fail BY TEMPLATE before reading the exit code as a verdict on the one being distributed.
+
+```bash
+# DO — worktree-aware stamp, and a verification whose result can discriminate
+node .claude/bin/stamp-template-version.mjs --write --worktree <wt> --loom-root <src-worktree> --repo <org>/<repo>
+tools/verify-overlays.sh py     # lang key; then READ `Total checks:` — 0 means UNRUN, not clean
+# DO NOT — stamp from a worktree without --loom-root, or trust `Failing: 0` alone
+node .claude/bin/stamp-template-version.mjs --write --worktree <wt>   # stamps the STALE checkout's SHA
+tools/verify-overlays.sh claude-py                                    # 0 checks, exit 0, reads as a pass
+```
+
+**Why:** both failures are SILENT in opposite directions — the stale source produces a fully-green delivery of the wrong content, and the missing resolver config produces a loud stop that tempts a positional-path or config-copy workaround, each re-opening a fenced disclosure class. Neither is caught by the engine's `--verify`, which checks that the delivery matches the SOURCE, not that the source is current.
+
+**Two-phase worktree flow (USE + build_multi_cli BUILD) — enrichment runs IN the worktree, between engine apply and commit.** Two-phase covers TWO lane-cases: the **USE lane** (every USE target) AND a `build_multi_cli` BUILD target (`py`+`rs`, #181). A **CC-only** BUILD target needs no enrichment → single-shot. The `build_multi_cli` BUILD target is two-phase like USE — it runs the derived multi-CLI emit (coc-sync.md § "BUILD multi-CLI targets") in the worktree, then finalizes. USE runs the enrichment residue (steps 7–11 below) the deterministic engine does not do. So the worktree flow splits by case:
 
 ```bash
 # 1. STAGE — worktree-from-origin/main + engine apply (overlays + obsoleted purge) + --verify; STOPS
@@ -307,6 +337,30 @@ node .claude/bin/sync-gate2-worktree.mjs --lane build --target <slug>
 ```
 
 The engine call is `sync-tier-aware.mjs --<build|template> <slug> --out <scratch>` retargeted at the worktree; a non-zero `--verify` inside `--stage-only` ABORTS before any commit. FINALIZE stages EXPLICIT paths (`coc-sync-landing.md` MUST-2 — never `git add -A`) and emits the exact-tracking receipt (`sync-completeness.md` MUST-7 — every enumerated target's per-file `buildReceipt` manifest, scrubbed per `user-flow-validation.md` MUST-6 before the journal embed). Merge is gated: a bare `--finalize` (or single-shot) STOPS at the PR and prints the human-gated merge command; `--merge` runs the `git.md` § "CI-check and merge are SEPARATE steps" sequence. The throwaway worktree's `.venv`/`target` never touches the dev's.
+
+### Gate-2 settings.json reconciliation (both lanes, automatic — loom#1336)
+
+`settings.json` is on `sync-manifest.yaml::exclude:`, so the engine NEVER writes it. That exclusion is right for `permissions` + `env` (genuinely per-repo) but it also meant nothing repaired the parts the engine's own delta invalidates. Before #1336 the compensation was USE-lane-only and prose-shaped (the coc-sync agent's Step 6/6c/6d), so a `coc-build` consumer never self-healed the way a `coc-project` consumer already did — it accumulated a dangling `coc-drift-warn.js` SessionStart registration (hard `MODULE_NOT_FOUND` every session) AND an entirely unwired multi-operator coordination substrate (silent no-op — the worse half, because there is no error to see).
+
+`bin/sync-gate2-worktree.mjs::reconcileWorktreeSettings` now runs on BOTH lanes, in the worktree, AFTER the engine apply (so it reads the post-delta hook tree) and BEFORE the manifest capture (so the repair rides the SAME commit/PR as the hook change that caused it). Three deterministic, idempotent steps — the mechanical port of `/sync-from-template`'s steps 7a + 8:
+
+| Step | What | Failure it closes |
+| ---- | ---- | ----------------- |
+| 7a | deny-rule FORM — `bin/reconcile-settings-deny.mjs` | stale `Write()`/`NotebookEdit()` deny entries: CC init warnings + guarded state files left un-denied |
+| — | hook REGISTRATION set — `bin/reconcile-settings-hooks.mjs` | PRUNE a registration whose script this sync deleted; PROPAGATE loom's registration for a shipped hook the target wires nowhere |
+| 8 | verify every registered hook path resolves on disk | fail-closed: a delivery that would hard-error the consumer aborts before any PR |
+
+**The registration SSOT is loom's own `.claude/settings.json`, filtered by "does the script resolve on disk in the TARGET".** That filter is the whole adjudication mechanism, and it needs no second list:
+
+- a `loom_only:` hook (`emit-artifact-activation*.js`) is not distributed → not on disk in the target → its loom registration is not propagated. The manifest's "ship PRESENT-BUT-INERT, template settings.json preserved" contract is now enforced by construction rather than by the target happening never to be written.
+- a hook deliberately unregistered at loom (`hooks/validate-prod-deploy.js`, `@settings-registration: optional-consumer`) appears in no source registration → never propagated. The marker convention `validate-emit.mjs::settings-hook-registration` (#771) enforces AT loom is therefore the same adjudication distributed TO targets.
+- SUBSUME and RELOCATE need no special case: they fall out as prune-old + add-canonical. `coc-drift-warn.js` → pruned; `multi-operator-sessionstart.js` (its F13 subsumer, which loom registers) → added, in one pass.
+
+Matcher comparison is normalized (split/trim/sort on `|`) — a textual compare would read `Write|Edit` as absent against `Edit|Write` and append a duplicate, firing the hook twice per tool call.
+
+**Consequence to internalize before editing loom's `settings.json`: adding a hook there now WIRES it on every synced target.** That is intended — an enforcement hook that ships unregistered is a silent no-op, and the rules citing it (`multi-operator-coordination.md`, `knowledge-convergence.md`, `coc-sync-landing.md`) read as enforced when they are not. But a registration meant to stay loom-local MUST be paired with a `loom_only:` manifest entry.
+
+In the two-phase flow `--finalize` re-runs step 8 ALONE on the enriched worktree: USE enrichment writes `settings.json` (steps 7–11 below) after staging and can re-introduce a dangling registration the stage-time pass never saw. Verify-only there is deliberate — the content is the agent's adjudicated write, so the gate BLOCKS rather than silently overriding it, and leaves the worktree in place for repair. **BLOCKED rationalizations:** "the consumer's SessionStart drift-guard will self-heal it" (it cannot run — the guard's own registration is the thing that is missing) / "settings.json is project-owned, we must not touch it" (the exclusion is CONTENT-level; a registration pointing at a file this sync just deleted is not project-owned content, it is this delivery's breakage) / "file a follow-up to re-wire the hooks" (the follow-up ships the broken state for as long as it takes the next sync to run).
 
 **Serial same-lane orchestration (MUST):** enumerate targets from the manifest (`sync-completeness.md` MUST-1) and distribute each SERIALLY — one helper invocation per target slug — so the per-target exact-tracking receipts (and the `/sync-to-use` verification table) land in a deterministic row order. Each target gets its OWN isolated worktree, so the #401 shared-write collision is now structurally impossible (the worktree model eliminated it); the serial discipline is for receipt/table ordering, NOT collision avoidance. Cross-LANE parallelism (py + rs + rb) is fine — disjoint worktrees. **BLOCKED rationalizations:** "run the templates in parallel to save time" (breaks deterministic verification-table order) / "write straight into the target's checkout, it's faster" (the stranded-overlay class the worktree model exists to prevent).
 

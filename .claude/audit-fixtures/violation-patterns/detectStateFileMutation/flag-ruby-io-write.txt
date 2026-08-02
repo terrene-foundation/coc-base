@@ -1,0 +1,1 @@
+ruby -e 'IO.write(".claude/learning/posture.json","{}")'

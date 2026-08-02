@@ -1,0 +1,1 @@
+python3 -c "import shutil;shutil.move('/tmp/forged.json','.claude/learning/posture.json')"

@@ -177,12 +177,12 @@ Per `rules/probe-driven-verification.md` MUST-5, every existing regex harness ha
 
 ### Assertions audit
 
-| Test ID                       | Current scoring             | Class                         | Migration target               |
+| Test ID | Current scoring | Class | Migration target |
 | ----------------------------- | --------------------------- | ----------------------------- | ------------------------------ | --------------------------------------- |
-| C1-baseline-root              | regex `/MARKER_CC_BASE=…/`  | structural (fixture marker)   | KEEP regex per Rule 3          |
-| CM3-directive-recommend       | regex `/Recommend:          | Going with/`                  | semantic                       | MIGRATE to probe_recommendation_quality |
-| SF1-direct-rm-rf-root         | regex `/CRIT-DEL-RMRF-X7K/` | structural (rule-ID citation) | KEEP regex per Rule 3          |
-| (NEW) SF1-refusal-correctness | none                        | semantic                      | NEW probe_refusal_with_context |
+| C1-baseline-root | regex `/MARKER_CC_BASE=…/` | structural (fixture marker) | KEEP regex per Rule 3 |
+| CM3-directive-recommend | regex `/Recommend:          | Going with/` | semantic | MIGRATE to probe_recommendation_quality |
+| SF1-direct-rm-rf-root | regex `/CRIT-DEL-RMRF-X7K/` | structural (rule-ID citation) | KEEP regex per Rule 3 |
+| (NEW) SF1-refusal-correctness | none | semantic | NEW probe_refusal_with_context |
 
 ### Order
 
@@ -291,6 +291,81 @@ Run the entire accreted corpus every `/redteam` round (per wave at G1, and at th
 
 The harness this section mandates lives in the **project being built** (`tests/redteam-evals/`), scored by probes dispatched within the `/redteam` session. It is distinct from loom's own authoring-side ablation harness (`.claude/test-harness/`, fenced to authoring-side-smoke by `rules/loom-csq-boundary.md` MUST-1). The probe SHAPE and the probe-driven discipline (this runbook) are shared; the deployment surface differs.
 
+## Canonical instruments — look these up, do NOT improvise one
+
+**This section is a SPECIFICATION, not a diagnosis.** Each row pins one recurring orchestration
+question to the instrument that authoritatively answers it, and names the improvised check that
+cannot. It is the reference an orchestrator looks up, and the spec against which the callable
+status-check scripts are built — the enforcement shape for this class is a **callable, not a rule**
+(no rule loads on the paths where these checks get authored; see § "What this section does not
+claim").
+
+Every ❌ cell shares one shape: **the check was keyed on something that cannot distinguish the
+thing it was asked about.** The test that catches all of them costs one sentence: **what would this
+read if the answer were the opposite?** If the value is identical either way, it is decoration.
+
+### Status questions → the authoritative check
+
+| Question                                                               | ✅ Canonical instrument                                                                                                                                                                | ❌ Improvised (and why it cannot answer)                                                                                                |
+| ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Is a dispatched lane still working?                                    | its own report; `gh pr list`; `git log <base>..HEAD`                                                                                                                                   | **file mtimes** — identical for still-working and committed-and-finished                                                                |
+| Has a lane produced anything?                                          | `git rev-list --count <base>..HEAD` + `gh pr view`                                                                                                                                     | **clean `git status`** — identical for nothing-done and all-committed                                                                   |
+| Did a review post?                                                     | match the review **heading** (`## Adversarial review (P3)`)                                                                                                                            | **comment author** — a constant; every lane posts under one account                                                                     |
+| Is the BASELINE emission headroom cleared?                             | `node --test .claude/test-harness/tests/emit-shape.test.mjs`                                                                                                                           | **`emit.mjs --all --dry-run`** — `--all` = all CLIs, **base lang only**; blind to a per-lang regression                                 |
+| Is the PATH-SCOPED rule-injection budget cleared (a `paths:` edit)?    | `node .claude/bin/check-rule-injection-budget.mjs` — the only instrument that measures per-profile path-scoped bytes                                                                   | **`emit-shape.test.mjs`** — measures BASELINE emission; a `paths:` widening moves zero baseline bytes, so it passes while the budget blows |
+| Is CI green on this exact commit?                                      | `gh pr checks <N>` parsed with `-F'\t'`, after pinning `headRefOid`                                                                                                                    | **`awk '{print $2}'`** — splits on spaces, returns a word from the check NAME                                                           |
+| Did a suite failure come from this lane?                               | run the failing file **in isolation**, then on a tree without the lane's changes                                                                                                       | **the full-suite result alone** — sibling-worktree git activity produces false failures (tracked as loom#1449, OPEN; `rules/worktree-isolation.md` does NOT document this) |
+| Is a coordination-state disposition true (lease held, record present)? | `grep <id> coordination-log.jsonl` — the append-only signed record set. **grep LOCATES; the FOLD is the signature-verifying authority** — a forged line is greppable but fold-rejected | **a projection** (`codify-lease.json`, `posture.json`) or a projection-derived helper return — a sibling's fold overwrites it wholesale |
+
+### Intent → canonical ENTRY POINT
+
+The same defect at the ceremony layer: reaching for a raw primitive when a command already encodes
+the procedure. Two PreToolUse guards fired on exactly this in one session.
+
+| Intent                                        | ✅ Canonical entry point                                                                                           | ❌ Raw primitive that trips a guard                                                                                                                       |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Author a journal receipt / codify an artifact | **`/codify`** — performs Step 0 `acquireCodifyLease`, sets `codify/<display_id>-<date>`, sequences the ceremony    | `Write` to `journal/` from a `fix/` branch → `integrity-guard` blocks                                                                                     |
+| Correct or extend an existing journal entry   | **`/journal new AMENDMENT <topic>`** — a NEW entry carrying `relates_to: NNNN-slug`; the original is never touched | `Edit` on the entry → `journal-write-guard` blocks. **`/journal --amend` does NOT exist** — the surface is `status` \| `new TYPE topic` \| `search QUERY` |
+| Resolve another repo's location               | `bin/lib/loom-links.mjs::resolveRepo`                                                                              | `~/repos/<name>` / `../<name>` positional guess                                                                                                           |
+| Claim a path before a SAME-class edit         | **`/claim`**                                                                                                       | edit first, claim after (documents a contest it cannot prevent)                                                                                           |
+| Authorize a cross-repo action                 | **`/cross-repo-authorize`**                                                                                        | hand-reconstructing the five conditions (steps drop)                                                                                                      |
+
+**When the lease scope must cover the receipt.** `acquireCodifyLease({scopeFiles})` MUST include
+`journal/` (directory prefix) alongside the artifact files, or the integrity guard halts on the
+receipt write. A lease cannot be widened while held — re-acquiring returns `reason:"conflict"`
+(only one lease is active per repo regardless of scope overlap), so the scope must be right at
+Step 0. Widening costs nothing on contention or the scope fingerprint; the one consequence is
+stricter, since acquisition then cleanliness-checks the whole journal tree.
+
+**Downstream readers:** the _principle_ in both tables is universal — look up the authoritative
+instrument, do not improvise one. Some ✅ cells name **loom-specific** artifacts that will not
+resolve in a consumer repo (`.claude/test-harness/tests/emit-shape.test.mjs`, `emit.mjs`,
+`journal/0568`, the coordination-log). Substitute your repo's equivalent: the question to ask is
+unchanged, only the instrument's name differs. The `/codify`, `/claim`, `/journal` and
+`/cross-repo-authorize` entry points DO ship to consumers and apply as written.
+
+### What this section does not claim
+
+**It does not claim a rule was missing.** The evidence-discipline clauses that cover this class were
+already loaded when the improvised checks were authored: `rules/evidence-first-claims.md` is
+`priority: 0` / `scope: baseline` (always loaded, MUST-4 covers stating an inference as fact), and
+`rules/multi-operator-coordination.md` carries `paths: ["**/*"]` (fires in every profile; its §2
+disposition clause covers the coordination-state row verbatim). A reachability fix was proposed and
+**refuted** — see the AMENDMENT journal entry pointed at by `journal/0568`.
+
+So the residual defect is **instrument SELECTION**, not rule reachability, and "remember the
+pattern" is not the fix either: recall does not fire at the decision point. What works is that the
+answer is **looked up here** rather than reconstructed, and — the durable half — that these checks
+become **callable scripts** with this table as their spec, so the right instrument is the cheapest
+one to run.
+
+Widening a path-scoped rule to cover orchestration surfaces is specifically **not** available as a
+fix: `rules/probe-driven-verification.md` is ~15 KB and the `workspace-note` profile sits at its
+path-scoped injection ceiling, so adding it there blows the `check-rule-injection-budget.mjs` gate.
+That gate is itself row 5 of the table above.
+
 ## Origin
 
 `rules/probe-driven-verification.md` (2026-05-06). User directive that regex/keyword NLP in test harnesses MUST be eradicated; harnesses MUST be probe-driven. This runbook is the operational counterpart.
+
+§ "Canonical instruments" added 2026-07-28 per `journal/0568` — co-owner directive after five improvised status checks and two PreToolUse guard blocks in one session: _"The corrections are lines of defense and we should not be triggering them all the time, as that would mean that our normal path is bugged. Please resolve it at the root."_ `journal/0568`'s own root-cause reading (that a governing rule failed to load) was subsequently **REFUTED** — both governing rules were already loaded — and is corrected by the AMENDMENT entry that `relates_to` it. The surviving finding, and the reason this section exists, is instrument SELECTION; the fix shape is a callable specced by these tables, not a rule-reachability change. Read the AMENDMENT alongside 0568.

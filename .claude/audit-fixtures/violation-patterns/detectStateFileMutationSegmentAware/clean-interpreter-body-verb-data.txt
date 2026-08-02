@@ -1,0 +1,1 @@
+node -e 'const s="rm .claude/learning/posture.json"; console.log(s)'

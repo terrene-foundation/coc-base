@@ -16,11 +16,14 @@ Detailed protocol: `skills/30-claude-code-patterns/sync-flow.md` § Downstream S
 
 Read `.claude/VERSION` → `type`. `/sync-from-template` is valid at a downstream consumer (`type: coc-project`). This repo inherits its `.claude/` from a USE template (recorded in `.claude/.coc-sync-marker`; auto-detected at first run).
 
+**Evaluate these in order and take the FIRST match — the credibility arms are deliberately ahead of the plain-`type` arms.** A template-derived repo carries `type: coc-use-template` verbatim (it is a byte copy), so a plain-`type` arm placed first would match it and route to `/sync-from-downstream` — the wrong verb, on a declaration this step is about to disbelieve.
+
 - `coc-project` → proceed below.
+- `coc-use-template` / `coc-build` whose declaration is NOT credible (`.claude/VERSION::repo` names a different repo than this one's `git remote get-url origin` — the "Use this template" byte-copy case) → **STOP and report**; do NOT proceed on a class you just decided to disbelieve. Correcting it is an EXPLICIT, reviewable edit the operator approves: set `type: coc-project` and populate `upstream.template` / `upstream.template_repo` (`.claude/hooks/lib/version-utils.js::computeTemplateDerivedCorrection` returns the suggested object — it is PURE and writes nothing). Re-run `/sync-from-template` after the edit lands. **NEVER rewrite `.claude/VERSION` silently or as a side effect**: it is the repo-CLASS root of trust (`bin/lib/manifest-source.mjs::readRepoClass` trusts `type` verbatim), which is exactly why `validate-bash-command.js` BLOCKS agent writes to it at the Bash boundary.
+- `coc-use-template` / `coc-build` whose declaration is UNDETERMINED (no `.claude/VERSION::repo`, and no legacy-allowlist match) → report the ambiguity and **ask**; do not guess a class and do not re-route on the guess. This is the expected shape of an unstamped byte-copy during the migration window, so it must not fall through to the plain-`type` arm below.
 - `coc-source` (loom) → STOP: "this is loom — ingest the upstream streams with `/sync-from-build` + `/sync-from-use`."
-- `coc-use-template` → STOP: "this is a USE template — ingest the downstream inbox with `/sync-from-downstream`."
-- `coc-build` → STOP: "BUILD repos receive artifacts via `/sync-to-build` run at loom."
-- `coc-use-template` / `coc-build` that is NOT the actual template/BUILD repo (basename + `git remote get-url origin` mismatch) → auto-correct VERSION in-place to `coc-project` (per `.claude/hooks/lib/version-utils.js::correctTemplateDerivedVersion`), then proceed below.
+- `coc-use-template` (credible) → STOP: "this is a USE template — ingest the downstream inbox with `/sync-from-downstream`."
+- `coc-build` (credible) → STOP: "BUILD repos receive artifacts via `/sync-to-build` run at loom."
 - Missing → ask the user what class this repo is.
 
 ## Downstream Sync

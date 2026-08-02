@@ -1,0 +1,1 @@
+gh issue create --title bug --body "repro: run node -e 'open(\".claude/learning/posture.json\",\"w\")'; it blocks"

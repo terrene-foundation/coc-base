@@ -1,6 +1,6 @@
 {
-  "_predicate": "fork-identifying-content NEGATIVE — a fork->canon write whose scan ran CLEAN (empty findings) is ALLOWED",
+  "_predicate": "fork-identifying-content NEGATIVE — a fork->canon write whose disclosure scan ACTUALLY RAN over a real surface and found nothing is ALLOWED. loom#1450: this fixture previously asserted the clean disposition with a bare `findings: []`, which the guard read as 'the scan ran and found nothing' when no scan had run at all — the bypass reachable straight from $COC_XECO_FINDINGS_JSON. It now supplies a real, non-identifying SCAN SURFACE so the production default scanFn runs over it and returns ran:true with no findings (the #576/AC-2 path). The ALLOW disposition is unchanged; what changed is that it is now EARNED by a scan rather than claimed by an empty array.",
   "upstreamCanon": { "remote": "canon-origin", "url": "ssh://canon/loom.git" },
   "targetEcosystem": "canon-origin",
-  "findings": []
+  "content": "# Workflow Orchestration Notes\n\nThe runtime resolves node parameters before execution and validates each\nconnection against the declared port types. Retries use exponential backoff\nwith a jitter factor. No tenant, customer, or deployment identity appears in\nthis document.\n"
 }

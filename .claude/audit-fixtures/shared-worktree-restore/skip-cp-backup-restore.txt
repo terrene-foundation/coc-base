@@ -1,0 +1,5 @@
+cp src/engine/scheduler.rs /tmp/bak.4711
+sed -i '' 's/return true/return false/' src/engine/scheduler.rs
+cargo nextest run --test scheduler
+cp /tmp/bak.4711 src/engine/scheduler.rs
+shasum src/engine/scheduler.rs /tmp/bak.4711

@@ -1,0 +1,1 @@
+ruby -e 'File.delete(".claude/learning/posture.json")'

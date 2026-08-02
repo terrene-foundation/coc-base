@@ -45,6 +45,8 @@ const {
 } = require("./coc-emit.js");
 const coordinationLog = require("./coordination-log.js");
 const foldCapabilityLedger = require("./fold-capability-ledger.js");
+// loom#1349 — the ONE hardened append primitive; see append-sink.js for the six defenses.
+const { appendSinkLine } = require("./append-sink.js");
 
 // Re-export the record-type Set + the closed-set constants from the SSOT in
 // fold-capability-ledger.js (single source so emit + registration + fold
@@ -130,9 +132,17 @@ function _appendToLedger(repoDir, record) {
       error: `capability-ledger record line (${bytes}B) exceeds MAX_LINE_BYTES (${MAX_LINE_BYTES})`,
     };
   }
+  // loom#1349 — routed through the shared hardened primitive: symlinked ancestor / sink dir /
+  // sink file, hard link, and FIFO all refuse fail-closed, and the sink is 0o600 on every append
+  // (repairing a pre-existing 0o644). The cap check above stays HERE, before signing, so an
+  // oversized record is refused rather than truncated-after-sign.
   const p = resolveCapabilityLedgerPath(repoDir);
-  fs.mkdirSync(path.dirname(p), { recursive: true });
-  fs.appendFileSync(p, line + "\n");
+  const w = appendSinkLine({ repoDir, sinkPath: p, line });
+  if (!w.ok)
+    return {
+      ok: false,
+      error: `capability-ledger append refused: ${w.error} — ${w.reason}`,
+    };
   return { ok: true };
 }
 

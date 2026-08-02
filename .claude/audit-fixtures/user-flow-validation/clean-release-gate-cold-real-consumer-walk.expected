@@ -1,0 +1,6 @@
+CLEAN — the release FIRST-ACT gate pre-seeded NONE of the runtime state the consumer
+supplies (explicit seed-ban list), drove the un-pre-configured COLD entry, the real RS256
+provider variants, AND the error/boundary paths (MUST-7 classes) against that cold entry,
+and produced a scrubbed receipt (MUST-6). This is the literal un-pre-configured real-consumer
+path MUST-8 mandates — no substitute path, no seeded happy fixture. Expected disposition: NO
+finding; MUST-8 stays quiet.

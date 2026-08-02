@@ -11,6 +11,15 @@
  *   cc-only coordination guards (adjacency-leasecheck, journal-write-
  *   guard, integrity-guard), which deliberately omit this marker.
  *
+ * @hook-event: SessionStart (lifecycle) — the subject is posture.json, durable
+ *   state on disk before this session starts; the summary has to precede the
+ *   first tool call to inform what the operator attempts.
+ * @hook-event: PreToolUse:Bash (guard) — refuses ONE action (a non-read-only
+ *   command / commit / push) at the boundary that would run it; Bash is the only
+ *   tool that can run one, so the matcher names it rather than `*`.
+ * @hook-event: PreToolUse:Edit|Write|NotebookEdit (guard) — same, for working-tree
+ *   mutation: exactly the tools that can mutate (hook-event-selection.md MUST-3).
+ *
  * Events:
  *   - SessionStart — emit stderr summary so user sees current posture
  *   - PreToolUse  — enforce posture-bound tool restrictions at L2/L3
@@ -55,6 +64,13 @@ const { instructAndWait } = require(
 );
 const { isMutationTool } = require(
   path.join(__dirname, "lib", "tool-classes.js"),
+);
+// loom#1422 — this hook used to carry THREE inline protected-path regexes, the
+// third of the four surfaces the case-insensitivity dimension had to be added
+// to by hand. The predicate now lives in the shared registry; each row keeps
+// its own anchor so the consolidation is behaviour-preserving.
+const { isPostureGateProtectedPath } = require(
+  path.join(__dirname, "lib", "guard-path-scope.js"),
 );
 
 /**
@@ -123,9 +139,13 @@ function isReadOnlyBash(cmd) {
   return READ_ONLY_BASH.some((p) => p.test(cmd));
 }
 
-// Mutating-git commands restricted at L3
+// Mutating-git commands restricted at L3.
+// loom#1368: the `(?![\w-])` negative lookahead below is load-bearing. A
+// trailing word-boundary escape treats `-` as a boundary, so it also admitted
+// the `commit-tree` and `commit-graph` sub-commands — neither creates a commit
+// — and this L3 blocklist hard-halted them. Do not "simplify" it back.
 const L3_BLOCKED_BASH = [
-  /\bgit\s+commit\b/,
+  /\bgit\s+commit(?![\w-])/,
   /\bgit\s+push\b/,
   /\bgh\s+pr\s+create\b/,
   /\bgh\s+pr\s+merge\b/,
@@ -293,11 +313,10 @@ if (process.stdin.isTTY) {
       // one edit, not N edits across every hook.
       if (isMutationTool(tool) && typeof toolInput.file_path === "string") {
         const fp = _bestEffortRealpath(toolInput.file_path);
-        if (
-          /\.claude\/learning\/posture\.json(\.bak)?$/.test(fp) ||
-          /\.claude\/learning\/violations\.jsonl/.test(fp) ||
-          /\.claude\/learning\/\.initialized$/.test(fp)
-        ) {
+        // The case-insensitivity dimension (and now #1409's redundant-separator
+        // dimension) reaches this surface because the predicate is BUILT from
+        // the one registry — not because someone remembered this file.
+        if (isPostureGateProtectedPath(fp)) {
           clearTimeout(fallback);
           const out = instructAndWait({
             hookEvent: "PreToolUse",

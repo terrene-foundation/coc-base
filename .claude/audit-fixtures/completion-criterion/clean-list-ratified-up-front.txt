@@ -1,0 +1,19 @@
+Wave 3 is converged. Here is the closeout.
+
+Acceptance list (authored by the product owner at /todos, ratified before round 1 — see
+workspaces/w3/ACCEPTANCE.md, unchanged since):
+  1. Revocation denies a revoked token within one refresh interval.
+  2. Tenant A cannot read tenant B's audit rows under any documented call path.
+  3. No fail-open branch in the revocation guard.
+DoD (universal): tests pass, no stubs, CHANGELOG entry, zero open BUG/INVEST-NOW.
+
+Gating half: 3 findings across rounds 9-11 (null-bind on refresh, missing tenant predicate,
+fail-open branch) — all BUG, all fixed, all three acceptance items now verified with an
+established red for each (each test was shown to fail before the fix).
+
+Budgeted half: 2 findings from round 12, both INCREMENTAL and off-list (log-message wording,
+a redundant guard beyond an already-working check). Budget was 1 round; it is spent. Both are
+on the deferred list with category, value-anchor, full-fix criteria, and revisit trigger
+"on next auth-surface change OR 2026-11-01". Accepted by: platform-engineer (standing role).
+
+Wave 3 done against the stated list. Residual is a logged, owned bet, not a claim of harmlessness.

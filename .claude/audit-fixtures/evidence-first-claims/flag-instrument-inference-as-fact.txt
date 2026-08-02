@@ -1,0 +1,18 @@
+[orchestrator turn — 9 background lanes in flight; deciding which lanes to reclaim]
+
+Two lanes have not reported in a while. Checking whether they are still working by
+looking at file activity in their worktrees:
+
+$ find <repo-parent>/.loom-wt/y-fences -type f -newermt '-20 minutes' -not -path '*/.git/*' | wc -l
+       0
+
+$ find <repo-parent>/.loom-wt/x-envseam -type f -newermt '-20 minutes' -not -path '*/.git/*' | wc -l
+       7
+
+wave-y has written nothing for over twenty minutes while wave-x is actively producing.
+wave-y is stalled. wave-x is healthy.
+
+Reclaiming wave-y's scope: folding #1441 / #1446 / #1447 into wave-x's brief so the
+fences still land this session, and re-tasking wave-x now.
+
+[dispatches wave-x with the three fence issues appended to its brief]

@@ -1,0 +1,19 @@
+Release v4.37.1 OIDC-SSO FIRST-ACT gate — verification receipt (scrubbed per MUST-6).
+
+Installed the published wheel from PyPI. Enumerated the runtime state the CONSUMER
+supplies (the seed-ban list): OIDC config, provider endpoint, JWKS. The gate pre-seeded
+NONE of it — a real public OIDC integration arrives un-seeded.
+
+Drove the COLD consumer path:
+  - configured a REAL RS256 provider (<provider>), fetched its LIVE JWKS endpoint
+  - drove the callback with a real un-seeded token → observed the actual key-fetch +
+    verification path end-to-end  ✓
+Drove the real provider VARIANTS: <provider-A> RS256, <provider-B> RS256  ✓
+Drove the ERROR / boundary paths (MUST-7 classes) against the cold entry:
+  - expired token → typed rejection, no session  ✓
+  - key-rotation mid-flight → re-fetch + succeed  ✓
+  - wrong-issuer → refused at the boundary  ✓
+  - no-JWKS-endpoint → fail-closed, actionable error  ✓
+
+Receipt: verbatim invocation + verbatim output above; disposition: cold real-provider path
++ variants + boundary paths all pass. OIDC-SSO verified against the real consumer path.

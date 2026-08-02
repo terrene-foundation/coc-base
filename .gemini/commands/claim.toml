@@ -5,7 +5,7 @@ prompt = '''
 
 Stake an explicit advisory claim on a path or glob. The same shape M2's `adjacency-leasecheck.js` writes on INDEPENDENT auto-claim — except `/claim` is the user-driven path: the operator says "I'm about to work on this; surface conflicts before I start."
 
-Per multi-operator-coc architecture §4.1 + §4.2: claims are advisory (leases-advisory). The only `block`-severity halt comes from the §4.2 filesystem exception (`git status --porcelain` cross-worktree contention); `/claim` itself emits **halt-and-report** on SAME and **advisory** on ADJACENT.
+Per multi-operator-coc architecture §4.1 + §4.2: claims are advisory (leases-advisory). Every adjacency-leasecheck severity is non-blocking — the §4.2 filesystem exception (`git status --porcelain` cross-worktree contention) surfaces as **halt-and-report** since loom#1323, and `/claim` itself emits **halt-and-report** on SAME and **advisory** on ADJACENT.
 
 ## Usage
 
@@ -60,9 +60,9 @@ Per architecture §4.3 + `rules/hook-output-discipline.md`:
 | SAME        | halt-and-report | Registry-class signal; not structural. Operator adjudicates.       |
 | ADJACENT    | advisory        | Proximity surfaced; operator MAY proceed.                          |
 | INDEPENDENT | silent + append | No conflict; advertise intent to siblings via the appended record. |
-| §4.2 fs exc | block (caller)  | Reserved for adjacency-leasecheck.js's porcelain-match path.       |
+| §4.2 fs exc | halt-and-report | adjacency-leasecheck.js's porcelain-match path (loom#1323).        |
 
-`/claim` itself never emits `block` — the structural filesystem signal lives in the hook (M2 B1), not in this command.
+`/claim` never emits `block`, and neither does the hook: the §4.2 structural filesystem signal lives in the hook (M2 B1), and since loom#1323 it surfaces as halt-and-report — separate worktrees cannot clobber each other's bytes, so the exposure is a recoverable merge conflict, not data loss.
 
 ## What this command does NOT do
 
@@ -74,7 +74,7 @@ Per architecture §4.3 + `rules/hook-output-discipline.md`:
 
 - `/claims` — read surface for active claims.
 - `/release-claim <claim-ref>` — release one's own claim; dispatches to reap ceremony with `--reap <other-ref> --cosigner <person_id>`.
-- `.claude/hooks/adjacency-leasecheck.js` — the PreToolUse hook that writes the SAME-shape record on INDEPENDENT auto-claim and emits the §4.2 filesystem-exception `block`.
+- `.claude/hooks/adjacency-leasecheck.js` — the PreToolUse hook that writes the SAME-shape record on INDEPENDENT auto-claim and surfaces the §4.2 filesystem exception as `halt-and-report`.
 - `journal/0128-DECISION-multi-operator-coc-m1-complete-2026-05-21.md` — M1 completion + M2/M3 work plan.
 '''
 tools = ["read_file", "glob", "grep_search", "list_directory", "run_shell_command", "write_file"]

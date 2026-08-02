@@ -1,0 +1,2 @@
+git worktree add -b feat/parallel-dev .claude/worktrees/parallel-dev origin/main
+cd .claude/worktrees/parallel-dev && claude

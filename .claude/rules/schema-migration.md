@@ -18,6 +18,8 @@ paths:
 
 The schema is the contract between code and data. Every change to that contract MUST go through a numbered, reviewable, reversible migration. Direct DDL and ad-hoc data fixes are how schemas drift from code, and how production silently breaks.
 
+Full worked DO/DO-NOT code per clause, the cross-language `force_downgrade` signatures, the evidence chains, and the per-rule origin narratives live in `guides/rule-extracts/schema-migration.md`. A copy-pasteable migration scaffold lives in `skills/02-dataflow/migration-scaffold.md`. This file holds the load-bearing MUST / MUST NOT clauses, their `**Why:**` lines, and their BLOCKED corpora.
+
 ## MUST Rules
 
 ### 1. All Schema Changes Through Numbered Migrations
@@ -26,21 +28,12 @@ The schema is the contract between code and data. Every change to that contract 
 
 **Scope clarification:** "Application code" means services, controllers, handlers, models, and rake/management tasks. DDL is permitted in: (a) numbered migration files, (b) the SDK's own dialect helper layer (BUILD repos only — downstream USE projects do not have a dialect helper layer), and (c) test fixtures that create and tear down test schemas.
 
-```python
-# DO — DataFlow @db.model drives auto-migration; the schema lives in code
-@db.model
-class User:
-    id: int = field(primary_key=True)
-    email: str
-
-# DO — explicit numbered migration when not using auto-migrate
-# migrations/0042_add_user_email_index.py
-
-# DO NOT — DDL string in application code
-await conn.execute("ALTER TABLE users ADD COLUMN email TEXT")
+```text
+# DO — `@db.model` drives auto-migration (schema lives in code), or an explicit numbered `migrations/0042_add_user_email_index.py`
+# DO NOT — a DDL string executed from application code: `await conn.execute("ALTER TABLE users ADD COLUMN email TEXT")`
 ```
 
-**Why:** DDL outside the migration framework runs once on whichever environment the agent happens to touch and never on the others. The schemas drift, the next deploy fails on the un-migrated environment, and the failure looks like a code bug because the migration was never recorded.
+**Why:** DDL outside the migration framework runs once on whichever environment the agent happens to touch and never on the others. The schemas drift, the next deploy fails on the un-migrated environment, and the failure looks like a code bug because the migration was never recorded. Full code: `guides/rule-extracts/schema-migration.md` § "Rule 1".
 
 #### 1a. /redteam MUST Grep For Inline DDL Outside Migrations
 
@@ -49,14 +42,10 @@ await conn.execute("ALTER TABLE users ADD COLUMN email TEXT")
 ```bash
 # DO — /redteam includes the grep audit explicitly
 grep -RInE 'CREATE\s+(UNIQUE\s+)?(TABLE|INDEX|SCHEMA)|ALTER\s+(TABLE|INDEX)|DROP\s+(TABLE|SCHEMA|INDEX)' \
-    --include='*.py' --include='*.rs' --include='*.rb' \
-    -- packages/ src/ \
+    --include='*.py' --include='*.rs' --include='*.rb' -- packages/ src/ \
     | grep -vE '/(migrations|tests/fixtures|dialect)/'
 # Exit 0 with no matches = clean. Any match = Rule 1 violation.
-
-# DO NOT — rely on the rule statement alone, without a mechanical sweep
-# (rule says "DDL outside migrations is BLOCKED" but no /redteam grep enforces it,
-# so violations land silently and ship to production)
+# DO NOT — rely on the rule statement alone; with no /redteam grep enforcing it, violations land silently and ship.
 ```
 
 **BLOCKED rationalizations:**
@@ -68,49 +57,29 @@ grep -RInE 'CREATE\s+(UNIQUE\s+)?(TABLE|INDEX|SCHEMA)|ALTER\s+(TABLE|INDEX)|DROP
 - "The dialect helper layer has DDL by design" (whitelisted via the path-exclusion clause; everything else stays in scope)
 - "We'll add the grep next cycle once the false-positive baseline is captured"
 
-**Why:** A rule that says "X is BLOCKED" with no mechanical sweep ships violations indefinitely. The grep is O(seconds) and catches the failure mode the rule was written to prevent. Three-way schema drift (spec ↔ migration ↔ inline DDL in application code) is invisible at code-review level because the reviewer cannot hold all three artifacts in attention at once; the grep surfaces every inline-DDL site in one pass and the migration cross-check follows from there. Evidence: a registry's `_create_registry_tables()` shipped `CREATE TABLE IF NOT EXISTS _kml_model_versions` for ~3 months while migration 0002 owned the same table with a different column-set; the IF NOT EXISTS no-op masked the divergence until a user hit a missing-column query path.
-
-Origin: kailash-ml 1.5.x followup #699 (2026-04-29) — three-way schema-drift discovery (spec ↔ migration ↔ inline DDL) mandating a migration.
+**Why:** A rule that says "X is BLOCKED" with no mechanical sweep ships violations indefinitely, and three-way schema drift (spec ↔ migration ↔ inline DDL) is invisible at code-review level because the reviewer cannot hold all three artifacts in attention at once. The grep is O(seconds) and surfaces every inline-DDL site in one pass. Evidence chain + Origin (kailash-ml 1.5.x followup #699, 2026-04-29 — an `IF NOT EXISTS` no-op masked a 3-month column-set divergence): `guides/rule-extracts/schema-migration.md` § "Rule 1a".
 
 ### 2. Data Fixes Are Migrations, Not One-Off SQL
 
 If runtime data needs to be corrected (backfills, reclassifications, deduplication), the fix MUST be a numbered migration with the same review and rollback discipline as schema changes. Ad-hoc `INSERT` / `UPDATE` / `DELETE` statements run against production are BLOCKED.
 
-```python
-# DO — backfill as a numbered migration
-# migrations/0043_backfill_user_signup_source.py
-def upgrade(conn):
-    conn.execute("UPDATE users SET signup_source = 'organic' WHERE signup_source IS NULL")
-
-def downgrade(conn):
-    conn.execute("UPDATE users SET signup_source = NULL WHERE signup_source = 'organic'")
-
-# DO NOT — hotfix SQL in a notebook, ticket comment, or one-off script
-# psql> UPDATE users SET signup_source = 'organic' WHERE signup_source IS NULL;
+```text
+# DO — the backfill IS a numbered migration (`migrations/0043_backfill_user_signup_source.py`) with a real `upgrade()` AND an inverse `downgrade()`
+# DO NOT — hotfix SQL in a notebook, ticket comment, or one-off script: `psql> UPDATE users SET signup_source = 'organic' WHERE signup_source IS NULL;`
 ```
 
-**Why:** A hotfix run by hand has no record, no rollback, and no audit trail. The next environment never gets the same fix, and six months later the team cannot reconstruct why production rows differ from staging.
+**Why:** A hotfix run by hand has no record, no rollback, and no audit trail. The next environment never gets the same fix, and six months later the team cannot reconstruct why production rows differ from staging. Full code: `guides/rule-extracts/schema-migration.md` § "Rule 2".
 
 ### 3. Every Migration Has a Reversible Path
 
 `upgrade()` MUST have a corresponding `downgrade()` that returns the schema to its prior state. Migrations marked irreversible (e.g., destructive column drops with no preserved data) MUST be flagged in code and require explicit human acknowledgement before running.
 
-```python
-# DO
-def upgrade(conn):
-    conn.execute("ALTER TABLE users ADD COLUMN tier TEXT DEFAULT 'free'")
-
-def downgrade(conn):
-    conn.execute("ALTER TABLE users DROP COLUMN tier")
-
-# DO NOT — silent irreversibility
-def upgrade(conn):
-    conn.execute("DROP TABLE archived_events")  # data gone, no path back, no warning
-def downgrade(conn):
-    pass  # placeholder
+```text
+# DO — `upgrade()` adds the column; `downgrade()` drops exactly that column, returning the schema to its prior state
+# DO NOT — silent irreversibility: `upgrade()` runs `DROP TABLE archived_events` while `downgrade()` is `pass  # placeholder` (data gone, no path back, no warning)
 ```
 
-**Why:** Migrations are deployed, and deployed code rolls back. Without `downgrade()`, a failed deploy cannot return to a known-good schema and the system is stuck mid-migration with neither old nor new code able to run.
+**Why:** Migrations are deployed, and deployed code rolls back. Without `downgrade()`, a failed deploy cannot return to a known-good schema and the system is stuck mid-migration with neither old nor new code able to run. Full code: `guides/rule-extracts/schema-migration.md` § "Rule 3".
 
 ### 4. Migration Files Are Append-Only
 
@@ -136,55 +105,9 @@ Every migration path that runs destructive DDL or irreversible data transforms �
 
 The orchestrator-layer signature is `MigrationManager.apply_downgrade(migration, dataflow, *, force_downgrade: bool = False)` (Python) and the equivalent `MigrationManager::rollback(version, dataflow, force_downgrade: bool)` (Rust). Either MUST return `DowngradeRefusedError` (Python) / `DataFlowError::DowngradeRefused` (Rust) when `force_downgrade` is false AND the stored `down_sql` contains destructive DDL.
 
-```python
-# DO — Python: keyword-only flag on the downgrade API
-def apply_downgrade(
-    self,
-    migration: Migration,
-    dataflow: DataFlow,
-    *,
-    force_downgrade: bool = False,
-) -> None:
-    if not force_downgrade and _contains_destructive_ddl(migration.down_sql):
-        raise DowngradeRefusedError(
-            f"apply_downgrade({migration.version!r}) refused — down_sql contains "
-            f"destructive DDL; pass force_downgrade=True to acknowledge data loss "
-            f"is irreversible"
-        )
-    for stmt in migration.down_sql:
-        dataflow.execute_raw(stmt)
-
-# DO NOT — Python: run destructive down_sql by default
-def apply_downgrade(self, migration: Migration, dataflow: DataFlow) -> None:
-    for stmt in migration.down_sql:
-        dataflow.execute_raw(stmt)  # DROP TABLE just ran
-```
-
-```rust
-// DO — Rust: explicit confirmation on the rollback API
-pub async fn rollback(
-    &self,
-    version: &str,
-    dataflow: &DataFlow,
-    force_downgrade: bool,
-) -> Result<(), DataFlowError> {
-    let down_sql = self.load_down_sql(version, dataflow).await?;
-    if !force_downgrade && contains_destructive_ddl(&down_sql) {
-        return Err(DataFlowError::DowngradeRefused(format!(
-            "rollback({version:?}) refused — down_sql contains destructive DDL; \
-             pass force_downgrade=true to acknowledge data loss is irreversible"
-        )));
-    }
-    for stmt in &down_sql { dataflow.execute_raw(stmt).await?; }
-    Ok(())
-}
-
-// DO NOT — Rust: run destructive down_sql by default
-pub async fn rollback(&self, version: &str, dataflow: &DataFlow) -> Result<(), DataFlowError> {
-    let down_sql = self.load_down_sql(version, dataflow).await?;
-    for stmt in &down_sql { dataflow.execute_raw(stmt).await?; }  // DROP TABLE just ran
-    Ok(())
-}
+```text
+# DO — guard first: `if not force_downgrade and _contains_destructive_ddl(migration.down_sql): raise DowngradeRefusedError(...)` (Rust: `return Err(DataFlowError::DowngradeRefused(...))`), THEN replay down_sql
+# DO NOT — omit the flag and loop `dataflow.execute_raw(stmt)` over stored down_sql by default; the DROP TABLE just ran
 ```
 
 **BLOCKED rationalizations:**
@@ -198,9 +121,43 @@ pub async fn rollback(&self, version: &str, dataflow: &DataFlow) -> Result<(), D
 - "The down_sql was generated by the framework, it's trusted"
 - "`force_drop` on the primitive layer is enough, the orchestrator doesn't need its own flag"
 
-**Why:** Dropped data is unrecoverable and the downgrade surface is strictly wider than the individual DROP primitive — a single `rollback("0042")` call can execute dozens of destructive statements in one transaction before the operator notices. The primitive-layer `force_drop` flag (mandated by `dataflow-identifier-safety.md` MUST Rule 4) does nothing for an orchestrator that replays persisted `down_sql` strings, because the orchestrator is the caller and the flag was already checked against a literal API at upgrade-generation time. Requiring the flag at every layer that can touch destructive DDL is the only structural defense against "I meant to roll back the schema, not destroy the data" incidents. Test suites requiring rollback MUST pass `force_downgrade=True` explicitly — the test's intent is exactly what the flag is for.
+**Why:** Dropped data is unrecoverable and the downgrade surface is strictly wider than the individual DROP primitive — one `rollback("0042")` can execute dozens of destructive statements in a single transaction before the operator notices, and the primitive-layer `force_drop` flag does nothing for an orchestrator replaying persisted `down_sql` (it is the caller). Gating at every layer that can touch destructive DDL is the only structural defense; test suites needing rollback MUST pass `force_downgrade=True` explicitly, which is exactly the flag's purpose. Dual-language signatures + layering detail + Origin (2026-04-19 codify cycle): `guides/rule-extracts/schema-migration.md` § "Rule 7".
 
-Origin: 2026-04-19 codify cycle — destructive migration paths landed without downgrade-surface confirmation flags despite the primitive-layer `force_drop` guard existing in `dataflow-identifier-safety.md` since 2026-04-12.
+### 8. A New `@db.model` Field On An Existing Table Needs The FULL Paired-Artifact Set
+
+Adding a field to an EXISTING `@db.model` (a table that already exists in every already-migrated database) is NOT complete when the field is added to the model class alone. Because DataFlow's `create_tables()` is `CREATE TABLE IF NOT EXISTS`, it NO-OPS on a table that already exists — so the new column is NEVER added to any pre-existing table, and the test suite (which creates its schema fresh, so the column IS present in the test DB) passes while production and every already-migrated database silently lack the column. The ADD is CI-invisible. A new field on an existing table MUST land the FULL paired-artifact set in the SAME PR:
+
+1. **`ALTER TABLE ... ADD COLUMN IF NOT EXISTS <col> ...`** — a numbered migration (Rule 1) that actually adds the column to already-existing tables (fresh-create via `create_tables()` covers only new databases).
+2. **Field-classification regeneration** — regenerate the model's field-classification metadata (tenant/security/redaction classification) so the new field is classified, not silently unclassified.
+3. **Manifest-count bump** — increment the field-count / schema manifest that pins the model's field set, so the count-assertion and the model agree.
+
+```text
+# DO — the new `approver_id` field on an existing `@db.model` ships with ALL THREE: the numbered `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` migration + regenerated field-classification metadata + the bumped manifest field-count, same PR
+# DO NOT — add the field to the model only and rely on `create_tables()`; tests pass on the fresh test schema while every already-migrated database errors at first read/write of the column
+```
+
+**BLOCKED rationalizations:**
+
+- "`create_tables()` will add the column" (it is `CREATE IF NOT EXISTS` — it no-ops on an existing table; only a fresh DB gets the column)
+- "Tests are green, the field is wired" (the test DB is fresh-created, so it HAS the column; existing DBs do not — CI-invisible)
+- "The migration can follow in the next PR" (production is broken between the two PRs; the ALTER is part of the same change)
+- "Field classification / the manifest count are bookkeeping, not blocking" (an unclassified new field bypasses the tenant/redaction contract; a stale manifest count reds the count-assertion)
+- "It's one new field, the paired artifacts are overkill"
+
+**Why:** `create_tables()`'s `CREATE IF NOT EXISTS` semantics make a model-only field addition CI-invisible — the fresh test schema always has the new column so every test passes, while every already-migrated database never receives it and errors at first read/write. Only the `ALTER TABLE ADD COLUMN IF NOT EXISTS` migration reaches existing tables, the classification regen keeps the field inside the tenant/security contract, and the count bump keeps the pinned field-set assertion honest — one atomic change, because splitting them ships a half-migrated schema. Full paired-artifact example: `guides/rule-extracts/schema-migration.md` § "Rule 8".
+
+**Trust Posture Wiring (Rule 8):**
+
+- **Severity:** `halt-and-report` at gate-review (reviewer + dataflow-specialist at `/implement` + cc-architect at `/codify` confirm any new field on an existing `@db.model` landed the `ALTER TABLE ADD COLUMN IF NOT EXISTS` migration AND the field-classification regen AND the manifest-count bump in the same PR — not a model-only addition relying on `create_tables()`); `advisory` at the hook layer (per `hook-output-discipline.md` MUST-2 the paired-artifact-completeness property is judgment-bearing over cross-file state, not a structural tool-call signal).
+- **Grace period:** 7 days from clause landing (2026-07-21 → 2026-07-28).
+- **Cumulative posture impact:** same-class violations (a new field on an existing table shipped as a model-only change without the paired ALTER migration / classification regen / manifest bump) contribute to `trust-posture.md` MUST-4 cumulative-window math (3× same-rule / 5× total in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` emergency trigger per `trust-posture.md` MUST-4 (1× = drop 1 posture) — NO dedicated per-clause key (a paired-artifact-completeness property is review-layer-only, and minting a key would drag `trust-posture.md`, a self-referential-codify allowlist file, into a self-ref edit). Named deviation from the canonical key-per-clause shape, recorded here per `trust-posture.md` Rule 8 — same disposition as `security.md` § Enforcement-Surface Parity + `git.md` § CI-check/merge.
+- **Receipt requirement:** SessionStart soft-gate `[ack: schema-migration]` IFF `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — for any diff adding a field to an existing `@db.model`, reviewer + dataflow-specialist confirm the same PR carries (a) a numbered `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` migration reaching existing tables, (b) regenerated field-classification metadata for the new field, (c) the incremented manifest field-count; a model-only addition relying on `create_tables()` is a finding. Phase 2 (deferred per `trust-posture.md` § Two-Phase Rollout) — no hook detector; audit fixtures land with the Phase-2 detector at `.claude/audit-fixtures/schema-add-column-paired-artifacts/` per `cc-artifacts.md` Rule 9.
+- **Violation scope:** Rule 8 (new-field-on-existing-`@db.model` paired-artifact set) ONLY; Rules 1–7 stay grandfathered until each is itself `/codify`-touched.
+- **Origin:** See Rule 8 Origin below.
+
+Origin: `kailash-coc-rs` USE-template proposal — schema-migration approver-identity lesson (2026-07-21). A new `approver_id`-class field on an existing `@db.model` table was CI-invisible; the paired ALTER migration, the field-classification regen, and the manifest-count bump were all omitted. Landed at loom via `/sync-from-use` Gate-1 classification. Full narrative: `guides/rule-extracts/schema-migration.md` § "Rule 8 → Origin".
 
 ## MUST NOT
 

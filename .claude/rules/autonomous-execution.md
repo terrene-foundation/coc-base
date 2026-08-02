@@ -34,21 +34,7 @@ Human defines the operating envelope. AI executes within it. Human-on-the-Loop, 
 
 ## 10x Throughput Multiplier
 
-Autonomous AI execution with mature COC institutional knowledge produces ~10x sustained throughput vs equivalent human team.
-
-| Factor                                               | Multiplier |
-| ---------------------------------------------------- | ---------- |
-| Parallel agent execution                             | 3-5x       |
-| Continuous operation (no fatigue, no context-switch) | 2-3x       |
-| Knowledge compounding (zero onboarding)              | 1.5-2x     |
-| Validation quality overhead                          | 0.7-0.8x   |
-| **Net sustained**                                    | **~10x**   |
-
-**Conversion**: "3-5 human-days" → 1 session. "2-3 weeks with 2 devs" → 2-3 sessions. "33-50 human-days" → 3-5 days parallel.
-
-**Does NOT apply to**: Greenfield domains (first session ~2-3x), novel architecture decisions, external dependencies (API access, approvals), human-authority gates (calendar-bound).
-
-**See also**: `rules/time-pressure-discipline.md` — under time-pressure framings, parallelization IS the throughput response; procedure drops are BLOCKED even when explicitly authorized.
+Autonomous execution with mature COC knowledge sustains ~10x throughput vs an equivalent human team. Per-factor multiplier table, human-time→session conversions, and the does-NOT-apply cases: `.claude/guides/rule-extracts/autonomous-execution.md` § 10x Throughput Multiplier. Under time-pressure framings parallelization IS the throughput response; procedure drops stay BLOCKED even when explicitly authorized (`rules/time-pressure-discipline.md`).
 
 ## Structural vs Execution Gates
 
@@ -98,7 +84,7 @@ Shards with an executable feedback loop (unit tests, `cargo check`, type checker
 
 ### 4. Fix-Immediately When Review Surfaces A Same-Class Gap Within Shard Budget (MUST)
 
-When a gate-level review (reviewer, security-reviewer, gold-standards-validator) or self-verification surfaces a latent gap in the SAME BUG CLASS as the in-flight PR AND the gap fits within one remaining shard budget (≤500 LOC load-bearing logic / ≤5–10 invariants / ≤3–4 call-graph hops), the session MUST spawn the fix immediately rather than filing a follow-up issue. Filing the follow-up issue instead of fixing is BLOCKED.
+When a gate-level review or self-verification surfaces a latent gap in the SAME BUG CLASS as the in-flight PR AND the gap fits within one remaining shard budget (MUST Rule 1's thresholds), the session MUST spawn the fix immediately rather than filing a follow-up issue. Filing the follow-up issue instead of fixing is BLOCKED.
 
 ```markdown
 # DO — reviewer flags 40+ sibling sites, same bug class, fits one shard →
@@ -122,15 +108,11 @@ When a gate-level review (reviewer, security-reviewer, gold-standards-validator)
 
 **Why:** Same-class gaps cost least to fix while the context is warm; a follow-up issue forces the next session to reload everything, typically 2–5× the marginal cost. See Origin.
 
-**Bounded by the category (`rules/product-completion-first.md` MUST-3).** The fix-now mandate applies to a same-class within-budget gap classified BUG or INVEST-NOW; an INCREMENTAL same-class gap (off-path polish) MAY instead route to the deferred-quality list with a value-anchor. The category verdict — NOT convenience, NOT severity — gates the lane: relabelling a warm same-class BUG/INVEST-NOW gap "incremental" to defer it is BLOCKED.
-
-**Bounded by the shard budget.** This rule does NOT override MUST Rule 1 (shard threshold). If the surfaced gap exceeds ≤500 LOC load-bearing / ≤5–10 invariants / ≤3–4 call-graph hops, filing the follow-up issue IS the correct disposition — the gap is a new shard, not a continuation of the current one.
+**Doubly bounded — by the CATEGORY and by the SHARD BUDGET.** The fix-now mandate applies only to a gap classified BUG or INVEST-NOW (`rules/product-completion-first.md` MUST-3; relabelling a warm one "incremental" to defer it is BLOCKED) AND only while it fits MUST Rule 1's thresholds — a gap exceeding them IS correctly a follow-up issue. Both bounds in full: `.claude/guides/rule-extracts/autonomous-execution.md` § Rule 4 — The Two Bounds.
 
 Origin: 2026-04-20 — a null-bind sibling-path gap (same bug class, ~300 LOC) initially dispositioned "file follow-up issue"; user corrected; fixed same session. Cross-class generalization (Rust SDK #735/#736, kailash-kaizen #836) + full evidence chain: `.claude/guides/rule-extracts/autonomous-execution.md`.
 
-## Multi-Operator Capacity Considerations
-
-Concurrent-operator capacity guidance (per-`verified_id` budgets, NON-SAME-adjacency parallelization, `/claim`-record discipline) lives in `rules/multi-operator-coordination.md` §8 (path-scoped).
+Concurrent-operator capacity (per-`verified_id` budgets, NON-SAME-adjacency parallelization, `/claim`-record discipline): `rules/multi-operator-coordination.md` §8.
 
 ## MUST NOT (Sharding)
 

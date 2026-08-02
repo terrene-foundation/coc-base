@@ -1,0 +1,1 @@
+perl -e 'qx<echo forged > .claude/learning/posture.json>'

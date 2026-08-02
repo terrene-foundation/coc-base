@@ -1,0 +1,1 @@
+node -e "require('fs').rmSync('.claude/learning/posture.json')"

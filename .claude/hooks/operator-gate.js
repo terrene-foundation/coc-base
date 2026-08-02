@@ -38,6 +38,21 @@
  *   eligible (R5-S-04); degenerate self-sign rows fire only when N=1 is
  *   *derived* current-attestation fact, never self-reported.
  *
+ * loom#1440 — BOTH identities in the R5-S-07 distinctness check are
+ *   SERVER-DERIVED from the roster; NEITHER is read from the payload.
+ *   The approver's login already came from the post-sig-verify roster
+ *   person (F14 MED-1); the requester's now comes from
+ *   `roster.persons[requester_person_id].github_login`, keyed on a field
+ *   `verifyGateApproval` binds into the canonical signed bytes. The old
+ *   `tool_input.requester_gh_login` read let a caller CHOOSE the value the
+ *   distinctness check compared, while the signature never covered it — so
+ *   omitting the field defeated R5-S-07 outright. Server-derivation is
+ *   preferred over adding the field to the signed bytes (`security.md`
+ *   § Enforcement-Surface Parity → Identity-derivation parity): signing a
+ *   caller-supplied value binds the caller's CHOICE to the record; deriving
+ *   it removes the choice. It also keeps the signed field set at six, so no
+ *   previously-signed gate-approval record is invalidated.
+ *
  * Hook output discipline (rules/hook-output-discipline.md):
  *   - All halt paths emit via lib/instruct-and-wait.js::emit() with all
  *     six fields populated (MUST-1).
@@ -156,31 +171,99 @@ function detectTrigger(toolName, toolInput) {
 }
 
 /**
+ * Resolve a roster person's bound GitHub-collaborator login by person_id.
+ *
+ * #1440: this is the SERVER-DERIVATION half of the R5-S-07 fix. The bound
+ * login is read from the ROSTER — the same object the approver's signing
+ * pubkey is resolved from — keyed by a person_id the gate-approval signature
+ * already covers. It is NEVER read from a caller-supplied payload field.
+ *
+ * Prototype-safe lookup (`hasOwnProperty`): a bare `roster.persons[pid]`
+ * resolves truthy for inherited Object keys ("constructor", "toString", …),
+ * which would hand the caller a non-person object to read `github_login` off.
+ * Same guard the sibling proto-safe check in presence-proof-verify.js uses.
+ *
+ * @param {object|null} roster    — the operators roster ({persons: {...}})
+ * @param {string|null} personId  — signature-bound person_id
+ * @returns {string|null} the roster's github_login, or null if unresolvable
+ */
+function resolveRosterLogin(roster, personId) {
+  if (!roster || typeof roster !== "object") return null;
+  const persons = roster.persons;
+  if (!persons || typeof persons !== "object") return null;
+  if (typeof personId !== "string" || !personId) return null;
+  if (!Object.prototype.hasOwnProperty.call(persons, personId)) return null;
+  const person = persons[personId];
+  if (!person || typeof person !== "object") return null;
+  const login = person.github_login;
+  return typeof login === "string" && login ? login : null;
+}
+
+/**
  * Build the gate-evaluator context from the PreToolUse payload.
  *
- * The payload carries (per the architecture's signed gate-approval shape):
+ * EVERY field below is CALLER-SUPPLIED. Treat this list as a wire-format
+ * description, not a trust description — the only fields with any cryptographic
+ * standing are the three `verifyGateApproval` binds into the canonical signed
+ * bytes (`requester_person_id`, `requester_verified_id`, and the nonce via
+ * `consumed_nonce`); a caller cannot alter those without invalidating the
+ * approver's signature. Everything else is an unauthenticated claim.
+ *
  *   tool_input.requester_person_id    : the operator invoking the gate
- *   tool_input.requester_gh_login     : bound GitHub collaborator login
+ *                                       (SIGNATURE-BOUND — see above)
+ *   tool_input.requester_verified_id  : that operator's key (SIGNATURE-BOUND)
+ *   tool_input.requester_nonce        : this invocation's nonce (SIGNATURE-BOUND)
  *   tool_input.gate_approval          : the signed approval record (optional)
- *     .approver_person_id
- *     .approver_gh_login
- *     .signing_context
- *   tool_input.requester_person       : full roster entry (role, host_role,
- *                                       gh_login) — typically resolved by
- *                                       the upstream session-start hook
- *   tool_input.approver_person        : full roster entry for approver
+ *     .approver_person_id             : claim; the TRUSTED approver identity is
+ *                                       verifyGateApproval's roster-resolved
+ *                                       person, not this field
+ *     .approver_gh_login              : IGNORED since loom#1440 (roster-derived)
+ *   tool_input.requester_person       : an unauthenticated claim. NOT roster-
+ *                                       resolved and NOT read by evaluateGate —
+ *                                       do NOT reach for it as a source of the
+ *                                       requester's github_login (loom#1440:
+ *                                       that would restore the body-trust
+ *                                       pattern the fix removed). The roster
+ *                                       lookup keyed on the signature-bound
+ *                                       requester_person_id is the derivation.
+ *   tool_input.approver_person        : same — superseded by the verified
+ *                                       roster person whenever one resolves
  *   tool_input.roster                 : the operators roster
  *   tool_input.folded_state           : folded coordination log (derived_N
  *                                       + records, from coordination-log.js)
  *
- * Real CC invocations populate the requester / approver / roster /
- * folded_state from the session-start hook's pre-computed state cache;
- * here we extract whatever the payload carries.
+ * CORRECTION (loom#1440): a previous version of this comment claimed "real CC
+ * invocations populate the requester / approver / roster / folded_state from the
+ * session-start hook's pre-computed state cache". That is FALSE and was actively
+ * misleading — a SessionStart hook cannot inject fields into a later PreToolUse
+ * `tool_input`, which is the tool's own input as constructed by the caller. There
+ * is in fact NO production producer of this payload shape at all; the only
+ * writers are test fixtures. The roster below is therefore as caller-supplied as
+ * everything else, which is the ceiling on what this gate can currently prove —
+ * server-derivation puts the requester's login on the SAME footing as the
+ * approver's signing pubkey (both roster-resolved), which is parity, not
+ * unconditional trust.
  */
 function buildEvalCtx(gate, toolInput, verifiedApprover) {
+  const roster = toolInput.roster || null;
+  const requesterPersonId = toolInput.requester_person_id || null;
+  // #1440: the requester's bound GitHub-collaborator login is SERVER-DERIVED
+  // from the roster via requester_person_id — a field verifyGateApproval binds
+  // into the canonical signed bytes, so the caller cannot alter it without
+  // invalidating the approver's signature. The former
+  // `toolInput.requester_gh_login` read is DELETED, not merely distrusted:
+  // it was a caller-chosen value feeding the R5-S-07 distinctness check while
+  // the approver's half was already roster-resolved (F14 MED-1). That
+  // asymmetry let one human holding two roster persons bound to the SAME
+  // GitHub account defeat 4-eyes by simply OMITTING the field — the signature
+  // still verified, because the field was never in the signed set.
+  // `security.md` § Enforcement-Surface Parity → Identity-derivation parity
+  // prefers server-derivation over signature-coverage precisely here: signing
+  // the value would bind the caller's CHOICE to the record; deriving it takes
+  // the choice away.
   const requester = {
-    person_id: toolInput.requester_person_id || null,
-    gh_login: toolInput.requester_gh_login || null,
+    person_id: requesterPersonId,
+    gh_login: resolveRosterLogin(roster, requesterPersonId),
   };
   const gateApproval = toolInput.gate_approval || {};
   // F14 MED-1: approver identity is resolved from the roster post-sig-verify,
@@ -189,6 +272,15 @@ function buildEvalCtx(gate, toolInput, verifiedApprover) {
   // verifyGateApproval; if it is null (single-operator workstreams, n/a
   // signing_context rows), fall back to the payload-derived shape so
   // legacy passthrough rows (e.g. todos-plan-single-operator) still work.
+  //
+  // #1440 same-PR sibling sweep: the FALLBACK branch previously read
+  // `gateApproval.approver_gh_login` — the same body-trust pattern on the
+  // approver half. It reaches no distinctness decision today (the two
+  // signing_context:"n/a" rows return before the R5-S-07 check), but leaving
+  // one endpoint on the body-trust pattern while fixing its sibling is
+  // exactly what § Enforcement-Surface Parity blocks. Both halves now derive
+  // from the roster, so NO code path in this hook reads a caller-supplied
+  // GitHub login.
   const approver = verifiedApprover
     ? {
         person_id: verifiedApprover.approverPersonId,
@@ -196,7 +288,10 @@ function buildEvalCtx(gate, toolInput, verifiedApprover) {
       }
     : {
         person_id: gateApproval.approver_person_id || null,
-        gh_login: gateApproval.approver_gh_login || null,
+        gh_login: resolveRosterLogin(
+          roster,
+          gateApproval.approver_person_id || null,
+        ),
       };
   return {
     gate,
@@ -210,7 +305,7 @@ function buildEvalCtx(gate, toolInput, verifiedApprover) {
       (verifiedApprover && verifiedApprover.approverPerson) ||
       toolInput.approver_person ||
       null,
-    roster: toolInput.roster || null,
+    roster,
     foldedState: toolInput.folded_state || null,
     touchesAnothersLease: !!toolInput.touches_anothers_lease,
     rosterEditKind: toolInput.roster_edit_kind || null,

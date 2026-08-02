@@ -1,0 +1,1 @@
+git config --file $(git rev-parse --git-dir)/config core.bare true

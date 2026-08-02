@@ -6,7 +6,10 @@ continue: true
 stderr_tag: [ADVISORY]
 why: §4.2 filesystem exception requires EXACT path match against porcelain.
      The negative case (same-dir, no exact match) falls back through to the
-     §4.1 ADJACENT predicate (advisory) — never to block.
-note: This fixture is the structural-defense for hook-output-discipline.md
-      MUST-2: the §4.2 block branch MUST NOT generalize to "any porcelain
-      activity in the dir blocks". Only exact path matches.
+     §4.1 ADJACENT predicate (advisory) — never to the §4.2 halt.
+note: This fixture locks the exact-match discipline of the §4.2 branch: it
+      MUST NOT generalize to "any porcelain activity in the dir halts".
+      Only exact path matches. The discipline survives the loom#1323
+      severity downgrade (block → halt-and-report): the §4.2 verdict is
+      still strictly louder than the ADJACENT advisory this case produces,
+      so an over-broad predicate would still over-halt the operator.

@@ -403,7 +403,38 @@ function _hasContentSurface(opts) {
 function checkForkIdentifyingContent(opts = {}) {
   if (Object.prototype.hasOwnProperty.call(opts, "findings")) {
     const findings = Array.isArray(opts.findings) ? opts.findings : [];
-    return { identifying: findings.length > 0, findings, verified: true };
+    // ASYMMETRY CLOSED (#1450). This branch used to derive its verdict from array
+    // length alone and set `verified: true` UNCONDITIONALLY — so an EMPTY array
+    // read as "the scan ran and found nothing" when no scan had run at all. Both
+    // sibling branches below already gate on an explicit `ran === true` (#584 F584
+    // fix #3, the `{}`-returns-clean footgun); this was the one branch reachable
+    // straight from an environment variable ($COC_XECO_FINDINGS_JSON), and it was
+    // the one branch that was never hardened.
+    //
+    // THE DIRECTIONAL SPLIT is what keeps the seam useful while making it safe:
+    //   - NON-EMPTY findings are SELF-EVIDENCING. They report identifying content,
+    //     so honoring them can only ever TIGHTEN (→ BLOCK). No marker required.
+    //   - An EMPTY array is a CLAIM that a scan ran and found nothing. That is the
+    //     exact claim the scanFn branches require `ran === true` to substantiate,
+    //     so it requires the same explicit evidence here: `findingsRan === true`.
+    //     Absent it, UNVERIFIED → fail CLOSED (evidence-first-claims.md MUST-3:
+    //     an errored / verdict-less detector is NOT an all-clear).
+    //
+    // WHY THE MARKER IS NOT PLUMBED FROM THE ENVIRONMENT (load-bearing — this is
+    // what makes the fix a CLOSE rather than a MOVE). The hook deliberately does
+    // NOT read a `COC_XECO_FINDINGS_RAN` env var. If it did, an attacker who can
+    // set $COC_XECO_FINDINGS_JSON could set the marker too and the bypass would be
+    // relocated, not removed. Because `findingsRan` is reachable ONLY by a
+    // programmatic in-process caller, the ENV channel is strictly weaker than the
+    // API: from the environment, injected findings can only ever tighten toward a
+    // BLOCK, never assert a clean scan.
+    if (findings.length > 0) {
+      return { identifying: true, findings, verified: true, ran: true };
+    }
+    if (opts.findingsRan === true) {
+      return { identifying: false, findings: [], verified: true, ran: true };
+    }
+    return { identifying: true, findings: [], verified: false, ran: false };
   }
   if (typeof opts.scanFn === "function") {
     const res = opts.scanFn(opts);
@@ -418,7 +449,14 @@ function checkForkIdentifyingContent(opts = {}) {
       return { identifying: true, findings: [], verified: false, ran: false };
     }
     const findings = Array.isArray(res.findings) ? res.findings : [];
-    return { identifying: findings.length > 0, findings, verified: true };
+    // `ran: true` explicitly (loom#1450 follow-on). The fail-closed return above
+    // carries `ran: false`, so omitting it here left the HONORED path reporting
+    // `ran === undefined` after a scan that demonstrably ran — the findings
+    // branch's symmetry was only partial. Not an active bypass (the guard's own
+    // verdicts read `identifying`/`verified`), but `ran` is an exported field the
+    // suite asserts, and its failure direction on a consumer is over-block:
+    // `if (res.ran !== true) failClosed()` would refuse a genuinely clean scan.
+    return { identifying: findings.length > 0, findings, verified: true, ran: true };
   }
   // No injected findings AND no injected scanFn: fall back to the PRODUCTION
   // default scanFn (#576/AC-2). Honored under the SAME explicit-ran:true gate as
@@ -430,7 +468,10 @@ function checkForkIdentifyingContent(opts = {}) {
     const ran = res !== null && typeof res === "object" && res.ran === true;
     if (ran) {
       const findings = Array.isArray(res.findings) ? res.findings : [];
-      return { identifying: findings.length > 0, findings, verified: true };
+      // `ran: true` explicitly — same loom#1450 follow-on as the injected-scanFn
+      // branch above; this is the PRODUCTION path, so it is the one a real
+      // consumer sees.
+      return { identifying: findings.length > 0, findings, verified: true, ran: true };
     }
   }
   // No scannable surface in opts (or the default scanFn could not load):

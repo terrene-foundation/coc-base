@@ -66,6 +66,13 @@ function safeReadFileSync(filePath, encoding) {
 
 import { parseSlotsV5, applyOverlay } from "./lib/slot-parser.mjs";
 import { resolveOverlay } from "./lib/variant-overlay.mjs";
+// loom#1501 (L4) — the two emission axes, declared ONCE. Previously three
+// literals apiece across emit.mjs / validate-emit.mjs / validate-proximity-band.mjs,
+// kept aligned by prose; the proximity-band copy had already drifted to a
+// 3-lane set that rejected `--lang rb` and `--lang prism`. Rationale, the
+// measured drift, and why the set is a DECLARATION rather than a disk probe:
+// see the module header.
+import { EMIT_LANGS, EMIT_CLIS } from "./lib/emit-axes.mjs";
 // F-353 Item 4 — deployment-local rules (ADD-ONLY). The emit/compose path
 // composes canon ∪ declared-local baseline rules so a deployment's local rule
 // LOADS alongside canon; the loader enforces the add-only-no-override invariant
@@ -76,6 +83,24 @@ import { extractPolicies } from "../codex-mcp-guard/extract-policies.mjs";
 // glob matcher so the validator's cc-only certification provably matches what
 // emit-cli-artifacts actually excludes (no divergent hand-rolled second parser).
 import { loadExclusions, matchesAnyGlob } from "./emit-cli-artifacts.mjs";
+// loom#1386 — emit.mjs is ALWAYS_INCLUDE (shipped verbatim to every repo class)
+// and held EIGHT unguarded sync-manifest.yaml reads, so on the three classes
+// that FORBID the manifest it could not run at all. `readManifestSource` is the
+// ONE class-aware discriminator (null ⇔ EXPECTED-absent; LOUD throw on
+// absent-at-loom OR present-but-unreadable); `isManifestOwnerClass` is the
+// no-filesystem predicate the loom-only validators gate on. `readRepoClass` +
+// the class constants MOVED there so lib/coc-manifest.mjs and
+// lib/variant-overlay.mjs can reach them without an import cycle; they are
+// re-exported below unchanged for this file's existing importers (loom#1383).
+import {
+  MANIFEST_OWNER_CLASS,
+  MANIFEST_FORBIDDEN_CLASSES,
+  KNOWN_REPO_CLASSES,
+  readRepoClass,
+  isManifestOwnerClass,
+  readManifestSource,
+} from "./lib/manifest-source.mjs";
+export { KNOWN_REPO_CLASSES, readRepoClass, isManifestOwnerClass };
 // cli_delivery resolution primitives (#408 AC#5-a contract) live in a SHARED
 // lib so BOTH Validator 18 here AND the AC#5-b rules-reference emitter in
 // emit-cli-artifacts.mjs resolve lanes through ONE parser. Re-exported below
@@ -511,8 +536,13 @@ export function composeRule(ruleName, cli, lang = null) {
 // limit the attack surface to a well-defined substring (addresses the
 // MED finding on loadManifestConfig's regex-based YAML parsing).
 export function loadPerRuleBudgets() {
-  const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
-  const src = safeReadFileSync(manifestPath, "utf8");
+  // D2 EMIT-TUNING (loom#1386). An absent manifest routes to the SAME empty Map
+  // the `!blockMatch` line below already returns when the stanza is missing from
+  // a present manifest — no new fallback is invented. A consumer emitting its own
+  // baseline then gets the "no per_rule_size_budget_bytes entry" WARN per rule
+  // (emitBaseline's `else` branch), which is advisory, not a gate.
+  const src = readManifestSource(REPO);
+  if (src === null) return new Map();
 
   const blockMatch = src.match(
     /per_rule_size_budget_bytes:\s*\n([\s\S]*?)(?=\n\s*per_rule_budget_tolerance:|\n[a-zA-Z_])/,
@@ -536,8 +566,10 @@ export function loadPerRuleBudgets() {
 // at ±30% in v6 §2.2; the manifest stores it as a string literal so we
 // parse it narrowly — if drift, this falls back to 0.30).
 export function loadBudgetTolerance() {
-  const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
-  const src = safeReadFileSync(manifestPath, "utf8");
+  // D2 EMIT-TUNING (loom#1386) — absent manifest resolves to the SAME 0.30 the
+  // no-match path below already declares (v6 §2.2 fixed ±30%).
+  const src = readManifestSource(REPO);
+  if (src === null) return 0.3;
   const m = src.match(/per_rule_budget_tolerance:\s*"±(\d+)%"/);
   return m ? parseInt(m[1], 10) / 100 : 0.3;
 }
@@ -548,8 +580,12 @@ export function loadBudgetTolerance() {
 // drift-signal; the BLOCK tier is the contract. Pre-Shard-D, only the
 // WARN path was wired; zero-tolerance.md ran +64% over budget unchecked.
 export function loadBudgetBlockThreshold() {
-  const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
-  const src = safeReadFileSync(manifestPath, "utf8");
+  // D2 EMIT-TUNING (loom#1386) — absent manifest resolves to the SAME 0.30 the
+  // no-match path below already declares. Note the direction: 0.30 is the
+  // TIGHTER answer (a smaller threshold blocks sooner), so the absent-manifest
+  // branch cannot loosen a budget gate.
+  const src = readManifestSource(REPO);
+  if (src === null) return 0.3;
   const m = src.match(/per_rule_budget_block_threshold:\s*"\+(\d+)%"/);
   return m ? parseInt(m[1], 10) / 100 : 0.3;
 }
@@ -567,8 +603,13 @@ export function loadBudgetBlockThreshold() {
 //         block_cap_bytes: <int>
 //         headroom_floor_pct: <int>   # v6.2 — defaults to 10 if absent
 export function loadCliCaps() {
-  const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
-  const src = safeReadFileSync(manifestPath, "utf8");
+  // D2 EMIT-TUNING (loom#1386) — absent manifest returns the SAME empty object
+  // the no-per-CLI-match path below already returns, which emitBaseline resolves
+  // to its declared `{warn 32768, block 61440, floor 10}` defaults. Those are the
+  // v6 §2.2 / Risk-0004 contract values, so a consumer's baseline is gated at the
+  // same caps loom enforces — the absent manifest does not widen a cap.
+  const src = readManifestSource(REPO);
+  if (src === null) return {};
   const caps = {};
   // Anchor on each CLI's cap pair. Regex is intentionally narrow: match the
   // per-CLI block from `<cli>:` down to (and including) the first
@@ -716,13 +757,444 @@ export function detectBindingTokenViolations(emission, cli, lang = null) {
   return violations;
 }
 
+// ────────────────────────────────────────────────────────────────
+// loom#1355 — declared, time-bounded, per-lane headroom-floor exceptions
+// ────────────────────────────────────────────────────────────────
+// A lane may emit below `headroom_floor_pct` ONLY via an entry in
+// `sync-manifest.yaml::cli_variants."context/root.md".headroom_floor_exceptions`.
+// Everything here is fail-CLOSED: a lane with no matching entry, a lane whose
+// entry has EXPIRED, and an unparseable clock all resolve to "no exception" →
+// the full floor applies and the gate BLOCKS. A MALFORMED declaration THROWS
+// rather than degrading into "no floor" (zero-tolerance.md Rule 3 — a silent
+// fallback here would hand a permanent waiver to any typo).
+//
+// The absolute lower bound an exception may grant. 5% of the 61,440 B
+// block_cap is 3,072 B of reserve — below the 4 KiB safety margin block_cap
+// itself already holds under the Codex override ceiling. Past that point the
+// "reserve" is no longer meaningful and the correct instrument is a cap
+// decision (BLOCKED without override-ceiling-stable evidence per the v6.2
+// plan §3.2), not a per-lane exception.
+export const HEADROOM_EXCEPTION_MIN_FLOOR_PCT = 5;
+
+// CLIs an exception may name. An unknown value THROWS: a typo'd `clis:` entry
+// would otherwise silently cover nothing (or, worse, read as coverage).
+const HEADROOM_EXCEPTION_KNOWN_CLIS = ["codex", "gemini"];
+
+// Pure parser over the manifest SOURCE TEXT (not a path), so the expiry and
+// malformed-declaration branches are testable against an in-memory copy —
+// no tracked file is ever mutated to exercise them.
+//
+// Deliberately narrow line-scanner in the same no-YAML-dep style as
+// loadPerRuleBudgets / loadCliCaps: find the `headroom_floor_exceptions:` key,
+// then read the `- lane: …` list items that follow at a deeper indent, stopping
+// at the first line that dedents out of the block.
+// Shared list-block scanner for the declared-exception stanzas
+// (`headroom_floor_exceptions`, `per_rule_budget_exceptions`). Returns raw
+// `{ __line, <field>: <string> }` records; ALL validation is the caller's, so
+// each stanza keeps its own required-field contract. Shared deliberately: the
+// bare-`-` branch below is subtle enough that two copies would drift, and a
+// drifted copy of a fail-closed parser is a silently-evaporating waiver.
+function scanYamlExceptionList(src, keyName) {
+  const lines = String(src ?? "").split("\n");
+  const keyRe = new RegExp(`^(\\s*)${keyName}:\\s*(#.*)?$`);
+  const keyIdx = lines.findIndex((l) => keyRe.test(l));
+  if (keyIdx === -1) return []; // key absent → no exceptions → full gate everywhere
+
+  const keyIndent = lines[keyIdx].match(/^(\s*)/)[1].length;
+  const entries = [];
+  let current = null;
+  for (let i = keyIdx + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^\s*(#.*)?$/.test(line)) continue; // blank / comment-only
+    const indent = line.match(/^(\s*)/)[1].length;
+    if (indent <= keyIndent) break; // dedented out of the block
+    // The `\s+(.*)` tail is OPTIONAL: YAML permits a bare `-` opening a list
+    // item whose fields all sit on the following indented lines. Requiring the
+    // tail made such an entry match nothing, so every field beneath it fell to
+    // the `!current` arm and the whole declaration silently parsed to zero
+    // entries — a written waiver evaporating with no error. (Fail-closed, so
+    // never permissive; still a silent misparse the operator gets no signal
+    // about.) Caught by fixture-36 during branch enumeration.
+    const itemStart = line.match(/^\s*-(?:\s+(.*))?$/);
+    if (itemStart) {
+      if (current) entries.push(current);
+      current = { __line: i + 1 };
+      const rest = itemStart[1] ?? "";
+      if (rest.trim()) assignExceptionField(current, rest);
+      continue;
+    }
+    if (!current) continue; // stray scalar before the first list item
+    assignExceptionField(current, line);
+  }
+  if (current) entries.push(current);
+  return entries;
+}
+
+export function parseHeadroomExceptions(src) {
+  const entries = scanYamlExceptionList(src, "headroom_floor_exceptions");
+
+  const seen = new Set();
+  return entries.map((raw) => {
+    const where = `sync-manifest.yaml::headroom_floor_exceptions (entry at line ${raw.__line})`;
+    const lane = requireHeadroomField(raw, "lane", where);
+    const grantedRaw = requireHeadroomField(raw, "granted_floor_pct", where);
+    const granted = Number(grantedRaw);
+    if (!Number.isFinite(granted)) {
+      throw new Error(
+        `[emit] ${where}: granted_floor_pct must be a finite number; got "${grantedRaw}".`,
+      );
+    }
+    if (granted < HEADROOM_EXCEPTION_MIN_FLOOR_PCT || granted >= 100) {
+      throw new Error(
+        `[emit] ${where}: granted_floor_pct ${granted} is outside the permitted ` +
+          `[${HEADROOM_EXCEPTION_MIN_FLOOR_PCT}, 100) range. An exception may not ` +
+          `relax the reserve below ${HEADROOM_EXCEPTION_MIN_FLOOR_PCT}% — raise ` +
+          `block_cap_bytes with override-ceiling evidence instead (v6.2 plan §3.2).`,
+      );
+    }
+    const expires = requireHeadroomField(raw, "expires", where).replace(/^["']|["']$/g, "");
+    if (!isValidHeadroomDate(expires)) {
+      throw new Error(
+        `[emit] ${where}: expires must be a calendar-valid YYYY-MM-DD date; got "${expires}".`,
+      );
+    }
+    const issue = requireHeadroomField(raw, "issue", where);
+    const clisRaw = requireHeadroomField(raw, "clis", where);
+    const clis = clisRaw
+      .replace(/^\[|\]$/g, "")
+      .split(",")
+      .map((c) => c.trim().replace(/^["']|["']$/g, ""))
+      .filter(Boolean);
+    if (clis.length === 0) {
+      throw new Error(`[emit] ${where}: clis must name at least one CLI.`);
+    }
+    for (const c of clis) {
+      if (!HEADROOM_EXCEPTION_KNOWN_CLIS.includes(c)) {
+        throw new Error(
+          `[emit] ${where}: unknown cli "${c}" in clis; known: ` +
+            `${HEADROOM_EXCEPTION_KNOWN_CLIS.join(", ")}.`,
+        );
+      }
+      const dupKey = `${c}::${lane}`;
+      if (seen.has(dupKey)) {
+        throw new Error(
+          `[emit] ${where}: duplicate exception for lane "${lane}" on cli "${c}"; ` +
+            `two entries covering one lane make the applied floor ambiguous.`,
+        );
+      }
+      seen.add(dupKey);
+    }
+    return {
+      lane,
+      clis,
+      granted_floor_pct: granted,
+      expires,
+      issue: String(issue),
+      granted_on: raw.granted_on ? String(raw.granted_on).replace(/^["']|["']$/g, "") : null,
+      measured_emission_bytes: raw.measured_emission_bytes
+        ? Number(raw.measured_emission_bytes)
+        : null,
+      measured_headroom_pct_at_grant: raw.measured_headroom_pct_at_grant
+        ? Number(raw.measured_headroom_pct_at_grant)
+        : null,
+      measured_shortfall_bytes: raw.measured_shortfall_bytes
+        ? Number(raw.measured_shortfall_bytes)
+        : null,
+      rationale: raw.rationale ? String(raw.rationale).replace(/^["']|["']$/g, "") : null,
+    };
+  });
+}
+
+function assignExceptionField(target, text) {
+  const kv = text.match(/^\s*([A-Za-z_][A-Za-z0-9_]*):\s*(.*?)\s*(?:#.*)?$/);
+  if (!kv) return;
+  const [, key, value] = kv;
+  // A quoted value may legitimately contain `#`; the comment strip above is
+  // greedy-safe only for unquoted scalars, so re-read quoted values whole.
+  const quoted = text.match(/^\s*[A-Za-z_][A-Za-z0-9_]*:\s*("(?:[^"\\]|\\.)*"|'[^']*')\s*$/);
+  target[key] = quoted ? quoted[1].slice(1, -1) : value;
+}
+
+function requireHeadroomField(raw, key, where) {
+  return requireExceptionField(
+    raw,
+    key,
+    where,
+    "lane, clis, granted_floor_pct, expires and issue",
+  );
+}
+
+function requireExceptionField(raw, key, where, mustDeclare) {
+  const v = raw[key];
+  if (v === undefined || String(v).trim() === "") {
+    throw new Error(
+      `[emit] ${where}: required field "${key}" is missing. A declared ` +
+        `exception MUST declare ${mustDeclare} ` +
+        `— an under-specified waiver is not auditable and is rejected (fail-closed).`,
+    );
+  }
+  return String(v).trim();
+}
+
+// Calendar-valid, not merely shaped: "2026-13-45" matches the regex but is not
+// a date, and Date round-tripping is what rejects it.
+function isValidHeadroomDate(s) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const d = new Date(`${s}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return false;
+  return d.toISOString().slice(0, 10) === s;
+}
+
+// Thin file wrapper — the parse/validate logic lives in the pure function above.
+export function loadHeadroomExceptions() {
+  // D2 EMIT-TUNING (loom#1386), fail-CLOSED direction. An exception WIDENS a
+  // gate (it lowers the headroom floor for one lane), so "no manifest ⇒ no
+  // exceptions" is the STRICTEST answer available — a consumer is enforced at
+  // the full floor and can never inherit a waiver loom granted itself. Routed
+  // through the same pure parser with an empty source so the shape is identical
+  // to a present-but-stanza-less manifest.
+  const src = readManifestSource(REPO);
+  return parseHeadroomExceptions(src === null ? "" : src);
+}
+
+// The scope-restriction predicate. Returns the ONE exception that covers this
+// (cli, lane) pair and is still in force, or null. Null is the safe answer:
+// every null path leaves the caller enforcing the full manifest floor.
+//
+// `now` is injected (YYYY-MM-DD) so expiry is testable without a clock or a
+// file mutation. An absent/invalid `now` resolves to null — fail-closed: if we
+// cannot establish that the exception is unexpired, it does not apply.
+// Expiry is INCLUSIVE: an exception is in force through the end of its
+// `expires` date and lapses the day after.
+export function resolveHeadroomException({ cli, lang, exceptions, now }) {
+  if (!Array.isArray(exceptions) || exceptions.length === 0) return null;
+  const today = typeof now === "string" && isValidHeadroomDate(now) ? now : null;
+  if (!today) return null;
+  const lane = lang || "base";
+  for (const ex of exceptions) {
+    if (!ex || ex.lane !== lane) continue;
+    if (!Array.isArray(ex.clis) || !ex.clis.includes(cli)) continue;
+    if (today > ex.expires) continue; // EXPIRED → falls through to the full floor
+    return ex;
+  }
+  return null;
+}
+
+// Compose the floor actually enforced for this lane. `Math.min` is the
+// structural guarantee that an exception can only ever move the floor in the
+// direction it declared: a nonsense grant ABOVE the base floor is ignored
+// rather than silently tightening, and the parse-time
+// HEADROOM_EXCEPTION_MIN_FLOOR_PCT clamp bounds it from below. The hard
+// `block_cap_bytes` gate is untouched by this path and stays independent.
+export function effectiveHeadroomFloorPct(baseFloorPct, exception) {
+  if (!exception) return baseFloorPct;
+  return Math.min(baseFloorPct, exception.granted_floor_pct);
+}
+
+// Today in UTC as YYYY-MM-DD — the default clock for exception resolution.
+export function headroomToday() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+// ── Per-lane, per-rule BUDGET exceptions (loom#1355) ────────────────────────
+// The sibling instrument to headroom_floor_exceptions, one measurement surface
+// down. `per_rule_size_budget_bytes` is a FLAT map (rule → bytes) with no lane
+// dimension, so a language overlay that pushes ONE rule over its block
+// threshold has, historically, only had flat remedies: raise the budget for
+// EVERY lane, or delete overlay content. This stanza adds the third: accept the
+// overrun on the NAMED lane only, with an expiry and a measurement anchor.
+//
+// Fail-CLOSED on the same three axes as the headroom exception: a rule with no
+// matching entry is enforced at the flat ceiling; an entry whose `expires` has
+// PASSED resolves to null and the rule reverts to the flat ceiling (the gate
+// turns RED again); and a MALFORMED entry THROWS rather than degrading into
+// "no ceiling". Two further bounds are budget-relative and therefore checked
+// where the budgets are known (emitBaseline): an entry naming a rule with no
+// declared budget THROWS (a typo'd rule name would otherwise silently cover
+// nothing), and a grant above PER_RULE_BUDGET_EXCEPTION_MAX_MULTIPLE × budget
+// THROWS. Both are checked for EVERY declared entry on every emission, not just
+// the covered lane, so a malformed waiver cannot hide until that lane runs.
+//
+// Like its sibling, an exception FREEZES a rule at its measured size — it is
+// NOT a budget to spend. `granted_block_ceiling_bytes` is set just above the
+// MEASURED emission so any new MUST clause on that lane re-reds the gate.
+
+// A grant may not exceed this multiple of the rule's declared budget. Past 2×
+// the rule is not "slightly over" its measurement — the budget itself is wrong
+// or the rule needs abridgement/demotion, and the correct instrument is a
+// re-measured budget (spec v6 §A.2), not a waiver.
+export const PER_RULE_BUDGET_EXCEPTION_MAX_MULTIPLE = 2;
+
+const PER_RULE_BUDGET_EXCEPTION_KNOWN_CLIS = ["codex", "gemini"];
+
+// Pure parser over manifest SOURCE TEXT (not a path), so every branch is
+// testable against an in-memory copy — no tracked file is ever mutated.
+export function parsePerRuleBudgetExceptions(src) {
+  const entries = scanYamlExceptionList(src, "per_rule_budget_exceptions");
+
+  const seen = new Set();
+  return entries.map((raw) => {
+    const where = `sync-manifest.yaml::per_rule_budget_exceptions (entry at line ${raw.__line})`;
+    const must = "lane, clis, rule, granted_block_ceiling_bytes, expires and issue";
+    const lane = requireExceptionField(raw, "lane", where, must);
+    const rule = requireExceptionField(raw, "rule", where, must).replace(/^["']|["']$/g, "");
+    // Same shape the per_rule_size_budget_bytes keys use. A name that cannot be
+    // a budget key can never match one, so reject it at parse time rather than
+    // let it read as coverage.
+    if (!/^[a-z][a-z0-9-]*\.md$/.test(rule)) {
+      throw new Error(
+        `[emit] ${where}: rule "${rule}" is not a valid rule filename ` +
+          `(expected e.g. "security.md"); a name that cannot match a ` +
+          `per_rule_size_budget_bytes key would silently cover nothing.`,
+      );
+    }
+    const ceilingRaw = requireExceptionField(raw, "granted_block_ceiling_bytes", where, must);
+    const ceiling = Number(ceilingRaw);
+    if (!Number.isInteger(ceiling) || ceiling <= 0) {
+      throw new Error(
+        `[emit] ${where}: granted_block_ceiling_bytes must be a positive ` +
+          `integer byte count; got "${ceilingRaw}".`,
+      );
+    }
+    const expires = requireExceptionField(raw, "expires", where, must).replace(/^["']|["']$/g, "");
+    if (!isValidHeadroomDate(expires)) {
+      throw new Error(
+        `[emit] ${where}: expires must be a calendar-valid YYYY-MM-DD date; got "${expires}".`,
+      );
+    }
+    const issue = requireExceptionField(raw, "issue", where, must);
+    const clisRaw = requireExceptionField(raw, "clis", where, must);
+    const clis = clisRaw
+      .replace(/^\[|\]$/g, "")
+      .split(",")
+      .map((c) => c.trim().replace(/^["']|["']$/g, ""))
+      .filter(Boolean);
+    if (clis.length === 0) {
+      throw new Error(`[emit] ${where}: clis must name at least one CLI.`);
+    }
+    for (const c of clis) {
+      if (!PER_RULE_BUDGET_EXCEPTION_KNOWN_CLIS.includes(c)) {
+        throw new Error(
+          `[emit] ${where}: unknown cli "${c}" in clis; known: ` +
+            `${PER_RULE_BUDGET_EXCEPTION_KNOWN_CLIS.join(", ")}.`,
+        );
+      }
+      const dupKey = `${c}::${lane}::${rule}`;
+      if (seen.has(dupKey)) {
+        throw new Error(
+          `[emit] ${where}: duplicate exception for rule "${rule}" on lane ` +
+            `"${lane}" / cli "${c}"; two entries covering one rule make the ` +
+            `applied ceiling ambiguous.`,
+        );
+      }
+      seen.add(dupKey);
+    }
+    return {
+      lane,
+      clis,
+      rule,
+      granted_block_ceiling_bytes: ceiling,
+      expires,
+      issue: String(issue),
+      granted_on: raw.granted_on ? String(raw.granted_on).replace(/^["']|["']$/g, "") : null,
+      measured_emission_bytes: raw.measured_emission_bytes
+        ? Number(raw.measured_emission_bytes)
+        : null,
+      measured_overrun_bytes: raw.measured_overrun_bytes
+        ? Number(raw.measured_overrun_bytes)
+        : null,
+      base_budget_bytes_at_grant: raw.base_budget_bytes_at_grant
+        ? Number(raw.base_budget_bytes_at_grant)
+        : null,
+      rationale: raw.rationale ? String(raw.rationale).replace(/^["']|["']$/g, "") : null,
+    };
+  });
+}
+
+// Thin file wrapper — the parse/validate logic lives in the pure function above.
+export function loadPerRuleBudgetExceptions() {
+  // D2 EMIT-TUNING (loom#1386), fail-CLOSED direction — identical reasoning to
+  // loadHeadroomExceptions: a per-rule budget exception RAISES a block ceiling,
+  // so "no manifest ⇒ no exceptions" leaves the consumer on the flat ceiling.
+  const src = readManifestSource(REPO);
+  return parsePerRuleBudgetExceptions(src === null ? "" : src);
+}
+
+// The scope-restriction predicate. Returns the ONE exception covering this
+// (cli, lane, rule) triple and still in force, or null. Null is the safe
+// answer: every null path leaves the caller enforcing the flat ceiling.
+// `now` is injected (YYYY-MM-DD) so expiry is testable without a clock or a
+// file mutation; an absent/invalid `now` resolves to null — fail-closed.
+// Expiry is INCLUSIVE, matching resolveHeadroomException.
+export function resolvePerRuleBudgetException({ cli, lang, rule, exceptions, now }) {
+  if (!Array.isArray(exceptions) || exceptions.length === 0) return null;
+  const today = typeof now === "string" && isValidHeadroomDate(now) ? now : null;
+  if (!today) return null;
+  const lane = lang || "base";
+  for (const ex of exceptions) {
+    if (!ex || ex.lane !== lane || ex.rule !== rule) continue;
+    if (!Array.isArray(ex.clis) || !ex.clis.includes(cli)) continue;
+    if (today > ex.expires) continue; // EXPIRED → falls through to the flat ceiling
+    return ex;
+  }
+  return null;
+}
+
+// Compose the BLOCK ceiling actually enforced for this (lane, rule). `Math.max`
+// is the structural guarantee that an exception only ever moves the ceiling the
+// way it declared: a grant BELOW the flat ceiling is ignored rather than
+// silently TIGHTENING the gate on a lane nobody meant to constrain.
+export function effectivePerRuleBlockCeiling(baseCeilingBytes, exception) {
+  if (!exception) return baseCeilingBytes;
+  return Math.max(baseCeilingBytes, exception.granted_block_ceiling_bytes);
+}
+
+// Budget-relative validation. Split from the parser because the parser is pure
+// over manifest text and does not know the budget map. Called for EVERY
+// declared entry on EVERY emission so a malformed waiver surfaces on the first
+// emission of any lane, not only the one it names.
+export function assertPerRuleBudgetExceptionsBounded(exceptions, budgets) {
+  for (const ex of exceptions || []) {
+    const where = `sync-manifest.yaml::per_rule_budget_exceptions (rule "${ex.rule}", lane "${ex.lane}")`;
+    if (!budgets.has(ex.rule)) {
+      throw new Error(
+        `[emit] ${where}: no per_rule_size_budget_bytes entry exists for ` +
+          `"${ex.rule}". An exception against an unbudgeted rule covers ` +
+          `nothing and is rejected (fail-closed) rather than read as coverage.`,
+      );
+    }
+    const budget = budgets.get(ex.rule);
+    const maxGrant = budget * PER_RULE_BUDGET_EXCEPTION_MAX_MULTIPLE;
+    if (ex.granted_block_ceiling_bytes > maxGrant) {
+      throw new Error(
+        `[emit] ${where}: granted_block_ceiling_bytes ` +
+          `${ex.granted_block_ceiling_bytes}B exceeds the permitted maximum ` +
+          `${maxGrant}B (${PER_RULE_BUDGET_EXCEPTION_MAX_MULTIPLE}× the ${budget}B ` +
+          `declared budget). A rule that far over its measurement needs a ` +
+          `re-measured budget or abridgement per spec v6 §A.2, not a waiver.`,
+      );
+    }
+  }
+}
+
 // v6.2 Shard 1 — pure validator for aggregate headroom. Extracted from
 // emitBaseline so the violation shape is testable in isolation. Returns
 // an array (empty when no breach) so the call site can spread it directly
 // into the result; matches the budget_block_violations shape per plan §5.1
 // invariant 3 (per-rule budget BLOCK and aggregate-headroom BLOCK are
 // independent and both can fire on one emission).
-export function validateAggregateHeadroom({ cli, lang, emissionBytes, blockCap, floorPct }) {
+// `floorPct` is the EFFECTIVE floor for this lane — the manifest floor unless a
+// declared, unexpired exception lowered it (loom#1355). `exception` is carried
+// through only for provenance in the violation record, so a breach that happened
+// DESPITE an in-force exception is distinguishable from an ordinary breach.
+export function validateAggregateHeadroom({
+  cli,
+  lang,
+  emissionBytes,
+  blockCap,
+  floorPct,
+  exception = null,
+}) {
   if (blockCap <= 0) return [];
   const headroomFloorBytes = Math.floor(blockCap * (1 - floorPct / 100));
   const livePctRaw = ((blockCap - emissionBytes) / blockCap) * 100;
@@ -737,12 +1209,21 @@ export function validateAggregateHeadroom({ cli, lang, emissionBytes, blockCap, 
       headroom_floor_pct: floorPct,
       headroom_floor_bytes: headroomFloorBytes,
       under_by_bytes: emissionBytes - headroomFloorBytes,
+      exception_applied: exception
+        ? { lane: exception.lane, granted_floor_pct: exception.granted_floor_pct, expires: exception.expires, issue: exception.issue }
+        : null,
       remediation:
         "v6.2 Risk-0004 floor breach: per workspaces/multi-cli-coc/02-plans/" +
         "08-loom-v6.2-headroom-validator.md, demote a CRIT rule to path-scoped " +
         "(per v6 §A.2 + the v2.13.0/v2.19.0/v6.2-Shard-3 precedent), tighten a " +
         "per-rule budget, or trim emission. block_cap raise (option b) is BLOCKED " +
-        "without explicit Codex-override-ceiling-stable evidence per plan §3.2.",
+        "without explicit Codex-override-ceiling-stable evidence per plan §3.2. " +
+        (exception
+          ? "NOTE: a declared headroom_floor_exception is already in force on this " +
+            "lane and the emission breached it anyway — the lane has grown since the " +
+            "grant. Re-measure and re-decide the exception; do NOT widen it reflexively."
+          : "A per-lane headroom_floor_exception in sync-manifest.yaml is a co-owner " +
+            "decision (documented, measured and time-bounded), NOT a self-service escape."),
     },
   ];
 }
@@ -802,6 +1283,14 @@ export function emitBaseline(cli, outDir, { lang = null, verbose = false, dryRun
   const budgets = loadPerRuleBudgets();
   const tolerance = loadBudgetTolerance();
   const blockThreshold = loadBudgetBlockThreshold();
+  // loom#1355 — declared per-lane, per-rule budget exceptions. Bounds that
+  // depend on the budget map are asserted here for EVERY declared entry (not
+  // just the ones covering this lane), so a typo'd rule name or an over-broad
+  // grant halts the first emission of any lane instead of hiding until the
+  // named lane runs.
+  const perRuleBudgetExceptions = loadPerRuleBudgetExceptions();
+  assertPerRuleBudgetExceptionsBounded(perRuleBudgetExceptions, budgets);
+  const perRuleBudgetExceptionsApplied = [];
   const perRuleReport = [];
   const chunks = [];
   const allWarnings = [];
@@ -826,7 +1315,27 @@ export function emitBaseline(cli, outDir, { lang = null, verbose = false, dryRun
       const budget = budgets.get(rule);
       const tolHigh = Math.floor(budget * (1 + tolerance));
       const tolLow = Math.floor(budget * (1 - tolerance));
-      const blockHigh = Math.floor(budget * (1 + blockThreshold));
+      const baseBlockHigh = Math.floor(budget * (1 + blockThreshold));
+      // loom#1355 — a declared, unexpired exception for THIS (cli, lane, rule)
+      // raises the BLOCK ceiling for this rule on this lane only. It does NOT
+      // touch tolHigh: an exercised exception still emits the `over` WARN
+      // below, so the drift signal survives the waiver.
+      const budgetException = resolvePerRuleBudgetException({
+        cli,
+        lang,
+        rule,
+        exceptions: perRuleBudgetExceptions,
+        now: headroomToday(),
+      });
+      const blockHigh = effectivePerRuleBlockCeiling(baseBlockHigh, budgetException);
+      if (budgetException && blockHigh > baseBlockHigh) {
+        perRuleBudgetExceptionsApplied.push({
+          ...budgetException,
+          base_block_threshold_bytes: baseBlockHigh,
+          effective_block_ceiling_bytes: blockHigh,
+          bytes,
+        });
+      }
       if (bytes > blockHigh) {
         budgetStatus = "block";
         const overByPct = ((bytes / budget - 1) * 100).toFixed(1);
@@ -837,6 +1346,7 @@ export function emitBaseline(cli, outDir, { lang = null, verbose = false, dryRun
           block_threshold_bytes: blockHigh,
           over_by_bytes: bytes - blockHigh,
           over_by_pct: Number(overByPct),
+          exception_applied: Boolean(budgetException),
         });
         budgetWarnings.push(
           `${rule}: ${bytes}B BLOCKS budget ${budget}B (+${blockThreshold * 100}% block_threshold = ${blockHigh}B); over by ${bytes - blockHigh}B (+${overByPct}% of budget)`,
@@ -844,7 +1354,10 @@ export function emitBaseline(cli, outDir, { lang = null, verbose = false, dryRun
       } else if (bytes > tolHigh) {
         budgetStatus = "over";
         budgetWarnings.push(
-          `${rule}: ${bytes}B over budget ${budget}B (+${tolerance * 100}% = ${tolHigh}B); over by ${bytes - tolHigh}B`,
+          `${rule}: ${bytes}B over budget ${budget}B (+${tolerance * 100}% = ${tolHigh}B); over by ${bytes - tolHigh}B` +
+            (budgetException
+              ? ` — NOT blocking: declared per-rule budget exception (issue #${budgetException.issue}, lane '${budgetException.lane}', ceiling ${blockHigh}B, EXPIRES ${budgetException.expires})`
+              : ""),
         );
       } else if (bytes < tolLow) {
         budgetStatus = "under";
@@ -903,6 +1416,33 @@ export function emitBaseline(cli, outDir, { lang = null, verbose = false, dryRun
   // block_cap as headroom. Default 10% per Risk-0004 contract; per-CLI
   // override via cli_variants.context/root.md.<cli>.headroom_floor_pct.
   const HEADROOM_FLOOR_PCT = caps.headroom_floor_pct;
+  // loom#1355 — a DECLARED, unexpired, per-lane exception may lower the floor
+  // for THIS lane only. loadHeadroomExceptions THROWS on a malformed
+  // declaration (no silent degradation to "no floor"); resolveHeadroomException
+  // returns null for every non-matching / expired / unclocked case, so a lane
+  // without a live grant is enforced at the full manifest floor.
+  const headroomException = resolveHeadroomException({
+    cli,
+    lang,
+    exceptions: loadHeadroomExceptions(),
+    now: headroomToday(),
+  });
+  const EFFECTIVE_HEADROOM_FLOOR_PCT = effectiveHeadroomFloorPct(
+    HEADROOM_FLOOR_PCT,
+    headroomException,
+  );
+  if (headroomException) {
+    // Loud by construction: an accepted breach that nobody can see is the
+    // failure mode this whole mechanism exists to prevent (loom#1348 — the
+    // original rs breach survived 11 days because nothing surfaced it).
+    console.log(
+      `[${cli}${lang ? " " + lang : ""}] headroom-floor EXCEPTION APPLIED: floor ` +
+        `${HEADROOM_FLOOR_PCT}% → ${EFFECTIVE_HEADROOM_FLOOR_PCT}% for lane ` +
+        `'${headroomException.lane}' (declared in sync-manifest.yaml, issue #${headroomException.issue}, ` +
+        `EXPIRES ${headroomException.expires} — on expiry this lane reverts to the ` +
+        `${HEADROOM_FLOOR_PCT}% floor and the gate turns RED again).`,
+    );
+  }
   let tier;
   if (emissionBytes >= BLOCK_CAP) tier = "BLOCK";
   else if (emissionBytes >= WARN_CAP) tier = "WARN";
@@ -921,19 +1461,24 @@ export function emitBaseline(cli, outDir, { lang = null, verbose = false, dryRun
     lang,
     emissionBytes,
     blockCap: BLOCK_CAP,
-    floorPct: HEADROOM_FLOOR_PCT,
+    floorPct: EFFECTIVE_HEADROOM_FLOOR_PCT,
+    exception: headroomException,
   });
 
   // F23a proximity-band advisory (rule-authoring.md MUST Rule 10).
   // Default 15%; per-CLI override via sync-manifest.yaml::cli_variants.context/root.md.<cli>.headroom_proximity_band_pct.
   const proximityBandPct =
     (caps.headroom_proximity_band_pct ?? HEADROOM_PROXIMITY_BAND_PCT_DEFAULT);
+  // Uses the EFFECTIVE floor so the band stays continuous with the gate: on a
+  // lane holding an exception the BLOCK case starts at the granted floor, and
+  // the advisory keeps firing above it (visibility is the point — a lane living
+  // on an exception must stay noisy, not go quiet).
   const proximityBandAdvisory = getProximityBandAdvisory({
     cli,
     lang,
     emissionBytes,
     blockCap: BLOCK_CAP,
-    floorPct: HEADROOM_FLOOR_PCT,
+    floorPct: EFFECTIVE_HEADROOM_FLOOR_PCT,
     proximityBandPct,
   });
   if (proximityBandAdvisory) {
@@ -973,12 +1518,15 @@ export function emitBaseline(cli, outDir, { lang = null, verbose = false, dryRun
       block_cap_bytes: BLOCK_CAP,
       headroom_bytes: headroomBytesForReport,
       headroom_pct: headroomPctForReport,
-      headroom_floor_pct: HEADROOM_FLOOR_PCT,
+      headroom_floor_pct: EFFECTIVE_HEADROOM_FLOOR_PCT,
+      headroom_floor_pct_declared: HEADROOM_FLOOR_PCT,
+      headroom_floor_exception: headroomException,
       headroom_floor_violations: headroomFloorViolations,
       binding_token_violations: bindingTokenViolations,
       proximity_band_advisory: proximityBandAdvisory,
       budget_warnings: budgetWarnings,
       budget_block_violations: budgetBlockViolations,
+      per_rule_budget_exceptions_applied: perRuleBudgetExceptionsApplied,
       per_rule: perRuleReport,
       warnings: allWarnings,
       dry_run: true,
@@ -1000,7 +1548,9 @@ export function emitBaseline(cli, outDir, { lang = null, verbose = false, dryRun
         block_cap_bytes: BLOCK_CAP,
         headroom_bytes: headroomBytesForReport,
         headroom_pct: headroomPctForReport,
-        headroom_floor_pct: HEADROOM_FLOOR_PCT,
+        headroom_floor_pct: EFFECTIVE_HEADROOM_FLOOR_PCT,
+        headroom_floor_pct_declared: HEADROOM_FLOOR_PCT,
+        headroom_floor_exception: headroomException,
         headroom_floor_violations: headroomFloorViolations,
         binding_token_violations: bindingTokenViolations,
         proximity_band_advisory: proximityBandAdvisory,
@@ -1008,6 +1558,7 @@ export function emitBaseline(cli, outDir, { lang = null, verbose = false, dryRun
         per_rule: perRuleReport,
         budget_warnings: budgetWarnings,
         budget_block_violations: budgetBlockViolations,
+        per_rule_budget_exceptions_applied: perRuleBudgetExceptionsApplied,
         warnings: allWarnings,
       },
       null,
@@ -1043,12 +1594,15 @@ export function emitBaseline(cli, outDir, { lang = null, verbose = false, dryRun
     block_cap_bytes: BLOCK_CAP,
     headroom_bytes: headroomBytes,
     headroom_pct: Number(headroomPct.toFixed(2)),
-    headroom_floor_pct: HEADROOM_FLOOR_PCT,
+    headroom_floor_pct: EFFECTIVE_HEADROOM_FLOOR_PCT,
+    headroom_floor_pct_declared: HEADROOM_FLOOR_PCT,
+    headroom_floor_exception: headroomException,
     headroom_floor_violations: headroomFloorViolations,
     binding_token_violations: bindingTokenViolations,
     proximity_band_advisory: proximityBandAdvisory,
     budget_warnings: budgetWarnings,
     budget_block_violations: budgetBlockViolations,
+    per_rule_budget_exceptions_applied: perRuleBudgetExceptionsApplied,
   };
 }
 
@@ -1362,10 +1916,53 @@ export function _artifactIsManaged(rel, patterns) {
   return false;
 }
 
+// ── V15 CLASS RULING (loom#1386) ──────────────────────────────────────────────
+// V15 is a LOOM-ONLY gate. Its proposition is "every artifact's DISTRIBUTION
+// FATE is consciously declared in sync-manifest.yaml" — and distribution fate is
+// declared by the SPLITTER, in loom's manifest, when loom classifies an incoming
+// proposal (knowledge-cascade-routing.md:50: "the manifest gate is LOOM-side, NOT
+// the originator's ... The ABSENCE of a local `sync-manifest.yaml` in an
+// originator is EXPECTED"). A consumer neither owns nor declares that fate, so on
+// a manifest-forbidden class there is NO PROPOSITION for V15 to assert.
+//
+// The two rejected alternatives, and why:
+//   - RUN IT ANYWAY (status quo ante): every read returns empty, so every one of
+//     the repo's rules/agents/skills/commands reports "unmanaged". Measured on a
+//     consumer fixture: 183 false failures. It does not merely mis-report, it
+//     BLOCKS emit at a gate whose claim is false there.
+//   - PASS VACUOUSLY: a printed PASS is indistinguishable from a real assertion,
+//     which is the fail-OPEN shape #1383 rejected for V16. A gate that asserts
+//     nothing must SAY it asserted nothing.
+// So the verdict carries an explicit third state, `skipped` + `skipReason`, and
+// main() prints SKIP with the reason. Precedent: validate-emit.mjs's F1030d
+// consumer skip ("community-edition completeness is a loom-only concern; skipped
+// at a consumer").
+//
+// WHAT A CONSUMER LOSES: nothing it ever had — the check was never TRUE there.
+// Consumer-side artifact management runs through `/sync-from-template` merge, not
+// tier subscription. A consumer-local orphan check would be a NEW validator with
+// a consumer-true proposition, not this one.
 export function validateTierCompleteness() {
-  const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
+  if (!isManifestOwnerClass(REPO)) {
+    const { type } = readRepoClass(REPO);
+    return {
+      pass: true,
+      skipped: true,
+      skipReason:
+        `class:${type} → distribution fate is declared in LOOM's ` +
+        `sync-manifest.yaml, never here (a local manifest would be a SECOND ` +
+        `distribution source — see validator 16). Tier-completeness has no ` +
+        `proposition to assert on a "${type}" repo, so it asserts none rather ` +
+        `than reporting every local artifact as "unmanaged".`,
+      failures: [],
+      advisories: [],
+    };
+  }
   const rulesDir = path.join(REPO, ".claude", "rules");
-  const text = safeReadFileSync(manifestPath, "utf8");
+  // Owner class: absence here is a DEFECT, and readManifestSource throws LOUD on
+  // it — preserving #1383's fail-closed direction at the reader as well as at
+  // V16. `text` is non-null precisely because of the class gate above.
+  const text = readManifestSource(REPO);
 
   // Slice a top-level YAML block: from the line AFTER `^<key>:` to the
   // next column-0 key. Slicing must start past the key's own newline —
@@ -1554,6 +2151,16 @@ export function validateTierCompleteness() {
 // out, so emit.mjs stays Node-dependency-free) MUST succeed or emit
 // hard-fails. Runs BEFORE Validator 15 in main() — V15's regex section
 // parse is only trustworthy on a syntactically valid manifest.
+//
+// CLASS-CONDITIONAL since loom#1383. emit.mjs ships verbatim to consumers
+// of every repo class, and the original gate demanded a manifest in ALL of
+// them — so `emit.mjs --all` exited 1 in every coc-build repo, which is
+// architecturally REQUIRED not to hold one. The gate now reads
+// `.claude/VERSION::type` and asserts the class-appropriate expectation:
+// coc-source MUST hold a manifest that parses; coc-build/coc-use-template/
+// coc-project MUST NOT hold one at all (see _classifyManifestPresence for
+// the split-brain rationale). Both directions FAIL — this is STRICTER than
+// the original in both, never "skip when absent".
 // Pure classification of the python-YAML-probe result → {pass, failures}.
 // Exported for test. Distinguishes FOUR dispositions so an ENVIRONMENT gap is
 // never reported as a manifest defect (evidence-first-claims: assert only what
@@ -1596,6 +2203,24 @@ export function _classifyManifestYamlProbe(r) {
       ],
     };
   }
+  // MISSING/UNREADABLE is NOT malformed (loom#1383 defect 2). The probe now
+  // catches OSError on open() separately and tags it, so a file that never
+  // opened can never be reported as a PARSE failure. Before this, `open()` on a
+  // missing path raised FileNotFoundError straight past the `yaml.YAMLError`
+  // handler and surfaced verbatim under "is not valid YAML" — two different
+  // conditions, one indistinguishable error. Ordered AFTER the two env-gap
+  // branches (an `import yaml` failure precedes any open()) and BEFORE the
+  // generic non-zero branch, which stays the malformed-manifest disposition.
+  if (r.status !== 0 && /^MANIFEST_UNREADABLE: /m.test(stderr)) {
+    return {
+      pass: false,
+      failures: [
+        `sync-manifest.yaml could not be OPENED (missing or unreadable) — ` +
+          `this is NOT a YAML syntax defect: ` +
+          `${stderr.replace(/^MANIFEST_UNREADABLE: /m, "").slice(0, 400)}`,
+      ],
+    };
+  }
   if (r.status !== 0) {
     return {
       pass: false,
@@ -1605,16 +2230,128 @@ export function _classifyManifestYamlProbe(r) {
   return { pass: true, failures: [] };
 }
 
+// ────────────────────────────────────────────────────────────────
+// Repo-class resolution for the class-conditional V16 gate (loom#1383).
+//
+// `.claude/VERSION::type` is the repo's CLASS declaration (see
+// .claude/hooks/lib/version-utils.js:4-8 for the canonical four). emit.mjs is
+// DISTRIBUTED verbatim to consumers of every class, so any gate it runs must
+// assert something true FOR THE CLASS IT IS RUNNING IN — not for loom.
+//
+// loom#1386 MOVED `readRepoClass` + MANIFEST_OWNER_CLASS /
+// MANIFEST_FORBIDDEN_CLASSES / KNOWN_REPO_CLASSES to `lib/manifest-source.mjs`
+// (imported + re-exported at the top of this file, so every prior importer is
+// unaffected). The move is REQUIRED, not cosmetic: `lib/coc-manifest.mjs` and
+// `lib/variant-overlay.mjs` also need the class read, and emit.mjs already
+// imports FROM emit-cli-artifacts.mjs → lib/coc-manifest.mjs, so having them
+// import the class read back from HERE would be a cycle. manifest-source.mjs
+// carries zero internal imports for exactly that reason.
+
+// Pure class→expectation+presence classifier (no filesystem, no spawn) so every
+// branch is unit-testable. Returns {pass, failures, probe}: `probe` true means
+// the caller MUST still run the strict-YAML parse (owner class, file present).
+//
+// WHY the non-owner classes assert MUST-NOT-EXIST rather than skipping:
+// a second manifest is a SECOND DISTRIBUTION SOURCE. `sync-manifest.yaml` is
+// where an artifact's distribution fate is declared; loom declares it when it
+// CLASSIFIES an incoming proposal (knowledge-cascade-routing.md:50 —
+// "the manifest gate is LOOM-side, NOT the originator's ... The ABSENCE of a
+// local `sync-manifest.yaml` in an originator is EXPECTED"). Two manifests means
+// two places declaring that fate; when they disagree an artifact either cascades
+// twice or not at all — and NOTHING detects the divergence, because each repo's
+// own run is green against its own manifest. So absence is not merely tolerated
+// in a consumer, it is REQUIRED; and "skip the gate when the file is absent"
+// is rejected outright — that is a fail-OPEN gate on unconfigured input, which
+// would also stop catching a genuinely-missing manifest at loom.
+export function _classifyManifestPresence({
+  repoClass,
+  classError,
+  manifestExists,
+}) {
+  if (classError) {
+    return {
+      pass: false,
+      probe: false,
+      failures: [
+        `repo class UNRESOLVED — ${classError}. Validator 16 asserts a ` +
+          `DIFFERENT manifest expectation per class (${MANIFEST_OWNER_CLASS}: ` +
+          `manifest MUST exist; ${MANIFEST_FORBIDDEN_CLASSES.join("/")}: ` +
+          `manifest MUST NOT exist), so it fails CLOSED rather than guess. ` +
+          `Repair .claude/VERSION before emit.`,
+      ],
+    };
+  }
+  if (repoClass === MANIFEST_OWNER_CLASS) {
+    if (!manifestExists) {
+      return {
+        pass: false,
+        probe: false,
+        failures: [
+          `sync-manifest.yaml is MISSING (not malformed) — a ` +
+            `${MANIFEST_OWNER_CLASS} repo is the splitter/distributor and MUST ` +
+            `hold the manifest that declares every artifact's distribution ` +
+            `fate. Without it nothing cascades. Restore ` +
+            `.claude/sync-manifest.yaml before emit.`,
+        ],
+      };
+    }
+    return { pass: true, probe: true, failures: [] };
+  }
+  // Non-owner class: the manifest MUST NOT exist.
+  if (manifestExists) {
+    return {
+      pass: false,
+      probe: false,
+      failures: [
+        `sync-manifest.yaml MUST NOT exist in a "${repoClass}" repo — found ` +
+          `one. A local manifest is a SECOND distribution source: loom already ` +
+          `declares this repo's artifacts' distribution fate when it classifies ` +
+          `the proposal, so a local manifest claims to classify them too. When ` +
+          `the two disagree an artifact either cascades twice or not at all, ` +
+          `and nothing detects the divergence. Originate via /codify → ` +
+          `.claude/.proposals/latest.yaml and DELETE the local manifest ` +
+          `(knowledge-cascade-routing.md § Scope).`,
+      ],
+    };
+  }
+  return { pass: true, probe: false, failures: [] };
+}
+
+// The strict-YAML probe source. Exported so the test suite can drive the REAL
+// python behaviour (the OSError-vs-YAMLError split) against the same string
+// emit runs, instead of a hand-copied duplicate that would silently drift.
+// open() is guarded separately from safe_load() so a file that cannot be OPENED
+// reports as MANIFEST_UNREADABLE, never as a parse failure (loom#1383 defect 2).
+export const _MANIFEST_YAML_PROBE_PY =
+  "import sys,yaml\n" +
+  "try:\n fh = open(sys.argv[1])\n" +
+  "except OSError as e:\n sys.stderr.write('MANIFEST_UNREADABLE: ' + str(e))\n sys.exit(3)\n" +
+  "try:\n yaml.safe_load(fh)\n" +
+  "except yaml.YAMLError as e:\n sys.stderr.write(str(e))\n sys.exit(1)\n" +
+  "finally:\n fh.close()";
+
+// Validator 16 entry point — class-conditional (loom#1383). `manifestPath` and
+// `repoRoot` are both injectable so fixture trees can drive every class branch
+// without mutating the live repo.
 export function validateManifestYaml(
   manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml"),
+  repoRoot = REPO,
 ) {
+  const { type: repoClass, error: classError } = readRepoClass(repoRoot);
+  const presence = _classifyManifestPresence({
+    repoClass,
+    classError,
+    manifestExists: fs.existsSync(manifestPath),
+  });
+  if (!presence.probe) {
+    return { pass: presence.pass, failures: presence.failures };
+  }
+  // Owner class with the manifest present — it must also PARSE.
+  // The probe's own OSError guard is a defence-in-depth backstop for the
+  // check-to-use window between the fs.existsSync above and this spawn.
   const r = spawnSync(
     "python3",
-    [
-      "-c",
-      "import sys,yaml\ntry:\n yaml.safe_load(open(sys.argv[1]))\nexcept yaml.YAMLError as e:\n sys.stderr.write(str(e))\n sys.exit(1)",
-      manifestPath,
-    ],
+    ["-c", _MANIFEST_YAML_PROBE_PY, manifestPath],
     { encoding: "utf8" },
   );
   return _classifyManifestYamlProbe(r);
@@ -1640,10 +2377,33 @@ export function validateManifestYaml(
 // distributes it. Structural exit per hook-output-discipline.md
 // MUST-2 (file-existence + tier-membership are structural signals,
 // not lexical regex).
+// ── V17 CLASS RULING (loom#1386) — a SPLIT, not a blanket skip ────────────────
+// V17 bundles TWO propositions with different class-truth, and the pre-#1386 code
+// could not reach the second one on a consumer because it died on the manifest
+// read between them.
+//
+//   HALF A — hook ⇔ schema FILE coupling ("if roster-schema-validate.js /
+//     genesis-anchor-guard.js are present, .claude/operators.roster.schema.json
+//     MUST be present"). This is CLASS-INDEPENDENT and it is the half that
+//     protects the CONSUMER: the failure V17 exists to block is a consumer whose
+//     genesis-anchor-guard fail-closes EVERY COMMIT ("operators roster missing;
+//     trust root not established") with no in-repo recovery path, because the
+//     schema is not consumer-authorable. That proposition is true, checkable, and
+//     load-bearing on a coc-build / coc-use-template / coc-project repo.
+//
+//   HALF B — manifest tier-membership + the F70 end-to-end
+//     `sync-tier-aware --target <t> --dry-run` sweep. BOTH are DISTRIBUTION
+//     assertions: tier membership is loom's declaration, and `declaredTargets`
+//     below is LOOM's sync-target list. A consumer has no sync targets, so half B
+//     asserts loom's distribution plan from inside a repo that has none.
+//
+// Blanket-skipping V17 on a consumer would have been the easy ruling and it is
+// WORSE than the split: it would leave the consumer-protecting half A unrun
+// forever, which is exactly the state the crash produced. So half A runs
+// everywhere; half B is gated on the owner class and reports `skipped`.
 export function validateRosterSchemaCoupling() {
   const hooksRoot = path.join(REPO, ".claude", "hooks");
   const schemaPath = path.join(REPO, ".claude", "operators.roster.schema.json");
-  const manifestPath = path.join(REPO, ".claude", "sync-manifest.yaml");
 
   const validatorJs = path.join(hooksRoot, "lib", "roster-schema-validate.js");
   const guardJs = path.join(hooksRoot, "genesis-anchor-guard.js");
@@ -1665,6 +2425,25 @@ export function validateRosterSchemaCoupling() {
     );
     return { pass: false, failures };
   }
+  // ── END HALF A (class-independent). Everything below is HALF B. ──
+  // On a manifest-forbidden class half A has now run to completion — which is
+  // strictly MORE consumer protection than before loom#1386, when the read three
+  // lines down threw ENOENT and the whole validator (half A included) never
+  // produced a verdict.
+  if (!isManifestOwnerClass(REPO)) {
+    const { type } = readRepoClass(REPO);
+    return {
+      pass: true,
+      skipped_half_b: true,
+      skipReason:
+        `class:${type} → half A (hook ⇔ schema file coupling) RAN and passed; ` +
+        `half B (manifest tier-membership + the F70 sync-tier-aware per-target ` +
+        `dry-run) is a DISTRIBUTION assertion — tier membership is declared in ` +
+        `loom's manifest and a "${type}" repo has no sync targets — so it is not ` +
+        `asserted here.`,
+      failures,
+    };
+  }
 
   // Manifest tier-membership check. The schema MUST appear as a
   // bare-name entry in the `tiers:` block — NOT in `use_exclude:`
@@ -1675,7 +2454,9 @@ export function validateRosterSchemaCoupling() {
   // V17 exists to block. Mirroring V15's sliceBlock pattern keeps
   // the validator's mechanical sweep scope-matched to its prose
   // claim ("the schema MUST appear in a TIER").
-  const manifestText = safeReadFileSync(manifestPath, "utf8");
+  // Owner class (gated above): absence is a DEFECT and readManifestSource throws
+  // LOUD rather than degrading half B into a vacuous pass.
+  const manifestText = readManifestSource(REPO);
   // Slice the `tiers:` block: from the line AFTER `^tiers:` to the
   // next column-0 key. Same shape as validateTierCompleteness above
   // (lines 939-948); duplicated rather than factored to keep V17
@@ -1729,7 +2510,10 @@ export function validateRosterSchemaCoupling() {
   // target × 5 targets ≈ 5-10s. Borne at /codify validation time, not
   // at every emit.mjs invocation; opt-in via an env var would defeat
   // the regression-lock so the deep check is unconditional.
-  const declaredTargets = ["py", "rs", "rb", "base", "prism"];
+  // loom#1501 (L4) — the module-level EMIT_LANGS, not a second inline literal.
+  // V17's declared targets and `--lang`'s accepted lanes are the SAME axis; two
+  // copies is the shape where retiring a lane updates one and leaves the other.
+  const declaredTargets = EMIT_LANGS;
   const syncTierAwarePath = path.join(REPO, ".claude", "bin", "sync-tier-aware.mjs");
   const SCHEMA_PLAN_PATH = ".claude/operators.roster.schema.json";
   // Use a synthetic --out path so the loom-links resolver is bypassed:
@@ -1909,6 +2693,59 @@ const EMIT_USAGE =
   "usage: emit.mjs [--cli codex|gemini] [--lang py|rs] [--all] " +
   "[--out <dir>] [--dry-run] [--no-strict-headroom] [-v]";
 
+// loom#1501 (L4) — the axes are DECLARED in `./lib/emit-axes.mjs` and imported
+// at the top of this file. `emit-shape.test.mjs` walks the declared (cli × lang)
+// matrix and V17's target loop consumes the same list, so the emission axes and
+// the distribution axes cannot drift apart.
+//
+// ONE BOUND, stated rather than implied. Because `rb` has no overlay directory,
+// `--lang rb` composes to the same bytes as a no-`--lang` run today. That is a
+// property of the DECLARATION (a lane whose overrides are all inherited), not a
+// defect of the check below — but it is NOT left silent either: `noteAbsentOverlay`
+// prints the fact, because a byte count an operator cannot attribute to a lane is
+// the same non-discriminating reading this whole check exists to prevent. See
+// there for why the disposition is loud-succeed rather than fail-closed.
+
+/**
+ * loom#1501 (L4). `--lang <declared-lane-with-no-overlay-dir>` is LEGAL and
+ * MUST succeed — rejecting it is precisely the F1 defect (a declared lane made
+ * invalid by a disk probe). But succeeding SILENTLY is its own instrument
+ * failure, one layer in. Measured, on the codex CLI:
+ *
+ *   emit.mjs --cli codex --lang rb --dry-run  →  "[codex rb] WARN: 11 rules, 53168B"
+ *   emit.mjs --cli codex --lang py --dry-run  →  "[codex py] WARN: 11 rules, 53168B"
+ *
+ * Byte-identical. Nothing in that line lets the operator distinguish "`rb`
+ * genuinely has no lane-specific overrides, so this IS `rb`'s composition" from
+ * "my `--lang` never took effect and I am reading some other lane" — the reading
+ * `instrument-discipline.md` MUST-1 forbids citing, and the exact shape that made
+ * the empty-`$L` trap costly (a plausible number for the wrong lane).
+ *
+ * Hence: LOUD-SUCCEED. Failing closed is wrong (it re-creates F1); succeeding
+ * silently is wrong (a number the operator cannot attribute); naming the absence
+ * makes the number readable. This is `security.md` § Secure-Default's second
+ * branch — when fail-closed is not the correct default, emit a loud notice
+ * naming what is not in effect.
+ *
+ * Written to stderr, so it cannot contaminate a stdout-parsing consumer
+ * (`validate-proximity-band.mjs` scrapes emit's stdout for lane rows).
+ */
+export function noteAbsentOverlay(lang) {
+  if (!lang) return false; // a no-`--lang` run claims no lane; nothing to attribute
+  const overlayDir = path.join(REPO, ".claude", "variants", lang);
+  if (fs.existsSync(overlayDir)) return false;
+  process.stderr.write(
+    `emit.mjs: NOTICE — lane ${JSON.stringify(lang)} is DECLARED but has no ` +
+      `overlay directory (${path.relative(REPO, overlayDir)}).\n` +
+      `  This is legal: a lane whose overrides are all inherited composes ` +
+      `identically to a run with no --lang flag.\n` +
+      `  It is reported because the byte count below is therefore NOT ` +
+      `lane-specific — do not cite it as evidence about ${JSON.stringify(lang)} ` +
+      `in particular.\n`,
+  );
+  return true;
+}
+
 export function parseArgs(argv) {
   const args = {
     cli: null,
@@ -1929,12 +2766,29 @@ export function parseArgs(argv) {
     // callers (and the emit-shape harness) can assert the warning fired
     // without scraping stderr. A typo'd --no-strict-headroom lands here.
     unknownArgs: [],
+    // loom#1501 (L4). `*Seen` is tracked separately from the value because
+    // `argv[++i]` is `undefined` when the flag is the LAST token, which is
+    // indistinguishable from "the flag was never passed" if you only read the
+    // value. Declared HERE rather than assigned only on the matching branch, so
+    // the returned key set does not vary by input — a shape a caller can rely on.
+    cliSeen: false,
+    outSeen: false,
+    langSeen: false,
+    // Populated by the shared value-flag check below.
+    flagDefects: [],
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === "--cli") args.cli = argv[++i];
-    else if (a === "--out") args.out = argv[++i];
-    else if (a === "--lang") args.lang = argv[++i];
+    if (a === "--cli") {
+      args.cliSeen = true;
+      args.cli = argv[++i];
+    } else if (a === "--out") {
+      args.outSeen = true;
+      args.out = argv[++i];
+    } else if (a === "--lang") {
+      args.langSeen = true;
+      args.lang = argv[++i];
+    }
     else if (a === "--all") args.all = true;
     else if (a === "--dry-run") args.dryRun = true;
     else if (a === "-v" || a === "--verbose") args.verbose = true;
@@ -1949,6 +2803,98 @@ export function parseArgs(argv) {
     // trip diagnosing why their explicit opt-out never fired.
     else args.unknownArgs.push(a);
   }
+  // ── loom#1501 (L4) — EVERY value-taking flag MUST receive a value ────────
+  //
+  // THE TRAP THIS CLOSES, reproduced before it was written. With an unquoted
+  // shell variable that happens to be EMPTY, the shell drops the word entirely:
+  //
+  //     emit.mjs --cli codex --lang $L --all   →   ["--cli","codex","--lang","--all"]
+  //
+  // so `--lang` swallowed `--all`, `args.all` never got set, and the run
+  // emitted the BASE lane while reporting a perfectly plausible byte count
+  // (53168B / 13.46%). A typo does the same thing more quietly: `--lang rss`
+  // emits base's exact numbers at exit 0. Both produce a VALID MEASUREMENT OF
+  // THE WRONG LANE — the shape instrument-discipline.md MUST-1 forbids citing,
+  // because nothing the operator reads off the run distinguishes it from the
+  // lane they asked for. It bit twice in one cycle, the second time in a lane
+  // that had itself documented the trap.
+  //
+  // It is fixed HERE and not in a Bash hook, deliberately: a PreToolUse hook
+  // sees `payload.tool_input.command` PRE-EXPANSION, so the very same command
+  // string is correct when `$L` is set and wrong when it is empty. A hook
+  // therefore cannot discriminate, and hook-output-discipline.md MUST-3
+  // requires it to SKIP shell-variable operands rather than guess. The signal
+  // exists only after the shell has expanded — i.e. right here, in argv.
+  //
+  // The valid set is the DECLARATION (`EMIT_LANGS`), not `.claude/variants/` on
+  // disk. An earlier cut of this check derived it from disk and this comment
+  // argued that made it drift-proof; the opposite was true, and it was wrong in
+  // both directions at once — see EMIT_LANGS for the measured cases. `--lang
+  // codex` (a CLI axis passed on the language axis) is now rejected too, which
+  // that draft explicitly recorded as an accepted miss.
+  //
+  // Recorded on `args` rather than exiting in-place, mirroring `unknownArgs`
+  // above: parseArgs is exported and exercised directly by the harness, so the
+  // process-level disposition belongs to main().
+  // ONE shared check across all three, per security.md § Enforcement-Surface
+  // Parity: `--cli` and `--out` carry the IDENTICAL defect and were left unfixed
+  // in the first cut of this change. `--cli $C --all` with $C empty yields
+  // `cli === "--all"` and `all` never set; `--out $O --dry-run` writes to a
+  // directory literally named `--dry-run` with dryRun FALSE. Three copies of
+  // this check is the shape that leaves one of them a version behind.
+  const checkValueFlag = (flag, seen, value, extra) => {
+    if (!seen) return;
+    if (value === undefined || value === null) {
+      args.flagDefects.push(
+        `${flag} got no value — it was the last token on the command line`,
+      );
+      return;
+    }
+    if (value === "") {
+      // Distinct from the case above: `--lang ""` DID receive a token, it is just
+      // empty. Reporting it as "last token on the command line" sends the reader
+      // to look for a missing operand that is right there in quotes.
+      args.flagDefects.push(`${flag} got an EMPTY value`);
+      return;
+    }
+    const v = String(value);
+    if (v.startsWith("-")) {
+      args.flagDefects.push(
+        `${flag} got ${JSON.stringify(v)}, which is a FLAG, not a value — an ` +
+          `unquoted empty shell variable dropped the value and \`${flag}\` ate the next flag`,
+      );
+      return;
+    }
+    const msg = extra ? extra(v) : null;
+    if (msg) args.flagDefects.push(`${flag} got ${msg}`);
+  };
+
+  checkValueFlag("--cli", args.cliSeen, args.cli, (v) =>
+    EMIT_CLIS.includes(v)
+      ? null
+      : `${JSON.stringify(v)}, which is not a known CLI (expected ${EMIT_CLIS.join(" or ")})`,
+  );
+  checkValueFlag("--lang", args.langSeen, args.lang, (v) => {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(v)) {
+      return `${JSON.stringify(v)}, which is not a well-formed lane name`;
+    }
+    // Against the DECLARATION, never against `.claude/variants/` on disk — see
+    // EMIT_LANGS. A disk probe rejects `rb` (declared, no overlay dir) and
+    // accepts `codex` (an overlay dir that is not a lang lane); an `existsSync`
+    // disk probe additionally accepts any FILE, so `--lang README.md` passed and
+    // emitted base output byte-identical to a no-lang run — exactly the silent
+    // lane-shift this check's own error string claims to prevent.
+    if (!EMIT_LANGS.includes(v)) {
+      return (
+        `${JSON.stringify(v)}, which is not a declared lane ` +
+        `(expected ${EMIT_LANGS.join(", ")}) — the run would silently emit the BASE lane`
+      );
+    }
+    return null;
+  });
+  // `--out` takes an arbitrary path, so only the two shared arms apply.
+  checkValueFlag("--out", args.outSeen, args.out, null);
+
   if (args.unknownArgs.length > 0) {
     // JSON.stringify each token before echoing: argv is operator-controlled
     // and may carry control / ANSI-escape characters; quoting neutralizes
@@ -1966,9 +2912,31 @@ export function parseArgs(argv) {
 
 function main() {
   const args = parseArgs(process.argv.slice(2));
+
+  // loom#1501 (L4) — fail LOUD and EARLY on any value-taking flag that did not
+  // receive a value. Exit 2 (usage error), before any emission, so the operator
+  // can never read one lane's byte count as another's. Rationale in full at the
+  // check in parseArgs.
+  if (args.flagDefects.length > 0) {
+    process.stderr.write(
+      `emit.mjs: ERROR — ${args.flagDefects.length} malformed argument(s):\n` +
+        args.flagDefects.map((d) => `    ${d}\n`).join("") +
+        `  Lanes are ${EMIT_LANGS.join(" / ")}; CLIs are ${EMIT_CLIS.join(" / ")}.\n` +
+        `  If you are scripting this, QUOTE the variable (--lang "$MY_LANE") — an ` +
+        `unquoted empty one is DROPPED by the shell, so the flag swallows the next ` +
+        `flag and the run silently shifts to another lane.\n` +
+        `  ${EMIT_USAGE}\n`,
+    );
+    process.exit(2);
+  }
+
+  // loom#1501 (L4) — the lane is declared and well-formed, but if it carries no
+  // overlay directory the byte counts below are not attributable to it. Say so.
+  noteAbsentOverlay(args.lang);
+
   if (!args.out) args.out = `/tmp/loom-emit-${Date.now()}`;
 
-  const clis = args.all ? ["codex", "gemini"] : args.cli ? [args.cli] : null;
+  const clis = args.all ? EMIT_CLIS : args.cli ? [args.cli] : null;
   if (!clis) {
     process.stderr.write(
       `${EMIT_USAGE}\n`,
@@ -1998,16 +2966,23 @@ function main() {
     process.exit(1);
   }
 
-  // Validator 16 — strict-YAML manifest gate (journal 0080). MUST run
-  // BEFORE V15: V15's regex section parse is only meaningful on a
-  // syntactically valid manifest. PR #246's broken manifest passed the
-  // YAML-blind regex parser; this gate makes that impossible.
+  // Validator 16 — class-conditional manifest gate (journal 0080; class
+  // -conditional per loom#1383). MUST run BEFORE V15: V15's regex section
+  // parse is only meaningful on a syntactically valid manifest. PR #246's
+  // broken manifest passed the YAML-blind regex parser; this gate makes
+  // that impossible. The class read is reported alongside the verdict so a
+  // consumer run shows WHICH expectation was asserted, not just PASS/FAIL.
+  const v16Class = readRepoClass();
   const v16 = validateManifestYaml();
-  console.log(`[validator-16] manifest-yaml: ${v16.pass ? "PASS" : "FAIL"}`);
+  console.log(
+    `[validator-16] manifest-yaml: ${v16.pass ? "PASS" : "FAIL"} ` +
+      `(class:${v16Class.type || "UNRESOLVED"} → manifest ` +
+      `${v16Class.type === "coc-source" ? "REQUIRED" : v16Class.type ? "FORBIDDEN" : "expectation-unresolvable"})`,
+  );
   if (!v16.pass) {
     overallPass = false;
     process.stderr.write(
-      `VALIDATOR 16 FAIL (sync-manifest.yaml strict-YAML, journal 0080):\n${v16.failures.map((l) => "  " + l).join("\n")}\n`,
+      `VALIDATOR 16 FAIL (class-conditional sync-manifest.yaml gate, journal 0080 + loom#1383):\n${v16.failures.map((l) => "  " + l).join("\n")}\n`,
     );
     process.exit(1);
   }
@@ -2043,8 +3018,16 @@ function main() {
   // alongside V14 (structural, pre-emission): a rule absent from every
   // tier is silently excluded from the subscription sync, so block
   // before any CLI work — same fail-fast posture as V14.
+  // loom#1386 — V15 is loom-only. On a manifest-forbidden class it reports SKIP
+  // with the reason rather than PASS: a printed PASS is indistinguishable from a
+  // real assertion, and this gate asserts nothing there (see the ruling comment
+  // above validateTierCompleteness).
   const v15 = validateTierCompleteness();
-  console.log(`[validator-15] tier-completeness: ${v15.pass ? "PASS" : "FAIL"}`);
+  console.log(
+    `[validator-15] tier-completeness: ${
+      v15.skipped ? `SKIP (${v15.skipReason})` : v15.pass ? "PASS" : "FAIL"
+    }`,
+  );
   if (!v15.pass) {
     overallPass = false;
     process.stderr.write(
@@ -2065,9 +3048,20 @@ function main() {
   // substrate's hooks read at runtime; shipping the hooks without the
   // schema fail-closes every consumer commit. Regression-lock makes
   // future tier-set drift structurally impossible.
+  // loom#1386 — V17 SPLITS by class. Half A (hook ⇔ schema file coupling) runs
+  // everywhere and is the half that protects a consumer from a fail-closing
+  // genesis-anchor-guard; half B (tier-membership + F70 per-target dry-run) is a
+  // distribution assertion and is asserted only at the owner class. The verdict
+  // line names WHICH halves ran so a consumer run is never mistaken for a full one.
   const v17 = validateRosterSchemaCoupling();
   console.log(
-    `[validator-17] roster-schema-coupling: ${v17.pass ? "PASS" : "FAIL"}`,
+    `[validator-17] roster-schema-coupling: ${
+      !v17.pass
+        ? "FAIL"
+        : v17.skipped_half_b
+          ? `PASS (half A only — ${v17.skipReason})`
+          : "PASS"
+    }`,
   );
   if (!v17.pass) {
     overallPass = false;
@@ -2107,6 +3101,24 @@ function main() {
     if (!rtr.pass) {
       overallPass = false;
       process.stderr.write(`[${cli}] VALIDATOR 12 FAIL: ${JSON.stringify(rtr.failures)}\n`);
+    }
+    // loom#1355 — announce every per-rule budget exception actually exercised
+    // on this lane. Printed BEFORE the WARN/BLOCK blocks so an operator reading
+    // top-down learns a waiver is in force before reading the numbers it
+    // explains, and so an expiring waiver is visible on every single emission.
+    if (
+      result.per_rule_budget_exceptions_applied &&
+      result.per_rule_budget_exceptions_applied.length > 0
+    ) {
+      for (const ex of result.per_rule_budget_exceptions_applied) {
+        process.stderr.write(
+          `[${cli} ${ex.lane}] per-rule budget EXCEPTION APPLIED: ${ex.rule} ` +
+            `block ceiling ${ex.base_block_threshold_bytes}B → ${ex.effective_block_ceiling_bytes}B ` +
+            `(emitted ${ex.bytes}B; declared in sync-manifest.yaml, issue #${ex.issue}, ` +
+            `EXPIRES ${ex.expires} — on expiry this rule reverts to the ` +
+            `${ex.base_block_threshold_bytes}B ceiling and the gate turns RED again).\n`,
+        );
+      }
     }
     if (result.budget_warnings && result.budget_warnings.length > 0) {
       process.stderr.write(

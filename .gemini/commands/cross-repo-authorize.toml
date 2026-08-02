@@ -47,13 +47,15 @@ When you run a cross-repo `gh --repo <other-repo>` command with no receipt, the 
      --instruction "<the user's verbatim instruction>"
    ```
 
-   (`--instruction` is REQUIRED for a write; for a read it is optional — the read receipt records a downgraded condition 4.) The tool writes `.claude/cross-repo-authz/<date>-<slug>.md` with the exact marker `cross-repo-authorized: <owner/repo>` and all five conditions attested.
+   (`--instruction` is REQUIRED for a write; for a read it is optional — the read receipt records a downgraded condition 4.) The tool writes `.claude/cross-repo-authz/<date>-<slug>.md` with the exact **tier-qualified** marker `cross-repo-authorized: <owner/repo> <read|write>` (`.claude/bin/cross-repo-authorize.mjs:158`) and all five conditions attested. The trailing mode token is REQUIRED — the guard's matcher is anchored `^cross-repo-authorized:[ \t]+<slug>[ \t]+(read|write)[ \t]*$` (`.claude/hooks/lib/violation-patterns.js:139-142`), so a two-token marker without a mode does NOT clear the guard, and a `read` receipt never clears a write.
 
 5. **Commit the receipt for durable team audit.** The receipt is the ONLY distinguisher between an authorized and an unauthorized cross-repo action (absent = critical L1, `trust-posture.md` MUST-4); an uncommitted receipt is not a forensic witness. Commit it:
 
    ```bash
    git add .claude/cross-repo-authz/<file> && git commit -m "chore(authz): cross-repo <mode> for <owner/repo>"
    ```
+
+   Committing is disclosure-safe even though the receipt carries the target `<owner>/<repo>` slug, because `.claude/cross-repo-authz/` is **never distributed** to any consumer. Containment is provided by THREE distribution fences: `sync-tier-aware` (no tier matches it → `no_tier_match`), `edition-emit.mjs::CLIENT_TEMPLATE_REMOVE` (stripped from the client-template edition), and `community-membership` `EXCLUDE_WITHIN` (public-fork publish). The #263 scanner is a DETECTOR, not a containment fence: at the loom-**source** self-scan it self-excludes the receipt (source-only, mirroring `ecosystem.json`) so committing does not block your commit (#1324); at a `--root <consumer>` **destination** scan the guard does not fire, so a leaked receipt is scanned — but this is best-effort detection bounded by content-shape coverage (a receipt whose target org matches a disclosure shape flags; an arbitrary client `<org>/<repo>` may not). The guarantee that a receipt never reaches a consumer is the three distribution fences, NOT the scanner.
 
 6. **Proceed — scoped EXACTLY (condition 5).** Run ONLY the named action against ONLY the named repo. No incidental reads, no scope creep. When done, the authorization is spent; a new action needs a new ceremony.
 

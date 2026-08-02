@@ -1,0 +1,1 @@
+perl -i -p -f /tmp/edit.pl .claude/learning/posture.json

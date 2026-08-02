@@ -1,0 +1,2 @@
+gh issue create --title x --body "doc body only, no cross-repo here"
+gh issue create --repo other-org/other-repo --title y

@@ -1,0 +1,6 @@
+gh issue create --title "State guard" --body "$(cat <<'EOF'
+Repro: the guard blocks
+python3 -c "open('.claude/learning/posture.json','w').write('{}')"
+as expected.
+EOF
+)"

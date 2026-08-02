@@ -14,6 +14,8 @@
  */
 
 import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -181,19 +183,19 @@ const CASES = [
     expectFindingCount: 5,
   },
   {
-    // `*.operator.local.md` #352 parity (loom Gate-1 ingest of the
-    // kailash-py re-convergence-#9 disclosure-hygiene flag): the
-    // `*.operator.local.md` exclusion in `isExcluded()` now scopes to
-    // `REPO_ROOT_ACTIVE === REPO_ROOT` (loom-source-scan only), mirroring
-    // the `*.local.json` / `*.test.mjs` flips. At loom-source these files
-    // are gitignored; a committed `*.operator.local.md` that ships to a
-    // consumer IS the disclosure event, so a destination scan MUST flag
-    // it. The fixture plants a synthetic `ci-runners.operator.local.md`
-    // carrying a `/Users/fakeuser/...` home-path; it MUST flag at the
-    // destination scan. If the skip ever becomes unconditional again — or
-    // the generic `*.local.md` catch-all re-swallows the
-    // `*.operator.local.md` superset-suffix — this case flips to exit 0
-    // and the suite goes red.
+    // `*.operator.local.md` #352 parity — now keyed on git-TRACKING status,
+    // not the `REPO_ROOT_ACTIVE === REPO_ROOT` source/destination proxy. The
+    // `isExcluded()` skip now fires ONLY for a file git confirms is UNTRACKED
+    // (the gitignored per-operator companion); a TRACKED `*.operator.local.md`
+    // is public-distributable and MUST be scanned (TRACKED WINS over the name
+    // pattern). This committed fixture's `ci-runners.operator.local.md` is
+    // TRACKED in loom's enclosing git tree, so `isGitTracked` returns true and
+    // it is scanned — its synthetic `/Users/fakeuser/...` home-path MUST flag.
+    // The isolated gitignored-vs-tracked distinction (a committed fixture can
+    // only ever be TRACKED) is proven deterministically by the temp-git
+    // scenario `runTrackingScenario()` below. If the skip ever regresses to
+    // unconditional — or the generic `*.local.md` catch-all re-swallows the
+    // `*.operator.local.md` superset-suffix — this case flips to exit 0.
     name: "operator-local-md-destination-flip",
     dir: "operator-local-md-destination-flip",
     expectExit: 1,
@@ -382,6 +384,70 @@ const CASES = [
     expectShapes: [],
   },
   {
+    // #1324 SOURCE-ONLY GUARD: the `.claude/cross-repo-authz/` exclusion is
+    // SOURCE-ONLY (isExcluded, `&& REPO_ROOT_ACTIVE === REPO_ROOT`, mirroring the
+    // org-slug-bearing `ecosystem.json` entry): it self-excludes ONLY at the
+    // loom-source self-scan (unblocking the operator's commit — #1324). Driven via
+    // `--root` this is a DESTINATION scan (REPO_ROOT_ACTIVE !== REPO_ROOT), so the
+    // guard does NOT fire and the receipt is SCANNED. The synthetic org is
+    // `acme-enterprise` — chosen because it matches the `*-enterprise` alternative
+    // of the nonfoundation-org-slug shape — so it flags → exit 1. Make the exclusion
+    // UNCONDITIONAL and it flips 1 → 0: the destination scan goes blind (the R1
+    // security MEDIUM this fixture guards). The loom-SOURCE self-exclusion (the
+    // #1324 fix itself) is exercised by loom's own clean self-scan over its 100+
+    // real receipts. COVERAGE BOUND: this proves the guard is source-only, NOT that
+    // destination detection is complete — an arbitrary client `<org>/<repo>` whose
+    // org matches no shape would NOT flag (the receipt payload has no dedicated
+    // content shape); non-distribution is guaranteed by the THREE distribution
+    // fences, not this scan. See the fixture receipt's COVERAGE BOUND note.
+    name: "cross-repo-authz-guard-source-only",
+    dir: "cross-repo-authz-guard-source-only",
+    expectExit: 1,
+    expectShapes: ["nonfoundation-org-slug"],
+  },
+  {
+    // #1330 DESTINATION-COMPLETENESS: the source-only guard above proves a
+    // leaked receipt is SCANNED at a destination, but the pre-#1330 scanner
+    // only FLAGGED it when its target org matched ANOTHER shape (there
+    // `acme-enterprise` → `*-enterprise`). An arbitrary client `<org>/<repo>`
+    // (a plain `slug/slug` matching NO other shape) sailed through. The
+    // `cross-repo-authz-receipt-payload` content shape closes that gap. This
+    // fixture plants TWO receipts + a fork `ecosystem.json` (own orgs
+    // `harbor-co`/`harborreg`):
+    //  • `nimbus-labs/parts-store` (FOREIGN, repo NOT a repo-family, no
+    //    `-enterprise`, no git context) → MUST flag, caught ONLY by the new
+    //    shape (2 payload lines: `cross-repo-authorized:` + `**Target repo:**`).
+    //  • `harbor-co/ledger-svc` (OWN org per ecosystem.json, repo NOT a
+    //    repo-family) → MUST NOT flag: own-org-allowlisted by the new shape
+    //    AND repo-family-silent for `nonfoundation-org-slug`.
+    // The fork `ecosystem.json` contributes 2 `ecosystem-bare-org-slug`
+    // findings (registry.org + remote_links.org bare slugs at a destination
+    // scan — expected D6 behavior).
+    //
+    // #1330 L1 (frontmatter `target:` marker) adds two more receipts:
+    //  • `2026-01-04-frontmatter-only-leak.md` — BODY markers genericized to
+    //    metavariables (the partial-scrub evasion) but a CONCRETE FOREIGN
+    //    frontmatter `target: vertex-systems/payments-core` (matches no other
+    //    shape) → MUST flag via the `target:` marker ONLY (1 finding). Drop
+    //    the `target:` alternative from the shape and this file goes silent.
+    //  • `2026-01-05-frontmatter-own-suppressed.md` — frontmatter
+    //    `target: harbor-co/settings-svc` (OWN org) → the L1 marker's own-org
+    //    lookahead SUPPRESSES it → 0 findings.
+    //
+    // Findings: 2 (nimbus body) + 1 (vertex frontmatter) + 2 (ecosystem bare
+    // slugs) + 0 (harbor-co body + both harbor-co own frontmatter/body) = 5.
+    // expectFindingCount: 5 locks ALL directions non-vacuously: a 7th finding
+    // = an own-org allowlist regression (harbor-co body OR frontmatter leaked
+    // 2); a count of 4 = the L1 frontmatter marker regressed (vertex-systems
+    // frontmatter went silent); a count below 4 = the foreign body detection
+    // or the ecosystem-bare-org-slug shape regressed.
+    name: "cross-repo-authz-arbitrary-org",
+    dir: "cross-repo-authz-arbitrary-org",
+    expectExit: 1,
+    expectShapes: ["cross-repo-authz-receipt-payload", "ecosystem-bare-org-slug"],
+    expectFindingCount: 5,
+  },
+  {
     // scenario-11 narrowness complement: the template-carried carrier
     // `sync-preserve.yaml` (NO `.local`) IS synced template→consumer and MUST
     // be scanned like any other synced artifact. The same operator-home-path
@@ -435,6 +501,92 @@ function runScanner(root) {
   }
 }
 
+// ────────────────────────────────────────────────────────────────
+// Temp-git scenario: git-TRACKING is the operator-local skip predicate.
+// ────────────────────────────────────────────────────────────────
+//
+// A committed fixture under this directory is ALWAYS git-tracked in loom's
+// enclosing tree, so it can only ever exercise the TRACKED→SCAN half. The
+// GITIGNORED→SKIP half needs a file git reports as UNTRACKED, which cannot be
+// a committed fixture. This scenario builds a throwaway git repo and plants
+// BOTH polarities so the tracked-vs-gitignored distinction is proven
+// deterministically, via genuine git-tracking status — NOT a path heuristic:
+//   • a TRACKED `*.operator.local.md` (force-added despite matching the repo's
+//     own `.gitignore` — TRACKED WINS over the name pattern) → MUST be scanned
+//     → its synthetic leak MUST flag.
+//   • a GITIGNORED, UNTRACKED `*.operator.local.md` → MUST be skipped → its
+//     synthetic leak MUST NOT appear in findings.
+function runTrackingScenario() {
+  const problems = [];
+  let tmp;
+  try {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "scan-disclosure-track-"));
+    const rulesDir = path.join(tmp, ".claude", "rules");
+    fs.mkdirSync(rulesDir, { recursive: true });
+    // The repo gitignores every operator-local companion by name pattern.
+    fs.writeFileSync(path.join(tmp, ".gitignore"), "*.operator.local.md\n");
+    // Both carry a synthetic operator-home-path leak (SHAPE:operator-home-path).
+    fs.writeFileSync(
+      path.join(rulesDir, "tracked-companion.operator.local.md"),
+      "runbook value: /Users/fakeuser/tracked-secret/repos\n",
+    );
+    fs.writeFileSync(
+      path.join(rulesDir, "ignored-companion.operator.local.md"),
+      "runbook value: /Users/fakeuser/ignored-secret/repos\n",
+    );
+    execFileSync("git", ["-C", tmp, "init", "-q"], { stdio: "ignore" });
+    // Force-add the TRACKED companion despite the `.gitignore` pattern — this
+    // is the exact "TRACKED WINS over the name pattern" case the fix asserts.
+    execFileSync(
+      "git",
+      [
+        "-C",
+        tmp,
+        "add",
+        "-f",
+        ".gitignore",
+        ".claude/rules/tracked-companion.operator.local.md",
+      ],
+      { stdio: "ignore" },
+    );
+    execFileSync(
+      "git",
+      [
+        "-c",
+        "user.email=fixture@example.com",
+        "-c",
+        "user.name=fixture",
+        "-C",
+        tmp,
+        "commit",
+        "-qm",
+        "init",
+      ],
+      { stdio: "ignore" },
+    );
+    // `ignored-companion.operator.local.md` is left UNTRACKED (gitignored).
+    const { exit, out } = runScanner(tmp);
+    if (exit !== 1) {
+      problems.push(`exit ${exit} (expected 1 — tracked leak must flag)`);
+    }
+    if (!out.includes("tracked-companion.operator.local.md")) {
+      problems.push(
+        "tracked operator-local was NOT scanned (its leak is missing from findings)",
+      );
+    }
+    if (out.includes("ignored-companion.operator.local.md")) {
+      problems.push(
+        "gitignored/untracked operator-local was scanned (it MUST be skipped)",
+      );
+    }
+  } catch (e) {
+    problems.push(`scenario error: ${e.message}`);
+  } finally {
+    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+  }
+  return problems;
+}
+
 let failed = 0;
 for (const c of CASES) {
   const root = path.join(HERE, c.dir);
@@ -477,6 +629,21 @@ for (const c of CASES) {
           ? `, shapes: ${[...shapesSeen].sort().join(", ")}`
           : ", clean") +
         ")",
+    );
+  }
+}
+
+// git-tracking scenario (temp repo; tracked→scan + gitignored→skip polarities).
+{
+  const problems = runTrackingScenario();
+  if (problems.length) {
+    failed++;
+    console.log(`FAIL  operator-local-git-tracking-scenario`);
+    for (const p of problems) console.log(`        - ${p}`);
+  } else {
+    console.log(
+      `PASS  operator-local-git-tracking-scenario  ` +
+        `(tracked→scanned+flagged, gitignored/untracked→skipped)`,
     );
   }
 }

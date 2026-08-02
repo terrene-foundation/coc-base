@@ -1,0 +1,8 @@
+FLAG MUST-8 — the release FIRST-ACT gate MANUALLY seeded the runtime state the real
+consumer supplies at runtime (`set_oidc_jwks(...)`), then drove only that pre-configured
+happy path (good-vs-bad against the SEEDED keyset) and reported PASS. Installing the real
+wheel is not sufficient: the gate walked a SUBSTITUTE path (the MUST-NOT "Walk a substitute
+path" mode), never the un-pre-configured COLD entry a real public OIDC integration hits, and
+never the real RS256 provider variants or the boundary paths. Reproduces the origin incident
+(v4.37.0 → 6 consumer-facing defects → v4.37.1). Expected disposition: BLOCK the "verified"
+claim; re-run the gate driving the cold, un-seeded, real-provider path + boundary paths.

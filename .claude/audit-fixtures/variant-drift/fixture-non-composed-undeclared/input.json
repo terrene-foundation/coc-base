@@ -1,0 +1,6 @@
+{
+  "variantFiles": ["variants/py/hooks/declared.js", "variants/py/hooks/stray.js"],
+  "canonFiles": ["rules/anything.md", "hooks/declared.js", "hooks/stray.js"],
+  "variants": { "hooks/declared.js": { "py": "variants/py/hooks/declared.js" } },
+  "variantOnly": {}
+}

@@ -45,13 +45,15 @@ Origin: 2026-04-19 codify cycle. See `skills/30-claude-code-patterns/worktree-or
 
 ## Worktree Isolation — Extended Post-Mortems
 
-### Isolation flag alone is not sufficient
+### The isolation flag is retired; a pre-made sibling worktree replaces it
 
-`isolation: "worktree"` creates the worktree but does not pin every tool call inside it. See `rules/worktree-isolation.md` + `skills/30-claude-code-patterns/worktree-orchestration.md § Rule 1` for the full 5-layer protocol.
+`isolation: "worktree"` is BLOCKED as of 2026-07-26 (loom#1370). The orchestrator creates the worktree itself as a SIBLING outside the repo, pins its absolute path in the prompt, AND mandates a STEP-0 assertion — the agent's first action is `cd <worktree>`, then asserting `git rev-parse --show-toplevel` equals `pwd -P` and is not the main checkout, refusing to proceed otherwise. Both halves are required: the flag was also what SET the agent's cwd, so retiring it without the assertion would trade a bounded quota burn for the unbounded write-to-main loss recorded below (2 of 3 shards; 300+ LOC). Two near-miss forms are BLOCKED: `git -C <worktree> …` never establishes cwd (everything after it still resolves to MAIN), and a bare first `rev-parse` resolves to MAIN and refuses on every dispatch. Compare resolved paths, never the passed string — `--show-toplevel` resolves symlinks. Measured; see the skill's form table. The flag placed every agent worktree at `<repo>/.claude/worktrees/agent-<id>` — under the repo's own `.claude/` — which #1370 reports costs a floor of 88,895 duplicate tokens per agent per wave (~35.6M per wave round at 40 terminals × 10 agents), re-loading a corpus already in context. It also created the worktree without pinning every tool call inside it, and chose the path itself so the orchestrator could not pin what it did not know. See `rules/worktree-isolation.md` Rule 1 + `skills/30-claude-code-patterns/worktree-orchestration.md` § Retiring `isolation: "worktree"` for the recipe and the full 6-layer protocol.
 
-### Worktree prompts use relative paths — 2026-04-19 post-mortem
+### Worktree prompt paths must resolve inside the worktree — 2026-04-19 post-mortem
 
-Session 2026-04-19: Three parallel ml-specialist shards launched with `isolation: "worktree"`. The orchestrator prompt contained absolute paths rooted in the parent checkout. 2 of 3 shards wrote to MAIN; one (Shard B) self-corrected mid-run. Shard A lost 300+ LOC of sklearn array-API implementation when its empty worktree auto-cleaned. The failure mode is not agent-detectable by default — it requires the orchestrator to use relative paths in prompts.
+Session 2026-04-19: Three parallel ml-specialist shards launched with `isolation: "worktree"` (the then-current flag). The orchestrator prompt contained absolute paths rooted in the parent checkout. 2 of 3 shards wrote to MAIN; one (Shard B) self-corrected mid-run. Shard A lost 300+ LOC of sklearn array-API implementation when its empty worktree auto-cleaned. The failure mode is not agent-detectable by default.
+
+Under the flag the only available fix was relative paths, because the harness chose the worktree path. With a pre-made sibling the path is known before dispatch, so the preferred form is now absolute-rooted-at-the-sibling (self-checking, and it survives a cwd revert per `rules/worktree-isolation.md` Rule 2a); relative stays valid when cwd is pinned. What was always BLOCKED, and still is: an absolute path rooted at the ORCHESTRATOR's checkout.
 
 See `skills/30-claude-code-patterns/worktree-orchestration.md` § Rule 2 for the full post-mortem.
 
@@ -78,8 +80,7 @@ Session 2026-04-19 three-shard ml-specialist parallel session: 3 of 3 shards tru
 
 ```python
 # DO — prompt: "after each file, git add <f> && git commit -m 'wip: <what>'"
-Agent(
-    isolation="worktree",
+Agent(                                  # worktree pre-made as a sibling (Rule 1)
     prompt="""...
 **Commit discipline (MUST):**
 - After each file is complete, run `git add <file> && git commit -m "wip(shard-X): <what>"`.
@@ -111,22 +112,27 @@ result = Agent(prompt="Write src/feature.py with ...")
 ## Parallel-Worktree Package Ownership — Full Example
 
 ```python
-# DO — explicit ownership in prompts
-Agent(isolation="worktree", prompt="""...resolve #546 ONNX matrix...
-Version bump + CHANGELOG:
+# DO — explicit ownership in prompts (each worktree pre-made as a sibling, Rule 1)
+# Every prompt below opens with STEP 0 verbatim (shown once here, elided in the bodies
+# for width) — without it nothing pins the agent's cwd once the flag is retired:
+#   cd "{WT_PARENT}/<shard>" && [ "$(git rev-parse --show-toplevel)" = "$(pwd -P)" ] || exit 1
+Agent(prompt=f"""Working directory: {WT_PARENT}/onnx
+...resolve #546 ONNX matrix...
+Version bump + CHANGELOG (you OWN these):
 - the ml package directory pyproject.toml → 0.13.0
 - the ml package directory src/kailash_ml/__init__.py::__version__
 - the ml package directory CHANGELOG.md""")
 
-Agent(isolation="worktree", prompt="""...resolve #547+#548 km.doctor + km.track...
+Agent(prompt=f"""Working directory: {WT_PARENT}/doctor-track
+...resolve #547+#548 km.doctor + km.track...
 COORDINATION NOTE: A parallel agent is bumping this package to 0.13.0.
 You MUST NOT edit the ml package directory pyproject.toml,
 the ml package directory src/kailash_ml/__init__.py::__version__, or
 the ml package directory CHANGELOG.md. Just deliver the functionality.""")
 
 # DO NOT — silent parallel ownership
-Agent(isolation="worktree", prompt="...resolve #546... bump to 0.13.0")
-Agent(isolation="worktree", prompt="...resolve #547+#548... bump to 0.13.0")
+Agent(prompt="...resolve #546... bump to 0.13.0")
+Agent(prompt="...resolve #547+#548... bump to 0.13.0")
 # ↑ Both agents race; merge picks one version field arbitrarily, dropping the other's CHANGELOG prose
 ```
 
@@ -156,7 +162,7 @@ The #243 agent's mid-edit WIP left `sync-manifest.yaml` with a transient YAML sy
 
 ### Root cause
 
-`agents.md` had a worktree-isolation MUST, but its title + rationale scoped it to **compiling** agents (cargo `target/` lock contention). A non-compiling agent that edits shared source in a shared checkout is the SAME structural hazard — its uncommitted WIP is visible to every concurrent reader — but the rule's compiling-only framing left it uncovered. The orchestrator (this session) launched the #243 agent without `isolation: "worktree"` precisely because "it doesn't compile."
+`agents.md` had a worktree-isolation MUST, but its title + rationale scoped it to **compiling** agents (cargo `target/` lock contention). A non-compiling agent that edits shared source in a shared checkout is the SAME structural hazard — its uncommitted WIP is visible to every concurrent reader — but the rule's compiling-only framing left it uncovered. The orchestrator (this session) launched the #243 agent into the SHARED checkout, with no worktree of its own, precisely because "it doesn't compile." (At the time the isolation mechanism was the `isolation: "worktree"` flag, since retired; the failure is about having no separate worktree at all, not about which mechanism made it.)
 
 ### Resolution
 

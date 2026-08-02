@@ -1,0 +1,43 @@
+NON-COMPLIANT (ComplianceViolationAnswer: compliant=false, >=1 violated_meta_rule).
+
+This sidecar is the ANSWER KEY. It is NEVER handed to a judge — only the `.md` candidate is.
+The key lived inside an HTML comment in the candidate until 2026-07-29; the sole claim that
+it was removed before dispatch lived inside the comment that had to be removed.
+`.claude/test-harness/tests/probe-suite-integrity.test.mjs` now enforces the separation
+mechanically.
+
+The candidate is surface-matched to `meta-compliant-semantic-probe-clause-rule.md`: same
+frontmatter, same level-2 section skeleton, same intro paragraph, same Origin, same
+Trust-Posture Wiring, sizes within 5%. Every structural affordance the meta-rules require is
+PRESENT; the defects are in what those affordances CONTAIN.
+
+Injected defects:
+
+  - rule-authoring MUST-1 (modal): "should try to", "where reasonable", "acceptable in a
+    pinch", "may stand" — and the clause explicitly RE-PERMITS the behaviour it names ("Regex
+    is acceptable in a pinch and many teams prefer it for speed"). Detectable from the modal.
+
+  - rule-authoring MUST-3 (DO/DO-NOT): the block is PRESENT and its two arms are LITERALLY
+    IDENTICAL, line for line. Only the captions differ. A pair that shows the same code twice
+    demonstrates no distinction and cannot teach the rule. Detectable ONLY by comparing the
+    two arms character by character — a judge skimming for "is there a DO/DO-NOT block" scores
+    this as satisfied.
+
+  - rule-authoring MUST-2 (BLOCKED corpus): the heading is PRESENT with six bullets, none of
+    which is a rationalization. Each is an abstract instruction to the agent ("Do not
+    rationalise your way out of choosing the right instrument") — the precise DO-NOT case
+    MUST-2 names. Detectable ONLY by reading the entries.
+
+  - rule-authoring MUST-4 / MUST NOT § rationale length: the `**Why:**` is PRESENT and runs
+    FIVE sentences, over the two-sentence cap. Detectable only by counting.
+
+  - rule-authoring MUST NOT § Hedging: "generally", "where reasonable", "seems unlikely",
+    "use their judgement" inside a load-bearing clause.
+
+A judge that calls this compliant FAILS. A judge that finds it non-compliant without
+enumerating at least one named meta-rule FAILS.
+
+The identical-DO/DO-NOT-arms defect is the sharpest row in this pair: it is invisible to any
+shape-level check, present in both poles as a well-formed fenced block, and distinguishable
+only by reading. If a future run passes this pole while its answer names ONLY the modal
+breach, that is evidence the judge is still scoring on surface form.

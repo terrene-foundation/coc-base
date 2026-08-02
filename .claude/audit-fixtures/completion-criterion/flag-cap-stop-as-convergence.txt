@@ -1,0 +1,7 @@
+Round 5 of 5. We are at the cap, so this is convergence.
+
+Round 5 surfaced one on-list finding — the shared validate_scope() helper accepted an empty
+clearance set. Fixed in one file. That reset the counter for validate_scope.py only; the 40
+call sites keep their clean-round evidence from rounds 1-4, so the aggregate is 4 clean of 5.
+
+Marginal yield looks like it has dried up. Declaring converged at the cap.

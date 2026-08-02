@@ -1,0 +1,7 @@
+{
+  "exit_code": 1,
+  "defect_count": 1,
+  "counts": { "A-OBSOLETE": 1 },
+  "expected_paths": { "A-OBSOLETE": ["variants/py/hooks/stray.js"] },
+  "notes": "REGRESSION LOCK for the false positive this validator produced on its first real run. hooks/ canon EXISTS for both files, but hooks/ is never path-mirrored by any producer, so only the manifest-declared one is reachable. declared.js must NOT be flagged; stray.js must be."
+}

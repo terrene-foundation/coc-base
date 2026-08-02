@@ -101,7 +101,7 @@ this ceremony-time seeding, which covers FUTURE migrations.)
   "type": "genesis-migration",
   "content": {
     "co_signers": [
-      { "verified_id": "ABCD..", "person_id": "pid-esperie-.." }  # ← same person_id; BLOCKED at fold by R6-S-04
+      { "verified_id": "ABCD..", "person_id": "pid-<operator>-.." }  # ← same person_id; BLOCKED at fold by R6-S-04
     ]
   }
 }
@@ -112,7 +112,7 @@ this ceremony-time seeding, which covers FUTURE migrations.)
   "type": "genesis-migration",
   "content": {
     "co_signers": [
-      { "verified_id": "ABCD..", "person_id": "pid-esperie-..", "github_login": "esperie-secondary" }  # ← same person_id; BLOCKED
+      { "verified_id": "ABCD..", "person_id": "pid-<operator>-..", "github_login": "<operator>-secondary" }  # ← same person_id; BLOCKED
     ]
   }
 }

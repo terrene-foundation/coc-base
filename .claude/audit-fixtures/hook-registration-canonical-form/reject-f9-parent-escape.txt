@@ -1,0 +1,1 @@
+node "$CLAUDE_PROJECT_DIR/../evil/.claude/hooks/integrity-guard.js"

@@ -1,9 +1,18 @@
-severity: block
-exit_code: 2
-continue: false
-stderr_tag: [BLOCK]
+severity: halt-and-report
+exit_code: 0
+continue: true
+stderr_tag: [HALT-AND-REPORT]
 predicate: §4.2 filesystem exception — porcelain match on exact target path
-why: structural-process-local signal (git status --porcelain) — the ONLY
-     branch carrying severity:block per hook-output-discipline.md MUST-2.
+why: structural-process-local signal (git status --porcelain). MUST-2 WOULD
+     permit severity:block here (the signal is structural, not lexical); the
+     branch emits halt-and-report on proportionality grounds (loom#1323) —
+     sibling worktrees have physically separate working trees, so the only
+     real collision is a recoverable 3-way merge conflict at merge time.
+     NO branch of this hook carries severity:block.
+body_discriminator: the agent-facing body MUST cite "§4.2 filesystem exception"
+     (NOT "§4.1 SAME predicate"). §4.1 and §4.2 now share a severity, so the
+     `why` text is the only signal that distinguishes which branch fired —
+     a regression that deletes the §4.2 branch would otherwise pass a
+     severity-only assertion via the §4.1 fallthrough.
 evidence: COC_PORCELAIN_OVERRIDE lists "src/lib/foo.js" and the candidate
           repoRelative resolves to "src/lib/foo.js" exactly.

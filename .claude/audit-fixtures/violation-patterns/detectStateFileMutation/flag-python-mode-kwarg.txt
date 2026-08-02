@@ -1,0 +1,1 @@
+python3 -c "open('.claude/learning/posture.json', mode='w').write('{}')"

@@ -42,7 +42,7 @@ Project source, workspaces, journals, briefs, todos, `.session-notes`, `.env`, a
 
 ## Step 1 — Branch + snapshot
 
-`TS=$(date -u +%Y%m%dT%H%M%SZ); BRANCH="chore/coc-multi-cli-migrate-${TS}"; git checkout -b "$BRANCH"; mkdir -p .pre-migrate.bak`. Copy `.claude/.coc-sync-marker`, `CLAUDE.md`, `.claude/VERSION` (each if present) into `.pre-migrate.bak/`. Write `$BRANCH` into `.pre-migrate.bak/.branch` for rollback's branch-resolve.
+`TS=$(date -u +%Y%m%dT%H%M%SZ); BRANCH="chore/coc-multi-cli-migrate-${TS}"; git checkout -b "$BRANCH"; mkdir -p .pre-migrate.bak`. Copy `.claude/.coc-sync-marker`, `CLAUDE.md`, `.claude/VERSION` (each if present) into `.pre-migrate.bak/`. **The `.claude/VERSION` leg MUST hold the path in a shell variable assigned on its OWN line** (`V=.claude/VERSION` then `cp "$V" …`) — VERSION is Bash-lane state-fenced (#1399) and the guard's Layer 2 is direction-blind, so a literal `cp .claude/VERSION …` blocks even though the snapshot is a pure READ; see skill Step 1. Write `$BRANCH` into `.pre-migrate.bak/.branch` for rollback's branch-resolve.
 
 ## Step 2 — VERSION update
 
@@ -131,7 +131,7 @@ Detected when `template_type: multi-cli`. Skips Steps 0.2 sister-resolution mism
 
 ## `--rollback`
 
-Inline porcelain guard FIRST: `[ -z "$(git status --porcelain)" ] || { echo "uncommitted work — recommend: git stash push -u -m pre-rollback; abort"; exit 1; }`. Then `git reset --keep main` (NOT `--hard` — `--keep` aborts on local changes; `--hard` would silently discard per `rules/git.md`). Restore EVERY path in `.pre-migrate.bak/` (full migration: `.coc-sync-marker`, `CLAUDE.md`, `VERSION`; `--adopt`: additionally any pre-existing root path it snapshotted — `AGENTS.md`, `GEMINI.md`, `.codex`, `.codex-mcp-guard`, `.gemini`, `.coc`, `.claude` — the snapshot is the only restore path for a pre-existing UNTRACKED file the install overwrote). Read branch from `.pre-migrate.bak/.branch`; `git checkout main && git branch -D "$BRANCH"`. Full restore loop in skill § `--rollback` mode.
+Inline porcelain guard FIRST: `[ -z "$(git status --porcelain)" ] || { echo "uncommitted work — recommend: git stash push -u -m pre-rollback; abort"; exit 1; }`. Then `git reset --keep main` (NOT `--hard` — `--keep` aborts on local changes; `--hard` would silently discard per `rules/git.md`). Restore EVERY path in `.pre-migrate.bak/` (full migration: `.coc-sync-marker`, `CLAUDE.md`, `VERSION` — the `VERSION` leg via the same own-line shell-variable form as Step 1, since this direction is a genuine WRITE to the state-fenced class root (#1399); `--adopt`: additionally any pre-existing root path it snapshotted — `AGENTS.md`, `GEMINI.md`, `.codex`, `.codex-mcp-guard`, `.gemini`, `.coc`, `.claude` — the snapshot is the only restore path for a pre-existing UNTRACKED file the install overwrote). Read branch from `.pre-migrate.bak/.branch`; `git checkout main && git branch -D "$BRANCH"`. Full restore loop in skill § `--rollback` mode.
 
 ## Hook env-var portability + `.pre-migrate.bak` lifecycle
 

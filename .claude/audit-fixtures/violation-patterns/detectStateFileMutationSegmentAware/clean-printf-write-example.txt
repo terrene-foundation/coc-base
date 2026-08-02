@@ -1,0 +1,1 @@
+printf 'doc; python3 -c "open(\"%s\",\"w\")"\n' .claude/learning/posture.json

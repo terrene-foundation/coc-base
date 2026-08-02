@@ -1,0 +1,5 @@
+{
+  "exit_code": 2,
+  "throws": "VacuousScanError",
+  "notes": "ANTI-VACUITY. Zero variant files means the validator inspected nothing. Exit 2, never exit 0 - a clean-looking pass on an empty scan is the precise failure loom#1416 exists to prevent."
+}

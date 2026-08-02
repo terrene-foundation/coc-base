@@ -912,9 +912,24 @@ function _coSignedBytes(record) {
  * fold-verified statuses (the emitter's `presenceStatus` + the per-co-signer
  * `coSignerStatuses` foldPresenceGate computed) — NEVER a payload claim. Any
  * `_presence_attribution` an adversary set on the incoming record is DROPPED first
- * (Object.assign overwrites it with the derivation), so a downstream gate consumer
- * reading `_presence_attribution.by_verified_id[approver].gate_eligible` cannot be
- * fed a forged audit-only→human upgrade for the emitter OR any co-signer.
+ * (Object.assign overwrites it with the derivation), so a gate consumer reading
+ * `_presence_attribution.by_verified_id[approver].gate_eligible` could not be fed a
+ * forged audit-only→human upgrade for the emitter OR any co-signer.
+ *
+ * NO SUCH CONSUMER EXISTS TODAY (loom#1442). Read the sentence above as the
+ * property a FUTURE consumer will inherit, not as a live enforcement claim: this
+ * module and `presence-proof-verify.js` are the only files that touch
+ * `_presence_attribution`, and both are PRODUCERS. `operator-gate.js` — the module
+ * that would act on the L7 downgrade — has zero `presence` references and consumes
+ * an IN-PAYLOAD `gate_approval` object rather than a folded record, so it never
+ * sees this stamp. The anti-forgery guarantee is therefore currently VACUOUS: it
+ * holds because nothing reads the field at all. The strip below is still worth
+ * doing (it makes the property structural in advance of the consumer), but do not
+ * audit this file and conclude the enforcement is wired — it is not. The
+ * precondition that keeps that safe (zero production emitters of `gate-approval`
+ * records, so no folded record carries a stamp in the first place) is pinned by
+ * `tests/integration/multi-operator/gate-identity-signature-coverage.test.js`
+ * § "1442 B", which fails on the first production emit site.
  *
  * A COPY is stamped (never a mutation of `record`) so the original is passed
  * intact to registerPresenceNonce + _advanceChainState (which read the
@@ -953,8 +968,10 @@ function _stampPresenceAttribution(
   // so the forgery can NEVER survive into accepted[]. This makes the "IGNORED /
   // OVERWRITES" invariant hold UNIVERSALLY — on the null-attr path too, not only
   // when a derivation applies (R1 security-reviewer MEDIUM). Fail-closed: a
-  // downstream reader of `_presence_attribution` cannot be fed a forged
-  // audit-only→human upgrade on ANY record class.
+  // reader of `_presence_attribution` could not be fed a forged
+  // audit-only→human upgrade on ANY record class — though as the header notes,
+  // NO such reader exists yet (loom#1442), so this is a property staged for a
+  // future consumer rather than a live enforcement guarantee.
   if (
     record &&
     typeof record === "object" &&

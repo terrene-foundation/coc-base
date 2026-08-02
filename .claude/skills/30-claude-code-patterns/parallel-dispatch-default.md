@@ -76,6 +76,103 @@ Single-agent analysis on a ≥3-issue brief is BLOCKED.
 analysis cannot resist the brief's framing without independent reading. Parallel deep-dive
 verification is the structural defense — N agents, N claim-clusters, one wall-clock unit.
 
+## 3. Waiting Is Not Work — The Push-Channel Discriminator
+
+Parallel dispatch creates waits, and the triad says nothing about how to SPEND one. The default
+that fills the gap is wrong: a `sleep` loop that burns wall-clock while the orchestrator holds a
+turn open. One question discriminates every wait:
+
+> **Does the thing I am waiting on have a PUSH channel back into this session?**
+
+- **Agent completion — YES.** A dispatched agent's completion arrives on its own as a task
+  notification; it wakes the orchestrator with the result and no prompting. Polling it is pure
+  waste. **END THE TURN** with a status line naming what is in flight; the notification
+  interrupts the idle turn for free.
+- **CI / remote job status — NO.** Nothing pushes a workflow-run result into the session; the
+  orchestrator must ask GitHub. So asking is legitimate — but ask ONCE and block SERVER-side
+  (`gh run watch <run-id> --exit-status`), which returns the moment the run resolves. A
+  fixed-interval loop is interval-GUESSING on top of a channel that already supports blocking.
+
+```text
+# DO — agent wait: end the turn; the completion notification is the wake-up
+"3 shards dispatched (W1/W2/W3). Ending turn — will resume on completion."   # costs zero
+# DO — CI wait: one server-side blocking call, event-driven, no interval to guess
+gh run watch "$run_id" --exit-status     # returns the instant the run resolves
+
+# DO NOT — sleep-wait for an agent that will notify (this was run EIGHT times in one session)
+sleep 600; uptime; echo "waiting"        # 10 min burned; uninterruptible by the notification
+# DO NOT — fixed-interval CI polling
+while :; do gh run list --limit 1; sleep 120; done   # guesses an interval the API does not need
+```
+
+**Third clause — do not block on CI AT ALL while other work exists.** A run's result is needed at
+the point of USE (merge time), not continuously. Dispatch the next shard, then check CI when the
+merge decision actually arrives. `gh run watch` is the right instrument for a wait you genuinely
+cannot avoid, not a license to create one.
+
+**Resolves against § 1 (not a conflict).** The triad BLOCKS idling while independent work is
+DISPATCHABLE. When nothing is dispatchable, ending the turn is the CORRECT move and is not
+idling — the blocked-idle clause targets undispatched work, not an open turn. A `sleep` satisfies
+neither: it dispatches nothing AND holds the turn.
+
+**BLOCKED rationalizations:**
+
+- "I need to wait for the agent anyway" (the wait happens either way; the sleep adds nothing to it)
+- "sleep is simpler than tracking notifications" (there is nothing to track — the notification
+  arrives unprompted)
+- "ending the turn looks like I stopped working" (optics; the notification resumes the lane)
+- "polling every 10 min is cheap" (it is a 10-minute UNINTERRUPTIBLE block, the most expensive
+  possible way to do nothing)
+- "I'll just check once more" (the rationalization that ran eight times)
+- "the notification might not fire" (unfalsifiable, and a sleep would not rescue it — a work
+  budget would; see § 3a)
+- "the sleep gives the agents time to finish" (a sleep grants compute to no one; the agents run
+  on their own clock either way)
+- "CI usually takes ~8 minutes, so a 10-minute sleep is right-sized" (interval-guessing IS the
+  failure mode; `--exit-status` needs no estimate)
+- "CI polling is legitimate, so the same pattern is fine for the agent wait" (the exact
+  conflation this section exists to break — CI has no push channel, agent completion does)
+
+**Why:** a blocking sleep burns wall-clock that the notification would have returned for free,
+and — the load-bearing half — it CANNOT BE INTERRUPTED BY THE VERY EVENT IT IS WAITING FOR. The
+agent finishing at second 30 of a 600-second sleep buys 570 seconds of nothing. Ending the turn
+is free, and is the only wait whose cost is exactly the wait.
+
+### 3a. Every Dispatched Agent Carries An Explicit Work Budget
+
+Ending the turn is safe only if a lane that goes wrong SURFACES. It does not by default: a wedged
+agent produces silence, and silence is indistinguishable from "still working." So every dispatch
+prompt MUST carry an explicit budget and a return contract:
+
+```text
+# DO — budget + coverage contract in the dispatch prompt itself
+"WORK BUDGET: ~25 tool calls. On reaching it, STOP and return what you have with an explicit
+ coverage statement naming what you did and did not get to."
+
+# DO NOT — unbounded prompt; a wedged lane returns silence and the orchestrator cannot tell
+"Review the changes and report findings."     # three lenses ran 3+ hours, produced nothing
+```
+
+**BLOCKED rationalizations:**
+
+- "a budget will make the agent stop before it finishes" (it returns a PARTIAL report, which is
+  recoverable; silence is not)
+- "the agent will tell me if it gets stuck" (a wedged lane does not know it is wedged)
+- "it's a small task, it can't wedge" (task size does not bound wedge risk)
+- "I'll notice if it takes too long" (that noticing is exactly what the eight sleeps were)
+
+**Why:** a wedged lane is not a slow lane — it will never return, and without a budget the
+orchestrator learns this only by giving up. The budget converts an unbounded silence into a
+bounded partial report. Complement to `redteam-dispatch-evidence-gate.md` Axis 1, which governs a
+return that carries NO EVIDENCE; this governs a lane that never returns AT ALL — the evidence gate
+cannot fire on an agent that never reports.
+
+**Origin (§ 3 + § 3a):** an orchestration session that ran `sleep 600; uptime; echo "waiting"`
+roughly eight times waiting on background agents whose completions had ALREADY been arriving as
+notifications unprompted earlier in the same session — the CI polling pattern misapplied to a
+push-channel wait. The same session dispatched three unbudgeted redteam lenses that ran past three
+hours and produced nothing.
+
 ## CLI dispatch syntax
 
 The concrete `Agent(subagent_type=…)` (CC) / `bin/coc` inline-cat (Codex) / `@specialist`

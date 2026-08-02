@@ -8,16 +8,31 @@ description: "Create + root a dedicated SIBLING worktree for parallel/isolated d
 
 Creates a durable, session-rootable git worktree **OUTSIDE** the repo (a sibling), so a
 session can work in parallel with another operator on the same clone WITHOUT (a) colliding on
-the shared working tree or (b) placing a full nested checkout INSIDE the repo's own `.claude/**`
-glob range, where parent-repo recursive tooling (a `grep -r` / a validator run with `--root .`)
-descends into it and pulls a duplicate corpus in as tool output — plus the human-org clutter of a
-~24MB checkout in the working tree. This is NOT a rule double-load: CC roots at the nearest `.git`
-boundary and loads exactly ONE `.claude/` corpus (every worktree has its own `.git`). Full rationale
-+ empirical evidence: `rules/worktree-isolation.md` Rule 7.
+the shared working tree, (b) duplicating the path-scoped rule corpus, or (c) placing a full nested
+checkout INSIDE the repo's own `.claude/**` glob range, where parent-repo recursive tooling (a
+`grep -r` / a validator run with `--root .`) descends into it and pulls a duplicate corpus in as
+tool output — plus the human-org clutter of a ~24MB checkout in the working tree.
 
-This is **NOT** the agent-wave isolation primitive (`isolation: "worktree"` /
-`EnterWorktree({name})` → `.claude/worktrees/`, transient scratch — `rules/worktree-isolation.md`
-Rules 1–6). Use `/worktree` for a **human/session** worktree you root into and work from.
+On (b): a session rooted at a NESTED worktree was measured (2026-07-26, CC 2.1.220, untracked-sentinel
+probe) to load **path-scoped** rules from BOTH its own `.claude/rules/` AND the ancestor repo's — the
+same rule twice, under two paths — while a SIBLING-rooted session loads each exactly once. `CLAUDE.md`
+and baseline (`priority: 0`) rules do NOT ancestor-load. Sibling placement is therefore a quota
+requirement, not a tidiness preference — for a worktree a SESSION ROOTS INTO; a dispatched subagent
+inherits its parent session's corpus instead (measured) and is not itself a double-load.
+Full rationale + measured matrix + repro protocol:
+`rules/worktree-isolation.md` Rule 7 and `skills/30-claude-code-patterns/worktree-orchestration.md`
+§ Ancestor-Load Measurement.
+
+Durable session worktrees and transient agent-wave worktrees BOTH live outside the repo now:
+`rules/worktree-isolation.md` Rule 1 retired `isolation: "worktree"` / `EnterWorktree({name})`,
+the flags that placed agent waves under `.claude/worktrees/`. They differ in LIFECYCLE, not
+placement. Use `/worktree` for a **human/session** worktree you root into and keep across tasks;
+for a wave, the orchestrator makes a transient per-shard sibling with `git worktree add` directly,
+dispatches with the absolute path pinned AND a mandated STEP-0 cwd assertion, and removes it after
+the wave (`skills/30-claude-code-patterns/worktree-orchestration.md` § Retiring
+`isolation: "worktree"`). A session that roots into its worktree (this command, step 3) gets the
+cwd guarantee from the launch/re-root itself, so it needs no such assertion — a DISPATCHED agent
+does, because nothing sets its cwd once the flag is gone.
 
 ## Arguments
 
@@ -69,7 +84,7 @@ git worktree list | grep -F "$wt_path"                          # verify it regi
 
 ## Guardrails
 
-- NEVER create a session worktree under `.claude/worktrees/` or anywhere below the repo root — a nested checkout falls inside the repo's `.claude/**` glob range (parent-repo tooling recursion) and clutters the working tree (`rules/worktree-isolation.md` Rule 7).
+- NEVER create a worktree under `.claude/worktrees/` or anywhere below the repo root — session (Rule 7) or agent-wave (Rule 1) — a nested root duplicates the matching path-scoped rule set (measured that duplication occurs; the per-touch SIZE is indicative only — a reimplemented glob matcher put a `.claude/rules/**` touch at 13 rules ≈ 292 KB, an independent reimplementation at 15 / ~334 KB), falls inside the repo's `.claude/**` glob range (parent-repo tooling recursion), and clutters the working tree (`rules/worktree-isolation.md` Rule 7).
 - NEVER `EnterWorktree({name})` for durable session work.
 - Coordination state (`.claude/learning/`) is NOT copied into the worktree but is NOT lost: it is shared via the `refs/coc/**` refs (worktrees share `.git`), and ceremony helpers resolve the MAIN checkout (posture per `rules/trust-posture.md` MUST-1; the codify-lease per `rules/knowledge-convergence.md` Rule 3). See `rules/multi-operator-coordination.md` § "§2 essentials".
 - Cross-repo placement resolves via the operator's own layout; the MAIN repo's parent dir `.<slug>-wt/` (derived location-independently via `git-common-dir`) is the recommended default, not a hardcoded requirement (`rules/cross-repo.md` MUST-1).
