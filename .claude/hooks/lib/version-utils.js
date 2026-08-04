@@ -18,6 +18,35 @@
 const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
+// THE shared guard-git allowlist (loom#1462 / #1471) — absolute binary + an env
+// built from constants, so no ambient GIT_DIR can re-point these probes at
+// another repository.
+const { resolveGitBinary, gitEnv, gitNetEnv } = require("./git-subprocess-env.js");
+
+/**
+ * `git -C <cwd> remote get-url origin`, trimmed — the ONE place this repo asks
+ * that question (loom#1471, rules/security.md § Multi-Site Kwarg Plumbing).
+ *
+ * Three call sites below each spawned a bare `git` with no `env:`. The answer
+ * decides which TEMPLATE a repo is judged to descend from, and GIT_DIR outranks
+ * repository discovery — `-C` only changes directory — so an ambient GIT_DIR
+ * pointed at a decoy made every one of them report the decoy's origin.
+ *
+ * A local config read, NOT a network call, so `gitEnv()` is correct here and
+ * `gitNetEnv()` (which restores proxy/SSH config) is deliberately not used.
+ * Throws when git will not resolve; every caller is already inside a try/catch
+ * whose catch is the "no remote / not a repo / git absent" fallback.
+ */
+function gitRemoteOriginUrl(cwd) {
+  const gitBin = resolveGitBinary();
+  if (!gitBin) throw new Error("git binary did not resolve");
+  return execFileSync(gitBin, ["-C", cwd, "remote", "get-url", "origin"], {
+    encoding: "utf8",
+    timeout: 3000,
+    stdio: ["pipe", "pipe", "pipe"],
+    env: gitEnv(),
+  }).trim();
+}
 
 /**
  * Read the local .claude/VERSION file.
@@ -101,10 +130,24 @@ function readLocalVersionState(cwd) {
 function fetchUpstreamVersion(url) {
   if (!url) return null;
   try {
+    // loom#1471. This is a genuinely REMOTE call, so `gitNetEnv()` — not
+    // `gitEnv()` — is the right fence: it re-admits exactly the egress and
+    // TLS-trust variables curl honours (http_proxy/HTTPS_PROXY/ALL_PROXY,
+    // NO_PROXY, SSL_CERT_FILE/SSL_CERT_DIR, CURL_CA_BUNDLE), each behind the
+    // same validator git's network profile uses, instead of inheriting them
+    // ambiently. Un-fenced, CURL_CA_BUNDLE/SSL_CERT_FILE substitute the trust
+    // anchor for this fetch and a proxy variable redirects it wholesale — and
+    // the result is JSON.parse'd and used as the upstream VERSION.
+    //
+    // It also closes the PATH half without needing a resolver: supplying
+    // `env` makes the CHILD's PATH govern executable lookup (verified — a decoy
+    // on the parent PATH is not found), so `curl` resolves from the
+    // constants-built /usr/bin:/bin rather than an ambient PATH.
     const result = execFileSync("curl", ["-sf", "--max-time", "3", url], {
       encoding: "utf8",
       timeout: 5000,
       stdio: ["pipe", "pipe", "pipe"],
+      env: gitNetEnv(),
     });
     return JSON.parse(result);
   } catch {
@@ -595,11 +638,7 @@ function isActualTemplateRepo(cwd) {
     return true;
   }
   try {
-    let remote = execFileSync(
-      "git",
-      ["-C", cwd, "remote", "get-url", "origin"],
-      { encoding: "utf8", timeout: 3000, stdio: ["pipe", "pipe", "pipe"] },
-    ).trim();
+    let remote = gitRemoteOriginUrl(cwd);
     // Normalize SSH URLs: git@github.com:owner/repo.git → owner/repo
     if (remote.startsWith("git@")) {
       remote = (remote.split(":")[1] || "").replace(/\.git$/, "");
@@ -676,11 +715,7 @@ function normalizeRemoteIdentity(url) {
  */
 function readRepoIdentity(cwd) {
   try {
-    const remote = execFileSync(
-      "git",
-      ["-C", cwd, "remote", "get-url", "origin"],
-      { encoding: "utf8", timeout: 3000, stdio: ["pipe", "pipe", "pipe"] },
-    ).trim();
+    const remote = gitRemoteOriginUrl(cwd);
     const id = normalizeRemoteIdentity(remote);
     if (id.name) return { ...id, source: "remote" };
   } catch {
@@ -877,16 +912,14 @@ function guessTemplateName(cwd, original) {
   if (variant) {
     return `kailash-coc-claude-${variant}`;
   }
-  // Check git remote for template repo name hints
-  try {
-    const remote = execFileSync(
-      "git",
-      ["-C", cwd, "remote", "get-url", "origin"],
-      { encoding: "utf8", timeout: 3000, stdio: ["pipe", "pipe", "pipe"] },
-    ).trim();
-    // Check if the repo was CREATED from a template — git initial commit
-    // may reference the template. Also check first commit message.
-  } catch {}
+  // A `git remote get-url origin` probe used to run here. It assigned `remote`,
+  // never read it, and swallowed every failure in an empty catch — the comments
+  // in its body described a template-detection heuristic that was never written.
+  // So it spawned a git subprocess on every guessTemplateName() call to produce
+  // no effect (zero-tolerance.md Rule 2 + Rule 3). Removed rather than
+  // implemented: the hint it described is not a specified behaviour, and
+  // inventing one here would be guessing at intent.
+  //
   // Check description — but "Rust-backed" bindings means rs template,
   // even though "Python/Ruby" appears first in the description.
   const desc = (original.description || "").toLowerCase();

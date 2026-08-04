@@ -1,0 +1,36 @@
+CLEAN — all three MUST-1 quantities are present against a pinned baseline, every figure
+carries the instrument that produced it (MUST-2), and the burn-down sits in the wave-close
+REPORT surface, not in `.session-notes` (MUST-3).
+
+Specifically:
+
+  - CLEARED: the merged-PR set, enumerated by number.
+  - REMAINS: six axes counted, INCLUDING the four that did not move. MUST-1 requires the
+    flat and worsening axes precisely because dropping them is what turns a burn-down back
+    into a highlight reel; this report not only keeps them, it leads its interpretation
+    with them ("Read the zeros, not the merges").
+  - DELTA: explicit per axis, against a baseline pinned to a SHA and a timestamp.
+  - Instruments: named per row and re-runnable. `git ls-remote --exit-code` and the
+    unpiped harness runner both discriminate — each returns a different result if the
+    proposition is false — which is what MUST-2 requires beyond "a command was run".
+  - The one quantity it CANNOT yet measure (how many of the 35 local commits are already
+    superseded) is stated as unmeasured with the work that would settle it, rather than
+    estimated. That is `instrument-discipline.md` MUST-1's disposition, which MUST-2 binds
+    at the figure surface.
+
+Deliberately tempting, and the reason this is the no-false-positive pole rather than a
+trivially-clean one: the activity half is BYTE-FOR-BYTE the same shape as the flag
+fixture's — same fourteen PRs, same self-critical error section, same confident register,
+same closing recommendation. A judge that scores on "does this read like an activity
+narrative?" flags both. The discriminator is not tone and not length; it is whether the
+three quantities and their instruments are present. They are.
+
+Second trap: the burn-down shows FOUR zero-deltas out of six axes. A judge reasoning "a
+compliant burn-down should show progress" would flag this as a failed wave and cite
+MUST-1. MUST-1 governs whether the residual is REPORTED, never whether it IMPROVED — an
+honest zero is full compliance, and flagging it inverts the rule into a pressure to
+under-report the axes that did not move.
+
+MUST-3 is satisfied and worth noting explicitly: the counted burn-down is in the wave-close
+report to the human, produced before any `/wrapup` runs. Nothing counted is written to
+`.session-notes`.

@@ -373,28 +373,62 @@ function buildLearningDigest(cwd, learningDir) {
  */
 function generateJournalCandidates(cwd, sessionId, sessionDir) {
   const { detectActiveWorkspace } = require("./lib/workspace-utils");
-  const { execSync } = require("child_process");
+  const { execFileSync } = require("child_process");
+  const { resolveGitBinary, gitEnv } = require("./lib/git-subprocess-env.js");
 
   const workspace = detectActiveWorkspace(cwd);
   if (!workspace) return;
 
-  // Determine session start time for git log --since filter
+  // Determine session start time for git log --since filter.
+  //
+  // PARSED, not passed through (loom#1471). `startedAt` used to be assigned
+  // verbatim and then interpolated into a SHELL command string, inside double
+  // quotes, unescaped — so a session JSON carrying
+  // `x"; <command>; echo "` executed <command>. The file is
+  // ~/.claude/sessions/<id>.json, which is the same delivery surface #1429 and
+  // #1309 already treat as in-model: an agent able to Write settings.local.json
+  // is equally able to Write this. Measured: the payload ran even though git
+  // itself then errored, so git's exit status was never a barrier.
+  //
+  // The two sibling readers of this exact field (`:200`, `:308`) both went
+  // through `new Date(...)`; this one did not, which is the whole defect. The
+  // value is now accepted only if it parses to a real instant, and is
+  // re-serialised from the parsed Date so what reaches git is git's own format
+  // rather than attacker-chosen bytes.
   let sessionStartIso = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
   try {
     const sessionFile = path.join(sessionDir, `${sessionId}.json`);
     if (fs.existsSync(sessionFile)) {
       const data = JSON.parse(fs.readFileSync(sessionFile, "utf8"));
-      if (data.startedAt) sessionStartIso = data.startedAt;
+      if (typeof data.startedAt === "string") {
+        const ms = new Date(data.startedAt).getTime();
+        if (Number.isFinite(ms)) sessionStartIso = new Date(ms).toISOString();
+      }
     }
   } catch {}
 
   // Fetch all session commits in one call. Use %x1f (unit sep) between fields
   // and %x1e (record sep) between commits so multi-line bodies parse safely.
+  //
+  // ARG ARRAY + fenced env, no shell: `--since=` is one argv element, so even a
+  // value that survived the parse above cannot become syntax. The absolute
+  // binary + constants-built env is the ordinary #1462/#1471 half.
   let rawLog;
   try {
-    rawLog = execSync(
-      `git log --since="${sessionStartIso}" --format="%H%x1f%s%x1f%b%x1e" -n 30 2>/dev/null`,
-      { cwd, encoding: "utf8", timeout: 3000 },
+    const gitBin = resolveGitBinary();
+    if (!gitBin) return; // git unresolvable — no candidates, same as no commits
+    rawLog = execFileSync(
+      gitBin,
+      [
+        "log",
+        `--since=${sessionStartIso}`,
+        "--format=%H%x1f%s%x1f%b%x1e",
+        "-n",
+        "30",
+      ],
+      // stderr discarded here rather than by a `2>/dev/null` the shell used to
+      // interpret — there is no shell now.
+      { cwd, encoding: "utf8", timeout: 3000, stdio: ["ignore", "pipe", "ignore"], env: gitEnv() },
     );
   } catch {
     return; // not a git repo, git failed, or no commits

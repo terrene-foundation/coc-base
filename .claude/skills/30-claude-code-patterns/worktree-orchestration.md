@@ -16,6 +16,7 @@ Detailed evidence and post-mortems backing the worktree rules in `rules/agents.m
 | 5 (one version owner)           | **version clobber** — two shards racing the same version anchor                                              |
 | 10 (binding-scoped shard PRs)   | **shard conflicts** — two concurrent shards editing the same sibling-package file, 3-way conflict at merge   |
 | 11 (`cp`-backup restore)        | **index-restore destruction** — `git checkout --` restores from the INDEX, destroying unstaged work          |
+| § Teardown (rule Rule 8)        | **unbounded accumulation** — nothing owned reaping, so every wave's trees survived until the volume filled   |
 
 The always-on trio in the rule body compresses three mechanisms stated fully here: concurrent readers read committed HEAD via `git show HEAD:<path>` (Rule 9); commit per milestone AND verify ≥1 commit exists before exit (Rule 3); take the `cp` backup BEFORE the edit and verify byte-identity after the restore (Rule 11).
 
@@ -102,6 +103,78 @@ at a measured per-agent-per-wave floor of **88,895 tokens / 355,581 B** (a floor
 It does not need to be reconciled to act, because the sibling form is correct under EITHER: if #1370 holds, the sibling removes the ancestor the agent would have read; if loom's measurement holds, the wave's cost is whatever the dispatching session carries, and that session is sibling-rooted under Rule 7. The retired flag is the only option that is wrong under one reading and no better under the other. Do NOT cite this section as having settled which measurement is right.
 
 **BLOCKED rationalizations:** "`isolation: "worktree"` is the built-in primitive, so it must be the intended path" / "the flag does the worktree setup for free, pre-making it is overhead" / "loom measured that subagents inherit the parent corpus, so the flag is fine" (that measurement is contested by #1370 and the sibling is correct either way) / "it's gitignored, so nesting is harmless" (gitignore does not stop instruction discovery, nor a parent-repo `grep -r`) / "we'll switch when the harness ships a configurable base directory" (the guidance change cascades today; the harness fix is items 1–2 of #1370 and has no ETA) / "the prompt states the working directory, so the agent is in it" (a prompt is a request, not a mount point) / "STEP 0 is ceremony that burns a turn" (one git call, ~30 ms, against 300+ LOC of recorded loss) / "`git -C <wt> status` already checks it" (it never establishes cwd — see the form table above) / "the agent will `cd` there first" (an UN-ASSERTED `cd` is an unverified assumption, and cwd can revert mid-session per Rule 2a) / "just compare the toplevel to the path I passed" (spurious refusal on any symlinked prefix — measured) / "MAIN would obviously fail the root check" (it would not — MAIN is a valid worktree root; the `--git-common-dir` guard is what rejects it).
+
+## Teardown — depth for `rules/worktree-isolation.md` Rule 8
+
+**This section is the counterpart to § Retiring, and it did not exist until 2026-07-30.** That is the whole defect: `commands/worktree.md` said the orchestrator "removes it after the wave" and CITED § Retiring for the procedure — a section that contains six `git worktree add` invocations and zero removals. The citation survived a re-home the content never got. Anything pointing here for teardown now lands on real content.
+
+### Why teardown went missing (the #1370 regression)
+
+The retired `isolation: "worktree"` flag did THREE things: it created the worktree, it set the agent's cwd, and it **auto-cleaned the worktree when the branch was unchanged**. Rule 1's rewrite re-homed creation onto the orchestrator and replaced the cwd guarantee with the mandated STEP-0 assertion. Nothing took over auto-clean. Creation ended up governed by five rules; teardown by none.
+
+The asymmetry is what kept it invisible. Every cleanup mention in this file was about protecting work **FROM** auto-cleanup — Rule 3's commit-per-milestone exists because "a zero-commit worktree is auto-cleaned and the work is gone." Read straight through, the discipline looks complete. It was one-sided by construction: it defended against reaping too eagerly and never once said to reap at all.
+
+Measured before the fix: 20 worktrees / 1.0 GB under one operator's `.loom-wt/` at 83% volume capacity (~53 MB each), and a corpus grep for `worktree remove|worktree prune` across `.claude/rules/` that returned **zero** hits.
+
+### Two axes, and why conflating them is the trap
+
+A reap decision has two INDEPENDENT questions, and the tiering only works if they stay separate:
+
+1. **DURABILITY** — will the commits survive removal? `git worktree remove` deletes the **DIRECTORY**, never the branch ref. So commits on a named branch survive; a detached HEAD unreachable from any ref does not.
+2. **OCCUPANCY** — is someone working there right now? A tree can be perfectly durable AND be a live session's floor. Reaping it loses no commits but yanks the ground out from under a running session.
+
+The first draft of the reaper collapsed these: it treated "unpushed commits on a detached HEAD" as a KEEP reason, which meant the TAG-FIRST verdict was **unreachable dead code**. Nothing caught that against the real forest — where ~10 of 11 trees are correctly KEEP, a classifier that always answered KEEP is indistinguishable from a working one. What caught it was one synthetic worktree per verdict, each with its correct answer known by construction. Any future edit to the classifier MUST keep that fixture green, and MUST state which inputs reach each verdict (the same obligation Rule 1's **Why** imposes on its assertion forms).
+
+Unpushed commits on a NAMED branch are an OCCUPANCY signal (work in flight), not a durability risk — the ref already makes them durable. Stating the reason correctly is what keeps the tier table honest.
+
+### The tier table — the evidence each verdict requires
+
+Both axes must clear before a tree is reaped. The rule states the tiering; this is the evidence each verdict is built from:
+
+| Evidence | Verdict |
+| --- | --- |
+| clean tree + a ref preserves the commits (named branch, or HEAD reachable from a remote) | **ZERO-LOSS** — reap; the tree is re-creatable from the ref |
+| clean + DETACHED and unreachable from any ref | **TAG FIRST**, then reap — removal would orphan the SHA |
+| dirty tree, OR unpushed commits on a named branch, OR `locked`, OR active within the idle floor | **KEEP** — never reap |
+
+Read the rows against the two axes above: row 1 clears DURABILITY via the ref and OCCUPANCY via the clean tree; row 2 clears OCCUPANCY but NOT durability, which is why it tags before reaping rather than refusing; row 3 fails one or both. The KEEP row is deliberately a disjunction — any single signal holds the tree, so the verdict never depends on ranking them.
+
+### The two instruments answer different questions — use both, substitute neither
+
+| Instrument | Question it answers |
+| --- | --- |
+| `git rev-list --count <ref> --not --remotes` | DURABILITY: how many commits on this ref are absent from **every** remote-tracking ref |
+| `git cherry origin/<default> <branch>` | IDENTITY: is this **patch** already upstream, possibly under another SHA or branch name (`-` = present, `+` = absent) |
+
+They disagree, and the disagreement is informative. Measured on one real branch: `cherry` printed **5** `+` lines while `rev-list --not --remotes` counted **4** — because one commit was reachable from a different remote ref than the one `cherry` compared against. `cherry` is patch-id-based against ONE upstream; `rev-list --not --remotes` is reachability-based across ALL remotes. Use `--not --remotes` for "would removal lose commits" and `cherry` for "has this already landed under another name" (a branch whose patches are all `-` is reapable even though it reads as unmerged — 10 of 10 refs measured `-` on one forest).
+
+### The affordance
+
+`bin/worktree-reap.mjs` implements the tiering. **Report-only by default** — it changes nothing without `--apply`.
+
+```bash
+node .claude/bin/worktree-reap.mjs --help
+node .claude/bin/worktree-reap.mjs                       # classify + report
+node .claude/bin/worktree-reap.mjs --json                # for /sweep Sweep 6
+node .claude/bin/worktree-reap.mjs --apply               # reap ZERO-LOSS + TAG-FIRST
+node .claude/bin/worktree-reap.mjs --apply --zero-loss-only
+node .claude/bin/worktree-reap.mjs --min-age-hours 0     # drop the idle floor
+```
+
+Guards, each independently sufficient to hold a tree: the MAIN checkout, the invoking session's own worktree, a `locked` worktree, a dirty tree, unpushed commits on a named branch, and activity inside `--min-age-hours` (default 12, measured from the newest of the worktree root mtime and its per-worktree git `index` mtime — the index moves on any git operation, which a root-dir mtime alone misses). A tree whose directory is already gone routes to `git worktree prune`, not `remove`.
+
+**`--force` is not implemented and never will be.** A bare `git worktree remove` REFUSES a dirty tree, and that refusal is the safety net working. Checking `git status` first and then forcing is the same check-then-clobber TOCTOU Rule 11 blocks for `git checkout --`: the state can change between the check and the removal, and an agent cannot evaluate the condition from outside. When git refuses, the reaper reports the refusal and exits 2 — it does not escalate.
+
+**BLOCKED rationalizations:** "the branch is unmerged so the tree must stay" (`cherry` decides; `-` means already upstream) / "I verified it was clean, so `--force` is safe" / "the next session will clean up" (it cannot tell an abandoned tree from a live one, so it correctly refuses to touch either) / "disk is cheap" (83% capacity, measured) / "`rm -rf` is faster" (it orphans the admin dir under `.git/worktrees/`; `prune` is the completion) / "durable means permanent" (Rule 7's "durable" means not deleted BETWEEN tasks) / "removal deletes the branch" (it does not — that is exactly why ZERO-LOSS is zero-loss) / "the reaper ran clean, so the forest is clean" (report-only is the DEFAULT; a run that changed nothing is the expected output, not a completion receipt — check the `applied=` field in the sentinel) / "unpushed commits mean the work is at risk" (on a NAMED branch the ref already makes them durable; what holds the tree is that the work is IN FLIGHT — an OCCUPANCY reason, not a durability one, and conflating the two is what made the TAG-FIRST verdict unreachable dead code in the reaper's first draft).
+
+### Where the obligation fires
+
+Two triggers, different scopes, both MUST per Rule 8:
+
+- **Per-wave, by the creator** — at the terminal-lane transition, once each lane is committed and merged-or-pushed. This is where OWNERSHIP is: the orchestrator knows which trees it made and why.
+- **`/sweep` Sweep 6, periodically** — the backstop, because the per-wave path fails silently exactly when an orchestrator dies mid-wave. Sweep 6 already ran `git worktree list`; it now classifies instead of merely listing.
+
+`/wrapup` was considered and rejected: a session cannot reap the worktree it is standing in, wrapup fires far more often than the leak accrues (nag fatigue on a destructive action), and a session ending is not evidence a tree is finished. A SessionEnd hook was rejected on two grounds — hooks are CC-only, so Codex/Gemini consumers would get no coverage, and a hook that performs destructive removals unattended is precisely what `hook-output-discipline.md` MUST-2 exists to prevent.
 
 ## Rule 1 — Worktree Isolation For Compiling Agents
 

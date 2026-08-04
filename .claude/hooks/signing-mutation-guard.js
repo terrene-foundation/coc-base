@@ -112,10 +112,13 @@ const siblingPorcelain = require(
 const { isMutationTool } = require(
   path.join(__dirname, "lib", "tool-classes.js"),
 );
+const { resolveGitBinary, gitEnv } = require(
+  path.join(__dirname, "lib", "git-subprocess-env.js"),
+);
 const { isCoordinationEnabled } = require(
   path.join(__dirname, "lib", "coordination-mode.js"),
 );
-const { resolveMainCheckout } = require(
+const { requireMainCheckout } = require(
   path.join(__dirname, "lib", "state-resolver.js"),
 );
 
@@ -237,12 +240,18 @@ function detectSiblingContention(repoDir, targetRelPath) {
     return { matched: false };
   }
   // 2. Production primitive — sibling-porcelain.js.
-  const matches = siblingPorcelain.detectSiblingMutation(
-    repoDir,
-    targetRelPath,
-  );
-  if (matches.length > 0) {
-    return { matched: true, evidence: "production", siblings: matches };
+  // loom#1471 shard 5. This returns a RESULT OBJECT now. `ok:false` is
+  // "could not answer", which MUST NOT arrive here as "no contention": the
+  // enumeration goes indeterminate on an unresolvable git AND on a
+  // `safe.directory` refusal (exit 128), the latter made more reachable by
+  // gitEnv() neutralising global config. Surfaced as `indeterminate` so the
+  // caller can halt-and-report instead of silently proceeding.
+  const res = siblingPorcelain.detectSiblingMutation(repoDir, targetRelPath);
+  if (!res.ok) {
+    return { matched: false, indeterminate: true, reason: res.reason };
+  }
+  if (res.matches.length > 0) {
+    return { matched: true, evidence: "production", siblings: res.matches };
   }
   return { matched: false };
 }
@@ -288,21 +297,38 @@ function wouldMutateWorkingTree(opKind, repoDir, candidateRel) {
     // (under a gitignored subdir) is rare AND if it slipped through
     // the read-only contract is still the right disposition.
     if (!candidateRel) return false;
+    // loom#1471 shard 2. Both queries below decide whether this guard fires at
+    // all, and neither pinned its repository: with no `env:` the child inherited
+    // the ambient environment, where GIT_DIR/GIT_WORK_TREE outrank `cwd`. A repo
+    // in which the path reads as gitignored returns "no mutation" and the guard
+    // steps aside. git is now absolute-path invoked with a constants-built env.
+    //
+    // Unresolvable git ranks TIGHTEST: return true (treat as mutating), which is
+    // this function's own documented degraded-mode direction above.
+    const gitBin = resolveGitBinary();
+    if (!gitBin) return true;
     // Try `git ls-files --error-unmatch`. Tracked → exit 0.
-    const r = spawnSync("git", ["ls-files", "--error-unmatch", candidateRel], {
+    const r = spawnSync(gitBin, ["ls-files", "--error-unmatch", candidateRel], {
       cwd: repoDir,
       stdio: ["ignore", "pipe", "pipe"],
       encoding: "utf8",
       timeout: 2000,
+      env: gitEnv(),
     });
     if (r.status === 0) return true;
     // Untracked. Check if it's gitignored — if so, no mutation
     // signal (untracked + gitignored = silent fail-open).
-    const ig = spawnSync("git", ["check-ignore", "-q", candidateRel], {
+    //
+    // Config dimension (measured, loom#1471 shard 2): gitEnv() nulls global
+    // config, so a path ignored only via a global `core.excludesFile` now reads
+    // as NOT ignored (exit 1) and falls through to `return true`. That is the
+    // fail-CLOSED direction — the guard fires more often, never less.
+    const ig = spawnSync(gitBin, ["check-ignore", "-q", candidateRel], {
       cwd: repoDir,
       stdio: ["ignore", "pipe", "pipe"],
       encoding: "utf8",
       timeout: 2000,
+      env: gitEnv(),
     });
     // exit 0 = ignored; exit 1 = not ignored
     if (ig.status === 0) return false;
@@ -343,7 +369,33 @@ function wouldMutateWorkingTree(opKind, repoDir, candidateRel) {
     // local-override path). Resolve the MAIN checkout for the predicate ONLY (the
     // same main-checkout discipline as trust-posture.md MUST-1 / integrity-guard
     // .js:362); repoDir stays the worktree cwd for §4.2 porcelain + repoRelative.
-    if (!isCoordinationEnabled(resolveMainCheckout(repoDir) || repoDir)) {
+    // loom#1471 F7b — fail CLOSED when git cannot identify the main checkout.
+    // Same shape as adjacency-leasecheck: the `|| repoDir` could not fire, so an
+    // unidentifiable root reached the predicate against a directory holding no
+    // coordination state → false → `passthrough()`, disabling the signing-key
+    // mutation fence. `repoDir` deliberately STAYS the worktree cwd below.
+    const mainRes = requireMainCheckout(repoDir);
+    if (!mainRes.ok) {
+      clearTimeout(fallback);
+      emit({
+        hookEvent,
+        severity: "block",
+        what_happened: `Signing-mutation check could not run: the MAIN checkout could not be identified — ${mainRes.reason}`,
+        why: "multi-operator-coc/signing-mutation-guard — this fence governs mutations to signing-key and trust-root material, and its coordination-enabled predicate reads MAIN-checkout state. Unidentified, that predicate returns false and its branch is `passthrough()`, so a signing mutation would proceed unchecked exactly when the resolver cannot tell which repository it is in. Refusing is the fail-closed direction (`rules/security.md` § Enforcement-Surface Parity). Severity is block — the same disposition, on the same reasoning, as integrity-guard.js on this same predicate: the signal is process-state (git exited non-zero), the structural grounding hook-output-discipline.md MUST-2 requires — a lexical match would not qualify. MUST-2 PERMITS block here; what REQUIRES it is that halt-and-report maps to continue:true and the signing mutation RUNS (lib/instruct-and-wait.js), so on a mutation fence it is not a softer refusal but no refusal at all. The operator's recovery path is CLAUDE_TRUST_STATE_DIR, named in the report below.",
+        agent_must_report: [
+          `Worktree cwd: ${repoDir}`,
+          `Resolver reason: ${mainRes.reason}`,
+          "The signing-mutation fence did NOT run — its result is UNKNOWN, not clean.",
+          "A differently-owned checkout reports `detected dubious ownership`; take ownership, or set CLAUDE_TRUST_STATE_DIR.",
+        ],
+        agent_must_wait:
+          "Do not retry the signing mutation until git can identify the main checkout, or the operator pins CLAUDE_TRUST_STATE_DIR.",
+        user_summary:
+          "signing-mutation-guard — main checkout unidentifiable; refused rather than passed through",
+      });
+      // emit() exits
+    }
+    if (!isCoordinationEnabled(mainRes.repoDir)) {
       passthrough();
     }
 
@@ -455,6 +507,37 @@ function wouldMutateWorkingTree(opKind, repoDir, candidateRel) {
           agent_must_wait:
             "Report the contention and your recommended option, then wait for the operator's direction before further edits to this path.",
           user_summary: `signing-mutation-guard — cross-worktree contention on ${candidateRel} (sibling worktree ${sib.worktree || "<unknown>"} holds it uncommitted-modified)`,
+        });
+        // emit() exits
+      }
+      // loom#1471 shard 5. INDETERMINATE is not "no contention". The sibling
+      // enumeration goes indeterminate when git is unresolvable, when
+      // `git worktree list` exits non-zero (a `safe.directory` refusal on a
+      // dubious-ownership checkout is the reachable case, made MORE reachable by
+      // gitEnv() neutralising global config), or when an enumerated sibling's
+      // porcelain could not be read. Previously every one of those collapsed
+      // into the same empty list a genuine no-contention answer produces, and
+      // the guard passed through silently — the check never fired at all.
+      //
+      // halt-and-report, not block, on the same proportionality grounds the
+      // positive branch uses (loom#1323): a sibling's on-disk bytes are never at
+      // risk from this write. The operator is told the check could not run.
+      if (contention.indeterminate) {
+        clearTimeout(fallback);
+        emit({
+          hookEvent,
+          severity: "halt-and-report",
+          what_happened: `Sibling-worktree contention check could not run for '${candidateRel}': ${contention.reason}`,
+          why: "multi-operator-coc/signing-mutation-guard §4.2 — the porcelain primitive returned INDETERMINATE, which is NOT evidence of no contention (rules/instrument-discipline.md MUST-1: a result consistent with both branches of the hypothesis carries no information). Passing through here would silently skip the check on exactly the hosts where it fails — an unresolvable git binary, or a `safe.directory` refusal on a dubious-ownership checkout.",
+          agent_must_report: [
+            `Target path: ${candidateRel}`,
+            `Why the check could not answer: ${contention.reason}`,
+            "State explicitly that sibling-worktree contention is UNKNOWN for this path — not absent.",
+            "Remediation: ensure git is resolvable, or add this checkout to safe.directory, then retry.",
+          ],
+          agent_must_wait:
+            "Report that the contention check did not run and wait for the operator's direction before editing this path.",
+          user_summary: `signing-mutation-guard — contention check INDETERMINATE for ${candidateRel} (not a clean result)`,
         });
         // emit() exits
       }

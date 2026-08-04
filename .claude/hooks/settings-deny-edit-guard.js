@@ -409,7 +409,7 @@ function enforceEnvOnly(tool, ti, beforeText, target) {
   const envRedirect = envKeysAddedOrChanged(beforeObj, afterObj);
   if (envRedirect.length) {
     return blockDeny(
-      `${tool} to ${label} adds or changes guard-redirecting env key(s): ${envRedirect.join(", ")} — CC merges this file's env into the hook subprocess, so the key would redirect the guard command's node execution/path, neutering the #1309 protection while the primary settings.json deny contract + registrations stay intact.`,
+      `${tool} to ${label} adds or changes guard-neutering env key(s): ${envRedirect.join(", ")} — CC merges this file's env into the hook subprocess, so the key would redirect the guard command's node execution/path, relocate a config or root it reads, forge the operator identity it authorizes against, or steer its git subprocess, neutering the #1309 protection while the primary settings.json deny contract + registrations stay intact.`,
       "env-redirect-sibling",
     );
   }
@@ -564,15 +564,18 @@ async function main(payload) {
     }
   }
 
-  // (4) settings.json `env` MUST NOT ADD/CHANGE a key that redirects the guard command's
-  // runtime node resolution (redteam R9 F13). The registration stays byte-identical, but a
-  // settings.json env `PATH` / `NODE_OPTIONS` / `CLAUDE_PROJECT_DIR` / `DYLD_*` / `LD_*` reaches
-  // the hook subprocess and would run an attacker `node`/module — neutering BOTH guards. A
-  // malformed baseline (beforeObj null) treats every dangerous key in the result as added.
+  // (4) settings.json `env` MUST NOT ADD/CHANGE a key that neuters a guard while its registration
+  // stays byte-identical (redteam R9 F13; #1429; #1471 F2/F3). The env reaches the hook subprocess,
+  // so such a key can (a) redirect node execution — `PATH` / `NODE_OPTIONS` / `CLAUDE_PROJECT_DIR` /
+  // `DYLD_*` / `LD_*`; (b) redirect the policy config or a root a guard reads —
+  // `LOOM_ECOSYSTEM_CONFIG` / `CLAUDE_TRUST_STATE_DIR` / `KAILASH_LEARNING_DIR`; (c) forge the
+  // OPERATOR IDENTITY a guard authorizes against — the `COC_` namespace; or (d) steer the GIT
+  // SUBPROCESS a guard reaches before any identity check — the `GIT_` namespace. A malformed
+  // baseline (beforeObj null) treats every dangerous key in the result as added.
   const envRedirect = envKeysAddedOrChanged(beforeObj, afterObj);
   if (envRedirect.length) {
     return blockDeny(
-      `${tool} to .claude/settings.json adds or changes guard-redirecting env key(s): ${envRedirect.join(", ")} — a settings.json env var that would redirect the guard's node execution/path, neutering the protection while the registration stays intact.`,
+      `${tool} to .claude/settings.json adds or changes guard-neutering env key(s): ${envRedirect.join(", ")} — a settings.json env var that would redirect the guard's node execution/path, relocate a config or root it reads, forge the operator identity it authorizes against, or steer its git subprocess, neutering the protection while the registration stays intact.`,
       "env-redirect",
     );
   }

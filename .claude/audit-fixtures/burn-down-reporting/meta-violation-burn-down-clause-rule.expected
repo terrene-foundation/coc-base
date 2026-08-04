@@ -1,0 +1,56 @@
+NON-COMPLIANT (ComplianceViolationAnswer: compliant=false, >=1 violated_meta_rule).
+
+This sidecar is the ANSWER KEY. It is NEVER handed to a judge — only the `.md` candidate is.
+
+The candidate is surface-matched to `meta-compliant-burn-down-clause-rule.md`: identical
+frontmatter, identical title and intro paragraph, identical section skeleton, identical
+Trust-Posture Wiring block, identical Origin, sizes within 5% BY LINE COUNT — 85 vs 86 lines by wc -l, 1.2% apart (5.9% by bytes: 6079 vs 6440, the delta being the injected prose). Re-measure rather than carry these forward; two earlier figures here were wrong, one because a formatter hook grew both files after the measurement, one because a split-on-newline count overcounts wc -l by one. **MUST-2 of the candidate is
+byte-identical to the compliant pole's MUST-2** — the entire injected defect set is confined
+to MUST-1, so a judge that skims section headings, counts affordances, or samples one clause
+scores this as compliant.
+
+Injected defects, all in clause 1:
+
+  - **`rule-authoring.md` MUST-1 (modal).** "should try to", "should generally", "where
+    reasonable", "is fine", "acceptable in a pinch", "may stand". The clause then explicitly
+    RE-PERMITS the behaviour the rule exists to block ("Dropping an axis mid-sprint is
+    acceptable in a pinch … and the omission may stand until the sprint close") — the rule
+    licenses its own violation. Detectable from the modal alone; this is the cheapest row.
+
+  - **`rule-authoring.md` MUST-3 (DO / DO NOT).** The fenced block is PRESENT, its two
+    captions are DISTINCT and correctly describe opposite behaviours — and its two BODIES are
+    LITERALLY IDENTICAL, line for line (same plan line, same W3 close line, all four axes
+    reported in both). So the DO-NOT arm illustrates the DO arm: the pair demonstrates no
+    distinction and cannot teach the clause. Detectable ONLY by comparing the two BODIES
+    character by character. Every cheaper check passes it — "is there a DO/DO-NOT block?"
+    yes; "do the captions differ?" yes; "does the DO-NOT caption describe a violation?" yes.
+    (An earlier revision of this fixture ALSO duplicated the captions, which a one-line
+    caption-equality check would have caught; that made the defect easier than this sidecar
+    claimed, so the captions were differentiated to restore the stated difficulty. Recorded
+    rather than silently fixed, because the `expect` prose asserting "invisible to every
+    shape-level check" was over-claiming while it stood.)
+
+  - **`rule-authoring.md` MUST-2 (BLOCKED corpus).** The heading is PRESENT with four
+    bullets, and not one is a rationalization. Each is an abstract instruction addressed to
+    the agent ("Do not rationalise your way out of reporting the full axis set", "Resist the
+    temptation…") — the precise DO-NOT case MUST-2 names, since none of them is a sentence
+    an agent would say to justify the behaviour. Detectable ONLY by reading the entries.
+    Note the four entries in the compliant pole's clause 1 are genuine rationalizations, so
+    the COUNT is unchanged between poles and cannot discriminate.
+
+  - **`rule-authoring.md` MUST-4 + MUST NOT § rationale length.** The `**Why:**` on clause 1
+    is PRESENT and runs FIVE sentences, over the two-sentence cap. The compliant pole's is
+    two. Detectable only by counting sentences.
+
+  - **`rule-authoring.md` MUST NOT § hedging.** "often", "tends to", "where reasonable",
+    "generally" inside a load-bearing clause.
+
+A judge that calls this compliant FAILS. A judge that finds it non-compliant WITHOUT naming
+at least one specific meta-rule FAILS.
+
+The identical-DO/DO-NOT-arms defect is the sharpest row: it is invisible to every
+shape-level check, it appears in both poles as a well-formed fenced markdown block with two
+captioned arms, and it is distinguishable only by reading both arms. If a future run passes
+this pole while its answer cites ONLY the modal breach, that is evidence the judge is still
+scoring on surface form rather than content — the same signal the sibling
+`probe-driven-verification` meta pair was built to detect.

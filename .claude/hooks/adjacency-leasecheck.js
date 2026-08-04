@@ -103,7 +103,7 @@ const { isMutationTool } = require(
 const { isCoordinationEnabled } = require(
   path.join(__dirname, "lib", "coordination-mode.js"),
 );
-const { resolveMainCheckout } = require(
+const { requireMainCheckout } = require(
   path.join(__dirname, "lib", "state-resolver.js"),
 );
 
@@ -309,12 +309,26 @@ function detectFilesystemExceptionMatch(candidateRelPath, repoDir) {
   }
   // Production primitive — sibling-porcelain.js (B3a Step 6 wiring).
   if (!repoDir) return null;
-  const matches = siblingPorcelain.detectSiblingMutation(
-    repoDir,
-    candidateRelPath,
-  );
-  if (matches && matches.length > 0) {
-    return matches[0].target;
+  // loom#1471 shard 5. Result-object API now. This surface is ADVISORY (it
+  // answers "is a sibling already touching this path", feeding an adjacency
+  // notice, not a fence), so an indeterminate answer keeps returning null —
+  // but it says so on stderr rather than being indistinguishable from a clean
+  // negative. Deliberately narrower than signing-mutation-guard, which
+  // halt-and-reports: that surface gates a write, this one annotates one.
+  const res = siblingPorcelain.detectSiblingMutation(repoDir, candidateRelPath);
+  if (!res.ok) {
+    try {
+      process.stderr.write(
+        `[ADVISORY] adjacency-leasecheck: sibling contention INDETERMINATE for ` +
+          `${candidateRelPath} — ${res.reason}. Reported as no-adjacency; it is not a clean negative.\n`,
+      );
+    } catch {
+      // best-effort
+    }
+    return null;
+  }
+  if (res.matches.length > 0) {
+    return res.matches[0].target;
   }
   return null;
 }
@@ -400,7 +414,36 @@ function discoverKeyPath() {
     // gets silenced. Resolve the MAIN checkout for the predicate ONLY (the same
     // main-checkout discipline as trust-posture.md MUST-1 / integrity-guard.js
     // :362); repoDir stays the worktree cwd for the claim + repoRelative below.
-    if (!isCoordinationEnabled(resolveMainCheckout(repoDir) || repoDir)) {
+    // loom#1471 F7b — fail CLOSED when git cannot identify the main checkout.
+    // The former `resolveMainCheckout(repoDir) || repoDir` could not fire (the
+    // legacy accessor returns its argument, never falsy), so an unidentifiable
+    // root reached the predicate against a directory with no coordination state
+    // → false → `passthrough()`, silencing the §4.2 cross-worktree-contention
+    // halt that is this guard's whole reason to exist in a parallel run.
+    // `repoDir` deliberately STAYS the worktree cwd below (claim + repoRelative);
+    // only the predicate reads main.
+    const mainRes = requireMainCheckout(repoDir);
+    if (!mainRes.ok) {
+      clearTimeout(fallback);
+      emit({
+        hookEvent,
+        severity: "halt-and-report",
+        what_happened: `Adjacency lease-check could not run: the MAIN checkout could not be identified — ${mainRes.reason}`,
+        why: "multi-operator-coc/adjacency-leasecheck — sibling claims live in the MAIN checkout's coordination log. Unidentified, the coordination-enabled predicate returns false and its branch is `passthrough()`, so cross-worktree contention goes unchecked exactly when the resolver is confused about which tree it is in. Refusing is the fail-closed direction (`rules/security.md` § Enforcement-Surface Parity).",
+        agent_must_report: [
+          `Worktree cwd: ${repoDir}`,
+          `Resolver reason: ${mainRes.reason}`,
+          "Sibling-claim contention was NOT checked — its result is UNKNOWN, not clean.",
+          "A differently-owned checkout reports `detected dubious ownership`; take ownership, or set CLAUDE_TRUST_STATE_DIR.",
+        ],
+        agent_must_wait:
+          "Do not retry until git can identify the main checkout, or the operator pins CLAUDE_TRUST_STATE_DIR.",
+        user_summary:
+          "adjacency-leasecheck — main checkout unidentifiable; refused rather than passed through",
+      });
+      // emit() exits
+    }
+    if (!isCoordinationEnabled(mainRes.repoDir)) {
       passthrough();
     }
 
@@ -431,20 +474,51 @@ function discoverKeyPath() {
     // Read + fold the coordination log via filesystem Transport.
     const transport = createFilesystemTransport(repoDir);
     let records;
+    let readIndeterminate = null;
     try {
       records = await transport.readAllRecords();
-    } catch {
-      // Transport read failure → treat as empty log; passthrough.
-      passthrough();
+    } catch (err) {
+      // INDETERMINATE — NOT an empty log. "Treat as empty log; passthrough" was
+      // verbatim the disposition the transport contract forbids: the read failed,
+      // so sibling claims are UNKNOWN, and a silent passthrough reports that as
+      // "no adjacent claims" (rules/instrument-discipline.md MUST-1).
+      readIndeterminate = err && err.message ? err.message : String(err);
     }
     const rosterPath = path.join(repoDir, ".claude", "operators.roster.json");
     const roster = loadRoster(rosterPath);
     let foldResult;
-    try {
-      foldResult = foldLog(records, roster, {});
-    } catch {
-      // Fold engine failure → passthrough (advisory at most).
-      passthrough();
+    if (!readIndeterminate) {
+      try {
+        foldResult = foldLog(records, roster, {});
+      } catch (err) {
+        // Same class as the transport failure above: a fold that threw did not
+        // compute an empty claim set, so passthrough would report UNKNOWN as
+        // "no adjacent claims". fold-rule-10.js:271 calls peerHighWaterFor()
+        // unwrapped, so a git-ref-transport deployment can surface the shard-7
+        // indeterminate throw right here.
+        readIndeterminate = err && err.message ? err.message : String(err);
+      }
+    }
+
+    if (readIndeterminate) {
+      clearTimeout(fallback);
+      emit({
+        hookEvent,
+        severity: "halt-and-report",
+        what_happened: `Adjacency lease check could not run: the coordination log could not be read or folded — ${readIndeterminate}`,
+        why: "multi-operator-coc/adjacency-leasecheck — sibling claim adjacency is projected from the folded coordination log, and that read/fold FAILED. Adjacent sibling claims are therefore UNKNOWN, not absent, and the previous `passthrough()` reported the two identically (rules/instrument-discipline.md MUST-1). Severity is halt-and-report, NOT block, matching this guard's own indeterminate-ROOT branch above and on the same proportionality grounds: this guard gates an ADVISORY on claim adjacency rather than fencing a mutation, so its off-branch does not let an unauthorized write land — the two mutation fences on this same predicate (integrity-guard, journal-write-guard) do, which is why they take block and this one does not.",
+        agent_must_report: [
+          `Why the check could not answer: ${readIndeterminate}`,
+          "State explicitly that adjacent sibling claims are UNKNOWN for this work — NOT that there are none.",
+          "A sibling operator may hold an active claim on an adjacent path; the log that would show it could not be read.",
+          "Remediation: make .claude/learning/coordination-log.jsonl readable (check permissions, and that it is a regular file), then retry.",
+        ],
+        agent_must_wait:
+          "Report that adjacency is UNKNOWN and wait for the operator's direction before proceeding on adjacent paths.",
+        user_summary:
+          "adjacency-leasecheck — coordination log UNREADABLE; sibling adjacency INDETERMINATE (not a clean result)",
+      });
+      // emit() exits
     }
     const accepted =
       foldResult && Array.isArray(foldResult.accepted)

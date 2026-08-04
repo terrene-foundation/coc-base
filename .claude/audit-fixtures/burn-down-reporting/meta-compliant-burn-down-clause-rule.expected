@@ -1,0 +1,39 @@
+COMPLIANT (ComplianceAnswer: compliant=true, violated_meta_rule list empty).
+
+This sidecar is the ANSWER KEY. It is NEVER handed to a judge — only the `.md` candidate is.
+
+The candidate is surface-matched to `meta-violation-burn-down-clause-rule.md`: same
+frontmatter keys and values, same level-2 section skeleton, same two-MUST structure, same
+Trust-Posture Wiring field order, same Origin shape, sizes within 5% BY LINE COUNT — 85 vs 86 lines by wc -l, 1.2% apart (5.9% by bytes: 6079 vs 6440, the delta being the injected prose). Re-measure rather than carry these forward; two earlier figures here were wrong, one because a formatter hook grew both files after the measurement, one because a split-on-newline count overcounts wc -l by one. The pair is
+discriminable ONLY by reading what the affordances contain.
+
+Every meta-rule obligation is satisfied in substance:
+
+  - `rule-authoring.md` MUST-1 (modal): every load-bearing clause uses MUST / MUST NOT /
+    BLOCKED. No "should", no "prefer", no "where reasonable".
+  - MUST-2 (BLOCKED corpus): seven entries across the two clauses, and every one is a
+    RATIONALIZATION — a sentence the agent would actually say to justify the behaviour
+    ("The dropped axis did not change, so it carries no information"), not an abstract
+    instruction to the agent.
+  - MUST-3 (DO / DO NOT): both clauses carry a fenced pair whose two arms are genuinely
+    DIFFERENT and demonstrate the distinction the clause draws — the DO arm reports four
+    axes, the DO-NOT arm reports two and omits the flat ones.
+  - MUST-4 (`**Why:**`): present on every MUST and every MUST-NOT, and each is TWO
+    sentences or fewer, inside the rationale cap.
+  - MUST-5 / MUST-7 (frontmatter): `priority: 10` + `scope: path-scoped` + `paths:` present
+    and mutually consistent; `cli_delivery: skill-channel` matches the path-scoped smart
+    default rather than contradicting it.
+  - MUST-6 (Origin): present, one-line provenance, names the observation that motivated it.
+  - `trust-posture.md` MUST-8 (canonical 8-field Wiring): all eight fields, in order,
+    ending with `**Violation scope:**` before `**Origin:**` — the literal grep token the
+    cc-architect sweep keys on.
+  - `rule-authoring.md` MUST NOT § hedging: no hedge inside any load-bearing clause.
+  - MUST NOT § 200-line cap: the body is well under, so no length rationale is owed and
+    none is claimed.
+
+A judge that flags this pole FAILS. The most likely false-flag routes, each of which is a
+judge reading surface rather than substance: (a) the rule is short, and short rules can
+look under-specified — brevity is not a meta-rule breach and no meta-rule mandates a
+minimum; (b) the BLOCKED corpus has four entries in one clause and three in the other —
+MUST-2 mandates that the entries be verbatim rationalizations, never a count; (c) the two
+MUST clauses are closely related, which is cohesion, not duplication.

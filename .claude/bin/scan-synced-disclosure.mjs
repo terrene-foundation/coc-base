@@ -300,25 +300,46 @@ function isExcluded(relPath) {
   // (`<date>-<slug>.md`). By construction each embeds the target `<owner>/<repo>` slug —
   // the WHO-authorized-WHAT-against-WHICH-repo forensic payload `repo-scope-discipline.md`
   // § Affordance mandates — and the ceremony (`commands/cross-repo-authorize.md` Step 5)
-  // directs COMMITTING them for durable team audit. They are never distributed to any
-  // consumer — containment is THREE distribution fences: sync-tier-aware `no_tier_match`,
-  // edition-emit `CLIENT_TEMPLATE_REMOVE`, community-membership `EXCLUDE_WITHIN`. THIS
-  // scanner is a DETECTOR, not a fourth fence (at a destination scan it flags a receipt
-  // that ALREADY shipped past every distribution fence — it detects, it does not contain).
-  // The exclusion is SOURCE-ONLY (mirrors `ecosystem.json` above, the same org-slug-bearing
-  // never-synced class): at loom-source (REPO_ROOT_ACTIVE === REPO_ROOT) it self-excludes
-  // so a legitimately-committed receipt does not block the operator's commit (#1324); at a
-  // DESTINATION scan (`--root <consumer>`) the guard does not fire → the receipt is SCANNED,
-  // so a leaked receipt MAY fail loud WHEN its org matches a disclosure shape — best-effort
-  // detection bounded by content-shape coverage (an arbitrary client `<org>/<repo>` matching
-  // no shape would NOT flag; the receipt payload has no dedicated content shape). Matches
-  // whether the scan root is the repo (`.claude/cross-repo-authz/…`) or `.claude/` itself.
-  if (
-    (segs[0] === "cross-repo-authz" ||
-      (segs[0] === ".claude" && segs[1] === "cross-repo-authz")) &&
-    REPO_ROOT_ACTIVE === REPO_ROOT
-  )
-    return true;
+  // directs COMMITTING them for durable team audit AT LOOM ONLY (`type: coc-source`);
+  // every other repo class keeps them local, fenced by `sync-manifest.yaml::target_owned`
+  // `publish: local_only`. They are never DISTRIBUTED to any consumer — containment is
+  // THREE distribution fences: sync-tier-aware `no_tier_match`, edition-emit
+  // `CLIENT_TEMPLATE_REMOVE`, community-membership `EXCLUDE_WITHIN`. All three govern
+  // content flowing OUT OF LOOM and cover nothing written INTO another repo, which is why
+  // the fence, not this scanner, is the fix. THIS scanner is a DETECTOR, not a fourth fence
+  // (at a destination scan it flags a receipt that ALREADY shipped past every distribution
+  // fence — it detects, it does not contain), and a leaked receipt fails loud only WHEN its
+  // org matches a disclosure shape: best-effort detection bounded by content-shape coverage
+  // (an arbitrary client `<org>/<repo>` matching no shape would NOT flag; the receipt
+  // payload has no dedicated content shape). Matches whether the scan root is the repo
+  // (`.claude/cross-repo-authz/…`) or `.claude/` itself.
+  //
+  // 2026-08-03 — TRACKED-KEYED, generalizing the `*.operator.local.md` precedent
+  // below. This scanner walks the FILESYSTEM (`collectFiles`/`readdirSync`), so it
+  // equated PRESENT ON DISK with ON THE SYNCED SURFACE. Measured counter-example:
+  // kailash-coc-rs holds 4 receipts, 0 of them git-TRACKED (its operator had
+  // already gitignored them), and the scanner still reported 12 findings on them.
+  // Those findings are not disclosures — nothing untracked ships to any consumer —
+  // and an instrument that cries wolf on a closed hole gets allowlisted, which is
+  // how the NEXT real finding gets missed. So: a receipt git confirms is UNTRACKED
+  // is skipped at EVERY root, source or destination. TRACKED WINS over the name
+  // pattern, via the same fail-closed `isGitTracked` helper (git unavailable /
+  // not-a-work-tree / inconclusive ⇒ treated as tracked ⇒ SCANNED).
+  //
+  // Deliberately NOT a universal untracked-skip: an untracked-but-STAGED
+  // disclosure elsewhere would then evade the scrub. Scoped to this one class,
+  // mirroring the operator-local precedent.
+  //
+  // A TRACKED receipt keeps the prior source-only disposition: at loom-source it
+  // is skipped (committing is correct there and must not block the operator's
+  // commit, #1324); at a DESTINATION scan it is SCANNED — a committed receipt at a
+  // consumer IS the disclosure event, and it is exactly what the `target_owned`
+  // `publish: local_only` fence now prevents going forward.
+  const isCrossRepoAuthz =
+    segs[0] === "cross-repo-authz" ||
+    (segs[0] === ".claude" && segs[1] === "cross-repo-authz");
+  if (isCrossRepoAuthz && !isGitTracked(REPO_ROOT_ACTIVE, relPath)) return true;
+  if (isCrossRepoAuthz && REPO_ROOT_ACTIVE === REPO_ROOT) return true;
 
   // This scanner's OWN audit fixtures intentionally embed SYNTHETIC
   // disclosure shapes (invented `acme-*` / `Fakename-*` / `fakeuser`

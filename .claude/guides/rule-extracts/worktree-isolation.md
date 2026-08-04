@@ -158,6 +158,16 @@ for shard in [W31a, W31b, W31c, W32a, W32b, W32c]:
 
 **Evidence:** kailash-ml-audit 2026-04-23 M10 launch — 6 Opus worktree agents (`ab9c2f7213c4a82ab`, `ae2f048829aa941a2`, `af15e0f9c3f2d16a3`, `a823d7ed912137852`, `a0e76f0996d1d9a4e`, `ad10591aa614deeae`) launched simultaneously, ALL 6 died at 34–45s with rate-limit error; fallback waves of 3 (`a506217c8640af1c0`, `a0831fc0ca6b9f6ae`, `a1027b84cb7c4f9d2` + `aa7fb6a6`, `a69473b3`, `aaecc695`) all completed and merged successfully.
 
+### The 2026-06-01 reframe — why the cap became adaptive (depth for the rule's Rule-4 `**Why:**`)
+
+The binding constraint is a server-side CONCURRENCY throttle that bites far below the runtime's native cap — NOT account quota, and NOT a fixed batch count. Both extremes are wrong: asserting "no cap / trust the native 14" re-ships the synchronized-burst death, while hardcoding "always ≤3" wastes the throughput multiplier on low-contention sessions.
+
+**Both throttle measurements.** 2026-04-23 M10 (above): 6 agents synchronized-died at 34–45s; waves-of-3 ran clean. 2026-06-01 loom#419: 7 READ-ONLY agents synchronized-died at ~37–48s carrying the verbatim string `(not your usage limit) · Rate limited` — sub-quota, which is what falsified #418's "trust the native cap (14)"; re-run as waves-of-3, 7/7 returned. Receipts: `journal/0193` (ablation + throttle evidence), `journal/0194` (F110 DECISION).
+
+**Why the signal cannot be gamed, and what a suppressed one costs.** The back-off signal originates at the Anthropic server boundary, not anywhere repo-controllable, so an in-repo actor cannot spoof it. The worst case of a SUPPRESSED signal is bounded by the cold-start cap of ~3 — there is no back-off below an already-safe ceiling, so the failure mode is a throughput slowdown, never an over-concurrency breach.
+
+**What the reframe left unchanged.** Worktree isolation per compiling agent — the whole of the rest of the rule — is RETAINED verbatim. Only the concurrency-governance mechanism was reframed, from the hardcoded "waves of ≤3" cap to the throttle-aware adaptive model.
+
 ## Rule 5 — Pre-Flight Merge-Base Check
 
 Full bash example:
@@ -223,4 +233,10 @@ Agent(isolation="worktree", prompt="Implement W31... use feat/w31-core-ml-nodes"
 
 Session 2026-04-19 — ml-specialist, dataflow-specialist, and kaizen-specialist each drifted back to the main tree during PRs #502-#508; kaizen round 6 and ml-specialist round 7 reported "Now let me write X..." completions with no actual file writes. The self-verify + parent-verify protocol closed both failure modes. Rules 4–6 added 2026-04-23 from the kailash-ml-audit M10 release wave (6-agent burst rate-limit + 5-of-6 stale-base-SHA + 3-of-6 branch-name-default).
 
-Rule 1 rewritten 2026-07-26 (loom#1370): `isolation: "worktree"` is RETIRED in favour of an orchestrator-made SIBLING worktree pinned by absolute path. Every example in this file is updated to that form — the examples above are the CURRENT protocol, not a historical record. Where a retired-flag call still appears it is a labelled DO-NOT or a dated quotation of what the 2026-04-19 / 2026-04-23 sessions actually ran.
+Rule 2a added 2026-06-11 — the Rust SDK `journal/0177` § Process note: cwd silently reverted to the main checkout mid-session, and a "3× green" validation had therefore run against unpatched main code rather than the worktree's patch.
+
+Rule 4 reframed 2026-06-01 (F110 / loom#418 + #419) from the hardcoded "Waves of ≤3" cap to the throttle-aware adaptive model. #419's 7-read-only-agent synchronized throttle — sub-quota, verbatim `(not your usage limit)` — falsified #418's "trust the native cap (14)". Receipts: `journal/0193` (ablation + throttle evidence), `journal/0194` (F110 DECISION). Full reframe depth: § Rule 4 above.
+
+Rule 1 rewritten 2026-07-26 (loom#1370, owner-escalated): `isolation: "worktree"` is RETIRED in favour of an orchestrator-made SIBLING worktree pinned by absolute path — the flag placed every agent worktree under the repo's own `.claude/`, which #1370 reports costs 88,895 duplicate tokens per agent per wave (~35.6M per wave round at 40 terminals × 10 agents) in the reporting repo. Half (b), the mandated STEP-0 cwd assertion, was added in the same cycle on owner correction: the flag was ALSO what set the agent's working directory, so retiring it without a prompt-mandated assertion would have traded a bounded quota burn for the unbounded write-to-main loss already recorded at 2026-04-19 (2 of 3 shards to MAIN, 300+ LOC lost to auto-cleanup). Every example in this file is updated to that form — the examples above are the CURRENT protocol, not a historical record. Where a retired-flag call still appears it is a labelled DO-NOT or a dated quotation of what the 2026-04-19 / 2026-04-23 sessions actually ran.
+
+Rule 8 added 2026-07-30 (co-owner-directed) as the THIRD half loom#1370 left homeless: the retired flag also AUTO-CLEANED its worktree, and the Rule-1 rewrite re-homed creation onto the orchestrator and the cwd assertion into the prompt, but nothing at all onto teardown. Measured at 20 worktrees / 1.0 GB (83% volume capacity) on one canon clone, with zero `worktree remove` / `worktree prune` hits anywhere in `.claude/rules/`. Teardown depth: `skills/30-claude-code-patterns/worktree-orchestration.md` § Teardown.

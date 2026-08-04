@@ -187,7 +187,9 @@ const path = require("path");
 // So the seam no longer reaches the pin at all — see `DIR_PIN_AVAILABLE` below, which is derived
 // from `fs.constants` ONLY. The seam still simulates a flagless platform for the FILE OPEN, which
 // is what it was added to exercise. Channel note, scoped honestly: the settings.json `env` surface
-// denylists `COC_TEST_` (loom#1450), but a host/shell export is open by documented design.
+// denylists the `COC_` prefix (`settings-deny-guard-shape.js::DANGEROUS_ENV_PREFIX`, loom#1450), but a
+// host/shell export is open by documented design. The entry is `COC_`, not `COC_TEST_` — this line said
+// the latter, which understates the denylist's reach by implying a non-`TEST` `COC_*` key slips past it.
 const NOFOLLOW_SUPPORTED =
   (fs.constants.O_NOFOLLOW || 0) !== 0 && process.env.COC_TEST_FORCE_NO_NOFOLLOW !== "1";
 
@@ -234,6 +236,52 @@ function _warnDegradedOnce() {
   } catch {
     // A closed/failing stderr must never break an append.
   }
+}
+
+/**
+ * Render UNTRUSTED text (an fs error message, a caller-supplied path) with every control
+ * character escaped to a visible `\uXXXX`, so it can never be interpreted as a terminal
+ * control sequence by whatever eventually PRINTS it.
+ *
+ * A refusal `reason` from this module travels: `coc-emit.js::_defaultAppend` ->
+ * `emitSignedRecord` -> `sync-gate2-worktree.mjs::warnMissingTrackingRecord` -> stderr, verbatim.
+ * An fs error message embeds the offending path RAW (`ENOTDIR: not a directory, mkdir '<path>'`),
+ * so a sink path containing `ESC [ 2K CR` lets the attacker ERASE the warning line and overwrite
+ * it with text of their choosing — defeating the whole point of a LOUD refusal.
+ *
+ * `JSON.stringify` is NOT a substitute, and the sibling `JSON.stringify(<path>)` messages here are
+ * NOT already at this floor — a correction to what this comment previously claimed. Per ECMA-262
+ * QuoteJSONString it escapes only the quote, the backslash, and code units below U+0020, so DEL
+ * (U+007F), the whole C1 block (U+0080-U+009F, including CSI U+009B and OSC U+009D), U+2028/U+2029
+ * and the bidi controls all survive it as RAW bytes. Measured: JSON.stringify of a lone U+009B
+ * yields the bytes 22 c2 9b 22. That is why the quote-wrapped sites below ALSO route through here.
+ *
+ * IDEMPOTENT by construction: the output contains none of the escaped characters, so applying it
+ * again at a downstream layer changes nothing — which lets producer AND print site both apply it.
+ * The encoding is deliberately lossy, NOT injective: a literal backslash is left alone, so input
+ * that already reads like an escape renders identically to a genuinely escaped one. That is safe
+ * only because nothing in this tree ever DECODES the escaped form back — do not add an un-escaper.
+ */
+function escapeControlChars(s) {
+  return String(s).replace(
+    // C0 (incl. ESC 0x1b, CR 0x0d, BEL 0x07), DEL, and C1 (incl. CSI 0x9b, OSC 0x9d, DCS 0x90) —
+    // every byte a terminal may act on as a CONTROL SEQUENCE. Beyond those, the bidi overrides and
+    // invisible formatting characters cannot erase or overwrite, but U+202E does visually REORDER
+    // the rest of the display line (the Trojan-Source class), so they are escaped too rather than
+    // leaving the reader a warning whose text can be silently rearranged.
+    /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g,
+    (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"),
+  );
+}
+
+/**
+ * Quote an UNTRUSTED path into a refusal message. `JSON.stringify` alone leaves DEL, the C1 block
+ * (CSI/OSC/DCS), U+2028/U+2029 and the bidi controls as RAW bytes (see `escapeControlChars`), so
+ * every quote-wrapped path in this module goes through BOTH: stringify for the readable quoting,
+ * then the escaper for the floor. One helper so no call site can pick only half of it.
+ */
+function quotePath(p) {
+  return escapeControlChars(JSON.stringify(p));
 }
 
 /**
@@ -326,8 +374,8 @@ function captureDirIdentity(realSinkDir, dirPinAvailable) {
     return {
       ok: false,
       reason:
-        `sink directory ${JSON.stringify(realSinkDir)} did not open as a non-symlink directory ` +
-        `(${e.code || "error"}: ${e.message}) — it is a canonical path, so this means the component ` +
+        `sink directory ${quotePath(realSinkDir)} did not open as a non-symlink directory ` +
+        `(${e.code || "error"}: ${escapeControlChars(e.message)}) — it is a canonical path, so this means the component ` +
         `was swapped; refusing to append`,
     };
   } finally {
@@ -416,7 +464,7 @@ function reconcileFdIdentity(fd, realSinkDir, sinkPath, expectedDir, __windowHoo
       return {
         ok: false,
         reason:
-          `the directory at ${JSON.stringify(realSinkDir)} is not the one that passed containment ` +
+          `the directory at ${quotePath(realSinkDir)} is not the one that passed containment ` +
           `(${when}; dir dev/ino ${now.dev}/${now.ino} vs ${expectedDir.dev}/${expectedDir.ino}) — ` +
           `the sink directory was swapped between the containment check and the open; refusing to append`,
       };
@@ -434,7 +482,7 @@ function reconcileFdIdentity(fd, realSinkDir, sinkPath, expectedDir, __windowHoo
   } catch (e) {
     return {
       ok: false,
-      reason: `could not reconcile the opened sink against ${JSON.stringify(expectedPath)}: ${e.message}`,
+      reason: `could not reconcile the opened sink against ${quotePath(expectedPath)}: ${escapeControlChars(e.message)}`,
     };
   }
   const st = fs.fstatSync(fd);
@@ -465,7 +513,7 @@ function reconcileFdIdentity(fd, realSinkDir, sinkPath, expectedDir, __windowHoo
     return {
       ok: false,
       reason:
-        `the opened sink is not the file at ${JSON.stringify(expectedPath)} ` +
+        `the opened sink is not the file at ${quotePath(expectedPath)} ` +
         `(fd dev/ino ${st.dev}/${st.ino} vs ${expect.dev}/${expect.ino}) — an intermediate path ` +
         `component was swapped between the containment check and the open; refusing to append`,
     };
@@ -554,7 +602,7 @@ function appendSinkLine(a) {
       // Fail CLOSED: no declared root resolves, so there is no boundary to check against.
       return fail(
         "containment failed",
-        `none of the declared containment roots resolve: ${JSON.stringify(declared)}`,
+        `none of the declared containment roots resolve: ${quotePath(declared)}`,
       );
     const containedInAny = (p) => realRoots.some((r) => _isContained(p, r));
 
@@ -565,20 +613,20 @@ function appendSinkLine(a) {
     try {
       realProbe = fs.realpathSync(_deepestExistingAncestor(sinkDir));
     } catch (e) {
-      return fail("containment failed", `sink ancestor does not resolve: ${e.message}`);
+      return fail("containment failed", `sink ancestor does not resolve: ${escapeControlChars(e.message)}`);
     }
     if (!containedInAny(realProbe))
       return fail(
         "containment failed",
-        `sink ancestor resolves to ${JSON.stringify(realProbe)}, outside every declared root ` +
-          `${JSON.stringify(realRoots)} — refusing to append through a symlinked ancestor ` +
+        `sink ancestor resolves to ${quotePath(realProbe)}, outside every declared root ` +
+          `${quotePath(realRoots)} — refusing to append through a symlinked ancestor ` +
           `(the write would land outside the gitignore fence)`,
       );
 
     try {
       fs.mkdirSync(sinkDir, { recursive: true });
     } catch (e) {
-      return fail("mkdir failed", `could not create sink directory ${JSON.stringify(sinkDir)}: ${e.message}`);
+      return fail("mkdir failed", `could not create sink directory ${quotePath(sinkDir)}: ${escapeControlChars(e.message)}`);
     }
 
     // Re-verify AFTER the mkdir. The ancestor check cleared the path that existed at probe time;
@@ -589,13 +637,13 @@ function appendSinkLine(a) {
     try {
       realSinkDir = fs.realpathSync(sinkDir);
     } catch (e) {
-      return fail("containment failed", `sink directory does not resolve after mkdir: ${e.message}`);
+      return fail("containment failed", `sink directory does not resolve after mkdir: ${escapeControlChars(e.message)}`);
     }
     if (!containedInAny(realSinkDir))
       return fail(
         "containment failed",
-        `sink directory resolves to ${JSON.stringify(realSinkDir)}, outside every declared root ` +
-          `${JSON.stringify(realRoots)} — refusing to append`,
+        `sink directory resolves to ${quotePath(realSinkDir)}, outside every declared root ` +
+          `${quotePath(realRoots)} — refusing to append`,
       );
 
     // (6a) PIN the sink directory by identity, BEFORE the open — see defense 6. This must sit
@@ -618,13 +666,13 @@ function appendSinkLine(a) {
         if (lst.isSymbolicLink())
           return fail(
             "symlink refused",
-            `sink path ${JSON.stringify(sinkPath)} is a symlink and this platform lacks O_NOFOLLOW — ` +
+            `sink path ${quotePath(sinkPath)} is a symlink and this platform lacks O_NOFOLLOW — ` +
               `refusing to append through it (compensating lstat; carries a TOCTOU window O_NOFOLLOW would not)`,
           );
       } catch (e) {
         // ENOENT is the happy path — the sink does not exist yet and will be created below.
         if (e.code !== "ENOENT")
-          return fail("lstat failed", `could not lstat sink path ${JSON.stringify(sinkPath)}: ${e.message}`);
+          return fail("lstat failed", `could not lstat sink path ${quotePath(sinkPath)}: ${escapeControlChars(e.message)}`);
       }
     }
 
@@ -646,7 +694,7 @@ function appendSinkLine(a) {
       if (e.code === "ELOOP")
         return fail(
           "symlink refused",
-          `sink path ${JSON.stringify(sinkPath)} is a symlink — O_NOFOLLOW refused to open it ` +
+          `sink path ${quotePath(sinkPath)} is a symlink — O_NOFOLLOW refused to open it ` +
             `(appending would write through the link, outside the gitignore fence)`,
         );
       // ENXIO is O_NONBLOCK refusing a FIFO with no reader on the other end — the planted-FIFO
@@ -655,10 +703,10 @@ function appendSinkLine(a) {
       if (e.code === "ENXIO")
         return fail(
           "not a regular file",
-          `sink path ${JSON.stringify(sinkPath)} is a FIFO with no reader — refusing to append ` +
+          `sink path ${quotePath(sinkPath)} is a FIFO with no reader — refusing to append ` +
             `(O_NONBLOCK turned what would be an unbounded blocking open into this refusal)`,
         );
-      return fail("open failed", `could not open sink ${JSON.stringify(sinkPath)}: ${e.message}`);
+      return fail("open failed", `could not open sink ${quotePath(sinkPath)}: ${escapeControlChars(e.message)}`);
     }
 
     if (win) win("after-open");
@@ -669,11 +717,11 @@ function appendSinkLine(a) {
     if (st.nlink > 1)
       return fail(
         "hard link refused",
-        `sink ${JSON.stringify(sinkPath)} has ${st.nlink} hard links — refusing to append to a ` +
+        `sink ${quotePath(sinkPath)} has ${st.nlink} hard links — refusing to append to a ` +
           `file reachable under another name`,
       );
     if (!st.isFile())
-      return fail("not a regular file", `sink path ${JSON.stringify(sinkPath)} is not a regular file`);
+      return fail("not a regular file", `sink path ${quotePath(sinkPath)} is not a regular file`);
 
     // (6b) INTERMEDIATE-COMPONENT TOCTOU — the second half of defense 6 (loom#1513).
     //
@@ -739,12 +787,12 @@ function appendSinkLine(a) {
       if (preWrite.nlink > 1)
         return fail(
           "hard link refused",
-          `sink ${JSON.stringify(sinkPath)} gained a hard link (${preWrite.nlink} names) between ` +
+          `sink ${quotePath(sinkPath)} gained a hard link (${preWrite.nlink} names) between ` +
             `the identity reconcile and the write — refusing to append to a file reachable under ` +
             `another name`,
         );
     } catch (e) {
-      return fail("fstat failed", `could not re-check the sink before writing: ${e.message}`);
+      return fail("fstat failed", `could not re-check the sink before writing: ${escapeControlChars(e.message)}`);
     }
 
     const payload = Buffer.from(line + "\n", "utf8");
@@ -756,7 +804,7 @@ function appendSinkLine(a) {
       if (!(n > 0))
         return fail(
           "short write",
-          `wrote ${written}/${payload.length} bytes to ${JSON.stringify(sinkPath)} and the write ` +
+          `wrote ${written}/${payload.length} bytes to ${quotePath(sinkPath)} and the write ` +
             `stalled — the sink now holds a PARTIAL row`,
         );
       written += n;
@@ -787,6 +835,10 @@ function appendSinkLine(a) {
 // skip under the very condition it exists to check (caught while red-teaming this fix).
 module.exports = {
   appendSinkLine,
+  // The ONE control-character escaper for untrusted text that ends up on a terminal. Exported so
+  // the PRINT sites downstream of a refusal (`sync-gate2-worktree.mjs::warnMissingTrackingRecord`)
+  // apply the same floor to reasons reaching them from any producer, not just this module.
+  escapeControlChars,
   NOFOLLOW_SUPPORTED,
   DIR_PIN_AVAILABLE,
   reconcileFdIdentity,

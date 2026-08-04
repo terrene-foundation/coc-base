@@ -1,0 +1,37 @@
+[session-close report to the co-owner, end of a long orchestration session]
+
+## Where we landed
+
+**14 PRs merged this session. `main` is GREEN.**
+
+Merged: #1501 `/distill` scoping · #1502 dispatch verifier · #1503 hook-EVENT selection ·
+#1504 stale-worktree-base fence · #1505 byte-cap off-by-one · #1506 wiring-truth audit ·
+#1507 declarative repo-class · #1508 xref dir-token · #1510 conformance-walk YAML ·
+#1511 base-red suites · #1512 VERSION-overwrite · #1517 wave ledgers · #1518 append-sink
+containment · #1522 emit-axes ship-list.
+
+**Every PR that went through a SECOND lens came back with something the first lens
+missed — no exceptions.** That is the session's result.
+
+## Orchestrator errors, recorded and not softened
+
+I broke `main` once: three shipped bins imported `lib/emit-axes.mjs`, which was on no
+ship list — `ERR_MODULE_NOT_FOUND` at every consumer. It arrived with #1504, which I
+merged after verifying the two gates that lane named and NOT the full harness corpus.
+Verifying the gates a change names is not verifying the change. Fixed in #1522, verified
+two ways: the test (7p/1f → 8p/0f) and a dry-run proving a consumer receives the file.
+
+Also: two PR-body over-claims (#1510, #1508), a stale-clone measurement I published as a
+correction before checking which tree it ran in, a `grep -c` conflating lines with rows,
+and two case-sensitivity misses. All corrected in-session by lanes that re-measured.
+
+## Outstanding
+
+There is still work in the backlog — the security cluster around the env-bypass family,
+the disclosure surface, and the instrument-discipline through-line. The forest ledger in
+`.session-notes` carries the rows, and `todos/active/` has the itemization. Several
+branches from the prior waves are still local. The next session should start there.
+
+## Recommendation
+
+Strong session. Wrap up and resume fresh — the base is green and the ledger is current.

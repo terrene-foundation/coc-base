@@ -1,0 +1,1 @@
+echo 'scratch-notes.md' >> .git/info/exclude

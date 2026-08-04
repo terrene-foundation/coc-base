@@ -30,14 +30,21 @@
  *
  * SHAPE REUSE (per framework-first.md §substrate-reuse): this is NOT a new lease
  * MECHANISM. It MIRRORS:
- *   - `capability-lease.js::_tryAcquireOneMultiLease` — the ATOMIC test-and-set
- *     via `fs.openSync(path, "wx")` (O_WRONLY|O_CREAT|O_EXCL). A read-then-write
- *     mutex (the single-file `codify-lease.js` / `capability-lease.js` acquire
- *     path) is ITSELF a TOCTOU: two processes each `_safeReadJson`→null, each
- *     write, each believe they won. O_EXCL makes the CREATE the atomic
- *     test-and-set — the kernel guarantees exactly one open succeeds; every
- *     other gets EEXIST. Closing a read→append window with a read-then-write
- *     mutex would just move the window; O_EXCL is the primitive that closes it.
+ *   - `capability-lease.js::_tryAcquireOneMultiLease` — the ATOMIC test-and-set.
+ *     A read-then-write mutex (the single-file `codify-lease.js` /
+ *     `capability-lease.js` acquire path) is ITSELF a TOCTOU: two processes each
+ *     `_safeReadJson`→null, each write, each believe they won. An exclusive
+ *     CREATE is what closes that — the kernel guarantees exactly one caller
+ *     wins; every other gets EEXIST. Closing a read→append window with a
+ *     read-then-write mutex would just move the window.
+ *
+ *     This lib publishes via STAGE-THEN-`link()` rather than the sibling libs'
+ *     bare `fs.openSync(path, "wx")`. Both are atomic test-and-sets, but O_EXCL
+ *     publishes the NAME before the CONTENT, leaving the lockfile observable as
+ *     a zero-byte file — which `_safeReadJson`/`_classifyHolder` read as
+ *     `corrupt` ⇒ **dead** ⇒ reap-eligible, so a racer could reap a lease that
+ *     was being born and both would hold it. `link()` publishes a fully-written
+ *     inode, so that window does not exist. See `_publishLeaseAtomically`.
  *   - `coord-background.js::_foldHomedirLiveness` (the #867 pid-liveness reaper)
  *     — a crashed worker orphans its lease; the holder's `{pid, start-token}`
  *     marker lets the next acquirer classify DEAD (ESRCH / recycled PID /
@@ -53,9 +60,17 @@
  *
  * Public API:
  *   acquireReleaseLease({ verifiedId, repoDir? }) -> Result
- *     Result = { ok:true, lease:{...}, leasePath }
+ *     Result = { ok:true, lease:{...}, leasePath, degraded? }
  *           | { ok:false, reason, error?, holder?, liveness? }
  *     reason ∈ { "contended", "invalid-verified-id", "lease-io-error" }
+ *     degraded ∈ { "no-hardlink-support" } — present ONLY when the publish fell
+ *       back to the bare O_EXCL create because the filesystem has no `link(2)`.
+ *       The lease IS held; what is OFF is the half-formed-lease protection.
+ *       CALLERS MUST READ THIS FIELD. It is the ONLY channel that reaches a
+ *       detached SessionEnd worker; the one-time stderr WARN below does NOT
+ *       (the worker is spawned `stdio:"ignore"`, so its fd 2 is /dev/null).
+ *       `multi-operator-sessionend.js::releaseOwnClaims` reads it and records a
+ *       durable observation row (#1544 F2, round 2).
  *   releaseReleaseLease({ verifiedId, repoDir? }) -> { ok, ... }
  *     reason ∈ { "no-lease", "already-released", "wrong-emitter", "wrong-owner",
  *                "lease-corrupt", "invalid-verified-id", "lease-io-error" }
@@ -81,6 +96,120 @@ const { resolveStateDir } = require("./state-resolver.js");
 // a fingerprint with path-unsafe chars can never escape the state dir. Mirrors
 // capability-lease.js::_multiLeasePath's per-key file scheme.
 const LEASE_FILE_PREFIX = "sessionend-release-lease-";
+
+// Staging files for the stage-then-link publish. Deliberately does NOT start with
+// LEASE_FILE_PREFIX — that prefix is exported for directory scans, and a staging
+// file wearing it could be swept up as though it were a lease.
+//
+// DISCLOSURE (#1544 F1): the staged body is the COMPLETE lease — verified_id +
+// verified_fingerprint — so a staging file orphaned by a crash between the create
+// and the link is a git-visible operator fingerprint. Precisely BECAUSE this prefix
+// diverges from LEASE_FILE_PREFIX, the `.gitignore` /
+// `sync-manifest.yaml::gitignore_additions` fence on `sessionend-release-lease-*`
+// does NOT cover it; it carries its own `.tmp-sereleaselease-*` fence, pinned to
+// this constant by `.claude/test-harness/tests/sessionend-release-lease.test.mjs`
+// § T-I so a rename here cannot silently outrun the fence.
+const STAGING_FILE_PREFIX = ".tmp-sereleaselease-";
+
+// A staging file older than this was orphaned by a crash between the create and
+// the publish (a microseconds-wide window). Swept opportunistically so a crash
+// loop cannot accumulate unreachable files in the state dir forever.
+const STAGING_STALE_MS = 60 * 60 * 1000;
+
+// `link(2)` is unsupported here — degrade to the legacy O_EXCL create rather than
+// leaving the caller with no mutex at all. See _publishLeaseAtomically.
+const NO_HARDLINK_CODES = new Set([
+  "EPERM",
+  "ENOTSUP",
+  "EOPNOTSUPP",
+  "EXDEV",
+  "ENOSYS",
+]);
+
+/**
+ * One-time loud WARN when the real filesystem cannot do `link(2)` and the publish
+ * falls back to the legacy O_EXCL create (#1544 F2).
+ *
+ * SCOPE — read this before citing it as the report (#1544 F2, round 2 correction).
+ *
+ * THIS WARN IS NOT THE PRODUCTION REPORT, and an earlier version of this comment said it was.
+ * It claimed the WARN meant the degradation no longer had to "sit in a return field nobody
+ * reads". That was false in the only path that matters: `releaseOwnClaims` runs inside the
+ * DETACHED SessionEnd worker, which `coord-background.js::spawnDetachedWorker` spawns with
+ * `stdio:"ignore"`. The worker's fd 2 IS /dev/null, so `console.error` SUCCEEDS, the bytes are
+ * discarded, and the try/catch never fires — silent, not failed. Round 1 therefore moved a
+ * write-only FIELD into a write-only STREAM and changed end-to-end observability not at all.
+ *
+ * The production report is the DURABLE one: `releaseOwnClaims` now READS `degraded` and records
+ * an observation row through `learning-utils.js::logObservation`. The filesystem is the channel
+ * that works where stderr does not. That is what satisfies `security.md` § "Secure-Default For A
+ * New Security Feature" here.
+ *
+ * WHY THIS WARN STAYS ANYWAY: it is the report for every caller whose fd 2 is real — the test
+ * suites, a future synchronous caller, and the `COC_TEST_*` SYNC_TEARDOWN path where the parent
+ * runs the teardown itself. It is a SECOND surface, not the load-bearing one.
+ *
+ * RESIDUAL, stated rather than glossed: in the detached worker this WARN is unconditionally
+ * discarded, and so are the sibling `process.stderr.write` advisories in `releaseOwnClaims`
+ * (the contended-lease and lease-io-error notices). Those two are pre-existing, out of scope
+ * here, and NOT to be cited as production observability either — the same instrument fault,
+ * still open. Only the `degraded` breadcrumb has a durable channel today.
+ *
+ * Shape is deliberately the SAME as `append-sink.js::_warnDegradedOnce` (module-level latch,
+ * stderr only, swallowed write errors) rather than a second mechanism. It is not literally
+ * that function: that one is module-private to append-sink and its text names O_NOFOLLOW.
+ *
+ * stderr only: a hook's stdout is its protocol channel, so this can never reach the halting path.
+ */
+let _warnedNoHardlink = false;
+function _warnDegradedOnce() {
+  if (_warnedNoHardlink) return;
+  _warnedNoHardlink = true;
+  try {
+    console.error(
+      "[sessionend-release-lease] WARNING: this filesystem does not support link(2) — the " +
+        "release lease falls back to a bare O_EXCL create. At-most-one-releaser STILL HOLDS, " +
+        "but the lease is briefly observable ZERO-BYTE between the create and the write, and a " +
+        "concurrent acquirer sampling it in that window classifies it `corrupt` ⇒ dead ⇒ " +
+        "reap-eligible, so BOTH releasers can end up holding it and the per-emitter chain can " +
+        "fork. The half-formed-lease protection is OFF here; it is restored by putting the " +
+        "trust state dir (CLAUDE_TRUST_STATE_DIR / the main checkout's .claude/learning/) on a " +
+        "filesystem with hard links — exFAT/FAT32, many SMB/CIFS mounts and some FUSE/container " +
+        "volume drivers do not have them. (loom#874, loom#1544)",
+    );
+  } catch {
+    // A closed/failing stderr must never break a lease acquire.
+  }
+}
+
+/** Test-only: clear the one-time latch. Declared as a named function because the
+ * ESM named-export detection over this CommonJS module does not pick up an
+ * inline arrow in the exports object. */
+function _resetDegradedWarning() {
+  _warnedNoHardlink = false;
+}
+
+/** Remove staging files orphaned by a crashed publish. Best-effort and bounded:
+ * one readdir, and only entries older than STAGING_STALE_MS are touched, so a
+ * concurrent in-flight publish (microseconds old) is never disturbed. */
+function _sweepStaleStaging(dir) {
+  let entries;
+  try {
+    entries = fs.readdirSync(dir);
+  } catch (_) {
+    return; /* the dir is gone or unreadable — nothing to sweep */
+  }
+  const cutoff = Date.now() - STAGING_STALE_MS;
+  for (const name of entries) {
+    if (!name.startsWith(STAGING_FILE_PREFIX)) continue;
+    const p = path.join(dir, name);
+    try {
+      if (fs.statSync(p).mtimeMs < cutoff) fs.unlinkSync(p);
+    } catch (_) {
+      /* raced with another sweeper or the owning process — leave it */
+    }
+  }
+}
 
 // ---- helpers (mirror the sibling lease libs + coord-background reaper) ------
 
@@ -189,6 +318,194 @@ function _classifyHolder(existing) {
   return { state: "alive", reason: "token-unverified" };
 }
 
+/**
+ * Publish a COMPLETE lease file at `leasePath` as the atomic test-and-set.
+ *
+ * WHY NOT `openSync(leasePath, "wx")` DIRECTLY (sec-874 follow-up): O_EXCL makes
+ * the NAME appear atomically, but the CONTENT is written afterwards, so between
+ * the open and the write the lease is observable as a ZERO-BYTE file. Every
+ * reader in this module funnels through `_safeReadJson` → `_classifyHolder`,
+ * and a zero-byte file parses as `{_corrupt:true}`, which classifies **dead** —
+ * i.e. REAP-ELIGIBLE. A concurrent acquirer that sampled the path inside that
+ * window therefore reaped a lease that was being BORN and created its own: BOTH
+ * racers returned `ok:true`, which is precisely the at-most-one-releaser
+ * invariant this lib exists to hold. Widening that window to 80ms made it fire
+ * 12/12; unwidened it fires only under CPU contention, which is why it read as
+ * a flaky test rather than the mutual-exclusion break it is.
+ *
+ * The fix is to make the lease file COMPLETE at the instant it becomes visible:
+ * stage the full body under a unique private name, then `link()` it into place.
+ * POSIX `link(2)` fails with EEXIST if the target exists, so it is an atomic
+ * test-and-set exactly as O_EXCL is — but it publishes a fully-written inode,
+ * so no reader can ever sample a half-formed lease. A crash mid-write now
+ * orphans only the staging file, never a permanently-dead zero-byte lockfile.
+ *
+ * `rename()` would NOT do: it CLOBBERS an existing target, so two racers would
+ * both "win". The exclusivity has to come from the publish call itself.
+ *
+ * @returns {{ok:true} | {ok:false, code:string, error:string}} `code === "EEXIST"`
+ *   means another racer holds the lease — the caller's contention path.
+ */
+function _publishLeaseAtomically(leasePath, body) {
+  // Same directory as the lease (never cross-device) and unique per process, so
+  // two racers never collide on the staging name. The name deliberately does NOT
+  // begin with LEASE_FILE_PREFIX: that prefix is exported for directory scans, so
+  // a staging file carrying it could be swept up as if it were a lease.
+  const tmpPath = path.join(
+    path.dirname(leasePath),
+    `${STAGING_FILE_PREFIX}${process.pid}-${crypto.randomBytes(4).toString("hex")}`,
+  );
+  const cleanupTmp = () => {
+    try {
+      fs.unlinkSync(tmpPath);
+    } catch (_) {
+      /* best-effort; a leftover is swept by _sweepStaleStaging on a later acquire */
+    }
+  };
+
+  let tfd;
+  try {
+    tfd = fs.openSync(tmpPath, "wx", 0o600);
+  } catch (e) {
+    return {
+      ok: false,
+      code: (e && e.code) || "EIO",
+      error: `staging create failed for ${tmpPath}: ${e && e.message ? e.message : String(e)}`,
+    };
+  }
+  try {
+    fs.writeFileSync(tfd, body, { encoding: "utf8" });
+  } catch (e) {
+    try {
+      fs.closeSync(tfd);
+    } catch (_) {
+      /* fd may already be closed; the cleanup below is the load-bearing part */
+    }
+    cleanupTmp();
+    return {
+      ok: false,
+      code: (e && e.code) || "EIO",
+      error: `staging write failed for ${tmpPath}: ${e && e.message ? e.message : String(e)}`,
+    };
+  }
+  try {
+    fs.closeSync(tfd);
+  } catch (_) {
+    /* writeFileSync already issued the write; a close error cannot un-write it,
+       and the link below is what decides whether we hold the lease. */
+  }
+
+  try {
+    // THE test-and-set. EEXIST here === another racer holds the lease.
+    //
+    // `COC_TEST_FORCE_NO_HARDLINK=1` simulates a filesystem without `link(2)` so the degraded
+    // branch below — and, more importantly, the OBSERVABILITY of that degradation at the caller —
+    // is exercisable from an OUT-OF-PROCESS test on darwin/linux, where APFS/ext4 always have hard
+    // links and the branch is otherwise unreachable. T-H/T-J stub `fs.linkSync` in-process, which
+    // cannot reach a spawned hook; the production question ("is the degradation observable when the
+    // worker's stderr is /dev/null?") can only be asked across a process boundary. Same established
+    // `COC_TEST_*` seam idiom as `append-sink.js`'s `COC_TEST_FORCE_NO_NOFOLLOW` and this hook's own
+    // `COC_TEST_FORCE_RELEASE`/`COC_TEST_SKIP_SIGN`.
+    //
+    // It is purely WEAKENING-toward-the-already-reachable, and that is stated rather than assumed:
+    // it selects the SAME O_EXCL publish a link-less platform selects on its own, so it can only
+    // move this host onto a path some real host already takes. It cannot disable the mutex (the
+    // fallback still holds at-most-one — T-H) and it cannot suppress the breadcrumb (which is
+    // exactly what the test asserts).
+    //
+    // CHANNEL RESIDUAL, scoped honestly — this seam is UNGATED and ships to every consumer. It is
+    // read straight from `process.env` with no sanctioned-test-context predicate, exactly like the
+    // rest of the family; the settings.json `env` CONTENT surface denylists the `COC_` prefix
+    // (`settings-deny-guard-shape.js` § #1450 Class-C / #1471 F2), but a HOST/SHELL export is open
+    // by documented design. So it belongs on loom#1450's shard-2 residual list — the read-site
+    // gate that family still lacks — and is NOT gated here, because inventing a one-off predicate
+    // for this seam alone is the enumeration treadmill #1450 shard 2 exists to end. Same disposition as
+    // the `COC_TEST_FORCE_NO_NOFOLLOW` channel note in `append-sink.js` (~L189), which names the same
+    // `COC_` prefix more briefly — the two agree on the prefix, not on phrasing, so read it for the
+    // disposition rather than as a verbatim twin. (That note said `COC_TEST_` until loom#1544 F4; the
+    // denylist entry it describes is and was `COC_`.)
+    if (process.env.COC_TEST_FORCE_NO_HARDLINK === "1") {
+      const e = new Error("link(2) disabled by COC_TEST_FORCE_NO_HARDLINK (test seam)");
+      e.code = "ENOTSUP";
+      throw e;
+    }
+    fs.linkSync(tmpPath, leasePath);
+  } catch (e) {
+    const code = (e && e.code) || "EIO";
+    if (code !== "EEXIST" && NO_HARDLINK_CODES.has(code)) {
+      // The filesystem does not support hard links at all (exFAT/FAT32, many
+      // SMB/CIFS mounts, some FUSE + container volume drivers). DEGRADE to the
+      // legacy O_EXCL create rather than failing.
+      //
+      // This branch exists because failing here is NOT the safe option, which is
+      // the opposite of the intuition: `releaseOwnClaims` treats a non-contended
+      // lease error as "proceed WITHOUT serialization" (its header contract —
+      // sessionend must never block). So on such a filesystem a hard failure does
+      // not merely narrow the mutex, it REMOVES it, deterministically, for every
+      // SessionEnd — strictly worse than the birth-window race this publish path
+      // was written to close, because `openSync(leasePath,"wx")` works fine there.
+      // Trading a rare interleaving for a guaranteed no-mutex is a bad trade, so
+      // the degraded path keeps the O_EXCL guarantee where link() cannot run.
+      //
+      // The degradation is REPORTED, never silent (zero-tolerance.md Rule 3). That
+      // claim used to rest on the `degraded` field alone, which the one production
+      // caller never reads — so it was false (#1544 F2). It now rests on TWO
+      // surfaces: `_warnDegradedOnce` prints a loud one-time stderr WARN naming the
+      // OFF protection and its wiring (security.md § "Secure-Default For A New
+      // Security Feature"), and `degraded` is propagated onto the `acquireReleaseLease`
+      // SUCCESS shape for a caller/telemetry that does inspect it.
+      _warnDegradedOnce();
+      cleanupTmp();
+      let fd;
+      try {
+        fd = fs.openSync(leasePath, "wx", 0o600);
+      } catch (e2) {
+        return {
+          ok: false,
+          code: (e2 && e2.code) || "EIO",
+          error: `publish (no-hardlink fallback) failed for ${leasePath}: ${e2 && e2.message ? e2.message : String(e2)}`,
+        };
+      }
+      try {
+        fs.writeFileSync(fd, body, { encoding: "utf8" });
+      } catch (e2) {
+        try {
+          fs.closeSync(fd);
+        } catch (_) {
+          /* fd may already be closed; the unlink below is the load-bearing part */
+        }
+        try {
+          fs.unlinkSync(leasePath);
+        } catch (_) {
+          /* best-effort — leaving it would EEXIST every future acquirer */
+        }
+        return {
+          ok: false,
+          code: (e2 && e2.code) || "EIO",
+          error: `publish (no-hardlink fallback) write failed for ${leasePath}: ${e2 && e2.message ? e2.message : String(e2)}`,
+        };
+      }
+      try {
+        fs.closeSync(fd);
+      } catch (_) {
+        /* content already written; the lease is held either way */
+      }
+      return { ok: true, degraded: "no-hardlink-support" };
+    }
+    cleanupTmp();
+    return {
+      ok: false,
+      code,
+      error: `publish link failed for ${leasePath}: ${e && e.message ? e.message : String(e)}`,
+    };
+  }
+  // The lease is published and complete. Drop the staging name; the lease inode
+  // survives (link count 2 → 1). A failure here leaks a staging file only.
+  cleanupTmp();
+  _sweepStaleStaging(path.dirname(leasePath));
+  return { ok: true };
+}
+
 function _holderView(existing) {
   if (!existing || existing._corrupt) return null;
   return {
@@ -243,13 +560,17 @@ function acquireReleaseLease(opts) {
       acquired_at: _isoTimestamp(),
       _version: 1,
     };
-    let fd;
-    try {
-      // "wx" = O_WRONLY | O_CREAT | O_EXCL — the atomic test-and-set. The
-      // lockfile's EXISTENCE is the lock; its content is attribution only.
-      fd = fs.openSync(leasePath, "wx", 0o600);
-    } catch (e) {
-      if (e && e.code === "EEXIST") {
+    // Stage-then-link — the atomic test-and-set. The lockfile's EXISTENCE is the
+    // lock, and (unlike a bare O_EXCL create) it is COMPLETE the instant it
+    // exists, so a concurrent acquirer can never sample it mid-birth and reap it
+    // as `corrupt`. See _publishLeaseAtomically for the window this closes.
+    const published = _publishLeaseAtomically(
+      leasePath,
+      JSON.stringify(lease, null, 2) + "\n",
+    );
+    if (!published.ok) {
+      const e = { code: published.code, message: published.error };
+      if (e.code === "EEXIST") {
         const existing = _safeReadJson(leasePath);
         const liveness = _classifyHolder(existing);
         if (liveness.state === "dead" && attempt === 0) {
@@ -325,39 +646,51 @@ function acquireReleaseLease(opts) {
           liveness,
         };
       }
+      // Not EEXIST — a genuine IO failure (ENOSPC, EROFS, EACCES on the state
+      // dir, …). Fail with a typed reason.
+      //
+      // This is NOT the no-hard-link case, and an earlier version of this comment
+      // said it was (#1544 F2): it claimed the lib fails loudly here "rather than
+      // falling back to a bare O_EXCL create", naming EPERM/ENOTSUP as an example.
+      // `_publishLeaseAtomically` does exactly that fallback — those codes are in
+      // NO_HARDLINK_CODES and are handled inside the publish, which returns
+      // `{ok:true, degraded:"no-hardlink-support"}` and never reaches this branch.
+      // The fallback is DELIBERATE and stays: `releaseOwnClaims` proceeds WITHOUT
+      // serialization on a non-contended lease error (its header contract —
+      // sessionend must never block), so hard-failing on a link-less filesystem
+      // would not narrow the mutex, it would REMOVE it on every SessionEnd. The
+      // remedy for the residual weakness is the loud one-time WARN, not a refusal.
+      // See `_publishLeaseAtomically`'s NO_HARDLINK_CODES branch.
+      //
+      // Per the header contract the caller PROCEEDS best-effort on a
+      // lease-io-error — sessionend is never blocked by the lease.
       return {
         ok: false,
         reason: "lease-io-error",
-        error: `acquireReleaseLease: open(O_EXCL) failed for ${leasePath}: ${e && e.message ? e.message : String(e)}`,
+        error: `acquireReleaseLease: ${published.error}`,
       };
     }
-    // Won the atomic create. Write attribution + close. On a post-create write
-    // failure, unlink so the just-created lock is not orphaned in-process (the
-    // capability-lease.js MED-1 discipline — keeps "only an out-of-process crash
-    // orphans" accurate).
-    try {
-      fs.writeFileSync(fd, JSON.stringify(lease, null, 2) + "\n", {
-        encoding: "utf8",
-      });
-    } catch (e) {
-      try {
-        fs.closeSync(fd);
-      } catch (_) {
-        /* fd may already be closed; the unlink below is the load-bearing cleanup */
-      }
-      try {
-        fs.unlinkSync(leasePath);
-      } catch (_) {
-        /* best-effort */
-      }
-      return {
-        ok: false,
-        reason: "lease-io-error",
-        error: `acquireReleaseLease: write failed for ${leasePath} (lockfile unlinked, no orphan): ${e && e.message ? e.message : String(e)}`,
-      };
-    }
-    fs.closeSync(fd);
-    return { ok: true, lease, leasePath };
+    // Won the atomic publish: the lease at `leasePath` is already complete on
+    // disk (attribution included), so there is no post-create write step and
+    // therefore no orphan-on-write-failure case to clean up.
+    //
+    // `degraded` rides the SUCCESS shape (#1544 F2) — present only when the
+    // publish fell back to the bare O_EXCL create on a link-less filesystem. The
+    // lease IS held either way, so this is not a failure signal; it tells an
+    // inspecting caller WHICH publish strategy ran, i.e. that the half-formed-lease
+    // protection is off for this acquire.
+    //
+    // THIS FIELD IS THE REPORT — reading it is not optional (#1544 F2, round 2).
+    // An earlier version of this comment said "the loud one-time WARN is emitted at
+    // the point of degradation, so a caller that ignores this field is still
+    // informed." That was FALSE for the production caller: `releaseOwnClaims` runs
+    // in a worker spawned `stdio:"ignore"`, so that WARN goes to /dev/null (see
+    // `_warnDegradedOnce` § SCOPE). `releaseOwnClaims` now reads this field and
+    // writes a durable observation row; a future caller that drops that read
+    // re-opens the silence, and no stderr write will substitute for it.
+    return published.degraded
+      ? { ok: true, lease, leasePath, degraded: published.degraded }
+      : { ok: true, lease, leasePath };
   }
   // Exhausted attempts (reaped, then lost the create race to a live acquirer).
   const existing = _safeReadJson(leasePath);
@@ -460,8 +793,17 @@ module.exports = {
   readActiveReleaseLease,
   LEASE_FILE_PREFIX,
   // Test-only — NOT part of the supported API.
+  // STAGING_FILE_PREFIX is exported test-only (never for directory scans, unlike
+  // LEASE_FILE_PREFIX) so the gitignore-fence test derives the fenced path from
+  // the REAL constant rather than restating the literal (#1544 F1).
+  _test_STAGING_FILE_PREFIX: STAGING_FILE_PREFIX,
   _test_fingerprint: _fingerprint,
   _test_validateVerifiedId: _validateVerifiedId,
   _test_classifyHolder: _classifyHolder,
   _test_leasePath: _leasePath,
+  _test_publishLeaseAtomically: _publishLeaseAtomically,
+  // The one-time WARN latch is module-global by design (that IS the "once"). A
+  // test asserting the WARN fires must clear it first, or the assertion depends
+  // on which test ran earlier in the same process.
+  _test_resetDegradedWarning: _resetDegradedWarning,
 };

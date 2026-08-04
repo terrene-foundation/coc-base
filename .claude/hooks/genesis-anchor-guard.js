@@ -88,7 +88,7 @@ const { DEFAULT_LOG_REF_NAME } = require(
 const { isCoordinationEnabled } = require(
   path.join(__dirname, "lib", "coordination-mode.js"),
 );
-const { resolveMainCheckout } = require(
+const { requireMainCheckout } = require(
   path.join(__dirname, "lib", "state-resolver.js"),
 );
 
@@ -425,7 +425,34 @@ async function main() {
     // (zero-tolerance.md Rule 3). resolveMainCheckout so a worktree session
     // reads the same override/roster/ecosystem.json the main checkout holds.
     const sessionCwd = resolveRepoDir(payload);
-    const repoDir = resolveMainCheckout(sessionCwd) || sessionCwd;
+    // loom#1471 F7b — fail CLOSED when git cannot identify the main checkout.
+    // The former `resolveMainCheckout(...) || sessionCwd` could not fire (the
+    // legacy accessor returns `startCwd`, never falsy), so an unidentifiable
+    // root reached `isCoordinationEnabled` against a directory with no roster
+    // and no genesis → false → `passthrough()`, silently disabling the
+    // fail-CLOSED enrollment BLOCK this guard exists to enforce.
+    const mainRes = requireMainCheckout(sessionCwd);
+    if (!mainRes.ok) {
+      clearTimeout(fallback);
+      emit({
+        hookEvent,
+        severity: "block",
+        what_happened: `Genesis-anchor verification could not run: the MAIN checkout could not be identified — ${mainRes.reason}`,
+        why: "multi-operator-coc/genesis-anchor-guard — the roster, the coordination log and ecosystem.json are all read RELATIVE to the main checkout. Unidentified, the coordination-enabled read returns false and its branch is `passthrough()`, so the enrollment fence would disable itself precisely when it cannot tell which repository it is guarding. Refusing is the fail-closed direction (`rules/security.md` § Enforcement-Surface Parity).",
+        agent_must_report: [
+          `Session cwd: ${sessionCwd}`,
+          `Resolver reason: ${mainRes.reason}`,
+          "Genesis-anchor verification did NOT run — its result is UNKNOWN, not clean.",
+          "A differently-owned checkout reports `detected dubious ownership`; take ownership, or set CLAUDE_TRUST_STATE_DIR.",
+        ],
+        agent_must_wait:
+          "Do not retry until git can identify the main checkout, or the operator pins CLAUDE_TRUST_STATE_DIR.",
+        user_summary:
+          "genesis-anchor-guard — main checkout unidentifiable; refused rather than passed through",
+      });
+      // emit() exits
+    }
+    const repoDir = mainRes.repoDir;
     if (!isCoordinationEnabled(repoDir)) {
       passthrough();
     }

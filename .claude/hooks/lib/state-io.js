@@ -27,9 +27,11 @@ const crypto = require("crypto");
 const { execFileSync } = require("child_process");
 const {
   resolveStateDir,
+  resolveStateDirDetailed,
   ensureStateDir,
-  resolveMainCheckout,
+  resolveMainCheckoutDetailed,
 } = require("./state-resolver");
+const { resolveGitBinary, gitEnv } = require("./git-subprocess-env");
 const {
   validatePostureV2Schema,
   migrateV1ToV2,
@@ -291,7 +293,11 @@ function _writeFileHardened(targetPath, content, opts = {}) {
     try {
       fs.unlinkSync(targetPath);
     } catch (e) {
-      return { ok: false, code: e.code, reason: `unlink stale target: ${e.message}` };
+      return {
+        ok: false,
+        code: e.code,
+        reason: `unlink stale target: ${e.message}`,
+      };
     }
   }
 
@@ -501,14 +507,25 @@ function resolveWitnessPath(repoDir) {
   // 2. Production path: live-API query against git for the main `.git/` dir.
   //    `--git-common-dir` is the worktree-aware primitive (returns the MAIN
   //    repo's git-dir even when invoked inside a linked worktree).
+  // loom#1471. The witness location is what discriminateState() uses to tell a
+  // coordinated state deletion (corrupt-L1, fail-closed) from a pristine fresh repo
+  // (fresh-repo-L5), so relocating it downgrades that discriminator. The former
+  // shape passed no `env:`; `GIT_DIR` outranks repository discovery, so an ambient
+  // variable moved the witness to an attacker-chosen repo (test T4). git is now
+  // invoked by absolute path with an env built from constants.
+  const gitBin = resolveGitBinary();
   try {
+    // Unresolvable git falls through to the literal `<repoDir>/.git/` fallback
+    // below — that branch resolves inside repoDir, so it never widens trust.
+    if (!gitBin) throw new Error("git binary unresolved");
     const gitCommonDir = execFileSync(
-      "git",
+      gitBin,
       ["rev-parse", "--git-common-dir"],
       {
         cwd: repoDir,
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
+        env: gitEnv(),
       },
     ).trim();
     if (gitCommonDir) {
@@ -606,7 +623,10 @@ function migrateWitnessIfPresent(repoDir) {
   // classification sees the link itself and refuses without touching legacy.
   const newEntry = _classifyPathEntry(newPath);
   if (newEntry.kind === "error") {
-    return { ok: false, reason: `migrate: stat new location: ${newEntry.reason}` };
+    return {
+      ok: false,
+      reason: `migrate: stat new location: ${newEntry.reason}`,
+    };
   }
   if (newEntry.kind === "irregular") {
     return {
@@ -834,7 +854,28 @@ function _freshRepoPosture() {
  * responsible for landing v2 on disk through a signed posture-event.
  */
 function readPosture(cwd) {
-  const dir = resolveStateDir(cwd);
+  const resolution = resolveStateDirDetailed(cwd);
+  const dir = resolution.path;
+
+  // loom#1471 F7 — INDETERMINATE resolution, refused BEFORE any read.
+  //
+  // `resolveMainCheckout` returns `cwd` when git identified nothing (binary
+  // unresolvable, `detected dubious ownership` on a differently-owned checkout,
+  // timeout, corrupt repo). The state dir then names some directory we cannot
+  // confirm is this repository's, and reading it is wrong in BOTH directions:
+  //   - empty  ⇒ `discriminateState` returns `fresh-repo-L5`, the MOST
+  //     PERMISSIVE floor — a git failure silently PROMOTING the repo floor;
+  //   - populated ⇒ a `posture.json` sitting there is honoured, so an attacker
+  //     who chooses the cwd chooses the posture.
+  // The refusal must therefore precede the read, not merely the discriminator.
+  // Measured before the fix: a plain temp dir with a planted L5 posture.json
+  // returned L5_DELEGATED; the same call now returns L1 (test T3b).
+  if (resolution.indeterminate) {
+    const reason = `trust-state directory is INDETERMINATE — ${resolution.reason}`;
+    console.error(`[STATE-IO] ${reason}`);
+    return failClosedPosture(reason);
+  }
+
   // Ancestor containment: a symlinked `.claude/learning` makes every path below
   // attacker-chosen, so a "valid" posture read out of it is attacker-authored.
   // Fail closed rather than trusting it (the read path returns L1 rather than
@@ -853,7 +894,11 @@ function readPosture(cwd) {
   // when the legacy file is absent. Surfaced as best-effort: a migration
   // failure does NOT block the read (the witness check defaults to "absent"
   // which is the safe disposition for the read path).
-  const repoRoot = resolveMainCheckout(cwd);
+  // loom#1471 F7b — the DETAILED accessor, not the legacy one. Identical cost
+  // and identical answer here (the indeterminate case returned long before this
+  // line, so `.path` is a checkout git actually identified), but it keeps this
+  // module off the legacy accessor that the fail-closed regression test pins.
+  const repoRoot = resolveMainCheckoutDetailed(cwd).path;
   try {
     migrateWitnessIfPresent(repoRoot);
   } catch {
@@ -950,6 +995,12 @@ function readPosture(cwd) {
     logPath,
     initializedMarkerPath: initMarkerPath,
     cloneInitWitnessPath: witnessPath,
+    // Always false HERE — the early return above already refused. Passed anyway
+    // so the two surfaces cannot drift: `rules/security.md` § Enforcement-Surface
+    // Parity is about the dimension landing at EVERY validator, and the next
+    // caller of `discriminateState` inherits the fail-closed ranking for free
+    // rather than repeating this branch. Directly covered by test T2.
+    stateDirIndeterminate: resolution.indeterminate === true,
   });
 
   if (disposition.disposition === "corrupt-L1") {
@@ -1075,7 +1126,9 @@ function writePosture(cwd, posture) {
   } else if (prior.code !== "ENOENT") {
     // Unreadable-but-present main (symlink, FIFO, permissions): refuse rather
     // than skip the write-ahead copy and overwrite it anyway.
-    throw new Error(`writePosture: read main for write-ahead bak: ${prior.reason}`);
+    throw new Error(
+      `writePosture: read main for write-ahead bak: ${prior.reason}`,
+    );
   }
 
   // 2. Write tmp; rename atomic. The tmp is created O_EXCL|O_NOFOLLOW and its

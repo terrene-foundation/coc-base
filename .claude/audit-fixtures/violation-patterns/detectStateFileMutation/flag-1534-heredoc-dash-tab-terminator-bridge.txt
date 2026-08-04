@@ -1,0 +1,8 @@
+cat > /tmp/p.py <<-EOF
+import io
+io.open(".claude/learning/posture.json","w").write("{}")
+	EOF
+python3 /tmp/p.py
+cat > /tmp/q.txt <<EOF
+filler
+EOF

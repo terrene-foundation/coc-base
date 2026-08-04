@@ -18,6 +18,33 @@ Pairs with the F23a `proximity-band-budget` audit-fixture suite (which locks `ge
 | `fixture-08-multiple-lanes-mixed`    | Multiple lane records present; near-breach detection identifies only the in-band ones.                                       | `near_breach_lanes` lists exactly the in-band lanes   |
 | `fixture-09-help-exit-0`             | Subprocess test: `--help` exits 0 + prints usage.                                                                            | exit 0, stdout contains "usage:"                      |
 | `fixture-10-malformed-flag-exit-2`   | Subprocess test: unknown `--unknown-flag` exits 2 with error.                                                                | exit 2, stderr contains "unknown flag"                |
+| `fixture-11-unrun-zero-lanes-exits-nonzero` | **loom#1537 regression.** Emit dry-run FAILS → 0 lanes parsed. Pre-fix the gate exited 0 printing `verdict: clean`.   | exit 3, `verdict: unrun_no_coverage`, UNRUN banner; NEVER `verdict: clean` |
+| `fixture-11b-unrun-json-coverage-asserted-false` | Same run under `--json`: the machine-readable discriminator.                                                     | `coverage_asserted=false`, `ok=false`, 2 `unrun_reasons` |
+| `fixture-12-emit-loads-without-codex-surface` | **loom#1538 regression.** `emit.mjs` loads in a tree with `.claude/codex-mcp-guard/` removed; V13 skips; the extractor throws a NAMED error at USE. | `loaded=true`, `hasCodexGuardSurface()=false`, `v13.skipped=true`, throw names "codex surface absent" |
+
+Negative polarity for fixture-11 is carried by fixtures 02 / 03 / 06 / 07,
+which run a GENUINE multi-lane emit and MUST still reach their pre-fix
+verdicts at their pre-fix exit codes — a coverage floor that fired on a real
+run would show up there as a false UNRUN.
+
+### Harness gaps the coverage floor surfaced (loom#1537)
+
+Fixtures 02 / 03 / 06 / 07 were **passing vacuously**. `buildTempLoomRepo`
+built temp repos in which the emit dry-run always failed, so `emit.lanes` was
+always empty and every verdict those fixtures asserted on was computed from a
+lane set that never existed. Three independent causes, all fixed with the
+floor:
+
+1. `.claude/VERSION` was never copied → Validator 16 resolved class
+   `UNRESOLVED` and failed closed → emit exit 1, zero lanes.
+2. `.claude/fixtures/` was never copied (the runner copied
+   `.claude/audit-fixtures/`, a different directory) → Validator 13 failed on
+   a missing `validator-13/expected-policies.json` → emit exit 1.
+3. fixture-06's synthetic path-scoped rule was undeclared in the temp repo's
+   `sync-manifest.yaml` → Validator 15 (tier-completeness) failed closed.
+
+None of the three was detectable while a non-measuring run could still print
+`verdict: clean` — which is the argument for the floor, made by the floor.
 
 ## Running the fixture suite
 

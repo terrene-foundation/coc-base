@@ -14,12 +14,21 @@
  *
  * The receipt lives at `.claude/cross-repo-authz/<date>-<slug>.md` — NOT under
  * `journal/`, NOT under the integrity-guarded `.claude/learning/`. It is a
- * COMMITTED working-tree file (durable forensic witness per
- * `repo-scope-discipline.md` "receipt present = in-scope, absent = critical L1"
- * + `commit_workspaces_for_team`), greppable in the working tree within the
- * hook's mtime window. It is operator/session state in NO sync tier and is
- * excluded-by-default from the positive-INCLUDE publish allowlist, so it never
- * cascades to a consumer.
+ * working-tree file, greppable within the hook's mtime window; ENFORCEMENT never
+ * consults git, so an uncommitted receipt clears `repo-scope-discipline.md`
+ * condition 4 identically to a committed one.
+ *
+ * WHETHER to commit it is REPO-CLASS-dependent (2026-08-03, the LOCALITY axis —
+ * see `readRepoClass` / `shouldCommitReceipt` below). At loom (`coc-source`) the
+ * receipt is a durable forensic witness and committing is disclosure-safe: it is
+ * in NO sync tier and is excluded-by-default from the positive-INCLUDE publish
+ * allowlist, so it never cascades to a consumer. Those fences govern content
+ * flowing OUT OF LOOM and cover NOTHING written into another repo, so at a BUILD
+ * repo / USE template / downstream consumer the receipt stays LOCAL — loom's sync
+ * gitignores the directory there (`sync-manifest.yaml::target_owned`,
+ * `publish: local_only`). The pre-2026-08-03 tool printed and stamped
+ * an unconditional "commit it", which is how kailash-py and kailash-rs came to
+ * track operator-correlatable receipts in a public-fork-lane history.
  *
  * This tool ONLY writes the receipt (the un-typo-able marker + the five
  * conditions). The AGENT drives the restate→user-confirm ceremony in chat per
@@ -105,6 +114,76 @@ function slugify(s) {
     .slice(0, 48);
 }
 
+/**
+ * Read this repo's CLASS from `.claude/VERSION::type` — the discriminator
+ * `issue-triage-routing.md` already mandates reading before any class-dependent
+ * disposition. Returns the declared type string, or null when it cannot be read.
+ *
+ * Used for exactly one decision: whether the receipt should be COMMITTED. That
+ * is a repo-class property, not a content property — see `shouldCommitReceipt`.
+ *
+ * TRAP (loom#1426) — DO NOT widen this reader into a general trust input. It
+ * parses `.claude/VERSION` and returns `type` VERBATIM: no signature, no
+ * cross-check, no corroborating source. The `catch` fails closed on an
+ * UNREADABLE file only; it cannot fail closed on a file that reads fine and
+ * lies. So the class is attacker-authorable by anyone who can write a JSON file
+ * in the repo, and every consumer of it inherits that.
+ *
+ * That is survivable HERE precisely because of the polarity `shouldCommitReceipt`
+ * chose: only `coc-source` may commit, so a DEMOTION (any other value, or an
+ * unreadable file) costs a durable audit trail and nothing else, while the
+ * dangerous direction — a repo forging `coc-source` to be told "commit it" and
+ * putting an operator `display_id` into a public history forever — requires
+ * PROMOTING to the one privileged value. Any future edit that inverts this
+ * polarity, or that routes a second decision through the same field, converts a
+ * lost audit trail into a real forge. `manifest-source.mjs::readRepoClass` is the
+ * sibling reader with the same verbatim-trust property (loom#1399).
+ *
+ * Why this trap is recorded on THIS function rather than on the guard it
+ * concerns: loom#1426 is the state-file write guard over-blocking read-only
+ * commands that merely MENTION a protected path — it has now fired on five
+ * separate actors, EVERY one of them while verifying or documenting the guard
+ * itself, and in three of those cases the actor changed the TOOL rather than the
+ * assertion being tested. The recurring conclusion is that the MATCHER is wrong
+ * (it keys on a protected-path literal appearing anywhere in the command, not on
+ * that path being the write TARGET), not that the policy should be relaxed —
+ * relaxing removes a real control to fix a semantics bug. The narrowing
+ * direction the issue's residuals (k)/(l)/(m) leave open is destination-
+ * awareness: decide on the redirect target. This function is where a maintainer
+ * reaching for "make it repo-class-aware" would arrive, and it is exactly the
+ * input that cannot carry that weight.
+ */
+function readRepoClass(root) {
+  try {
+    const raw = fs.readFileSync(path.join(root, ".claude", "VERSION"), "utf8");
+    const t = JSON.parse(raw).type;
+    return typeof t === "string" ? t : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Should this repo COMMIT its cross-repo authorization receipts?
+ *
+ * ONLY `coc-source` (loom) may. The ceremony's containment argument — that
+ * `.claude/cross-repo-authz/` is never distributed, guaranteed by
+ * `sync-tier-aware` no_tier_match + `edition-emit.mjs::CLIENT_TEMPLATE_REMOVE` +
+ * `community-membership` EXCLUDE_WITHIN — describes fences on content flowing
+ * OUT OF LOOM. A receipt committed INTO a BUILD repo or a USE template has THAT
+ * repo's git history as its distribution channel, which no loom fence covers,
+ * and the receipt carries the requester's operator display_id.
+ *
+ * FAIL-CLOSED on an unreadable/absent `.claude/VERSION`: an unknown class is
+ * treated as NOT-loom, so the tool advises keeping the receipt local. The cost
+ * of a wrong "keep local" is a lost durable audit trail; the cost of a wrong
+ * "commit" is operator identity in a public repo's history forever. Enforcement
+ * is identical either way — the guard greps the working tree, not git.
+ */
+function shouldCommitReceipt(repoClass) {
+  return repoClass === "coc-source";
+}
+
 function main() {
   const args = parseArgs(process.argv.slice(2));
 
@@ -142,6 +221,10 @@ function main() {
 
   const dir = path.join(root, ".claude", "cross-repo-authz");
   fs.mkdirSync(dir, { recursive: true });
+
+  // Repo class decides ONE thing: commit vs keep-local (see shouldCommitReceipt).
+  const repoClass = readRepoClass(root);
+  const commitReceipt = shouldCommitReceipt(repoClass);
 
   const now = new Date();
   const date = isoDateUTC(now);
@@ -181,6 +264,30 @@ function main() {
           "condition_5_scoped_exactly: REQUIRED — only the named read against only the named repo",
         ];
 
+  // The trailer's locality guidance is REPO-CLASS-AWARE. The pre-2026-08-03
+  // trailer stamped an unconditional "commit it for durable team audit" into
+  // EVERY receipt at EVERY repo, carrying loom's containment argument to repos
+  // that argument does not cover — which is how kailash-py and kailash-rs came
+  // to track operator-correlatable receipts in a public-fork-lane history.
+  const localityNote = commitReceipt
+    ? "LOCALITY: this repo is `type: coc-source` (loom). COMMIT this receipt for\n" +
+      "  durable team audit. Committing is disclosure-safe HERE because\n" +
+      "  `.claude/cross-repo-authz/` never leaves loom: sync-tier-aware matches no\n" +
+      "  tier (no_tier_match), edition-emit.mjs::CLIENT_TEMPLATE_REMOVE strips it,\n" +
+      "  and community-membership EXCLUDE_WITHIN fences the public-fork publish."
+    : `LOCALITY: this repo is \`type: ${repoClass || "unknown"}\` — NOT loom. DO NOT COMMIT\n` +
+      "  this receipt; leave it on disk. The three fences that make committing safe at\n" +
+      "  loom (sync-tier-aware no_tier_match, edition-emit CLIENT_TEMPLATE_REMOVE,\n" +
+      "  community-membership EXCLUDE_WITHIN) all govern content flowing OUT OF LOOM\n" +
+      "  and cover nothing written INTO this repo — whose own git history is its\n" +
+      "  distribution channel, and this file carries the requester's display_id.\n" +
+      "  loom's sync gitignores `.claude/cross-repo-authz/` here\n" +
+      "  (sync-manifest.yaml::target_owned, publish: local_only); do not override it.\n" +
+      "  That same declaration ALSO vetoes any loom purge of this directory — your\n" +
+      "  receipts are yours, and loom must neither publish nor delete them.\n" +
+      "  Only DURABLE MULTI-SESSION audit is traded away — the hook's working-tree\n" +
+      "  grep above is unaffected.";
+
   const body = `---
 type: cross-repo-authorization-receipt
 date: ${date}
@@ -216,7 +323,10 @@ ${conditionsBlock.map((l) => `- ${l}`).join("\n")}
   .claude/bin/cross-repo-authorize.mjs AFTER the user confirmed the restated
   action+target in chat, and BEFORE the action runs. The hook
   (violation-patterns.js::hasCrossRepoAuthorizationReceipt) greps this file's
-  marker line within its mtime window; commit it for durable team audit.
+  marker line in the WORKING TREE within its mtime window — not in git — so
+  enforcement does not depend on whether this file is committed.
+
+  ${localityNote}
 -->
 `;
 
@@ -230,11 +340,31 @@ ${conditionsBlock.map((l) => `- ${l}`).join("\n")}
     action,
     mode,
     marker,
+    // Repo-class-aware locality disposition — consumed by the tests and by any
+    // caller scripting the ceremony. `repo_class: null` means .claude/VERSION
+    // was unreadable, which fails CLOSED to commit_receipt: false.
+    repo_class: repoClass,
+    commit_receipt: commitReceipt,
   };
 
   if (args.json) {
     process.stdout.write(JSON.stringify(result, null, 2) + "\n");
   } else {
+    // Step 1 is REPO-CLASS-AWARE. The unconditional "commit the receipt" this
+    // replaces is what operators followed verbatim at kailash-py / kailash-rs,
+    // committing operator-correlatable receipts into a public-fork-lane history.
+    const step1 = commitReceipt
+      ? [
+          `  1. Commit the receipt for durable team audit (this repo is type: ${repoClass}):`,
+          `       git add ${rel} && git commit -m "chore(authz): cross-repo ${mode} authorization for ${target}"`,
+        ]
+      : [
+          `  1. DO NOT COMMIT this receipt — leave it on disk (this repo is type: ${repoClass || "unknown"}, not coc-source).`,
+          `       loom's sync gitignores .claude/cross-repo-authz/ here; the guard greps the`,
+          `       WORKING TREE within an mtime window, so enforcement is unaffected. Committing`,
+          `       would put the requester's display_id in this repo's history, which none of`,
+          `       loom's three distribution fences covers.`,
+        ];
     process.stdout.write(
       [
         `✅ Cross-repo authorization receipt written: ${rel}`,
@@ -242,8 +372,7 @@ ${conditionsBlock.map((l) => `- ${l}`).join("\n")}
         `   marker: ${marker}`,
         "",
         "Next steps:",
-        `  1. Commit the receipt for durable team audit:`,
-        `       git add ${rel} && git commit -m "chore(authz): cross-repo ${mode} authorization for ${target}"`,
+        ...step1,
         `  2. Proceed with ONLY the named ${mode} against ONLY ${target} — no incidental scope creep.`,
         "",
       ].join("\n") + "\n",
