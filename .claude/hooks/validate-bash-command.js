@@ -41,6 +41,36 @@ const {
 const { resolveGitBinary, gitEnv } = require("./lib/git-subprocess-env.js");
 const { isCoordinationEnabled } = require("./lib/coordination-mode");
 const { resolveMainCheckout } = require("./lib/state-resolver");
+/**
+ * Environment for a NODE child this hook spawns (loom#1471 shard 6).
+ *
+ * Built from constants, same discipline as `gitEnv()`: nothing is inherited, so
+ * `NODE_OPTIONS` (which can `--require` an arbitrary module into the child) and
+ * `NODE_PATH` cannot reach it regardless of what the settings layer does.
+ *
+ * `COC_RUNTIME` is the one pass-through. It is the harness's runtime selector,
+ * legitimately set by the CLI wrapper, and dropping it would change which
+ * runtime the child believes it is under — a behaviour change, not a hardening.
+ * It is additionally covered by the settings-layer blanket `COC_` prefix deny,
+ * so the attacker-delivery path for it is fenced one layer up.
+ */
+function nodeChildEnv() {
+  const env = { PATH: "/usr/bin:/bin", LC_ALL: "C" };
+  if (typeof process.env.COC_RUNTIME === "string") {
+    env.COC_RUNTIME = process.env.COC_RUNTIME;
+  }
+  if (process.platform === "win32") {
+    const amb = process.env.SystemRoot || process.env.SYSTEMROOT;
+    const sysRoot =
+      typeof amb === "string" && path.isAbsolute(amb) ? amb : "C:\\Windows";
+    env.SystemRoot = sysRoot;
+    env.PATH = `${sysRoot}\\System32;${sysRoot}`;
+    for (const k of ["COMSPEC", "PATHEXT", "TEMP", "TMP"]) {
+      if (typeof process.env[k] === "string") env[k] = process.env[k];
+    }
+  }
+  return env;
+}
 // loom#1422 — the THREE Bash-lane protected-path matchers are BUILT from the
 // single registry in lib/guard-path-scope.js. They used to be three hand-kept
 // regex literals here, and the case-insensitivity dimension had to be added to
@@ -104,133 +134,36 @@ process.stdin.on("end", () => {
   }
 });
 
-// Command-wrappers that may precede a `git` invocation. Each may carry its
-// own flags AND a bare flag-operand (e.g. `sudo -u root`, `nice -n 10`); the
-// scan below skips a bare operand ONLY inside an established wrapper context.
-const GIT_WRAPPERS = new Set([
-  "sudo",
-  "doas",
-  "env",
-  "command",
-  "nice",
-  "nohup",
-  "time",
-  "timeout",
-  "ionice",
-  "setsid",
-  "stdbuf",
-  "chrt",
-  "taskset",
-]);
-// `git`, `/usr/bin/git`, `./git`, `\git` — a path-qualified, bare, or
-// backslash-escaped git token. The optional leading `\` closes the
-// MED-R3-1 alias-bypass form (`\git clean` runs the git binary at bash
-// runtime; the backslash only skips alias/function lookup). The `$IFS`
-// form (`git$IFS clean`) is NOT closable here — it requires shell
-// expansion the hook MUST NOT perform (hook-output-discipline.md Rule 3 /
-// security.md § no-eval) — and stays an accepted residual backed by the
-// sync-tier-aware pre-write snapshot (the surface-agnostic forever-layer).
-const isGitToken = (t) => /^\\?(?:[^\s]*\/)?git$/.test(t);
+// loom#1549 F3 — the git-invocation parser moved to lib/git-command-parse.js.
+// It used to live HERE and nowhere else, so the pairing guard
+// (fold-amendment-paired-with-helper.js) grew its own `/\bcommit\b/` lineage
+// instead of reusing it — the divergence kailash-rs rejected the Gate-2 sync
+// over. One parser, every consumer, per security.md § Multi-Site Kwarg
+// Plumbing; same shape as tool-classes.js for tool names.
+const { parseGitInvocation, parseGitInvocations, stripShellComments } = require(
+  path.join(__dirname, "lib", "git-command-parse.js"),
+);
 
 /**
- * Parse a shell segment as a git invocation, tolerant of command-prefixes
- * (sudo/doas/env/command/nice/… including their `-flag operand` forms, plus
- * `VAR=val` assignments and a path-qualified `git`) AND git global options
- * (`-C <dir>`, `-c <k=v>`, `--git-dir[=]`, `--work-tree[=]`, `-p`, `--bare`,
- * …) that sit BEFORE the subcommand. Returns { sub (lowercased), dir (the
- * effective work-tree for the structural check — `--work-tree` wins over
- * `-C`, else null=cwd), args (post-subcommand remainder) } or null when the
- * segment is not a git invocation.
+ * The ONE commit-detection predicate for this hook (loom#1549 HIGH-3).
  *
- * HIGH-1 (R1): the prior `^git\s+<sub>` anchors were bypassed by
- * `git -C <dir> <sub>` — the cross-tree form the #401 incident used.
- * HIGH-R2-1 (R2): the prefix-stripper regex was bypassed by `sudo -u root
- * git …` (the `-u` operand is not a dash-flag), `command git …`, and
- * `/usr/bin/git …`. This tokenize-and-skip scan closes that class.
- * MED-R2-1 (R2): `--work-tree=<dir>` attached form is now captured so the
- * porcelain check inspects the SAME tree the destructive op mutates.
+ * Three sites each carried their own `git commit` regex — two `^`-anchored and
+ * one `\b`-anchored — which is the same multi-lineage drift this whole issue is
+ * about, reproduced INSIDE the file the shared parser was extracted from. The
+ * `^` form was blind to `cd sub && git commit`, `git -C /repo commit`, `sudo git
+ * commit`, and `env VAR=x git commit`; the `\b` form fired on `git log
+ * --grep=commit`. Dispatching on the parsed SUBCOMMAND POSITION is the only
+ * thing that separates those structurally.
+ *
+ * Returns the invocation (carrying `.dir` and `.unresolvable`) or null, so a
+ * caller that needs the retargeted repository can have it rather than assuming
+ * the session cwd.
+ *
+ * @param {string} command
+ * @returns {{sub:string,dir:string|null,args:string,unresolvable:string|null}|null}
  */
-function parseGitInvocation(seg) {
-  const raw = (seg || "").trim();
-  if (!raw) return null;
-  const toks = raw.split(/\s+/).filter(Boolean);
-
-  // (1) Skip leading wrappers + their flags/operands + VAR=val until `git`.
-  let i = 0;
-  let sawWrapper = false;
-  while (i < toks.length) {
-    const t = toks[i];
-    if (isGitToken(t)) break; // the git command token
-    if (/^[A-Za-z_]\w*=/.test(t)) {
-      i++;
-      continue;
-    } // VAR=val assignment
-    if (GIT_WRAPPERS.has(t.replace(/^.*\//, ""))) {
-      sawWrapper = true;
-      i++;
-      continue;
-    } // wrapper command name (basename, so `/usr/bin/sudo` counts)
-    if (t.startsWith("-")) {
-      i++;
-      continue;
-    } // a flag (wrapper's or env's)
-    if (sawWrapper) {
-      i++;
-      continue;
-    } // bare flag-operand inside wrapper context (e.g. `-u root`)
-    return null; // bare non-git command outside wrapper context → not git
-  }
-  if (i >= toks.length || !isGitToken(toks[i])) return null;
-  i++; // consume the git token
-
-  // (2) Skip git global options; capture the effective work-tree for the
-  // structural porcelain check. A bare `--git-dir` does NOT set the target
-  // (its work-tree defaults to cwd); only `--work-tree`/`-C` relocate it.
-  let cDir = null;
-  let workTree = null;
-  while (i < toks.length) {
-    const t = toks[i];
-    if (t === "--") {
-      i++;
-      break;
-    }
-    if (t === "-C") {
-      if (toks[i + 1]) cDir = toks[i + 1];
-      i += 2;
-      continue;
-    }
-    if (t === "--work-tree") {
-      if (toks[i + 1]) workTree = toks[i + 1];
-      i += 2;
-      continue;
-    }
-    if (
-      t === "-c" ||
-      t === "--git-dir" ||
-      t === "--namespace" ||
-      t === "--super-prefix"
-    ) {
-      i += 2;
-      continue;
-    }
-    const wt = t.match(/^--work-tree=(.+)$/);
-    if (wt) {
-      workTree = wt[1];
-      i++;
-      continue;
-    }
-    if (t.startsWith("-")) {
-      i++; // --git-dir=X, -p, --paginate, --bare, --no-pager, etc.
-      continue;
-    }
-    break; // first non-option token = the subcommand
-  }
-  if (i >= toks.length) return null;
-  return {
-    sub: toks[i].toLowerCase(),
-    dir: workTree || cDir,
-    args: toks.slice(i + 1).join(" "),
-  };
+function findCommitInvocation(command) {
+  return parseGitInvocations(command).find((g) => g.sub === "commit") || null;
 }
 
 /**
@@ -345,14 +278,31 @@ function validateBashCommand(data) {
   // loom#1368: the `(?![\w-])` negative lookahead is load-bearing. A trailing
   // word-boundary escape admits the `commit-tree` and `commit-graph`
   // sub-commands, which spawned this scope delegation on a non-commit.
-  if (/^\s*git\s+commit(?![\w-])/.test(command)) {
+  // loom#1549 HIGH-3 — was `/^\s*git\s+commit(?![\w-])/`. The `^` anchor made
+  // this blind to every commit that is not the FIRST thing in the command:
+  // `cd sub && git commit`, `git -C /repo commit`, `sudo git commit`,
+  // `env GIT_AUTHOR_NAME=x git commit`. The shared parser matches all four.
+  if (findCommitInvocation(command)) {
     try {
       const { spawnSync } = require("child_process");
       const scopeScript = path.join(__dirname, "pre-commit-branch-scope.js");
-      const r = spawnSync("node", [scopeScript], {
+      // loom#1471 shard 6. This file's GIT calls were hardened in shard 2 and
+      // its NODE calls were not — the same sibling-blindness that left the py
+      // overlay and guard-path-scope behind, and the regrowth guard cannot see
+      // it because that guard greps for a literal `git`, never a `node`.
+      // `process.execPath` removes the PATH lookup; the env is built from
+      // constants so the child cannot be steered by NODE_OPTIONS/NODE_PATH.
+      //
+      // SEVERITY, stated honestly: PATH, NODE_OPTIONS and NODE_PATH are ALL
+      // already in settings-deny-guard-shape.js::DANGEROUS_ENV_EXACT, so this
+      // is defence-in-depth rather than an open hole. It is NOT the severity of
+      // the template-resolver shim, whose LOOM_LINKS_CONFIG is genuinely
+      // unfenced. Recorded so the site count does not inflate the risk.
+      const r = spawnSync(process.execPath, [scopeScript], {
         cwd,
         encoding: "utf8",
         timeout: 4500,
+        env: nodeChildEnv(),
       });
       const output = (r.stderr || "").trim();
       if (output) {
@@ -374,26 +324,69 @@ function validateBashCommand(data) {
   // loom#1368: the `(?![\w-])` negative lookahead is load-bearing — see the
   // scope delegation above; a trailing word-boundary escape admits the
   // `commit-tree` and `commit-graph` sub-commands.
-  if (/^\s*git\s+commit(?![\w-])/.test(command)) {
+  // loom#1549 HIGH-3 — same `^`-anchor blindness as the scope delegation above,
+  // and it matters MORE here: this gates the loom#263 synced-artifact disclosure
+  // scan, the fence that stops an operator hostname / org slug / home path from
+  // reaching 30+ consumers' PERMANENT git history. `cd sub && git commit`
+  // skipped it entirely.
+  //
+  // An `unresolvable` target does NOT skip the scan. The safe disposition for a
+  // disclosure fence is to scan anyway: the cost of scanning a commit we cannot
+  // fully attribute is a wasted spawn, and the cost of skipping one is
+  // unrecoverable once pushed.
+  const commitInv = findCommitInvocation(command);
+  if (commitInv) {
     try {
       const { spawnSync } = require("child_process");
       // Only run when the commit stages a synced-surface path. Cheap
       // pre-filter — avoids scanning on commits that touch only non-
       // `.claude/**` files (the scanner already excludes never-synced
       // subpaths internally, but skipping the spawn entirely is faster).
-      const staged = spawnSync("git", ["diff", "--cached", "--name-only"], {
-        cwd,
-        encoding: "utf8",
-        timeout: 3000,
-      });
-      const stagedFiles = (staged.stdout || "")
+      // loom#1471 shard 2 — same class; `--cached` reads the INDEX, which
+      // GIT_DIR relocates wholesale, so a decoy index would mask which synced
+      // paths a commit actually stages.
+      const gitBin = resolveGitBinary();
+      // loom#1549 HIGH-3 second-order: this read the session `cwd` INDEX even
+      // when the commit retargets with `-C`, so `git -C /other commit` scanned
+      // the wrong repository's staged set — reporting "no synced paths" for a
+      // commit that stages plenty. Only honour a target the parser could fully
+      // resolve; an `unresolvable` one (`-C "$PWD"`, `-C $(…)`) falls back to
+      // `cwd`, which is where an unexpanded value would most likely have
+      // pointed anyway, and never to a path built from bytes we did not expand.
+      const commitDir =
+        commitInv.dir && !commitInv.unresolvable ? commitInv.dir : cwd;
+      const staged = gitBin
+        ? spawnSync(gitBin, ["diff", "--cached", "--name-only"], {
+            cwd: commitDir,
+            encoding: "utf8",
+            timeout: 3000,
+            env: gitEnv(),
+          })
+        : null;
+      const stagedFiles = ((staged && staged.stdout) || "")
         .split("\n")
         .map((s) => s.trim())
         .filter(Boolean);
-      const touchesSynced = stagedFiles.some(
-        (f) =>
-          f.startsWith(".claude/") || f === "AGENTS.md" || f === "GEMINI.md",
-      );
+      // Unresolvable git makes the pre-filter INDETERMINATE, not negative. An
+      // empty list would silently SKIP the disclosure scan — fail-open, and the
+      // exact shape this sweep exists to remove. Rank it tightest: scan.
+      //
+      // loom#1471 shard 4. The `!gitBin` arm alone was NOT the whole fail-open.
+      // A git that RAN and FAILED — timeout, exit 128, a `safe.directory`
+      // refusal — leaves `stdout` empty, so `stagedFiles` is `[]`, `.some()` is
+      // false, and the loom#263 disclosure scan was silently SKIPPED on a real
+      // `git commit`. The status was never inspected. Every non-zero/errored
+      // outcome now ranks tightest and scans, matching the sibling
+      // dirty-tree probe above, which already gates on
+      // `r.status !== 0 || typeof r.stdout !== "string"`.
+      const stagedIndeterminate =
+        !gitBin || !staged || Boolean(staged.error) || staged.status !== 0;
+      const touchesSynced =
+        stagedIndeterminate ||
+        stagedFiles.some(
+          (f) =>
+            f.startsWith(".claude/") || f === "AGENTS.md" || f === "GEMINI.md",
+        );
       if (touchesSynced) {
         const scanScript = path.join(
           __dirname,
@@ -401,10 +394,15 @@ function validateBashCommand(data) {
           "bin",
           "scan-synced-disclosure.mjs",
         );
-        const r = spawnSync("node", [scanScript, "--check"], {
+        // loom#1471 shard 6 — see the scope delegation above. This one is the
+        // pointed case: it is the loom#263 disclosure scanner, i.e. the guard
+        // the regrowth test exists to protect, spawned by a shape that test
+        // structurally cannot detect.
+        const r = spawnSync(process.execPath, [scanScript, "--check"], {
           cwd,
           encoding: "utf8",
           timeout: 4000,
+          env: nodeChildEnv(),
         });
         // r.status === null on spawn failure/timeout → fail-open.
         // r.error set on ENOENT / timeout → fail-open.
@@ -1037,7 +1035,82 @@ function validateBashCommand(data) {
   // Split on shell-segment separators so dangerous patterns inside quoted
   // commit-message bodies (e.g. `git commit -m "...git reset --hard..."`) do NOT
   // false-positive. Each segment's LEADING token determines the actual command.
-  const segments = command.split(/(?:\|\||&&|;|\|(?!\|))/);
+  //
+  // loom#1549 HIGH-2 — this was a RAW `command.split(/(?:\|\||&&|;|\|(?!\|))/)`
+  // with no `\n` in the class, so a Bash call carrying two LINES was ONE
+  // segment: `git status\ngit reset --hard HEAD` parsed as `sub:"status"`,
+  // every fence below dispatched on that, and the destructive verb was never
+  // seen. A newline is a command separator in every shell; omitting it from a
+  // splitter whose whole job is "which command is this segment" made the three
+  // fences below unreachable by adding one keystroke.
+  //
+  // The fix already existed TWICE in this tree and had not reached these lanes:
+  // `parseGitInvocations` passes `newlineSeparates: true`, and so does the
+  // worktree lane below.
+  //
+  // Comments are stripped BEFORE splitting, matching what `parseGitInvocations`
+  // does with `cleaned`. Without it the splitter still fractures on a `;` inside
+  // a trailing COMMENT, so `git status # x; git reset --hard` fires on a segment
+  // the shell would never execute. Measured both ways: with the newline fix but
+  // WITHOUT this strip, that input still reached BLOCK — the newline-aware split
+  // alone does not close it, and asserting otherwise would be a comment its own
+  // code could not back.
+  //
+  // HEREDOC BODIES ARE NOT COMMANDS, and making the split newline-aware is
+  // exactly what made that bite here. Before, a `cat > f <<'EOF' … EOF` body sat
+  // inside ONE segment whose leading token was `cat`, so prose was shielded by
+  // accident; splitting on newlines promotes every prose LINE to a segment, and
+  // a line that merely QUOTES a destructive command then parses as a real
+  // invocation. Caught by this guard firing on the commit message describing
+  // this very fix — the same shape the worktree lane below already documents
+  // ("including a `git commit -F- <<'EOF'` commit message for this PR"). That
+  // lane solved it and the solution had not reached these three; this is the
+  // third such gap in this file, which is the point of #1549.
+  //
+  // `.structural` is the command with every heredoc BODY and close line removed.
+  // On the parser's work-budget overflow it is absent, so the walk gets an empty
+  // string and finds nothing — failing OPEN on an unverifiable signal, which is
+  // the disposition MUST-2 requires over guessing.
+  const heredocSpans =
+    command.indexOf("<<") === -1
+      ? { structural: command }
+      : parseHeredocSpans(command);
+  const segments = splitShellSegments(
+    stripShellComments(maskDocCarrierPayloads(heredocSpans.structural || "")),
+    { newlineSeparates: true },
+  );
+
+  // UNKNOWN SUBCOMMAND — fail CLOSED (loom#1549 F3 lock 8). A git invocation
+  // whose VERB is produced by a construct the hook must not evaluate
+  // (`git $(echo reset) --hard`, or a `$(a && b)` the raw splitter above cut in
+  // half) could be ANY verb, including the two fenced destructive ones. Every
+  // fence below dispatches on a literal `g.sub`, so an unknown verb matches
+  // none of them and the segment would fall through to a silent allow — the
+  // precise shape this fix exists to close.
+  //
+  // Disposition is copied, not invented: it is the one gitWorkingTreeStatus
+  // already takes for an unresolvable git binary ("Unresolvable git ranks
+  // TIGHTEST here … `ok:false` already routes the caller to halt-and-report
+  // rather than silent allow"). halt-and-report, not block, per
+  // hook-output-discipline.md MUST-2 — there is no structural dirty-tree
+  // measurement to justify `block` when the tree cannot even be identified.
+  for (const seg of segments) {
+    const g = parseGitInvocation(seg);
+    if (!g || g.unresolvable !== "subcommand") continue;
+    return {
+      severity: "halt-and-report",
+      what_happened: `Bash invoked git with a subcommand this hook cannot resolve: ${command.slice(0, 120)}`,
+      why: "git.md MUST 'Destructive Working-Tree Ops' — the subcommand is produced by a shell construct (command substitution, parameter expansion) the hook MUST NOT evaluate (hook-output-discipline.md Rule 3 / security.md § no-eval). The verb is therefore UNKNOWN and may be `reset --hard` or `clean -f`, so the destructive-op fence cannot clear it. Unresolvable ranks TIGHTEST at a fail-closed fence.",
+      agent_must_report: [
+        "State the literal git subcommand this command resolves to at runtime",
+        "Re-issue it with the subcommand written literally (`git reset …`, not `git $(…) …`) so the destructive-op fence can measure the target tree",
+      ],
+      agent_must_wait:
+        "Do not retry with the subcommand still hidden behind a substitution. Write the verb literally.",
+      user_summary:
+        "git subcommand hidden behind a shell substitution — cannot be fence-checked; write it literally",
+    };
+  }
 
   // git reset --hard — STRUCTURAL severity (hook-output-discipline.md MUST-2:
   // `git status --porcelain` non-empty is the canonical structural signal that
@@ -1050,6 +1123,28 @@ function validateBashCommand(data) {
   for (const seg of segments) {
     const g = parseGitInvocation(seg);
     if (!g || g.sub !== "reset" || !/(^|\s)--hard\b/.test(g.args)) continue;
+    // UNRESOLVABLE TARGET TREE — fail CLOSED (loom#1549 F3 lock 8). The verb is
+    // known and destructive, but `-C`/`--work-tree` names a directory only the
+    // shell can produce. The porcelain probe below would spawn against the
+    // LITERAL `$(…)` bytes, which name no directory: `ok:false`, and the
+    // fail-OPEN contract then degrades this branch to a bare advisory. Halting
+    // here makes that outcome DELIBERATE rather than an artefact of a spawn
+    // that happened to fail — and it holds even if such a path ever resolved.
+    if (g.unresolvable === "dir") {
+      return {
+        severity: "halt-and-report",
+        what_happened: `Bash invoked \`git reset --hard\` against a target directory this hook cannot resolve: ${command.slice(0, 120)}`,
+        why: "git.md MUST 'Destructive Working-Tree Ops MUST Verify Clean Working Tree' — the `-C`/`--work-tree` value comes from a shell construct the hook MUST NOT evaluate (hook-output-discipline.md Rule 3 / security.md § no-eval), so the tree `--hard` would discard cannot be measured. An unverifiable target ranks TIGHTEST at a fail-closed destructive-op fence.",
+        agent_must_report: [
+          "Name the directory the substitution resolves to, and show `git status --porcelain` for THAT directory",
+          "Re-issue with the path written literally so the fence can measure the tree, OR use `git reset --keep <ref>` (aborts on a dirty tree by itself)",
+        ],
+        agent_must_wait:
+          "Do not retry --hard while the target tree is unidentifiable. Write the path literally, or use --keep.",
+        user_summary:
+          "git reset --hard at a substituted -C path — target tree unverifiable (write the path literally or use --keep)",
+      };
+    }
     const st = gitWorkingTreeStatus(g.dir, cwd);
     if (st.ok && st.dirty) {
       return {
@@ -1100,6 +1195,26 @@ function validateBashCommand(data) {
     const force =
       /(^|\s)-[a-zA-Z]*f[a-zA-Z]*\b/.test(a) || /(^|\s)--force\b/.test(a);
     if (!force) continue; // `git clean` without -f is a no-op
+    // UNRESOLVABLE TARGET TREE — fail CLOSED, same disposition as the
+    // `reset --hard` fence above (loom#1549 F3 lock 8). Sibling surface, swept
+    // in the SAME change per security.md § Enforcement-Surface Parity: fixing
+    // only the reset lane would leave `git -C $(…) clean -fd` reaching no
+    // guard, which is the identical measured bypass.
+    if (g.unresolvable === "dir") {
+      return {
+        severity: "halt-and-report",
+        what_happened: `Bash invoked \`git clean\` with force against a target directory this hook cannot resolve: ${command.slice(0, 120)}`,
+        why: "git.md MUST 'Destructive Working-Tree Ops' — the `-C`/`--work-tree` value comes from a shell construct the hook MUST NOT evaluate (hook-output-discipline.md Rule 3 / security.md § no-eval), so the untracked files `clean -f` would delete cannot be enumerated. An unverifiable target ranks TIGHTEST at a fail-closed destructive-op fence.",
+        agent_must_report: [
+          "Name the directory the substitution resolves to, and show `git clean -n` (dry-run) for THAT directory",
+          "Re-issue with the path written literally so the fence can enumerate what would be deleted",
+        ],
+        agent_must_wait:
+          "Do not retry the force-clean while the target tree is unidentifiable. Dry-run against the literal path first.",
+        user_summary:
+          "git clean -f at a substituted -C path — target tree unverifiable (write the path literally and dry-run first)",
+      };
+    }
     const st = gitWorkingTreeStatus(g.dir, cwd);
     if (st.ok && st.untracked) {
       return {
@@ -1369,6 +1484,13 @@ function validateBashCommand(data) {
       }
       const g = parseGitInvocation(seg);
       if (!g || g.sub !== "worktree") continue;
+      // An unresolvable `-C` is an UNKNOWN directory, so this lane takes the
+      // disposition it already takes for one: do not probe (loom#1549 F3 lock
+      // 8). Probing the literal `$(…)` bytes would resolve some other path and
+      // report a CLEAN base ref for a tree never inspected — a false negative
+      // worse than no signal. `continue`, not `break`: only THIS segment's
+      // target is unknown, and the cd trail is still valid for later segments.
+      if (g.unresolvable === "dir") continue;
       // `-C` is absolute → it alone pins the repo, whatever the cd trail did.
       // Otherwise the resolved cd trail must be trustworthy, or we do not probe.
       const cAbs = g.dir && path.isAbsolute(g.dir);
@@ -1538,7 +1660,12 @@ function validateBashCommand(data) {
   // loom#1368: this site carried NO boundary at all, so it matched every
   // `git commit-*` sub-command (and `git commitfoo`). Anchored with the same
   // `(?![\w-])` negative lookahead as the two delegation sites above.
-  if (/\bgit\s+commit(?![\w-])/.test(command)) {
+  // loom#1549 HIGH-3 — `\b`-anchored rather than `^`, so this one was not blind
+  // to wrapped/retargeted commits, but it was still substring matching: it fires
+  // on `git log --grep=commit` and on a `commit` inside a trailing shell comment.
+  // The shared parser dispatches on the SUBCOMMAND POSITION, which is the only
+  // thing that distinguishes those structurally.
+  if (findCommitInvocation(command)) {
     return {
       continue: true,
       exitCode: 0,

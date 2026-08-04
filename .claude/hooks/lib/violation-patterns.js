@@ -1243,6 +1243,25 @@ const STATE_INTERP_WRITE_SOURCES = [
 const STATE_INTERP_WRITE_RX = new RegExp(
   STATE_INTERP_WRITE_SOURCES.join("|"),
 );
+// Global twin of the above, used ONLY to COUNT how many write/mutation verbs a
+// body contains. The target resolver (`resolveInterpreterWriteTargets`) can only
+// resolve the open/write family — it has no grammar for `os.remove`,
+// `os.rename`, `shutil.move`, `File.delete`, `truncate`, … — so without a count
+// check a single benign `open()` was enough to declare "all targets resolved,
+// all benign" while an UNENUMERATED delete/rename of a protected path rode along
+// in the same body (loom#1534, MEASURED). Counting the FULL verb set and
+// requiring `verbs <= targets` is what makes an unenumerated verb fail closed.
+// `matchAll` clones the regex, so the shared `lastIndex` is never observed.
+const STATE_INTERP_WRITE_RX_G = new RegExp(
+  STATE_INTERP_WRITE_SOURCES.join("|"),
+  "g",
+);
+function countInterpreterWriteVerbs(text) {
+  if (!text) return 0;
+  let n = 0;
+  for (const _m of text.matchAll(STATE_INTERP_WRITE_RX_G)) n++;
+  return n;
+}
 
 // STATE_INTERP_INPLACE_RX — the perl/ruby `-i` IN-PLACE EDIT flag (#1337).
 // This is the one write vector that lives in the interpreter's ARGV rather than
@@ -1308,6 +1327,197 @@ function hasInterpreterWriteSignal(text) {
   }
   const folded = foldConcatenatedLiterals(text);
   return folded !== text && STATE_INTERP_WRITE_RX.test(folded);
+}
+
+// ── Write-TARGET resolution (loom#1534) ─────────────────────────────────────
+// The WIDE Layer-3 branch flags on `interpreter-led && write-signal-anywhere`,
+// with the protected-path test applied to the SAME whole-command scope. The two
+// are never required to be RELATED, so a body that WRITES an ordinary file while
+// merely MENTIONING a protected path in prose is read as a state mutation.
+//
+// MEASURED false positive (2026-08-02, twice in one session, both `severity:
+// block`): a `python3 - <<PY` heredoc whose write target was a `.md` skill file
+// and whose body quoted protected path names inside the prose it was inserting.
+// The upstream doc-carrier mask does not reach it — that mask recognizes
+// `gh --body` / `git commit -m` / `echo` / `printf`, and an interpreter heredoc
+// writing a markdown file is none of those.
+//
+// This resolver answers the narrower question the branch should have asked:
+// WHICH path is being written? It reads the first argument of each write call,
+// resolving a bare identifier through simple `NAME = "literal"` bindings in the
+// same body.
+//
+// FAIL-CLOSED, BUT ONLY BECAUSE OF THE VERB-COUNT GATE — not "by construction".
+// It returns benign ONLY when (a) it resolved at least one target, (b) every
+// resolved target is a non-protected path, AND (c) the number of mutation verbs
+// in the body does not EXCEED the number of targets resolved. Any unresolved
+// target (a computed path, an f-string, a join, a variable bound to anything but
+// a plain literal) sets `unresolved` and the caller keeps the existing flag.
+//
+// Clause (c) is load-bearing and was ABSENT in the first cut, where this comment
+// claimed the resolver "cannot admit an obfuscated write". It could, and did:
+// the argument-capturing grammar below (`WRITE_CALL_ARG_RX`) enumerates only the
+// open/write family, while `hasInterpreterWriteSignal` — the predicate whose
+// finding this suppresses — also fires on delete / rename / move / truncate /
+// chmod / shell-out / dynamic dispatch. So ONE benign `open()` resolved one
+// benign target, `unresolved` stayed false, and an `os.remove(<ledger>)` in the
+// same body was suppressed along with it (MEASURED 2026-08-02, loom#1534).
+//
+// The real bound, stated exactly: this suppressor is sound for the verbs
+// `WRITE_CALL_ARG_RX` + `RECEIVER_WRITE_TARGET_RX` can resolve. For every OTHER
+// verb in `STATE_INTERP_WRITE_SOURCES` it does not analyze the target at all —
+// it only COUNTS, and any surplus count forces `unresolved`. Adding a verb to
+// `STATE_INTERP_WRITE_SOURCES` is therefore always safe (it can only over-block);
+// adding one to `WRITE_CALL_ARG_RX` without a correct first-arg-is-the-path
+// grammar is NOT (see the `write_text` note below).
+// FIRST-ARG-IS-THE-PATH writers only. `write_text` / `write_bytes` are
+// deliberately ABSENT: they are RECEIVER-style (`Path(<path>).write_text(<data>)`)
+// so their first argument is the CONTENT. Capturing it resolves a "target" of
+// `{}` and would clear a REAL state write as benign. That exact mistake regressed
+// the committed `flag-heredoc-write-text-body` fixture while this was being
+// written — the fixture caught it, which is precisely why it exists.
+const WRITE_CALL_ARG_RX =
+  /(?:io\.open|open|writeFileSync|writeFile|appendFileSync|createWriteStream|File\.write|File\.open|IO\.write)\s*\(\s*([^,)]+)/g;
+// Receiver-style: the path is the `Path(...)` receiver, not the first argument.
+const RECEIVER_WRITE_TARGET_RX =
+  /(?:pathlib\.)?Path\s*\(\s*(['"])((?:\\.|(?!\1)[^\\])*)\1\s*\)\s*\.\s*write_(?:text|bytes)\s*\(/g;
+// Every receiver-style write, resolvable or not — the count difference is what
+// makes an unresolvable receiver (a variable, a join, an f-string) fail closed.
+const RECEIVER_WRITE_ANY_RX = /\.\s*write_(?:text|bytes)\s*\(/g;
+const STRING_BINDING_RX =
+  /(?:^|[;\n{(\s])([A-Za-z_$][\w$]*)\s*=\s*(['"])((?:\\.|(?!\2)[^\\])*)\2/g;
+
+function resolveInterpreterWriteTargets(text) {
+  const out = { targets: [], unresolved: false };
+  if (!text) return out;
+  // A name bound MORE THAN ONCE is UNRESOLVABLE, not "the last one wins". Taking
+  // the last binding was a MEASURED bypass: `p="<state>"; write(p); p="/tmp/x"`
+  // resolved to the benign trailing value while the runtime write used the state
+  // path. Static order is not execution order, so any rebinding poisons the name.
+  const bindings = new Map();
+  const rebound = new Set();
+  for (const m of text.matchAll(STRING_BINDING_RX)) {
+    if (bindings.has(m[1])) rebound.add(m[1]);
+    bindings.set(m[1], m[3]);
+  }
+  for (const n of rebound) bindings.delete(n);
+  let sawCall = false;
+  for (const m of text.matchAll(WRITE_CALL_ARG_RX)) {
+    sawCall = true;
+    const arg = m[1].trim();
+    const lit = arg.match(/^(['"])((?:\\.|(?!\1)[^\\])*)\1$/);
+    if (lit) {
+      out.targets.push(lit[2]);
+      continue;
+    }
+    if (/^[A-Za-z_$][\w$]*$/.test(arg) && bindings.has(arg)) {
+      out.targets.push(bindings.get(arg));
+      continue;
+    }
+    out.unresolved = true;
+  }
+  // Receiver-style writers, handled separately because their PATH is the
+  // receiver. Any receiver-style write we cannot resolve to a literal path is
+  // unresolved — never silently benign.
+  const recvResolved = [...text.matchAll(RECEIVER_WRITE_TARGET_RX)];
+  const recvAll = [...text.matchAll(RECEIVER_WRITE_ANY_RX)];
+  for (const m of recvResolved) out.targets.push(m[2]);
+  if (recvAll.length > recvResolved.length) out.unresolved = true;
+  if (recvAll.length > 0) sawCall = true;
+  if (!sawCall) out.unresolved = true;
+  // ── VERB-vs-TARGET COVERAGE (loom#1534 fail-open) ────────────────────────
+  // Same count-difference shape as the receiver-style guard immediately above,
+  // applied to the NON-receiver verbs it never covered. The two regexes above
+  // enumerate only the open/write family; `STATE_INTERP_WRITE_RX` additionally
+  // fires on delete / rename / move / truncate / chmod / shell-out / dynamic
+  // dispatch. A body carrying MORE mutation verbs than we resolved targets for
+  // has at least one mutation whose target we never inspected — so it is
+  // unresolved, not benign.
+  //
+  // MEASURED before this gate: `python3 - <<PY` with one benign
+  // `io.open("x.md","w")` plus `os.remove("<ledger>")` was ALLOWED (baseline
+  // FLAGged it); removing the benign decoy restored the flag, so the decoy was
+  // the mechanism. Same for `os.rename` and `shutil.move`.
+  //
+  // Counted on the concat-FOLDED text too, and maxed: `hasInterpreterWriteSignal`
+  // itself flags on the folded spelling, so a verb that only exists post-folding
+  // (`fs['write'+'FileSync']` moved into a variable) must not read as zero here.
+  const folded = foldConcatenatedLiterals(text);
+  const verbCount = Math.max(
+    countInterpreterWriteVerbs(text),
+    folded === text ? 0 : countInterpreterWriteVerbs(folded),
+  );
+  if (verbCount > out.targets.length) out.unresolved = true;
+  // The ARGV-side in-place-edit flag (`perl -i -pe …`) is a write with NO call
+  // and NO body token, so it contributes ZERO to `verbCount` and no target at
+  // all. It can never be shown benign by target resolution — fail closed.
+  if (STATE_INTERP_INPLACE_RX.test(text)) out.unresolved = true;
+  return out;
+}
+
+// True only when every write target in the body RESOLVED and none is protected.
+// Used to suppress the WIDE-branch finding; never used to CREATE one.
+function interpreterWritesOnlyBenignTargets(text, pathRx) {
+  const { targets, unresolved } = resolveInterpreterWriteTargets(text);
+  if (unresolved || targets.length === 0) return false;
+  return targets.every((t) => !pathRx.test(t));
+}
+
+// ── Heredoc body: DATA or CODE? (loom#1534, second half) ────────────────────
+// `detectHeredocWriteRunBundle` already encodes the right discriminator for this
+// class — a heredoc body is dangerous when it is WRITTEN **and then EXECUTED**.
+// The WIDE Layer-3 branch never asks, so authoring a FIXTURE whose CONTENT is an
+// attack sample flags on the sample's own text. The corpus anticipated exactly
+// this: the bundle detector's redesign note records that a lexical predecessor
+// "false-blocked writing a doc that merely QUOTED writeFileSync('.claude/…') —
+// loom authors exactly such fixtures". This applies that discriminator here.
+//
+// A heredoc whose body is piped to an interpreter (`python3 - <<PY`) has NO
+// redirect target, so it is never inert — it is code, and still flags.
+//
+// FAIL-CLOSED: inert only when EVERY heredoc has an identifiable, literal,
+// non-protected target that no later interpreter-led segment executes. A
+// variable/expansion target, a protected target, or any execution of the target
+// returns false and the caller flags exactly as before.
+const HEREDOC_REDIRECT_TARGET_RX =
+  /(?:^|[;&|]\s*)(?:cat|tee)\b(?:\s+-a)?[^\n<]*?(?:>>?\s*|\s+)([^\s<>|;&]+)[^\n<]*<<-?\s*['"]?[A-Za-z_]\w*/gm;
+
+// Any token that could EXECUTE something. Deliberately over-broad: this decides
+// whether to SUPPRESS, so over-matching only costs a retained (correct) flag.
+// A per-target basename search was the first attempt and it leaked on every
+// documented token-divergence residual — `T=s.py; python3 "$T"`, `env python3
+// s.py`, `chmod +x s && ./s` — because the exec line need not name the file.
+const ANY_EXEC_TOKEN_RX =
+  /(?:^|[\s;&|(])(?:\.\/|source\b|\.\s+\S|env\b|chmod\b|exec\b|eval\b|xargs\b|python3?|node|nodejs|ruby|perl|bash|sh|zsh|deno|bun|tsx|ts-node|Rscript|lua|php|osascript)\b/;
+
+function heredocBodiesAreInertData(command, pathRx) {
+  if (!command) return false;
+  const targets = [...command.matchAll(HEREDOC_REDIRECT_TARGET_RX)].map((m) => m[1]);
+  if (targets.length === 0) return false; // stdin-fed heredoc = code, not data
+  for (const t of targets) {
+    if (/[$`]/.test(t)) return false; // unresolved expansion — fail closed
+    if (pathRx.test(t)) return false; // writing protected state itself
+  }
+  // The command must be a PURE WRITE: strip every heredoc BODY, then require the
+  // remaining shell text to contain no execution token at all. Checking whether
+  // the written file is named on a later interpreter line is not enough — the
+  // exec token and the write token need not match.
+  // `[ \t]*` BEFORE the terminator is load-bearing, not tidiness. `<<-` tells
+  // bash to STRIP LEADING TABS from the terminator line, so a TAB-indented
+  // `EOF` genuinely CLOSES a `<<-EOF` heredoc. Anchoring the terminator hard at
+  // `^` did not model that: the lazy body then ran PAST the real terminator and
+  // bridged into the NEXT heredoc, swallowing every line between them — an exec
+  // line included. MEASURED as a live patched-allows/baseline-flags divergence:
+  // `cat > p.py <<-EOF … <TAB>EOF / python3 p.py / cat > q.txt <<EOF … EOF`
+  // returned null here while bash ran the python3 (baseline: layer 3).
+  // Allowing the indent UNCONDITIONALLY (rather than only for `<<-`) is the
+  // fail-CLOSED direction and is deliberate: for a plain `<<EOF`, bash requires
+  // the terminator flush-left, so an indented `EOF` is still body text and this
+  // stripper now closes EARLIER than bash — it strips LESS, leaving more text in
+  // the skeleton, which can only ADD exec-token matches and RETAIN a flag. Same
+  // doctrine as ANY_EXEC_TOKEN_RX's own deliberate over-breadth above.
+  const skeleton = command.replace(/<<-?\s*(['"]?)([A-Za-z_]\w*)\1[\s\S]*?^[ \t]*\2\s*$/gm, " <<HEREDOC ");
+  return !ANY_EXEC_TOKEN_RX.test(skeleton);
 }
 
 /**
@@ -1601,6 +1811,17 @@ function detectStateFileMutation(command, pathRx) {
   const segments = command.split(/\||&&|;|\n/);
   const ledSeg = segments.find((s) => leadingInterpreter.test(s));
   if (ledSeg && hasInterpreterWriteSignal(command)) {
+    // loom#1534 — the whole-command coarseness above never requires the write
+    // signal and the protected-path hit to be RELATED. Before flagging, ask the
+    // narrower question: which path does this body actually write? Suppress ONLY
+    // when every write target RESOLVED and none is protected; any unresolved
+    // target falls through and flags exactly as before (fail-closed).
+    if (interpreterWritesOnlyBenignTargets(command, pathRx)) return null;
+    // …and the sibling half: a heredoc body being WRITTEN to an ordinary file and
+    // never executed is DATA (a committed fixture, a doc, a test sample), not
+    // code. `detectHeredocWriteRunBundle` owns the write→EXEC case and still runs
+    // as the whole-command fallback, so suppressing here cannot hide a bundle.
+    if (heredocBodiesAreInertData(command, pathRx)) return null;
     const im = ledSeg.match(leadingInterpreter);
     return { layer: 3, kind: `${im[1]} (interpreter)` };
   }

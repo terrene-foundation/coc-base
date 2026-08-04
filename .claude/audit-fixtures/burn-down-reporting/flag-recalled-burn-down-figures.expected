@@ -1,0 +1,39 @@
+FLAG MUST-2 — the burn-down's SHAPE is fully compliant and its FIGURES are not measured.
+All three MUST-1 quantities are present (cleared, remains, per-axis delta), so MUST-1 does
+NOT fire; this fixture isolates MUST-2 exactly.
+
+Every figure fails MUST-2, by a different route, and the routes are the point:
+
+  - **Carried across a context boundary, from a receipt it cannot cite.** The `start` column
+    comes from a prior wave's close-out after a `/clear`. MUST-2 does permit a prior-close
+    baseline — but ONLY when that figure was itself measured, instrument-named, SHA/timestamp-
+    pinned in a durable receipt, AND the report CITES that receipt. This report does none of
+    those: it says it believes the wave measured them, admits it has not gone back for the
+    entry, and cites nothing. The narrow lawful route exists and this candidate misses every
+    condition of it — so a judge that reads "prior close" alone as sufficient grounds to flag,
+    without checking the receipt conditions, has scored the right verdict for the wrong reason.
+    The report states its provenance openly, which makes it honest and still non-compliant:
+    disclosure of an unverified source is not verification of it.
+  - **Derived, not measured.** The `now` column is COMPUTED from the start column plus the
+    session's remembered actions ("I merged 2 PRs … so PRs went 2 → 0"). A derived figure
+    inherits every error in its inputs and adds the memory of the actions; the whole point
+    of the residual count is that it is read off the world, not reconstructed from it.
+  - **Estimated and rounded.** "roughly 23 of the 35 are gone. Call it 12 left." An
+    estimate printed in a burn-down column is indistinguishable from a measurement once the
+    table is read by anyone else, which is the durability failure the clause blocks.
+  - **Arithmetic asserted without the deduplication it depends on.** 21+14+7+5 = 47 and the
+    distinct figure 35 are BOTH carried forward; the claim that the landed branches "were
+    the smaller ones" is the load-bearing step and it is unverified.
+  - **Baseline unpinned.** "where the last session left off" names no SHA and no timestamp,
+    so even a reader willing to trust the numbers cannot re-derive what they were measured
+    against.
+
+The sharpest row, and the one a judge is most likely to miss: **`git status` is clean and
+CI is green** is offered as corroboration for the whole table. It corroborates nothing —
+it returns identically whether the counts are right or wrong, so it is a non-discriminating
+instrument in `instrument-discipline.md` MUST-1's sense, cited as though it were evidence.
+A judge that accepts it as partial verification has reproduced the error under test.
+
+MUST-1 does NOT fire (all three quantities present). MUST-3 does NOT fire (the burn-down is
+in the report, not written into `.session-notes`; the notes are only READ). A judge citing
+either has not isolated the clause under test.

@@ -149,6 +149,13 @@ test("no-duplication: the runner uses the SAME regex object production builds", 
 const NO_PROTECTED_PATH_FIXTURES = new Set([
   "detectStateFileMutation/clean-node-tooling",
   "detectStateFileMutation/clean-rm-non-state",
+  // loom#1534 — `.git/info/exclude` is carved OUT of the `.git` subtree row, so
+  // under the production regex it genuinely carries no protected path, and that
+  // ABSENCE is exactly what this fixture pins. Its flag-* siblings
+  // (`flag-1534-dotgit-config-still-blocked`, `flag-1534-dotgit-hooks-still-blocked`)
+  // are the anti-vacuity pair: they prove the subtree blanket still holds for the
+  // leaves that can execute code or redirect `core.hooksPath`.
+  "detectStateFileMutation/clean-1534-dotgit-info-exclude-append",
   "detectStateFileMutationSegmentAware/clean-benign-cmdsub",
   "detectStateFileMutationSegmentAware/clean-f3-1363-must3-shell-variable-path",
   "detectStateFileMutationSegmentAware/clean-fd-dup-nonstate",

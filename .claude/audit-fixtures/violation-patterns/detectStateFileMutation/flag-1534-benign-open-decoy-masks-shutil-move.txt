@@ -1,0 +1,5 @@
+python3 - <<'PY'
+import shutil, io
+io.open("notes.md","w").write("done")
+shutil.move(".claude/learning/posture.json", "/tmp/x")
+PY

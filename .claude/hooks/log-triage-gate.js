@@ -198,8 +198,16 @@ function scanRecentLogs(cwd) {
     );
     // find: prune tool cache dirs + nested git checkouts, then match *.log
     // (excluding audit logs by filename) modified in last 120 min.
+    //
+    // This one genuinely needs a shell — it is a four-stage pipeline, not a
+    // single spawn — so the roots are QUOTED rather than the call rewritten.
+    // `cwd` used to sit in DOUBLE quotes unescaped while the nested-repo paths
+    // three lines up were already single-quoted with `'\''` escaping; a `"` or
+    // `$(...)` in a checkout's own path therefore broke out of the one and not
+    // the other. Same escaping for both now, so the asymmetry is gone.
+    const shq = (s) => `'${String(s).replace(/'/g, "'\\''")}'`;
     const cmd =
-      `find "${cwd}" \\( -type d \\( ${prune} \\) -prune \\) -o ` +
+      `find ${shq(cwd)} \\( -type d \\( ${prune} \\) -prune \\) -o ` +
       `-type f -name '*.log' ${fileExcludeClauses} -mmin -120 -print 2>/dev/null ` +
       `| head -20 | xargs -I{} grep -HnE 'WARN|ERROR|FAIL' {} 2>/dev/null ` +
       `| head -200`;

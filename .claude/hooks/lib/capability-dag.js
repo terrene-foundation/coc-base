@@ -235,6 +235,15 @@ function registerDependencyEdge(opts) {
     };
   }
 
+  // If the acquire RECLAIMED a crash-orphaned lease (capability-lease.js
+  // § liveness/TTL), that takeover must not stop at the lib — it rides out on
+  // EVERY exit path below so the caller learns a previous holder was displaced.
+  // capability-lease.js emits no coordination-log record by design, so this
+  // result field + the on-disk `reclaimed_from` marker are the whole record.
+  const leaseReclaimed = acq.reclaimed || null;
+  const withReclaim = (res) =>
+    leaseReclaimed ? Object.assign(res, { leaseReclaimed }) : res;
+
   // From here the lease IS held — EVERY exit path below MUST release it (inv
   // iii). A try/finally guarantees release even if an unexpected throw occurs
   // inside the read/decide/emit window; the finally records whether the
@@ -260,12 +269,12 @@ function registerDependencyEdge(opts) {
       folded = capabilityLedger.foldLedger(repoDir, o.roster);
     } catch (err) {
       release();
-      return {
+      return withReclaim({
         ok: false,
         reason: "fold-failed",
         error: `registerDependencyEdge: foldLedger threw: ${err && err.message ? err.message : String(err)}`,
         leaseReleased,
-      };
+      });
     }
     const dag = (folded &&
       folded.folded &&
@@ -276,12 +285,12 @@ function registerDependencyEdge(opts) {
       // A cycle is a CRITICAL ledger-integrity failure — REJECT at write
       // time, NEVER defer/accept (§4.3). Release the lease (inv iii).
       release();
-      return {
+      return withReclaim({
         ok: false,
         reason: "cycle",
         error: `registerDependencyEdge: adding '${from}' → '${to}' would close a cycle (a path already exists from '${to}' back to '${from}'); a cycle is a CRITICAL ledger-integrity failure, REJECTED at registration`,
         leaseReleased,
-      };
+      });
     }
 
     // --- (4) acyclic → emit the dependency-edge record --------------------
@@ -299,28 +308,28 @@ function registerDependencyEdge(opts) {
     );
     if (!emit.ok) {
       release();
-      return {
+      return withReclaim({
         ok: false,
         reason: "emit-failed",
         emit,
         error: `registerDependencyEdge: emitLedgerRecord failed (step=${emit.step}): ${emit.error}${emit.reason ? ` — ${emit.reason}` : ""}`,
         leaseReleased,
-      };
+      });
     }
 
     // --- (5) success → release the lease ----------------------------------
     release();
-    return { ok: true, record: emit.record, leaseReleased };
+    return withReclaim({ ok: true, record: emit.record, leaseReleased });
   } catch (err) {
     // Any unexpected throw inside the window — release the lease (inv iii)
     // and surface the error typed (never a silent leak).
     release();
-    return {
+    return withReclaim({
       ok: false,
       reason: "error",
       error: `registerDependencyEdge: unexpected error: ${err && err.message ? err.message : String(err)}`,
       leaseReleased,
-    };
+    });
   }
 }
 
@@ -512,7 +521,10 @@ function registerGraduationEdgeSet(opts) {
     }
     for (const side of ["from_capability", "to_capability"]) {
       const v = e[side];
-      const err = capabilityLease._test_validateToken(v, `inheritedEdges[${i}].${side}`);
+      const err = capabilityLease._test_validateToken(
+        v,
+        `inheritedEdges[${i}].${side}`,
+      );
       if (err) {
         return {
           ok: false,
@@ -709,9 +721,7 @@ function registerGraduationEdgeSet(opts) {
     const unionEdges = baseEdges.slice();
     for (let i = 0; i < inheritedEdges.length; i++) {
       const e = inheritedEdges[i];
-      if (
-        wouldCloseCycle(unionEdges, e.from_capability, e.to_capability)
-      ) {
+      if (wouldCloseCycle(unionEdges, e.from_capability, e.to_capability)) {
         // Cycle in the union — REJECT THE WHOLE SET. No edge committed (we have
         // not emitted anything yet). Release the leases (inv v).
         releaseHeld();
@@ -719,7 +729,10 @@ function registerGraduationEdgeSet(opts) {
           ok: false,
           reason: "cycle",
           error: `registerGraduationEdgeSet: inheritedEdges[${i}] ('${e.from_capability}' → '${e.to_capability}') closes a cycle in the UNION of existing + inherited edges; the WHOLE edge-set is REJECTED atomically (no partial commit) — a cycle is a CRITICAL ledger-integrity failure`,
-          cyclingEdge: { from_capability: e.from_capability, to_capability: e.to_capability },
+          cyclingEdge: {
+            from_capability: e.from_capability,
+            to_capability: e.to_capability,
+          },
           resnapshots,
           leaseReleased,
         };

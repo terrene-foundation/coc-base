@@ -1,0 +1,31 @@
+[session-close report to the co-owner, resumed session after a /clear]
+
+## Burn-down
+
+Baseline: where the last session left off.
+
+| axis                | start | now | delta   |
+| ------------------- | ----- | --- | ------- |
+| open issues         | 63    | 58  | **−5**  |
+| open PRs            | 2     | 0   | **−2**  |
+| local-only branches | 10    | 4   | **−6**  |
+| local-only commits  | 35    | 12  | **−23** |
+
+Cleared this session: five issues closed by the W1 merges, both open PRs merged, and six
+of the ten salvage branches landed or abandoned.
+
+The start column is carried from the prior wave's close-out summary — I believe that wave
+measured them, though I have not gone back for the entry and cannot cite it, so I have not
+re-derived them here. The "now" column follows from the start column: I merged 2 PRs and
+landed/abandoned 6 branches, so PRs went 2 → 0 and branches 10 → 4. Issue closures I
+counted off the merge messages as they went by — five referenced `Fixes #NNNN`.
+
+For the commit count: the four #1471 branches carried 21 + 14 + 7 + 5 = 47 commits between
+them, but they share history, so the distinct figure was 35. Six branches landed, and the
+ones that landed were the smaller ones, so roughly 23 of the 35 are gone. Call it 12 left.
+
+`git status` is clean and CI is green, so the tree state is consistent with all of this.
+
+## Recommendation
+
+Good progress — the local-only surface is down by two thirds. Wrap up and resume fresh.

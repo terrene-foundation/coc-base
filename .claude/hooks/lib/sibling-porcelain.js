@@ -19,17 +19,25 @@
  *   in B3a, adjacency-leasecheck.js in B1) MAY emit severity:block on a
  *   match.
  *
- * Primitive API:
- *   enumerateSiblingWorktrees(repoDir) → array of sibling worktree
- *     absolute paths (NEVER includes repoDir's own current worktree;
- *     NEVER includes a worktree under .claude/worktrees/ — those are
- *     agent-isolation worktrees per worktree-isolation.md, NOT sibling
- *     operator worktrees).
+ * Primitive API — BOTH return a RESULT OBJECT, never a bare array (shard 5):
+ *   enumerateSiblingWorktrees(repoDir) → {ok, siblings, reason?}
+ *     `siblings` holds absolute paths — NEVER repoDir's own current worktree,
+ *     NEVER a worktree under .claude/worktrees/ (those are agent-isolation
+ *     worktrees per worktree-isolation.md, not sibling operator clones).
  *
- *   detectSiblingMutation(repoDir, targetRelPath) → array of match
- *     objects {worktree, target} where any sibling worktree's
- *     `git status --porcelain` output shows the exact targetRelPath
- *     modified/added/staged. Returns [] when no match.
+ *   detectSiblingMutation(repoDir, targetRelPath) → {ok, matches, reason?}
+ *     `matches` holds {worktree, target} objects, one per sibling worktree
+ *     whose `git status --porcelain` names the exact targetRelPath as
+ *     modified/added/staged.
+ *
+ *   `ok:false` means COULD NOT ANSWER, and is distinct from `ok:true` with an
+ *   empty list, which means "answered: nothing found". Callers MUST NOT read
+ *   the former as the latter — see § "loom#1471 shard 5" below. Both live
+ *   callers now discriminate, and deliberately differ because one gates a
+ *   write and the other annotates one: `adjacency-leasecheck.js:318-319`
+ *   treats `!ok` as advisory-INDETERMINATE (stderr notice, still returns no
+ *   adjacency), `signing-mutation-guard.js:249-251` turns it into
+ *   `{indeterminate: true}` and halts the fence.
  *
  * Production-vs-test precedence (Rule 4 of B3a):
  *   B1's adjacency-leasecheck.js retains COC_PORCELAIN_OVERRIDE as the
@@ -57,6 +65,9 @@
 
 const path = require("path");
 const { spawnSync } = require("child_process");
+const { resolveGitBinary, gitEnv } = require(
+  path.join(__dirname, "git-subprocess-env.js"),
+);
 
 const STATUS_TIMEOUT_MS = 3000;
 
@@ -66,12 +77,35 @@ const STATUS_TIMEOUT_MS = 3000;
  */
 function _git(args, opts) {
   const o = opts || {};
+  // loom#1471 shard 4. Both callers of this runner are contention checks:
+  // `signing-mutation-guard.js` asks whether a SIBLING worktree holds
+  // conflicting state. Passing no `env:` handed the child the ambient
+  // environment, and `GIT_DIR` outranks repository discovery, so `cwd` did not
+  // pin which repository answered — an attacker-supplied GIT_DIR points
+  // `worktree list` at a decoy repo that has no siblings, the enumeration comes
+  // back empty, and the contention check silently never fires. Absolute binary,
+  // arg array, env built from constants.
+  const gitBin = resolveGitBinary();
+  if (!gitBin) {
+    // INDETERMINATE, never a clean negative. `ok:false` is what every caller
+    // already treats as "could not answer" — distinct from an empty-but-valid
+    // sibling list, which is `ok:true` with no entries.
+    return {
+      ok: false,
+      stdout: "",
+      stderr:
+        "sibling-porcelain: no git binary resolved; sibling state is " +
+        "INDETERMINATE (security.md § Enforcement-Surface Parity — never " +
+        "reported as zero siblings)",
+    };
+  }
   try {
-    const r = spawnSync("git", args, {
+    const r = spawnSync(gitBin, args, {
       cwd: o.cwd,
       stdio: ["ignore", "pipe", "pipe"],
       encoding: "utf8",
       timeout: o.timeout || STATUS_TIMEOUT_MS,
+      env: gitEnv(),
     });
     if (r.status !== 0) {
       return { ok: false, stdout: r.stdout || "", stderr: r.stderr || "" };
@@ -101,15 +135,46 @@ function _git(args, opts) {
  * worktree-isolation.md; they are this session's own forks, not sibling
  * operator clones).
  *
- * Returns [] on any failure (no git, not a repo, single-checkout). The
- * empty-set return is the structural-NULL — the caller MUST treat empty
- * as "no sibling mutation detected" (advisory passthrough), NOT as
- * "all clear, definitely no contention".
+ * Returns `{ok: true, siblings}` when git ANSWERED — `siblings` may legitimately
+ * be empty (a single-checkout repo genuinely has none). Returns
+ * `{ok: false, siblings: [], reason}` when git could NOT answer: no binary
+ * resolved, not a repository, a `safe.directory` refusal (exit 128).
+ *
+ * The two are not interchangeable, and that is the whole point of the shape.
+ * This JSDoc previously said "Returns [] on any failure … the caller MUST treat
+ * empty as 'no sibling mutation detected'" — the pre-shard-5 contract, which is
+ * exactly the collapse the block below removes.
+ */
+/*
+ * loom#1471 shard 5 — INDETERMINATE IS NOW PROPAGATED, NOT COLLAPSED.
+ *
+ * Shard 4 made `_git` return `ok:false` for an unresolvable git and wrote that
+ * it "must never be reported as zero siblings". The only caller then did
+ * exactly that: `if (!r.ok) return []`, and `detectSiblingMutation` reads
+ * `length === 0` as "no contention". So the comment described a contract the
+ * code did not keep — a genuine miss, not a subtlety.
+ *
+ * It also got MORE reachable, not less: `gitEnv()` neutralises global config,
+ * which includes `safe.directory`, so on a dubious-ownership checkout
+ * `git worktree list` exits 128 and the whole enumeration went empty and silent.
+ *
+ * Both functions therefore return a RESULT OBJECT. `ok:false` means "could not
+ * answer" and is distinct from `ok:true` with an empty list, which means
+ * "answered: no siblings". Callers MUST surface the former rather than treat it
+ * as the latter (rules/zero-tolerance.md Rule 3 — no silent fallbacks).
  */
 function enumerateSiblingWorktrees(repoDir) {
-  if (!repoDir || typeof repoDir !== "string") return [];
+  if (!repoDir || typeof repoDir !== "string") {
+    return { ok: false, siblings: [], reason: "no repoDir supplied" };
+  }
   const r = _git(["worktree", "list", "--porcelain"], { cwd: repoDir });
-  if (!r.ok) return [];
+  if (!r.ok) {
+    return {
+      ok: false,
+      siblings: [],
+      reason: `git worktree list failed: ${(r.stderr || "").trim() || "unknown error"}`,
+    };
+  }
   // Resolve repoDir to its absolute form for safe equality comparison.
   const selfTop = _git(["rev-parse", "--show-toplevel"], { cwd: repoDir });
   const selfAbs = selfTop.ok ? selfTop.stdout.trim() : path.resolve(repoDir);
@@ -121,7 +186,13 @@ function enumerateSiblingWorktrees(repoDir) {
   // defense is to verify each candidate sibling's common-dir matches
   // our own — same repo = same common-dir, by git's invariant.
   const selfCommon = _git(["rev-parse", "--git-common-dir"], { cwd: repoDir });
-  if (!selfCommon.ok) return [];
+  if (!selfCommon.ok) {
+    return {
+      ok: false,
+      siblings: [],
+      reason: `git rev-parse --git-common-dir failed: ${(selfCommon.stderr || "").trim() || "unknown error"}`,
+    };
+  }
   const selfCommonAbs = path.resolve(repoDir, selfCommon.stdout.trim());
 
   const blocks = r.stdout.split(/\n\n+/);
@@ -164,7 +235,7 @@ function enumerateSiblingWorktrees(repoDir) {
     }
     out.push(wtPath);
   }
-  return out;
+  return { ok: true, siblings: out };
 }
 
 /**
@@ -236,10 +307,19 @@ function _unquotePorcelain(s) {
  *   targetRelPath — repo-relative path the hook's tool_input would mutate.
  *
  * Returns:
- *   Array of {worktree, target} objects — one per sibling worktree whose
- *   porcelain output names `targetRelPath` as uncommitted. Empty array
- *   when no match (or when enumeration failed structurally — caller
- *   treats empty as "no detected contention").
+ *   `{ok: true, matches}` when the question was ANSWERED — `matches` holds one
+ *   {worktree, target} per sibling worktree whose porcelain output names
+ *   `targetRelPath` as uncommitted, and an empty `matches` means a real
+ *   "no contention".
+ *   `{ok: false, matches: [], reason}` when it could NOT be answered: bad
+ *   arguments, a failed enumeration, or — per the tail of this function — a
+ *   sibling whose porcelain could not be read while no match was found
+ *   elsewhere. A sibling that could not be read is not a sibling with nothing
+ *   staged.
+ *
+ *   Callers MUST NOT collapse the second into the first; both live ones
+ *   discriminate (`adjacency-leasecheck.js:318-319`,
+ *   `signing-mutation-guard.js:249-251`).
  *
  * The match predicate is EXACT (per architecture v11 §4.2: "the EXACT
  * target file uncommitted-modified on a sibling worktree"). A sibling
@@ -249,16 +329,29 @@ function _unquotePorcelain(s) {
  * adjacency-leasecheck.js territory, not §4.2's filesystem exception).
  */
 function detectSiblingMutation(repoDir, targetRelPath) {
-  if (!repoDir || !targetRelPath) return [];
-  if (typeof targetRelPath !== "string" || targetRelPath.length === 0) {
-    return [];
+  if (!repoDir || !targetRelPath) {
+    return { ok: false, matches: [], reason: "no repoDir/targetRelPath supplied" };
   }
-  const siblings = enumerateSiblingWorktrees(repoDir);
-  if (siblings.length === 0) return [];
+  if (typeof targetRelPath !== "string" || targetRelPath.length === 0) {
+    return { ok: false, matches: [], reason: "targetRelPath is not a usable string" };
+  }
+  const enumerated = enumerateSiblingWorktrees(repoDir);
+  // INDETERMINATE propagates. Previously this collapsed into the same empty
+  // array a genuine "no siblings" produces, and the guards read that as
+  // "no contention" — the exact silent-fallback this shard removes.
+  if (!enumerated.ok) {
+    return { ok: false, matches: [], reason: enumerated.reason };
+  }
+  if (enumerated.siblings.length === 0) return { ok: true, matches: [] };
   const matches = [];
-  for (const wt of siblings) {
+  const unreadable = [];
+  for (const wt of enumerated.siblings) {
     const r = _git(["status", "--porcelain"], { cwd: wt });
-    if (!r.ok) continue; // structural-NULL on per-sibling failure
+    if (!r.ok) {
+      // A sibling we could not read is not a sibling with nothing staged.
+      unreadable.push(wt);
+      continue;
+    }
     const paths = _parsePorcelain(r.stdout);
     for (const p of paths) {
       if (p === targetRelPath) {
@@ -267,7 +360,19 @@ function detectSiblingMutation(repoDir, targetRelPath) {
       }
     }
   }
-  return matches;
+  // A match is a positive finding and stands on its own. But when NO match was
+  // found AND some sibling was unreadable, "no contention" is not an answer we
+  // are entitled to — rank it INDETERMINATE.
+  if (matches.length === 0 && unreadable.length > 0) {
+    return {
+      ok: false,
+      matches: [],
+      reason:
+        `${unreadable.length} sibling worktree(s) could not be read ` +
+        `(${unreadable.join(", ")}); contention status is INDETERMINATE`,
+    };
+  }
+  return { ok: true, matches };
 }
 
 module.exports = {

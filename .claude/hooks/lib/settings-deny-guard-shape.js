@@ -172,6 +172,72 @@ const DANGEROUS_ENV_EXACT = new Set([
   "KAILASH_LEARNING_DIR", // #1444 — moves the learning dir AND widens the containment
   // allowlist (learning-utils.js pushes the same attacker-suppliable value into _stateRoots)
   "COC_OPERATOR_KEY_PATH", // #1444 — signing key -> resolved display_id/identity
+
+  // ── #1471 F2b: the SIBLING ROUTES to roots already fenced above ────────────
+  // Denying one name for a destination and not its siblings is the enumeration
+  // bug this file's PREFIX note describes, one layer down. CLAUDE_TRUST_STATE_DIR
+  // and KAILASH_LEARNING_DIR are already carried by the #1444 block above.
+  "KAILASH_COC_TEMPLATE_PATH", // #1471 F2d — the THIRD KAILASH_ route, and the one that lands
+  // ABOVE the route shard 5 fenced. template-resolver.js reads it at resolution TIER 1 —
+  // above the cache, above the clone, above the offline sibling — and returns any directory
+  // containing `.claude/` as {source:"env-override", fresh:true}. Shard 5 hardened the
+  // loom-links shim against a chain needing LOOM_LINKS_CONFIG *plus* a dead proxy to force the
+  // fall-through to the sibling; this reaches the same endpoint (/sync-from-template adopting
+  // attacker-authored hooks/agents/rules) with NONE of those preconditions. Fencing the lower
+  // tier and not the higher one is the enumeration bug the PREFIX note describes, and it is the
+  // third instance in this family after KAILASH_LEARNING_DIR
+  "GNUPGHOME", // #1471 F2d — GnuPG's PRIMARY, purpose-built keyring-relocation variable, and
+  // the one this list was missing while fencing its fallback. F2c denied HOME because git
+  // resolves config through $HOME, and XDG_CONFIG_HOME as the conditional second route — but
+  // $GNUPGHOME OUTRANKS the $HOME/.gnupg fallback that denial covers. operator-id.js spawns
+  // `gpg --list-keys --with-colons --fingerprint` with NO --homedir and NO env:, so the keyring
+  // is ambient-selected; the returned fingerprint feeds _findPersonByFingerprint and thence
+  // person_id / display_id / verified_id. NOT a one-variable impersonation — the roster resolver
+  // is tried first and this is the subkey/user-id FALLBACK — but denying the fallback route
+  // while leaving the primary open is exactly the sibling-blindness this file names.
+  // Scoped by reading the three gpg surfaces rather than assuming they match:
+  //   VERIFY  — NOT exposed. `coc-sign.js::_verifyGpg` resolves
+  //             `gpgHome || fs.mkdtempSync(...)`, so a homedir is always passed.
+  //   SIGN    — exposed when the caller omits it: `_signGpg` does
+  //             `if (gpgHome) args.unshift("--homedir", gpgHome)` and otherwise spawns
+  //             bare, so $GNUPGHOME selects the signing keyring.
+  //   IDENTITY— exposed: `operator-id.js` spawns `gpg --list-keys --with-colons
+  //             --fingerprint` with neither --homedir nor env:.
+  "GEMINI_PROJECT_DIR", // #1471 F2b — CLAUDE_PROJECT_DIR's sibling: lib/runtime.js::parseHook
+  // resolves `projectDir` from ONE `||` chain (CLAUDE_PROJECT_DIR || GEMINI_PROJECT_DIR ||
+  // CODEX_HOME), so denying only the first lets an attacker use the next name in the chain
+  "CODEX_HOME", // #1471 F2b — the third arm of that same `||` chain
+
+  // ── #1471 F2c — the TIER-2 identity route the F2 fix PROMOTED to primary, plus the
+  //    detector/audit/session-wide seams found by the same sweep. MEASURED; see the vector
+  //    notes above. NOTE ON CASE: isDangerousEnvKey case-FOLDS, so ONE entry covers both
+  //    spellings of the lowercase-conventional names — `HTTP_PROXY` also gates `http_proxy`,
+  //    `NO_PROXY` also gates `no_proxy`. Listing both would be redundant, not safer.
+  "HOME", // tier-2: git resolves global config through $HOME/.gitconfig, and the
+  // `git config --get user.signingkey` spawn passes NO `env:` — measured: HOME=decoy returns the
+  // planted /tmp/victim.pub. ALSO blinds these guards' own sibling scan via os.homedir()
+  "USERPROFILE", // the Windows HOME sibling — read as `HOME || USERPROFILE` at 5 hook sites
+  "XDG_CONFIG_HOME", // the CONDITIONAL second route to that same lookup: git consults
+  // $XDG_CONFIG_HOME/git/config only when $HOME/.gitconfig is ABSENT (measured both branches)
+  "CLAUDE_WORKTREE_PATH", // detectWorktreeDrift returns null when a path is "contained", so
+  // "/" contains every absolute path and disables a severity:"block" detector
+  "CLAUDE_SESSION_ID", // stamped into the record prefix that is then SIGNED (lib/coc-append.js)
+  // → forged, non-repudiable audit rows; also the ack-failure dedupe key (detect-violations.js)
+  "CLAUDE_CURRENT_POSTURE", // stamped as posture_at_time into every violation row
+  "LOOM_LINKS_CONFIG", // Bash/command lane ONLY (zero reads in .claude/hooks/; all in
+  // .claude/bin/) — absolute-path precedence over loom-links.local.json, and repo-scope-discipline
+  // MUST-1 makes that resolver authoritative for cross-repo target resolution
+  "HTTP_PROXY", // ── proxy / TLS / agent: session-wide, so the Bash lane inherits them ──
+  "HTTPS_PROXY",
+  "ALL_PROXY",
+  "NO_PROXY", // bypass-list manipulation forces traffic past a proxy exemption
+  "SSL_CERT_FILE", // substitutes the TLS trust anchor (OpenSSL)
+  "SSL_CERT_DIR",
+  "CURL_CA_BUNDLE", // same, for curl
+  "SSH_AUTH_SOCK", // redirects the agent that answers signing / auth challenges
+  "NODE_EXTRA_CA_CERTS", // adds an attacker CA to every Node subprocess's trust store
+  "NODE_TLS_REJECT_UNAUTHORIZED", // "0" disables certificate verification outright.
+  // Named individually, NOT via a `NODE_` prefix — `NODE_ENV` is a legitimate operator key
 ]);
 const DANGEROUS_ENV_PREFIX = [
   "DYLD_", // dynamic-linker injection (macOS)
@@ -202,8 +268,27 @@ const DANGEROUS_ENV_PREFIX = [
   // a sanctioned-test-context predicate (or a build-time strip) at each seam and
   // is tracked as the second shard of loom#1450 — see the § RESIDUAL note in the
   // PR body. This entry is real defense-in-depth, NOT a claim the family is shut.
-  "COC_TEST_",
-  "COC_XECO_",
+  // ── #1471 F2: the namespace, not the two families ─────────────────────────
+  // COC_TEST_ + COC_XECO_ subsume into COC_ because enumerating sub-families
+  // repeats at the PREFIX layer the same bug the prefixes were introduced to
+  // end. Measured against this file's own predicate before the widening: of the
+  // COC_ vars `.claude/hooks/` actually reads, five answered UNGATED —
+  // COC_SIGNING_MUTATION_GUARD_FORCE_DEGRADED (forces a guard degraded),
+  // COC_PORCELAIN_OVERRIDE (documented precedence over the production porcelain
+  // primitive), COC_REF_PROBE_TIMEOUT_MS, COC_SS_BANNER_OUT, COC_RUNTIME.
+  // The first two are guard-control seams reachable from a settings.json `env`
+  // block, which is the exact delivery path this file exists to fence.
+  //
+  // The blast radius on legitimate use is empty, which is what makes the
+  // blanket the right shape and not merely the safe one: every
+  // `process.env.COC_*` read under `.claude/hooks/` is a guard-control seam
+  // (identity, root relocation, test injection, or cross-ecosystem authority),
+  // and the live settings.json `env` block declares no COC_ key. COC_RUNTIME —
+  // the one non-test, non-identity member — is consumed only by
+  // `lib/runtime.js::parseHook` on the Codex lane, where the guard stamps it
+  // into the replayed-hook subprocess env itself rather than reading it from
+  // settings.
+  "COC_",
   // ── #1462 F1 Class-G: GIT ENVIRONMENT (defense-in-depth ONLY) ──────────────
   // READ THE SCOPE NOTE BELOW BEFORE TREATING F1 AS CLOSED.
   //

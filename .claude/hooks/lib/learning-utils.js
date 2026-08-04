@@ -65,14 +65,45 @@ function resolveLearningDir(cwd) {
 function _stateRoots(cwd) {
   const roots = [];
   if (process.env.KAILASH_LEARNING_DIR) roots.push(process.env.KAILASH_LEARNING_DIR);
+  // `requireMainCheckout`, NOT the legacy `resolveMainCheckout` — the THIRD instance of the idiom
+  // shared with `coc-emit.js` and `coc-append.js`, both migrated by loom#1544. Migrating it here is
+  // what `security.md` § Enforcement-Surface Parity requires: two of three IS the drift that rule
+  // forbids, because one shared accessor is the only way three independent containment-root
+  // surfaces cannot disagree about what an indeterminate git means.
+  //
+  // SCOPE, stated precisely because an earlier revision of this comment overstated it: what closes
+  // here is the CONTAINMENT-ROOT class — the three sites that declare a root for a signed write.
+  // It is NOT every legacy-resolver caller. `lib/codify-lease.js` (~L462, ~L567) still calls the
+  // legacy accessor and is a DIFFERENT class: it GATES, feeding `isCoordinationEnabled(coordRoot)`,
+  // so an indeterminate resolution can make the signed lease record be SKIPPED rather than merely
+  // widen a fence. Fail-closed-vs-fail-open there is a behaviour decision with its own blast
+  // radius, not the mechanical swap made here, so it is deliberately out of this change's scope and
+  // carries a `LEGACY_ALLOWED` entry in `trust-resolver-fail-closed-1471.test.js` naming it
+  // unfixed. The ledger, not this comment, is the authority on what remains.
+  //
+  // This file carried the SAME `LEGACY_ALLOWED` rationale the siblings shed — "learning-dir path
+  // join, not an allow/deny decision" — and it was inaccurate in kind for the same reason: the
+  // value feeds `additionalRoots` at the `logObservation` sink below, and a containment root IS an
+  // allow/deny input. Its entry is removed in this change.
+  //
+  // INERT here, stated rather than glossed (`instrument-discipline.md` — do not let a migration
+  // imply a live fix it did not make): the argument passed is `cwd`, and the sink's `repoDir` is
+  // `cwd || process.cwd()`, so on an indeterminate resolution the legacy accessor returned its own
+  // argument, which was ALREADY the primary root — it pushed a duplicate and widened nothing. What
+  // the swap removes is the LATENT case (a future caller passing some other cwd), and it makes the
+  // `catch` below deliver the fail-closed disposition it already claimed.
+  //
+  // `KAILASH_LEARNING_DIR` above is deliberately UNCHANGED: it is pushed raw as an
+  // operator-declared location, a separate question from what an indeterminate git means.
   try {
-    const { resolveMainCheckout } = require(
+    const { requireMainCheckout } = require(
       path.join(__dirname, "state-resolver.js"),
     );
-    const main = resolveMainCheckout(cwd);
-    if (main) roots.push(main);
+    const r = requireMainCheckout(cwd);
+    if (r.ok && r.repoDir) roots.push(r.repoDir);
   } catch {
     // Resolver unavailable — cwd remains the only root and a main-checkout sink fails CLOSED.
+    // Same disposition as an INDETERMINATE resolution above: no root is added either way.
   }
   return roots;
 }

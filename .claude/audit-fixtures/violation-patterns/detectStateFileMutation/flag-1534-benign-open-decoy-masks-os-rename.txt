@@ -1,0 +1,5 @@
+python3 - <<'PY'
+import os, io
+io.open("notes.md","w").write("done")
+os.rename(".claude/learning/posture.json", "/tmp/x")
+PY

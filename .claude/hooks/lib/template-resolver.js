@@ -44,6 +44,11 @@
 const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
+// loom#1471 shard 3. Two profiles, one module: `gitEnv()` for local work,
+// `gitNetEnv()` for the fetch/clone that must reach a remote. The net profile is
+// the base PLUS validated transport data, so the repo-redirect denials cannot
+// drift apart between the two (rules/security.md § Enforcement-Surface Parity).
+const { resolveGitBinary, gitEnv, gitNetEnv } = require("./git-subprocess-env.js");
 
 // Canonical linkage resolver (ESM, zero-dependency) — relative to hooks/lib/.
 // template-resolver.js is CommonJS and findLocalSibling is synchronous, so
@@ -102,6 +107,49 @@ function resolveSiblingViaLinks(templateName) {
   // `require:false` → the resolver returns { skipped, reason } instead of
   // throwing when the key/config is absent. We print a single JSON line so
   // the sync CJS caller can parse one deterministic result.
+  //
+  // loom#1471 shard 5. THE GIT SUBPROCESSES IN THIS FILE WERE HARDENED AND THIS
+  // NODE ONE WAS NOT — the same sibling-blindness that left the py overlay and
+  // guard-path-scope behind. It is not a lesser site: the child evaluates
+  // `resolveRepo`, and `loom-links.mjs:40` documents `$LOOM_LINKS_CONFIG` as the
+  // HIGHEST-precedence config source, so one ambient variable chooses which
+  // directory becomes the offline-fallback template. Chain: set
+  // `LOOM_LINKS_CONFIG` + a dead `https_proxy` → the network clone fails →
+  // `resolveTemplate` falls to the offline sibling → the sibling path comes from
+  // the attacker's config → `/sync-from-template` adopts attacker-authored
+  // `hooks/`, `agents/`, `rules/`. `LOOM_ECOSYSTEM_CONFIG` is fenced by exact
+  // name at the settings layer; this direct sibling was not.
+  //
+  // A GREP WILL DISAGREE WITH THIS COMMENT. `grep -rn LOOM_LINKS_CONFIG
+  // .claude/hooks/` returns no READ — every read is under `.claude/bin/`
+  // (`lib/loom-links.mjs:140`). A review once concluded from exactly that scan
+  // that the variable reaches the resolver only through the Bash lane and not
+  // through this spawn. It does not follow, and it is wrong: the read executes
+  // in `loom-links.mjs` INSIDE THE CHILD THIS LINE SPAWNS, and the child
+  // inherits this process's environment. A scan scoped to `.claude/hooks/`
+  // cannot see a read that happens in a spawned child executing a
+  // `.claude/bin/` module — `rules/instrument-discipline.md` MUST NOT, a
+  // lexical scan treated as a verdict on a semantic property.
+  //
+  // Measured in-process, no Bash lane anywhere in the call path — calling
+  // `resolveSiblingViaLinks()` directly with the variable set in this process:
+  //   unfixed:  {"path":"/…/ATTACKER-TEMPLATE"}      decoy reached: true
+  //   fixed:    {"notFound":"loom-links: not-configured…"}   decoy reached: false
+  // The only channel from this process to that child is the inherited env, so
+  // the `env:` below is what closes it.
+  //
+  // `HOME` is deliberately ABSENT, and that costs nothing here — measured:
+  //   $ env -i node -e 'console.log(os.homedir())'   ->  /Users/esperie
+  // Node's `os.homedir()` falls back to the passwd database when `HOME` is
+  // unset, so the LEGITIMATE `~/.claude/loom-links.local.json` is still found,
+  // while a redirected `HOME` (which `os.homedir()` WOULD honour — measured:
+  // `HOME=/tmp/evil` → `/tmp/evil`) can no longer relocate the config. Same
+  // shape as the OpenSSH finding behind `gitNetEnv()`.
+  //
+  // An allowlist, not a denylist, for the reason the git helper gives: a
+  // denylist here would be permanently one variable behind — `LOOM_LINKS_CONFIG`
+  // and `LOOM_COC_ROLE_MARKER` (`loom-links.mjs:247`) are simply the two we know
+  // about today.
   const shim =
     `import { resolveRepo } from ${JSON.stringify(LOOM_LINKS_MJS)};` +
     `const r = resolveRepo(${JSON.stringify(logicalKey)}, { require: false });` +
@@ -114,6 +162,7 @@ function resolveSiblingViaLinks(templateName) {
         timeout: 5000,
         stdio: ["pipe", "pipe", "pipe"],
         encoding: "utf8",
+        env: _shimEnv(),
       },
     );
     const r = JSON.parse(out);
@@ -257,6 +306,18 @@ function resolveTemplateByName(templateName, templateRepo, cwd) {
 
   // 3. Shallow clone to cache.
   const repoSlug = templateRepo || KNOWN_TEMPLATES[templateName];
+  // loom#1471 F-3. A VERSION-supplied slug that is not one of the templates we
+  // ship is legitimate (client forks re-point it), so this WARNS rather than
+  // refuses — but it must not pass silently: this is the value that decides
+  // which repository becomes the authoritative template for this consumer.
+  // Well-formedness is enforced fail-closed at the sink (isValidRepoSlug).
+  if (repoSlug && templateRepo && !Object.values(KNOWN_TEMPLATES).includes(repoSlug)) {
+    console.error(
+      `[TEMPLATE] NOTE: cloning '${repoSlug}', which is NOT a known Foundation template. ` +
+        `It comes from upstream.template_repo in .claude/VERSION. If you did not set it, ` +
+        `stop and check that file (loom#1471 F-3).`,
+    );
+  }
   if (repoSlug) {
     const cloned = cloneToCache(repoSlug, cachePath);
     if (cloned) {
@@ -284,6 +345,31 @@ function resolveTemplateByName(templateName, templateRepo, cwd) {
       `and offline sibling lookup. Check network connectivity, repo access, and that ` +
       `upstream.template_repo is set in .claude/VERSION.`,
   };
+}
+
+/**
+ * The explicit minimal environment for the `loom-links` node shim.
+ *
+ * Built from constants like `gitEnv()`, and for the same reason: nothing is
+ * inherited, so the config-steering class is closed by construction rather
+ * than enumerated. See the call site for the measured `HOME` rationale.
+ */
+function _shimEnv() {
+  const env = { PATH: "/usr/bin:/bin", LC_ALL: "C" };
+  if (process.platform === "win32") {
+    const amb = process.env.SystemRoot || process.env.SYSTEMROOT;
+    const sysRoot =
+      typeof amb === "string" && path.isAbsolute(amb) ? amb : "C:\\Windows";
+    env.SystemRoot = sysRoot;
+    env.PATH = `${sysRoot}\\System32;${sysRoot}`;
+    // node resolves the user profile from these on Windows, where there is no
+    // passwd-database fallback for `os.homedir()`. They cannot relocate the
+    // linkage config the way `LOOM_LINKS_CONFIG` can, but record the residual.
+    for (const k of ["COMSPEC", "PATHEXT", "TEMP", "TMP", "USERPROFILE", "HOMEDRIVE", "HOMEPATH"]) {
+      if (typeof process.env[k] === "string") env[k] = process.env[k];
+    }
+  }
+  return env;
 }
 
 /**
@@ -332,15 +418,36 @@ function findLocalSibling(cwd, templateName) {
  * Fetch latest from origin/main in an existing cached clone.
  */
 function updateCachedClone(cachePath) {
+  // loom#1471 shard 3. Both calls passed no `env:`, so the child inherited the
+  // ambient environment and `GIT_DIR` outranks repository discovery — `-C` chose
+  // a directory, not a repository. The `reset --hard` is the sharp end: steered,
+  // it hard-resets a repository the attacker names, and `--hard` discards
+  // unstaged work with no reflog.
+  //
+  // The two calls do NOT get the same profile, deliberately. `fetch` talks to a
+  // remote and needs the host's egress config (gitNetEnv); `reset --hard` is
+  // purely local and has no business seeing proxy or agent credentials, so it
+  // stays on the strict base profile. Least privilege per CALL, not per file.
+  const gitBin = resolveGitBinary();
+  if (!gitBin) {
+    // Unresolvable git is INDETERMINATE, never a silent success. Returning false
+    // routes to the caller's existing fallback chain (clone, then offline
+    // sibling) rather than reporting a cache that was never refreshed as fresh.
+    console.error(
+      "[TEMPLATE] No git binary resolved; cache update is INDETERMINATE, not successful.",
+    );
+    return false;
+  }
   try {
     execFileSync(
-      "git",
+      gitBin,
       ["-C", cachePath, "fetch", "--depth", "1", "origin", "main"],
-      { timeout: 15000, stdio: ["pipe", "pipe", "pipe"] },
+      { timeout: 15000, stdio: ["pipe", "pipe", "pipe"], env: gitNetEnv() },
     );
-    execFileSync("git", ["-C", cachePath, "reset", "--hard", "origin/main"], {
+    execFileSync(gitBin, ["-C", cachePath, "reset", "--hard", "origin/main"], {
       timeout: 10000,
       stdio: ["pipe", "pipe", "pipe"],
+      env: gitEnv(),
     });
     return true;
   } catch (e) {
@@ -352,7 +459,58 @@ function updateCachedClone(cachePath) {
 /**
  * Shallow clone a template repo to the cache directory.
  */
+/**
+ * `owner/repo`, and nothing else.
+ *
+ * loom#1471 round-3 F-3. `templateName` is path-traversal-guarded before it can
+ * pick a cache directory, but `repoSlug` reached the clone URL with NO
+ * validation at all — and it does not come from the environment, it comes from
+ * `upstream.template_repo` in `.claude/VERSION`. That file's
+ * `guard-path-scope.js` registry row carries `surfaces: {bash, layer3}` and no
+ * `direct`, so the Bash lane is fenced and the Edit/Write tool lane is not: an
+ * Edit to `.claude/VERSION` re-points the next `/sync-from-template` clone at
+ * an attacker's repository, and `/sync-from-template` then adopts that cache as
+ * the authoritative template. It is the same destination the
+ * `KAILASH_COC_TEMPLATE_PATH` deny-set entry fences, reached through a FILE
+ * rather than an env var — so the env fence never sees it.
+ *
+ * Checked HERE, at the sink, rather than at the one call site: `cloneToCache`
+ * is also exported, so a caller outside this module reaches the same URL
+ * construction (`rules/security.md` § Enforcement-Surface Parity — one shared
+ * function, every surface).
+ *
+ * Both halves must START alphanumeric, which is GitHub's own rule and also
+ * keeps a leading `-` out of the URL. `..` is rejected explicitly rather than
+ * left to the character class, which permits `.`.
+ *
+ * NOT a claim that the slug is trustworthy — only that it is a well-formed
+ * `owner/repo`. A syntactically valid slug naming an attacker's repository
+ * still clones; the KNOWN_TEMPLATES warning at the selection site is what
+ * surfaces that, and the durable fix is the `direct` surface on the registry
+ * row (recorded, not closed here — it is a documented ergonomics decision that
+ * predates `template_repo` becoming a clone target).
+ */
+const REPO_SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*$/;
+
+function isValidRepoSlug(slug) {
+  return (
+    typeof slug === "string" &&
+    slug.length <= 200 &&
+    !slug.includes("..") &&
+    REPO_SLUG_RE.test(slug)
+  );
+}
+
 function cloneToCache(repoSlug, cachePath) {
+  // Fail CLOSED: an unparseable slug is not cloned at all. The caller's next
+  // step is the offline-sibling fallback, which is the correct degraded state.
+  if (!isValidRepoSlug(repoSlug)) {
+    console.error(
+      `[TEMPLATE] REFUSING to clone: '${repoSlug}' is not a well-formed owner/repo slug. ` +
+        `Check upstream.template_repo in .claude/VERSION (loom#1471 F-3).`,
+    );
+    return null;
+  }
   const httpsUrl = `https://github.com/${repoSlug}.git`;
   const sshUrl = `git@github.com:${repoSlug}.git`;
   const cloneArgs = [
@@ -366,17 +524,35 @@ function cloneToCache(repoSlug, cachePath) {
 
   fs.mkdirSync(path.dirname(cachePath), { recursive: true });
 
+  // loom#1471 shard 3. Both clones inherited the ambient environment. The
+  // consequence here is not a mis-read: this function WRITES the cache that
+  // `/sync-from-template` then treats as the authoritative template, so a
+  // steered clone plants the artifacts a consumer repo goes on to adopt.
+  // `gitNetEnv()` keeps every repo-redirect denial from the base profile and
+  // adds only validated transport DATA (proxy, TLS anchors, agent socket) —
+  // never the variables git EXECUTES (GIT_SSH_COMMAND et al).
+  const gitBin = resolveGitBinary();
+  if (!gitBin) {
+    console.error(
+      "[TEMPLATE] No git binary resolved; refusing to clone into the cache " +
+        "(INDETERMINATE, never reported as a successful clone).",
+    );
+    return false;
+  }
+
   try {
-    execFileSync("git", [...cloneArgs, httpsUrl, cachePath], {
+    execFileSync(gitBin, [...cloneArgs, httpsUrl, cachePath], {
       timeout: 30000,
       stdio: ["pipe", "pipe", "pipe"],
+      env: gitNetEnv(),
     });
     return true;
   } catch (httpsErr) {
     try {
-      execFileSync("git", [...cloneArgs, sshUrl, cachePath], {
+      execFileSync(gitBin, [...cloneArgs, sshUrl, cachePath], {
         timeout: 30000,
         stdio: ["pipe", "pipe", "pipe"],
+        env: gitNetEnv(),
       });
       return true;
     } catch (sshErr) {
@@ -395,6 +571,7 @@ module.exports = {
   findLocalSibling,
   updateCachedClone,
   cloneToCache,
+  isValidRepoSlug,
   KNOWN_TEMPLATES,
   CACHE_DIR,
 };

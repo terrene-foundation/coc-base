@@ -154,7 +154,13 @@ const L3_BLOCKED_BASH = [
 
 function gateAtPosture(posture, tool, input) {
   const cmd = (input.command || "").trim();
-  const filePath = input.file_path || "";
+  // loom#1549 F4 (same class as the R6-C-02 fence below): NotebookEdit
+  // carries `notebook_path`. The L1/L2 gates fire on isMutationTool(tool)
+  // alone, so reading only `file_path` never defeated the GATE — but it
+  // emitted an empty filename in every NotebookEdit halt message, which is
+  // the diagnostic the operator is asked to act on.
+  const filePath =
+    input.file_path || input.filePath || input.notebook_path || "";
 
   // L5/L4: full passthrough (gate-level enforcement only at /redteam etc.)
   if (posture === "L5_DELEGATED" || posture === "L4_CONTINUOUS_INSIGHT") {
@@ -311,8 +317,19 @@ if (process.stdin.isTTY) {
       // F14 C2 iter-3 root-cause fix: route through isMutationTool() (SSOT
       // from lib/tool-classes.js) — adding a new mutation tool requires
       // one edit, not N edits across every hook.
-      if (isMutationTool(tool) && typeof toolInput.file_path === "string") {
-        const fp = _bestEffortRealpath(toolInput.file_path);
+      // loom#1549 F4: the tool-name half routed through the SSOT, but the
+      // PAYLOAD half still read `file_path` ONLY. NotebookEdit carries
+      // `notebook_path` (tool-classes.js says so in its own JSDoc), so the
+      // conjunct was false and a NotebookEdit write to posture.json passed
+      // through UNFENCED — the SSOT made the tool recognized and the payload
+      // read made it unreachable. Six sibling hooks (signing-mutation-guard,
+      // genesis-anchor-guard, journal-write-guard, adjacency-leasecheck,
+      // detect-violations, settings-deny-edit-guard) already read all three
+      // keys; this site and integrity-guard.js were the two that did not.
+      const mutationPath =
+        toolInput.file_path || toolInput.filePath || toolInput.notebook_path;
+      if (isMutationTool(tool) && typeof mutationPath === "string") {
+        const fp = _bestEffortRealpath(mutationPath);
         // The case-insensitivity dimension (and now #1409's redundant-separator
         // dimension) reaches this surface because the predicate is BUILT from
         // the one registry — not because someone remembered this file.

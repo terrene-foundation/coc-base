@@ -251,11 +251,38 @@ function appendStamped(repoDir, filePath, partial, opts) {
   // requires to be stamped. Declaring the main checkout as a second legitimate root fixes it
   // WITHOUT widening the fence: a genuine escape still lands under neither root and is refused.
   // `repoDir` itself stays the provenance value stamped into the signed record above.
+  //
+  // Resolved through `requireMainCheckout` — the FAIL-CLOSED accessor — not the legacy
+  // `resolveMainCheckout`, for the same reason `coc-emit.js::_defaultAppend` was migrated
+  // (loom#1544 S2; this call was its literal structural twin, down to the variable name). What is
+  // being declared here is a CONTAINMENT ROOT. The legacy accessor silently returns its own `cwd`
+  // argument when git cannot identify a main checkout (`state-resolver.js` § INDETERMINATE), so a
+  // caller that widens a trust boundary with it widens it with an unverified value.
+  //
+  // State the equivalence honestly rather than over-claiming a fix: at THIS call site the argument
+  // is `repoDir`, which `appendSinkLine` already declares as root[0] and `_resolveRoots`
+  // realpath-dedupes, so the indeterminate branch contributed a NO-OP DUPLICATE and the boundary
+  // never actually widened. Measured on a non-git dir: `indeterminate=true`, legacy path
+  // `=== repoDir` argument, `requireMainCheckout().ok === false`; on a real worktree both yield the
+  // identical main checkout. The migration is therefore BEHAVIOUR-PRESERVING today.
+  //
+  // It is made anyway for two reasons the no-op does not cover. (1) That safety holds only by the
+  // coincidence that the value passed in equals the value fallen back to — a two-hop invariant no
+  // reader re-derives, which silently breaks the moment this call is handed a session cwd instead
+  // of `repoDir`. (2) The alternative was KEEPING the `LEGACY_ALLOWED` entry in
+  // `tests/integration/multi-operator/trust-resolver-fail-closed-1471.test.js`, whose stated reason
+  // ("append containment check, not an allow/deny decision") tested the WRONG property: the harm
+  // here is WIDENING A WRITE FENCE, not gating a tool call. That ledger is meant to SHRINK.
+  //
+  // The `!ok` branch declares NOTHING, the same fail-closed shape as the catch below: a sink
+  // outside `repoDir` is refused rather than written somewhere unverified, while a sink INSIDE
+  // `repoDir` — the legitimate non-git / unresolvable-git case — still lands. Refusing the whole
+  // append on `!ok` would over-block that path.
   const boundaryRoots = [];
   try {
-    const { resolveMainCheckout } = require(path.join(__dirname, "state-resolver.js"));
-    const mainCheckout = resolveMainCheckout(repoDir);
-    if (mainCheckout) boundaryRoots.push(mainCheckout);
+    const { requireMainCheckout } = require(path.join(__dirname, "state-resolver.js"));
+    const mainCheckout = requireMainCheckout(repoDir);
+    if (mainCheckout.ok) boundaryRoots.push(mainCheckout.repoDir);
   } catch {
     // Resolver unavailable — `repoDir` remains the only root; a state-dir sink then fails CLOSED
     // (loudly, to the caller) rather than being written somewhere unverified.

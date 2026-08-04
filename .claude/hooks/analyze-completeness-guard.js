@@ -69,7 +69,7 @@ const { emit } = require(path.join(__dirname, "lib", "instruct-and-wait.js"));
 const { detectActiveWorkspace } = require(
   path.join(__dirname, "lib", "workspace-utils.js"),
 );
-const { resolveMainCheckout } = require(
+const { requireMainCheckout } = require(
   path.join(__dirname, "lib", "state-resolver.js"),
 );
 
@@ -221,7 +221,32 @@ async function main() {
     if (!ADVANCING_SKILLS.has(skillName)) passthrough();
 
     const sessionCwd = resolveRepoDir(payload);
-    const repoDir = resolveMainCheckout(sessionCwd) || sessionCwd;
+    // loom#1471 F7b — fail CLOSED when git cannot identify the main checkout.
+    // The former `|| sessionCwd` could not fire; `decideAnalyzeGate` reads
+    // workspace + phase state relative to this root, and against an
+    // unidentified directory it finds none — which reads as "no gate applies".
+    const mainRes = requireMainCheckout(sessionCwd);
+    if (!mainRes.ok) {
+      clearTimeout(fallback);
+      emit({
+        hookEvent,
+        severity: "halt-and-report",
+        what_happened: `Analyze-completeness gate could not run: the MAIN checkout could not be identified — ${mainRes.reason}`,
+        why: "multi-operator-coc/analyze-completeness-guard — the gate decision reads workspace + phase state relative to the main checkout. Against an unidentified root it finds nothing, which is indistinguishable from `no gate applies` and advances the phase unchecked. Refusing is the fail-closed direction (`rules/security.md` § Enforcement-Surface Parity).",
+        agent_must_report: [
+          `Session cwd: ${sessionCwd}`,
+          `Resolver reason: ${mainRes.reason}`,
+          "The analyze-completeness gate did NOT run — its result is UNKNOWN, not clean.",
+          "A differently-owned checkout reports `detected dubious ownership`; take ownership, or set CLAUDE_TRUST_STATE_DIR.",
+        ],
+        agent_must_wait:
+          "Do not advance the phase until git can identify the main checkout, or the operator pins CLAUDE_TRUST_STATE_DIR.",
+        user_summary:
+          "analyze-completeness-guard — main checkout unidentifiable; refused rather than passed through",
+      });
+      // emit() exits
+    }
+    const repoDir = mainRes.repoDir;
     const args = ti.args || ti.arguments || "";
 
     const decision = decideAnalyzeGate({

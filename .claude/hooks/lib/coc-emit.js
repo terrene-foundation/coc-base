@@ -159,8 +159,84 @@ function _defaultAppend(repoDir, record) {
   // still harvesting the majority of production rows. The MAX_LINE_BYTES cap above stays HERE,
   // before signing, so an oversized record is refused rather than truncated-after-sign.
   const logPath = resolveLogPath(repoDir);
-  const w = appendSinkLine({ repoDir, sinkPath: logPath, line });
-  if (!w.ok) return { ok: false, error: `coordination-log append refused: ${w.error} — ${w.reason}` };
+  // The sink is `resolveStateDir(repoDir)/coordination-log.jsonl`, which resolves to the MAIN
+  // checkout BY DESIGN (`trust-posture.md` MUST-1; `state-resolver.js` header, red-team CRIT-2):
+  // a worktree's `.claude/learning/` is auto-deleted on cleanup, so coordination state
+  // deliberately escapes cwd. Containing against `repoDir` ALONE therefore refused the DESIGNED
+  // path in every worktree session — the SAME defect coc-append.js fixed at its own call site in
+  // loom#1349 R2 F1, which this module (routed through the primitive in R1 F3) did not inherit.
+  //
+  // The root declared is the MAIN CHECKOUT, deliberately NOT the resolved state dir. Declaring
+  // the state dir would be CIRCULAR: `resolveStateDir` builds it by lexical join, so a
+  // `.claude/learning` symlinked out of the repo would appear under its own realpath and the
+  // check would pass vacuously — defeating the exact attack it exists to block. Against the main
+  // checkout that symlink lands under neither root and is still refused.
+  //
+  // `resolveStateDir`'s OTHER branch — a raw `$CLAUDE_TRUST_STATE_DIR` — is deliberately NOT
+  // declared. `resolveMainCheckout` VALIDATES that variable (loom#1444: honored only at the
+  // canonical `<root>/.claude/learning` of a real git checkout) while `resolveStateDir` still
+  // honors it raw — the residual `state-resolver.js` names above its own definition.
+  //
+  // State the VALID case honestly, because the obvious phrasing is circular: when the override
+  // passes validation, `resolveMainCheckout` returns ITS `<root>`, so the declared boundary and
+  // the sink both derive from the SAME attacker-suppliable variable and the containment compare
+  // holds VACUOUSLY. It is not that the valid override "needs no entry of its own" — it IS
+  // declared, just indirectly, and this check constrains it not at all. What constrains it is
+  // `resolveMainCheckout`'s VALIDATION: canonical `<root>/.claude/learning` shape AND a real git
+  // checkout at `<root>`. That validation is the whole of the trust decision for this branch;
+  // saying otherwise re-imports the exact circularity the paragraph above narrows against.
+  //
+  // Declaring the RAW value additionally would widen the boundary to overrides that never passed
+  // that validation, and an INVALID one MUST stay refused — this containment check is currently
+  // the only thing closing that open residual.
+  //
+  // `repoDir` stays the value stamped into the signed record; only the boundary widens.
+  //
+  // Resolved through `requireMainCheckout` — the FAIL-CLOSED accessor — not the legacy
+  // `resolveMainCheckout`, because what is being declared here is a CONTAINMENT ROOT. The legacy
+  // accessor silently returns its own `cwd` argument when git cannot identify a main checkout
+  // (`state-resolver.js` § INDETERMINATE), so a caller that widens a trust boundary with it widens
+  // it with an unverified value. State the equivalence honestly rather than over-claiming a fix:
+  // at THIS call site the argument is `repoDir`, which `appendSinkLine` already declares as root[0]
+  // and `_resolveRoots` realpath-dedupes, so the indeterminate branch contributed a NO-OP DUPLICATE
+  // and the boundary never actually widened. Measured on a non-git dir: `indeterminate=true`,
+  // legacy path `=== repoDir` argument, `requireMainCheckout().ok === false`.
+  //
+  // The migration is therefore behaviour-preserving TODAY, and is made anyway for two reasons the
+  // no-op does not cover. (1) That safety holds only by the coincidence that the value passed in
+  // equals the value fallen back to — a two-hop invariant no reader re-derives, which silently
+  // breaks the moment this call is handed a session cwd instead of `repoDir`. (2) The alternative
+  // was a `LEGACY_ALLOWED` entry in
+  // `tests/integration/multi-operator/trust-resolver-fail-closed-1471.test.js`, which would have
+  // recorded the weakness in a ledger meant to SHRINK rather than removing it.
+  //
+  // The `!ok` branch declares NOTHING, which is the same fail-closed shape as the catch below: a
+  // sink outside `repoDir` is refused rather than written somewhere unverified, while a sink INSIDE
+  // `repoDir` — the legitimate non-git / unresolvable-git case — still lands. Refusing the whole
+  // append on `!ok` would over-block that path; both halves are pinned by
+  // `append-sink-worktree-state.test.js` § "git cannot answer".
+  const boundaryRoots = [];
+  try {
+    const { requireMainCheckout } = require(
+      path.join(__dirname, "state-resolver.js"),
+    );
+    const mainCheckout = requireMainCheckout(repoDir);
+    if (mainCheckout.ok) boundaryRoots.push(mainCheckout.repoDir);
+  } catch {
+    // Resolver unavailable — `repoDir` remains the only root and a main-checkout sink fails
+    // CLOSED (loudly, to the caller) rather than being written somewhere unverified.
+  }
+  const w = appendSinkLine({
+    repoDir,
+    additionalRoots: boundaryRoots,
+    sinkPath: logPath,
+    line,
+  });
+  if (!w.ok)
+    return {
+      ok: false,
+      error: `coordination-log append refused: ${w.error} — ${w.reason}`,
+    };
   return { ok: true };
 }
 

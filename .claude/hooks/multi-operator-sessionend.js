@@ -59,7 +59,7 @@ const fallback = setTimeout(() => {
 const fs = require("fs");
 const path = require("path");
 // loom#1349 — the ONE hardened append primitive; see lib/append-sink.js for the six defenses.
-const { appendSinkLine } = require("./lib/append-sink.js");
+const { appendSinkLine, escapeControlChars } = require("./lib/append-sink.js");
 
 const PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 
@@ -245,7 +245,7 @@ function appendRecord(repoDir, record) {
     // attacker planting a symlink/FIFO/hard-link at the sink cannot silently suppress every
     // release + teardown row. stderr only: stdout is the hook's protocol channel.
     const w = appendSinkLine({ repoDir, sinkPath: logPath, line: JSON.stringify(record) });
-    if (!w.ok) console.error(`[multi-operator-sessionend] sink append refused: ${w.error} — ${w.reason}`);
+    if (!w.ok) console.error(`[multi-operator-sessionend] sink append refused: ${escapeControlChars(w.error)} — ${w.reason}`);
   } catch {
     // best-effort
   }
@@ -319,7 +319,7 @@ function emitTeardownRecord(repoDir, identity, type, content) {
     try {
       process.stderr.write(
         `[sessionend] ${type} record refused ` +
-          `(step=${result && result.step}): ${result && result.reason} — ` +
+          `(step=${result && result.step}): ${escapeControlChars(result && result.reason)} — ` +
           `degrading to no-record; continuing.\n`,
       );
     } catch {
@@ -479,11 +479,63 @@ function releaseOwnClaims(repoDir, identity, claims) {
     try {
       process.stderr.write(
         `[sessionend] release-lease unavailable (reason=${lease.reason}: ` +
-          `${lease.error}) — proceeding without serialization (Option A ` +
+          `${escapeControlChars(lease.error)}) — proceeding without serialization (Option A ` +
           `residual-window behavior; sessionend must never block).\n`,
       );
     } catch {
       /* best-effort advisory only */
+    }
+  }
+
+  // loom#1544 F2 (round 2) — READ `degraded` and leave a DURABLE breadcrumb.
+  //
+  // This is the ONE production caller of `acquireReleaseLease`, and until now it
+  // branched on ok/reason/holder/error and never touched `degraded`, so on a
+  // link-less filesystem every SessionEnd silently ran the racier birth-window
+  // publish. Round 1 tried to close that with a one-time stderr WARN inside the
+  // lib. That does not reach anyone HERE: `coord-background.js::spawnDetachedWorker`
+  // spawns this hook's worker with `stdio:"ignore"`, so the worker's fd 2 is
+  // /dev/null — the write SUCCEEDS and the bytes are discarded, which is why no
+  // error path ever fired. The stderr advisories a few lines above have the same
+  // property; they are pre-existing and unchanged, but nobody should read them as
+  // production observability either.
+  //
+  // The channel that DOES work inside a detached worker is the filesystem, so the
+  // report goes to the canonical stamped observation sink (`logObservation` →
+  // `appendStamped` when identity resolves, hardened `appendSinkLine` otherwise).
+  // It is durable, greppable, operator-local, and already gitignored, so recording
+  // it discloses nothing new.
+  //
+  // Emitted per degraded ACQUIRE, not once per process: the lib's own latch is
+  // process-scoped and each SessionEnd is a fresh process, so a latch here would
+  // buy nothing; and the condition is a persistent property of the filesystem, so
+  // one row per occurrence is the honest telemetry shape rather than noise.
+  if (lease.ok && lease.degraded) {
+    try {
+      const { logObservation } = require(
+        path.join(__dirname, "lib", "learning-utils.js"),
+      );
+      logObservation(
+        repoDir,
+        "coordination_degradation",
+        {
+          surface: "sessionend-release-lease",
+          degradation: lease.degraded,
+          effect:
+            "at-most-one-releaser still holds, but the lease is briefly observable " +
+            "ZERO-BYTE between create and write; a concurrent acquirer sampling that " +
+            "window classifies it corrupt => dead => reap-eligible, so both releasers " +
+            "can hold it and the per-emitter chain can fork",
+          remedy:
+            "put the trust state dir (CLAUDE_TRUST_STATE_DIR / the main checkout's " +
+            ".claude/learning/) on a filesystem with hard links",
+          refs: "loom#874, loom#1544",
+        },
+        { hook: "multi-operator-sessionend", verified_id: identity.verified_id },
+      );
+    } catch {
+      // Best-effort: a breadcrumb failure must never block sessionend teardown
+      // (header contract). The residual is stated at the lib's `_warnDegradedOnce`.
     }
   }
 
@@ -513,7 +565,7 @@ function releaseOwnClaims(repoDir, identity, claims) {
         try {
           process.stderr.write(
             `[sessionend] release refused for claim ${claims[i].claim_id} ` +
-              `(step=${result && result.step}): ${result && result.reason} — ` +
+              `(step=${result && result.step}): ${escapeControlChars(result && result.reason)} — ` +
               `degrading to stale-claim-lingers-to-TTL; continuing.\n`,
           );
         } catch {

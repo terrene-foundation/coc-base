@@ -1,0 +1,48 @@
+[wave-close report to the co-owner, W0 of a nine-wave sprint]
+
+## W0 complete
+
+**14 PRs merged this wave. `main` is GREEN.**
+
+Merged: #1501 `/distill` scoping · #1502 dispatch verifier · #1503 hook-EVENT selection ·
+#1504 stale-worktree-base fence · #1505 byte-cap off-by-one · #1506 wiring-truth audit ·
+#1507 declarative repo-class · #1508 xref dir-token · #1510 conformance-walk YAML ·
+#1511 base-red suites · #1512 VERSION-overwrite · #1517 wave ledgers · #1518 append-sink
+containment · #1522 emit-axes ship-list.
+
+Every PR that went through a second lens came back with something the first lens missed.
+
+## Orchestrator errors, recorded and not softened
+
+I broke `main` once: three shipped bins imported `lib/emit-axes.mjs`, on no ship list —
+`ERR_MODULE_NOT_FOUND` at every consumer. Fixed in #1522, verified two ways: the test
+(7p/1f → 8p/0f) and a dry-run proving a consumer receives the file. Also two PR-body
+over-claims (#1510, #1508) and a stale-clone measurement, all corrected in-session.
+
+## Burn-down
+
+Baseline: wave start, `main` @ `b2d756ae`, 2026-08-01T09:14Z. Measured now at `0c5b3daa`.
+
+| axis                       | start | now | delta   | instrument (re-run now)                                                        |
+| -------------------------- | ----- | --- | ------- | ------------------------------------------------------------------------------ |
+| open issues                | 63    | 63  | **0**   | `gh issue list --state open --limit 200 --json number` → array length          |
+| open PRs                   | 6     | 2   | **−4**  | `gh pr list --state open --json number` → array length                         |
+| local-only branches        | 10    | 10  | **0**   | per branch: `git ls-remote --exit-code --heads origin <b>` non-zero            |
+| local-only commits         | 35    | 35  | **0**   | `git rev-list --count origin/main..<b>` per branch, deduped by SHA             |
+| base-red harness suites    | 3     | 0   | **−3**  | `node .claude/bin/run-harness-suites.mjs` unpiped, exit code + failing-suite ids |
+| authorized-unrun excises   | 1     | 1   | **0**   | `posture.json::transition_history` still `[]`; 11 ids present in violations.jsonl |
+
+**Read the zeros, not the merges.** Fourteen PRs merged and the issue count did not move:
+every merge this wave closed work that was already in flight, and the four PRs that left
+the queue were opened before this wave started. The two axes that matter most for the
+sprint — **63 open issues** and **35 commits nobody but this machine can see** — are
+exactly where W0 found them. W0 cleared the *base* (CI is attributable again); it did not
+clear the *surface*.
+
+Not measured, and stated rather than guessed: whether any of the 35 local commits is
+already superseded by the 14 merges. That is W0-a's first deliverable next wave, and until
+it runs the 35 is an upper bound on real outstanding work, not a count of it.
+
+## Recommendation
+
+Proceed to W1. The base is green and attributable, which is the precondition W1 needs.

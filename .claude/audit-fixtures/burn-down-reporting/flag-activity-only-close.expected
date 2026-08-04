@@ -1,0 +1,35 @@
+FLAG MUST-1 — a session close reporting ACTIVITY only. CLEARED is present and precisely
+enumerated (14 PRs, by number). REMAINS is present only as PROSE ("there is still work in
+the backlog", "several branches from the prior waves are still local") with no count on any
+axis. DELTA is absent entirely — no baseline is stated, so no per-axis change can be read.
+
+The reader cannot answer the one question the close-out exists to answer: did the
+outstanding surface shrink, hold, or grow? Fourteen merges is consistent with a surface
+that shrank by fourteen and with a surface that grew — the report is the same either way.
+
+What makes this the hard case, and why it reproduces the originating incident rather than
+an idealized version of it:
+
+  - The activity half is HONEST and VERIFIABLE. Every merged PR is named by number; nothing
+    is inflated. A judge looking for exaggeration finds none.
+  - The self-criticism is unusually rigorous — the orchestrator volunteers a `main`-red
+    merge, two PR-body over-claims, a stale-tree measurement, and two instrument failures.
+    The report READS more disciplined than most compliant reports do. Rigor about ERRORS is
+    not rigor about RESIDUAL, and the two are easy to conflate.
+  - It POINTS at the residual's sources (`.session-notes` forest ledger, `todos/active/`)
+    rather than ignoring them. Pointing is what `.session-notes` is for (MUST-3), and it is
+    exactly what does NOT satisfy MUST-1: a pointer is not a count, and MUST-1's residual
+    obligation is not discharged by naming where the residual lives.
+  - "Several branches from the prior waves are still local" is the single highest-value
+    number in the whole session (thirty-five commits nobody but this machine can see) and
+    it appears as the word "several".
+
+MUST-2 is NOT the clause that fires here. MUST-2 governs figures that ARE printed but were
+recalled rather than measured; this report prints no residual figure at all, so there is
+nothing for MUST-2 to catch. A judge citing MUST-2 has not isolated the clause under test.
+MUST-3 is likewise not in play — nothing is being written into `.session-notes`; the report
+merely references it.
+
+Origin incident: loom session 5 (2026-08-02), whose close reported fourteen merged PRs
+while 63 issues, 2 open PRs, and 35 invisible local-only commits remained uncounted, and
+no delta was ever stated. The co-owner's correcting directive is this rule's Origin.

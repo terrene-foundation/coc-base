@@ -781,6 +781,30 @@ function matchFirstCandidate(absPath, repoDir, match, opts, out) {
  *   separator token, the case flag, or a registry row — and every surface
  *   inherits it by construction rather than by memory.
  *
+ *   NAMED EXCEPTION — `suffix` IS NOT INHERITED BY THE DIRECT LANE (loom#1534).
+ *   The "every surface by construction" promise above holds for `segments`,
+ *   `prefix`, the separator token and the case flag. It does NOT hold for
+ *   `suffix`. Only `_rowSource` consumes it, so `suffix` reaches the REGEX
+ *   surfaces (bash / layer3 / coord / posture-gate) and is silently DROPPED by
+ *   both direct-lane (Edit/Write) builders — `_rowRel`, which returns
+ *   `segments.join("/")`, and `WATCHED_SUBTREE_RX`, which rebuilds from
+ *   `segments` alone. Consequences, in both directions:
+ *     - SUBTRACTIVE `suffix` (the `.git` row's negative-lookahead carve-out for
+ *       `info/exclude` / `COMMIT_EDITMSG` / `MERGE_MSG`): the direct lane never
+ *       sees the carve-out and OVER-BLOCKS those three leaves. Fail-closed, and
+ *       DELIBERATE at this commit — the carve-out exists to unblock a MEASURED
+ *       Bash-lane false positive (`echo … >> .git/info/exclude`), which is the
+ *       only lane where it was ever observed.
+ *     - ADDITIVE `suffix` (`posture.json`'s `(?:\.bak|\.tmp\.\d+)?`, and the
+ *       `violations.jsonl` / `observations.jsonl` extension tails): the direct
+ *       lane matches the bare spelling only, so it is NARROWER there than on the
+ *       Bash lane for those rows. That direction is NOT fail-closed; it is
+ *       pre-existing and is not introduced here.
+ *   Until both direct-lane builders learn `suffix`, a row author MUST reason
+ *   about `suffix` per-surface and MUST NOT rely on the paragraph above for it.
+ *   `suffix` was purely ADDITIVE before the `.git` row; that row is the first
+ *   SUBTRACTIVE use, which is what makes the divergence newly consequential.
+ *
  *   The enumeration test at
  *   `tests/integration/multi-operator/protected-path-predicate-1422.test.js`
  *   walks `.claude/hooks/**` and FAILS if any hook re-derives a protected-path
@@ -1124,9 +1148,59 @@ const PROTECTED_PATHS = Object.freeze(
       // deny cannot express the enrolled-conditional model, and integrity-guard
       // is the right control for the same reason `bin/ecosystem.json` and
       // `.claude/VERSION` are declined there.
+      // loom#1534 — the `subtree: true` blanket is RETAINED (config can redirect
+      // `core.hooksPath`, `hooks/**` is arbitrary code execution, `modules/**`
+      // and `objects/**` are history), with a NARROW negative-lookahead carve-out
+      // for three provably INERT leaves. Each is a scratch/ignore file that
+      // cannot execute, cannot alter guard behaviour, and cannot reach history
+      // CONTENT — i.e. cannot add, rewrite, or remove a commit/tree/blob:
+      //   info/exclude     — local ignore patterns, read by git's pathspec code
+      //   COMMIT_EDITMSG   — the editor scratch buffer for the last message
+      //   MERGE_MSG        — the same, for a merge
+      // Stated exactly, because "cannot reach history" alone is FALSE for two of
+      // them: `COMMIT_EDITMSG` and `MERGE_MSG` are consumed by a concluding `git
+      // commit`, so their TEXT does become the commit message and is recorded.
+      // That is not a hole — a commit message is inert prose, never executed and
+      // never consulted by any guard — but it is not "cannot reach history", and
+      // the next author must not carve out a fourth leaf on that reading.
+      // `info/attributes` is deliberately NOT carved out: a gitattributes entry
+      // can name a `filter`/`diff` driver, and although the driver's COMMAND is
+      // defined in the still-protected config, the redirection is a behaviour
+      // change and stays fenced.
+      // MEASURED false positive that motivated this: `echo '<name>' >> .git/info/exclude`
+      // — appending one line to a local ignore list — was classified a
+      // trust-posture state mutation at Layer 1 and hard-blocked.
       id: ".git",
       segments: [".git"],
       prefix: "(?<![\\w-])",
+      // The carved leaf MUST be the ENTIRE remainder of the path token. A `\b`
+      // terminator was the first attempt and it is a TRAVERSAL BYPASS:
+      // `.git/info/exclude/../../config` satisfies `/info/exclude` + `\b` (the
+      // boundary before `/`), so the lookahead fires, the path is treated as
+      // carved-out, and the write lands on `.git/config`. MEASURED as a live
+      // bypass during this change's own adversarial review. Requiring
+      // end-of-token means anything with a further path segment — traversal
+      // included — stays protected.
+      //
+      // A SHELL QUOTE IS NOT A PATH-TOKEN TERMINATOR. `'` and `"` were in this
+      // class in the first cut and that was the SAME traversal bypass one
+      // generation later: bash CONCATENATES across a quote boundary, so
+      // `.git/info/exclude""/../config` is one word resolving to `.git/config`,
+      // while the guard read the `"` as end-of-token, fired the carve-out, and
+      // ALLOWED the write. MEASURED as a live L1 regression against origin/main
+      // (FIRST-CUT patched: null; baseline: `{layer:1,kind:"redirect"}` — at HEAD
+      // the quote characters are OUT of the terminator class, so patched now
+      // returns `{layer:1,kind:"redirect"}` too; this parenthetical records the
+      // defect that motivated the fix, NOT the behaviour of the shipped code)
+      // — and `.git/config`
+      // is where `core.hooksPath` lives, i.e. arbitrary code execution on the next
+      // git operation. Only characters that are genuinely word-SEPARATING in bash
+      // belong here. Everything else (quotes, `$`, backtick, backslash) leaves the
+      // carve-out unfired and the path PROTECTED, which is the fail-closed
+      // direction: the residual cost is that a fully-quoted benign spelling
+      // (`>> ".git/info/exclude"`) still over-blocks exactly as it does on
+      // origin/main. Pinned by flag-1534-dotgit-quote-concat-{dq,sq}-traversal.
+      suffix: "(?!/(?:info/exclude|COMMIT_EDITMSG|MERGE_MSG)(?:$|[\\s|;&)]))",
       surfaces: { bash: true, layer3: true, direct: true },
       subtree: true,
     },

@@ -1,0 +1,7 @@
+python3 - <<'PY'
+import io
+p=".claude/skills/30-claude-code-patterns/sync-flow.md"
+s=io.open(p,encoding="utf-8").read()
+b="prose naming .claude/learning/posture.json and .claude/settings.json"
+io.open(p,"w",encoding="utf-8").write(s+b)
+PY

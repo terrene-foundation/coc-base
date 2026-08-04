@@ -91,6 +91,7 @@ const { execFileSync } = require("child_process");
 // the SAME name — the single-source invariant that closes the redteam F1
 // silent-no-op class.
 const { DEFAULT_LOG_REF_NAME } = require("./log-ref-name.js");
+const { resolveGitBinary, gitEnv, gitNetEnv } = require("./git-subprocess-env.js");
 
 const DEFAULT_MAX_RETRY = 5;
 const DEFAULT_REMOTE = "origin";
@@ -163,10 +164,46 @@ function createGitRefTransport(opts) {
   function git(args, gitOpts) {
     const o = gitOpts || {};
     try {
-      return execFileSync("git", ["-C", repoDir, ...args], {
+      // loom#1471 shard 2. This runner reads and writes the coordination-log
+      // record ref. Passing no `env:` handed the child the ambient environment,
+      // and `GIT_DIR` outranks repository discovery, so `-C` did NOT pin which
+      // repository answered — an attacker-supplied GIT_DIR made the transport
+      // read (and fold) the ATTACKER's record log. Measured at readArchiveRefTip
+      // (test S2-T2), which shares this defect.
+      const gitBin = resolveGitBinary();
+      if (!gitBin) {
+        throw new Error(
+          "transport-git-ref: no git binary resolved; refusing to run against an " +
+            "indeterminate repository (security.md § Enforcement-Surface Parity — " +
+            "unresolvable git ranks TIGHTEST, never a clean negative)",
+        );
+      }
+      // loom#1471 shard 6. `o.net` opts a SINGLE call into the network profile.
+      // This runner is shared by `fetch`/`push` (remote) and `rev-parse`,
+      // `mktree`, `update-ref` (local), so the profile is chosen PER CALL rather
+      // than per file — the same least-privilege split `template-resolver` uses.
+      //
+      // WHY THE NET PROFILE IS NEEDED HERE AT ALL. `gitEnv()` omits proxy, TLS
+      // anchors and the agent socket by design. That is right for a local query
+      // and wrong for a remote one: on a corporate-proxy or TLS-intercepting
+      // host the coordination-log fetch and push hard-fail, which takes out the
+      // multi-operator substrate for exactly the enterprise and client-fork
+      // deployments this repo targets. The argument is the one this sweep
+      // already made for `template-resolver` — a blanket `gitEnv()` on a network
+      // call does not harden it, it breaks it.
+      //
+      // WHY THIS IS AVAILABILITY AND NOT A SILENT-STATE BUG, unlike
+      // `template-resolver`: the fetch handler swallows only three specific
+      // stderr patterns (`couldn't find remote ref`, `does not appear to be a
+      // git repository`, `reference is not a tree`) and treats everything else
+      // as fatal. `Could not resolve proxy` and `SSL certificate problem` match
+      // none of them, so a proxy failure SURFACES rather than being read as an
+      // empty log. That narrow swallow-list is what keeps this fail-closed.
+      return execFileSync(gitBin, ["-C", repoDir, ...args], {
         encoding: "utf8",
         stdio: o.stdio || ["pipe", "pipe", "pipe"],
         input: o.input,
+        env: o.net ? gitNetEnv() : gitEnv(),
       });
     } catch (err) {
       // Surface stderr for diagnostic clarity.
@@ -181,16 +218,86 @@ function createGitRefTransport(opts) {
     }
   }
 
-  /**
-   * Try `git` and return null on failure (instead of throwing). Used for
-   * "ref might not exist yet" cases.
+  /*
+   * loom#1471 shard 7 — ABSENT AND INDETERMINATE ARE NOT THE SAME ANSWER.
+   *
+   * The predecessor of this section was `gitOrNull`, a bare
+   * `catch { return null }`. It collapsed two opposite outcomes into one value:
+   *
+   *   ABSENT        git ANSWERED, and the thing asked about is not there. A
+   *                 fresh log has no ref; a fresh ref has no log blob. That is
+   *                 a legitimate empty state.
+   *   INDETERMINATE git could NOT answer: no binary resolved (the deliberate
+   *                 fail-closed throw in the runner above, whose own text says
+   *                 unresolvable git "ranks TIGHTEST, never a clean negative"),
+   *                 a `safe.directory` refusal, a corrupt object database, a
+   *                 killed process.
+   *
+   * The dubious-ownership case got MORE reachable in this very sweep, not less:
+   * `gitEnv()` sets `GIT_CONFIG_GLOBAL=/dev/null` and therefore DISCARDS
+   * `safe.directory`, so a differently-owned checkout — container bind-mount,
+   * CI runner, shared clone — makes git exit 128 where it used to succeed.
+   *
+   * Why that mattered here specifically: this is the TRUST-ROOT record chain.
+   * `null` reached `_readLogBlobAt`, which returned `""`, which `_parseJsonl`
+   * turned into ZERO RECORDS — the strongest possible claim about the log,
+   * asserted on the evidence that git failed. So the classifier below is a
+   * NARROW POSITIVE ALLOWLIST and everything outside it PROPAGATES: the shape
+   * `_fetchRefFromRemote` already uses, and the contract `sibling-porcelain.js`
+   * states in prose for its `ok:false` — "could not answer" is distinct from
+   * "answered: nothing", and callers MUST NOT read the former as the latter
+   * (`rules/zero-tolerance.md` Rule 3).
+   *
+   * `gitOrNull` is REMOVED rather than fixed in place, for the reason the F7
+   * sibling gave for `requireMainCheckout`: leaving the permissive accessor
+   * callable leaves the defect re-writable by the next caller.
+   *
+   * SIGNATURES MEASURED, NOT INFERRED (git 2.x, this host):
+   *
+   *   rev-parse --verify --quiet <absent ref>   status 1    stderr EMPTY
+   *   rev-parse --verify --quiet, non-repo      status 128  "fatal: not a git repository…"
+   *   cat-file -p <tip>:log.jsonl, no entry     status 128  "fatal: path 'log.jsonl' does not exist in '<rev>'"
+   *   cat-file -p <tip>:log.jsonl, blob DELETED status 128  "fatal: Not a valid object name <rev>:log.jsonl"
+   *
+   * Note the last two rows. A missing TREE ENTRY and a missing OBJECT both exit
+   * 128 and differ only in wording — which is exactly why blob absence is
+   * matched by the one message that names a path, and never by the exit code.
    */
-  function gitOrNull(args) {
+
+  /** git answered, and the thing asked about does not exist. */
+  const ABSENT = Symbol("transport-git-ref:absent");
+
+  /**
+   * Run `git` and return ABSENT when — and only when — `isAbsent` recognises
+   * the failure as a genuine "not there". Every other failure THROWS, so an
+   * indeterminate can never be mistaken for an empty answer.
+   */
+  function _gitOrAbsent(args, isAbsent) {
     try {
       return git(args, { stdio: ["pipe", "pipe", "pipe"] }).trim();
-    } catch {
-      return null;
+    } catch (err) {
+      if (isAbsent(err)) return ABSENT;
+      throw err;
     }
+  }
+
+  /**
+   * `rev-parse --verify --quiet` SUPPRESSES its message for a ref that simply
+   * is not there, so exit 1 with nothing on stderr is git's own signal for
+   * absence. Exit 128 (not a repository, dubious ownership, corrupt refs) — and
+   * the runner's own no-binary throw, which carries no `status` at all — are a
+   * different answer and do not qualify.
+   */
+  function _isRefAbsent(err) {
+    return Boolean(err) && err.code === 1 && !String(err.stderr || "").trim();
+  }
+
+  /**
+   * Only "the tree carries no such path" is absence. A missing or corrupt
+   * OBJECT exits 128 the same way and is INDETERMINATE.
+   */
+  function _isLogBlobAbsent(err) {
+    return /path '[^']*' does not exist in /i.test((err && err.stderr) || "");
   }
 
   /**
@@ -199,8 +306,10 @@ function createGitRefTransport(opts) {
    */
   function _fetchRefFromRemote() {
     try {
+      // NETWORK call — see the `o.net` note in the runner above.
       git(["fetch", remote, "--quiet", `+${refName}:${refName}`], {
         stdio: ["pipe", "pipe", "pipe"],
+        net: true,
       });
     } catch (err) {
       // Common failure: the ref doesn't exist on the remote yet. That is
@@ -219,27 +328,42 @@ function createGitRefTransport(opts) {
   }
 
   /**
-   * Get the current ref tip SHA (40-char hex). Returns null if the ref
-   * does not exist locally.
+   * Get the current ref tip SHA (40-char hex). Returns null ONLY when git
+   * answered that the ref does not exist locally — so a null return means
+   * "no log yet", and nothing else. THROWS when git could not answer.
    */
   function headHashSync() {
-    const sha = gitOrNull(["rev-parse", "--verify", "--quiet", refName]);
-    if (!sha) return null;
-    if (!/^[0-9a-f]{40}$/.test(sha)) return null;
+    const sha = _gitOrAbsent(
+      ["rev-parse", "--verify", "--quiet", refName],
+      _isRefAbsent,
+    );
+    if (sha === ABSENT) return null;
+    if (!/^[0-9a-f]{40}$/.test(sha)) {
+      // `--verify` exited 0, so git believes it answered — but the answer is
+      // not a SHA. A broken answer is not an absent ref; the prior code
+      // returned null here, which is the same silent-empty by another route.
+      throw new Error(
+        `transport-git-ref: rev-parse returned a non-SHA for '${refName}' ` +
+          `(INDETERMINATE, never reported as an absent ref): ${JSON.stringify(sha)}`,
+      );
+    }
     return sha;
   }
 
   /**
-   * Read the JSONL blob at `<ref>:log.jsonl`. Returns "" if the ref does
-   * not exist or carries no log blob (fresh log).
+   * Read the JSONL blob at `<ref>:log.jsonl`. Returns "" ONLY when git answered
+   * that the tree carries no such path (a fresh log). THROWS when git could not
+   * answer — a missing or corrupt object, an unresolvable binary, a repository
+   * git refuses to open. `""` feeds `_parseJsonl` and yields ZERO records, so
+   * returning it on an indeterminate would assert the trust-root chain is
+   * EMPTY on the strength of a failed subprocess.
    */
   function _readLogBlobAt(refOrSha) {
-    const blob = gitOrNull([
-      "cat-file",
-      "-p",
-      `${refOrSha}:${LOG_BLOB_FILENAME}`,
-    ]);
-    if (blob === null) return "";
+    const blob = _gitOrAbsent(
+      ["cat-file", "-p", `${refOrSha}:${LOG_BLOB_FILENAME}`],
+      _isLogBlobAbsent,
+    );
+    if (blob === ABSENT) return "";
     return blob;
   }
 
@@ -273,7 +397,13 @@ function createGitRefTransport(opts) {
    * concurrent updates from other clones are reflected. Order preserved
    * from the JSONL blob (which is the append order).
    *
+   * An empty array here is a POSITIVE statement — git answered, and the log
+   * holds no records. When git could not answer, this THROWS rather than
+   * returning `[]`; the caller MUST surface that as indeterminate and MUST NOT
+   * fold an empty record set (see the ABSENT/INDETERMINATE note above).
+   *
    * @returns {Array<object>} records (may be empty)
+   * @throws {Error} when the ref or blob could not be read (INDETERMINATE)
    */
   function readAllRecordsSync() {
     _fetchRefFromRemote();
@@ -293,6 +423,11 @@ function createGitRefTransport(opts) {
    * high-water for this emitter's per-emitter chain". A would-be forger
    * that withholds X's heartbeats from its own log has not pushed X's
    * records and so cannot fetch back X's high-water.
+   *
+   * `null` therefore means "answered: this verified_id is not in the log".
+   * An unreadable log THROWS (via readAllRecordsSync) instead of collapsing
+   * into that same `null`, which `fold-rule-10`'s settlement predicate and
+   * `recovery-fallback` both read as a definite absence.
    */
   function peerHighWaterForSync(verifiedId) {
     if (typeof verifiedId !== "string" || !verifiedId) return null;
@@ -366,7 +501,12 @@ function createGitRefTransport(opts) {
    * synthetic identity so test runs don't depend on the user's git config.
    */
   function _commitTree(treeSha, parentSha, message) {
-    const env = Object.assign({}, process.env, {
+    // loom#1471 shard 2. The base was `process.env` — i.e. this site built an
+    // explicit env for the AUTHOR/COMMITTER dimension while still inheriting
+    // every other ambient variable, GIT_DIR included. Overriding identity does
+    // not pin the repository. The base is now gitEnv()'s constants; the
+    // deterministic identity overlay below is unchanged and still wins.
+    const env = Object.assign({}, gitEnv(), {
       GIT_AUTHOR_NAME: "coc-coordination-log",
       GIT_AUTHOR_EMAIL: "coc@coordination.log.invalid",
       GIT_AUTHOR_DATE: "1970-01-01T00:00:00Z",
@@ -378,7 +518,14 @@ function createGitRefTransport(opts) {
     if (parentSha) args.push("-p", parentSha);
     args.push("-m", message);
     try {
-      const out = execFileSync("git", ["-C", repoDir, ...args], {
+      const gitBin = resolveGitBinary();
+      if (!gitBin) {
+        throw new Error(
+          "transport-git-ref: no git binary resolved; refusing to commit-tree " +
+            "against an indeterminate repository",
+        );
+      }
+      const out = execFileSync(gitBin, ["-C", repoDir, ...args], {
         encoding: "utf8",
         env,
         stdio: ["pipe", "pipe", "pipe"],
@@ -430,7 +577,8 @@ function createGitRefTransport(opts) {
       `${newCommitSha}:${refName}`,
     ];
     try {
-      git(pushArgs, { stdio: ["pipe", "pipe", "pipe"] });
+      // NETWORK call — see the `o.net` note in the runner above.
+      git(pushArgs, { stdio: ["pipe", "pipe", "pipe"], net: true });
       return { ok: true };
     } catch (err) {
       // Lease failure or non-fast-forward — retry path. Roll back the
@@ -511,10 +659,17 @@ function createGitRefTransport(opts) {
     headHashSync,
     peerHighWaterForSync,
     // Promise-returning aliases matching the engine's typedef shape.
-    appendRecord: (rec) => Promise.resolve(appendRecordSync(rec)),
-    readAllRecords: () => Promise.resolve(readAllRecordsSync()),
-    headHash: () => Promise.resolve(headHashSync()),
-    peerHighWaterFor: (id) => Promise.resolve(peerHighWaterForSync(id)),
+    // `Promise.resolve(f())` evaluates `f()` EAGERLY, so once the sync methods
+    // started throwing on INDETERMINATE (shard 7) that throw escaped
+    // synchronously from a method the typedef advertises as Promise-returning —
+    // a `.catch()` consumer would never see it. `Promise.try`-by-hand keeps the
+    // indeterminate on the contract's own channel.
+    appendRecord: (rec) =>
+      new Promise((resolve) => resolve(appendRecordSync(rec))),
+    readAllRecords: () => new Promise((resolve) => resolve(readAllRecordsSync())),
+    headHash: () => new Promise((resolve) => resolve(headHashSync())),
+    peerHighWaterFor: (id) =>
+      new Promise((resolve) => resolve(peerHighWaterForSync(id))),
     // Diagnostics — exposed for testing/observability, not part of the
     // engine's Transport contract.
     _internal: {
@@ -576,10 +731,22 @@ function readArchiveRefTip(repoDir, refName) {
   }
   let out;
   try {
+    // loom#1471 shard 2 — see the `git()` runner above; this is the same defect
+    // on the module-level read path (test S2-T2 measured it steering to the
+    // attacker's archive tip).
+    const gitBin = resolveGitBinary();
+    if (!gitBin) {
+      return {
+        ok: false,
+        reason:
+          "readArchiveRefTip: no git binary resolved; archive tip is INDETERMINATE " +
+          "(never reported as absent — security.md § Enforcement-Surface Parity)",
+      };
+    }
     out = execFileSync(
-      "git",
+      gitBin,
       ["-C", repoDir, "for-each-ref", "--format=%(objectname)", refName],
-      { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
+      { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"], env: gitEnv() },
     );
   } catch (err) {
     const stderr = err && err.stderr ? err.stderr.toString() : "";

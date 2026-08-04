@@ -338,7 +338,14 @@ function resolveTrustRoot(acceptedRecords, roster) {
  *                     benign fresh clone, NO downgrade; new operators L2.
  *   "corrupt-L1"    — init marker + missing/truncated log WHILE
  *                     clone-init chain witness exists, OR fold integrity
- *                     failure, OR peer ref-regression → fail-closed L1.
+ *                     failure, OR peer ref-regression, OR the state dir is
+ *                     INDETERMINATE (loom#1471 F7) → fail-closed L1.
+ *
+ * Inputs are file paths plus three boolean signals the caller supplies:
+ * `peerRefRegression`, `foldIntegrityFailed`, and `stateDirIndeterminate`.
+ * The last says "I could not establish that these paths are this repository's
+ * trust state" and outranks every other branch — see the note at the top of
+ * the ordering block below.
  *
  * The 5 cases (per architecture §6.1) are: corrupt-cache, fresh-repo,
  * fresh-clone, post-init-state-damage, fold-integrity-failure. Cases 4–6
@@ -361,6 +368,9 @@ function discriminateState(input) {
     typeof o.cloneInitWitnessPath === "string" ? o.cloneInitWitnessPath : null;
   const peerRefRegression = o.peerRefRegression === true;
   const foldIntegrityFailed = o.foldIntegrityFailed === true;
+  // loom#1471 F7: the caller could not confirm that the paths below belong to
+  // THIS repository (git did not identify a main checkout). See below.
+  const stateDirIndeterminate = o.stateDirIndeterminate === true;
 
   const fs = require("fs");
 
@@ -373,6 +383,25 @@ function discriminateState(input) {
     cloneInitWitnessPath && _fileExists(fs, cloneInitWitnessPath);
 
   // Order matters: corruption signals trump benign-fresh signals.
+  //
+  // loom#1471 F7 — INDETERMINACY OUTRANKS EVERY OTHER SIGNAL, so it is tested
+  // FIRST. Every probe below asks a question ABOUT four paths; if the caller
+  // could not establish that those paths are this repository's trust state,
+  // none of the answers mean anything, and the most dangerous of them is the
+  // cheapest to obtain: an unrelated directory has no `.initialized` and no
+  // log, which reads as `fresh-repo-L5` — the MOST PERMISSIVE floor. That is
+  // an ESCALATION produced by a git failure, and it is the same endpoint
+  // loom#1338 reached from the symlink-probe side ("a nuked repo pinned at L1
+  // was handed back fresh-repo-L5"). This branch is the second, independent
+  // validator learning the dimension, per `rules/security.md` §
+  // Enforcement-Surface Parity — one control, both surfaces, ranked TIGHTEST.
+  if (stateDirIndeterminate) {
+    return {
+      disposition: "corrupt-L1",
+      reason:
+        "trust-state directory is INDETERMINATE — git could not identify the main checkout, so the probed state paths are not known to be this repository's; fail-closed to L1",
+    };
+  }
   //
   // loom#1338: an attacker-planted NON-REGULAR entry at any probed state path is
   // itself a corruption signal and outranks every benign disposition below.

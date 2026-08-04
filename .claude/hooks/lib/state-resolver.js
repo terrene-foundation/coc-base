@@ -11,6 +11,59 @@
  *   3. FALLBACK (common-dir unavailable/errors): superproject → worktree-list
  *      scan (excluding BOTH .claude/worktrees/ AND durable sibling worktrees)
  *   4. git rev-parse --show-toplevel (single-checkout case)
+ *   5. NONE OF THE ABOVE ANSWERED — the resolution is INDETERMINATE and is
+ *      flagged as such (see § INDETERMINATE below). It is NOT an answer.
+ *
+ * § INDETERMINATE — why exhausting the chain is not a fallback (loom#1471 F7)
+ *
+ *   Steps 2–4 all failing means git did not identify a main checkout: the
+ *   binary would not resolve, or every probe exited non-zero (not a repo;
+ *   `detected dubious ownership`; a corrupt repo; a timeout). The former shape
+ *   returned `startCwd` there and called it a fallback, on the reasoning that
+ *   resolving "within the caller's own cwd never widens trust". That reasoning
+ *   was wrong, and resolving within cwd IS the widening. Measured:
+ *
+ *     PROBE   (non-repo dir):  resolveMainCheckout -> <the cwd itself>
+ *                              discriminateState   -> fresh-repo-L5
+ *     CONTROL (real worktree): resolveMainCheckout -> /Users/esperie/repos/loom
+ *                              discriminateState   -> use-cache
+ *
+ *   `resolveStateDir` then points the substrate at `<cwd>/.claude/learning`,
+ *   which is empty, and an empty state dir reads to `posture-v2.js`'s
+ *   `fresh-repo-L5` — the MOST PERMISSIVE floor on the ladder (operative
+ *   posture = min(operator, repo_floor), so an L5 floor constrains nothing).
+ *   A git that could not answer therefore PROMOTED the repo floor. Same
+ *   endpoint as loom#1338 ("a nuked repo pinned at L1 was handed back
+ *   fresh-repo-L5"), reached through the git-resolution path rather than the
+ *   symlink-probe path — `rules/security.md` § Enforcement-Surface Parity: one
+ *   control, two independent validators, one of them blind.
+ *
+ *   So the indeterminate case is now DISTINGUISHABLE from "git said cwd is the
+ *   toplevel" (both previously produced `startCwd`) and is ranked TIGHTEST by
+ *   its consumers, per that same rule's fail-closed direction. `path` is still
+ *   populated with `startCwd` so ~20 hook call sites keep a usable string, but
+ *   `indeterminate: true` travels with it and trust-state consumers refuse.
+ *
+ * § F8 — gitEnv() discards `safe.directory`, and that stays (loom#1471)
+ *
+ *   `gitEnv()` sets GIT_CONFIG_NOSYSTEM=1 + GIT_CONFIG_GLOBAL/SYSTEM=devNull.
+ *   git honours `safe.directory` ONLY from system/global config (deliberately —
+ *   repo-local config is attacker-controlled), so it is discarded here, and on a
+ *   differently-owned checkout (container bind-mount, CI runner, shared clone)
+ *   every probe fatals with `detected dubious ownership`.
+ *
+ *   DECISION: keep discarding it; do NOT restore global config and do NOT pass
+ *   `-c safe.directory=*`. Restoring global config reopens the entire
+ *   attacker-config class this module exists to close. `safe.directory=*` is
+ *   narrower but still lets git read the repo-LOCAL config of a foreign-owned
+ *   repo, which carries command-valued keys — trading a availability problem for
+ *   an execution one. The correct mitigation is the one above: the ownership
+ *   fatal is INDETERMINATE, and indeterminate now fails CLOSED to L1 instead of
+ *   escalating to L5. Residual, stated plainly: on such a host the trust
+ *   substrate pins to L1 with a loud reason naming the git error, and the
+ *   operator clears it by owning the checkout, adding it to a repository-scoped
+ *   config git will read, or setting CLAUDE_TRUST_STATE_DIR. That is an
+ *   availability cost paid in the safe direction.
  *
  * Why common-dir is the primary (and the exclusion heuristic is NOT):
  *   `git rev-parse --git-common-dir` returns the SHARED git dir. A linked
@@ -25,17 +78,69 @@
 
 const fs = require("fs");
 const path = require("path");
-const { execSync } = require("child_process");
+const { execFileSync } = require("child_process");
+const { resolveGitBinary, gitEnv } = require(
+  path.join(__dirname, "git-subprocess-env.js"),
+);
 
-function safeExec(cmd, cwd) {
+// loom#1471. `resolveMainCheckout` is THE anchor for the trust-state substrate:
+// `resolveStateDir` returns `<main>/.claude/learning`, which is where posture.json,
+// violations.jsonl and coordination-log.jsonl live (state-io.js:818→828, :1035,
+// :1280). The former shape — `execSync("git rev-parse …")` with no `env:` — handed
+// the child the AMBIENT environment, and `GIT_DIR` outranks repository DISCOVERY,
+// so `cwd` did NOT pin which repository answered: one ambient variable relocated the
+// entire substrate to an attacker's repo. Measured, not derived (test T3).
+//
+// Two changes, closing two distinct vectors: git is invoked by ABSOLUTE path (no
+// PATH lookup) with an arg ARRAY (no shell), and the env is built from constants by
+// `gitEnv()` so nothing is inherited.
+// How long a single git probe may take before it counts as no answer. A hung
+// git would otherwise wedge the hook; with the bound it becomes an ordinary
+// INDETERMINATE, which now fails closed.
+const GIT_TIMEOUT_MS = 5000;
+
+/** Collapse git's stderr to one short, single-line clause for the reason. */
+function firstLine(buf) {
+  const s = (buf == null ? "" : String(buf)).trim();
+  if (!s) return "";
+  return s.split("\n")[0].slice(0, 200);
+}
+
+/**
+ * Run one git probe.
+ *
+ * Returns `{ok: true, value}` when git RAN AND EXITED ZERO — `value` may still
+ * be the empty string, which is git answering with nothing and is a different
+ * event from git not answering. Returns `{ok: false, reason}` when the binary
+ * would not resolve, the probe exited non-zero, or it timed out.
+ *
+ * The distinction is the whole point: the caller can no longer confuse "git
+ * identified this cwd" with "git could not answer" (§ INDETERMINATE above).
+ * `reason` carries git's own first stderr line so the operator sees
+ * `detected dubious ownership` rather than a generic failure.
+ */
+function safeExec(args, cwd) {
+  const gitBin = resolveGitBinary();
+  if (!gitBin) {
+    return { ok: false, reason: "git binary did not resolve" };
+  }
   try {
-    return execSync(cmd, {
+    const out = execFileSync(gitBin, args, {
       cwd,
       encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-  } catch {
-    return "";
+      // stderr is CAPTURED, not discarded, so the indeterminate reason can name
+      // the actual git error instead of leaving the operator to guess.
+      stdio: ["ignore", "pipe", "pipe"],
+      env: gitEnv(),
+      timeout: GIT_TIMEOUT_MS,
+    });
+    return { ok: true, value: String(out).trim() };
+  } catch (e) {
+    const detail = firstLine(e && e.stderr) || firstLine(e && e.message);
+    return {
+      ok: false,
+      reason: `git ${args[0]} failed${detail ? `: ${detail}` : ""}`,
+    };
   }
 }
 
@@ -134,11 +239,28 @@ function _warnRefusedTrustStateDir(raw, reason) {
   }
 }
 
-function resolveMainCheckout(cwd) {
+/** A resolution that identified a main checkout. */
+function determinate(p, source) {
+  return { path: p, indeterminate: false, source, reason: null };
+}
+
+/**
+ * Resolve the main checkout AND report whether git actually identified it.
+ *
+ * @returns {{path: string, indeterminate: boolean, source: string, reason: string|null}}
+ *   `indeterminate: true` means NO probe answered — `path` is `startCwd` purely
+ *   so callers keep a string, and it is NOT a claim about which repo that is.
+ *   Trust-state consumers MUST refuse rather than read it (§ INDETERMINATE).
+ */
+function resolveMainCheckoutDetailed(cwd) {
+  // The override stays behind #1444's containment predicate. The INDETERMINATE
+  // contract added here changes only what a git that CANNOT answer reports; it
+  // does not re-open the env seam, so the validated-or-refused shape below is
+  // carried through verbatim rather than reduced back to a bare dirname().
   const rawStateDir = process.env.CLAUDE_TRUST_STATE_DIR;
   if (rawStateDir) {
     const validRoot = _validatedTrustStateRoot(rawStateDir);
-    if (validRoot) return validRoot;
+    if (validRoot) return determinate(validRoot, "env-override");
     _warnRefusedTrustStateDir(
       rawStateDir,
       "not the canonical <root>/.claude/learning of a real git checkout",
@@ -146,14 +268,19 @@ function resolveMainCheckout(cwd) {
     // FALL THROUGH (fail closed): ignore the redirect and resolve deterministically.
   }
   const startCwd = cwd || process.cwd();
+  // Every probe's failure reason, in order, so the operator sees WHY git could
+  // not answer rather than a bare "indeterminate".
+  const failures = [];
 
   // PRIMARY (deterministic): the shared git-common-dir identifies the MAIN
   // checkout unambiguously. For a linked worktree it is <main>/.git; for a
   // plain checkout it is `.git` (relative) → resolves to <top>/.git. In both
   // cases the main top-level is the parent of the common dir when it ends in
   // `.git`. No ordering/exclusion heuristic is load-bearing here.
-  const commonDir = safeExec("git rev-parse --git-common-dir", startCwd);
-  if (commonDir) {
+  const common = safeExec(["rev-parse", "--git-common-dir"], startCwd);
+  if (!common.ok) failures.push(common.reason);
+  if (common.ok && common.value) {
+    const commonDir = common.value;
     const absCommon = path.isAbsolute(commonDir)
       ? commonDir
       : path.resolve(startCwd, commonDir);
@@ -170,10 +297,11 @@ function resolveMainCheckout(cwd) {
           // already realpath's) — uniform return semantics across every branch,
           // so a caller that string-compares the path never sees a
           // /var vs /private/var spelling split between main + worktree sessions.
-          return fs.realpathSync(mainTop);
+          return determinate(fs.realpathSync(mainTop), "git-common-dir");
         }
-      } catch {
+      } catch (e) {
         // stat/realpath failed — fall through to the heuristic fallback below.
+        failures.push(`common-dir validation failed: ${e.message}`);
       }
     }
   }
@@ -183,28 +311,121 @@ function resolveMainCheckout(cwd) {
   // BOTH agent-isolation AND durable sibling worktrees so the heuristic can
   // no longer mis-select a sibling as main.
   const sup = safeExec(
-    "git rev-parse --show-superproject-working-tree",
+    ["rev-parse", "--show-superproject-working-tree"],
     startCwd,
   );
-  if (sup) return sup;
+  if (!sup.ok) failures.push(sup.reason);
+  if (sup.ok && sup.value) return determinate(sup.value, "git-superproject");
 
-  const wtList = safeExec("git worktree list --porcelain", startCwd);
-  if (wtList) {
-    const blocks = wtList.split("\n\n");
+  const wtList = safeExec(["worktree", "list", "--porcelain"], startCwd);
+  if (!wtList.ok) failures.push(wtList.reason);
+  if (wtList.ok && wtList.value) {
+    const blocks = wtList.value.split("\n\n");
     for (const block of blocks) {
       const m = block.match(/^worktree\s+(.+)$/m);
       if (m && !isNonMainWorktreePath(m[1])) {
-        return m[1];
+        return determinate(m[1], "git-worktree-list");
       }
     }
   }
 
   // Fallback: current toplevel (single-checkout case)
-  const top = safeExec("git rev-parse --show-toplevel", startCwd);
-  if (top) return top;
+  const top = safeExec(["rev-parse", "--show-toplevel"], startCwd);
+  if (!top.ok) failures.push(top.reason);
+  if (top.ok && top.value) return determinate(top.value, "git-show-toplevel");
 
-  // No git context — return cwd, caller may fail-closed
-  return startCwd;
+  // INDETERMINATE. Not "no git context, so cwd" — we did not identify a main
+  // checkout at all, and saying `startCwd` without saying so is what escalated
+  // the floor to L5 (§ INDETERMINATE). The path is returned for callers that
+  // only need a string; the flag is what trust-state consumers act on.
+  return {
+    path: startCwd,
+    indeterminate: true,
+    source: "indeterminate",
+    reason:
+      `git could not identify a main checkout from ${startCwd}` +
+      (failures.length ? ` — ${failures.join("; ")}` : ""),
+  };
+}
+
+/**
+ * THE accessor for any caller that makes a TRUST decision from the repo root.
+ *
+ * @returns {{ok: true, repoDir: string} | {ok: false, reason: string}}
+ *
+ * WHY THIS EXISTS AS A SEPARATE FUNCTION rather than a flag callers remember to
+ * check. The idiom every guard reached for was:
+ *
+ *     const repoDir = resolveMainCheckout(sessionCwd) || sessionCwd;
+ *
+ * which READS as defensive and CANNOT fire — the legacy accessor never returns
+ * a falsy value on the indeterminate path, it returns `startCwd`. In
+ * `integrity-guard.js` that `repoDir` fed `isCoordinationEnabled(repoDir)`, and
+ * on false the guard called `passthrough()`: an indeterminate resolution handed
+ * the guard an attacker-choosable cwd with no roster and no genesis, and the
+ * whole fence turned ITSELF off. Measured, with a control returning the other
+ * answer — CONTROL (real worktree) enabled=true, fence runs; PROBE (git cannot
+ * answer) enabled=false, passthrough().
+ *
+ * A boolean on a result object would have left that idiom writable. A separate
+ * accessor whose failure branch has no path back to `passthrough()` does not.
+ * `rules/security.md` § Enforcement-Surface Parity — ONE shared function, so the
+ * surfaces cannot drift into disagreeing about what indeterminate means.
+ *
+ * NOTE the asymmetry this preserves: a determinate resolution of a genuinely
+ * un-enrolled repo STILL yields `ok: true`, so the MO-OPT opt-in gate (a solo /
+ * fresh repo pays nothing) is byte-unchanged. Only "git could not answer" is
+ * refused. That distinction is the entire reason the flag is a separate
+ * dimension from the coordination-enabled read.
+ */
+function requireMainCheckout(cwd) {
+  const r = resolveMainCheckoutDetailed(cwd);
+  if (r.indeterminate) return { ok: false, reason: r.reason };
+  return { ok: true, repoDir: r.path };
+}
+
+/**
+ * Path-only view of `resolveMainCheckoutDetailed`, unchanged in shape.
+ *
+ * LEGACY. It silently returns `startCwd` when git could not answer, which is
+ * the fail-open shape described on `requireMainCheckout` above. It survives ONLY
+ * for callers that join a path or write telemetry — never for a caller that
+ * gates on the result. That boundary is not a convention: it is enforced by
+ * `tests/integration/multi-operator/trust-resolver-fail-closed-1471.test.js`,
+ * which holds the exact allowlist of files permitted to call this and reds on
+ * any addition. Trust-bearing callers MUST use `requireMainCheckout`.
+ */
+function resolveMainCheckout(cwd) {
+  return resolveMainCheckoutDetailed(cwd).path;
+}
+
+/**
+ * Resolve the trust-state dir AND carry the resolution's determinacy forward.
+ *
+ * @returns {{path: string, indeterminate: boolean, source: string, reason: string|null}}
+ */
+function resolveStateDirDetailed(cwd) {
+  // ASYMMETRY, DELIBERATE AND LOAD-BEARING — do not "fix" it without reading
+  // this. `resolveMainCheckout` puts $CLAUDE_TRUST_STATE_DIR through #1444's
+  // containment predicate (which requires a REAL git checkout at <root>); this
+  // function honors the raw value. Routing both through the predicate was tried
+  // here and reverted: it refuses every fixture whose root is a bare temp dir
+  // with no `.git`, which is the documented in-use test seam #1444 explicitly
+  // preserved, and it reddened 26 state-io cases plus 4 sibling suites.
+  // The residual is bounded by the layer above, not by this function:
+  // CLAUDE_TRUST_STATE_DIR is in the settings.json deny-set
+  // (settings-deny-guard-shape.js), and a HOST env export is outside the #1309
+  // trust boundary by design. Tracked as a finding rather than closed here.
+  if (process.env.CLAUDE_TRUST_STATE_DIR) {
+    return determinate(process.env.CLAUDE_TRUST_STATE_DIR, "env-override");
+  }
+  const main = resolveMainCheckoutDetailed(cwd);
+  return {
+    path: path.join(main.path, ".claude", "learning"),
+    indeterminate: main.indeterminate,
+    source: main.source,
+    reason: main.reason,
+  };
 }
 
 // DELIBERATELY NOT VALIDATED — and this asymmetry with resolveMainCheckout is a
@@ -236,24 +457,67 @@ function resolveMainCheckout(cwd) {
 // Manufacturing a weak proxy here (e.g. "the directory exists") would be a fence
 // an attacker steps over with one mkdir, which is worse than a named gap.
 //
-// RESIDUAL, stated plainly: an attacker who can set $CLAUDE_TRUST_STATE_DIR can
-// still redirect where state is WRITTEN. The READ side already fails closed
-// (state-io returns L1_PSEUDO_AGENT with _fail_closed on relocated/unreadable
-// state), and the settings-channel ADD is now denylisted. Closing the write side
-// requires migrating the ~10 sandboxes onto a sanctioned isolation seam and is
-// tracked as the follow-on shard, NOT claimed closed here.
+// RESIDUAL, stated plainly — and narrower than an earlier draft of this comment
+// claimed. An attacker who can set $CLAUDE_TRUST_STATE_DIR redirects where state
+// is WRITTEN, and the READ side is NOT closed against them either.
+//
+// What the read side actually rejects is a SYMLINKED ANCESTOR:
+// `state-io.js::_assertStateDirContained` anchors on `dirname(dirname(dir))`,
+// realpaths that, and re-joins the two known trailing components. That is
+// SELF-RELATIVE — it proves the directory was not reached through a symlink. It
+// does NOT tie the directory to this repository, and nothing downstream does
+// either: an override is `determinate`, so it never trips the indeterminate
+// refusal. A real, symlink-free `/tmp/attacker/.claude/learning` holding a
+// planted posture.json therefore passes containment and IS read.
+//
+// So "fails closed on relocated state" means symlink-relocated ONLY. A reviewer
+// reading the earlier wording would conclude reads were safe and only writes
+// leaked; that was an over-claim, and this series' whole argument is that
+// residuals get written down rather than argued away.
+//
+// The mitigations that DO hold are one layer up, not here: the settings-channel
+// ADD is denylisted, and a HOST env export is outside the #1309 trust boundary
+// by design. Closing this properly requires migrating the ~10 sandboxes onto a
+// sanctioned isolation seam — the follow-on shard, NOT claimed closed here.
 function resolveStateDir(cwd) {
-  if (process.env.CLAUDE_TRUST_STATE_DIR) {
-    return process.env.CLAUDE_TRUST_STATE_DIR;
-  }
-  const main = resolveMainCheckout(cwd);
-  return path.join(main, ".claude", "learning");
+  return resolveStateDirDetailed(cwd).path;
 }
 
+// One WARN per process, not per call — hooks resolve the state dir many times
+// per session and a per-call warning would bury the signal it exists to raise.
+let _indeterminateWarned = false;
+
+/**
+ * Create and return the state dir.
+ *
+ * Under an INDETERMINATE resolution this still creates the directory — callers
+ * such as `detect-violations.js` are mid-append and throwing here would take
+ * the hook down (`zero-tolerance.md` Rule 3) — but it is NOT silent: whatever
+ * gets written lands somewhere we could not confirm is this repo's state, so
+ * the operator is told once, loudly, with git's own error. The trust DECISION
+ * is refused separately and unconditionally in `state-io.js::readPosture`.
+ */
 function ensureStateDir(cwd) {
-  const dir = resolveStateDir(cwd);
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
+  const res = resolveStateDirDetailed(cwd);
+  if (res.indeterminate && !_indeterminateWarned) {
+    _indeterminateWarned = true;
+    console.error(
+      `[STATE-RESOLVER] WARNING: trust-state directory is INDETERMINATE — ${res.reason}. ` +
+        `Writes are going to ${res.path}, which is NOT confirmed to be this repository's ` +
+        `trust state; posture reads fail closed to L1 until git can answer. Fix the git ` +
+        `error above (a differently-owned checkout reports "detected dubious ownership") ` +
+        `or set CLAUDE_TRUST_STATE_DIR explicitly.`,
+    );
+  }
+  fs.mkdirSync(res.path, { recursive: true });
+  return res.path;
 }
 
-module.exports = { resolveMainCheckout, resolveStateDir, ensureStateDir };
+module.exports = {
+  resolveMainCheckout,
+  resolveMainCheckoutDetailed,
+  requireMainCheckout,
+  resolveStateDir,
+  resolveStateDirDetailed,
+  ensureStateDir,
+};

@@ -5,7 +5,30 @@
 import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import { resolveOverlay, loadManifestVariants } from "../../bin/lib/variant-overlay.mjs";
+import { requireRepoClass } from "../_lib/repo-class.mjs";
+
+// Overlay resolution is a DISTRIBUTION-time concern: it decides which variant of
+// an artifact each downstream axis receives, and it is driven entirely by
+// `.claude/sync-manifest.yaml`, which exists only at loom. A consumer repo
+// receives already-composed artifacts and never resolves an overlay.
+// Gated on repo CLASS, not on manifest existence — at loom, a missing manifest
+// must still fail loudly rather than skip.
+requireRepoClass(
+  ["coc-source"],
+  "variant overlays are resolved at loom during /sync from .claude/sync-manifest.yaml; consumer repos receive composed artifacts and never run this path.",
+);
+
+// Dynamic, and deliberately AFTER the gate. A static import resolves during
+// LINKING — before any statement in this module executes — so the gate above
+// could never run first, and a consumer that has not received
+// `.claude/bin/lib/variant-overlay.mjs` would crash with ERR_MODULE_NOT_FOUND
+// where it should quietly skip. That module happens to be on the sync
+// always-include allowlist today, which is exactly why the static form looked
+// harmless: it would fail only on the sync that dropped it, in a repo class
+// where this suite does not apply.
+const { resolveOverlay, loadManifestVariants } = await import(
+  "../../bin/lib/variant-overlay.mjs"
+);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
