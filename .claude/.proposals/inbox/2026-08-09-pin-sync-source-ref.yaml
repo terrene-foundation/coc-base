@@ -1,0 +1,52 @@
+# NO source_repo — hop-level-only provenance (downstream consumer deliberately not identified).
+origin: downstream
+codify_date: 2026-08-09
+codify_session: "fix(sync-from-template): pin the source ref — a downstream sync must not read the upstream's working tree"
+template_slug: coc-base
+template_version: "2.46.0"
+loom_sha: "43167a54"
+changes:
+  - file: .claude/commands/sync-from-template.md
+    action: modified
+    base_version: "2.46.0"
+    reason: >
+      Step 1 resolves the upstream template from `.claude/.coc-sync-marker` (template repo +
+      version) but never specifies WHICH REF of that template to sync from. Followed literally
+      against a local upstream checkout, the merge reads that checkout's WORKING TREE. Two silent
+      failure modes follow, both observed in a real 2nd-cycle downstream sync:
+
+      (a) STALE-CHECKOUT NO-OP — a local upstream checkout's HEAD can sit well behind its own
+      `origin/main`; in the observed case 9 commits and a full minor version (HEAD at v2.45.9 while
+      `origin/main` was v2.46.0). A working-tree sync then diffs against artifacts the consumer
+      already holds, reports a near-zero-change result, and the consumer concludes it is current —
+      while a whole version of upstream artifacts (there: 7 new rules and a new command) never
+      landed. The failure is silent because a no-op sync and an already-current sync are
+      indistinguishable in the command's output.
+
+      (b) WORKING-TREE WIP BLEED — an upstream checkout may carry uncommitted local modifications
+      (in the observed case a modified `settings.json`). A working-tree read merges that unreviewed
+      WIP into the consumer as though it were released upstream content.
+
+      Proposed change to Step 1: additionally resolve and RECORD a source REF, and require the
+      merge to read from that ref's OBJECT STORE rather than the checkout's working tree — e.g.
+      `git -C <upstream> archive <ref> .claude | tar -x -C <staging>`. Default the ref to the
+      upstream's `origin/main`, and write the resolved ref + its SHA into the consumer's
+      `.coc-sync-marker` (a `source_ref:` field) so a later cycle can tell what was actually synced.
+
+      Step 1 SHOULD additionally surface a staleness check: compare the chosen ref against the live
+      remote tip via `git ls-remote <remote> refs/heads/main` — a pure query that updates no refs
+      and mutates the upstream checkout in no way — and warn when the two diverge. This matters
+      because the locally-known `origin/main` may itself be stale, and the honest remedy (a fetch)
+      mutates a sibling repo's refs, which a downstream consumer cannot self-authorize.
+
+      Read-only export is additionally what `repo-scope-discipline.md` requires of a downstream
+      consumer, which is NOT an orchestration root: the object-store export never checks out,
+      fetches, or otherwise mutates the upstream repo, whereas a working-tree read invites the
+      consumer to treat the upstream checkout as its own.
+
+      Sibling precedent: `artifact-flow.md` § Exact Gate-1 / Gate-2 Tracking MUST-1 already mandates
+      an isolated worktree from REMOTE main for the Gate-2 OUTBOUND direction, for the same
+      collision reason ("a developer may be live in the target's local checkout"). This proposal is
+      the symmetric INBOUND twin: the downstream pull must pin its source ref exactly as the
+      outbound distribution pins its base.
+    diff_lines: "+12 -1"
