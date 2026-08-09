@@ -1,0 +1,58 @@
+# NO source_repo — hop-level-only provenance (downstream consumer deliberately not identified).
+origin: downstream
+codify_date: 2026-08-09
+codify_session: "fix(session-end): build the git-log argv, not a shell string — an unvalidated JSON field reaches execSync"
+template_slug: coc-base
+template_version: "2.46.0"
+loom_sha: "43167a54"
+changes:
+  - file: .claude/hooks/session-end.js
+    action: modified
+    base_version: "2.46.0"
+    reason: >
+      `generateJournalCandidates` builds a shell command string and passes it to the
+      shell-interpreting `execSync`, interpolating a value that is read from a JSON file
+      without validation:
+
+        rawLog = execSync(
+          `git log --since="${sessionStartIso}" --format="%H%x1f%s%x1f%b%x1e" -n 30 2>/dev/null`,
+          { cwd, encoding: "utf8", timeout: 3000 },
+        );
+
+      `sessionStartIso` defaults to a computed ISO timestamp, but is overridden by
+      `data.startedAt` taken from `JSON.parse(fs.readFileSync(sessionFile))` with no shape
+      or format check. A `startedAt` value containing a double quote terminates the
+      `--since="..."` argument and the remainder is interpreted by the shell.
+
+      SEVERITY IS LOW AND STATED HONESTLY: reaching this requires write access to the CC
+      session directory, and an actor with that access already has local code execution, so
+      this is not a privilege boundary. It is reported as defense-in-depth, not as an
+      exploitable escalation.
+
+      It is nonetheless worth fixing for three reasons. (1) It is the ONLY shell-string
+      interpolation of an externally-sourced value in the hook corpus — a downstream audit
+      of 61 added/modified hook and bin scripts found 69 of 71 subprocess call-sites already
+      using the argv-form `execFileSync`/`spawnSync`, zero `shell:true`, and zero `eval`.
+      This one site is the outlier against an otherwise uniform and deliberate convention.
+      (2) The repo's own `security.md` § "No eval() on user input" names
+      `subprocess.call(cmd, shell=True)` as the blocked shape, and this is that shape.
+      (3) The fix is smaller than the finding.
+
+      Proposed: pass argv and drop the shell entirely —
+
+        const { execFileSync } = require("child_process");
+        rawLog = execFileSync("git", [
+          "log", `--since=${sessionStartIso}`,
+          "--format=%H%x1f%s%x1f%b%x1e", "-n", "30",
+        ], { cwd, encoding: "utf8", timeout: 3000, stdio: ["ignore", "pipe", "ignore"] });
+
+      This removes the quoting surface entirely (argv needs no `--since="…"` quotes) and
+      `stdio` discards stderr, replacing the `2>/dev/null` the shell string was carrying.
+      Optionally also validate `data.startedAt` against an ISO-8601 shape before use and
+      fall back to the computed default, so a malformed session file degrades rather than
+      propagating a junk `--since`.
+
+      Sibling precedent already in this file: `state-resolver.js::safeExec` passes only
+      literal git commands and routes `cwd` through the options object rather than the
+      command string — the same discipline, applied consistently everywhere except here.
+    diff_lines: "+9 -5"
