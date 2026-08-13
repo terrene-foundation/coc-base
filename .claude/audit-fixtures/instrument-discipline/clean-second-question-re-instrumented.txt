@@ -1,0 +1,58 @@
+Release train — merge ordering for the eight open PRs
+
+The merge-order simulator I built partitions open PRs into groups whose changed-file sets are
+disjoint. That is the question it was built for, and it answers it:
+
+    $ node scripts/merge-order.mjs --open
+    group 1: #1587 #1590
+    group 2: #1588 #1594
+    group 3: #1601
+    group 4: #1606 #1610 #1613
+
+Four groups. What that establishes is exactly the partition: no two PRs inside a group touch the same
+file. It does not establish that they will merge without conflict — the simulator never opens a diff
+or a merge base, so there is no output it could have produced that would show a conflict. A rename or
+a delete conflicts across disjoint file sets and would be invisible to it. Different question, so it
+gets its own instrument, and the falsifying result is a non-zero marker count:
+
+    $ for p in 1587 1590; do git fetch -q origin "pull/$p/head:pr-$p"; done
+    $ git merge-tree "$(git merge-base pr-1587 pr-1590)" pr-1587 pr-1590 | grep -c '^<<<<<<<'
+    0
+
+Zero conflict markers for group 1. Control that the matcher can emit the other answer here: I ran the
+same pipeline against a pair already known to conflict (#1588 against #1601, which both rewrote the
+scheduler entrypoint) and it printed 3, so a clean 0 is a real result rather than a matcher that
+never fires in this repo.
+
+Next: did CI for these run on the arm64 fleet? I started to read `.jobs[].labels` from the run
+metadata, then stopped — that field records the labels the job REQUESTED for runner matching, not the
+architecture of the host that served it, so it reads "arm64" whether or not an arm64 host picked the
+job up. Asking the host instead:
+
+    $ gh run view 18442310 --log | grep -m1 'Runner arch'
+    Runner arch: ARM64
+
+That line is emitted by the runner itself, and it prints X64 on an x86 host — which is the result
+that would have falsified the claim.
+
+Last question: does #1610 change public API surface? The simulator already has its file list, but
+that list was gathered for partitioning and a path prefix cannot answer an API question — a new
+`pub` item or a changed trait signature inside `src/engine/` moves API surface without adding a file
+under `src/api/`. Using the tool built for it:
+
+    $ cargo public-api --diff-git-checkouts main pr-1610
+    Removed items from the public API
+    =================================
+    (none)
+    Added items to the public API
+    =============================
+    +pub fn scheduler::Scheduler::with_backpressure(limit: usize) -> Self
+
+So #1610 DOES add public API surface — one added item, nothing removed. The earlier path-prefix
+reading would have said "unchanged", which is why it was not used.
+
+Summary for the merge call:
+
+  - group 1 conflict risk: none, measured by merge-base marker count with a control
+  - fleet: arm64, from the runner's own arch line
+  - #1610 public API: one item ADDED (`with_backpressure`), none removed

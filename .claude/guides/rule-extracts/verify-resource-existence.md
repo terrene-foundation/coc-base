@@ -172,4 +172,4 @@ Convergence claims are the highest-leverage claims a closure document makes — 
 
 ### Origin (MUST-4)
 
-2026-05-09 stale-workspace disposition convergence cycle — Round 4 analyst flagged R4-M1 (no live receipt mechanism for prior redteam rounds; convergence claim rested on self-attestation in `.session-notes:20`). Routed via `journal/.pending/0003-DISCOVERY-phantom-citation-chain-and-redteam-round-history.md` § R4-M1 carry-over routing; landed as MUST-4 in the main rule. The journal entry IS the kind of durable receipt MUST-4 requires.
+2026-05-09 stale-workspace disposition convergence cycle — Round 4 analyst flagged R4-M1 (no live receipt mechanism for prior redteam rounds; convergence claim rested on self-attestation in `.session-notes:20`). Routed via the then-pending `.pending/0003` slot, since promoted to the committed `journal/0064-DISCOVERY-phantom-citation-chain-and-redteam-round-history.md` § R4-M1 carry-over routing; landed as MUST-4 in the main rule. The journal entry IS the kind of durable receipt MUST-4 requires.

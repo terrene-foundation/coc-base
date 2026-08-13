@@ -1,0 +1,16 @@
+<!--
+  Shared-ledger form with an OPEN row whose `value_anchor` is EMPTY — an L2
+  violation and a `value-prioritization.md` MUST-2 violation.
+
+  This is the COLUMN-SHIFT regression case. The shared shape is 5-column
+  (`| ID | owner | item | value_anchor | status |`) while the positional
+  contract reads the anchor at index 2 — which is `item` here. Read
+  positionally, F1's non-empty `item` would satisfy the anchor check and this
+  file would pass, silently. The row MUST be flagged.
+-->
+
+# Forest Ledger
+
+| ID | owner | item | value_anchor | status |
+| --- | --- | --- | --- | --- |
+| F1 | op-a | multi-CLI BUILD scaffold |  | BLOCKED |

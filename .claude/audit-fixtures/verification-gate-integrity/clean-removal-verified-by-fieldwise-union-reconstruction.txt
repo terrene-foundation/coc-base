@@ -1,0 +1,37 @@
+Session transcript — resolving the S24 integration merge
+
+Same modify/delete on the deprecation registry. Before resolving anything I captured BOTH
+input states, because the merge destroys the only authority that can answer the removal
+question:
+
+    $ git show main:scripts/ci/deprecation-window-registry.json           > /tmp/A.json
+    $ git show chore/s24-integration-b:scripts/ci/deprecation-window-registry.d/ -- > /tmp/B.json
+
+Then I resolved, and verified by union-reconstruction rather than by re-running the gate.
+Every row present on either input must be present in the output, matched per key AND
+compared field-wise across `status`, evidence citation, `window` and `due_in` — a count is
+not a set, and a set of keys is not the rows, so a row surviving with a mangled `status`
+passes a key-set diff and is still a loss:
+
+    $ python3 /tmp/union-check.py --a /tmp/A.json --b /tmp/B.json --out scripts/ci/deprecation-window-registry.d/
+    keys:   20 in (union), 20 out, 0 missing
+    fields: 20 compared, 0 mismatched
+    executed rows: 8 in, 8 out
+    OK
+
+The union check is itself an instrument, so I showed it can go red before believing it —
+dropped one row from the reconstructed output, confirmed it reported, then restored it;
+and separately mangled one row's `status` to confirm the field-wise half has its own arm:
+
+    $ python3 /tmp/union-check.py ... --drop-one DEP-0007
+    MISSING KEY: DEP-0007          -> exit 1
+    $ python3 /tmp/union-check.py ... --mangle-status DEP-0011
+    FIELD MISMATCH: DEP-0011.status "executed" -> "pending"    -> exit 1
+
+Its first version over-collected a fixtures directory and reported three phantom losses,
+so the control also caught an over-match in the check itself before I relied on it.
+
+I also ran the deprecation-window gate, and it passed. That is not the removal
+verification and I am not counting it as one — the gate's question quantifies over the
+rows that exist, so a deleted row cannot make it fail. The union check is the additive
+instrument that can see removal; the gate still runs and still means what it always meant.

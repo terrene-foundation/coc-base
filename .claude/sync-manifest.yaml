@@ -130,6 +130,17 @@ cli_emit_exclusions:
     # legacy per-CLI emission.
     - agents/codex-architect.md
     - agents/cli-orchestrator.md
+    # variant_only artifacts reach the CC lane ONLY. The per-CLI emitter reads the
+    # GLOBAL agents/ tree; a variant_only file lives under variants/<lang>/ and is
+    # ADDED to the target by the sync overlay, so the emitter never sees it and it
+    # silently reaches no non-CC lane. Declared here so the CC-only fate is stated
+    # rather than silent (Gate-1 USE-py item 9; "either is acceptable, silence is
+    # not"). Measured on a fresh --target py emit: infrastructure-specialist absent
+    # from codex/prompts/ AND gemini/agents/, control dataflow present on both.
+    # This is the DECLARATION half only; feeding variant_only into the per-CLI
+    # corpus is emitter work tracked with the A2/A3/A5/A6/A7/A8 workstream.
+    # Glob MUST stand alone (no inline comment) per the contract above.
+    - agents/frameworks/infrastructure-specialist.md
     - rules/cc-artifacts.md
     - guides/claude-code/**
     - commands/cc-audit.md
@@ -156,6 +167,12 @@ cli_emit_exclusions:
     # legacy per-CLI emission.
     - agents/gemini-architect.md
     - agents/cli-orchestrator.md
+    # variant_only artifacts reach the CC lane ONLY — mirror of the codex entry
+    # above; see its comment for the mechanism and the measurement (Gate-1 USE-py
+    # item 9). Declared on BOTH per-CLI lists because the drop is symmetric: the
+    # emitter's blindness to variants/ is not CLI-specific.
+    # Glob MUST stand alone (no inline comment) per the contract above.
+    - agents/frameworks/infrastructure-specialist.md
     - rules/cc-artifacts.md
     - guides/claude-code/**
     - commands/cc-audit.md
@@ -177,7 +194,7 @@ cli_emit_exclusions:
 # etc. (which DO refresh) while the per-CLI surfaces emit.mjs +
 # emit-cli-artifacts.mjs produce stay frozen at the migration version.
 #
-# Per template_type. cc-only-legacy templates (kailash-coc-claude-{py,rs,rb})
+# Per template_type. cc-only-legacy templates (kailash-coc-claude-{py,rs})
 # do NOT get top-level overlays — they ship CLAUDE.md only as a baseline
 # (already in baseline_files of repos.<target>.templates[].baseline_files).
 #
@@ -456,7 +473,20 @@ cli_variants:
       emit_to: "AGENTS.md"
       size_cap_bytes: 65536
       warn_cap_bytes: 32768 # refactoring-signal threshold
-      block_cap_bytes: 61440 # v6: raised from 40960 to match override ceiling less 4 KiB safety margin
+      # 2026-08-12, co-owner-approved: 61440 → 65536 per plan §3.2 option (b).
+      # 65536 IS the Codex `-c project_doc_max_bytes=65536` override ceiling
+      # EXACTLY, so this CONSUMES the entire remaining 4 KiB safety margin and is
+      # the LAST cap raise available on this lane — there is no option (b) after
+      # this one. Granted because the corpus measured 47 B of base-lane headroom
+      # against ~2,309 B/week of emitted growth (`bin/rule-corpus-growth.mjs`),
+      # i.e. the wall was already reached, and the parked queue is real work.
+      # PAIRED, NOT STANDALONE: the grant is conditional on tightening
+      # `rule-authoring.md` Rule 10, whose named-rationale escape (path b) is the
+      # measured leak — without that, 3,733 B refills in ~1.6 weeks and the lane
+      # is back here with no lever left.
+      # EXPIRES 2027-02-12 (6 months) — on expiry, re-measure and re-decide;
+      # do NOT roll forward silently. Same time-boxed shape as issue #1355.
+      block_cap_bytes: 65536 # v6: was 61440 (override ceiling less 4 KiB); now AT the ceiling
       headroom_floor_pct: 10 # v6.2 Risk-0004 floor — emission MUST keep ≥10% margin under block_cap; per-lang enforcement at emission time per workspaces/multi-cli-coc/02-plans/08-loom-v6.2-headroom-validator.md Shard 1
       block_cap_rationale: |
         Codex native cap is 32,768 bytes; mandatory invocation flag
@@ -549,12 +579,38 @@ cli_variants:
           # against a MEASURED 2137B emission (was 3100, which drifted to an
           # over-provision WARN after the Origin-heading normalization).
           # ±30% tolerance — same shape as issue-triage-routing.md above,
-          # INCLUDING its threshold-vs-measurement caveat: 3000 is the largest
-          # round-hundred clearing the under-WARN (floor 2100 vs measured 2137,
-          # a 37B margin), so the block ceiling (3900) grants ~1763B of un-gated
-          # growth. For a brand-new baseline rule that desensitises the drift
-          # instrument at birth — tighten if this rule starts growing.
-          "instrument-discipline.md": 3000
+          # INCLUDING its threshold-vs-measurement caveat.
+          # RE-ANCHORED 2026-08-12, 3000 -> 3400, against a MEASURED 3358B
+          # emission after MUST-4 landed (Gate-1 placement of a
+          # downstream-relayed upflow entry). MEASUREMENT anchor, not a
+          # threshold one: 3400 sits 42B above the measurement, so the
+          # under-WARN floor (2380) and the block ceiling (4420) both stay live
+          # and the drift instrument keeps its sensitivity — the opposite of the
+          # "desensitises at birth" caveat the 3000 anchor carried.
+          # Two-pole measured at placement: 3358B with MUST-4, 2837B without,
+          # so the clause costs 521B on every baseline lane.
+          # LANE CONTEXT, recorded because it bounds the next edit: this rule is
+          # baseline, so every byte lands on the codex/gemini abridged lane.
+          # CORRECTED 2026-08-12 (Tier-1 F5): an earlier revision of this comment
+          # cited "the raised cap (65536, see block_cap_bytes above)" and quoted
+          # 3735B of base-lane slack. BOTH halves were wrong. 65536 is
+          # `size_cap_bytes` (line ~474) — a DIFFERENT key; `block_cap_bytes`
+          # (line ~476) is 61440 and is what the headroom floor is computed
+          # against. The 3735B figure is arithmetically right ONLY under the
+          # unmerged block_cap raise on PR #1650. At the cap THIS FILE enforces,
+          # measured base-lane slack above the 10% floor was 47B — so the old
+          # comment overstated available headroom by ~79x, which is precisely
+          # what made a multi-KB queue look affordable. Both figures, stated so
+          # neither can be read alone:
+          #   in force here (block_cap_bytes 61440):      47B of slack
+          #   contingent on #1650 (block_cap_bytes 65536): 3735B of slack
+          # Do not cite the contingent figure as live state until #1650 merges. The PAIRED sibling clause relayed alongside MUST-4 measured
+          # 612B and is STILL DEFERRED — on sequencing, not merit, and it takes
+          # the MUST-5 slot if it is ever placed. Landing further baseline
+          # clauses needs lane-level headroom, NOT another per-rule raise: a
+          # per-rule budget raise clears the per-rule block and moves the lane
+          # floor not at all.
+          "instrument-discipline.md": 3400
           # security.md raised 6300 → 7200 at #290 bundle 2026-05-19.
           # #290's slot-parser fix unmasked the rs security.md variant
           # (silently dropped pre-fix): it carries 3 GENUINE Rust security
@@ -607,6 +663,23 @@ cli_variants:
           # that prompted this raise; fix-immediately per
           # autonomous-execution.md MUST Rule 4 (same-class gap, ≤5 LOC).
           "git.md": 6300
+          # communication.md: worked examples extracted to
+          # guides/rule-extracts/communication.md 2026-08-12 (Rule 10 path
+          # (a)); emitted 1617 → 1353 B, rs headroom 9.10% → 9.53%. Budget
+          # left at 1800 — it still clears the measured emission with margin.
+          #
+          # A co-owner-approved DEMOTION to path-scoped is PARKED here, and
+          # the reason is recorded so it is not re-derived a fourth time.
+          # Demoting frees 1,617 B of baseline emission (rs 9.10% → 11.73%,
+          # clearing the #1355 2026-10-31 expiry without raising the 61,440 B
+          # cap) — but the rule then joins EVERY path-scoped profile and
+          # breaches two: workspace-note 411,021 B vs a 410,135 B ceiling and
+          # consumer-sdk-src 177,158 B vs 176,687 B. So the two budget gates
+          # are jointly saturated: this demotion BUYS emission by SPENDING
+          # injection, and injection has no room to spend. Correct order —
+          # free injection room first (the `paths: ["**/*"]` broad-load
+          # giants are the lever), then demote. Trimming the rule further to
+          # fit was rejected as de-scoping wearing an extraction's name.
           "communication.md": 1800
           # evidence-first-claims.md added 2026-06-11 (Gate-1 ingest,
           # rs-stream EVIDENCE-FIRST-CLAIMS placement). Authored compact
@@ -619,11 +692,26 @@ cli_variants:
           # guides/rule-extracts/autonomous-execution.md). Budget 4400, set against
           # a MEASURED 3117B emission (2026-07-30 re-anchor; was 5500, set against an
           # earlier 5336B emission that the Origin-heading normalization reduced).
-          # Same threshold-vs-measurement caveat as the two rules above: 4400 is
+          # Same threshold-vs-measurement caveat as the two rules above: 4400 was
           # the largest round-hundred clearing the under-WARN (floor 3080 vs
-          # measured 3117, a 37B margin), so the block ceiling (5720) grants
+          # measured 3117, a 37B margin), so the block ceiling (5720) granted
           # ~2603B of un-gated growth — the widest of the three.
-          "evidence-first-claims.md": 4400
+          # RE-ANCHORED 2026-08-12, 4400 -> 5100, against a MEASURED 5010B
+          # emission after MUST-5 + MUST-6 landed, the four per-bullet `**Why:**`
+          # lines were restored to the MUST NOT block (Tier-1 security-lens
+          # MEDIUM-2), a fifth MUST NOT bullet was added (LOW-1) and the
+          # BLOCKED-corpus claim was corrected (A6, +25B — the only emitted part
+          # of that fix; the two corpora themselves measured 0B, stripped by
+          # abridgeV6). MEASUREMENT anchor, replacing the threshold one: 5100
+          # sits 90B above the measurement, putting it near the MIDDLE of the
+          # +/-30% band (floor 3570, ceiling 6630) so BOTH directions stay
+          # live. Leaving 4400 was considered and rejected — at a 5010B
+          # measurement it puts the rule 87% of the way to its 5720 ceiling, so
+          # the growth side would fire on ~710B of ordinary edit while the shrink
+          # side (floor 3080, 1930B below live) could not fire at all. An anchor
+          # 610B under the live measurement is a mis-calibrated instrument, not a
+          # tight one.
+          "evidence-first-claims.md": 5100
           # verify-resource-existence.md DEMOTED baseline → path-scoped
           # 2026-06-08 (#408 AC#5-c, journal/0238) to free ~5,021 B baseline
           # emission across all lanes so the rs language lane can absorb the
@@ -700,7 +788,7 @@ cli_variants:
       # explicit so headroom_floor_pct lives at the single source of
       # truth instead of a regex fallback default.
       warn_cap_bytes: 32768 # mirror codex per parity contract
-      block_cap_bytes: 61440 # mirror codex per parity contract
+      block_cap_bytes: 65536 # mirror codex per parity contract (raised with it 2026-08-12; see the codex entry for the grant + its 2027-02-12 expiry)
       headroom_floor_pct: 10 # v6.2 Risk-0004 floor — parity-locked to codex per cross-cli-parity.md MUST-1
       inherit_abridgement_from: "codex"
 
@@ -757,7 +845,7 @@ cli_variants:
     # Why a new stanza rather than raising the budget: the
     # `per_rule_size_budget_bytes` map above is FLAT (rule → bytes), with no
     # lane dimension. Raising "security.md" to clear rs would hand base, py
-    # and rb the same relaxation, permanently and with no expiry, to fix an
+    # the same relaxation, permanently and with no expiry, to fix an
     # rs-only overrun. This stanza spends the relaxation only where it was
     # measured.
     #
@@ -843,7 +931,7 @@ cli_variants:
         # nobody having decided. Do NOT read a green gate here as evidence this
         # grant is load-bearing.
         #
-        # base/py/rb emit the SAME rule at 7,550 B (re-measured 2026-07-31; the
+        # base/py emit the SAME rule at 7,550 B (re-measured 2026-07-31; the
         # prior 7,775 B / 1,585 B figures here had gone stale) and are untouched
         # by this entry — they keep the flat 9,360 B ceiling and a 1,810 B margin.
         # DATE-QUALIFIED deliberately, like `granted_on` below: an unqualified
@@ -867,7 +955,7 @@ cli_variants:
         # come up for reconsideration together rather than drifting apart.
         expires: "2026-10-31"
         issue: 1355
-        rationale: "The 185 B overrun is the per-rule projection of the same root cause the headroom exception above accepts: the rs security.md overlay contributes 1,770 B of POST-ABRIDGEMENT normative content (measured 2026-07-26: rs 9,545 B vs base 7,775 B), being three Rust security MUST sections — constant-time credential comparison, fail-closed defaults, network transport hardening — each with a red-team Origin. abridgeV6 has already stripped this overlay from 4,010 B raw to 1,770 B emitted, so the code fences and Origin lines are gone and 185 B can only come out of a MUST clause or its Why. Raising the flat budget would relax base/py/rb too. The overrun is therefore accepted and ENCODED here, lane-scoped and expiring, rather than left as a standing-red gate (zero-tolerance.md Rule 1)."
+        rationale: "The 185 B overrun is the per-rule projection of the same root cause the headroom exception above accepts: the rs security.md overlay contributes 1,770 B of POST-ABRIDGEMENT normative content (measured 2026-07-26: rs 9,545 B vs base 7,775 B), being three Rust security MUST sections — constant-time credential comparison, fail-closed defaults, network transport hardening — each with a red-team Origin. abridgeV6 has already stripped this overlay from 4,010 B raw to 1,770 B emitted, so the code fences and Origin lines are gone and 185 B can only come out of a MUST clause or its Why. Raising the flat budget would relax base/py too. The overrun is therefore accepted and ENCODED here, lane-scoped and expiring, rather than left as a standing-red gate (zero-tolerance.md Rule 1)."
 
   # agents/**.md — TOML-header safety for codex-ingested agent files.
   # v3 §2.2 change: moved from regex-match to iterate+classify to
@@ -1097,6 +1185,7 @@ parity_enforcement:
       - "genesis-anchor-guard.js|mcp-guard|genesis trust-root commit guard; mirrored to shell/unified_exec (Bash-only; no edit-matcher registration)"
       - "signing-mutation-guard.js|mcp-guard|degraded-mode signing-key mutation guard; mirrored to shell/unified_exec (Bash) + apply_patch (edit matcher, @coc-codex-edit-gate marker, FF-AC6-1)"
       - "operator-gate.js|mcp-guard|multi-operator 4-eyes gate-approval; mirrored to shell/unified_exec (Bash) + apply_patch (edit matcher, @coc-codex-edit-gate marker, FF-AC6-1)"
+      - "worktree-forest-guard.js|mcp-guard|Rule-8 worktree-teardown detector + unattended reaper; mirrored to shell/unified_exec (Bash-only — its PreToolUse matcher is Bash, and its SessionEnd registration has no Codex analogue; no edit-matcher registration, so no @coc-codex-edit-gate marker). The MIRRORED (Bash/PreToolUse) surface reports only and removes nothing; the SessionEnd surface — which has no Codex analogue and is therefore NOT mirrored — reaps ZERO-LOSS worktrees via `worktree-reap.mjs --apply --zero-loss-only` (kill switch COC_WORKTREE_AUTOREAP=0, default ON)."
       # provenance (2) — per-lane delivery declared in provenance_parity above
       - "provenance-capture-prompt.js|provenance|HumanInput capture; lanes declared in provenance_parity"
       - "provenance-capture-tool.js|provenance|Action/Decision/Delegation capture; lanes in provenance_parity"
@@ -1129,6 +1218,7 @@ parity_enforcement:
       - "validate-workflow.js|cc-only|workflow validation gate; CC-workflow"
       - "wrapup-after-landing.js|cc-only|PostToolUse(Bash) wrapup-on-landing nudge on `gh pr merge`; advisory CC-workflow convenience (not a trust gate, no classifiable predicate, no @coc-codex-edit-gate) — the cross-CLI wrapup-on-landing DISCIPLINE reaches Codex/Gemini via the wave-loop.md G2 rule + release.md command emission, not this hook"
       - "session-notes-incorporation-guard.js|cc-only|PostToolUse(Bash) session-notes reconcile advisory when the operator's own fragment trails HEAD after an incorporation command (#743 W2); advisory CC-workflow (not a trust gate, no classifiable predicate, no @coc-codex-edit-gate) — the coherence DISCIPLINE reaches Codex/Gemini via the session-notes-coherence spec + wave-loop rule, not this hook"
+      - "session-notes-guard.js|cc-only|PreToolUse(Read) truncated-continuity-read block + read-order advisory, PostToolUse(Edit|Write|NotebookEdit) size-ceiling advisory; the detector for rules/session-notes-continuity.md. cc-only for a MECHANISM reason, not a policy one: its block predicate reads `limit`/`offset` off a CC Read tool call, and neither Codex nor Gemini exposes a windowed-file-read tool whose parameters a pre-tool hook could inspect — there is nothing on those lanes to mirror. Its PostToolUse edit-matcher arm is a size ADVISORY, not a trust gate, so it omits @coc-codex-edit-gate and is excluded from apply_patch by design (FF-AC6-1 AC#2). The continuity DISCIPLINE still reaches Codex/Gemini: session-notes-continuity.md carries cli_delivery:skill-channel and rides the rules-reference skill there, exactly as its LAG sibling above does."
       - "analyze-completeness-guard.js|cc-only|PreToolUse(Skill) /analyze output-completeness gate (loom#675); keys on the CC-only Skill tool + PreToolUse(Skill) matcher (no Codex/Gemini equivalent) — the rule PROSE (analyze-output-completeness.md) reaches Codex/Gemini via the coc-core-tier skill-channel; the structural hook enforcement is CC-only"
       - "settings-deny-edit-guard.js|cc-only|#1309 within-session PreToolUse(Edit|Write|NotebookEdit) guard enforcing the .claude/settings.json canonical protection shape (deny floor + functional guard-hook registrations) on the resulting bytes; CC-runtime settings.json permissions.deny has no Codex/Gemini apply_patch equivalent — not mirrored"
       - "settings-deny-drift-guard.js|cc-only|#1309 SessionStart self-heal for .claude/settings.json (restores an out-of-session-stripped deny-floor entry OR a removed guard-hook registration, from an inlined trust anchor); CC-runtime settings.json — not mirrored"
@@ -1189,6 +1279,17 @@ tiers:
     # USE template today (pre-existing from prior cycles, never formally
     # tier-classified until this entry). Loom #272 (2026-05-17 manifest
     # completeness audit, follow-up to PR #271).
+    #
+    # why: this glob ALSO carries `audit-fixtures/_lib/**` — the shared
+    # repo-class gate ingested from kailash-rs via /sync-from-build Gate-1
+    # (loom#1549). NO new manifest key was needed and none was added: the
+    # glob already resolves `_lib/repo-class.mjs` to action=copy,
+    # reason=tier_match for every subscribing target (verified against
+    # sync-tier-aware.mjs::classifyFile, not inferred from the glob text).
+    # The entry is annotated rather than split because the lib is only
+    # meaningful ALONGSIDE the suites that call it — a suite shipped without
+    # its gate is the ERR_MODULE_NOT_FOUND this ingest exists to remove, and
+    # a separate key would let the two diverge across a lane.
     - audit-fixtures/**
     # Extended rule prose referenced by rules/*.md body lines. Per
     # rule-authoring.md Rule 7 (slot-keyed body) + the "See
@@ -1224,7 +1325,7 @@ tiers:
     # Multi-CLI artifact-authoring meta-skills (F1/F2/F3, 2026-05-12/13).
     # Universal COC methodology — apply to any project authoring CC artifacts
     # (skills, commands, hooks) across CC/Codex/Gemini surfaces. Subscribed
-    # by py/rs/rb AND the base variant so non-Kailash USE templates ship
+    # by py/rs AND the base variant so non-Kailash USE templates ship
     # them too. Multi-CLI by body design — no cli_emit_exclusions needed
     # (each skill explicitly covers CC + Codex + Gemini hook/command/skill
     # registration). Cross-references to cc-tier rules (cc-artifacts.md,
@@ -1319,6 +1420,39 @@ tiers:
     # the narrower-tier DIAGNOSIS, so the most-cascaded comment in the repo still taught
     # the wrong cause of its own bug. The skills path is now a pointer stub.
     - rules/instrument-discipline.md
+    # verification-gate-integrity.md added 2026-08-11 (/sync-from-build Gate-1,
+    # kailash-rs proposal GATE-DELETION-BLINDNESS-MUST4-2026-08-10 + the S14 rule it
+    # amends). Classified GLOBAL on both axes: the four clauses reference no language
+    # runtime and no CLI-native delegation primitive — the originating repo's Rust
+    # tooling names appear only as Origin evidence, and the BUILD-internal CI-audit
+    # paths it asserted as present ("in this repo ...") were MEASURED ABSENT at loom
+    # and rewritten at placement to name the requirement generically with the BUILD
+    # instance cited as an exemplar. Two further placement fixes: a `testing.md §`
+    # cross-reference that resolves at BUILD (grep 1) and NOT at loom (grep 0,
+    # positive control 16) was a phantom citation and is now stated as
+    # repo-dependent; and its own meta-compliance probe asserted the body is "under
+    # the 200-line guidance" while the rule carries a named length rationale for
+    # being over — self-contradicting, corrected.
+    #
+    # priority:10 + scope:path-scoped + cli_delivery:skill-channel, so it pays NO
+    # baseline-emission cost and rule-authoring.md Rule 10's proximity-band gate does
+    # NOT fire on it. That matters here: the codex and gemini lanes measured 12.31%
+    # headroom at placement, INSIDE the 15% band, so a baseline classification was
+    # not available. Its seven `paths:` globs (CI workflows, ci scripts, tools,
+    # tests, audit-fixtures) are the surfaces where gates are authored.
+    #
+    # coc-core reaches py+rs+base and every downstream consumer that runs CI, which
+    # is the audience: the failure it names — an inert gate whose green is
+    # indistinguishable from a gate that ran — is not language-shaped. Semantic tier
+    # ships WITH it: 8 probes in 4 bipolar pairs, registered in eval-manifest.json
+    # (scanner:null) and pinned in probe-suite-integrity.test.mjs::PINNED_SUITES.
+    # The probes as proposed were NOT dispatchable — every row carried an inline
+    # `scenario`, a field the artifact-probe-adapter does not read (grep 0 vs 11 for
+    # candidate_fixture), so the adapter would have REFUSED all 8 and the suite would
+    # have been a registered coverage claim that ran nothing. Eight candidate
+    # fixtures + .expected sidecars were authored at placement to close that.
+    # Both Phase-2 detectors are declared and dated in phase2-deferrals.json.
+    - rules/verification-gate-integrity.md
     - rules/rule-authoring.md
     - rules/specs-authority.md
     - rules/spec-accuracy.md
@@ -1440,7 +1574,7 @@ tiers:
     - rules/facade-manager-detection.md
     - rules/self-referential-codify.md
     # F14 M8 Shard F (2026-05-22): universal COC governance rules — apply to
-    # any multi-operator COC repo (py/rs/rb + base). Subscribed by every
+    # any multi-operator COC repo (py/rs + base). Subscribed by every
     # variant's [cc, coc-core, kailash] (or [cc, coc-core, onboarding] for base).
     # multi-operator-coordination.md: identity + log + claims + posture + lifecycle hooks
     # knowledge-convergence.md: artifact splits + codify-lease + team-memory + onboard
@@ -1464,7 +1598,7 @@ tiers:
     - rules/evidence-first-claims.md
     - rules/verify-claims-before-write.md
     # wave-loop.md (2026-06-06): universal COC methodology — the wave-gated
-    # redteam→codify→(re-)todos→implement loop applies to any project (py/rs/rb
+    # redteam→codify→(re-)todos→implement loop applies to any project (py/rs
     # + base), not loom-only. Path-scoped (workspaces/todos/commands/plans).
     - rules/wave-loop.md
     # product-completion-first.md added 2026-07-11 (journal/0467, co-owner-directed
@@ -1491,6 +1625,25 @@ tiers:
     # rules/commands/session-notes/journal (the prepared≠delivered handoff surfaces).
     # Depth: guides/rule-extracts/handoff-completion.md (guides/rule-extracts/** glob).
     - rules/handoff-completion.md
+    # script-tool-manifest-sanity.md added 2026-08-10 (/sync-from-build build.prism Gate-1).
+    # priority:10 path-scoped + cli_delivery:skill-channel — the same disposition
+    # handoff-completion.md + product-completion-first.md took under the saturated-baseline
+    # constraint. Its paths (**/package.json, **/pyproject.toml, **/Cargo.toml) match NONE of
+    # the check-rule-injection-budget.mjs profile probes, so it adds 0 B to every measured
+    # profile. Read that as "no probe covers this glob class", NOT as "measured free": none
+    # of the 8 probes is a manifest file, so the suite would print identical figures whether
+    # this rule cost 0 B or 5.6 KB (instrument-discipline.md MUST-1). The negative is real,
+    # not a dead matcher — control: `packages/**` DOES match the runtime.py probe.
+    - rules/script-tool-manifest-sanity.md
+    # type-relaxation-sweep.md added 2026-08-10 (/sync-from-build build.prism Gate-1).
+    # priority:10 path-scoped + cli_delivery:skill-channel, with a rule-authoring.md Rule 10
+    # path-(a) paired extraction to skills/16-validation-patterns/type-relaxation-sweep.md.
+    # The extraction is load-bearing, not cosmetic: the full clause measured 6,066 B against
+    # 3,800 B of consumer-test headroom pre-#1599; extracted it is 3,874 B and fits the
+    # 4,538 B restored by that lane. Placement HELD until #1599 merged rather than shaved
+    # to fit, and `**/*.py` was NOT dropped to dodge the ceiling — the proposal verified the
+    # failure shape in Python, so narrowing paths for budget would de-scope the rule.
+    - rules/type-relaxation-sweep.md
     # sync-from-backlog-0552 (b) re-arch: eval-coverage rule + probe cmd/skill to BUILD authors
     # (BUILD repos AUTHOR COC artifacts; use_exclude fences these off USE). cmd/skill CC-only via
     # cli_emit_exclusions. Plus F5 command-skill-parity + #1232 orchestration-launch-ledger. journal/0552.
@@ -1499,11 +1652,75 @@ tiers:
     - skills/test-harness-probe/**
     - rules/command-skill-parity.md
     - rules/orchestration-launch-ledger.md
+    # burn-down-reporting.md added 2026-08-02 (co-owner-directed origination, W0-d of
+    # WAVE-PLAN-NEXT.md). Session/wave close-out MUST report cleared/remains/delta as a
+    # MEASURED number against a measured baseline — universal COC governance, not
+    # loom-specific, so it belongs in coc-core alongside its orchestration siblings
+    # (wave-loop / orchestration-launch-ledger) rather than loom_only. priority:10 +
+    # path-scoped + cli_delivery:skill-channel: it rides the rules-reference skill on
+    # codex/gemini rather than displacing baseline; loads on CC when editing
+    # workspaces/session-notes/todos/journal (the close-out surfaces).
+    - rules/burn-down-reporting.md
+    # session-notes-continuity.md added 2026-08-12 (/sync-from-use kailash-coc-rs Gate-1,
+    # relayed from a downstream upflow inbox). priority:10 path-scoped + cli_delivery:
+    # skill-channel — the same disposition handoff-completion.md + product-completion-first.md
+    # took under the saturated-baseline constraint. Universal COC governance, not loom-specific:
+    # the two-artifact continuity surface (per-operator fragment = DIRECTIVES, workspace notes =
+    # NARRATIVE) is the M6-D split every template carries, so it belongs beside its LOCATION
+    # sibling knowledge-convergence.md in this tier rather than loom_only.
+    #
+    # INJECTION COST, MEASURED on all eight profile poles rather than assumed: its paths
+    # (**/.session-notes*, **/.session-notes.d/**) match NONE of the
+    # check-rule-injection-budget.mjs profile probes, so the delta is 0 B / 0 fired-rules on
+    # every profile — byte-identical figures before and after landing, INCLUDING workspace-note
+    # (409,370 B / 20 both times), which had only 765 B of headroom against its 410,135 B
+    # ceiling.
+    #
+    # A zero from a matcher never shown to fire would be worth nothing here
+    # (instrument-discipline.md MUST-1), so the negative carries a CONTROL that fires: adding
+    # `**/workspaces/**` to this rule's own paths and re-running moved workspace-note
+    # 409,370 -> 418,819 B and its fired-count 20 -> 21 (+9,449 B, the rule's whole 9,426 B body
+    # plus the injection header). Same rule, same suite, one glob changed — so the 0 B is a true
+    # negative, not a dead probe set.
+    #
+    # That control also shows the narrow glob is LOAD-BEARING, not tidiness: at 418,819 B the
+    # widened form would have BREACHED the 410,135 B workspace-note ceiling and failed the gate.
+    # Widening these paths later is a budget decision requiring headroom, never a wording one.
+    #
+    # Its detector `hooks/session-notes-guard.js` rides the sync-tier-aware.mjs hooks/**
+    # ALWAYS_INCLUDE lane (auto-ships, cannot silently orphan). Its audit fixtures
+    # `audit-fixtures/session-notes-continuity/**` are declared explicitly below — Validator 15
+    # does NOT cover audit-fixtures, so the fate is declared consciously per
+    # knowledge-cascade-routing.md MUST-2 rather than left to a backstop that would not catch it.
+    - rules/session-notes-continuity.md
+    - audit-fixtures/session-notes-continuity/**
     # completion-criterion.md added 2026-08-02 (co-owner-directed origination). Universal
     # COC governance: "done" is a stated acceptance list reached, never an absence of
     # findings. Cascades to every template — the unbounded-verification failure it blocks
     # is not repo-specific.
     - rules/completion-criterion.md
+    # ci-cost-discipline.md added 2026-08-12 (co-owner-directed origination, receipt
+    # journal/0573). CI is a purchased resource and the dominant waste is re-pushing to
+    # an open PR — measured at loom: 474 of 483 cancelled CI-minutes destroyed that way,
+    # against 9 minutes from main-branch merge bursts. Universal COC governance, not
+    # loom-specific: the co-owner directive was explicit that the discipline reaches
+    # build, use and downstream, and only manifest registration delivers that
+    # (knowledge-cascade-routing.md MUST-2). coc-core alongside its orchestration
+    # siblings (wave-loop / burn-down-reporting / completion-criterion).
+    # priority:10 + path-scoped + cli_delivery:skill-channel — FORCED by the saturated
+    # baseline: emission measured 54,078 B against a 15% proximity band allowing
+    # ≤55,706 B at the 65,536 cap, so a priority:0 placement cannot land. Same
+    # disposition burn-down-reporting.md + completion-criterion.md + handoff-completion.md
+    # took. Its paths (**/todos/**, **/.wave-tracker*, **/.wave-tracker.d/**,
+    # **/.github/workflows/**) match NONE of the eight check-rule-injection-budget.mjs
+    # profile probes, so it adds 0 B to every measured profile. Read that as "no probe
+    # covers this glob class", NOT as "measured free" — the suite would print identical
+    # figures whether this rule cost 0 B or 12 KB (instrument-discipline.md MUST-1). The
+    # negative is real, not a dead matcher: control — `**/workspaces/**` DOES match the
+    # workspace-note probe, and was REMOVED from the glob set precisely because it did
+    # (765 B of headroom there, less than a tenth of this rule). Companion depth ships
+    # via skills/30-claude-code-patterns/** (already in this tier).
+    - rules/ci-cost-discipline.md
     # ─────────────────────────────────────────────────────────────
     # Multi-operator coordination substrate — commands + skills +
     # roster schema + team-memory README + certify template. MOVED
@@ -1622,7 +1839,14 @@ tiers:
     - agents/testing/testing-specialist.md
     - agents/release/release-specialist.md
     # Multi-CLI artifact architects (any CC/Codex/Gemini project)
-    - agents/cli-orchestrator.md
+    # agents/cli-orchestrator.md REMOVED from coc-core (co-owner-approved, Gate-1
+    # USE-py S3-4): it is a loom AUTHORING agent serving the loom_only /cli-audit
+    # command, so it is declared under `loom_only:` instead. Removing the tier row
+    # is required, not cosmetic — validate-emit's check-8
+    # (checkLoomOnlyMutualExclusion) BLOCKS a loom_only glob that also matches a
+    # synced tier unless it is a declared LOOM_ONLY_TIER_CARVEOUTS entry, and this
+    # is not load-bearing enough to warrant minting one. With the row gone it
+    # passes as "a loom_only glob in no tier".
     - agents/codex-architect.md
     - agents/gemini-architect.md
     # Frontend agents (react / flutter / uiux)
@@ -1732,7 +1956,7 @@ tiers:
     # filtering. The stale file lacks frontmatter and Codex CLI loud-fails
     # on it (see commit b840d8f / PR #147). Adding to kailash tier so the
     # emitter regenerates fresh `.codex/skills/project/SKILL.md` +
-    # `.gemini/skills/project/SKILL.md` on every /sync for py/rs/rb targets.
+    # `.gemini/skills/project/SKILL.md` on every /sync for py/rs targets.
     # Base tier (coc-base, coc-claude-base) does NOT subscribe to kailash and so
     # does not ship the Kailash-specific project skill — intentional.
     - skills/project/**
@@ -1881,7 +2105,7 @@ tiers:
   # ONBOARDING TIER — Stack-agnostic onboarding artifacts for the
   # base variant. Added 2026-05-06 v2.21.0 to support the non-Kailash,
   # language-agnostic `coc-claude-base` + `coc-base` USE templates.
-  # NOT subscribed by py/rs/rb/prism (those use kailash tier instead).
+  # NOT subscribed by py/rs/prism (those use kailash tier instead).
   # ─────────────────────────────────────────────────────────────
   onboarding:
     - agents/onboarding/stack-detector.md
@@ -1915,7 +2139,7 @@ tiers:
     # F14 M9.3 manifest fix MOVED to `kailash:` tier 2026-05-22 (orphan-tier R1 pattern).
     # The M7 onboard surface (commands/onboard.md, skills/41-onboard/**,
     # team-memory/**) is now in the `kailash:` tier alongside the M0-M5 commands
-    # — `kailash:` is universally subscribed by py/rs/rb. Empty list retained
+    # — `kailash:` is universally subscribed by py/rs. Empty list retained
     # for tier-name greppability in journal references.
     # Audit trail: journal/0138-DECISION-m9-3-manifest-fix-orphan-tiers-2026-05-22.md.
     # SUPERSEDED 2026-06-09 (journal/0250): commands/onboard.md + skills/41-onboard/**
@@ -1941,7 +2165,7 @@ tiers:
     # F14 M9.3 manifest fix MOVED to `kailash:` tier 2026-05-22 (orphan-tier R1 pattern).
     # The 4 commands (claim, claims, release-claim, whoami) are now in the
     # `kailash:` tier alongside the M7 onboard surface and the M8 rules' runtime
-    # infra — `kailash:` is universally subscribed by py/rs/rb. Empty list
+    # infra — `kailash:` is universally subscribed by py/rs. Empty list
     # retained for tier-name greppability in journal references.
     # Audit trail: journal/0138-DECISION-m9-3-manifest-fix-orphan-tiers-2026-05-22.md.
     # SUPERSEDED 2026-06-09 (journal/0250): claim/claims/release-claim/whoami
@@ -1968,7 +2192,6 @@ tiers:
 #   global-path:
 #     py: variants/py/path  (or ~ for "use global as-is")
 #     rs: variants/rs/path  (or ~ for "use global as-is")
-#     rb: variants/rb/path  (or ~ for "use global as-is")
 
 variants:
   rules/patterns.md:
@@ -2001,7 +2224,6 @@ variants:
     # correctness-only: restores 7 dropped universal MUSTs to rs). See
     # journal/0109 (corrects the journal/0108 Shard-6 mis-attribution).
     rs: null
-    rb: null
     prism: variants/prism/rules/agents.md
     base: variants/base/rules/agents.md
   rules/deployment.md:
@@ -2017,7 +2239,6 @@ variants:
   rules/zero-tolerance.md:
     py: null
     rs: null
-    rb: null
     prism: variants/prism/rules/zero-tolerance.md
     # rs + rb overlays removed 2026-05-01 (commits 7c4e7ed + 77b7cda — dead overlays).
   # rules/independence.md + rules/terrene-naming.md — variant-mapping entries
@@ -2029,7 +2250,6 @@ variants:
   rules/security.md:
     py: null
     rs: variants/rs/rules/security.md
-    rb: null
     prism: variants/prism/rules/security.md
   # rules/framework-first.md variant overlay REMOVED 2026-06-08 (#408 AC#5-c,
   # journal/0237): promoted path-scoped → baseline with a language-agnostic
@@ -2041,7 +2261,6 @@ variants:
   rules/ci-runners.md:
     py: null
     rs: variants/rs/rules/ci-runners.md
-    rb: null
   # commands/sync.md (the former D8 redirect stub) was REMOVED 2026-06-25 (F10) — it never
   # carried a variant overlay. The rs consumer-pull overlay lives on commands/sync-from-template.md
   # below (the renamed pull verb the former sync.md split out of).
@@ -2175,6 +2394,17 @@ variants:
     rs: variants/rs/skills/12-testing-strategies/testing-patterns.md
   skills/16-validation-patterns/SKILL.md:
     rs: variants/rs/skills/16-validation-patterns/SKILL.md
+  # param-completeness-guard: the INVARIANT (every declared constructor param
+  # reaches a consumer) is language-neutral and ships GLOBAL; the concrete
+  # AST-walk is Python-shaped and overlays the `examples` slot on the py axis
+  # only. rs/base receive the neutral principle + the neutral pseudocode
+  # example. Per guides/co-setup/05-variant-architecture.md § "Key principle"
+  # (global = shared concepts, variant = language-specific implementation) +
+  # variant-authoring.md MUST-1 (variant carries slot-keyed bodies only).
+  # NOTE: the global MUST keep its `<!-- slot:examples -->` markers — applyOverlay
+  # DROPS an overlay slot the global does not declare (warning only, issue #290).
+  skills/16-validation-patterns/param-completeness-guard.md:
+    py: variants/py/skills/16-validation-patterns/param-completeness-guard.md
   skills/16-validation-patterns/validate-absolute-imports.md:
     rs: variants/rs/skills/16-validation-patterns/validate-absolute-imports.md
   skills/16-validation-patterns/validate-connections.md:
@@ -2526,9 +2756,16 @@ variants:
   # the bare-global copy and ships strip(compose) — full-file here (no
   # slot markers), so deployed bytes = strip(variant source). variant_only
   # stays pure ADDITIONS per the #427 contract.
-  hooks/validate-prod-deploy.js:
-    py: variants/py/hooks/validate-prod-deploy.js
-    rs: null
+  # hooks/validate-prod-deploy.js — overlay REMOVED 2026-07-29 (#1471 Wave-6).
+  # The py overlay held ZERO py-specific content: it was a verbatim copy of the
+  # global frozen before 5e94764d (2026-05-06) that then silently fell three
+  # commits behind. Because a variants: entry SUPPRESSES the bare-global copy,
+  # py consumers were receiving the stale fork — which is how the global's
+  # hook-output-discipline fix (raw process.exit(2) -> instructAndWait) never
+  # reached them. Deleting the overlay is the root-cause fix, not a cleanup:
+  # with no replacement copy there is nothing to fall stale, so py now inherits
+  # the global directly and every future global fix reaches it by construction.
+  # Re-add an entry here only if genuinely py-DIVERGENT behavior is needed.
   skills/04-kaizen/kaizen-ml-integration.md:
     py: variants/py/skills/04-kaizen/kaizen-ml-integration.md
     rs: null
@@ -2895,7 +3132,6 @@ variant_only:
     - variants/rs/skills/36-kailash-rs-alignment/cross-sdk-features.md
     - variants/rs/commands/build.md
     - variants/rs/skills/35-align-serving/SKILL.md
-  rb: []
   # v2.9.4 (2026-04-28): kailash-coc-claude-prism USE template retired
   # (see repos.prism comment). variant_only.prism stays empty —
   # frontend-generic artifacts already sync via global kailash tier; prism-
@@ -2939,6 +3175,34 @@ variant_only:
 #         ship it verbatim to every USE consumer.
 # Properties asserted in `.claude/test-harness/tests/sync-tier-aware.test.mjs` § M.
 use_softenings:
+  # ── SCOPE: the `.claude/` CC tree ONLY. RATIFIED, not an oversight. ──────────
+  # Gate-1 USE-py S3-D1 asked whether this should apply to all FOUR USE output
+  # surfaces. Decision: NO — it stays scoped to the distributed `.claude/` tree.
+  #
+  # MECHANISM (measured, not inferred): `applyUseSoftenings` is called ONLY from
+  # sync-tier-aware.mjs, the USE-lane distributor that COPIES the `.claude/` tree.
+  # `emit-cli-artifacts.mjs` and `emit-coc.mjs` contain ZERO references to
+  # softenings (grep count 0 each) and GENERATE their output from loom's
+  # un-softened source. So "one softened surface against three strict" is a
+  # pipeline-POSITION fact, not a missed propagation. Regeneration does not
+  # change it in either direction.
+  #
+  # WHY NARROWER WINS. (1) The three un-softened surfaces carry the STRICTER
+  # posture, so the status quo errs conservative; extending the transform would
+  # RELAX three surfaces at once, a direction that can only lose safety. (2) The
+  # guardrail below (soften FRAMING, preserve GUIDANCE, never relax safety
+  # substance) is upheld by hand-authored, per-rule find/replace pairs;
+  # reproducing it inside two more emitters would give ONE contract THREE
+  # enforcement surfaces — the drift shape `security.md` § Enforcement-Surface
+  # Parity exists to prevent. (3) No positive evidence the wider scope was ever
+  # intended: the "users choose their own workflow" rationale is CLI-agnostic,
+  # but that is an inference about intent, which the originating proposal itself
+  # concedes is not evidence of one.
+  #
+  # Recorded here so the divergence reads as a decision rather than a defect;
+  # re-opening it needs positive evidence the wider scope is wanted, not just the
+  # observation that the surfaces differ.
+  # ────────────────────────────────────────────────────────────────────────────
   # agents.md — Step-3b: "Mandatory code review + security review → RECOMMENDED
   # (users choose workflow)". Softens the MUST review-gate framing for downstream
   # projects; the rest of agents.md (worktree/specialist discipline) ships strict.
@@ -3004,6 +3268,87 @@ use_softenings:
   rules/git.md: []
 
 # ─────────────────────────────────────────────────────────────────
+# TARGET-OWNED — paths that exist at a target and belong to the TARGET (2026-08-03)
+# ─────────────────────────────────────────────────────────────────
+# The concept the engine had no representation for. Every other key here answers
+# ONE question — WHAT DOES LOOM SHIP (`tiers`, `exclude`, `loom_only`,
+# `always_include`, `obsoleted`, `gitignore_additions`). None of them can say
+# THIS ONE IS THEIRS. Two live defects were both instances of that gap.
+#
+# ONE INVARIANT, applying to EVERY entry:
+#   loom NEVER DELETES IT — not even when an `obsoleted:` / `use_obsoleted:` /
+#   `build_obsoleted:` entry names an ANCESTOR DIRECTORY of the path.
+#
+#   The defect this closes: purge sparing was `shippedDests` — "what THIS PLAN
+#   WRITES" — when the correct predicate is "what LOOM OWNS". Those coincide only
+#   while every purge entry names a file loom also ships, and they diverge the
+#   moment a purge entry names a DIRECTORY PREFIX. `.claude/test-harness/` is the
+#   only such prefix entry today, so `eval-manifest.json` is the only LIVE loss —
+#   but the bug is in the PREDICATE, and every future prefix purge inherits it.
+#
+# ONE ATTRIBUTE, `publish:`, answering the second question you must ask about any
+# path you have just admitted you do not own — MAY THEY PUBLISH IT?
+#   `committed`   — the target SHOULD commit it. Emit nothing; scan normally.
+#   `local_only`  — the target MUST NOT commit it. The path is emitted into the
+#                   managed `# >>> coc:gitignore_additions` block on BOTH LANES
+#                   (that writer already runs on BUILD — only its content list is
+#                   empty there), AND registered with the disclosure scanner's
+#                   fail-closed `isGitTracked` skip so a correctly-fenced,
+#                   UNTRACKED file stops being reported as a distribution finding.
+#   There is NO DEFAULT. An entry with a missing or unrecognized `publish:` is a
+#   loud manifest defect — a silent default here would either leak an
+#   operator-correlatable path or wrongly silence the scanner.
+#
+# Rules for adding an entry:
+#   - Prefer a NARROW EXPLICIT PATH over a glob. The invariant is a DELETION VETO;
+#     a wide glob silently neuters legitimate purges.
+#   - The path MUST be one loom does not ship. A path loom ships is already spared
+#     by `shippedDests`; listing it here adds nothing and obscures that loom owns it.
+#   - Role-blind. Ownership is not a property of the lane, so both the veto and the
+#     `local_only` gitignore emission apply on USE and BUILD alike.
+#
+# The veto is consumed by `purgeSparingShipped` (apply) AND `hasNonShippedResidual`
+# (`--verify`) through the SAME composed spare-set. Those two are documented
+# mirrors: sparing a path in one and not the other makes `--verify` report the file
+# it just spared as a purge residual, reddening every post-sync verify.
+target_owned:
+  # kailash-rs authored its own eval manifest here; `coc-eval-all.mjs` resolves the
+  # path REPO_ROOT-relative and FAILS CLOSED without it, so deleting it reds that
+  # repo's `COC Artifact Eval (structural)` check. It sits under the universal
+  # `obsoleted: .claude/test-harness/` prefix entry (which composes into the BUILD
+  # purge); `test-harness/lib/**` survives that purge only because loom SHIPS it, and
+  # a target-AUTHORED sibling had nothing sparing it. NOT fixed by adding the path to
+  # BUILD_ONLY_ALWAYS_INCLUDE — that ships LOOM's manifest over the target's own,
+  # producing a green that measures the wrong repo.
+  - path: .claude/test-harness/eval-manifest.json
+    publish: committed # CI-gate input; the target's own commit is correct
+  # Cross-repo authorization receipts, written by `.claude/bin/cross-repo-authorize.mjs`
+  # at whichever repo runs the ceremony. Each carries the requester's operator
+  # `display_id` + the target `<owner>/<repo>` slug.
+  #
+  # local_only: the ceremony's "commit it for durable team audit" step rests on a
+  # THREE-FENCE containment argument (`sync-tier-aware` no_tier_match, `edition-emit.mjs::
+  # CLIENT_TEMPLATE_REMOVE`, `community-membership` EXCLUDE_WITHIN) — all of which govern
+  # content flowing OUT OF LOOM and none of which covers a receipt written INTO another
+  # repo, whose own git history is its distribution channel. True at loom, false
+  # everywhere else. kailash-py tracks 13 and kailash-rs 18 today because operators
+  # followed that instruction verbatim. kailash-coc-rs caught it independently, hand-wrote
+  # the fence into its own `.gitignore`, and upflowed the request; this honors it tier-wide.
+  # Enforcement is UNAFFECTED — `violation-patterns.js::hasCrossRepoAuthorizationReceipt`
+  # greps the WORKING TREE within an mtime window, not git, so an uncommitted receipt
+  # satisfies `repo-scope-discipline.md` condition 4 identically. Only DURABLE
+  # multi-session audit is traded away, and only outside loom (`type: coc-source`, where
+  # the three fences genuinely apply and the corpus stays committed).
+  #
+  # And it needs the DELETION VETO for the same reason it needs the fence: the tempting
+  # alternative — adding this directory to `obsoleted:` so Gate 2 "cleans it up" — would
+  # make loom DELETE a target's own forensic records inside their live mtime window,
+  # destroying the evidence condition 4 depends on, at repos loom does not own. The goal
+  # is UNTRACKED, never DELETED.
+  - path: .claude/cross-repo-authz/
+    publish: local_only # operator-correlatable; MUST stay out of the target's history
+
+# ─────────────────────────────────────────────────────────────────
 # OBSOLETED (paths to DELETE in every consumer on next sync)
 # ─────────────────────────────────────────────────────────────────
 # Listed paths are former COC artifact locations that have been
@@ -3021,6 +3366,47 @@ use_softenings:
 #   - Once every downstream consumer has synced past the introducing
 #     VERSION (typically two release cycles), the entry MAY be removed
 #     from this list — but the `obsoleted:` section itself stays.
+#
+# ── READ THIS BEFORE FILING A "the purge list contradicts the shipped set" FINDING ──
+# Gate-1 reconciliation, 2026-08-10 (S22 W3-manifest). THREE separate coc-rs proposal
+# entries plus two coc-py entries independently reported this block as self-contradictory
+# — "the purge manifest names paths the same release ships". The finding is REFUTED, and
+# the refutation is the semantics already stated at the #1067 entry below: `loom_only`
+# (or no tier match) SUPPRESSES re-emission; `obsoleted:` PURGES the copy a consumer
+# already received from an earlier release. An entry naming a file that EXISTS ON LOOM'S
+# DISK is therefore the NORMAL case, not a defect — loom-presence is not shipped-ness.
+#
+# THE DISCRIMINATOR IS THE CLASSIFY ACTION, NEVER `ls`. All five disputed paths, run
+# through `sync-tier-aware.mjs::buildPlan(manifest, <target>, null, "use")` on BOTH USE
+# lanes 2026-08-10, with a control pair that returned BOTH answers on the same run
+# (`rules/security.md` → copy/overlay = SHIPS; `bin/lib/fleet-freshness-ledger.mjs` →
+# skip/loom_only = does NOT):
+#     hooks/lib/o1-citation-check.js          on-disk  → skip (loom_only)
+#     bin/emit-dev-container.mjs              on-disk  → skip (no_tier_match)
+#     bin/repin-targets.local.example.json    on-disk  → skip (no_tier_match)
+#     hooks/coc-drift-warn.js                 absent   → not in plan (#771 retired)
+#     hooks/coc-telemetry-autocommit.js       absent   → not in plan (#771 retired)
+# ZERO of the five ships on either lane, so there is no live contradiction to reconcile
+# and NO entry is removed. Reading "the file is on disk at loom" as "the release ships
+# it" is what produced all five reports.
+#
+# DO NOT implement the earliest of those entries as filed. Its suggested fix — "emit the
+# manifest as (planned-purge MINUS shipped-set)" — is INVERTED and is superseded by the
+# two later entries in its own cluster: subtracting the shipped set would drop the purge
+# directive for exactly the loom_only paths that most need purging, permanently stranding
+# them at every consumer. That is the opposite of this block's purpose.
+#
+# ONE GENUINE RESIDUAL, deliberately NOT fixed here (it is not a manifest edit).
+# `sync-tier-aware.mjs::emitCocObsoleted` composes the emitted `.claude/.coc-obsoleted`
+# contract as the RAW union of `obsoleted` + `use_obsoleted` + `overlay_orphans`, with NO
+# intersection against the shipped set — unlike the loom-side apply path, which DOES spare
+# shipped paths (`purgeSparingShipped`). So the structural guard the later entries ask for
+# ("whatever marks a path obsolete should refuse to emit an entry for a path the same tier
+# still ships") is genuinely ABSENT, and the two sides disagree by construction. It has NO
+# live instance today — the measurement above is what establishes that — so this is a
+# latent-class guard, not a live defect. It belongs to whichever shard owns
+# `sync-tier-aware.mjs`; it is out of scope for a manifest-only change and MUST NOT be
+# "fixed" by editing entries here.
 obsoleted:
   # ── #1067 F1030d-B — o1-citation-check.js fence purge ──────────────────────
   # hooks/lib/o1-citation-check.js is newly loom_only (#1067); it shipped broadly via the
@@ -3059,6 +3445,34 @@ obsoleted:
   - .gemini/commands/repos.toml # why: paired Gemini emission of the leaked repos; purge.
   - .codex/prompts/settings.md # why: loom-only settings-management verb leaked to codex consumers; purge.
   - .gemini/commands/settings.toml # why: paired Gemini emission of the leaked settings; purge.
+  # ── cli-orchestrator purge — BUILD half of a DUAL-LISTING (Tier-1 redteam, 2026-08-12) ──
+  # The agent shipped to consumers via `coc-core` until this change moved it to
+  # `loom_only:`. De-listing alone only stops FUTURE syncs; every target that already
+  # pulled it keeps a stale roster agent advertising the loom_only /cli-audit command
+  # and instructing `tools/cli-drift-audit.mjs`, which cannot reach it either.
+  #
+  # First declared under `use_obsoleted:` ALONE, on the reasoning that "the codex/gemini
+  # corpora already excluded it via cli_emit_exclusions, so no per-CLI purge is owed."
+  # That reasoning is UNSOUND: per-CLI corpora and the BUILD `.claude/` tree are
+  # INDEPENDENT axes, and `.coc-obsoleted` is not a fallback (sync-tier-aware.mjs:3888
+  # guards that emit with `if (plan.mode !== "build")`). Measured by driving buildPlan
+  # over every target x lane: at base the file was `copy/tier_match` on py:build AND
+  # rs:build — loom HAS been shipping it to kailash-py and kailash-rs — while the
+  # USE-only declaration left both BUILD purge lists at 95 entries, unchanged.
+  #
+  # This entry is the BUILD half; the `use_obsoleted:` half STAYS. Despite its name
+  # this block is NOT universal: `purgeList` is
+  # `isBuild ? [...obsoleted, ...build_obsoleted] : use_obsoleted` (:2473-2475), so
+  # MOVING the entry here (rather than twinning it) was measured to fix BUILD 95 → 97
+  # while dropping USE 48 → 47 and un-purging all four USE targets.
+  - .claude/agents/cli-orchestrator.md # why: loom AUTHORING agent serving the loom_only /cli-audit; shipped to CC consumers AND to the py/rs BUILD trees via coc-core. loom_only suppresses re-emission, this purges the already-distributed copy on BOTH lanes.
+  # ── zero-byte guide deletion, same shipped-then-deleted residue ────────────────
+  # guides/model-optimization/02-ecosystem-inventory.md is DELETED in this change (it
+  # was a zero-byte file). Measured `copy/tier_match` on py/rs/base x use AND
+  # py/rs x build, so every consumer and both BUILD trees hold a copy. Deleting the
+  # source stops re-emission but removes nothing already distributed — the identical
+  # asymmetry this block exists to close, ten lines from where this change argues it.
+  - .claude/guides/model-optimization/02-ecosystem-inventory.md # why: zero-byte guide deleted at source; purge the already-distributed copy on both lanes rather than leave consumers holding an empty file forever.
   - .codex/prompts/test-harness-probe.md # why: test-harness-probe is now BUILD-CC-only (codex-fenced via cli_emit_exclusions); purge any previously-leaked codex copy from consumers.
   - .gemini/commands/test-harness-probe.toml # why: paired Gemini purge of any previously-leaked test-harness-probe copy; now codex/gemini-fenced (BUILD-CC-only).
   - scripts/hooks/ # why: COC hooks consolidated under .claude/hooks/ in v2.9.1 (Anthropic-documented location). The prior scripts/hooks/ directory is no longer COC-managed and must not be left as dead code in any consumer.
@@ -3081,7 +3495,19 @@ obsoleted:
   - .claude/hooks/coc-telemetry-autocommit.js # why: retired telemetry hook (#771) — no longer in loom source (only a runtime .log remained); lingers stale in templates. Purge.
   - .claude/projects/ # why: Claude Code's per-user session/state cache (`~/.claude/projects/<encoded-cwd>/`). loom-local; never artifact-managed. Surfaced in v2.10.x audit on rs USE templates carrying loom's own `-Users-esperie-repos-loom/` cache. Paired with the `projects/**` exclude entry below to prevent re-introduction.
   - .claude/scheduled_tasks.lock # why: Claude Code's per-user scheduled-task lock file. loom-local; never artifact-managed. Surfaced in v2.10.x audit (5 of 5 USE templates carried loom's lock). Paired with the `scheduled_tasks.lock` exclude entry.
-  - .claude/test-harness/ # why: loom's multi-CLI parity test fixtures (~70 result logs + suites + run-all.sh). loom-only — consumers do not run the harness. Surfaced in v2.10.x audit on rs USE templates (644K, 100 files). Paired with the `test-harness/**` exclude entry.
+  # .claude/test-harness/ MOVED to `use_obsoleted:` 2026-08-03 (#1549 occurrence 3).
+  # It was never a BUILD-lane obsoletion: the evidence in its own `# why:` was
+  # "surfaced on rs USE templates" and its premise was "consumers do not run the
+  # harness" — both USE-lane facts. On the BUILD lane the premise is FALSE:
+  # kailash-rs runs `coc-eval-all.mjs` as a REQUIRED check, reading its OWN
+  # eval-manifest.json + probes/. Because this is a DIRECTORY PREFIX and
+  # `purgeSparingShipped` (sync-tier-aware.mjs:2956-2958) removes any directory
+  # under it holding nothing loom ships — `fs.rmSync(recursive)`, wholesale — the
+  # entry deleted target-AUTHORED files by default. #1556 spared the one file it
+  # had observed (eval-manifest.json) via `target_owned:`; the prefix then reached
+  # probes/README.md AND probes/verification-gate-integrity.probes.json, the latter
+  # created at the target 59 minutes before the sync that deleted it. A name-scoped
+  # spare cannot fence an open-ended prefix. See use_obsoleted: below.
   # ── loom-only bin/*.test.mjs leak purge — BUILD lane (2026-07-01) ───────────
   # These 13 node:test unit tests for loom's OWN bin tooling leaked via the
   # synced bin/** ALWAYS_INCLUDE tier to BOTH lanes — USE templates AND BUILD
@@ -3122,8 +3548,31 @@ obsoleted:
   - .claude/skills/30-claude-code-patterns/artifact-design.md # why: skill audit 2026-05-09 (v2.29.0) — RESTRUCTURE 30 sub-file. Zero external references. Templates duplicated in actual existing artifacts. User-approved.
   - .claude/skills/30-claude-code-patterns/token-budget.md # why: skill audit 2026-05-09 (v2.29.0) — RESTRUCTURE 30 sub-file. Zero external references. Token-cost numbers covered at high level in 30/SKILL.md. User-approved.
   - .claude/skills/management/SKILL.md # why: residual stale hollow-frontmatter management skill (no `description:` field — surfaced as 0-char-description entry in CC skill listing; content was repo-maintainer notes for /sync /codify /inspect, not a semantic skill consumers match against). Surfaced 2026-05-14 via coursewright skill-bloat audit; User-approved REMOVE. NARROWED 2026-06-13 (sync-upflow Wave 3 STEP-0 / MANIFTEN, journal/0003) from the directory-wide `.claude/skills/management/` to this single file: the rs templates legitimately receive 3 `variant_only.rs` files INTO `.claude/skills/management/` (build-reference.md, cargo-reference.md, release-workflow.md — see `variant_only.rs` above), so a directory-wide purge shared a path with the rs deploy target (purge∩deploy ordering hazard, failure-redteam MED-2). Sibling files i-harden-criteria.md + release-checklist.md were py /i-harden + /release command reference material, NOT stale residue. release-checklist.md: the citation at variants/py/commands/release.md:122 ("Full reference") was a DAY-ONE dangling reference in loom source (cited since the initial commit d98da8b but loom never shipped the file — git log --all -- **/release-checklist.md was empty pre-restore), NOT collateral over-purge from this obsoletion. CLOSED 2026-06-13 (journal/0011, co-owner-directed Option A): restored as variant_only.py (variants/py/skills/management/release-checklist.md, mirroring the rs build-reference.md pattern) so the citation resolves at the deployed py template; residual RELCHKREVAL (content not line-revalidated) deferred to G3, co-owner-ratified, non-blocking. i-harden-criteria.md is referenced nowhere (/i-harden points to skills/23-uiux-design-principles/production-hardening.md) → unreferenced orphan, correctly stays purged.
-  - .claude/rules/terrene-naming.md # why: removed from COC distribution 2026-05-31 (FB) — Foundation messaging governance (brand/terminology/license-labeling consistency), NOT a codegen-orchestration concern. Apache 2.0 imposes no obligations, so this was never license enforcement. Relocated to atelier Foundation-docs (separate repo). Universal purge so every consumer (incl. non-Terrene RRPS/community) drops its stale copy. Receipt: journal/0184. Supersedes the prior use_obsoleted entry (which purged USE templates + downstream only; this purges ALL targets).
-  - .claude/rules/independence.md # why: removed from COC distribution 2026-05-31 (FB) — same disposition as terrene-naming.md above (Foundation no-commercial-coupling messaging governance, not COC). Relocated to atelier Foundation-docs. Universal purge. Receipt: journal/0184. Supersedes the prior use_obsoleted entry.
+  # .claude/rules/terrene-naming.md + .claude/rules/independence.md DROPPED from the
+  # BUILD lane 2026-08-03 (#1549 occurrence 3). They REMAIN in `use_obsoleted:` below,
+  # so journal/0184's disposition is unchanged for every USE template and downstream
+  # consumer — this narrows the purge to the lane the 2026-05-31 rationale actually
+  # covered. Two corrections to the text that stood here:
+  #   (1) It claimed to SUPERSEDE the use_obsoleted entries. It did not — both paths
+  #       were and are DUAL-LISTED (use_obsoleted: ~:4107-4108). A universal purge
+  #       requires both keys (BUILD reads `obsoleted`, USE reads `use_obsoleted`;
+  #       sync-tier-aware.mjs:2435-2438), so removing the BUILD half is the whole
+  #       and only change needed.
+  #   (2) Its premise — "every consumer drops its STALE COPY" — is false at
+  #       kailash-rs. That repo did not passively retain a stale artifact: it
+  #       DELIBERATELY re-adopted both after the first purge
+  #       (`c8dc1fd63 fix(coc): restore independence.md and terrene-naming.md,
+  #       purged with 13 live citers`, landing on top of the purging sync 892a9acd8),
+  #       and now carries 49 citers for independence.md and 19 for terrene-naming.md
+  #       plus rows in its own root CLAUDE.md rules index. They are target-authored
+  #       governance rules there, not loom residue, so loom deleting them is a
+  #       governance regression at a repo loom does not own.
+  # Ownership — not lane — is the semantically correct axis here, but `target_owned:`
+  # records carry only `path` + `publish` (parseTargetOwned, sync-tier-aware.mjs:1670-1717)
+  # and cannot say "theirs at rs, stale at community". Lane scoping expresses today's
+  # live state exactly (kailash-py carries NEITHER file; kailash-rs carries both), so
+  # it is correct now and costs no engine change. The missing per-target scope is
+  # recorded as the general gap in #1549.
   - .claude/agents/open-source-strategist.md # why: removed from COC distribution 2026-05-31 (FB) — the agent IS Terrene Foundation IP/open-core strategy (four-layer architecture, Foundation-owns-all-IP, EATP/Kailash open-vs-proprietary boundary, competitive positioning), not a generic codegen specialist. Shipping it gave non-Terrene consumers (RRPS/community) Terrene's strategic answers. Now loom-only (kept on disk like agents/management/*). Universal purge of the stale consumer copy. Receipt: journal/0184.
   - .gemini/agents/open-source-strategist.md # why: paired Gemini emission of the open-source-strategist agent removed above (FB 2026-05-31). Agents emit to Gemini only (Codex has no agents surface); this purges the stale Gemini-side copy from every consumer. Receipt: journal/0184.
   - .claude/agents/management/gh-manager.md # why: loom-only management agent that LEAKED to cc consumers via the `kailash` tier (the exact exclusion-by-omission F104 closes). F104 stops re-emission (loom_only:) but the stale `.claude/agents/management/gh-manager.md` copy persists on every consumer that synced during the leak window — this purges it. cc-path only (never shipped to codex/gemini per structural exclusion). Receipt: F104 / journal/0191.
@@ -3182,7 +3631,7 @@ obsoleted:
 # manifest-relative path `agents/...`, `commands/...`, `skills/...`).
 #
 # A path matching any `loom_only:` glob is NEVER emitted to ANY target —
-# cc / codex / gemini across EVERY language axis (py / rs / rb / base).
+# cc / codex / gemini across EVERY language axis (py / rs / base).
 # This is the POSITIVE never-sync declaration F104 introduces to replace
 # the fragile exclusion-by-omission ("Unlisted files default to COC", line
 # ~75): a forgotten exclusion previously shipped a loom-only artifact to
@@ -3224,10 +3673,44 @@ loom_only:
   # the `exclude:` block below only fences the cc /sync-to-use lane (sync-tier-aware), NOT the codex/gemini lane.
   # Verified leaking via `emit-cli-artifacts --cli codex|gemini`. All are loom-orchestration verbs a consumer cannot run.
   - commands/cli-audit.md # why: audits loom's OWN multi-CLI emission pipeline (source→overlays→per-CLI targets) + dispatches loom-only cc/codex/gemini-architects. Was in the `coc-core` tier (shipped cc+codex+gemini); removed from `coc-core` at this leak fix. obsoleted ×3.
+  - agents/cli-orchestrator.md # why: the multi-CLI parity/drift dispatch agent that EXISTS TO SERVE commands/cli-audit.md (loom_only, directly above) — the manifest's own per-CLI exclusion rationale already calls it a "loom AUTHORING agent ... NOT a downstream specialist". The 2026-06-23 leak fix moved the COMMAND to loom-only and added the AGENT to the codex+gemini `cli_emit_exclusions` only, never to loom_only — so it kept shipping to CC consumers as a live roster agent advertising a command they do not have and instructing `tools/cli-drift-audit.mjs`, which cannot reach them either (see the `tools/**` entry below). Measured before the fix with the distributor's OWN classifyFile against the real manifest: COPY/tier_match, with both poles fired (dataflow-specialist COPY, open-source-strategist SKIP/loom_only). Its `coc-core` tier row is removed in the same change so this passes check-8 as a loom_only glob in no tier. Co-owner-approved, Gate-1 USE-py S3-4.
   - commands/inspect.md # why: cross-repo loom-ecosystem inspection / drift detection (CLAUDE.md: loom management; backed by loom-only repo-ops). Was exclude-only (cc-fenced) but leaked to codex/gemini. obsoleted ×2 (codex+gemini; never reached cc).
   - commands/repos.md # why: lists repositories under the loom/ ecosystem — orchestration-root only (CLAUDE.md: loom management). Was exclude-only; leaked to codex/gemini. obsoleted ×2.
   - commands/maintain.md # why: fleet maintenance cadence — its mandatory Step 1 runs `/inspect health` (loom_only, above) via the orchestration-root cross-repo carve-out a downstream consumer structurally lacks (repo-scope-discipline.md). Sibling of /inspect + /repos. NEW loom-only fate 2026-07-05 (V15 command-completeness; self-ref redteam R1 reviewer HIGH corrected an initial coc-core placement). Was fully unmanaged/orphan (never emitted anywhere), so NO obsoleted purge needed — nothing leaked to consumers.
   - commands/settings.md # why: Claude Code settings across loom global/project (CLAUDE.md: loom-only settings-manager). Was exclude-only; leaked to codex/gemini. obsoleted ×2.
+  # ── repo-root tools/ — DOCUMENTATION declaration (Gate-1 ingest, USE-py stream) ──
+  # `tools/` (cli-drift-audit.mjs + its test + lint-workspaces.js + verify-overlays.sh)
+  # had ZERO mentions anywhere in this manifest: in no tier, not declared loom-only.
+  # Its absence at every consumer was therefore SILENT rather than intentional, which
+  # is what this entry fixes — `/cli-audit` Phase 3 and `agents/cli-orchestrator.md`
+  # both NAME `tools/cli-drift-audit.mjs` as the drift executor, so a reader had no way
+  # to tell "deliberately loom-side" from "leaked out of the distribution set".
+  #
+  # READ THIS BEFORE "FIXING" IT BY MOVING THE ENTRY INTO A TIER: that would not work.
+  # The distributor's candidate set comes from `sync-tier-aware.mjs::walkClaudeDir()`,
+  # which walks `CLAUDE_DIR` ONLY and emits repo-root-relative paths from under it. A
+  # repo-root `tools/` file is never enumerated, so NO tier entry could ever ship it —
+  # the cascade option is structurally unavailable, not merely unexercised. (The
+  # originating proposal offered "a tier so it cascades" as an equal alternative; that
+  # half is refuted here. Its other half — loom-only — is what this entry does.)
+  # Consequently this declaration is DOCUMENTATION-ONLY and inert at the engine: the
+  # never-sync outcome it states is already guaranteed by the walk. It is greppable,
+  # which silence was not. Making tools/ genuinely distributable is a WALKER change
+  # (a second walk root + purge/`.coc-obsoleted` semantics for repo-root paths) and is
+  # deliberately NOT attempted here. `tools/**` matches no tier, so the check-8
+  # loom_only∩synced-tier overlap guard is not engaged.
+  - tools/** # why: repo-root loom authoring/parity tooling (cli-drift-audit executor for /cli-audit Phase 3, which is itself loom_only above). Outside walkClaudeDir(), so never distributable without a walker change; declared so the absence is intentional and greppable.
+  # Same class as `tools/**` directly above, declared in the same change for the same
+  # reason (Tier-1 redteam, 2026-08-12): applying the "greppable, not silent" standard
+  # to ONE repo-root path while leaving its sibling silent is the inconsistency the
+  # rationale above argues against. `.claude/hooks/session-end.js:371` requires
+  # `../../scripts/learning/digest-builder` — a LIVE dependency of an
+  # `always_include` hook that is itself outside walkClaudeDir(). The hook already
+  # degrades honestly at consumers (:374-385 returns "unavailable", never a false
+  # "built"), so this changes NO runtime behaviour; it makes the deliberate absence
+  # machine-greppable rather than knowable only from a code comment. Matches no tier,
+  # so check-8's loom_only∩synced-tier guard is not engaged.
+  - scripts/learning/** # why: repo-root learning-digest builder, required by the distributed session-end.js hook but never distributable without a walker change. Documentation-only and inert at the engine, exactly like tools/** above.
   - skills/maintenance-sweep/** # why: the runbook backing commands/maintain.md (loom_only, above) — loom-only to MATCH its command's fate. /maintain's Step 1 runs loom-only /inspect via the orchestration-root carve-out a consumer lacks, so both command and skill stay loom-only; a coc-core skill backing a loom_only command would ship consumers a runbook for a command they do not have (self-ref redteam R3 security cascade-coherence fix, 2026-07-05).
   - skills/publish-template/** # why: the runbook backing commands/publish-template.md (loom_only, above, #886 S9 journal/0514) — loom-only to MATCH its command's fate. /publish-template drives loom-private edition machinery (edition-emit.mjs + the two publish-to-* scripts) a consumer never runs; a coc-core skill backing a loom_only command would ship consumers a runbook for a command they do not have (the maintenance-sweep cascade-coherence precedent).
   - skills/policy-distillation/** # why: the runbook backing commands/govern.md's POLICY-DISTILLATION MODE (loom #757 Shard B) — loom-only to MATCH its command's fate. /govern is loom_only (above): only loom originates governance/compliance artifacts directly via the O1 lane; a BUILD/USE consumer never runs /govern, so it never runs policy distillation. A coc-core skill backing a loom_only command would ship consumers a runbook for a command they do not have (the maintenance-sweep / publish-template cascade-coherence precedent). The COC artifacts a policy distillation ORIGINATES distribute normally via coc-core/kailash; the SKILL stays loom-only (DISTRIBUTE ≠ SURFACE). knowledge-cascade-routing.md MUST-2 distribution fate = loom-only.
@@ -3320,6 +3803,38 @@ loom_only:
   - bin/lib/fleet-dashboard.mjs # why: F1030c — fleet status dashboard lib. Direct sibling of the F1030a-fenced fleet trio, missed in that pass; a consumer has no fleet. Imported only by fenced fleet-deps/fleet-compliance-posture. Under bin/** tier → LOAD-BEARING carve-out.
   - bin/lib/fleet-freshness-ledger.mjs # why: F1030c — fleet freshness-ledger lib. Sibling of the F1030a fleet trio; a consumer has no fleet. Imported only by fenced fleet-* + weft-distributor (all loom_only). Under bin/** tier → LOAD-BEARING carve-out.
   - bin/lib/fleet-maintain.mjs # why: F1030c — fleet maintenance-cadence lib (backs loom-only /maintain). Sibling of the F1030a fleet trio; a consumer has no fleet. Zero non-test importers. Under bin/** tier → LOAD-BEARING carve-out.
+  # ── Gate-1 ingest 2026-08-10 (S22 W3-manifest) — two UNDECLARED bin paths ──────────
+  # Both were reported by a coc-py entry asking a question a CONSUMER structurally
+  # cannot answer — "does this ship?" needs `sync-tier-aware.mjs::ALWAYS_INCLUDE` and
+  # the tier globs, neither of which a consumer holds. Answered here, MEASURED via
+  # `buildPlan(manifest, <target>, null, "use")` on BOTH USE lanes with a control pair
+  # that returned both answers on the same run (`rules/security.md` → copy/overlay;
+  # `bin/lib/fleet-freshness-ledger.mjs` → skip/loom_only): each classified
+  # `skip / no_tier_match`, and neither appears in ALWAYS_INCLUDE.
+  #
+  # `no_tier_match` is NOT the ambient default for this tree and MUST NOT be read as a
+  # declaration — measured on the py USE lane, top-level `.claude/bin/*.mjs` is 85 files:
+  # 30 always_include, 21 exclude, 18 loom_only, and only 16 no_tier_match; `bin/lib/*` is
+  # 26: 11 always_include, 13 loom_only, 2 no_tier_match. The overwhelming majority carry
+  # an EXPLICIT fate, so these two were falling out SILENTLY. These rows convert that
+  # silence into an intentional declaration per `knowledge-cascade-routing.md` MUST-2.
+  # NEITHER row is under a synced tier, so neither is a check-8 LOAD-BEARING carve-out —
+  # they are declarations of record, and both files exist on disk so neither trips the
+  # zero-match WARN.
+  - bin/lib/disclosure-adjudication.mjs # why: S22 W3 — the LLM-adjudicated benign-collision reader for the identity/tenant disclosure gate, consumed ONLY by scripts/publish-to-public.mjs::runIdentityTokenGate (a loom-only publish path; the file is already named in the disclosure-benign-collisions.json entry's why-prose above, but was never itself declared). A consumer runs no edition publish. Measured skip/no_tier_match on py+rs.
+  - bin/reconcile-settings-hooks.mjs # why: S22 W3 — the hook-REGISTRATION reconciler. A coc-rs entry offered loom two dispositions, (a) distribute it or (b) declare the structural arm loom-only; loom ALREADY TOOK (b) and expressed it in the SKIP-detail string a consumer actually sees, with (a) explicitly rejected — this row is the manifest half that decision never got. Sibling `bin/reconcile-settings-deny.mjs` IS in ALWAYS_INCLUDE and ships; the two are different tools and the name-similarity is why an earlier lane could not tell them apart. Measured skip/no_tier_match on py+rs.
+  # The THREE importers of the two rows above. Fencing a module without fencing its
+  # importers is a half-done placement: the importer still ships, its `import` now
+  # resolves to a file the edition does not carry, and every community consumer gets
+  # ERR_MODULE_NOT_FOUND on load. `community-import-closure.test.mjs` (R2-HIGH-7) is the
+  # gate that caught it, and its assertion names the only two valid repairs — fence the
+  # importer, or ship the module. These test the loom-only tools directly, so fencing is
+  # the correct half. Measured: main PASSES this suite, the branch FAILED it on exactly
+  # these three, and the suite is `mode: dedicated` — `run-harness-suites.mjs` does NOT
+  # execute it, so a local full-harness green does not cover this class.
+  - bin/reconcile-settings-hooks.test.mjs # why: imports ./reconcile-settings-hooks.mjs (loom_only above)
+  - test-harness/tests/disclosure-adjudication.test.mjs # why: imports bin/lib/disclosure-adjudication.mjs (loom_only above)
+  - test-harness/tests/gate2-settings-reconcile.test.mjs # why: imports bin/reconcile-settings-hooks.mjs (loom_only above)
   # ── Orchestration callables (2026-07-28) — lane-status / pr-gate / budget-gate ──
   # Callables for the three question-classes in the eight-instrument diagnosis, where
   # the check composed could not distinguish the answer from its opposite. loom#1458
@@ -3510,7 +4025,25 @@ gitignore_additions:
   # /codify). Atomic .tmp+rename writes; MUST NOT be committed — the
   # lease IS the runtime-only signal of "an operator holds the codify
   # lock"; persisting it across clones would make the lease forgeable.
-  - .claude/learning/codify-lease.json
+  # loom#1544 F2 — trailing glob (was an exact name). `_atomicWriteJson` stages the
+  # COMPLETE lease body, `display_id` included, at `codify-lease.json.tmp.<pid>.<hex>`
+  # before renaming; the exact-name form fenced the published file and not the staging
+  # one, at loom AND here. Normalizes to `codify-lease.json` for the #707 parity gate.
+  - .claude/learning/codify-lease.json*
+  # loom#1544 F2 — the capability subsystem's per-clone state, previously in NEITHER
+  # this list nor loom's .gitignore, which is exactly why the #707 parity gate could not
+  # surface it (it compares the two sides; an artifact absent from both is invisible to
+  # it by construction). Covers `capability-edge-lease.json`, `capability-mlease-<sha>.json`
+  # and `capability-ledger.jsonl` plus each lease's `.tmp.<pid>.<hex>` staging. The first
+  # two carry `holder_id`; the ledger is written through `emitSignedRecord`, which stamps
+  # `verified_id` — operator-correlatable, the codify-lease.json disclosure class.
+  # CONSUMER-GENERATED, so it belongs HERE and not in LOOM_ONLY_LEARNING_EXCLUSIONS: the
+  # writers are `capability-lease.js` / `capability-ledger.js` under the broadly-synced
+  # `hooks/lib/**` glob and carry no `loom_only:` entry, so the sink can materialize at
+  # any consumer. That is the `observations.archive/` discriminator (synced writer →
+  # consumer state → gitignore_additions), NOT the `artifact-activation` one (loom_only
+  # writers → never materializes downstream).
+  - .claude/learning/capability-*
   # Coordination opt-in local override (MO-OPT W1 — coordination-mode.js tier 2).
   # Per-clone, never-synced state-class file (same visibility class as
   # posture.json); carries no identity (just {enabled: bool}) but MUST stay
@@ -3571,7 +4104,11 @@ gitignore_additions:
   # file would default to IGNORED/silent-over-ignore instead of TRACKED/catchable).
   - .claude/learning/coordination-log.jsonl*
   - .claude/learning/provenance/
-  - .claude/learning/posture.json
+  # loom#1544 F2 — trailing glob (was an exact name). `state-io.js::writePosture` also
+  # writes a write-ahead `posture.json.bak` and a `posture.json.tmp.<pid>` stage, both
+  # carrying the same bytes as the fenced file; the exact-name form covered neither.
+  # Normalizes to `posture.json` for the #707 parity gate, so no new required entry.
+  - .claude/learning/posture.json*
   - .claude/learning/.initialized
   - .claude/learning/learning-codified.json
   - .claude/learning/learning-digest.json
@@ -3604,6 +4141,18 @@ gitignore_additions:
   # was added to loom's .gitignore in Wave B but never mirrored here, so the
   # distributable block let a consumer git-commit it (journal/0368 disclosure class).
   - .claude/learning/sessionend-release-lease-*
+  # ...and the STAGING half of that same lease (#1544 F1). `_publishLeaseAtomically`
+  # writes the COMPLETE lease body — verified_id + verified_fingerprint, the identical
+  # disclosure class as the published lease above — to `.tmp-sereleaselease-<pid>-<hex>`
+  # and then link()s it into place. The staging prefix DELIBERATELY does not start with
+  # `sessionend-release-lease-` (that prefix is exported for directory scans, and a
+  # staging file wearing it could be swept up as though it were a lease), which is
+  # exactly why the entry above does NOT cover it. A crash between the staging create
+  # and the link orphans a git-visible file carrying an operator fingerprint: the
+  # opportunistic sweep runs only on the publish SUCCESS path and only above a 1-hour
+  # age, so nothing removes it before the consumer's next `git add -A`. Mirrors loom's
+  # own .gitignore entry; the #707 parity gate requires both halves to move together.
+  - .claude/learning/.tmp-sereleaselease-*
   - .claude/learning/observations.archive/
   # Operator roster (MO-OPT W2-c / GAP A — the state-locality policy).
   # The roster carries operator TRUST identity (genesis trust-root, GPG
@@ -3657,6 +4206,85 @@ gitignore_additions:
   - "**/.claude/mesh/**/*.key"
   - "**/.claude/mesh/**/*.pem"
   - "**/.claude/mesh/**/*.secret"
+  # Gate-1 ingest 2026-08-10 (S22 W3-manifest) — coc-py item 10 + D5, coc-rs RS-13:
+  # the #743 session-notes coherence artifacts + the journal/0543 wave-tracker, absent
+  # from EVERY consumer-facing gitignore key. Shipped artifacts already ASSERT these are
+  # gitignored — `hooks/lib/session-notes-layout.js` (a SYNCED lib: 0 hits in `loom_only:`,
+  # against a control where `o1-citation-check` returns 3) names each of the three
+  # session-notes artifacts, and its `:572` banner tells the reader the aggregate is
+  # "(gitignored, regenerable)". A consumer running the synced hook produces the file and
+  # tracks it.
+  #
+  # KEY CHOICE — `gitignore_additions`, NOT `visibility_gitignore_additions.public`, and
+  # this DEVIATES from the coc-py entry's stated key. That entry's rationale is that an
+  # all-consumer key "would ignore per-operator state on the private/team consumers that
+  # deliberately track it". True of `.session-notes.d/` + `.session-notes.shared.md` —
+  # false of these five. MEASURED on loom, the private/team archetype, with an instrument
+  # that returned BOTH answers on the same tree (`git check-ignore -q`, exit 0=ignored):
+  #     .session-notes.d/<id>.md      exit 1  → loom TRACKS it   (visibility-conditional)
+  #     .session-notes.shared.md      exit 1  → loom TRACKS it   (visibility-conditional)
+  #     .session-notes.aggregate.md   exit 0  → loom IGNORES it  (visibility-BLIND)
+  #     .session-notes.migrated       exit 0  → loom IGNORES it  (visibility-BLIND)
+  #     .session-notes.migrate.lock   exit 0  → loom IGNORES it  (visibility-BLIND)
+  #     .wave-tracker.d/<id>.md       exit 0  → loom IGNORES it  (visibility-BLIND)
+  #     .wave-tracker.md              exit 0  → loom IGNORES it  (visibility-BLIND)
+  # The split falls exactly between the two groups: a transient mutex lock, a regenerable
+  # view, a migration recovery copy, and a per-operator liveness-churn tracker are state NO
+  # consumer tracks at any visibility. Routing them through the public-only key would leave
+  # every private/team consumer committing them — the failure the entry meant to prevent,
+  # inverted. `.gitignore:53-63` states the wave-tracker case in loom's own voice
+  # (liveness-churn / non-cascading / operator-telemetry disclosure), and loom is private.
+  # Outside `.claude/learning/**`, so the #707 gitignore-learning-parity gate does not see
+  # these rows (that check compares only the `.claude/learning/**` subset).
+  #
+  # EXACT filenames + EXACT-DIR (trailing slash, no glob), mirroring `.gitignore:42` — a
+  # broad `.session-notes.*` glob would untrack the TRACKED `.session-notes.d/` +
+  # `.session-notes.shared.md` split, the feature destroying its own storage. Unanchored so
+  # they match at the repo root AND under `workspaces/<name>/`.
+  - .session-notes.aggregate.md
+  - .session-notes.migrated
+  - .session-notes.migrate.lock
+  - .wave-tracker.d/
+  - .wave-tracker.md
+  # ── Gate-1 (use-py D5, 2026-08-11) — the two per-operator classes the
+  # session-notes/wave-tracker rows above did NOT cover. Same finding family as
+  # those rows; placed separately because they are a different state class.
+  #
+  # Both pass this list's own stated discriminator (see `.claude/learning/capability-*`
+  # above): a SYNCED writer materializes them as CONSUMER state, so they belong here
+  # rather than in `loom_only`. `.claude/worktrees/` is created by the CLI's own
+  # worktree primitive at any consumer; the resolver's per-operator link files are
+  # written wherever the resolver runs (loom + BUILD).
+  #
+  # Routed to `gitignore_additions` (ALL consumers) and NOT to
+  # `visibility_gitignore_additions.public`, and the key choice is load-bearing.
+  # The visibility split exists because private/team consumers deliberately TRACK
+  # session state "mirroring loom itself" — but loom, the repo that comment names as
+  # the model, gitignores BOTH of these classes in its own `.gitignore` (the resolver
+  # link files and the nested-worktree dir). No consumer intends to track them, so
+  # scoping them to public-only would leave every private/team consumer exposed to
+  # exactly the `git add -A` commit these rows exist to prevent.
+  #
+  # The local-links files carry operator-ABSOLUTE cross-repo paths, so committing one
+  # is the operator-home disclosure class `scan-synced-disclosure.mjs` fences, not
+  # merely local noise. Shipped artifacts already ASSERT these are gitignored
+  # ("gitignored-per-operator"), so today those statements are true at loom and false
+  # at a consumer.
+  #
+  # ANCHORED forms (leading `.claude/`), deliberately — NOT a bare `*.local.json`.
+  # Measured both poles: the anchored rule ignores `.claude/bin/loom-links.local.json`
+  # while leaving the tracked disclosure-scanner fixture at
+  # `.claude/audit-fixtures/scan-synced-disclosure/destination-local-json/.claude/bin/loom-links.local.json`
+  # tracked. An unanchored glob matches at ANY depth and would swallow that fixture.
+  # `*.local.json` also does not match the committed `*.local.example.json` schemas
+  # (verified: both remain not-ignored) — those are the templates operators copy FROM.
+  - .claude/bin/*.local.json
+  - .claude/worktrees/
+  # NOTE — `.claude/cross-repo-authz/` is NOT declared here. It is a TARGET-OWNED
+  # path (loom must never delete it either), so it rides `target_owned:` below with
+  # `publish: local_only`, which emits into this same managed block on BOTH lanes.
+  # This list is consumer-only (`isBuild ? []`), which would have left the BUILD
+  # repos — the ones actually carrying tracked receipts — unfenced.
 
 # loom#676 — Re-include guarantees (UNIVERSAL: USE templates AND BUILD repos).
 # DISTINCT from gitignore_additions above (which are state-locality IGNORES,
@@ -3701,6 +4329,34 @@ gitignore_reincludes:
   - "!.claude/hooks/lib/"
   - "!.claude/test-harness/lib/" # sync-from-backlog-0552 (b): test-harness/lib ships to BUILD (eval probe-schemas); a broad consumer lib/ ignore would swallow it (loom#676)
   - "!.claude/audit-fixtures/**" # 0556/0558 (loom#676): re-includes distributed audit fixtures a consumer ignore would swallow, ONLY where the negation wins by file order (inside the coc-managed block). Does NOT override a consumer OWN tail ignore that follows the block (e.g. rs *.operator.local.md) — those operator-local-md scanner fixtures are EXCLUDED from distribution instead (see exclude: **/*.operator.local.md).
+  # Gate-1 ingest 2026-08-10 (S22 W3-manifest) — coc-py item 4. The `/**` negation above is
+  # indiscriminate: it re-includes EVERY path under `audit-fixtures/`, `.DS_Store` included,
+  # overriding the consumer's own `.DS_Store` line (which renders ABOVE the managed block).
+  # A macOS consumer then commits Finder metadata into a synced fixtures tree.
+  #
+  # THIS ROW MUST STAY LAST IN THIS LIST, AND THIS LIST MUST STAY THE LAST-RENDERED KEY.
+  # git is last-match-wins, so a re-exclusion placed anywhere the negation can still follow
+  # is a SILENT NO-OP — it changes no behaviour and reports no error. Render order is fixed
+  # by `sync-tier-aware.mjs::effectiveGitignoreAdditions` (`:1902-1908`), NOT by key order in
+  # this file: base `gitignore_additions` → `target_owned publish: local_only` →
+  # `visibility_gitignore_additions` → `gitignore_reincludes` LAST.
+  #
+  # A/B MEASURED 2026-08-10 (`git check-ignore -q`, exit 0=ignored / 1=not-ignored), on a
+  # scratch repo whose managed block reproduced the rendered order, with a control pair that
+  # returned BOTH answers (`.claude/operator-id` → 0, `.claude/bin/lib/loom-links.mjs` → 1):
+  #   arm 1, routed via `gitignore_additions` (renders FIRST):
+  #     audit-fixtures/**/.DS_Store  exit 1  ← the negation still follows it: SILENT NO-OP
+  #     audit-fixtures/**/case.json  exit 1  ← re-include intact
+  #   arm 2, routed HERE at the tail (renders LAST):
+  #     audit-fixtures/**/.DS_Store  exit 0  ← FIX EFFECTIVE
+  #     audit-fixtures/**/case.json  exit 1  ← re-include PRESERVED
+  # Both arms are byte-identical except for the row's position, so position is the variable.
+  #
+  # Do NOT "fix" this by narrowing the `/**` above: the broad negation is what defends every
+  # fixture subtree against a consumer's root ignore (loom#676). Re-exclude the one basename;
+  # keep the negation broad. A future basename in the same class (e.g. `Thumbs.db`) is
+  # another row HERE, below this one — never a narrowing above.
+  - .claude/audit-fixtures/**/.DS_Store
 
 # FA (2026-05-31) — Visibility-conditional gitignore additions.
 # These patterns are applied to a consumer's `.gitignore` ONLY when the
@@ -3962,6 +4618,21 @@ use_obsoleted:
   # pattern terrene-naming.md / independence.md already use). This entry closes
   # the gap for the 4 USE templates. Ref: loom #36.
   - .claude/commands/sync.md
+  # ── cli-orchestrator purge — DUAL-LISTED, this half covers the USE lane ──────
+  # This entry STAYS here and a twin was added to `obsoleted:` (Tier-1 redteam,
+  # 2026-08-12). Dual-listing is REQUIRED, not redundant: `purgeList` is
+  # `isBuild ? [...obsoleted, ...build_obsoleted] : use_obsoleted`
+  # (sync-tier-aware.mjs:2473-2475), so despite its name the `obsoleted:` block is
+  # NOT universal — the USE lane reads THIS block only. The original declaration was
+  # USE-only on the reasoning that "the codex/gemini corpora already excluded it via
+  # cli_emit_exclusions, so no per-CLI purge is owed"; that reasoning is UNSOUND
+  # because per-CLI corpora and the BUILD `.claude/` tree are independent axes, and
+  # the file measured `copy/tier_match` on py:build and rs:build. Removing this half
+  # in favour of the `obsoleted:` twin was measured to drop the USE purge 48 → 47 and
+  # un-purge all four USE targets — which is why both halves ship.
+  # Same dual-listing shape the bin/*.test.mjs leak fix used.
+  - .claude/agents/cli-orchestrator.md
+  - .claude/guides/model-optimization/02-ecosystem-inventory.md # why: zero-byte guide deleted at source in this change; measured copy/tier_match on py/rs/base:use, so purge the already-distributed copy here too. BUILD twin in `obsoleted:`.
   - .claude/rules/documentation.md
   - .claude/skills/30-claude-code-patterns/sdk-upstream-donation.md
   - .claude/guides/co-setup/
@@ -3971,12 +4642,43 @@ use_obsoleted:
   - .claude/guides/rule-extracts/independence-rs.md
   # Foundation-branding rules — landed in every USE template via the
   # prior `coc-core` tier classification; now `kailash`-tier + use_excluded
-  # (2026-05-07). Existing copies in kailash-coc-claude-py / -rs / -rb
+  # (2026-05-07). Existing copies in kailash-coc-claude-py / -rs
   # / kailash-coc-py / kailash-coc-rs / coc-base / coc-claude-base MUST
   # be purged on next sync cycle so non-Foundation downstream
   # consumers do not inherit Terrene Foundation branding rules.
   - .claude/rules/terrene-naming.md
   - .claude/rules/independence.md
+  # ── test-harness purge, USE lane ONLY (2026-08-03, #1549 occurrence 3) ──────
+  # MOVED here from `obsoleted:`, where it had purged BOTH lanes. Its original
+  # rationale is intact and still correct FOR THIS LANE: loom's multi-CLI parity
+  # fixtures (~70 result logs + suites + run-all.sh), loom-only, surfaced in the
+  # v2.10.x audit on rs USE templates (644K, 100 files); consumers do not run the
+  # harness. Paired with the `test-harness/**` exclude entry. It must NOT ride the
+  # universal key: BUILD repos DO run the harness (kailash-rs's REQUIRED
+  # `COC Artifact Eval (structural)` check invokes coc-eval-all.mjs against its own
+  # eval-manifest.json + probes/), and as a directory PREFIX the entry deleted
+  # whatever the target authored under it by default. Full account at the removed
+  # `obsoleted:` entry above.
+  #
+  # Landing it here ADDS a USE-lane purge that was never running (USE reads
+  # `use_obsoleted:` only, so the old `obsoleted:`-only placement purged BUILD —
+  # the lane it should not have — and NOT the USE templates its own evidence came
+  # from). It also keeps the directive reaching downstream consumers, whose
+  # `.coc-obsoleted` is the union of `obsoleted:` + `use_obsoleted:` — dropping the
+  # path from both keys would strand their stale copies.
+  # Measured before landing (`git ls-tree -r --name-only origin/main -- .claude/test-harness/`
+  # per template): kailash-coc-py, kailash-coc-rs, kailash-coc-claude-py,
+  # kailash-coc-claude-rs, coc-base, coc-claude-base all report ZERO tracked files,
+  # so the new purge is inert at every template measurable from this checkout.
+  # That enumeration is COMPLETE as of 2026-08-11: the only template it used to
+  # omit was kailash-coc-claude-rb, which #423 Phase 1 retired and which was
+  # removed from `repos.*` entirely this cycle (Ruby ships as an rs binding), so
+  # there is no longer an unresolvable template to verify. Directory-PREFIX purges
+  # still inherit the delete-by-default reach (`purgeSparingShipped`, :2956-2958)
+  # that caused #1549 on the BUILD lane; the structural fix is tracked in #1549;
+  # this entry is safe today only because the templates are empty under it and
+  # `test-harness/**` is already `exclude:`d from USE shipment.
+  - .claude/test-harness/
   # Variant overlays for the same rules — same purge requirement at
   # every USE template that landed them.
   - .claude/variants/rs/rules/independence.md
@@ -4099,26 +4801,18 @@ repos:
         clis: [claude, codex, gemini]
         baseline_files: [CLAUDE.md, AGENTS.md, GEMINI.md]
     description: Kailash Rust SDK — all-bindings USE template (Rust engine; Python & Ruby bindings via the 06-python-bindings + 28-ruby-bindings on-demand skills)
-  rb:
-    build: kailash-rs
-    variant: rb
-    # #423 Phase 1 (2026-06-01): kailash-coc-claude-rb USE template RETIRED.
-    # Ruby is a Magnus binding of the kailash-rs engine (repos.rb.build =
-    # kailash-rs — same engine as rs, not a separate engine), so Ruby-binding
-    # knowledge folded into the rs all-bindings template's 28-ruby-bindings
-    # on-demand skill per #423 (binding-agnostic baseline + per-binding
-    # on-demand skills). A one-cycle deprecation shim (zero-tolerance.md Rule
-    # 6a) redirects Ruby consumers to kailash-coc-rs / kailash-coc-claude-rs;
-    # downstream re-syncs once. tier_subscriptions: [] + templates: [] reflect
-    # USE retirement (mirrors the prism precedent); /sync rb cannot run, per
-    # the manifest-defect halt-rule in sync-flow.md § Gate 2 → Process step 3 (loom: /sync-to-use).
-    tier_subscriptions: []
-    templates: []
-    description: |
-      Kailash Ruby SDK (Magnus bindings of the kailash-rs engine) — USE-side
-      distribution folded into the rs all-bindings template (28-ruby-bindings
-      skill) per #423 Phase 1. Retired 2026-06-01; consumers re-point to the
-      rs template.
+  # `rb:` REMOVED 2026-08-11. #423 Phase 1 (2026-06-01) retired the
+  # kailash-coc-claude-rb USE template — Ruby is a Magnus binding of the
+  # kailash-rs engine, so Ruby-binding knowledge folded into the rs
+  # all-bindings template's 28-ruby-bindings on-demand skill — but the target
+  # key survived as an empty tombstone (`tier_subscriptions: [] templates: []`)
+  # carrying a comment that claimed "/sync rb cannot run". MEASURED 2026-08-11:
+  # it ran. `sync-tier-aware.mjs --target rb --dry-run` exited 0 with
+  # `target=rb variant=rb tiers=[]`, where `--target bogus` exits 1 — so the
+  # tombstone made rb a live-but-vacuous lane, the opposite of what its own
+  # comment asserted. Deleting the key makes the code match the claim:
+  # `--target rb` now halts on the manifest-defect rule (sync-flow.md § Gate 2
+  # → Process step 3). Ruby is served by `rs` (§ repos.rs, all-bindings).
   base:
     # v2.21.0 (2026-05-06): Non-Kailash, language-agnostic variant.
     # User onboarding template for arbitrary stacks (Go, Java, TypeScript,
@@ -4191,7 +4885,7 @@ repos:
     # Frontend-generic artifacts (FE agents, design-system skills, interaction
     # patterns, UI/UX design principles, conversation/widget UX) already sync
     # to ALL USE templates (kailash-coc-claude-py, kailash-coc-claude-rs,
-    # kailash-coc-claude-rb, kailash-coc-py, kailash-coc-rs) via the global
+    # kailash-coc-py, kailash-coc-rs) via the global
     # kailash tier — making the dedicated prism USE template redundant.
     # Prism-internal artifacts (compiler, specs ontology, build/assembly model)
     # stay at the kailash-prism BUILD repo only (no USE distribution needed —
@@ -4200,7 +4894,7 @@ repos:
     templates: []
     description: |
       Kailash Prism composable frontend engine (flutter/web/tauri/stitch +
-      prism compiler). USE-side distribution is via the existing py/rs/rb
+      prism compiler). USE-side distribution is via the existing py/rs
       USE templates which already carry frontend-generic content; the prism
       BUILD repo (kailash-prism) receives /sync-to-build for working-tree
       updates only (per "Never Commit BUILD Repos" feedback).
@@ -4215,7 +4909,7 @@ repos:
 #
 # WHAT THIS IS NOT
 #   This is NOT a new first-class loom `client` variant axis. The
-#   `variants/` overlay system (py/rs/rb/base/prism) is the LANGUAGE/
+#   `variants/` overlay system (py/rs/base/prism) is the LANGUAGE/
 #   stack axis and is loom-authored. A `client` axis would mean loom
 #   authors and ships consumer-specific policy content — loom does NOT
 #   and MUST NOT carry any individual consumer's policy content. See
@@ -4241,7 +4935,7 @@ repos:
 #   honored ONLY when a downstream `/sync` runs against a consumer
 #   whose `.claude/.coc-sync-marker` (or `.claude/VERSION::upstream`)
 #   identifies it as that consumer. They are NEVER applied to the
-#   kailash-coc-claude-{py,rs,rb} / kailash-coc-{py,rs} / coc-base
+#   kailash-coc-claude-{py,rs} / kailash-coc-{py,rs} / coc-base
 #   USE templates — those are loom-canonical-only and carry no
 #   consumer overlay. The keying-by-slug is the structural guarantee
 #   of that scoping.

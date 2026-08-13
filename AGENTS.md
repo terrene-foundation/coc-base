@@ -195,21 +195,11 @@ Concurrent-operator capacity (per-`verified_id` budgets, NON-SAME-adjacency para
 
 Many COC users are non-technical. Default to plain language; match the user's level if they speak technically.
 
-## Report in Outcomes, Not Implementation
-
-## Explain Choices in Business Terms
-
-When presenting decisions, explain implications in terms the user can act on — not implementation details.
-
-## Frame Decisions as Impact
-
-Present: what each option does (plain language), what it means for users/business, the trade-off, your recommendation.
-
-**Example**: "Two options for notifications. Option A: email only — simple, but users might miss messages. Option B: email plus in-app — takes longer but ensures users see important updates. I'd recommend B since your brief emphasizes real-time awareness."
+Report **outcomes**, not implementation. Explain choices in **business terms** the user can act on. Frame every decision as **impact + trade-off + your recommendation**.
 
 ## Approval Gates
 
-At gates (end of `/todos`, before `/deploy`), ask:
+At gates (end of `/todos`, before `/deploy`), ask all four — each catches a different failure:
 
 - "Does this cover everything you described in your brief?"
 - "Is anything here that you didn't ask for or don't want?"
@@ -233,6 +223,8 @@ At gates (end of `/todos`, before `/deploy`), ask:
 - Repeat the same jargon if user says "I don't understand" — find new analogy
 
 **Why:** Repeating failed explanations erodes user trust in the entire session.
+
+Worked ✅/❌ examples for each section + why these four gate questions: `.claude/guides/rule-extracts/communication.md`.
 
 
 ---
@@ -267,12 +259,27 @@ A command that exited non-zero, hit an invalid flag, timed out, or returned empt
 
 **Why:** The reader cannot act correctly if they cannot tell known from guessed; fact-grammar is the form every confabulation takes. See guide.
 
+### 5. A Verification Instrument Is Shown Capable Of The OPPOSITE Verdict Before Its Result Is Banked
+
+MUST-3 governs a command that FAILED; this governs one that SUCCEEDED and answered a DIFFERENT question. Before banking a verification result the instrument MUST be shown able to return the opposite verdict. Two BLOCKED shapes: a **self-derived oracle**, whose expected value is computed FROM the subject so both agree by construction; and a **wrong-question instrument** — e.g. a TWO-DOT `git diff base..HEAD` on a branch BEHIND base, which renders base's newer commits as REVERSIONS (use `base...HEAD`).
+
+**Why:** A confident wrong answer from a WORKING command is invisible at read time — the transcript shows a clean exit and a plausible result. See guide.
+
+### 6. An Instrument's SCOPE Is Established Before Its Green Is Generalized
+
+MUST-5 asks whether an instrument can fail AT ALL; this asks whether it can fail FOR THIS CLASS. One that PASSES its negative control can still be BLIND to a class its execution model, compiled feature set, mutation point, dependency context, or engine dialect excludes. State the scope a green covers and what it EXCLUDES; generalizing past it is BLOCKED. Five shapes: guide.
+
+**Why:** A negative control proves the instrument can MOVE, not that it can SEE the class under review — so a blind green is indistinguishable from a covering one, and more dangerous, since the control makes it look verified.
+
 ## MUST NOT
 
 - State a security / compromise / injection / tampering claim without quoting the triggering bytes inline — **Why:** unfalsifiable from the reader's side; triggers costly escalation on a possibly-invented threat.
 - Characterize `cat -v` / escaped-byte renderings as content without decoding to the real codepoint first — **Why:** the rendering is not the byte.
 - Treat an errored, timed-out, or empty command result as confirmation of any hypothesis — **Why:** absence-of-result is not evidence.
 - Assert a root-cause claim before reading the log / output / file that would show the cause — **Why:** the log disambiguates; asserting first builds the next action on a guess.
+- Bank a verification result from an instrument never shown able to return the opposite verdict, or generalize a green past the class its instrument could observe — **Why:** a check that cannot fail, or cannot fail for this class, reports `pass` for every input including the ones it exists to catch.
+
+Extended per-bullet rationale: guide § MUST NOT. MUST-5 and MUST-6 each carry their own `**BLOCKED rationalizations:**` corpus inline.
 
 ---
 
@@ -349,7 +356,7 @@ CC system prompt provides the template. Always include a `## Related issues` sec
 
 ## Destructive Working-Tree Ops MUST Verify Clean Working Tree (MUST)
 
-`git reset --hard <ref>`, `git clean -f[d]`, and `rm -rf` of untracked paths all SILENTLY and IRRECOVERABLY destroy uncommitted work — unstaged modifications AND untracked-not-ignored files have NO reflog. Running any without first verifying `git status --porcelain` is empty is BLOCKED. Prefer `git reset --keep <ref>` (aborts on a dirty tree) and `git stash -u` over `git clean -f`. The `.claude/hooks/validate-bash-command.js` tripwire enforces this at the Bash boundary.
+`git reset --hard <ref>`, `git clean -f[d]`, and `rm -rf` of untracked paths all SILENTLY and IRRECOVERABLY destroy uncommitted work — unstaged modifications AND untracked-not-ignored files have NO reflog. Running any without first verifying `git status --porcelain` is empty is BLOCKED. Prefer `git reset --keep <ref>` (aborts on a dirty tree) and `git clean -n` (preview). NOT `git stash -u`: its stack is `.git`-scoped, so any linked worktree can pop it (`worktree-isolation.md` Rule 9) — capture to a patch. The `.claude/hooks/validate-bash-command.js` tripwire enforces this at the Bash boundary.
 
 ```bash
 # DO — git reset --keep origin/main; git clean -n (loud refusal / preview)
@@ -414,6 +421,18 @@ State what the instrument would have printed had the proposition been FALSE. No 
 
 **Why:** A test asserting nothing about its named behavior passes identically whether that behavior is present or absent; an unvalidated mutation then becomes a second non-discriminating instrument, issuing false vacuity verdicts against working tests.
 
+### 3. Show The Instrument Fires HERE, And Read The Hits
+
+Naming the falsifying result (MUST-1) does not show THIS tool can emit it. **(a)** Fire the instrument at a known-answer case first; never-shown-to-fire-here is BLOCKED as evidence, however sound its logic. **(b)** Read the matches, not the tally — including what a count COUNTS.
+
+**Why:** A sound check can be physically unable to emit its falsifying result here — an unimplemented regex dialect, a shell that will not word-split, a case-insensitive filesystem — so its silence is indistinguishable from a true negative, and survives review that checks only the reasoning; no control catches an over-match, which only reading the hits reveals.
+
+### 4. An Instrument Is Scoped To The Question It Was BUILT For
+
+Soundness for question A carries NO information about question B. Reading a check built for A to answer a DIFFERENT question B re-triggers MUST-1 for B: name what it would print were B FALSE; unnameable ⇒ B is UNANSWERED. **A field's semantics are fixed by its PRODUCER, not by the reader's question.**
+
+**Why:** Discrimination belongs to the PROPOSITION, not the tool — so a value plausible for B survives a self-review that only ever asked about A.
+
 ## MUST NOT
 
 - Report a question ANSWERED, or treat a lexical match (grep, keyword scan, string presence) as a verdict on a semantic property, when no result the instrument could have produced would have falsified the proposition
@@ -460,7 +479,7 @@ The session's CWD repo is the agent's entire scope. The agent MUST NOT read, edi
 
 **Why:** Each repo has its own protection, ownership, and rule set; cross-repo writes ship under rules the destination never consented to.
 
-- Answer a layout/path question — or resolve a target at an orchestration root — from a hardcoded artifact path (`~/repos/...`) or positional discovery instead of the operator's `loom-links.local.json` via `bin/lib/loom-links.mjs::resolveRepo`/`resolveAll` (`rules/cross-repo.md` MUST-1). Artifact paths are illustrative; on disagreement the resolver is authoritative, and no carve-out ever lifts it.
+- Answer a layout/path question — or resolve a target at an orchestration root — from a hardcoded artifact path (`~/repos/...`) or positional discovery instead of the operator's declared NAME→location binding (at loom/BUILD: `loom-links.local.json` via `bin/lib/loom-links.mjs::resolveRepo`/`resolveAll`; both the resolver and its full contract are loom/BUILD-side and deliberately NOT distributed to USE, so at a USE template or downstream consumer — which resolves nothing cross-repo — this bullet IS the whole contract: ask, never guess). Artifact paths are illustrative; on disagreement the declared binding is authoritative, and no carve-out ever lifts it.
 
 **Why:** Clients clone into new layouts (Windows/ADO/nested); a baked-in `~/repos/...` path is confidently wrong.
 

@@ -12,7 +12,7 @@ The three share ZERO write-authority: `/onboard` writes nothing, `/enroll` write
 **Usage**: `/ecosystem-init` (no args; runs in the current fork's loom checkout)
 
 **Strictly dependency-ordered BEFORE this command, for a client fork:** `/clean-instantiate` — the
-once-per-clone CLEAR ceremony (`.gemini/commands/clean-instantiate.md`) — MUST have run to a `0`-exit
+once-per-clone CLEAR ceremony (`.gemini/commands/clean-instantiate.toml`) — MUST have run to a `0`-exit
 fail-closed assert-zero gate on any repo templated or cloned FROM canon. C3 below re-anchors genesis to
 the CLIENT's owner; it MUST NOT run over a clone that still carries canon's trust-identity (roster,
 journal, `ecosystem.json`) at rest — re-anchoring on top of un-cleared identity leaves canon's substrate
@@ -29,7 +29,7 @@ invocation shape, the genesis-ceremony call) lives in `.gemini/skills/43-ecosyst
 ## The five invariants (load-bearing — the redteam surface)
 
 1. **C1 disclosure gate fires BEFORE the ecosystem-config write.** The config names real org slugs
-   (the #255/#252 disclosure class). `node .claude/bin/scan-synced-disclosure.mjs --root <fork-checkout>`
+   (the #255/#252 disclosure class). `node .claude/bin/scan-synced-disclosure.mjs --check --root <fork-checkout>`
    MUST run and exit 0 BEFORE `.claude/bin/ecosystem.json` is written; ANY finding → HALT, genericize +
    relocate, re-scan. Placement does not proceed on a non-zero exit (the `artifact-flow.md` Intake-Scrub
    shape, applied at ecosystem-config write time). The scan covers the SURROUNDING synced surface, NOT
@@ -105,13 +105,15 @@ ceremony's owner-class gate is independent of posture.
 
 ## Implementation notes
 
-The client-fork precondition (see above) is the CLEAR ceremony `.gemini/commands/clean-instantiate.md`,
+The client-fork precondition (see above) is the CLEAR ceremony `.gemini/commands/clean-instantiate.toml`,
 engine `.claude/bin/clean-instantiate.mjs` — a distinct command this one does NOT invoke; it is a
 prerequisite gate, checked by the operator/orchestrator before running `/ecosystem-init`, not by this
 command's own code path.
 
 The D6 config schema + accessor contract is `.claude/bin/lib/ecosystem-config.mjs` (reader) +
-`.claude/bin/lib/loom-links.mjs` (the local⊕remote join); the synthetic companion is
+the loom/BUILD-side resolver `bin/lib/loom-links.mjs` (the local⊕remote join — `loom_only`, actively
+purged from every consumer per the `sync-manifest.yaml` `# why: F1030a` purge entries, so it is ABSENT
+here); the synthetic companion is
 `.claude/bin/ecosystem.example.json` (the only `ecosystem*` file that syncs/publishes). The disclosure
 scanner is `.claude/bin/scan-synced-disclosure.mjs`. The genesis ceremony is
 `.claude/hooks/lib/genesis-ceremony.js`; its consumer-relevant operational runbook (enroll-before-commit

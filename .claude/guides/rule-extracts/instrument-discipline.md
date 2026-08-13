@@ -187,3 +187,60 @@ it is the strongest available evidence that the class is hard to see from the in
 for an author who has just finished writing the rule against it. If a future edit re-introduces
 the reachability framing — it reads well, and it is nearly true — this section is the receipt
 showing it was considered and refuted on evidence.
+
+## MUST-4 — depth
+
+MUST-4 landed 2026-08-11 via `/sync-from-use` Gate-1 placement of a DOWNSTREAM-relayed upflow
+entry. Provenance is **hop-level only** (`origin: downstream`, relayed through a USE template): the
+originating consumer is deliberately not identified, and no consumer name, workspace id, internal
+path, finding tag, or session identifier is carried into the cascading copy, per
+`upstream-issue-hygiene.md` MUST-2 + `knowledge-cascade-routing.md` MUST-3. Classified **GLOBAL on
+both axes** — the clause references no language runtime and no CLI-native primitive, so neither a
+py/rs overlay nor a per-CLI overlay is warranted.
+
+### Why MUST-4 is standalone rather than a MUST-3(b) extension
+
+The relaying entry deliberately left this open for Gate-1. It was resolved standalone:
+
+- MUST-3(b) governs how a **firing** instrument's output is READ — hits versus tally, and what a
+  count counts. Its trigger is "you have a result in hand".
+- MUST-4 governs the **re-use** of an already-sound instrument against a SECOND proposition. Its
+  trigger is "you are about to ask this thing a different question", which fires at a different
+  moment, before any result exists.
+- Folding the second into the first would bury that trigger under a clause a reader consults only
+  once they are already reading output.
+
+The portion of the offer that genuinely DOES overlap MUST-3(b) — count-semantics, where the unit a
+number counts is not the unit the reader assumes — is left there rather than restated, which is why
+MUST-4's body carries the producer-semantics corollary but no second tally example.
+
+### Originating evidence (generic)
+
+One session published, then retracted, two recommendations produced by this single pattern, plus two
+same-class near-misses caught before publication. Both retracted claims had survived a "does this
+check discriminate?" self-review — because for the question each instrument was built for, it did.
+That is the property that makes the class hard to see from the inside: the self-review asks the right
+question against the wrong proposition.
+
+### Worked cases
+
+**A simulator read past its scope.** A tool built to PARTITION open PRs into groups with disjoint
+changed-file sets was cited for "these PRs do not conflict". Disjoint file sets are neither necessary
+nor sufficient for absence of conflict — a rename or a delete conflicts across disjoint sets — and the
+simulator never opens a diff or a merge base, so no output it could produce would show a conflict.
+The conflict question needs its own instrument (`git merge-tree` marker count), with its own named
+falsifying result.
+
+**A field read under the reader's meaning.** A CI job's `labels` array records the labels the job
+REQUESTED for runner matching, not the architecture of the host that served it. Read for "did this
+run on arm64 hardware?", it returns "arm64" under both branches of the hypothesis. The producer fixes
+the semantics; the reader's question does not.
+
+### The sibling clause this ordering unblocks
+
+A second relayed entry, evaluated in the SAME pass, proposes that a gate's self-test pin THREE
+outcomes — holds, does not hold, and CANNOT-MEASURE — and that a gate depending on an external
+oracle prove that oracle's capability before scoring. Both entries claimed the same free MUST slot,
+which is the numbering collision the second names explicitly. Landing MUST-4 standalone here fixes
+the ordering deliberately: the sibling lands as **MUST-5**, unambiguously. It is NOT yet placed —
+see the Gate-1 placement PR for the lane-headroom measurement that deferred it.

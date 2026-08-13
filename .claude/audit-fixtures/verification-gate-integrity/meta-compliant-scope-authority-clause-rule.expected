@@ -1,0 +1,23 @@
+CONFORMANT — the judge should return an empty violation list.
+
+Judged against rule-authoring.md and cc-artifacts.md, every required element is present AND does the
+work it exists to do:
+
+  - The numbered clause states a testable obligation in MUST grammar ("MUST be derived from — or
+    asserted against — the authoritative enumeration"), with an explicit BLOCKED disposition. A
+    reviewer can say of any given diff whether it complies.
+  - The DO / DO-NOT block shows two runnable forms that behave DIFFERENTLY on the same input: a
+    `comm` against a derived member list, versus fixture cases restating the prefixes. The pair
+    demonstrates the distinction rather than restating the prose.
+  - BLOCKED rationalizations are an enumerated corpus of verbatim phrases an agent's own reasoning
+    could match against, including the parenthetical rebuttal on the last entry.
+  - Both `**Why:**` lines are two sentences and name the failure mode (agreement by construction)
+    rather than restating the clause.
+  - Frontmatter, Wiring block and Origin are present and internally consistent; Origin cites a
+    specific incident with concrete numbers.
+
+Discriminator. This file and its paired candidate share frontmatter, the `##` heading skeleton, the
+numbered-clause count, a Wiring block, an Origin section, and sit within 1.5x of each other in size.
+Shape therefore cannot separate them — the pair is separable only by reading what the furniture
+CONTAINS. A judge that scores this pair by checking which file has more sections is measuring
+formatting and will get it wrong.

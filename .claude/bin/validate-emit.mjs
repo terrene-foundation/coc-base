@@ -229,7 +229,8 @@ const CANONICAL_CC_TOOLS = new Set([
 // specialist with `Edit` AND `Bash`; "read-only" means it cannot MUTATE files
 // (no Edit/Write). Bash is NOT forbidden — reviewer/security-reviewer run
 // read-only mechanical sweeps (`grep -c`, `pytest --collect-only`) that need
-// Bash (agents.md § "Reviewer Mechanical Sweeps"). Task is sub-delegation, not
+// Bash (agents.md § "MUST: Reviewer Prompts Include Mechanical AST/Grep
+// Sweep"). Task is sub-delegation, not
 // file mutation. So the prohibition is exactly the two mutation tools.
 const READONLY_FORBIDDEN_TOOLS = new Set(["Edit", "Write"]);
 
@@ -1196,6 +1197,111 @@ function checkConsumerEfficacy(root, opts) {
           results.push({ artifact: tag, status: STATUS.PASS, detail: `${citations.length} cited rules all resolve` });
         }
       }
+    }
+
+    // ── E. RS-86: the CANONICAL source + the INSTALLED trees, not just the emit.
+    // Sections A–D all read `emitDir` — a tree generated from the CURRENT
+    // template in this run. That proves the emitter's output is parse-loadable;
+    // it proves nothing about the two trees a consumer actually loads from.
+    // The gap is not hypothetical: `skills/project/**` is PRESERVED across pulls
+    // (`sync-from-template` never overwrites consumer-owned paths), so a
+    // historical project-owned SKILL.md with broken or missing frontmatter is
+    // structurally invisible to a fresh emit — it is never regenerated, so it is
+    // never inspected. Same for an installed tree that has drifted from what the
+    // current template would emit.
+    //
+    // Measured at authoring time: canonical 49 SKILL.md / 0 fail, `.codex` 42 / 0,
+    // `.gemini` 42 / 0 — so this section is GREEN on landing and functions as a
+    // forward tripwire, not a backlog. Its discrimination is pinned by a planted
+    // broken fixture in the paired regression suite; a check never shown to fire
+    // is not evidence (`instrument-discipline.md` MUST-3).
+    //
+    // Absent tree ⇒ SKIP, never PASS: a consumer that has not installed a given
+    // CLI has nothing to assert, and a printed PASS there would be a verdict over
+    // an empty set (the loom#1386 ruling that made V15 report SKIP).
+    for (const [label, treeRoot] of [
+      ["source:.claude/skills", join(root, ".claude", "skills")],
+      ["installed:.codex/skills", join(root, ".codex", "skills")],
+      ["installed:.gemini/skills", join(root, ".gemini", "skills")],
+    ]) {
+      if (!existsSync(treeRoot)) {
+        results.push({
+          artifact: label,
+          status: STATUS.SKIP,
+          detail: "tree not present in this repo — nothing to assert",
+        });
+        continue;
+      }
+      const manifests = findSkillManifests(treeRoot);
+      if (manifests.length === 0) {
+        results.push({ artifact: label, status: STATUS.SKIP, detail: "no SKILL.md in tree" });
+        continue;
+      }
+      let checked = 0;
+      for (const rel of manifests) {
+        const tag = `${label}/${rel}`;
+        const text = readOrFail(join(treeRoot, rel), tag, "SKILL.md");
+        if (text === null) continue;
+        checked++;
+        const fmParsed = parseFrontmatter(text);
+        if (!fmParsed.hasFrontmatter || fmParsed.unterminated) {
+          results.push({
+            artifact: tag,
+            status: STATUS.FAIL,
+            detail: "missing/unterminated frontmatter — will not parse-load",
+          });
+          continue;
+        }
+        if (!nonEmpty(fmParsed.fields.description)) {
+          results.push({
+            artifact: tag,
+            status: STATUS.FAIL,
+            detail: "frontmatter missing `description` (load-bearing for no-path-loader CLIs)",
+          });
+          continue;
+        }
+        // Semantic `name` match, per RS-86: accept the skill-directory name OR
+        // that name with a leading numeric ordering prefix stripped
+        // (`01-core-sdk` → `core-sdk`). Checked only when `name` is PRESENT:
+        // both emitters derive the handle from the directory when it is absent,
+        // so absence is a supported authoring form, and failing it would invent
+        // a failure class this section was never measured against.
+        //
+        // TOP-LEVEL SKILLS ONLY — the nested case is deliberately NOT asserted.
+        // RS-86's clause says "the immediate skill-directory name", which for
+        // `40-stack-onboarding/go/SKILL.md` is `go`; that file declares
+        // `name: stack-onboarding-go`, i.e. <container-minus-prefix>-<leaf>.
+        // Applying the clause literally flags all four nested stack-onboarding
+        // skills (MEASURED: 4 in source + 4 in .codex + 4 in .gemini = 12 rows,
+        // which took `validate-emit` from exit 0 to exit 1). Those names are
+        // evidently deliberate, and whether a nested handle resolves as the leaf
+        // dir or as the composed form is a property of the CLI's skill loader
+        // that this session did NOT establish. Asserting either way would be a
+        // guess, and the fail-direction guess reds the /sync gate over working
+        // artifacts — so the nested case is recorded UNKNOWN in the lane report
+        // and left un-asserted here. The frontmatter and description checks above
+        // DO cover nested skills; only this name sub-check is scoped out.
+        const isNested = rel.split("/").length > 2;
+        const dirName = rel.includes("/") ? rel.split("/").slice(-2)[0] : "";
+        const stripped = dirName.replace(/^[0-9]+-/, "");
+        const nm = fmParsed.fields.name;
+        if (!isNested && nonEmpty(nm) && dirName && nm !== dirName && nm !== stripped) {
+          results.push({
+            artifact: tag,
+            status: STATUS.FAIL,
+            detail: `frontmatter name="${nm}" matches neither dir "${dirName}" nor "${stripped}" — consumer handle will not resolve`,
+          });
+          continue;
+        }
+        results.push({ artifact: tag, status: STATUS.PASS });
+      }
+      // Non-vacuity marker: record the denominator, so a zero-manifest or
+      // all-unreadable run is distinguishable from a genuinely clean one.
+      results.push({
+        artifact: `${label} (coverage)`,
+        status: STATUS.PASS,
+        detail: `${checked} of ${manifests.length} SKILL.md parsed and asserted`,
+      });
     }
   } finally {
     if (ownEmit && ownEmit.dir) {

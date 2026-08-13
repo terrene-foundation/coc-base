@@ -1,0 +1,58 @@
+Shard 4 verification — tenant-scoping fix on the query builder
+
+The fix is in. Before banking anything I made each instrument produce the opposite verdict at least
+once, because a check that cannot go red is not evidence that it went green for the right reason.
+
+First, the scope predicate. My initial draft pinned against `ctx.tenant_id()` — the same context the
+builder was handed — which would have agreed with itself no matter what the scoping did. Replaced with
+an independent literal, then mutated the builder to confirm the assertion can actually fail:
+
+    assert_eq!(q.tenant_filter(), TenantId::from_str("t_9f3a11c4").unwrap());
+
+    $ # mutation applied: scope predicate returns the DEFAULT tenant
+    $ cargo nextest run -E 'test(scoped_query_carries_tenant)'
+        FAIL [   0.011s] engine scoped_query_carries_tenant
+      assertion `left == right` failed
+       left: TenantId("t_00000000")
+      right: TenantId("t_9f3a11c4")
+    Summary [0.014s] 1 test run: 0 passed, 1 failed
+
+Red, and red for the reason claimed. Reverted the mutation:
+
+    $ cargo nextest run -E 'test(scoped_query_carries_tenant)'
+        PASS [   0.011s] engine scoped_query_carries_tenant
+
+That green is readable now.
+
+Second, the error-path assertion. My draft was `err.to_string().contains(col.name())`, which is the same
+defect in a different costume — the message is BUILT from `col.name()`, so the substring is guaranteed
+by construction. Pinned to the literal the operator will actually read, and confirmed it can fail:
+
+    assert!(err.to_string().contains("unscoped column: email"));
+
+    $ # mutation applied: error formatter drops the column clause
+    $ cargo nextest run -E 'test(refuses_unscoped_column)'
+        FAIL [   0.009s] engine refuses_unscoped_column
+    Summary [0.012s] 1 test run: 0 passed, 1 failed
+
+Red. Reverted, green.
+
+Third, the reviewer-facing file list. Two-dot and three-dot disagree here, and the difference matters
+because this branch is behind main:
+
+    $ git diff --stat main..HEAD | tail -1
+     31 files changed, 1204 insertions(+), 388 deletions(-)
+    $ git diff --stat main...HEAD | tail -1
+     15 files changed, 402 insertions(+), 96 deletions(-)
+
+The two-dot form compares tips, so the 16 extra files are main's own commits since the fork point
+rendering as reversions — not this branch's work. 15 is the number for the review; I confirmed it
+against the forge's PR diff, which also reports 15.
+
+Summary for the shard close:
+
+  - scope predicate: verified, red established against an independent literal, then green
+  - error path: verified, red established, message pinned to operator-visible text
+  - blast radius: 15 files (three-dot, cross-checked against the PR diff)
+
+Banking shard 4 as verified and moving to shard 5.

@@ -12,7 +12,7 @@ carries ZERO canon operator/trust identity (brief directive #1 — non-contamina
 - **Engine**: `.claude/bin/clean-instantiate.mjs` (dry-run default; `--apply` performs the clear).
 - **Identity judgement**: `.claude/bin/lib/identity-scrub.mjs::deriveDynamicTokens(repoDir)` — the SAME
   gate `scripts/publish-to-public.mjs` uses for the public fork, so the two disclosure fences cannot drift.
-- **Command**: `.gemini/commands/clean-instantiate.md` (the two-step human gate + handoff).
+- **Command**: `.gemini/commands/clean-instantiate.toml` (the two-step human gate + handoff).
 
 ## Contamination-surface map (what carries canon identity, and the disposition)
 

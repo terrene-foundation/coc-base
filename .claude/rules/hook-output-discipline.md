@@ -179,6 +179,54 @@ Every detector function in `.claude/hooks/lib/violation-patterns.js` MUST ship w
 
 **Why:** The detectRepoScopeDriftBash false positive shipped because no fixture forced the scope-restriction predicate (literal-vs-variable distinction) into the test surface. `cc-artifacts.md` Rule 9 generalizes the principle for all audit tools; this rule applies it specifically to violation-patterns where the regression cost is measured in user-blocked sessions, not advisory false-positives. Origin: 2026-05-06 — same incident as Rules 2 and 3.
 
+### 5. A Detector Meant To ENFORCE Dispatches On A Parsed Signal; A Lexical-Only One Is Declared PERMANENTLY Advisory
+
+MUST-2 governs what a lexical signal may not CARRY. This is its other half — what the author owes BEFORE the severity question is reachable.
+
+**(a) Signal selection.** A detector authored or planned to FENCE (to carry `block`) MUST dispatch on a signal a surface rewrite cannot evade: an argv token POSITION from a real parse, an AST node, a parsed-document field (frontmatter value, Dockerfile instruction, manifest key), a filesystem or git-object fact, or a process/tool-event read. Naming a regex over a joined command string, a file's raw text, or agent prose as the mechanism for an ENFORCING detector is BLOCKED — MUST-2 caps that signal at advisory, so it ships as noise no matter what the author intended.
+
+**(b) Honest declaration.** When the property is observable ONLY lexically, the rule MUST declare its detection **permanently advisory** and name the semantic half as not mechanizable. Filing it instead as `Phase 2 (deferred)` enforcement is BLOCKED: the deferral books a debt that cannot be paid, and every later reader reads a permanent advisory as a scheduled fence. `hook-event-selection.md`'s "Phase 2 is NOT deferred-pending-a-detector — no structural predicate for the semantic half is believed to exist" is the canonical form.
+
+**The discriminator is the PROPOSITION, not the technique.** String matching is not the defect. A check asserting that a LITERAL token is absent from an enumerated file set is exact and structural however it is spelled. A check inferring intent, adequacy, or completeness from prose is not, however carefully its regex is written. Ask what the check ASSERTS, then ask whether a rewrite preserving the meaning changes the answer.
+
+```javascript
+// DO — dispatch on the parsed subcommand POSITION; the verb is where the grammar puts it
+for (const g of parseGitInvocations(cmd)) {
+  if (FENCED.has(g.sub) && !isNonMutating(g.argv, VALUE_FLAGS[g.sub], NON_MUTATING[g.sub]))
+    return { rule_id: "trust-posture/L3", severity: "block", evidence: `parsed verb: git ${g.sub}` };
+}
+
+// DO — a lexical PROPOSITION, exactly determinable: is this literal token present in this file set?
+if (publishedFiles.some((f) => read(f).includes(PRIVATE_TOKEN)))
+  return { rule_id: "artifact-flow/disclosure", severity: "block", evidence: `token in ${f}` };
+
+// DO NOT — regex over the joined string, then `block`
+if (/\bgit\s+commit(?![\w-])/.test(cmd)) return { severity: "block", evidence: cmd };
+// `git -C /other/repo commit` walks straight through; `echo "git commit -m x"` fires it.
+
+// DO NOT — "repair" the regex by scanning the SAME joined string for a non-mutating marker
+if (/\bgit\s+commit/.test(cmd) && !/--dry-run|--help|-n/.test(cmd))
+  return { severity: "block", evidence: cmd };
+// `git commit -m "fix the --dry-run bug"` now passes — the flag-shaped token was a flag's VALUE;
+// and `-n` is `--no-verify` on commit (which COMMITS) but `--dry-run` on push, so one shared
+// marker list gets exactly one of the two wrong, in the dangerous direction.
+```
+
+**BLOCKED rationalizations:**
+
+- "Phase 2 will add the structural signal later" (stated where no structural signal has been named)
+- "The regex is the detector; blocking is just a severity setting we flip later"
+- "It is deferred, not absent — the Wiring records it"
+- "A lexical detector is better than nothing"
+- "We will tighten the regex until the false positives stop"
+- "Declaring it permanently advisory reads like giving up"
+- "The gate-review layer catches it, so the detector does not have to"
+- "Parsing is over-engineering for a five-line check"
+
+**Scope note — a blocking hook is not a merge gate.** Hooks gate TOOL CALLS. Whether a change can MERGE is branch protection, and at loom that surface is currently empty: `gh api repos/:owner/:repo/branches/main/protection --jq 'has("required_status_checks")'` → `false` and `.enforce_admins.enabled` → `false` (read with `has()`, since the object-construction form yields `null` for a missing key and cannot distinguish ABSENT from PRESENT-AND-NULL). A correctly-parsed blocking detector therefore stops the agent's own tool call and nothing else until required checks exist and bind admins. This clause makes enforcement POSSIBLE at the hook layer; it does not make it merge-preventing, and MUST NOT be cited as if it did.
+
+**Why:** A regex over a joined command string cannot see the grammar it reasons about, and its errors do not average out — they land on both sides at once. Measured on this corpus against a 13-case control (arms: main's five `L3_BLOCKED_BASH` regexes verbatim; those regexes plus the joined-string non-mutating exemption an author reaches for after the first false positives; the parsed fence): the pure-lexical arm disagreed with ground truth 7 times, the "repaired" lexical arm 5, the parsed arm 0. The repair is the instructive result — it cut false positives by converting them into DANGEROUS misses, because the exemption scan and the trigger read the same undifferentiated string. "Tighten the regex" is therefore not a path to a fence: each tightening buys a false positive back with a miss. The second cost is bookkeeping — a Phase-2 deferral filed against a property no structural predicate can observe never converges, and accumulates as pending enforcement that reads like a roadmap and functions as an unaudited permanent advisory. Reference implementation: `.claude/hooks/lib/git-command-parse.js` + the `posture-gate.js` mutation fence with its fail-closed `isNonMutating`, landing via **loom#1589** — deliberately cited by PR rather than by commit, because that branch's head moved twice under review and a pinned SHA would send the next reader to a superseded tree; once it merges, `main` IS the reference. At authoring time `main` carried `git-command-parse.js` in its pre-fence form only, without the gh arm or the fence dispatch (verified: `main` has zero `severity: "block"` returns in `posture-gate.js` and none of the four `gh` parser functions). Full case table + the two traps: the lane report cited at § Origin (MUST-5).
+
 ## MUST NOT
 
 - **Raw `process.exit(2)` or `process.exit(1)` at any halting branch.**
@@ -203,10 +251,27 @@ Every detector function in `.claude/hooks/lib/violation-patterns.js` MUST ship w
 - **Grace period:** 7 days from rule landing (2026-05-06 → 2026-05-13). During grace, `detect-violations.js` does NOT auto-emergency-downgrade for new hook authoring that ships a raw-exit branch — but the SessionStart trust-gate banner names the rule and any violation logs to `violations.jsonl` for `/codify` review.
 - **Regression-within-grace:** any hook authored OR modified in `.claude/hooks/**` within the grace period that ships a raw `process.exit(2)` branch OR a `severity: "block"` finding without structural-signal evidence triggers emergency downgrade L5 → L4 per `trust-posture.md` MUST Rule 4.
 - **Receipt requirement:** SessionStart MUST require `[ack: hook-output-discipline]` in the agent's first response IF `posture.json::pending_verification` includes this rule_id (set by `/codify` at land-time, cleared after grace expires).
-- **Detection mechanism:** `cc-architect` mechanical sweep at `/codify` validation:
+- **Detection mechanism:** `cc-architect` mechanical sweep at `/codify` validation: Probes `.claude/test-harness/probes/hook-output-discipline.probes.json` — NOT YET AUTHORED, declared in `phase2-deferrals.json::probe_authorship_deferrals`.
   1. `grep -rn 'process\.exit([12])' .claude/hooks/` — every hit must be the timeout fallback (commented as such) OR the structured exit from `instruct-and-wait.js::emit()`.
   2. `grep -B5 'severity: "block"' .claude/hooks/lib/violation-patterns.js` — every block-severity return MUST have an env-var / exit-code / file-existence guard above it.
   3. AST sweep on detector functions: any function returning `severity: "block"` whose `evidence` field is a `match()` group is flagged.
+
+## Trust Posture Wiring — Parsed-Signal Detector Doctrine (MUST-5)
+
+Applies to the **MUST-5** clause ONLY (added 2026-08-06). Per `trust-posture.md` MUST-8 grandfather cutoff this clause lands AT/AFTER the MUST-8 SHA and ships canonical-8-field-compliant; the pre-existing § Trust Posture Wiring block above (MUST-1 through MUST-4) stays grandfathered until itself `/codify`-touched — the clause-scoped precedent `security.md` § Enforcement-Surface Parity and `git.md` § CI-check/merge set.
+
+- **Severity:** `halt-and-report` at gate-review (cc-architect at `/codify` + reviewer at `/redteam` confirm that a detector authored or planned to carry `block` names a parsed/structural signal, and that a rule whose property is lexical-only declares its detection permanently advisory rather than filing a Phase-2 enforcement deferral); `advisory` at the hook layer per MUST-2 — whether a named signal is genuinely structural is judgment-bearing over the detector's semantics, with no tool-call-time signal. Per MUST-8's own severity mapping this clause is LLM-judgment-bearing, so `block` is unavailable to it; declaring that plainly is the clause obeying itself.
+- **Grace period:** 7 days from clause landing (2026-08-06 → 2026-08-13).
+- **Cumulative posture impact:** same-class violations (a `block`-intended detector dispatching on a regex over a joined command string / raw file text / agent prose; a lexical-only property filed as `Phase 2 (deferred)` enforcement instead of declared permanently advisory) contribute to `trust-posture.md` MUST-4 cumulative-window math (3× same-rule in 30d → drop 1 posture; 5× total in 30d → drop 1 posture).
+- **Regression-within-grace:** a same-class violation within the grace window routes through the GENERIC `regression_within_grace` emergency trigger per `trust-posture.md` MUST-4 (1× = drop 1 posture) — NO dedicated per-clause trigger key. Named deviation from the canonical key-per-clause shape, recorded here per `trust-posture.md` Rule 8: whether a named signal is structural is a judgment-bearing property of the detector's semantics, resolvable only at the review layer, and minting a key would drag `trust-posture.md` — a `self-referential-codify.md` allowlist file — into a self-referential edit. Same no-dedicated-key disposition `security.md` § Enforcement-Surface Parity, `git.md` § CI-check/merge, `issue-triage-routing.md`, and `instrument-discipline.md` took.
+- **Receipt requirement:** SessionStart soft-gate `[ack: hook-output-discipline]` IFF `posture.json::pending_verification` includes the `hook-output-discipline` rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — cc-architect at `/codify` + reviewer at `/redteam` inspect any change that (a) authors or modifies a detector in `.claude/hooks/lib/violation-patterns.js` or a hook returning a severity, confirming a `block` return names a parsed/structural signal and not a `match()` span (this composes with the existing § Trust Posture Wiring sweep above, whose step 3 already AST-flags that shape); or (b) writes a `**Detection mechanism:**` Wiring field, confirming any `Phase 2` row names a concrete structural signal, and that a lexical-only property is declared permanently advisory instead. **Phase 2 is NOT deferred-pending-a-detector for the (b) half, and this clause may not file one:** whether a *named* signal is genuinely structural is exactly the semantic judgment MUST-5 says no lexical predicate can make, so a detector for it would instance the class it forbids — the same disposition `hook-event-selection.md` recorded for its semantic half and `instrument-discipline.md` for its own. The (a) half is structurally reachable and is claimed as reachable, NOT as shipped — it is this clause's ONE genuine **Phase 2** deferral, and the only Phase-2 token in this block that DECLARES rather than DISCUSSES one: a `validate-emit.mjs`-class check could assert that no `severity: "block"` return in `violation-patterns.js` has a `match()`-derived `evidence` field. **No such check exists today; nothing mechanically enforces this clause, and its ONLY active coverage is the Phase-1 gate-review above.** Audit fixtures land WITH that check at `.claude/audit-fixtures/parsed-signal-detector/` per `cc-artifacts.md` Rule 9; no fixtures are claimed now. Reference implementation for the (a) half: `.claude/hooks/lib/git-command-parse.js` + the `posture-gate.js` mutation fence — landing via **loom#1589**, cited by PR rather than commit for the reason given at MUST-5 § Why; unmerged at authoring time, NOT on `main`. **Read that reference as a parsed-signal EXEMPLAR, not as a complete fence:** an adversarial round measured seven bypass classes still open against it (wrapper forms — `eval`, `sh -c`, `bash -c`, `xargs`, command-name-slot substitution, `$IFS` fusion — plus an unindented line continuation since closed). The parser is the right SIGNAL; recognising every invocation that reaches a shell is a separate and unfinished problem, and a reader who takes the exemplar as finished would inherit exactly the over-claim this rule exists to block.
+- **Violation scope:** MUST-5(a) (an enforcing detector dispatching on a lexical signal) + MUST-5(b) (a lexical-only property filed as a Phase-2 enforcement deferral rather than declared permanently advisory). Every `violations.jsonl` row names the detector or rule clause and the signal it dispatches on.
+- **Origin:** See § Origin — MUST-5 paragraph.
+
+**Length rationale (per `rules/rule-authoring.md` MUST NOT § "Rules longer than 200 lines").** Body exceeds the 200-line guidance (it did so before MUST-5 landed; MUST-5 extends the overage). Named rationale: **one contract, five interlocking clauses.** This rule is the whole hook-authoring contract — emit shape (MUST-1), signal-to-severity (MUST-2), shell-variable skip (MUST-3), fixtures (MUST-4), signal SELECTION (MUST-5) — and each carries the DO/DO-NOT + BLOCKED corpus + `**Why:**` the meta-rule mandates. MUST-2 and MUST-5 are two halves of one obligation and split across files would drift, which is the failure this rule exists to name. Depth is extracted, not inline: the 13-case control and the classification inventory live in the lane report cited at § Origin (MUST-5). Sibling precedent: the `security.md` + `artifact-flow.md` length rationales.
+
+Origin (MUST-5): 2026-08-06 — the `#65` enforcement-registration wave. loom's `posture-gate.js` L3 fence carried a file comment reading "block commit/push/PR" while every branch emitted `halt-and-report`, because its signal was five flat regexes over the raw command string and MUST-2 correctly forbids `block` on that; the fence could only ever annotate. The general form surfaced in the same wave: 59 `Phase 2` rows across 43 rules' `**Detection mechanism:**` fields, a large share of them against properties (agent prose, semantic adequacy, intent) no structural predicate can observe — deferrals recording enforcement that cannot arrive. Classification inventory + the 13-case three-arm control behind the § Why measurements: (loom-internal reference).
 
 Origin: 2026-05-06 — `detectRepoScopeDriftBash` blocked an in-scope `gh issue list --repo "$REPO"` sweep in the Rust SDK because the regex captured the literal string `"$REPO"` pre-expansion. User-identified codification gap: the `instruct-and-wait.js` library shipped 2026-05-05 but no rule mandated its use, leaving every future detector free to regress to raw exit. Same false-positive class as the heredoc/segment-anchor and `git commit -m`/`-F` skip clauses already addressed in `validate-bash-command.js` (commit `0366a68`); applies the lesson at the design-time rule layer rather than per-detector patches.
 

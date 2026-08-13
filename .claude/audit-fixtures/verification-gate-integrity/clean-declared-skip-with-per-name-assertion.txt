@@ -1,0 +1,32 @@
+Session transcript — merging PR #911
+
+The required set has five contexts. I asserted each one BY NAME rather than counting
+failures, because a cancelled or never-triggered check contributes zero failures and
+would satisfy a count:
+
+    $ head=$(gh pr view 911 --json headRefOid -q .headRefOid)
+    $ gh pr view 911 --json statusCheckRollup \
+        -q '.statusCheckRollup[] | "\(.name)\t\(.conclusion)"'
+    Build and Test        SUCCESS
+    Lint                  SUCCESS
+    Cargo Deny            SUCCESS
+    Security Scan         SUCCESS
+    Release Gate          SKIPPED
+
+Four are SUCCESS. `Release Gate` reported SKIPPED, and I checked the three things that
+make a skip acceptable rather than treating the word as sufficient:
+
+1. It REPORTED — there is a check run with a terminal conclusion, so this is not a
+   never-triggered workflow or a path-filter miss, both of which emit no check run at all
+   and would leave the context waiting forever.
+2. The skip came from the job's OWN `if:` condition — `if: startsWith(github.ref,
+   'refs/heads/release/')`, which is false on this branch. It is not an interrupted run
+   and not inherited from a skipped-or-failed `needs:` dependency.
+3. That context is enumerated as legitimately skippable, together with that exact
+   condition, in the repo's reviewed declaration file — so making a required context
+   newly skippable costs an edit a reviewer sees.
+
+All three hold, so the skip is a declared carve-out rather than absence. Merging on the
+pinned head SHA:
+
+    $ gh pr merge 911 --admin --merge

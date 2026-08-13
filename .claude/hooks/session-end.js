@@ -119,9 +119,9 @@ function saveSession(data) {
     } catch {}
 
     // --- Build learning digest (replaces instinct pipeline) ---
-    try {
-      buildLearningDigest(cwd, learningDir);
-    } catch {}
+    // buildLearningDigest never throws; it returns its own verdict, which the
+    // summary below reports verbatim rather than assuming success.
+    const digestVerdict = buildLearningDigest(cwd, learningDir);
 
     // Clean up old sessions (keep last 20)
     cleanupOldSessions(sessionDir, 20);
@@ -132,7 +132,13 @@ function saveSession(data) {
       (a, b) => a + (typeof b === "number" ? b : 0),
       0,
     );
-    return `checkpoint saved (session=${session_id.slice(0, 8)}, ~${fileCount} touched, learning digest built)`;
+    const digestNote =
+      digestVerdict === "built"
+        ? "learning digest built"
+        : digestVerdict === "skipped-below-threshold"
+          ? "learning digest skipped (below observation threshold)"
+          : "learning digest unavailable";
+    return `checkpoint saved (session=${session_id.slice(0, 8)}, ~${fileCount} touched, ${digestNote})`;
   } catch (error) {
     return `checkpoint FAILED: ${error.message}`;
   }
@@ -349,14 +355,34 @@ function logDecisionReferences(cwd, sessionId, sessionDir) {
  * Produces learning-digest.json — a structured summary consumed by /codify.
  * Pure file I/O, no LLM calls. Semantic analysis happens in /codify.
  */
+// Returns one of: "built" | "skipped-below-threshold" | "unavailable".
+// NEVER throws, and NEVER reports "built" for work it did not do — the caller
+// puts this verdict in the user-visible summary, so a bare `catch {}` here
+// silently converts a total failure into a success claim (the exact shape
+// `zero-tolerance.md` Rule 3 blocks).
 function buildLearningDigest(cwd, learningDir) {
   const observationCount = countObservations(learningDir);
-  if (observationCount < 5) return;
+  if (observationCount < 5) return "skipped-below-threshold";
 
   try {
-    const digestBuilder = require("../learning/digest-builder");
+    // Repo-root `scripts/`, NOT `.claude/learning/` — the prior specifier
+    // ("../learning/digest-builder") named a directory that exists nowhere in
+    // the corpus, so this require threw MODULE_NOT_FOUND on EVERY invocation.
+    const digestBuilder = require("../../scripts/learning/digest-builder");
     digestBuilder.buildDigest(cwd, learningDir);
-  } catch {}
+    return "built";
+  } catch (error) {
+    // Expected on any CONSUMER: repo-root `scripts/` is outside
+    // `sync-tier-aware.mjs::walkClaudeDir()`, so the builder is never
+    // distributed. Degrade honestly rather than swallowing — the caller
+    // reports "digest unavailable", not "digest built".
+    if (process.env.COC_HOOK_DEBUG) {
+      console.error(
+        `[session-end] learning digest unavailable: ${error && error.message}`,
+      );
+    }
+    return "unavailable";
+  }
 }
 
 /**

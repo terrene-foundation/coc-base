@@ -32,6 +32,13 @@
 **/.claude/mesh/**/*.key
 **/.claude/mesh/**/*.pem
 **/.claude/mesh/**/*.secret
+.session-notes.aggregate.md
+.session-notes.migrated
+.session-notes.migrate.lock
+.wave-tracker.d/
+.wave-tracker.md
+.claude/bin/*.local.json
+.claude/worktrees/
 .claude/cross-repo-authz/
 .session-notes
 .session-notes.d/
@@ -42,6 +49,7 @@
 !.claude/hooks/lib/
 !.claude/test-harness/lib/
 !.claude/audit-fixtures/**
+.claude/audit-fixtures/**/.DS_Store
 # <<< coc:gitignore_additions <<<
 
 # Template-local: stray operator cruft swept by the hooks/** always-include

@@ -1,69 +1,102 @@
 # COC Sync Marker — coc-base (base lane, multi-CLI)
-timestamp: 2026-08-02T00:00:00Z
+timestamp: 2026-08-13T07:39:32Z
 source: loom/.claude
-loom_sha: 43167a54
+loom_sha: 21668204
 variant: base
 clis: [claude, codex, gemini]
 visibility: public
-scope_this_cycle: content+cli-emission   # FULL cycle: .claude/ content axis AND coc-sync Steps 6.5/6.6/6.7
+scope_this_cycle: content+cli-emission   # engine .claude/ axis (staged) + coc-sync Steps 6.5/6.6/6.7 + the 4.6 scaffold
 stats:
-  engine_changed: 494   # 367 added, 127 modified, 0 deleted, 0 obsoleted-purge
-  verify_failures: 0    # stage engine sync-tier-aware --verify CONSISTENT (1793 in-plan files)
-  version_stamp: "loom-tracking -> 2.45.0 @ 43167a54 (own 2.45.11 -> 2.46.0)"
-  baselines_emitted: { cc: 0, codex: 1, gemini: 1 }   # AGENTS.md + GEMINI.md 54143B each, WARN tier, headroom 11.88%
+  engine_changed: 210        # applied at STAGE by sync-tier-aware --target base (orchestrator-run)
+  worktree_rows_total: 362   # post-enrichment: 70 added, 289 modified, 3 deleted
+  per_tree: { claude: 211, coc: 80, gemini: 35, codex: 33, bin: 0, AGENTS.md: 1, GEMINI.md: 1 }
+  version_stamp: "loom-tracking -> 2.45.0 @ 21668204 (deterministic, stamp-template-version.mjs; template's own version 2.46.0 PRESERVED, not bumped)"
+  baselines_emitted: { cc: 0, codex: 1, gemini: 1 }   # AGENTS.md + GEMINI.md, 57401 B each
+  baseline_emission_bytes:
+    block_cap_bytes: 65536
+    codex:  { rules: 11, bytes: 57401, tier: WARN, headroom_pct: 12.41 }
+    gemini: { rules: 11, bytes: 57401, tier: WARN, headroom_pct: 12.41 }
   cli_artifacts:
-    codex: { prompts: 39, agent_prompts: 18, skills: 27 }
+    codex:  { prompts: 39, skills: 27, agent_prompts: 18 }
     gemini: { commands: 39, skills: 27, agents: 18 }
-  coc_artifacts: 163   # 165 files; rules=66 agents=22 skills=33 commands=42; coc.version 1.0.0
-  codex_dispatcher: "bin/coc + 28 per-phase symlinks"
-sdk_pins: "N/A (build:null — non-Kailash base; no pyproject/Cargo/package.json/Gemfile/uv.lock on disk, checked against a same-command positive control). Steps 9-10 NOT APPLICABLE, not skipped."
-codex_mcp_guard: "FROZEN — .codex-mcp-guard/** deliberately excluded (continuing the 2.45.8/9/10 security-review deferral); the Step-6.6 copy was reverted and the 4 emit-refreshed files (README.md, package.json, server.js, test-server.mjs) restored to HEAD; symlink .claude/codex-mcp-guard -> ../.codex-mcp-guard preserved + resolves (policies.json reachable)"
-preserved: [CLAUDE.md, settings.json, "visibility:public", ".codex-mcp-guard/** (frozen)"]
+  coc_artifacts: 168         # 170 files; rules=72 agents=21 skills=33 commands=42; coc.version 1.0.0
+  codex_dispatcher: "bin/coc + 28 per-phase symlinks (byte-identical to prior cycle — 0 git rows)"
+sdk_pins: |
+  N/A, NOT skipped. repos.base.build is `null` (no BUILD source), and a
+  worktree-wide `find` for pyproject.toml / Cargo.toml / Gemfile / go.mod /
+  uv.lock / requirements.txt returned ZERO hits — against a positive control in
+  the SAME invocation that DID locate .codex-mcp-guard/package.json, so the empty
+  result is a true negative and not a broken matcher. Enrichment steps 3 (pins)
+  and 4 (uv sync / cargo check) are therefore NOT APPLICABLE.
+hooks: "48/48 settings.json command hooks resolve on disk (both control poles fired: an existing hook reports PRESENT, a nonexistent one reports MISSING)"
+operator_pii_scrub: "settings.json clean — 0 /Users/ or /home/ tokens, against a control that fired on a real operator path"
+codex_mcp_guard: "FROZEN — .codex-mcp-guard/** deliberately untouched (continuing the 2.45.8/9/10 security-review deferral); measured 0 git rows under it against a control showing 80 rows under .coc. Symlink .claude/codex-mcp-guard -> ../.codex-mcp-guard preserved + resolves (policies.json reachable)."
+preserved: [CLAUDE.md, "visibility:public", "own version 2.46.0", changelog, ".codex-mcp-guard/** (frozen)", ".claude/.proposals/inbox/** (additive, never overwritten)"]
+content_provenance: |
+  HONEST LAG — READ BEFORE MERGING. The stamped loom_sha (21668204) is loom's
+  HEAD at stamp time, but this delivery's CONTENT was composed from loom BEFORE
+  that commit. loom's main advanced mid-enrichment: 139843f4 -> 21668204, the
+  merge of PR #1676 (fix/1426-state-guard-overblock-2026-08-13) committed
+  2026-08-13T15:29:29+08:00, AFTER this worktree was staged at ~15:22.
+
+  Measured, not inferred: `sync-tier-aware --target base --verify` reports
+  20 MISSING + 9 DIFFERS per template (58 across the lane's two templates,
+  1983 in-plan files checked), and every one of those 29 paths belongs to
+  PR #1676 — the 1426 audit fixtures, hooks/lib/violation-patterns.js,
+  hooks/log-triage-gate.js, rules/state-file-write-guard.md, and
+  guides/rule-extracts/observability.md. The worktree's own copy of
+  state-file-write-guard.md is 71024 B with 0 hits for PR #1676's marker token,
+  while loom's current source has 1 hit at 82155 B (matcher proven to fire on
+  both the p2 emit and loom source).
+
+  The delivery is INTERNALLY COHERENT: the derived CLI trees emitted here were
+  composed from the SAME pre-#1676 source as the engine-applied .claude/ tree,
+  so .codex/.gemini/.coc/AGENTS.md/GEMINI.md do not contradict .claude/. What is
+  wrong is only the LABEL — VERSION claims a SHA whose content is not present.
+  Resolution is the orchestrator's call (re-run the engine apply + re-emit to
+  converge on 21668204, or accept and re-stamp to the composed SHA); it is NOT
+  hand-editable here, because the loom-tracking fields are deterministic output.
+emit_determinism: |
+  Verified against a FIXED source: a second independent emit produced
+  byte-identical .codex/prompts, .codex/skills, .gemini/{commands,skills,agents},
+  AGENTS.md and GEMINI.md. The only delta was .coc/rules/STATE-FILE-WRITE-GUARD.md
+  (+ its COC.lock hash), and that delta is loom's source changing between the two
+  runs (PR #1676), NOT emitter non-determinism. The MUST-8 idempotency property
+  therefore holds against a fixed source; it is not claimed against a moving one.
+obsoleted_check: |
+  Engine verify reported ZERO OBSOLETED-PRESENT rows — the authoritative gate is
+  clean. A cruder scan of .coc-obsoleted (109 path rows) against disk flagged 5
+  paths still present (.claude/hooks/lib/o1-citation-check.js,
+  .claude/hooks/coc-drift-warn.js, .claude/hooks/coc-telemetry-autocommit.js,
+  .claude/bin/emit-dev-container.mjs, .claude/bin/repin-targets.local.example.json).
+  All 5 are TRACKED and unmodified at the target's origin/main, and the engine does
+  not treat them as this target's purge set — .coc-obsoleted is the DOWNSTREAM
+  purge list. Recorded for visibility, NOT asserted as a violation.
 note: |
-  loom@08cb86fb->43167a54 Gate-2 base sync (multi-CLI lane) — the
-  completion-criterion release. loom platform version 2.45.0 unchanged. Engine
-  (sync-tier-aware --target base --template coc-base) applied a 494-file .claude/
-  delta in an isolated worktree from origin/main c9f087a1; stage --verify
-  CONSISTENT over 1793 in-plan files. Engine header confirms
-  tiers=[cc,coc-core,onboarding].
+  Gate-2 base-lane enrichment (multi-CLI template terrene-foundation/coc-base),
+  run in an isolated worktree cut from the target's origin/main 89364ff5. The
+  engine apply (210 files) was performed at STAGE by the orchestrator; this marker
+  records the ENRICHMENT half only.
 
-  Substantive content: NEW baseline rules completion-criterion.md (the release
-  artifact) + instrument-discipline.md + hook-event-selection.md; NEW skills
-  30-claude-code-patterns/{completion-criterion-evidence,instrument-discipline,
-  derives-from-emission}.md + 18-security-patterns/{credential-decode-helpers,
-  multi-site-kwarg-plumbing,sanitizer-contract,secure-defaults-and-approver-identity}.md;
-  NEW hooks settings-deny-{drift,edit}-guard.js + 6 hook libs; NEW bin
-  emit-derives-from.mjs + lib/{emit-axes,manifest-source}.mjs + repo-class.mjs.
-
-  DERIVED TREES RE-EMITTED (not carried stale — sync-completeness MUST-8):
+  Derived trees RE-EMITTED, not carried stale (sync-completeness MUST-8):
   emit.mjs --all --lang base (AGENTS.md + GEMINI.md), emit-cli-artifacts.mjs
-  --target base (.codex/ + .gemini/), emit-coc.mjs --target base (.coc/).
-  Baselines are WARN tier at 54143B against block_cap 61440; headroom 11.88%
-  sits inside the 15% proximity ADVISORY band but above the 10% strict floor,
-  so strict-headroom emission passed (no --no-strict-headroom opt-out used).
-  emit-coc reported one producer-budget WARN: rules/STATE-FILE-WRITE-GUARD.md
-  70842B over the 60KiB producer budget — emitted, not truncated (spec-09
+  --target base (.codex/ + .gemini/), emit-coc.mjs --target base (.coc/). All
+  three exited 0. Baselines are WARN tier at 57401 B against block_cap 65536;
+  headroom 12.41% sits inside the 15% proximity ADVISORY band but above the 10%
+  strict floor, so strict-headroom emission passed with no --no-strict-headroom
+  opt-out. emit-coc reported one producer-budget WARN: rules/STATE-FILE-WRITE-GUARD.md
+  at 71001 B over the 60 KiB producer budget — emitted, not truncated (spec-09
   imposes no consumer cap).
 
-  TIER FENCE, verified on BOTH axes: the `kailash` tier is NOT subscribed.
-  ABSENT from .claude/ AND from .codex/.gemini/.coc: agents/frameworks/**, every
-  *-specialist (dataflow/nexus/kaizen/mcp/pact/mcp-platform/ml/align),
-  pattern-expert, skills/{01-core-sdk,02-dataflow,03-nexus,04-kaizen,
-  05-kailash-mcp,06-cheatsheets,08-nodes-reference,34-kailash-ml,
-  35-kailash-align}/**, rules/cross-sdk-inspection.md. PRESENT (positive
-  control, same instrument): stack-detector, idiom-advisor, onboard-stack,
-  db-specialist, reviewer, security-reviewer, skills/40-stack-onboarding/**,
-  rules/stack-detection.md. Note skills/{29-pact,16-validation-patterns,
-  18-security-patterns}/** DO ship — they are declared in the coc-core tier,
-  which base subscribes to; that was confirmed against the manifest tier
-  declaration and against the engine-applied .claude/ counterpart, NOT inferred
-  from the filename.
+  emit.mjs required three attempts to capture a clean exit: runs 1 and 3 passed
+  every validator, run 2 failed validator-17 with `spawnSync ... ETIMEDOUT` on its
+  sync-tier-aware dry-run probes under concurrent load. That is the known V17
+  wall-clock subprocess-budget flake (loom #1424), not a roster-schema coupling
+  failure; the artifacts shipped here are from a run that passed V17.
 
-  build:null — stack-agnostic base, so NO SDK pins and NO dependency manifest
-  exists on disk: Steps 9-10 are NOT APPLICABLE here, not skipped.
-
-  Hook integrity: 44/44 settings.json hook commands resolve on disk; 0
-  operator-PII tokens in settings.json (regex positive-controlled).
-  CORRECTED stale tier_subscriptions co->coc-core to match sync-manifest.yaml.
-  BUMP: template version 2.45.11 -> 2.46.0 (minor); upstream loom 2.45.0 unchanged.
-  visibility=public preserved across marker rewrite.
+  Hook-registration reverse-check surfaced 2 loom-registered hooks absent from the
+  target's settings.json: emit-artifact-activation.js and
+  emit-artifact-activation-session.js. Both are BY DESIGN — sync-manifest.yaml
+  declares each `loom_only` / cc-only, "NOT distributed to consumers". The files
+  are correctly ABSENT at the target, so registering them would create a dangling
+  registration that --finalize's hook-path verify would reject. No action taken.

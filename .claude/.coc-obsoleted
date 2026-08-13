@@ -21,6 +21,8 @@
 .gemini/commands/repos.toml
 .codex/prompts/settings.md
 .gemini/commands/settings.toml
+.claude/agents/cli-orchestrator.md
+.claude/guides/model-optimization/02-ecosystem-inventory.md
 .codex/prompts/test-harness-probe.md
 .gemini/commands/test-harness-probe.toml
 scripts/hooks/

@@ -52,10 +52,14 @@ Categorize: **`deferred` label** (verify Rule 1b 4-condition body per `rules/zer
 REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null)
 gh pr list --repo "$REPO" --state open --limit 50 \
   --json number,title,headRefName,isDraft,createdAt,statusCheckRollup
-git branch -r --no-merged origin/main 2>&1 | grep -v "HEAD ->"
+git branch -r --no-merged origin/main 2>&1 | grep -v "HEAD ->"   # NOT the sole source — see below
+git branch --format='%(refname:short)'                            # unfiltered local enumeration
+git for-each-ref --format='%(refname:short)' refs/remotes/origin  # unfiltered remote enumeration
 ```
 
 Surface: drafts >7d, PRs with red CI (never merge red — fix in same branch per `rules/git.md`), remote branches without PR (orphan work), local-only branches.
+
+**`--no-merged` is a RANKER, never the enumeration source.** It hides any ref tip-equal to `origin/main` — exactly what an ABANDONED mid-flight branch looks like once main catches up. Enumerate unfiltered FIRST, rank with `--no-merged`, and **read the hits, not the tally** (`rules/instrument-discipline.md` MUST-3(b)). Harness-default `worktree-agent-*` orphans are the class it hid: surface them here as REFS; their FOREST disposition is Sweep 6's reap audit (`worktree-isolation.md` Rule 8). Depth: `.claude/skills/sweep/` § 5.
 
 ### Sweep 5: Redteam gaps against full specs (every workspace)
 
@@ -63,35 +67,21 @@ Surface: drafts >7d, PRs with red CI (never merge red — fix in same branch per
 
 **Pre-condition check (run FIRST):** Sweep 5 only applies in repos that have BOTH (a) at least one `workspaces/*/specs/` directory containing per-workspace specs AND (b) `tools/sweep-redteam.py` (or language equivalent under `tools/`). If EITHER is absent, the repo is in **orchestration mode** (loom, USE templates) — Sweep 5 logs the sentinel `<!-- sweep-redteam:v1:N/A reason=orchestration-mode no_specs=<bool> no_tool=<bool> -->` into the sweep report and Sweep 5 is complete. This is NOT a substitution decision (no proxy is run); it is a structural N/A, recorded explicitly so future readers can grep the sentinel.
 
+**Absent per-workspace specs does NOT imply absent spec AUTHORITY — check the repo level before claiming N/A.** When `spec_count=0` AND a repo-level spec tree exists (`docs/specs/`, `specs/`), the repo is in **repo-level-specs mode**: emitting the orchestration-mode sentinel there is the cheaper-proxy substitution `rules/sweep-completeness.md` Rule 1 blocks, wearing a structural-N/A costume, and is BLOCKED. Sweep 5 MUST instead either (a) run the equivalent spec-vs-source check against the repo-level tree, emitting `<!-- sweep-redteam:v1:REPO-LEVEL specs_root=<dir> -->`, OR (b) emit an explicit `manual-supplement-required` finding recording that the per-workspace assumption does not hold for this repo shape. Depth + the full three-mode gate implementation: `.claude/skills/sweep/` § 6.
+
 When BOTH conditions hold (BUILD repos: kailash-py, kailash-rs), Sweep 5 MUST invoke `tools/sweep-redteam.py` (or the equivalent at `tools/` for the consumer project's language) and embed its sentinel comment + findings into the sweep report. Substituting `tools/spec-cite-check.py` or any other proxy for the mandated per-spec symbol + Tier 2 coverage verification is BLOCKED — see `rules/sweep-completeness.md` for the human-gate requirement when proxy substitution is genuinely warranted. The TOOL is BUILD-local (each repo owns `tools/`); the SKILL text mandates the invocation pattern.
 
 ```bash
-# Pre-condition gate
+# Pre-condition probe — three signals select one of three modes (full branching
+# gate + BUILD-mode invocation loop: `.claude/skills/sweep/` § 6)
 spec_count=$(find workspaces/*/specs -type d -mindepth 1 2>/dev/null | wc -l | tr -d ' ')
 tool_present=$([ -f tools/sweep-redteam.py ] && echo true || echo false)
-if [ "$spec_count" = "0" ] || [ "$tool_present" = "false" ]; then
-  echo "<!-- sweep-redteam:v1:N/A reason=orchestration-mode no_specs=$([ $spec_count = 0 ] && echo true || echo false) no_tool=$([ $tool_present = false ] && echo true || echo false) -->"
-  exit 0  # Sweep 5 complete
-fi
-
-# BUILD-mode: run per-workspace
-for ws in workspaces/*/; do
-  [ -d "$ws/specs" ] && echo "WORKSPACE: $ws"
-done
-# Per workspace, per spec: invoke tools/sweep-redteam.py — single-pass
-# walk + compiled regex per MUST symbol; verify the contract holds;
-# verify Tier 2 coverage exists. Embed the tool's sentinel comment
-# `<!-- sweep-redteam:v1:OK specs=N symbols=M orphans=O coverage_gaps=C stubs=S -->`
-# into the sweep report so readers (and any future enforcement hook)
-# can verify the mandated step actually ran.
+repo_specs=$(for d in docs/specs specs; do [ -d "$d" ] && echo "$d"; done | head -1)
+# specs+tool -> BUILD mode (per-spec run, embed the tool's OK sentinel);
+# spec_count=0 + repo_specs -> REPO-LEVEL mode; neither -> orchestration-mode N/A.
 ```
 
-Categorize findings:
-
-- **Orphan** — spec promises symbol; source has none (`rules/orphan-detection.md` § 1)
-- **Drift** — spec says X; source does Y (`rules/specs-authority.md` § 6)
-- **Coverage gap** — symbol exists; no Tier 2 wiring test (`rules/facade-manager-detection.md` § 2)
-- **Stub** — `NotImplementedError` / `TODO` / `pass` in production paths (`rules/zero-tolerance.md` Rule 2)
+Categorize each finding **Orphan** / **Drift** / **Coverage gap** / **Stub** (definitions + owning rules: `.claude/skills/sweep/` § 6).
 
 Roll up: per workspace, count findings by category. Workspaces with ≥3 unresolved gaps → flag as candidates for a follow-up `/redteam` round.
 
@@ -99,12 +89,12 @@ Roll up: per workspace, count findings by category. Workspaces with ≥3 unresol
 
 ```bash
 find workspaces/*/.session-notes -mtime +30 2>/dev/null            # stale session notes
-git worktree list                                                  # orphan worktrees
+node .claude/bin/worktree-reap.mjs --json                           # forest reap audit + size (report-only)
 find workspaces/*/journal/.pending/*.md -mtime +14 2>/dev/null     # stale .pending
 node .claude/bin/validate-forest-ledger.mjs --aggregate            # forest rollup, workspace→root (#669)
 ```
 
-Surface: workspaces with `.session-notes` >30d (archive), worktrees not at HEAD or zero-commit (cleanup per `rules/worktree-isolation.md`), `.pending` >14d (promote OR discard). The `--aggregate` step (issue #669) reads EVERY `workspaces/*/.session-notes` (and its M6-D split `.session-notes.shared.md`) forest ledger — regardless of MTIME or issue state — and flags any OPEN row whose ID is absent from the ROOT ledger (the cross-file no-vanish gate; closes the gap where this sweep `stat`-ed MTIME but never opened the file). Each `[AGG]` finding is a STRANDED forest workstream: roll it into the report with its value-anchor (`rules/value-prioritization.md` MUST-2) AND into the root ledger at `/wrapup`. The bare `find` MTIME check is retained for archival hygiene; it does NOT substitute for the ledger read.
+Surface: workspaces with `.session-notes` >30d (archive), `.pending` >14d (promote OR discard). **The worktree forest is a REAP audit, not a listing** (`rules/worktree-isolation.md` Rule 8 — this sweep backstops the per-wave obligation, which fails silently whenever an orchestrator dies mid-wave). **ZERO-LOSS trees are now reaped automatically at SessionEnd** by `worktree-forest-guard.js` (`--apply --zero-loss-only`, kill switch `COC_WORKTREE_AUTOREAP=0`), so on a healthy repo this sweep should find few or none — a LARGE ZERO-LOSS backlog here means the unattended reap is disabled, erroring, or timing out, and THAT is the finding. What the unattended pass deliberately never does is TAG-FIRST (its durability would rest on a tag minted with nobody watching); reaping those with an operator present is this sweep's own job. Roll every `ZERO-LOSS` / `TAG-FIRST` verdict into the report as a finding with its evidence, and reap them (`--apply`, or `--apply --zero-loss-only` for the conservative pass); `KEEP` trees are never touched and need no disposition. **Report SIZE alongside the verdicts, always** — verdict counts do not predict the failure this audit exists to prevent (thirty KEEP trees and thirty KEEP trees at 60 MiB each are the same rollup and different amounts of remaining disk, and on exhaustion the shell commands needed to diagnose it fail too). Roll `size.total_kb`, `size.volume_free_kb`, and `size.headroom_trees` (free ÷ median LINKED tree — a derived measurement, not a tuned constant) into the report. A tree whose size could not be determined reads `unknown`, NEVER `0`; a `≥` prefix marks a total that is a lower bound because some tree was only partially walked — do not restate either as an exact figure (`rules/instrument-discipline.md` MUST-1). The size pass costs ~2s per 30 trees (measured: 5.6s with, 3.2s without); `--no-size` opts out when that matters, at the price of the axis that predicts exhaustion. Embed the `<!-- worktree-reap:v1:… -->` sentinel so a reader can verify the audit ran AND whether it was report-only (`applied=false`) — a run that changed nothing is the DEFAULT output, not a completion receipt. **Check `scope=` before reading the sentinel as a forest audit**: `scope=all` is a whole-forest pass, `scope=selected` (with `selected=<n>`) is a PATH-SCOPED `--only` run that classified the forest but was eligible to reap only `<n>` trees — it does NOT discharge this sweep, and accepting one as if it did would turn a real gate into a false one. The sentinel now also carries `size_kb` / `size_unknown` / `free_kb` / `headroom_trees`, so a reader can confirm size was measured rather than skipped. `--force` is BLOCKED: a bare `git worktree remove` refusing a dirty tree is the desired behavior. The `--aggregate` step (issue #669) reads EVERY `workspaces/*/.session-notes` (and its M6-D split `.session-notes.shared.md`) forest ledger — regardless of MTIME or issue state — and flags any OPEN row whose ID is absent from the ROOT ledger (the cross-file no-vanish gate; closes the gap where this sweep `stat`-ed MTIME but never opened the file). Each `[AGG]` finding is a STRANDED forest workstream: roll it into the report with its value-anchor (`rules/value-prioritization.md` MUST-2) AND into the root ledger at `/wrapup`. The bare `find` MTIME check is retained for archival hygiene; it does NOT substitute for the ledger read.
 
 ### Sweep 7: Process hygiene (uncommitted, divergence, zero-tolerance)
 
@@ -139,13 +129,13 @@ The all-repo-surfaces roll-up (Directive 2) — the ONE sweep that reads across 
 **Pre-condition gate (run FIRST)** — prints logical KEYS only (NEVER a resolved absolute path — the loom-links caller contract), or the N/A sentinel:
 
 ```bash
-node --input-type=module -e 'import("./.claude/bin/lib/loom-links.mjs").then(m=>{const r=m.resolveRole();if(!m.isConfigured()||r==="build"||r==="use-consumer")return console.log("<!-- sweep-ecosystem:v1:N/A reason=not-orchestration-root -->");for(const[k,v]of m.resolveAll())if(/^(build|use-template)\./.test(k))console.log(v.kind==="path"?k:k+" ["+v.kind+(v.error?": "+v.error:"")+"]")}).catch(e=>console.log("<!-- sweep-ecosystem:v1:ERROR reason="+e.message+" -->"))'
+node --input-type=module -e 'const P="./.claude/bin/lib/loom-links.mjs";import("node:fs").then(async fs=>{if(!fs.existsSync(P))return console.log("<!-- sweep-ecosystem:v1:N/A reason=resolver-module-absent -->");const m=await import(P);const r=m.resolveRole();if(!m.isConfigured()||r==="build"||r==="use-consumer")return console.log("<!-- sweep-ecosystem:v1:N/A reason=not-orchestration-root -->");for(const[k,v]of m.resolveAll())if(/^(build|use-template)\./.test(k))console.log(v.kind==="path"?k:k+" ["+v.kind+(v.error?": "+v.error:"")+"]")}).catch(e=>console.log("<!-- sweep-ecosystem:v1:ERROR reason="+((e&&(e.subtype||e.code))||(e&&e.message)||String(e))+" -->"))'
 ```
 
-Only the N/A sentinel → a downstream consumer (no config, or a declared build/use-consumer role): a **structural** N/A (no proxy run — `rules/sweep-completeness.md`), grep-able, keeping the distributed command byte-identical. Otherwise each printed line is a `build.*`/`use-template.*` KEY tagged by `resolveAll()` kind: a **bare key** is a local checkout — resolve its path at RUNTIME via `resolveRepo(key)` (returned, never logged into the report) and run the full roll-up; a `<key> [url]` is a remote-only target (no local checkout) — sweep its open PRs via the remote, skip local-divergence; a `<key> [error: …]` (or the ERROR sentinel) is itself a finding — surface it, never positional-guess a fallback (`rules/cross-repo.md` MUST-1). Roll up (local-checkout keys):
+Only the N/A sentinel → **read the `reason=`; there are three producers and they do NOT all mean "downstream consumer".** `not-orchestration-root` (no config, or a declared build/use-consumer role) — and `resolver-module-absent` **on a consumer**, where `bin/lib/loom-links.mjs` is `loom_only` and purged by design — are both a **structural** N/A (no proxy run — `rules/sweep-completeness.md`), grep-able, keeping the distributed command byte-identical. But `resolver-module-absent` **at an orchestration root is a FINDING, never an exemption**: the resolver MUST be present here, so its absence means a broken checkout — or that the gate was run outside the repo root, since `P` is cwd-relative. Sweep 9 is the ONLY cross-repo sweep, so reading that N/A as "not applicable" silently voids the entire Directive-2 roll-up. Surface it and fix the checkout. Otherwise each printed line is a `build.*`/`use-template.*` KEY tagged by `resolveAll()` kind: a **bare key** is a local checkout — resolve its path at RUNTIME via `resolveRepo(key)` (returned, never logged into the report) and run the full roll-up; a `<key> [url]` is a remote-only target (no local checkout) — sweep its open PRs via the remote, skip local-divergence; a `<key> [error: …]` (or the ERROR sentinel) is itself a finding — surface it, never positional-guess a fallback (`rules/cross-repo.md` MUST-1). Roll up (local-checkout keys):
 
 - **Open PRs** — `(cd "<path>" && gh pr list --state open)` (drafts >7d, red CI; #30-style `--no-merge` distribution PRs awaiting a gate surface here).
-- **COC drift** — `node .claude/bin/check-sync-freshness.mjs --target "<key>"` (the printed key IS the target slug; flags a consumer behind loom's last `/sync-to-use`).
+- **COC drift** — `node .claude/bin/check-sync-freshness.mjs --target "<key>"` (the printed key IS the target slug; flags a consumer behind loom's last `/sync-to-use`). **Read the printed LINES, not the exit code** — a consumer that is merely behind is verdict `ADVISORY` at exit 0 (it cannot affect a distribution, which is cut from the target's remote main), while `ahead`/`diverged`/unestablished-ancestry is `FAIL` at exit 1. Both carry `pass:false` and BOTH are drift findings for this report; only the second is a halt anywhere else.
 - **Local divergence** — `git -C "<path>" status --porcelain` + `git -C "<path>" rev-list --left-right --count origin/main...HEAD`.
 
 Roll every finding into the report BY KEY + pointer, each carrying a value-anchor at `/wrapup` (`rules/value-prioritization.md` MUST-2). Emit `<!-- sweep-ecosystem:v1:targets=N prs=P drift=D -->`.
@@ -170,7 +160,14 @@ Write the report to `workspaces/<project>/04-validate/sweep-<date>.md` (workspac
 Before reporting `/sweep` complete:
 
 1. ALL Sweep 1-10 outputs accumulated (Sweep 9 = the cross-ecosystem roll-up at the orchestration root, or its N/A sentinel elsewhere; Sweep 10 = the deferred-quality product-visibility revisit)
-2. Trivial fixes applied inline (`rules/zero-tolerance.md` Rule 1); reclassified `FIXED` with commit SHA
+2. Trivial fixes applied inline (`rules/zero-tolerance.md` Rule 1); reclassified `FIXED` with commit SHA — **the SHA goes in the row's Disposition column, not only in git log.** A bare `FIXED inline` row is incomplete and MUST be revised before the report ships:
+
+   ```
+   DO      [LOW → FIXED] [Sweep 1] <title> — Disposition: FIXED inline (commit `8e67ad3`) — <one-line reason>
+   DO NOT  [LOW → FIXED] [Sweep 1] <title> — Disposition: FIXED inline
+   ```
+
+   **Why:** the SHA is the grep-able link from finding to fix; without it `/redteam` cannot verify closure parity in a later round, which is the audit trail the reclassification exists to create.
 3. Non-trivial fixes filed as workspace todos OR GH issues with delivered-code references
 4. Report committed (`git add` + `git commit`)
 5. Optional: human authorization for the recommended next-session scope

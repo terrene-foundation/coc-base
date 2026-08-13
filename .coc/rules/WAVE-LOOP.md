@@ -191,21 +191,36 @@ gate" — the two failure modes this clause holds apart.
 
 Before implementing any PRE-EXISTING open backlog item (a GH issue, a workspace todo, a carried
 forest-ledger row, a journal follow-up), the orchestrator MUST reconcile it against current
-ground truth: (a) grep/read the on-disk target surface the item names, (b) `gh issue view <N>`
-when it is issue-backed, (c) grep `journal/` for a governing DECISION/DEFER. Implementing on the
-backlog's say-so WITHOUT reconciling is BLOCKED.
+ground truth: (a) grep/read the on-disk target surface the item names, (b) `gh issue view <N>
+--json body,comments` when it is issue-backed, (c) grep `journal/` for a governing DECISION/DEFER.
+Implementing on the backlog's say-so WITHOUT reconciling is BLOCKED.
+
+**(b) MUST read BOTH halves, and no single flag does.** An issue's substance splits across its
+BODY and its COMMENTS — an item that accreted findings after filing carries most of itself in
+comments — so a partial read makes the item look SHORTER than it is, which is precisely the
+mis-reconciliation this clause exists to block. Measured, both poles, on `gh` 2.x: bare
+`gh issue view <N>` prints the body and NOT the comment bodies (it prints `comments: 1`, a TALLY
+that reads as if they were surfaced — `instrument-discipline.md` MUST-3(b)); `--comments` prints
+the comments and NOT the body — the mirror-image defect, so prescribing it alone would install
+this same bug in the opposite direction. `--json body,comments` returns both; two explicit
+invocations are an acceptable alternative. A single partial flag is not.
 
 ```markdown
-# DO — #NNN open → grep the target file (already fixed) + gh issue view (superseded) + journal
+# DO — #NNN open → grep the target file (already fixed) + BOTH halves of the issue + journal
 
+gh issue view <N> --json body,comments # neither `view` alone nor `--comments` alone
 grep (governing DEFER) → close with receipt, do NOT re-implement
 
 # DO NOT — implement #NNN because it is still open → discover at redteam it landed two sessions ago
+
+# DO NOT — reconcile on `gh issue view <N>` alone (the comments, where the item accreted, are absent)
 ```
 
 **BLOCKED rationalizations:** "it is still open so it must be undone" (open ≠ undone) / "reconciling
 is slower than just doing it" / "the issue is the source of truth" / "a governing DEFER would have
-closed the issue already".
+closed the issue already" / "`gh issue view` shows the issue" (it shows the BODY; the comment count
+it prints is a tally, not the comments) / "`--comments` is the complete-read flag" (it is
+comments-ONLY — the mirror-image truncation).
 
 **Why:** backlog state decays as code evolves; an open item routinely lags a landed fix or a
 governing DEFER, so implementing on its say-so re-does or contradicts delivered work (caught
@@ -248,7 +263,7 @@ Structural vs Execution Gates); the structural human gates remain `/todos` plan-
   that rule's emergency-trigger list (1× = drop 1 posture).
 - **Receipt requirement:** SessionStart MUST require `[ack: wave-loop]` in the agent's first
   response IF `posture.json::pending_verification` includes this rule_id. Soft-gate.
-- **Detection mechanism:** Phase 1 — cc-architect / reviewer mechanical sweep at `/todos` +
+- **Detection mechanism:** Phase 1 — cc-architect / reviewer mechanical sweep at `/todos` + Probes `.claude/test-harness/probes/wave-loop.probes.json` — NOT YET AUTHORED, declared in `phase2-deferrals.json::probe_authorship_deferrals`.
   `/codify` + `/redteam`. **(0) Declaration check (the on-ramp): EVERY `/todos` plan MUST
   carry an explicit wave-sequence declaration; a multi-shard plan with no declared wave
   sequence, OR ≥2 value-distinct milestone-groups / a bound-B-exceeding shard-union collapsed
@@ -293,7 +308,9 @@ the pre-existing MUST 1/2/3/5 wiring above is unchanged.
   `posture.json::pending_verification` includes this rule_id (shared with the MUST 1/2/3/5 wiring).
 - **Detection mechanism:** Phase 1 (manual, gate-review) — cc-architect / reviewer inspect the session
   transcript for an idle-wait window with launchable independent work (MUST-6) and for a
-  reconciliation trace before any pre-existing-backlog implementation (MUST-7). Phase 2 (deferred per
+  reconciliation trace before any pre-existing-backlog implementation (MUST-7) — and, where that item
+  was issue-backed, that the trace covers BOTH the body and the comments (a bare `gh issue view`, or
+  `--comments` alone, is a PARTIAL read and is a finding, not a pass). Phase 2 (deferred per
   `rules/trust-posture.md` § Two-Phase Rollout): advisory Stop-event detector + audit fixtures at
   `.claude/audit-fixtures/wave-loop/orchestration-hygiene/` per `rules/cc-artifacts.md` Rule 9.
 - **Violation scope:** MUST-6 + MUST-7 ONLY (clause-scoped); the pre-existing MUST 1/2/3/5 sections stay

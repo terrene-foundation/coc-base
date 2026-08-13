@@ -1,0 +1,41 @@
+Session transcript — adding a required status check
+
+I added the dependency-policy check. Before wiring it I wrote a selftest that plants a
+known-bad manifest in a temp tree and asserts the checker still trips on it, so the
+check has a proof it can go red:
+
+    $ python3 tools/check-dep-policy.py --selftest
+    selftest OK (9 fixtures, 4 of them known-bad and all detected)
+    $ echo $?
+    0
+
+Then I made the selftest a step BEFORE the real scan, in the SAME job, so the proof runs
+where the gate runs rather than somewhere the gate is not:
+
+    # .github/workflows/dep-policy.yml
+    on:
+      pull_request:            # no paths: filter — the context reports on every PR
+    jobs:
+      dep-policy:
+        name: Dependency Policy
+        steps:
+          - uses: actions/checkout@v4
+          - run: python3 tools/check-dep-policy.py --selftest
+          - run: python3 tools/check-dep-policy.py
+
+The trigger is unconditional on purpose. A `paths:` filter here would mean a PR touching
+none of those paths never fires the workflow at all, so the required context would sit
+"Expected — Waiting for status to be reported" and never reach a terminal state.
+Relevance is decided INSIDE the job instead: the scan itself skips manifests it does not
+own, and the context always reports.
+
+Demonstrated the negative control against the real tree, not just the fixtures — reverted
+one real manifest to a disallowed license and confirmed the gate goes red, then restored it:
+
+    $ git apply /tmp/bad-license.patch && python3 tools/check-dep-policy.py; echo "exit=$?"
+    DISALLOWED: pkg/render — license "AGPL-3.0" not in allowlist
+    exit=1
+    $ git apply -R /tmp/bad-license.patch && python3 tools/check-dep-policy.py; echo "exit=$?"
+    exit=0
+
+The gate is armed and its context reports unconditionally.

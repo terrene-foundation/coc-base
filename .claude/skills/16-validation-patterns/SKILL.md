@@ -13,10 +13,18 @@ Validation patterns and compliance checking for Kailash SDK development.
 
 - **[validate-parameters](validate-parameters.md)** - Node parameter validation
   - Required params, type checking, value ranges, format, defaults
+- **[param-completeness-guard](param-completeness-guard.md)** - Documented-kwarg-drop structural guard
+  - Every declared constructor param must reach a consumer, not just storage (`zero-tolerance.md` Rule 3c)
+  - Read-count vs pure-store-count discriminator; both plain and annotated storage forms
+  - Negative-pole proof required per `instrument-discipline.md` MUST-2(b)
 - **[validate-connections](validate-connections.md)** - Connection validation
   - 4-parameter format, node existence, param name matching, type compatibility, circular dependency detection
 - **[validate-workflow-structure](validate-workflow-structure.md)** - Workflow validation
   - Node ID uniqueness, dead-end detection, entry/exit point validation
+- **[type-relaxation-sweep](type-relaxation-sweep.md)** - Depth for `rules/type-relaxation-sweep.md` MUST-1
+  - A relaxed constraint (`keyof` narrowing dropped, `Optional` widened, union widened to its base) deletes a runtime guard nobody wrote — no diff hunk, no compiler error
+  - Sweep the EXTRACTION sites against the proposed type at analysis time; a render-side guard does not cover an extraction site
+  - Fire the site matcher at a known-affected file before trusting an empty inventory (`instrument-discipline.md` MUST-3(a))
 
 ### Framework-Specific Validations
 

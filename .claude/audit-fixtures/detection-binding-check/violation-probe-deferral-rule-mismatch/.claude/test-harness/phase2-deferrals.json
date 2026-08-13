@@ -1,0 +1,18 @@
+{
+  "_README": [
+    "Fixture registry. The declaration is live and unexpired, but it names a DIFFERENT",
+    "rule than the one citing the path. Matching on the path alone would let a",
+    "declaration authored for rule A silently excuse a copy-pasted Detection line in",
+    "rule B — a widening nobody declared. The scanner therefore matches on the",
+    "(rule, path) PAIR, so this case still reds dangling-probes-binding."
+  ],
+  "probe_authorship_deferrals": {
+    ".claude/test-harness/probes/deferredprobe.probes.json": {
+      "rule": ".claude/rules/some-other-rule.md",
+      "risk": "trust",
+      "reason": "Fixture stand-in for a declaration bound to a different rule than the one whose Detection block cites the path.",
+      "graduation": "Delete this entry in the same change that lands the suite and registers it in eval-manifest.json.",
+      "expires": "2099-12-31"
+    }
+  }
+}

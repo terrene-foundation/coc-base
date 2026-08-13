@@ -22,7 +22,7 @@ When a `/codify` proposal touches the self-referential surface allowlist enumera
 
 ## Mechanical Sweeps (Round 1)
 
-Per `rules/agents.md` "Reviewer Mechanical Sweeps":
+Per `rules/agents.md` § "MUST: Reviewer Prompts Include Mechanical AST/Grep Sweep":
 
 - `grep -c` parity on critical call-site patterns
 - `pytest --collect-only -q` exit 0 across all test dirs

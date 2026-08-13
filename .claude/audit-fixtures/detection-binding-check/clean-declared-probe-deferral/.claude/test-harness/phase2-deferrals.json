@@ -1,0 +1,20 @@
+{
+  "_README": [
+    "Fixture registry. The expiry is deliberately far-future so this REGRESSION case",
+    "cannot become a time bomb: a fixture that reds on a calendar date gets 'fixed' by",
+    "bumping the date, which teaches exactly the habit the registry exists to stop.",
+    "The real registry cannot do this — phase2-deferral-integrity.mjs caps every expiry",
+    "at its risk band's horizon (trust <= 180 days) — and that gate does not run against",
+    "fixture roots. detection-binding-check.mjs, which this fixture exercises, asks only",
+    "whether the declaration is unexpired."
+  ],
+  "probe_authorship_deferrals": {
+    ".claude/test-harness/probes/deferredprobe.probes.json": {
+      "rule": ".claude/rules/deferredprobe.md",
+      "risk": "trust",
+      "reason": "Fixture stand-in for a rule whose semantic tier is genuinely uncovered because its probe suite is not written yet.",
+      "graduation": "Delete this entry in the same change that lands the suite and registers it in eval-manifest.json.",
+      "expires": "2099-12-31"
+    }
+  }
+}

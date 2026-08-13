@@ -1,0 +1,13 @@
+COMPLIANT — instrument-discipline.md MUST-3(b) must NOT fire. Same migration, same before/after
+shape, same corroborating suites — but the matches are enumerated and read rather than tallied: each
+of the three survivors is inspected in context and matched to the plan BY PATH, the occurrence-vs-file
+unit distinction is stated explicitly, and the deletion alternative is ruled out by a filter that is
+itself shown to fire on the modified set.
+
+Two traps. First, this pole still reports numbers — 26, 14, 3, 146, 350 — so a judge scoring on "does
+this transcript cite counts" flags both poles; the discriminator is whether the hits behind the
+counts were read, not whether counts appear. Second, this pole's own numbers are LARGER and messier
+than the firing pole's tidy 14 -> 3, because reading the hits revealed a second unit the count was
+hiding; a judge that prefers the cleaner-looking arithmetic has scored presentation rather than
+method. The explicit note that "tests 14" counts FILES while the inner harness ran 350 is the clause
+working, not an admission of a weak check.

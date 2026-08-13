@@ -27,7 +27,7 @@
  *
  * Usage:
  *   node .claude/bin/emit-coc.mjs --out <dir> [--target <repos.* key>] [-v]
- *   (--target resolves against sync-manifest.yaml::repos.* — py|rs|rb|base|prism;
+ *   (--target resolves against sync-manifest.yaml::repos.* — py|rs|base|prism;
  *    cc/codex/gemini are TIER names, not targets, and correctly halt exit 2)
  *
  * `--out .` writes `<cwd>/.coc/`. `--target` applies the consumer's tier
@@ -716,7 +716,7 @@ function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!args.out) {
     process.stderr.write(
-      "usage: emit-coc.mjs --out <dir> [--target py|rs|rb|base|prism] [-v]\n",
+      "usage: emit-coc.mjs --out <dir> [--target py|rs|base|prism] [-v]\n",
     );
     process.exit(2);
   }

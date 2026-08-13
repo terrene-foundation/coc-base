@@ -116,12 +116,18 @@
  *        · defaults TIGHTER  — headroom + per-rule-budget exceptions. Both WIDEN
  *          a gate when present, so empty is strictly the strictest answer: a
  *          consumer can never inherit a waiver loom granted itself.
- *        · defaults at PARITY — tolerance (±30%), block threshold (+30%), caps
- *          (32768/61440/floor 10). The hardcoded fallbacks equal what the
- *          manifest declares today, so absence changes nothing. This is an
- *          equality COINCIDENCE with no tripwire: if loom ever tightens
- *          `block_cap_bytes` below 61440 or raises `headroom_floor_pct` above 10,
- *          a manifest-less consumer silently keeps the looser gate.
+ *        · defaults at PARITY, EXCEPT block_cap_bytes since 2026-08-12 —
+ *          tolerance (±30%), block threshold (+30%), floor 10 still equal what
+ *          the manifest declares. `block_cap_bytes` no longer does: loom raised
+ *          codex+gemini to 65536 (plan §3.2 option b, expires 2027-02-12) while
+ *          the hardcoded fallback stays 61440. That divergence is in the SAFE
+ *          direction — a manifest-less consumer keeps the STRICTER 61440 cap and
+ *          can never inherit loom's raise — so it needs no tripwire, and the
+ *          fallback is deliberately NOT tracked to the grant.
+ *          The original hazard is unchanged and still has no tripwire: if loom
+ *          ever tightens `block_cap_bytes` below the fallback, or raises
+ *          `headroom_floor_pct` above 10, a manifest-less consumer silently
+ *          keeps the LOOSER gate. Only the raise direction is safe.
  *        · NO GATE TO ASSERT — per-rule budgets. An empty Map is not a tighter
  *          default; it REMOVES a per-entry gate. Every rule takes emitBaseline's
  *          `else` branch (emit.mjs:1363-1367) and gets an advisory WARN, and

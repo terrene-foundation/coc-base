@@ -8,11 +8,11 @@ Sibling of `../headroom-floor-exception/`. That stanza governs a lane's **aggreg
 
 `sync-manifest.yaml::cli_variants."context/root.md".codex.per_rule_size_budget_bytes` declares a byte budget per baseline rule; a rule emitting above `budget × (1 + 30%)` hard-fails emission (spec v6 §A.2), so one CRIT rule cannot monopolise the total.
 
-That map is **flat** — keyed by rule filename with no lane dimension. On 2026-07-26 the `rs` lane emitted `security.md` at **9,545 B** against a ceiling of **9,360 B** (budget 7,200 B +30%) — **185 B over** — while `base`, `py` and `rb` emitted the same rule at **7,775 B**, comfortably inside. The overrun is entirely the `variants/rs/rules/security.md` overlay, which contributes **1,770 B post-abridgement** (9,545 − 7,775): three Rust security MUST sections (constant-time credential comparison, fail-closed defaults, network transport hardening), each with a red-team `Origin:`.
+That map is **flat** — keyed by rule filename with no lane dimension. On 2026-07-26 the `rs` lane emitted `security.md` at **9,545 B** against a ceiling of **9,360 B** (budget 7,200 B +30%) — **185 B over** — while `base` and `py` emitted the same rule at **7,775 B**, comfortably inside. The overrun is entirely the `variants/rs/rules/security.md` overlay, which contributes **1,770 B post-abridgement** (9,545 − 7,775): three Rust security MUST sections (constant-time credential comparison, fail-closed defaults, network transport hardening), each with a red-team `Origin:`.
 
 The flat remedies were both wrong:
 
-- **raise the budget** → relaxes `base`/`py`/`rb` too, permanently and with no expiry, to fix an `rs`-only overrun;
+- **raise the budget** → relaxes `base`/`py` too, permanently and with no expiry, to fix an `rs`-only overrun;
 - **trim the overlay** → `abridgeV6` has already reduced it from 4,010 B raw to 1,770 B emitted, so the code fences and Origin lines are gone; 185 B can only come out of a MUST clause or its `**Why:**`.
 
 Leaving it red was not an option either — a permanently-red gate is the ratchet `zero-tolerance.md` Rule 1 forbids, and it BLOCKS `/sync-to-use rs`. So the overrun is **accepted and ENCODED**, lane-scoped and expiring, in `sync-manifest.yaml::cli_variants."context/root.md".per_rule_budget_exceptions`.
@@ -34,7 +34,7 @@ Leaving it red was not an option either — a permanently-red gate is the ratche
 | `fixture-01-declared-lane-cli-rule-in-force`         | Lane + CLI + rule match, date before expiry → the one granted case        | the exception  |
 | `fixture-02-second-declared-cli-also-covered`        | One entry naming both CLIs covers both (no per-CLI duplication)           | the exception  |
 | `fixture-03-undeclared-lane-not-covered`             | `py` emits the same rule and keeps the flat ceiling — the whole point      | `null`         |
-| `fixture-04-rb-lane-not-covered`                     | Same, `rb`                                                                | `null`         |
+| `fixture-04-prism-lane-not-covered`                  | Same, `prism`                                                             | `null`         |
 | `fixture-05-base-lane-not-covered`                   | `lang=null` normalizes to lane `base`, which holds no grant                | `null`         |
 | `fixture-06-undeclared-rule-on-declared-lane-…`      | RULE narrowness: a `security.md` grant never relaxes `agents.md` on `rs`   | `null`         |
 | `fixture-07-undeclared-cli-not-covered`              | A CLI the entry does not name inherits nothing                            | `null`         |

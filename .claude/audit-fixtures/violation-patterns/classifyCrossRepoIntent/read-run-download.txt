@@ -1,0 +1,1 @@
+gh run download 18234567 --repo terrene-foundation/kailash-rs --name logs

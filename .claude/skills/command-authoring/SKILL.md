@@ -112,7 +112,7 @@ CLI-specific or language-specific bodies live at `.claude/variants/<axis>/comman
 
 - `variants/codex/` — Codex-only deltas (e.g. invoke `codex review` natively instead of redirecting)
 - `variants/gemini/` — Gemini-only deltas
-- `variants/py/`, `variants/rs/`, `variants/rb/`, `variants/prism/` — language deltas
+- `variants/py/`, `variants/rs/`, `variants/base/`, `variants/prism/` — language deltas
 - `variants/py-codex/`, `variants/rs-codex/`, `variants/py-gemini/`, `variants/rs-gemini/` — ternary overlays (language × CLI)
 
 Slot-marker syntax matches the skill-authoring convention:

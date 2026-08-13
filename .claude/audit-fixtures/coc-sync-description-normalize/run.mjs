@@ -45,13 +45,18 @@ const CASES = [
     expectDescription: "Kailash COC Multi-CLI (Rust)",
   },
   {
-    name: "rb: mid-string (Python) → (Ruby)",
+    // Mid-string replacement where a TRAILING suffix follows the
+    // parenthetical — distinct from the end-of-string case above. Keyed to
+    // `rb`/"Ruby" until 2026-08-11; rb is no longer a lane (Ruby ships as an rs
+    // binding) and coc-sync.md now emits only the Python/Rust label arms, so a
+    // "(Ruby)" expectation asserted a label the sync path cannot produce.
+    name: "rs: mid-string with trailing suffix (Python) → (Rust)",
     input: {
       description: "Kailash COC Claude (Python) - hooks + variant overlays",
     },
-    lbl: "Ruby",
+    lbl: "Rust",
     expectDescription:
-      "Kailash COC Claude (Ruby) - hooks + variant overlays",
+      "Kailash COC Claude (Rust) - hooks + variant overlays",
   },
   {
     name: "py: idempotent — (Python) → (Python)",

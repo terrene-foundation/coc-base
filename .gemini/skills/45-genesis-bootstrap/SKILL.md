@@ -55,15 +55,24 @@ for them) and starts each session with `/onboard`.
    ```
    (`COC_OPERATOR_KEY_PATH=""` or `COC_SIGNING_MUTATION_GUARD_FORCE_DEGRADED=1` force degraded —
    never set these during a ceremony.)
-2. **On a codify branch.** `integrity-guard.js` permits writes to watched paths
-   (`operators.roster.json`, `operators.roster.schema.json`, `coordination-log.jsonl`,
-   `posture.json`, `violations.jsonl`, `observations.jsonl`, `team-memory/**`, `journal/**`)
-   ONLY on a branch matching `^codify/<display_id>-YYYY-MM-DD$` (the date-terminal predicate at
+2. **On a codify branch.** `integrity-guard.js` permits writes to watched paths ONLY on a branch
+   matching `^codify/<display_id>-YYYY-MM-DD$` (the date-terminal predicate at
    `.claude/hooks/integrity-guard.js`; suffixed names like `…-b` are rejected). Cut it from
    `main` (branch protection rejects a direct roster push to `main`):
    ```bash
    git checkout -b "codify/<display_id>-$(date -u +%Y-%m-%d)" main
    ```
+   **The watched set is DERIVED, not hand-listed — read it, do not reconstruct it from this
+   page.** The single source of truth is the protected-path registry at
+   `.claude/hooks/lib/guard-path-scope.js` (loom#1422); `integrity-guard.js`'s Edit/Write watched
+   set is exactly the registry rows carrying `surfaces: { direct: true }`, plus the
+   `team-memory/**`, `journal/**`, and `workspaces/<name>/journal/**` subtrees. As of 2026-08-10
+   the `direct` rows are `posture.json`, `violations.jsonl`, `observations.jsonl`,
+   `coordination-log.jsonl`, `operators.roster.json`, `operators.roster.schema.json`,
+   `bin/ecosystem.json`, `coordination-mode.json`, `learning-codified.json`, and `.git` (subtree)
+   — among others as the registry grows; the registry is authoritative and this enumeration is a
+   dated snapshot, so a step that depends on membership MUST grep the registry rather than trust
+   this list.
 3. **Ceremony steps run script-by-path, never `node -e` / `python -c`.** See § The
    script-by-path pattern below — this is the trap that most often blocks a first run.
 4. **gh CLI reachable + authenticated.** The ceremony makes live `gh api` calls
@@ -103,7 +112,9 @@ runEnrollmentCeremony({ ..., transportAppend })`. Passing the factory-return OBJ
    `.claude/learning/coordination-log.jsonl` cache (`localAppend`). Seeding the ref is what lets
    a FRESH CLONE fetch-then-fold its trust root instead of fail-CLOSED-blocking at its first
    commit (loom#879). A ref-append failure returns a typed error and does NOT write the local
-   surface (no half-write). Returns `{ ok, error?, reason?, step? }`, fail-CLOSED. (The same path
+   surface (no half-write). Returns `{ ok: true, record }` on success — `record` IS the signed
+   `genesis-anchor` the fold-clean verify below reads, so a caller that discards it has to
+   re-read the log to get it — or `{ ok: false, error, reason, step }`, fail-CLOSED. (The same path
    `/whoami --enroll-genesis` drives — see `commands/whoami.md`.)
 5. **Verify** (next section).
 
@@ -137,12 +148,25 @@ person whose `github_login` resolves to that login, bound to the signing key's f
 
 ## The script-by-path pattern (the central trap)
 
-`validate-bash-command.js` runs `detectStateFileMutation(command, STATE_PATH_RX)` on every
-Bash command — a three-layer detector (its docstring at `validate-bash-command.js`:
-"redirects, file utilities, **interpreter -c/-e/-m bodies**") that BLOCKS (severity: block) any
-command whose body MUTATES a watched state file. `STATE_PATH_RX` matches `posture.json`,
-`violations.jsonl`, `coordination-log.jsonl`, `.initialized`, the heartbeat/session-end caches,
-and `operators.roster.json`. So a `node -e '…fs.writeFileSync(".claude/operators.roster.json"…)'`
+`validate-bash-command.js` runs `detectStateFileMutationSegmentAware(command, STATE_PATH_RX)` on
+every Bash command — the segment-aware WRAPPER, not the bare `detectStateFileMutation` primitive it
+composes — and BLOCKS (severity: block) on FOUR passes:
+
+1. **interpreter `-c`/`-e`/`-m` body — READ/WRITE-AGNOSTIC.** It is a path-PRESENCE detector, so an
+   inline READ that merely NAMES a watched path in an interpreter body is blocked too, not only a
+   write. Reading the framing as write-only is the single most common way a ceremony step gets
+   authored into a block.
+2. **redirect** — additionally requires a write construct.
+3. **file-utility body** — additionally requires a write construct.
+4. **whole-command `detectHeredocWriteRunBundle`** — one command that BOTH authors a heredoc script
+   whose body carries a `STATE_PATH_RX` literal AND executes that same script. Author the script
+   and run it as TWO separate commands instead.
+
+`STATE_PATH_RX` is built from the `bash` surface of the protected-path registry
+(`.claude/hooks/lib/guard-path-scope.js::_buildSurfaceRx("bash", …)`, the authority) and matches
+`posture.json`, `violations.jsonl`, `coordination-log.jsonl`, `.initialized`, the
+heartbeat/session-end caches, and `operators.roster.json` — among others; grep the registry rather
+than trust this list. So a `node -e '…fs.writeFileSync(".claude/operators.roster.json"…)'`
 roster write is blocked — the state-file path is on the command line the detector scans. (This
 is why the illustrative `node -e` in `commands/whoami.md` § `--register` is blocked in practice;
 that command's "Implementation notes" name the "ceremony-script-by-path constraint.")
@@ -155,13 +179,21 @@ The fix is NOT to weaken the guard. Route every state-mutating ceremony step thr
 #   (Write the script to a scratch path, then:)
 node /path/to/ceremony-step.js
 
-# DO NOT — inline interpreter body that writes a watched state file
+# DO NOT — inline interpreter body that NAMES a watched state file (read OR write, both blocked)
 node -e 'require("fs").writeFileSync(".claude/operators.roster.json", x)'   # BLOCKED
+node -e 'require("fs").readFileSync(".claude/operators.roster.json")'       # BLOCKED — pass 1 is
+                                                                           # read/write-agnostic
 ```
 
 Keep `node <file>` a BARE command — bundling it with `gh …` or a heredoc in one compound
-command can re-introduce a scanned mutation token. Read-only `node -e` (no watched-state path)
-is NOT blocked; only state-file mutation is.
+command re-introduces a scanned path token (pass 4). A `node -e` that names NO watched path is
+not blocked; what the guard keys on is the PATH's presence on the command line, not whether the
+body writes — so "it is only a read" is not a way past pass 1. The one PERMITTED inline form is a
+DELEGATED signed-emit helper (`reserveJournalSlotSigned` / `emitSignedRecord` routing through
+`coc-emit.js::emitSignedRecord`), which keeps the watched path INTERNAL to the helper so no
+literal reaches the command line; a raw-`fs` wrapper, a concatenated path, or a helper handed the
+path as an ARGUMENT all put the literal back and stay blocked (`rules/enrollment-operations.md`
+MUST-3).
 
 ## Verify (before declaring "enrolled")
 

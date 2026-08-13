@@ -245,10 +245,34 @@ function hasCrossRepoAuthorizationReceipt(targetSlug, cwd, requiredMode) {
 // stricter tier), so a novel `gh` verb never silently gets the lighter read
 // ceremony — an unrecognized→write default is the conservative disposition,
 // mirroring the enforcement-surface-parity "unrecognized ranks tightest".
+// `watch` and `download` are READ subcommands (`gh run watch`, `gh run
+// download`, `gh release download`). Their absence here was the second half of
+// loom#1665: with no read verb to match, they fell through to the fail-closed
+// WRITE default, so a read receipt could not authorize them either.
 const GH_READ_VERBS =
-  /\bgh\s+(?:issue|pr|repo|run|release|workflow|cache|label|gist|search|api)?\s*(?:view|list|status|diff|checks|ls)\b|\bgh\s+search\b|\bgh\s+repo\s+view\b/;
+  /\bgh\s+(?:issue|pr|repo|run|release|workflow|cache|label|gist|search|api)?\s*(?:view|list|status|diff|checks|ls|watch|download)\b|\bgh\s+search\b|\bgh\s+repo\s+view\b/;
+// `gh workflow run` is ANCHORED to its prefix as its own alternative, and `run`
+// is deliberately NOT in the bare verb list below (loom#1665).
+//
+// The prefix group is OPTIONAL, so a bare verb also matches with an EMPTY
+// prefix. While `run` sat in that list, `gh run list` matched as
+// empty-prefix + verb `run` — the match was the literal string "gh run" — and
+// because GH_WRITE_VERBS is tested BEFORE GH_READ_VERBS, the read pattern
+// (which correctly matches "gh run list") was never reached. Every `gh run *`
+// command classified WRITE, so the read-tier ceremony could not authorize a CI
+// audit at all.
+//
+// The test ORDER is deliberate and unchanged: GH_WRITE_VERBS keeps first
+// refusal on genuine ambiguity, because fail-closed is the correct default for
+// an authorization tier. The bug was never the ordering — it was a verb that
+// did not belong in an optional-prefix alternation.
+//
+// `gh run cancel|rerun|delete` remain WRITE via the fail-closed default at the
+// end of classifyCrossRepoIntent (they match no read verb), which is the right
+// answer by the right mechanism; fixtures pin all three so a later edit to the
+// read verbs cannot silently promote them.
 const GH_WRITE_VERBS =
-  /\bgh\s+(?:issue|pr|repo|release|secret|workflow|label|gist|api)?\s*(?:create|edit|close|comment|reopen|delete|transfer|pin|lock|merge|review|ready|set|run|upload|fork|rename|sync|clone)\b/;
+  /\bgh\s+workflow\s+run\b|\bgh\s+(?:issue|pr|repo|release|secret|workflow|label|gist|api)?\s*(?:create|edit|close|comment|reopen|delete|transfer|pin|lock|merge|review|ready|set|upload|fork|rename|sync|clone)\b/;
 // `gh api` with an explicit mutating method or a data field is a WRITE.
 // Matches all method-flag forms — `-X POST`, `-XPOST`, `--method POST`,
 // `--method=POST` — via `(?:-X|--method)[\s=]*`, AND a body field

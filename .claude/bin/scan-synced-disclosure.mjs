@@ -126,7 +126,7 @@ let REPO_ROOT_ACTIVE = REPO_ROOT;
 // thousands of non-actionable lines.
 //
 // R3 disclosure FIX (#263): `variants/` is NO LONGER blanket-excluded.
-// `.claude/variants/{py,rs,rb,prism}/**` are the language overlays that
+// `.claude/variants/{py,rs,prism}/**` are the language overlays that
 // COMPOSE INTO the USE-template synced surface at emit time (per
 // .claude/bin/emit.mjs::composeRule / variant-authoring.md) — they ARE
 // downstream-shipped. A real operator token in a committed variant
@@ -541,6 +541,17 @@ const ALLOWLIST = [
   // a *different* operator's home path (`/Users/<other>/`) carries a
   // different username, fails this anchored prefix, and is still flagged
   // by the operator-home-path shape.
+  //
+  // SURFACE SCOPE (GAP D, ratified 2026-07-26): the Option-1 own-coordinate
+  // ruling covers the INSTANTIATION surface as well as the SYNC surface. A
+  // client-template edition or a fresh clone generated FROM this checkout is a
+  // publish event in the same sense a sync is (`artifact-flow.md` § "The source
+  // of instantiation MUST be clean at rest"), so the same own-coordinate
+  // reasoning applies there and needs no separate ruling. What that does NOT
+  // license: the allowance stays scoped to the maintainer's OWN dev-home
+  // prefix on both surfaces — an instantiation carrying a DIFFERENT operator's
+  // home path is flagged on the instantiation surface exactly as on the sync
+  // surface.
   /\/Users\/esperie\//,
   /\/home\/esperie\//,
   // R2 detection-completeness FIX (#263): each SDK-repo-name allowlist
@@ -571,7 +582,20 @@ const ALLOWLIST = [
   /BP-\d+\b/, // bug-pattern refs
   // framework + standard names
   /\b(DataFlow|Nexus|Kaizen|PACT|ML|Align|MCP|EATP|CARE|CO|COC|CC)\b/,
-  /\bAegis\b/i, // public PACT product
+  // ALLOWLIST-NOTE (GAP B, 2026-08-10): the product-name entry that sat here was
+  // annotated "public PACT product" and that annotation was FALSE — co-owner
+  // correction 2026-07-26: the named product is NOT public; the public one is the
+  // PACT *reference platform*. Because a positive-allowlist entry suppresses the
+  // token on EVERY scanned surface in EVERY repo shipping this scanner, the false
+  // annotation made the fence structurally blind to it — a disclosure hole, not a
+  // cosmetic error. Entry REMOVED rather than re-pointed: naming the reference
+  // platform here would require a name this change cannot verify, and inventing
+  // one to fill the slot is exactly the fabrication that produced the original
+  // defect. The frameworks entry above still covers the bare `PACT` token, so the
+  // legitimate framework reference is unaffected. Removal fails SAFE — the token
+  // now flags and a human adjudicates, rather than passing silently.
+  // Paired fixture: `clean-foundation-placeholder/.claude/rules/clean.md` line 9
+  // carried the same false assertion and is corrected in this change.
   // ALLOWLIST-NOTE (R3 #263): `your-registry` is the documentation
   // placeholder container-registry host in the rs deployment-patterns
   // skill (`image: your-registry/kailash-service:latest`) — the
@@ -1289,6 +1313,49 @@ if (args.help) {
 }
 
 const root = args.root ? path.resolve(args.root) : REPO_ROOT;
+
+// A NON-DISCRIMINATING RUN MUST NOT EXIT 0.
+//
+// `artifact-flow.md` § Intake Disclosure Scrub makes `--check --root <inbound-repo>`
+// exiting 0 the Gate-1 intake gate, and `/ecosystem-init` invariant 1 makes it the
+// pre-config-write gate. MEASURED 2026-08-10: a `--root` at a NONEXISTENT path
+// produced exit 0 with ZERO bytes of output — byte-identical to a genuinely clean
+// scan of a real root — so a mistyped, unresolved, or wrongly-relative path passed
+// both gates silently. An outcome consistent with both branches of the hypothesis
+// is not evidence (`instrument-discipline.md` MUST-1); the scan had not run.
+//
+// Both guards below exit 2, the code an unknown argument and a malformed denylist
+// already use for "did not run". Exit 2 is the ABSENCE of a result, never a clean
+// one — a caller that treats non-zero as "findings" must not collapse 1 and 2.
+if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) {
+  console.error(
+    `scan-synced-disclosure: --root does not exist or is not a directory: ${root}`,
+  );
+  console.error(
+    `  The scan DID NOT RUN. Exit 2 is the absence of a result, not a clean result.`,
+  );
+  process.exit(2);
+}
+// The second guard keys on a STRUCTURAL fact about the root — does it carry any
+// synced surface at all — NOT on `files.length === 0` after filtering. That
+// distinction is load-bearing: `sync-preserve-local-skipped` and
+// `excluded-accepted-history` legitimately enumerate to ZERO files because the
+// exclusion rules they exist to test skip their only content, and a naive
+// post-filter zero-check reds both (measured: it did). A root with no `.claude/`
+// and no top-level synced path is a DIFFERENT thing — a wrong root, where a
+// "clean" verdict describes nothing.
+if (
+  !fs.existsSync(path.join(root, ".claude")) &&
+  !TOP_LEVEL_SYNCED.some((t) => fs.existsSync(path.join(root, t)))
+) {
+  console.error(
+    `scan-synced-disclosure: no synced surface under ${root} — no .claude/ and no top-level synced path`,
+  );
+  console.error(
+    `  The scan DID NOT RUN against a repo checkout. Exit 2 is the absence of a result, not a clean result.`,
+  );
+  process.exit(2);
+}
 const files = collectFiles(root); // sets REPO_ROOT_ACTIVE
 // Build the loom-only customer-identity shape from the tenant denylist at
 // the SCANNED root (inert when absent; throws loud on a malformed file so
@@ -1322,6 +1389,10 @@ if (args.mode === "check") {
     }
     process.exit(1);
   }
+  // The clean receipt is DISCRIMINATING: it names how many files were examined,
+  // so a caller reading a 0 exit can tell a real clean scan from a scan of
+  // nothing. Before this line, check-mode's clean path printed nothing at all.
+  console.log(`Scanned: ${files.length} files on the synced surface — 0 findings`);
   process.exit(0);
 }
 

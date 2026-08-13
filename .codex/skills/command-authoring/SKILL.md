@@ -108,7 +108,7 @@ CLI-specific or language-specific bodies live at `.claude/variants/<axis>/comman
 
 - `variants/codex/` — Codex-only deltas (e.g. invoke `codex review` natively instead of redirecting)
 - `variants/gemini/` — Gemini-only deltas
-- `variants/py/`, `variants/rs/`, `variants/rb/`, `variants/prism/` — language deltas
+- `variants/py/`, `variants/rs/`, `variants/base/`, `variants/prism/` — language deltas
 - `variants/py-codex/`, `variants/rs-codex/`, `variants/py-gemini/`, `variants/rs-gemini/` — ternary overlays (language × CLI)
 
 Slot-marker syntax matches the skill-authoring convention:
@@ -131,7 +131,7 @@ Variant files supply replacement bodies only for the slots that diverge. Unoverr
 
 ## Native-Primitive Carve-Outs
 
-Some CC commands map to a CLI's own native primitive — emitting a `.codex/prompts/<name>.md` or `.gemini/commands/<name>.toml` for them would shadow the native path. Per `.codex/agents/codex-architect.md` § Codex-Native Primitives:
+Some CC commands map to a CLI's own native primitive — emitting a `.codex/prompts/<name>.md` or `.gemini/commands/<name>.toml` for them would shadow the native path. Per `.codex/prompts/specialist-codex-architect.md` § Codex-Native Primitives:
 
 - **`/review`** → `codex review --uncommitted --base main` (Codex native). Do NOT emit a `.codex/prompts/review.md`.
 - **`/security-review`** → architect-decided; check the per-CLI exclusions list before adding.

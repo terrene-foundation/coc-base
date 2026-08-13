@@ -438,8 +438,17 @@ function discoverKeyPath() {
         ],
         agent_must_wait:
           "Do not retry until git can identify the main checkout, or the operator pins CLAUDE_TRUST_STATE_DIR.",
+        // SAME CLAIM, SAME CORRECTION as `analyze-completeness-guard.js`, swept
+        // in the same change (`security.md` § Enforcement-Surface Parity). These
+        // two are the only TRUST_BEARING hooks whose indeterminate branch is
+        // `halt-and-report` rather than `block` — i.e. the only two where
+        // "refused rather than passed through" is FALSE, because
+        // `instruct-and-wait.js` maps this severity to `{continue: true}` and the
+        // tool RUNS. The other four making this claim emit `block` and it holds
+        // for them, so they are deliberately left alone. This is the only line
+        // the user actually sees.
         user_summary:
-          "adjacency-leasecheck — main checkout unidentifiable; refused rather than passed through",
+          "adjacency-leasecheck — main checkout unidentifiable; contention NOT checked, action proceeds with its result UNKNOWN",
       });
       // emit() exits
     }

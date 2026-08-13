@@ -30,7 +30,7 @@ invocation shape, the genesis-ceremony call) lives in `.claude/skills/43-ecosyst
 ## The five invariants (load-bearing — the redteam surface)
 
 1. **C1 disclosure gate fires BEFORE the ecosystem-config write.** The config names real org slugs
-   (the #255/#252 disclosure class). `node .claude/bin/scan-synced-disclosure.mjs --root <fork-checkout>`
+   (the #255/#252 disclosure class). `node .claude/bin/scan-synced-disclosure.mjs --check --root <fork-checkout>`
    MUST run and exit 0 BEFORE `.claude/bin/ecosystem.json` is written; ANY finding → HALT, genericize +
    relocate, re-scan. Placement does not proceed on a non-zero exit (the `artifact-flow.md` Intake-Scrub
    shape, applied at ecosystem-config write time). The scan covers the SURROUNDING synced surface, NOT
@@ -112,7 +112,9 @@ prerequisite gate, checked by the operator/orchestrator before running `/ecosyst
 command's own code path.
 
 The D6 config schema + accessor contract is `.claude/bin/lib/ecosystem-config.mjs` (reader) +
-`.claude/bin/lib/loom-links.mjs` (the local⊕remote join); the synthetic companion is
+the loom/BUILD-side resolver `bin/lib/loom-links.mjs` (the local⊕remote join — `loom_only`, actively
+purged from every consumer per the `sync-manifest.yaml` `# why: F1030a` purge entries, so it is ABSENT
+here); the synthetic companion is
 `.claude/bin/ecosystem.example.json` (the only `ecosystem*` file that syncs/publishes). The disclosure
 scanner is `.claude/bin/scan-synced-disclosure.mjs`. The genesis ceremony is
 `.claude/hooks/lib/genesis-ceremony.js`; its consumer-relevant operational runbook (enroll-before-commit

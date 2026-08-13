@@ -15,7 +15,23 @@
  *                          + the ADO work-item type
  *    (4) deploy            ecosystem-aware deploy targets
  *    (5) upstream_canon    the explicit "sync upstream from" pointer
- *                          (null in canon — canon is the root)
+ *                          (null in canon — canon is the root). Its `url` MAY
+ *                          carry a credential — sync-from-canon-fetch.mjs
+ *                          documents the `https://x-access-token:TOKEN@host/…`
+ *                          form as supported — so it is read RAW server-side via
+ *                          getUpstreamCanon() and redacted on the display path
+ *                          by getEcosystemConfig(), same discipline as (6).
+ *                          SCOPED, because the redactor's coverage is: that
+ *                          holds for the USERINFO form above (measured:
+ *                          `https://x-access-token:<redacted>@github.com/o/r.git`)
+ *                          and for a `password=` query parameter. It does NOT
+ *                          hold for the query-parameter credential spellings
+ *                          redactReservoirLocator lists under its own § NOT
+ *                          COVERED — `?access_token=`, `?token=`, `?secret=`,
+ *                          `?apikey=` all reach the display view INTACT
+ *                          (measured). Those forms are out of scope, named here
+ *                          rather than covered by an unqualified claim
+ *                          (zero-tolerance R3e).
  *    (6) rag               the per-ecosystem RAG accountability-store pointer
  *                          {reservoir_locator, tenant_id}. reservoir_locator is
  *                          a DSN that MAY carry a credential (Mode-2 Postgres):
@@ -145,29 +161,193 @@ export function hasEcosystemConfig() {
   return load().config !== null;
 }
 
+// ────────────────────────────────────────────────────────────────
+// The display PROJECTION (#1351).
+//
+// Recursively route every string VALUE in the config through the credential
+// redactor, returning a fresh deep copy so the memoized cache keeps the RAW
+// value for the SERVER-SIDE accessors that must actually connect or fetch.
+//
+// WHY RECURSE RATHER THAN REJECT (the #1351 Gap-A decision, recorded here
+// because the issue left the choice open): the alternative was to make
+// loadRag() fail LOUD on any `rag` member that is not a declared string.
+// Rejected for two reasons.
+//   1. loadRag() sits on the SERVER-SIDE path too (getRagReservoirLocator,
+//      getRagTenantId). Rejecting there would turn a DISPLAY-hygiene concern
+//      into a hard failure of the resolution path for a deployment that
+//      already works — the display gap would take down the connection.
+//   2. redactReservoirLocator() is a documented no-op on non-DSN strings (see
+//      its § contract), so recursion cannot damage a legitimate scalar, while
+//      a reject is a breaking schema change for any config already carrying a
+//      nested member.
+// Recursion also delivers what the doc claim above getEcosystemConfig()
+// promises: coverage BY CONSTRUCTION for field shapes nobody has declared yet.
+// An enumeration of known credential fields cannot do that — a narrow
+// projection wearing a broad claim is the exact defect #1351 reported.
+//
+// The cost is accepted OVER-redaction, not under-redaction. Two instances, both
+// cosmetic on a view surface where the opposite error leaks a real credential:
+//   (a) a prose/doc string that merely CONTAINS a synthetic DSN (the `_README`
+//       block) shows `<redacted>` in the display view.
+//   (b) a `:`-less URL userinfo is redacted WHOLE, because a bare userinfo token
+//       may itself be the credential (`https://TOKEN@host/…` is a real form).
+//       That rule cannot tell a token from a USERNAME, so the ordinary
+//       `ssh://git@github.com/org/repo.git` renders as
+//       `ssh://<redacted>@github.com/…` (measured) — anywhere in the config,
+//       `upstream_canon.url` included, where `git` is plainly not a secret. The
+//       SCP-style spelling `git@github.com:org/repo.git` carries no `://`, so it
+//       is left byte-identical (measured); the two spellings of the same remote
+//       therefore display differently. Accepted rather than fixed: narrowing to
+//       an allowlist of known-benign usernames would fail OPEN the first time a
+//       deployment used a real token in that position.
+//
+// BOUNDED: JSON.parse cannot produce a cyclic object, so a cycle is impossible
+// by construction on this input rather than merely defended against — but the
+// depth cap makes the bound STRUCTURAL instead of assumed. Anything that would
+// otherwise recurse without limit (a cycle, or a pathologically deep config)
+// hits the cap and yields the sentinel instead of blowing the stack.
+//
+// COST — the redactor's INPUT SET IS WIDER HERE THAN WHERE ITS COST WAS
+// ACCEPTED, so do not inherit that acceptance without re-deriving it. The
+// quadratic-risk note in § the cost guard (below, on `nextSep`) was written when
+// redactReservoirLocator ran on ONE or TWO rag DSNs. This projection routes
+// EVERY string value at EVERY depth through it, so the accepted worst case now
+// applies once per string rather than once per config. Re-measured on THIS
+// path, not assumed:
+//   * the real ecosystem.example.json — 5811 B, 90 string values, longest 82
+//     chars — projects in 0.141 ms/call (200 warm iterations). Not a concern.
+//   * the adversarial shape the guard does NOT cover — a 32 KB separator-free
+//     run FOLLOWED by a `://` — costs 575 ms for that single value. With the
+//     guard armed (no `://` after the run) the same 32 KB costs 15 ms.
+// The acceptance still holds, for the SAME reason and now with the wider input
+// measured: ecosystem.json is an operator-owned local file, not network input,
+// so the pathological value is one the operator would have to write into their
+// own config. What changed is only that a config carrying MANY such values
+// would pay the cost per value; a real one carries none.
+// ────────────────────────────────────────────────────────────────
+
+// Depth cap for the display projection. Far above any real ecosystem.json
+// (canon's deepest path is 3 levels), so it never fires on a legitimate config.
+const MAX_PROJECTION_DEPTH = 32;
+
+// Emitted in place of a subtree deeper than MAX_PROJECTION_DEPTH. Fails CLOSED
+// (the raw subtree is never emitted) and is VISIBLE in the output, so it is a
+// loud substitution rather than a silent fallback (zero-tolerance R3).
+const UNPROJECTABLE_SUBTREE = "<unprojected: depth limit>";
+
+function projectCredentialValues(value, depth) {
+  if (typeof value === "string") return redactReservoirLocator(value);
+  // numbers / booleans / null carry no credential and have no children
+  if (value === null || typeof value !== "object") return value;
+  if (depth >= MAX_PROJECTION_DEPTH) return UNPROJECTABLE_SUBTREE;
+  if (Array.isArray(value)) {
+    return value.map((v) => projectCredentialValues(v, depth + 1));
+  }
+  const out = {};
+  // VALUES only — see § NOT COVERED on getEcosystemConfig() for why keys are not
+  // projected.
+  //
+  // defineProperty, NOT `out[k] = …`. JSON.parse builds `__proto__` as an OWN
+  // enumerable DATA property (measured: the descriptor is
+  // {value,writable:true,enumerable:true,configurable:true}), so Object.entries
+  // above yields it — but a plain assignment on an object literal resolves to
+  // the INHERITED Object.prototype `__proto__` SETTER instead of creating an own
+  // property. Measured consequences, both CONCEALMENT:
+  //   * string value  → the setter is a silent no-op; the member VANISHES from
+  //     the projection entirely (absent from Object.keys AND JSON.stringify).
+  //   * object value  → `out` is re-parented; the member is absent from
+  //     JSON.stringify/Object.entries, yet `for..in` walks the injected subtree
+  //     as though those were top-level config keys.
+  // Neither is a credential LEAK — the value was already routed through the
+  // redactor on the way in, and `Object.prototype` itself is never touched (the
+  // setter mutates `out` alone; verified). The defect is concealment on the one
+  // surface designated for credential AUDIT, which is the exact outcome
+  // § NOT COVERED invokes ("would silently DROP a field, a worse failure than
+  // displaying it") to justify not projecting KEYS. Sibling precedent one
+  // directory over: mesh-registry-scrub.mjs's `Object.hasOwn` guard, which
+  // names `__proto__` for the same reason.
+  //
+  // defineProperty over Object.create(null) deliberately: both render the member
+  // identically under Object.keys + JSON.stringify (measured), but a null-
+  // prototype receiver would also strip `.hasOwnProperty` from every projected
+  // object and change util.inspect's rendering for consumers. `constructor` /
+  // `toString` / `valueOf` keys never needed this — they inherit DATA properties,
+  // not setters, so plain assignment already shadowed them correctly (measured);
+  // they are pinned by the regression test anyway.
+  for (const [k, v] of Object.entries(value)) {
+    Object.defineProperty(out, k, {
+      value: projectCredentialValues(v, depth + 1),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return out;
+}
+
 /**
- * Full config object, or null when absent. Onboarding/display consumer —
- * therefore a PROJECTION: EVERY string value in the rag block is credential-
- * redacted in the returned view, not just `reservoir_locator` (INV-2 "never
- * surface a secret VALUE"; a future DSN-shaped sibling such as `backup_locator`
- * is covered by construction — defense in depth). A server-side caller that
- * needs the raw DSN uses getRagReservoirLocator(). A present-but-malformed rag
- * block fails loud via loadRag() (config-error), same as the loader's Q6.
+ * The full config as a credential-redacted DISPLAY PROJECTION, or null when
+ * absent. This is the onboarding/display/log consumer (INV-2 "never surface a
+ * secret VALUE"), so what it returns is a deep COPY in which EVERY string value
+ * — at EVERY depth, in EVERY block, not only `rag` — has been routed through
+ * redactReservoirLocator(). The cached object is never mutated and never
+ * returned, so getRagReservoirLocator() / getUpstreamCanon() keep yielding the
+ * RAW value to the SERVER-SIDE callers that must connect or fetch.
+ *
+ * SCOPE, stated exactly so no reader over-reads it (#1351; zero-tolerance R3e —
+ * a doc claim about a code surface must match the code):
+ *   - COVERED: every string value reachable from the config root through plain
+ *     objects and arrays, at any nesting depth. That is what makes BOTH a
+ *     future DSN-shaped `rag` sibling (`backup_locator`, a nested object, an
+ *     array of locators) AND a credential-bearing NON-`rag` field covered by
+ *     construction. `ecosystem.upstream_canon.url` is the live instance of the
+ *     latter: sync-from-canon-fetch.mjs documents it as legitimately carrying
+ *     `https://x-access-token:TOKEN@github.com/...`.
+ *   - NOT COVERED: object KEYS. A key is a schema field name, and two distinct
+ *     keys can redact to one string — which would silently DROP a field, a
+ *     worse failure than displaying it. A credential parked in a KEY is out of
+ *     scope, named rather than silently mishandled.
+ *
+ *     A SHIPPED ALTERNATIVE EXISTS AND WAS STILL REJECTED — recorded because
+ *     two sibling modules otherwise hold opposite dispositions on the same
+ *     "a key is untrusted free text" problem with no stated reason.
+ *     mesh-registry-scrub.mjs (~L288-302) solves the collision objection with a
+ *     POSITIONAL sentinel (`«unrecognized-field-#N»`), the shape
+ *     security.md § Redactor Contract mandates as `[REDACTED_KEY_N]`; the
+ *     collision argument above is therefore not, by itself, load-bearing.
+ *     The dispositions differ because the INPUTS do, not because one module
+ *     overlooked the other:
+ *       * mesh-registry-scrub's keys arrive on an UP-pull tuple from another
+ *         deployment — genuinely attacker-controlled free text (a client name /
+ *         operator email smuggled as a JSON key), so its fail-CLOSED drop-and-
+ *         renumber is correct even though it destroys navigability.
+ *       * THIS module's keys are schema field names in ecosystem.json, an
+ *         operator-owned LOCAL file that crosses no trust boundary (it is
+ *         never synced, never published, never scanned-as-content — see
+ *         § DISCLOSURE DISCIPLINE). And the consumer here is a DISPLAY view of
+ *         a config: renumbering `rag` to `«redacted-key-#3»` would make the
+ *         view unreadable and unnavigable for exactly the operator who owns
+ *         the file, to defend against that operator attacking themselves.
+ *     So the sentinel is the right instrument on an untrusted-key surface and
+ *     the wrong one here. If ecosystem.json ever takes keys from a source the
+ *     local operator does not own, this disposition MUST be revisited and the
+ *     sentinel adopted — that, not the collision argument, is the real trigger.
+ *   - NOT COVERED: whatever redactReservoirLocator() itself does not recognize
+ *     (see its § NOT COVERED — `token=`, `secret=`, `apikey=` and friends).
+ *   - DEPTH-CAPPED: a subtree nested deeper than MAX_PROJECTION_DEPTH is
+ *     replaced by UNPROJECTABLE_SUBTREE, never emitted raw.
+ *
+ * A present-but-malformed rag block fails loud via loadRag() (config-error),
+ * same as the loader's Q6 and the server-side accessors.
  */
 export function getEcosystemConfig() {
   const c = load().config;
-  if (!c || c.rag === undefined || c.rag === null) return c;
-  // loadRag() validates the block and fails loud on malformed shape; redact into
-  // a shallow clone so the memoized cache keeps the RAW value for server-side use.
-  // redactReservoirLocator is a no-op on non-DSN strings (e.g. tenant_id), so
-  // mapping it over every string value redacts any DSN-shaped field yet leaves
-  // plain scalars untouched.
-  const rag = loadRag();
-  const projectedRag = {};
-  for (const [k, v] of Object.entries(rag)) {
-    projectedRag[k] = typeof v === "string" ? redactReservoirLocator(v) : v;
-  }
-  return { ...c, rag: projectedRag };
+  if (c === null) return null;
+  // Validate the rag block FIRST so a present-but-malformed one fails LOUD here
+  // exactly as it does on the server-side accessors, instead of being projected
+  // into a plausible-looking display view.
+  if (c.rag !== undefined && c.rag !== null) loadRag();
+  return projectCredentialValues(c, 0);
 }
 
 /** (1) registry → {host, org} or null. Composes `${host}/${org}/<image>`. */
@@ -226,6 +406,11 @@ export function getDeploy() {
  * (5) The upstream-canon pointer → {remote, url} or null. null in canon
  * (canon is the root); a client fork names the canon it syncs upstream from.
  * Read by the G-F upflow transport.
+ *
+ * RAW — SERVER-SIDE ONLY. `url` MAY carry a credential (sync-from-canon-fetch.mjs
+ * documents `https://x-access-token:TOKEN@github.com/…` as a supported form), and
+ * the fetch transport needs it intact. NEVER hand this object to a view/log
+ * surface: route display through getEcosystemConfig(), which redacts it (#1351).
  */
 export function getUpstreamCanon() {
   const c = load().config;

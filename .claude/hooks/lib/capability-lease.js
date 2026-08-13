@@ -283,8 +283,12 @@ const MULTILEASE_TTL_DEADLINE_FACTOR = 2;
 // reap the SAME capability, so a pathological clock (a forward jump larger than
 // the floor makes every FRESH lockfile look stale) degrades into ordinary
 // bounded contention instead of a no-sleep spin. The livelock surface is a DoS
-// surface (security.md), and the deadline alone would bound the time but not the
-// spin.
+// surface (security.md).
+//
+// This constant is the SOLE termination bound on the reap path: the deadline
+// deliberately does NOT gate a post-reap retry (see acquireMultiLease's `reaped`
+// branch for why gating it there abandoned locks the call had already freed).
+// The deadline still bounds every WAIT, which is the DoS surface it exists for.
 const MULTILEASE_MAX_REAPS_PER_LEASE = 3;
 
 // ---- helpers (mirror codify-lease.js's proven shapes) ----------------------
@@ -1181,10 +1185,15 @@ function releaseMultiLease(capabilityIds, holderId, repoDir) {
  *   - capabilityIds {string[]} REQUIRED — the closure to lease.
  *   - holderId      {string}   REQUIRED — holder attribution.
  *   - repoDir       {string?}  defaults to process.cwd().
- *   - deadlineMs    {number?}  total bounded-wait budget (default 30000ms).
+ *   - deadlineMs    {number?}  total bounded-WAIT budget (default 30000ms).
  *                              The DOCUMENTED bound: a contended acquisition
  *                              waits AT MOST this long across ALL leases before
  *                              aborting-with-release. Guarantees termination.
+ *                              It bounds WAITING only — it never aborts a retry
+ *                              that follows a completed reap, because a reap is
+ *                              progress rather than waiting and the lock is
+ *                              already free by then (that path terminates on
+ *                              MULTILEASE_MAX_REAPS_PER_LEASE instead).
  *   - pollMs        {number?}  initial backoff between contended retries.
  *   - maxPollMs     {number?}  backoff ceiling.
  *   - _now          {function?} injectable clock (Date.now) for deterministic
@@ -1290,28 +1299,43 @@ function acquireMultiLease(opts) {
       }
       if (res.ok) {
         held.push(capabilityId);
-        if (reclaimedFrom) reclaimed.push(reclaimedFrom);
         break; // acquired this lease; advance to the next in canonical order
       }
       if (res.reason === "reaped") {
         // A crash orphan was cleared. Retry the O_EXCL create IMMEDIATELY — no
-        // sleep, no backoff growth. THIS is what removes the full-bounded-wait
-        // burn: a provably-dead lock now costs one read + one unlink + one
-        // retry instead of the whole 30s budget. The deadline is still checked
-        // so a pathological clock cannot spin without bound.
+        // sleep, no backoff growth, and NO DEADLINE CHECK. THIS is what removes
+        // the full-bounded-wait burn: a provably-dead lock now costs one read +
+        // one unlink + one retry instead of the whole 30s budget.
+        //
+        // WHY THE DEADLINE IS NOT CONSULTED HERE — stated, not implied, because
+        // it USED to be and that was the defect. The deadline bounds WAITING:
+        // an unbounded wait is the DoS surface (§ bounded-wait above), and every
+        // `sleep` below is still gated by it. A reap is not waiting — it is
+        // PROGRESS, and by this line it has already happened: the lockfile is
+        // unlinked and the lock is FREE. Checking the deadline here made the
+        // acquisition walk away from a lock it had itself just proved dead and
+        // released, returning `deadline-exceeded` — a reason whose whole meaning
+        // is "someone else is holding it" — while nothing held it at all. It
+        // fired whenever the classify+reap round outran the caller's declared
+        // budget, and that round is pure syscall latency (measured 13-26ms on an
+        // idle machine, ~2x that on a contended runner). So every caller
+        // declaring a short budget — precisely the latency-bound hook callers
+        // this lib exists for — could not reclaim a crash orphan on a loaded
+        // machine, which is the exact wedge the reaper was built to clear.
+        //
+        // Termination on THIS path does not need the deadline and never did: it
+        // is bounded by MULTILEASE_MAX_REAPS_PER_LEASE through `allowReap`
+        // above. At most MAX reaps per capability, each followed by exactly one
+        // sleepless create attempt; once the reaps are spent `allowReap:false`
+        // forces the contended branch below, where the deadline check is
+        // UNCHANGED. A LIVE holder therefore still costs the full budget, and a
+        // pathological clock still degrades into ordinary bounded contention.
         reapsHere += 1;
         reclaimedFrom = res.reclaimedFrom;
-        if (now() >= deadline) {
-          releaseMultiLease(held, holderId, topLevel);
-          return {
-            ok: false,
-            reason: "deadline-exceeded",
-            error: `acquireMultiLease: bounded-wait deadline (${deadlineMs}ms) exceeded on '${capabilityId}' immediately after reaping a stale lockfile; released ${held.length} already-held lease(s)`,
-            capabilityId,
-            contendingHolder: null,
-            reclaimed: reclaimed.concat([reclaimedFrom]),
-          };
-        }
+        // Ledger the clear HERE rather than at acquire-success, so a reap that
+        // happened is reported on EVERY exit path — including the failure
+        // returns below, where a takeover would otherwise be lost.
+        reclaimed.push(reclaimedFrom);
         continue;
       }
       if (res.reason !== "contended") {
