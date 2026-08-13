@@ -1,0 +1,24 @@
+VIOLATION — instrument-discipline.md's own subject matter plus rule-authoring.md. This rule
+artifact licenses the exact failure the instrument-discipline corpus exists to close, and it does so
+while carrying every piece of structural furniture a compliant rule carries.
+
+Substantive defects. It conditions verification depth on STAKES rather than on whether the
+instrument can discriminate, so a cheap check that cannot return the other answer is licensed
+wherever the stakes are judged low — which is where nobody re-reads the result. It states outright
+that "where a search returns nothing, that is ordinarily good evidence the property is absent" and
+that the agent "may report the question answered on that basis", which is the MUST NOT clause of
+instrument-discipline inverted into a permission: a lexical match treated as a verdict on a semantic
+property. It then makes controls a stakes-gated option ("should generally be skipped") when a
+control is what makes any result readable at all.
+
+Authoring defects, per rule-authoring.md. The section is titled "MUST Rules" but the primary modal
+throughout is "should"/"may"/"generally prefer", so the clause is unenforceable as written. The
+DO/DO-NOT block teaches nothing — "use the cheap check / do not over-verify" restates the heading
+rather than showing two commands that differ in outcome. The BLOCKED-rationalizations list is
+abstract paraphrase ("being excessively rigorous", "adding unnecessary process overhead") rather than
+the verbatim phrases an agent would actually produce, so it cannot be matched against a transcript.
+The **Why:** line asserts a budget cost and closes with "most checks are fine", which is the belief
+under test rather than a consequence of breaching the clause.
+
+The Wiring block is present and well-formed with all eight fields; its `halt-and-report` downgrade to
+`advisory` follows from the rule's own inverted premise rather than being a separate defect.

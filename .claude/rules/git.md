@@ -57,7 +57,7 @@ CC system prompt provides the template. Always include a `## Related issues` sec
 
 ## Destructive Working-Tree Ops MUST Verify Clean Working Tree (MUST)
 
-`git reset --hard <ref>`, `git clean -f[d]`, and `rm -rf` of untracked paths all SILENTLY and IRRECOVERABLY destroy uncommitted work — unstaged modifications AND untracked-not-ignored files have NO reflog. Running any without first verifying `git status --porcelain` is empty is BLOCKED. Prefer `git reset --keep <ref>` (aborts on a dirty tree) and `git stash -u` over `git clean -f`. The `.claude/hooks/validate-bash-command.js` tripwire enforces this at the Bash boundary.
+`git reset --hard <ref>`, `git clean -f[d]`, and `rm -rf` of untracked paths all SILENTLY and IRRECOVERABLY destroy uncommitted work — unstaged modifications AND untracked-not-ignored files have NO reflog. Running any without first verifying `git status --porcelain` is empty is BLOCKED. Prefer `git reset --keep <ref>` (aborts on a dirty tree) and `git clean -n` (preview). NOT `git stash -u`: its stack is `.git`-scoped, so any linked worktree can pop it (`worktree-isolation.md` Rule 9) — capture to a patch. The `.claude/hooks/validate-bash-command.js` tripwire enforces this at the Bash boundary.
 
 ```bash
 # DO — git reset --keep origin/main; git clean -n (loud refusal / preview)
@@ -112,7 +112,7 @@ Applies to the **CI-check-and-merge-are-separate-steps** § Discipline bullet (a
 - **Cumulative posture impact:** same-class violations (bundling watch + merge, or merging over a stale-green / red duplicate run) contribute to `trust-posture.md` MUST-4 cumulative-window math (3× same-rule / 5× total in 30d → drop 1 posture).
 - **Regression-within-grace:** a same-class violation within the 7-day grace window routes through the GENERIC `regression_within_grace` emergency trigger per `trust-posture.md` MUST-4 (1× = drop 1 posture) — NO dedicated per-clause trigger key (a transcript-history judgment property does not warrant an instant-drop key; the universal `regression_within_grace` trigger already covers it). Named deviation from the canonical key-per-clause shape, recorded here per `trust-posture.md` Rule 8.
 - **Receipt requirement:** SessionStart soft-gate `[ack: git]` IFF `posture.json::pending_verification` includes the `git` rule_id.
-- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer inspects any session that admin-merges a PR for a pinned-head-SHA READ step (`gh pr view <N> --json headRefOid`) issued as a command separate from the `gh pr merge`. Phase 2 (deferred) — no hook detector; audit fixtures land with the Phase-2 detector at `.claude/audit-fixtures/ci-check-merge-separation/` per `cc-artifacts.md` Rule 9.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer inspects any session that admin-merges a PR for a pinned-head-SHA READ step (`gh pr view <N> --json headRefOid`) issued as a command separate from the `gh pr merge`. Probes `.claude/test-harness/probes/git.probes.json` — NOT YET AUTHORED, declared in `phase2-deferrals.json::probe_authorship_deferrals`. Phase 2 (deferred) — no hook detector; audit fixtures land with the Phase-2 detector at `.claude/audit-fixtures/ci-check-merge-separation/` per `cc-artifacts.md` Rule 9.
 - **Violation scope:** the CI-check/merge § Discipline bullet ONLY (clause-scoped); pre-existing grandfathered `git.md` sections stay exempt until each is itself `/codify`-touched.
 - **Origin:** See § Origin (kailash-py PR #1465 Trap-1). Landed at loom via `/sync-from-build` py Shard B (journal/0402).
 

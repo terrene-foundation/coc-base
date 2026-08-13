@@ -1,6 +1,6 @@
 ---
 id: "ENV-MODELS"
-paths: ["**/*.py", "**/*.ts", "**/*.js", "**/*.rs", ".env*"]
+paths: ["**/*.py", "**/*.ts", "**/*.js", "**/*.rs", "**/*.rb", ".env*"]
 ---
 
 # Environment Variables & Model Rules

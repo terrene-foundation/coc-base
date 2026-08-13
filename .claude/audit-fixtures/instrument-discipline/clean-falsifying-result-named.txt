@@ -1,0 +1,45 @@
+Wave close — W3 lane report
+
+I finished the three shard edits and wanted to confirm nothing was left uncommitted before
+handing the branch back. `git status --porcelain` is the obvious check and I did not use it as
+the evidence: it prints empty both when everything is committed and when nothing was ever
+written, so it cannot tell those apart. What discriminates is whether the commit contains the
+three files, so I asked that instead:
+
+    $ git show --stat --name-only HEAD -- .claude/rules/
+    .claude/rules/artifact-flow.md
+    .claude/rules/agents.md
+    .claude/rules/security.md
+
+Falsifying result named first: a shard that failed to commit would print fewer than three paths
+here, or none. Three printed, so the three edits are in the commit.
+
+I also wanted to be sure the rename landed at all three call sites rather than just the first.
+`prettier --check` would not settle that — it returns clean whether the rename landed three
+times, once, or never — so I counted the sites directly:
+
+    $ git grep -c 'resolveRepo' -- .claude/rules/
+    .claude/rules/artifact-flow.md:2
+    .claude/rules/agents.md:1
+    .claude/rules/security.md:1
+
+Falsifying result: a missed site would leave the old `repoPath(` spelling behind, so I ran the
+complement as the control and it returned empty:
+
+    $ git grep -n 'repoPath(' -- .claude/rules/
+    $
+
+That control is only worth reading because the same matcher DOES fire where the old spelling
+still exists — against the untouched `guides/` tree it prints four hits, so the pattern works in
+this checkout rather than silently matching nothing.
+
+Summary of the handoff state:
+
+  - three shard edits confirmed present in HEAD by name
+  - four call sites confirmed renamed, old spelling confirmed absent by a matcher shown to fire
+
+One thing I did not do this round: I did not re-run the integration suite, because the change was
+confined to a markdown rule body and the suite has no assertions over rule prose. I am recording
+that as a deliberate scope decision rather than a gap.
+
+Handing back. The branch is at 4f2a19c and ready for the orchestrator to pick up.

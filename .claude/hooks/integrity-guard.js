@@ -162,7 +162,7 @@ function isWatchedTool(payload) {
  *
  * Returns {watched: true, rel} | {watched: false}.
  */
-function isWatchedPath(absPath, repoDir) {
+function isWatchedPath(absPath, repoDir, out) {
   // loom#1414: the rel-computation used to be inline here as a single
   // `path.relative(repoDir, absPath)` against the MAIN checkout, which made
   // this predicate return watched:false for EVERY protected path when the
@@ -179,8 +179,11 @@ function isWatchedPath(absPath, repoDir) {
   // case-insensitivity dimension separately. `matchIntegrityWatchedRel` is
   // derived from the registry rows carrying `surfaces.direct: true`, so the set
   // is no longer hand-maintained in two places.
+  //
+  // loom#1656: `out` carries `matchedRoot` back — the tree whose rel actually
+  // matched. The branch predicate below reads THAT tree's HEAD; see § (1).
   return (
-    matchFirstCandidate(absPath, repoDir, matchIntegrityWatchedRel) || {
+    matchFirstCandidate(absPath, repoDir, matchIntegrityWatchedRel, undefined, out) || {
       watched: false,
     }
   );
@@ -193,8 +196,13 @@ function isWatchedPath(absPath, repoDir) {
  * Per hook-output-discipline.md MUST-2, this IS the structural primitive
  * the block branch is grounded in: process-local deterministic, no
  * network, no lexical match against tool_input.
+ *
+ * @param treeDir the working tree whose HEAD to read. Since loom#1656 the caller
+ *   passes the tree that OWNS THE TARGET PATH — not the main checkout and not
+ *   the session's cwd. See § (1) in main() for why those two are the wrong
+ *   answer in a linked-worktree forest.
  */
-function resolveActiveBranch(repoDir) {
+function resolveActiveBranch(treeDir) {
   try {
     // loom#1471. This predicate IS the codify-branch fence, so steering it steers
     // the fence. The former shape passed no `env:`, handing the child the ambient
@@ -209,7 +217,7 @@ function resolveActiveBranch(repoDir) {
     // → BLOCK. Fail-closed, which is the pre-existing disposition for "no git".
     if (!gitBin) return null;
     const r = spawnSync(gitBin, ["rev-parse", "--abbrev-ref", "HEAD"], {
-      cwd: repoDir,
+      cwd: treeDir,
       stdio: ["ignore", "pipe", "pipe"],
       encoding: "utf8",
       timeout: 2000,
@@ -364,7 +372,8 @@ function findCoveringLease(
       // emit() exits
     }
     const repoDir = mainRes.repoDir;
-    const wp = isWatchedPath(watch.targetPath, repoDir);
+    const scope = {};
+    const wp = isWatchedPath(watch.targetPath, repoDir, scope);
     if (!wp.watched) {
       // Unwatched path — silent passthrough.
       passthrough();
@@ -397,17 +406,96 @@ function findCoveringLease(
     const selfVerifiedId = (identity && identity.verified_id) || null;
     const selfPersonId = (identity && identity.person_id) || null;
 
-    // (1) Structural branch predicate — `git rev-parse --abbrev-ref HEAD`.
-    // sessionCwd, NOT repoDir — a worktree has its OWN HEAD, and the branch
-    // predicate must judge the branch the SESSION is on. Routing registry I/O
-    // through the main checkout (repoDir, :359) is correct and unchanged; using
-    // it here read the MAIN checkout's branch, so a worktree session legitimately
-    // on codify/<display_id>-<date> was blocked with 'main' named in the verdict
-    // whenever the main checkout sat on anything else — its normal state. Latent
-    // before #1414 (isWatchedPath returned false for every worktree path, so this
-    // line never executed there); fencing worktrees is what made it reachable.
-    // This is the behavior :356-357 already specifies.
-    const branch = resolveActiveBranch(sessionCwd);
+    // (1) Structural branch predicate — `git rev-parse --abbrev-ref HEAD`, run
+    // against THE TREE THAT OWNS THE TARGET PATH.
+    //
+    // NOT repoDir (the main checkout) and — since loom#1656 — NOT sessionCwd
+    // either. Routing registry I/O through the main checkout (repoDir, below) is
+    // correct and unchanged; what the BRANCH predicate must answer is "what
+    // branch is the file being written on", and in a forest of linked worktrees
+    // that is a property of the TARGET, never of wherever the session's cwd
+    // happens to sit.
+    //
+    // #1414 fixed this once, from repoDir to sessionCwd, on the reasoning that
+    // "a worktree has its OWN HEAD". True, and insufficient: the harness reports
+    // the SESSION's cwd, which for an agent dispatched from the primary checkout
+    // is the primary checkout, while the Edit/Write carries an ABSOLUTE path into
+    // a lane's worktree. So the two are routinely different trees and the fence
+    // judged the wrong one. Measured on the fixture, primary on codify/*, the
+    // lane's worktree on feat/*, writing `<worktree>/journal/0002.md`:
+    //
+    //   pre-fix   exit 0  "continue":true   "Branch: codify/primary-2026-08-12"
+    //   post-fix  exit 2  [BLOCK]           "Active branch: feat/lane-work"
+    //
+    // The pre-fix row is a FAIL-OPEN, not a cosmetic mislabel: halt-and-report
+    // maps to continue:true (lib/instruct-and-wait.js), so the write RAN. Any
+    // session with the primary parked on a codify branch — the ordinary state
+    // during a /codify — disabled the fence for every one of the ~30 linked
+    // worktrees at once. #1471 pinned WHICH ENVIRONMENT answers this predicate;
+    // this pins WHICH WORKING TREE, the adjacent axis of the same clause.
+    //
+    // `scope.matchedRoot` is the root whose rel matched in isWatchedPath above,
+    // so the branch predicate and the watched-path predicate now answer about
+    // ONE tree by construction rather than by coincidence.
+    // loom#1664 — a RELATIVE target names no owning tree that can be
+    // established from the payload, so it cannot answer the BRANCH question
+    // however well it answers the watched-path one. The resolver reads a
+    // non-escaping rel as repoDir-relative and reports `matchedRoot` = the MAIN
+    // CHECKOUT; taking that as the branch tree makes the fence judge the primary
+    // while the write lands wherever the tool resolves the relative path — the
+    // #1656 failure mode surviving in a second spelling. Measured A/B on the
+    // #1664 fixture (primary on codify/*, session in a lane worktree on feat/*,
+    // `file_path: "journal/0002-rel.md"`):
+    //
+    //   pre-#1656   exit 2  [BLOCK]        branch=feat/lane-work
+    //   post-#1656  exit 0  continue:true  branch=codify/primary-2026-08-12  <- RAN
+    //
+    // i.e. this PR WIDENED the refused-write set on that path. Fail closed
+    // instead, matching this hook's disposition for a detached or unresolvable
+    // owning tree. The resolver's repoDir-relative convention is deliberately
+    // NOT changed — it is house-wide (journal-write-guard.js,
+    // signing-mutation-guard.js, adjacency-leasecheck.js) and correct for the
+    // WATCHED question; only the BRANCH question, which needs a real tree with a
+    // readable HEAD, refuses here.
+    const targetIsAbsolute = path.isAbsolute(watch.targetPath);
+    const branchTree = targetIsAbsolute ? scope.matchedRoot : null;
+    if (!branchTree) {
+      // FAIL CLOSED. Either the target is relative (loom#1664 — no owning tree
+      // is derivable from the payload at all), or the resolver matched it only
+      // through its fail-closed SUFFIX branch, which names no owning tree
+      // (guard-path-scope.js) — so there is no HEAD to read. Substituting
+      // sessionCwd here is exactly the #1656 defect with an extra step, and it
+      // would substitute it precisely on the paths whose jurisdiction is already
+      // indeterminate.
+      clearTimeout(fallback);
+      emit({
+        hookEvent,
+        severity: "block",
+        what_happened: targetIsAbsolute
+          ? `Edit/Write on integrity-critical path '${wp.rel}', but the working tree that OWNS that path could not be identified.`
+          : `Edit/Write on integrity-critical path '${wp.rel}' given as a RELATIVE path, which names no working tree whose branch can be checked.`,
+        why: targetIsAbsolute
+          ? "multi-operator-coc/integrity-guard — the codify-branch fence reads `git rev-parse --abbrev-ref HEAD` in the tree the TARGET lives in. That path matched only through the resolver's fail-closed suffix branch, which names no owning tree, so there is no HEAD to read and the branch verdict is UNKNOWN — not clean. Falling back to the session's cwd is loom#1656 itself: in a linked-worktree forest that is routinely a DIFFERENT tree, and the fence would judge a branch nobody is writing from. Severity is block for the same reason as the unidentifiable-main-checkout branch above: halt-and-report maps to continue:true (lib/instruct-and-wait.js), so on a mutation fence it is no refusal at all and the write would land with the branch contract unverified."
+          : "multi-operator-coc/integrity-guard (loom#1664) — the codify-branch fence reads `git rev-parse --abbrev-ref HEAD` in the tree the TARGET lives in, and a relative path does not name one. The resolver reads a non-escaping rel as MAIN-CHECKOUT-relative, so treating its root as the branch tree would judge the primary's HEAD while the write lands wherever the writing tool resolves the path — routinely a different worktree, which is loom#1656 in a second spelling. The branch verdict is therefore UNKNOWN, and UNKNOWN is not clean on a mutation fence.",
+        agent_must_report: [
+          `Target path: ${wp.rel}`,
+          `Session cwd: ${sessionCwd}`,
+          "The codify-branch fence did NOT run — its result is UNKNOWN, not clean.",
+          targetIsAbsolute
+            ? "This usually means the target is not inside a resolvable git working tree (git absent or errored), or a tree resolved but produced no usable repo-relative path."
+            : "The Edit/Write supplied a RELATIVE file_path. Which working tree it lands in depends on the writing tool's cwd, so the fence cannot establish which branch would receive it.",
+          targetIsAbsolute
+            ? "Remediation: run the Edit/Write against a path inside a resolvable working tree of this repository."
+            : "Remediation: re-issue the Edit/Write with an ABSOLUTE file_path naming the intended working tree.",
+        ],
+        agent_must_wait: targetIsAbsolute
+          ? "Do not retry the Edit/Write until the target path resolves inside a working tree whose HEAD can be read."
+          : "Do not retry the Edit/Write until it names an ABSOLUTE path inside a working tree whose HEAD can be read.",
+        user_summary: `integrity-guard — owning worktree unidentifiable for ${wp.rel}; fence refused rather than passed through`,
+      });
+      // emit() exits
+    }
+    const branch = resolveActiveBranch(branchTree);
     const branchVerdict = isCodifyBranch(branch, displayId);
 
     if (!branchVerdict.match) {

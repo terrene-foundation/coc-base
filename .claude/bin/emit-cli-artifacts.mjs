@@ -53,7 +53,7 @@
  * patterns under tiers.<tier> for each tier in repos.<name>.tier_subscriptions.
  * Required when emitting for a USE template — emitting WITHOUT a target ships
  * every artifact on disk (e.g., onboarding-tier files leak into [cc,coc-core,kailash]
- * py/rs/rb targets). Per sync-flow.md § Gate 2 → Process step 3 (loom: /sync-to-use), missing/empty
+ * py/rs targets). Per sync-flow.md § Gate 2 → Process step 3 (loom: /sync-to-use), missing/empty
  * tier_subscriptions is a manifest defect that MUST halt the sync.
  *
  * Exit codes: 0 = success, 1 = emission failure, 2 = usage error.
@@ -245,6 +245,30 @@ function emitCommands({ outDir, exclusions, tierFilter, loomOnly, surfaceRoles, 
 // live under the skill dir and are loaded on demand. We copy the WHOLE
 // skill directory (not just SKILL.md) so the sub-file references in
 // SKILL.md resolve when the CLI reads them.
+// RS-89 — does this directory hold a SKILL.md ANYWHERE in its tree? Mirrors
+// validate-emit.mjs::findSkillManifests's predicate (recurse, never follow a
+// symlink, bounded depth) but short-circuits on the first hit: the producer only
+// needs the boolean, not the list. Kept in lockstep with that function — if the
+// validator's notion of "is a skill dir" changes, this MUST change with it, or
+// the emitter starts shipping what the validator fails on (or withholding what
+// it would have passed).
+function hasSkillManifest(dir, depth = 0) {
+  if (depth > 20) return false;
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return false;
+  }
+  for (const e of entries) {
+    if (e.isSymbolicLink()) continue;
+    if (e.isDirectory()) {
+      if (hasSkillManifest(path.join(dir, e.name), depth + 1)) return true;
+    } else if (e.name === "SKILL.md") return true;
+  }
+  return false;
+}
+
 function emitSkills({ outDir, exclusions, tierFilter, loomOnly, surfaceRoles, targetRole, lang, verbose }) {
   const srcDir = path.join(REPO, ".claude", "skills");
   if (!fs.existsSync(srcDir)) return { codex: 0, gemini: 0, skipped: 0 };
@@ -270,6 +294,20 @@ function emitSkills({ outDir, exclusions, tierFilter, loomOnly, surfaceRoles, ta
     // W3-d surface_roles filter (deferred W2-c tail): sibling of loom_only.
     if (!surfaceRolesAllow(surfaceRoles, manifestRel, targetRole)) {
       stats.skipped += 2; // skipped for both CLIs
+      continue;
+    }
+
+    // RS-89: entrypoint gate. The candidate set above is every immediate
+    // DIRECTORY under .claude/skills/ with no test that it is actually a skill,
+    // so a non-skill directory emits as an entrypoint-less skill dir —
+    // validate-emit.mjs already FAILS that ("skill dir emitted with no SKILL.md
+    // anywhere in its tree"), but only AFTER emission; nothing stopped the
+    // producer. Mirror the validator's predicate EXACTLY: tree-wide, not
+    // top-level. A top-level-only test would drop 40-stack-onboarding, whose
+    // SKILL.md files live one level down (go/, python/, rust/, typescript/).
+    if (!hasSkillManifest(skillSrc)) {
+      stats.skipped += 2; // skipped for both CLIs
+      if (verbose) console.log(`  (skip)  skills/${skill}/ — no SKILL.md in tree`);
       continue;
     }
 
@@ -593,9 +631,18 @@ function buildRulesReferenceIndex({ tierFilter, loomOnly, surfaceRoles, targetRo
     })
     .join("\n");
 
+  // RS-89: `description:` MUST be a QUOTED scalar. RULES_REFERENCE_DESCRIPTION
+  // contains "(no path-glob loader): find", and an unquoted YAML scalar carrying
+  // `: ` is a ScannerError ("mapping values are not allowed here") — measured
+  // against PyYAML, with a quoted sibling emission parsing clean as the control.
+  // The whole frontmatter block failed to parse, so the rules-reference skill —
+  // the ONLY path-scoped-rule delivery channel on the no-path-loader CLIs — was
+  // unloadable on every emit. JSON.stringify (not the bare `"${...}"` sibling
+  // form) so a future edit adding a quote or backslash to the constant cannot
+  // silently re-open the class.
   const skillMd = `---
 name: ${RULES_REFERENCE_SKILL}
-description: ${RULES_REFERENCE_DESCRIPTION}
+description: ${JSON.stringify(RULES_REFERENCE_DESCRIPTION)}
 ---
 
 # Rules Reference — Path-Scoped Project Rules (on-demand index)
@@ -1030,7 +1077,7 @@ function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!args.out) {
     process.stderr.write(
-      "usage: emit-cli-artifacts.mjs --out <dir> [--cli codex|gemini] [--target py|rs|rb|base] [-v]\n",
+      "usage: emit-cli-artifacts.mjs --out <dir> [--cli codex|gemini] [--target py|rs|base] [-v]\n",
     );
     process.exit(2);
   }

@@ -25,9 +25,9 @@ Durable session worktrees and transient agent-wave worktrees BOTH live outside t
 the flags that placed agent waves under `.claude/worktrees/`. They differ in LIFECYCLE, not
 placement. Use `/worktree` for a **human/session** worktree you root into and keep across tasks;
 for a wave, the orchestrator makes a transient per-shard sibling with `git worktree add` directly,
-dispatches with the absolute path pinned AND a mandated STEP-0 cwd assertion, and removes it after
-the wave (`skills/30-claude-code-patterns/worktree-orchestration.md` § Retiring
-`isolation: "worktree"`). A session that roots into its worktree (this command, step 3) gets the
+dispatches with the absolute path pinned AND a mandated STEP-0 cwd assertion (`skills/30-claude-code-patterns/worktree-orchestration.md`
+§ Retiring `isolation: "worktree"`), and MUST reap it at the wave's terminal-lane transition
+(`rules/worktree-isolation.md` Rule 8; procedure + tiering in that skill's § Teardown). A session that roots into its worktree (this command, step 3) gets the
 cwd guarantee from the launch/re-root itself, so it needs no such assertion — a DISPATCHED agent
 does, because nothing sets its cwd once the flag is gone.
 
@@ -77,13 +77,13 @@ git worktree list | grep -F "$wt_path"                          # verify it regi
 ### 4. The PR-to-main loop (every task)
 
 - Per task: `git -C "$wt_path" checkout -b <type>/<task-desc> "origin/$origin_head"` → commit → open PR → `gh pr merge <N> --admin --merge --delete-branch` → return to the worktree and re-cut off fresh `origin/$origin_head`. (`<task-desc>` is a per-task descriptor — e.g. `feat/auth-refresh` — NOT the repo `$slug` shell var from step 1; reusing `$slug` would collide across tasks.)
-- The worktree is **durable** — do NOT delete it between tasks (unlike agent-wave worktrees). When fully done: `git worktree remove "$wt_path"` (add `--force` only after confirming a clean tree).
+- The worktree is **durable** — do NOT delete it between tasks (unlike agent-wave worktrees). "Durable" means not deleted BETWEEN tasks; it never means permanent. When fully done: `git worktree remove "$wt_path"` — **never `--force`**. A bare `remove` REFUSES a dirty tree, and that refusal is the safety net working; confirming a clean tree and THEN forcing is the check-then-clobber TOCTOU (`rules/worktree-isolation.md` Rule 8), because the state can change between the check and the removal, and unstaged + untracked-not-ignored work has NO reflog. To classify the whole forest rather than one tree, run `node .claude/bin/worktree-reap.mjs` (report-only; `--apply` reaps only what a ref preserves).
 
 ## Guardrails
 
 - NEVER create a worktree under `.claude/worktrees/` or anywhere below the repo root — session (Rule 7) or agent-wave (Rule 1) — a nested root duplicates the matching path-scoped rule set (measured that duplication occurs; the per-touch SIZE is indicative only — a reimplemented glob matcher put a `.claude/rules/**` touch at 13 rules ≈ 292 KB, an independent reimplementation at 15 / ~334 KB), falls inside the repo's `.claude/**` glob range (parent-repo tooling recursion), and clutters the working tree (`rules/worktree-isolation.md` Rule 7).
 - NEVER `EnterWorktree({name})` for durable session work.
 - Coordination state (`.claude/learning/`) is NOT copied into the worktree but is NOT lost: it is shared via the `refs/coc/**` refs (worktrees share `.git`), and ceremony helpers resolve the MAIN checkout (posture per `rules/trust-posture.md` MUST-1; the codify-lease per `rules/knowledge-convergence.md` Rule 3). See `rules/multi-operator-coordination.md` § "§2 essentials".
-- Cross-repo placement resolves via the operator's own layout; the MAIN repo's parent dir `.<slug>-wt/` (derived location-independently via `git-common-dir`) is the recommended default, not a hardcoded requirement (`rules/cross-repo.md` MUST-1).
+- Cross-repo placement resolves via the operator's own layout; the MAIN repo's parent dir `.<slug>-wt/` (derived location-independently via `git-common-dir`) is the recommended default, not a hardcoded requirement (`rules/repo-scope-discipline.md` § MUST NOT).
 '''
 tools = ["read_file", "glob", "grep_search", "list_directory", "run_shell_command", "write_file"]

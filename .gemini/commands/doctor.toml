@@ -60,7 +60,8 @@ detail lives in the backing skill `.gemini/skills/47-loom-doctor/`.
 
 - **Run `loom doctor` BEFORE `/onboard`** — the `/onboard` command preamble points back here.
 - The engine takes injectable seams (`runDoctor(opts)` / `runFix(result, opts)`); the
-  unit tests at `.claude/bin/loom-doctor.test.mjs` drive every check + repair branch.
+  loom-side unit tests (`.claude/bin/loom-doctor.test.mjs` — loom-only, purged
+  downstream per `sync-manifest.yaml`) drive every check + repair branch.
 - `--fix` writes ONLY to the safe surface (git config, the resolver seed, `.coc-role`
   with an explicit `--role`) and never to hook-mediated state.
 '''

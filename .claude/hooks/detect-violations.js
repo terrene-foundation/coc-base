@@ -38,6 +38,9 @@ const { resolveIdentity } = require(
   path.join(__dirname, "lib", "operator-id.js"),
 );
 const P = require(path.join(__dirname, "lib", "violation-patterns.js"));
+const { mostRestrictive, normalizeSeverity, rankOf } = require(
+  path.join(__dirname, "lib", "severity-rank.js"),
+);
 const { isMutationTool } = require(
   path.join(__dirname, "lib", "tool-classes.js"),
 );
@@ -385,23 +388,174 @@ function _logViolation(cwd, finding) {
   });
 }
 
-function logAndEmit(payload, event, finding, what_happened) {
-  _logViolation(payload.cwd, finding);
+// `logAndEmit` (single-finding) was deleted rather than kept as a shim: after
+// both call sites moved to `logAllAndEmit` it had no caller, and an unreferenced
+// helper is exactly the orphan `zero-tolerance.md` Rule 2 blocks. Single-finding
+// callers pass a one-element array.
+
+/**
+ * Log EVERY finding, then emit ONE verdict at the MOST RESTRICTIVE severity.
+ *
+ * loom#1606 (S23/DP-3) — this replaces the `a || b || c` chains that used to sit
+ * in the PostToolUse branches. Those were ordered by TOPIC, so the first detector
+ * to fire decided both the emitted severity and the single logged row. MEASURED
+ * on one command string that satisfies two detectors independently:
+ *
+ *   git commit -m "removed the dead handler" && gh issue close 42 --reason not_planned
+ *     detectCommitClaim               advisory          (first in the chain)
+ *     detectGhIssueCloseAsNotPlanned  halt-and-report   (never evaluated)
+ *     emitted                         advisory
+ *
+ * Two independent defects followed from that one `||`:
+ *   1. SEVERITY INVERSION — `halt-and-report` ("surface this and wait") was
+ *      delivered as `advisory` ("acknowledge and proceed").
+ *   2. UNDERCOUNTED POSTURE MATH — one row was written where two rules were
+ *      violated, and it named the WRONG rule, so `trust-posture.md` MUST-4's
+ *      cumulative window (3x same-rule / 5x total in 30d) counted neither
+ *      correctly.
+ *
+ * Fixing (1) alone would have left (2), which is why every finding is logged
+ * rather than only the winner. This mirrors the Stop branch below, which already
+ * logged each finding and emitted once.
+ *
+ * THE DESCRIPTION TRAVELS WITH THE WINNER, and that is not cosmetic. The first
+ * version of this function ranked the SEVERITY but took `what_happened` from
+ * whichever detector happened to run last — re-introducing "position decides"
+ * one field over. An adversarial review MEASURED the consequence on a `block`:
+ *
+ *   Write, worktree-pinned, to a main-checkout journal with an unverified ref
+ *     emitted: [BLOCK] worktree-isolation/MUST-1, value-prioritization/MUST-6
+ *     WHAT HAPPENED: MUST-6 verbatim-quote sweep on 0154-x.md   <- the ADVISORY's
+ *
+ * On a `block` the call is DENIED and `permissionDecisionReason` is the agent's
+ * only channel, so it was told its write was blocked because of a quote sweep —
+ * it would fix the quote and retry the drifted write. Each finding therefore
+ * carries its OWN descriptor, and the emitted one is the WINNER's.
+ *
+ * @param entries [{finding, what}] — descriptor paired with the finding it describes
+ */
+/**
+ * Neutralize a ledger-write error before it reaches the agent or the terminal.
+ *
+ * THE MESSAGE IS PARTIALLY ATTACKER-CHOSEN. `lib/state-io.js` interpolates
+ * `fs.realpathSync(dir)` — a symlink TARGET — into its containment refusal, and a
+ * POSIX filename may hold any byte but `/` and NUL, INCLUDING newlines and ANSI
+ * escapes. Unsanitized it lands in `agent_must_report`, where a newline lets a
+ * chosen path forge additional instruction bullets in the agent's context, and on
+ * a `block` verdict `instruct-and-wait.js` writes that text RAW to stderr.
+ *
+ * Control characters collapse to spaces and the result is capped, which is the
+ * discipline every sibling descriptor in this file already follows (`cmd.slice(0,
+ * 80)`, `fp.slice(0, 80)`, `evidence.slice(0, 100)`).
+ */
+function sanitizeLedgerError(err) {
+  // Codepoint test rather than a regex character class: the escape sequences a
+  // control-character class needs are themselves fragile in transit, and a
+  // literal control byte in this source would make ugrep classify the whole file
+  // as binary and silently skip it (measured — that is how this line was caught).
+  const raw = String((err && err.message) || String(err)).slice(0, 200);
+  let out = "";
+  for (const ch of raw) {
+    const code = ch.codePointAt(0);
+    out += code < 0x20 || code === 0x7f ? " " : ch;
+  }
+  return out;
+}
+
+function logAllAndEmit(payload, event, entries) {
+  const live = (Array.isArray(entries) ? entries : []).filter(
+    (e) => e && e.finding,
+  );
+  if (live.length === 0) return passthrough();
+
+  // Every finding gets its own row — one violated rule, one record.
+  //
+  // EACH ROW IS WRITTEN IN ISOLATION, AND A FAILED WRITE NEVER SUPPRESSES THE
+  // VERDICT. This guard is required BY the collect-then-emit shape above it, not
+  // incidental to it: `_logViolation` ends in a bare `appendViolation` call that
+  // sits OUTSIDE its own try/catch (the catch closes on the `resolveIdentity`
+  // path above), `appendViolation` throws on a containment refusal, ENOTREGULAR,
+  // or a short write (`lib/state-io.js`), and the async IIFE driving this hook
+  // has no `.catch()`. Logging N findings before ONE emit therefore turned one
+  // throw opportunity ahead of the verdict into N — so a ledger write for an
+  // ADVISORY could kill the process before a `block` was ever delivered, and the
+  // agent would see no verdict at all. That is strictly worse than the severity
+  // inversion this function exists to fix: it is the same fail-open, one layer
+  // down, reached by a WEAKER finding suppressing a STRONGER one.
+  //
+  // The failure is carried INTO the emit rather than swallowed — `zero-tolerance.md`
+  // Rule 3 — because a missing `violations.jsonl` row silently undercounts
+  // `trust-posture.md` MUST-4's cumulative window.
+  const findings = live.map((e) => e.finding);
+  const ledgerFailures = [];
+  for (const f of findings) {
+    try {
+      _logViolation(payload.cwd, f);
+    } catch (err) {
+      ledgerFailures.push(`${f.rule_id}: ${sanitizeLedgerError(err)}`);
+    }
+  }
+
+  // ONE verdict, selected by severity rather than by position. Ties keep source
+  // order, so a single-finding call is byte-identical to the old behaviour.
+  const winner = mostRestrictive(findings);
+  const winnerEntry = live.find((e) => e.finding === winner) || live[0];
+  const what_happened = winnerEntry.what;
+  const ruleIds = findings.map((f) => f.rule_id).join(", ");
+  // Normalized so an unrecognized severity cannot be silently rendered as
+  // ADVISORY by instruct-and-wait's fall-through, nor crash it on a non-string.
+  let severity = normalizeSeverity(winner.severity);
+
+  // A FAILED LEDGER WRITE IS ITSELF A FINDING, AND IT FLOORS THE VERDICT.
+  // The throws `appendViolation` raises are not I/O noise: a containment refusal
+  // (a symlinked ancestor on the state dir), ENOTREGULAR, and ELOOP each mean
+  // something is PLANTED at the audit sink (`lib/state-io.js`). That is
+  // deterministic process/filesystem state — the class
+  // `hook-output-discipline.md` MUST-2 names as strong-signal — and delivering it
+  // under an ADVISORY head ("the action proceeded; acknowledge in next message")
+  // would reproduce THIS function's own defect one layer down: the weakest
+  // verdict in the room suppressing the strongest signal. An attacker who can
+  // divert the trust ledger must not also choose how loudly that is announced.
+  //
+  // FLOOR, never a ceiling: it only ever raises, and it stops at
+  // `halt-and-report` rather than `block` because PostToolUse has ALREADY run the
+  // tool — a deny would withhold nothing and `hook-output-discipline.md` MUST-2
+  // reserves `block` for a structural signal about the call being gated.
+  if (
+    ledgerFailures.length > 0 &&
+    rankOf(severity) < rankOf("halt-and-report")
+  ) {
+    severity = "halt-and-report";
+  }
 
   clearTimeout(fallback);
   emit({
     hookEvent: event,
-    severity: finding.severity,
+    severity,
     what_happened,
-    why: finding.rule_id,
+    why: ruleIds,
     agent_must_report: [
       "Quote the exact text/command that triggered the detection",
       "State which rule was violated and its origin evidence date",
       "Propose remediation in this turn (do not file a follow-up issue)",
+      ...(live.length > 1
+        ? [
+            `${live.length} rules fired on this one action. The severity and description above belong to the MOST RESTRICTIVE (${winner.rule_id}); the others also fired and MUST be reported: ` +
+              live
+                .filter((e) => e.finding !== winner)
+                .map((e) => `${e.finding.rule_id} (${e.what})`)
+                .join("; "),
+          ]
+        : []),
+      ...(ledgerFailures.length
+        ? [
+            `LEDGER WRITE FAILED for ${ledgerFailures.length} of ${findings.length} finding(s) — the violations.jsonl row(s) are MISSING, so \`trust-posture.md\` MUST-4's cumulative window will UNDERCOUNT until they are reconstructed. The verdict above still stands. Report verbatim: ${ledgerFailures.join("; ")}`,
+          ]
+        : []),
     ],
     agent_must_wait:
       "Do not retry or proceed with related work until the user instructs.",
-    user_summary: `${finding.rule_id} — ${what_happened.slice(0, 60)}`,
+    user_summary: `${ruleIds} — ${String(what_happened).slice(0, 60)}`,
   });
 }
 
@@ -478,20 +632,20 @@ function logAndEmit(payload, event, finding, what_happened) {
 
     if (tool === "Bash") {
       const cmd = input.command || "";
-      let f =
-        P.detectRepoScopeDriftBash(cmd, payload.cwd) ||
-        P.detectCommitClaim(cmd) ||
+      // COLLECT, then rank — never `||`. One command can satisfy several of
+      // these independently (none of the patterns excludes another's span), and
+      // under the old chain the earliest-listed detector silenced the rest.
+      const what = `Bash command flagged: ${cmd.slice(0, 80)}`;
+      const bashEntries = [
+        { finding: P.detectRepoScopeDriftBash(cmd, payload.cwd), what },
+        { finding: P.detectCommitClaim(cmd), what },
         // value-prioritization/MUST-4 (F-3): bash-time detection of
         // `gh issue close --reason not_planned/wontfix` — agent must
         // surface user-gate prose justification in the next response.
-        P.detectGhIssueCloseAsNotPlanned(cmd);
-      if (f)
-        return logAndEmit(
-          payload,
-          event,
-          f,
-          `Bash command flagged: ${cmd.slice(0, 80)}`,
-        );
+        { finding: P.detectGhIssueCloseAsNotPlanned(cmd), what },
+      ];
+      if (bashEntries.some((e) => e.finding))
+        return logAllAndEmit(payload, event, bashEntries);
     } else if (isMutationTool(tool)) {
       // F14 C2 iter-3 root-cause fix: route through isMutationTool() so
       // worktree-drift + probe-driven sweep also fire on MultiEdit and
@@ -499,9 +653,21 @@ function logAndEmit(payload, event, finding, what_happened) {
       // worktree-drift bug bypassing the detector via a non-Edit/Write
       // mutation tool is the exact failure class iter-3 closes.
       const fp = input.file_path || input.filePath || input.notebook_path || "";
-      const f = P.detectWorktreeDrift(fp);
-      if (f)
-        return logAndEmit(payload, event, f, `${tool} to ${fp.slice(0, 80)}`);
+      // COLLECT, then rank (loom#1606 S23/DP-3). `detectWorktreeDrift` is the
+      // only `block` here and happened to be listed first, so this branch had no
+      // live SEVERITY inversion — but it returned on the first hit, so a drifted
+      // write to a test file logged the drift row and SILENTLY DISCARDED the
+      // probe row. Same undercount as the Bash branch, one topic over. Ranking
+      // makes the ordering correct BY CONSTRUCTION rather than by the accident
+      // of which detector was listed first.
+      // Each entry carries the descriptor for ITS OWN finding, so the emitted
+      // `what_happened` is the winner's rather than the last writer's.
+      const mutationEntries = [
+        {
+          finding: P.detectWorktreeDrift(fp),
+          what: `${tool} to ${fp.slice(0, 80)}`,
+        },
+      ];
       // probe-driven-verification/MUST-1 — advisory lexical sweep on
       // test/harness file edits. Pairs with the Stop-event sweep on the
       // assistant's final report.
@@ -513,12 +679,10 @@ function logAndEmit(payload, event, finding, what_happened) {
       ) {
         const probeFinding = P.detectRegexForSemanticAssertion(newSource, fp);
         if (probeFinding)
-          return logAndEmit(
-            payload,
-            event,
-            probeFinding,
-            `probe-driven sweep on ${fp.slice(0, 80)}`,
-          );
+          mutationEntries.push({
+            finding: probeFinding,
+            what: `probe-driven sweep on ${fp.slice(0, 80)}`,
+          });
       }
       // F29 — value-prioritization MUST-6 verbatim-quote sweep on journal
       // entries. Fires when the edited file matches journal/NNNN-*.md. The
@@ -531,13 +695,13 @@ function logAndEmit(payload, event, finding, what_happened) {
       if (fp && /(^|\/)journal\/\d{4}-.*\.md$/.test(fp)) {
         const must6Finding = P.detectMust6Paraphrase(fp);
         if (must6Finding)
-          return logAndEmit(
-            payload,
-            event,
-            must6Finding,
-            `MUST-6 verbatim-quote sweep on ${fp.slice(0, 80)}`,
-          );
+          mutationEntries.push({
+            finding: must6Finding,
+            what: `MUST-6 verbatim-quote sweep on ${fp.slice(0, 80)}`,
+          });
       }
+      if (mutationEntries.some((e) => e.finding))
+        return logAllAndEmit(payload, event, mutationEntries);
     }
     return passthrough();
   }
@@ -668,15 +832,30 @@ function logAndEmit(payload, event, finding, what_happened) {
     if (findings.length === 0) return passthrough();
 
     // Stop hooks emit systemMessage (CRIT-1). Multiple findings → concatenate.
+    //
+    // GUARDED PER ROW FOR THE SAME REASON `logAllAndEmit` IS. This loop is the
+    // idiom that function was lifted from, and it carries the identical hazard:
+    // N unguarded `_logViolation` calls ahead of ONE emit, in an async IIFE with
+    // no `.catch()`, where `_logViolation` ends in a bare `appendViolation` that
+    // throws on a containment refusal, ENOTREGULAR, or a short write. A symlink
+    // planted at `violations.jsonl` would delete the ENTIRE post-mortem verdict
+    // for the session — every finding, not just the unwritable one. Hardening one
+    // copy and leaving its twin is exactly the enforcement-surface asymmetry
+    // `security.md` § Enforcement-Surface Parity blocks.
+    const stopLedgerFailures = [];
     for (const f of findings) {
       // M9.1 R3 Sec-R3-S-02 — Stop-event findings also route through
       // _logViolation for stamped-identity attribution; legacy-path
       // fallback preserved when un-rostered.
-      _logViolation(payload.cwd, {
-        rule_id: f.rule_id,
-        severity: f.severity === "block" ? "halt-and-report" : f.severity, // Stop can't truly block
-        evidence: f.evidence,
-      });
+      try {
+        _logViolation(payload.cwd, {
+          rule_id: f.rule_id,
+          severity: f.severity === "block" ? "halt-and-report" : f.severity, // Stop can't truly block
+          evidence: f.evidence,
+        });
+      } catch (err) {
+        stopLedgerFailures.push(`${f.rule_id}: ${sanitizeLedgerError(err)}`);
+      }
     }
 
     clearTimeout(fallback);
@@ -685,9 +864,18 @@ function logAndEmit(payload, event, finding, what_happened) {
       severity: "post-mortem",
       what_happened: `${findings.length} violation pattern(s) detected in final report`,
       why: findings.map((f) => f.rule_id).join(", "),
-      agent_must_report: findings.map(
-        (f) => `${f.rule_id}: ${f.evidence.slice(0, 100)}`,
-      ),
+      agent_must_report: [
+        ...findings.map((f) => `${f.rule_id}: ${f.evidence.slice(0, 100)}`),
+        // Severity stays `post-mortem` — Stop withholds nothing, so there is no
+        // verdict to floor (unlike `logAllAndEmit`). The failure is still
+        // surfaced: an unwritable audit sink means the next SessionStart replay
+        // is INCOMPLETE, not clean.
+        ...(stopLedgerFailures.length
+          ? [
+              `LEDGER WRITE FAILED for ${stopLedgerFailures.length} of ${findings.length} finding(s) — those rows are MISSING from violations.jsonl, so the next SessionStart replay and \`trust-posture.md\` MUST-4's cumulative window will UNDERCOUNT. Report verbatim: ${stopLedgerFailures.join("; ")}`,
+            ]
+          : []),
+      ],
       agent_must_wait: "Forensic record only — surfaced at next SessionStart.",
       user_summary: `${findings.length} post-mortem violation(s) recorded`,
     });

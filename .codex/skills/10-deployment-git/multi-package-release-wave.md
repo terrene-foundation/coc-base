@@ -33,7 +33,7 @@ When parallel worktree agents touch the same sub-package, ONE agent is designate
 
 > "do NOT edit `packages/<pkg>/pyproject.toml`, `packages/<pkg>/src/<pkg>/__init__.py::__version__`, or `packages/<pkg>/CHANGELOG.md`"
 
-See `rules/agents.md` § "MUST: Parallel-Worktree Package Ownership Coordination" for the load-bearing clause and `skills/30-claude-code-patterns/worktree-orchestration.md` Rule 5 for the full parallel-release evidence.
+See `rules/agents.md` § "MUST: Worktree Orchestration" for the load-bearing clause and `skills/30-claude-code-patterns/worktree-orchestration.md` Rule 5 for the full parallel-release evidence.
 
 **Session 2026-04-23 kailash-ml M1 wave:** 7 packages, 6 M10 shards + W33/W33b/W33c. Each shard owned exactly one package's version bump; orchestrator handled the post-merge `__all__` reconciliation (commit fa300831) that spans multiple shards.
 
@@ -144,7 +144,7 @@ Session 2026-04-23 shipped 7 packages on `feat/kailash-ml-1.0.0-m1-foundations` 
 
 - `release-runbook.md` — step-by-step release procedures
 - `deployment-packages.md` — single-package PyPI release workflow
-- `rules/agents.md` § "MUST: Parallel-Worktree Package Ownership Coordination"
+- `rules/agents.md` § "MUST: Worktree Orchestration" (Rule 5 in `skills/30-claude-code-patterns/worktree-orchestration.md`)
 - `rules/zero-tolerance.md` Rule 5 — version consistency
 - `skills/30-claude-code-patterns/worktree-orchestration.md` Rules 5 + 6
 - `skills/34-kailash-ml/m1-release-wave.md` — M1-specific patterns

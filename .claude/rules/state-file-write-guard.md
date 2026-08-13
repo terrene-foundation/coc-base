@@ -239,7 +239,7 @@ Using the override MUST be authorized in chat by the user AND followed by a same
 - **Regression-within-grace:** N/A at the global rule layer (no grace). Project-specific instantiations adopt their own grace + regression policy when wired. A consumer that ships the hook then later ships a Write/Bash bypassing it triggers `regression_within_grace` per `trust-posture.md` MUST Rule 4 — emergency downgrade L5→L4.
 - **Cumulative threshold:** T3 unsupported-claim detections log to the shared `violations.jsonl` per `trust-posture.md` MUST Rule 4 cumulative path (3× same-rule in 30d → drop one posture; 5× total in 30d → drop one posture).
 - **Receipt requirement:** none at the global rule layer. Project-specific instantiations MAY require `[ack: state-file-write-guard]` on first edit of a protected path; project's call.
-- **Detection mechanism:** project-supplied PreToolUse hook calling `hooks/lib/violation-patterns.js::detectStateFileMutation(command, pathRx)` for the bash layer + `hooks/lib/state-file-write-guard.js::tierClassify(...)` for the file-tool layer + project-supplied validator producing the `contractScanResult` input.
+- **Detection mechanism:** project-supplied PreToolUse hook calling `hooks/lib/violation-patterns.js::detectStateFileMutation(command, pathRx)` for the bash layer + `hooks/lib/state-file-write-guard.js::tierClassify(...)` for the file-tool layer + project-supplied validator producing the `contractScanResult` input. Probes `.claude/test-harness/probes/state-file-write-guard.probes.json` — NOT YET AUTHORED, declared in `phase2-deferrals.json::probe_authorship_deferrals`.
 
 ### Trust Posture Wiring — Layer-3 Severity Demotion (#1293)
 

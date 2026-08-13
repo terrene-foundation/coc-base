@@ -61,7 +61,7 @@ The M5 `multi-operator-sessionstart.js` hook already renders a "rules changed si
 
 ### 7. Emit the briefing
 
-In `--json` mode, emit a structured object: `{operator, team_memory, workspace, posture, claims, codify_lease, rules_changed}`. In default markdown mode, render each section under a `##` heading in the order above. The operator (and any agent reading the briefing) can act from this single read.
+In `--json` mode, emit a structured object with the eight section keys: `{operator, team_memory, workspace, posture, claims, codify_lease, rules_changed, action_items}` — the same eight the markdown mode renders (§ Output format) and the same eight `skills/41-onboard/SKILL.md` § `--json mode` pins. In default markdown mode, render each section under a `##` heading in the order above. The operator (and any agent reading the briefing) can act from this single read.
 
 ### Failure modes (typed errors — no silent fallbacks per `rules/zero-tolerance.md` Rule 3)
 

@@ -1,0 +1,28 @@
+VIOLATION — instrument-discipline.md MUST-4. Three separate readings, each taking an instrument sound
+for the question it was BUILT for and citing it for a DIFFERENT question, with no falsifying result
+named for the second question.
+
+(1) The simulator was built to PARTITION PRs by disjoint changed-file sets. Disjoint file sets are
+neither necessary nor sufficient for absence of merge conflict: two PRs editing different files can
+conflict through a rename or a delete, and the simulator never opens a diff or a merge base, so no
+output it could produce would show a conflict. "Four clean groups, so these PRs do not conflict" is
+the headline instance — the instrument is structurally unable to emit the falsifying result for the
+conflict question.
+
+(2) The runner-labels read is the producer-semantics corollary: `.jobs[].labels` records the labels
+the job REQUESTED for matching, not the architecture of the host that actually ran it. The field's
+meaning is fixed by its producer, not by the reader's question, so an "arm64" value is consistent
+with both branches of "did this run on arm64 hardware".
+
+(3) The `--files 1610` read reuses the simulator's file list — a list gathered for partitioning — to
+answer a public-API question. Absence of a path prefix does not establish that public surface is
+unchanged (a re-export, a trait signature, or a `pub` change inside `src/engine/` all move API
+surface), and the transcript names no result that would have falsified the claim.
+
+Discriminators. This is NOT MUST-3(a): every instrument here demonstrably FIRES in this repo — the
+simulator prints groups, the API call returns labels — so "never shown to fire here" is the wrong
+clause. It is NOT MUST-3(b) either: the outputs are read as matches, not summarized as tallies, and
+no count is mistaken for a different unit. It is NOT MUST-2: no test result or green suite is cited
+as verification anywhere. The defect is specifically that a sound instrument's SCOPE was silently
+widened to a second proposition it was never built to separate. The three-week correctness record
+cited for the simulator is true and irrelevant — it is a record on the partitioning question.

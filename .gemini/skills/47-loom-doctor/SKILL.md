@@ -6,7 +6,7 @@ description: "/loom doctor procedure: read-only onboarding health-check (role, e
 # /loom doctor — onboarding health-check runbook
 
 This skill is the procedural detail for the `doctor` command
-(`.gemini/commands/doctor.md`). The command is the entry point; this skill is
+(`.gemini/commands/doctor.toml`). The command is the entry point; this skill is
 the runbook + the contract the check engine (`.claude/bin/loom-doctor.mjs`)
 honors.
 

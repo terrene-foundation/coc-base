@@ -45,6 +45,20 @@
  *  untrusted project-authored registry text, never proof). Every tenant therefore
  *  renders NOT-LIVE today. A "no duplicates found" render while RES-23 is open
  *  would be a FALSE ALL-CLEAR — the single most dangerous bug this surface ships.
+ *  The verified path is hardened AHEAD of RES-23 (same discipline as the
+ *  valid_until isFinite guard): a verifier that THROWS is NOT-LIVE, epoch
+ *  alignment is MANDATORY once a verifier is present (BOTH sides must carry a
+ *  finite epoch — absence is unverifiable freshness, not a pass), a PRESENT
+ *  valid_until with NO injected clock is UNVERIFIABLE expiry and likewise
+ *  NOT-LIVE (an absent clock must never silently disable the expiry check), a
+ *  LIVE tenant whose tuples were only PARTIALLY observable (rejected /
+ *  quarantined / redacted- or malformed-commitment) renders the QUALIFIED "no
+ *  observable duplicates — N product(s) not examined" verdict, and a LIVE tenant
+ *  that examined ZERO products renders "nothing-observed" — never the bare
+ *  all-clear, which requires `observed > 0` AND a fully-observed tuple set.
+ *  The RES-23 verifier's signed payload MUST cover `epoch` + `valid_until`
+ *  (see § VERIFIER CONTRACT at the `opts.verifyAttestation` injection point),
+ *  and `--epoch` MUST come from the keying authority, never the audited text.
  *
  *  Phase-1 INPUT. A directory (or a single file / a JSON file list) of per-
  *  project registry JSON. Each file is EITHER an array of that project's
@@ -88,6 +102,10 @@ import { scanRegistry, FINDING_KINDS } from "./mesh-registry-backstop.mjs";
 // ────────────────────────────────────────────────────────────────
 export const NOT_LIVE_BANNER = "duplicate detection is not yet live";
 export const NO_DUPLICATES = "no duplicates found";
+// The QUALIFIED live verdict (spec §3 one granularity down — see `dedupLiveness`).
+// Deliberately does NOT contain the `NO_DUPLICATES` substring: a blind-spot verdict
+// must never satisfy a "did the clean phrase render?" check, at any surface.
+export const NO_OBSERVABLE_DUPLICATES = "no observable duplicates";
 export const PROJECT_SENTINEL = (n) => `«project-#${n}»`;
 
 // Default staleness threshold: 7 days in ms (§4 item 1 — a project older than
@@ -164,8 +182,32 @@ export function fenceTuple(tuple) {
 // HARD violation keeps its REJECTED home rather than collapsing into the
 // (stricter, superset) quarantine class.
 // ────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────
+// The project's tuple LIST, fail-closed to empty — and RECORDED when it was.
+// Same discipline as `fenceTuple`'s non-array merged_from fail-close (which
+// records itself in `result.flags`): the coercion is safe, but SILENT coercion
+// is not, because an empty examined set is indistinguishable from a genuinely
+// clean one at every downstream surface. `tuples: "…"` / `{}` / a number is a
+// malformed project file, NOT a project with nothing to declare — and the RAW
+// value is never echoed (name-blind: a free-text tuples could carry a client
+// name). An ABSENT tuples is recorded too: "nothing was examined" is a fact the
+// dedup verdict owes its reader either way.
+// ────────────────────────────────────────────────────────────────
+export function projectTuples(project) {
+  const raw = project && typeof project === "object" ? project.tuples : undefined;
+  if (Array.isArray(raw)) return { tuples: raw, flags: [] };
+  return {
+    tuples: [],
+    flags: [
+      raw === undefined
+        ? "tuples ABSENT — fail-closed to an EMPTY examined set; ZERO products were examined (an empty set is NOT evidence of no duplicate)"
+        : `tuples (type ${typeof raw}) is not an array — fail-closed to an EMPTY examined set; ZERO products were examined and the raw value is NEVER surfaced (name-blind)`,
+    ],
+  };
+}
+
 export function classifyTuples(project) {
-  const tuples = Array.isArray(project?.tuples) ? project.tuples : [];
+  const { tuples } = projectTuples(project);
   const scan = scanRegistry(tuples); // backstop: records index-aligned to `tuples`
   return tuples.map((tuple, i) => {
     const { row } = fenceTuple(tuple); // row is the SCRUBBED render row, never raw
@@ -281,6 +323,16 @@ export function attestationLive(project, opts = {}) {
   // merely contingent on the attestation being absent. NOTE: no CLI flag supplies
   // a verifier — it is a programmatic injection reserved for when RES-23 lands, so
   // an untrusted CLI input can never flip the gate.
+  //
+  // VERIFIER CONTRACT (binding on the future RES-23 implementation). The signed
+  // payload `verifyAttestation` authenticates MUST COVER `epoch` and `valid_until`,
+  // not merely `all_levels_keyed`. Everything below re-reads those two fields off
+  // `a` — the SAME untrusted project-authored registry text the fence exists to
+  // defend against — so a verifier that signs only `all_levels_keyed` leaves both
+  // the epoch gate and the expiry gate DECORATIVE: an attacker keeps the authentic
+  // signature and rewrites `epoch`/`valid_until` freely, and the success `reason`
+  // string then asserts "epoch-aligned" over an unauthenticated field. A verifier
+  // whose payload does not cover both MUST return false rather than true.
   const verify = typeof opts.verifyAttestation === "function" ? opts.verifyAttestation : null;
   if (!verify) {
     return {
@@ -302,21 +354,78 @@ export function attestationLive(project, opts = {}) {
   if (verified !== true) {
     return { live: false, reason: "attestation signature failed verification — fail-closed NOT-LIVE" };
   }
-  // Epoch alignment (spec §3): a stale-epoch attestation is NOT-LIVE.
-  if (opts.epoch !== undefined && a.epoch !== opts.epoch) {
+  // Epoch alignment (spec §3: "loom verifies the signature + epoch alignment") is
+  // MANDATORY on the verified path. Reaching here means a verifier IS present (the
+  // RES-13 kill-switch returned above for every unverified caller), so this is the
+  // FUTURE RES-23 critical path — hardened before RES-23 makes it reachable, exactly
+  // as the valid_until isFinite guard below is. THREE fail-closed cases, because
+  // skipping the check is fail-OPEN (a stale-epoch attestation reading LIVE is the
+  // same silent-skip class as the round-3 isFinite one):
+  //   (a) opts.epoch absent / non-finite — there is NO current epoch to align
+  //       AGAINST, so freshness is UNVERIFIABLE, not "fine". The old
+  //       `opts.epoch !== undefined &&` short-circuit skipped alignment entirely
+  //       whenever the caller omitted it. Consequence for the CLI: `--epoch` is
+  //       MANDATORY once a verifier is wired (RES-23) — without it every tenant
+  //       stays NOT-LIVE, which is the correct fail-closed default, never a silent
+  //       pass. (No CLI change is needed today: the CLI supplies no verifier, so it
+  //       fails closed one branch earlier at the kill-switch.)
+  //   (b) a.epoch absent / non-finite — DECIDED fail-closed: epoch is the
+  //       spec-mandated freshness key (spec §3 — detection is epoch-aligned
+  //       commitment equality), so an attestation carrying no usable epoch is not
+  //       verifiably fresh. Fail-closing here also removes the `undefined ===
+  //       undefined` trap, where two ABSENCES would have "aligned" into a pass.
+  //   (c) a.epoch !== opts.epoch — misaligned/stale (pre-existing behavior).
+  if (typeof opts.epoch !== "number" || !Number.isFinite(opts.epoch)) {
+    return {
+      live: false,
+      reason:
+        "epoch alignment UNVERIFIABLE — no current epoch supplied against a verified attestation (--epoch is MANDATORY once a verifier is wired) — fail-closed NOT-LIVE",
+    };
+  }
+  if (typeof a.epoch !== "number" || !Number.isFinite(a.epoch)) {
+    return {
+      live: false,
+      reason: "attestation carries no usable epoch (the spec-mandated freshness key) — fail-closed NOT-LIVE",
+    };
+  }
+  if (a.epoch !== opts.epoch) {
     return { live: false, reason: "attestation epoch misaligned/stale — fail-closed NOT-LIVE" };
   }
-  // Time-bounded validity: an expired attestation is stale ⇒ NOT-LIVE. A PRESENT
-  // but malformed valid_until (NaN / non-finite / non-numeric) MUST fail closed —
-  // silently skipping the expiry check on a malformed value is fail-OPEN (the
-  // round-3 isFinite class). This path is behind the RES-13 verifier, so it hardens
-  // the FUTURE critical path before RES-23 makes it reachable. Absent valid_until
-  // is fine — epoch is the spec-mandated freshness key.
+  // Time-bounded validity: an expired attestation is stale ⇒ NOT-LIVE. This path is
+  // behind the RES-13 verifier, so it hardens the FUTURE critical path before RES-23
+  // makes it reachable. Absent valid_until is fine — epoch is the spec-mandated
+  // freshness key, so NOTHING below fires when the field is absent/null. But once
+  // valid_until IS present, THREE fail-closed cases, exactly mirroring the epoch
+  // gate above (skipping any of them is fail-OPEN):
+  //   (a) a.valid_until malformed (NaN / non-finite / non-numeric) — silently
+  //       skipping the expiry check on a malformed value is the round-3 isFinite class.
+  //   (b) opts.now absent / non-finite — there is NO current clock to compare the
+  //       expiry AGAINST, so expiry is UNVERIFIABLE, not "fine". The old guard read
+  //       `typeof opts.now === "number" && … && opts.now > a.valid_until`, so an
+  //       absent clock made the WHOLE conjunction false and control fell through to
+  //       live:true — a PRESENT, FINITE, PAST valid_until read LIVE while a MALFORMED
+  //       one failed closed one branch above (the internal inconsistency was the tell).
+  //       It is reachable through the natural RES-23 wiring shape, not just a
+  //       hand-crafted call: `renderConsole(projects, { epoch, verifyAttestation })`
+  //       passes opts straight through to `dedupLiveness`, so omitting `now` silently
+  //       disabled expiry. Consequence for the CLI: `--now` is MANDATORY once a
+  //       verifier is wired (RES-23) — without it a tenant carrying a valid_until
+  //       stays NOT-LIVE, which is the correct fail-closed default, never a silent
+  //       pass. (No CLI change is needed today: the CLI always supplies a clock, and
+  //       supplies no verifier, so it fails closed at the kill-switch regardless.)
+  //   (c) opts.now > a.valid_until — expired/stale (pre-existing behavior).
   if (a.valid_until !== undefined && a.valid_until !== null) {
     if (typeof a.valid_until !== "number" || !Number.isFinite(a.valid_until)) {
       return { live: false, reason: "attestation valid_until present but malformed (non-finite) — fail-closed NOT-LIVE" };
     }
-    if (typeof opts.now === "number" && Number.isFinite(opts.now) && opts.now > a.valid_until) {
+    if (typeof opts.now !== "number" || !Number.isFinite(opts.now)) {
+      return {
+        live: false,
+        reason:
+          "attestation expiry UNVERIFIABLE — a valid_until is present but no current clock was supplied to compare it against (--now is MANDATORY once a verifier is wired) — fail-closed NOT-LIVE",
+      };
+    }
+    if (opts.now > a.valid_until) {
       return { live: false, reason: "attestation expired (stale) — fail-closed NOT-LIVE" };
     }
   }
@@ -328,21 +437,71 @@ export function attestationLive(project, opts = {}) {
 // content_commitment equality (never computes it). The "no duplicates found"
 // verdict is CONSTRUCTED ONLY on the live-and-empty branch — it can NEVER be
 // emitted for a not-live tenant (the false-all-clear guard).
+//
+// NEVER-CLEAN-WHEN-BLIND, ONE GRANULARITY DOWN (spec §3: the guard exists to
+// "distinguish 'not-keyed' from 'no-duplicate'"). RES-13 applies that at the
+// TENANT granularity. The same blindness exists WITHIN a live tenant: a REJECTED
+// (HARD-violation), a QUARANTINED (RES-16 withheld) or a REDACTED-commitment tuple
+// is excluded from observation — so a tenant whose duplicates all sit among those
+// tuples would otherwise render the bare clean bill. Every excluded tuple is
+// therefore COUNTED, and a live tenant with any non-observable tuple gets the
+// QUALIFIED verdict + `partialObservation: true`, never the bare all-clear.
+// The counts are returned on EVERY branch (incl. not-live) so the field contract
+// is uniform and no consumer has to branch to find them.
 // ────────────────────────────────────────────────────────────────
 export function dedupLiveness(project, opts = {}, index = 0) {
   const { handle } = resolveProjectHandle(project, index);
   const gate = attestationLive(project, opts);
 
+  // The tuple LIST's own fail-close is RECORDED, never silent (see projectTuples):
+  // a non-array / absent `tuples` yields ZERO examined products, which must never
+  // read as a clean bill.
+  const { tuples, flags: tuplesFlags } = projectTuples(project);
+  const tuplesTotal = tuples.length;
+
   // Observed within-tenant equality: group opaque (kept, non-redacted)
   // commitments across THIS project's tuples only (never cross-tenant).
   const groups = new Map();
+  // The blind-spot census: WHY each excluded tuple was not examined. Kinds only —
+  // structural tokens, never a raw value (name-blind, spec §2 invariant 2).
+  // CENSUS-LABEL HONESTY (#1610 MEDIUM-4-adjacent). This class counts every tuple
+  // whose commitment carried NO usable equality signal. The old `redacted-commitment`
+  // label implied the count was purely "deliberately blinded", but the predicate also
+  // admits a non-string commitment. SPLITTING the two was MEASURED to be wrong: the
+  // S1 fence normalizes EVERY non-string content_commitment (number / bool / object /
+  // null / absent) to the «REDACTED» sentinel before this code sees it, so the
+  // non-string arm is UNREACHABLE-BY-CONSTRUCTION defense-in-depth and a separate
+  // class would be permanently zero. It follows that "blinded" and "absent" are
+  // genuinely INDISTINGUISHABLE at this surface — the information was destroyed
+  // upstream at the fence, not by the label. So the label is REWORDED to state
+  // exactly what the number means rather than fabricate a distinction the data
+  // cannot support. The field NAME is kept for contract continuity.
+  const nonObservable = { rejected: 0, quarantined: 0, redactedCommitment: 0 };
+  let observed = 0; // products that actually yielded an equality observation
   for (const cls of classifyTuples(project)) {
     // A REJECTED (HARD) OR QUARANTINED (RES-16) tuple is NEVER observed — its raw
     // tuple is withheld from the dedup signal too (spec §2 invariant 2), so a
-    // quarantined ref cannot forge or mask a within-tenant equality.
-    if (cls.rejected || cls.quarantined) continue;
+    // quarantined ref cannot forge or mask a within-tenant equality. It is COUNTED
+    // as a blind spot: excluded-from-observation is NOT evidence-of-no-duplicate.
+    if (cls.rejected) {
+      nonObservable.rejected += 1;
+      continue;
+    }
+    if (cls.quarantined) {
+      nonObservable.quarantined += 1;
+      continue;
+    }
     const c = cls.row.content_commitment;
-    if (typeof c !== "string" || c === REDACTED) continue; // only observe opaque, kept values
+    if (typeof c !== "string" || c === REDACTED) {
+      // NO usable equality signal either way — the product is un-examined, not
+      // duplicate-free. The non-string arm is unreachable through `classifyTuples`
+      // today (the fence normalizes every non-string to the sentinel) and is kept
+      // as fail-closed defense-in-depth: if that normalization ever changes, a
+      // non-string MUST NOT become an equality-grouping key.
+      nonObservable.redactedCommitment += 1;
+      continue; // only observe opaque, kept values
+    }
+    observed += 1;
     const bucket = groups.get(c) || [];
     bucket.push(cls.row.lineage_id);
     groups.set(c, bucket);
@@ -350,6 +509,21 @@ export function dedupLiveness(project, opts = {}, index = 0) {
   const observedEqualities = [...groups.entries()]
     .filter(([, members]) => members.length > 1)
     .map(([commitment, members]) => ({ commitment, members: [...members].sort() }));
+
+  const notExamined = nonObservable.rejected + nonObservable.quarantined + nonObservable.redactedCommitment;
+  const partialObservation = notExamined > 0;
+  // The label states what the number MEANS: a commitment that is blinded and one
+  // that was absent are indistinguishable here (the fence maps both to the
+  // sentinel), so the label says so instead of implying only "deliberately blinded".
+  const census =
+    `rejected=${nonObservable.rejected} quarantined=${nonObservable.quarantined} ` +
+    `no-usable-commitment=${nonObservable.redactedCommitment} [blinded or absent — indistinguishable post-fence]`;
+  // `observed` + `tuplesTotal` are the DENOMINATOR the verdict was previously
+  // missing: without them `{notExamined: 0, partialObservation: false, verdict:
+  // "no-duplicates"}` was emitted identically for "100 products examined, genuinely
+  // clean" and "nothing was examined at all". They ship on EVERY branch alongside
+  // the census so no consumer has to branch to find them.
+  const counts = { notExamined, nonObservable, partialObservation, observed, tuplesTotal, tuplesFlags };
 
   if (!gate.live) {
     // FAIL-CLOSED: render the not-live banner. NEVER a "no duplicates" verdict.
@@ -363,6 +537,7 @@ export function dedupLiveness(project, opts = {}, index = 0) {
       message: null,
       reason: gate.reason,
       observedEqualities,
+      ...counts,
     };
   }
   if (observedEqualities.length > 0) {
@@ -371,9 +546,49 @@ export function dedupLiveness(project, opts = {}, index = 0) {
       live: true,
       verdict: "duplicates",
       banner: null,
-      message: `${observedEqualities.length} duplicate group(s) found`,
+      // A duplicate COUNT taken over a partially-observed tuple set is a FLOOR,
+      // never a total — saying so is the same honesty the qualified branch owes.
+      message:
+        `${observedEqualities.length} duplicate group(s) found` +
+        (partialObservation ? ` — FLOOR, not a total: ${notExamined} product(s) NOT examined (${census})` : ""),
       reason: gate.reason,
       observedEqualities,
+      ...counts,
+    };
+  }
+  if (observed === 0) {
+    // LIVE but ZERO products actually examined ⇒ the observation is EMPTY, so no
+    // duplicate-related verdict of any kind is earned. This fires for an empty /
+    // absent / non-array `tuples` (which previously rendered the BARE all-clear —
+    // indistinguishable from a genuinely-clean 100-product tenant) AND for a tenant
+    // whose every tuple was excluded. `NO_DUPLICATES` is deliberately NOT
+    // constructed here, and neither is `NO_OBSERVABLE_DUPLICATES`: even the
+    // qualified phrase asserts a negative finding over an empty observation.
+    return {
+      project: handle,
+      live: true,
+      verdict: "nothing-observed",
+      banner: null,
+      message:
+        `ZERO products examined — dedup observation was EMPTY (${tuplesTotal} tuple(s) in this project's registry, ` +
+        `${notExamined} excluded: ${census}); NOT a clean bill of health`,
+      reason: gate.reason,
+      observedEqualities,
+      ...counts,
+    };
+  }
+  if (partialObservation) {
+    // LIVE + no observed equality + a blind spot ⇒ QUALIFIED, never the bare
+    // all-clear. `NO_DUPLICATES` is deliberately NOT constructed on this branch.
+    return {
+      project: handle,
+      live: true,
+      verdict: "no-observable-duplicates",
+      banner: null,
+      message: `${NO_OBSERVABLE_DUPLICATES} — ${notExamined} product(s) NOT examined (${census}); NOT a clean bill of health`,
+      reason: gate.reason,
+      observedEqualities,
+      ...counts,
     };
   }
   return {
@@ -381,9 +596,10 @@ export function dedupLiveness(project, opts = {}, index = 0) {
     live: true,
     verdict: "no-duplicates",
     banner: null,
-    message: NO_DUPLICATES, // ONLY constructed here — the live-and-empty branch
+    message: NO_DUPLICATES, // ONLY here — live, no equality, fully observed AND observed > 0
     reason: gate.reason,
     observedEqualities,
+    ...counts,
   };
 }
 
@@ -561,7 +777,25 @@ export function formatConsole(model) {
       }
     } else {
       L.push(`  project=${d.project}: ${d.message}`);
+      // NEVER-CLEAN-WHEN-BLIND (one granularity down): a live tenant whose tuple
+      // set was only PARTIALLY observable carries its blind-spot census into the
+      // human report too — the qualification must not survive only in the
+      // structured model (a consumer reading the text would otherwise see a
+      // verdict it cannot tell apart from a fully-observed one).
+      if (d.partialObservation) {
+        L.push(
+          `    (INCOMPLETE OBSERVATION: ${d.observed} of ${d.tuplesTotal} product(s) examined, ${d.notExamined} NOT examined — ` +
+            `rejected=${d.nonObservable.rejected} quarantined=${d.nonObservable.quarantined} ` +
+            `no-usable-commitment=${d.nonObservable.redactedCommitment} [blinded or absent — indistinguishable post-fence]; ` +
+            `excluded-from-observation is NOT evidence of no duplicate)`,
+        );
+      }
     }
+    // The tuple-LIST fail-close (absent / non-array `tuples`) is surfaced on EVERY
+    // branch — live or not. A silently-coerced empty examined set is exactly the
+    // condition under which a clean-looking verdict means nothing, so it must not
+    // survive only in the structured model.
+    for (const fl of d.tuplesFlags || []) L.push(`    ⚑ ${fl}`);
   }
 
   // Serverless-honesty surfaces
@@ -623,6 +857,13 @@ Usage:
   mesh-observability-console <dir|file> --now <ms>   inject the clock (epoch ms)
   mesh-observability-console <dir|file> --stale-ms <n>   freshness threshold (ms)
   mesh-observability-console <dir|file> --epoch <n>      current attestation epoch
+      (MANDATORY once a RES-23 verifier is wired: on the verified path an absent
+       --epoch makes freshness UNVERIFIABLE and every tenant stays NOT-LIVE.
+       TRUSTED-ORIGIN ONLY: the value MUST come from the keying authority, NEVER
+       read out of the pulled registry text being audited — sourcing it from the
+       file under audit degenerates the alignment check to comparing the
+       attestation's own epoch against itself, which is ALWAYS aligned and
+       silently defeats the freshness gate.)
   mesh-observability-console --help
 
 Input: a directory of per-project JSON files (or one file). Each file is an

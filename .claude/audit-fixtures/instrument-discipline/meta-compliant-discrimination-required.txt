@@ -1,0 +1,73 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "**/workspaces/**"
+---
+
+# Verification Sufficiency — A Check Must Be Able To Return The Other Answer
+
+Verification cost is calibrated to one property and not to stakes: whether the instrument could
+have produced a different result had the proposition been false. A check that could not is not
+cheap verification, it is no verification, and its cost is irrelevant because its output carries
+no information either way.
+
+## MUST Rules
+
+### 1. Name The Falsifying Result, And Show The Instrument Can Emit It Here
+
+Before any check is cited as evidence the agent MUST state what that instrument would have
+printed had the proposition been FALSE, and MUST fire it once at a case already known to hold the
+pattern. A lexical match — grep, keyword scan, string presence — MUST NOT be reported as a verdict
+on a semantic property: a token's presence is consistent with assertion, negation, and quotation
+alike. An empty result from a matcher never shown to fire here is BLOCKED as evidence, because a
+dialect the local tool does not implement produces silence indistinguishable from a true negative.
+
+The control is not proportional to stakes. It is what makes the result readable at all, so it is
+required on the cheap checks precisely because those are the ones nobody looks at twice.
+
+```bash
+# DO — fire at a known-answer case first, then read the sweep
+
+git grep -c 'process\.exit(0)' -- path/known-to-have-it.js   # prints 8 ⇒ matcher works HERE
+git grep -n 'severity: "block"' -- .claude/rules/            # then READ each hit in context
+
+# DO NOT — cite silence from an instrument never shown to fire
+
+grep -rn 'process\.exit([12])' .claude/hooks/   # no-matches under this repo's grep; reads as clean
+```
+
+**BLOCKED rationalizations:**
+
+- "It returned empty, so there are none"
+- "grep is grep" / "that flag is POSIX"
+- "It works on my other machine"
+- "A control for a one-line check is ceremony"
+- "The count went down, so the fix landed"
+
+**Why:** a sound check can be physically unable to emit its falsifying result here, so its silence
+is indistinguishable from a true negative and survives review that inspects only the reasoning.
+
+## Trust Posture Wiring
+
+- **Severity:** `halt-and-report` at gate-review (reviewer confirms each cited check named its
+  falsifying result and was shown to fire here); `advisory` at the hook layer per
+  `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3× same-rule in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1× = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: verification-sufficiency]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms each cited check names
+  its falsifying result and was fired at a known-answer case. Phase 2 deferred.
+- **Violation scope:** MUST-1 (falsifying result unnamed, or instrument never shown to fire here).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-08-02 — proposed after a routine hygiene sweep reported a corpus clean on an empty grep whose
+bracket expression the local tool never implemented, and the same empty result had been read as a
+clean corpus across three prior sessions before a control surfaced it.

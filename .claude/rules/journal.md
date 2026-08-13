@@ -106,7 +106,7 @@ same commit captured into the issue-835 workspace because that was the session C
 - **Cumulative posture impact:** same-class violations contribute per `trust-posture.md` MUST-4 (3× same-rule in 30d → drop 1 posture).
 - **Regression-within-grace:** emergency downgrade (1 step) per `trust-posture.md` MUST-4.
 - **Receipt requirement:** SessionStart soft-gate `[ack: pending-journal-hygiene]` IFF `posture.json::pending_verification` includes this rule_id.
-- **Detection mechanism:** clause 1 — `git check-ignore workspaces/<x>/journal/.pending/probe` exit-0 check; clause 2 — the SessionEnd hook's `Closes`/`Refs #N` parser (lands with the loom-side hook implementation).
+- **Detection mechanism:** clause 1 — `git check-ignore workspaces/<x>/journal/.pending/probe` exit-0 check; clause 2 — the SessionEnd hook's `Closes`/`Refs #N` parser (lands with the loom-side hook implementation). Probes `.claude/test-harness/probes/journal.probes.json` — NOT YET AUTHORED, declared in `phase2-deferrals.json::probe_authorship_deferrals`.
 - **Violation scope:** clauses 1 (gitignore pattern) + 2 (trailer routing contract).
 - **Origin:** 2026-05-18 — issue #1086 candidates 2 + 4 (SessionEnd hook-noise audit; gitignore fix already landed BUILD-side but no rule made it durable across repos).
 

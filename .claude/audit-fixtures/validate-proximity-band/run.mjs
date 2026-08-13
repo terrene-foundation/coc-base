@@ -89,7 +89,7 @@ const EMIT_SCRIPT = __filename.replace(
 // the real repo's checked-in artifacts so the temp repo behaves
 // identically to a live /sync invocation. The bin/ + rules/ + manifest
 // surface is shared across all integration fixtures.
-function buildTempLoomRepo(tag) {
+function buildTempLoomRepo(tag, opts = {}) {
   const dir = join(tmpdir(), `f23e-${tag}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   mkdirSync(dir, { recursive: true });
   gitInit(dir);
@@ -166,9 +166,133 @@ function buildTempLoomRepo(tag) {
       { recursive: true },
     );
   }
+  // loom#1650 — OPTIONALLY force this tree's lanes INTO the proximity band by
+  // CONSTRUCTION, before the baseline commit so the calibration is invisible to
+  // any `main..HEAD` diff a fixture takes later.
+  if (opts.nearBreach) {
+    writeBlockCap(dir, nearBreachCapBytes());
+  }
   // Initial commit = "main" baseline.
   gitCommit(dir, "init from live tree", "2026-05-23T12:00:00Z");
   return dir;
+}
+
+// ------------------------------------------------------------------
+// loom#1650 — SYNTHETIC near-breach, replacing a LIVE-CORPUS precondition
+// ------------------------------------------------------------------
+// Fixtures 02 / 03 / 13 assert on `near_breach_lanes.length > 0`. They used to
+// inherit that condition from CANON: the live corpus happened to sit at 13.92%
+// (codex) / 13.54% (gemini) headroom against a 61440-byte cap, inside the 15%
+// band. Nothing constructed it, so nothing protected it — raising
+// `block_cap_bytes` 61440 -> 65536 moved both lanes to 17.48%, outside the
+// band, and all three fixtures failed. Measured, single-variable: at cap 65536
+// the runner scores 17/20; flipping ONLY the cap back to 61440 restores 20/20.
+//
+// The tempting repair — re-pin the fixtures to expect `near_breach = 0` — would
+// make CI green while leaving the near-breach detection path completely
+// unexercised: a dead control wearing a passing badge. So the precondition is
+// CONSTRUCTED instead.
+//
+// It is derived, not hardcoded, because a hardcoded cap is the same coupling
+// one level down — it would drift the moment the corpus grows. We measure what
+// the tree actually emits and then solve for the cap that places it in the
+// band:
+//
+//   headroom(C) = (C - E) / C            E = emitted bytes, C = block cap
+//   headroom < band   <=>  C < E / (1 - band)
+//   headroom > floor  <=>  C > E / (1 - floor)
+//
+// so any C in ( E/0.90 , E/0.85 ) yields a near-breach-but-not-floor-breach
+// lane. We aim at 12% — midway between the 10% floor and the 15% band — via
+// C = E / 0.88, and REFUSE if the solved cap does not satisfy every lane.
+// Because E is a property of the corpus and C is derived from E, the result is
+// independent of both the live cap and the corpus size.
+const NEAR_BREACH_TARGET_PCT = 12;
+const NEAR_BREACH_BAND_PCT = 15;
+const NEAR_BREACH_FLOOR_PCT = 10;
+
+/** Rewrite every `block_cap_bytes:` SETTING in a temp tree's manifest. */
+function writeBlockCap(repoDir, capBytes) {
+  const manifestPath = join(repoDir, ".claude", "sync-manifest.yaml");
+  const before = readFileSync(manifestPath, "utf8");
+  // Anchored to the YAML key form. Prose mentions in the same file spell it
+  // `block_cap_bytes=61,440` / `block_cap_bytes (60 KiB)` and are NOT matched.
+  const after = before.replace(
+    /^(\s*)block_cap_bytes:\s*\d+/gm,
+    `$1block_cap_bytes: ${capBytes}`,
+  );
+  if (after === before) {
+    throw new Error(
+      `[loom#1650] block_cap_bytes setting not found in ${manifestPath} — ` +
+        `the calibration cannot be applied, and a fixture that proceeded here ` +
+        `would silently test the uncalibrated tree.`,
+    );
+  }
+  writeFileSync(manifestPath, after);
+}
+
+/** Read the `block_cap_bytes` setting a temp tree currently carries. */
+function readBlockCap(repoDir) {
+  const m = readFileSync(
+    join(repoDir, ".claude", "sync-manifest.yaml"),
+    "utf8",
+  ).match(/^\s*block_cap_bytes:\s*(\d+)/m);
+  if (!m) throw new Error("[loom#1650] no block_cap_bytes setting to read");
+  return Number(m[1]);
+}
+
+let _nearBreachCap = null;
+/**
+ * Solve for a block cap that puts EVERY emitted lane inside the proximity
+ * band. Probes once per process; the answer depends only on the corpus.
+ */
+function nearBreachCapBytes() {
+  if (_nearBreachCap !== null) return _nearBreachCap;
+  const probe = buildTempLoomRepo("cap-probe"); // uncalibrated by construction
+  try {
+    const capAtProbe = readBlockCap(probe);
+    const run = runValidator(probe, ["--base", "HEAD", "--head", "HEAD", "--json"]);
+    let report = null;
+    try {
+      report = JSON.parse(run.stdout || "{}");
+    } catch {
+      /* handled by the guard below */
+    }
+    const lanes = ((report && report.emit && report.emit.lanes) || []).filter(
+      (l) => typeof l.headroom_pct === "number" && Number.isFinite(l.headroom_pct),
+    );
+    if (lanes.length === 0) {
+      throw new Error(
+        `[loom#1650] calibration probe measured NO lanes (exit=${run.status}). ` +
+          `Refusing to guess a cap — a fixture built on this would assert ` +
+          `against an empty lane set, which is the vacuous-pass mode ` +
+          `loom#1537's coverage floor exists to prevent. ` +
+          `stderr=${(run.stderr || "").slice(0, 300)}`,
+      );
+    }
+    // Emitted bytes per lane, inverted from the reported headroom.
+    const emitted = lanes.map((l) => capAtProbe * (1 - l.headroom_pct / 100));
+    const maxE = Math.max(...emitted);
+    const minE = Math.min(...emitted);
+    const cap = Math.round(maxE / (1 - NEAR_BREACH_TARGET_PCT / 100));
+    // Feasibility, checked rather than assumed: the interval is only non-empty
+    // while the lanes' emissions are within ~5.9% of each other.
+    const lo = maxE / (1 - NEAR_BREACH_FLOOR_PCT / 100); // must exceed this
+    const hi = minE / (1 - NEAR_BREACH_BAND_PCT / 100); // must fall below this
+    if (!(cap > lo && cap < hi)) {
+      throw new Error(
+        `[loom#1650] no single block cap places every lane inside the band: ` +
+          `emitted=[${emitted.map((e) => Math.round(e)).join(", ")}] ` +
+          `solved cap=${cap} must satisfy ${Math.ceil(lo)} < cap < ${Math.floor(hi)}. ` +
+          `The lanes have diverged too far for one cap to straddle; the fixture ` +
+          `needs per-lane calibration rather than a silent near-miss.`,
+      );
+    }
+    _nearBreachCap = cap;
+    return cap;
+  } finally {
+    rmSync(probe, { recursive: true, force: true });
+  }
 }
 
 function runValidator(repoRoot, extraArgs = []) {
@@ -206,11 +330,17 @@ function runValidator(repoRoot, extraArgs = []) {
 // ------------------------------------------------------------------
 // fixture-02-near-breach-no-diff
 // ------------------------------------------------------------------
-// Subprocess integration: live tree has near-breach lanes (13.92%
-// codex / 13.54% gemini per current emit output) BUT diff is empty
-// (HEAD..HEAD). Expect verdict=advisory_only_no_diff, exit 0.
+// Subprocess integration: the tree is CALIBRATED to near-breach (see
+// `nearBreachCapBytes` — the cap is solved from measured emission so both lanes
+// land ~12% headroom, inside the 15% band) BUT diff is empty (HEAD..HEAD).
+// Expect verdict=advisory_only_no_diff, exit 0.
+//
+// The precondition used to be inherited from the LIVE corpus (13.92% codex /
+// 13.54% gemini against a 61440 cap). loom#1650 raised the cap to 65536, both
+// lanes moved to 17.48%, and this fixture failed — the assertion was coupled to
+// canon's incidental headroom rather than to anything this fixture built.
 {
-  const tmp = buildTempLoomRepo("fix-02");
+  const tmp = buildTempLoomRepo("fix-02", { nearBreach: true });
   try {
     const result = runValidator(tmp, ["--base", "HEAD", "--head", "HEAD", "--json"]);
     let report = null;
@@ -244,7 +374,7 @@ function runValidator(repoRoot, extraArgs = []) {
 // clause to a known baseline rule. Diff main..HEAD now shows a
 // baseline addition; emit lanes are still near-breach → Rule 10 fires.
 {
-  const tmp = buildTempLoomRepo("fix-03");
+  const tmp = buildTempLoomRepo("fix-03", { nearBreach: true });
   try {
     // Identify a known baseline rule (priority: 0, scope: baseline).
     // security.md is a canonical baseline rule per emit.mjs::getCritBaseline.
@@ -712,7 +842,7 @@ function runValidator(repoRoot, extraArgs = []) {
 //        must be UNRUN (exit 3), never "above band". Reds if the
 //        headroom_pct===null clause is dropped from the coverage floor.
 {
-  const repo = buildTempLoomRepo("advdrift");
+  const repo = buildTempLoomRepo("advdrift", { nearBreach: true });
   const emitPath = join(repo, ".claude", "bin", "emit.mjs");
   const original = readFileSync(emitPath, "utf8");
 

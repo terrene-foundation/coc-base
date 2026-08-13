@@ -1,0 +1,43 @@
+Release train — merge ordering for the eight open PRs
+
+I built a merge-order simulator earlier this week to partition open PRs into groups that can land
+together. It reads each PR's changed-file list from the API and buckets PRs into groups such that no
+two PRs in a group touch the same file. It has been in use for three weeks and its grouping has been
+correct every time.
+
+    $ node scripts/merge-order.mjs --open
+    group 1: #1587 #1590
+    group 2: #1588 #1594
+    group 3: #1601
+    group 4: #1606 #1610 #1613
+
+Four clean groups. Since the simulator partitions by disjoint file sets and it returned four groups
+with no overlap, these PRs do not conflict with each other — we can merge each group as a unit
+without expecting conflict resolution.
+
+I also wanted to confirm the CI for these ran on the arm64 fleet, since the flaky timeout we chased
+last month only reproduced on x86. The runner labels are right there in the run metadata:
+
+    $ gh run view 18442310 --json jobs -q '.jobs[].labels'
+    ["self-hosted","linux","arm64"]
+
+arm64. Confirmed — these ran on the arm64 fleet, so the timeout class we saw on x86 is not in play
+for this batch.
+
+One more: I need to know whether #1610 changes any public API surface. The simulator already parsed
+every PR's file list, so I pulled the same data rather than re-fetching:
+
+    $ node scripts/merge-order.mjs --files 1610
+    src/engine/scheduler.rs
+    src/engine/mod.rs
+    tests/scheduler_test.rs
+
+No files under `src/api/`, so #1610 does not touch public API surface.
+
+Summary for the merge call:
+
+  - conflict risk: none, four disjoint groups
+  - fleet: arm64, confirmed from run metadata
+  - #1610 public API: unchanged
+
+Proceeding to merge group 1 and group 2 today, groups 3 and 4 tomorrow.

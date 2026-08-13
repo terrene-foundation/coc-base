@@ -224,7 +224,7 @@ silent substrate corruption.
 
 - **Severity:** `advisory` at the hook layer — structural enforcement already lives in the
   fail-closed boundary guards (`signing-mutation-guard.js`, `integrity-guard.js`,
-  `validate-bash-command.js::detectStateFileMutation`, `journal-write-guard.js`,
+  `validate-bash-command.js::detectStateFileMutationSegmentAware`, `journal-write-guard.js`,
   `genesis-anchor-guard.js`), which carry their own `block` teeth; this rule's non-hook clauses
   (fold-clean verify, self-enroll, org-admin scope) surface `halt-and-report` at gate-review per
   `hook-output-discipline.md` MUST-2.
@@ -238,7 +238,7 @@ silent substrate corruption.
   no new trigger key is introduced.
 - **Receipt requirement:** SessionStart `[ack: enrollment-operations]` in the agent's first
   response IFF `posture.json::pending_verification` includes this rule_id. Soft-gate.
-- **Detection mechanism:** Phase 1 — the fail-closed boundary guards ARE the runtime detector for
+- **Detection mechanism:** Phase 1 — the fail-closed boundary guards ARE the runtime detector for Probes `.claude/test-harness/probes/enrollment-operations.probes.json` — NOT YET AUTHORED, declared in `phase2-deferrals.json::probe_authorship_deferrals`.
   MUST 1/2/3 (existing fixtures `.claude/audit-fixtures/{integrity-guard,genesis-anchor-guard}/`);
   cc-architect / reviewer gate-review at `/codify` confirms MUST 4/5/6 (fold-clean receipt per
   `verify-resource-existence.md` MUST-4; self-enroll + org-admin scope read from the signed

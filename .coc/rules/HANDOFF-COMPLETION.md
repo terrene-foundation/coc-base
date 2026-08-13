@@ -23,12 +23,18 @@ A deliverable that REQUIRES an action on another repo / external surface MUST ei
 
 ### 2. A Downstream Artifact Is Referenced As Existing Only After Created Or Verified This Session
 
-A cross-repo issue/PR number, tracker, or "mirror" MUST NOT be referenced as EXISTING (comment, CHANGELOG, close message, handoff, notes) unless CREATED or VERIFIED this session (`gh issue view <n> --repo <r>`). Carrying a reference forward from prior-session prose or memory as current fact is BLOCKED — the cross-repo sibling of `verify-claims-before-write.md`.
+A cross-repo issue/PR number, tracker, or "mirror" MUST NOT be referenced as EXISTING (comment, CHANGELOG, close message, handoff, notes) unless CREATED or VERIFIED this session (`gh issue view <n> --repo <r> --json body,comments`). Carrying a reference forward from prior-session prose or memory as current fact is BLOCKED — the cross-repo sibling of `verify-claims-before-write.md`.
+
+**Existence is settled by the bare form; SUBSTANCE is not.** For a pure existence check the bare `gh issue view` suffices — it either resolves or errors. But the moment the reference is cited for what it CONTAINS (a tracker "covering" X, a mirror "carrying" the finding), the read MUST cover BOTH halves: bare `gh issue view` returns the body and NOT the comment bodies, `--comments` returns the comments and NOT the body, so either alone silently truncates the artifact being vouched for. `--json body,comments` returns both. Depth + the measured poles: `wave-loop.md` MUST-7(b).
 
 ```markdown
 # DO — verify before citing, or explicitly mark the reference unverified
 
+# DO — citing it for CONTENT → read both halves: gh issue view <n> --repo <r> --json body,comments
+
 # DO NOT — cite an unverified cross-repo issue/PR/tracker as current fact
+
+# DO NOT — claim a tracker "covers" X from a bare `gh issue view` (the coverage may live in a comment)
 ```
 
 **Why:** An unverified downstream reference misdirects readers and hides that the artifact was never created — the shape that lets a "prepared" handoff look done.
@@ -62,7 +68,7 @@ When the action needs human authorization (`repo-scope-discipline.md` cross-repo
 - **Cumulative posture impact:** same-class violations (a downstream-required action left implied-done in a local note; a cross-repo artifact referenced as existing without creation/verification) contribute to `trust-posture.md` MUST-4 cumulative-window math (3× same-rule in 30d → drop 1 posture; 5× total in 30d → drop 1 posture).
 - **Regression-within-grace:** any same-class violation within the 7-day grace window routes through the GENERIC `regression_within_grace` emergency trigger per `trust-posture.md` MUST-4 (1× = drop 1 posture) — NO dedicated per-clause trigger key (a handoff-completion property is review-layer-only judgment; the universal `regression_within_grace` trigger already covers it).
 - **Receipt requirement:** SessionStart soft-gate `[ack: handoff-completion]` IFF `posture.json::pending_verification` includes this rule_id.
-- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer at `/redteam` + cc-architect at `/codify` + the `/wrapup` self-check inspect session notes / PR descriptions / issue comments for "handoff" / "prepared" / "mirror" / cross-repo-tracker references, and confirm each is backed by an executed action (a filed issue/PR URL, a verified issue number) OR an explicit pending-action surface naming target + action + authorization. Phase 2 (deferred per `trust-posture.md` § Two-Phase Rollout) — an advisory `Stop`/`PostToolUse` detector for "handoff prepared" / "mirror tracked in <ref>" without an adjacent executed-or-pending-surface, paired with the review layer per `probe-driven-verification.md` MUST-4; audit fixtures at `.claude/audit-fixtures/handoff-completion/` per `cc-artifacts.md` Rule 9.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer at `/redteam` + cc-architect at `/codify` + the `/wrapup` self-check inspect session notes / PR descriptions / issue comments for "handoff" / "prepared" / "mirror" / cross-repo-tracker references, and confirm each is backed by an executed action (a filed issue/PR URL, a verified issue number) OR an explicit pending-action surface naming target + action + authorization. Probes `.claude/test-harness/probes/handoff-completion.probes.json` — NOT YET AUTHORED, declared in `phase2-deferrals.json::probe_authorship_deferrals`. Phase 2 (deferred per `trust-posture.md` § Two-Phase Rollout) — an advisory `Stop`/`PostToolUse` detector for "handoff prepared" / "mirror tracked in <ref>" without an adjacent executed-or-pending-surface, paired with the review layer per `probe-driven-verification.md` MUST-4; audit fixtures at `.claude/audit-fixtures/handoff-completion/` per `cc-artifacts.md` Rule 9.
 - **Violation scope:** MUST-1 (implied-done downstream action) + MUST-2 (unverified downstream-artifact reference) + MUST-3 (needs-authorization treated as licence to stop at a note).
 - **Origin:** See § Origin.
 

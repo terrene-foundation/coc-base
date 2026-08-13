@@ -48,7 +48,8 @@ Write the operator's NAME→on-disk-path bindings to `loom-links.local.json`:
 1. Copy the committed example `.claude/bin/loom-links.local.example.json` (it carries the canonical
    sublayout as synthetic tokens — `example/build/py`, `example/use/py`, peers `loom`/`atelier`).
 2. Edit each binding to the operator's ACTUAL on-disk layout. The canonical sublayout hint
-   (`cross-repo.md` § "Canonical Sublayout (Recommended — F61)") is `~/repos/kailash/{build,use}/<slug>`
+   (stated in full here; its loom/BUILD-side statement — `cross-repo.md` § "Canonical Sublayout
+   (Recommended — F61)" — is NOT distributed to USE) is `~/repos/kailash/{build,use}/<slug>`
    with `~/repos/{loom,atelier}` as peers — but the resolver is layout-agnostic, so any layout works as
    long as it is declared.
 3. NO disclosure gate — the file is gitignored and per-machine; it never syncs and never reaches a
@@ -60,9 +61,16 @@ Pre-existing operators on any other layout (flat `~/repos/<slug>`, nested) proce
 
 ### B3 — hand off (invariant 3)
 
-Print: "Enrolled. Run `/onboard` at the start of every session." `/enroll` does NOT perform the
+Print: "Enrollment PR opened — the roster row is live in your working tree now, and becomes team-visible
+once the PR merges to `main`. Run `/onboard` at the start of every session." `/enroll` does NOT perform the
 session-entry reads (roster + posture + team-memory + claims) — that is `/onboard`'s read-only job
 (`knowledge-convergence.md` MUST-5).
+
+The print string MUST NOT say "Enrolled": B1 step 5 ends at an OPEN PR (merge is never a direct push and
+never an owner-self-attesting admin-merge), so a bare "Enrolled" claims a completion that has not happened.
+Work is NOT blocked in the meantime — `resolveIdentity` reads the WORKING-TREE roster, so `/certify` and the
+session-entry reads see the row before merge. Mirror any change to this string in `commands/enroll.md` § B3
+in the SAME shard (`rules/command-skill-parity.md` MUST-2).
 
 ## Why a separate command (not a `/whoami` flag)
 

@@ -86,7 +86,19 @@ function getOpenPullRequests(cwd) {
         "--state",
         "open",
         "--json",
-        "number,title,createdAt",
+        // `headRefName` is NOT read by this surface — it is here so the SAME
+        // round-trip also feeds `unlanded-work-surface.js`, which subtracts
+        // open-PR head branches from its unlanded set. Requesting one more
+        // field costs nothing on the wire; a second `gh pr list` would cost
+        // another ~0.7s of session-start latency.
+        //
+        // Removing it does not break THIS surface, which never reads it — which
+        // is exactly why the coupling is dangerous and is stated here rather
+        // than only at the consumer. `openPrHeadsFrom` carries a schema-mismatch
+        // guard for precisely this edit: a non-empty board yielding zero head
+        // names degrades to "board UNKNOWN" (an UPPER BOUND block) instead of a
+        // silent unsubtracted total. Both halves are pinned by tests there.
+        "number,title,createdAt,headRefName",
         "--limit",
         String(PR_LIST_LIMIT),
       ],

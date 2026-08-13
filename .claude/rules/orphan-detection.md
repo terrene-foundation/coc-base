@@ -26,6 +26,24 @@ Any attribute exposed on a public surface that returns a `*Manager`, `*Executor`
 
 **Why:** Downstream consumers see the public attribute, build their security model around the documented behavior, and ship features that silently bypass the protection because the framework never invokes the class on the actual data path. Full code + the Phase 5.11 post-mortem (2,407 LOC of trust integration never executed once): `guides/rule-extracts/orphan-detection.md` § "Rule 1".
 
+#### 1a. Library-Class Artifacts — The Public Export Surface IS The Hot Path
+
+Rule 1 assumes an APPLICATION-FRAMEWORK shape, where the hot path is INTERNAL and a facade with no in-framework call site is dead. For a LIBRARY-class artifact — a component library, parser, or utility package consumed BY PACKAGE NAME from outside its own tree — there is no internal call site to find, because the consumer IS the call site. Running the Rule-1 audit unmodified there does not find orphans; it manufactures false positives against the wrong surface. Before auditing, CLASSIFY the artifact, then audit the surface that class actually has:
+
+- **Application framework** — orphan = no internal call site in the framework's hot path within 5 commits (Rule 1 as written).
+- **Library** — orphan = the symbol is absent from the public entry point (`src/index.ts`, `lib.rs` `pub use`, `__init__.py` `__all__`) OR no Tier 2 / wiring test imports it THROUGH the public package name within 5 commits.
+
+Exported but never imported through the package name is a **HIGH** finding — reachable, unverified. Imported by tests but absent from the public entry is a **MED** finding — verified, unreachable to consumers.
+
+```text
+# DO — classify first: public entry exists + package consumed by name → library; audit the export surface
+# DO NOT — report a library's exported symbol as an orphan because no internal caller exists (by design, there is none)
+```
+
+**BLOCKED rationalizations:** "the rule is the rule, no carve-outs" / "library context is just a special case of the application framework" / "the agent can infer the class from the repo type" / "downstream consumers are out-of-repo, so they cannot be audited anyway" (the audit is of the ENTRY POINT and the wiring tests, both in-repo).
+
+**Why:** A rule applied to the surface it was not written for returns confident false positives, and the cost is not merely noise — an audit that reliably cries wolf on a whole artifact class gets disabled for that class, taking the real orphan check with it. Classifying first is what gives BOTH classes a check that can actually fail.
+
 ### 2. Every Wired Manager Has a Tier 2 Integration Test
 
 Once a manager is wired into the production hot path, its end-to-end behavior MUST be exercised by at least one Tier 2 integration test (real database, real adapter — `rules/testing.md` § Tier 2). Unit tests against the manager class in isolation are NOT sufficient.
@@ -110,7 +128,7 @@ Sibling of Rule 4a, generalizing "sweep the paired tests in the same commit" fro
 - **Cumulative posture impact:** same-class violations (a default/behavior change that left stale old-value assertions in out-of-CI-matrix tests) contribute to `trust-posture.md` MUST-4 cumulative-window math (3× same-rule / 5× total in 30d → drop 1 posture).
 - **Regression-within-grace:** GENERIC `regression_within_grace` emergency trigger per `trust-posture.md` MUST-4 (1× = drop 1 posture) — NO dedicated per-clause key (a test-sweep completeness property is review-layer-only, and minting a key would drag `trust-posture.md`, a self-referential-codify allowlist file, into a self-ref edit). Named deviation from the canonical key-per-clause shape, recorded here per `trust-posture.md` Rule 8 — same disposition as `security.md` § Enforcement-Surface Parity + `git.md` § CI-check/merge.
 - **Receipt requirement:** SessionStart soft-gate `[ack: orphan-detection]` IFF `posture.json::pending_verification` includes this rule_id.
-- **Detection mechanism:** Phase 1 (manual, gate-review) — for any diff changing a default/behavior, reviewer at `/implement` + release-specialist at `/release` run `grep -rln '<old-value>' tests/ examples/ packages/*/tests/` across the FULL corpus (not the CI-selected subset) and confirm zero stale old-value assertions remain. Phase 2 (deferred per `trust-posture.md` § Two-Phase Rollout) — no hook detector; audit fixtures land with the Phase-2 detector at `.claude/audit-fixtures/orphan-default-change-sweep/` per `cc-artifacts.md` Rule 9.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — for any diff changing a default/behavior, reviewer at `/implement` + release-specialist at `/release` run `grep -rln '<old-value>' tests/ examples/ packages/*/tests/` across the FULL corpus (not the CI-selected subset) and confirm zero stale old-value assertions remain. Probes `.claude/test-harness/probes/orphan-detection.probes.json` — NOT YET AUTHORED, declared in `phase2-deferrals.json::probe_authorship_deferrals`. Phase 2 (deferred per `trust-posture.md` § Two-Phase Rollout) — no hook detector; audit fixtures land with the Phase-2 detector at `.claude/audit-fixtures/orphan-default-change-sweep/` per `cc-artifacts.md` Rule 9.
 - **Violation scope:** Rule 4c (default/behavior-change stale-assertion sweep, including out-of-CI-matrix tests) ONLY; Rules 1–4a / 5–6b stay grandfathered until each is itself `/codify`-touched.
 - **Origin:** kailash-py PR #1847 (#1844/#1845 cost fix, 2026-07-20) — model-default change was fully CI-green while 18 out-of-CI-matrix test files still asserted the old defaults, caught only at release prep (PR #1850). Landed at loom via `/sync-from-build` Gate-1 classification. Full narrative: `guides/rule-extracts/orphan-detection.md` § "Rule 4c → Origin".
 

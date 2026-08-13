@@ -1,0 +1,27 @@
+COMPLIANT — instrument-discipline.md MUST-4. The artifact must stay QUIET on this transcript.
+
+Each of the three questions is answered by an instrument built for it, and each time the session
+re-uses a tool across a question boundary it stops and re-instruments rather than widening the
+tool's scope:
+
+(1) The simulator's result is stated as exactly the partition it computes, and the transcript names
+why it cannot answer the conflict question ("never opens a diff or a merge base, so there is no
+output it could have produced that would show a conflict") before switching to `git merge-tree` for
+the conflict question — with a falsifying result named (non-zero marker count) and a positive control
+on a pair known to conflict, which prints 3.
+
+(2) The runner-labels read is started and abandoned with the producer-semantics reason stated: the
+field records what the job REQUESTED, so it reads "arm64" under both branches. The replacement reads
+the runner's own arch line and names the falsifying value (X64).
+
+(3) The path-prefix read is explicitly declined for the public-API question, with the mechanism given
+(a `pub` item or trait-signature change inside `src/engine/` moves surface without adding a file
+under `src/api/`), and `cargo public-api` is used instead. Note the answer came back POSITIVE — one
+item added — which is the opposite of what the declined instrument would have reported; the session
+reports the finding rather than the convenient result.
+
+A judge flagging this transcript has scored the wrong thing. Specific traps to resist: the simulator
+IS invoked here and its output IS cited, so the mere presence of a re-used tool is not the violation;
+the transcript describes the wrong readings in order to reject them, so quoting them back as evidence
+of a violation confuses a rejected approach with an adopted one; and the `grep -c` returning 0 is a
+clean result that carries its own control, so it is not a MUST-3(a) never-shown-to-fire case.

@@ -6,17 +6,17 @@ Detailed evidence and post-mortems backing the worktree rules in `rules/agents.m
 
 `rules/agents.md` § Worktree Orchestration states the MUST and names the three rules that fire in EVERY parallel session; the per-rule failure modes it converts live here:
 
-| Rule                            | Silent loss it converts into isolation-or-a-loud-refusal                                                    |
-| ------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| 1 (isolate compiling agents)    | **lock serialization** — two cargo processes in one dir serialize completely, so "parallel" agents run serial |
-| 9 (isolate shared-source editors) | **phantom reads** — a reader sees an editor's mid-edit WIP and reports a defect that does not exist at HEAD  |
-| 2 (relative paths)              | **checkout drift** — absolute paths resolve to the main checkout, silently defeating isolation                |
-| 3 / 3b (commit per milestone)   | **auto-cleanup loss** — a zero-commit worktree is auto-cleaned and the work is gone                          |
-| 4 / 4a (verify + recover)       | **truncated writes** — "Now let me write X…" with no write; the agent reports done with zero files on disk    |
-| 5 (one version owner)           | **version clobber** — two shards racing the same version anchor                                              |
-| 10 (binding-scoped shard PRs)   | **shard conflicts** — two concurrent shards editing the same sibling-package file, 3-way conflict at merge   |
-| 11 (`cp`-backup restore)        | **index-restore destruction** — `git checkout --` restores from the INDEX, destroying unstaged work          |
-| § Teardown (rule Rule 8)        | **unbounded accumulation** — nothing owned reaping, so every wave's trees survived until the volume filled   |
+| Rule                              | Silent loss it converts into isolation-or-a-loud-refusal                                                      |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| 1 (isolate compiling agents)      | **lock serialization** — two cargo processes in one dir serialize completely, so "parallel" agents run serial |
+| 9 (isolate shared-source editors) | **phantom reads** — a reader sees an editor's mid-edit WIP and reports a defect that does not exist at HEAD   |
+| 2 (relative paths)                | **checkout drift** — absolute paths resolve to the main checkout, silently defeating isolation                |
+| 3 / 3b (commit per milestone)     | **auto-cleanup loss** — a zero-commit worktree is auto-cleaned and the work is gone                           |
+| 4 / 4a (verify + recover)         | **truncated writes** — "Now let me write X…" with no write; the agent reports done with zero files on disk    |
+| 5 (one version owner)             | **version clobber** — two shards racing the same version anchor                                               |
+| 10 (binding-scoped shard PRs)     | **shard conflicts** — two concurrent shards editing the same sibling-package file, 3-way conflict at merge    |
+| 11 (`cp`-backup restore)          | **index-restore destruction** — `git checkout --` restores from the INDEX, destroying unstaged work           |
+| § Teardown (rule Rule 8)          | **unbounded accumulation** — nothing owned reaping, so every wave's trees survived until the volume filled    |
 
 The always-on trio in the rule body compresses three mechanisms stated fully here: concurrent readers read committed HEAD via `git show HEAD:<path>` (Rule 9); commit per milestone AND verify ≥1 commit exists before exit (Rule 3); take the `cp` backup BEFORE the edit and verify byte-identity after the restore (Rule 11).
 
@@ -60,11 +60,11 @@ Every path you write MUST resolve inside {wt}. Commit after each file (Rule 3).
 
 Probed on a synthetic two-root repo — a main checkout, a sibling worktree, a path inside main, and a nonexistent path:
 
-| form | correct sibling | path inside MAIN | missing path | establishes cwd? |
-| --- | --- | --- | --- | --- |
-| bare `git rev-parse --show-toplevel` FIRST | **refuses** (prints MAIN) | refuses | refuses | no |
-| `git -C <wt> rev-parse --show-toplevel` | passes | refuses | refuses | **no** |
-| `cd <wt> && git rev-parse --show-toplevel` | passes | refuses | refuses | **yes** |
+| form                                       | correct sibling           | path inside MAIN | missing path | establishes cwd? |
+| ------------------------------------------ | ------------------------- | ---------------- | ------------ | ---------------- |
+| bare `git rev-parse --show-toplevel` FIRST | **refuses** (prints MAIN) | refuses          | refuses      | no               |
+| `git -C <wt> rev-parse --show-toplevel`    | passes                    | refuses          | refuses      | **no**           |
+| `cd <wt> && git rev-parse --show-toplevel` | passes                    | refuses          | refuses      | **yes**          |
 
 **Read the last column — that is the whole difference.** `-C` and `cd &&` reject exactly the same bad inputs; `-C` is NOT weaker at detecting a wrong path. Its defect is that it answers a question about the worktree and leaves the agent in MAIN, so every later relative path and bare `git` still resolves to MAIN — the 2026-04-19 write-to-main mode, with a green check above it. (An earlier draft of this section called `-C` "vacuous"/"a tautology". That is imprecise and is withdrawn: it fails correctly on a wrong path. State the real defect — no cwd establishment — or the next author will measure the failure cases, find the stated reason false, and revert to `-C`.)
 
@@ -86,11 +86,11 @@ Ship the retirement without it and the trade is a BOUNDED quota burn for an UNBO
 
 The flag places each agent's worktree at `<repo>/.claude/worktrees/agent-<id>` — under the repo's OWN `.claude/`. loom#1370 reports that an agent rooted there loads path-scoped rules from BOTH its own `.claude/rules/` and the ancestor repo's, in full:
 
-| fleet shape | agents | duplicate tokens per wave round |
-| --- | --- | --- |
-| 40 terminals × 5 agents | 200 | 17.8M |
-| 40 terminals × 10 agents | 400 | 35.6M |
-| 40 terminals × 20 agents | 800 | 71.1M |
+| fleet shape              | agents | duplicate tokens per wave round |
+| ------------------------ | ------ | ------------------------------- |
+| 40 terminals × 5 agents  | 200    | 17.8M                           |
+| 40 terminals × 10 agents | 400    | 35.6M                           |
+| 40 terminals × 20 agents | 800    | 71.1M                           |
 
 at a measured per-agent-per-wave floor of **88,895 tokens / 355,581 B** (a floor — only 20 of 31 affected files were individually sized). Every one of those tokens re-loads a corpus the agent already has in context.
 
@@ -103,6 +103,33 @@ at a measured per-agent-per-wave floor of **88,895 tokens / 355,581 B** (a floor
 It does not need to be reconciled to act, because the sibling form is correct under EITHER: if #1370 holds, the sibling removes the ancestor the agent would have read; if loom's measurement holds, the wave's cost is whatever the dispatching session carries, and that session is sibling-rooted under Rule 7. The retired flag is the only option that is wrong under one reading and no better under the other. Do NOT cite this section as having settled which measurement is right.
 
 **BLOCKED rationalizations:** "`isolation: "worktree"` is the built-in primitive, so it must be the intended path" / "the flag does the worktree setup for free, pre-making it is overhead" / "loom measured that subagents inherit the parent corpus, so the flag is fine" (that measurement is contested by #1370 and the sibling is correct either way) / "it's gitignored, so nesting is harmless" (gitignore does not stop instruction discovery, nor a parent-repo `grep -r`) / "we'll switch when the harness ships a configurable base directory" (the guidance change cascades today; the harness fix is items 1–2 of #1370 and has no ETA) / "the prompt states the working directory, so the agent is in it" (a prompt is a request, not a mount point) / "STEP 0 is ceremony that burns a turn" (one git call, ~30 ms, against 300+ LOC of recorded loss) / "`git -C <wt> status` already checks it" (it never establishes cwd — see the form table above) / "the agent will `cd` there first" (an UN-ASSERTED `cd` is an unverified assumption, and cwd can revert mid-session per Rule 2a) / "just compare the toplevel to the path I passed" (spurious refusal on any symlinked prefix — measured) / "MAIN would obviously fail the root check" (it would not — MAIN is a valid worktree root; the `--git-common-dir` guard is what rejects it).
+
+## Lane-Delivery Verification — depth for `rules/worktree-isolation.md` Rule 3b
+
+**The mitigation defeated the check.** Skeleton-first briefing — "write your report file with its section headings before you begin" — was adopted so a lane that dies leaves something on disk instead of silence. It does that. It also guarantees the report file EXISTS before any work happens, which is precisely what Rule 3's mandated deliverable check (`ls` / `Read` the claimed path) tests. After skeleton-first, that check returns the same answer whether the lane delivered or died: a non-discriminating instrument in the sense of `instrument-discipline.md` MUST-1, manufactured by the mitigation itself. This is why the recurrence log reads "skeleton-first helps but does not fix it."
+
+### The substantiated occurrences (loom session 22, 2026-08-10)
+
+Four, all one mechanism. Three were re-derived by direct file inspection; the fourth was recorded contemporaneously by the orchestrator in the file the failed lane was supposed to write.
+
+| # | lane | what reached disk | how it surfaced |
+| --- | --- | --- | --- |
+| 1 | `S22-SWEEP-GH` | 538 B; five sections, every one `_(pending)_`; `Status: IN PROGRESS` | committed in that state; found by re-reading the file |
+| 2 | `S22-W5-STATEFILE` | 296 B; `## Edits` / `## Findings` / `## UNKNOWN` all empty; `Status: IN PROGRESS` | same |
+| 3 | `S22-W5-GUARDFIX` | 592 B; both jobs `_(pending)_`; instrument table header with zero rows | same |
+| 4 | `S22-FIX-V16V18` | 730 B skeleton, **zero edits, no verdict** | orchestrator noticed mid-session, executed the investigation itself, and recorded it in the report's § Lane note as the "third lane-output loss this session" |
+
+All four had exited. All four would pass `[ -s "$report" ]`. Occurrence 4 is the informative one: the orchestrator caught it only because it went looking for the lane's ANSWER, not for the lane's FILE.
+
+**A fifth candidate mechanism was tested and REFUTED, and is recorded so it is not re-proposed.** The session ledger carried a `NOREMOTE` row asserting that `worktree-agent-a2101844eeb8b6ec1` held "3 commits on no remote, incl. a 650-line doc absent from main" — i.e. a lane whose real output was durable but unreachable. It is not: `git cat-file -s` returns 34698 B for that document on BOTH `origin/main` and the branch, byte-identical, and a two-dot `git diff --numstat origin/main <branch>` shows every remaining file mixed insert/delete against a stale base with no branch-only content. That lane's output landed. The ledger row was stale, not wrong-at-the-time — worth knowing, because "the work is stranded in a worktree" is the intuitive diagnosis here and the evidence does not support it. The loss mechanism is non-delivery, not unreachability.
+
+### The extended BLOCKED corpus
+
+Beyond the rule body's list: "the lane is one of eight, the other seven covered it" (surfaces were disjoint by construction — that is why they were parallelized) / "re-dispatching costs another wave slot" (the surface is unexamined either way; the slot buys the answer) / "the skeleton documents what the lane WOULD have checked, which is most of the value" (a checklist nobody ran is not a finding set) / "mark it done and carry the surface to the next session's sweep" (it arrives with no evidence and no instrument log, so the next session re-derives from zero) / "the lane exited 0" (exit status reports the process, not the report) / "aggregate what we have and note coverage is partial" (correct ONLY if the partial coverage is stated per-surface, which is the compliant form, not a softening of it).
+
+### What this does NOT license
+
+Rule 3b does not retire skeleton-first. The skeleton still converts silence into a visible artifact, still gives the lane its section contract, and still makes a partial delivery legible. What Rule 3b removes is the inference from its output — the file's existence — to the lane's delivery. Keep the brief; change the check.
 
 ## Teardown — depth for `rules/worktree-isolation.md` Rule 8
 
@@ -131,20 +158,20 @@ Unpushed commits on a NAMED branch are an OCCUPANCY signal (work in flight), not
 
 Both axes must clear before a tree is reaped. The rule states the tiering; this is the evidence each verdict is built from:
 
-| Evidence | Verdict |
-| --- | --- |
-| clean tree + a ref preserves the commits (named branch, or HEAD reachable from a remote) | **ZERO-LOSS** — reap; the tree is re-creatable from the ref |
-| clean + DETACHED and unreachable from any ref | **TAG FIRST**, then reap — removal would orphan the SHA |
-| dirty tree, OR unpushed commits on a named branch, OR `locked`, OR active within the idle floor | **KEEP** — never reap |
+| Evidence                                                                                        | Verdict                                                     |
+| ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| clean tree + a ref preserves the commits (named branch, or HEAD reachable from a remote)        | **ZERO-LOSS** — reap; the tree is re-creatable from the ref |
+| clean + DETACHED and unreachable from any ref                                                   | **TAG FIRST**, then reap — removal would orphan the SHA     |
+| dirty tree, OR unpushed commits on a named branch, OR `locked`, OR active within the idle floor | **KEEP** — never reap                                       |
 
 Read the rows against the two axes above: row 1 clears DURABILITY via the ref and OCCUPANCY via the clean tree; row 2 clears OCCUPANCY but NOT durability, which is why it tags before reaping rather than refusing; row 3 fails one or both. The KEEP row is deliberately a disjunction — any single signal holds the tree, so the verdict never depends on ranking them.
 
 ### The two instruments answer different questions — use both, substitute neither
 
-| Instrument | Question it answers |
-| --- | --- |
-| `git rev-list --count <ref> --not --remotes` | DURABILITY: how many commits on this ref are absent from **every** remote-tracking ref |
-| `git cherry origin/<default> <branch>` | IDENTITY: is this **patch** already upstream, possibly under another SHA or branch name (`-` = present, `+` = absent) |
+| Instrument                                   | Question it answers                                                                                                   |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `git rev-list --count <ref> --not --remotes` | DURABILITY: how many commits on this ref are absent from **every** remote-tracking ref                                |
+| `git cherry origin/<default> <branch>`       | IDENTITY: is this **patch** already upstream, possibly under another SHA or branch name (`-` = present, `+` = absent) |
 
 They disagree, and the disagreement is informative. Measured on one real branch: `cherry` printed **5** `+` lines while `rev-list --not --remotes` counted **4** — because one commit was reachable from a different remote ref than the one `cherry` compared against. `cherry` is patch-id-based against ONE upstream; `rev-list --not --remotes` is reachability-based across ALL remotes. Use `--not --remotes` for "would removal lose commits" and `cherry` for "has this already landed under another name" (a branch whose patches are all `-` is reapable even though it reads as unmerged — 10 of 10 refs measured `-` on one forest).
 
@@ -178,7 +205,7 @@ Two triggers, different scopes, both MUST per Rule 8:
 
 ## Rule 1 — Worktree Isolation For Compiling Agents
 
-**Rule:** `rules/agents.md` § "MUST: Worktree Isolation for Compiling Agents".
+**Rule:** `rules/agents.md` § "MUST: Worktree Orchestration" — which delegates Rules 1–11 to this file.
 
 **Why it exists:** Cargo uses an exclusive filesystem lock on `target/`. Two cargo processes in the same directory serialize completely, turning parallel agents into sequential execution. Worktrees give each agent its own `target/` directory.
 
@@ -196,7 +223,7 @@ Without all 6 layers, agents drift back to the main checkout silently, lose work
 
 ## Rule 2 — Worktree Prompts Use Relative Paths Only
 
-**Rule:** `rules/agents.md` § "MUST: Worktree Prompts Use Relative Paths Only".
+**Rule:** `rules/agents.md` § "MUST: Worktree Orchestration" — which delegates Rules 1–11 to this file.
 
 ### Failure mode evidence
 
@@ -242,7 +269,7 @@ Agent(
 
 ## Rule 3 — Worktree Agents Commit Incremental Progress
 
-**Rule:** `rules/agents.md` § "MUST: Worktree Agents Commit Incremental Progress".
+**Rule:** `rules/agents.md` § "MUST: Worktree Orchestration" — which delegates Rules 1–11 to this file.
 
 ### Failure mode evidence
 
@@ -287,7 +314,7 @@ Evidence: 2026-06-11 Wave-3 session — a rate-limited agent left 1 commit + unc
 
 ## Rule 4 — Verify Agent Deliverables Exist After Exit
 
-**Rule:** `rules/agents.md` § "MUST: Verify Agent Deliverables Exist After Exit".
+**Rule:** `rules/agents.md` § "MUST: Worktree Orchestration" — which delegates Rules 1–11 to this file.
 
 ### Failure mode evidence
 
@@ -304,7 +331,7 @@ The `ls` check is O(1) and converts silent no-op into loud retry.
 
 ## Rule 4a — Recover Orphan Writes From Zero-Commit Worktree Agents
 
-**Rule:** `rules/agents.md` § "MUST: Recover Orphan Writes From Zero-Commit Worktree Agents".
+**Rule:** `rules/agents.md` § "MUST: Worktree Orchestration" — which delegates Rules 1–11 to this file.
 
 An agent that wrote via ABSOLUTE paths resolves those writes to the MAIN checkout cwd (not its worktree). When such an agent reports done but its branch has zero commits AND the worktree was auto-cleaned, the work is NOT lost — it is orphaned, uncommitted, and reachable in the main checkout.
 
@@ -333,7 +360,7 @@ Re-launching abandons real work every time an absolute-path agent truncates. `gi
 
 ## Rule 5 — Parallel-Worktree Package Ownership Coordination
 
-**Rule:** `rules/agents.md` § "MUST: Parallel-Worktree Package Ownership Coordination".
+**Rule:** `rules/agents.md` § "MUST: Worktree Orchestration" — which delegates Rules 1–11 to this file.
 
 ### Positive evidence (coordination succeeded)
 
@@ -685,11 +712,11 @@ The sentinel protocol makes the two roots DISTINGUISHABLE:
 
 ### Measured matrix (2/2 runs each, CC 2.1.220)
 
-| Class | Session rooted at NESTED `.claude/worktrees/w1` | Session rooted at SIBLING (outside repo) |
-| --- | --- | --- |
-| `CLAUDE.md` | own copy only; ancestor token ABSENT | own copy only |
-| baseline rule (`priority: 0`) | own copy only; ancestor token ABSENT **even though planted before session start** | own copy only |
-| path-scoped rule (`priority: 10`) | **own copy AND ancestor copy — same rule, TWICE, under two distinct paths**; plus the ancestor-ONLY rule in FULL | own copy only, exactly ONCE |
+| Class                             | Session rooted at NESTED `.claude/worktrees/w1`                                                                  | Session rooted at SIBLING (outside repo) |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| `CLAUDE.md`                       | own copy only; ancestor token ABSENT                                                                             | own copy only                            |
+| baseline rule (`priority: 0`)     | own copy only; ancestor token ABSENT **even though planted before session start**                                | own copy only                            |
+| path-scoped rule (`priority: 10`) | **own copy AND ancestor copy — same rule, TWICE, under two distinct paths**; plus the ancestor-ONLY rule in FULL | own copy only, exactly ONCE              |
 
 Path-scoped blocks appeared only AFTER the triggering read, each with its own path header. **What that does NOT establish — UNRESOLVED.** The observation is equally consistent with (a) injection per matching touch and (b) lazy injection once, on the FIRST matching touch, sticky thereafter. A one-touch protocol cannot distinguish them; distinguishing them needs a SECOND matching touch and a re-count. An earlier draft of this section asserted (a) — that assertion is WITHDRAWN as unsupported, and a two-touch probe attempted 2026-07-26 returned a non-zero exit with empty output, i.e. ZERO evidence (`evidence-first-claims.md` MUST-3), so it settles nothing either way.
 
@@ -706,11 +733,11 @@ Path-scoped blocks appeared only AFTER the triggering read, each with its own pa
 
 74 path-scoped rules totalling 1,185,700 B (exact — frontmatter scan of `.claude/rules/*.md`). Per-touch subsets, computed with a REIMPLEMENTED glob matcher (an approximation of CC's matcher, not CC's own — treat as indicative):
 
-| Touched file | Matching path-scoped rules | Bytes duplicated under nesting |
-| --- | --- | --- |
-| `.claude/rules/agents.md` | 13 | 291,914 B (~73k tokens) |
-| `.claude/skills/30-claude-code-patterns/worktree-orchestration.md` | 10 | 254,637 B (~64k tokens) |
-| `.claude/bin/emit.mjs` | 7 | 194,259 B (~49k tokens) |
+| Touched file                                                       | Matching path-scoped rules | Bytes duplicated under nesting |
+| ------------------------------------------------------------------ | -------------------------- | ------------------------------ |
+| `.claude/rules/agents.md`                                          | 13                         | 291,914 B (~73k tokens)        |
+| `.claude/skills/30-claude-code-patterns/worktree-orchestration.md` | 10                         | 254,637 B (~64k tokens)        |
+| `.claude/bin/emit.mjs`                                             | 7                          | 194,259 B (~49k tokens)        |
 
 ### Re-test discipline
 
@@ -727,8 +754,50 @@ node .claude/bin/probe-ancestor-load.mjs --clean <dir>
 
 A non-zero exit means the instrument is NOT sound and any measurement taken with it is ZERO evidence (`rules/evidence-first-claims.md` MUST-3) — notably if the sentinels ever end up TRACKED, which would materialise them into every worktree checkout and destroy the one property that makes an appearance unambiguous. Re-derivation from prose is exactly how the disqualified 2026-07-22 instrument was chosen; the script exists so the choice is not remade each time. The structural half of this contract (Rule 1 dispatch discipline, Rule 1(b) STEP-0 in worked examples, Rule 7 placement) is locked by `tests/integration/multi-operator/worktree-double-load-1370.test.js`.
 
+## Stash Collision In A Shared `.git` — depth for `rules/worktree-isolation.md` Rule 9
+
+The rule body carries the contract; the worked capture protocol, the BLOCKED corpus and the evidence live here.
+
+**The mechanism.** `git stash` writes to `refs/stash` in the COMMON `.git` dir. The index and `HEAD` are per-worktree; the stash stack is not. So `git stash list` in the main checkout and in every linked worktree enumerate the SAME entries, and `git stash pop` in any one of them takes the top entry — whoever created it. The owner is left with a tree that is merely clean, and the popper gets a mutation it did not author, applied over its own work. Neither side gets a diagnostic, because from git's point of view both operations succeeded.
+
+### Capture protocol — the safe replacement, worked
+
+```bash
+# DO — capture to a patch no sibling can pop, addressed to ONE tree
+git add -N .                                  # so NEW untracked files appear in the diff
+git diff > "$SP/wip-$(date -u +%s).patch"     # staged half: git diff --cached
+git apply "$SP/wip-1786.patch"                # deterministic restore, no shared stack
+
+# DO — or a plain copy outside the tree, when the change set is small
+cp -a src/thing.rs "$SP/thing.rs.bak"
+
+# DO NOT — park work on a stack every sibling worktree can list and pop
+git stash -u
+git stash push -m "mine"                      # a message LABELS, it does not SCOPE
+```
+
+**Verifying the hazard for yourself** (both poles, from a repo carrying a linked worktree):
+
+```bash
+git worktree list                     # >1 line ⇒ the stash stack is shared
+git stash list | wc -l                # run in main AND in the linked tree: SAME count
+```
+
+### BLOCKED rationalizations
+
+- "the stash is per-worktree like the index" — it is NOT; the index and `HEAD` are per-worktree, `refs/stash` is in the common dir
+- "`git.md` recommends `git stash -u` as the safe alternative" — it no longer does; that endorsement WAS the defect Rule 9 closes
+- "no sibling would pop MY stash" — a sibling pops to recover its OWN parked work and cannot tell whose entry is on top
+- "I'll name it with `git stash push -m`" — a message labels the entry; `pop` still takes the top one
+- "only one worktree is active right now" — Rule 8's own forest census measured 54 trees on one clone
+- "it is recoverable from the stash reflog" — after a sibling POPS it, the entry is dropped and the changes live in the SIBLING's tree, not yours
+- "I'll `git stash apply` instead of `pop`, so nothing is dropped" — `apply` still writes another agent's changes into YOUR tree, and leaves an entry the owner may now double-apply
+
+**Why the corpus needed a rule for this.** Every other parallel-work hazard in `worktree-isolation.md` is bounded BY the worktree boundary — separate index, separate `HEAD`, separate cwd. The stash is the one primitive that reaches ACROSS it, which is exactly why it reads as safe and is not, and why `git stash -u` survived as a recommendation inside the corpus's own destructive-ops rule until a downstream consumer hit it and relayed it upstream.
+
 ## Related rules & skills
 
+- `rules/worktree-isolation.md` Rule 9 — the shared-`.git` stash contract this section carries the depth for
 - `rules/agents.md` § Worktree Orchestration — the load-bearing MUST cluster this skill carries the depth for (one structural assertion per clause in the rule; protocol, templates, BLOCKED corpora + post-mortems here)
 - `rules/orphan-detection.md` — §1 (facade call site) and §6 (`__all__` eager import) are what the mechanical sweep verifies
 - `skills/30-claude-code-patterns/parallel-merge-workflow.md` — merge-step patterns for collecting worktree branches into an integration branch

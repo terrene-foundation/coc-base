@@ -19,6 +19,18 @@ these are project self-coordinates, not client/3rd-party secrets, and
 the `nonown-still-flagged` fixture's `acme-corp` / `/Users/notesperie/`
 tokens are invented synthetics.
 
+**Surface scope of the Option-1 ruling (GAP D, ratified 2026-07-26).** The
+own-coordinate ruling covers the **INSTANTIATION** surface as well as the SYNC
+surface. Handing someone a client-template edition, or a repo generated FROM
+this checkout, is a publish event in the same sense a sync is
+(`artifact-flow.md` § "The source of instantiation MUST be clean at rest"), so
+the same own-coordinate reasoning applies there and needs no separate ruling.
+The allowance stays scoped to the maintainer's OWN dev-home prefix on BOTH
+surfaces: an instantiation carrying a DIFFERENT operator's home path is flagged
+on the instantiation surface exactly as `nonown-still-flagged` proves it is on
+the sync surface. Documentation-only — no fixture, allowlist, or scanner
+behaviour changes with this note.
+
 | Fixture                                  | Scans (`--root`)                                                                                  | Expects             | Predicate locked                                                                                                                                                            |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `flag-each-shape/`                       | a synced tree planting all 5 structural shapes                                                    | exit 1              | each of the 5 shapes (hostname, org-slug, runner-label, home-path, service-label) flags ≥1                                                                                  |

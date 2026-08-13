@@ -29,12 +29,20 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { execFileSync, spawnSync } = require("child_process");
+const { spawnSync } = require("child_process");
 // #867: stamp each ephemeral GPG/SSH homedir with a pid-liveness ownership
 // marker so the background reaper (coord-background.js::reapStaleGpgHomedirs)
 // spares a LIVE fold's homedir mid-use instead of reaping by a time window.
 // coord-background requires only node builtins → no require cycle.
-const { writeFoldPidFile } = require("./coord-background.js");
+// teardownGpgHomedir + writeEphemeralAgentConf live in coord-background.js (the
+// module that also OWNS the leaked-homedir reaper) so there is exactly ONE
+// bounded teardown path in the ecosystem — a second copy here would drift from
+// the reaper's, which is how three independent unbounded call sites arose.
+const {
+  writeFoldPidFile,
+  writeEphemeralAgentConf,
+  teardownGpgHomedir,
+} = require("./coord-background.js");
 
 const SSH_NAMESPACE = "coc-multi-operator";
 
@@ -325,7 +333,10 @@ function _verifyGpg(content, sig, pubKeyArmored, gpgHome, expectedFpr) {
   const home =
     gpgHome || fs.mkdtempSync(path.join(os.tmpdir(), "coc-sign-gpg-vfy-"));
   const ownsHome = !gpgHome;
-  if (ownsHome) writeFoldPidFile(home); // #867 pid-liveness ownership marker
+  if (ownsHome) {
+    writeFoldPidFile(home); // #867 pid-liveness ownership marker
+    writeEphemeralAgentConf(home); // before the first gpg call starts the agent
+  }
   try {
     if (ownsHome) {
       const r1 = spawnSync("gpg", ["--homedir", home, "--import", "--batch"], {
@@ -393,20 +404,10 @@ function _verifyGpg(content, sig, pubKeyArmored, gpgHome, expectedFpr) {
     }
     return { ok: true, valid: true };
   } finally {
-    if (ownsHome) {
-      try {
-        execFileSync("gpgconf", ["--homedir", home, "--kill", "all"], {
-          stdio: "ignore",
-        });
-      } catch {
-        // gpgconf may be absent; rmSync still proceeds
-      }
-      try {
-        fs.rmSync(home, { recursive: true, force: true });
-      } catch {
-        // best-effort temp cleanup
-      }
-    }
+    // Runs on BOTH the success and the failure path (it is a `finally`), and
+    // teardownGpgHomedir's bounded gpgconf call is what keeps that true — an
+    // unbounded one hangs here forever and the rmSync never executes.
+    if (ownsHome) teardownGpgHomedir(home);
   }
 }
 
@@ -447,6 +448,7 @@ function createVerifyHomedir(pubKeys) {
     };
   }
   writeFoldPidFile(home); // #867 pid-liveness ownership marker (shared-fold homedir)
+  writeEphemeralAgentConf(home); // before the first import starts the agent
   for (const pub of pubKeys) {
     if (typeof pub !== "string" || !pub) {
       destroyVerifyHomedir(home);
@@ -484,19 +486,7 @@ function createVerifyHomedir(pubKeys) {
  * @param {string} home - the homedir returned by createVerifyHomedir.
  */
 function destroyVerifyHomedir(home) {
-  if (!home || typeof home !== "string") return;
-  try {
-    execFileSync("gpgconf", ["--homedir", home, "--kill", "all"], {
-      stdio: "ignore",
-    });
-  } catch {
-    // gpgconf may be absent; rmSync still proceeds.
-  }
-  try {
-    fs.rmSync(home, { recursive: true, force: true });
-  } catch {
-    // best-effort temp cleanup
-  }
+  teardownGpgHomedir(home);
 }
 
 // ---- public API -------------------------------------------------------------

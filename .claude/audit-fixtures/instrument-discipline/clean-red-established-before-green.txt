@@ -1,0 +1,45 @@
+Fix report — lease liveness (#1571)
+
+The defect: `acquireCodifyLease` never checked whether the recorded pid was still alive, so a
+crashed session held the lease until a human deleted the file. I added a liveness probe before the
+O_EXCL acquire.
+
+Before reading any green I established the red, because a suite that passes identically with and
+without the fix would report the same 31/31 either way. I stashed the fix and ran the suite:
+
+    $ git stash && node --test .claude/test-harness/tests/codify-lease.test.mjs
+    # tests 31
+    # pass 30
+    # fail 1
+    not ok 14 - stale lease from a dead pid is reclaimed
+
+One failure, and it is the test named for the behaviour I changed. That is the red. Restoring the
+fix:
+
+    $ git stash pop && node --test .claude/test-harness/tests/codify-lease.test.mjs
+    # tests 31
+    # pass 31
+    # fail 0
+
+31 of 31. The green is readable now: the same suite distinguished the fix's presence from its
+absence on the row that names the behaviour.
+
+I ran the same stash-and-restore against the sibling capability-lease suite, since #1571's fix was
+ported there in the same shard, rather than assuming the port inherited the first suite's
+discrimination:
+
+    $ git stash && node --test .claude/test-harness/tests/capability-lease.test.mjs
+    # pass 17
+    # fail 1
+    not ok 9 - dead holder pid does not block acquisition
+    $ git stash pop && node --test .claude/test-harness/tests/capability-lease.test.mjs
+    # pass 18
+    # fail 0
+
+Red established there too, on its own named row, then green.
+
+Residual I am NOT claiming closed: the SessionEnd auto-release (todo #32) is still open and this
+change does not address it. A lease held by a session that exits cleanly without releasing will
+still linger until the TTL expires. That is tracked separately and is out of this shard's scope.
+
+Net: liveness check landed at both sites, each with its red established before its green was read.

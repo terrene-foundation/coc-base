@@ -49,7 +49,12 @@ the per-file action rather than substring-matching the plan — `action:copy rea
 on the USE lane (`--target rs`) AND the BUILD lane (`--build rs`). The falsifying result is
 producible by that same instrument and was NOT observed: the sibling
 `test-harness/probes/instrument-discipline.probes.jsonl` row in the same output reads
-`action:skip reason:exclude`.
+`action:skip reason:exclude`. (That path is the file as it stood AT THAT MEASUREMENT; the
+suite has since graduated to `test-harness/probes/instrument-discipline.probes.json` and the
+`.jsonl` is deleted. The historical reading above is left verbatim rather than restated over
+the new path, because re-running the plan needs an operator `loom-links.local.json` this
+graduation session did not have — so the new file's lane action is UNMEASURED here, not
+assumed to match.)
 
 **The defect is CLI-EXCLUSION, not tier.** Both the old and new homes are the SAME `cc` tier —
 `skills/30-claude-code-patterns/**` and `guides/rule-extracts/**` are both inside the `cc:`

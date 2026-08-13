@@ -23,7 +23,7 @@ Peer to cc-architect and codex-architect. Owns the Gemini-facing substrate of ev
 OWNER:
 
 - `.gemini/**` — Gemini config tree: `settings.json`, `GEMINI.md`, `agents/`, `commands/`, `skills/`, `extensions/`, `policies/`, `storage/`. Repo-local; user-global at `~/.gemini/`; system-wide at `/etc/gemini-cli/settings.json` (Linux) or `/Library/Application Support/GeminiCli/` (macOS)
-- `.gemini/agents/<specialist>.md` — native subagent definitions, one per CC specialist (dataflow, nexus, kaizen, mcp, pact, ml, align, etc.)
+- `.gemini/agents/<specialist>.md` — native subagent definitions, one per **globally-declared** CC specialist (dataflow, nexus, kaizen, mcp, pact, ml, align, etc.). NOT one per CC specialist without qualification: a `variant_only` specialist (declared under `sync-manifest.yaml::variant_only.<lang>`, body living at `variants/<lang>/agents/…`) reaches the CC lane ONLY. The per-CLI emitter reads the GLOBAL `agents/` tree, while the sync overlay ADDS variant_only files to the target afterwards, so the emitter never sees them. Those are declared in `cli_emit_exclusions` for both non-CC lanes; do not read this line as promising emission for them.
 - `.gemini/commands/<name>.toml` — TOML slash commands (NOT Markdown — diverges from CC and Codex). This is the canonical Gemini slash-command surface — bash-wrapper emission to `bin/coc-*` was deferred at Shard C (2026-05-10, journal/0006) and is no longer the architect's responsibility.
 - `.gemini/skills/<nn-name>/SKILL.md` — progressive-disclosure skills (same contract as CC SKILL.md)
 - `.geminiignore` — mirror of `.gitignore` patterns for context-loading exclusions

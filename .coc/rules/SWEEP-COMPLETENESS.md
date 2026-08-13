@@ -1,6 +1,6 @@
 ---
 id: "SWEEP-COMPLETENESS"
-paths: [".claude/commands/sweep.md", ".claude/commands/redteam.md", ".claude/commands/codify.md", ".claude/commands/wrapup.md", ".claude/commands/cc-audit.md", ".claude/commands/cli-audit.md", ".claude/commands/i-audit.md", ".claude/commands/i-harden.md", ".claude/commands/i-polish.md", ".claude/skills/sweep/**", ".claude/skills/redteam/**", ".claude/skills/codify/**", ".claude/skills/spec-compliance/**", "**/redteam-*.md", "**/sweep-*.md", "**/04-validate/**"]
+paths: [".claude/commands/sweep.md", ".claude/commands/redteam.md", ".claude/commands/codify.md", ".claude/commands/wrapup.md", ".claude/commands/cc-audit.md", ".claude/commands/cli-audit.md", ".claude/commands/i-audit.md", ".claude/commands/i-harden.md", ".claude/commands/i-polish.md", ".claude/skills/sweep/**", ".claude/skills/spec-compliance/**", "**/redteam-*.md", "**/sweep-*.md", "**/04-validate/**"]
 ---
 
 # Sweep / Multi-Step Protocol Completeness

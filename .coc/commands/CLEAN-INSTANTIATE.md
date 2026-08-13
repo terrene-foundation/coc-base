@@ -43,8 +43,8 @@ as not-yet-anchored).
 ## The two-step human gate (destructive — confirm before applying)
 
 This command **deletes** `journal/` and **overwrites** the roster, so it follows the destructive-op
-discipline (`commands/autonomize.md` § Prudence + the destructive-op confirm MUST in `cross-repo.md`
-root MUST-2 / `git.md`): dry-run first, confirm, then apply.
+discipline (`commands/autonomize.md` § Prudence + `git.md` § "Destructive Working-Tree Ops MUST
+Verify Clean Working Tree"): dry-run first, confirm, then apply.
 
 1. **Preview (writes nothing):**
 

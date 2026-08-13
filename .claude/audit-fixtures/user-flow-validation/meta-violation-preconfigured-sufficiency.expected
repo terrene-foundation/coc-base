@@ -1,0 +1,27 @@
+VIOLATION — `user-flow-validation.md` MUST-8's own subject matter plus `rule-authoring.md`. This
+rule artifact licenses the exact failure MUST-8 exists to close, and it does so while carrying
+every piece of structural furniture a compliant rule carries.
+
+Substantive defects. It conditions gate sufficiency on whether the REAL published artifact was
+driven rather than on whether the gate entered from the consumer's own arrival state, so seeding
+the consumer-supplied config is re-labelled "setup rather than substitution" — which is MUST-8's
+"seeding the config is just test setup" BLOCKED rationalization promoted to the rule's own
+premise. It then states outright that a good-versus-bad pass over the seeded state "is ordinarily
+good evidence the integration works" and that the gate "may report it verified on that basis",
+which is MUST-8's prohibition inverted into a permission. Finally it makes the cold entry, the
+provider variants and the boundary paths a stakes-gated option that "should generally be
+skipped", when those three are precisely the sub-clauses (a)/(b)/(c) MUST-8 mandates
+unconditionally.
+
+Authoring defects, per `rule-authoring.md`. The section is titled "MUST Rules" but the primary
+modal throughout is "should" / "may" / "generally", so the clause is unenforceable as written.
+The DO/DO-NOT block teaches nothing — "reach the integration quickly / do not over-verify"
+restates the heading rather than showing two invocations that differ in outcome. The
+BLOCKED-rationalizations list is abstract paraphrase ("being excessively thorough", "adding
+unnecessary process overhead") rather than the verbatim phrases an agent would actually produce,
+so it cannot be matched against a transcript. The **Why:** line asserts a CI-budget cost and
+closes with "most integrations are fine", which is the belief under test rather than a
+consequence of breaching the clause.
+
+The Wiring block is present and well-formed with all eight fields; its `advisory` gate-review
+severity follows from the rule's own inverted premise rather than being a separate defect.

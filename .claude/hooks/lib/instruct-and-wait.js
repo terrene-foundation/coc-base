@@ -36,14 +36,28 @@ function buildValidationBody({
   agent_must_report,
   agent_must_wait,
 }) {
+  // loom#1590 — PROSE REGISTER IS LOAD-BEARING; the heads must be readable as
+  // an outcome, not just a mood.
+  //
+  // Both `block` and `halt-and-report` used to open "STOP — ", so the only
+  // thing separating "your call was denied" from "your call already ran" was
+  // whether the tool result happened to carry an error. That is not a
+  // distinction an agent can make from the TEXT, and the two guards are
+  // otherwise identical in register. Observed consequence: an agent read an
+  // advisory posture-gate halt as a block, and separately an agent committed
+  // under one — the hook text arrived in the same tool result as the successful
+  // exit code. Every non-block head now states the ACTION'S FATE in its first
+  // words, so the outcome is legible without inspecting the transport.
   const head =
     severity === "block"
-      ? "STOP — Tool call blocked."
+      ? // Kept verbatim: it is the one head that means "did not run", and
+        // settings-deny-edit-guard.test.mjs pins this exact string.
+        "STOP — Tool call blocked."
       : severity === "halt-and-report"
-        ? "STOP — Action requires acknowledgement."
+        ? "NOT BLOCKED — the action ALREADY RAN. Report it and wait."
         : severity === "post-mortem"
-          ? "POST-MORTEM — Recorded for next session."
-          : "ADVISORY — Acknowledge in next message.";
+          ? "POST-MORTEM — already happened; recorded for next session."
+          : "ADVISORY — the action proceeded. Acknowledge in next message.";
   const reportBlock =
     Array.isArray(agent_must_report) && agent_must_report.length
       ? "REPORT TO USER (do not skip any):\n" +

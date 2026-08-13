@@ -20,6 +20,8 @@ Use gold-standards when asking about best practices, standards, gold standards, 
 - **[gold-parameter-passing](gold-parameter-passing.md)** - 4-parameter connections + dict result access
   - `workflow.add_connection(source_id, source_param, target_id, target_param)`
   - `results["node_id"]["result"]` (not `results["node_id"].result`)
+- **[gold-typescript-phantom-fields](gold-typescript-phantom-fields.md)** - TS-only: anchor an unused type parameter under `noUnusedLocals` instead of deleting it
+  - `readonly __filterShape?: TFilters` tagged `@phantom` — not dead code, do not clean it up
 
 ### Testing
 

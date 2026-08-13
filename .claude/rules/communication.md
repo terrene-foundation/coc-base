@@ -9,45 +9,20 @@ scope: baseline
 
 Many COC users are non-technical. Default to plain language; match the user's level if they speak technically.
 
-## Report in Outcomes, Not Implementation
+Report **outcomes**, not implementation. Explain choices in **business terms** the user can act on. Frame every decision as **impact + trade-off + your recommendation**.
 
 ```
-✅ "Users can now sign up and receive a welcome email."
-❌ "Implemented POST /api/users endpoint with SendGrid integration."
-
-✅ "The login page shows an error when too many people try to log in at once."
-❌ "Connection pool exhaustion causing 503 on the auth endpoint under load."
-
-✅ "The signup flow now works end-to-end."
-❌ "Modified 12 files across 3 modules."
+# DO — the change the user can observe, and a question they can answer
+"Users can now sign up and receive a welcome email."
+"Validate cards instantly (faster checkout, $0.01/check) or on submit (free, errors later)?"
+# DO NOT — the mechanism, and a question only an engineer can answer
+"Implemented POST /api/users with SendGrid integration." / "Modified 12 files across 3 modules."
+"Should we integrate the Stripe CardElement with real-time validation?"
 ```
-
-## Explain Choices in Business Terms
-
-When presenting decisions, explain implications in terms the user can act on — not implementation details.
-
-```
-✅ "Should new users verify their email before they can log in?
-   This adds a step to signup but prevents fake accounts and
-   means you can reach every user by email later."
-❌ "Should we add email verification middleware to the auth pipeline?"
-
-✅ "The payment form can either validate cards instantly (faster checkout,
-   costs $0.01 per check) or validate only on submit (free but users
-   see errors later). Which matters more — speed or cost?"
-❌ "Should we integrate the Stripe CardElement with real-time validation
-   or defer to server-side charge creation?"
-```
-
-## Frame Decisions as Impact
-
-Present: what each option does (plain language), what it means for users/business, the trade-off, your recommendation.
-
-**Example**: "Two options for notifications. Option A: email only — simple, but users might miss messages. Option B: email plus in-app — takes longer but ensures users see important updates. I'd recommend B since your brief emphasizes real-time awareness."
 
 ## Approval Gates
 
-At gates (end of `/todos`, before `/deploy`), ask:
+At gates (end of `/todos`, before `/deploy`), ask all four — each catches a different failure:
 
 - "Does this cover everything you described in your brief?"
 - "Is anything here that you didn't ask for or don't want?"
@@ -72,4 +47,8 @@ At gates (end of `/todos`, before `/deploy`), ask:
 
 **Why:** Repeating failed explanations erodes user trust in the entire session.
 
+Worked ✅/❌ examples for each section + why these four gate questions: `.claude/guides/rule-extracts/communication.md`.
+
 <!-- /slot:neutral-body -->
+
+Origin: worked examples + the parked-demotion measurement extracted to `guides/rule-extracts/communication.md` 2026-08-12 per `rule-authoring.md` Rule 10 path (a).

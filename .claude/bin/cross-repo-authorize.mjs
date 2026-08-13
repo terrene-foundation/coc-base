@@ -12,9 +12,12 @@
  * outside a codify session, and the exception was unsatisfiable in exactly the
  * sessions (normal downstream work) where it is needed.
  *
- * The receipt lives at `.claude/cross-repo-authz/<date>-<slug>.md` — NOT under
- * `journal/`, NOT under the integrity-guarded `.claude/learning/`. It is a
- * working-tree file, greppable within the hook's mtime window; ENFORCEMENT never
+ * The receipt lives at `.claude/cross-repo-authz/<date>-<slug>-<digest8>.md` — NOT
+ * under `journal/`, NOT under the integrity-guarded `.claude/learning/`. It is a
+ * working-tree file, greppable within the guard's FRONTMATTER-TIMESTAMP window
+ * (`violation-patterns.js::_receiptTimestampMs` parses the receipt's own
+ * `timestamp:`/`date:` field; filesystem mtime is explicitly REPUDIATED there
+ * because git rewrites it on checkout / worktree-add / clone). ENFORCEMENT never
  * consults git, so an uncommitted receipt clears `repo-scope-discipline.md`
  * condition 4 identically to a committed one.
  *
@@ -54,6 +57,7 @@
 
 import fs from "fs";
 import path from "path";
+import { createHash } from "crypto";
 import { execFileSync } from "child_process";
 
 const TARGET_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
@@ -100,8 +104,10 @@ function repoToplevel(startDir) {
 }
 
 // Deterministic date + slug — this is a normal node CLI (NOT a workflow
-// script), so Date is available; the receipt filename is timestamped for
-// human ordering, but the hook matches on file mtime, not the filename date.
+// script), so Date is available. The leading date is for HUMAN ordering only:
+// the guard ages a receipt by its `timestamp:` FRONTMATTER, never by the
+// filename and never by filesystem mtime (`violation-patterns.js::
+// _receiptTimestampMs`). Nothing downstream parses this filename.
 function isoDateUTC(d) {
   return d.toISOString().slice(0, 10);
 }
@@ -112,6 +118,76 @@ function slugify(s) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 48);
+}
+
+/**
+ * 8-hex discriminator over the FULL, UNTRUNCATED `(target, action, mode)`
+ * triple. Two properties, both load-bearing (loom RS-71):
+ *
+ *  1. `mode` IS IN THE TRIPLE, DELIBERATELY. Without it a `read` receipt and a
+ *     `write` receipt for the same (target, action) resolve to ONE filename, so
+ *     writing the cheap read receipt DESTROYS the write authorization —
+ *     measured, not theorised: `hasCrossRepoAuthorizationReceipt(t, cwd,
+ *     "write")` went `true` → `false`. That is the ceremony's central tier
+ *     (repo-scope-discipline.md § Affordance, read/write tier D) defeated by the
+ *     filename alone, with exit 0 and no warning. Any future edit that drops
+ *     `mode` from this triple re-opens it; the fixture
+ *     `RS-71-tier-defeat-measured` is the tripwire.
+ *  2. It is computed over the UNTRUNCATED inputs, while `slugify` truncates at
+ *     48 chars. Two distinct actions sharing a 48-char prefix collide in the
+ *     slug and are separated only here.
+ *
+ * The join is LENGTH-PREFIXED so it is injective: no delimiter can be forged
+ * from within a field (`a|b` and `a` + `|b` hash differently).
+ */
+function tripleDigest(target, action, mode) {
+  const parts = [target, action, mode].map((v) => {
+    const s = String(v);
+    return `${s.length}:${s}`;
+  });
+  return createHash("sha256").update(parts.join("|"), "utf8").digest("hex").slice(0, 8);
+}
+
+/**
+ * Create-or-fail write (`flag: "wx"`), never a clobber.
+ *
+ * `writeFileSync` with the default flag SILENTLY overwrites. On this surface the
+ * overwritten bytes are a prior authorization receipt — the ONLY distinguisher
+ * between an authorized and an unauthorized cross-repo action
+ * (repo-scope-discipline.md condition 4: "present = in-scope, absent = critical
+ * L1"). Destroying one silently is the RS-71 defect.
+ *
+ * On EEXIST we do NOT overwrite and do NOT hard-fail: we take the next free
+ * `-2`, `-3`, … suffix, so BOTH receipts survive and the forensic record is
+ * append-only. NAMED DEVIATION from RS-71's stated "create-or-fail": a hard
+ * failure would deadlock a legitimate re-authorization of the same triple after
+ * the 6-hour window expires (same date ⇒ same base name), and the operator's
+ * escape from that deadlock is `rm` — which destroys the receipt this function
+ * exists to preserve. The load-bearing half of "create-or-fail" is that the
+ * write MUST NOT clobber; `wx` + retry holds that exactly. Exhausting the
+ * suffix budget DOES fail loudly rather than falling back to an overwrite.
+ *
+ * Returns the path actually written.
+ */
+const RECEIPT_SUFFIX_BUDGET = 50;
+function writeReceiptNoClobber(dir, baseName, body) {
+  for (let n = 1; n <= RECEIPT_SUFFIX_BUDGET; n++) {
+    const name = n === 1 ? `${baseName}.md` : `${baseName}-${n}.md`;
+    const full = path.join(dir, name);
+    try {
+      fs.writeFileSync(full, body, { mode: 0o644, flag: "wx" });
+      return full;
+    } catch (err) {
+      if (err && err.code === "EEXIST") continue;
+      throw err;
+    }
+  }
+  fail(
+    `refusing to overwrite an existing receipt: ${baseName}.md and ${RECEIPT_SUFFIX_BUDGET - 1} ` +
+      `suffixed siblings all exist in ${dir}. A receipt is the sole distinguisher between an ` +
+      `authorized and an unauthorized cross-repo action; this tool never clobbers one. ` +
+      `Archive or remove the spent receipts, then re-run the ceremony.`,
+  );
 }
 
 /**
@@ -230,8 +306,10 @@ function main() {
   const date = isoDateUTC(now);
   const ts = now.toISOString();
   const slug = slugify(`${target}-${action}`) || "cross-repo";
-  const fileName = `${date}-${slug}.md`;
-  const filePath = path.join(dir, fileName);
+  // `mode` is in the digest DELIBERATELY — see tripleDigest. Without it a read
+  // receipt and a write receipt for one (target, action) share a filename and
+  // the read silently revokes the write.
+  const baseName = `${date}-${slug}-${tripleDigest(target, action, mode)}`;
 
   // The marker line MUST match violation-patterns.js::
   // hasCrossRepoAuthorizationReceipt exactly: `cross-repo-authorized: <slug> <mode>`.
@@ -323,14 +401,18 @@ ${conditionsBlock.map((l) => `- ${l}`).join("\n")}
   .claude/bin/cross-repo-authorize.mjs AFTER the user confirmed the restated
   action+target in chat, and BEFORE the action runs. The hook
   (violation-patterns.js::hasCrossRepoAuthorizationReceipt) greps this file's
-  marker line in the WORKING TREE within its mtime window — not in git — so
-  enforcement does not depend on whether this file is committed.
+  marker line in the WORKING TREE — not in git — so enforcement does not depend
+  on whether this file is committed. It ages the receipt by the timestamp:
+  FRONTMATTER above (a 6h window, two-sided against a future-dated typo), and
+  NOT by filesystem mtime: git rewrites mtime on checkout / worktree-add /
+  clone, so mtime is not a reliable authorization-age bound. Editing that
+  timestamp: field is editing the authorization's expiry.
 
   ${localityNote}
 -->
 `;
 
-  fs.writeFileSync(filePath, body, { mode: 0o644 });
+  const filePath = writeReceiptNoClobber(dir, baseName, body);
 
   const rel = path.relative(root, filePath);
   const result = {
@@ -361,7 +443,8 @@ ${conditionsBlock.map((l) => `- ${l}`).join("\n")}
       : [
           `  1. DO NOT COMMIT this receipt — leave it on disk (this repo is type: ${repoClass || "unknown"}, not coc-source).`,
           `       loom's sync gitignores .claude/cross-repo-authz/ here; the guard greps the`,
-          `       WORKING TREE within an mtime window, so enforcement is unaffected. Committing`,
+          `       WORKING TREE and ages this receipt by its own timestamp: frontmatter (6h),`,
+          `       not by git, so enforcement is unaffected. Committing`,
           `       would put the requester's display_id in this repo's history, which none of`,
           `       loom's three distribution fences covers.`,
         ];

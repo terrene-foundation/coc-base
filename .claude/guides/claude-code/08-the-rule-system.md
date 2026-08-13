@@ -84,8 +84,8 @@ Most rules carry a `paths:` glob in their frontmatter and inject **only** when t
 
 | Scope            | Count | Behavior                                                              |
 | ---------------- | ----- | -------------------------------------------------------------------- |
-| **Path-scoped**  | 65    | Injected once per session when a matching path is touched (sticky)   |
-| **Baseline**     | 10    | Always-on; the non-negotiable core (e.g. `zero-tolerance.md`, `security.md`, `communication.md`) |
+| **Path-scoped**  | 81    | Injected once per session when a matching path is touched (sticky)   |
+| **Baseline**     | 11    | Always-on; the non-negotiable core (e.g. `zero-tolerance.md`, `security.md`, `agents.md`) |
 
 ### The Authoring Model: Loud / Linguistic / Layered
 
