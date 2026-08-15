@@ -177,3 +177,60 @@ test("does NOT flag: 'gh issue close' inside prose (not a real bash command shap
   const result = detectGhIssueCloseAsNotPlanned(proseLike);
   assert.equal(result, null);
 });
+
+/* ── DATA POSITION vs COMMAND POSITION (loom#1714) ────────────────────────────
+ * The four rows below are the regression lock on the segment-anchoring fix. Each
+ * payload CONTAINS a real, complete `--reason not_planned` invocation as DATA —
+ * written to a file, echoed, quoted into a commit message, or handed to grep as a
+ * search pattern. None of them CLOSES anything, so a finding on any of them is a
+ * false positive against a compliant command.
+ *
+ * MEASURED at the fix: all four FIRED before the routing landed and all four are
+ * quiet after, while every flag-* row above kept firing. Reverting the
+ * `ghCloseSegment(...)` call in detectGhIssueCloseAsNotPlanned REDS these four and
+ * nothing else, which is what makes them readable as a lock rather than decoration.
+ * The `flag-pr-close-wontfix.txt` row above is the paired anti-disarm control: it
+ * REDS if the wide `gh (issue|pr) close` anchor is ever narrowed to the issue-only
+ * one that sibling #13b uses, so a fix that bought quiet by going blind cannot pass
+ * this suite green.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+test("clean: heredoc BODY writing the verb is data, not an invocation", () => {
+  const cmd = readFixture("clean-heredoc-data-position.txt");
+  const result = detectGhIssueCloseAsNotPlanned(cmd);
+  assert.equal(result, null, `expected null; got finding: ${JSON.stringify(result)}`);
+});
+
+test("clean: echo of the verb string is data, not an invocation", () => {
+  const cmd = readFixture("clean-echo-data-position.txt");
+  const result = detectGhIssueCloseAsNotPlanned(cmd);
+  assert.equal(result, null, `expected null; got finding: ${JSON.stringify(result)}`);
+});
+
+test("clean: the verb quoted inside a commit message is prose", () => {
+  const cmd = readFixture("clean-commit-message-prose.txt");
+  const result = detectGhIssueCloseAsNotPlanned(cmd);
+  assert.equal(result, null, `expected null; got finding: ${JSON.stringify(result)}`);
+});
+
+test("clean: the verb as a grep SEARCH PATTERN is data", () => {
+  const cmd = readFixture("clean-grep-pattern-data-position.txt");
+  const result = detectGhIssueCloseAsNotPlanned(cmd);
+  assert.equal(result, null, `expected null; got finding: ${JSON.stringify(result)}`);
+});
+
+test("every committed fixture in this directory is asserted by a test above", () => {
+  // This runner names its fixtures individually rather than enumerating the
+  // directory, so a committed-but-unasserted .txt would sit here contributing
+  // nothing while LOOKING like coverage. Reading the file's own source for each
+  // fixture name is the cheapest instrument that can tell those apart.
+  const HERE = path.dirname(new URL(import.meta.url).pathname);
+  const self = fs.readFileSync(path.resolve(HERE, "test.mjs"), "utf8");
+  const fixtures = fs
+    .readdirSync(HERE)
+    .filter((f) => f.endsWith(".txt"))
+    .sort();
+  assert.ok(fixtures.length >= 16, `expected >=16 fixtures, got ${fixtures.length}`);
+  const orphans = fixtures.filter((f) => !self.includes(`readFixture("${f}")`));
+  assert.deepEqual(orphans, [], `unasserted fixture(s): ${orphans.join(", ")}`);
+});

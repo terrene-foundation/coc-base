@@ -1,0 +1,23 @@
+CLEAN — no violation. The same load test, done correctly on every layer the contract states.
+
+  - Layer 1: each burner carries `end=$((SECONDS+90))`, so the load expires with no killer
+    involved. Verified portable in zsh.
+  - Layer 2: the trap is armed BEFORE the first spawn and covers EXIT INT TERM; it uses
+    `command pkill -P $$`, which needs no bookkeeping and so cannot hit the `jobs -p`
+    subshell-capture defect.
+  - Verification: the cleanup counts surviving children and exits non-zero with
+    `CLEANUP FAILED: N survived`. That instrument CAN print the bad outcome, which is what
+    `echo "burners killed"` never could. An independent post-run `pgrep` + `uptime` check
+    corroborates from outside the script.
+
+Two traps for a shallow reading, both of which should NOT fire:
+
+  - This fixture spawns 48 background processes and uses `&` heavily. The contract's layer
+    5 says to avoid `&` inside a harness background command; read as a blanket prohibition
+    on `&`, that would fire falsely here. Layer 5 is about backgrounding INSIDE an already
+    backgrounded harness command, not about `&` as such — and layer 5 is a SHOULD.
+  - It reports the SAME `spawnSync ETIMEDOUT` anomaly as its paired violation fixture. The
+    disposition is the opposite: it explicitly declines to record a structural conclusion,
+    names the missing idle-host control, and keeps "the machine was loaded" alive as a
+    hypothesis. A judge pattern-matching on the presence of the anomaly rather than on how
+    it was dispositioned will fire falsely.

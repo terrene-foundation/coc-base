@@ -23,7 +23,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { spawnSync, execFileSync } from "node:child_process";
+// loom#1424 — `execFileSync` is gone with V17 half B's per-target subprocess
+// probe; `spawnSync` remains for validator 16's strict-YAML python probe.
+import { spawnSync } from "node:child_process";
 
 // Symlink-safe write. Node's fs.writeFileSync follows symlinks by
 // default, so a TOCTOU attacker can plant a symlink between mkdirSync
@@ -46,6 +48,15 @@ function safeWriteFileSync(filePath, data) {
   }
 }
 
+// The ONE write path for emitted TEXT artifacts here (loom#1684). The terminator
+// contract itself lives in lib/coc-manifest.mjs::ensureTrailingNewline — imported,
+// not re-implemented, so it cannot drift between the three emitters. This module
+// keeps its OWN safeWriteFileSync (deliberately: it does not mkdir, unlike the lib
+// copy), hence a local wrapper rather than the lib's writeTextArtifactSync.
+function writeTextArtifactSync(filePath, text) {
+  safeWriteFileSync(filePath, ensureTrailingNewline(text));
+}
+
 // Symlink-safe read (mirrors safeWriteFileSync to close the read side of the
 // same TOCTOU). O_NOFOLLOW raises ELOOP if the leaf is a symlink — so an
 // artifact-source file swapped for a symlink between an existsSync probe and
@@ -64,12 +75,20 @@ function safeReadFileSync(filePath, encoding) {
   }
 }
 
+// loom#1684 — the emitted-text terminator contract, defined ONCE in the shared
+// manifest lib and imported by all three emitters (emit.mjs / emit-cli-artifacts /
+// emit-coc) so the contract cannot drift across their write sites. Sits with its
+// sibling `./lib/*` imports rather than in the node-builtin block above: this file
+// has SEVERAL import clusters by pre-existing design (23-26, here, 89, 94, 107,
+// 117, 130), so hoisting only this one out would be less consistent, not more.
+import { ensureTrailingNewline } from "./lib/coc-manifest.mjs";
 import { parseSlotsV5, applyOverlay } from "./lib/slot-parser.mjs";
 import { resolveOverlay } from "./lib/variant-overlay.mjs";
 // loom#1501 (L4) — the two emission axes, declared ONCE. Previously three
 // literals apiece across emit.mjs / validate-emit.mjs / validate-proximity-band.mjs,
 // kept aligned by prose; the proximity-band copy had already drifted to a
-// 3-lane set that rejected `--lang rb` and `--lang prism`. Rationale, the
+// 3-lane set that rejected `--lang prism` (and `--lang rb`, then still a
+// declared lane; rb was retired as a lane 2026-08-11). Rationale, the
 // measured drift, and why the set is a DECLARATION rather than a disk probe:
 // see the module header.
 import { EMIT_LANGS, EMIT_CLIS } from "./lib/emit-axes.mjs";
@@ -1447,7 +1466,18 @@ export function emitBaseline(cli, outDir, { lang = null, verbose = false, dryRun
   // rule. `chunks.join` only places separators *between* chunks; without
   // this the final byte lands inside Rule 6a's "Why" paragraph and the
   // file looks truncated to a Codex/Gemini reader.
-  const emission = chunks.join("\n---\n\n").replace(/\n+$/, "") + "\n\n---\n";
+  // loom#1684 F3 — normalize BEFORE measuring, so the byte count describes the
+  // artifact that actually lands on disk. `writeTextArtifactSync` applies the
+  // terminator contract at write time; measuring the pre-normalization string
+  // would let the two drift. They are equal TODAY only by coincidence of
+  // construction (the suffix above already ends in exactly one LF, so the helper
+  // is a no-op) — and that coincidence is load-bearing, because the injection
+  // budget is at its ceiling and `validate-proximity-band` parses the headroom
+  // computed from this number. Any future edit to that suffix would silently
+  // desynchronize the budget from the emitted file.
+  const emission = ensureTrailingNewline(
+    chunks.join("\n---\n\n").replace(/\n+$/, "") + "\n\n---\n",
+  );
   const emissionBytes = Buffer.byteLength(emission, "utf8");
 
   // #423 AC#4 — binding-token regression guard (pure fn exported above for
@@ -1461,7 +1491,19 @@ export function emitBaseline(cli, outDir, { lang = null, verbose = false, dryRun
   const allCaps = loadCliCaps();
   const caps = allCaps[cli] || {
     warn_cap_bytes: 32768,
-    block_cap_bytes: 61440,
+    // 65536 mirrors sync-manifest.yaml's co-owner-approved 61440 → 65536 raise
+    // (2026-08-12, plan §3.2 option (b)). PARITY IS THE CONTRACT, enforced by
+    // emit-class-blind-manifest-reads.test.mjs::F1394-C: a manifest-less
+    // consumer reading a stale fallback would be gated at a cap loom's own gate
+    // no longer applies, and would ship a baseline loom would reject.
+    //
+    // NOTE the asymmetry this creates, recorded rather than left to be found:
+    // the manifest grant carries a 2027-02-12 EXPIRY; this constant carries no
+    // expiry mechanism. When the grant lapses the manifest reverts and F1394-C
+    // reds again, which is the intended signal — but it fires at the NEXT edit,
+    // not on the expiry date. Do not read this constant as an independent
+    // authorization for 65536; it is a mirror, and the manifest is the source.
+    block_cap_bytes: 65536,
     headroom_floor_pct: 10,
   };
   const WARN_CAP = caps.warn_cap_bytes;
@@ -1549,7 +1591,7 @@ export function emitBaseline(cli, outDir, { lang = null, verbose = false, dryRun
 
   if (!dryRun) {
     fs.mkdirSync(outDir, { recursive: true });
-    safeWriteFileSync(outPath, emission);
+    writeTextArtifactSync(outPath, emission);
   }
 
   const headroomBytesForReport = Math.max(0, BLOCK_CAP - emissionBytes);
@@ -1610,7 +1652,7 @@ export function emitBaseline(cli, outDir, { lang = null, verbose = false, dryRun
     };
   }
 
-  safeWriteFileSync(
+  writeTextArtifactSync(
     reportPath,
     JSON.stringify(
       {
@@ -2490,7 +2532,58 @@ export function validateManifestYaml(
 // WORSE than the split: it would leave the consumer-protecting half A unrun
 // forever, which is exactly the state the crash produced. So half A runs
 // everywhere; half B is gated on the owner class and reports `skipped`.
-export function validateRosterSchemaCoupling() {
+// ────────────────────────────────────────────────────────────────
+// loom#1424 defect 2 — a validator MUST NOT announce a failure while naming
+// nothing.
+//
+// Every `VALIDATOR N FAIL` body in main() was rendered as
+// `v.failures.map((l) => "  " + l).join("\n")`. On an empty (or all-blank)
+// `failures` array that renders to the EMPTY STRING, so the operator gets a
+// header and a void: a verdict with no cause, indistinguishable from a
+// reporting bug, and un-actionable either way. That is a non-discriminating
+// instrument in the sense of rules/instrument-discipline.md — the output is
+// identical whether the validator found something it failed to report or
+// returned `pass:false` by mistake.
+//
+// Routing every render through here makes the empty body unreachable: the
+// function either names the offenders, or names the reporting defect itself.
+//
+// WHAT THIS DELIBERATELY DOES NOT DO: force `pass:true` when the list is empty.
+// That would convert a reporting bug into a silent green — the exact
+// silent-fallback shape rules/zero-tolerance.md Rule 3 blocks — and would let a
+// genuine finding vanish. A loud, named, blocking report is the correct
+// disposition for "the validator failed and cannot say why".
+//
+// Blank-but-present entries are filtered BEFORE the count, because
+// `["", "  "]` renders to whitespace and reads to a human exactly like the
+// empty case it is meant to exclude.
+export function renderValidatorFailureBody(validatorId, failures) {
+  const items = Array.isArray(failures)
+    ? failures.filter((l) => typeof l === "string" && l.trim() !== "")
+    : [];
+  if (items.length === 0) {
+    return (
+      `  REPORTING DEFECT (loom#1424): validator ${validatorId} returned ` +
+      `pass:false while naming ZERO offending items` +
+      (Array.isArray(failures)
+        ? ` (failures[] had ${failures.length} entr${failures.length === 1 ? "y" : "ies"}, ` +
+          `none of them non-blank)`
+        : ` (failures was not an array: ${typeof failures})`) +
+      `.\n` +
+      `  A failure that names no cause cannot be acted on and cannot be told ` +
+      `apart from a reporting bug (rules/instrument-discipline.md).\n` +
+      `  The emit is BLOCKED rather than passed: an empty finding list is not ` +
+      `evidence of a clean tree. Fix the validator so every pass:false return ` +
+      `is preceded by a failures.push() naming the offender, then re-run.`
+    );
+  }
+  return items.map((l) => "  " + l).join("\n");
+}
+
+// Async since loom#1424 — half B lazily imports sync-tier-aware.mjs (see the
+// import note at the half-B boundary below). Half A is unchanged and still
+// returns before any await, so a consumer-class run does no extra work.
+export async function validateRosterSchemaCoupling() {
   const hooksRoot = path.join(REPO, ".claude", "hooks");
   const schemaPath = path.join(REPO, ".claude", "operators.roster.schema.json");
 
@@ -2595,70 +2688,97 @@ export function validateRosterSchemaCoupling() {
   // target's plan while leaving the tier-declaration intact. The text
   // check would pass; only the end-to-end dry-run sees the drift.
   //
-  // Per journal/0162 § F70 acceptance. Subprocess cost: ~1-2s per
-  // target × 5 targets ≈ 5-10s. Borne at /codify validation time, not
-  // at every emit.mjs invocation; opt-in via an env var would defeat
-  // the regression-lock so the deep check is unconditional.
+  // Per journal/0162 § F70 acceptance.
+  //
+  // ── loom#1424: WHY THIS IS AN IN-PROCESS CALL AND NOT A SUBPROCESS ──────────
+  // This sweep used to spawn `sync-tier-aware.mjs --target <t> --dry-run --json`
+  // once per target under `timeout: 20000`. That made V17's VERDICT a function
+  // of MACHINE LOAD rather than of the tree, and it is what made the
+  // `COC Artifact Eval (structural)` required check flaky.
+  //
+  // MEASURED, not inferred (this worktree, 16 cores):
+  //   - the 8-lane fan-out in emit-shape.test.mjs runs 8 emitters concurrently,
+  //     so 8 of these probes are in flight at once;
+  //   - at load-average 275 the slowest probe took   5702 ms (3.51x headroom);
+  //   - with 48 CPU burners added it took           10159 ms (1.97x headroom).
+  //     Probe duration is a MONOTONE function of contention — the budget is
+  //     reachable, and a CI runner is a noisy-neighbour box by construction.
+  //   - driving the budget below the observed duration reproduced the reported
+  //     signature EXACTLY on an unchanged tree: `[validator-17]
+  //     roster-schema-coupling: FAIL` + exit 1, with the ETIMEDOUT rendered as
+  //     though the TARGET were misdeclared ("if the target is intentionally
+  //     retired, remove it from declaredTargets") — a load artefact wearing the
+  //     grammar of a distribution defect.
+  //   - the issue's decisive signature (V17 PASS at one log line, FAIL at a
+  //     later one in the SAME job) is exactly what a per-process wall-clock
+  //     budget produces across lanes that meet different instantaneous load.
+  //
+  // The fix is not a longer timeout and not a retry — both leave the verdict
+  // load-dependent. It is to delete the wall clock from the measurement: call
+  // the SAME plan builder `sync-tier-aware.mjs::main()` calls, in-process.
+  // There is then no budget for contention to breach, and the verdict is a pure
+  // function of the tree.
+  //
+  // NOTHING V17 ASSERTS IS GIVEN UP. V17 only ever read `plan.files[]` and
+  // `plan.tier_subscriptions[]`, and BOTH are produced by `buildPlan` alone
+  // (sync-tier-aware.mjs:2736-2738) — never by `executePlan`, whose `results`
+  // V17 never touched. Byte-equality of the two paths for all four targets is
+  // MEASURED and pinned by a regression test, so the end-to-end claim survives:
+  // emit-shape.test.mjs § "loom#1424 — V17 half B's in-process plan is the
+  // SAME plan the sync-tier-aware BINARY emits". That pin pays the subprocess
+  // ONCE, serially, instead of 32 times across 8 concurrent lanes.
+  //
+  // The `--out` flag is gone with the subprocess. It existed only to bypass the
+  // loom-links resolver; `buildPlan` never resolves a target's on-disk location,
+  // so the validator stays operator-portable for the same reason, one layer up.
   // loom#1501 (L4) — the module-level EMIT_LANGS, not a second inline literal.
   // V17's declared targets and `--lang`'s accepted lanes are the SAME axis; two
   // copies is the shape where retiring a lane updates one and leaves the other.
   const declaredTargets = EMIT_LANGS;
-  const syncTierAwarePath = path.join(REPO, ".claude", "bin", "sync-tier-aware.mjs");
   const SCHEMA_PLAN_PATH = ".claude/operators.roster.schema.json";
-  // Use a synthetic --out path so the loom-links resolver is bypassed:
-  // V17 inspects the dry-run plan only, never writes, never actually
-  // resolves the target's on-disk location. This makes the validator
-  // operator-portable — it passes on every workstation regardless of
-  // which targets the operator has cloned locally.
-  const syntheticOut = path.join(REPO, ".claude", "bin", "v17-probe-out");
+  // LAZY import, deliberately — the loom#1538 precedent above (loadExtractPolicies)
+  // is the same hazard: emit.mjs is FORCE-SHIPPED to consumers
+  // (sync-tier-aware.mjs::ALWAYS_INCLUDE:531) but sync-tier-aware.mjs is NOT, so a
+  // top-level `import` would make emit.mjs fail at MODULE LOAD with
+  // ERR_MODULE_NOT_FOUND on every consumer — unusable as a gate. Half B is already
+  // gated on the manifest-owner class above, so the import is only ever reached
+  // where the module exists.
+  let buildSyncPlan;
+  let syncManifest;
+  try {
+    const mod = await import(
+      pathToFileURL(path.join(REPO, ".claude", "bin", "sync-tier-aware.mjs")).href
+    );
+    buildSyncPlan = mod.buildPlan;
+    // Loaded ONCE for the whole sweep: main() reads the manifest once per
+    // invocation too, so this is the same read, not a cheaper approximation.
+    syncManifest = mod.loadManifest();
+  } catch (err) {
+    failures.push(
+      `V17 (F70 end-to-end): could not load .claude/bin/sync-tier-aware.mjs to build the ` +
+        `distribution plan: ${err && err.message ? err.message.slice(0, 200) : String(err).slice(0, 200)}. ` +
+        `Half B runs only at the manifest-owner class, where that module MUST be present.`,
+    );
+    return { pass: false, failures };
+  }
   for (const target of declaredTargets) {
-    let stdout;
+    let plan;
     try {
-      stdout = execFileSync(
-        process.execPath,
-        [
-          syncTierAwarePath,
-          "--target",
-          target,
-          "--dry-run",
-          "--json",
-          "--out",
-          syntheticOut,
-        ],
-        // maxBuffer: the --dry-run --json probe enumerates the full consumer
-        // tree; on a large consumer repo the output exceeds the 1 MiB
-        // execFileSync default → spurious ENOBUFS (measured ~2.8 MiB for rs).
-        // 64 MiB headroom keeps the V17 probe robust against tree growth.
-        {
-          encoding: "utf8",
-          timeout: 20000,
-          stdio: ["ignore", "pipe", "pipe"],
-          maxBuffer: 64 * 1024 * 1024,
-        },
-      );
+      // The EXACT call sync-tier-aware.mjs::main() makes, with the defaults
+      // parseArgs() hands it for a bare `--target <t> --dry-run --json` run:
+      // template=null, mode="use" (sync-tier-aware.mjs:805-815, :4611-4612).
+      plan = buildSyncPlan(syncManifest, target, null, "use");
     } catch (err) {
       failures.push(
-        `V17 (F70 end-to-end): sync-tier-aware --target ${target} --dry-run --json ` +
-          `failed: ${err && err.message ? err.message.slice(0, 200) : String(err).slice(0, 200)}. ` +
-          `The dry-run probe MUST succeed for every declared target so V17 can verify the schema ` +
+        `V17 (F70 end-to-end): building the sync-tier-aware distribution plan for ` +
+          `--target ${target} THREW: ${err && err.message ? err.message.slice(0, 200) : String(err).slice(0, 200)}. ` +
+          `The plan MUST build for every declared target so V17 can verify the schema ` +
           `actually distributes; if the target is intentionally retired, remove it from this validator's ` +
           `declaredTargets list AND remove repos.${target} from sync-manifest.yaml in the same commit.`,
       );
       continue;
     }
-    let plan;
-    try {
-      plan = JSON.parse(stdout);
-    } catch (err) {
-      failures.push(
-        `V17 (F70 end-to-end): sync-tier-aware --target ${target} --dry-run --json ` +
-          `emitted unparseable output: ${err.message.slice(0, 120)}. ` +
-          `Expected JSON with plan.files[] containing the schema's distribution action.`,
-      );
-      continue;
-    }
-    const files =
-      plan && plan.plan && Array.isArray(plan.plan.files) ? plan.plan.files : [];
+    const files = plan && Array.isArray(plan.files) ? plan.files : [];
     // F70 scope: only fail on targets that subscribe to the `kailash` tier
     // (where the schema lives per F67's tier choice in journal/0161).
     // Targets not subscribed to kailash are out of #379's scope — they
@@ -2669,9 +2789,7 @@ export function validateRosterSchemaCoupling() {
     // question (do base/prism need the substrate?) that F67 explicitly
     // scoped out.
     const subs =
-      plan && plan.plan && Array.isArray(plan.plan.tier_subscriptions)
-        ? plan.plan.tier_subscriptions
-        : [];
+      plan && Array.isArray(plan.tier_subscriptions) ? plan.tier_subscriptions : [];
     if (!subs.includes("kailash")) {
       // Target does not subscribe to kailash tier — out of F70 scope.
       // Documented as advisory note so the operator sees the skip.
@@ -2680,8 +2798,8 @@ export function validateRosterSchemaCoupling() {
     const schemaEntry = files.find((f) => f && f.path === SCHEMA_PLAN_PATH);
     if (!schemaEntry) {
       failures.push(
-        `V17 (F70 end-to-end): sync-tier-aware --target ${target} --dry-run --json ` +
-          `plan does NOT include ${SCHEMA_PLAN_PATH} at all. ` +
+        `V17 (F70 end-to-end): the sync-tier-aware distribution plan for --target ${target} ` +
+          `does NOT include ${SCHEMA_PLAN_PATH} at all. ` +
           `The tier declaration in sync-manifest.yaml passed the text check but the resolved ` +
           `distribution plan silently dropped the schema. Inspect the manifest's tier_subscriptions ` +
           `for target=${target}, any future per-entry markers (e.g. \`disabled: true\`), or recent ` +
@@ -2691,8 +2809,8 @@ export function validateRosterSchemaCoupling() {
     }
     if (schemaEntry.action !== "copy") {
       failures.push(
-        `V17 (F70 end-to-end): sync-tier-aware --target ${target} --dry-run --json ` +
-          `plan includes ${SCHEMA_PLAN_PATH} but action="${schemaEntry.action}" (reason="${schemaEntry.reason}"). ` +
+        `V17 (F70 end-to-end): the sync-tier-aware distribution plan for --target ${target} ` +
+          `includes ${SCHEMA_PLAN_PATH} but action="${schemaEntry.action}" (reason="${schemaEntry.reason}"). ` +
           `Expected action="copy" so the schema actually ships with the substrate. The substrate's ` +
           `hook consumers (roster-schema-validate.js, genesis-anchor-guard.js) ship without their ` +
           `runtime data otherwise — every commit in target=${target} consumer repos will fail-close.`,
@@ -2770,8 +2888,8 @@ export async function wireMcpPolicies(outDir) {
   fs.mkdirSync(outDir, { recursive: true });
   const runtimePath = path.join(outDir, "policies.json");
   const auditPath = path.join(outDir, "extract-policies.dump.json");
-  safeWriteFileSync(runtimePath, JSON.stringify(runtimeJson, null, 2) + "\n");
-  safeWriteFileSync(auditPath, JSON.stringify(auditJson, null, 2) + "\n");
+  writeTextArtifactSync(runtimePath, JSON.stringify(runtimeJson, null, 2) + "\n");
+  writeTextArtifactSync(auditPath, JSON.stringify(auditJson, null, 2) + "\n");
   return runtimePath;
 }
 
@@ -2791,13 +2909,15 @@ const EMIT_USAGE =
 // matrix and V17's target loop consumes the same list, so the emission axes and
 // the distribution axes cannot drift apart.
 //
-// ONE BOUND, stated rather than implied. Because `rb` has no overlay directory,
-// `--lang rb` composes to the same bytes as a no-`--lang` run today. That is a
-// property of the DECLARATION (a lane whose overrides are all inherited), not a
-// defect of the check below — but it is NOT left silent either: `noteAbsentOverlay`
-// prints the fact, because a byte count an operator cannot attribute to a lane is
-// the same non-discriminating reading this whole check exists to prevent. See
-// there for why the disposition is loud-succeed rather than fail-closed.
+// ONE BOUND, stated rather than implied. A lane with no overlay directory
+// composes to the same bytes as a no-`--lang` run. That is a property of the
+// DECLARATION (a lane whose overrides are all inherited), not a defect of the
+// check below — but it is NOT left silent either: `noteAbsentOverlay` prints the
+// fact, because a byte count an operator cannot attribute to a lane is the same
+// non-discriminating reading this whole check exists to prevent. See there for
+// why the disposition is loud-succeed rather than fail-closed. NO declared lane
+// is in that state today: `rb` was the only one, and it was removed as a lane on
+// 2026-08-11 (Ruby ships as a binding of the rs all-bindings template).
 
 /**
  * loom#1501 (L4). `--lang <declared-lane-with-no-overlay-dir>` is LEGAL and
@@ -2805,11 +2925,11 @@ const EMIT_USAGE =
  * invalid by a disk probe). But succeeding SILENTLY is its own instrument
  * failure, one layer in. Measured, on the codex CLI:
  *
- *   emit.mjs --cli codex --lang rb --dry-run  →  "[codex rb] WARN: 11 rules, 53168B"
- *   emit.mjs --cli codex --lang py --dry-run  →  "[codex py] WARN: 11 rules, 53168B"
+ *   emit.mjs --cli codex --lang <no-overlay-lane> --dry-run  →  "WARN: 11 rules, 53168B"
+ *   emit.mjs --cli codex --lang py             --dry-run  →  "[codex py] WARN: 11 rules, 53168B"
  *
- * Byte-identical. Nothing in that line lets the operator distinguish "`rb`
- * genuinely has no lane-specific overrides, so this IS `rb`'s composition" from
+ * Byte-identical. Nothing in that line lets the operator distinguish "this lane
+ * genuinely has no lane-specific overrides, so this IS its composition" from
  * "my `--lang` never took effect and I am reading some other lane" — the reading
  * `instrument-discipline.md` MUST-1 forbids citing, and the exact shape that made
  * the empty-`$L` trap costly (a plausible number for the wrong lane).
@@ -2972,8 +3092,8 @@ export function parseArgs(argv) {
       return `${JSON.stringify(v)}, which is not a well-formed lane name`;
     }
     // Against the DECLARATION, never against `.claude/variants/` on disk — see
-    // EMIT_LANGS. A disk probe rejects `rb` (declared, no overlay dir) and
-    // accepts `codex` (an overlay dir that is not a lang lane); an `existsSync`
+    // EMIT_LANGS. A disk probe rejects a declared lane that has no overlay dir
+    // and accepts `codex` (an overlay dir that is not a lang lane); an `existsSync`
     // disk probe additionally accepts any FILE, so `--lang README.md` passed and
     // emitted base output byte-identical to a no-lang run — exactly the silent
     // lane-shift this check's own error string claims to prevent.
@@ -3055,7 +3175,7 @@ async function main() {
   if (!v14.pass) {
     overallPass = false;
     process.stderr.write(
-      `VALIDATOR 14 FAIL (rule-authoring.md Rule 7):\n${v14.failures.map((l) => "  " + l).join("\n")}\n`,
+      `VALIDATOR 14 FAIL (rule-authoring.md Rule 7):\n${renderValidatorFailureBody(14, v14.failures)}\n`,
     );
     process.exit(1);
   }
@@ -3076,7 +3196,7 @@ async function main() {
   if (!v16.pass) {
     overallPass = false;
     process.stderr.write(
-      `VALIDATOR 16 FAIL (class-conditional sync-manifest.yaml gate, journal 0080 + loom#1383):\n${v16.failures.map((l) => "  " + l).join("\n")}\n`,
+      `VALIDATOR 16 FAIL (class-conditional sync-manifest.yaml gate, journal 0080 + loom#1383):\n${renderValidatorFailureBody(16, v16.failures)}\n`,
     );
     process.exit(1);
   }
@@ -3103,7 +3223,7 @@ async function main() {
   if (!v18.pass) {
     overallPass = false;
     process.stderr.write(
-      `VALIDATOR 18 FAIL (cli_delivery contract, #408 AC#5-a):\n${v18.failures.map((l) => "  " + l).join("\n")}\n`,
+      `VALIDATOR 18 FAIL (cli_delivery contract, #408 AC#5-a):\n${renderValidatorFailureBody(18, v18.failures)}\n`,
     );
     process.exit(1);
   }
@@ -3125,7 +3245,7 @@ async function main() {
   if (!v15.pass) {
     overallPass = false;
     process.stderr.write(
-      `VALIDATOR 15 FAIL (sync-manifest tier-completeness, journal 0078):\n${v15.failures.map((l) => "  " + l).join("\n")}\n`,
+      `VALIDATOR 15 FAIL (sync-manifest tier-completeness, journal 0078):\n${renderValidatorFailureBody(15, v15.failures)}\n`,
     );
     process.exit(1);
   }
@@ -3147,7 +3267,7 @@ async function main() {
   // genesis-anchor-guard; half B (tier-membership + F70 per-target dry-run) is a
   // distribution assertion and is asserted only at the owner class. The verdict
   // line names WHICH halves ran so a consumer run is never mistaken for a full one.
-  const v17 = validateRosterSchemaCoupling();
+  const v17 = await validateRosterSchemaCoupling();
   console.log(
     `[validator-17] roster-schema-coupling: ${
       !v17.pass
@@ -3160,7 +3280,7 @@ async function main() {
   if (!v17.pass) {
     overallPass = false;
     process.stderr.write(
-      `VALIDATOR 17 FAIL (multi-operator substrate hook⇔data coupling, F67 / GH #379 / journal 0161):\n${v17.failures.map((l) => "  " + l).join("\n")}\n`,
+      `VALIDATOR 17 FAIL (multi-operator substrate hook⇔data coupling, F67 / GH #379 / journal 0161):\n${renderValidatorFailureBody(17, v17.failures)}\n`,
     );
     process.exit(1);
   }
@@ -3242,15 +3362,32 @@ async function main() {
     }
     if (result.tier === "BLOCK") {
       overallPass = false;
+      // Read the LIVE per-CLI caps rather than restating literals. The prior
+      // form hardcoded 61440 here while emitBaseline gated on the manifest
+      // value, so after the 2026-08-12 raise to 65536 this message would have
+      // reported a cap that no longer existed — and reported an "over by"
+      // arithmetic computed against it, understating the real overage by
+      // 4096 B. A remediation message that misstates the ceiling it is telling
+      // you to fit under is worse than no message.
+      const _caps = loadCliCaps()[cli] || {
+        warn_cap_bytes: 32768,
+        block_cap_bytes: 65536,
+      };
       process.stderr.write(
-        `[${cli}] HARD BLOCK: ${result.emission_bytes}B >= block_cap 61440 (over by ${result.emission_bytes - 61440}B)\n`,
+        `[${cli}] HARD BLOCK: ${result.emission_bytes}B >= block_cap ${_caps.block_cap_bytes} (over by ${result.emission_bytes - _caps.block_cap_bytes}B)\n`,
       );
       process.stderr.write(
         `[${cli}] remediation: per spec v6 §A.2, demote a CRIT rule to path-scoped, tighten a per-rule budget, or trim the ruleset. See ${subdir}/emit-report-${cli}.json for per-rule sizes.\n`,
       );
     } else if (result.tier === "WARN") {
+      // Same defect, same fix: the WARN band's upper bound IS the block cap, so
+      // a literal here drifts from the manifest exactly as the BLOCK line did.
+      const _caps = loadCliCaps()[cli] || {
+        warn_cap_bytes: 32768,
+        block_cap_bytes: 65536,
+      };
       process.stderr.write(
-        `[${cli}] WARN: ${result.emission_bytes}B in [${32768}, ${61440}) — refactoring-signal tier (steady state per v6 §2.2).\n`,
+        `[${cli}] WARN: ${result.emission_bytes}B in [${_caps.warn_cap_bytes}, ${_caps.block_cap_bytes}) — refactoring-signal tier (steady state per v6 §2.2).\n`,
       );
     }
     // v6.2 Shard 1 — per-lang headroom floor enforcement. Surfaces with
@@ -3299,7 +3436,7 @@ async function main() {
   if (!args.dryRun) {
     try {
       fs.mkdirSync(args.out, { recursive: true });
-      safeWriteFileSync(
+      writeTextArtifactSync(
         path.join(args.out, "emit-telemetry.json"),
         JSON.stringify(telemetry, null, 2),
       );

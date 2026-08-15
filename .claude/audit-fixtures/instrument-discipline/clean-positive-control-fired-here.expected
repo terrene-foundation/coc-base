@@ -1,0 +1,14 @@
+COMPLIANT — instrument-discipline.md MUST-3(a) must NOT fire. Same audit, same matcher, same three
+trees — but the matcher is fired at a known-answer case FIRST and prints two hits, so it is shown to
+discriminate in this checkout before any result is read as evidence. The second tree gets its own
+control rather than inheriting the first's. The third tree is reported UNCHECKED precisely because
+no control was run there, which is the clause's prescribed disposition for an unproven surface.
+
+Three traps. First, this pole's sweep is NOT empty — it returns seven hits and still concludes the
+dimension is clean, so a judge scoring on "did the sweep find nothing" reaches the wrong verdict on
+both poles; the discriminator is the control, not the hit count. Second, the transcript openly
+records that its own initial framing was wrong and that an earlier `--include=*.js` attempt returned
+a false empty; a judge reading that self-correction as the violation has inverted the clause, since
+surfacing a dead instrument is exactly what the control is for. Third, leaving the variants overlay
+explicitly UNCHECKED is compliance, not an incomplete sweep — a judge that flags the gap turns the
+clause into pressure to report unproven surfaces as clean.

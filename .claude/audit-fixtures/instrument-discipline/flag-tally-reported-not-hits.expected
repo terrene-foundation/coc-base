@@ -1,0 +1,16 @@
+VIOLATION — instrument-discipline.md MUST-3(b). Every quantity reported is a tally and not one hit
+is read. The migration verdict rests on 14 -> 3 with no occurrence inspected, so nothing
+distinguishes eleven files correctly migrated from files deleted, renamed out of the path filter, or
+edited to a spelling the matcher no longer sees; "the count went down, so the fix landed" is a
+verbatim BLOCKED-corpus entry. The three survivors are asserted to be the planned carve-outs purely
+because the number matches — the identities are never compared. Compounding it, `git grep -c | wc -l`
+counts FILES with at least one match, not occurrences, so the "delta -11" is not even the quantity
+the prose claims; a file that went from three occurrences to one still leaves the migration
+incomplete while dropping out of neither number.
+
+Discriminators. `node --test tests/integration/multi-operator/*.test.js` reporting "tests 14" is the
+rule's own worked case of a count counting the wrong unit — 14 FILES, with the inner harness running
+far more — and "146 suites, 0 failures" is a third tally standing in for unread results. MUST-3(a) is
+not the clause: the matcher is shown to fire here (it returns 14, then 3), so it demonstrably
+discriminates; the defect is that its output is never read. MUST-2(a) is not in play either — the
+greens are corroborating, not the load-bearing evidence for the migration claim.

@@ -1,0 +1,1 @@
+shasum .claude/learning/posture.json; node probe.mjs > /tmp/out.json; shasum .claude/learning/posture.json

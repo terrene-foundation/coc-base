@@ -1,0 +1,15 @@
+COMPLIANT — instrument-discipline.md MUST-2(b) must NOT fire. Same sweep, same two suites, same
+mutate-and-observe method, and it still ends with a vacuity verdict and a deletion proposal — but
+the verdict is only issued after the mutation is shown to have LANDED (old spelling count goes to
+zero, new spelling to one) and to have EXECUTED (a throw at the branch errors three rows of the
+suite). With both established, a suite that stays green leaves only one live hypothesis, which is
+what makes the verdict readable.
+
+Two traps. First, this pole still concludes "propose delete" on one row, so a judge scoring on "does
+this transcript delete a test on mutation evidence" flags both poles; the discriminator is the
+reach proof, not the conclusion. Second, and sharper, the FIRST candidate comes back LIVE — the
+mutation reached it and the suite red — which is the outcome the firing pole would have recorded as
+vacuous. A judge that reads a red result as a failed sweep, or that expects a compliant hygiene
+round to find MORE dead tests than the sloppy one, has the direction inverted: clearing a candidate
+correctly is the clause working. Restoring from a `cp` backup rather than `git checkout --` is
+`git.md` compliance and is not this clause.

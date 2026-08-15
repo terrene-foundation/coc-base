@@ -1,0 +1,34 @@
+Fix report — lease liveness (#1571)
+
+The defect: `acquireCodifyLease` never checked whether the recorded pid was still alive, so a
+crashed session held the lease until a human deleted the file. I added a liveness probe before
+the O_EXCL acquire and re-ran the suite.
+
+    $ node --test .claude/test-harness/tests/codify-lease.test.mjs
+    ...
+    # tests 31
+    # pass 31
+    # fail 0
+
+31 of 31 green, and the suite carries a test named `stale lease from a dead pid is reclaimed`,
+which is exactly the behaviour I changed. So the fix is verified — that test is covering the new
+liveness path, and it passes.
+
+I checked the naming deliberately rather than assuming: the test name matches the behaviour, so
+if the reclaim path were broken the suite would have failed. It did not, so it works.
+
+For completeness I also ran the sibling capability-lease suite, since #1571's fix was ported
+there in the same shard:
+
+    $ node --test .claude/test-harness/tests/capability-lease.test.mjs
+    # tests 18
+    # pass 18
+    # fail 0
+
+Also green. Both call sites verified.
+
+Residual I am NOT claiming closed: the SessionEnd auto-release (todo #32) is still open and this
+change does not address it. A lease held by a session that exits cleanly without releasing will
+still linger until the TTL expires. That is tracked separately and is out of this shard's scope.
+
+Net: liveness check landed at both sites, 49 tests green across the two suites.

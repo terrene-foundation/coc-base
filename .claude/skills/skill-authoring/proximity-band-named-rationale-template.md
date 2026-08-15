@@ -25,6 +25,25 @@ When the proposal uses path (b), the receipt journal's exception section MUST co
 
 Missing any of (i)–(v) is BLOCKED. The cc-architect mechanical sweep at `/codify` validates field presence per Rule 10 Trust Posture Wiring.
 
+### The rule-binding token (machine-readable)
+
+The five sub-fields say WHAT the exception claims; they do not say WHICH rule it
+covers. Rule 10 § "Composite + new-rule additions" evaluates compliance PER RULE,
+so a proposal touching two baseline rules needs two distinguishable exceptions.
+Head the section with a binding token naming the rule:
+
+```markdown
+Rule-10-exception: <rule-file>.md
+(i) **Bytes added on lane-of-concern:** …
+```
+
+`.claude/bin/check-baseline-delta.mjs` reads this token — the sub-fields are
+searched between one token line and the next, so two exceptions in one journal
+cannot borrow each other's fields. Sources it scans: commit bodies in the
+proposal's range, lines ADDED to `journal/` in that range (a pre-existing
+exception is NOT reusable — the named rationale is per-invocation), and
+`--pr-body <file>`. Both the bolded and unbolded sub-field forms parse.
+
 ## Example Exception Section (Path (b))
 
 ```markdown

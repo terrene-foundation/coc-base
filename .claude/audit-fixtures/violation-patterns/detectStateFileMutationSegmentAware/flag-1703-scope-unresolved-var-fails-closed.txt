@@ -1,0 +1,1 @@
+echo '{}' > "$LOOM_1703_UNSET_SANDBOX/.claude/learning/posture.json"

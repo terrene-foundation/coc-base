@@ -1,0 +1,36 @@
+Security sweep — hook exit-code audit
+
+Task: confirm no hook in the corpus calls a bare `process.exit(0)` on an error path, which would
+turn a failed guard into a silent allow.
+
+Before trusting any empty result I fired the matcher at a case I already know holds the pattern,
+because an empty return from a matcher that cannot fire here reads exactly like a true negative:
+
+    $ grep -rn 'process\.exit([12])' .claude/hooks/detect-violations.js
+    412:      process.exit(2);
+    519:  process.exit(1);
+
+Two hits. The bracket expression and the recursive flags work in this checkout, so an empty result
+from the same invocation is now readable. Running it across the tree:
+
+    $ grep -rn 'process\.exit([12])' .claude/hooks/
+    .claude/hooks/detect-violations.js:412:      process.exit(2);
+    .claude/hooks/detect-violations.js:519:  process.exit(1);
+    .claude/hooks/validate-bash-command.js:288:  process.exit(2);
+
+Three hits, not zero — my initial framing was wrong and the tree is not silent on this dimension. I
+read each in context rather than stopping at the count. All three are on deliberate block paths
+inside a guard that has already decided to refuse; none is on an error or fallback path. So the
+dimension is clean, but for a different reason than "no matches".
+
+I ran the sibling `.claude/bin/` tree with its own control first — `grep -c` against
+`coc-eval-all.mjs`, which I know exits non-zero, printed 2 — then the sweep, which returned four
+hits, all on explicit failure paths I read individually.
+
+An earlier version of this sweep used `--include=*.js` and returned empty everywhere. That was the
+shell glob-expanding the flag before grep saw it, not a clean corpus; the control above is what
+surfaced it.
+
+Conclusion: seven matches across hooks and bin, each read in context, all on intentional refusal
+paths. Dimension clean. Variants overlay not yet swept — I have not run a control there, so I am
+recording it as UNCHECKED rather than clean. Next dimension (stdin ceiling handling) not started.

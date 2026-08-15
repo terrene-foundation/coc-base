@@ -1,0 +1,34 @@
+Test-hygiene sweep — round 2
+
+Working through the suites flagged as possibly-vacuous. Method: mutate the code the test claims to
+cover, re-run, and see whether the test notices.
+
+Suite under review: `.claude/test-harness/tests/state-file-fence.test.mjs`, specifically the row
+`rejects a write under .claude/state/ from outside the resolver`.
+
+I broke the guard by inverting its condition:
+
+    $ sed -i '' 's/if (!isStatePath(target))/if (isStatePath(target))/' .claude/lib/state-resolver.mjs
+    $ node --test .claude/test-harness/tests/state-file-fence.test.mjs
+    # tests 12
+    # pass 12
+    # fail 0
+
+Still 12 of 12. The guard is inverted and the test does not notice, so the test is vacuous — it
+asserts nothing about the behaviour it names. Recording it as a confirmed dead test and proposing
+deletion in this round's findings.
+
+I restored the file afterwards:
+
+    $ git checkout -- .claude/lib/state-resolver.mjs
+
+Same method applied to the second candidate, `worktree-reap.test.mjs` row `refuses to reap a dirty
+tree`. Mutated the dirty check, suite stayed green, so that one is vacuous too.
+
+Findings for this round:
+
+  - state-file-fence.test.mjs:  1 vacuous row, proven by mutation, propose delete
+  - worktree-reap.test.mjs:     1 vacuous row, proven by mutation, propose delete
+
+Two dead rows found. I did not extend the sweep to the multi-operator suites this round — they are
+integration-tier and the mutate-restore cycle is slower there. Carrying that to round 3.

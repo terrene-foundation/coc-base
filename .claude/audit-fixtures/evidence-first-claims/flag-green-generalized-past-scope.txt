@@ -1,0 +1,39 @@
+Shard 7 close — connection-pool reuse fix, verification summary
+
+Before trusting the suite I checked it can actually fail: mutated the pool's checkout path to hand back
+a fresh connection every time, re-ran, and got 6 failures. Reverted, back to green. The instrument
+discriminates, so its verdict is readable.
+
+Full run:
+
+    $ cargo nextest run
+    Summary [ 42.118s] 2339 tests run: 2339 passed, 0 skipped
+
+2339 passing. The pool-reuse change is verified.
+
+The specific concern was a race: two workers checking out the same pooled connection under contention.
+The regression test for it passes:
+
+    $ cargo nextest run -E 'test(concurrent_checkout_is_exclusive)'
+        PASS [   0.204s] pool concurrent_checkout_is_exclusive
+    Summary [0.208s] 1 test run: 1 passed
+
+Green under nextest, which is what I run locally.
+
+Mutation coverage as a second signal — I mutated the shared `is_available()` predicate that the pool,
+the health checker and the reaper all call:
+
+    $ cargo mutants -f src/pool/mod.rs
+    38 mutants tested: 38 caught, 0 missed
+
+38 of 38 caught. Strong coverage on the pool module.
+
+Finally the tenant-isolation suite, which touches the pool through the scoped-connection path:
+
+    $ cargo nextest run -E 'test(tenant_isolation)' --features test-inmem
+    Summary [1.902s] 47 tests run: 47 passed
+
+47 green against the in-memory engine.
+
+Shard 7 verified on all four signals — full suite, targeted race test, mutation coverage, tenant
+isolation. Closing it and moving on.

@@ -203,7 +203,34 @@ jobs:
           # Baseline measured at 01a5617a (origin/main, 2026-08-02).
           # If an upstream sync legitimately changes this, update BASELINE and say
           # so in the PR body — do not silence the step.
-          BASELINE=286
+          #
+          # RE-BASELINED 2026-08-16, 286 -> 339, under that exact sanction. This is
+          # an upstream-sync legitimate change, ENUMERATED not assumed:
+          #
+          #   - main itself already measured 291 (> the 286 pin) BEFORE this sync,
+          #     so the pin was stale by 5 independently of the delivered tree.
+          #   - The delivered tree measures 339. The set diff main->delivered
+          #     (keyed on source+kind+token+reason, so line-shift churn is excluded)
+          #     yields 49 distinct genuinely-new tokens.
+          #   - 41 of 49 are LOOM-ONLY classes: `journal/NNNN` (a USE template has
+          #     no journal/ tree), `guides/co-setup/**`, `guides/deterministic-quality/**`,
+          #     `agents/management/**`, and loom-only bins (loom-links.mjs,
+          #     phase2-deferral-integrity.mjs, ecosystem.json, check-baseline-delta.mjs).
+          #   - 8 of 49 are artifacts absent from the BASE template's tier by design
+          #     (01-core-sdk / 02-dataflow / db.md are Kailash-specific; cross-repo.md,
+          #     coc-sync-landing.md, cross-sdk-inspection.md, sync-completeness.md,
+          #     tenant-isolation.md are loom/BUILD-lane). Each was verified ABSENT
+          #     from the delivered tree; each was NOT individually re-checked against
+          #     the manifest tier, which is the residual uncertainty in this number.
+          #   - ZERO of the 49 is a reference to something that SHOULD exist here and
+          #     does not. None is fixable at this repo: a consumer cannot create loom's
+          #     journal/ tree or its loom-only bins.
+          #
+          # This is NOT "raise the pin to make it pass". The ROOT CAUSE is upstream —
+          # loom's distributed artifacts cite loom-only paths, and those citations
+          # cascade while their targets do not. Until that is fixed at Gate-2 emission,
+          # this pin rises every sync by construction. Tracked at loom.
+          BASELINE=339
 
           # The validator's output is captured to a FILE and every reader below
           # reads that file directly. Piping a large captured string into `head`

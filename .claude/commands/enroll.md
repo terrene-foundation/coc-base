@@ -54,16 +54,23 @@ it does not change the authority triple.
 ### B2 — local-links registration (per-operator, gitignored)
 
 Write the operator's NAME→on-disk-path bindings to `loom-links.local.json`, seeded from the canonical
-sublayout hint (`cross-repo.md` § "Canonical Sublayout (Recommended — F61)":
-`~/repos/kailash/{build,use}/<slug>`, peers `~/repos/{loom,atelier}`). Copy the committed example
+sublayout hint stated in full here — `~/repos/kailash/{build,use}/<slug>`, peers
+`~/repos/{loom,atelier}` (its loom/BUILD-side statement is `cross-repo.md` § "Canonical Sublayout
+(Recommended — F61)", NOT distributed to USE). Copy the committed example
 `.claude/bin/loom-links.local.example.json` and edit to the operator's actual layout. No disclosure gate
 (invariant 2). Pre-existing operators on any other layout proceed unchanged — the resolver is
 layout-agnostic.
 
 ### B3 — hand off
 
-Print: "Enrolled. Run `/onboard` at the start of every session." Does NOT perform the session-entry reads
-(invariant 3).
+Print: "Enrollment PR opened — the roster row is live in your working tree now, and becomes team-visible
+once the PR merges to `main`. Run `/onboard` at the start of every session." Does NOT perform the
+session-entry reads (invariant 3).
+
+The print string MUST NOT say "Enrolled": B1 ends at an OPEN PR (§ B1 — the roster write is the PR-gated
+2-of-N quorum path; merge is never a direct push and never an owner-self-attesting admin-merge), so a bare
+"Enrolled" claims a completion that has not happened. Work is NOT blocked in the meantime — `resolveIdentity`
+reads the WORKING-TREE roster, so `/certify` and the session-entry reads see the row before merge.
 
 ## Why a separate command (not a `/whoami` flag)
 
@@ -86,7 +93,8 @@ gitignored local file (no posture gate). The PR enters the existing branch-prote
 B1's roster-write path is `.claude/commands/whoami.md` (the `--register` subcommand) + the schema
 validator `.claude/hooks/lib/roster-schema-validate.js` + the schema `.claude/operators.roster.schema.json`.
 B2's local-links layer is `.claude/bin/lib/loom-links.mjs` (resolver) + `.claude/bin/loom-links.local.example.json`
-(the committed example with the canonical-sublayout tokens). The canonical sublayout hint is
-`rules/cross-repo.md` § "Canonical Sublayout (Recommended — F61)". Full enrollment procedure — the
+(the committed example with the canonical-sublayout tokens). The canonical sublayout hint is stated
+inline at B2 above; its loom/BUILD-side statement (`rules/cross-repo.md` § "Canonical Sublayout
+(Recommended — F61)") is NOT distributed to USE. Full enrollment procedure — the
 `/whoami --register` input prompts, the local-links seeding shape, the `business_roles` advisory field —
 lives in `.claude/skills/44-enroll/SKILL.md`.

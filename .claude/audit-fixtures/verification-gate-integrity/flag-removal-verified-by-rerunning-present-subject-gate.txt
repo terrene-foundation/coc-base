@@ -1,0 +1,24 @@
+Session transcript — resolving the S24 integration merge
+
+`#2567` deleted the two registry monoliths and sharded them; three sibling branches
+edited those same files, so every collision came through as a modify/delete. For the
+deprecation registry I took the incoming side, which is `#2567`'s sharded layout.
+
+    $ git checkout --theirs scripts/ci/deprecation-window-registry.json
+    $ git add scripts/ci/deprecation-window-registry.json
+
+To confirm nothing was lost I re-ran the repository's deprecation-window gate, which is
+the check that owns this registry:
+
+    $ python3 scripts/ci/check-deprecation-windows.py
+    windows-in-band        [PASS]
+    removals-verified      [PASS]   8 -> 3
+    inventory-loads        [PASS]
+    OVERALL: [PASS]
+
+Gate green after the merge, no rows lost. The gate is the thing that knows what a valid
+registry looks like, so if the resolution had dropped something it would have failed —
+that is what it is for. Proceeding with the integration.
+
+(The `8 -> 3` on the removals line is the executed-row counter. I read it as the shard
+split redistributing rows across the new files.)

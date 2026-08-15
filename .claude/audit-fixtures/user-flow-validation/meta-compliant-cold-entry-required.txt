@@ -1,0 +1,78 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "**/workspaces/**"
+---
+
+# Gate Sufficiency — A Gate Must Enter From The State The Consumer Arrives In
+
+A verification gate's sufficiency is fixed by one property and not by the realism of the
+artifact it drives: whether the gate entered from the state a real consumer actually arrives
+in. A gate that supplies the consumer's own runtime state to itself has not walked a shorter
+version of the consumer path; it has walked a path no consumer ever walks, and its PASS
+reports on that path alone.
+
+## MUST Rules
+
+### 1. Enter Cold, And Enumerate What The Consumer Supplies Before Driving Anything
+
+Before any release, install-and-invoke, or integration gate is cited as verification, the gate
+MUST enumerate the runtime state the CONSUMER supplies — config, credentials, keys, endpoints,
+provider metadata — and MUST pre-seed NONE of it. It MUST then drive the un-pre-configured
+cold entry, the real provider / format / dialect VARIANTS the consumer uses, and the error and
+boundary paths from that same cold entry. A gate that seeds any item on that list MUST report
+the seeded path it walked, never "verified".
+
+Driving the genuinely published artifact is necessary and is NOT sufficient. The real wheel,
+entered from a seeded state, exercises exactly the code a mock would have.
+
+```bash
+# DO — enumerate the seed-ban list, enter cold, then read what breaks
+
+pip install <pkg>==4.37.1                              # published artifact, nothing seeded
+drive-callback --provider <real-RS256>                 # cold: fetches live JWKS, then verifies
+drive-callback --provider <real-RS256> --expired-token # boundary path, same cold entry
+
+# DO NOT — hand the gate the state the consumer supplies
+
+set_oidc_jwks(<hand-authored keyset>)                  # the gate now holds what the user brings
+drive-callback --good --bad                            # both branches sit inside the seeded state
+```
+
+**BLOCKED rationalizations:**
+
+- "The gate installed the real artifact, so it's a real walk"
+- "Seeding the config is just test setup"
+- "The happy path IS the user path"
+- "The consumer's provider is the same as my fixture"
+- "A pre-configured pass IS a pass"
+
+**Why:** a seeded gate sits on the safe side of every defect that lives in ACQUIRING the state
+it handed itself, so its PASS is fully compatible with the first real consumer hitting each of
+those defects in turn.
+
+## Trust Posture Wiring
+
+- **Severity:** `halt-and-report` at gate-review (reviewer confirms the gate enumerated the
+  consumer-supplied state, seeded none of it, and drove cold entry plus real variants plus the
+  boundary paths); `advisory` at the hook layer per `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3x same-rule in 30d -> drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1x = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: gate-sufficiency]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms every gate cited as
+  verification names its seed-ban list and drove the cold entry. Phase 2 deferred.
+- **Violation scope:** MUST-1 (consumer-supplied state seeded by the gate; cold entry, real
+  variants, or boundary paths not driven).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-08-02 — authored after a gate that installed the genuinely published artifact and seeded
+the single keyset the integration needed reported PASS, and the first un-seeded consumer
+surfaced six defects that all lived in acquiring that keyset.

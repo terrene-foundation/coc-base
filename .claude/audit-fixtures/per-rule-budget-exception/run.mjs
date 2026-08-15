@@ -100,10 +100,10 @@ const resolveFixtures = [
     expect: null,
   },
   {
-    name: "fixture-04-rb-lane-not-covered",
+    name: "fixture-04-prism-lane-not-covered",
     input: {
       cli: "codex",
-      lang: "rb",
+      lang: "prism",
       rule: "security.md",
       exceptions: EXCEPTIONS,
       now: "2026-07-26",

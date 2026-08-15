@@ -1,0 +1,1 @@
+xargs gh issue close --comment "PR #1690"

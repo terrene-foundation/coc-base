@@ -1,0 +1,1 @@
+gh issue close 1687 --body-file /tmp/closing-note.md

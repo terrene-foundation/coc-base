@@ -65,6 +65,22 @@ const COC_SIGN_TMP_PREFIXES = [
   "coc-sign-ssh-vfy-",
 ];
 
+// Bounded ceiling on EVERY `gpgconf` teardown call in this ecosystem.
+// `gpgconf --kill all` can DEADLOCK permanently: it kills components one at a
+// time and, for the scdaemon component, spawns
+// `gpg-connect-agent ... GETINFO scd_running / scd killscd` and wait4()s it;
+// that helper blocks awaiting the agent's Assuan greeting, which the agent
+// cannot send because its own npth wait_child_thread is blocked in wait4 on
+// that same scdaemon. An UNBOUNDED execFileSync then never returns, silently
+// swallowing the rmSync that follows it. Measured on this machine before the
+// fix: 10 hung gpgconf aged 10h-12h at 0.0% CPU, 97 leaked agents, 158 leaked
+// homedirs — and the reaper below was itself wedged on the FIRST bad homedir,
+// so it never reached the other 171. 5s is far above a healthy ~1-2s teardown.
+const GPGCONF_KILL_TIMEOUT_MS = 5000;
+
+// Daemons that bind to a GPG homedir and must be gone before it is removed.
+const GPG_HOMEDIR_DAEMONS = /\b(gpg-agent|scdaemon|gpg-connect-agent)\b/;
+
 // FALLBACK cutoff (pidfile-ABSENT homedirs only): a legacy pre-pidfile leak
 // older than this is treated as orphaned. Homedirs that DO carry a coc-fold.pid
 // marker are decided by PID-liveness (see reapStaleGpgHomedirs), NOT by this
@@ -249,6 +265,102 @@ function _foldHomedirLiveness(dir) {
 }
 
 /**
+ * Write the ephemeral-homedir agent config BEFORE the first gpg invocation.
+ *
+ * A verify/fold homedir never touches a smartcard, but gpg-agent starts an
+ * `scdaemon` on first use regardless (MEASURED: a plain armored-pubkey import
+ * yields 1 agent + 1 scdaemon; with this conf, 1 agent + 0 scdaemon). That
+ * scdaemon is the precondition for the teardown deadlock described at
+ * GPGCONF_KILL_TIMEOUT_MS — removing it removes the deadlock's cause, where the
+ * timeout only bounds its cost.
+ *
+ * MUST be called before the first `gpg --homedir <home>` call, since that is
+ * what auto-starts the agent that reads this file.
+ *
+ * @param {string} home - a freshly-created ephemeral GPG homedir.
+ */
+function writeEphemeralAgentConf(home) {
+  try {
+    fs.writeFileSync(path.join(home, "gpg-agent.conf"), "disable-scdaemon\n", {
+      mode: 0o600,
+    });
+  } catch {
+    // Best-effort: losing the preventive only forfeits deadlock-AVOIDANCE;
+    // the bounded teardown still guarantees the homedir is removed.
+  }
+}
+
+/**
+ * SIGKILL any GPG daemon still bound to THIS homedir after gpgconf has had its
+ * bounded chance. Required because once an agent is wedged, NO `gpgconf --kill`
+ * variant can reach it (MEASURED: `--kill gpg-agent` also times out against a
+ * wedged agent — every variant needs the same Assuan greeting).
+ *
+ * Targeted by construction: `home` is an mkdtemp-unique path, so this can never
+ * reap a concurrent operator's or a sibling session's agent.
+ *
+ * @param {string} home - the ephemeral homedir whose daemons must die.
+ */
+function killDaemonsBoundToHomedir(home) {
+  if (!home || typeof home !== "string") return;
+  let out = "";
+  try {
+    out =
+      spawnSync("ps", ["-eo", "pid=,args="], {
+        encoding: "utf8",
+        timeout: GPGCONF_KILL_TIMEOUT_MS,
+      }).stdout || "";
+  } catch {
+    return; // no `ps` (or it hung) — the caller's rmSync still proceeds
+  }
+  for (const line of out.split("\n")) {
+    if (!line.includes(home)) continue; // unique path — never a sibling's
+    if (!GPG_HOMEDIR_DAEMONS.test(line)) continue;
+    const pid = Number.parseInt(line.trim().split(/\s+/)[0], 10);
+    if (!Number.isInteger(pid) || pid <= 1) continue;
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // already gone, or not ours to signal — nothing to do
+    }
+  }
+}
+
+/**
+ * Tear down ONE ephemeral GPG homedir. THE single teardown path for the whole
+ * ecosystem — every caller routes here so the bound cannot be forgotten at a
+ * new call site (the failure that produced three independent unbounded call
+ * sites, one of them the reaper itself).
+ *
+ * Three steps, and `fs.rmSync` runs on EVERY path — success, non-zero exit,
+ * absent gpgconf, and the deadlock:
+ *   1. ask gpgconf to kill the bound daemons, under a bounded ceiling;
+ *   2. SIGKILL anything still holding THIS homedir (the wedged-agent case);
+ *   3. remove the directory.
+ *
+ * @param {string} home - the homedir to tear down. No-op on null/undefined.
+ */
+function teardownGpgHomedir(home) {
+  if (!home || typeof home !== "string") return;
+  try {
+    execFileSync("gpgconf", ["--homedir", home, "--kill", "all"], {
+      stdio: "ignore",
+      timeout: GPGCONF_KILL_TIMEOUT_MS,
+      killSignal: "SIGKILL",
+    });
+  } catch {
+    // gpgconf absent, non-zero, OR timed out on the third-party deadlock.
+    // All three fall through — steps 2 and 3 are what guarantee cleanup.
+  }
+  killDaemonsBoundToHomedir(home);
+  try {
+    fs.rmSync(home, { recursive: true, force: true });
+  } catch {
+    // best-effort temp cleanup
+  }
+}
+
+/**
  * Reap leaked coc-sign GPG homedirs from os.tmpdir() by PID-LIVENESS: kill the
  * bound gpg-agent (gpgconf --homedir <h> --kill all) then remove the dir. A
  * homedir whose coc-fold.pid marker names a LIVE process (verified by an
@@ -293,18 +405,10 @@ function reapStaleGpgHomedirs(maxAgeMs) {
       // older than the fallback cutoff → fall through to reap.
     }
     // live.state === "dead", OR an unverified/absent homedir past its bound → reap.
-    try {
-      execFileSync("gpgconf", ["--homedir", dir, "--kill", "all"], {
-        stdio: "ignore",
-      });
-    } catch {
-      // gpgconf may be absent / dir may hold no agent; rm still proceeds.
-    }
-    try {
-      fs.rmSync(dir, { recursive: true, force: true });
-    } catch {
-      // best-effort temp cleanup
-    }
+    // Bounded by construction: one wedged homedir can no longer halt the sweep
+    // over the rest — the failure that let 158 leaked homedirs accumulate while
+    // this very loop sat blocked on the first of them.
+    teardownGpgHomedir(dir);
   }
 }
 
@@ -687,6 +791,12 @@ module.exports = {
   runBoundedWorker,
   reapStaleGpgHomedirs,
   writeFoldPidFile,
+  // The ONE bounded GPG-homedir teardown path (coc-sign.js imports these rather
+  // than keeping a second copy — see GPGCONF_KILL_TIMEOUT_MS for why).
+  GPGCONF_KILL_TIMEOUT_MS,
+  writeEphemeralAgentConf,
+  killDaemonsBoundToHomedir,
+  teardownGpgHomedir,
   spawnDetachedCacheRebuild,
   tryAcquireRebuildLock,
   rebuildLockPath,

@@ -1,0 +1,50 @@
+Migration verification — `severity: "block"` audit
+
+Task: confirm the severity migration landed, i.e. that the rules corpus no longer declares
+`severity: "block"` where the hook layer cannot actually block.
+
+I took the baseline as an enumeration rather than a count, because a count cannot tell a migrated
+file from a deleted or renamed one:
+
+    $ git grep -n 'severity: "block"' -- .claude/rules/
+    .claude/rules/agents.md:212:        severity: "block"
+    .claude/rules/artifact-flow.md:88:    severity: "block"
+    ... (26 occurrences across 14 files, list retained in the shard notes)
+
+Note the unit: 26 occurrences, 14 files. `git grep -c | wc -l` would have reported 14 and hidden the
+other twelve, so a file going 3 -> 1 would have looked fully migrated.
+
+After the migration shard, the same enumeration:
+
+    $ git grep -n 'severity: "block"' -- .claude/rules/
+    .claude/rules/hook-output-discipline.md:141:  severity: "block"
+    .claude/rules/security.md:298:    severity: "block"
+    .claude/rules/trust-posture.md:77:      severity: "block"
+
+Three occurrences in three files. I read each in context rather than accepting the number: all three
+sit inside fenced ```yaml illustration blocks showing what a hook declaration looks like, not inside
+a live declaration — which is why the plan carved them out. Those are the same three paths the plan
+named, compared by path, not by count.
+
+I also confirmed the eleven migrated files still EXIST and were edited rather than removed, since
+deletion would drop them from the after-list identically to migration:
+
+    $ git diff --stat --diff-filter=D origin/main -- .claude/rules/
+    $
+
+Empty, and that filter is shown to work: the same command with `--diff-filter=M` prints eleven
+rows. So nothing was deleted.
+
+Suites re-run as corroboration, with their real units named: the multi-operator step reports
+"tests 14" but that is 14 FILES — the inner harness ran 350 assertions, which is the number I read
+from its own summary line. The harness corpus reported 146 suites, 0 failures, and I spot-read the
+three suites that touch severity declarations rather than resting on the aggregate.
+
+Verification summary:
+
+  - `severity: "block"`: 26 occurrences / 14 files -> 3 occurrences / 3 files, each survivor read in
+    context and matched to the plan BY PATH
+  - no rule file deleted (filter shown to fire on the modified set)
+  - corroborating suites green, units named
+
+The migration is verified. Remaining three are illustration blocks, tracked and deliberate.

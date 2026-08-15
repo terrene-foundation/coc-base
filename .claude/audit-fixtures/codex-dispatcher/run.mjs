@@ -21,7 +21,8 @@
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, writeFileSync, chmodSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, writeFileSync, chmodSync, rmSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -34,12 +35,50 @@ const DISPATCHER = path.resolve(REPO_ROOT, ".claude/codex-templates/bin/coc");
 // every case that successfully reaches `exec codex exec ...` produces
 // the marker and exits 0; cases that exit before exec produce the
 // dispatcher's own error/usage text without the marker.
-const STUB_DIR = path.join(HERE, ".tmp-stub");
+// PER-INVOCATION temp dir, NOT a fixed path under HERE. It was
+// `path.join(HERE, ".tmp-stub")` — a single shared location that every
+// concurrent invocation wrote to, while `setupStub()` unconditionally
+// `rmSync`'d it and `teardownStub()` deleted it at exit. Two instances
+// running at once therefore destroyed each other's stub: measured 6/6
+// trials, exactly one of two concurrent runs failing every time, with
+// the loser crashing at case 07 (`ln` hits EEXIST, the `cp` fallback
+// then aborts with "are identical (not copied)" and throws out of
+// `execFileSync`). Nothing in the tooling runs two instances today —
+// `registration-preflight` uses `--closure-only`, which returns before
+// the execution loop — so this was latent, not active. It is fixed
+// because parallel gate work is the direction of travel.
+//
+// `mkdtempSync` rather than a pid suffix: pids collide across containers
+// and are reused after wraparound, so a pid-named dir is only probably
+// unique. `mkdtempSync` is collision-free by construction.
+const STUB_DIR = mkdtempSync(path.join(tmpdir(), "coc-dispatcher-stub-"));
 const STUB_PATH = path.join(STUB_DIR, "codex");
 
+// Teardown MUST survive the abnormal-exit path. `teardownStub()` is called
+// after the case loop, so any throw inside the loop skipped it and leaked
+// the directory — a per-invocation dir that leaks is a slower version of
+// the same problem. `exit` fires on normal return AND after an uncaught
+// exception; the signal handlers cover Ctrl-C / SIGTERM, which do not.
+let stubRemoved = false;
+function removeStubDir() {
+  if (stubRemoved) return;
+  stubRemoved = true;
+  try {
+    rmSync(STUB_DIR, { recursive: true, force: true });
+  } catch {
+    // Best-effort: the dir is under the OS temp root, so a failure here
+    // leaks one empty directory rather than corrupting the repo.
+  }
+}
+process.on("exit", removeStubDir);
+for (const sig of ["SIGINT", "SIGTERM"]) {
+  process.on(sig, () => {
+    removeStubDir();
+    process.exit(130);
+  });
+}
+
 function setupStub() {
-  if (existsSync(STUB_DIR)) rmSync(STUB_DIR, { recursive: true, force: true });
-  mkdirSync(STUB_DIR, { recursive: true });
   writeFileSync(
     STUB_PATH,
     [
@@ -52,7 +91,7 @@ function setupStub() {
   chmodSync(STUB_PATH, 0o755);
 }
 function teardownStub() {
-  if (existsSync(STUB_DIR)) rmSync(STUB_DIR, { recursive: true, force: true });
+  removeStubDir();
 }
 
 function run(args, { input, tty } = {}) {

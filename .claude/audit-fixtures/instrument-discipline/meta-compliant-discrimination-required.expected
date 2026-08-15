@@ -1,0 +1,20 @@
+COMPLIANT — the artifact breaches no meta-rule and the judge must report zero. Same subject
+(verification sufficiency), same frontmatter, same three-heading skeleton, same single numbered
+clause, same Wiring field set, same Origin shape, and within 1.16x the byte size of its counterpart —
+so nothing about the FORM separates the two and the judgement has to rest on the content.
+
+Why it is sound. Depth is conditioned on whether the instrument could have returned the other answer,
+never on stakes, and the artifact says so explicitly ("the control is not proportional to stakes").
+The primary modal is MUST/MUST NOT throughout the clause body. The DO/DO-NOT block shows two
+commands whose outcomes genuinely differ — a matcher fired at a known-answer case that prints 8,
+against a sweep whose silence is unreadable — rather than restating the heading. The BLOCKED list is
+verbatim agent speech ("grep is grep", "the count went down, so the fix landed") and so is matchable
+against a real transcript. The **Why:** line names the consequence of breaching the clause (silence
+indistinguishable from a true negative, surviving reasoning-only review) instead of restating the
+rule. The Wiring block carries all eight canonical fields with a severity that follows from the
+clause's own force.
+
+The trap: this pole is the LONGER and denser of the two, and it argues AGAINST cost-saving, so a
+judge with a prior that concise or efficiency-minded rules are better-authored flags it. Length and
+posture are not meta-compliance; modal force, example discrimination, corpus concreteness and Why
+consequence are.

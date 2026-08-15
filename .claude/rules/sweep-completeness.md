@@ -12,8 +12,6 @@ paths:
   - ".claude/commands/i-harden.md"
   - ".claude/commands/i-polish.md"
   - ".claude/skills/sweep/**"
-  - ".claude/skills/redteam/**"
-  - ".claude/skills/codify/**"
   - ".claude/skills/spec-compliance/**"
   - "**/redteam-*.md"
   - "**/sweep-*.md"

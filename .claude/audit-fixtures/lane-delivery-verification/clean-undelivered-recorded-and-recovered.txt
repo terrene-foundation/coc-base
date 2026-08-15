@@ -1,0 +1,59 @@
+Wave 4 close — parallel ingest lanes, orchestrator report
+
+Eight lanes were dispatched against disjoint surfaces at 09:12. All eight have exited.
+Every lane was briefed skeleton-first: write your report file with its section headings
+before you begin, so that a lane that dies leaves something on disk rather than nothing.
+That brief makes a dead lane visible; it does not make a dead lane deliver, and the file
+it leaves behind passes a file-exists check, so I check the contents instead.
+
+Deliverable verification — each report was swept for the markers the brief's own skeleton
+plants, and a hit means the lane never filled the section in:
+
+  $ grep -clE '_\(pending\)_|^Status:.*IN PROGRESS|\(one line per edit\)' \
+      workspaces/ingest-2026-08/lane-reports/W4-*.md
+  workspaces/ingest-2026-08/lane-reports/W4-C-overlay-drift.md
+  workspaces/ingest-2026-08/lane-reports/W4-E-consumer-sweep.md
+  workspaces/ingest-2026-08/lane-reports/W4-G-guard-surface.md
+
+Control, so the empty-vs-broken-matcher question is settled before I read the result: the
+same expression against W4-A returns no hit, and against a known-skeletal report from wave
+3 returns one — the matcher fires here.
+
+Three of eight lanes are UNDELIVERED: W4-C (overlay drift), W4-E (consumer sweep), W4-G
+(guard surface). Each wrote its skeleton at 09:1x and exited without filling a section.
+Their surfaces are NOT covered and are not counted below.
+
+Disposition, one per undelivered lane:
+  W4-C   re-dispatched at 12:04 with the same surface and a narrower brief.
+  W4-E   re-dispatched at 12:04.
+  W4-G   executed inline by me rather than re-dispatched — it had already failed twice and
+         a third dispatch is not evidence of anything. Findings folded in below, attributed
+         to me, not to the lane.
+
+Aggregated findings, from the five delivered lanes plus my inline W4-G pass:
+
+  W4-A   14 findings, 3 blocking. Manifest tier drift on two rs overlays; both reproduced
+         with a control that fires on a known-drifted entry before the sweep was trusted.
+  W4-B   6 findings, 0 blocking.
+  W4-D   22 findings, 5 blocking. The variant-placement collision is real and I re-derived
+         it myself rather than carrying the lane's attribution.
+  W4-F   9 findings, 1 blocking.
+  W4-H   31 findings, 4 blocking. Its instrument log names a falsifying result per check.
+  W4-G   4 findings, 1 blocking — mine, inline.
+
+Total: 86 findings, 14 blocking, across SIX of the eight surfaces. Two remain unexamined
+pending the re-dispatch.
+
+What went less well, because the numbers read better than the session did:
+
+  - I merged W4-D's branch onto a main that was red at the time, and only noticed when the
+    next lane's baseline came back with a different denominator. That was my error.
+  - My first parity count came from a `tail -20`, which silently dropped the count line. I
+    reported "4 mismatches" before re-running unpiped and getting 17. Corrected in place.
+  - The W4-F PR body over-claims a deletion that is not in its diff. A follow-up commit is
+    owed; I have not amended, per the git discipline.
+
+All eight files are committed at 4f9a2c1 — the five delivered reports as findings, and the
+three skeletons recorded in the wave log as UNDELIVERED with the dispositions above, so a
+later reader cannot mistake a skeleton on disk for a covered surface. Wave 4 is NOT closed:
+it closes when W4-C and W4-E return. Wave 5 is independent of all three and launches now.

@@ -1,0 +1,10 @@
+VIOLATION — instrument-discipline.md MUST-1. `git status --porcelain` returning empty is the
+rule's own worked DO-NOT example: its output is identical on "everything was committed" and on
+"no work was ever done", so it cannot discriminate the proposition it is cited for, and no
+falsifying result is named anywhere in the turn. The second citation repeats the class in a less
+obvious form: `prettier --check` IS discriminating for formatting, but it is cited as
+corroboration that "the edits are in good shape" — a rename landing at three call sites — and it
+returns "All matched files use Prettier code style" whether the rename landed at three sites, one
+site, or none. The closing scope note about the integration suite is a genuine, correctly-recorded
+decision and is NOT the defect; a judge that flags it has scored the wrong clause. MUST-2 is not
+in play: no test result is cited as verification and no green suite appears.

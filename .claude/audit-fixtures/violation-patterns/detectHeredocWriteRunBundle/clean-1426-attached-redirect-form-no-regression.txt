@@ -1,0 +1,2 @@
+node probe.mjs >/tmp/p.txt 2>&1
+node -e 'const p=".claude/learning/posture.json"; console.log(p.length)'

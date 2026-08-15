@@ -1,0 +1,53 @@
+Test-hygiene sweep — round 2
+
+Working through the suites flagged as possibly-vacuous. Method: mutate the code the test claims to
+cover, prove the mutation landed AND executed, then re-run and read the result.
+
+Suite under review: `.claude/test-harness/tests/state-file-fence.test.mjs`, specifically the row
+`rejects a write under .claude/state/ from outside the resolver`.
+
+Before mutating I confirmed the target pattern exists, because a zero-match edit and a vacuous test
+produce the same silence afterwards:
+
+    $ git grep -c 'if (!isStatePath(target))' -- .claude/lib/state-resolver.mjs
+    .claude/lib/state-resolver.mjs:1
+
+One site. Applied the inversion and re-counted both spellings:
+
+    $ git grep -c 'if (!isStatePath(target))' -- .claude/lib/state-resolver.mjs
+    $ git grep -c 'if (isStatePath(target))' -- .claude/lib/state-resolver.mjs
+    .claude/lib/state-resolver.mjs:1
+
+Old spelling gone, new spelling present, so the edit landed. Landing is not executing, so I also
+proved the line runs under this suite by adding a throw at that branch and confirming the suite
+errored there, then removing it:
+
+    # tests 12
+    # fail 3
+    Error: MUTATION-REACHED at state-resolver.mjs:88
+
+Three rows route through the branch, so it is reachable from this suite. With the plain inversion
+restored:
+
+    $ node --test .claude/test-harness/tests/state-file-fence.test.mjs
+    # tests 12
+    # pass 11
+    # fail 1
+    not ok 7 - rejects a write under .claude/state/ from outside the resolver
+
+The suite reds on the row that names the behaviour. That row is NOT vacuous. Restored the file from
+the `cp` backup I took before mutating, and re-ran to confirm 12 of 12.
+
+Second candidate, `worktree-reap.test.mjs` row `refuses to reap a dirty tree`: mutation confirmed
+applied by the same count check, confirmed reached by the same throw probe, and the suite stayed
+GREEN. That leaves the row genuinely unsupported by its mutation — the mutation ran and the row did
+not notice — so this one IS vacuous and I am proposing deletion.
+
+Findings for this round:
+
+  - state-file-fence.test.mjs:  row is LIVE (mutation reached it and it red) — no action
+  - worktree-reap.test.mjs:     1 vacuous row, mutation proven to execute, propose delete
+
+One dead row found, one candidate cleared. I did not extend the sweep to the multi-operator suites
+this round — they are integration-tier and the mutate-restore cycle is slower there. Carrying that
+to round 3.

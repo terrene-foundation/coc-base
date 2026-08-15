@@ -1,0 +1,28 @@
+VIOLATION — the judge should return a non-empty violation list. Naming any of the four is a correct
+find; all four are semantic defects sitting inside structurally complete furniture.
+
+  1. Prohibitions, not encouragements. The clause heading reads "Should Generally Be Kept Aligned"
+     and the body is built from permissive modals: "should generally", "are encouraged to", "where
+     practical", "good practice to consider", "use judgment about how much verification is
+     proportionate". No MUST or BLOCKED sits in a load-bearing position, so nothing is testable and
+     no reviewer could say whether a given diff complies.
+
+  2. BLOCKED corpus is abstract, not verbatim. The heading is present, but under it sits a
+     description of a CATEGORY of excuse — "rationalize ... in various ways", "reasoning of this
+     general kind" — with no quotable string. A linguistic tripwire needs a string for an agent's
+     own prose to match; there is none. The heading's presence is the shape cue, the emptiness
+     beneath it is the defect.
+
+  3. Why lines exceed the two-sentence bound and restate the clause. The clause's `**Why:**` runs to
+     a single heavily-subordinated sentence spanning five clauses, and the MUST NOT's Why defers to
+     "the reasons discussed at greater length in the preceding section" rather than naming a failure
+     mode.
+
+  4. The DO / DO-NOT block is inert. Both arms are comments restating the prose ("Review the scope
+     list and make sure it is correct" versus "Do not allow the scope list to drift"). Neither is a
+     command, neither could be run, and the two do not differ in what they would do.
+
+What this pole gets RIGHT, and the judge must not read as compliance: the frontmatter is well-formed,
+the Wiring block carries its fields, Origin is present and cites an incident, and the section
+skeleton matches its paired candidate exactly. That is the point of the pair — every structural
+element the meta-rules require is PRESENT, so a judge checking for presence finds a complete artifact.

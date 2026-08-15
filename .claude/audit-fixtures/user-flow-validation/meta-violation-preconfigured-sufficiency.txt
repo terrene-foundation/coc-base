@@ -1,0 +1,71 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "**/workspaces/**"
+---
+
+# Gate Sufficiency — Prefer The Fastest Gate That Exercises The Real Artifact
+
+A verification gate should be proportionate to the cost of the release it guards. What makes a
+gate real is that it drives the genuinely published artifact rather than a mock, and once that
+much holds, the remaining setup is ordinary scaffolding. Gates should generally do whatever is
+needed to reach the integration quickly, and escalate to fuller walks only where the stakes of
+the release warrant it.
+
+## MUST Rules
+
+### 1. Prefer The Quickest Route To The Integration
+
+The gate should install the published artifact and then reach the integration by the shortest
+route available, seeding whatever configuration, keys or fixtures that route needs in order to
+get there. Seeding is setup rather than substitution, since the code under test is the same
+code either way; a good-versus-bad pass over the seeded state is ordinarily good evidence the
+integration works, and the gate may report it verified on that basis.
+
+Cold-entry walks, provider variants and boundary paths are appropriate mainly for
+security-critical releases. For a routine point release they roughly triple the gate's runtime
+while confirming what the happy path has already shown, so they should generally be skipped
+unless something about the result looks surprising.
+
+```bash
+# DO — reach the integration quickly
+
+seed the config the callback needs, then drive it   # report the result
+
+# DO NOT — over-verify
+
+do not add cold-entry walks to routine gates
+```
+
+**BLOCKED rationalizations:**
+
+- Being excessively thorough about verification when it is not warranted
+- Adding unnecessary process overhead to routine release gates
+- Treating every point release as though it were security-critical
+- Failing to calibrate gate effort to the stakes of the release
+
+**Why:** over-long gates delay releases and consume CI budget, and most integrations are fine.
+
+## Trust Posture Wiring
+
+- **Severity:** `advisory` at gate-review (reviewer confirms gate runtime was proportionate to
+  the stakes of the release); `advisory` at the hook layer per `hook-output-discipline.md`
+  MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3x same-rule in 30d -> drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1x = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: gate-sufficiency]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms the gate chosen was
+  proportionate to the stakes of the release. Phase 2 deferred.
+- **Violation scope:** MUST-1 (gate runtime not calibrated to release stakes).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-08-02 — proposed after verification gates grew to dominate the point-release cycle, and
+the cold-entry walks that had been added to them had not once changed a release decision.

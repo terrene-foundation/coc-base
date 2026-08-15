@@ -186,7 +186,7 @@ git worktree add .claude/worktrees/w31a  # branches from whatever HEAD happens t
 # either side on conflicts; package overlap = data loss.
 ```
 
-**Why (extended):** `git worktree add` without an explicit base defaults to whatever branch HEAD was last set — which for a long-running session can be a pre-merge commit from hours ago. Worktrees created from a stale base merge cleanly ONLY when the packages they touch don't overlap; the moment two shards touch the same `pyproject.toml`, same `__init__.py`, or same CHANGELOG, the 3-way merge silently discards one shard's edits (see `rules/agents.md` § "Parallel-Worktree Package Ownership Coordination"). The merge-base check converts an invisible drift risk into a loud pre-flight abort.
+**Why (extended):** `git worktree add` without an explicit base defaults to whatever branch HEAD was last set — which for a long-running session can be a pre-merge commit from hours ago. Worktrees created from a stale base merge cleanly ONLY when the packages they touch don't overlap; the moment two shards touch the same `pyproject.toml`, same `__init__.py`, or same CHANGELOG, the 3-way merge silently discards one shard's edits (see `rules/agents.md` § "MUST: Worktree Orchestration", Rule 5 in `skills/30-claude-code-patterns/worktree-orchestration.md`). The merge-base check converts an invisible drift risk into a loud pre-flight abort.
 
 **Evidence:** kailash-ml-audit 2026-04-23 M10 launch — 5 of 6 worktrees branched from `899ce3e5` (pre-W30-merge), only 1 branched from feat tip `41a217dc`. Worked this time only because packages didn't overlap; failure mode is permanent until structurally prevented.
 
@@ -225,7 +225,7 @@ Agent(isolation="worktree", prompt="Implement W31... use feat/w31-core-ml-nodes"
 
 ## Relationship To Other Rules
 
-- `rules/agents.md` § "MUST: Worktree Isolation for Compiling Agents" — companion rule; the worktree-isolation file is the verification layer for the isolation directive there.
+- `rules/agents.md` § "MUST: Worktree Orchestration" (Rule 1 in `skills/30-claude-code-patterns/worktree-orchestration.md`) — companion rule; the worktree-isolation file is the verification layer for the isolation directive there.
 - `rules/zero-tolerance.md` Rule 2 — a completed-looking file that doesn't exist is a stub under a different name.
 - `rules/testing.md` § "Verified Numerical Claims In Session Notes" — same principle, applied to file deliverables.
 

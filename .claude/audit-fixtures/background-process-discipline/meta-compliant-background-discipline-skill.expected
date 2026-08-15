@@ -1,0 +1,22 @@
+COMPLIANT — the clause set satisfies the meta-rules it exists to enforce.
+
+  - Every prescribed primitive was shown to work on the target platform, and the two
+    that do NOT work are named as not working rather than quietly dropped. Clause 3
+    identifies `timeout` as GNU coreutils and absent from a stock macOS, so it must be
+    probed. Clause 4 records that `set -m` FAILS in zsh at every pole tested, with bash
+    named as the positive control that proves the test itself works.
+  - The clause ORDER is justified by what each layer buys: self-termination is clause 1
+    because it is the only layer that makes correctness independent of everything else
+    working.
+  - Clause 5's mandated verification counts survivors and can print `CLEANUP FAILED`, so
+    it is capable of the opposite verdict rather than being an unconditional string.
+  - The BLOCKED corpus is quotable: each entry is a phrase an agent would actually write
+    ("the confirmation line printed, so cleanup ran"), not an abstract description of a
+    category of excuse.
+  - The Wiring names a STRUCTURAL detector (the SessionStart/SessionEnd hook) rather than
+    resting detection on the script's own output.
+
+This pole deliberately shares its frontmatter, heading skeleton, clause count, Why lines,
+DO/DO-NOT blocks, BLOCKED heading, Wiring and Origin with its violation twin. The two are
+separable by the TRUTH of their platform claims and the ORDER of their priorities, never
+by shape, length or furniture.

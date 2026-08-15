@@ -107,6 +107,16 @@ const path = require("path");
 const { spawnSync } = require("child_process");
 // THE shared git-subprocess allowlist (loom#1462 F1) — see ./git-subprocess-env.js.
 const { resolveGitBinary, gitEnv } = require("./git-subprocess-env.js");
+// THE shared COHERENCE rule (loom#1586) — see ./git-checkout-proof.js. It was a
+// LOCAL copy here; `provenCheckoutRoot` needed the same rule, and two copies of
+// "does this toplevel actually root this repository" is the drift shape
+// `rules/security.md` § Enforcement-Surface Parity forbids. The outward walk
+// below and the trust-state override predicate now share one definition.
+const {
+  dotGitTarget: _dotGitTarget,
+  treeIsCoherent: _treeIsCoherent,
+  isAtOrUnder: _isAtOrUnder,
+} = require("./git-checkout-proof.js");
 
 // A watched rel begins with `.claude/`, `journal/`, `workspaces/<name>/journal/`
 // — or, since loom#1470, `.git`. So a path containing no marker segment cannot
@@ -188,6 +198,28 @@ function _deepestExistingDir(absPath) {
  * git-common-dir (the repo-family identity). Returns null when `dir` is
  * not inside a git repository or git is unavailable/errors.
  *
+ * WHY THIS IS NOT UNIFIED WITH `git-checkout-proof.js::gitTreeProof`, which it
+ * is byte-identical to after normalization (loom#1586). The COHERENCE rule moved
+ * out to that module and is imported back above — the DECISION is shared, which
+ * is what `rules/security.md` § Enforcement-Surface Parity actually requires. The
+ * remaining duplicate is the raw PROBE, and it stays for three reasons, none of
+ * which is "the ratchet forbids it":
+ *
+ *   1. SCOPE — loom#1586 is a regression fix. Collapsing a second git spawn is a
+ *      refactor with its own blast radius across this file's 4 call sites.
+ *   2. LIVE CALLERS — `_gitTreeInfo` is still called at `_sessionCommonDir` and
+ *      at the targetTree/outward-walk sites; unifying is a call-site change, not
+ *      a deletion.
+ *   3. COORDINATED TWO-FILE EDIT — `git-env-regrowth-guard-1471.test.mjs` pins
+ *      `SWEPT_ENV_SITES["lib/guard-path-scope.js"] = 1`, so removing the spawn
+ *      MUST shrink that ledger in the same change.
+ *
+ * An earlier draft justified this as "unifying would edit a passing security
+ * ratchet". That reason is WRONG and is recorded so it is not inherited: the
+ * ratchet's own failure text says "If you REMOVED one, shrink the ledger" —
+ * updating the count on a legitimate removal is the documented maintenance path,
+ * not a violation. The obstacle is scope, not the ratchet.
+ *
  * `--show-toplevel --git-common-dir` prints toplevel first, common-dir
  * second; for a linked worktree the common dir is absolute (<main>/.git),
  * for a plain checkout it is the relative `.git`, resolved here against
@@ -235,71 +267,15 @@ function _gitTreeInfo(dir) {
   return { top: _realpathSafe(lines[0]), common: _realpathSafe(common) };
 }
 
-/** true iff `child` IS `parent` or lies underneath it. Both must be realpathed. */
-function _isAtOrUnder(child, parent) {
-  if (!child || !parent) return false;
-  if (child === parent) return true;
-  const rel = path.relative(parent, child);
-  return rel.length > 0 && !rel.startsWith("..") && !path.isAbsolute(rel);
-}
-
-/**
- * The git-dir that a tree's OWN `.git` entry names, or null.
- *   - plain checkout  → `<top>/.git` is a DIRECTORY and IS the git dir
- *   - linked worktree → `<top>/.git` is a FILE holding `gitdir: <path>`,
- *     pointing at `<common>/worktrees/<name>`
- * Anything else (absent, a symlink to nowhere, an unreadable or malformed
- * file) returns null, which the caller reads as INCOHERENT — the fail-safe
- * direction, since incoherence only ever costs extra probing.
- */
-function _dotGitTarget(top) {
-  const dotGit = path.join(top, ".git");
-  let st;
-  try {
-    st = fs.lstatSync(dotGit);
-  } catch {
-    return null;
-  }
-  try {
-    if (st.isDirectory()) return _realpathSafe(dotGit);
-    if (!st.isFile()) return null;
-    const m = /^\s*gitdir:\s*(.+?)\s*$/m.exec(fs.readFileSync(dotGit, "utf8"));
-    if (!m) return null;
-    return _realpathSafe(
-      path.isAbsolute(m[1]) ? m[1] : path.resolve(top, m[1]),
-    );
-  } catch {
-    return null;
-  }
-}
-
-/**
- * COHERENCE — does the reported toplevel actually ROOT the reported repository?
- *
- * `_gitTreeInfo` answers one query with two values, and `core.worktree` is a
- * repo-LOCAL config key that changes only the FIRST of them. The result is a
- * hybrid pair: `top` from one tree, `common` from another. That pair is what
- * hijacked the #1430 outward walk — see § THE WALK CANNOT SKIP AN ANCESTOR.
- *
- * A pair is coherent when `<top>/.git` names the same repository `common`
- * does: equal to it (plain checkout), or inside it (a linked worktree's
- * `<common>/worktrees/<name>`). Measured on the three fixtures that differ by
- * exactly one `git config`:
- *
- *   plain worktree           top=W        <top>/.git -> R/.git/worktrees/wt   COHERENT
- *   nested `git init`        top=W/journal <top>/.git -> W/journal/.git        COHERENT
- *   nested + core.worktree=W top=W        <top>/.git -> R/.git/worktrees/wt   INCOHERENT
- *                                          common     =  W/journal/.git
- *
- * Pure `fs` work — no subprocess — so the check is free relative to the probe
- * that produced the pair.
- */
-function _treeIsCoherent(tree) {
-  if (!tree || !tree.top || !tree.common) return false;
-  const target = _dotGitTarget(tree.top);
-  if (!target) return false;
-  return target === tree.common || _isAtOrUnder(target, tree.common);
-}
+// `_isAtOrUnder`, `_dotGitTarget` and `_treeIsCoherent` were defined HERE until
+// loom#1586. They now live in ./git-checkout-proof.js and are imported at the
+// top of this file, unchanged in behaviour. The move is not tidying: the
+// trust-state override predicate needed the SAME coherence rule (a
+// `core.worktree` root reports as a toplevel while holding no `.git` entry at
+// all), and a second copy of that rule is exactly the drift shape
+// `rules/security.md` § Enforcement-Surface Parity forbids. The COHERENCE
+// fixture table and the `core.worktree` measurement live with the definition.
+// § THE WALK CANNOT SKIP AN ANCESTOR below is the consumer that motivated it.
 
 function _hasMarker(posixPath, markers) {
   const hay = posixPath.toLowerCase();
@@ -330,20 +306,43 @@ function _suffixCandidates(posixAbs) {
 }
 
 /**
- * The session root's shared git dir, resolved WITHOUT a subprocess in the
- * common case: `resolveMainCheckout` only returns a root it has already
- * validated as containing `.git`, and for a plain checkout that IS the
- * common dir. Falls back to the git query for a repoDir that is itself a
- * worktree (`.git` is a FILE there) or has no `.git` at all.
+ * The session root's shared git dir — GIT'S ANSWER, never an fs guess
+ * (loom#1474 E3).
+ *
+ * THE DEFEAT THIS CLOSES. This used to short-circuit on `fs.statSync(<root>/.git)
+ * .isDirectory()` and return that path as the common dir, on the reasoning that
+ * `resolveMainCheckout` "only returns a root it has already validated as
+ * containing `.git`". Both halves were wrong at once: that upstream validation
+ * was itself an existence check (`state-resolver.js`, fixed in the same change),
+ * and "contains a `.git` directory" does not make a directory a git dir.
+ *
+ * So `mkdir .git` MANUFACTURED a common dir. The value is not merely wrong — it
+ * is CONFIDENTLY wrong, and it feeds `inFamily`, whose null-guard
+ * (`!sessionCommon || …`) is the fail-CLOSED branch that admits every candidate.
+ * A fabricated non-null value walks straight past that guard and reports the
+ * attacker's root and the victim's repo as DIFFERENT families, which suppresses
+ * candidate 2 and yields zero candidates — the silent-unwatched shape #1414,
+ * #1430 and #1446 each closed, reached here by fabricating an identity instead
+ * of failing to resolve one. Measured through the real integrity-guard, the two
+ * shapes differing by one `mkdir` vs one `touch`:
+ *
+ *   `.git` empty FILE  sessionCommon=null       rels=[".claude/learning/posture.json"]  exit=2
+ *   `.git` empty DIR   sessionCommon=<evil>/.git rels=[]                                exit=0  BYPASS
+ *
+ * Note what that FILE row proves: it blocked because the shortcut DECLINED and
+ * the git fallback also failed, leaving null — the fail-closed path. It was
+ * never the predicate refusing. Removing the shortcut makes the DIR shape reach
+ * that same honest null, so both counterfeits now fail closed for the same
+ * reason instead of one of them passing.
+ *
+ * COST. The shortcut saved one subprocess on a plain-checkout session root, but
+ * only on calls that REACH here — and this is called inside `if (targetTree)`,
+ * i.e. after candidate 1 already missed and a probe was already spent. The
+ * measured probe counts in the § cost table below are unchanged for the HIT
+ * paths, which never reach this function at all.
  */
 function _sessionCommonDir(normalizedRepo) {
   if (!normalizedRepo) return null;
-  const dotGit = path.join(normalizedRepo, ".git");
-  try {
-    if (fs.statSync(dotGit).isDirectory()) return _realpathSafe(dotGit);
-  } catch {
-    // not a plain checkout — fall through to the git query
-  }
   const info = _gitTreeInfo(normalizedRepo);
   return info ? info.common : null;
 }
@@ -367,6 +366,16 @@ function* _candidates(absPath, repoDir, opts, state) {
   state.sameFamily = false;
   state.containingRoot = null;
   state.gitProbes = 0;
+  // loom#1656 — the root that produced the rel MOST RECENTLY YIELDED, so a
+  // consumer that stops on a match knows WHICH TREE claimed the path. Distinct
+  // from `containingRoot`, which reports the tree that established JURISDICTION
+  // and is deliberately not set on the candidate-1 hit path (the hot path never
+  // pays for the git probe). A caller needing the owning tree of the WINNING
+  // candidate — integrity-guard, to read that tree's HEAD — cannot use
+  // `containingRoot` for exactly that reason. null ⇒ the resolver could not name
+  // an owning tree (the fail-closed suffix branches), which is INDETERMINATE and
+  // never a licence to fall back to the session's own cwd.
+  state.matchedRoot = null;
   // loom#1446 defect 2 — true IFF the enclosing-tree walk fell out at
   // MAX_ENCLOSING_PROBES rather than terminating on its own. Distinguishes
   // "no enclosing family tree" (a verdict) from "ran out of budget" (not one).
@@ -448,6 +457,27 @@ function* _candidates(absPath, repoDir, opts, state) {
 
     if (!cleaned.startsWith("..")) {
       state.sameFamily = true;
+      // loom#1656 — a non-escaping rel is repo-relative BY CONSTRUCTION (the
+      // paragraph above), i.e. this branch has already decided the path lives in
+      // `repoDir`. Naming that same root here keeps the branch predicate and the
+      // watched-path predicate answering about ONE tree, which is the invariant
+      // #1656 broke.
+      //
+      // SCOPE — loom#1664. That a relative `file_path` is read as MAIN-CHECKOUT-
+      // relative rather than session-cwd-relative is a property of THIS resolver
+      // and is unchanged, house-wide, and correct for the WATCHED question. It is
+      // NOT a licence to use this root for the BRANCH question: the write lands
+      // wherever the writing TOOL resolves the relative path, which need not be
+      // `repoDir`, so reading this tree's HEAD would judge a branch nobody is
+      // writing from. integrity-guard.js therefore refuses outright on a
+      // non-absolute target rather than consuming `matchedRoot` here. An earlier
+      // revision of this comment called the relative reading "pre-existing and
+      // unchanged" full stop — true of the resolver, misleading about the
+      // consumer, which is precisely where #1664's widening lived.
+      state.matchedRoot =
+        typeof repoDir === "string" && repoDir.length > 0
+          ? _realpathSafe(repoDir)
+          : null;
       if (cleaned.length > 0) yield cleaned;
       return;
     }
@@ -467,6 +497,8 @@ function* _candidates(absPath, repoDir, opts, state) {
     // marker precheck keeps this free for ordinary source paths.
     if (!_hasMarker(cleaned, markers)) return;
     state.sameFamily = true;
+    // `matchedRoot` stays null: a suffix is a TAIL, not a rel of any named tree
+    // (loom#1656). A consumer that needs the owning tree must fail closed here.
     for (const s of _suffixCandidates(cleaned)) {
       if (s && !s.startsWith("..")) yield s;
     }
@@ -498,7 +530,10 @@ function* _candidates(absPath, repoDir, opts, state) {
   // Candidate 1 — the session/main root (today's behaviour, kept first).
   if (normalizedRepo) {
     const c1 = usable(path.relative(normalizedRepo, normalizedAbs));
-    if (c1) yield c1;
+    if (c1) {
+      state.matchedRoot = normalizedRepo; // loom#1656
+      yield c1;
+    }
   }
 
   // Candidate 2 — the tree the target actually lives in (the fix).
@@ -523,7 +558,10 @@ function* _candidates(absPath, repoDir, opts, state) {
     state.sameFamily = inFamily(targetTree);
     if (state.sameFamily) {
       const c2 = usable(path.relative(targetTree.top, normalizedAbs));
-      if (c2) yield c2;
+      if (c2) {
+        state.matchedRoot = targetTree.top; // loom#1656 — the worktree itself
+        yield c2;
+      }
     }
 
     // Candidates 3..N — walk OUT one enclosing tree at a time (loom#1430).
@@ -656,7 +694,10 @@ function* _candidates(absPath, repoDir, opts, state) {
         state.containingRoot = outer.top;
       }
       const cN = usable(path.relative(outer.top, normalizedAbs));
-      if (cN) yield cN;
+      if (cN) {
+        state.matchedRoot = outer.top; // loom#1656 — the enclosing same-family tree
+        yield cN;
+      }
     }
     state.probesExhausted = !walkComplete;
 
@@ -690,6 +731,13 @@ function* _candidates(absPath, repoDir, opts, state) {
   // FAIL-CLOSED — either no containing tree resolved at all, or one did, in
   // this repo family, and produced no usable rel. Emit every suffix so a
   // protected tail still reaches the matcher.
+  //
+  // `matchedRoot` stays null through this branch (loom#1656). A suffix is a TAIL
+  // of the path, not a rel OF any tree — there is by definition no root here to
+  // name, which is precisely why we are in the fail-closed branch. A consumer
+  // that needs the owning tree (to read its HEAD) must refuse rather than
+  // substitute a root of its own choosing.
+  state.matchedRoot = null;
   for (const s of _suffixCandidates(posixAbs)) {
     const c = usable(s);
     if (c) yield c;
@@ -736,9 +784,20 @@ function candidateRepoRelatives(absPath, repoDir, opts) {
  * else null. `match` is the caller's own watched-path predicate — the
  * pattern set stays owned by each guard.
  *
- * @returns {{hit: any, gitProbes: number}} via `out` when supplied — the probe
- *   count is exposed so a test can pin the laziness (a refactor that made this
- *   eager again would add a subprocess to every protected-path Edit/Write).
+ * @returns {{gitProbes: number, matchedRoot: string|null}} via `out` when
+ *   supplied — the probe count is exposed so a test can pin the laziness (a
+ *   refactor that made this eager again would add a subprocess to every
+ *   protected-path Edit/Write), and `matchedRoot` names the tree whose rel
+ *   produced the MATCH (loom#1656).
+ *
+ * `matchedRoot` IS THE OWNING TREE OF THE WINNING CANDIDATE, and it is null when
+ * the resolver could not name one (the fail-closed suffix branches, or no match
+ * at all). A caller that needs to ask git something ABOUT the matched path — the
+ * motivating case is integrity-guard reading that tree's HEAD to decide the
+ * codify-branch fence — MUST use this and MUST refuse on null. Reaching for the
+ * session's own cwd instead is loom#1656: with ~30 linked worktrees in this
+ * forest, the session cwd is routinely a DIFFERENT tree from the target's, and
+ * the fence then judges a branch nobody is writing from.
  */
 function matchFirstCandidate(absPath, repoDir, match, opts, out) {
   const state = {};
@@ -747,7 +806,13 @@ function matchFirstCandidate(absPath, repoDir, match, opts, out) {
     hit = match(rel);
     if (hit) break;
   }
-  if (out && typeof out === "object") out.gitProbes = state.gitProbes;
+  if (out && typeof out === "object") {
+    out.gitProbes = state.gitProbes;
+    // Only meaningful for a HIT: on a miss the generator ran to exhaustion and
+    // `matchedRoot` holds whichever root happened to yield last, which names
+    // nothing. Null it so a caller cannot read a stale root as a verdict.
+    out.matchedRoot = hit ? state.matchedRoot || null : null;
+  }
   return hit;
 }
 

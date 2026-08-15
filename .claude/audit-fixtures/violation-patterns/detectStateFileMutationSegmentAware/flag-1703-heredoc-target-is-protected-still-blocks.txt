@@ -1,0 +1,3 @@
+cat > .claude/learning/posture.json <<'EOF'
+{"level":5}
+EOF

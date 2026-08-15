@@ -130,7 +130,7 @@ class CustomNode(Node):
 - **Testing**: Testable parameter contracts
 - **Isolation**: Automatic scoping prevents data leakage
 
-## Parameter Naming 
+## Parameter Naming
 
 ### Using "metadata" as a Parameter Name
 

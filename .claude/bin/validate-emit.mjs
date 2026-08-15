@@ -229,7 +229,8 @@ const CANONICAL_CC_TOOLS = new Set([
 // specialist with `Edit` AND `Bash`; "read-only" means it cannot MUTATE files
 // (no Edit/Write). Bash is NOT forbidden — reviewer/security-reviewer run
 // read-only mechanical sweeps (`grep -c`, `pytest --collect-only`) that need
-// Bash (agents.md § "Reviewer Mechanical Sweeps"). Task is sub-delegation, not
+// Bash (agents.md § "MUST: Reviewer Prompts Include Mechanical AST/Grep
+// Sweep"). Task is sub-delegation, not
 // file mutation. So the prohibition is exactly the two mutation tools.
 const READONLY_FORBIDDEN_TOOLS = new Set(["Edit", "Write"]);
 
@@ -1197,6 +1198,111 @@ function checkConsumerEfficacy(root, opts) {
         }
       }
     }
+
+    // ── E. RS-86: the CANONICAL source + the INSTALLED trees, not just the emit.
+    // Sections A–D all read `emitDir` — a tree generated from the CURRENT
+    // template in this run. That proves the emitter's output is parse-loadable;
+    // it proves nothing about the two trees a consumer actually loads from.
+    // The gap is not hypothetical: `skills/project/**` is PRESERVED across pulls
+    // (`sync-from-template` never overwrites consumer-owned paths), so a
+    // historical project-owned SKILL.md with broken or missing frontmatter is
+    // structurally invisible to a fresh emit — it is never regenerated, so it is
+    // never inspected. Same for an installed tree that has drifted from what the
+    // current template would emit.
+    //
+    // Measured at authoring time: canonical 49 SKILL.md / 0 fail, `.codex` 42 / 0,
+    // `.gemini` 42 / 0 — so this section is GREEN on landing and functions as a
+    // forward tripwire, not a backlog. Its discrimination is pinned by a planted
+    // broken fixture in the paired regression suite; a check never shown to fire
+    // is not evidence (`instrument-discipline.md` MUST-3).
+    //
+    // Absent tree ⇒ SKIP, never PASS: a consumer that has not installed a given
+    // CLI has nothing to assert, and a printed PASS there would be a verdict over
+    // an empty set (the loom#1386 ruling that made V15 report SKIP).
+    for (const [label, treeRoot] of [
+      ["source:.claude/skills", join(root, ".claude", "skills")],
+      ["installed:.codex/skills", join(root, ".codex", "skills")],
+      ["installed:.gemini/skills", join(root, ".gemini", "skills")],
+    ]) {
+      if (!existsSync(treeRoot)) {
+        results.push({
+          artifact: label,
+          status: STATUS.SKIP,
+          detail: "tree not present in this repo — nothing to assert",
+        });
+        continue;
+      }
+      const manifests = findSkillManifests(treeRoot);
+      if (manifests.length === 0) {
+        results.push({ artifact: label, status: STATUS.SKIP, detail: "no SKILL.md in tree" });
+        continue;
+      }
+      let checked = 0;
+      for (const rel of manifests) {
+        const tag = `${label}/${rel}`;
+        const text = readOrFail(join(treeRoot, rel), tag, "SKILL.md");
+        if (text === null) continue;
+        checked++;
+        const fmParsed = parseFrontmatter(text);
+        if (!fmParsed.hasFrontmatter || fmParsed.unterminated) {
+          results.push({
+            artifact: tag,
+            status: STATUS.FAIL,
+            detail: "missing/unterminated frontmatter — will not parse-load",
+          });
+          continue;
+        }
+        if (!nonEmpty(fmParsed.fields.description)) {
+          results.push({
+            artifact: tag,
+            status: STATUS.FAIL,
+            detail: "frontmatter missing `description` (load-bearing for no-path-loader CLIs)",
+          });
+          continue;
+        }
+        // Semantic `name` match, per RS-86: accept the skill-directory name OR
+        // that name with a leading numeric ordering prefix stripped
+        // (`01-core-sdk` → `core-sdk`). Checked only when `name` is PRESENT:
+        // both emitters derive the handle from the directory when it is absent,
+        // so absence is a supported authoring form, and failing it would invent
+        // a failure class this section was never measured against.
+        //
+        // TOP-LEVEL SKILLS ONLY — the nested case is deliberately NOT asserted.
+        // RS-86's clause says "the immediate skill-directory name", which for
+        // `40-stack-onboarding/go/SKILL.md` is `go`; that file declares
+        // `name: stack-onboarding-go`, i.e. <container-minus-prefix>-<leaf>.
+        // Applying the clause literally flags all four nested stack-onboarding
+        // skills (MEASURED: 4 in source + 4 in .codex + 4 in .gemini = 12 rows,
+        // which took `validate-emit` from exit 0 to exit 1). Those names are
+        // evidently deliberate, and whether a nested handle resolves as the leaf
+        // dir or as the composed form is a property of the CLI's skill loader
+        // that this session did NOT establish. Asserting either way would be a
+        // guess, and the fail-direction guess reds the /sync gate over working
+        // artifacts — so the nested case is recorded UNKNOWN in the lane report
+        // and left un-asserted here. The frontmatter and description checks above
+        // DO cover nested skills; only this name sub-check is scoped out.
+        const isNested = rel.split("/").length > 2;
+        const dirName = rel.includes("/") ? rel.split("/").slice(-2)[0] : "";
+        const stripped = dirName.replace(/^[0-9]+-/, "");
+        const nm = fmParsed.fields.name;
+        if (!isNested && nonEmpty(nm) && dirName && nm !== dirName && nm !== stripped) {
+          results.push({
+            artifact: tag,
+            status: STATUS.FAIL,
+            detail: `frontmatter name="${nm}" matches neither dir "${dirName}" nor "${stripped}" — consumer handle will not resolve`,
+          });
+          continue;
+        }
+        results.push({ artifact: tag, status: STATUS.PASS });
+      }
+      // Non-vacuity marker: record the denominator, so a zero-manifest or
+      // all-unreadable run is distinguishable from a genuinely clean one.
+      results.push({
+        artifact: `${label} (coverage)`,
+        status: STATUS.PASS,
+        detail: `${checked} of ${manifests.length} SKILL.md parsed and asserted`,
+      });
+    }
   } finally {
     if (ownEmit && ownEmit.dir) {
       try {
@@ -1409,8 +1515,44 @@ const LOOM_ONLY_TIER_CARVEOUTS = new Set([
   // carve-out, same class as the weft-* / o1-citation / distillation-claim siblings above.
   "hooks/emit-artifact-activation.js",
   "hooks/emit-artifact-activation-session.js",
+  // loom#1410 — the de-scoping gate's fixture runner. It `import`s the loom-only
+  // `bin/check-descoping.mjs` directly, so shipping it would orphan it: every
+  // community consumer would take an ERR_MODULE_NOT_FOUND on load. That is not a
+  // prediction — `community-import-closure.test.mjs` R2-HIGH-7 measured exactly
+  // this edge and went RED until the loom_only fence landed. It sits under the
+  // synced `audit-fixtures/**` tier, so the collision is real and the carve-out is
+  // LOAD-BEARING, the same class as the weft-* / o1-citation siblings above. Listed
+  // as the concrete FILE because this check only honours wildcard-free entries.
   "hooks/lib/artifact-activation-event.js",
   "hooks/lib/artifact-activation-ledger.js",
+  "audit-fixtures/descoping-gate/run.mjs",
+  // loom#E6 (2026-08-14) — `hooks/lib/deferral-surface.js` was HERE and is now
+  // REMOVED alongside its `sync-manifest.yaml::loom_only` line: the surface
+  // CASCADES. Its fence was load-bearing only while the sole file it could read
+  // shipped nowhere; `.claude/deferrals.json` now ships to every target via the
+  // CONCRETE `sync-tier-aware.mjs::ALWAYS_INCLUDE` entry, so reader and readable
+  // file arrive together. Do NOT restore the entry without also removing that
+  // ALWAYS_INCLUDE path — `consumer-deferral-cascade.test.mjs` REDs on either
+  // half alone, which is the point: the two are one decision.
+  //
+  // The deferral surface's probe-candidate fixtures + answer-key sidecars STAY
+  // loom_only, and the reason is now different from the lib's. They are not
+  // orphan-data-for-an-absent-lib any more; they are candidates for an LLM-judge
+  // probe suite under `test-harness/**`, which is universally `exclude`d and
+  // reaches no consumer on either lane. Shipping fixtures for a suite that
+  // cannot run there is the orphan, so the fence holds on its own footing.
+  // Concrete files, not a glob: check-8 accepts a collision only wildcard-free
+  // (`!lo.includes("*")`) — the same constraint the descoping-gate/run.mjs
+  // sibling records. A ninth fixture MUST be added here too;
+  // `deferral-surface.test.mjs` enumerates the directory and REDs otherwise.
+  "audit-fixtures/deferral-surface/clean-past-expiry-characterized.expected",
+  "audit-fixtures/deferral-surface/clean-past-expiry-characterized.txt",
+  "audit-fixtures/deferral-surface/clean-unverified-characterized.expected",
+  "audit-fixtures/deferral-surface/clean-unverified-characterized.txt",
+  "audit-fixtures/deferral-surface/flag-past-expiry-mischaracterized.expected",
+  "audit-fixtures/deferral-surface/flag-past-expiry-mischaracterized.txt",
+  "audit-fixtures/deferral-surface/flag-unverified-rendered-as-zero.expected",
+  "audit-fixtures/deferral-surface/flag-unverified-rendered-as-zero.txt",
 ]);
 
 // Positive allowlist (cc-artifacts.md Rule 10) of concrete loom_only files that
@@ -4100,6 +4242,14 @@ const LOOM_ONLY_LEARNING_EXCLUSIONS = new Set([
   // observability), so it never materializes at a consumer; loom-only, not a
   // gitignore_additions disclosure-parity requirement.
   "artifact-activation",
+  // T2 (runtime-enforcement-2026-08-14) — the deferral surface's last-seen
+  // pointer, written ONLY by the loom_only `hooks/lib/deferral-surface.js`, so
+  // it never materializes at a consumer; loom-only, not a gitignore_additions
+  // disclosure-parity requirement. Same reasoning as `artifact-activation`
+  // above. It carries a COUNT and an ISO timestamp only — nothing
+  // operator-correlatable — but is still fenced so `git add -A` cannot sweep
+  // per-clone runtime state into a commit.
+  ".deferral-surface-last-seen",
 ]);
 
 const LEARNING_PREFIX = ".claude/learning/";

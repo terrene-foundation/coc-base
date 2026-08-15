@@ -19,6 +19,7 @@ Quick validation checklist for Kailash workflow patterns to ensure compliance wi
 Run through this checklist for any Kailash workflow code:
 
 ### ✅ Critical Patterns (Must Pass)
+
 - [ ] **Imports**: Using absolute imports (`from kailash.workflow.builder import...`)
 - [ ] **.build() call**: Always `runtime.execute(workflow.build())`
 - [ ] **String-based nodes**: `"CSVReaderNode"` not `CSVReaderNode()`
@@ -26,6 +27,7 @@ Run through this checklist for any Kailash workflow code:
 - [ ] **Execution pattern**: `runtime.execute(workflow.build())` NOT `workflow.execute(runtime)`
 
 ### ✅ Common Mistakes (Check These)
+
 - [ ] **Node suffix**: All nodes end with "Node" (CSVReader**Node**, LLMAgent**Node**)
 - [ ] **Snake_case methods**: `add_node()` NOT `addNode()`
 - [ ] **Snake_case config**: `file_path` NOT `filePath`
@@ -51,6 +53,7 @@ results, run_id = runtime.execute(workflow.build())
 ```
 
 **Validation Result**: ✅ PASS
+
 - ✅ Absolute imports
 - ✅ String-based nodes
 - ✅ 4-parameter connections
@@ -74,6 +77,7 @@ results = runtime.execute(workflow)  # ❌ Missing .build()
 ```
 
 **Validation Result**: ❌ FAIL - 4 violations found
+
 1. ❌ **Import**: Missing "Node" suffix - use `CSVReaderNode` not `CSVReader`
 2. ❌ **Method**: camelCase - use `add_node()` not `addNode()`
 3. ❌ **Node API**: Instance-based - use string `"CSVReaderNode"` not `CSVReader()`
@@ -83,6 +87,7 @@ results = runtime.execute(workflow)  # ❌ Missing .build()
 ## Pattern Validation Rules
 
 ### Rule 1: Execution Pattern (CRITICAL)
+
 ```python
 # ✅ VALID
 runtime.execute(workflow.build())
@@ -97,6 +102,7 @@ workflow.run()
 ```
 
 ### Rule 2: Node API (CRITICAL)
+
 ```python
 # ✅ VALID - String-based
 workflow.add_node("CSVReaderNode", "reader", {"file_path": "..."})
@@ -108,6 +114,7 @@ workflow.add_node("process", PythonCodeNode(code="..."))
 ```
 
 ### Rule 3: Connection Pattern (CRITICAL)
+
 ```python
 # ✅ VALID - 4 parameters
 workflow.add_connection("source", "output", "target", "input")
@@ -119,6 +126,7 @@ workflow.add_connection("reader", "processor")
 ```
 
 ### Rule 4: Import Pattern (HIGH)
+
 ```python
 # ✅ VALID - Absolute imports
 from kailash.workflow.builder import WorkflowBuilder
@@ -131,6 +139,7 @@ from .runtime import LocalRuntime
 ```
 
 ### Rule 5: Naming Conventions (HIGH)
+
 ```python
 # ✅ VALID
 CSVReaderNode, LLMAgentNode, HTTPRequestNode, PythonCodeNode
@@ -213,7 +222,9 @@ def validate_workflow_code(code: str) -> dict:
 ## Common Validation Scenarios
 
 ### Scenario 1: Pre-Commit Review
+
 Run validation before committing code:
+
 ```python
 validation_result = validate_workflow_code(my_workflow_code)
 if not validation_result["valid"]:
@@ -224,7 +235,9 @@ if not validation_result["valid"]:
 ```
 
 ### Scenario 2: Code Review Checklist
+
 Use this during PR reviews:
+
 - [ ] All imports are absolute (no relative imports)
 - [ ] All nodes use string-based API
 - [ ] All connections use 4-parameter pattern
@@ -235,7 +248,9 @@ Use this during PR reviews:
 - [ ] All node classes have "Node" suffix
 
 ### Scenario 3: Refactoring Legacy Code
+
 When updating old code to new patterns:
+
 1. Check imports - update to absolute
 2. Check node API - convert instance-based to string-based
 3. Check connections - update to 4 parameters
@@ -252,12 +267,14 @@ When updating old code to new patterns:
 ## When to Escalate to Subagent
 
 Use `gold-standards-validator` subagent when:
+
 - Need comprehensive compliance check across entire codebase
 - Validating against all gold standards (not just workflow structure)
 - Generating compliance report for audit
 - Automated CI/CD validation
 
 Use `pattern-expert` subagent when:
+
 - Debugging complex pattern violations
 - Understanding why certain patterns are required
 - Optimizing workflow structure for performance
@@ -268,8 +285,9 @@ Use `pattern-expert` subagent when:
 ### Primary Sources
 
 ### Related Documentation
+
 - **Pattern Expert**: [`.claude/agents/implementation/pattern-expert.md`](../../agents/implementation/pattern-expert.md)
-- **Essential Pattern**: [`CLAUDE.md` (lines 139-145)](../../../CLAUDE.md#L139-L145)
+- **Essential Pattern**: [`CLAUDE.md`](../../../CLAUDE.md)
 
 ## Quick Tips
 

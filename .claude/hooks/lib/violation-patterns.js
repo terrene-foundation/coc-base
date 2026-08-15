@@ -16,6 +16,45 @@ const { execFileSync } = require("child_process");
 // validate-bash-command.js already loads this module transitively via
 // lib/guard-path-scope.js, so it is in-process before this file is required.
 const { resolveGitBinary, gitEnv } = require("./git-subprocess-env.js");
+// loom#1703 residual (k) — the PATH-IDENTITY half. `protectedPathTokens` widens
+// a `pathRx` match to its enclosing shell word so the caller-supplied `scope`
+// oracle can decide WHICH repo root the token belongs to. Pure string work here;
+// the oracle itself does the filesystem resolution. Adds no file to the shipped
+// closure (`.claude/hooks/**` is ALWAYS_INCLUDE).
+const { protectedPathTokens } = require("./state-target-scope.js");
+
+/**
+ * scopedPathHit — the SCOPE-AWARE replacement for a bare `pathRx.test(text)`.
+ *
+ * Returns the strongest verdict among the protected-path tokens in `text`:
+ *
+ *   "in-tree"     at least one token RESOLVES into protected state → flag, and
+ *                 the caller may honestly call the match structural.
+ *   "unresolved"  no token resolved in-tree, but at least one could not be
+ *                 resolved at all (a `$VAR`, a glob, a `$(…)`) → flag, FAIL
+ *                 CLOSED, but the caller MUST NOT claim a structural match.
+ *   null          the path spelling is absent, OR every token RESOLVED and none
+ *                 names protected state (the residual-(k) sandbox case).
+ *
+ * With no `scope` supplied the function collapses to `pathRx.test(text)` →
+ * "in-tree", i.e. byte-identical to the pre-#1703 predicate. Every existing
+ * caller that does not pass a scope is therefore unchanged.
+ */
+function scopedPathHit(text, pathRx, scope) {
+  if (!text || !pathRx || !pathRx.test(text)) return null;
+  if (!scope || typeof scope.classify !== "function") return "in-tree";
+  let weakest = null;
+  const tokens = protectedPathTokens(text, pathRx);
+  // A spelling match with NO extractable token is a shape the widener does not
+  // model — fail closed rather than silently clearing.
+  if (tokens.length === 0) return "unresolved";
+  for (const tok of tokens) {
+    const v = scope.classify(tok);
+    if (v === "in-tree") return "in-tree";
+    if (v === "unresolved") weakest = "unresolved";
+  }
+  return weakest;
+}
 
 /**
  * Normalize any GitHub repo URL form to canonical "Org/Repo".
@@ -245,10 +284,34 @@ function hasCrossRepoAuthorizationReceipt(targetSlug, cwd, requiredMode) {
 // stricter tier), so a novel `gh` verb never silently gets the lighter read
 // ceremony — an unrecognized→write default is the conservative disposition,
 // mirroring the enforcement-surface-parity "unrecognized ranks tightest".
+// `watch` and `download` are READ subcommands (`gh run watch`, `gh run
+// download`, `gh release download`). Their absence here was the second half of
+// loom#1665: with no read verb to match, they fell through to the fail-closed
+// WRITE default, so a read receipt could not authorize them either.
 const GH_READ_VERBS =
-  /\bgh\s+(?:issue|pr|repo|run|release|workflow|cache|label|gist|search|api)?\s*(?:view|list|status|diff|checks|ls)\b|\bgh\s+search\b|\bgh\s+repo\s+view\b/;
+  /\bgh\s+(?:issue|pr|repo|run|release|workflow|cache|label|gist|search|api)?\s*(?:view|list|status|diff|checks|ls|watch|download)\b|\bgh\s+search\b|\bgh\s+repo\s+view\b/;
+// `gh workflow run` is ANCHORED to its prefix as its own alternative, and `run`
+// is deliberately NOT in the bare verb list below (loom#1665).
+//
+// The prefix group is OPTIONAL, so a bare verb also matches with an EMPTY
+// prefix. While `run` sat in that list, `gh run list` matched as
+// empty-prefix + verb `run` — the match was the literal string "gh run" — and
+// because GH_WRITE_VERBS is tested BEFORE GH_READ_VERBS, the read pattern
+// (which correctly matches "gh run list") was never reached. Every `gh run *`
+// command classified WRITE, so the read-tier ceremony could not authorize a CI
+// audit at all.
+//
+// The test ORDER is deliberate and unchanged: GH_WRITE_VERBS keeps first
+// refusal on genuine ambiguity, because fail-closed is the correct default for
+// an authorization tier. The bug was never the ordering — it was a verb that
+// did not belong in an optional-prefix alternation.
+//
+// `gh run cancel|rerun|delete` remain WRITE via the fail-closed default at the
+// end of classifyCrossRepoIntent (they match no read verb), which is the right
+// answer by the right mechanism; fixtures pin all three so a later edit to the
+// read verbs cannot silently promote them.
 const GH_WRITE_VERBS =
-  /\bgh\s+(?:issue|pr|repo|release|secret|workflow|label|gist|api)?\s*(?:create|edit|close|comment|reopen|delete|transfer|pin|lock|merge|review|ready|set|run|upload|fork|rename|sync|clone)\b/;
+  /\bgh\s+workflow\s+run\b|\bgh\s+(?:issue|pr|repo|release|secret|workflow|label|gist|api)?\s*(?:create|edit|close|comment|reopen|delete|transfer|pin|lock|merge|review|ready|set|upload|fork|rename|sync|clone)\b/;
 // `gh api` with an explicit mutating method or a data field is a WRITE.
 // Matches all method-flag forms — `-X POST`, `-XPOST`, `--method POST`,
 // `--method=POST` — via `(?:-X|--method)[\s=]*`, AND a body field
@@ -1039,6 +1102,19 @@ const GH_CLOSE_NOT_PLANNED_RE =
 function detectGhIssueCloseAsNotPlanned(command) {
   if (!command || typeof command !== "string") return null;
   if (!GH_CLOSE_NOT_PLANNED_RE.test(command)) return null;
+  // SEGMENT-ANCHORED, on the same helper as sibling #13b below. Until 2026-08-14
+  // this detector read the RAW command, so any text that MENTIONED the verb
+  // flagged: a heredoc writing a fixture, an `echo` of the string, prose inside
+  // `git commit -m`, and a `grep` for the pattern all fired. MEASURED on the four
+  // payloads now committed as this detector's `clean-*-data-position` fixtures:
+  // 4 of 4 fired before this change, 0 of 4 after, while all six command-position
+  // controls kept firing. The anchor used here admits `gh pr close` as well as
+  // `gh issue close` — #13b's anchor is issue-only ON PURPOSE (git.md's evidence
+  // clause is about ISSUE closure), and reusing that narrower anchor here would
+  // have silently disarmed every `gh pr close --reason wontfix`.
+  const segment = ghCloseSegment(command, GH_CLOSE_AT_COMMAND_POSITION);
+  if (segment === null) return null;
+  command = segment;
   // Skip shell-variable references per hook-output-discipline.md MUST-3 —
   // unexpanded $VAR / ${VAR} / $(...) cannot be evaluated at hook time, so
   // a finding against the literal string is structurally meaningless.
@@ -1048,10 +1124,171 @@ function detectGhIssueCloseAsNotPlanned(command) {
   if (/--reason\s+\$\(/.test(command)) return null; // command substitution $()
   if (/--reason\s+`/.test(command)) return null; // backtick command substitution
   const match = command.match(GH_CLOSE_NOT_PLANNED_RE);
+  if (!match) return null;
   return {
     rule_id: "value-prioritization/MUST-4",
     severity: "halt-and-report",
     evidence: match[0].slice(0, 200),
+    detection_layer: "lexical",
+    mode: "bash",
+  };
+}
+
+// 13b. gh-issue-close-without-completion-evidence PostToolUse(Bash) detector
+// (rules/git.md § Discipline — "`gh issue close <N>` MUST include a commit SHA /
+// PR number / merged-PR link in the comment. Closing with no code reference is
+// BLOCKED."). Sibling of #13 above: same verb, opposite half of the contract.
+// #13 asks whether a NOT-COMPLETED disposition was justified; this asks whether
+// a COMPLETED one carries any evidence that the work exists.
+//
+// WHY IT EXISTS. The rule was already written and had NO enforcement anywhere —
+// measured across .claude/bin/, .claude/hooks/ and .github/workflows/, nothing
+// read a closing comment. The failure it answers is concrete: a sweep report
+// declared a six-lane program COMPLETE while citing the PLAN document as its
+// evidence, and three lanes had never landed.
+//
+// WHY THE OBVIOUS PREDICATE IS NOT USED. A sibling project proposed gating
+// closure on unticked checkboxes. MEASURED at loom over a 200-issue sample: 119
+// issues carry checkboxes and ZERO issues in any state carry a single TICKED
+// box, so that gate fires on 100% of issues that have boxes. A gate that always
+// fires is exactly as uninformative as one that never fires, and it gets turned
+// off by the first person it blocks. Presence-of-EVIDENCE was re-measured over
+// `--json body,comments` (both halves — a body-only read reported 173 of 270
+// closed issues lacking evidence where body+comments reports 108, so the
+// comment surface rescued 65 and a body-only instrument was scoped to the wrong
+// surface for this contract). It DISCRIMINATES in this corpus, which is the
+// property the checkbox predicate lacks.
+//
+// SEVERITY: halt-and-report, never block. Two independent reasons, either
+// sufficient: the signal is LEXICAL, and hook-output-discipline.md MUST-2
+// forbids `block` on a lexical match; and PostToolUse runs AFTER the command,
+// so there is nothing left to block. The surface is forensic — an immediate
+// report plus a violations.jsonl row for cumulative posture. Stated plainly
+// rather than dressed up: this detector does not PREVENT an evidence-free
+// closure, it makes one impossible to make silently.
+//
+// SCOPE — `gh issue close` ONLY. Not `gh pr close`: git.md's clause is about
+// ISSUE closure, and a PR carries its own diff as evidence by construction.
+// Not a closure carrying `--reason not_planned` / `wontfix` either — that is a
+// NOT-completed disposition with no committed work to evidence, and #13 above
+// already owns it. Firing here too would double-report one command under two
+// contradictory readings.
+const GH_ISSUE_CLOSE_RE = /\bgh\s+issue\s+close\b/i;
+// The comment payload, in the two forms `gh issue close` accepts. Captures the
+// quoted body, or an unquoted single token.
+const GH_CLOSE_COMMENT_RE =
+  /(?:--comment|--body|\s-c)[=\s]+(?:"((?:[^"\\]|\\.)*)"|'([^']*)'|(\S+))/i;
+// COMPLETION EVIDENCE — the disjunction git.md names, in one place so the gate
+// and the measurement that justified it cannot drift apart.
+//
+// The SHA arm is deliberately NOT the `[0-9a-f]{7,40}` form: that matches any
+// 7+-digit run, so a bare `20260814` date reads as a commit and the matcher's
+// positives become unreadable. Requiring at least one [a-f] AND at least one
+// digit, with no adjacent alphanumeric, rejects dates, plain integers and
+// English words. CONTROLLED at both poles in this detector's fixture suite.
+//
+// THE RESIDUAL, stated rather than left to be discovered: "accepting every real
+// abbreviated SHA" is NOT what the digit requirement delivers. An all-hex-LETTER
+// SHA — `deadbeef`, `facadeb`, `cafebabe` — carries no digit, so it does not read
+// as evidence and a COMPLIANT closure citing one is FLAGGED. That is a false
+// positive, not a rejection of a non-SHA. Rate at 8 chars: (6/16)^8 ≈ 0.04%, and
+// it falls as the abbreviation lengthens. The trade is deliberate and is NOT to be
+// "fixed" by dropping the digit requirement — doing so re-admits the whole
+// date/plain-integer class (`20260814`, `1234567`), which is common where an
+// all-letter SHA is rare. `flag-all-letter-sha-residual.txt` pins the residual so
+// it stays visible, and the CONTROL test names it as a residual rather than
+// filing it with the true non-SHAs.
+const COMPLETION_EVIDENCE_RE = new RegExp(
+  [
+    String.raw`https?://github\.com/[^\s)>\]]+/(?:pull|commit)/[0-9a-zA-Z]+`,
+    String.raw`\b(?:PR|pull request)\s*#?\d+`,
+    String.raw`(?<![\w/])#\d+\b`,
+    String.raw`(?<![0-9a-zA-Z])(?=[0-9a-f]{7,40}(?![0-9a-zA-Z]))(?=[0-9a-f]*[a-f])(?=[0-9a-f]*[0-9])[0-9a-f]{7,40}`,
+  ].join("|"),
+  "i",
+);
+
+function hasCompletionEvidence(text) {
+  return typeof text === "string" && COMPLETION_EVIDENCE_RE.test(text);
+}
+
+// SEGMENT-ANCHORED, not keyword-present. `gh issue close` must sit at COMMAND
+// POSITION of some segment — optionally behind env assignments, `sudo`, or
+// `xargs` (the last preserving #13's measured xargs-piped tolerance). Without
+// this the detector fires on any text that MENTIONS the verb, including this
+// file's own comments, a heredoc writing a fixture, and prose in a commit
+// message. That is not hypothetical: authoring this detector tripped the
+// sibling #13 on a heredoc carrying a fixture string, which is the same class.
+const GH_ISSUE_CLOSE_AT_COMMAND_POSITION =
+  /^(?:[A-Za-z_]\w*=\S*\s+)*(?:sudo\s+)?(?:xargs\s+(?:-\S+\s+|\S+=\S+\s+)*)?gh\s+issue\s+close\b/i;
+// The same anchor widened to `gh (issue|pr) close`, for sibling #13 above.
+// TWO anchors rather than one, deliberately: #13b is issue-ONLY because git.md's
+// evidence clause is about ISSUE closure and a PR carries its own diff, while
+// #13's not_planned/wontfix contract covers BOTH verbs. Collapsing them to the
+// narrower anchor would stop #13 seeing `gh pr close --reason wontfix`; to the
+// wider one, would make #13b fire on PR closures it explicitly disclaims. Only
+// the segment SCAN is shared.
+const GH_CLOSE_AT_COMMAND_POSITION =
+  /^(?:[A-Za-z_]\w*=\S*\s+)*(?:sudo\s+)?(?:xargs\s+(?:-\S+\s+|\S+=\S+\s+)*)?gh\s+(?:issue|pr)\s+close\b/i;
+
+function ghCloseSegment(command, anchorRe) {
+  // HEREDOC BODIES ARE DATA, NOT STATEMENTS. `splitShellSegments` is not
+  // heredoc-aware, so a body line sits at start-of-line and reads as command
+  // position — which would flag every `cat > fixture.txt <<'EOF'` that WRITES
+  // this verb, including this detector's own fixture generator. Same skeleton
+  // substitution `heredocBodiesAreInertData` above already uses, so the two
+  // treat a heredoc the same way.
+  command = command.replace(/<<-?\s*(['"]?)([A-Za-z_]\w*)\1[\s\S]*?^[ \t]*\2\s*$/gm, " <<HEREDOC ");
+  for (const line of command.split("\n")) {
+    for (const seg of splitShellSegments(line)) {
+      const s = String(seg).trim();
+      if (anchorRe.test(s)) return s;
+    }
+  }
+  return null;
+}
+
+function detectGhIssueCloseWithoutEvidence(command) {
+  if (!command || typeof command !== "string") return null;
+  if (!GH_ISSUE_CLOSE_RE.test(command)) return null;
+  const segment = ghCloseSegment(command, GH_ISSUE_CLOSE_AT_COMMAND_POSITION);
+  if (segment === null) return null;
+  command = segment;
+  // #13's territory: a not_planned / wontfix disposition is not a completion
+  // claim, so this detector has no question to ask about it.
+  if (GH_CLOSE_NOT_PLANNED_RE.test(command)) return null;
+
+  // Checked BEFORE the comment extraction, not after. `--body-file` / `-F`
+  // supply the comment from a path this hook never reads, so there is no
+  // `--comment` token to match and the no-comment branch below would otherwise
+  // claim "no surface for a reference" about a closure that does have one. The
+  // fixture suite caught exactly that ordering.
+  if (/(?:--body-file|\s-F)[=\s]/.test(command)) return null;
+
+  const m = command.match(GH_CLOSE_COMMENT_RE);
+  if (!m) {
+    // No comment flag at all. Unambiguous: there is no surface on which a code
+    // reference could have been supplied, so the contract is unmet.
+    return {
+      rule_id: "git/issue-closure-evidence",
+      severity: "halt-and-report",
+      evidence: command.match(/\bgh\s+issue\s+close\b[^|;&\n]{0,120}/i)[0].trim(),
+      detection_layer: "lexical",
+      mode: "bash",
+    };
+  }
+  const body = m[1] ?? m[2] ?? m[3] ?? "";
+  // Unexpanded shell state cannot be evaluated at hook time, so a finding
+  // against the literal string would be structurally meaningless
+  // (hook-output-discipline.md MUST-3). Covers $VAR, ${VAR}, $(...), backticks,
+  // and the file/stdin forms whose content this hook never sees.
+  if (/\$\w|\$\{|\$\(|`/.test(body)) return null;
+  if (hasCompletionEvidence(body)) return null;
+
+  return {
+    rule_id: "git/issue-closure-evidence",
+    severity: "halt-and-report",
+    evidence: `closing comment carries no code reference: ${JSON.stringify(body.slice(0, 160))}`,
     detection_layer: "lexical",
     mode: "bash",
   };
@@ -1561,8 +1798,40 @@ function heredocBodiesAreInertData(command, pathRx) {
  * Coverage — Four Layers" and the trust-posture state-file protection
  * in `validate-bash-command.js`.
  */
-function detectStateFileMutation(command, pathRx) {
+function detectStateFileMutation(command, pathRx, opts) {
   if (!command || !pathRx) return null;
+  // ── THREE POSITION-ALIGNED VIEWS (loom#1703) ────────────────────────────────
+  // Before this change the detector had TWO views — `command` (raw) and its
+  // quote-mask — and every caller that wanted prose neutralized had to hand in a
+  // PRE-MASKED string as `command`. That collapsed the raw view onto the masked
+  // one and silently disabled the "read the operand RAW at the capture position"
+  // protection, which is a live FAIL-OPEN: on the doc-carrier branch
+  // `echo '{"level":"L5"}' > ".claude/learning/posture.json"` returned null,
+  // because the redirect TARGET was read out of masked filler. Unquoted flagged;
+  // a `head`/`cat`/`node` lead flagged. MEASURED before the fix, quoted-vs-
+  // unquoted on one tree. Splitting the views fixes it without re-exposing the
+  // prose false positives the mask exists for.
+  //
+  //   command   STRUCTURE — where an OPERATOR or VERB counts as a real shell
+  //             operation. Quote-masked internally, as before.
+  //   rawText   OPERANDS — where a redirect / tee / heredoc TARGET is read. A
+  //             quoted target is a real target (the shell strips the quotes), so
+  //             this must be the unmasked text.
+  //   scanText  BODY SCANS — Layer 2's direction-blind path test and every
+  //             Layer-3 interpreter-body scan. This is the view a caller masks
+  //             to neutralize documentation prose.
+  //
+  // All three MUST be character-for-character length-aligned; every producer
+  // (maskQuotedSpans, maskDocCarrierPayloads, maskInertHeredocBodies) is
+  // length-preserving. If a caller ever violates that, fall back to using
+  // `command` for all three — a mis-sliced operand is worse than a lost mask.
+  const o = opts || {};
+  const aligned =
+    (o.rawText == null || o.rawText.length === command.length) &&
+    (o.scanText == null || o.scanText.length === command.length);
+  const rawText = aligned && o.rawText != null ? o.rawText : command;
+  const scanText = aligned && o.scanText != null ? o.scanText : command;
+  const scope = o.scope || null;
   // #1319/#1320 systemic FP fix — Layers 1 (redirect/heredoc/tee/sed-i) and 2
   // (file-mutation verbs) are SHELL-operation layers: a redirect operator or a
   // mutation verb is a REAL shell operation ONLY when it is UNQUOTED. The same
@@ -1598,20 +1867,35 @@ function detectStateFileMutation(command, pathRx) {
   // raw pair (fail-closed, and — critically — built by ONE `split("\n")`, never
   // 60k `command.slice()` calls, which is what made the guarded path O(n²) on a
   // 20k-heredoc input).
+  // Each entry is [structLine, maskedStruct, rawLine, scanLine] — four slices at
+  // IDENTICAL offsets across the three aligned views (#1703). Pre-#1703 this was
+  // a 2-tuple and `line` served as raw, scan AND structure at once.
   const linePairs = [];
   if (command.length <= MASK_QUOTE_BUDGET) {
     const maskedCmd = maskQuotedSpans(command);
     let ls = 0;
     for (let i = 0; i <= maskedCmd.length; i++) {
       if (i === maskedCmd.length || maskedCmd[i] === "\n") {
-        linePairs.push([command.slice(ls, i), maskedCmd.slice(ls, i)]);
+        linePairs.push([
+          command.slice(ls, i),
+          maskedCmd.slice(ls, i),
+          rawText.slice(ls, i),
+          scanText.slice(ls, i),
+        ]);
         ls = i + 1;
       }
     }
   } else {
-    for (const l of command.split("\n")) linePairs.push([l, l]);
+    let ls = 0;
+    for (let i = 0; i <= command.length; i++) {
+      if (i === command.length || command[i] === "\n") {
+        const s = command.slice(ls, i);
+        linePairs.push([s, s, rawText.slice(ls, i), scanText.slice(ls, i)]);
+        ls = i + 1;
+      }
+    }
   }
-  for (const [line, maskedRaw] of linePairs) {
+  for (const [line, maskedRaw, rawLine, scanLine] of linePairs) {
     // Layer 1/2 detect the OPERATOR/VERB on `maskedLine`: normally the quote-masked
     // line (so a verb/redirect inside INERT quoted data is filler → no FP), BUT when
     // the line carries an EXECUTING construct (`$(…)` / backtick / `$'…'` / `${ …}`)
@@ -1639,11 +1923,27 @@ function detectStateFileMutation(command, pathRx) {
     // `&>`, and fd-prefixed `N>` forms — all real state-file writes.)
     // The redirect OPERATOR is matched on maskedLine (so it is unquoted); the
     // TARGET is read RAW at the capture position (a quoted target still fires).
-    for (const rm of maskedLine.matchAll(/(?:\d+|&)?>>?\|?\s*([^\s|;&<>()]+)/g)) {
+    // #1703 — the target class admits a WHOLE `$(…)` span. `(` and `)` are
+    // excluded so a subshell (`(echo x) > f`) cannot be swallowed into a target,
+    // but that also truncated a command-substitution PREFIX: for
+    // `> "$(pwd)/.claude/learning/posture.json"` the capture stopped at `"$`,
+    // pathRx never saw the path, and a live write to posture.json returned null.
+    // MEASURED as a PRE-EXISTING fail-open on origin/main (baseline: CLEAN;
+    // the unquoted sibling flagged), so it is owned here per zero-tolerance.md
+    // Rule 1a rather than deferred — it is the same redirect-target read this
+    // shard rewrites. A bare `)` is STILL excluded; only a balanced `$(…)` is
+    // absorbed. The resulting token carries `$(`, which the scope oracle refuses
+    // to resolve, so the verdict is "unresolved" → blocked, fail-closed.
+    for (const rm of maskedLine.matchAll(
+      /(?:\d+|&)?>>?\|?\s*((?:\$\([^()]*\)|[^\s|;&<>()])+)/g,
+    )) {
       const off = rm.index + rm[0].length - rm[1].length;
-      const rawTarget = line.slice(off, off + rm[1].length);
-      if (pathRx.test(rawTarget)) {
-        return { layer: 1, kind: "redirect" };
+      // Operand read from the RAW view (#1703): a QUOTED target is a real
+      // target, and reading it out of masked filler was the fail-open.
+      const rawTarget = rawLine.slice(off, off + rm[1].length);
+      const hit = scopedPathHit(rawTarget, pathRx, scope);
+      if (hit) {
+        return { layer: 1, kind: "redirect", scope: hit };
       }
     }
     // Heredoc to protected path: `cat > path << EOF` or `>>path<<EOF`.
@@ -1658,9 +1958,10 @@ function detectStateFileMutation(command, pathRx) {
       const m = maskedLine.match(/>\s*([^\s|;&<]+)/);
       if (m) {
         const off = m.index + m[0].length - m[1].length;
-        const rawTarget = line.slice(off, off + m[1].length);
-        if (pathRx.test(rawTarget)) {
-          return { layer: 1, kind: "heredoc" };
+        const rawTarget = rawLine.slice(off, off + m[1].length);
+        const hit = scopedPathHit(rawTarget, pathRx, scope);
+        if (hit) {
+          return { layer: 1, kind: "heredoc", scope: hit };
         }
       }
     }
@@ -1669,15 +1970,19 @@ function detectStateFileMutation(command, pathRx) {
       const m = maskedLine.match(/\btee\b\s+(?:-[a-zA-Z]+\s+)*([^\s|;&]+)/);
       if (m) {
         const off = m.index + m[0].length - m[1].length;
-        const rawTarget = line.slice(off, off + m[1].length);
-        if (pathRx.test(rawTarget)) {
-          return { layer: 1, kind: "tee" };
+        const rawTarget = rawLine.slice(off, off + m[1].length);
+        const hit = scopedPathHit(rawTarget, pathRx, scope);
+        if (hit) {
+          return { layer: 1, kind: "tee", scope: hit };
         }
       }
     }
-    // sed -i / jq -i in-place editing — verb+`-i` unquoted (masked); path RAW.
+    // sed -i / jq -i in-place editing — verb+`-i` unquoted (masked); path from
+    // the SCAN view (no single operand position to slice: `-i` takes its file
+    // anywhere on the line, so this branch stays direction-blind like Layer 2).
     if (/\b(?:sed|jq)\b\s+[^|\n]*-i\b/.test(maskedLine)) {
-      if (pathRx.test(line)) return { layer: 1, kind: "in-place-edit" };
+      const hit = scopedPathHit(scanLine, pathRx, scope);
+      if (hit) return { layer: 1, kind: "in-place-edit", scope: hit };
     }
 
     // Layer 2: file-mutating utilities. `rm` + `sponge` added (F123): `rm`
@@ -1690,12 +1995,16 @@ function detectStateFileMutation(command, pathRx) {
     // ALSO matches, so a benign `rm <non-state-file>` does not flag.
     const layer2Verbs =
       /\b(?:cp|mv|rm|dd|rsync|install|truncate|ln|chmod|chown|touch|sponge)\b\s+/;
-    if (layer2Verbs.test(maskedLine) && pathRx.test(line)) {
-      const verbMatch = maskedLine.match(layer2Verbs);
-      return {
-        layer: 2,
-        kind: verbMatch ? verbMatch[0].trim() : "file-mutation-util",
-      };
+    if (layer2Verbs.test(maskedLine)) {
+      const hit = scopedPathHit(scanLine, pathRx, scope);
+      if (hit) {
+        const verbMatch = maskedLine.match(layer2Verbs);
+        return {
+          layer: 2,
+          kind: verbMatch ? verbMatch[0].trim() : "file-mutation-util",
+          scope: hit,
+        };
+      }
     }
 
     // Layer 3: interpreter -c / -e / -m bodies (e.g. python -c "...", node -e "...")
@@ -1711,17 +2020,18 @@ function detectStateFileMutation(command, pathRx) {
     // path — a read-only `-c`/`-e`/`-m` body (readFileSync / json.tool) passes.
     // #1337: routed through the SHARED hasInterpreterWriteSignal predicate so
     // this branch and the fallback below cannot drift apart.
-    if (
-      pathRx.test(line) &&
-      interpreterBody.test(line) &&
-      hasInterpreterWriteSignal(line)
-    ) {
-      const interpMatch = line.match(
+    const l3Hit =
+      interpreterBody.test(scanLine) && hasInterpreterWriteSignal(scanLine)
+        ? scopedPathHit(scanLine, pathRx, scope)
+        : null;
+    if (l3Hit) {
+      const interpMatch = scanLine.match(
         /\b(python3?|node|nodejs|ruby|perl|bash|sh|zsh)\b/,
       );
       return {
         layer: 3,
         kind: interpMatch ? `${interpMatch[1]} -c/-e/-m` : "interpreter-body",
+        scope: l3Hit,
       };
     }
   }
@@ -1745,7 +2055,8 @@ function detectStateFileMutation(command, pathRx) {
   // Early exit: every branch below requires the protected path somewhere in the
   // command, so a non-protected command never enters the segment scan.
   // Behaviour-neutral (both the narrow and the wide branch re-test a SUBSET).
-  if (!pathRx.test(command)) return null;
+  // Reads the SCAN view: every branch below is a body scan, never an operand.
+  if (!pathRx.test(scanText)) return null;
 
   // #1337 Defect 3 — SCOPE. The wide branch tests `pathRx` + the write signal
   // against the WHOLE command while the interpreter leads only ONE sub-segment,
@@ -1778,24 +2089,33 @@ function detectStateFileMutation(command, pathRx) {
   // "clean up" without re-checking that invariant. This branch is the FLAT regex
   // on purpose (unlike the quote-aware call sites): `narrowable` decides scope,
   // where over-matching means falling back to the WIDE fail-closed branch.
+  // #1703: tested against the RAW view, not the structure view. `narrowable`
+  // asks whether anything outside the interpreter's own segment could reach its
+  // argv — a property of the text the SHELL will run. A masked view can have had
+  // a `$` or a heredoc body removed from it, which would answer "narrowable" for
+  // a command that is not, and narrowing wrongly is the FAIL-OPEN direction. The
+  // raw view is the only one guaranteed to contain every construct.
+  const narrowSrc = rawText;
   const narrowable =
-    !matchHeredocOpeners(command).length &&
-    !EXECUTES_INSIDE_QUOTES_RX.test(command) &&
-    !command.includes("$") &&
-    !command.includes("`");
+    !matchHeredocOpeners(narrowSrc).length &&
+    !EXECUTES_INSIDE_QUOTES_RX.test(narrowSrc) &&
+    !narrowSrc.includes("$") &&
+    !narrowSrc.includes("`");
   if (narrowable) {
     // Quote-aware + newline-aware split, so a separator INSIDE a quoted body
     // (`node -e 'a|b'`) does not fracture the segment. EVERY interpreter-led
     // segment is tested, not just the first — a read on line 1 must not mask a
     // write on line 3 (`node -e "console.log('ok')"⏎node -e "…writeFileSync(p)…"`).
-    for (const seg of splitShellSegments(command, {
+    for (const seg of splitShellSegments(scanText, {
       newlineSeparates: true,
       withOffsets: true,
     })) {
       const im = seg.text.match(leadingInterpreter);
       if (!im) continue;
-      if (pathRx.test(seg.text) && hasInterpreterWriteSignal(seg.text)) {
-        return { layer: 3, kind: `${im[1]} (interpreter)` };
+      if (!hasInterpreterWriteSignal(seg.text)) continue;
+      const hit = scopedPathHit(seg.text, pathRx, scope);
+      if (hit) {
+        return { layer: 3, kind: `${im[1]} (interpreter)`, scope: hit };
       }
     }
     return null;
@@ -1808,22 +2128,24 @@ function detectStateFileMutation(command, pathRx) {
   // check), which is what keeps the cross-line stdin-heredoc write covered; the
   // doc-prose false positive that coarseness could otherwise admit is masked
   // upstream in detectStateFileMutationSegmentAware (Defect B).
-  const segments = command.split(/\||&&|;|\n/);
+  const segments = scanText.split(/\||&&|;|\n/);
   const ledSeg = segments.find((s) => leadingInterpreter.test(s));
-  if (ledSeg && hasInterpreterWriteSignal(command)) {
+  if (ledSeg && hasInterpreterWriteSignal(scanText)) {
     // loom#1534 — the whole-command coarseness above never requires the write
     // signal and the protected-path hit to be RELATED. Before flagging, ask the
     // narrower question: which path does this body actually write? Suppress ONLY
     // when every write target RESOLVED and none is protected; any unresolved
     // target falls through and flags exactly as before (fail-closed).
-    if (interpreterWritesOnlyBenignTargets(command, pathRx)) return null;
+    if (interpreterWritesOnlyBenignTargets(scanText, pathRx)) return null;
     // …and the sibling half: a heredoc body being WRITTEN to an ordinary file and
     // never executed is DATA (a committed fixture, a doc, a test sample), not
     // code. `detectHeredocWriteRunBundle` owns the write→EXEC case and still runs
     // as the whole-command fallback, so suppressing here cannot hide a bundle.
-    if (heredocBodiesAreInertData(command, pathRx)) return null;
+    if (heredocBodiesAreInertData(scanText, pathRx)) return null;
+    const wideHit = scopedPathHit(scanText, pathRx, scope);
+    if (!wideHit) return null;
     const im = ledSeg.match(leadingInterpreter);
-    return { layer: 3, kind: `${im[1]} (interpreter)` };
+    return { layer: 3, kind: `${im[1]} (interpreter)`, scope: wideHit };
   }
   return null;
 }
@@ -3002,6 +3324,18 @@ function parseHeredocSpans(command) {
   return { heredocs, structural: structuralLines.join("\n") };
 }
 
+// OUT_REDIRECT_TOKEN_RX — an argv token that OPENS an OUTPUT redirection: `>`,
+// `>>`, `>|` (force-clobber), `&>`, `&>>`, and the fd-prefixed `N>` / `N>>` /
+// `N>|`. Capture 1 is whatever the token carries AFTER the operator, which is
+// what distinguishes the three forms:
+//   ""      SEPARATED — `> out.json`; the operand is the NEXT token.
+//   "&1"    fd DUPLICATION — `2>&1`, `>&2`; the target is a DESCRIPTOR, not a
+//           file, so there is no operand to consume in either position.
+//   "out.j" ATTACHED — `>out.json`; the operand came with the operator token.
+// INPUT redirection (`<`, `N<`, `<<`, `<<<`) is deliberately NOT matched — see
+// computeExecutedTokenSet.
+const OUT_REDIRECT_TOKEN_RX = /^(?:\d+|&)?>>?\|?([\s\S]*)$/;
+
 // computeExecutedTokenSet — the set of normalized script tokens `structural`
 // EXECUTES via an interpreter: for every segment (split on `\n` then top-level
 // shell operators) that is interpreter-LED (after stripping a leading `VAR=val`
@@ -3010,7 +3344,37 @@ function parseHeredocSpans(command) {
 // are O(1) — the previous per-heredoc re-scan was O(heredocs × structural) = O(H²),
 // a pure availability DoS on H committed protected-body heredocs (the parse budget
 // does not cover it because parsing itself stays cheap). A target is "executed"
-// iff it is in this set — semantically identical to the old per-target scan.
+// iff it is in this set.
+//
+// OUTPUT-REDIRECT OPERANDS ARE NOT EXECUTED TOKENS (loom#1426, residual (m)).
+// The token walk used to admit EVERY token after the interpreter, including the
+// redirect operator and its operand — so `node probe.mjs > /tmp/out.json` put
+// `/tmp/out.json` into the EXECUTED set even though it is the one file this
+// command provably WRITES rather than runs. Since `extractRedirectTargets` reads
+// that very same `>` operand into `structuralTargets`, the backstop's
+// `anyTargetExecuted` overlap was satisfied by the redirect matching ITSELF, and
+// the whole conjunction collapsed to "a protected path is mentioned ANYWHERE and
+// SOME interpreter-led command redirects SOMEWHERE" — the near-100%-false-positive
+// class #1426 records, which blocked five actors, every one of them while
+// verifying or documenting this guard. Measured on the pre-fix code with
+// `pathRx = STATE_PATH_RX`:
+//     cat <posture> && node /tmp/a/other.js > /tmp/b/out.json
+//       structuralTargets ["/tmp/b/out.json"]
+//       execSet           ["/tmp/a/other.js", ">", "/tmp/b/out.json"]  ← the write target
+//       overlap           ["/tmp/b/out.json"]                          → FLAG
+//
+// This narrows FALSE positives only, and the argument is structural, not
+// statistical: a file in OUTPUT-redirect position is being written BY this
+// interpreter, so it is never the script the interpreter runs. Where such a
+// target is genuinely executed, the execution appears as an ARGUMENT in some
+// segment (`node gen.js > s.cjs; node s.cjs`) and that occurrence still admits
+// it here — the write→exec dataflow the detector exists for is untouched. Where
+// the redirect target IS itself the protected path (`node gen.js > <posture>`),
+// Layer 1 owns it on the redirect operator and blocks independently of this pass.
+//
+// INPUT redirection is deliberately left in the set: `node < f.js` EXECUTES `f.js`
+// (the interpreter reads its script from stdin), so dropping `<` operands would
+// open a real hole — the one direction this change must not take.
 function computeExecutedTokenSet(structural) {
   const set = new Set();
   const segs = structural.split("\n").flatMap((ln) => splitShellSegments(ln));
@@ -3019,6 +3383,16 @@ function computeExecutedTokenSet(structural) {
     if (!RUN_INTERPRETER_RX.test(stripped)) continue;
     const toks = tokenizeShellArgs(stripped);
     for (let k = 1; k < toks.length; k++) {
+      const red = OUT_REDIRECT_TOKEN_RX.exec(toks[k]);
+      if (red) {
+        // Consume the operand ONLY in the separated form. An fd-dup carries no
+        // file operand, and an attached operand was consumed with its operator.
+        // Anything else (`>&` followed by a word — the csh-style both-streams
+        // form) leaves the next token in the set, which is the fail-CLOSED
+        // direction: an extra executed-token candidate can only ADD flags.
+        if (red[1] === "") k++;
+        continue;
+      }
       const np = normPath(toks[k]);
       if (np) set.add(np);
     }
@@ -3040,8 +3414,9 @@ function anyTargetExecuted(execSet, targets) {
  * Generic over `pathRx` (same contract as `detectStateFileMutation`). Returns
  * `{ layer, kind }` on a hit, or `null`.
  */
-function detectHeredocWriteRunBundle(command, pathRx) {
+function detectHeredocWriteRunBundle(command, pathRx, opts) {
   if (!command || !pathRx) return null;
+  const scope = (opts && opts.scope) || null;
   // Early exit: a flag REQUIRES the protected path to appear in the command
   // (PRIMARY reads it from a committed body ⊆ command; BACKSTOP from structural ⊆
   // command). Testing it first keeps every non-protected command O(n) — it never
@@ -3064,10 +3439,11 @@ function detectHeredocWriteRunBundle(command, pathRx) {
   // heredoc's written script is executed. Precise + tight — the normal bundle.
   for (const hd of heredocs) {
     if (!hd.targets || !hd.targets.length) continue; // no write target (e.g. git-commit stdin)
-    if (!pathRx.test(hd.body)) continue; // (a) protected path literal in the body
+    const bodyHit = scopedPathHit(hd.body, pathRx, scope); // (a) protected path literal in the body
+    if (!bodyHit) continue;
     if (anyTargetExecuted(execSet, hd.targets)) {
       // (b) one of the written scripts is executed by an interpreter in this command
-      return { layer: 1, kind: "heredoc-write-run-bundle" };
+      return { layer: 1, kind: "heredoc-write-run-bundle", scope: bodyHit };
     }
   }
   // BACKSTOP (fail-closed against ANY terminator/close-derivation divergence from
@@ -3088,40 +3464,47 @@ function detectHeredocWriteRunBundle(command, pathRx) {
   // so no target is in the executed-token set). It IS whole-command, NOT heredoc-scoped:
   // `structuralTargets` collects from a plain `>` redirect too, so the backstop
   // fires on a protected-mention + write+run bundle even with no heredoc at all.
-  // It DOES fail-closed over-block the shape "a protected-path mention on a
-  // command line (INCLUDING an allowed `cat <state>` read, or an `&&`-chained
-  // build+inspect) AND a script write+run in ONE command" — this over-block is
-  // wider than a purely contrived case; remediation is to split the command,
-  // consistent with the separate-invocation ceremony contract.
+  // It DOES still fail-closed over-block the shape "a protected-path mention on a
+  // command line (INCLUDING an allowed `cat <state>` read) AND a genuine
+  // write-a-script-then-RUN-THAT-SCRIPT bundle in ONE command" — remediation is to
+  // split the command, consistent with the separate-invocation ceremony contract.
   //
-  // ACCURACY CORRECTION (#1363, measured — the prior claim here was too narrow).
-  // This comment used to read: "Never fires when the executed file is NOT written
-  // in-command (`cat <state> && node other.js` stays clean — `other.js` is not a
-  // structural write target)." That holds ONLY when the command carries NO
-  // redirect at all. The conjunction below is protected-path-mention AND
-  // ANY structural redirect target AND ANY structurally-executed script — the
-  // written target and the executed token are NOT required to be the SAME file.
-  // Executed evidence (`pathRx = /\.claude\/settings\.json\b/`):
-  //   `cat <state> && node other.js`                        → clean  (no redirect)
-  //   `cat <state> && node /tmp/a/other.js > /tmp/b/out.json` → FLAG (different files!)
-  //   `cat <state> && wc -l x > /tmp/b/out.json`            → clean  (no interpreter)
-  // So a READ-ONLY inspection that merely redirects unrelated output and runs an
-  // unrelated interpreter flags — e.g. hashing a state file before/after running a
-  // probe (`shasum <state>; node probe.mjs > out.json; shasum <state>`), which is
-  // how a guard's own test fixtures get built. Kept AS-IS deliberately: this is the
-  // fail-CLOSED backstop against bash-parse divergence, and narrowing the
-  // target↔exec correlation is a security change owing its own analysis, NOT part
-  // of #1363's operand-vs-prose class. Tracked as residual (m) in
-  // `rules/state-file-write-guard.md`; remediation today is to split the command.
+  // RESIDUAL (m) — CLOSED (loom#1426). #1363 recorded, correctly, that the
+  // conjunction here was protected-path-mention AND ANY structural redirect AND
+  // ANY executed script, with the written target and the executed token NOT
+  // required to be the same file — so a READ-ONLY inspection that redirected
+  // unrelated output while running an unrelated interpreter flagged. It left the
+  // width in place as the fail-CLOSED defence against bash-parse divergence, on
+  // the reading that narrowing the target↔exec correlation was a security change
+  // owing its own analysis. That analysis is #1426, and it found the width was
+  // never load-bearing: `anyTargetExecuted` was satisfied by the redirect matching
+  // ITSELF, because `computeExecutedTokenSet` admitted the `>` operand as an
+  // "executed" token (see its header). The correlation is now REAL, and the
+  // divergence defence is untouched — a spilled body still carries its own
+  // write target and its own interpreter-led exec ARGUMENT.
+  // Executed evidence, same `pathRx`, before → after:
+  //   `cat <state> && node other.js`                          clean  → clean
+  //   `cat <state> && node /tmp/a/other.js > /tmp/b/out.json`  FLAG  → clean  ← (m)
+  //   `shasum <state>; node probe.mjs > out.json; shasum <state>`  FLAG → clean  ← (m)
+  //   `cat <state> && wc -l x > /tmp/b/out.json`              clean  → clean
+  //   `node gen.js > s.cjs && node s.cjs && cat <state>`       FLAG  → FLAG   ← real bundle
+  //   `cat > f.js <<E …<state>… E; node < f.js`                FLAG  → FLAG   ← stdin script
+  //   `node gen.js > <state> && node other.js`                 FLAG  → Layer 1 owns it
+  // The last row is the only flag-side verdict this pass gives up, and it gives it
+  // up to a TIGHTER layer: the redirect target IS the protected path, so Layer 1
+  // blocks it on the redirect operator with no reliance on the backstop at all.
+  // Fixtures: `audit-fixtures/violation-patterns/detectHeredocWriteRunBundle/
+  // {clean,flag}-1426-*` + `…SegmentAware/clean-1426-m-readonly-inspection-*` and
+  // `…SegmentAware/flag-1426-redirect-target-is-protected-layer1`.
   const structuralTargets = structural
     .split("\n")
     .flatMap((ln) => extractRedirectTargets(ln));
-  if (
-    structuralTargets.length &&
-    pathRx.test(structural) &&
-    anyTargetExecuted(execSet, structuralTargets)
-  ) {
-    return { layer: 1, kind: "heredoc-write-run-bundle" };
+  const structHit =
+    structuralTargets.length && anyTargetExecuted(execSet, structuralTargets)
+      ? scopedPathHit(structural, pathRx, scope)
+      : null;
+  if (structHit) {
+    return { layer: 1, kind: "heredoc-write-run-bundle", scope: structHit };
   }
   return null;
 }
@@ -3173,8 +3556,9 @@ function detectHeredocWriteRunBundle(command, pathRx) {
  *
  * Returns the first segment's `{ layer, kind }` hit, or `null`.
  */
-function detectStateFileMutationSegmentAware(command, pathRx) {
+function detectStateFileMutationSegmentAware(command, pathRx, opts) {
   if (!command || !pathRx) return null;
+  const scope = (opts && opts.scope) || null;
   // #1319 Defect 2 — neutralize a doc-carrier's argument PAYLOAD (a `gh
   // issue/pr create|edit --body/--body-file/--field/-F` heredoc or quoted body)
   // BEFORE the per-segment scan. The pre-existing DOC_BODY_WRAPPER_RX +
@@ -3190,7 +3574,41 @@ function detectStateFileMutationSegmentAware(command, pathRx) {
   // bundle pass below runs on the ORIGINAL `command` (a `cat > file <<X` heredoc
   // is never masked, but keeping it original is belt-and-suspenders).
   const masked = maskDocCarrierPayloads(command);
-  for (const segment of splitShellSegments(masked)) {
+  // ── loom#1703 residual (l): a heredoc BODY is not shell text ────────────────
+  // The shell never parses a heredoc body as command text — a `>` there is a
+  // byte written to the target file, and an `rm` there is a word, not an
+  // invocation. Layers 1 and 2 are SHELL-OPERATION layers (which is exactly why
+  // #1319 already reads their operator/verb off a QUOTE-masked copy); a heredoc
+  // is simply a quoting form that masker does not cover. So blank the BODIES in
+  // the STRUCTURE view, which suppresses the operator/verb and nothing else.
+  //
+  // GATED on `heredocBodiesAreInertData`, the discriminator this file already
+  // uses for the Layer-3 wide branch: it holds only when EVERY heredoc has a
+  // literal, non-protected, non-`$`-bearing write target AND the command carries
+  // ZERO execution tokens anywhere (`ANY_EXEC_TOKEN_RX`, which includes
+  // `source`, `. `, `./`, `chmod`, `env`). A write-then-RUN bundle therefore
+  // never qualifies, and the Layer-4 `detectHeredocWriteRunBundle` pass below
+  // still runs on the ORIGINAL command regardless.
+  //
+  // LAYERS 3 AND 4 ARE DELIBERATELY NOT MASKED. #1426 refused body-masking on
+  // the ground that it would delete a real Layer-3 control; that objection is
+  // ANSWERED rather than ignored — the structure view feeds Layers 1/2 ONLY,
+  // while Layer 3 keeps reading the raw scan view. One control IS given up, and
+  // is recorded rather than dropped: `cat > s.sh <<EOF … rm <state> … EOF` with
+  // no execution anywhere in the same command no longer flags at Layer 2. Its
+  // python-source sibling (`cat > s.py <<EOF … open(<state>,'w') … EOF`) was
+  // MEASURED already clean at HEAD, so this makes an inconsistent surface
+  // consistent rather than opening a new class, and the dangerous write-THEN-run
+  // form stays blocked at Layer 4.
+  const structure = heredocBodiesAreInertData(command, pathRx)
+    ? maskHeredocBodies(masked)
+    : masked;
+  for (const seg of splitShellSegments(structure, { withOffsets: true })) {
+    const segment = seg.text;
+    // Position-aligned slice of the RAW original. Every mask in play
+    // (maskDocCarrierPayloads, maskHeredocBodies, maskQuotedSpans) is
+    // length-preserving, so this offset arithmetic is exact.
+    const rawSegment = command.slice(seg.start, seg.start + segment.length);
     if (
       GIT_COMMIT_WITH_BODY_RX.test(segment) ||
       DOC_BODY_WRAPPER_RX.test(segment) ||
@@ -3201,10 +3619,20 @@ function detectStateFileMutationSegmentAware(command, pathRx) {
       // body (prose) then detect — so a real unquoted redirect/verb on the
       // segment still flags (`echo x > <state>` → Layer 1) while a verb/path or
       // a quoted `node -e "…write…"` EXAMPLE mentioned inside the body does not.
-      const maskedHit = detectStateFileMutation(
-        maskQuotedSpans(segment),
-        pathRx,
-      );
+      //
+      // #1703: `rawText` is passed EXPLICITLY. Before, the pre-masked segment was
+      // handed in as the whole command, which collapsed the raw view onto the
+      // masked one and disabled the "read the operand RAW at the capture
+      // position" protection — a live FAIL-OPEN on a QUOTED redirect target
+      // (`echo '{"level":"L5"}' > ".claude/learning/posture.json"` returned
+      // null; the unquoted form flagged). `scanText` stays MASKED, so the
+      // #1292/#1363 prose neutralization for Layers 2/3 is unchanged.
+      const maskedSeg = maskQuotedSpans(segment);
+      const maskedHit = detectStateFileMutation(maskedSeg, pathRx, {
+        rawText: rawSegment,
+        scanText: maskedSeg,
+        scope,
+      });
       if (maskedHit) return maskedHit;
       // Fail-closed (#745 F1/F2): `$(…)` / backtick command-substitution
       // EXECUTES inside double quotes, and `$'…'` desyncs the quote scan —
@@ -3222,12 +3650,18 @@ function detectStateFileMutationSegmentAware(command, pathRx) {
       // `--body "$(node -e '…write…')"` and `` --body "…`rm <state>`…" `` still
       // fail closed.
       if (hasActiveExecutingConstruct(segment)) {
-        const rawHit = detectStateFileMutation(segment, pathRx);
+        const rawHit = detectStateFileMutation(rawSegment, pathRx, { scope });
         if (rawHit) return rawHit;
       }
     } else {
-      // Non-commit segment: detect as-is.
-      const hit = detectStateFileMutation(segment, pathRx);
+      // Non-commit segment. `segment` is the STRUCTURE view (heredoc bodies may
+      // be blanked); raw and scan both read the untouched original, so Layer 3
+      // still sees the body exactly as before.
+      const hit = detectStateFileMutation(segment, pathRx, {
+        rawText: rawSegment,
+        scanText: rawSegment,
+        scope,
+      });
       if (hit) return hit;
     }
   }
@@ -3236,9 +3670,68 @@ function detectStateFileMutationSegmentAware(command, pathRx) {
   // so the heredoc body's internal `;` fractures the write from the run across
   // sibling segments. This pass reconstructs the heredoc structurally and
   // matches the write→execute conjunction on the FULL command.
-  const bundleHit = detectHeredocWriteRunBundle(command, pathRx);
+  const bundleHit = detectHeredocWriteRunBundle(command, pathRx, { scope });
   if (bundleHit) return bundleHit;
   return null;
+}
+
+/**
+ * maskHeredocBodies — length-preserving blanking of every heredoc BODY, keeping
+ * the opener line, the terminator line, and all shell structure intact
+ * (loom#1703 residual (l)).
+ *
+ * The terminator recognition MUST stay byte-identical to the skeleton stripper
+ * inside `heredocBodiesAreInertData` — that function is the GATE for calling
+ * this one, so a divergence would blank a body the gate never examined. Both use
+ * the same source regex, kept adjacent here for exactly that reason:
+ *
+ *     /<<-?\s*(['"]?)([A-Za-z_]\w*)\1[\s\S]*?^[ \t]*\2\s*$/gm
+ *
+ * `[ \t]*` before the terminator is deliberate and matches the gate's reasoning:
+ * `<<-` strips leading TABS, so a tab-indented `EOF` genuinely closes. Allowing
+ * the indent unconditionally makes this stripper close EARLIER than bash for a
+ * plain `<<EOF`, i.e. it blanks LESS — which can only RETAIN an operator in the
+ * structure view, never hide one. Fail-closed, same doctrine as the gate.
+ *
+ * Newlines are preserved so line/segment offsets are unchanged; every other body
+ * character becomes `x`, exactly like `maskQuotedSpans`.
+ */
+function maskHeredocBodies(command) {
+  if (!command) return command;
+  // loom#1704 — SIZE BUDGET. The pattern below is a LAZY `[\s\S]*?` closed by an
+  // `^…$` anchor, so an input carrying many `<<WORD` openers with no matching
+  // terminators makes each opener scan to end-of-input: O(openers × length).
+  // Nothing can time this out — `validate-bash-command.js`'s Rule-7 timer is
+  // disarmed before the work runs and could not interrupt synchronous JS anyway
+  // — and a HANG there wedges the session, which is strictly worse than the
+  // {continue:true} a throw would produce. Skipping the mask is FAIL-CLOSED: the
+  // structure view stays unmasked, so Layers 1/2 see the body exactly as they
+  // did pre-#1703 and an oversized command BLOCKS rather than slipping through.
+  // Reuses the same budget the quote-masker already applies for the same reason.
+  if (command.length > MASK_QUOTE_BUDGET) return command;
+  return command.replace(
+    /(<<-?\s*(['"]?)([A-Za-z_]\w*)\2)([\s\S]*?)(^[ \t]*\3\s*$)/gm,
+    (m, opener, quote, _delim, body, terminator) => {
+      // ── DELIMITER QUOTING IS LOAD-BEARING, NOT COSMETIC ──
+      // With a QUOTED delimiter (`<<'EOF'` / `<<"EOF"`) bash performs NO
+      // expansion: the body is inert bytes and masking it is exactly right.
+      // With an UNQUOTED delimiter (`<<EOF`) bash performs parameter expansion,
+      // command substitution AND arithmetic while building the body — so
+      // `$(rm <state>)` in there is a command the shell RUNS. Masking that would
+      // be a fail-OPEN, and it was: MEASURED as a live regression during this
+      // change's own bipolar run —
+      //     cat > /tmp/r.md <<EOF ⏎ $(rm <state>) ⏎ EOF
+      // flagged L2 at baseline and went CLEAN under an unconditional mask.
+      // Pinned by `flag-1703-heredoc-unquoted-delimiter-cmdsub`.
+      //
+      // An unquoted delimiter whose body contains no `$` and no backtick has
+      // nothing to expand, so it is still inert and is still masked — that keeps
+      // the ordinary `<<EOF` prose report covered. Anything expandable is left
+      // VISIBLE to Layers 1/2, which is the fail-closed direction.
+      if (!quote && /[$`]/.test(body)) return m;
+      return opener + body.replace(/[^\n]/g, "x") + terminator;
+    },
+  );
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -4190,7 +4683,110 @@ function detectWorktreeStaleBaseRef(args, cwd, opts = {}) {
   };
 }
 
+/**
+ * Filenames Docker/Podman actually treat as a build recipe. Anchored on the
+ * BASENAME, so `docker/Dockerfile.prod` matches and `docs/dockerfile-guide.md`
+ * — prose ABOUT Dockerfiles — does not. That distinction is the difference
+ * between a detector and a keyword alarm: this corpus documents the `COPY . .`
+ * antipattern in rule text and skills, and a content-only scan would fire on
+ * every one of those files, including the rule that defines the violation.
+ */
+const DOCKERFILE_BASENAME_RE = /^(Dockerfile|Containerfile)(\..+)?$|\.(Dockerfile|Containerfile)$/i;
+
+/**
+ * Document extensions that DEFEAT the `Dockerfile.<suffix>` arm above.
+ *
+ * `Dockerfile.prod` is a build recipe; `Dockerfile.md` is prose ABOUT one. The
+ * suffix arm exists for the real `Dockerfile.<env>` convention, and without this
+ * subtraction it swallows documentation whose whole subject is the antipattern —
+ * in THIS corpus, `deploy-hygiene.md` §9a and `skills/10-deployment-git/` both
+ * contain a literal `COPY . .` as the DO-NOT example, so the detector would flag
+ * the rule that defines the violation. Caught by the basename test, not by
+ * review.
+ */
+const DOC_SUFFIX_RE = /\.(md|markdown|txt|rst|adoc|html?)$/i;
+
+/**
+ * `deploy-hygiene.md` §9a — a COC-consumer Dockerfile MUST positive-COPY its
+ * runtime paths, never whole-context `COPY . .`.
+ *
+ * WHY THIS ONE GRADUATED FIRST. Of the nine `security`-band Phase-2 deferrals,
+ * this is the only one whose signal is a PARSED DOCUMENT FIELD rather than a
+ * judgment: a Dockerfile is a line grammar, and a `COPY` instruction's source
+ * argument either IS `.` or it is not. The other eight need either a data-flow
+ * judgment (approver identity), a cross-file completeness sweep
+ * (enforcement-surface parity), or a semantic call no predicate makes ("is this
+ * a security feature?") — those were assessed and NOT built, rather than shipped
+ * as keyword alarms.
+ *
+ * SEVERITY IS `advisory`, AND THAT IS THE RULE'S OWN CALL, NOT THIS FILE'S.
+ * `deploy-hygiene.md`'s §9a Wiring block states it directly: "per
+ * `hook-output-discipline.md` MUST-2 a lexical `COPY . .` tripwire MAY pair as
+ * advisory but MUST NOT carry `block`". The parse is structural, but whether a
+ * given image is a COC-CONSUMER image — the clause's actual subject — is not
+ * readable off the tool call, so the finding informs and never blocks.
+ *
+ * WHAT IS DELIBERATELY NOT FLAGGED, because it is a different class:
+ *   - `COPY --from=<stage> . .` — copies from a previous BUILD STAGE, not the
+ *     build context. Per-clone state and `.git/` are not reachable from a stage's
+ *     filesystem, so the leak this clause names cannot occur. Flagging it would
+ *     fire on ordinary multi-stage builds, which is how a detector earns being
+ *     switched off by the first person it interrupts.
+ *   - `ADD` — has its own remote-URL and auto-extract semantics; §9a scopes to
+ *     `COPY`, and widening past the clause would be this detector inventing a
+ *     rule its own rule does not state.
+ *
+ * @param {string} filePath  path from the Edit/Write tool call
+ * @param {string} content   the new file content
+ */
+function detectDockerfileWholeContextCopy(filePath, content) {
+  if (!filePath || typeof filePath !== "string") return null;
+  if (!content || typeof content !== "string") return null;
+  const base = filePath.split("/").pop() || "";
+  // STRUCTURAL gate first: a non-Dockerfile can never violate a Dockerfile
+  // clause, and this is read straight off the tool call's own parameter.
+  if (!DOCKERFILE_BASENAME_RE.test(base) || DOC_SUFFIX_RE.test(base)) return null;
+
+  // Join continuation lines before parsing: `COPY \\\n  . .` is ONE instruction,
+  // and a line-at-a-time scan reads its second physical line as a bare `. .`
+  // with no instruction keyword, missing the violation entirely.
+  const logical = content.replace(/\\[ \t]*\r?\n[ \t]*/g, " ").split(/\r?\n/);
+
+  const hits = [];
+  for (const raw of logical) {
+    const line = raw.trim();
+    if (line === "" || line.startsWith("#")) continue;
+    const m = /^COPY\s+(.+)$/i.exec(line);
+    if (!m) continue;
+    const tokens = m[1].trim().split(/\s+/);
+    // `--from=` means a stage-to-stage copy — not the build context. See above.
+    if (tokens.some((t) => /^--from=/i.test(t))) continue;
+    const args = tokens.filter((t) => !t.startsWith("--"));
+    // Last arg is the destination; everything before it is a source.
+    if (args.length < 2) continue;
+    const sources = args.slice(0, -1);
+    const whole = sources.filter((s) => {
+      const u = s.replace(/^["']|["']$/g, "");
+      return u === "." || u === "./" || u === "/" || u === "*";
+    });
+    if (whole.length > 0) hits.push(line.length > 100 ? `${line.slice(0, 100)}…` : line);
+  }
+  if (hits.length === 0) return null;
+
+  return {
+    rule_id: "deploy-hygiene/9a",
+    severity: "advisory",
+    detection_layer: "structural",
+    evidence:
+      `${base} contains ${hits.length} whole-context COPY: ${hits.join(" | ")} — ` +
+      `.dockerignore (NOT .gitignore) governs the build context, so this bakes .claude/learning/**, ` +
+      `operator-id, operators.roster.json, .env and .git/ into a distributable image. ` +
+      `positive-COPY the runtime paths instead (deploy-hygiene.md §9a).`,
+  };
+}
+
 module.exports = {
+  detectDockerfileWholeContextCopy,
   detectPreExistingNoSha,
   detectRepoScopeDriftText,
   detectRepoScopeDriftBash,
@@ -4207,8 +4803,16 @@ module.exports = {
   detectDeferralWithoutValueAnchor,
   detectDeferredItemPickupWithoutRevalidation,
   detectGhIssueCloseAsNotPlanned,
+  detectGhIssueCloseWithoutEvidence,
+  hasCompletionEvidence,
   detectStateFileMutation,
   detectStateFileMutationSegmentAware,
+  // loom#1703 — exported for the bipolar fixture runners: the (l) mask gate,
+  // the length-preserving body blanker it drives, and the scope-aware predicate
+  // that replaced every bare `pathRx.test(...)`.
+  heredocBodiesAreInertData,
+  maskHeredocBodies,
+  scopedPathHit,
   detectGitConfigMutation,
   // Exported for direct probing: #1390 review could not test the quote-context
   // predicate behaviourally because it was internal, so the S6 blank-set

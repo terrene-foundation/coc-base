@@ -27,7 +27,7 @@
  *
  * Usage:
  *   node .claude/bin/emit-coc.mjs --out <dir> [--target <repos.* key>] [-v]
- *   (--target resolves against sync-manifest.yaml::repos.* — py|rs|rb|base|prism;
+ *   (--target resolves against sync-manifest.yaml::repos.* — py|rs|base|prism;
  *    cc/codex/gemini are TIER names, not targets, and correctly halt exit 2)
  *
  * `--out .` writes `<cwd>/.coc/`. `--target` applies the consumer's tier
@@ -45,6 +45,8 @@ import crypto from "node:crypto";
 import {
   REPO,
   safeWriteFileSync,
+  ensureTrailingNewline,
+  writeTextArtifactSync,
   loadExclusions,
   loadLoomOnly,
   buildTierFilter,
@@ -550,9 +552,33 @@ function buildCocMd(counts) {
 
 // ──────────────────────────────────────────────────────────────────
 // COC.lock — canonical JSON: {schema_version, files:[{path, sha256}]},
-// files sorted by path, deterministic (pretty-printed, LF, no BOM, no
-// trailing newline). Excludes COC.lock itself (csq hashes COC.lock's own
-// bytes as the parse-cache key; §9.1).
+// files sorted by path, deterministic (pretty-printed, LF, no BOM, EXACTLY ONE
+// trailing newline). Excludes COC.lock itself.
+//
+// loom#1684 — the terminator was previously OMITTED (journal/0207 §4, and two
+// tests pinned it). That is REVERSED here, deliberately, on this evidence:
+//
+//   (a) NO integrity check reads COC.lock's own bytes. The reference consumer
+//       `coc-run.mjs::verifyLock` hashes every file the lock LISTS, and the lock
+//       never lists itself; its drift walk skips it explicitly
+//       (`if (r === "COC.lock") continue;`). So the terminator changes no hash
+//       any consumer compares.
+//   (b) The one claimed byte-reader is csq's parse-CACHE KEY (§9.1). A cache key
+//       is derived from the bytes at read time and compared to nothing stored,
+//       so changed bytes yield a cache MISS and a re-parse — self-healing, not a
+//       failure. SCOPE (evidence-first-claims MUST-6): (a) is verified from
+//       loom-side CODE; (b) is read off the csq consumer contract as cited here,
+//       NOT verified against csq's source (a cross-repo read this session holds
+//       no grant for). If csq ever pins an EXPECTED COC.lock hash, that pin —
+//       not this terminator — is the defect.
+//   (c) Determinism (§9.2.5, byte-identical re-emit) is untouched: a fixed
+//       terminator is deterministic.
+//   (d) Decisively: the BUILD-py target's `end-of-file-fixer` ALREADY appends
+//       this newline and the fixed bytes are what gets COMMITTED. Emitting
+//       without it made loom's producer disagree with what the ecosystem
+//       actually stores, re-diffing the file on every sync and aborting the
+//       Gate-2 commit. Format is loom-owned (`loom-csq-boundary.md` — "loom for
+//       format"), so this is loom's call to make.
 // ──────────────────────────────────────────────────────────────────
 function sha256Hex(buf) {
   return crypto.createHash("sha256").update(buf).digest("hex");
@@ -562,17 +588,22 @@ function buildLock(fileEntries) {
   const files = [...fileEntries].sort((a, b) =>
     a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
   );
-  return JSON.stringify({ schema_version: LOCK_SCHEMA_VERSION, files }, null, 2);
+  return ensureTrailingNewline(
+    JSON.stringify({ schema_version: LOCK_SCHEMA_VERSION, files }, null, 2),
+  );
 }
 
 // ──────────────────────────────────────────────────────────────────
 // Tree materialization into a sibling tmp dir, then atomic swap.
 // ──────────────────────────────────────────────────────────────────
-// Write via the shared O_NOFOLLOW helper (emit-cli-artifacts.mjs::safeWriteFileSync)
+// Write via the shared O_NOFOLLOW helper (lib/coc-manifest.mjs::safeWriteFileSync)
 // — refuses to follow a symlink at the leaf, matching the F53 hardening standard
 // (state-io.js) and the sibling emitter. UTF-8, no BOM (string data, default enc).
+// Routes through the shared terminator contract (loom#1684) so every `.coc/` text
+// artifact carries exactly one LF; the zero-byte `.gitkeep` sentinel stays
+// zero-byte, preserving its EMPTY_SHA256 lock entry.
 function writeFileNoBom(absPath, content) {
-  safeWriteFileSync(absPath, content);
+  writeTextArtifactSync(absPath, content);
 }
 
 function buildTree(tmpDir, records) {
@@ -586,7 +617,13 @@ function buildTree(tmpDir, records) {
     skills: records.filter((r) => r.kind === "skills").length,
     commands: records.filter((r) => r.kind === "commands").length,
   };
-  const cocMd = buildCocMd(counts);
+  // loom#1684 — hash the EXACT bytes that land on disk. `writeFileNoBom` applies
+  // the terminator contract, so the digest MUST be taken over the normalized
+  // form; hashing the pre-normalization string would desynchronize COC.lock from
+  // the file it covers and `coc-run --verify-lock` would fail closed on a
+  // correctly-emitted tree. Normalize ONCE, then feed both the writer and the
+  // digest from that single value.
+  const cocMd = ensureTrailingNewline(buildCocMd(counts));
   writeFileNoBom(path.join(tmpDir, "COC.md"), cocMd);
   fileEntries.push({
     path: "COC.md",
@@ -601,10 +638,12 @@ function buildTree(tmpDir, records) {
   for (const rec of records) {
     usedSubdirs.add(rec.kind);
     const abs = path.join(tmpDir, rec.relInCoc);
-    writeFileNoBom(abs, rec.content);
+    // Same single-value discipline as COC.md above (loom#1684).
+    const content = ensureTrailingNewline(rec.content);
+    writeFileNoBom(abs, content);
     fileEntries.push({
       path: rec.relInCoc,
-      sha256: sha256Hex(Buffer.from(rec.content, "utf8")),
+      sha256: sha256Hex(Buffer.from(content, "utf8")),
     });
   }
 
@@ -716,7 +755,7 @@ function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!args.out) {
     process.stderr.write(
-      "usage: emit-coc.mjs --out <dir> [--target py|rs|rb|base|prism] [-v]\n",
+      "usage: emit-coc.mjs --out <dir> [--target py|rs|base|prism] [-v]\n",
     );
     process.exit(2);
   }

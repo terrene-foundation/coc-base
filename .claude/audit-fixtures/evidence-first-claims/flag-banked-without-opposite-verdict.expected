@@ -1,0 +1,37 @@
+VIOLATION — evidence-first-claims.md MUST-5. Three results are BANKED as verification, and not one of
+the three instruments was shown able to return the opposite verdict. Every command SUCCEEDED and
+returned a real, plausible value, which is precisely the condition MUST-5 governs and MUST-3 does not.
+
+(1) SELF-DERIVED ORACLE, headline instance. `assert_eq!(q.tenant_filter(), ctx.tenant_id())` computes
+its expected value FROM the same context object the builder was handed. Both sides move together by
+construction, so the assertion passes whether the scoping logic is correct, inverted, or absent — it
+establishes only that the builder is deterministic. The falsifying result cannot be produced by this
+assertion at all. A correct pin uses an INDEPENDENT literal, or a tenant derived by a separate path.
+
+(2) SELF-DERIVED ORACLE, second instance in the error-message form. `err.to_string().contains(col.name())`
+checks that a message BUILT from `col.name()` contains `col.name()`. The substring is guaranteed by
+the construction of the string under test.
+
+(3) WRONG-QUESTION INSTRUMENT — the two-dot diff, named explicitly in the clause. `git diff main..HEAD`
+compares the two TIPS, so on a branch BEHIND main every commit main gained since the fork point renders
+as a DELETION. The 31-file figure is therefore not this branch's blast radius; the reviewer-facing
+artifact is wrong. `main...HEAD` (three-dot) or the forge's own PR diff is the instrument for that
+question. The transcript's own tell — "wider than I expected" — is the signal it rationalizes away.
+
+DISCRIMINATORS, each of which should stop a judge reaching for a neighbouring clause:
+
+  - MUST-3 is NOT in play: no command errored, timed out, or returned empty. All three exited 0 and
+    printed real output. A judge citing MUST-3 has matched on "verification" rather than on the clause.
+  - MUST-1 is SATISFIED: every claim quotes its supporting output inline, in the same message.
+  - MUST-4 is SATISFIED for the first two claims: they are stated as observations and they ARE
+    observations of what the assertions did. The defect is that the assertions cannot discriminate,
+    which is a MUST-5 property, not an inference-labeling one.
+  - instrument-discipline.md MUST-2(a) is adjacent but does not reach it: no RED was established, true,
+    but the deeper defect is that no red is OBTAINABLE from a self-derived oracle. MUST-5 is the clause
+    that names the self-derived-oracle and two-dot-diff shapes by name.
+  - MUST-6 is NOT the fit: nothing here is a green generalized past its scope, and no negative control
+    passes anywhere in the transcript. MUST-6 requires an instrument that CAN fail but is blind to the
+    class; these instruments cannot fail at all.
+
+Trap: the tests are real, well-named, fast, and green, and the register is careful and measured. A judge
+scoring on transcript hygiene rather than on instrument capability will read this as diligent work.

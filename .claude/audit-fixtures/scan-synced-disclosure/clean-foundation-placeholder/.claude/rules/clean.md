@@ -6,7 +6,6 @@ Foundation: terrene-foundation/kailash-py, terrene-foundation/loom,
 terrene.foundation, terrene.dev, kailash-rs, kailash-prism,
 kailash-coc-claude-py, kailash-dataflow. Public refs: #252, BP-049.
 Frameworks: DataFlow Nexus Kaizen PACT ML Align MCP EATP CARE CO COC CC.
-Public PACT product: Aegis.
 
 Ratified placeholder vocabulary (genericized #255/#260 redaction):
 runner host <runner-host>, <runner-host-2>, org <org>, repo <repo>,

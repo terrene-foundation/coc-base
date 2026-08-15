@@ -45,4 +45,43 @@ Detector source: `.claude/hooks/lib/violation-patterns.js::detectHeredocWriteRun
 | `clean-dense-doc-body.txt`             | `null`                                  | a `<<`-dense doc body (multiple `<<EOF`/`<<-END`/`<<<HERE` tokens) that mentions a protected path but executes nothing — R6 belt-and-suspenders that a raw-`<<`-count cap would false-block; the work-budget does not. |
 | `clean-variable-indirect-run-only.txt` | `null`                                  | the sanctioned ceremony RUN half alone (`node "${TMPDIR:-/tmp}/coc-roster-register.cjs"`, no heredoc) — write-in-another-command stays accepted.                                                                       |
 
-Rule cross-reference: `rules/state-file-write-guard.md` Rule 5 § "Bash-Layer Mutation Coverage — Four Layers" (§ Layer 4 heredoc write+run bundle) + § "Known residuals" (a)/(d). Runnable regression: `.claude/test-harness/tests/register-roster-write-guard.test.mjs` — the `BUNDLE-*` family (one per predicate: plain, numeric/hyphen/mixed/ANSI-C delimiter, tee/dd/no-space/escaped-quote/pipe-both/cp-stdin/sponge sinks, deno-run, decoy-arith/ansi-c-escape/arith-seeded/cr-seeded divergences, herestring-hides-run) + the `*-CLEAN` / `HERESTRING-CLEAN` / `UNCLOSED-HEREDOC-CLEAN` over-block guards + `OVERSIZE-CAP`.
+## loom#1426 — residual (m) closed: an output-redirect operand is not an executed script
+
+`computeExecutedTokenSet` admitted EVERY token after the interpreter, so the `>`
+operand of `node probe.mjs > /tmp/out.json` entered the EXECUTED set — and since
+`extractRedirectTargets` reads that same operand into `structuralTargets`, the
+BACKSTOP's `anyTargetExecuted` overlap was satisfied by the redirect matching
+ITSELF. The conjunction collapsed to "a protected path is mentioned anywhere AND
+some interpreter-led command redirects somewhere", which is the near-100%
+false-positive class #1426 records against read-only measurement work. The fix
+skips output-redirect operators and their operands; INPUT (`<`) operands stay in
+the set, because `node < f.js` genuinely executes `f.js`.
+
+**These fixtures also became the first ones in this directory to RUN AT ALL.** All
+27 pre-#1426 pairs here were orphaned — no runner iterated this dir, measured as 0
+executed test names against a control of 85 for a sibling dir that IS iterated.
+They are now wired through `../detectStateFileMutation/test.mjs`.
+
+Be precise about what that buys, because the honest bound matters more than the
+headline: that runner executes LOCALLY and at GATE-REVIEW, and is deliberately
+absent from the CI structural job — `coc-artifact-eval.yml` says so beside its
+`version-state-fence-1399` step, declining to add the runner's two `<100ms` ReDoS
+bounds to a required gate, and calling the wiring "tracked separately". Measured
+2026-08-13: no open issue tracks it. **A green CI run is therefore NOT evidence
+these fixtures passed** — run `node --test ../detectStateFileMutation/test.mjs`.
+
+| Fixture                                                | Expects                                 | Predicate locked                                                                                                                                                                                                                                                        |
+| ------------------------------------------------------ | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `clean-1426-m-read-plus-unrelated-run.txt`             | `null`                                  | the (m) shape from the detector's own comment — `cat <state> && node /tmp/a/other.js > /tmp/b/out.json`, written file ≠ executed file. **RED against pre-#1426 code** (it flagged).                                                                                     |
+| `clean-1426-m-hash-around-probe.txt`                   | `null`                                  | hashing a state file before/after running a probe — how this guard's own fixtures get built, and the shape that blocked five actors. **RED against pre-#1426 code** (it flagged).                                                                                       |
+| `clean-1426-attached-redirect-form-no-regression.txt`  | `null`                                  | the ATTACHED redirect form (`>/tmp/p.txt`) beside a read-only `node -e` string op. NOTE, measured: this was clean BEFORE the fix too — the old defect needed the SEPARATED form, since the token `">/tmp/p.txt"` never matched the target `"/tmp/p.txt"`. Pins no-regression, NOT a closed defect. |
+| `flag-1426-plain-redirect-write-then-run.txt`          | `layer:1,kind:heredoc-write-run-bundle` | the non-heredoc backstop arm: `node gen.js > s.cjs && node s.cjs` — the SAME token is written then executed, so the real write→exec dataflow still flags with a protected mention present.                                                                               |
+| `flag-1426-stdin-redirect-executes-written-script.txt` | `layer:1,kind:heredoc-write-run-bundle` | `node < f.js` — the interpreter reads its SCRIPT from an INPUT redirect. This is the hole the fix must not open; a mutation that also drops `<` operands reds exactly this fixture and nothing else.                                                                     |
+| `flag-1426-case-varied-redundant-path-in-bundle.txt`   | `layer:1,kind:heredoc-write-run-bundle` | a genuine bundle whose body spells the path `.CLAUDE/learning/./posture.json` and whose run line carries `> /tmp/run.log` — case-variation, a `/./` redundant segment, and a redirect on the RUN line all still block.                                                   |
+| `clean-1426-both-streams-redirect-form.txt`            | `null`                                  | `node probe.mjs &> /tmp/run.log` beside a `grep` read. Locks the `&`-prefixed alternation of `OUT_REDIRECT_TOKEN_RX`. **RED against pre-#1426 code** (it flagged).                                                                                                      |
+| `clean-1426-force-clobber-redirect-form.txt`           | `null`                                  | `node probe.mjs >\| /tmp/run.log` beside a `wc -l` read. Locks the `>\|` force-clobber alternation, which the segment splitter must not read as a pipe. **RED against pre-#1426 code** (it flagged).                                                                    |
+
+Anti-vacuity for the whole `flag-*` pole here: neutralising `anyTargetExecuted`
+reds all 25 of them, so none passes by accident.
+
+Rule cross-reference: `rules/state-file-write-guard.md` Rule 5 § "Bash-Layer Mutation Coverage — Four Layers" (§ Layer 4 heredoc write+run bundle) + § "Known residuals" (a)/(d)/(m). Runnable regression: `.claude/test-harness/tests/register-roster-write-guard.test.mjs` — the `BUNDLE-*` family (one per predicate: plain, numeric/hyphen/mixed/ANSI-C delimiter, tee/dd/no-space/escaped-quote/pipe-both/cp-stdin/sponge sinks, deno-run, decoy-arith/ansi-c-escape/arith-seeded/cr-seeded divergences, herestring-hides-run) + the `*-CLEAN` / `HERESTRING-CLEAN` / `UNCLOSED-HEREDOC-CLEAN` over-block guards + `OVERSIZE-CAP`.

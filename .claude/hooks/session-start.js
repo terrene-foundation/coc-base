@@ -36,13 +36,18 @@ const {
   detectActiveWorkspace,
   derivePhase,
   getTodoProgress,
-  findAllSessionNotes,
+  findAllSessionNotesDetailed,
 } = require("./lib/workspace-utils");
 const { checkVersion } = require("./lib/version-utils");
 const {
   computeOpenPrState,
   formatOpenPrBlock,
 } = require("./lib/open-pr-surface");
+const {
+  computeUnlandedState,
+  formatUnlandedBlock,
+  openPrHeadsFrom,
+} = require("./lib/unlanded-work-surface");
 const {
   migrateMonolithToSplit,
   regenerateAggregate,
@@ -111,16 +116,72 @@ process.stdin.on("end", () => {
     // block (undefined) or a "could-not-verify" warning (null). Gated on a
     // github.com remote so a local-only repo gets no false warning. Prepended
     // ABOVE the session notes so the live queue outranks any note's claim.
+    //
+    // The state is computed ONCE and used TWICE: the open-PR block renders it,
+    // and the unlanded-work surface below subtracts its head branches. A second
+    // `gh pr list` would cost another ~0.7s of session-start latency for data
+    // already in hand.
     let openPrBlock = null;
+    let openPrState;
     try {
-      openPrBlock = formatOpenPrBlock(computeOpenPrState(data.cwd));
+      openPrState = computeOpenPrState(data.cwd);
+      openPrBlock = formatOpenPrBlock(openPrState);
     } catch {
       openPrBlock = null; // belt-and-suspenders: never block session start
+      openPrState = undefined; // board UNKNOWN, not "empty" — see openPrHeadsFrom
+    }
+
+    // Unlanded-work surface: the complement of the open-PR block. That one
+    // answers "what is ON the board?"; this answers "what never GOT to the
+    // board?" — local branches with commits not on the upstream default branch
+    // and no open PR. Adds 2 LOCAL git calls and ZERO network calls.
+    //
+    // ADVISORY ONLY. It reports REACHABILITY, which over-reports content: at
+    // loom, 14 of 40 surfaced branches had a PR in history and 9 of those were
+    // merged. It must therefore never gate, auto-reap, or drive a deletion —
+    // the rendered block says so and a test pins that sentence.
+    let unlandedBlock = null;
+    try {
+      unlandedBlock = formatUnlandedBlock(
+        computeUnlandedState(data.cwd, openPrHeadsFrom(openPrState)),
+      );
+    } catch {
+      unlandedBlock = null; // never block session start
+    }
+
+    // Phase-2 deferral surface: the third sibling. The open-PR block answers
+    // "what is ON the board?", unlanded-work answers "what never GOT to the
+    // board?", this answers "what did we PROMISE to build and then not build?"
+    // — the dated backlog in .claude/test-harness/phase2-deferrals.json, which
+    // its own header notes is checked only on a PR/push touching `.claude/**`
+    // and is surfaced to an operator nowhere. Zero subprocesses, zero network:
+    // one stat + one file read.
+    //
+    // LAZY require, and that is load-bearing. `lib/deferral-surface.js` is
+    // loom_only (the registry it reads ships NOWHERE, while `.claude/hooks/**`
+    // is ALWAYS_INCLUDE — both measured with the distributor's own
+    // classifyFile), so THIS file ships to consumers where that lib does not
+    // exist. A module-scope require would throw MODULE_NOT_FOUND before this
+    // handler ever ran and take the whole SessionStart hook down at every
+    // consumer — the #840 broken-on-import pattern. Requiring it here means the
+    // absent lib is just the "skip silently" state.
+    let deferralBlock = null;
+    try {
+      const { renderDeferralBlock } = require("./lib/deferral-surface");
+      // The lib CASCADES since E6 (2026-08-14), so this runs at consumers too.
+      // ONE call that resolves, counts and renders together — the two-call shape
+      // this used to spell out is what let the resolved path go missing, so it
+      // is no longer spelled out anywhere.
+      deferralBlock = renderDeferralBlock(data.cwd);
+    } catch {
+      deferralBlock = null; // lib absent (partial sync) or failed — never block
     }
 
     const output = { continue: true };
     const ctxParts = [];
     if (openPrBlock) ctxParts.push(openPrBlock);
+    if (unlandedBlock) ctxParts.push(unlandedBlock);
+    if (deferralBlock) ctxParts.push(deferralBlock);
     if (result.sessionNotesContext) ctxParts.push(result.sessionNotesContext);
     if (trustGate) ctxParts.push(trustGate);
     if (ctxParts.length) {
@@ -234,7 +295,8 @@ function initializeSession(data) {
     // declared. A symlinked `.claude/learning` still resolves under neither and is refused.
     const observationsFile = path.join(learningDir, "observations.jsonl");
     const stateRoots = [];
-    if (process.env.KAILASH_LEARNING_DIR) stateRoots.push(process.env.KAILASH_LEARNING_DIR);
+    if (process.env.KAILASH_LEARNING_DIR)
+      stateRoots.push(process.env.KAILASH_LEARNING_DIR);
     try {
       const { resolveMainCheckout } = require("./lib/state-resolver.js");
       const main = resolveMainCheckout(cwd);
@@ -329,7 +391,19 @@ function initializeSession(data) {
 
   // ── Session notes (inject into Claude context + human-facing stderr) ─
   try {
-    const allNotes = findAllSessionNotes(cwd);
+    const { notes: allNotes, unreadable } = findAllSessionNotesDetailed(cwd);
+    // Fail-open, but never silent (loom#1655): a refused notes file is skipped
+    // so one bad row cannot blank the dashboard, yet the operator is told it
+    // exists. Silence here is indistinguishable from "there are no notes", and
+    // the wrong one of those two sends the next session off without its
+    // handover. stderr ONLY — this is human-facing and costs no injected bytes.
+    if (unreadable.length > 0) {
+      for (const u of unreadable) {
+        console.error(
+          `[SESSION-NOTES] UNREADABLE ${u.relativePath} (${u.reason}) — present but not surfaced`,
+        );
+      }
+    }
     if (allNotes.length > 0) {
       for (const note of allNotes) {
         const staleTag = note.stale ? " (STALE)" : "";
