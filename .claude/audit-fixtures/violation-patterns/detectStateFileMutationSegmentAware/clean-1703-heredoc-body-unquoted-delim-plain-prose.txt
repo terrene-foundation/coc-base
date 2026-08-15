@@ -1,0 +1,3 @@
+cat > /tmp/loom-1703-report.md <<EOF
+Blocked: rm .claude/learning/posture.json
+EOF

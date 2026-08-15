@@ -227,3 +227,11 @@ Relocated from `rules/agents.md` under the co-owner-directed triad codification 
 - "I'll re-launch with a different specialist if it halts"
 - "Read-only review IS implementation when the diff is trivial"
 - "The agent has Write — that's enough for code edits"
+
+## Verify Specialist Tool Inventory — read-only roster + materialization
+
+Extracted from `rules/agents.md` § "MUST: Verify Specialist Tool Inventory Before Implementation Delegation" (paired extraction, 2026-08-11 Gate-1 placement of the BUILD stream, `rule-authoring.md` Rule 10 path (a)).
+
+**Read-only specialists — MUST NOT be delegated implementation work:** `security-reviewer`, `analyst`, `reviewer`, `gold-standards-validator`, `value-auditor`. Each declares no `Edit` and (except `reviewer`) no `Bash`, so it halts mid-instruction at the first file-edit boundary and the shard must be re-launched against a different specialist.
+
+**Read-only reviewer materialization (INCREMENTAL).** `security-reviewer` is read-only and has no `Bash`, so it cannot fetch a diff itself. Materialize the diff or the changed-file set to a scratchpad path and NAME that path in the prompt; it then reviews the change instead of halting for context it cannot reach. This is the standard workaround, not a reason to substitute a writing specialist into a review seat.

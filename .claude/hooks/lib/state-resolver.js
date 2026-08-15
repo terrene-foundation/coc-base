@@ -82,6 +82,9 @@ const { execFileSync } = require("child_process");
 const { resolveGitBinary, gitEnv } = require(
   path.join(__dirname, "git-subprocess-env.js"),
 );
+const { provenCheckoutRoot } = require(
+  path.join(__dirname, "git-checkout-proof.js"),
+);
 
 // loom#1471. `resolveMainCheckout` is THE anchor for the trust-state substrate:
 // `resolveStateDir` returns `<main>/.claude/learning`, which is where posture.json,
@@ -178,7 +181,20 @@ function isNonMainWorktreePath(p) {
 // (rules/security.md § Path Containment — BOTH candidate and boundary root go
 // through the SAME resolver before comparison, and the whole thing fails CLOSED):
 //   1. absolute path, canonical shape `<root>/.claude/learning`;
-//   2. `<root>` exists, is a directory, and carries a `.git` entry (real checkout);
+//   2. `<root>` exists, is a directory, and git PROVES it is a checkout ROOT
+//      (`provenCheckoutRoot`, loom#1474 E3 — see below). That proof is TWO
+//      requirements, and naming only the first is what let loom#1586 through:
+//      (2a) IDENTITY — git's `--show-toplevel` must BE `<root>`, not an
+//           ancestor, which refuses a nested `<repo>/sub/.claude/learning`; and
+//      (2b) COHERENCE — `<root>/.git` must NAME the repository git reported.
+//           Load-bearing, not belt-and-braces: `core.worktree` is repo-LOCAL
+//           config in an ANCESTOR's `.git/config` that `gitEnv()` cannot strip
+//           (it removes SYSTEM/GLOBAL config and the whole `GIT_*` family, but
+//           repo-local config is read BY DEFINITION once git discovers the
+//           repo), and it makes git report a directory holding NO `.git` entry
+//           at all as the toplevel. (2a) alone ACCEPTS that directory — i.e.
+//           WEAKER on this axis than the `fs.existsSync(<root>/.git)` line it
+//           replaced. Only (2b) refuses it;
 //   3. the resolved `.claude` dir still sits at `<realRoot>/.claude` — so a
 //      SYMLINKED `.claude` cannot relocate the canonical location itself;
 //   4. when the learning dir already exists, its realpath must equal
@@ -201,9 +217,21 @@ function _validatedTrustStateRoot(raw) {
     const root = path.dirname(claudeDir);
 
     if (!fs.statSync(root).isDirectory()) return null;
-    if (!fs.existsSync(path.join(root, ".git"))) return null;
 
-    const realRoot = fs.realpathSync(root);
+    // loom#1474 E3 — POSITIVE PROOF, not the existence of a `.git` entry.
+    // The former line here was `fs.existsSync(path.join(root, ".git"))`, which
+    // `mkdir .git` and `touch .git` both satisfy. Measured through the real
+    // integrity-guard, the empty-DIR shape flipped a protected write to
+    // `posture.json` from BLOCKED to ALLOWED (exit 2 -> exit 0); the empty-FILE
+    // shape blocked only because a DOWNSTREAM resolution happened to fail safe,
+    // never because this predicate refused it. `provenCheckoutRoot` asks git
+    // instead, and additionally requires git's toplevel to BE this root — so a
+    // nested `<repo>/sub/.claude/learning`, which git's upward discovery would
+    // otherwise answer for, is refused too. Fails closed on every doubt.
+    const proof = provenCheckoutRoot(root);
+    if (!proof) return null;
+
+    const realRoot = proof.realRoot;
     const realClaudeDir = fs.realpathSync(claudeDir);
     if (realClaudeDir !== path.join(realRoot, ".claude")) return null;
 
@@ -408,7 +436,20 @@ function resolveStateDirDetailed(cwd) {
   // ASYMMETRY, DELIBERATE AND LOAD-BEARING — do not "fix" it without reading
   // this. `resolveMainCheckout` puts $CLAUDE_TRUST_STATE_DIR through #1444's
   // containment predicate (which requires a REAL git checkout at <root>); this
-  // function honors the raw value. Routing both through the predicate was tried
+  // function honors the raw value.
+  //
+  // THAT GUARANTEE HAS ALREADY LAPSED ONCE, SILENTLY, AND THIS COMMENT DID NOT
+  // NOTICE. Between `ceda639e` and `9611a19f` the predicate was rewritten and
+  // the phrase "requires a REAL git checkout at <root>" became FALSE: a
+  // `core.worktree` redirect target — a directory with no `.git` entry at all —
+  // satisfied it (loom#1586). Restored by the COHERENCE requirement, so the
+  // sentence above is accurate again. It is recorded here because the sentence
+  // read as true throughout the window in which it was false, and because it is
+  // the ONLY thing bounding this function: everything below leans on a promise
+  // made by a predicate in ANOTHER file, with no test binding the two. A change
+  // to `provenCheckoutRoot` can silently invalidate this paragraph again.
+  //
+  // Routing both through the predicate was tried
   // here and reverted: it refuses every fixture whose root is a bare temp dir
   // with no `.git`, which is the documented in-use test seam #1444 explicitly
   // preserved, and it reddened 26 state-io cases plus 4 sibling suites.

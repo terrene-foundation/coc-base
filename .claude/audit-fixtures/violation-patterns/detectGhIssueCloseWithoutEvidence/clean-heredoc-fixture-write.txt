@@ -1,0 +1,3 @@
+cat > /tmp/f.txt <<'EOF'
+gh issue close 1687 --comment "done"
+EOF

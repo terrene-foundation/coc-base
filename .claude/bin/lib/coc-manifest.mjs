@@ -12,10 +12,18 @@
  * (same behavior, byte-identical emit) — only the file location + the
  * sibling import paths (`./lib/X` → `./X`) and REPO's depth changed.
  *
- * Symbols (14): REPO, safeWriteFileSync, safeReadFileSync, globToRegex,
+ * Symbols (19): REPO, safeWriteFileSync, ensureTrailingNewline,
+ *   writeTextArtifactSync, safeReadFileSync, globToRegex,
  *   matchesAnyGlob, loadExclusions, loadLoomOnly, loadTiers,
  *   loadTargetTierSubscriptions, loadTargetVariant, buildTierFilter,
- *   composeArtifactBody, rewriteClaudePathsForCli, walkFiles.
+ *   composeArtifactBody, rewriteClaudePathsForCli, walkFiles,
+ *   loadSurfaceRoles, loadTargetRole, surfaceRolesAllow.
+ *
+ * The count is produced STRUCTURALLY — `Object.keys(await import(...)).length`,
+ * imported in place so the `./slot-parser.mjs` sibling resolves. A grep or a
+ * hand-count is not the instrument: this header read 14 against an actual 17
+ * before loom#1684 touched it, and 16 against 19 after, because the three
+ * surface-role symbols were never listed. Re-measure; do not increment.
  *
  * Node ESM, zero external deps (mirrors emit.mjs / emit-cli-artifacts.mjs).
  */
@@ -69,6 +77,70 @@ function safeWriteFileSync(filePath, data) {
   }
 }
 
+// ────────────────────────────────────────────────────────────────
+// Text-artifact terminator contract (loom#1684)
+// ────────────────────────────────────────────────────────────────
+// EVERY text artifact an emitter writes ends with EXACTLY ONE LF.
+//
+// The BUILD-py target runs pre-commit's `end-of-file-fixer`, and the Gate-2
+// driver commits INTO that target — so the hook rewrites loom's emitted bytes
+// and ABORTS the commit, blocking the whole BUILD-py distribution lane. The
+// contract is two-sided because that hook is two-sided: it APPENDS a missing
+// terminator AND STRIPS extra ones. A one-sided "append if absent" fix leaves
+// the too-many case (the actual #1684 offender) unrepaired, and a `tail -c1`
+// sweep cannot even see it.
+//
+// Three cases, matching `end_of_file_fixer.fix_file` **for CR-free input** —
+// which is the whole of what these emitters produce (see the scope note below):
+//   ""            → ""      zero-byte stays zero-byte (the `.gitkeep` sentinel
+//                           emit-coc pins to EMPTY_SHA256; the hook's seek(-1)
+//                           raises on an empty file and it returns unchanged)
+//   "\n\n"        → ""      an all-newline file is truncated to empty
+//   "a" / "a\n\n" → "a\n"   everything else gets exactly one
+//
+// SCOPE — the equivalence is NOT unconditional, and the earlier revision of this
+// comment said "exactly" without qualification. That was an over-claim; it is
+// withdrawn. Corrected by EXECUTING the real hook (`fix_file` from the
+// pre-commit-hooks checkout under `~/.cache/pre-commit`), not by inference:
+//
+//   input        eof-fixer    this helper    agree?
+//   "a"          "a\n"        "a\n"          yes
+//   "a\n"        "a\n"        "a\n"          yes
+//   "a\n\n"      "a\n"        "a\n"          yes
+//   ""           ""           ""             yes
+//   "\n\n"       ""           ""             yes
+//   "a\r\n"      "a\r\n"      "a\r\n"        yes
+//   "a\r\n\r\n"  "a\r\n"      "a\r\n\r\n"    NO — hook truncates, we no-op
+//   "a\r\r"      "a\r"        "a\r\r\n"      NO — hook truncates, we append
+//   "a\r\r\n"    "a\r"        "a\r\r\n"      NO — hook truncates, we no-op
+//
+// The hook treats `\r` as a line break (`last_character not in {b'\n', b'\r'}`);
+// this regex is `/\n+$/`, LF-only. Every divergence therefore requires a CR in
+// the input, and each one would recreate the #1684 abort.
+//
+// Why the residual is nonetheless CLOSED rather than merely accepted: CR is
+// structurally excluded from emitted output, and that exclusion is now ENFORCED,
+// not assumed. `emitter-trailing-newline.test.mjs` asserts every emitted text
+// artifact across all three emitters is CR-free (measured at that suite's
+// landing: 1160 files, 0 CR-bearing, with a planted-CR control confirming the
+// scanner fires). So no input reaching this helper can hit a divergent row.
+// Deliberately NOT "fixed" by stripping CR here: that would mutate content on a
+// path no emitter exercises, trading a structurally-unreachable divergence for a
+// live behavioural change.
+function ensureTrailingNewline(text) {
+  const body = text.replace(/\n+$/, "");
+  return body === "" ? "" : `${body}\n`;
+}
+
+// The ONE write path for emitted TEXT artifacts. `safeWriteFileSync` stays a
+// pure security primitive (O_NOFOLLOW, no content transform); this wrapper owns
+// the terminator contract so it cannot drift across the ~13 emitter write sites.
+// Binary/Buffer payloads (the byte-copy fallback) keep using safeWriteFileSync
+// directly — a byte copy must stay byte-exact.
+function writeTextArtifactSync(filePath, text) {
+  safeWriteFileSync(filePath, ensureTrailingNewline(text));
+}
+
 // Symlink-safe read (mirrors safeWriteFileSync to keep the source side
 // TOCTOU-closed). O_NOFOLLOW raises ELOOP if the leaf component is a
 // symlink — so a symlink swapped in for an artifact source between the
@@ -100,10 +172,20 @@ function globToRegex(glob) {
   // a literal (not left as a regex 0-or-1 quantifier) — the manifest globs are
   // exact-path / prefix patterns, never POSIX single-char wildcards.
   const escaped = glob.replace(/[.+^${}()|[\]\\?]/g, "\\$&");
+  // A `**/` at the START of the pattern OR immediately after a `/` matches ZERO
+  // or more path segments, so it compiles to `(?:.*/)?` — which keeps the `/`
+  // boundary (a bare `.*` would substring-match `yx` for `**/x`). Measured
+  // against Claude Code 2.1.226: the LEADING case 2/2 (loom#1597), the INTERIOR
+  // case 2/2 on three glob shapes (S21-GLOB-INTERIOR.md). Both positions are
+  // zero-or-more in CC; treating the interior as >=1 silently defeated 12 corpus
+  // globs' stated intent.
+  // Escaping never rewrites `*` or `/`, so a `**/` still reads as `**/` here.
   const withStars = escaped
+    .replace(/(^|\/)\*\*\//g, "$1__ANYSEGS__")
     .replace(/\*\*/g, "__DOUBLESTAR__")
     .replace(/\*/g, "[^/]*")
-    .replace(/__DOUBLESTAR__/g, ".*");
+    .replace(/__DOUBLESTAR__/g, ".*")
+    .replace(/__ANYSEGS__/g, "(?:.*/)?");
   return new RegExp(`^${withStars}$`);
 }
 
@@ -342,7 +424,7 @@ function loadTargetTierSubscriptions(target) {
 // ────────────────────────────────────────────────────────────────
 // sync-manifest.yaml → repos.<target>.variant
 // ────────────────────────────────────────────────────────────────
-// Returns the language-axis variant slug (py / rs / rb / base / null).
+// Returns the language-axis variant slug (py / rs / base / null).
 // The variant determines which `variants/<lang>/...` overlay tree applies
 // when composing per-CLI artifacts (commands, skills, agents) for the
 // target's language axis. Returns null when target is unknown OR when
@@ -612,9 +694,58 @@ function rewriteClaudePathsForCli(body, cli) {
   return body
     // .claude/skills/ → .{codex,gemini}/skills/
     .replace(/(^|[^a-zA-Z0-9._/-])\.claude\/skills\//g, `$1.${cli}/skills/`)
-    // .claude/commands/ → .codex/prompts/ or .gemini/commands/
+    // .claude/commands/<name>.md → .codex/prompts/<name>.md  (Codex keeps .md)
+    //                            → .gemini/commands/<name>.toml (Gemini emits TOML)
+    // PY-3-A3: the directory was rewritten but the EXTENSION was not, so every
+    // Gemini-lane citation of a command pointed at `.gemini/commands/<name>.md`
+    // — a file that does not exist, because emitCommands writes `<name>.toml` on
+    // that lane. Measured on a full emit: 11 dangling `.md` citations across the
+    // enrollment/onboarding path (the first commands a new Gemini operator
+    // walks), 0 correct `.toml` ones. The loom SOURCE is clean (0 wrong / 169
+    // correct), so this rewrite was the sole producer.
+    // The filename-bearing form MUST run BEFORE the bare-directory form below,
+    // which would otherwise consume the prefix and strand the extension.
+    // `[A-Za-z0-9._-]+` excludes `/`, so a match cannot cross a directory
+    // boundary — commands are flat under `.claude/commands/`.
+    .replace(
+      /(^|[^a-zA-Z0-9._/-])\.claude\/commands\/([A-Za-z0-9._-]+)\.md\b/g,
+      `$1.${cli}/${commandsTarget}/$2.${cli === "gemini" ? "toml" : "md"}`,
+    )
+    // Bare-directory form (a citation naming the dir, not a specific command).
     .replace(/(^|[^a-zA-Z0-9._/-])\.claude\/commands\//g, `$1.${cli}/${commandsTarget}/`)
-    // .claude/agents/ → .{codex,gemini}/agents/
+    // PY-3-A2: `.claude/agents/<group>/<name>.md` does NOT map onto
+    // `.{cli}/agents/<group>/<name>.md` on EITHER lane — the old rewrite
+    // produced a path shape neither emitter ever writes:
+    //   codex  — has NO `agents/` namespace at all. emitCodexAgentPrompts writes
+    //            `.codex/prompts/specialist-<short>.md`, where <short> drops a
+    //            trailing "-specialist" (dataflow-specialist → specialist-dataflow).
+    //   gemini — emitGeminiAgents writes `.gemini/agents/<name>.md`, FLAT: the
+    //            `<group>/` segment is dropped entirely.
+    // MEASURED on a full emit before this fix: `.codex/agents/**` resolved 0 /
+    // dangled 31 and `.gemini/agents/**` resolved 0 / dangled 31, while the SAME
+    // probe over the same trees resolved 84 skills + 11 command citations — so
+    // the zero is a true negative, not a probe that could not fire.
+    // Name derivation mirrors both emitters, which key off `frontmatter.name ||
+    // basename(relPath)`. A sweep over all 40 source agents found
+    // basename === frontmatter.name for EVERY one, so basename is a sound proxy
+    // HERE. If an agent ever sets a `name:` that differs from its filename, this
+    // rewrite and the emitters diverge — keep the three in lockstep.
+    // Runs BEFORE the bare-directory form below, which would otherwise consume
+    // the prefix and strand the rest of the path.
+    .replace(
+      /(^|[^a-zA-Z0-9._/-])\.claude\/agents\/(?:[A-Za-z0-9._-]+\/)*([A-Za-z0-9._-]+)\.md\b/g,
+      (_m, pre, name) =>
+        cli === "gemini"
+          ? `${pre}.gemini/agents/${name}.md`
+          : `${pre}.codex/prompts/specialist-${name.replace(/-specialist$/, "")}.md`,
+    )
+    // Bare-directory form (a citation naming the dir, not a specific agent).
+    // Gemini's `.gemini/agents/` IS a real namespace, so this is correct there.
+    // On codex it is NOT — codex has no agents dir — but the only occurrences are
+    // the consumer-owned `.claude/agents/project/` paths in sync-from-template.md,
+    // whose correct codex target depends on whether Codex supports consumer-owned
+    // project agents at all. That is UNRESOLVED, so this is left as-is rather than
+    // guessed; see the S22-W4-EXEC lane report.
     .replace(/(^|[^a-zA-Z0-9._/-])\.claude\/agents\//g, `$1.${cli}/agents/`);
 }
 
@@ -678,6 +809,8 @@ function* walkFiles(root, rel = "") {
 export {
   REPO,
   safeWriteFileSync,
+  ensureTrailingNewline,
+  writeTextArtifactSync,
   safeReadFileSync,
   globToRegex,
   matchesAnyGlob,

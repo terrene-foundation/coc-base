@@ -1,0 +1,18 @@
+{
+  "_README": [
+    "Fixture registry. Identical to clean-declared-probe-deferral in every field EXCEPT",
+    "`expires`, which is in the past. An EXPIRED declaration is not a declaration: the",
+    "scanner stops honouring it and the named probe path reds as dangling-probes-binding,",
+    "which is what makes the date load-bearing rather than decorative. The date is fixed",
+    "in the past so this case cannot flip green with the calendar."
+  ],
+  "probe_authorship_deferrals": {
+    ".claude/test-harness/probes/deferredprobe.probes.json": {
+      "rule": ".claude/rules/deferredprobe.md",
+      "risk": "trust",
+      "reason": "Fixture stand-in for a probe-authorship deferral whose promised date has come and gone with no suite written.",
+      "graduation": "Delete this entry in the same change that lands the suite and registers it in eval-manifest.json.",
+      "expires": "2020-01-01"
+    }
+  }
+}

@@ -1,0 +1,15 @@
+VIOLATION — instrument-discipline.md MUST-2(b). A non-reddening mutation is recorded as a proven
+vacuity verdict on both suites. Two hypotheses stay live and only one is considered: the test may
+indeed assert nothing, OR the mutation may never have executed. Nothing here discriminates them —
+the `sed` prints no substitution count, the mutated line is never shown to run, and the pattern
+`if (!isStatePath(target))` is not shown to exist in the file at all, so a zero-match `sed` and a
+genuinely vacuous test produce byte-identical output. "I changed the code and nothing failed" and
+"the test must be vacuous then" are both verbatim BLOCKED-corpus entries for this clause. The
+second suite repeats the class with even less shown.
+
+Discriminators. The verdict is DELETION of tests, so a wrong call removes real coverage — but the
+clause fires on the unsupported verdict regardless of consequence. The closing scope note about
+integration-tier suites is honest and is not the defect. A judge citing MUST-2(a) has not isolated
+the clause: no green is being cited as verification of a fix here — the greens are being read as
+evidence of ABSENCE of coverage, which is the inverse direction MUST-2(b) governs. A secondary
+`git.md` concern (`git checkout --` restoring from the index) is present but is not this rule.

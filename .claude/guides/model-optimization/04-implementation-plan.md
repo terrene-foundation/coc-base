@@ -37,11 +37,11 @@ Valid values: `opus`, `sonnet`, `haiku`, or omit for inherit.
 
 | File                                   | Change                             |
 | -------------------------------------- | ---------------------------------- |
-| `.claude/agents/release-specialist.md` | `model: opus` → `model: sonnet`    |
-| `.claude/agents/reviewer.md`           | `model: opus` → `model: sonnet`    |
-| `.claude/agents/build-fix.md`          | `model: opus` → `model: sonnet`    |
-| `.claude/agents/testing-specialist.md` | `model: opus` → `model: sonnet`    |
-| `.claude/agents/gh-manager.md`         | Add `model: sonnet` if not present |
+| `.claude/agents/release/release-specialist.md` | `model: opus` → `model: sonnet`    |
+| `.claude/agents/quality/reviewer.md`           | `model: opus` → `model: sonnet`    |
+| `.claude/agents/implementation/build-fix.md`          | `model: opus` → `model: sonnet`    |
+| `.claude/agents/testing/testing-specialist.md` | `model: opus` → `model: sonnet`    |
+| `.claude/agents/management/gh-manager.md`         | Add `model: sonnet` if not present |
 
 ### 3. Kailash Python USE (`<python-use-repo>`)
 
@@ -49,11 +49,11 @@ Valid values: `opus`, `sonnet`, `haiku`, or omit for inherit.
 
 | File                                   | Change                          |
 | -------------------------------------- | ------------------------------- |
-| `.claude/agents/release-specialist.md` | `model: opus` → `model: sonnet` |
-| `.claude/agents/reviewer.md`           | `model: opus` → `model: sonnet` |
-| `.claude/agents/build-fix.md`          | `model: opus` → `model: sonnet` |
-| `.claude/agents/testing-specialist.md` | `model: opus` → `model: sonnet` |
-| `.claude/agents/todo-manager.md`       | `model: opus` → `model: sonnet` |
+| `.claude/agents/release/release-specialist.md` | `model: opus` → `model: sonnet` |
+| `.claude/agents/quality/reviewer.md`           | `model: opus` → `model: sonnet` |
+| `.claude/agents/implementation/build-fix.md`          | `model: opus` → `model: sonnet` |
+| `.claude/agents/testing/testing-specialist.md` | `model: opus` → `model: sonnet` |
+| `.claude/agents/management/todo-manager.md`       | `model: opus` → `model: sonnet` |
 
 ### 4. Kailash Rust BUILD/USE (`<rust-repo>`)
 
@@ -61,11 +61,11 @@ Valid values: `opus`, `sonnet`, `haiku`, or omit for inherit.
 
 | File                                   | Change                          |
 | -------------------------------------- | ------------------------------- |
-| `.claude/agents/release-specialist.md` | `model: opus` → `model: sonnet` |
-| `.claude/agents/reviewer.md`           | `model: opus` → `model: sonnet` |
-| `.claude/agents/build-fix.md`          | `model: opus` → `model: sonnet` |
-| `.claude/agents/testing-specialist.md` | `model: opus` → `model: sonnet` |
-| `.claude/agents/todo-manager.md`       | `model: opus` → `model: sonnet` |
+| `.claude/agents/release/release-specialist.md` | `model: opus` → `model: sonnet` |
+| `.claude/agents/quality/reviewer.md`           | `model: opus` → `model: sonnet` |
+| `.claude/agents/implementation/build-fix.md`          | `model: opus` → `model: sonnet` |
+| `.claude/agents/testing/testing-specialist.md` | `model: opus` → `model: sonnet` |
+| `.claude/agents/management/todo-manager.md`       | `model: opus` → `model: sonnet` |
 
 ---
 

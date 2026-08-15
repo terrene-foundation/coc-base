@@ -1,0 +1,17 @@
+<!--
+  Shared-ledger form (`.session-notes.shared.md`), the split shape
+  `knowledge-convergence.md` MUST-1 mandates alongside the per-operator
+  `.session-notes.d/<display_id>.md` fragments. Whole-file `# Forest Ledger`
+  heading, FIVE columns including the merge-driver `owner` column.
+
+  Asserts the per-file path recognises this form at all: before the shared-form
+  fallback it failed L1 for lacking a `## Outstanding ledger (forest)` heading
+  the shape is never supposed to carry.
+-->
+
+# Forest Ledger
+
+| ID | owner | item | value_anchor | status |
+| --- | --- | --- | --- | --- |
+| F1 | op-a | multi-CLI BUILD scaffold | brief 2026-05-13 §2 | BLOCKED |
+| F2 | op-b | headroom re-eval | v6.2 brief journal/0075 | BLOCKED |

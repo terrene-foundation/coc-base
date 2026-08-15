@@ -18,7 +18,6 @@
 | Document                        | Purpose                                          |
 | ------------------------------- | ------------------------------------------------ |
 | `01-opus-vs-sonnet-research.md` | Comparative performance analysis with benchmarks |
-| `02-ecosystem-inventory.md`     | Complete inventory across all 4 repos            |
 | `03-recommendations.md`         | Per-repo model assignments with rationale        |
 | `04-implementation-plan.md`     | Exact changes to apply to each repo              |
 

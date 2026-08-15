@@ -1,0 +1,4 @@
+cat > ./s.cjs <<'EOF'
+require("fs").writeFileSync(".CLAUDE/learning/./posture.json", "{}");
+EOF
+node ./s.cjs > /tmp/run.log 2>&1

@@ -143,7 +143,9 @@ multi_cli_overlays:
      || { echo "sister $SISTER_NAME unresolvable — aborting"; exit 1; }
    [ -n "$SISTER" ] || { echo "empty sister path — aborting"; exit 1; }
    # Chain (by name): env KAILASH_COC_TEMPLATE_PATH → ~/.cache/kailash-coc/<sister>/ → git clone --depth 1 →
-   # offline-fallback via loom-links `use-template.<key>` (NEVER a positional ~/repos/<sister> guess, per cross-repo.md MUST-1)
+   # offline-fallback via loom-links `use-template.<key>` where a resolver exists (loom/BUILD-side).
+   # NEVER a positional ~/repos/<sister> guess — per `repo-scope-discipline.md` § MUST NOT, a consumer
+   # with no resolver uses KAILASH_COC_TEMPLATE_PATH or asks; it does not guess.
    ```
 5. Branch-name collision handling (same-day idempotency):
    ```bash
@@ -193,10 +195,10 @@ Fields updated:
 
 Copy paths declared in `multi_cli_overlays.multi-cli.paths` from sister → project. Cleanup stranded root `.coc-sync-marker` (legacy artifact at repo root from pre-v2.21 templates):
 
-**Disclosure scrub before copy (multi-tenant fence) — UNCONDITIONAL, same as `--adopt` A3.** Full migration AND `--refresh` copy `$SISTER` content into the project; `$SISTER` may be an operator-pointed local directory belonging to ANOTHER tenant/ecosystem via EITHER the `KAILASH_COC_TEMPLATE_PATH` env override OR the offline-fallback sibling. Run `node .claude/bin/scan-synced-disclosure.mjs --root "$SISTER"` BEFORE the copy below; a non-zero exit or any finding HALTS (genericize + re-resolve first), mirroring `rules/artifact-flow.md` § "Intake Disclosure Scrub". A fresh canonical GitHub clone scans clean.
+**Disclosure scrub before copy (multi-tenant fence) — UNCONDITIONAL, same as `--adopt` A3.** Full migration AND `--refresh` copy `$SISTER` content into the project; `$SISTER` may be an operator-pointed local directory belonging to ANOTHER tenant/ecosystem via EITHER the `KAILASH_COC_TEMPLATE_PATH` env override OR the offline-fallback sibling. Run `node .claude/bin/scan-synced-disclosure.mjs --check --root "$SISTER"` BEFORE the copy below; a non-zero exit or any finding HALTS (genericize + re-resolve first), mirroring `rules/artifact-flow.md` § "Intake Disclosure Scrub". A fresh canonical GitHub clone scans clean.
 
 ```bash
-node .claude/bin/scan-synced-disclosure.mjs --root "$SISTER" || { echo "disclosure finding in resolved template — HALT"; exit 1; }
+node .claude/bin/scan-synced-disclosure.mjs --check --root "$SISTER" || { echo "disclosure finding in resolved template — HALT"; exit 1; }
 cp -R "$SISTER/.codex"           ./.codex
 cp -R "$SISTER/.codex-mcp-guard" ./.codex-mcp-guard
 cp -R "$SISTER/.gemini"          ./.gemini
@@ -209,9 +211,9 @@ For `--refresh`: respect `multi_cli_overlays.multi-cli.preserved` — files in t
 
 ### Step 4 — `.claude/` refresh via downstream-sync
 
-Run downstream-sync semantics against the sister (per `skills/30-claude-code-patterns/sync-flow.md` § Downstream Sync, steps 2–8), operating on the SAME `$SISTER` path resolved at Step 0.4 and disclosure-scanned at Step 3 — do NOT re-resolve the sister here. Re-resolving would re-enter the resolver's cache lane (`git fetch` + `git reset --hard origin/main`), so the `.claude/` copy source could differ from the tree Step 3 scanned; reusing the scanned `$SISTER` closes that window by construction. The semantics are **additive-merge with explicit obsoletion**, NOT wholesale replacement (per `rules/cross-repo.md` Rule 4). This:
+Run downstream-sync semantics against the sister (per `skills/30-claude-code-patterns/sync-flow.md` § Downstream Sync, steps 2–8), operating on the SAME `$SISTER` path resolved at Step 0.4 and disclosure-scanned at Step 3 — do NOT re-resolve the sister here. Re-resolving would re-enter the resolver's cache lane (`git fetch` + `git reset --hard origin/main`), so the `.claude/` copy source could differ from the tree Step 3 scanned; reusing the scanned `$SISTER` closes that window by construction. The semantics are **additive-merge with explicit obsoletion**, NOT wholesale replacement (per that § Downstream Sync contract — the `cross-repo.md` Rule 4 statement of it is loom/BUILD-side and NOT distributed to USE). This:
 
-- Reads sister's `.claude/.coc-obsoleted` and purges any matching paths in the project (per Rule 4 of `rules/cross-repo.md`).
+- Reads sister's `.claude/.coc-obsoleted` and purges any matching paths in the project (per `sync-flow.md` § Downstream Sync).
 - Diffs sister `.claude/` against project `.claude/`.
 - Overwrites template-owned files with sister versions (commands, skills, agents, hooks, rules — globals + variant overlay for the project's variant axis).
 - Preserves project-owned files: `.claude/settings.local.json`, `.claude/.proposals/`, `.claude/learning/`.
@@ -229,10 +231,10 @@ SISTER_OBSOLETED=$(cat "$SISTER/.claude/.coc-obsoleted" 2>/dev/null || echo "")
 #  downstream-sync helper — NEVER bulk `cp -r`.)
 
 # DO NOT — wholesale replacement drops project-only files (BLOCKED per
-# `rules/cross-repo.md` Rule 4)
+# `sync-flow.md` § Downstream Sync)
 rm -rf .claude && cp -r "$SISTER/.claude" .claude
-# (This violates cross-repo Rule 4; if your implementation does this,
-#  surface the gap.)
+# (This violates the additive-merge contract; if your implementation does
+#  this, surface the gap.)
 ```
 
 **Post-Step-4 self-check:** `git status` MUST NOT show any DELETED file under `.claude/` that is NOT in sister's `.coc-obsoleted` list. If it does, the Step 4 implementation regressed to wholesale replacement; recover via `git checkout main -- <path>` for each unintentional deletion AND open an issue against the migrate.md protocol.
@@ -475,7 +477,7 @@ For the **base** family only, run `/onboard-stack` AFTER Step A-branch and befor
 
 **Resolve the sister path FAIL-CLOSED via `SISTER=$(node .claude/bin/resolve-template.js --template <sister>)`** — the `--template` name lane prints a BARE PATH (env `KAILASH_COC_TEMPLATE_PATH` → `~/.cache/kailash-coc/<sister>/` → GitHub clone → offline-fallback local sibling), exit 1 on total failure. If the resolver exits non-zero / yields no path (all chain links fail), HALT before writing anything AND clean up the branch's untracked backup dir: `echo "template <sister> unresolvable — aborting adopt (no partial install)"; git checkout main && git branch -D "$BRANCH"; rm -rf .pre-migrate.bak; exit 1`. A partial install from a half-resolved template is un-rollback-able coherently — fail closed per `rules/zero-tolerance.md` Rule 3.
 
-**Disclosure scrub before install (multi-tenant fence) — UNCONDITIONAL.** Run `node .claude/bin/scan-synced-disclosure.mjs --root "$SISTER"` against the resolved source BEFORE copying it into the client repo, regardless of which resolver link produced it; a non-zero exit or any finding HALTS the install (genericize + re-resolve first), mirroring the Gate-1 Intake Disclosure Scrub (`rules/artifact-flow.md` § "Intake Disclosure Scrub"). The scrub is unconditional because `$SISTER` can be an operator-pointed local directory belonging to ANOTHER tenant/ecosystem via EITHER the `KAILASH_COC_TEMPLATE_PATH` env override OR the offline-fallback sibling — scoping the scrub to only one link leaves the other as a leak path. A fresh canonical GitHub clone scans clean, so the unconditional scrub costs one scan and closes the env-var/sibling bypass entirely.
+**Disclosure scrub before install (multi-tenant fence) — UNCONDITIONAL.** Run `node .claude/bin/scan-synced-disclosure.mjs --check --root "$SISTER"` against the resolved source BEFORE copying it into the client repo, regardless of which resolver link produced it; a non-zero exit or any finding HALTS the install (genericize + re-resolve first), mirroring the Gate-1 Intake Disclosure Scrub (`rules/artifact-flow.md` § "Intake Disclosure Scrub"). The scrub is unconditional because `$SISTER` can be an operator-pointed local directory belonging to ANOTHER tenant/ecosystem via EITHER the `KAILASH_COC_TEMPLATE_PATH` env override OR the offline-fallback sibling — scoping the scrub to only one link leaves the other as a leak path. A fresh canonical GitHub clone scans clean, so the unconditional scrub costs one scan and closes the env-var/sibling bypass entirely.
 
 Then copy the template into the repo as a FRESH INSTALL, reusing `/sync-from-template`'s downstream-sync copy semantics with every template-owned path treated as an ADD (no prior tree, so no obsoletion/preserve arbitration):
 

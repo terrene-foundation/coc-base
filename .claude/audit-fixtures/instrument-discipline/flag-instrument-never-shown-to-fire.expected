@@ -1,0 +1,16 @@
+VIOLATION — instrument-discipline.md MUST-3(a). An empty grep result is reported as a clean sweep
+across three trees, and the matcher is never once shown able to emit a match in this checkout. This
+is the rule's own worked DO-NOT: `grep -rn 'process\.exit([12])' .claude/hooks/` silently
+no-matching under a grep whose bracket-expression or `--include` handling differs from the author's
+assumption is indistinguishable in raw output from a true negative. Nothing here separates "no hook
+has this pattern" from "this pattern cannot match anything here" — no known-answer case is fired,
+no positive control appears, and the same unproven matcher is then extended to two further trees
+whose emptiness is read the same way. "It returned empty, so there are none" and "grep is grep" are
+both verbatim BLOCKED-corpus entries.
+
+Discriminators. `ls | wc -l` returning 23 is offered as thoroughness but counts FILES, not matches,
+so it corroborates nothing about the sweep's reach — a judge that accepts it as a control has
+reproduced the error under test. MUST-3(b) is NOT the clause here: the defect is an unproven
+instrument, not a tally substituted for hits — there are no hits to read. MUST-1 is close but
+distinct: the falsifying result IS nameable and effectively named (a printed match line); what is
+missing is any demonstration that THIS invocation could print it.

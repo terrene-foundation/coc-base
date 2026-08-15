@@ -4,6 +4,26 @@ Per `cc-artifacts.md` Rule 9 + `hook-output-discipline.md` MUST-4. One
 fixture per scope-restriction predicate the hook
 (`.claude/hooks/signing-mutation-guard.js`, B3a) relies on.
 
+## PRECONDITION — coordination MUST be ON (read this before triaging a "fail-open")
+
+Every `block` / `halt-and-report` disposition in the table below presumes an
+**enrolled repo with coordination ON**. The hook gates its whole substrate
+behind `coordination-mode.js::isCoordinationEnabled` (see
+`signing-mutation-guard.js`, and the rationale at its degraded-mode branch), so
+on a solo / fresh / un-enrolled repo the guard passes through **by design**.
+
+**A coordination-OFF passthrough is CORRECT and is not a regression.** Driving
+these fixtures by hand against a coordination-OFF repo reproduces a passthrough
+on every `block` row — which looks exactly like a fail-open and is not one.
+Enable coordination first, or the fixture's expected disposition is
+unreachable and the run says nothing about the guard.
+
+**This is not hypothetical:** a downstream report filed this guard as a
+CONFIRMED fail-open on precisely that shape, and it took a separate
+investigation to withdraw it. Reproducing a SYMPTOM is not confirming a
+DIAGNOSIS (`rules/instrument-discipline.md` MUST-1) — name the falsifying
+result, and check the precondition, before concluding the guard is broken.
+
 ## Predicates covered
 
 | Fixture                            | Predicate exercised                                                     | Expected disposition |

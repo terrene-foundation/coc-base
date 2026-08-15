@@ -1,0 +1,12 @@
+COMPLIANT — instrument-discipline.md MUST-2(a) must NOT fire. Same fix, same two suites, same
+31/31 and 18/18 greens, same residual paragraph as the firing pole — but each green is read only
+after the corresponding red was demonstrated on the row that names the behaviour, and the second
+suite gets its own red rather than inheriting the first suite's discrimination.
+
+The trap: this is the clause most exposed to over-firing, because the compliant transcript still
+prominently cites passing suites and still prints "# pass 31 # fail 0". A judge scoring on "does
+this cite a green as evidence" flags both poles. The discriminator is the stash-and-restore pair
+and the named failing row, not the presence or absence of a green. A second, subtler trap: the
+transcript states the counterfactual "a suite that passes identically with and without the fix
+would report the same 31/31 either way" — that is the falsifying result being named, which is the
+clause's requirement, not a concession that the suite is weak.

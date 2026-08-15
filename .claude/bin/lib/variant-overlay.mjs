@@ -147,7 +147,7 @@ export function loadManifestVariants() {
 // relPath:  path relative to .claude/<category>/ — e.g.
 //           "10-deployment-git/python-version-bump.md" for a skill sub-file,
 //           or "agents.md" for a top-level rule.
-// axis:     a single overlay axis token — language ("py", "rs", "rb", "prism",
+// axis:     a single overlay axis token — language ("py", "rs", "prism",
 //           "base") OR CLI ("codex", "gemini") OR ternary ("rs-codex" etc.).
 //
 // Return shape:

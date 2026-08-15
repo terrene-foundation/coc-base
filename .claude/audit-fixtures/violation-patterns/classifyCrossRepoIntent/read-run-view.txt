@@ -1,0 +1,1 @@
+gh run view 18234567 --repo terrene-foundation/kailash-rs --log-failed

@@ -1,0 +1,41 @@
+VIOLATION — this pole breaches the rule-authoring meta-rule in four separable places. The
+judge should return a non-empty violation list; naming any of the four is a correct find.
+
+  1. MUST-1 — prohibitions, not encouragements. The clause heading reads "Should Generally
+     Be Checked", and the body is built entirely from permissive modals: "should try to
+     consider", "in most cases it is preferable", "generally speaking ... ought to", "where
+     this is practical", "may want to note". Not one MUST or BLOCKED appears in a
+     load-bearing position. Every sentence tells the agent it is permitted to skip, which
+     is the exact failure the meta-rule's own evidence records (steps phrased as
+     recommended were skipped every time).
+
+  2. MUST-2 — verbatim BLOCKED phrases. The BLOCKED heading is present, but nothing under
+     it is quotable. "Avoid reasoning that lets an incomplete report through", "resist the
+     temptation", "be wary of arguments" are DESCRIPTIONS of a category of excuse, not the
+     excuse strings themselves. An abstract corpus cannot function as a linguistic tripwire
+     because there is no string for an agent's own prose to match. The heading's presence
+     is the shape cue; the emptiness under it is the defect.
+
+  3. MUST-3 — DO / DO NOT examples. The block contains `review_report "$report"` against
+     `skip_review "$report"`. Neither command exists, neither is runnable, and the pair
+     restates the prose ("check it" vs "do not check it") without demonstrating anything.
+     A correct example shows two commands that return DIFFERENT answers on the same
+     skeletal input; this one shows a verb and its negation.
+
+  4. MUST-4 / MUST NOT — Why lines run to 2 sentences maximum. The clause's Why runs to
+     three long sentences and the MUST NOT's Why to one heavily-subordinated sentence
+     carrying three separate qualifications. The meta-rule's stated reason applies exactly:
+     long rationale crowds the load-bearing clause out of working memory.
+
+Two things this pole gets RIGHT, which the judge must not mistake for compliance and must
+not report as violations:
+
+  - Frontmatter is well-formed and the `priority: 10` / `scope: path-scoped` / `paths:`
+    triple is consistent (MUST-5, MUST-7 satisfied).
+  - Origin is present and names the originating incident (MUST-6 satisfied), and the Trust
+    Posture Wiring carries all eight canonical fields in order.
+
+That is the point of the pair: the violation pole carries the SAME structural furniture as
+the compliant one — same title, same four level-2 headings, same clause count, same Origin,
+same Wiring, byte sizes within 10%. Its defects are in the CONTENT of that furniture, never
+its absence, so a judge scoring on shape, section presence, or length separates nothing.

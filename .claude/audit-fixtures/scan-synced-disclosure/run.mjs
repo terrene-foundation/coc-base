@@ -648,6 +648,97 @@ for (const c of CASES) {
   }
 }
 
+// ── Named regression cases (case name = finding id, per
+//    `coc-artifact-eval-coverage.md` MUST-2) ────────────────────────────────
+//
+// These do not need a fixture TREE — they assert properties of the scanner's
+// own run-shape, which is why they live here rather than as sibling dirs.
+{
+  // `os`, `fs`, `path` are imported at module top.
+  const named = [];
+  const add = (id, fn) => named.push({ id, fn });
+
+  // RS-16 / GAP B — the allowlist entry annotated "public PACT product" was
+  // FALSE (co-owner correction 2026-07-26: that product is NOT public) and
+  // suppressed the token on every scanned surface in every repo shipping the
+  // scanner. Entry removed. This case locks the removal: plant the token on a
+  // synthetic synced surface and require a finding. If someone re-adds the
+  // allowlist entry, this case reds.
+  add("RS-16-false-public-product-allowlist-entry-absent", () => {
+    // GAP B: the allowlist entry annotated "public PACT product" was FALSE
+    // (co-owner correction 2026-07-26 — that product is NOT public; the public
+    // one is the PACT *reference platform*). It is removed.
+    //
+    // This case asserts the SOURCE fact (the entry is gone), NOT a behavioural
+    // one, and that is deliberate. The first draft asserted "the token now
+    // flags" and RED-ed at exit 0 — which measured something worth recording:
+    // removing the allowlist is NECESSARY BUT NOT SUFFICIENT, because NO shape
+    // detects a bare product name in the first place. The allowlist entry was
+    // pre-empting a detector that does not exist. Detection would come from a
+    // `.claude/disclosure-tenant-denylist.json` entry (the customer-identity
+    // shape loads its denylist from the scanned root) — a ratification call
+    // that names a real internal product, deliberately NOT made here.
+    //
+    // Asserting the true property keeps the suite honest; asserting the
+    // behavioural one would have forced either a red suite or a re-added false
+    // allowlist entry, and both are worse than a recorded residual.
+    const src = fs.readFileSync(SCANNER, "utf8");
+    const rx = new RegExp(String.raw`/\\b` + ["Ae", "gis"].join("") + String.raw`\\b/i`);
+    return {
+      pass: !rx.test(src),
+      got: rx.test(src) ? "entry still present in the allowlist" : "entry absent",
+      want: "the false public-product allowlist entry is absent",
+    };
+  });
+
+  // MEASURED DEFECT 2026-08-10 — a `--root` at a NONEXISTENT path returned
+  // exit 0 with ZERO output, byte-identical to a clean scan, so a mistyped
+  // path silently PASSED the Gate-1 intake gate and /ecosystem-init's
+  // pre-write gate. Now exit 2 ("did not run").
+  add("root-nonexistent-is-2-not-0", () => {
+    const r = runScanner("/nonexistent/path/that/cannot/exist");
+    return { pass: r.exit === 2, got: `exit ${r.exit}`, want: "exit 2" };
+  });
+
+  add("root-without-synced-surface-is-2-not-0", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "nosurface-"));
+    fs.writeFileSync(path.join(dir, "README.md"), "not a coc checkout\n");
+    const r = runScanner(dir);
+    return { pass: r.exit === 2, got: `exit ${r.exit}`, want: "exit 2" };
+  });
+
+  // The companion property: a clean exit 0 must now carry its own
+  // discriminating receipt, so 0-with-output and 0-with-nothing-scanned are
+  // no longer the same observation.
+  add("clean-check-emits-scanned-count", () => {
+    const dir = path.join(HERE, "clean-foundation-placeholder");
+    const r = runScanner(dir);
+    const out = String(r.out || "");
+    return {
+      pass: r.exit === 0 && /^Scanned: \d+ files/m.test(out),
+      got: `exit ${r.exit} :: ${out.trim().split("\n")[0] || "(no output)"}`,
+      want: "exit 0 with a 'Scanned: N files' line",
+    };
+  });
+
+  for (const c of named) {
+    let res;
+    try {
+      res = c.fn();
+    } catch (e) {
+      res = { pass: false, got: `threw: ${e.message}`, want: "no throw" };
+    }
+    if (res.pass) {
+      console.log(`PASS  ${c.id}  (${res.got})`);
+    } else {
+      failed++;
+      console.log(`FAIL  ${c.id}`);
+      console.log(`        - want: ${res.want}`);
+      console.log(`        - got:  ${res.got}`);
+    }
+  }
+}
+
 console.log("");
 if (failed) {
   console.log(`${failed} fixture(s) FAILED — scanner regressed`);

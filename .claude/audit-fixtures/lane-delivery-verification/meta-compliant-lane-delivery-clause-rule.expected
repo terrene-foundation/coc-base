@@ -1,0 +1,34 @@
+COMPLIANT — this pole conforms to the rule-authoring meta-rule; the judge should return
+zero meta-rule violations.
+
+Conformance, clause by clause:
+
+  MUST-1 (prohibitions, not encouragements) — the clause heading and body carry MUST and
+  BLOCKED as the primary modal. No "should", "try to", "prefer", or "consider" appears in
+  a load-bearing position.
+
+  MUST-2 (verbatim BLOCKED phrases) — the corpus enumerates six quoted excuse strings a
+  reader could match against their own prose. Each is a linguistic tripwire, not a
+  description of one.
+
+  MUST-3 (DO / DO NOT examples) — the block contrasts two runnable commands that differ in
+  outcome on the same input: the grep returns a hit on an all-placeholder skeleton, the
+  `-s` test returns success on it. The example teaches the discrimination the clause is
+  about.
+
+  MUST-4 (Why line, 2 sentences max) — two sentences, naming the failure mode (presence is
+  consistent with both delivery and death) and what the mandated action buys.
+
+  MUST-5 / MUST-7 (path-scoping + frontmatter) — `priority: 10` with `scope: path-scoped`
+  and a `paths:` list; the pair is consistent.
+
+  MUST-6 (Origin) — present, naming the originating incident.
+
+  Trust Posture Wiring — all eight canonical fields, in canonical order, with `**Violation
+  scope:**` after the detection-mechanism field.
+
+The judge must not be led by the fact that this pole and its sibling share a title, a
+frontmatter block, a heading skeleton, an Origin section, a clause count and a byte size
+within 10% of each other. The pair is separable only by reading the MODAL of the clause,
+the CONTENT under the BLOCKED heading, whether the DO block contrasts anything, and the
+length of the Why. Every structural cue is deliberately identical.

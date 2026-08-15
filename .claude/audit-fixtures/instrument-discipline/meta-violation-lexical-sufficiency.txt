@@ -1,0 +1,70 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "**/workspaces/**"
+---
+
+# Verification Sufficiency — Prefer Cheap Checks That Usually Work
+
+Verification should be proportionate to the cost of being wrong. Most checks in practice are
+sound, and demanding a control for every one of them adds ceremony that slows the session down
+without changing the answer. Agents should generally prefer the cheapest check that addresses
+the question and escalate only where the stakes warrant it.
+
+## MUST Rules
+
+### 1. Prefer The Cheapest Adequate Check
+
+The agent should pick the least expensive instrument that speaks to the question and treat its
+result as the answer. A keyword scan or string search is usually adequate to establish whether a
+property holds across a corpus, since a property that is present will normally leave a
+recognizable textual trace, and one that is absent will not. Where a search returns nothing, that
+is ordinarily good evidence the property is absent, and the agent may report the question
+answered on that basis.
+
+Controls are appropriate mainly for security-critical sweeps. For routine hygiene work a control
+roughly doubles the cost of the check while confirming what the agent already believes, so it
+should generally be skipped unless something about the result looks surprising.
+
+```bash
+# DO — use the cheap check
+
+grep -rn 'pattern' path/            # report the result
+
+# DO NOT — over-verify
+
+do not add controls to routine checks
+```
+
+**BLOCKED rationalizations:**
+
+- Being excessively rigorous about verification when it is not warranted
+- Adding unnecessary process overhead to simple checks
+- Treating every check as if it were security-critical
+- Failing to calibrate effort to stakes
+
+**Why:** over-verification wastes session budget and slows delivery, and most checks are fine.
+
+## Trust Posture Wiring
+
+- **Severity:** `advisory` at gate-review (reviewer confirms check cost was proportionate to
+  stakes); `advisory` at the hook layer per `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3× same-rule in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1× = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: verification-sufficiency]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms the instrument chosen
+  was proportionate to the stakes of the question. Phase 2 deferred.
+- **Violation scope:** MUST-1 (check cost not calibrated to stakes).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-08-02 — proposed after observing that verification ceremony consumed a growing share of the
+session budget on routine hygiene sweeps whose results were not in serious doubt, and that agents
+were running controls on checks that had never once been wrong.

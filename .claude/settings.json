@@ -116,6 +116,11 @@
             "type": "command",
             "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/detect-violations.js\"",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-notes-guard.js\"",
+            "timeout": 5
           }
         ]
       },
@@ -150,6 +155,16 @@
           {
             "type": "command",
             "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/analyze-completeness-guard.js\"",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Task|Agent|SendMessage",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/emit-dispatch-ledger.js\"",
             "timeout": 5
           }
         ]
@@ -213,6 +228,11 @@
             "type": "command",
             "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/detect-violations.js\"",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-notes-guard.js\"",
+            "timeout": 5
           }
         ]
       }
@@ -238,6 +258,11 @@
             "type": "command",
             "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/settings-deny-drift-guard.js\"",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/orphan-forest-guard.js\"",
+            "timeout": 15
           }
         ]
       }
@@ -258,6 +283,11 @@
             "type": "command",
             "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/worktree-forest-guard.js\"",
             "timeout": 15
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/orphan-forest-guard.js\"",
+            "timeout": 30
           }
         ]
       }
@@ -289,6 +319,11 @@
             "type": "command",
             "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/provenance-capture-prompt.js\"",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/emit-dispatch-ledger.js\"",
+            "timeout": 5
           }
         ]
       }
@@ -319,6 +354,17 @@
           {
             "type": "command",
             "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/detect-violations.js\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/reconcile-dispatch-delivery.js\"",
             "timeout": 5
           }
         ]

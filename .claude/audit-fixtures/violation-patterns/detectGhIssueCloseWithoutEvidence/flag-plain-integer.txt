@@ -1,0 +1,1 @@
+gh issue close 1687 --comment "resolved in 1234567"

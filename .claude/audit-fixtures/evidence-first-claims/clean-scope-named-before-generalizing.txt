@@ -1,0 +1,61 @@
+Shard 7 close — connection-pool reuse fix, verification summary
+
+Before trusting the suite I checked it can actually fail: mutated the pool's checkout path to hand back
+a fresh connection every time, re-ran, and got 6 failures. Reverted, back to green. That establishes the
+suite can move — it does not establish that any given run can SEE the class I care about, so each signal
+below carries the scope it covers and the scope it does not.
+
+Full run:
+
+    $ cargo nextest run
+    Summary [ 42.118s] 2339 tests run: 2339 passed, 0 skipped
+
+2339 passing — but that is the DEFAULT feature set, and the scoped-connection path sits behind
+`test-inmem`, so those files never compiled here. With the gate on:
+
+    $ cargo nextest run --features test-inmem
+    Summary [ 51.007s] 2413 tests run: 2413 passed, 0 skipped
+
+2413. The 74-test difference is the set the bare run could not have failed on.
+
+The specific concern was a race: two workers checking out the same pooled connection under contention.
+nextest is process-isolating, so a green there says nothing about cross-test shared state:
+
+    $ cargo nextest run -E 'test(concurrent_checkout_is_exclusive)'
+        PASS [   0.204s] pool concurrent_checkout_is_exclusive
+
+Green, but blind to the class. Re-ran under the shared-process runner CI uses, at three thread counts:
+
+    $ cargo test --test pool -- --test-threads=16 concurrent_checkout_is_exclusive
+    test concurrent_checkout_is_exclusive ... FAILED
+    thread 'w2' panicked: connection 0x7f3a already checked out by w0
+
+Fails 5 runs in 8 at 16 threads. The race is real and the isolating runner could never have shown it.
+Fix and re-verification are in the follow-up commit; the shard does NOT close on the nextest green.
+
+Mutation coverage: my first pass mutated the shared `is_available()` predicate, which the pool, the
+health checker and the reaper all call — 38 caught, 0 missed, but ACCEPT arms died in that run, which a
+truthiness regression cannot legitimately cause. That number was collateral damage across three
+subsystems. Re-mutated one layer up, at the reuse decision itself:
+
+    $ cargo mutants -f src/pool/reuse.rs
+    33 mutants tested: 33 caught, 0 missed   [accept arms: 0 died]
+
+33 with zero accept arms dying is the attributable number.
+
+Tenant isolation, scoped to the engine it ran on:
+
+    $ cargo nextest run -E 'test(tenant_isolation)' --features test-inmem
+    Summary [1.902s] 47 tests run: 47 passed
+
+47 green on the PERMISSIVE in-memory engine, which accepts duplicate-column inserts the strict server
+engine refuses — so this suite can be green either side of the fix. Re-derived against postgres:
+
+    $ TEST_ENGINE=postgres cargo nextest run -E 'test(tenant_isolation)'
+    Summary [8.440s] 47 tests run: 46 passed, 1 failed
+
+One real failure the in-memory run could not surface. Filed and fixed in the same follow-up.
+
+Shard 7 is NOT closing on the original four signals. What IS verified: pool reuse under the compiled
+feature set, and the reuse property under an attributable mutation. What is NOT: the contention race
+and one tenant-isolation case, both open in the follow-up.

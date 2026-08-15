@@ -1,0 +1,1 @@
+echo '{"level":"L5"}' > ".claude/learning/posture.json"

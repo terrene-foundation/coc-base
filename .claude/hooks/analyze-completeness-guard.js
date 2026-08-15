@@ -225,14 +225,45 @@ async function main() {
     // The former `|| sessionCwd` could not fire; `decideAnalyzeGate` reads
     // workspace + phase state relative to this root, and against an
     // unidentified directory it finds none — which reads as "no gate applies".
+    //
+    // loom#1606 (S23/DP-3) — WHAT THE FAILURE BRANCH BELOW CLAIMS, AND WHY ITS
+    // SEVERITY IS UNCHANGED. That branch DOES NOT BLOCK, and it used to say it
+    // did. `halt-and-report` returns `{continue: true}` / exit 0
+    // (`lib/instruct-and-wait.js`), so the advancing Skill RUNS. MEASURED: a
+    // `/todos` payload from a non-git directory emits `"continue":true`
+    // alongside the body's own "NOT BLOCKED — the action ALREADY RAN" head,
+    // while the user-facing line read "refused rather than passed through".
+    // Two sentences in ONE output, contradicting each other.
+    //
+    // The severity is UNCHANGED, and that is a decision, not an oversight. The
+    // sibling gate in `validate-prod-deploy.js` records the deciding test:
+    // block where the operator HAS a recovery path, halt-and-report where a
+    // hard block would strand them. This branch fires precisely when git cannot
+    // identify the checkout (dubious ownership, container bind-mount, CI runner)
+    // and offers NO escape hatch, so blocking here would wedge `/todos` and
+    // `/implement` with no way forward — the reason `integrity-guard.js` reached
+    // the same disposition. Promoting this to `block` needs an escape hatch
+    // first; that is a separate decision, not a wording fix.
+    //
+    // WHY THIS RATIONALE LIVES ABOVE THE CALL AND NOT INSIDE THE BRANCH.
+    // `tests/integration/multi-operator/trust-resolver-fail-closed-1471.test.js`
+    // asserts the fail-closed invariant over a FIXED 900-CHARACTER WINDOW that
+    // starts at this `requireMainCheckout(` call, and its comment stripper is
+    // LENGTH-PRESERVING — comments are blanked to spaces, they do not shrink.
+    // Prose parked between the call and its `emit(` therefore consumes the
+    // window and pushes the verdict out of view, reddening the invariant even
+    // though the code is correct (MEASURED: this rationale as a block comment
+    // inside the branch moved call->emit from 92 to 1556 characters). Keep the
+    // branch body VERDICT-ONLY; rationale goes here.
     const mainRes = requireMainCheckout(sessionCwd);
     if (!mainRes.ok) {
       clearTimeout(fallback);
+      // Severity rationale + placement contract: see the loom#1606 note above.
       emit({
         hookEvent,
         severity: "halt-and-report",
         what_happened: `Analyze-completeness gate could not run: the MAIN checkout could not be identified — ${mainRes.reason}`,
-        why: "multi-operator-coc/analyze-completeness-guard — the gate decision reads workspace + phase state relative to the main checkout. Against an unidentified root it finds nothing, which is indistinguishable from `no gate applies` and advances the phase unchecked. Refusing is the fail-closed direction (`rules/security.md` § Enforcement-Surface Parity).",
+        why: "multi-operator-coc/analyze-completeness-guard — the gate decision reads workspace + phase state relative to the main checkout. Against an unidentified root it finds nothing, which is indistinguishable from `no gate applies`. This warning does NOT block: the command proceeds with the gate UNRUN, so its result is UNKNOWN rather than clean.",
         agent_must_report: [
           `Session cwd: ${sessionCwd}`,
           `Resolver reason: ${mainRes.reason}`,
@@ -241,8 +272,12 @@ async function main() {
         ],
         agent_must_wait:
           "Do not advance the phase until git can identify the main checkout, or the operator pins CLAUDE_TRUST_STATE_DIR.",
+        // The `why` above was corrected to stop claiming this branch blocks;
+        // this line carried the SAME overstatement ("refused rather than passed
+        // through") and is the ONLY line the user actually sees, so leaving it
+        // would have shipped the contradiction the correction exists to remove.
         user_summary:
-          "analyze-completeness-guard — main checkout unidentifiable; refused rather than passed through",
+          "analyze-completeness-guard — main checkout unidentifiable; gate did NOT run, command proceeds with its result UNKNOWN",
       });
       // emit() exits
     }

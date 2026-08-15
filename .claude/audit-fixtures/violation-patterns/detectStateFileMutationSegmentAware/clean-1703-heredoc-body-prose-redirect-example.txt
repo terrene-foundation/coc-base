@@ -1,0 +1,5 @@
+cat > /tmp/loom-1703-report.md <<'EOF'
+The guard blocks this form:
+  echo '{}' > .claude/learning/posture.json
+and that is the false positive.
+EOF

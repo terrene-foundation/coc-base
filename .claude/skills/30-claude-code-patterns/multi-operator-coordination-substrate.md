@@ -382,9 +382,13 @@ The hook-pass-without-immediate-fold-append behavior of `operator-gate.js` IS th
 
 ### MUST NOT: Positional Cross-Repo Path Construction In Coordination Tooling
 
-Any coordination-substrate tool (hook, agent, command, lib helper) that needs another repo's on-disk location MUST resolve it through `bin/lib/loom-links.mjs::resolveRepo(<logical-key>)` per `rules/cross-repo.md` MUST-1. Positional construction (`~/repos/<name>`, `../<name>`, `path.join(HOME, "repos", <name>)`) is BLOCKED.
+Any coordination-substrate tool (hook, agent, command, lib helper) that needs another repo's on-disk location MUST resolve it through the operator's declared NAME→location binding, never positional construction (`~/repos/<name>`, `../<name>`, `path.join(HOME, "repos", <name>)`), which is BLOCKED.
+
+**At loom/BUILD** that binding is `bin/lib/loom-links.mjs::resolveRepo(<logical-key>)` reading `loom-links.local.json`; the full contract is `rules/cross-repo.md` MUST-1. **At a USE template or downstream consumer, both the resolver module and that rule are deliberately absent** (fenced in `sync-manifest.yaml` as `loom_only` + `use_exclude`), and such a repo resolves nothing cross-repo — so there the contract is the whole of the sentence above plus its distributed statement in `rules/repo-scope-discipline.md` § MUST NOT: **ask, never guess.** The prohibition binds on every tier; only the sanctioned mechanism is tier-dependent.
 
 **Why:** Cross-repo positional guessing makes the substrate's NAME→location binding silently operator-dependent; one operator's tooling resolves the right directory and a sibling's resolves nothing — re-creating the same fragility the resolver design closes.
+
+**Why the rule body states BOTH halves (authoring rationale).** The rule clause is always-on (`paths: ["**/*"]`), so it reaches every consumer tier. An always-on MUST-NOT that mandates resolution through a `loom_only` module is unfollowable at every consumer it reaches: the reader cannot comply, so the clause degrades into noise exactly where the guessing it blocks is most likely. That is why the rule body names both halves rather than naming a module half its readers never receive. Same tier split `repo-scope-discipline.md` § MUST NOT states for the identical binding.
 
 ## Trust Posture Wiring
 
@@ -400,6 +404,15 @@ Any coordination-substrate tool (hook, agent, command, lib helper) that needs an
 ## Origin
 
 Architecture v11 CONVERGED 2026-05-19 ((loom-internal reference), Rounds 10+11 clean). Decision-record chain at the ROOT `loom/journal/`: `0112` (architecture), `0122` (CONVERGENCE receipt). CONF-1 + CONF-2 closure: `0124` (codex `apply_patch` enforceability + validator-13 bijection CONFIRMED), `0125` (GitHub ref-creation/deletion rulesets CONFIRMED-PREVENTION — **REFUTED 2026-06-07** per `0233` / GH #367: `refs/coc/**` is not a valid github.com ruleset target → MUST-5 is client-side-detection-primary). M6 + M7 convergence receipt: `0132`. Sec-MED-3 disposition (audit-trail completeness — Option C intentional-by-design): `0133`. Originating user brief: 2026-05-19 multi-operator-coc scaling brief. Authored at F14 Shard F-1 (M8 of the multi-operator-coc workstream) per (loom-internal reference) §11 row F.
+
+**Extraction record for `rules/multi-operator-coordination.md`** (relocated off the rule body 2026-08-12; the rule's Origin keeps the one-line pointer). Each extraction is ZERO de-scoping — enforcement lives in the hooks/fold-rules and the always-on agent-facing contract is preserved in the rule:
+
+- **loom#678 Lever-C Shard-A** (2026-06-26, journal/0346 + journal/0347) → the §1–§8 architecture + the MUST-4/5/6/7 contracts + Origin/F-registry (~20.7k tokens off every tool call).
+- **loom#1392** (2026-07-27) → the §2 transport/retrieval mechanics + the disposition clause's BLOCKED corpus + its Wiring rationale (rule-injection-budget pressure).
+- **loom#1638** (2026-08-11) → the §2 disposition clause's BLOCKED corpus re-pointed at this skill, which already carried it with per-entry refutations. Recovery 276 B; the two guide hosts that PR first minted were withdrawn as a duplicate `rule → guide → skill` hop.
+- **S26-INJECTION** (2026-08-12) → the preamble threat model + primitives inventory, the opt-in module path + 5-tier precedence + the pre-W1 byte-unchanged claim, the §1 Class-C taxonomy placement, the §2 four-failure-mode enumeration, the positional-clause authoring rationale (which also corrected this skill's then-stale unconditional-`resolveRepo` wording), and this extraction record itself. Freed path-scoped injection on all 8 profiles.
+
+**EXTRACT not NARROW.** Narrowing this synced coordination safety rule would de-scope it in BUILD repos where SAME-class `packages/**/src/**` collisions actually happen (journal/0346 Lever-B).
 
 **Open follow-up forest items (in-tree registry per `verify-resource-existence.md` MUST-4):**
 

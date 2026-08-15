@@ -170,7 +170,97 @@ function _isoTimestamp(now) {
   return (now || new Date()).toISOString();
 }
 
-function _sortDedupRel(files) {
+// THE JOURNAL DIRECTORIES THIS REPO ACTUALLY HAS, RESOLVED — NEVER HARDCODED.
+//
+// `/codify` TRIPPED ITS OWN INTEGRITY GUARD ON ITS OWN MANDATED STEP. Step 0
+// tells the caller the helper "unions [the two MANDATORY_SCOPE files] into the
+// scope automatically" and says nothing about a journal path; `commands/codify.md`
+// § "Journal (MUST — phase-complete gate)" then REQUIRES a journal entry before
+// `/codify` may be reported complete. A caller following the command LITERALLY
+// acquired a lease covering two files and was then halt-and-reported by
+// `integrity-guard.js` for the journal write — "no covering codify-lease record
+// found in the folded coordination log" — on a step the SAME command mandates.
+// The documented workaround (release → widen `scopeFiles` → re-acquire) also hits
+// `scope-dirty` once the journal file is already written, forcing a
+// remove/re-acquire/re-write dance to make the write genuinely covered rather
+// than retroactively blessed.
+//
+// RESOLVED, NOT HARDCODED, because the journal directory is REPO-LAYOUT-DEPENDENT:
+// repo-root `journal/` in some consumers, workspace-scoped
+// `workspaces/<name>/journal/` in others, and many repos have both. The shapes
+// here are the SAME ones `guard-path-scope.js::JOURNAL_ENTRY_RX` accepts — which
+// is what `integrity-guard.js::isWatchedPath` gates on — so the scope covers
+// exactly the paths the guard watches, no more and no less. Hardcoding one layout
+// would leave the other silently uncovered, which is the defect one repo over.
+//
+// TRAILING SLASH IS BELT-AND-BRACES HERE, NOT LOAD-BEARING — stated as MEASURED,
+// because the first draft of this comment claimed the opposite and was wrong.
+// `integrity-guard.js::findCoveringLease` covers a candidate three ways: exact
+// match, `s.endsWith("/") && candidate.startsWith(s)`, or a DOT-FREE bare dir
+// (`!s.includes(".") && candidate.startsWith(s + "/")`). None of the prefixes
+// emitted here contain a dot, so that third clause alone already covers them —
+// including `workspaces/<n>/journal/.pending/0001-….md`. Measured: mutating the
+// workspace entries to the bare form left both coverage cases GREEN (8/9; only the
+// literal-membership case red). The slash is kept because it is the form that stays
+// correct if a future journal dir ever DOES contain a dot, at which point the
+// third clause stops applying and the second is the only one left.
+//
+// THE ROOT `journal/` IS UNCONDITIONAL, and that is deliberate rather than a
+// hardcode readmitted through the back door: it is the module-level default of
+// `journal-reserve.js::reserveJournalSlotSigned` (`opts.dir` defaults to
+// "journal"), so a `/codify` CREATING a repo's first journal entry — the case
+// where the directory does not exist to be enumerated — must still be covered.
+// Workspace journal dirs are enumerated because there is no default to fall back
+// on; a workspace created mid-session is the residual, and the caller can still
+// pass it explicitly in `scopeFiles`.
+//
+// BREADTH IS FREE HERE. The lease is a whole-repo mutex — `acquireCodifyLease`
+// refuses a second lease whether or not scopes overlap ("only one /codify lease is
+// active at a time per repo"), and MANDATORY_SCOPE already guarantees any two
+// concurrent /codify runs collide on `.proposals/latest.yaml`. So adding journal
+// prefixes cannot introduce a conflict that did not already exist.
+//
+// MANDATORY_SCOPE ITSELF IS LEFT AT ITS TWO FILES. `knowledge-convergence.md`
+// MUST-3 names that pair verbatim ("`.claude/learning/learning-codified.json` +
+// `.claude/.proposals/latest.yaml`"), and the `42-certify` skill states that
+// MANDATORY_SCOPE does NOT include `journal/`. Both statements stay TRUE under
+// this shape, so the fix lands without a rule/skill edit that would otherwise be
+// required — and MUST-3's actual property (the helper unions the mandatory scope
+// automatically; callers cannot opt out) is preserved and extended, not weakened.
+function _resolveJournalScope(repoTop) {
+  // Always covered: the reservation default, present or not (see above).
+  const out = new Set(["journal/"]);
+  if (typeof repoTop !== "string" || !repoTop) return Array.from(out).sort();
+
+  let entries;
+  try {
+    entries = fs.readdirSync(path.join(repoTop, "workspaces"), {
+      withFileTypes: true,
+    });
+  } catch {
+    // No `workspaces/` (or unreadable) — the root default above still stands.
+    // Deliberately non-fatal: a lease must not fail to acquire because a repo
+    // has no workspaces, and the guard has nothing to watch there either.
+    return Array.from(out).sort();
+  }
+
+  for (const e of entries) {
+    if (!e.isDirectory()) continue;
+    // `_archive` / `_template` and friends per cc-artifacts.md Rule 8 — walking
+    // them would scope the lease over dirs no /codify writes to.
+    if (e.name.startsWith("_") || e.name === "instructions") continue;
+    let st;
+    try {
+      st = fs.statSync(path.join(repoTop, "workspaces", e.name, "journal"));
+    } catch {
+      continue;
+    }
+    if (st.isDirectory()) out.add(`workspaces/${e.name}/journal/`);
+  }
+  return Array.from(out).sort();
+}
+
+function _sortDedupRel(files, repoTop) {
   // Normalize: trim, drop empty, dedup, sort. Mandatory-scope unioned in.
   const set = new Set();
   for (const f of files || []) {
@@ -180,6 +270,9 @@ function _sortDedupRel(files) {
     set.add(trimmed);
   }
   for (const f of MANDATORY_SCOPE) set.add(f);
+  // The journal dirs `/codify`'s own phase-complete gate writes to. Same
+  // auto-union contract as MANDATORY_SCOPE: callers cannot opt out.
+  for (const f of _resolveJournalScope(repoTop)) set.add(f);
   return Array.from(set).sort();
 }
 
@@ -466,7 +559,10 @@ function acquireCodifyLease(opts) {
     };
   }
 
-  const scope = _sortDedupRel(o.scopeFiles);
+  // `topLevel`, not `repoDir` — the journal dirs are enumerated relative to the
+  // git top-level so the resolved prefixes are repo-relative, matching the
+  // `candidateRel` shape `integrity-guard.js::findCoveringLease` compares against.
+  const scope = _sortDedupRel(o.scopeFiles, topLevel);
   const fingerprint = _scopeFingerprint(scope);
   const leasePath = _leasePath(topLevel);
 
@@ -846,5 +942,6 @@ module.exports = {
   // Test-only — NOT part of the supported API.
   _test_scopeFingerprint: _scopeFingerprint,
   _test_sortDedupRel: _sortDedupRel,
+  _test_resolveJournalScope: _resolveJournalScope,
   _test_classifyLeaseLiveness: _classifyLeaseLiveness,
 };

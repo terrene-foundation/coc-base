@@ -157,7 +157,10 @@ When GitHub and local todos diverge:
 
 ```bash
 # Morning: Check GitHub for requirement updates
-gh issue view 101  # Check for comments/changes
+# Both halves: bare `gh issue view` omits the comment bodies (it prints only a
+# `comments: N` tally), and `--comments` omits the body. Requirement changes
+# usually land in the comments, so read both or the update is silently partial.
+gh issue view 101 --json body,comments -q '.body, (.comments[].body)'
 
 # If requirements changed:
 > Use the todo-manager subagent to update TODO-101 acceptance criteria from GH #101
@@ -464,9 +467,11 @@ echo "## Duplicate - See TODO-101-feature.md" >> todos/active/DUPLICATE-TODO-fea
 # Update local todo from GitHub
 > Use todo-manager to update TODO-101 acceptance criteria from GH #101
 
-# Verify sync
+# Verify sync — read body AND comments; amended criteria are usually a comment,
+# and a bare `gh issue view` would diff clean against a stale local copy.
 diff <(cat TODO-101.md | grep "Acceptance Criteria" -A 10) \
-     <(gh issue view 101 | grep "Acceptance Criteria" -A 10)
+     <(gh issue view 101 --json body,comments -q '.body, (.comments[].body)' \
+        | grep "Acceptance Criteria" -A 10)
 ```
 
 ## Summary

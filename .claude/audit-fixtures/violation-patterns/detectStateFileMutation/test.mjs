@@ -47,6 +47,7 @@ const HOOKS_LIB = path.resolve(
 const {
   detectStateFileMutation,
   detectStateFileMutationSegmentAware,
+  detectHeredocWriteRunBundle,
   splitShellSegments,
   hasInterpreterWriteSignal,
   detectRepoScopeDriftBash,
@@ -89,6 +90,34 @@ const rxFor = (name) =>
     : name.includes("settings")
       ? SETTINGS_RX
       : STATE_PATH_RX;
+
+// loom#1703 — the PATH-IDENTITY oracle. A `1703-` fixture is ABOUT whether the
+// resolved target lands in protected state, so it is the one class that must be
+// evaluated WITH the oracle wired the way validate-bash-command.js wires it.
+// Every OTHER fixture keeps calling the detector with no third argument, which
+// is the documented no-scope default (every spelling match ranks "in-tree") and
+// is byte-identical to pre-#1703 behaviour — so this opt-in cannot silently
+// re-verdict the 170+ inherited fixtures.
+//
+// The sandbox path baked into the `1703-` payloads is `/tmp/loom-1703-sandbox`,
+// chosen so the fixtures are MACHINE-INDEPENDENT: it is not under REPO_ROOT, it
+// is not the user's home, and it has no `.git` above it on any host, so it
+// resolves out-of-tree deterministically. The oracle is given REPO_ROOT as its
+// boundary, so a relative `.claude/learning/…` payload resolves in-tree here for
+// the same reason it does in a real session.
+const { createStateTargetScope } = require(
+  path.resolve(HERE, "..", "..", "..", "hooks", "lib", "state-target-scope.js"),
+);
+const optsFor = (name, cmd) =>
+  name.includes("1703-")
+    ? {
+        scope: createStateTargetScope({
+          cwd: REPO_ROOT,
+          boundaryRoots: [REPO_ROOT],
+          command: cmd,
+        }),
+      }
+    : undefined;
 
 // F1390-1, SUPERSEDED BY loom#1422 — this used to compare a MANUAL COPY of the
 // production regex against the literal in validate-bash-command.js, because a
@@ -174,6 +203,11 @@ const NO_PROTECTED_PATH_FIXTURES = new Set([
   //     asserted clean here (asserting it would be false).
   "detectStateFileMutationSegmentAware/clean-1399-version-stamper-worktree-arg",
   "detectStateFileMutationSegmentAware/clean-1399-version-tmp-sandbox-bare-name",
+  // loom#1426 — surfaced by wiring the orphaned bundle dir below. This one pins
+  // the VAR-INDIRECT residual (`T=/tmp/s.cjs; node "$T"`), where the protected
+  // path never reaches the command string at all, so the ABSENCE of a match is
+  // the property. The other 26 bundle fixtures are reachable.
+  "detectHeredocWriteRunBundle/clean-variable-indirect-run-only",
 ]);
 
 function runFixtureDir(dir, detector) {
@@ -221,23 +255,95 @@ function runFixtureDir(dir, detector) {
             `NO_PROTECTED_PATH_FIXTURES.`,
         );
       }
-      const got = detector(cmd, rx);
+      const got = detector(cmd, rx, optsFor(name, cmd));
+      // loom#1703 — the verdict gained a THIRD field, `scope`, reporting HOW the
+      // protected path was decided ("in-tree" = candidate and boundary root both
+      // canonicalized and it landed inside; "unresolved" = a `$VAR`/glob/`$(…)`
+      // the hook refuses to expand, failed closed). A whole-object deepEqual
+      // would have forced a mechanical rewrite of all 100+ `.expected` files to
+      // re-state a field none of them is about, so the layer/kind contract is
+      // compared on its OWN and `scope` is asserted only where a fixture opts in
+      // via `expected.scope`. NOT laxity: the two poles that exist to pin scope
+      // (`clean-1703-*` sandbox / `flag-1703-*` in-tree + unresolved) declare it,
+      // and `scope-declared-somewhere` below refuses to let the set go empty.
+      const { scope: gotScope, ...gotCore } = got || {};
+      const { scope: wantScope, ...wantCore } = expected || {};
       assert.deepEqual(
-        got,
-        expected,
+        got ? gotCore : got,
+        expected ? wantCore : expected,
         `fixture ${dir}/${name}: expected ${JSON.stringify(
           expected,
         )}, got ${JSON.stringify(got)}`,
       );
+      if (wantScope !== undefined) {
+        assert.equal(
+          gotScope,
+          wantScope,
+          `fixture ${dir}/${name}: expected scope=${wantScope}, got scope=${gotScope}`,
+        );
+      }
     });
   }
 }
+
+// loom#1703 — ANTI-VACUITY for the `scope` opt-in above. The verdict comparison
+// ignores `scope` unless a fixture DECLARES it, which is the right default for
+// the inherited set but would silently become total laxity if the declaring set
+// ever emptied (a rebase dropping the 1703 fixtures, someone "simplifying" the
+// .expected files). Then `scope` would be asserted NOWHERE and the path-identity
+// contract would be untested while every test stayed green — the exact silent
+// direction this file's own NO_PROTECTED_PATH_FIXTURES note warns about.
+//
+// Pinned at BOTH poles, because a set containing only in-tree rows would leave
+// the out-of-tree narrowing (the whole point of #1703) unpinned.
+test("1703 scope contract: both verdict poles are declared by at least one fixture", () => {
+  const declared = { "in-tree": 0, unresolved: 0, clean: 0 };
+  for (const dir of [
+    "detectStateFileMutation",
+    "detectStateFileMutationSegmentAware",
+  ]) {
+    const abs = path.join(HERE, "..", dir);
+    if (!fs.existsSync(abs)) continue;
+    for (const f of fs.readdirSync(abs)) {
+      if (!f.endsWith(".expected") || !f.includes("1703-")) continue;
+      const exp = JSON.parse(fs.readFileSync(path.join(abs, f), "utf8"));
+      if (exp === null) declared.clean++;
+      else if (exp.scope === "in-tree") declared["in-tree"]++;
+      else if (exp.scope === "unresolved") declared.unresolved++;
+    }
+  }
+  assert.ok(
+    declared["in-tree"] > 0,
+    "no fixture declares scope:'in-tree' — the RESOLVED-and-inside verdict is unpinned",
+  );
+  assert.ok(
+    declared.unresolved > 0,
+    "no fixture declares scope:'unresolved' — the FAIL-CLOSED verdict is unpinned",
+  );
+  assert.ok(
+    declared.clean > 0,
+    "no `clean-1703-*` fixture expects null — the out-of-tree narrowing that #1703 " +
+      "exists to deliver is unpinned, so the guard could have reverted to blocking " +
+      "every sandbox path with this suite still green",
+  );
+});
 
 runFixtureDir("detectStateFileMutation", detectStateFileMutation);
 runFixtureDir(
   "detectStateFileMutationSegmentAware",
   detectStateFileMutationSegmentAware,
 );
+// loom#1426 — the `detectHeredocWriteRunBundle` fixture dir was ORPHANED. It has
+// been committed since #764 with 27 pairs, `state-file-write-guard.md` §
+// Cross-references cites it as the Layer-4 evidence, and `cc-artifacts.md` Rule 9
+// binds a detector to its fixtures — but NO runner iterated it, so not one of
+// those 27 had ever executed. Measured before wiring: this file's own output
+// named `detectStateFileMutationSegmentAware/` 85 times and
+// `detectHeredocWriteRunBundle/` 0 times. It is added HERE rather than in a new
+// file because the Layer-4 pass is reached through
+// `detectStateFileMutationSegmentAware` in production, so the two belong to one
+// runner — and a second runner would be a second thing to forget to register.
+runFixtureDir("detectHeredocWriteRunBundle", detectHeredocWriteRunBundle);
 
 // R2-1 (closure) — the exemption list MUST NOT rot. A stale entry (fixture
 // renamed or deleted) would silently pre-authorize a future fixture that happens
@@ -271,6 +377,19 @@ test("every NO_PROTECTED_PATH_FIXTURES entry names a fixture that exists", () =>
 const DIRECTIONAL_RX = /\.claude\/(?:learning\/posture\.json|settings\.json)\b/;
 const PROTECTED = ".claude/learning/posture.json";
 
+// loom#1703 — these two rows assert on the {layer,kind} CONTRACT; the verdict
+// gained an orthogonal `scope` field. Drop it here for the same reason
+// runFixtureDir does, and for the same non-laxity reason: neither directional
+// invariant is ABOUT path identity, and both were re-measured against
+// origin/main at this change (site 1 discriminating: {layer:2,kind:"rm"} on
+// both; site 2 wide: {layer:3,kind:"node (interpreter)"} on both; both null
+// cases null on both), so the properties they pin are demonstrably intact.
+const core = (v) => {
+  if (!v) return v;
+  const { scope: _scope, ...rest } = v;
+  return rest;
+};
+
 test("directional site 1 (heredoc bodyInert): converting to quote-aware would be FAIL-OPEN", () => {
   // A quoted-delimiter heredoc body is inert data and is masked away.
   const inert = `gh issue create --title t --body "$(cat <<'EOF'\nrm ${PROTECTED}\nEOF\n)"`;
@@ -292,7 +411,7 @@ test("directional site 1 (heredoc bodyInert): converting to quote-aware would be
   // here is wrong in KIND, not merely narrower".
   const discriminating = `gh issue create --title t --body "$(cat <<EOF\nnote: '\`rm ${PROTECTED}\`' is bad\nEOF\n)"`;
   assert.deepEqual(
-    detectStateFileMutationSegmentAware(discriminating, DIRECTIONAL_RX),
+    core(detectStateFileMutationSegmentAware(discriminating, DIRECTIONAL_RX)),
     { layer: 2, kind: "rm" },
     "FAIL-OPEN GUARD: a backtick inside literal single quotes in an UNQUOTED-delimiter " +
       "heredoc body EXECUTES in bash. If this returns null, site 1 has been converted to " +
@@ -329,7 +448,7 @@ test("directional site 2 (narrowable): a match retains WIDE scope and finds what
     "segment-scoped: an interpreter READ plus a sibling-line path mention must not flag (#1337)",
   );
   assert.deepEqual(
-    detectStateFileMutationSegmentAware(wide, DIRECTIONAL_RX),
+    core(detectStateFileMutationSegmentAware(wide, DIRECTIONAL_RX)),
     { layer: 3, kind: "node (interpreter)" },
     "PINS CURRENT BEHAVIOUR, does NOT guard the conversion: the flat match retains " +
       "the WIDE scope, which detects. Converting site 2 to the quote-aware predicate " +

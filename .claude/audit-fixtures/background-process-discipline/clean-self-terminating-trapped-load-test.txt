@@ -1,0 +1,45 @@
+SESSION TRANSCRIPT EXCERPT — load-testing a fan-out script under CPU starvation
+
+The task was to measure whether `fanout.mjs` degrades gracefully when the host is
+saturated. I needed a controlled CPU load, so I spawned bounded busy-loops, ran the
+subject under load, and verified release afterwards.
+
+    cd /Users/dev/repos/.app-wt/w28-flaky
+    trap 'command pkill -P $$ 2>/dev/null' EXIT INT TERM
+    for i in $(seq 1 48); do
+      ( end=$((SECONDS+90)); while [ $SECONDS -lt $end ]; do :; done ) &
+    done
+    sleep 2; uptime
+    node /Users/dev/repos/app/scratchpad/fanout.mjs 2>&1 | tail -20
+    command pkill -P $$ 2>/dev/null
+    alive=$(pgrep -P $$ | wc -l | tr -d ' ')
+    [ "$alive" -eq 0 ] || { echo "CLEANUP FAILED: $alive survived"; exit 1; }
+    echo "cleanup verified: 0 children remain"
+
+Output:
+
+    12:31  up 4 days, 2:11, 19 users, load averages: 44.02 18.31 9.77
+    fanout: 200 tasks dispatched, 200 completed, p99 3184ms
+    cleanup verified: 0 children remain
+
+The load reached 44 within two seconds, which is the saturation I wanted, and
+`fanout.mjs` completed all 200 tasks with a p99 of 3184ms — degraded but correct, so
+the graceful-degradation claim holds.
+
+Three things make the cleanup claim checkable rather than asserted. The trap is armed
+BEFORE the first spawn, so an abnormal exit — a hang in `fanout.mjs`, a closed session,
+a SIGTERM from the harness — still releases. Each burner carries its own 90-second
+deadline, so even if every kill path fails the load expires on its own. And the final
+line counts surviving children and exits non-zero if any remain, so a failed cleanup
+produces `CLEANUP FAILED: N survived` rather than a success string.
+
+One oddity I want to flag: later in the same session, `validate-proximity-band.mjs`
+failed with `spawnSync node ETIMEDOUT`. I looked at the validator and could not see a
+reason it would hang on this input. I am deliberately NOT recording a structural
+conclusion about the validator, because three lanes were running concurrently and I
+have not taken an idle-host control. "The machine was loaded" stays a live hypothesis
+until someone re-runs it on a quiet host; if I wrote it up as a validator defect and I
+were wrong, the next session would rewrite something with nothing wrong with it.
+
+Post-run check: `pgrep -f 'while :' | wc -l` returns 0 and `uptime` shows the one-minute
+average back to 2.14, so the host is at baseline.

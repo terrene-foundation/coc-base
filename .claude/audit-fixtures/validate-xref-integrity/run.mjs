@@ -19,10 +19,12 @@ import {
   isCrossCliDispatcher,
   hasFileExtension,
   isSanctionedAbsentRef,
+  isSanctionedDeferredFixture,
+  computeBlockTexts,
   findRepoRoot,
   DEFAULT_SCOPE_DIRS,
 } from "../../bin/validate-xref-integrity.mjs";
-import { writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { writeFileSync, mkdirSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -113,6 +115,44 @@ function check(name, condition, details) {
       tokens.includes("rules/outside.md") &&
       tokens.includes("rules/after-fence.md") &&
       !tokens.includes("rules/inside-fence.md"),
+    `got tokens=${JSON.stringify(tokens)}`,
+  );
+}
+
+// ------------------------------------------------------------------
+// fixture-04b-fence-run-length
+// ------------------------------------------------------------------
+// A 4-backtick fence whose body contains a 3-backtick fence. CommonMark
+// closes a fence only on a run of the SAME character that is AT LEAST as
+// long as the opener, so every line below between the ```` markers is
+// fenced content and none of its tokens may be extracted.
+//
+// The discriminating token is `rules/between-inner.md`. A stripper that
+// compares only the fence CHARACTER treats the first inner ``` as a close,
+// which re-opens scanning mid-block and leaks that one token — while
+// `rules/inner-a.md` and `rules/inner-b.md` stay blanked either way. So the
+// leak is a parity FLIP, not uniform: a case asserting only "inner tokens
+// are absent" passes under BOTH implementations and cannot discriminate.
+{
+  const text = [
+    "see `rules/outside.md`",
+    "````",
+    "this `rules/inner-a.md` is illustrative",
+    "```",
+    "this `rules/between-inner.md` is ALSO illustrative",
+    "```",
+    "this `rules/inner-b.md` is illustrative",
+    "````",
+    "and `rules/after.md`",
+  ].join("\n");
+  const findings = extractTokens(text, "test.md");
+  const tokens = findings.map((f) => f.token).sort();
+  check(
+    "fixture-04b-fence-run-length",
+    tokens.length === 2 &&
+      tokens.includes("rules/outside.md") &&
+      tokens.includes("rules/after.md") &&
+      !tokens.includes("rules/between-inner.md"),
     `got tokens=${JSON.stringify(tokens)}`,
   );
 }
@@ -325,25 +365,62 @@ function check(name, condition, details) {
 // ------------------------------------------------------------------
 // fixture-14-path-traversal-guard
 // ------------------------------------------------------------------
-// Malicious md-link token `../../../../etc/passwd` MUST NOT resolve to
-// a path outside repoRoot. Security-reviewer MEDIUM-1.
+// Malicious md-link token MUST NOT resolve to a path outside repoRoot
+// (security-reviewer MEDIUM-1 — `isInsideRepoRoot`).
+//
+// THE EARLIER VERSION OF THIS FIXTURE COULD NOT FAIL, and the way it could not
+// is worth stating because it is the failure mode the whole validator exists to
+// catch. It asserted `not-found` for `../../../../../etc/passwd` resolved from a
+// tree under `os.tmpdir()`. On macOS `tmpdir()` is `/var/folders/<a>/<b>/T/...`,
+// so five `..` hops land on `/var/folders/etc/passwd` — a path that does not
+// exist. The assertion therefore held for the WRONG REASON: the traversal target
+// was absent, not clamped. Deleting `isInsideRepoRoot`'s guard entirely left the
+// fixture GREEN (measured: mutation `isInsideRepoRoot -> return true` executed 23
+// times during this suite and reddened nothing). The outcome was constant across
+// both branches of the hypothesis, which is `instrument-discipline.md` MUST-1.
+//
+// The repair makes the escape target REAL and tmpdir-shape-independent: a file
+// is planted at a known relative distance outside the root, its existence is
+// asserted (so `not-found` can only mean "clamped"), and a POSITIVE CONTROL
+// resolves an INSIDE token through the same resolver on the same tree — so a
+// resolver that refused everything could not pass either.
 {
   const tmp = join(tmpdir(), `xref-fix-14-${Date.now()}`);
   try {
-    mkdirSync(join(tmp, "source-dir"), { recursive: true });
-    writeFileSync(join(tmp, "source-dir", "source.md"), "source");
-    // Even if `../../../../etc/passwd` exists on disk, the validator MUST
-    // refuse to confirm by clamping candidates to repoRoot.
-    const result = resolveRefToken(
-      "../../../../../etc/passwd",
-      tmp,
+    const root = join(tmp, "root");
+    mkdirSync(join(root, "source-dir"), { recursive: true });
+    writeFileSync(join(root, "source-dir", "source.md"), "source");
+    writeFileSync(join(root, "source-dir", "sibling.md"), "inside the root");
+    // A REAL file one level ABOVE the repo root.
+    mkdirSync(join(tmp, "outside"), { recursive: true });
+    const escapeTarget = join(tmp, "outside", "secret.md");
+    writeFileSync(escapeTarget, "OUTSIDE THE ROOT");
+
+    // Precondition, asserted rather than assumed: without the guard this token
+    // resolves onto a file that is really there.
+    const targetExists = existsSync(escapeTarget);
+
+    const escaping = resolveRefToken(
+      "../../outside/secret.md",
+      root,
       "source-dir/source.md",
       "md-link",
     );
+    // POSITIVE CONTROL — same resolver, same tree, a token that stays inside.
+    const inside = resolveRefToken(
+      "./sibling.md",
+      root,
+      "source-dir/source.md",
+      "md-link",
+    );
+
     check(
       "fixture-14-path-traversal-guard",
-      result.ok === false && result.reason === "not-found",
-      `got result=${JSON.stringify(result)} — traversal NOT blocked`,
+      targetExists === true &&
+        inside.ok === true &&
+        escaping.ok === false &&
+        escaping.reason === "not-found",
+      `targetExists=${targetExists} inside=${JSON.stringify(inside)} escaping=${JSON.stringify(escaping)}`,
     );
   } finally {
     rmSync(tmp, { recursive: true, force: true });
@@ -587,6 +664,297 @@ function check(name, condition, details) {
       hasFileExtension("journal/.pending") === false &&
       hasFileExtension("audit-fixtures/exact-gate-tracking") === false,
     `file-extension classifier broken`,
+  );
+}
+
+// ------------------------------------------------------------------
+// fixture-25-deferral-declaration-is-block-scoped-not-line-scoped
+// ------------------------------------------------------------------
+// A Trust-Posture-Wiring bullet is routinely HARD-WRAPPED, so the physical line
+// carrying the fixture token often does NOT carry the deferral declaration two
+// lines above it. A line-scoped guard therefore reported a legitimately
+// sanctioned reference as a dangling defect — a FALSE NEGATIVE that corrupts the
+// signal in the direction that hides real defects. Pinned against the real shape
+// (wave-loop.md's MUST-6/7 bullet), not a paraphrase.
+//
+// BIPOLAR: the same finding WITHOUT blockText (the old line-scoped view) must
+// still come back false, so a guard that sanctioned everything cannot pass this.
+{
+  const lines = [
+    "- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer inspects the",
+    "  transcript for an idle-wait window (MUST-6). Phase 2 (deferred per",
+    "  `rules/trust-posture.md` § Two-Phase Rollout): advisory Stop-event detector + audit fixtures at",
+    "  `.claude/audit-fixtures/wave-loop/orchestration-hygiene/` per `rules/cc-artifacts.md` Rule 9.",
+  ];
+  const blockOf = computeBlockTexts(lines);
+  const token = ".claude/audit-fixtures/wave-loop/orchestration-hygiene/";
+  const wrapped = {
+    kind: "backtick",
+    token,
+    lineText: lines[3],
+    blockText: blockOf[3],
+  };
+  const lineOnly = { kind: "backtick", token, lineText: lines[3] };
+  check(
+    "fixture-25-deferral-declaration-is-block-scoped-not-line-scoped",
+    isSanctionedDeferredFixture(wrapped) === true &&
+      isSanctionedDeferredFixture(lineOnly) === false,
+    `wrapped=${isSanctionedDeferredFixture(wrapped)} lineOnly=${isSanctionedDeferredFixture(lineOnly)}`,
+  );
+}
+
+// ------------------------------------------------------------------
+// fixture-26-deferral-declared-by-fixtures-land-with-phrasing
+// ------------------------------------------------------------------
+// hook-output-discipline.md MUST-5(a) declares its deferral in the cc-artifacts
+// Rule 9 phrasing ("Audit fixtures land WITH that check at …") and NEVER in the
+// literal `Phase 2 (deferred` form — while the SAME line contains the string
+// "Phase 2 is NOT deferred" for its sibling half. So the accepted second form
+// must key on the land-with phrasing; a regex widened to chase `Phase 2` near
+// `deferr` would match the DISCLAIMER and sanction the wrong thing.
+//
+// BIPOLAR: the disclaimer-only arm must NOT be accepted.
+{
+  const declaring =
+    "The (a) half is this clause's ONE genuine **Phase 2** deferral. " +
+    "Audit fixtures land WITH that check at `.claude/audit-fixtures/parsed-signal-detector/` " +
+    "per `cc-artifacts.md` Rule 9; no fixtures are claimed now.";
+  const disclaimerOnly =
+    "**Phase 2 is NOT deferred-pending-a-detector for the (b) half**, and this " +
+    "clause may not file one; see the audit fixtures discussion above.";
+  const token = ".claude/audit-fixtures/parsed-signal-detector/";
+  check(
+    "fixture-26-deferral-declared-by-fixtures-land-with-phrasing",
+    isSanctionedDeferredFixture({ kind: "backtick", token, blockText: declaring }) === true &&
+      isSanctionedDeferredFixture({ kind: "backtick", token, blockText: disclaimerOnly }) === false,
+    `declaring=${isSanctionedDeferredFixture({ kind: "backtick", token, blockText: declaring })} ` +
+      `disclaimerOnly=${isSanctionedDeferredFixture({ kind: "backtick", token, blockText: disclaimerOnly })}`,
+  );
+}
+
+// ------------------------------------------------------------------
+// fixture-27-positive-allowlist-remains-the-binding-constraint
+// ------------------------------------------------------------------
+// Widening HOW a deferral may be declared must not widen WHICH slugs may be
+// sanctioned. An UNLISTED slug stays dangling even under a perfect declaration
+// (otherwise a genuinely-missing fixture dir could hide behind the carve-out),
+// and a LISTED slug stays dangling without one. Both directions pinned.
+{
+  const perfect =
+    "Phase 2 (deferred per `trust-posture.md` § Two-Phase Rollout) — " +
+    "audit fixtures land with the Phase-2 detector at that path.";
+  const unlisted = isSanctionedDeferredFixture({
+    kind: "backtick",
+    token: ".claude/audit-fixtures/totally-made-up-slug/",
+    blockText: perfect,
+  });
+  const listedNoDeclaration = isSanctionedDeferredFixture({
+    kind: "backtick",
+    token: ".claude/audit-fixtures/path-containment/",
+    blockText: "see the fixtures directory for detail",
+  });
+  const listedWithDeclaration = isSanctionedDeferredFixture({
+    kind: "backtick",
+    token: ".claude/audit-fixtures/path-containment/",
+    blockText: perfect,
+  });
+  check(
+    "fixture-27-positive-allowlist-remains-the-binding-constraint",
+    unlisted === false && listedNoDeclaration === false && listedWithDeclaration === true,
+    `unlisted=${unlisted} listedNoDeclaration=${listedNoDeclaration} listedWithDeclaration=${listedWithDeclaration}`,
+  );
+}
+
+// ------------------------------------------------------------------
+// fixture-28-a-block-does-not-borrow-a-neighbouring-bullets-declaration
+// ------------------------------------------------------------------
+// Block-scoping widens the guard's view from one line to one bullet. It must NOT
+// widen it to the whole document: a token cited in a bullet that declares
+// nothing must stay dangling even when the ADJACENT bullet declares a deferral.
+// Both tokens here are on the allowlist, so only the block boundary separates
+// them — which is exactly the property under test.
+{
+  const lines = [
+    "- **Detection mechanism:** Phase 2 (deferred per rollout) — audit fixtures land",
+    "  with the detector at `.claude/audit-fixtures/path-containment/`.",
+    "- **Violation scope:** the clause only; see `.claude/audit-fixtures/tenant-upsert-guard/`.",
+  ];
+  const blockOf = computeBlockTexts(lines);
+  const declared = isSanctionedDeferredFixture({
+    kind: "backtick",
+    token: ".claude/audit-fixtures/path-containment/",
+    blockText: blockOf[1],
+  });
+  const neighbour = isSanctionedDeferredFixture({
+    kind: "backtick",
+    token: ".claude/audit-fixtures/tenant-upsert-guard/",
+    blockText: blockOf[2],
+  });
+  check(
+    "fixture-28-a-block-does-not-borrow-a-neighbouring-bullets-declaration",
+    declared === true && neighbour === false,
+    `declared=${declared} neighbour=${neighbour} block2=${JSON.stringify(blockOf[2])}`,
+  );
+}
+
+// ------------------------------------------------------------------
+// fixture-29-a-typo-of-a-real-deferred-slug-stays-visible
+// ------------------------------------------------------------------
+// THE property this carve-out exists to preserve, pinned against the cheaper
+// design that was proposed and rejected: ONE batched entry sanctioning any
+// `audit-fixtures/*` cited in a Phase-2-declaring block. That variant is
+// indistinguishable from this one on CORRECT references and absorbs every TYPO,
+// because a typo appears in exactly the same prose as the thing it misspells.
+//
+// It matters here more than it looks: `detection-binding-check.mjs` classifies a
+// typo'd deferred path as `deferred-fixtures-absent` (reported, NOT fatal) just
+// like a correct one — its positive allowlist is over binding NAMESPACES, not
+// slugs. So this enumeration is the only place in the corpus where a misspelled
+// deferred fixture path is still visible. Loosen it and nothing else catches it.
+//
+// Discriminating: drop the SANCTIONED_DEFERRED_FIXTURES membership test (i.e.
+// adopt the batched design) ⇒ every typo arm below flips to sanctioned ⇒ RED.
+{
+  const declaring =
+    "- **Detection mechanism:** Phase 2 (deferred per `trust-posture.md` § Two-Phase " +
+    "Rollout) — no hook detector; audit fixtures land with the Phase-2 detector there.";
+  const sanctioned = (token) =>
+    isSanctionedDeferredFixture({ kind: "backtick", token, blockText: declaring });
+
+  // Correct spellings of real, currently-deferred slugs: sanctioned.
+  const correct =
+    sanctioned(".claude/audit-fixtures/tenant-upsert-guard/") &&
+    sanctioned(".claude/audit-fixtures/path-containment/") &&
+    sanctioned(".claude/audit-fixtures/handoff-completion/");
+  // One-character corruptions of those SAME slugs, in the SAME prose: NOT sanctioned.
+  const typosVisible =
+    !sanctioned(".claude/audit-fixtures/tenant-upsert-gaurd/") &&
+    !sanctioned(".claude/audit-fixtures/path-contaiment/") &&
+    !sanctioned(".claude/audit-fixtures/handoff-completeion/");
+
+  check(
+    "fixture-29-a-typo-of-a-real-deferred-slug-stays-visible",
+    correct === true && typosVisible === true,
+    `correct=${correct} typosVisible=${typosVisible}`,
+  );
+}
+
+// ------------------------------------------------------------------
+// fixture-30-extract-tokens-supplies-the-block-scoped-declaration
+// ------------------------------------------------------------------
+// fixtures 25/27/28 all exercise `isSanctionedDeferredFixture` against a
+// `blockText` the FIXTURE hand-builds by calling `computeBlockTexts` itself. That
+// pins the CONSUMER and leaves the PRODUCER unpinned: nothing asserted that
+// `extractTokens` actually attaches the enclosing block to the finding it emits.
+// Measured: degrading `extractTokens`'s `computeBlockTexts(lines)` to a per-line
+// map executed 17 times during this suite and reddened nothing — the block-scoped
+// guard would have silently reverted to the line-scoped behaviour that fixture-25
+// exists to prevent, with the whole suite green.
+//
+// So this fixture runs the REAL extractor end-to-end over a hard-wrapped Wiring
+// bullet and asserts the finding it produces is sanctioned. BIPOLAR: the same
+// token in a bullet that names audit fixtures but declares NO deferral must come
+// back unsanctioned, so a producer that stapled a permissive block onto every
+// finding could not pass either.
+{
+  const wrapped = [
+    "- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer inspects the",
+    "  transcript for an idle-wait window (MUST-6). Phase 2 (deferred per",
+    "  `rules/trust-posture.md` § Two-Phase Rollout): advisory Stop-event detector at",
+    "  `.claude/audit-fixtures/wave-loop/orchestration-hygiene/` per `rules/cc-artifacts.md` Rule 9.",
+  ].join("\n");
+  // Same token, same "audit fixtures" vocabulary, NO deferral declaration.
+  const undeclared = [
+    "- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer inspects the",
+    "  transcript for an idle-wait window (MUST-6), with audit fixtures at",
+    "  `.claude/audit-fixtures/wave-loop/orchestration-hygiene/` per `rules/cc-artifacts.md` Rule 9.",
+  ].join("\n");
+  const TOKEN = ".claude/audit-fixtures/wave-loop/orchestration-hygiene/";
+  const pick = (text) =>
+    extractTokens(text, ".claude/rules/wave-loop.md").find((f) => f.token === TOKEN);
+
+  const declared = pick(wrapped);
+  const bare = pick(undeclared);
+
+  check(
+    "fixture-30-extract-tokens-supplies-the-block-scoped-declaration",
+    !!declared &&
+      !!bare &&
+      isSanctionedDeferredFixture(declared) === true &&
+      isSanctionedDeferredFixture(bare) === false,
+    `declared=${declared && isSanctionedDeferredFixture(declared)} bare=${bare && isSanctionedDeferredFixture(bare)}`,
+  );
+}
+
+// ------------------------------------------------------------------
+// fixture-31/32/33 — loom#1406: citations INTO `.claude/guides/**`.
+//
+// BIPOLAR, and the two poles test DIFFERENT halves of the same fix, because the
+// gap had two independent halves. 31 pins the TOKEN SURFACE (a `guides/` token is
+// extracted at all); 32 pins the SCOPE (the tree is walked on a default run). Each
+// would pass while the other regressed, so neither alone pins the fix.
+//
+// The pre-fix measurement these encode: a broken `.claude/guides/…` and a broken
+// bare `guides/…` citation, planted in a file under `.claude/rules/` — already in
+// the default scope — produced ZERO findings and exit 0, while a `rules/…` control
+// on the adjacent line was reported dangling in the SAME run. The control is what
+// makes that a token-surface verdict rather than a "the file was not read" one.
+// ------------------------------------------------------------------
+{
+  const text = [
+    "control: `rules/ghost-1406.md`",
+    "dot-claude form: `.claude/guides/rule-extracts/ghost-1406.md`",
+    "bare form: `guides/rule-extracts/ghost-1406.md`",
+  ].join("\n");
+  const tokens = extractTokens(text, ".claude/rules/probe.md").map((f) => f.token);
+
+  // POLE A (efficacy) — both guides forms are extracted. Pre-fix this was [control] only.
+  check(
+    "fixture-31a-guides-backtick-tokens-are-extracted",
+    tokens.includes(".claude/guides/rule-extracts/ghost-1406.md") &&
+      tokens.includes("guides/rule-extracts/ghost-1406.md"),
+    `got tokens=${JSON.stringify(tokens)}`,
+  );
+
+  // The control must ALSO fire — otherwise a green above could mean "extractor
+  // broken in a way that matches everything", not "guides is now covered".
+  check(
+    "fixture-31b-control-token-still-extracted",
+    tokens.includes("rules/ghost-1406.md") && tokens.length === 3,
+    `got tokens=${JSON.stringify(tokens)}`,
+  );
+
+  // POLE B (no-false-positive) — an extracted guides token that names a file which
+  // genuinely EXISTS must resolve. Without this, fixture-31 alone is satisfied by a
+  // matcher that flags every guides citation as dangling.
+  const real = "guides/rule-extracts/autonomous-execution.md";
+  check(
+    "fixture-31c-real-guides-target-resolves",
+    resolveRefToken(real, REPO_ROOT, ".claude/rules/probe.md", "backtick").ok === true,
+    `expected ${real} to resolve under ${REPO_ROOT}`,
+  );
+
+  // A guides token naming a file that does NOT exist must NOT resolve — the pole
+  // that makes 31c a discriminating check rather than a resolver that says yes.
+  check(
+    "fixture-31d-absent-guides-target-does-not-resolve",
+    resolveRefToken(
+      "guides/rule-extracts/ghost-1406.md",
+      REPO_ROOT,
+      ".claude/rules/probe.md",
+      "backtick",
+    ).ok === false,
+    "expected a non-existent guides target to report not-found",
+  );
+}
+
+{
+  // fixture-32 — SCOPE half. The guides tree must be walked on a DEFAULT run;
+  // before loom#1406 it was reachable only via an explicit `--scope .claude/guides`.
+  check(
+    "fixture-32-guides-tree-in-default-scope",
+    DEFAULT_SCOPE_DIRS.includes(".claude/guides"),
+    `got DEFAULT_SCOPE_DIRS=${JSON.stringify(DEFAULT_SCOPE_DIRS)}`,
   );
 }
 

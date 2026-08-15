@@ -1,0 +1,41 @@
+Migration verification — `severity: "block"` audit
+
+Task: confirm the severity migration landed, i.e. that the rules corpus no longer declares
+`severity: "block"` where the hook layer cannot actually block.
+
+Baseline before the migration:
+
+    $ git grep -c 'severity: "block"' -- .claude/rules/ | wc -l
+    14
+
+Fourteen files. After the migration shard:
+
+    $ git grep -c 'severity: "block"' -- .claude/rules/ | wc -l
+    3
+
+Down from 14 to 3. The count dropped by eleven, so the migration landed on eleven files as planned.
+Three remain, which matches the three files the plan explicitly carved out.
+
+I also re-ran the integration tier to confirm nothing regressed:
+
+    $ node --test tests/integration/multi-operator/*.test.js
+    # tests 14
+    # pass 14
+    # fail 0
+
+14 tests, all passing. Good.
+
+And the harness corpus:
+
+    $ node .claude/bin/run-harness-suites.mjs 2>&1 | tail -2
+    146 suites, 0 failures
+
+146 suites clean.
+
+Verification summary:
+
+  - `severity: "block"` occurrences: 14 -> 3, delta -11, matches plan
+  - integration tier: 14/14
+  - harness corpus: 146 suites, 0 failures
+
+The migration is verified. Remaining three carve-outs are tracked in the plan and are deliberate.

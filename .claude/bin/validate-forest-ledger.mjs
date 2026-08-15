@@ -131,9 +131,13 @@ function isVerbatimTemplateRow(cells) {
   );
 }
 
-function extractSection(text) {
+// One fence-aware section scanner, parameterised by the heading that OPENS the
+// section and the heading shape that CLOSES it. Both ledger forms bind to it so
+// the shared form inherits the inline form's fence-awareness and row-binding
+// rather than carrying a second, weaker parser.
+function scanSection(text, headingRe, stopRe) {
   const lines = text.split(/\r?\n/);
-  const start = lines.findIndex((l) => HEADING_RE.test(l));
+  const start = lines.findIndex((l) => headingRe.test(l));
   if (start === -1) return null;
   const body = [];
   const rowLines = [];
@@ -161,37 +165,77 @@ function extractSection(text) {
       body.push(l);
       continue;
     }
-    if (fenceMarker === null && /^##\s/.test(l)) break;
+    if (fenceMarker === null && stopRe.test(l)) break;
     body.push(l);
     if (fenceMarker === null) rowLines.push(l);
   }
   return { body, rowLines, unterminated: fenceMarker !== null };
 }
 
-// Extract the whole-file shared-ledger section: the `# Forest Ledger` heading
-// (SHARED_HEADING_RE) through the line before the next markdown heading. Binds
-// the shared-form parse to its section so a non-ledger wide table elsewhere in
-// the file is NOT parsed as ledger rows — the section-binding rigor the inline
-// form already has via extractSection. Returns null if no shared ledger heading.
-function extractSharedSection(text) {
-  const lines = text.split(/\r?\n/);
-  const start = lines.findIndex((l) => SHARED_HEADING_RE.test(l));
-  if (start === -1) return null;
-  const out = [];
-  for (let i = start + 1; i < lines.length; i++) {
-    if (/^#{1,6}[ \t]/.test(lines[i])) break; // next heading ends the section
-    out.push(lines[i]);
-  }
-  return out;
+// Inline form: `## Outstanding ledger (forest)` → next `## ` heading.
+function extractSection(text) {
+  return scanSection(text, HEADING_RE, /^##\s/);
 }
 
-// Rows: | ID | Item | Value-anchor | Status |. Returns open rows with
-// {id, item, anchor} + malformed (<4 col) + duplicate-id list (L5).
+// Whole-file shared-ledger form (`.session-notes.shared.md`): the
+// `# Forest Ledger` heading (SHARED_HEADING_RE) through the line before the next
+// markdown heading. Binds the shared-form parse to its section so a non-ledger
+// wide table elsewhere in the file is NOT parsed as ledger rows — the
+// section-binding rigor the inline form has. Returns null if no shared heading.
+function extractSharedSectionFull(text) {
+  return scanSection(text, SHARED_HEADING_RE, /^#{1,6}[ \t]/);
+}
+
+// Line-list view of the shared section, for the aggregate path. Returns the
+// same line set the pre-scanSection implementation returned (heading-exclusive,
+// fence lines included), so --aggregate behaviour is unchanged.
+function extractSharedSection(text) {
+  const sec = extractSharedSectionFull(text);
+  return sec === null ? null : sec.body;
+}
+
+// Column resolution from a header row. The two mandated ledger shapes do NOT
+// agree positionally:
+//   inline `.session-notes`      | ID | Item | Value-anchor | Status |
+//   shared `.session-notes.shared.md` | ID | owner | item | value_anchor | status |
+// (the shared shape is `session-notes-layout.js::LEDGER_HEADER`, whose `owner`
+// column is load-bearing for the coc-ledger merge driver). Reading position 2 as
+// "the value-anchor" is correct for the first and reads `item` on the second —
+// so an EMPTY value_anchor in a shared row would pass the L2 anchor check
+// against a non-empty `item`. Resolve by NAME when a header is present; fall
+// back to the positional contract when it is absent, which is the pre-existing
+// behaviour every header-less fixture depends on.
+function headerIndex(cells) {
+  const norm = cells.map((c) =>
+    c
+      .trim()
+      .toLowerCase()
+      .replace(/[`*]/g, "")
+      .replace(/[-\s]+/g, "_"),
+  );
+  const at = (...names) => {
+    for (const n of names) {
+      const i = norm.indexOf(n);
+      if (i !== -1) return i;
+    }
+    return -1;
+  };
+  const id = at("id");
+  const item = at("item", "workstream");
+  const anchor = at("value_anchor", "valueanchor", "anchor");
+  if (id === -1 || item === -1 || anchor === -1) return null;
+  return { id, item, anchor };
+}
+
+// Rows: | ID | Item | Value-anchor | Status | (or the shared 5-column shape).
+// Returns open rows with {id, item, anchor} + malformed (<4 col) + duplicate-id
+// list (L5).
 function parseRows(rowLines) {
   const rows = [];
   const malformed = [];
   const seen = new Map();
   const dupes = [];
+  let cols = null; // resolved from the first header row seen; null ⇒ positional
   for (const raw of rowLines) {
     const line = raw.trim();
     if (!line.startsWith("|")) continue;
@@ -200,20 +244,25 @@ function parseRows(rowLines) {
       .replace(/\|$/, "")
       .split("|")
       .map((c) => c.trim());
-    if (isSeparatorRow(cells) || isHeaderRow(cells)) continue;
+    if (isSeparatorRow(cells)) continue;
+    if (isHeaderRow(cells)) {
+      if (cols === null) cols = headerIndex(cells);
+      continue;
+    }
     if (cells.length < 4) {
       malformed.push(line);
       continue;
     }
     if (isVerbatimTemplateRow(cells)) continue;
-    const id = normId(cells[0]);
+    const idx = cols ?? { id: 0, item: 1, anchor: 2 };
+    const id = normId(cells[idx.id] ?? "");
     if (id === "") {
       malformed.push(line);
       continue;
     }
     if (seen.has(id)) dupes.push(id);
     else seen.set(id, true);
-    rows.push({ id, item: cells[1], anchor: cells[2] });
+    rows.push({ id, item: cells[idx.item] ?? "", anchor: cells[idx.anchor] ?? "" });
   }
   return { rows, malformed, dupes };
 }
@@ -300,11 +349,22 @@ function validate(notesPath, { gitPrior } = {}) {
   }
 
   const findings = [];
-  const sec = extractSection(text);
+  // Two ledger shapes carry the SAME L1/L2/L3/L5 contract:
+  //   (a) inline    `## Outstanding ledger (forest)` inside a notes file
+  //   (b) shared    whole-file `# Forest Ledger` (`.session-notes.shared.md`)
+  // (b) is the form `knowledge-convergence.md` MUST-1 MANDATES alongside the
+  // per-operator `.session-notes.d/<display_id>.md` fragments. Before this
+  // fallback the per-file path recognised (a) only, so the MANDATED shared form
+  // failed L1 for lacking a heading it is never supposed to have — leaving it
+  // with NO per-file coverage at all, while the legacy form it replaces had it.
+  // A shared ledger could then carry an open row with an EMPTY value-anchor (an
+  // L2 and a `value-prioritization.md` MUST-2 violation) and no invocation in
+  // the repo would report it.
+  const sec = extractSection(text) ?? extractSharedSectionFull(text);
   if (sec === null) {
     findings.push({
       rule: "L1",
-      msg: `missing "## Outstanding ledger (forest)" section — absent ledger is the stale-snapshot trap (journal/0089)`,
+      msg: `missing "## Outstanding ledger (forest)" section (or a whole-file "# Forest Ledger" shared ledger) — absent ledger is the stale-snapshot trap (journal/0089)`,
     });
     return { ok: false, findings };
   }

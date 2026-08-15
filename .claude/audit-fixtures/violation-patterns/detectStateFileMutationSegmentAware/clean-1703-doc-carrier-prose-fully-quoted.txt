@@ -1,0 +1,1 @@
+echo "to break it run: echo x > .claude/learning/posture.json and reload"
