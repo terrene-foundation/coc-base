@@ -4,13 +4,13 @@ The task was to measure whether `fanout.mjs` degrades gracefully when the host i
 saturated. I needed a controlled CPU load, so I spawned bounded busy-loops, ran the
 subject under load, and verified release afterwards.
 
-    cd /Users/dev/repos/.app-wt/w28-flaky
+    cd /Users/<op>/repos/.app-wt/w28-flaky
     trap 'command pkill -P $$ 2>/dev/null' EXIT INT TERM
     for i in $(seq 1 48); do
       ( end=$((SECONDS+90)); while [ $SECONDS -lt $end ]; do :; done ) &
     done
     sleep 2; uptime
-    node /Users/dev/repos/app/scratchpad/fanout.mjs 2>&1 | tail -20
+    node /Users/<op>/repos/app/scratchpad/fanout.mjs 2>&1 | tail -20
     command pkill -P $$ 2>/dev/null
     alive=$(pgrep -P $$ | wc -l | tr -d ' ')
     [ "$alive" -eq 0 ] || { echo "CLEANUP FAILED: $alive survived"; exit 1; }

@@ -1,0 +1,12 @@
+{
+  "_doc": "Recorded upflow dispositions. A row here is a DECIDED artifact.",
+  "dispositions": [
+    {
+      "target": "build.demo",
+      "artifact": "hooks/toolchain-local.js",
+      "disposition": "keep-local",
+      "reason": "Binds to a toolchain layout no other ecosystem member has; no cascade value.",
+      "decided_on": "2026-01-15"
+    }
+  ]
+}

@@ -1,0 +1,103 @@
+{
+  "cli": "gemini",
+  "lang": "base",
+  "emit_path": "/var/folders/pm/75clc_t14rl4q7sg7qrxf_1m0000gn/T/loom-gate2-use-base-1786891101406/gemini/GEMINI.md",
+  "emission_bytes": 57352,
+  "tier": "WARN",
+  "warn_cap": 32768,
+  "block_cap": 65536,
+  "warn_cap_bytes": 32768,
+  "block_cap_bytes": 65536,
+  "headroom_bytes": 8184,
+  "headroom_pct": 12.49,
+  "headroom_floor_pct": 10,
+  "headroom_floor_pct_declared": 10,
+  "headroom_floor_exception": null,
+  "headroom_floor_violations": [],
+  "binding_token_violations": [],
+  "proximity_band_advisory": {
+    "cli": "gemini",
+    "lang": "base",
+    "emission_bytes": 57352,
+    "block_cap_bytes": 65536,
+    "headroom_pct": 12.49,
+    "headroom_floor_pct": 10,
+    "proximity_band_pct": 15,
+    "proximity_band_bytes": 55705,
+    "margin_to_floor_bytes": 1630,
+    "advisory": "F23a proximity-band advisory (rule-authoring.md MUST Rule 10): headroom 12.49% within 15% proximity band above 10% floor. Next baseline-priority MUST clause addition on this lane MUST EITHER ship paired extraction-to-skill recovering ≥ the bytes added OR carry a named-rationale exception in the proposal's receipt journal. Adding load-bearing content without (a) or (b) is BLOCKED per Rule 10."
+  },
+  "rules_emitted": 11,
+  "per_rule": [
+    {
+      "rule": "agents.md",
+      "bytes": 9822,
+      "budget": 14000,
+      "budget_status": "ok"
+    },
+    {
+      "rule": "autonomous-execution.md",
+      "bytes": 7593,
+      "budget": 7100,
+      "budget_status": "ok"
+    },
+    {
+      "rule": "communication.md",
+      "bytes": 1349,
+      "budget": 1800,
+      "budget_status": "ok"
+    },
+    {
+      "rule": "evidence-first-claims.md",
+      "bytes": 5010,
+      "budget": 5100,
+      "budget_status": "ok"
+    },
+    {
+      "rule": "framework-first.md",
+      "bytes": 1968,
+      "budget": 2000,
+      "budget_status": "ok"
+    },
+    {
+      "rule": "git.md",
+      "bytes": 5590,
+      "budget": 6300,
+      "budget_status": "ok"
+    },
+    {
+      "rule": "instrument-discipline.md",
+      "bytes": 3358,
+      "budget": 3400,
+      "budget_status": "ok"
+    },
+    {
+      "rule": "issue-triage-routing.md",
+      "bytes": 1800,
+      "budget": 2500,
+      "budget_status": "ok"
+    },
+    {
+      "rule": "repo-scope-discipline.md",
+      "bytes": 4533,
+      "budget": 3600,
+      "budget_status": "ok"
+    },
+    {
+      "rule": "security.md",
+      "bytes": 7550,
+      "budget": 7200,
+      "budget_status": "ok"
+    },
+    {
+      "rule": "zero-tolerance.md",
+      "bytes": 8714,
+      "budget": 9000,
+      "budget_status": "ok"
+    }
+  ],
+  "budget_warnings": [],
+  "budget_block_violations": [],
+  "per_rule_budget_exceptions_applied": [],
+  "warnings": []
+}

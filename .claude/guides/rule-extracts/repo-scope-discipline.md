@@ -259,18 +259,20 @@ is safe to distribute: it changes nothing for the 30+ consumers.
 **The governance-read sub-carve-out (2026-06-01).** Originally the carve-out enumerated
 only the four artifact-distribution commands. F101 (governance-as-DNA, issue #411)
 surfaced a second legitimate loom cross-repo operation: reading a sibling GOVERNANCE
-repo's prior-art to design a loom-emitted artifact (the loom↔csq seam needs csq's
-event-schema + the aegis `.codex-mcp-guard/` fail-open→fail-closed prior-art). This is
-not artifact-distribution, but it IS co-owner-directed cross-repo coordination at the
-orchestration root. The carve-out now covers it, BOUNDED by:
+repo's prior-art to design a loom-emitted artifact (a loom↔sibling seam needs that
+sibling's event-schema; a second sibling carries guard-hardening prior-art for the same
+design). This is not artifact-distribution, but it IS co-owner-directed cross-repo
+coordination at the orchestration root. The carve-out now covers it, BOUNDED by:
 
 - **Grant-gated, not self-authorized.** A governance READ outside artifact-distribution
   requires a User-Authorized Exception grant (the five conditions + the journaled
   `cross-repo-authorized: <slug>` marker). The carve-out lifts the OPERATION boundary;
   it does not make cross-repo reads the agent's default even at loom.
 - **Resolver-enumerated.** The governance sibling MUST be a declared `loom-links` key
-  (`governance.csq`, `governance.aegis`), never a positional `~/repos/<name>` guess
-  (`cross-repo.md` MUST-1). The resolver config is gitignored + operator-local.
+  under the `governance.<name>` namespace, never a positional `~/repos/<name>` guess
+  (`cross-repo.md` MUST-1). The resolver config is gitignored + operator-local, and the
+  declared key names are deployment-specific — read them from the operator's own
+  `loom-links.local.json`, never from an example enumerated in a distributed artifact.
 - **Writes still gated.** A cross-repo WRITE (filing an issue/PR, editing a sibling)
   still requires the full five-condition User-Authorized Exception every time — the
   governance-read carve-out does NOT extend to writes.

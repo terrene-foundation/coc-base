@@ -1526,6 +1526,15 @@ const LOOM_ONLY_TIER_CARVEOUTS = new Set([
   "hooks/lib/artifact-activation-event.js",
   "hooks/lib/artifact-activation-ledger.js",
   "audit-fixtures/descoping-gate/run.mjs",
+  // wave-loop.md MUST-8 — the wave corpus-ledger detector's bipolar fixture
+  // runner. It `import`s the loom-only `bin/check-wave-corpus-ledger.mjs`
+  // directly, so shipping it would orphan it exactly as the descoping-gate
+  // sibling above would have: an ERR_MODULE_NOT_FOUND on load for every
+  // community consumer, the edge `community-import-closure.test.mjs` R2-HIGH-7
+  // already measured. It sits under the synced `audit-fixtures/**` tier, so the
+  // collision is real and the carve-out is LOAD-BEARING. Listed as the concrete
+  // FILE because this check only honours wildcard-free entries.
+  "audit-fixtures/wave-corpus-ledger/run.mjs",
   // loom#E6 (2026-08-14) — `hooks/lib/deferral-surface.js` was HERE and is now
   // REMOVED alongside its `sync-manifest.yaml::loom_only` line: the surface
   // CASCADES. Its fence was load-bearing only while the sole file it could read
@@ -3398,7 +3407,13 @@ function checkCocArtifactIds(root) {
     // target-invariant: a language variant overlay (--target <lang>) can REPLACE
     // an artifact's frontmatter, so a typed-field throw introduced by an overlay's
     // frontmatter is exercised only when that target emits (at its /sync-to-use).
-    const r = emitCoc({ outDir: tmp });
+    //
+    // `lane: "all"` (loom#1699) keeps this gate FULL-CORPUS. emitCoc now defaults
+    // to the fail-closed USE lane, which withholds the `use_exclude`/`obsoleted`
+    // artifacts — but those artifacts DO emit on the BUILD lane, so their ids
+    // must still be gated here. This is a CORPUS question, not a distribution
+    // one; narrowing it to one lane would silently un-gate the other lane's ids.
+    const r = emitCoc({ outDir: tmp, lane: "all" });
     const results = [
       {
         artifact: ".coc/",

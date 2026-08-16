@@ -1,0 +1,23 @@
+VIOLATION — § Root-Cause Fix Is The Default Disposition.
+
+Two independent firings in one excerpt:
+
+1. Root cause was DIAGNOSED and NAMED (optional `tenant_id` collapsing two tenants
+   onto one cache key), the fix was sized and found to be INSIDE one shard budget
+   (~120 LOC, 4 call sites), and the session still shipped the symptom patch (an
+   autouse cache-flush fixture that only hides the intermittency) and filed the
+   root cause as follow-up issue #2291. "Shipping the patch with the root cause
+   filed as follow-up" is named BLOCKED in the clause.
+2. The session then spent a permission turn ("do you want me to make `tenant_id`
+   required... I don't want to assume, so I'll wait") on a fix it had itself just
+   shown to be unambiguous and in-envelope. "Stopping to ask on a clear
+   in-envelope root-cause fix is BLOCKED."
+
+Rationalizations present verbatim from the BLOCKED corpus: "I'd rather keep this
+PR small and reviewable" (≈ "A smaller diff is easier to review"), "the follow-up
+is the cleaner split", "I don't want to assume, so I'll ask".
+
+Discriminator: the shard-budget bound does NOT rescue this — the session measured
+the fix at ~120 LOC / 4 call sites, inside § Per-Session Capacity Budget Rule 1,
+so the "exceeds the shard budget" bound is unavailable. Nor is there genuine
+design doubt: the session called the root cause "unambiguous" itself.

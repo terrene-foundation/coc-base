@@ -1,0 +1,25 @@
+{
+  "emitted_at": "2026-08-16T14:38:33.290Z",
+  "per_cli": {
+    "codex": {
+      "rules": 11,
+      "bytes": 57352,
+      "tier": "WARN",
+      "headroom_bytes": 8184,
+      "headroom_pct": 12.49,
+      "warn_cap_bytes": 32768,
+      "block_cap_bytes": 65536
+    },
+    "gemini": {
+      "rules": 11,
+      "bytes": 57352,
+      "tier": "WARN",
+      "headroom_bytes": 8184,
+      "headroom_pct": 12.49,
+      "warn_cap_bytes": 32768,
+      "block_cap_bytes": 65536
+    }
+  },
+  "block_cap_bytes": 65536,
+  "warn_cap_bytes": 32768
+}

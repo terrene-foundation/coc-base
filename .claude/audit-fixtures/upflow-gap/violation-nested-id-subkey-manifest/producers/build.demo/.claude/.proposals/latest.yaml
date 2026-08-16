@@ -1,0 +1,11 @@
+# Entry key here is `- file:`. The `- id:` occurrences below are NESTED
+# sub-keys at a deeper indent, NOT entries. A parser keyed on `- id:` reads
+# this manifest as 2 entries when it has 1, and would mis-answer membership.
+changes:
+  - file: .claude/hooks/offered-hook.js
+    action: add
+    findings:
+      - id: F1
+        desc: a nested sub-key, not an entry
+      - id: F2
+        desc: likewise

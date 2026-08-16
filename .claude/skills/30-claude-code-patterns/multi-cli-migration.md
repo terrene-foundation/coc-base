@@ -278,7 +278,9 @@ node .claude/bin/emit.mjs --cli gemini  # → GEMINI.md
 
 # Unified .coc/ derivative (#392) — writes the dotted target directly via an
 # internal atomic tmp-dir swap; invoke with `--out .` (NOT a tmp dir + move).
-node .claude/bin/emit-coc.mjs --target ${VARIANT} --out .   # → COC.md + COC.lock + subtrees
+# `--lane use`: a migrating repo CONSUMES the artifact set, so the USE lane's
+# distribution-fate lists apply. Not inferable from --target (loom#1699).
+node .claude/bin/emit-coc.mjs --target ${VARIANT} --lane use --out .   # → COC.md + COC.lock + subtrees
 ```
 
 **Post-Step-6 self-check:** verify no stray non-dotted `codex/` or `gemini/` exist at repo root: `[ ! -d codex ] && [ ! -d gemini ] || { echo "stray non-dotted emit dirs"; exit 1; }` AND the `.coc/` derivative landed: `[ -f .coc/COC.lock ] || { echo ".coc/ emit missing"; exit 1; }`. If stray non-dotted dirs exist, the agent invoked `emit-cli-artifacts.mjs --out .` instead of the tmp+move pattern above; clean up before proceeding.
@@ -488,7 +490,7 @@ Then copy the template into the repo as a FRESH INSTALL, reusing `/sync-from-tem
 ### Step A4 — Marker + VERSION + emit + verify + commit
 
 - **VERSION (Step 2 shape):** write a fresh `.claude/VERSION` with `type: coc-project`, `upstream.template` = `<sister>`, `upstream.template_repo` = `terrene-foundation/<sister>`, `upstream.template_version` from the sister, `upstream.synced_at` = now.
-- **Per-CLI emit (Step 6), multi-CLI target only:** `emit.mjs --cli codex` / `--cli gemini` (→ `AGENTS.md` / `GEMINI.md`) + `emit-cli-artifacts.mjs --target <variant>` (→ `.codex/` + `.gemini/` bodies), same tmp-dir-then-move pattern as full-migration Step 6. Then the unified `.coc/` derivative (`emit-coc.mjs --target <variant> --out .`). CC-only target: only `CLAUDE.md` is the baseline (no `AGENTS.md`/`GEMINI.md`).
+- **Per-CLI emit (Step 6), multi-CLI target only:** `emit.mjs --cli codex` / `--cli gemini` (→ `AGENTS.md` / `GEMINI.md`) + `emit-cli-artifacts.mjs --target <variant>` (→ `.codex/` + `.gemini/` bodies), same tmp-dir-then-move pattern as full-migration Step 6. Then the unified `.coc/` derivative (`emit-coc.mjs --target <variant> --lane use --out .`). CC-only target: only `CLAUDE.md` is the baseline (no `AGENTS.md`/`GEMINI.md`).
 - **Fresh marker (Step 8 shape):** write `.claude/.coc-sync-marker` with `template_type` = `multi-cli` (or, for `--cc-only`, `cc-only-legacy` — the value is the DETECTION-ROUTING KEY that lets a later `/migrate` recognize this repo as a CC-only lineage eligible for multi-CLI upgrade, NOT a claim the fresh adoption is old), `template` = `<sister>`, `clis`, `variant`, `adopted_at` = now, `loom_version`, `loom_sha`, and the `stats` block. Use `adopted_at` (NOT `migrated_from`/`migrated_at` — there was no prior COC lineage to migrate FROM).
 - **Verify (Step 10):** emit the verification table (file presence + emit dry-run exit 0 + marker/VERSION schema; for multi-CLI targets include the `.coc/COC.lock present` row). Rows that assume a prior tree (project-content-diff-empty) do not apply — surface "N/N adopt rows ✓".
 - **Posture banner (Step 11), multi-CLI target:** emit the same per-CLI trust-posture caveat as full-migration Step 11 (`posture show` works on Claude Code; Codex/Gemini posture is session-local until cross-CLI sync ships). Informational; the caveat is relevant to a fresh multi-CLI adoption whose operator will run mutating commands from Codex/Gemini.

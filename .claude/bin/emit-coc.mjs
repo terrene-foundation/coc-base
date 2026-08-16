@@ -26,7 +26,8 @@
  * manifest with NO signature sidecar.
  *
  * Usage:
- *   node .claude/bin/emit-coc.mjs --out <dir> [--target <repos.* key>] [-v]
+ *   node .claude/bin/emit-coc.mjs --out <dir> [--target <repos.* key>]
+ *                                 [--lane use|build|all] [-v]
  *   (--target resolves against sync-manifest.yaml::repos.* — py|rs|base|prism;
  *    cc/codex/gemini are TIER names, not targets, and correctly halt exit 2)
  *
@@ -34,6 +35,27 @@
  * subscriptions + language variant overlays (mirrors emit-cli-artifacts.mjs);
  * absent → emit everything present in `.claude/` with no variant overlay
  * (the post-/sync consumer case, where `.claude/` already holds the subset).
+ *
+ * `--lane` selects the DISTRIBUTION-FATE axis (loom#1699). `--target` is the
+ * TIER + VARIANT axis and says nothing about lane: the SAME `--target py` is
+ * used by /sync-to-use (USE template) and by /sync-to-build (kailash-py, via
+ * `repos.py.build_multi_cli`), and those two lanes have OPPOSITE exclusion
+ * lists — `use_exclude` names artifacts that are BUILD-bound and must not reach
+ * a USE consumer, `build_exclude` names the mirror image. Before --lane existed
+ * the `.coc/` producer honoured NEITHER, so five artifacts the USE lane
+ * deliberately withholds reached consumers through `.coc/` instead (measured
+ * py/rs 5, base 4 — incl. the BUILD-internal `rules/cross-sdk-inspection.md`
+ * and `rules/documentation.md`). See lib/coc-manifest.mjs::loadLaneExclusions
+ * for the composed lists and their path conventions.
+ *
+ * DEFAULT `use` — fail-closed per `security.md` § "Secure-Default For A New
+ * Security Feature": a wrong-lane emit toward USE would DISCLOSE BUILD-internal
+ * content to third-party consumers, while a wrong-lane emit toward BUILD only
+ * withholds artifacts the BUILD repo also carries in its `.claude/` tree. The
+ * summary line PRINTS the lane + the excluded count, so a wrong lane is visible
+ * in the transcript rather than silent. `--lane all` disables the axis and is
+ * for full-corpus callers whose question is about the CORPUS, not distribution
+ * (validate-emit's id-grammar gate, validate-coc-parity's legacy comparison).
  *
  * Node ESM, zero external deps (mirrors emit.mjs / emit-cli-artifacts.mjs).
  */
@@ -49,6 +71,7 @@ import {
   writeTextArtifactSync,
   loadExclusions,
   loadLoomOnly,
+  loadLaneExclusions,
   buildTierFilter,
   loadTargetVariant,
   composeArtifactBody,
@@ -366,9 +389,21 @@ function composeNeutralBody(category, relPath, lang) {
 // Artifact collection — one record per emitted artifact.
 //   { kind, id, relInCoc, content }
 // ──────────────────────────────────────────────────────────────────
-function collectArtifacts({ exclusions, loomOnly, tierFilter, lang, warnOversize }) {
+function collectArtifacts({ exclusions, loomOnly, laneExclude, tierFilter, lang, warnOversize, laneSkipped }) {
   const records = [];
   const seenIds = { rules: new Set(), agents: new Set(), skills: new Set(), commands: new Set() };
+
+  // Lane distribution-fate skip (loom#1699). Ordered AFTER loom_only and BEFORE
+  // the tier filter — the same position `sync-tier-aware.mjs::classifyFile`
+  // gives its class-exclude (step 2b loom_only → step 4 class exclude → step 5
+  // tier inclusion), so `.coc/` membership and `.claude/` membership are decided
+  // in the same order and cannot disagree on precedence. Skips are COUNTED, and
+  // the count is surfaced by main(), so a wrong `--lane` is loud.
+  const laneSkip = (manifestRel) => {
+    if (!laneExclude.length || !matchesAnyGlob(manifestRel, laneExclude)) return false;
+    laneSkipped.push(manifestRel);
+    return true;
+  };
 
   const push = (kind, sourceName, manifestRel, composed, paths) => {
     const id = deriveId(kind, sourceName);
@@ -395,6 +430,7 @@ function collectArtifacts({ exclusions, loomOnly, tierFilter, lang, warnOversize
     for (const name of fs.readdirSync(rulesDir).filter((f) => f.endsWith(".md")).sort()) {
       const manifestRel = `rules/${name}`;
       if (loomOnly && matchesAnyGlob(manifestRel, loomOnly)) continue;
+      if (laneSkip(manifestRel)) continue;
       if (tierFilter && !matchesAnyGlob(manifestRel, tierFilter)) continue;
       const composed = composeNeutralBody("rules", name, lang);
       if (composed === null) continue;
@@ -415,6 +451,7 @@ function collectArtifacts({ exclusions, loomOnly, tierFilter, lang, warnOversize
     for (const rel of rels.sort()) {
       const manifestRel = `agents/${rel}`;
       if (loomOnly && matchesAnyGlob(manifestRel, loomOnly)) continue;
+      if (laneSkip(manifestRel)) continue;
       if (tierFilter && !matchesAnyGlob(manifestRel, tierFilter)) continue;
       const composed = composeNeutralBody("agents", rel, lang);
       if (composed === null) continue;
@@ -445,6 +482,11 @@ function collectArtifacts({ exclusions, loomOnly, tierFilter, lang, warnOversize
     for (const skill of skillNames) {
       const dirManifestRel = `skills/${skill}/SKILL.md`; // the dir-level path legacy filters on
       if (loomOnly && matchesAnyGlob(dirManifestRel, loomOnly)) continue;
+      // Lane fate is decided at the DIR level, like loom_only/tier above — the
+      // manifest declares skills per-directory (`skills/<name>/**`), never per
+      // nested sub-entry, so a per-sub check would add a matcher no manifest
+      // entry can currently fire. Extend BOTH filters together if that changes.
+      if (laneSkip(dirManifestRel)) continue;
       if (tierFilter && !matchesAnyGlob(dirManifestRel, tierFilter)) continue;
       if (fs.existsSync(path.join(skillsDir, skill, "SKILL.md"))) {
         // Flat skill: `<dir>/SKILL.md` → id `<DIR>`.
@@ -478,6 +520,7 @@ function collectArtifacts({ exclusions, loomOnly, tierFilter, lang, warnOversize
     for (const rel of rels.sort()) {
       const manifestRel = `commands/${rel}`;
       if (loomOnly && matchesAnyGlob(manifestRel, loomOnly)) continue;
+      if (laneSkip(manifestRel)) continue;
       if (tierFilter && !matchesAnyGlob(manifestRel, tierFilter)) continue;
       const composed = composeNeutralBody("commands", rel, lang);
       if (composed === null) continue;
@@ -708,14 +751,27 @@ function atomicSwap(finalDir, tmpDir) {
 // ──────────────────────────────────────────────────────────────────
 // Orchestration.
 // ──────────────────────────────────────────────────────────────────
-export function emitCoc({ outDir, target = null, verbose = false }) {
+export function emitCoc({ outDir, target = null, lane = "use", verbose = false }) {
   const exclusions = loadExclusions();
   const loomOnly = loadLoomOnly();
+  // Throws on an unknown lane rather than degrading to "no exclusions" — a
+  // typo'd `--lane us` must not silently restore the pre-#1699 leak
+  // (zero-tolerance.md Rule 3, silent fallback).
+  const laneExclude = loadLaneExclusions(lane);
   const tierFilter = buildTierFilter(target); // null when target absent
   const lang = loadTargetVariant(target); // null when target absent / variant unset
 
   const warnOversize = [];
-  const records = collectArtifacts({ exclusions, loomOnly, tierFilter, lang, warnOversize });
+  const laneSkipped = [];
+  const records = collectArtifacts({
+    exclusions,
+    loomOnly,
+    laneExclude,
+    tierFilter,
+    lang,
+    warnOversize,
+    laneSkipped,
+  });
 
   const finalDir = path.join(outDir, ".coc");
   const tmpDir = path.join(outDir, `.coc.tmp.${process.pid}`);
@@ -737,15 +793,16 @@ export function emitCoc({ outDir, target = null, verbose = false }) {
     for (const rec of records) console.log(`  ${rec.relInCoc}`);
   }
 
-  return { ...built, records: records.length, warnOversize, finalDir };
+  return { ...built, records: records.length, warnOversize, laneSkipped, lane, finalDir };
 }
 
 function parseArgs(argv) {
-  const args = { out: null, target: null, verbose: false };
+  const args = { out: null, target: null, lane: "use", verbose: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--out") args.out = argv[++i];
     else if (a === "--target") args.target = argv[++i];
+    else if (a === "--lane") args.lane = argv[++i];
     else if (a === "-v" || a === "--verbose") args.verbose = true;
   }
   return args;
@@ -755,20 +812,34 @@ function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!args.out) {
     process.stderr.write(
-      "usage: emit-coc.mjs --out <dir> [--target py|rs|base|prism] [-v]\n",
+      "usage: emit-coc.mjs --out <dir> [--target py|rs|base|prism] " +
+        "[--lane use|build|all] [-v]\n",
     );
     process.exit(2);
   }
   const outDir = path.resolve(args.out);
   fs.mkdirSync(outDir, { recursive: true });
 
-  const r = emitCoc({ outDir, target: args.target, verbose: args.verbose });
+  const r = emitCoc({
+    outDir,
+    target: args.target,
+    lane: args.lane,
+    verbose: args.verbose,
+  });
 
   console.log("emit-coc summary:");
   console.log(
     `  artifacts: ${r.records} (rules=${r.counts.rules} agents=${r.counts.agents} ` +
       `skills=${r.counts.skills} commands=${r.counts.commands})`,
   );
+  // Print the lane UNCONDITIONALLY (loom#1699). The lane is not inferable from
+  // --target — both lanes use the same target keys — so a wrong-lane emit is
+  // otherwise invisible in the transcript. The withheld list is printed in full
+  // (not tallied) per `instrument-discipline.md` MUST-3(b).
+  console.log(`  lane: ${r.lane} (withheld by lane fate: ${r.laneSkipped.length})`);
+  if (r.laneSkipped.length > 0 && args.verbose) {
+    for (const m of r.laneSkipped) console.log(`    withheld: ${m}`);
+  }
   console.log(`  files in .coc/: ${r.fileCount}`);
   console.log(`  coc.version: ${COC_VERSION}`);
   console.log(`  output: ${r.finalDir}`);

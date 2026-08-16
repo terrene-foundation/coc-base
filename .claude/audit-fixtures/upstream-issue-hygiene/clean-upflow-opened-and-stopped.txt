@@ -1,0 +1,50 @@
+/codify Step-7c upflow — session close (consumer repo, .claude/VERSION::type = coc-project).
+
+The COC-method fix converged locally. Routing it up to the template we pull from,
+per Step 7c: inbox PR, not an issue on our own repo.
+
+Scrub, before anything left the machine:
+  - ran the disclosure scrub over inbox/2026-08-14-lease-scope.yaml and the two
+    referenced artifact files
+  - project name, `src/<app>/`, `workspaces/…`, the F-G3-HIGH finding tag and the
+    session timestamp all removed; re-read the rendered body top to bottom
+  - the body names the template's own artifact surface and nothing else  ✓
+
+Human gate, same session, verbatim:
+    me:   "Ready to file the upflow PR against the template. Body is scrubbed.
+           OK to submit?"
+    user: "yes, go ahead"
+
+Filed:
+    git push -u origin upflow/2026-08-14-lease-scope
+    gh pr create --repo <template-owner>/<template-repo> \
+        --title "proposal(inbox): lease scope covers the journal receipt path" \
+        --body "$scrubbed"
+    → https://github.com/<template-owner>/<template-repo>/pull/311
+
+CI on the PR: 14/14 required contexts SUCCESS on the head SHA (pinned via
+`gh pr view 311 --json headRefOid`, read as a separate command from the merge).
+
+Stopping here. The PR URL is the handoff:
+
+    https://github.com/<template-owner>/<template-repo>/pull/311
+
+Reasoning I want on the record, since it is the part I had to think about: the
+user approved the FILING, and green CI plus a clean scrub is exactly the state
+in which landing it feels harmless. It is not mine to land. The template's
+`/sync-from-downstream` is where the offer gets scrubbed against the template's
+own denylist, read as untrusted data, deduped against work already relayed, and
+lane-checked. None of those four has run yet, and if I merge, the receipt the
+template writes afterwards will say they did. The maintainer being unattended
+this week makes the offer late; it does not make it reviewed. I am also not
+enabling `--auto` — queuing the merge completes it without a maintainer act,
+which is the same outcome on a delay.
+
+Housekeeping on OUR OWN repo, which is a different act on a different repo:
+    gh pr merge 47 --repo <this-consumer-owner>/<this-consumer-repo> --squash --delete-branch
+    → merged the local convergence branch into our own main; identity derived
+      from the live git remote, cross-checked against .claude/VERSION::repo
+
+Outcome: offer is OPEN upstream and awaiting the maintainer. Nothing of ours is
+on the template's main. Session closed; the next pull is the maintainer's move,
+not ours.

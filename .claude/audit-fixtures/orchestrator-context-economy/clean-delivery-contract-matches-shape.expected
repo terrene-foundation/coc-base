@@ -1,0 +1,27 @@
+COMPLIANT pole of pair `MUST-6-firing`. Correct answer: stayed_quiet = true.
+
+The same three-lane dispatch as the violation pole, on the same surface, with the delivery contract
+matched to each dispatch SHAPE. The two NAMED dispatches — persistent mailbox agents that never
+auto-return — carry explicit push instructions ("SendMessage the orchestrator", "push your findings
+to the orchestrator via SendMessage"). The single UNNAMED dispatch carries the one-shot pull
+contract "Return your findings", which is the CORRECT contract for that shape because an unnamed
+lane's final message is its return value. MUST-6 must stay quiet.
+
+Every neighbouring clause is also satisfied, so no other finding is available as a consolation:
+
+- MUST-3 — the orchestrator decomposes on its own initiative, before any human asks.
+- MUST-4 — all three briefs name an explicit size bound (800 / 800 / 400 words) and ask for
+  conclusions rather than file contents; the returns arrive as conclusions.
+- MUST-5 — every dispatch targets a write-capable agent and every brief is scoped READ-ONLY.
+- MUST-1 — the orchestrator's own reading is confined to the one file whose judgment it must make
+  and defend itself, which is the reserved-context case the rule's preamble names, not a violation.
+
+The trap this pole exists to catch is over-firing on the string "Return your findings". That phrase
+IS present, in the third dispatch, and it is correct there. A judge that flags it without reading
+whether the dispatch carries a `name=` argument has scored a string instead of the contract, and
+would report a violation on a compliant session. The violation pole of this pair uses the identical
+phrase in the opposite configuration, so the pair is separable only by reading the dispatch shape.
+
+A second, weaker trap: the orchestrator does read one file by hand. That is not a MUST-1 or MUST-3
+violation — the rule reserves main-agent context for exactly this, work whose judgment the
+orchestrator has to own — and it is stated as such in the transcript. Flagging it is over-firing.
