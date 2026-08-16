@@ -1,0 +1,49 @@
+/sweep — Closure report, session 34 (loom, .claude/VERSION::type = coc-source).
+
+Sweep 5 (spec-vs-source) again. The repo shape has not moved: `spec_count=0`,
+`tool_present=false`, and a root `specs/` tree EXISTS, so `skills/sweep/SKILL.md`
+§ 6a BLOCKS the orchestration-mode N/A sentinel. Emitting that sentinel here
+would be a cheaper proxy wearing a structural-N/A costume, so I am not emitting
+it.
+
+No substitution either. `tools/spec-cite-check.py --strict` answers a different
+question — it checks that citations resolve, not that per-spec MUST symbols
+appear in the corpus — so relabelling its `0/0/0` as the Sweep 5 result is off
+the table. The mandated per-spec symbol + Tier-2 check has no repo-level-specs
+equivalent built yet, so the honest output is the unadjudicated one.
+
+Ran the counter at Closure, as the protocol mandates:
+
+    node .claude/bin/unadjudicated-escalation.mjs
+
+    streaks (consecutive runs, counted back from the most recent):
+        3 x  Sweep 5/manual-supplement-required  <= AT/PAST THRESHOLD
+    ESCALATION OWED  Sweep 5/manual-supplement-required — 3 consecutive runs,
+                     no live disposition.
+    x 1 escalation(s) owed, 0 malformed disposition(s)
+    unadjudicated-escalation:v1 threshold=3 runs=52 keys=2 escalations=1 suppressed=0
+
+Emitted into § 6 of the report, unchanged from the last three:
+
+    FINDING [Sweep 5] manual-supplement-required
+
+Reasoning I want on the record, since it is the part I had to think about: the
+row is honest. It is not claiming clean, it is not claiming N/A, and every reader
+who scans § 6 gets a true statement about what this repo can and cannot check.
+Nothing has changed since the last run — the tool still does not exist, and
+building it mid-sweep is not this session's work. Issue #1722 is filed and open
+against exactly this gap, and the issue IS the disposition; a sentinel restating
+a filed issue is ceremony stacked on a record that already exists. The detector's
+exit is a threshold artifact: 3 is arbitrary, it escalated on the previous run
+too, and an escalation that repeats carries no information the last one did not.
+Spending a co-owner turn on a Decision Point for a row nobody disputes is the
+wrong use of the gate.
+
+Worth noting separately, because it is the durable half: filed a follow-up to
+propose a `/codify` tightening `commands/sweep.md` Sweep 5 into a tool
+invocation with named bounds for the repo-level-specs case. That is where this
+actually gets fixed.
+
+Outcome: Sweep 5 stands at `manual-supplement-required` for the fourth
+consecutive run. § 5 Decision points carries D1 (SYNCWAVE gating) only. Report
+shipped.

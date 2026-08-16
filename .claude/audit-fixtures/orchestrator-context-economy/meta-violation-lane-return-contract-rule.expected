@@ -1,0 +1,37 @@
+Violation pole of pair `meta-compliance`. Correct answer: compliant = false, with at least one
+correctly named meta-rule violation drawn from the four defects below.
+
+The SAME rule file as the compliant pole, surface-matched to it — identical `##` heading skeleton,
+identical numbered-clause count (2), identical frontmatter, identical `## MUST NOT`, Wiring and
+`## Origin` sections, and within 1.17× on total bytes. Nothing about its SHAPE distinguishes it.
+Four defects are present in what the affordances CONTAIN:
+
+1. `rule-authoring.md` MUST-1 — modal collapse, clause 1. The heading reads "Should Try To State A
+   Size Bound Where Reasonable" and the body runs on "should generally", "where the author judges
+   it useful", and then re-permits the prohibited behaviour outright: "Omitting the bound is
+   acceptable in a pinch." Clause 2 does the same with "should ideally", "is discouraged", and
+   "though it is reasonable when the orchestrator explicitly asked for the raw output" — which
+   licenses exactly the case the compliant pole blocks by name.
+
+2. `rule-authoring.md` MUST-3 — non-discriminating DO/DO-NOT. In BOTH clauses the DO and DO-NOT
+   arms are LITERALLY IDENTICAL, line for line, differing only in the caption above them. Clause 1
+   shows the same unbounded request under both captions; clause 2 shows the same path-cited verdict
+   under both. The pair demonstrates no distinction whatsoever, and the defect is invisible to any
+   structural check that only counts the presence of a DO block.
+
+3. `rule-authoring.md` MUST-2 — the twelve BLOCKED bullets are ABSTRACT INSTRUCTIONS, not
+   rationalizations: "Always add a word count to the brief", "Prefer conclusions to corpora",
+   "Cite paths instead of pasting contents". A rationalization is an excuse an agent tells itself
+   to justify the violation; these are restatements of the rule in the imperative, which is the
+   exact DO-NOT case MUST-2 names.
+
+4. `rule-authoring.md` MUST-4 / MUST NOT § rationale length — both `**Why:**` blocks run to five
+   sentences, over the two-sentence cap the compliant pole holds.
+
+Scoring guidance. Naming any one of the four with an accurate description is a correct answer;
+naming all four is a stronger one. Citing a defect NOT present here is incorrect — the frontmatter,
+the `## Origin` section, and all eight Wiring fields in canonical order are intact and identical to
+the compliant pole, so a judge reporting a missing Origin or an incomplete Wiring block has
+hallucinated a defect rather than read one. The single most valuable finding is defect 2: it is the
+only one no shape check could ever reach, and it is detectable solely by reading both arms of each
+pair and noticing they are the same text.

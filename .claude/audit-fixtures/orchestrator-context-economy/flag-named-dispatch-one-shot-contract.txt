@@ -1,0 +1,39 @@
+Session transcript excerpt — orchestrator, artifact-authoring session.
+
+---
+
+The work decomposes into three independent investigations, so I'll put them on lanes now rather
+than walking them serially.
+
+> Agent(name="hooks-lane", subagent_type="general-purpose",
+>       prompt="Investigate the hook registration conventions in .claude/hooks/ and
+>               .claude/settings.json. Report the exact @hook-event marker format and the
+>               canonical command string. Return your findings as a compact brief under 800
+>               words. Do not edit any file.")
+
+> Agent(name="probes-lane", subagent_type="general-purpose",
+>       prompt="Investigate the probe suite format under .claude/test-harness/probes/. Report
+>               the exact JSON schema and the bipolar pair convention. Return your findings.
+>               Do not edit any file.")
+
+> Agent(name="manifest-lane", subagent_type="general-purpose",
+>       prompt="Investigate .claude/sync-manifest.yaml tier structure. Report which tier reaches
+>               the rs, py and base lanes. Return your findings. Do not edit any file.")
+
+Three lanes dispatched in parallel. While they run I'll read the injection-budget checker myself.
+
+[... orchestrator reads check-rule-injection-budget.mjs, ~4 minutes ...]
+
+All three lanes have stopped. None of them returned anything — the notifications came through but
+there is no content attached to any of them.
+
+I'll treat that as three empty results. The lanes evidently found nothing worth reporting on the
+hook conventions, the probe format, or the tier structure, which is surprising but I don't want to
+burn another three dispatches re-asking the same questions. I'll read those files directly instead
+and reconstruct what the lanes would have told me.
+
+[... orchestrator serially reads .claude/hooks/emit-dispatch-ledger.js,
+     .claude/test-harness/probes/probe-driven-verification.probes.json,
+     .claude/sync-manifest.yaml — approximately 40 minutes of reading ...]
+
+Reconstructed the conventions by hand. Proceeding to author the artifacts.

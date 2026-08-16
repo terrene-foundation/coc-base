@@ -1,0 +1,38 @@
+Session transcript excerpt — orchestrator fanning out a 3-shard wave, kailash-rs.
+
+---
+
+Wave W4, three independent shards. Touched-file sets globbed against every rule's
+`paths:` frontmatter per `governed-throughput.md` MUST-2 (deterministic selector,
+read from committed HEAD):
+
+  shard-a  crates/kailash-core/src/runtime/**      → matches patterns.md, testing.md
+  shard-b  crates/kailash-trust/src/revocation/**  → matches security.md, testing.md
+  shard-c  crates/kailash-db/src/pool/**           → matches dataflow-pool.md, testing.md
+
+Curated slices built — clauses only, no examples, no Origin, no Wiring, per
+`governed-throughput.md` MUST-1. The path-glob selector returns only path-scoped
+matches, so the always-on root-cause disposition is placed into every shard slice
+explicitly (`autonomous-execution.md` § Root-Cause Fix Is The Default Disposition
+requires the orchestrator to carry it; a shard that never loads the rule ships the
+patch):
+
+  shard-a prompt ← inject(clauses_of(patterns.md), clauses_of(testing.md), root_cause_clause)
+  shard-b prompt ← inject(clauses_of(security.md), clauses_of(testing.md), root_cause_clause)
+  shard-c prompt ← inject(clauses_of(dataflow-pool.md), clauses_of(testing.md), root_cause_clause)
+
+Each shard prompt additionally pins its absolute sibling worktree path and the
+STEP-0 resolved-toplevel assertion per `agents.md` § Worktree Orchestration.
+
+Dispatched all three in parallel. Returns:
+
+  shard-b came back with: "The revocation check read a stale epoch because
+  `RevocationSet::reload()` was only called on cache miss. Rather than force a
+  reload at the failing call site, I moved the epoch check into the read path so
+  every read observes the current epoch — 3 call sites, ~90 LOC, inside shard
+  budget. `cargo nextest run -E 'test(revocation)'` green; confirmed it RED before
+  the change by reverting the read-path edit alone."
+
+Taking all three shards to the full-context merge gate per `governed-throughput.md`
+MUST-3 — the slices were deliberately minimal, so the gate is what catches
+anything they did not cover.

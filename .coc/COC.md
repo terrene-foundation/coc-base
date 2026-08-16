@@ -44,10 +44,10 @@ clean degrade, never a parse failure).
 
 ## Contents
 
-- rules: 66
-- agents: 22
-- skills: 33
-- commands: 42
+- rules: 72
+- agents: 21
+- skills: 32
+- commands: 41
 
 ## Authorship
 

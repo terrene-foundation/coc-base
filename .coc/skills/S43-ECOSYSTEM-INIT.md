@@ -30,7 +30,7 @@ Ordered per Q4: the registry defines the org, genesis anchors TO that org, the r
    `loom`, `atelier`, `downstream.<slug>`. Each binds to `{ "org": "<org>", "repo": "<repo>" }`.
 2. **Disclosure-scan BEFORE write (invariant 1).** The registry names real org slugs:
    ```bash
-   node .claude/bin/scan-synced-disclosure.mjs --root "$(git rev-parse --show-toplevel)"
+   node .claude/bin/scan-synced-disclosure.mjs --check --root "$(git rev-parse --show-toplevel)"
    ```
    Exit 0 → proceed. ANY finding (exit non-zero) → HALT; genericize/relocate the offending content and
    re-scan. NEVER write the config before a clean scan. (`ecosystem.json` is scanner-self-excluded when
@@ -118,7 +118,10 @@ tool, so it never trips the guard.
 The `validate-bash-command.js` state-file-write guard (`detectStateFileMutationSegmentAware`, Layer 3) BLOCKS any
 interpreter command (`node -e`/`-c`/`-m`, or any command LED by `node`/`python`/`ruby`/`perl`) whose
 **command string** contains a protected state-file path — `operators.roster.json`,
-`coordination-log.jsonl`, `posture.json`, `violations.jsonl`, `.initialized`. The documented inline
+`coordination-log.jsonl`, `posture.json`, `violations.jsonl`, `.initialized` (among others; the
+authoritative set is the `bash` surface of the protected-path registry at
+`.claude/hooks/lib/guard-path-scope.js`, from which `STATE_PATH_RX` is BUILT — grep it rather than
+treat these five as exhaustive). The documented inline
 `node -e '… operators.roster.json …'` form therefore CANNOT run; this is correct — only the canonical
 roster-write path may touch the roster. (`.claude/settings.json::permissions.deny`, where present, is a
 second lexical defense-in-depth layer matching the same paths.)

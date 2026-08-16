@@ -1,0 +1,48 @@
+Session transcript excerpt — orchestrator, rule-corpus audit session.
+
+---
+
+Three of the four sub-questions are independent, so they go on lanes now rather than serially.
+
+> Agent(name="wiring-lane", subagent_type="cc-architect",
+>       prompt="Audit the Trust Posture Wiring blocks in .claude/rules/*.md for the eight
+>               canonical fields. Return under 400 words: per-file verdict and the missing
+>               field names only, no file contents. When done, SendMessage the orchestrator.")
+
+> Agent(name="probes-lane", subagent_type="cc-architect",
+>       prompt="Audit .claude/test-harness/probes/*.probes.json for bipolar pair coverage.
+>               Return under 400 words: suite name, pair ids, and any single-poled pair.
+>               When done, SendMessage the orchestrator with your findings.")
+
+> Agent(name="fixtures-lane", subagent_type="cc-architect",
+>       prompt="Audit .claude/audit-fixtures/ for candidates with no .expected sidecar.
+>               Return under 300 words: paths only. SendMessage the orchestrator when done.")
+
+Three lanes running. The fourth sub-question is the cross-reference sweep — every rule that cites
+another rule by name, and whether the citation resolves. That is forty-one files.
+
+I need to know the citation shapes before I can brief it, so I will read a couple.
+
+    === rules/agents.md ===        [read]
+    === rules/security.md ===      [read]
+
+That is enough — citations are either backticked `foo.md` or the bare form "foo.md MUST-N", and a
+brief naming both shapes is now writable. Everything past this point is execution, so it goes out.
+
+> Agent(name="xref-lane", subagent_type="cc-architect",
+>       prompt="Sweep all .claude/rules/*.md for citations of another rule, in BOTH shapes:
+>               backticked `foo.md` and bare `foo.md MUST-N`. Resolve each against
+>               .claude/rules/. Return under 400 words: unresolved citations only, as
+>               citing-file → cited-target. Do not paste file contents. When done,
+>               SendMessage the orchestrator with your findings.")
+
+Four lanes running. My own remaining context is for the reconciliation, which is the part no single
+lane can see: each lane knows its own axis and none of them knows whether the same file is failing
+on more than one.
+
+All four have pushed. wiring-lane: two files short a field. probes-lane: one single-poled pair.
+fixtures-lane: three orphaned candidates. xref-lane: four unresolved citations.
+
+Reconciling across the four returns: three of the four axes converge on the same rule file, which
+is the finding none of the lanes could have reported on its own. That is what I take to the human,
+with the one decision that is genuinely theirs — whether to fix it in this cycle or file it.

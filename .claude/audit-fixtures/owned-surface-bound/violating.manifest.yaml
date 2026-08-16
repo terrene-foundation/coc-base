@@ -1,0 +1,47 @@
+# VIOLATING POLE — check-owned-surfaces.mjs MUST RED on this fixture, and
+# MUST name all three violation kinds below. It is `conformant.manifest.yaml`
+# with exactly three mutations, so a diff of the two files IS the statement of
+# what the gate detects.
+#
+#   1. fail-open-default          — `.codex/**` flipped to `opt_in: false`.
+#      A surface outside `.claude/**` whose default is ON silently widens
+#      loom's reach at every consumer (security.md § Secure-Default).
+#   2. election-missing           — `.gemini/**` is `opt_in: true` with no
+#      `election:`, so "the consumer elected it" is unfalsifiable.
+#   3. undeclared-enrichment-surface — `multi_cli_overlays.multi-cli.paths`
+#      names `.github/workflows/**`, an executable credentialed surface, with
+#      no matching `owned_surfaces:` entry. This is the exact shape the
+#      contract was silent on: a surface widened by adding a glob.
+owned_surfaces:
+  - surface: .claude/**
+    writer: sync-tier-aware.mjs (engine apply)
+    opt_in: false
+  - surface: .codex/**
+    writer: emit-cli-artifacts.mjs
+    opt_in: false
+    election: repos.<lang>.templates[].clis contains `codex`
+  - surface: .gemini/**
+    writer: emit-cli-artifacts.mjs
+    opt_in: true
+  - surface: .coc/**
+    writer: emit-coc.mjs
+    opt_in: true
+    election: multi_cli_overlays key `multi-cli`
+  - surface: AGENTS.md
+    writer: emit.mjs --all
+    opt_in: true
+    election: repos.<lang>.templates[].baseline_files contains `AGENTS.md`
+  - surface: GEMINI.md
+    writer: emit.mjs --all
+    opt_in: true
+    election: repos.<lang>.templates[].baseline_files contains `GEMINI.md`
+
+multi_cli_overlays:
+  multi-cli:
+    paths:
+      - .codex/**
+      - .gemini/**
+      - .github/workflows/**
+    dev_container_ownership:
+      publisher_internal: []
+      consumer_shipped: []

@@ -119,11 +119,45 @@ const requiredEntry = () => ({
     },
     probes: null,
   },
+  // loom#1722 — the SECOND pinned structural entry (Sweep 5's repo-level
+  // artifact-corpus checker). Mirrors IN_CODE_PIN_SETS; a drift here re-opens
+  // the class the pin closes.
+  "spec-corpus-conformance": {
+    type: "tool",
+    scanner: ".claude/bin/spec-corpus-conformance.mjs",
+    fixturesDir: ".claude/audit-fixtures/spec-corpus-conformance",
+    expected: {
+      clean: { exit: 0, grade: "VALID" },
+      bad: { exit: 1, grade: "INVALID", critical_failures: ["orphan-citations"] },
+    },
+    probes: null,
+  },
+  // loom#1751(b) — the SECOND pinned structural tool (the AUTHORED-vs-OFFERED
+  // upflow-invisibility probe). Every pin added to the in-code set must also
+  // appear here, or a conforming manifest stops being conforming and case 03
+  // fails: that coupling is deliberate, and it is what keeps this fixture an
+  // honest mirror of the pin set rather than a stale snapshot of it.
+  "upflow-gap": {
+    type: "tool",
+    scanner: ".claude/bin/lib/fleet-upflow-gap.mjs",
+    fixturesDir: ".claude/audit-fixtures/upflow-gap",
+    expected: {
+      clean: { exit: 0, grade: "CLEAN" },
+      bad: { exit: 1, grade: "GAPS", critical_failures: ["authored-not-offered"] },
+    },
+    probes: null,
+  },
 });
 const requiredEntryFiles = () => ({
   ".claude/bin/detection-binding-check.mjs": "// synthetic scanner stub\n",
   ".claude/audit-fixtures/detection-binding-check/clean": null,
   ".claude/audit-fixtures/detection-binding-check/bad": null,
+  ".claude/bin/spec-corpus-conformance.mjs": "// synthetic scanner stub\n",
+  ".claude/audit-fixtures/spec-corpus-conformance/clean": null,
+  ".claude/audit-fixtures/spec-corpus-conformance/bad": null,
+  ".claude/bin/lib/fleet-upflow-gap.mjs": "// synthetic scanner stub\n",
+  ".claude/audit-fixtures/upflow-gap/clean": null,
+  ".claude/audit-fixtures/upflow-gap/bad": null,
 });
 
 const cases = [

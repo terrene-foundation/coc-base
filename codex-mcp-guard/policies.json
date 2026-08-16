@@ -1,0 +1,126 @@
+{
+  "version": 1,
+  "source_dir": ".claude/hooks",
+  "policies": {
+    "shell": [
+      {
+        "source_file": "validate-bash-command.js",
+        "cc_matchers": [
+          "Bash"
+        ],
+        "invocation": "subprocess"
+      },
+      {
+        "source_file": "posture-gate.js",
+        "cc_matchers": [
+          "Bash",
+          "Edit|Write|NotebookEdit"
+        ],
+        "invocation": "subprocess"
+      },
+      {
+        "source_file": "genesis-anchor-guard.js",
+        "cc_matchers": [
+          "Bash"
+        ],
+        "invocation": "subprocess"
+      },
+      {
+        "source_file": "signing-mutation-guard.js",
+        "cc_matchers": [
+          "Bash",
+          "Edit|Write|NotebookEdit"
+        ],
+        "invocation": "subprocess"
+      },
+      {
+        "source_file": "operator-gate.js",
+        "cc_matchers": [
+          "Bash",
+          "Edit|Write|NotebookEdit"
+        ],
+        "invocation": "subprocess"
+      },
+      {
+        "source_file": "worktree-forest-guard.js",
+        "cc_matchers": [
+          "Bash"
+        ],
+        "invocation": "subprocess"
+      }
+    ],
+    "unified_exec": [
+      {
+        "source_file": "validate-bash-command.js",
+        "cc_matchers": [
+          "Bash"
+        ],
+        "invocation": "subprocess"
+      },
+      {
+        "source_file": "posture-gate.js",
+        "cc_matchers": [
+          "Bash",
+          "Edit|Write|NotebookEdit"
+        ],
+        "invocation": "subprocess"
+      },
+      {
+        "source_file": "genesis-anchor-guard.js",
+        "cc_matchers": [
+          "Bash"
+        ],
+        "invocation": "subprocess"
+      },
+      {
+        "source_file": "signing-mutation-guard.js",
+        "cc_matchers": [
+          "Bash",
+          "Edit|Write|NotebookEdit"
+        ],
+        "invocation": "subprocess"
+      },
+      {
+        "source_file": "operator-gate.js",
+        "cc_matchers": [
+          "Bash",
+          "Edit|Write|NotebookEdit"
+        ],
+        "invocation": "subprocess"
+      },
+      {
+        "source_file": "worktree-forest-guard.js",
+        "cc_matchers": [
+          "Bash"
+        ],
+        "invocation": "subprocess"
+      }
+    ],
+    "apply_patch": [
+      {
+        "source_file": "posture-gate.js",
+        "cc_matchers": [
+          "Bash",
+          "Edit|Write|NotebookEdit"
+        ],
+        "invocation": "subprocess"
+      },
+      {
+        "source_file": "signing-mutation-guard.js",
+        "cc_matchers": [
+          "Bash",
+          "Edit|Write|NotebookEdit"
+        ],
+        "invocation": "subprocess"
+      },
+      {
+        "source_file": "operator-gate.js",
+        "cc_matchers": [
+          "Bash",
+          "Edit|Write|NotebookEdit"
+        ],
+        "invocation": "subprocess"
+      }
+    ]
+  }
+}
