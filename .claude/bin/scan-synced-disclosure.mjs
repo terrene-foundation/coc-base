@@ -110,7 +110,71 @@ widening the allowlist to swallow a real token).`,
 // top-level synced overlays. Simplest robust impl per the issue:
 // scan broadly, exclude precisely.
 // ────────────────────────────────────────────────────────────────
-const TOP_LEVEL_SYNCED = ["AGENTS.md", "GEMINI.md"];
+const TOP_LEVEL_SYNCED = ["AGENTS.md", "GEMINI.md", "CLAUDE.md", ".gitattributes", ".gitignore"];
+
+// Top-level DIRECTORIES that leave this repo, and therefore belong to the surface this
+// scanner fences. Until this list existed the walk covered `.claude/**` plus two top-level
+// FILES and nothing else — so every path below was distributed UNSCANNED.
+//
+// DERIVED, not guessed, from the two authoritative routing sources:
+//   1. `bin/lib/community-membership.mjs::INCLUDE` — the community-edition / public-fork
+//      projection allowlist. Everything here is an INCLUDE root; `workspaces/` is NOT one.
+//   2. `bin/sync-tier-aware.mjs` — the /sync engine. Its candidate walk (`walkClaudeDir`)
+//      is rooted at `.claude/` alone, and `expandVariantOnly` routes a variant subtree to a
+//      top-level destination (`scripts/`, `workspaces/`) at the TARGET. The variant sources
+//      it reads live under `.claude/variants/**`, which the `.claude/` walk already covers.
+//
+// MEASURED at the time this landed (real `--dry-run --json` plans, all five lanes —
+// `--target py|rs|base`, `--build py|rs`; 2527–5694 destinations each, so the extractor was
+// shown to fire): ZERO destinations under `workspaces/`, and ZERO plan sources under the
+// repo-root `workspaces/`. `isPublished("workspaces/…")` likewise returns false, against
+// controls that return true for `.claude/rules/git.md` and false for `.claude/agents/
+// management/…`. Repo-root `workspaces/` therefore distributes NOWHERE today and is
+// deliberately NOT walked: widening to it would make the scan surface WIDER than the
+// distributed surface, which is the same class of error as leaving it narrower — it burns
+// the operator's attention on findings that cannot leave the repo. If a variant ever gains
+// a `workspaces/` subtree it becomes distributed AND is already covered, because it lives
+// under `.claude/variants/`.
+//
+// NOT imported from `community-membership.mjs`, deliberately: THIS FILE SHIPS (measured — it
+// is a `dest` in the py plan), and that module is `loom_only`, so importing it would be
+// ERR_MODULE_NOT_FOUND for every consumer — the exact broken-on-import class
+// `community-import-closure.test.mjs` refuses. The two lists are instead pinned in step
+// mechanically by `disclosure-scan-surface-parity.test.mjs`, the same literal-plus-parity-test
+// shape `coc-artifact-eval.yml`'s ARTIFACT_SURFACE uses against its `push:` paths.
+const TOP_LEVEL_SYNCED_DIRS = [
+  ".codex",
+  ".gemini",
+  ".codex-mcp-guard",
+  "scripts",
+  "tools",
+];
+
+// `tests` IS an INCLUDE root — it is published — and is DELIBERATELY NOT walked here. This
+// is a deferral with a stated reason, not an oversight, and the parity test below asserts
+// the exclusion is declared rather than forgotten.
+//
+// MEASURED: walking it yields 21 findings across four files, and 19 of them are BY DESIGN.
+// `tests/integration/multi-operator/eco-cross-ecosystem-disclosure-guard.test.js` exists to
+// exercise the cross-ecosystem disclosure guard, so it necessarily embeds the very shapes
+// this scanner hunts — 16 `acme-corp`-family org slugs and a homograph/ZWSP hostname case.
+// Those are not leaks; `acme-corp/kailash-sdk` is the canonical MUST-FLAG example in this
+// file's own shape commentary, which is exactly why it cannot be allowlisted away.
+//
+// The sibling precedent does not transfer cleanly, and that is the whole difficulty. Loom's
+// `*.test.mjs` fixtures get a SOURCE-ONLY skip (see isExcluded) on the reasoning that their
+// synthetic shapes are by-design; but those files are ALSO manifest-`exclude:`d, so they
+// never reach a consumer. `tests/**` is PUBLISHED, so a blanket source-only skip here would
+// let a genuine leak ship unflagged — which is not a hypothetical: this sweep found a REAL
+// operator username (not a member of SYNTHETIC_FIXTURE_USERS) in
+// `m9-1-fix-wave-regression.test.js`, genericized in the same change that added this note.
+//
+// Reconciling those two — fence `tests/` from publication, split fixtures from assertions,
+// or add a synthetic-fixture policy for published tests — is a real design decision about a
+// PUBLIC surface, with more than one defensible answer. It is left to a change that can be
+// reviewed on its own terms rather than settled as a side effect of widening a walk. Landing
+// it silently either way would be the worse outcome: including `tests/` as-is would red this
+// scanner's own CI gate on every run, which is how a gate gets switched off.
 
 // Active scan root (set by collectFiles; default repo root). Declared
 // before isExcluded() so the scanner-own-file check resolves correctly.
@@ -120,10 +184,12 @@ let REPO_ROOT_ACTIVE = REPO_ROOT;
 // disclosure scanner fences the SYNCED surface (the #252 forest is the
 // content that reaches 30+ consumers); a real operator token in a
 // never-synced file (the learning telemetry log, loom-only management
-// agents, the local VERSION ledger, sync-manifest.yaml itself, the
-// loom-only test-harness) is NOT a sync disclosure — it never leaves
-// this repo. Scanning it would bury the real sync-surface signal in
-// thousands of non-actionable lines.
+// agents, the local VERSION ledger, the loom-only test-harness) is NOT
+// a sync disclosure — it never leaves this repo. Scanning it would bury
+// the real sync-surface signal in thousands of non-actionable lines.
+//
+// NB: `sync-manifest.yaml` was listed above until 2026-08-16 and is NOT
+// in this class — see its (removed) entry's replacement note below.
 //
 // R3 disclosure FIX (#263): `variants/` is NO LONGER blanket-excluded.
 // `.claude/variants/{py,rs,prism}/**` are the language overlays that
@@ -160,7 +226,23 @@ function isNeverSynced(relPath, base, segs) {
   // scratch space. Excluding them prevents the scanner from flagging
   // findings inside agent transients that NEVER reach a downstream surface.
   if (pSegs[0] === "worktrees") return true;
-  if (base === "sync-manifest.yaml") return true;
+  // 2026-08-16: `sync-manifest.yaml` is NO LONGER skipped. The blanket skip
+  // rested on a FALSE premise ("it never leaves this repo"). The manifest IS
+  // distributed — `multi_cli_overlays.multi-cli.manifest_distribute: true`
+  // (issue #184) is a deliberate carve-out FROM the global
+  // `exclude: sync-manifest.yaml` rule — agent-prose `cp` at coc-sync Step 4.6
+  // until loom#1777 moved it into the engine
+  // (`sync-tier-aware.mjs::emitSyncManifest`). EITHER WAY the copy bypasses the
+  // tier-lane copy loop, so `stripBuildInternalReferences` NEVER runs on it —
+  // the engine emit is a VERBATIM byte copy, which is the point (the consumer's
+  // emitter must read the same declarations loom did). The manifest reaches
+  // every multi-CLI USE template with ZERO content transform. Those
+  // templates are PUBLIC by design. So the one artifact shipping untransformed
+  // to public consumers was the one file the scanner was hardcoded never to
+  // inspect. It is therefore SCANNED. (cc-only templates do not receive it —
+  // `clis:` derives template_type — but "reaches fewer consumers" is not
+  // "reaches none".) Same correction, same reason, as the F77 (#386)
+  // settings.json removal from this list a few lines below.
   if (base === "VERSION") return true;
   if (base === "CLAUDE.md") return true;
   // F77 (#386): settings.json IS synced to USE templates as committed
@@ -445,6 +527,24 @@ function isExcluded(relPath) {
   // SCANNED there and flagged until the `use_obsoleted` purge removes it.
   if (/\.test\.mjs$/.test(base) && REPO_ROOT_ACTIVE === REPO_ROOT) return true;
 
+  // `scripts/publish-to-public.mjs` — the loom-only public-fork projector. `scripts` is an
+  // INCLUDE root, so widening the walk to it reaches this file; but the file itself is
+  // FENCED from publication (measured: `isPublished("scripts/publish-to-public.mjs")` is
+  // false, against controls returning true for `.claude/rules/git.md` and false for
+  // `.claude/agents/management/…`), so nothing in it is ever distributed.
+  //
+  // It carries 8 customer-identity-token hits and that is BY DESIGN: it holds the
+  // `EXTRA_IDENTITY_TOKENS` / `STATIC_SCRUB` tables — the literal tokens the projector
+  // scrubs OUT. `community-membership.mjs`'s own header records that these deliberately stay
+  // in this loom-only module because relocating them to a synced file would ship the literal
+  // tokens, which is the leak the tables exist to prevent. Flagging the scrubber for
+  // containing the strings it scrubs would make the only fix "delete the scrubber".
+  //
+  // SOURCE-ONLY, matching the `*.test.mjs` flip directly above: at a DESTINATION scan this
+  // file's presence IS the disclosure event (it should never have shipped), so it is scanned
+  // and flagged there.
+  if (relPath === "scripts/publish-to-public.mjs" && REPO_ROOT_ACTIVE === REPO_ROOT) return true;
+
   // never-synced per manifest exclude: — out of the synced-forest scope
   if (isNeverSynced(relPath, base, segs)) return true;
 
@@ -482,6 +582,14 @@ function collectFiles(root) {
   const files = [];
   const claudeDir = path.join(REPO_ROOT_ACTIVE, ".claude");
   if (fs.existsSync(claudeDir)) walk(claudeDir, files);
+  // Top-level distributed DIRECTORIES (see TOP_LEVEL_SYNCED_DIRS for the derivation).
+  // `walk` applies the same per-file exclusions the `.claude/` walk gets, so a never-synced
+  // path under one of these roots is skipped by exactly the rules that skip it under
+  // `.claude/` — one exclusion mechanism, not a second one that could drift.
+  for (const top of TOP_LEVEL_SYNCED_DIRS) {
+    const p = path.join(REPO_ROOT_ACTIVE, top);
+    if (fs.existsSync(p) && !isExcluded(top)) walk(p, files);
+  }
   for (const top of TOP_LEVEL_SYNCED) {
     const p = path.join(REPO_ROOT_ACTIVE, top);
     if (fs.existsSync(p) && !isExcluded(top)) files.push(p);
@@ -592,10 +700,57 @@ const ALLOWLIST = [
   // platform here would require a name this change cannot verify, and inventing
   // one to fill the slot is exactly the fabrication that produced the original
   // defect. The frameworks entry above still covers the bare `PACT` token, so the
-  // legitimate framework reference is unaffected. Removal fails SAFE — the token
-  // now flags and a human adjudicates, rather than passing silently.
+  // legitimate framework reference is unaffected.
   // Paired fixture: `clean-foundation-placeholder/.claude/rules/clean.md` line 9
   // carried the same false assertion and is corrected in this change.
+  //
+  // CORRECTED 2026-08-16 — the sentence that stood here claimed "Removal fails
+  // SAFE — the token now flags and a human adjudicates, rather than passing
+  // silently." That was FALSE AS WRITTEN and is withdrawn. Removing a positive
+  // allowlist entry only UN-SUPPRESSES a token; it does not make anything MATCH
+  // it. Measured three-pole on one tree with the tenant denylist present at the
+  // probe root: an existing denylist token flagged (exit 1), a benign control
+  // word did not (exit 0), and this token ALSO did not (exit 0) — i.e. between
+  // 2026-08-10 and 2026-08-16 the fence was not blind-by-allowlist any more, it
+  // was simply silent, which reads identically from the outside and is why the
+  // GAP-C sites survived every scan. A removal is only fail-safe once some shape
+  // actually matches the token, so the missing half — GAP B step (3), adding it
+  // to `.claude/disclosure-tenant-denylist.json` — landed in the same change as
+  // this correction.
+  //
+  // VERIFIABLE, NOT ASSERTED (2026-08-16). The claim above is not left as prose.
+  // Reproduce it in any loom-class checkout — each pole names the result that
+  // would falsify it, and the tree is left unmodified:
+  //
+  //   f=.claude/guides/rule-extracts/repo-scope-discipline.md   # any scanned file
+  //   cp "$f" /tmp/f.bak
+  //   node .claude/bin/scan-synced-disclosure.mjs --check       # BASELINE: exit 0
+  //   # pole (a) EFFICACY — an existing denylist token must FLAG.
+  //   #   falsified by exit 0: the scan cannot see a token it is given.
+  //   # pole (b) NO-FALSE-POSITIVE — an arbitrary English word must NOT flag.
+  //   #   falsified by exit 1: a flag then carries no information.
+  //   # pole (c) THE REGRESSION — the token this note is about must FLAG.
+  //   #   falsified by exit 0: the fix is inert and this note is wrong again.
+  //   for t in <a-denylist-token> marmalade <this-token>; do
+  //     cp /tmp/f.bak "$f"; printf '\nPROBE: the %s system.\n' "$t" >> "$f"
+  //     node .claude/bin/scan-synced-disclosure.mjs --check; echo "$t -> $?"
+  //   done; cp /tmp/f.bak "$f"
+  //
+  // ATTRIBUTION CONTROL, so the pole-(c) flag is not read as coming from
+  // something else: restore ONLY the denylist to its pre-fix revision and replant
+  // the SAME token — it returns to exit 0. Measured 2026-08-16: (a) exit 1,
+  // (b) exit 0, (c) exit 1, control exit 0, against a 0-finding baseline over
+  // 3186 scanned files, so the exit code discriminates here rather than riding a
+  // non-zero floor.
+  //
+  // LOCKED IN CI, so this cannot silently rot back: the bipolar fixture case
+  // `gapc-guide-security-history` in `audit-fixtures/scan-synced-disclosure/`
+  // pins the class with a SYNTHETIC token, and both poles were shown to RED —
+  // removing the token from the violation pole FAILS the case, and planting it
+  // in the compliant pole FAILS the count-lock.
+  //
+  // The lesson worth keeping: an allowlist REMOVAL and a detector ADDITION are
+  // two separate changes, and only the second one makes a scan mean anything.
   // ALLOWLIST-NOTE (R3 #263): `your-registry` is the documentation
   // placeholder container-registry host in the rs deployment-patterns
   // skill (`image: your-registry/kailash-service:latest`) — the

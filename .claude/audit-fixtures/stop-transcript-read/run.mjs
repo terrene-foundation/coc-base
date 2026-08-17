@@ -23,6 +23,7 @@ import {
   mkdirSync,
   rmSync,
   symlinkSync,
+  mkdtempSync,
 } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
@@ -100,7 +101,7 @@ function toolUseEntry() {
 }
 
 function withTmp(tag, fn) {
-  const tmp = join(tmpdir(), `stop-fix-${tag}-${Date.now()}`);
+  const tmp = mkdtempSync(join(tmpdir(), `stop-fix-${tag}-`));
   try {
     mkdirSync(join(tmp, ".claude"), { recursive: true });
     return fn(tmp);

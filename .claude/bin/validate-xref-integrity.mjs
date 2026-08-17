@@ -74,6 +74,32 @@
  *      `skills/45-genesis-bootstrap` is not a false CRITICAL. Bounded to
  *      EXTENSION-LESS tokens — a token written `ghost.md` names its own type, so
  *      a directory called `ghost.md` must not retire it.
+ *    - CASE-EXACT: every resolved candidate is re-checked segment-by-segment
+ *      against `readdirSync`, because `lstatSync` says YES to a wrong-case token
+ *      on a case-INSENSITIVE filesystem (macOS, Windows) and NO on the Linux CI
+ *      runner. Without it the SAME tree yields different verdicts on the two, and
+ *      the operator's is the FALSE-GREEN one. See pathCaseExactUnderRoot.
+ *      An UPPERCASE token (`rules/SYNC-COMPLETENESS.md`) looks like an emitted-tree
+ *      artifact id — `emit-coc.mjs::deriveId` uppercases source basenames — and a
+ *      pass that reverse-derived such ids back to their lowercase source was
+ *      BUILT, MEASURED, and REMOVED. It was refuted: every one of the nine
+ *      uppercase tokens in the corpus resolves in lowercase, so they are REAL
+ *      PATHS, MISCASED, and teaching the resolver to accept them would silence a
+ *      class of genuine dangling references — the check-that-cannot-fail outcome
+ *      this very pass exists to prevent. The repair is corrected citations, not a
+ *      more forgiving resolver. Do not re-add it.
+ *
+ *  NOT-APPLICABLE (reported, never counted, never drives the exit code):
+ *    - `journal/NNNN` provenance citations in a repo with NO root `journal/`
+ *      tree. `journal/` is loom-only and NEVER distributed (it is the
+ *      NON-cascading local receipt per knowledge-cascade-routing.md), so at every
+ *      USE template, BUILD repo and downstream consumer EVERY such citation is
+ *      unresolvable BY DESIGN — and counting them dangling made a consumer green
+ *      only if loom's rules stopped citing their own provenance. Two things keep
+ *      this from being an amnesty: a PRESENT tree with a missing entry is still
+ *      `journal-entry-not-found` and still reds, and an ABSENT tree at the repo
+ *      that OWNS it (`.claude/VERSION::type == "coc-source"`) is still
+ *      `journal-dir-missing` and still reds. See resolveJournalToken.
  *
  *  Exit:
  *    0 = COMPLETE run, no dangling refs (findings sourced from EXCLUDED contexts,
@@ -112,6 +138,35 @@
  *      requires adding it here, and nothing detects that omission.
  *    - SLUG TAILS AND RANGE ENDPOINTS are matched loosely; a citation may resolve
  *      on its prefix while its tail names something that does not exist.
+ *    - A MATERIALIZED TREE IS NOT A CONSUMER. Running this validator inside a
+ *      tree produced by `sync-tier-aware.mjs --out <dir>` is the standard way to
+ *      preview a consumer's verdict WITHOUT a cross-repo read, and it is faithful
+ *      for `.claude/**` — but `--out` materializes ONLY `.claude/**`, so every
+ *      ROOT-LEVEL file (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `STACK.md`) is
+ *      absent there and present in a real consumer. A citation that climbs out of
+ *      `.claude/` — e.g. `[x](../../../CLAUDE.md)` from a skill — is therefore
+ *      reported not-found in the scratch tree and resolves fine at the consumer.
+ *      Measured both poles: that exact citation is 1 finding in a materialized
+ *      base tree and 0 in the real consumer CI log for the same target (control:
+ *      59 finding lines in that log, so the matcher had something to find), and
+ *      it does not appear among loom's own 11. SUCH FINDINGS MUST NOT BE READ AS
+ *      DANGLING; copy the root files in, or discount the class by hand.
+ *
+ *      NO CHECKER-SIDE FIX IS OFFERED, and the reason is measured rather than
+ *      assumed: `../../../CLAUDE.md` from `.claude/skills/<dir>/<file>.md`
+ *      resolves to `<repoRoot>/CLAUDE.md`, which is INSIDE the repo root — so
+ *      there is no structural signal distinguishing "this tree is a partial
+ *      materialization" from "this consumer is genuinely missing its CLAUDE.md".
+ *      A rule broad enough to excuse the first would silently excuse the second,
+ *      which is the same amnesty class the declaration reader refuses. The defect
+ *      is in the INSTRUMENT'S USE, not in what it computes, so it is documented
+ *      here rather than coded around.
+ *    - AT A REPO WITH NO ROOT `journal/`, exit 0 says NOTHING about journal
+ *      citations: every one of them is NOT-APPLICABLE there (see the
+ *      NOT-APPLICABLE block above), so their correctness is measured at loom and
+ *      nowhere else. This edge is by construction rather than a defect — the
+ *      question genuinely has no answer at a repo that does not carry the tree —
+ *      but a reader citing a consumer's exit 0 must not read it as covering them.
  *    - THE UNBACKTICKED JOURNAL SHAPE is out of scope BY DECISION (see
  *      BACKTICK_JOURNAL_RE). Unlike the three above, this one is not a defect:
  *      the class is correct-by-design provenance and the decision records why
@@ -144,10 +199,18 @@
  * ============================================================================
  */
 
-import { readFileSync, readdirSync, statSync, lstatSync, existsSync } from "node:fs";
+import {
+  readFileSync,
+  readdirSync,
+  statSync,
+  lstatSync,
+  existsSync,
+  writeFileSync,
+  mkdirSync,
+} from "node:fs";
 import { join, relative, resolve, dirname, sep } from "node:path";
 import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 // --- Repo root resolution -----------------------------------------------
 
@@ -810,10 +873,67 @@ function extractTokens(text, sourcePath) {
 
 // --- Resolver -----------------------------------------------------------
 
+// Does this repo OWN a root `journal/` tree at all?
+//
+// `journal/` is loom-only and NEVER distributed (knowledge-cascade-routing.md
+// names the /codify journal entry as the NON-cascading local receipt; nothing in
+// sync-manifest.yaml ships it). So at every USE template, BUILD repo and
+// downstream consumer, EVERY backticked `journal/NNNN` provenance citation in
+// every shipped rule points at a tree that is absent BY DESIGN.
+//
+// Before this distinction existed, all of them resolved to `journal-dir-missing`
+// and were reported as dangling defects, which made a consumer green ONLY if
+// loom's rules stopped citing their own provenance receipts — i.e. the validator
+// demanded that provenance be deleted. Measured on a two-pole simulation (a
+// synthetic `.claude/rules/probe.md` citing `journal/0569`, `journal/.pending/
+// 0001-x` and `journal/9999`, scanned in an otherwise-identical tree WITH and
+// WITHOUT a root `journal/`): 4 dangling without the tree vs 2 with it, while a
+// planted control `rules/ghost-does-not-exist-9999.md` was reported in BOTH runs
+// — so the extractor demonstrably fired on both poles and the delta is the
+// journal class alone, not a skipped file.
+function repoOwnsJournalTree(repoRoot) {
+  try {
+    return statSync(join(repoRoot, "journal")).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+// ...but "absent" is a defect AT THE ONE REPO THAT OWNS THE TREE. `.claude/VERSION::type`
+// is the same discriminator `issue-triage-routing.md` routes on, and it ships to
+// every consumer carrying that consumer's own class. At `coc-source` (loom) a
+// missing root `journal/` is NOT by-design and stays LOUD — so this carve-out
+// cannot silently swallow the whole journal class if loom's tree is deleted, or if
+// the validator is run from a root that is not the repo root. Any other type, or an
+// unreadable/unparseable VERSION, is treated as consumer-like: not-applicable.
+//
+// Falsifying result, named per instrument-discipline.md MUST-1: at a repo whose
+// VERSION says `coc-source` and which has no `journal/`, the run still reports
+// `journal-dir-missing` and exits 1. That is what the paired fixture asserts.
+function repoIsJournalOwningSource(repoRoot) {
+  try {
+    const v = JSON.parse(readFileSync(join(repoRoot, ".claude", "VERSION"), "utf8"));
+    return v && v.type === "coc-source";
+  } catch {
+    return false;
+  }
+}
+
 function resolveJournalToken(token, repoRoot) {
   // token = "journal/NNNN..." or "journal/.pending/NNNN..."
   const m = token.match(/^journal\/(\.pending\/)?(\d{3,4})/);
   if (!m) return { ok: false, reason: "malformed-journal-token" };
+  // NOT-APPLICABLE, not dangling: this repo carries no journal tree at all, so
+  // the question "does entry NNNN exist" has no answer here. Distinguished from
+  // the tree being PRESENT and the specific entry missing, which stays a real
+  // defect (`journal-entry-not-found`) and still drives the exit code.
+  if (!repoOwnsJournalTree(repoRoot) && !repoIsJournalOwningSource(repoRoot)) {
+    return {
+      ok: false,
+      notApplicable: true,
+      reason: "journal-tree-absent-not-applicable",
+    };
+  }
   const subdir = m[1] ? ".pending" : "";
   const nnnn = m[2];
   const dir = subdir ? join(repoRoot, "journal", subdir) : join(repoRoot, "journal");
@@ -841,8 +961,74 @@ function isInsideRepoRoot(absPath, repoRoot) {
   return normPath === normRoot || normPath.startsWith(normRoot + sep);
 }
 
-function resolveRefToken(token, repoRoot, sourcePath, kind) {
-  // Candidate paths to try, in order.
+// --- Case-exact resolution ----------------------------------------------
+//
+// WHY THIS EXISTS. `lstatSync` asks the FILESYSTEM whether a path exists, and on
+// a case-INSENSITIVE filesystem (macOS APFS/HFS+ by default, Windows NTFS) it
+// answers YES for a token whose spelling does not match the real on-disk name.
+// The consumers of this validator run it on BOTH: an operator's mac AND a Linux
+// CI runner. So without a case check the SAME tree yields DIFFERENT verdicts on
+// the two, and the mac verdict is the FALSE-GREEN one — a dangling ref that reds
+// CI is invisible to the operator who is trying to fix it.
+//
+// Measured on this repo, with a known-answer control (instrument-discipline.md
+// MUST-3a): `lstatSync(".claude/commands/TEST-HARNESS-PROBE.md")` and
+// `lstatSync(".claude/rules/DOCUMENTATION.md")` BOTH returned FILE on macOS while
+// the real on-disk names are `test-harness-probe.md` and `documentation.md`, and
+// the control `.claude/commands/DEFINITELY-NOT-A-REAL-FILE.md` returned ENOENT in
+// the same probe — so the resolver was demonstrably running and the wrong-case
+// hits were the filesystem answering yes, not the probe misfiring.
+//
+// The check is segment-by-segment against `readdirSync`, which reports the REAL
+// spelling on every platform, rather than `realpathSync.native` — the resolver
+// deliberately uses `lstat` so a symlink cannot walk it out of the repo, and
+// realpath would follow exactly the symlinks that guard exists to refuse.
+//
+// Falsifying result, named per MUST-1: if case were NOT being enforced, a probe
+// token spelled `rules/DOCUMENTATION.md` would resolve `ok: true` here. It does
+// not; the paired fixture asserts both poles on one tree.
+const dirEntryCache = new Map();
+
+function dirEntryNames(dir, { refresh = false } = {}) {
+  if (!refresh && dirEntryCache.has(dir)) return dirEntryCache.get(dir);
+  let names;
+  try {
+    names = new Set(readdirSync(dir));
+  } catch {
+    names = null;
+  }
+  dirEntryCache.set(dir, names);
+  return names;
+}
+
+// True iff every path segment from repoRoot down to absPath exists with EXACTLY
+// this spelling. A cached MISS is re-read from disk before it is believed, so a
+// caller (the fixture harness) that creates files between calls is never served
+// a stale negative; positive hits are cached outright, matching the resolver's
+// pre-existing assumption that the tree does not change during a run.
+function pathCaseExactUnderRoot(absPath, repoRoot) {
+  const rel = relative(resolve(repoRoot), resolve(absPath));
+  if (rel === "") return true;
+  if (rel === ".." || rel.startsWith(".." + sep)) return false;
+  let cur = resolve(repoRoot);
+  for (const segment of rel.split(sep).filter((s) => s && s !== ".")) {
+    let names = dirEntryNames(cur);
+    if (!names || !names.has(segment)) {
+      names = dirEntryNames(cur, { refresh: true });
+      if (!names || !names.has(segment)) return false;
+    }
+    cur = join(cur, segment);
+  }
+  return true;
+}
+
+// The candidate paths a token could name, in resolution order. EXTRACTED so the
+// shipped-declaration reader tests the SAME paths the resolver tried: a
+// source-relative `../02-dataflow/SKILL.md` has no textual `.claude/` prefix to
+// normalize, so a reader that guessed at the path shape missed 26 of the 44
+// findings left at a materialized consumer tree. One producer of candidates, two
+// consumers, no second copy to drift.
+function candidatePathsFor(token, repoRoot, sourcePath, kind) {
   const candidates = [];
 
   // For md-link kind, try source-relative first (markdown link semantics).
@@ -861,6 +1047,12 @@ function resolveRefToken(token, repoRoot, sourcePath, kind) {
     // Relative path — source-relative already tried above for md-link;
     // also try repo-root-relative as a fallback for backtick refs.
     candidates.push(resolve(repoRoot, token));
+    // ...and source-relative for a BACKTICK ref too, which the resolver does not
+    // try (a backtick token is repo-anchored by convention). Declaration lookup
+    // is a superset on purpose: it only ever excuses an absence.
+    if (kind !== "md-link" && sourcePath) {
+      candidates.push(resolve(dirname(join(repoRoot, sourcePath)), token));
+    }
   } else {
     // Bare form (rules/foo.md, skills/foo/bar.md, etc.) — try `.claude/<token>`
     // first (the canonical loom-side path), then `<repo-root>/<token>` (loom-
@@ -868,6 +1060,11 @@ function resolveRefToken(token, repoRoot, sourcePath, kind) {
     candidates.push(join(repoRoot, ".claude", token));
     candidates.push(join(repoRoot, token));
   }
+  return candidates;
+}
+
+function resolveRefToken(token, repoRoot, sourcePath, kind) {
+  const candidates = candidatePathsFor(token, repoRoot, sourcePath, kind);
 
   // Clamp every candidate to repoRoot before stat — defense-in-depth
   // against path-traversal via `../../etc/passwd`-style tokens. Candidates
@@ -881,7 +1078,7 @@ function resolveRefToken(token, repoRoot, sourcePath, kind) {
   for (const c of safeCandidates) {
     try {
       const st = lstatSync(c);
-      if (isDir ? st.isDirectory() : st.isFile()) {
+      if ((isDir ? st.isDirectory() : st.isFile()) && pathCaseExactUnderRoot(c, repoRoot)) {
         return { ok: true, resolvedPath: c };
       }
     } catch {
@@ -929,7 +1126,7 @@ function resolveRefToken(token, repoRoot, sourcePath, kind) {
   if (!isDir && !hasFileExtension(token)) {
     for (const c of safeCandidates) {
       try {
-        if (lstatSync(c).isDirectory()) {
+        if (lstatSync(c).isDirectory() && pathCaseExactUnderRoot(c, repoRoot)) {
           return { ok: true, resolvedPath: c, looseDirMatch: true };
         }
       } catch {
@@ -937,6 +1134,7 @@ function resolveRefToken(token, repoRoot, sourcePath, kind) {
       }
     }
   }
+
   return { ok: false, reason: "not-found" };
 }
 
@@ -998,15 +1196,303 @@ function installStreamGuards() {
   });
 }
 
+// --- PER-TARGET absent-by-design, DERIVED (`--target`) ------------------
+//
+// WHY DERIVED AND NOT LISTED. SANCTIONED_ABSENT_REFS is hand-enumerated against
+// ONE filesystem — loom's — while this validator runs against MANY. The bug that
+// shape produces is visible in this very file: the `.claude/skills/project/`
+// note above records an entry being SKIPPED because "it EXISTS at loom, so it
+// resolves and needs no entry". True at loom; wrong at every consumer, where a
+// consumer-owned overlay dir is absent by construction. Its three siblings got
+// entries only because they happen NOT to exist here. So the defect was never a
+// missing row — it was reasoning about absence from the wrong filesystem.
+// `sync-manifest.yaml` already KNOWS, per target, what that target receives.
+//
+// WHERE THIS CAN RUN, stated plainly because it bounds the whole feature:
+// LOOM ONLY. `sync-manifest.yaml` is in the universal `exclude:` block and
+// `sync-tier-aware.mjs` is loom-platform tooling, so NEITHER reaches a consumer
+// (`sync-tier-aware.mjs` names `.coc-obsoleted` as "the only channel reaching
+// EVERY consumer" for exactly this reason). `--target` is therefore a
+// PRE-DISTRIBUTION preview run at loom — it tells loom which of its citations
+// will dangle in a target's tree BEFORE the sync — and it does NOT make a
+// consumer's own CI run green. Doing that needs a slim DERIVED declaration
+// SHIPPED per target, the shape `.coc-obsoleted` already proves; that emitter is
+// distribution code and is deliberately NOT built here.
+//
+// The import is DYNAMIC and reached only under `--target` on purpose: this
+// validator SHIPS (sync-tier-aware.mjs::ALWAYS_INCLUDE) and its dependency does
+// NOT, so a static import would give every consumer ERR_MODULE_NOT_FOUND on load.
+
+// Skip reasons that POSITIVELY DECLARE the path absent for this target. Each is
+// a manifest statement, not an inference. `no_tier_match` is deliberately NOT
+// here — see targetDisposition.
+const PROVING_SKIP_REASONS = new Set([
+  "loom_only",
+  "exclude",
+  "use_exclude",
+  "build_exclude",
+  "loom_local",
+  "reserved_local",
+]);
+
+async function loadTargetPlan(repoRoot, target, mode) {
+  if (mode !== "use" && mode !== "build") {
+    return { error: `--mode must be "use" or "build" (got "${mode}")` };
+  }
+  const url = pathToFileURL(
+    join(repoRoot, ".claude", "bin", "sync-tier-aware.mjs"),
+  ).href;
+  let mod;
+  try {
+    mod = await import(url);
+  } catch (e) {
+    return {
+      error:
+        `--target requires .claude/bin/sync-tier-aware.mjs and .claude/sync-manifest.yaml, ` +
+        `which are loom-platform tooling and never distributed; this repo has neither ` +
+        `(${(e && e.code) || (e && e.message) || "import failed"})`,
+    };
+  }
+  // buildPlan calls process.exit() on a manifest defect, which would bypass this
+  // script's exit contract entirely (its code 1 is indistinguishable from
+  // "dangling refs found"). Its three reachable fail() paths are pre-checked here
+  // so they surface as this script's own usage error instead.
+  let manifest, repos;
+  try {
+    manifest = mod.loadManifest();
+    repos = mod.parseRepos(manifest);
+  } catch (e) {
+    return { error: `could not read sync-manifest.yaml (${e.message})` };
+  }
+  const repo = repos[target];
+  if (!repo) {
+    return {
+      error: `unknown --target "${target}"; declared targets: ${Object.keys(repos).join(", ")}`,
+    };
+  }
+  if (repo.tier_subscriptions == null) {
+    return { error: `manifest defect: repos.${target}.tier_subscriptions missing` };
+  }
+  if (mode === "build" && repo.build === null) {
+    return {
+      error: `--mode build is not applicable to target "${target}" (repos.${target}.build is null)`,
+    };
+  }
+  let plan, tiers;
+  try {
+    plan = mod.buildPlan(manifest, target, null, mode);
+    tiers = mod.parseTiers(manifest);
+  } catch (e) {
+    return { error: `could not build the ${mode} plan for "${target}" (${e.message})` };
+  }
+  // Every glob of EVERY tier, subscribed or not. This is what separates "lives in
+  // a tier this target does not subscribe" (PROVEN absent) from "matches no tier
+  // at all" (UNDECLARED — reported, never suppressed).
+  const allTierGlobs = [];
+  for (const globs of Object.values(tiers || {})) {
+    if (Array.isArray(globs)) allTierGlobs.push(...globs);
+  }
+  const byPath = new Map(plan.files.map((f) => [f.path, f]));
+  return {
+    byPath,
+    paths: [...byPath.keys()],
+    allTierGlobs,
+    matchesAnyManifestGlob: mod.matchesAnyManifestGlob,
+  };
+}
+
+// Does `relpath` (relative to `.claude/`) reach this target, and if not, does the
+// manifest PROVE the absence? Returns null when the path is unknown to the plan.
+function targetDisposition(relpath, plan) {
+  const exact = plan.byPath.get(relpath);
+  const entries = [];
+  if (exact) {
+    entries.push(exact);
+  } else {
+    // Directory token: the plan enumerates FILES, so a dir reaches the target if
+    // ANY file under it is copied.
+    const prefix = relpath.endsWith("/") ? relpath : relpath + "/";
+    for (const p of plan.paths) if (p.startsWith(prefix)) entries.push(plan.byPath.get(p));
+    if (entries.length === 0) return null;
+  }
+  // `overlay` DELIVERS the file (a variant REPLACEMENT of its content), so it is
+  // received just as `copy` is. Measured: reading `copy` alone reported 62 false
+  // dangling refs for base, every one of them `rules/agents.md`, which base
+  // receives as a variant overlay.
+  if (entries.some((e) => e.action === "copy" || e.action === "overlay")) {
+    return { received: true };
+  }
+  // Every constituent is skipped. Absence is PROVEN only if EVERY one of them is
+  // skipped for a reason the manifest positively declares. A `no_tier_match`
+  // still counts as proven IF the path matches some OTHER tier's globs — that is
+  // "lives in a tier this target does not subscribe". Matching NO tier at all is
+  // UNDECLARED: `artifact-flow.md` § MUST NOT is explicit that "matches nothing"
+  // must never be relied on as a fence, so it stays reportable.
+  const reasons = new Set();
+  for (const e of entries) {
+    if (PROVING_SKIP_REASONS.has(e.reason)) {
+      reasons.add(e.reason);
+      continue;
+    }
+    if (
+      e.reason === "no_tier_match" &&
+      plan.matchesAnyManifestGlob(e.path, plan.allTierGlobs)
+    ) {
+      reasons.add("tier_not_subscribed");
+      continue;
+    }
+    return { received: false, proven: false, reason: e.reason || "unknown" };
+  }
+  return { received: false, proven: true, reason: [...reasons].sort().join("+") };
+}
+
+// --- The SHIPPED declaration (`.claude/.coc-xref-absent.json`) ----------
+//
+// `--target` derives absent-by-design from the manifest, but it can only run at
+// loom: neither `sync-manifest.yaml` nor `sync-tier-aware.mjs` is distributed.
+// So loom derives the conclusion at Gate-2 and SHIPS it, and this is the READER
+// for that file. The PRODUCER is `sync-tier-aware.mjs::emitXrefAbsent` (via
+// `bin/lib/xref-absent.mjs`) — deliberately in the distribution code rather than
+// on this validator, because this validator SHIPS and a generator inside a
+// distributed artifact is the wrong seam.
+//
+// An earlier revision of this file carried its OWN line-based format and an
+// `--emit-absent-by-design` flag. Both were REMOVED, not deprecated. The
+// deciding defect was not syntax: a flat path list keys on the PATH, while the
+// same relative token (`../01-core-sdk/SKILL.md`) denotes DIFFERENT paths from
+// different citing files. A path list must therefore over-declare — suppressing
+// a token from a file where it genuinely dangles, which is the amnesty
+// direction — or under-declare. The `(token -> sources[])` shape below carries
+// the dimension that fixes it, so the entry KEY is the fix and no marker could
+// have been.
+const XREF_ABSENT_PATH = ".coc-xref-absent.json";
+
+// Declaration format versions this reader understands. `format` is a NUMBER in
+// the producer (`xref-absent.mjs::XREF_ABSENT_FORMAT = 1`), read from that
+// module rather than assumed.
+const SUPPORTED_XREF_ABSENT_FORMATS = new Set([1]);
+
+// Read the shipped declaration.
+//
+// FOUR outcomes, and the third and fourth are deliberately NOT the same — that
+// distinction is the whole reason this loader is not three lines:
+//   ABSENT              -> { absent: null }. Silent. A consumer that has not
+//                          re-synced yet MUST behave exactly as before.
+//   UNRECOGNISED FORMAT -> { absent: null }. ALSO silent, and this is correct:
+//                          a newer loom writing format 2 to an older checker is
+//                          FORWARD-COMPAT, not corruption. Suppress nothing,
+//                          report everything, exit as today.
+//   MALFORMED           -> { error }. LOUD: routed to markIncomplete() and
+//                          exit 3. Unreadable, unparseable, or structurally
+//                          wrong is NOT "absent" — reading it as absent makes a
+//                          broken declaration indistinguishable from a clean
+//                          run, which is the failure this validator exists to
+//                          refuse.
+//   VALID               -> { absent }.
+//
+// NOTE FOR THE PRODUCER: `xref-absent.mjs`'s shipped `note` string currently
+// tells readers that a file they "cannot parse" MUST behave as if absent. That
+// collapses MALFORMED into ABSENT and is the one point where this reader
+// deliberately diverges; the divergence is ratified, and the producer's note
+// should be narrowed to unrecognised-VERSION.
+function loadXrefAbsentDeclaration(repoRoot) {
+  const file = join(repoRoot, ".claude", XREF_ABSENT_PATH);
+  if (!existsSync(file)) return { absent: null };
+  let raw;
+  try {
+    raw = readFileSync(file, "utf8");
+  } catch (e) {
+    return {
+      error: `${XREF_ABSENT_PATH} is present but could not be read (${(e && e.code) || e.message})`,
+    };
+  }
+  let decl;
+  try {
+    decl = JSON.parse(raw);
+  } catch (e) {
+    return { error: `${XREF_ABSENT_PATH} is present but is not parseable JSON (${e.message})` };
+  }
+  if (decl === null || typeof decl !== "object" || Array.isArray(decl)) {
+    return { error: `${XREF_ABSENT_PATH} is not a JSON object` };
+  }
+  if (!Object.prototype.hasOwnProperty.call(decl, "format")) {
+    return { error: `${XREF_ABSENT_PATH} has no "format" field` };
+  }
+  // Version gate BEFORE structural validation: a future format may legitimately
+  // restructure `absent`, and rejecting it as malformed would convert a
+  // forward-compat upgrade into a hard failure at every consumer.
+  if (!SUPPORTED_XREF_ABSENT_FORMATS.has(decl.format)) {
+    return { absent: null, unsupportedFormat: decl.format };
+  }
+  const absent = decl.absent;
+  if (absent === null || typeof absent !== "object" || Array.isArray(absent)) {
+    return { error: `${XREF_ABSENT_PATH} format ${decl.format} has no usable "absent" object` };
+  }
+  // Every row is validated HERE rather than at match time, so a malformed row
+  // fails loud once instead of silently declining to match on each lookup.
+  for (const [token, row] of Object.entries(absent)) {
+    if (row === null || typeof row !== "object" || Array.isArray(row)) {
+      return { error: `${XREF_ABSENT_PATH}: entry ${JSON.stringify(token)} is not an object` };
+    }
+    if (!Array.isArray(row.sources) || row.sources.some((s) => typeof s !== "string")) {
+      return {
+        error: `${XREF_ABSENT_PATH}: entry ${JSON.stringify(token)} has no "sources" array of strings`,
+      };
+    }
+  }
+  return { absent };
+}
+
+// SOURCE-SCOPED match, and the scoping is load-bearing rather than decorative:
+// the same relative token means different paths from different citing files, so
+// a token is excused ONLY in the files the producer proved it absent for. A new
+// citer of the same token still reports — the identical constraint
+// SANCTIONED_ABSENT_REFS enforces in code.
+// OWN-PROPERTY lookup, not a bare index: `absent` is parsed from JSON a
+// DISTRIBUTOR writes, so a token equal to an Object.prototype member
+// (`constructor`, `toString`, `valueOf`, `hasOwnProperty`) would otherwise return
+// a truthy NON-row and throw on `.sources`. The token surface does not currently
+// produce such a token, so this is prophylactic — but it is one extractor
+// widening away from live, and the failure mode is a crash inside the suppression
+// path, which is the worst place for one.
+function isDeclaredXrefAbsent(finding, absent) {
+  if (!Object.prototype.hasOwnProperty.call(absent, finding.token)) return false;
+  const row = absent[finding.token];
+  if (!row) return false;
+  return row.sources.includes(finding.source);
+}
+
+// An absolute resolved path as the path shape the plan is keyed on — repo-root
+// relative and INCLUDING the `.claude/` prefix, which is what
+// `sync-tier-aware.mjs::walkClaudeDir` emits (`.claude/rules/foo.md`, not
+// `rules/foo.md`). Measured, not assumed: keying on the stripped form found 0 of
+// 3881 plan rows. Returns null for anything outside `.claude/` — a root
+// `journal/` citation, say — which no tier governs.
+function toManifestRelpath(absPath, repoRoot) {
+  const rel = relative(resolve(repoRoot), resolve(absPath));
+  if (rel === "" || rel === ".." || rel.startsWith(".." + sep)) return null;
+  const posix = rel.split(sep).join("/");
+  return posix === ".claude" || posix.startsWith(".claude/") ? posix : null;
+}
+
 // --- Main ---------------------------------------------------------------
 
 function parseArgs(argv) {
-  const out = { json: false, scope: null, help: false, usageError: null };
+  const out = {
+    json: false,
+    scope: null,
+    help: false,
+    usageError: null,
+    target: null,
+    mode: "use",
+  };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--json") out.json = true;
     else if (a === "--help" || a === "-h") out.help = true;
     else if (a === "--scope") out.scope = argv[++i];
+    else if (a === "--target") out.target = argv[++i];
+    else if (a === "--mode") out.mode = argv[++i];
     else if (a.startsWith("--")) {
       // Reported by main() rather than exited here: process.exit() is what this
       // script no longer uses anywhere, because it discards queued stream
@@ -1026,10 +1512,21 @@ function usage() {
 
 usage:
   node .claude/bin/validate-xref-integrity.mjs [--json] [--scope <dir>] [--help]
+  node .claude/bin/validate-xref-integrity.mjs --target <name> [--mode use|build]
 
 flags:
   --json        emit JSON report to stdout (machine-readable)
   --scope DIR   limit scan to DIR (default: .claude/{commands,rules,skills,agents,guides}; audit-fixtures excluded — see header)
+  --target NAME LOOM-ONLY preview: report the refs that would dangle in NAME's
+                distributed tree. Absent-by-design is DERIVED from
+                sync-manifest.yaml per target, never hand-listed. Requires the
+                manifest, which never ships — see the § PER-TARGET note.
+                CAVEAT when previewing via a materialized tree
+                (sync-tier-aware --out): that tree holds ONLY .claude/**, so a
+                citation climbing out to a ROOT file (CLAUDE.md, AGENTS.md,
+                GEMINI.md, STACK.md) reads not-found there and resolves at a real
+                consumer. Do NOT read those as dangling — see the header.
+  --mode M      use | build (default use) — selects the lane --target previews
   --help, -h    show this message and exit 0
 
 exit codes:
@@ -1053,7 +1550,7 @@ what it does NOT check (Phase-1):
 `;
 }
 
-function main() {
+async function main() {
   installStreamGuards();
   const argv = process.argv.slice(2);
   const args = parseArgs(argv);
@@ -1068,6 +1565,54 @@ function main() {
     return;
   }
   const repoRoot = findRepoRoot(process.cwd());
+
+  // `--target` preview: derive, per target, what that target's tree receives.
+  // A load failure is a USAGE error (exit 2), never a silent fall-through to an
+  // unfiltered run — a preview that quietly stopped previewing would report
+  // loom's verdict under the target's name.
+  let targetPlan = null;
+  if (args.target) {
+    const loaded = await loadTargetPlan(repoRoot, args.target, args.mode);
+    if (loaded.error) {
+      process.stderr.write(`validate-xref-integrity: ${loaded.error}\n`);
+      process.exitCode = EXIT_USAGE;
+      return;
+    }
+    targetPlan = loaded;
+  }
+
+  // The shipped declaration, when this repo has one. At loom it is absent and
+  // nothing changes; at a consumer it is what makes the manifest's proof
+  // available to a tree that has no manifest.
+  const declResult = loadXrefAbsentDeclaration(repoRoot);
+  // An UNRECOGNISED `format` disables suppression entirely. The EXIT behaviour is
+  // deliberately unchanged — forward-compat silence is the documented contract at
+  // the version gate above, and the direction is safe (the run OVER-reports) — but
+  // silence on the DIAGNOSTIC channel is not: an operator watching dozens of
+  // by-design refs go red with no stated cause has every incentive to loosen
+  // something. Name the version and the consequence, once, on stderr.
+  if (declResult.unsupportedFormat !== undefined) {
+    try {
+      process.stderr.write(
+        `validate-xref-integrity: ${XREF_ABSENT_PATH} declares unrecognised format ` +
+          `${JSON.stringify(declResult.unsupportedFormat)} (supported: ` +
+          `${[...SUPPORTED_XREF_ABSENT_FORMATS].map((v) => JSON.stringify(v)).join(", ")}); ` +
+          "absent-by-design suppression is DISABLED for this run, so refs this repo " +
+          "does not receive will report as dangling. The exit code is unchanged — a " +
+          "newer declaration format is not an error here.\n",
+      );
+    } catch {
+      /* diagnostics are best-effort by construction (see installStreamGuards) */
+    }
+  }
+  if (declResult.error) {
+    // A present-but-unusable declaration makes the by-design question
+    // UNANSWERABLE, so the verdict is UNKNOWN — never a quiet fall-through to an
+    // unsuppressed run, which would be indistinguishable from a clean one.
+    markIncomplete(declResult.error);
+  }
+  const declaration = declResult.absent;
+
   const scopeDirs = args.scope
     ? [resolve(args.scope)]
     : DEFAULT_SCOPE_DIRS.map((d) => join(repoRoot, d));
@@ -1076,11 +1621,23 @@ function main() {
     : DEFAULT_SCOPE_ROOT_FILES.map((f) => join(repoRoot, f)).filter(existsSync);
 
   // Collect scan targets
-  const targets = [];
+  let targets = [];
   for (const d of scopeDirs) {
     if (existsSync(d)) targets.push(...walkDir(d, repoRoot));
   }
   for (const f of scopeFiles) targets.push(f);
+
+  // `--target` also narrows the SOURCE set: a loom-only command's citations say
+  // nothing about a consumer's tree, because that command is not in it. Scanning
+  // them would report defects no consumer can ever see.
+  if (targetPlan) {
+    targets = targets.filter((t) => {
+      const relpath = toManifestRelpath(t, repoRoot);
+      if (relpath === null) return false; // root-level file, not distributed as-is
+      const d = targetDisposition(relpath, targetPlan);
+      return d === null ? true : d.received;
+    });
+  }
 
   // Extract + resolve. Per reviewer HIGH-4: a single unreadable file MUST
   // NOT kill the scan with exit 2; log to stderr + continue. Exit 2 is
@@ -1105,6 +1662,39 @@ function main() {
     }
   }
 
+  // `--target` re-resolution. A ref that resolves HERE still dangles THERE when
+  // the target does not receive the file it points at. Applied AFTER the normal
+  // resolve so loom-local defects are never masked: a token that fails to resolve
+  // at loom stays dangling under `--target` too.
+  if (targetPlan) {
+    for (const f of allFindings) {
+      if (!f.ok || !f.resolvedPath) continue;
+      const relpath = toManifestRelpath(f.resolvedPath, repoRoot);
+      if (relpath === null) {
+        // Outside `.claude/`, so no tier governs it. The only such class the
+        // token surface produces is a root `journal/` citation, and journal/ is
+        // never distributed to anything (§ NOT-APPLICABLE above) — so at a target
+        // it is absent by design, for the same reason and by the same evidence.
+        if (f.kind === "journal") {
+          f.ok = false;
+          f.notApplicable = true;
+          f.reason = "absent-by-design-for-target (journal-never-distributed)";
+        }
+        continue;
+      }
+      const d = targetDisposition(relpath, targetPlan);
+      if (d === null || d.received) continue;
+      if (d.proven) {
+        f.ok = false;
+        f.notApplicable = true;
+        f.reason = `absent-by-design-for-target (${d.reason})`;
+      } else {
+        f.ok = false;
+        f.reason = `target-does-not-receive (${d.reason})`;
+      }
+    }
+  }
+
   // A file the scan could not read shrinks the DENOMINATOR: the run examined
   // fewer targets than it set out to, so `ok: true` would assert "no dangling
   // refs" over a corpus it never fully saw. The pre-existing decision to keep
@@ -1123,13 +1713,36 @@ function main() {
   // Partition not-found findings: SANCTIONED Phase-2-deferred audit-fixture
   // forward-pointers (finding #70) are skipped-not-dangling; everything else is
   // a real dangling ref. Only real dangling refs drive the exit code.
+  // Apply the shipped declaration to refs that did NOT resolve. Deliberately
+  // only to NOT-FOUND findings: it can excuse an absence, never satisfy a
+  // reference, so it can never turn a real resolution failure into a pass for
+  // any path loom did not PROVE this target lacks.
+  if (declaration) {
+    for (const f of allFindings) {
+      if (f.ok || f.notApplicable) continue;
+      if (isDeclaredXrefAbsent(f, declaration)) f.declaredXrefAbsent = true;
+    }
+  }
+
   const notFound = allFindings.filter((f) => !f.ok);
-  const skippedDeferred = notFound.filter(isSanctionedDeferredFixture);
-  const skippedAbsent = notFound.filter(
-    (f) => !isSanctionedDeferredFixture(f) && isSanctionedAbsentRef(f),
+  // NOT-APPLICABLE partitions FIRST and unconditionally: a question this repo
+  // cannot answer is not a defect it can fix, so it never reaches the sanction
+  // filters and never drives the exit code. Currently one member —
+  // `journal-tree-absent-not-applicable` (see resolveJournalToken).
+  const notApplicable = notFound.filter((f) => f.notApplicable === true);
+  const answerable = notFound.filter((f) => f.notApplicable !== true);
+  const skippedDeferred = answerable.filter(isSanctionedDeferredFixture);
+  // The SHIPPED declaration and the in-code SANCTIONED_ABSENT_REFS are
+  // COMPLEMENTARY, not overlapping: the in-code list names tokens that do not
+  // exist AT LOOM by design, the shipped file names tokens that DO exist at loom
+  // and provably do not ship to THIS target. Both land in one bucket because a
+  // consumer does not care which proof excused the ref.
+  const isAbsentByDesign = (f) => isSanctionedAbsentRef(f) || f.declaredXrefAbsent === true;
+  const skippedAbsent = answerable.filter(
+    (f) => !isSanctionedDeferredFixture(f) && isAbsentByDesign(f),
   );
-  const dangling = notFound.filter(
-    (f) => !isSanctionedDeferredFixture(f) && !isSanctionedAbsentRef(f),
+  const dangling = answerable.filter(
+    (f) => !isSanctionedDeferredFixture(f) && !isAbsentByDesign(f),
   );
   // Resolved, but only by the slash-less-token directory fallback. Reported so
   // the looser match is auditable rather than silently folded into the pass count.
@@ -1154,6 +1767,7 @@ function main() {
           dangling_count: dangling.length,
           skipped_deferred_count: skippedDeferred.length,
           skipped_absent_by_design_count: skippedAbsent.length,
+          not_applicable_count: notApplicable.length,
           loose_directory_match_count: looseDirMatches.length,
           read_failures: readFailures,
           dangling: dangling.map((d) => ({
@@ -1175,8 +1789,21 @@ function main() {
             line: d.line,
             kind: d.kind,
             token: d.token,
-            reason: "sanctioned-absent-by-design",
-            why: (SANCTIONED_ABSENT_REFS.get(d.token) || {}).why,
+            reason: d.declaredXrefAbsent
+              ? "declared-absent-by-design (shipped .coc-xref-absent.json)"
+              : "sanctioned-absent-by-design",
+            why: d.declaredXrefAbsent
+              ? (declaration && declaration[d.token] && declaration[d.token].why) || null
+              : (SANCTIONED_ABSENT_REFS.get(d.token) || {}).why,
+          })),
+          // Full rows, always — the class stays machine-auditable here even
+          // though the text report prints only a count (see the text branch).
+          not_applicable: notApplicable.map((d) => ({
+            source: d.source,
+            line: d.line,
+            kind: d.kind,
+            token: d.token,
+            reason: d.reason,
           })),
           loose_directory_matches: looseDirMatches.map((d) => ({
             source: d.source,
@@ -1198,7 +1825,38 @@ function main() {
       process.stdout.write(`; ${skippedDeferred.length} sanctioned deferred-fixture refs skipped`);
     }
     if (skippedAbsent.length > 0) {
-      process.stdout.write(`; ${skippedAbsent.length} absent-by-design refs skipped`);
+      // SPLIT by proof source, as the --json branch already does via
+      // `declaredXrefAbsent`. The two classes are not interchangeable: a DECLARED
+      // absence is a distributor's per-target claim carried in a shipped file and
+      // is only as good as that file, while a SANCTIONED one was reviewed into
+      // this script's own source. Reporting them under one number asks the
+      // operator to audit a distribution claim and a code-reviewed constant with
+      // the same eye — and text is the channel an operator actually reads.
+      const declaredN = skippedAbsent.filter((d) => d.declaredXrefAbsent === true).length;
+      const sanctionedN = skippedAbsent.length - declaredN;
+      const parts = [];
+      if (declaredN > 0) parts.push(`${declaredN} declared (shipped file)`);
+      if (sanctionedN > 0) parts.push(`${sanctionedN} sanctioned (in-code)`);
+      process.stdout.write(
+        `; ${skippedAbsent.length} absent-by-design refs skipped (${parts.join(", ")})`,
+      );
+    }
+    if (notApplicable.length > 0) {
+      // Name each contributing class rather than one blanket label: the count
+      // now mixes journal provenance with manifest-declared absences, and a
+      // summary that named only the first would misdescribe the rest.
+      const naByClass = new Map();
+      for (const d of notApplicable) {
+        const cls = String(d.reason || "unspecified").split(" (")[0];
+        naByClass.set(cls, (naByClass.get(cls) || 0) + 1);
+      }
+      const breakdown = [...naByClass.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([cls, n]) => `${n} ${cls}`)
+        .join(", ");
+      process.stdout.write(
+        `; ${notApplicable.length} not-applicable (${breakdown}) — unresolvable BY DESIGN in this repo; --json lists them`,
+      );
     }
     if (looseDirMatches.length > 0) {
       process.stdout.write(
@@ -1232,8 +1890,13 @@ function main() {
         "\nskipped (sanctioned absent-by-design / external, source-scoped allowlist):\n",
       );
       for (const d of skippedAbsent) {
+        // Same discrimination as the summary count above, per row: which PROOF
+        // excused this ref decides where an operator goes to check it.
+        const label = d.declaredXrefAbsent
+          ? "declared-absent-by-design (shipped file)"
+          : "sanctioned-absent-by-design (in-code)";
         process.stdout.write(
-          `  ${d.source}:${d.line}  [${d.kind}]  ${d.token}  → absent-by-design\n`,
+          `  ${d.source}:${d.line}  [${d.kind}]  ${d.token}  → ${label}\n`,
         );
       }
     }
@@ -1282,6 +1945,14 @@ export {
   hasFileExtension,
   isSanctionedDeferredFixture,
   isSanctionedAbsentRef,
+  targetDisposition,
+  toManifestRelpath,
+  PROVING_SKIP_REASONS,
+  loadXrefAbsentDeclaration,
+  isDeclaredXrefAbsent,
+  candidatePathsFor,
+  XREF_ABSENT_PATH,
+  SUPPORTED_XREF_ABSENT_FORMATS,
   normalizeFixtureSlug,
   computeBlockTexts,
   findRepoRoot,
@@ -1290,4 +1961,28 @@ export {
   SANCTIONED_ABSENT_REFS,
 };
 
-if (isMain) main();
+// `main` is async, so a throw inside it becomes an UNHANDLED REJECTION if the
+// promise is dropped — and node exits 1 on that, with the report never written.
+// Exit 1 is EXIT_DANGLING, so a crash would be indistinguishable from a complete
+// run that found dangling references: precisely the conflation the
+// `installStreamGuards` comment above calls "not an acceptable diagnostic".
+// Route it through the SAME markIncomplete path every other unreadable-verdict
+// case uses, so the crash exits 3 (UNKNOWN) with a named cause on stderr.
+// The message is built INSIDE its own try. `markIncomplete` is already hardened,
+// but the argument expression was not: reading `.stack`/`.message`, or coercing
+// with String(), runs USER-CONTROLLED getters on the thrown value. A throwable
+// whose `.stack` getter or `toString` throws would re-raise INSIDE this handler,
+// producing the unhandled rejection — and the exit-1 conflation — that this very
+// block exists to prevent. Pathological, but the fallback costs one try/catch and
+// the failure mode it removes is the one we just fixed.
+if (isMain) {
+  main().catch((e) => {
+    let detail;
+    try {
+      detail = (e && (e.stack || e.message)) || String(e);
+    } catch {
+      detail = "<throwable whose stack/message/toString itself threw>";
+    }
+    markIncomplete(`unhandled error during the scan: ${detail}`);
+  });
+}

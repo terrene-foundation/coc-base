@@ -58,6 +58,16 @@ const ADO_ORG_RE = /^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/;
 // spaces, NO slashes — operators pass the project/repo ID or a slug). A
 // project carrying spaces in its display name MUST be referenced by its
 // GUID (which matches this pattern) per the runbook.
+//
+// SCOPE CORRECTION — the GUID guidance above holds for the REST endpoints, and
+// does NOT hold for `vcs-azure-adapter.js::completeUpflowPR`. That fence
+// compares the caller's ref against an identity DERIVED from the origin remote
+// URL, and the URL carries the project/repository NAME, never the GUID — so a
+// caller who follows the guidance and passes a GUID is guaranteed a mismatch.
+// A spaced project is percent-encoded in its clone URL (`Contoso%20Web`), which
+// the derivation rejects outright, so that fence is simply UNAVAILABLE for such
+// a project by either route. Fail-closed, and recorded in full at the refusal
+// site in `vcs-azure-adapter.js::completeUpflowPR` rather than restated here.
 const ADO_PROJECT_RE = /^[A-Za-z0-9._-]{1,64}$/;
 const ADO_REPO_RE = /^[A-Za-z0-9._-]{1,64}$/;
 

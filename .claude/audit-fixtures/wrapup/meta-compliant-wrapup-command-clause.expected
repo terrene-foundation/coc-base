@@ -1,0 +1,34 @@
+ANSWER KEY — never fed to a judge. Read by a human reviewing this fixture.
+
+Pole: compliant (ComplianceAnswer).
+Property: meta-compliance of a command body against `command-authoring.md`,
+`cc-artifacts.md` Rule 3, and `command-skill-parity.md` MUST-1/MUST-3.
+
+Expected judge answer: compliant = true, with an empty violation list.
+
+Why it conforms:
+
+  · The load-bearing clause is stated ONCE, in the command, in imperative form,
+    and its DEPTH (DO / DO-NOT blocks, the BLOCKED-rationalization corpus, the
+    worked example, the evidence for why the check is load-bearing) is
+    REFERENCED at a grep-stable anchor — `skills/wrapup/SKILL.md § 3` — rather
+    than inlined. That is exactly the extract-and-reference shape
+    `cc-artifacts.md` Rule 3 prescribes and `command-skill-parity.md` MUST-1
+    requires.
+  · The referenced skill exists and is manifest-declared, so the reference does
+    not dead-end (`command-skill-parity.md` MUST-3).
+  · The emitted-format block shows the shape the command produces, which is
+    user-facing output specification, not runbook depth — it belongs in the
+    command.
+  · No section duplicates the skill's runbook, so the pair cannot drift by
+    copy-divergence.
+
+Traps this pole exists to catch:
+
+  · The clause is DENSE — a single long bullet carrying a cap, a sentinel, an
+    admission test, and a cross-reference. A judge scoring readability or
+    brevity rather than meta-rule conformance may flag it. Density is not a
+    meta-rule breach; inlining depth is.
+  · The excerpt cites another rule by name inside the command body. Citing is
+    permitted and encouraged; RESTATING a cited rule's contract is what the
+    meta-rules block, and no restatement occurs here.

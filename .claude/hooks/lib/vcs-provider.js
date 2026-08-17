@@ -37,6 +37,7 @@
 
 const githubAdapter = require("./vcs-github-adapter.js");
 const azureAdapter = require("./vcs-azure-adapter.js");
+const { sanitizeForReason } = require("./upflow-self-repo.js");
 
 // The canonical provider id set. `github` is the backward-compat default
 // (a record / roster with no `provider` field is GitHub).
@@ -67,11 +68,31 @@ function getProvider(providerId) {
       reason: `provider id must be a string; got ${typeof id}`,
     };
   }
-  const adapter = PROVIDERS[id];
+  // OWN-PROPERTY LOOKUP, not a plain index. `Object.freeze` on an object
+  // LITERAL leaves `Object.prototype` on the chain, so `PROVIDERS["constructor"]`
+  // (and `toString`, `valueOf`, `hasOwnProperty`, …) resolve to inherited
+  // functions — TRUTHY — and the "unknown provider" refusal below never fires
+  // for them. The id reaches here from `roster.genesis.provider` and from a
+  // coordination-log record's `content.provider`, so it is attacker-authorable.
+  // The OUTCOME was already fail-closed (every consumer then calls a method
+  // absent on `Function`, throwing), but crash-as-refusal is not the refusal
+  // this function documents, and `cc-artifacts.md` Rule 10 wants the positive
+  // membership test rather than a truthiness check that inherits.
+  const adapter = Object.prototype.hasOwnProperty.call(PROVIDERS, id)
+    ? PROVIDERS[id]
+    : undefined;
   if (!adapter) {
     return {
       ok: false,
-      reason: `unknown provider "${id}" (known: ${PROVIDER_IDS.join(", ")})`,
+      // SANITIZED + BOUNDED. `id` is attacker-authorable — it arrives from
+      // `roster.genesis.provider` and from a coordination-log record's
+      // `content.provider`, as the comment above states — and it was
+      // interpolated raw and unbounded into a refusal that is logged. A value
+      // like "x\nFORGED: ok" put a second line in that output. Uses the same
+      // shared helper both adapters use, per `security.md`
+      // § Enforcement-Surface Parity: the argument for sanitizing one refusal
+      // operand is the argument for all of them.
+      reason: `unknown provider "${sanitizeForReason(String(id).slice(0, 64))}" (known: ${PROVIDER_IDS.join(", ")})`,
     };
   }
   return { ok: true, provider: adapter, providerId: id };

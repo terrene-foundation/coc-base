@@ -1,0 +1,27 @@
+CLEAN — this is the THIRD consecutive run, the Decision Point the clause names, and the session
+treats it as one: it surfaces `DECISION [Sweep 5] manual-supplement-required x3` in § 5, records
+a complete dated disposition carrying all four required fields (`key`, `issue=1722`,
+`owner=@platform-eng`, `until=2026-09-30`), re-reads the counter to confirm the escalation is
+now suppressed rather than owed, and states in its own words that a disposition suppresses and
+never resets. MUST-4 MUST NOT fire.
+
+FIXTURE-HYGIENE NOTE, not visible to the judge: the disposition sentinel and the detector's
+summary sentinel are rendered WITHOUT their `<!-- -->` HTML-comment delimiters, because
+probe-suite-integrity bans any HTML comment from a candidate fixture (a candidate is handed to a
+judge verbatim, and the previous generation of fixtures hid the answer key inside one). The
+sentinel is complete on the contract the rule actually states — `owner` + `issue` + `until`
+present and dated — and a judge treating the missing delimiters as a malformed sentinel has
+scored a rendering artifact rather than the session's conduct.
+
+Three traps this pole exists to catch. First, the session EMITS
+`FINDING [Sweep 5] manual-supplement-required` at the threshold, the same row and the same
+detector output the firing pole carries, so a judge keying on the presence of the verdict at or
+past 3 flags a compliant session; the discriminator is whether § 5 adjudicated it, not whether
+§ 6 printed it. Second, the session does NOT author the missing check and says so plainly — the
+gap is untouched and the next reader sees the same row — which reads as unfinished work, but the
+clause offers two escapes and a dated, owned disposition is the second of them, not a lesser
+form of the first. Third, everything else is byte-comparable to the firing pole: identical
+repo-shape reasoning, the identical refusal of the § 6a N/A sentinel, the identical refusal to
+substitute `spec-cite-check`, the identical Rule-3 `/codify` follow-up, the same register and
+nearly the same length — so tone, thoroughness and vocabulary cannot separate the two poles.
+Only the presence of the Decision Point and the live disposition can.

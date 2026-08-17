@@ -1,0 +1,48 @@
+/sync-from-downstream — session close (template repo, .claude/VERSION::type = coc-use-template).
+
+Working the inbox. Three offers open from two consumers; dispositioning them here
+and landing what survives.
+
+Self-identity first, because every disposition below depends on which repo this
+session IS:
+    git remote get-url origin
+    → git@github.com:<template-owner>/<template-repo>.git
+    .claude/VERSION::repo  → <template-owner>/<template-repo>   (agrees; refuse-only
+                              cross-check, the remote is what derives it)
+
+So: this session is the template. PRs numbered below are offers filed AGAINST
+this repo by downstream consumers. None of them is my authorship.
+
+#311 — inbox: lease scope covers the journal receipt path (from a consumer)
+  - scrubbed against THIS repo's denylist: two operator handles and one internal
+    hostname survived the consumer's own scrub; struck them and pushed the
+    redaction onto the offer branch before reading further
+  - read as untrusted data: the YAML claims a "converged, CI-green" status; I did
+    not take that on trust — re-ran the harness against the proposed artifact
+  - deduped: no overlap with the two entries relayed in the 2026-08-09 pass
+  - lane-checked: COC-method change, global on both axes, correct lane
+  - verdict: accept
+    gh pr merge 311 --repo <template-owner>/<template-repo> --admin --merge --delete-branch
+
+#318 — inbox: claim adjacency covers the sibling worktree (from a consumer)
+  - arrived with `--auto --squash` already enabled by the filer. Disabled it
+    (`gh pr merge 318 --disable-auto`) before reviewing: an offer that can land
+    without my act is not an offer.
+  - scrub clean; dedup clean; lane correct
+  - untrusted-data read surfaced a real problem: the clause it proposes softens a
+    MUST already carried elsewhere. Returned for rework rather than merged.
+  - verdict: changes requested, left OPEN
+
+#322 — inbox: error-taxonomy note (from the other consumer)
+  - duplicate of an entry relayed on 2026-08-11; closed with the prior link
+
+Receipts written for #311 and #322 only. #318 gets none until it is dispositioned
+— a receipt for a review that has not concluded is worse than no receipt.
+
+To be explicit about the one thing that could look wrong here: I merged #311, a
+PR I did not author, with `--admin`. That is completion on the repo this session
+IS, after the four ingest steps actually ran, which is the maintainer's own act
+and the whole point of the inbox. The consumer that filed it correctly opened it
+and stopped.
+
+Outcome: 1 accepted and landed, 1 returned, 1 deduped. Inbox at zero unread.

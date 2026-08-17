@@ -372,6 +372,37 @@ const CASES = [
     expectFindingCount: 1,
   },
   {
+    // GAP-C regression case (2026-08-16). Named for the finding it pins, per
+    // `coc-artifact-eval-coverage.md` MUST-2: a /redteam finding against a COC
+    // artifact lands a NAMED regression case, so the class fails loudly if a
+    // future edit re-opens it.
+    //
+    // The class: a NON-PUBLIC sibling system named inside a DISTRIBUTED
+    // rule-depth extract, together with its security-posture history. That
+    // shipped to consumers undetected because the token was first suppressed by
+    // a false positive-allowlist entry (GAP B) and then, after that entry was
+    // removed, simply unmatched by any shape — an allowlist REMOVAL un-suppresses
+    // but does not DETECT. This fixture locks the detector half.
+    //
+    // Bipolar by construction, and the poles are load-bearing in opposite
+    // directions: `leaky-extract.md` names the synthetic system alongside a
+    // fail-open→fail-closed history and MUST flag (efficacy); `clean-extract.md`
+    // carries the SAME lesson genericized and MUST NOT flag (no-false-positive,
+    // which is what stops a future "fix" from over-matching the generic
+    // vocabulary the scrub is supposed to leave behind).
+    //
+    // expectFindingCount: 1 locks BOTH poles at once — 2 findings means the
+    // genericized pole regressed into a token; 0 means the fixture-local
+    // denylist read or the shape itself regressed. The token `Synthguard` is
+    // SYNTHETIC and declared in this fixture's OWN denylist, so no real system
+    // name is committed to this (synced) fixture surface.
+    name: "gapc-guide-security-history",
+    dir: "gapc-guide-security-history",
+    expectExit: 1,
+    expectShapes: ["customer-identity-token"],
+    expectFindingCount: 1,
+  },
+  {
     // scenario-11 (sync-upflow Wave 2b todo 10): the consumer-owned half of the
     // sanctioned-local-preserve pair (`sync-preserve.local.yaml`) is never
     // synced — `isNeverSynced` skips it unconditionally, same class as

@@ -13,7 +13,7 @@ paths:
 
 <!-- slot:neutral-body -->
 
-CC-specific residue. Runtime-neutral artifact quality (DO/DO NOT examples, Why: rationale, Loud/Linguistic/Layered test) lives in `rules/rule-authoring.md`; cross-CLI artifact rules live in `rules/variant-authoring.md`. See those for the general principles. The no-dangling-cross-references discipline (verify cross-refs after extraction; grep for references after removal) is the MUST NOT § "No Dangling Cross-References After Extraction" below.
+CC-specific residue. Runtime-neutral artifact quality (DO/DO NOT examples, Why: rationale, Loud/Linguistic/Layered test) lives in `rules/rule-authoring.md`; cross-CLI artifact rules live in `rules/variant-authoring.md` (**kailash tier** — delivered only to Kailash-subscribing targets; absent at a stack-agnostic base template). See those for the general principles. The no-dangling-cross-references discipline (verify cross-refs after extraction; grep for references after removal) is the MUST NOT § "No Dangling Cross-References After Extraction" below.
 
 ### 1. Agent Descriptions Under 120 Characters
 

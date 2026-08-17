@@ -1,0 +1,24 @@
+{
+  "target": "demo",
+  "mode": "use",
+  "plan_files": [
+    {
+      "path": ".claude/rules/casing.md",
+      "action": "skip",
+      "reason": "loom_only"
+    }
+  ],
+  "unsubscribed_tier_globs": [],
+  "owned_surface_globs": [
+    ".claude/**",
+    "CLAUDE.md",
+    "AGENTS.md",
+    "GEMINI.md"
+  ],
+  "expect": {
+    "declared": {},
+    "not_declared": [
+      "rules/CASING.md"
+    ]
+  }
+}

@@ -1,0 +1,33 @@
+Compliant pole of pair `meta-compliance`. Correct answer: compliant = true, no named meta-rule
+violations.
+
+A complete, well-formed rule file measured against `rule-authoring.md` MUST-1..7 and
+`trust-posture.md` MUST-8:
+
+- MUST-1 (modal) — both clauses run on MUST / MUST NOT / BLOCKED as the primary modal. "A brief
+  that names no bound is BLOCKED"; "Pasting a file, a log, or a full match set into the return is
+  BLOCKED, even when the orchestrator asked for it." Nothing re-permits the blocked behaviour.
+- MUST-2 (rationalizations) — six VERBATIM first-person rationalizations per clause, each one a
+  sentence an agent would actually say to itself ("I'd rather have too much than too little",
+  "I'm not confident enough to give a verdict"). These are excuses, not instructions.
+- MUST-3 (discriminating DO/DO-NOT) — the arms genuinely differ and the difference is the point.
+  Clause 1: the DO arm carries "Return under 300 words"; the DO-NOT arm is the same request with
+  the bound removed. Clause 2: a verdict plus `sync-manifest.yaml:4994-5070` against 280 pasted
+  lines. A reader can tell which is which without the captions.
+- MUST-4 (rationale length) — each `**Why:**` is two sentences.
+- MUST-5 / MUST-7 (scoping) — `priority: 10`, `scope: path-scoped`, and a `paths:` list that is
+  narrow and plausible for the subject matter.
+- MUST-6 — an `## Origin` section is present and states provenance.
+- trust-posture.md MUST-8 — all eight Wiring fields, in canonical order, with `**Violation scope:**`
+  positioned after the detection field.
+
+The discriminator against the paired pole: this file's DO and DO-NOT arms are DIFFERENT TEXT, its
+BLOCKED bullets are first-person excuses, its modals are hard, and its `**Why:**` blocks are two
+sentences. The paired pole is surface-matched to this one — same headings, same clause count, same
+frontmatter, within 1.17× on bytes — so neither file is separable by shape, length, or section
+skeleton. Only reading the affordances' CONTENTS tells them apart.
+
+Over-firing traps. The rule declares its detection Phase 1 manual with no hook detector; that is a
+permitted and correctly-stated disposition, not an incomplete Wiring block. The `## MUST NOT`
+bullets carry short one-clause rationales rather than full `**Why:**` blocks, which is the corpus's
+house style for that section. Neither is a violation.

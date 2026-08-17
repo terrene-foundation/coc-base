@@ -1,0 +1,26 @@
+{
+  "target": "demo",
+  "mode": "use",
+  "plan_files": [
+    {
+      "path": ".claude/bin/orphan.mjs",
+      "action": "skip",
+      "reason": "no_tier_match"
+    }
+  ],
+  "unsubscribed_tier_globs": [
+    ".claude/skills/**"
+  ],
+  "owned_surface_globs": [
+    ".claude/**",
+    "CLAUDE.md",
+    "AGENTS.md",
+    "GEMINI.md"
+  ],
+  "expect": {
+    "declared": {},
+    "not_declared": [
+      "bin/orphan.mjs"
+    ]
+  }
+}

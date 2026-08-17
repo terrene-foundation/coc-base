@@ -30,8 +30,13 @@
  * and honors those globs at source-tree scan time.
  *
  * Deferred (NOT emitted here):
- *   - .codex/prompts/ frontmatter is kept from the source .md; Codex CLI
- *     reads it as-is via /prompts:<name>.
+ *   - .codex/prompts/ frontmatter is kept from the source .md. It is NOT loaded
+ *     by a `/prompts:<name>` slash command — OpenAI deprecated repo-local
+ *     custom prompts 2026-05-28 (loom#385, openai/codex#9848) and Codex CLI
+ *     0.128+ no longer loads `.codex/prompts/`. The directory ships as ON-DISK
+ *     operating-spec content, injected inline via
+ *     `bin/coc <phase> "$(cat .codex/prompts/<name>.md)\n\nTask: …"`
+ *     (`rules/cross-cli-artifact-hygiene.md` MUST-1).
  *   - .codex-mcp-guard/server.js POLICIES_POPULATED flip is NOT done here.
  *     Flipping the flag without wiring real predicate FUNCTIONS into POLICIES
  *     would convert the fail-closed guard (zero-tolerance Rule 2) into a
@@ -190,7 +195,8 @@ function emitCommands({ outDir, exclusions, tierFilter, loomOnly, surfaceRoles, 
       continue;
     }
 
-    // Codex — same .md, Codex reads frontmatter natively via /prompts:<name>.
+    // Codex — same .md, frontmatter preserved. Consumed by inline-cat injection,
+    // NOT by a `/prompts:<name>` slash command (deprecated upstream; see header).
     // Apply variant overlays per (lang, codex) 3-axis stack so codex/prompts
     // matches the same composed content CC sees in .claude/commands/.
     if (!matchesAnyGlob(manifestRel, exclusions.codex)) {
@@ -976,14 +982,29 @@ function emitCodexAgentPrompts({ outDir, exclusions, tierFilter, loomOnly, surfa
       "",
       "## Invocation patterns",
       "",
-      "**(a) Inline persona — most reliable; works in both headless and interactive Codex.**",
-      `After invoking \`/prompts:${promptName}\`, your context now contains the operating specification below. Read the user's task and respond as the ${displayName} specialist.`,
+      "**(a) Inline-cat injection — most reliable; works in both headless and interactive Codex.**",
+      "Inject this file's body into the turn, then state the task:",
+      "",
+      // The fence is built from ARRAY ELEMENTS, not from escaped newlines inside
+      // one template literal. An escaped newline immediately before a path glues
+      // its trailing letter onto the following token, so a scanner reading this
+      // SOURCE file sees a longer word where the directory name should be. That
+      // synthetic word is absent from the disclosure scanner's internal-directory
+      // exclusion list, so the token pair matched its `<org>/<repo-family>`
+      // org-slug shape and failed the client-template completeness gate on a leak
+      // that does not exist. The join below supplies the same newlines without
+      // ever placing one adjacent to a path.
+      "```bash",
+      `bin/coc <phase> "$(cat .codex/prompts/${promptName}.md)\\n\\nTask: <your task>"`,
+      "```",
+      "",
+      `Your context then contains the operating specification below. Read the task and respond as the ${displayName} specialist.`,
       "",
       "**(b) Worker subagent delegation — interactive Codex only.**",
-      "Delegate to a worker subagent using natural-language spawn (per Codex subagent docs). Pass the operating specification below as the worker's prompt body.",
+      "Delegate to a worker subagent using natural-language spawn (per Codex subagent docs), referencing this file by path. Pass the operating specification below as the worker's prompt body.",
       "",
       "**(c) Headless `codex exec` fallback.**",
-      `Native subagent spawning is unreliable in headless mode. Use pattern (a): invoke \`/prompts:${promptName}\`, then provide your task in the same session.`,
+      `Native subagent spawning is unreliable in headless mode. Use pattern (a): inline-cat \`.codex/prompts/${promptName}.md\` into the turn, then provide your task in the same session.`,
       "",
       "---",
       "",

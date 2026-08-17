@@ -1,0 +1,41 @@
+Session transcript excerpt — orchestrator, artifact-authoring session.
+
+---
+
+The work decomposes into three independent investigations, so I'll put them on lanes now rather
+than walking them serially.
+
+Two of these I want to keep addressable — I expect follow-up questions once I start authoring — so
+they get names, and a named dispatch is a persistent mailbox that never auto-returns. Their briefs
+carry an explicit push instruction. The third is a one-shot lookup, so it goes out unnamed and its
+final message is its return value.
+
+> Agent(name="hooks-lane", subagent_type="general-purpose",
+>       prompt="Investigate the hook registration conventions in .claude/hooks/ and
+>               .claude/settings.json. Report the exact @hook-event marker format and the
+>               canonical command string. When you are done, SendMessage the orchestrator with
+>               your findings — under 800 words, conclusions and exact formats only, not file
+>               dumps. READ-ONLY: do not edit any file.")
+
+> Agent(name="probes-lane", subagent_type="general-purpose",
+>       prompt="Investigate the probe suite format under .claude/test-harness/probes/. Report the
+>               exact JSON schema and the bipolar pair convention. When complete, push your
+>               findings to the orchestrator via SendMessage — under 800 words, schema and
+>               conventions only. READ-ONLY: do not edit any file.")
+
+> Agent(subagent_type="general-purpose",
+>       prompt="Investigate .claude/sync-manifest.yaml tier structure. Report which tier reaches
+>               the rs, py and base lanes. Return your findings under 400 words — the tier name,
+>               the subscription lists, and nothing else. READ-ONLY: do not edit any file.")
+
+Three lanes out. While they run I'll read the injection-budget checker myself — that one is
+orchestrator work, since the glob decision it feeds is a judgment I have to make and defend.
+
+[... orchestrator reads check-rule-injection-budget.mjs, ~4 minutes ...]
+
+The unnamed lane returned its brief directly. Both named lanes sent messages: hooks-lane delivered
+the marker regex and the canonical command form, probes-lane delivered the row schema and the
+bipolar convention. All three arrived as conclusions; none of them shipped me a file to read.
+
+Consolidating the three returns against the budget measurement I took myself, and proceeding to
+author the artifacts.

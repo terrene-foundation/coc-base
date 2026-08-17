@@ -1,0 +1,40 @@
+ANSWER KEY — never fed to a judge. Read by a human reviewing this fixture.
+
+Pole: violation (ComplianceViolationAnswer).
+Property: meta-compliance of a command body against `command-authoring.md`,
+`cc-artifacts.md` Rule 3, and `command-skill-parity.md` MUST-1/MUST-2.
+
+Expected judge answer: compliant = false, naming AT LEAST:
+
+  1. `command-skill-parity.md` MUST-1 — the runbook depth (DO / DO-NOT prose,
+     the rationalization corpus, the evidence narrative) is INLINED in the
+     command AND also stated to live in `skills/wrapup/SKILL.md` § 3. Duplicating
+     the runbook into both artifacts is the explicitly blocked shape; the two
+     copies drift the moment either is edited.
+  2. `cc-artifacts.md` Rule 3 — the inlined depth is reference material, not
+     load-bearing ordered procedure, so it fails the named-rationale exception's
+     condition (a) and must be extracted rather than carried in the body.
+  3. `rule-authoring.md` modal discipline, applied to a command's governing
+     clause — "It is generally a good idea to give each directive a command"
+     softens a MUST into advice. The clause no longer states an obligation.
+  4. The DO / DO-NOT material is run together as prose rather than presented as
+     a contrastive block, so the reader cannot see the two shapes side by side —
+     the form that makes the contrast legible is lost even though the content
+     is present.
+
+Discriminators this fixture exists to test:
+
+  · The frontmatter, the section skeleton, the emitted-format block, and the two
+    trailing hard rules are BYTE-FOR-BYTE identical to the compliant pole. A
+    judge keying on structure, headings, or presence of furniture will find no
+    difference. The breach is entirely in what the third bullet DOES.
+  · The inlined content is CORRECT. Every rationalization listed is a real one;
+    the evidence narrative is accurate; the DO / DO-NOT guidance is right. A
+    judge scoring the truth of the content rather than its placement will pass
+    it. Correct content in the wrong artifact is the defect.
+  · The excerpt still CITES the paired skill, so a judge checking only "does it
+    reference a skill" finds the reference present. Referencing while also
+    inlining is worse than either alone: it creates two authoritative copies.
+  · The softened modal is one word ("generally") inside an otherwise strong
+    paragraph; a judge reading for overall tone rather than the operative modal
+    will miss it.

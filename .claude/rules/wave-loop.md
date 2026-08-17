@@ -66,26 +66,7 @@ under-declared plan makes the MUST-2 inter-wave gate inert by construction (no b
 fire at), converting "no wave structure" from an invisible default into an explicit,
 challengeable claim the `/todos` gate and detection sweep can test.
 
-```markdown
-# DO — multi-group decomposed into value-ranked waves; invariant-split when needed
-
-Wave 1 (HIGH, ~6 inv): auth service + session store
-Wave 2a/2b (MED): "billing engine" unions 9 shards ≈ 48 inv, no live harness →
-split at the invariant boundary EVEN THOUGH value-coherent
-
-# DO NOT — value-coherent mega-wave that overflows the convergence pass
-
-Wave 1 = entire "billing engine" milestone, 9 shards ≈ 48 inv, one /redteam
-("it's all one feature, the invariants relate") → clean verdict on an unholdable surface
-```
-
-**BLOCKED rationalizations:** "redteam each todo to be safe" / "per-shard convergence is
-more rigorous" (anti-per-todo) · "it's all one feature, one wave is fine" / "we'll redteam
-at the end like always" (anti-whole-project) · "it's one milestone, the invariants all
-relate" / "the convergence pass can hold all the shards' invariants" / "value-coherent
-means one wave" (anti-overflow) · "I'll just write the flat todo list" / "wave declaration is
-for big projects only" / "the plan is obvious, no need to declare waves" / "I'll decide waves
-at `/implement` time" (anti-no-declaration — the gate cannot fire on an undeclared plan).
+Worked examples + BLOCKED corpus: extract § MUST-1.
 
 **Why:** The shard gate bounds IMPLEMENTATION attention; the wave gate bounds VERIFICATION
 attention — the same budget (`rules/autonomous-execution.md` MUST-1 "context window is not
@@ -100,29 +81,17 @@ inter-wave gate G1→G5 before launching the next wave. Each step re-sequences E
 machinery; the gate adds no new phase. Launching wave N+1 before G1–G4 complete clean is
 BLOCKED.
 
-| Step                                        | Action                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Reuses                                                                           |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| **G1 — redteam to convergence**             | `/redteam` scoped to THIS wave's shards, to full Convergence Criteria (`commands/redteam.md` § Convergence Criteria) — which REQUIRE a ratified acceptance list to predate the wave's first round and treat the round cap as a circuit breaker, never a completion (`rules/completion-criterion.md` MUST-1/MUST-4) — posture-invariant — convergence is on **BUG + INVEST-NOW findings only** (`commands/redteam.md` § Category-Based Finding Triage / `rules/product-completion-first.md`); INCREMENTAL findings accrete to the deferred-quality backlog carried to the terminal `/sweep`, and do NOT reset the wave's clean-round counter                                                                                                                                                                                                                                                                                                                                    | `/redteam` + `agents.md` § Redteam Reviewer Dispatch (criterion-3 evidence gate) |
-| **G2 — capture the learning (LIGHTWEIGHT)** | Record the delta between what the wave's todos CLAIMED and what its redteam FOUND (misunderstanding, plan-drift, spec-divergence) as a journal `DISCOVERY`/`GAP` + a first-instance spec update **+ a `.session-notes` refresh** (a wave boundary IS a close-out — the `/wrapup` contract runs WITH the wave-close, staged into the wave-close commit, NOT as a separate manual `/wrapup`), and the per-wave refresh MUST update the wave-tracker file (`commands/wrapup.md` § Wave tracker) so a `/clear`-resumed session does not re-launch a still-running agent or redo a merged wave. **Full `/codify` is RESERVED for genuinely cross-project learnings — NOT run every wave** (avoids N codify-lease/PR cycles per project per `rules/knowledge-convergence.md` MUST-3). | `commands/journal.md`; `commands/wrapup.md`; `rules/specs-authority.md` Rule 5   |
-| **G3 — update specs + remaining todos**     | First-instance spec update + sibling re-derivation sweep; amend UNSTARTED later-wave todos for version/symbol/signature drift the wave caused                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | `rules/specs-authority.md` Rule 5/5b/5c                                          |
-| **G4 — re-value-rank**                      | Re-rank the remaining waves and re-validate every deferred value-anchor                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | `rules/value-prioritization.md` MUST-1 + MUST-3                                  |
-| **G5 — launch next wave**                   | Only after G1–G4 are clean; decompose onto the parallel primitive when the wave has ≥2 independent shards (a genuinely-atomic single shard runs inline)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | `rules/agents.md` § The Default Execution Mode Is The Triad                      |
+| Step                                        | Action                                                                                                                                                                                                                       | Reuses                                                                         |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| **G1 — redteam to convergence**             | `/redteam` scoped to THIS wave's shards, to full Convergence Criteria, posture-invariant; convergence is on **BUG + INVEST-NOW findings only**                                                                               | `/redteam` + `agents.md` § Redteam Reviewer Dispatch                           |
+| **G2 — capture the learning (LIGHTWEIGHT)** | Journal the CLAIMED-vs-FOUND delta as a `DISCOVERY`/`GAP` + spec update + a `.session-notes` refresh that MUST update the wave-tracker file. **Full `/codify` is RESERVED for cross-project learnings — NOT run every wave** | `commands/journal.md`; `commands/wrapup.md`; `rules/specs-authority.md` Rule 5 |
+| **G3 — update specs + remaining todos**     | First-instance spec update + sibling re-derivation sweep; amend UNSTARTED later-wave todos for drift the wave caused                                                                                                         | `rules/specs-authority.md` Rule 5/5b/5c                                        |
+| **G4 — re-value-rank**                      | Re-rank the remaining waves and re-validate every deferred value-anchor                                                                                                                                                      | `rules/value-prioritization.md` MUST-1 + MUST-3                                |
+| **G5 — launch next wave**                   | Only after G1–G4 are clean; decompose onto the parallel primitive at ≥2 independent shards                                                                                                                                   | `rules/agents.md` § The Default Execution Mode Is The Triad                    |
 
-```markdown
-# DO — gate fires, learning feeds forward, THEN next wave
+Full cells, with every cross-reference each step reuses: extract § MUST-2 gate table.
 
-Wave 1 complete → G1 /redteam converges (2 clean) → G2 journal GAP "plan assumed sync
-API, service is async" → G3 spec + Wave-2 todos amended to async → G4 re-rank → G5 launch
-
-# DO NOT — drain todos/active across the boundary with no gate
-
-Wave 1 todos done → immediately start Wave 2 todos ("keep momentum") → Wave 1's
-async-vs-sync drift silently propagates into Wave 2 and surfaces only at terminal redteam
-```
-
-**BLOCKED rationalizations:** "keep the momentum, gate at the end" / "the wave converged,
-the next wave is independent" / "G2/G3/G4 are overhead between waves" / "we'll feed the
-learning forward when we hit a problem".
+Worked examples + BLOCKED corpus: extract § MUST-2.
 
 **Why:** The whole defect-compounding failure mode is verification deferred past the
 boundary where the learning is cheapest to apply. G1–G4 apply it at the boundary; G5 only
@@ -177,16 +146,7 @@ Structural vs Execution Gates — plan-approval, release); capacity + throttle
 **clean-gate-stop** (`rules/recommendation-quality.md` MUST-3 — a converged hand-to-human stop
 IS complete; manufacturing work to avoid stopping is BLOCKED).
 
-```markdown
-# DO — waiting on Wave-2's agents → launch the independent Wave-3 read-only audit NOW
-
-# DO NOT — sit idle watching Wave-2 finish while an independent in-budget shard is launchable
-```
-
-**BLOCKED rationalizations:** "keep-executing means I override the gate" (NO — it fills IDLE
-time ONLY; a gate still holds) / "I'll manufacture a shard so I don't have to stop at the clean
-gate" (BLOCKED — the MUST-3 clean-gate-stop IS complete) / "waiting is simpler than tracking
-another wave" / "the main agent's job is to watch the background agents".
+Worked examples + BLOCKED corpus: extract § MUST-6.
 
 **Why:** idle main-agent time while independent in-budget work is launchable is pure throughput
 loss; the bounding gates ensure "always executing" never degrades into "always overriding a
@@ -210,22 +170,7 @@ the comments and NOT the body — the mirror-image defect, so prescribing it alo
 this same bug in the opposite direction. `--json body,comments` returns both; two explicit
 invocations are an acceptable alternative. A single partial flag is not.
 
-```markdown
-# DO — #NNN open → grep the target file (already fixed) + BOTH halves of the issue + journal
-
-gh issue view <N> --json body,comments # neither `view` alone nor `--comments` alone
-grep (governing DEFER) → close with receipt, do NOT re-implement
-
-# DO NOT — implement #NNN because it is still open → discover at redteam it landed two sessions ago
-
-# DO NOT — reconcile on `gh issue view <N>` alone (the comments, where the item accreted, are absent)
-```
-
-**BLOCKED rationalizations:** "it is still open so it must be undone" (open ≠ undone) / "reconciling
-is slower than just doing it" / "the issue is the source of truth" / "a governing DEFER would have
-closed the issue already" / "`gh issue view` shows the issue" (it shows the BODY; the comment count
-it prints is a tally, not the comments) / "`--comments` is the complete-read flag" (it is
-comments-ONLY — the mirror-image truncation).
+Worked examples (incl. the `--json body,comments` form) + BLOCKED corpus: extract § MUST-7.
 
 **Why:** backlog state decays as code evolves; an open item routinely lags a landed fix or a
 governing DEFER, so implementing on its say-so re-does or contradicts delivered work (caught
@@ -233,7 +178,38 @@ already-done work repeatedly in the origin session). Distinct axis from
 `rules/value-prioritization.md` MUST-3 (which ranks WHICH item is most valuable); this clause
 gates WHETHER the item is still real before implementing — cross-ref, not restated.
 
+### 8. A Multi-Surface Wave Pins Its Corpus Per Surface; A Freeze Is A Recorded Lease
+
+A wave delivering ONE corpus to ≥2 surfaces (`/sync-to-use` + `/sync-to-build` targets,
+ecosystem forks, downstream templates) MUST carry a machine-readable ledger at
+`workspaces/<wave>/corpus-ledger.json` naming, for EVERY surface, the FULL 40-hex `cut_sha`
+it was cut from, its PR, and its state; and every Gate-2 PR body MUST carry that same SHA as
+a greppable `corpus-sha: <40-hex>` trailer, never only as prose. Distinct `cut_sha` values
+across surfaces means the wave shipped N corpora: that is REPORTED, not blocked, and MUST be
+accepted by a NAMED human in `divergence_accepted_by` — absorbing it silently is BLOCKED.
+Freezing a shared branch to FAKE atomicity is BLOCKED unless recorded as a lease carrying
+`declared_by`, `reason`, `release_condition`, and a calendar `expires`; a freeze that is
+memory-held, release-conditionless, expired, or held once every surface reads `merged` IS
+the violation. Detector: `.claude/bin/check-wave-corpus-ledger.mjs`.
+
+Worked example + BLOCKED corpus: extract § MUST-8.
+
+**Why:** The wave model assumes all surfaces land together, so when they cannot the only
+lever left is a manual global freeze — the widest instrument for a per-surface problem,
+with a blast radius covering every operator who was never party to the wave. Making the
+delivered corpus SHA a machine-readable per-surface field converts divergence from an
+undetectable state into a reported one, which removes the reason to fake atomicity at all;
+and a lease with an author, a release condition, and a calendar backstop turns "the freeze
+lifts when someone remembers" into a finding. Incident, schema, and the four lease fields:
+extract § MUST-8.
+
 ## MUST NOT
+
+- Freeze a shared branch as the response to surfaces that cannot land together.
+
+**Why:** The freeze is the widest available instrument for a per-surface problem and
+restores no invariant — atomicity was lost at the first divergent cut, not at merge time.
+Pin, ledger, and report the divergence instead (MUST-8).
 
 - Size a wave by value-coherence alone, ignoring the cumulative invariant surface.
 
@@ -322,6 +298,51 @@ the pre-existing MUST 1/2/3/5 wiring above is unchanged.
   on their own wiring above.
 - **Origin:** See § Origin (journal/0543 — co-owner-directed origination).
 
+### Clause-scoped wiring — MUST-8 (corpus pinning + freeze lease, added 2026-08-16)
+
+Applies to **MUST-8** and its paired MUST NOT bullet ONLY; ships canonical-8-field-compliant
+per `rules/trust-posture.md` MUST-8. The MUST 1/2/3/5 and MUST-6/7 blocks above are unchanged.
+
+- **Severity:** `halt-and-report` at `/codify` + `/redteam` gate-review (cc-architect /
+  reviewer confirm a multi-surface wave carried a ledger, that every surface row is pinned to
+  a full SHA, that any divergence names a human acceptor, and that any freeze was a recorded
+  lease); `advisory` at the hook layer per `rules/hook-output-discipline.md` MUST-2 — whether
+  a branch lock was a freeze is a session-history judgment with no tool-call-time signal.
+- **Grace period:** 7 days from clause landing (2026-08-16 → 2026-08-23).
+- **Cumulative posture impact:** same-class violations (a multi-surface wave with no ledger;
+  a surface pinned to an abbreviated SHA or unpinned; divergence with no named acceptor; a
+  freeze declared with no `release_condition` or `expires`; a freeze held past expiry or past
+  the last surface merging) contribute to `rules/trust-posture.md` MUST-4 cumulative-window
+  math (3× same-rule / 5× total in 30d → drop 1 posture).
+- **Regression-within-grace:** a same-class violation within the grace window routes through
+  the GENERIC `regression_within_grace` emergency trigger per `rules/trust-posture.md` MUST-4
+  (1× = drop 1 posture) — NO dedicated per-clause trigger key, and it does NOT reuse MUST
+  1/2/3's `wave_gate_skipped` key (that fires on a skipped inter-wave gate, a different
+  shape). Named deviation from the canonical key-per-clause form, recorded here per
+  `rules/trust-posture.md` Rule 8, on the same reasoning MUST-6/7 recorded: a ledger/lease
+  property is mechanically checkable at gate-review and does not warrant an instant-drop key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: wave-loop]` IFF
+  `posture.json::pending_verification` includes this rule_id (shared across every clause).
+- **Detection mechanism:** structural, SHIPPED WITH THE CLAUSE — no phase is deferred.
+  Scanner `.claude/bin/check-wave-corpus-ledger.mjs` reads every
+  `workspaces/*/corpus-ledger.json` and reds on an abbreviated/absent `cut_sha`, a
+  state/`merged_sha` contradiction, unaccepted divergence, an incomplete/expired/stale freeze
+  lease, or a malformed ledger; it exits 3 (UNRUN, explicitly NOT a pass) when no ledger
+  exists, so a silent no-op cannot read as clean. Bipolar fixtures — a violating pole that
+  MUST red and a conformant pole that MUST stay green for every arm, plus a self-control
+  proving the instrument discriminates before it reports — at
+  `.claude/audit-fixtures/wave-corpus-ledger/`, registered `mode: run` in
+  `.claude/test-harness/ci-audit-fixtures.json` and executed by
+  `.claude/bin/run-audit-fixtures.mjs`. Gate-review then covers what the scanner is NOT
+  scoped to answer (`rules/instrument-discipline.md` MUST-4): whether the ledger enumerates
+  every surface the wave actually touched, and whether a freeze was WARRANTED. **No probe
+  suite ships for this clause** — stated explicitly rather than naming a phantom path; the
+  semantic tier is UNCOVERED and owed at gate-review via `/test-harness-probe`, the same
+  disposition `rules/agents.md` § Worktree-Orchestration wiring records.
+- **Violation scope:** MUST-8 + its paired MUST NOT bullet ONLY (clause-scoped). Every
+  `violations.jsonl` row names the wave, the surface, and which arm fired.
+- **Origin:** See § Origin (the nine-surface Gate-2 wave cut at loom `959a2524`).
+
 ## Distinct From / Cross-References
 
 - **Composes with (does not restate):** `commands/redteam.md` § Convergence Criteria (G1/
@@ -350,6 +371,20 @@ are reference-bindings to the rules they compose with. Amended 2026-07-18 — co
 origination (`journal/0543`) added MUST-6 (never-idle-wait) + MUST-7 (reconcile-first) + the G2
 wave-tracker refresh line + their clause-scoped 8-field wiring; the default execution mode is the
 triad parallelize + `/autonomize` + `/redteam`-to-convergence (`rules/agents.md` § The Default Execution Mode Is The Triad).
+
+Amended 2026-08-16 — MUST-8 (corpus pinning + divergence ledger + freeze lease). A
+nine-surface Gate-2 wave was cut at loom `959a2524`: six surfaces cut, five merged, four
+blocked, after which `main` was frozen by hand "so the wave ships one corpus". The freeze
+blocked unrelated work for a full session; the one-corpus goal had already been lost at the
+first divergent cut; and nothing on disk recorded who declared the freeze, what would
+release it, or when it lapsed. Root cause: the wave model assumed all surfaces land
+together, so the only lever when they could not was a manual global freeze — and because the
+corpus SHA a surface synced from lived in PR prose, divergence was undetectable rather than
+merely inconvenient. Paired extraction (`rules/rule-authoring.md` Rule 10 path (a)) moved
+this file's worked examples, BLOCKED corpora, and full G1→G5 cells to
+`.claude/guides/rule-extracts/wave-loop.md`, funding the clause within the `workspace-note`
+injection budget rather than raising it. Full incident, ledger schema, and lease-field table:
+extract § MUST-8.
 
 **Length rationale (per `rules/rule-authoring.md` MUST NOT length cap).** ~300 lines after the
 2026-07-18 co-owner-directed addition of MUST-6 (never-idle-wait) + MUST-7 (reconcile-first) +

@@ -1,0 +1,32 @@
+VIOLATION — compliant=false.
+
+violated_meta_rules = [rule-authoring MUST-1, MUST-2, MUST-3, MUST NOT (Why length)]
+
+This pole is SURFACE-EQUALIZED with the compliant one on purpose: identical
+frontmatter shape, an identical heading skeleton (`## MUST Rules`, `### 1. A Retry
+MUST Name The Transient Fault Class It Absorbs`, `## MUST NOT`, `## Trust Posture
+Wiring`, `## Origin`), the same structural furniture (DO/DO-NOT block, `**Why:**`
+lines, a `**BLOCKED rationalizations:**` heading), a byte-identical Wiring block and
+near-identical length. Every defect is in the CONTENT of that furniture, never its
+absence — a judge scoring this by shape alone will get it wrong.
+
+- MUST-1 BREACHED: the clause HEADING says MUST, but the clause BODY is hedged
+  throughout — "you should generally try to", "in most cases it is preferable",
+  "tends to convert", "generally moves". The load-bearing modal is what MUST-1
+  governs, and here it tells the agent it is permitted to skip.
+- MUST-2 BREACHED: the `**BLOCKED rationalizations:**` heading is PRESENT but what
+  sits under it is an abstract taxonomy of error types ("Treating a retry as a
+  substitute for diagnosis"), not the verbatim excuse phrases an agent would
+  actually emit. MUST-2 requires the literal wording so it can act as a linguistic
+  tripwire; a paraphrased description of a category traps nothing.
+- MUST-3 BREACHED: the DO / DO NOT block is PRESENT but its two arms are
+  byte-identical apart from headings that merely restate "appropriate" / "not
+  appropriate". The block teaches nothing — a reader cannot tell which retry is
+  blocked or why.
+- MUST NOT BREACHED (2-sentence Why cap): the main `**Why:**` runs four sentences,
+  including a digression about distributed systems and mean time to diagnosis.
+
+The Wiring block is byte-identical to the compliant pole and is NOT a finding — a
+judge reporting a Wiring defect here has keyed on the wrong surface. Likewise the
+`## MUST NOT` section's single entry and the Phase-2 deferral are shared with the
+compliant pole and are not defects.

@@ -1,0 +1,1228 @@
+{
+  "format": 1,
+  "target": "base",
+  "mode": "use",
+  "generated_by": "sync-tier-aware.mjs (loom Gate-2 distribution)",
+  "note": "Tokens cited by artifacts in THIS tree whose referents the distribution manifest PROVES are not delivered here. Absent-by-design, not dangling. A reader that does not recognise `format` MUST ignore this file and behave as if it were absent (forward-compat). A file that IS this format but is unreadable or structurally wrong is MALFORMED, and MUST be reported as an incomplete run — never read as 'nothing is absent by design'. SOURCE-SCOPED, and this is load-bearing: each entry is keyed on the bare token, but the absence was PROVED only for the citing files in its `sources` array. A reader MUST excuse a finding only when BOTH the token matches AND the finding's citing file is in that entry's `sources`. Matching on the token alone over-suppresses — it would silently excuse a NEW citer this declaration never adjudicated, which is the dangerous direction: a genuinely dangling reference reported as absent-by-design.",
+  "absent": {
+    "../../agents/implementation/pattern-expert.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/skills/16-validation-patterns/validate-workflow-structure.md"
+      ]
+    },
+    "../../skills/31-error-troubleshooting/SKILL.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/agents/implementation/build-fix.md"
+      ]
+    },
+    "../01-core-sdk/SKILL.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/skills/10-deployment-git/SKILL.md",
+        ".claude/skills/16-validation-patterns/SKILL.md",
+        ".claude/skills/17-gold-standards/SKILL.md",
+        ".claude/skills/18-security-patterns/SKILL.md"
+      ]
+    },
+    "../01-core-sdk/param-passing-quick.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/skills/17-gold-standards/gold-parameter-passing.md"
+      ]
+    },
+    "../01-core-sdk/runtime-execution.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/skills/17-gold-standards/gold-parameter-passing.md",
+        ".claude/skills/17-gold-standards/gold-testing.md"
+      ]
+    },
+    "../01-core-sdk/workflow-quickstart.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/skills/16-validation-patterns/validate-workflow-structure.md",
+        ".claude/skills/17-gold-standards/gold-parameter-passing.md"
+      ]
+    },
+    "../02-dataflow/SKILL.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/skills/10-deployment-git/SKILL.md",
+        ".claude/skills/12-testing-strategies/SKILL.md",
+        ".claude/skills/16-validation-patterns/SKILL.md"
+      ]
+    },
+    "../03-nexus/SKILL.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/skills/10-deployment-git/SKILL.md",
+        ".claude/skills/12-testing-strategies/SKILL.md"
+      ]
+    },
+    "../06-cheatsheets/common-mistakes-catalog.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/skills/16-validation-patterns/validate-workflow-structure.md"
+      ]
+    },
+    "../31-error-troubleshooting/SKILL.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/skills/16-validation-patterns/SKILL.md",
+        ".claude/skills/17-gold-standards/SKILL.md"
+      ]
+    },
+    "../31-error-troubleshooting/error-connection-params.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/skills/16-validation-patterns/validate-workflow-structure.md"
+      ]
+    },
+    "../31-error-troubleshooting/error-missing-build.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/skills/16-validation-patterns/validate-workflow-structure.md"
+      ]
+    },
+    ".claude/agents/_README.md": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/claude-code/12-troubleshooting.md"
+      ]
+    },
+    ".claude/agents/implementation/pattern-expert.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/skills/16-validation-patterns/validate-workflow-structure.md"
+      ]
+    },
+    ".claude/agents/management/coc-sync.md": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/guides/rule-extracts/artifact-flow.md"
+      ]
+    },
+    ".claude/agents/management/gh-manager.md": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/guides/model-optimization/04-implementation-plan.md"
+      ]
+    },
+    ".claude/agents/management/todo-manager.md": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/guides/model-optimization/04-implementation-plan.md"
+      ]
+    },
+    ".claude/audit-fixtures/wave-corpus-ledger/": {
+      "why": "directory_not_shipped",
+      "sources": [
+        ".claude/rules/wave-loop.md"
+      ]
+    },
+    ".claude/bin/check-baseline-delta.mjs": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/skills/skill-authoring/proximity-band-named-rationale-template.md"
+      ]
+    },
+    ".claude/bin/check-descoping.mjs": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/guides/rule-extracts/wave-loop.md"
+      ]
+    },
+    ".claude/bin/check-owned-surfaces.mjs": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/guides/rule-extracts/artifact-flow.md",
+        ".claude/rules/artifact-flow.md"
+      ]
+    },
+    ".claude/bin/check-rule-injection-budget.mjs": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/guides/rule-extracts/wave-loop.md"
+      ]
+    },
+    ".claude/bin/check-wave-corpus-ledger.mjs": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/guides/rule-extracts/wave-loop.md",
+        ".claude/rules/wave-loop.md"
+      ]
+    },
+    ".claude/bin/ecosystem.json": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/commands/ecosystem-init.md",
+        ".claude/rules/state-file-write-guard.md",
+        ".claude/skills/43-ecosystem-init/SKILL.md",
+        ".claude/skills/46-clean-instantiate/SKILL.md"
+      ]
+    },
+    ".claude/bin/edition-emit.mjs": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/self-referential-allowlist-provenance.md"
+      ]
+    },
+    ".claude/bin/lib/canon-rollin-baseline.mjs": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/rules/self-referential-codify.md",
+        ".claude/skills/30-claude-code-patterns/dual-surface-redteam.md",
+        ".claude/skills/30-claude-code-patterns/self-referential-allowlist-provenance.md"
+      ]
+    },
+    ".claude/bin/lib/community-membership.mjs": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/rules/self-referential-codify.md",
+        ".claude/skills/30-claude-code-patterns/self-referential-allowlist-provenance.md"
+      ]
+    },
+    ".claude/bin/lib/community-reference-primitives.mjs": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/rules/self-referential-codify.md",
+        ".claude/skills/30-claude-code-patterns/self-referential-allowlist-provenance.md"
+      ]
+    },
+    ".claude/bin/lib/disclosure-adjudication.mjs": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/rules/self-referential-codify.md",
+        ".claude/skills/30-claude-code-patterns/self-referential-allowlist-provenance.md"
+      ]
+    },
+    ".claude/bin/lib/edition-output-gate.mjs": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/rules/self-referential-codify.md",
+        ".claude/skills/30-claude-code-patterns/self-referential-allowlist-provenance.md"
+      ]
+    },
+    ".claude/bin/lib/edition-summary.mjs": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/rules/self-referential-codify.md",
+        ".claude/skills/30-claude-code-patterns/self-referential-allowlist-provenance.md"
+      ]
+    },
+    ".claude/bin/lib/in-community-edition.mjs": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/rules/self-referential-codify.md",
+        ".claude/skills/30-claude-code-patterns/self-referential-allowlist-provenance.md"
+      ]
+    },
+    ".claude/bin/lib/loom-links.mjs": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/commands/enroll.md",
+        ".claude/rules/self-referential-codify.md",
+        ".claude/skills/30-claude-code-patterns/self-referential-allowlist-provenance.md"
+      ]
+    },
+    ".claude/bin/loom-doctor.test.mjs": {
+      "why": "exclude",
+      "sources": [
+        ".claude/commands/doctor.md",
+        ".claude/skills/47-loom-doctor/SKILL.md"
+      ]
+    },
+    ".claude/bin/phase2-deferral-integrity.mjs": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/rules/deferral-registry-locality.md",
+        ".claude/rules/trust-posture.md"
+      ]
+    },
+    ".claude/bin/run-audit-fixtures.mjs": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/guides/rule-extracts/upstream-issue-hygiene.md",
+        ".claude/rules/orchestrator-context-economy.md",
+        ".claude/rules/wave-loop.md"
+      ]
+    },
+    ".claude/bin/spec-corpus-conformance.mjs": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/commands/sweep.md"
+      ]
+    },
+    ".claude/bin/sync-from-canon-objects.mjs": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/guides/rule-extracts/artifact-flow.md",
+        ".claude/skills/30-claude-code-patterns/dual-surface-redteam.md"
+      ]
+    },
+    ".claude/bin/sync-gate2-worktree.mjs": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/rules/artifact-flow.md"
+      ]
+    },
+    ".claude/bin/sync-tier-aware.mjs": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/sync-flow.md"
+      ]
+    },
+    ".claude/bin/worktree-reap.test.mjs": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/worktree-isolation.md"
+      ]
+    },
+    ".claude/commands/db.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/guides/claude-code/04-the-command-system.md"
+      ]
+    },
+    ".claude/commands/govern.md": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/rules/self-referential-codify.md",
+        ".claude/skills/30-claude-code-patterns/self-referential-allowlist-provenance.md"
+      ]
+    },
+    ".claude/commands/publish-template.md": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/rules/self-referential-codify.md",
+        ".claude/skills/30-claude-code-patterns/self-referential-allowlist-provenance.md"
+      ]
+    },
+    ".claude/commands/sync-from-build.md": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/rules/self-referential-codify.md",
+        ".claude/skills/30-claude-code-patterns/self-referential-allowlist-provenance.md"
+      ]
+    },
+    ".claude/commands/sync-from-canon.md": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/rules/self-referential-codify.md",
+        ".claude/skills/30-claude-code-patterns/self-referential-allowlist-provenance.md"
+      ]
+    },
+    ".claude/commands/sync-from-use.md": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/rules/self-referential-codify.md",
+        ".claude/skills/30-claude-code-patterns/self-referential-allowlist-provenance.md"
+      ]
+    },
+    ".claude/commands/sync-to-build.md": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/rules/self-referential-codify.md",
+        ".claude/skills/30-claude-code-patterns/self-referential-allowlist-provenance.md"
+      ]
+    },
+    ".claude/commands/sync-to-use.md": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/rules/self-referential-codify.md",
+        ".claude/skills/30-claude-code-patterns/self-referential-allowlist-provenance.md"
+      ]
+    },
+    ".claude/guides/co-setup/03-creating-components.md": {
+      "why": "use_exclude",
+      "sources": [
+        ".claude/agents/cc-architect.md"
+      ]
+    },
+    ".claude/guides/rule-extracts/git.md": {
+      "why": "use_exclude",
+      "sources": [
+        ".claude/rules/git.md"
+      ]
+    },
+    ".claude/hooks/lib/artifact-activation-event.js": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/derives-from-emission.md"
+      ]
+    },
+    ".claude/rules/coc-sync-landing.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/guides/rule-extracts/coc-sync-landing.md"
+      ]
+    },
+    ".claude/rules/cross-cli-parity.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/agents/codex-architect.md",
+        ".claude/agents/gemini-architect.md"
+      ]
+    },
+    ".claude/rules/cross-sdk-inspection.md": {
+      "why": "use_exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/cross-sdk-inspection.md"
+      ]
+    },
+    ".claude/rules/dataflow-identifier-safety.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/skills/18-security-patterns/rls-security-definer-preauth-carveout.md"
+      ]
+    },
+    ".claude/rules/eatp.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/skills/26-eatp-reference/eatp-security-patterns.md"
+      ]
+    },
+    ".claude/rules/local/": {
+      "why": "directory_not_shipped",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/dual-surface-redteam.md"
+      ]
+    },
+    ".claude/rules/local/_README.md": {
+      "why": "reserved_local",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/dual-surface-redteam.md"
+      ]
+    },
+    ".claude/rules/pact-governance.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/skills/29-pact/SKILL.md",
+        ".claude/skills/29-pact/pact-mcp-governance.md"
+      ]
+    },
+    ".claude/rules/sync-completeness.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/guides/rule-extracts/sync-completeness.md"
+      ]
+    },
+    ".claude/rules/tenant-isolation.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/skills/18-security-patterns/dataflow-rls-posture.md",
+        ".claude/skills/18-security-patterns/rls-security-definer-preauth-carveout.md"
+      ]
+    },
+    ".claude/rules/trust-plane-security.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/skills/26-eatp-reference/eatp-security-patterns.md"
+      ]
+    },
+    ".claude/rules/variant-authoring.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/agents/codex-architect.md",
+        ".claude/agents/gemini-architect.md"
+      ]
+    },
+    ".claude/skills/31-error-troubleshooting/": {
+      "why": "directory_not_shipped",
+      "sources": [
+        ".claude/agents/implementation/build-fix.md"
+      ]
+    },
+    ".claude/skills/project/": {
+      "why": "directory_not_shipped",
+      "sources": [
+        ".claude/commands/cc-audit.md",
+        ".claude/commands/sync-from-template.md"
+      ]
+    },
+    "agents/frameworks/": {
+      "why": "directory_not_shipped",
+      "sources": [
+        ".claude/commands/codify.md",
+        "CLAUDE.md"
+      ]
+    },
+    "agents/frameworks/ml-specialist.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/commands/codify.md"
+      ]
+    },
+    "agents/management/": {
+      "why": "directory_not_shipped",
+      "sources": [
+        "CLAUDE.md"
+      ]
+    },
+    "bin/ecosystem.json": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/skills/45-genesis-bootstrap/SKILL.md"
+      ]
+    },
+    "bin/edition-emit.mjs": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/self-referential-allowlist-provenance.md"
+      ]
+    },
+    "bin/lib/disclosure-adjudication.mjs": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/self-referential-allowlist-provenance.md"
+      ]
+    },
+    "bin/lib/loom-links.mjs": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/commands/ecosystem-init.md",
+        ".claude/commands/sweep.md",
+        ".claude/guides/rule-extracts/artifact-flow.md",
+        ".claude/rules/artifact-flow.md",
+        ".claude/skills/30-claude-code-patterns/sync-flow.md"
+      ]
+    },
+    "bin/phase2-deferral-integrity.mjs": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/deferral-registry-locality.md"
+      ]
+    },
+    "bin/reconcile-settings-hooks.mjs": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/sync-flow.md"
+      ]
+    },
+    "bin/sync-gate2-worktree.mjs": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/rules/artifact-flow.md",
+        ".claude/skills/30-claude-code-patterns/sync-flow.md"
+      ]
+    },
+    "commands/cli-audit.md": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/multi-cli-migration.md"
+      ]
+    },
+    "commands/sync-from-canon.md": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/self-referential-allowlist-provenance.md"
+      ]
+    },
+    "commands/sync-to-build.md": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/commands/cross-repo-authorize.md",
+        ".claude/guides/rule-extracts/sync-completeness.md",
+        ".claude/skills/30-claude-code-patterns/sync-flow.md"
+      ]
+    },
+    "commands/sync-to-use.md": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/guides/rule-extracts/sync-completeness.md"
+      ]
+    },
+    "commands/test-harness-probe.md": {
+      "why": "use_exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/sync-completeness.md",
+        ".claude/rules/instrument-discipline.md"
+      ]
+    },
+    "guides/co-setup/": {
+      "why": "directory_not_shipped",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/sync-flow.md",
+        "CLAUDE.md"
+      ]
+    },
+    "guides/co-setup/05-variant-architecture.md": {
+      "why": "use_exclude",
+      "sources": [
+        ".claude/skills/skill-authoring/SKILL.md",
+        "CLAUDE.md"
+      ]
+    },
+    "guides/co-setup/06-artifact-lifecycle.md": {
+      "why": "use_exclude",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/sync-flow.md",
+        "CLAUDE.md"
+      ]
+    },
+    "guides/co-setup/08-versioning.md": {
+      "why": "use_exclude",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/sync-flow.md"
+      ]
+    },
+    "guides/co-setup/09-proposal-protocol.md": {
+      "why": "use_exclude",
+      "sources": [
+        ".claude/commands/codify.md",
+        ".claude/guides/rule-extracts/artifact-flow.md",
+        ".claude/rules/artifact-flow.md",
+        ".claude/skills/30-claude-code-patterns/sync-flow.md",
+        ".claude/skills/issue-triage-routing/SKILL.md"
+      ]
+    },
+    "guides/co-setup/11-genesis-ceremony.md": {
+      "why": "use_exclude",
+      "sources": [
+        ".claude/commands/ecosystem-init.md",
+        ".claude/commands/whoami.md",
+        ".claude/rules/enrollment-operations.md",
+        ".claude/skills/30-claude-code-patterns/multi-operator-coordination-substrate.md",
+        ".claude/skills/43-ecosystem-init/SKILL.md",
+        ".claude/skills/45-genesis-bootstrap/SKILL.md"
+      ]
+    },
+    "guides/deterministic-quality/": {
+      "why": "directory_not_shipped",
+      "sources": [
+        "CLAUDE.md"
+      ]
+    },
+    "guides/deterministic-quality/01-rule-authoring-principles.md": {
+      "why": "use_exclude",
+      "sources": [
+        ".claude/agents/cc-architect.md",
+        ".claude/commands/cc-audit.md",
+        ".claude/rules/rule-authoring.md"
+      ]
+    },
+    "guides/deterministic-quality/02-session-architecture.md": {
+      "why": "use_exclude",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/worktree-orchestration.md"
+      ]
+    },
+    "guides/deterministic-quality/06-observability-primitives.md": {
+      "why": "use_exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/observability.md"
+      ]
+    },
+    "guides/rule-extracts/git.md": {
+      "why": "use_exclude",
+      "sources": [
+        ".claude/rules/autonomous-execution.md"
+      ]
+    },
+    "journal/0006-DECISION-wrapper-emission-disposition-strip.md": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/skills/command-authoring/SKILL.md",
+        ".claude/skills/hook-authoring/SKILL.md"
+      ]
+    },
+    "journal/0010": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/handoff-completion.md"
+      ]
+    },
+    "journal/0011": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/handoff-completion.md"
+      ]
+    },
+    "journal/0012": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/handoff-completion.md"
+      ]
+    },
+    "journal/0042-DECISION-feature-set.md": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/rules/value-prioritization.md"
+      ]
+    },
+    "journal/0055": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/value-prioritization.md",
+        ".claude/rules/value-prioritization.md"
+      ]
+    },
+    "journal/0059": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/value-prioritization.md"
+      ]
+    },
+    "journal/0059-DISCOVERY-value-prioritization-f1-5-empirical-results.md": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/value-prioritization.md"
+      ]
+    },
+    "journal/0060": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/value-prioritization.md"
+      ]
+    },
+    "journal/0063": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/rules/value-prioritization.md"
+      ]
+    },
+    "journal/0064-DISCOVERY-phantom-citation-chain-and-redteam-round-history.md": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/verify-resource-existence.md"
+      ]
+    },
+    "journal/0065": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/rules/value-prioritization.md"
+      ]
+    },
+    "journal/0067": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/value-prioritization.md"
+      ]
+    },
+    "journal/0068": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/value-prioritization.md"
+      ]
+    },
+    "journal/0069": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/value-prioritization.md"
+      ]
+    },
+    "journal/0073-DECISION-v6.2-shards-1-2-3-converged-2026-05-15.md": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/sync-completeness.md"
+      ]
+    },
+    "journal/0078": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/rules/knowledge-cascade-routing.md"
+      ]
+    },
+    "journal/0089": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/commands/wrapup.md"
+      ]
+    },
+    "journal/0117": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/commands/whoami.md"
+      ]
+    },
+    "journal/0128-DECISION-multi-operator-coc-m1-complete-2026-05-21.md": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/commands/claim.md",
+        ".claude/commands/claims.md",
+        ".claude/commands/release-claim.md"
+      ]
+    },
+    "journal/0143-DECISION-m9-3-closure-partial-py-rb-shipped-rs-deferred-2026-05-22.md": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/closure-parity-specialist-discipline.md"
+      ]
+    },
+    "journal/0144": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/rules/rule-authoring.md"
+      ]
+    },
+    "journal/0146": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/rules/rule-authoring.md",
+        ".claude/skills/skill-authoring/proximity-band-named-rationale-template.md"
+      ]
+    },
+    "journal/0147": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/rules/rule-authoring.md",
+        ".claude/skills/skill-authoring/proximity-band-named-rationale-template.md"
+      ]
+    },
+    "journal/0148": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/rules/rule-authoring.md",
+        ".claude/skills/skill-authoring/proximity-band-named-rationale-template.md"
+      ]
+    },
+    "journal/0149": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/skills/skill-authoring/proximity-band-named-rationale-template.md"
+      ]
+    },
+    "journal/0158-DECISION-certify-onboarding-mechanism-2026-05-25.md": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/commands/certify.md",
+        ".claude/skills/42-certify/SKILL.md"
+      ]
+    },
+    "journal/0170-esperie-DECISION-f86-f70-f71-parallel-wave-2026-05-29.md": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/multi-operator-coordination-substrate.md"
+      ]
+    },
+    "journal/0171": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/genesis-migration-n1-org-admin-anchor.md"
+      ]
+    },
+    "journal/0173": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/genesis-migration-n1-org-admin-anchor.md",
+        ".claude/skills/30-claude-code-patterns/multi-operator-coordination-substrate.md"
+      ]
+    },
+    "journal/0177": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/worktree-isolation.md"
+      ]
+    },
+    "journal/0182": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/commands/cc-audit.md"
+      ]
+    },
+    "journal/0193": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/worktree-isolation.md"
+      ]
+    },
+    "journal/0194": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/worktree-isolation.md"
+      ]
+    },
+    "journal/0226": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/rules/wave-loop.md"
+      ]
+    },
+    "journal/0230-esperie-DECISION-382-journal-contract-reconciliation.md": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/rules/journal.md"
+      ]
+    },
+    "journal/0233": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/rules/multi-operator-coordination.md"
+      ]
+    },
+    "journal/0280": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/artifact-flow.md"
+      ]
+    },
+    "journal/0282": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/artifact-flow.md",
+        ".claude/skills/30-claude-code-patterns/multi-operator-coordination-substrate.md"
+      ]
+    },
+    "journal/0284": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/multi-operator-coordination-substrate.md"
+      ]
+    },
+    "journal/0289": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/artifact-flow.md",
+        ".claude/rules/artifact-flow.md"
+      ]
+    },
+    "journal/0335": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/artifact-flow.md"
+      ]
+    },
+    "journal/0339": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/sync-flow.md"
+      ]
+    },
+    "journal/0341": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/rules/analyze-output-completeness.md"
+      ]
+    },
+    "journal/0375": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/rules/symbol-anchored-citations.md"
+      ]
+    },
+    "journal/0391": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/self-referential-allowlist-provenance.md"
+      ]
+    },
+    "journal/0394": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/self-referential-allowlist-provenance.md"
+      ]
+    },
+    "journal/0402": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/artifact-flow.md",
+        ".claude/rules/artifact-flow.md"
+      ]
+    },
+    "journal/0403": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/artifact-flow.md",
+        ".claude/rules/artifact-flow.md"
+      ]
+    },
+    "journal/0432": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/rules/recommendation-quality.md"
+      ]
+    },
+    "journal/0434": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/rules/recommendation-quality.md"
+      ]
+    },
+    "journal/0435": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/rules/recommendation-quality.md"
+      ]
+    },
+    "journal/0436": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/rules/recommendation-quality.md"
+      ]
+    },
+    "journal/0440": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/rules/knowledge-cascade-routing.md"
+      ]
+    },
+    "journal/0463": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/rules/worktree-isolation.md"
+      ]
+    },
+    "journal/0467": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/rules/product-completion-first.md"
+      ]
+    },
+    "journal/0475": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/redteam-dispatch-evidence-gate.md"
+      ]
+    },
+    "journal/0478": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/artifact-flow.md",
+        ".claude/rules/artifact-flow.md"
+      ]
+    },
+    "journal/0480": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/rules/specs-authority.md"
+      ]
+    },
+    "journal/0482": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/rules/multi-operator-coordination.md",
+        ".claude/skills/30-claude-code-patterns/multi-operator-coordination-substrate.md"
+      ]
+    },
+    "journal/0488": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/commands/cross-repo-authorize.md",
+        ".claude/guides/rule-extracts/repo-scope-discipline.md",
+        ".claude/rules/repo-scope-discipline.md"
+      ]
+    },
+    "journal/0518": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/rules/conformance-walk.md"
+      ]
+    },
+    "journal/0543": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/agents.md",
+        ".claude/rules/burn-down-reporting.md",
+        ".claude/rules/wave-loop.md"
+      ]
+    },
+    "journal/0565": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/rules/worktree-isolation.md"
+      ]
+    },
+    "journal/0568": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/instrument-discipline.md",
+        ".claude/skills/12-testing-strategies/probe-driven-verification.md"
+      ]
+    },
+    "journal/0569": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/autonomous-execution.md",
+        ".claude/guides/rule-extracts/instrument-discipline.md",
+        ".claude/rules/instrument-discipline.md",
+        ".claude/skills/30-claude-code-patterns/instrument-discipline.md",
+        ".claude/skills/issue-triage-routing/SKILL.md"
+      ]
+    },
+    "journal/0570": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/rules/autonomous-execution.md"
+      ]
+    },
+    "journal/0572": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/ci-cost-discipline-evidence.md"
+      ]
+    },
+    "journal/0574": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/rules/autonomous-execution.md"
+      ]
+    },
+    "rules/build-repo-release-discipline.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/skills/16-validation-patterns/validate-codebase-hygiene-markers.md"
+      ]
+    },
+    "rules/coc-artifact-eval-coverage.md": {
+      "why": "use_exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/sync-completeness.md",
+        ".claude/rules/cc-artifacts.md"
+      ]
+    },
+    "rules/coc-sync-landing.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/rules/knowledge-convergence.md",
+        ".claude/skills/30-claude-code-patterns/multi-cli-migration.md"
+      ]
+    },
+    "rules/cross-cli-parity.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/agents/codex-architect.md",
+        ".claude/agents/gemini-architect.md",
+        ".claude/rules/cross-cli-artifact-hygiene.md",
+        ".claude/skills/30-claude-code-patterns/multi-operator-coordination-substrate.md",
+        ".claude/skills/command-authoring/SKILL.md",
+        ".claude/skills/skill-authoring/SKILL.md"
+      ]
+    },
+    "rules/cross-repo.md": {
+      "why": "use_exclude",
+      "sources": [
+        ".claude/commands/enroll.md",
+        ".claude/commands/sweep.md",
+        ".claude/skills/30-claude-code-patterns/multi-operator-coordination-substrate.md",
+        ".claude/skills/30-claude-code-patterns/sync-flow.md",
+        "AGENTS.md",
+        "GEMINI.md"
+      ]
+    },
+    "rules/cross-sdk-inspection.md": {
+      "why": "use_exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/sync-completeness.md"
+      ]
+    },
+    "rules/dataflow-identifier-safety.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/rules/schema-migration.md"
+      ]
+    },
+    "rules/documentation.md": {
+      "why": "use_exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/sync-completeness.md"
+      ]
+    },
+    "rules/framework-first.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/agents/implementation/build-fix.md",
+        ".claude/rules/schema-migration.md",
+        ".claude/skills/36-claude-managed-agents/SKILL.md"
+      ]
+    },
+    "rules/infrastructure-sql.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/rules/schema-migration.md"
+      ]
+    },
+    "rules/loom-csq-boundary.md": {
+      "why": "use_exclude",
+      "sources": [
+        ".claude/skills/12-testing-strategies/probe-driven-verification.md",
+        ".claude/skills/30-claude-code-patterns/multi-cli-migration.md"
+      ]
+    },
+    "rules/pact-governance.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/agents/quality/security-reviewer.md",
+        ".claude/skills/29-pact/pact-governance-engine.md"
+      ]
+    },
+    "rules/sync-completeness.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/guides/rule-extracts/sync-completeness.md",
+        ".claude/skills/30-claude-code-patterns/multi-cli-migration.md"
+      ]
+    },
+    "rules/tenant-isolation.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/guides/rule-extracts/zero-tolerance.md"
+      ]
+    },
+    "rules/variant-authoring.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/agents/codex-architect.md",
+        ".claude/agents/gemini-architect.md",
+        ".claude/rules/cc-artifacts.md"
+      ]
+    },
+    "sdk-upstream-donation.md": {
+      "why": "use_exclude",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/SKILL.md"
+      ]
+    },
+    "skills/01-core-sdk/": {
+      "why": "directory_not_shipped",
+      "sources": [
+        ".claude/commands/codify.md"
+      ]
+    },
+    "skills/01-core-sdk/production-readiness-patterns.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/agents/quality/security-reviewer.md"
+      ]
+    },
+    "skills/02-dataflow/": {
+      "why": "directory_not_shipped",
+      "sources": [
+        ".claude/commands/codify.md"
+      ]
+    },
+    "skills/02-dataflow/migration-scaffold.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/guides/rule-extracts/schema-migration.md",
+        ".claude/rules/schema-migration.md"
+      ]
+    },
+    "skills/15-enterprise-infrastructure/": {
+      "why": "directory_not_shipped",
+      "sources": [
+        ".claude/agents/generic/db-specialist.md"
+      ]
+    },
+    "skills/15-enterprise-infrastructure/SKILL.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/skills/36-claude-managed-agents/SKILL.md"
+      ]
+    },
+    "skills/34-kailash-ml/m1-release-wave.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/skills/10-deployment-git/multi-package-release-wave.md",
+        ".claude/skills/16-validation-patterns/SKILL.md"
+      ]
+    },
+    "skills/test-harness-probe/": {
+      "why": "directory_not_shipped",
+      "sources": [
+        ".claude/guides/rule-extracts/sync-completeness.md"
+      ]
+    }
+  }
+}

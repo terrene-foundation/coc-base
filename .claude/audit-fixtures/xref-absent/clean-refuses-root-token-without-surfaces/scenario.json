@@ -1,0 +1,13 @@
+{
+  "target": "demo",
+  "mode": "use",
+  "plan_files": [],
+  "unsubscribed_tier_globs": [],
+  "owned_surface_globs": [],
+  "expect": {
+    "declared": {},
+    "not_declared": [
+      "journal/0042"
+    ]
+  }
+}

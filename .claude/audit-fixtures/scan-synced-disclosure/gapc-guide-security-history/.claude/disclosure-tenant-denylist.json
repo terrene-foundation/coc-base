@@ -1,0 +1,4 @@
+{
+  "_README": "SYNTHETIC fixture denylist — the token 'Synthguard' is INVENTED for this fixture and names no real system (NO real internal-system identity here). It stands in for a non-public sibling system whose name must not reach a distributed artifact. When the fixture runner points --root at this fixture dir, the scanner loads this list and the customer-identity-token shape flags the matching token in the leaky extract. The real loom denylist lives at the loom-level top .claude/disclosure-tenant-denylist.json (loom_only, never synced) and is NOT this file.",
+  "tokens": ["Synthguard"]
+}

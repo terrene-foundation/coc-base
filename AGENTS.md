@@ -2,98 +2,93 @@
 
 ## Specialist Delegation (MUST)
 
-When working on stack-specific concerns, MUST consult the relevant generic specialist. The base variant ships three stack-agnostic specialists; each reads `STACK.md` at the project root to determine the host language and framework before advising:
+When working with Kailash frameworks, MUST consult the relevant specialist (**dataflow** / **nexus** / **kaizen** / **mcp** / **mcp-platform** / **pact** / **ml** / **align**-specialist). The work-domain → specialist binding is `rules/framework-first.md`'s domain table.
 
-- **db-specialist** — Database work (Postgres / SQLite / MySQL / Mongo / Redis idioms regardless of language driver)
-- **api-specialist** — REST / GraphQL / gRPC patterns; HTTP framework selection per language
-- **ai-specialist** — Provider-agnostic LLM integration (OpenAI / Anthropic / local Ollama); prompt engineering; output validation
-
-**Applies when**: implementing database access, exposing or consuming HTTP/RPC endpoints, integrating LLM-based features.
-
-**Why:** Generic specialists encode patterns and pitfalls that generalist agents miss across the long tail of stacks the base variant supports. They consult `STACK.md` first; without that file (per `rules/stack-detection.md`) the specialist halts and reports rather than guessing the host stack.
+**Why:** Specialists encode hard-won patterns generalist agents miss, preventing subtle API misuse.
 
 ## Specs Context in Delegation (MUST)
 
-Every specialist delegation prompt MUST include relevant spec file content from `specs/`. Read `specs/_index.md`, select relevant files, include them inline. See `rules/specs-authority.md` MUST Rule 7 for the full protocol.
+Every specialist delegation prompt MUST include relevant spec content from `specs/` (read `specs/_index.md`, select, inline it). Protocol: `rules/specs-authority.md` MUST Rule 7.
 
-**Why:** Specialists without domain context produce technically correct but intent-misaligned output (e.g., schemas without tenant_id because multi-tenancy wasn't communicated).
+**Why:** Specialists without domain context produce technically correct but intent-misaligned output (e.g. schemas missing tenant_id).
 
 ## Analysis Chain (Complex Features)
 
-1. **analyst** → Identify failure points
-2. **analyst** → Break down requirements
-3. **`decide-framework` skill** → Choose approach (when applicable; base variant's `decide-framework` is stack-aware via `STACK.md`)
-4. Then appropriate generic specialist
+**analyst** (failure points) → **analyst** (requirements breakdown) → **`decide-framework` skill** (approach) → the domain specialist.
 
 ## Parallel Execution
 
-Launch independent operations in parallel via the CLI's delegation primitive, wait for all, aggregate results. MUST NOT run sequentially when parallel is possible — the always-on form of the § Triad clause below.
+Launch independent operations in parallel via the CLI's delegation primitive, wait for all, aggregate. MUST NOT run sequentially when parallel is possible — the always-on form of the § Triad clause below (under time pressure, parallelization IS the throughput response — `rules/time-pressure-discipline.md`).
 
 ### MUST: The Default Execution Mode Is The Triad — Parallelize + /autonomize + /redteam-to-convergence
 
-**The default execution mode for every actionable input is the TRIAD, each DEFAULT-ON (not only under `/autonomize`, not serial/inline):** (1) **parallelize** — decompose onto the runtime's parallel orchestration primitive wherever the input has **≥2 independent operations OR a multi-stage shape** (analyze → implement → verify); (2) **/autonomize** — execute autonomously under the permission envelope, recommending the optimal root-cause fix with evidence; (3) **/redteam-to-convergence** — adversarially verify every substantive change to 2 consecutive clean rounds before "done" (reinforces § Quality Gates below). Drops to serial/inline ONLY for a genuinely-atomic single-item task OR a factual/confirmation/recommendation reply. Executing a decomposable input inline-serially, or idling while independent work is dispatchable, is BLOCKED. The triad FILLS the default posture, NEVER overrides a gate — bounded by genuine dependencies, structural human gates (plan-approval / release), capacity + throttle (`rules/worktree-isolation.md` Rule 4), and prudence/confirmation on destructive or hard-to-reverse actions; `/autonomize` is self-bounding. Governance per `rules/governed-throughput.md`.
-
-**Why:** The triad is the baseline throughput+quality response, not a per-session opt-in; the atomic/factual serial carve-out prevents over-decomposing a one-liner into a workflow; the bounding gates keep "always executing" from becoming "always overriding a gate".
+**The default execution mode for every actionable input is the TRIAD, each DEFAULT-ON** (not only under `/autonomize`, not serial/inline): (1) **parallelize** wherever the input has **≥2 independent sub-parts OR a multi-stage shape**; (2) **/autonomize** — execute autonomously under the permission envelope; (3) **/redteam-to-convergence** — adversarially verify every substantive change to 2 consecutive clean rounds before "done". Drops to serial/inline ONLY for a genuinely-atomic single-item task OR a factual/confirmation/recommendation reply. Executing a decomposable input inline-serially, or idling while independent work is dispatchable, is BLOCKED. The triad FILLS the default posture, NEVER overrides a gate. **Bounding gates, DO/DO-NOT, BLOCKED corpus, Why: `skills/30-claude-code-patterns/parallel-dispatch-default.md`; CLI dispatch syntax → the `examples` slot.**
 
 ### MUST: Parallel Brief-Claim Verification When Issue Count ≥ 3
 
-When `/analyze` runs against a brief covering ≥ 3 distinct issues / failure modes / workstreams, the orchestrator MUST launch parallel deep-dive verification agents — one per claim cluster — to independently re-grep / re-read every factual claim in the brief tagged with file:line citations. Inaccuracies surfaced by the deep-dive sweep MUST be recorded in the workspace journal AND in the architecture plan's "Brief corrections" section AS THE GATE before `/todos`. Single-agent analysis on a ≥3-issue brief is BLOCKED — the framing inherited from the brief is the failure mode this rule prevents.
-
-**Why:** Briefs are written from the human's mental model of the system, which decays silently as the code evolves. A ≥3-issue brief carries ≥3× the surface area for stale citations and misframed root causes; single-agent analysis cannot resist the brief's framing because the agent has no independent reading. Parallel deep-dive verification is the structural defense.
+When `/analyze` runs against a brief covering ≥ 3 distinct issues, the orchestrator MUST launch parallel deep-dive verification agents — one per claim cluster — to independently re-verify every factual claim, recording inaccuracies in the workspace journal AND the plan's "Brief corrections" section AS THE GATE before `/todos`. Single-agent analysis on a ≥3-issue brief is BLOCKED. Depth: `skills/30-claude-code-patterns/parallel-dispatch-default.md` § 2.
 
 ## Quality Gates (MUST — Gate-Level Review)
 
-Reviews happen at COC phase boundaries, not per-edit. Skip only when explicitly told to. **MUST gates** are `/implement` and `/release`; reviewer + security-reviewer (and gold-standards-validator at `/release`) run as parallel background agents. RECOMMENDED gates run at `/analyze`, `/todos`, `/redteam`, `/codify`, and post-merge.
+Reviews happen at COC phase boundaries, not per-edit. Skip only when explicitly told to. **MUST gates** are `/implement` and `/release`; reviewer + security-reviewer (and gold-standards-validator at `/release`) run as parallel background agents. RECOMMENDED gates: `/analyze`, `/todos`, `/redteam`, `/codify`, post-merge. Full gate table: guide.
 
-**Why:** Skipping gate reviews lets analysis gaps, security holes, and naming violations propagate to downstream consumers where they are far more expensive to fix.
+**Why:** Skipped gate reviews let gaps propagate downstream where they are far more expensive to fix. (Example 2 = background-dispatch pattern.)
 
 ### MUST: Reviewer Prompts Include Mechanical AST/Grep Sweep
 
-Every gate-level reviewer prompt MUST include explicit mechanical sweeps that verify ABSOLUTE state (not only the diff). LLM-judgment review catches what's wrong with new code; mechanical sweeps catch what's missing from OLD code the spec also touched. Sweeps MUST be tailored to the host stack declared in `STACK.md` (e.g. `pytest --collect-only -q` for Python; `cargo check --workspace` for Rust; `go vet ./...` for Go; `tsc --noEmit` for TypeScript).
+Every gate-level reviewer prompt MUST include explicit mechanical sweeps that verify ABSOLUTE state, not only the diff — LLM-judgment review catches what is wrong with new code; sweeps catch what is MISSING from old code the spec also touched. Prompt shape + BLOCKED corpus: guide.
 
-**Why:** Reviewers are constrained by the diff. The orphan failure mode is invisible at diff-level. A 4-second `grep -c` catches what 5 minutes of LLM judgment misses.
+**Why:** Reviewers are constrained by the diff; the `orphan-detection.md` §1 failure mode is invisible at diff-level. A 4-second `grep -c` catches what LLM judgment misses.
+
+### MUST: Holistic Post-Multi-Wave Redteam Before Plan Close
+
+A plan shipped across ≥3 sharded waves MUST run ONE holistic redteam round across ALL merged shards on main — ≥3 parallel reviewers scoped to the union of merged PRs, not the latest shard's diff — before the plan is declared converged.
+
+**Why:** Per-shard redteams see only their own diff; cross-shard invariant breaks are invisible to each. Evidence + BLOCKED corpus + wiring: guide.
+
+### MUST: Redteam Reviewer Dispatch — Errored/Empty Is Zero Evidence, Never A Clean Round
+
+A throttled parallel fan-out returns errored/empty, which reads as "0 findings". **(1) EVIDENCE GATE** — every dispatched reviewer MUST return a ran/evidence signal; an errored, empty or timed-out return is ZERO evidence, MUST be re-run, and MUST NOT count clean. Convergence is claimable ONLY when EVERY agent genuinely ran. **(2) CONCURRENCY BACK-OFF** — on a throttle signal, reduce concurrency and re-run the throttled reviewers. Depth: `skills/30-claude-code-patterns/redteam-dispatch-evidence-gate.md`.
+
+### MUST: A Dispatched Agent's Result Is Not Received Until It Is DELIVERED
+
+A SUCCEEDING agent that returns nothing is the same zero evidence as one that errors (§ Redteam Reviewer Dispatch), and worse — **every surface reports success**. **(1) SPAWN CONTRACT** — dispatch in the mode that keeps a RETURN PATH open on the dispatching call; the PERSISTENT ADDRESSABLE TEAMMATE mode opens none, and is permitted ONLY when the prompt instructs explicit report-back. Pairing it with "your final message IS the return value" is BLOCKED. **(2) DELIVERY GATE** — read what is IN the result, never merely THAT one exists. Neither a lifecycle notification nor a STATUS FRAGMENT (announces work TO COME instead of stating a result; a terse "CLEAN — no findings" IS a delivery) counts as delivered. Delivery is NECESSARY, NOT SUFFICIENT: the ran/evidence gate above applies independently, so a verdict with no ran-signal MUST be re-run on THAT ground. **(3) RECOVERY, BOUNDED** — key on (1)'s RETURN PATH: an addressable agent's report is read from its TRANSCRIPT, never re-requested; a stalled awaited lane is RESUMED, never re-dispatched. ONE resume per lane, releasing only a sub-goal the AGENT assigned itself; a BRIEF item named as blocker ESCALATES; UNRESOLVED items are open findings, never a clean round. Per-CLI parameters, bounds, BLOCKED corpora: `skills/30-claude-code-patterns/agent-result-delivery.md`.
+
+**Why:** the report is written in full then silently discarded, so the whole cost is paid again; a populated fragment is worse — the fan-out reads as delivered exactly when convergence is declared.
+
+### MUST: Correctness-Review-Clean Is Not Security-Clean
+
+A correctness / closure-parity reviewer returning CLEAN is NOT evidence a change is SECURITY-clean (tested-path correctness ≠ off-path adversarial defeat). A security-critical change (auth, signing, revocation, tenant-isolation, any fail-closed gate or trust boundary) MUST be redteamed by BOTH a correctness reviewer AND an adversarial security-reviewer prompted to REFUTE, both with a genuine ran-signal, before convergence. Counting a CLEAN correctness verdict AS the security round is BLOCKED.
+
+**Why:** The correctness lens is blind to off-tested-path attacks; in #1842-S3 a CLEAN correctness verdict co-occurred with a CRITICAL revocation bypass the SAME-round security-reviewer caught. Depth: `skills/30-claude-code-patterns/redteam-dispatch-evidence-gate.md`.
 
 ## Zero-Tolerance
 
-Pre-existing failures MUST be fixed (`rules/zero-tolerance.md` Rule 1).
+Pre-existing failures MUST be fixed (`rules/zero-tolerance.md` Rule 1); no workarounds for SDK bugs — fix directly (Rule 4), since a workaround creates a parallel implementation that diverges from the SDK.
 
 ## MUST: Verify Specialist Tool Inventory Before Implementation Delegation
 
-When delegating IMPLEMENTATION work (file edits, commits, build/test invocation, version bumps), the orchestrator MUST select a specialist whose declared tool set includes `Edit` AND `Bash`. Read-only specialists (`security-reviewer`, `analyst`, `reviewer`, `gold-standards-validator`, `value-auditor`) MUST NOT be delegated implementation tasks. Pure-research / pure-review delegations are fine.
+When delegating IMPLEMENTATION work (file edits, commits, build/test invocation, version bumps), the orchestrator MUST select a specialist whose declared tool set includes `Edit` AND `Bash`; a read-only specialist MUST NOT be given implementation work. Read-only roster, tool-inventory table, materialization workaround, BLOCKED corpus: guide.
 
-**Why:** Read-only specialists halt mid-instruction at file-edit boundaries — the agent emits "Now let me wire X" then exits with zero tool calls because Edit is unavailable. Verifying tool inventory pre-launch is O(1); re-launch is O(N) on shard size.
+**Why:** Read-only specialists halt mid-instruction at file-edit boundaries; pre-launch tool-inventory verify is O(1), re-launch is O(N) on shard size.
 
 ## MUST: Audit/Closure-Parity Verification Specialist Has Bash + Read
 
-When delegating a /redteam round whose mission includes **closure-parity verification** (mapping prior-wave findings to delivered code via `gh pr view`, test-collection commands, `grep`, AST inspection, `find`), the orchestrator MUST select a specialist whose tool set includes `Bash` AND `Read`. Read-only analyst (`Read, Grep, Glob`) MUST NOT be assigned closure-parity verification — its tool set silently FORWARDS verification rows the next round must redo.
+When delegating a /redteam round including **closure-parity verification**, the orchestrator MUST select a specialist with `Bash` AND `Read`; a read-only analyst silently FORWARDS verification rows the next round must redo. Extends the tool-inventory MUST above from IMPLEMENTATION to AUDIT delegation. Depth: `skills/30-claude-code-patterns/closure-parity-specialist-discipline.md`.
 
-**Why:** Tool-inventory mismatch costs one full audit round. Verifying pre-launch is O(1); re-launch is O(N) on row count.
+**Why:** Tool-inventory mismatch costs one full audit round; pre-launch verify is O(1), re-launch O(N) on row count.
 
-## MUST: Worktree Orchestration
+## MUST: Worktree Orchestration — The ORCHESTRATOR Creates A SIBLING, Before Dispatch
 
-Depth (protocol, prompt templates, BLOCKED corpora, post-mortems): `skills/30-claude-code-patterns/worktree-orchestration.md`. Each bullet is a full MUST:
+Parallel/compiling agents MUST run isolated per `skills/30-claude-code-patterns/worktree-orchestration.md` (Rules 1–11) and `rules/worktree-isolation.md`. At SPAWN TIME the ORCHESTRATOR creates the worktree — a SIBLING outside the repo (`<repo-parent>/.<repo-slug>-wt/<name>`) — pins its ABSOLUTE path in the prompt, and mandates a STEP-0 assertion comparing RESOLVED `git rev-parse --show-toplevel` to `pwd -P`, refusing on mismatch. Requesting harness-native isolation (the delegation tool's `isolation: "worktree"` parameter) is BLOCKED: it nests under `.claude/worktrees/`, which the nested-worktree guard refuses, and no setting relocates that base. In a SHARED tree restore ONLY from a `cp` backup; `git checkout --`/`git restore` read the INDEX and are BLOCKED.
 
-- **Isolate compiling agents** — build caches hold exclusive filesystem locks (Rust `target/`; Python editable `.venv/`; Go `$GOCACHE`; TypeScript `node_modules/.cache/`); one worktree per compiling agent (skill Rule 1).
-- **Isolate ANY shared-source editor** (manifest, rules, config, generated artifacts), compiling or not; concurrent readers read committed HEAD via `git show HEAD:<path>`, never the working tree (skill Rule 9).
-- **Every worktree-prompt path resolves INSIDE that agent's worktree** — prefer absolute rooted at the sibling; absolute rooted at the ORCHESTRATOR's checkout is BLOCKED (skill Rule 2).
-- **Commit per milestone; verify ≥1 commit** before declaring work landed — zero-commit worktrees auto-delete (skill Rule 3).
-- **Verify deliverables exist after exit** (`ls`/`Read` the claimed files) — budget exhaustion truncates writes mid-message (skill Rule 4).
-- **Recover orphan writes** of zero-commit auto-cleaned worktrees from the MAIN checkout onto `recovery/<branch>` (skill Rule 4a).
-- **One version owner per sub-package** when ≥2 parallel agents touch it; siblings are told "do NOT edit" the version anchor + CHANGELOG (Python `pyproject.toml` + `__version__`; Rust `Cargo.toml` + `pub const VERSION`; Go `go.mod` const; TypeScript `package.json::version`) (skill Rule 5).
-- **Binding/package-scoped shard PRs touch only their own package** — sibling-package fixes ship as a separate PR; bundling is BLOCKED (skill Rule 10).
-
-```text
-# DO — isolated editor; HEAD-pinned readers; relative paths; per-milestone commits
-# DO NOT — shared-checkout editor + working-tree readers + absolute paths + 0 commits
-```
-
-**Why:** Each clause converts a silent parallel-work loss — lock serialization, phantom reads, checkout drift, auto-cleanup loss, truncated writes, version clobber, shard conflicts — into clean isolation or a loud refusal.
+**Why:** Each sub-rule converts a silent parallel-work loss into isolation or a loud refusal — and the sibling requirement lived only behind globs a spawn decision never matches, so the guard blocked launches with nothing loaded saying what to do.
 
 ## MUST NOT
 
-- **Stack-coupled work without consulting `STACK.md`** — the generic specialists fall back to LOW-confidence advice; the agent is responsible for either confirming the stack or running the `/onboard-stack` command first.
+- **Framework work without specialist** — misuse violates invariants (pool sharing, session lifecycle, trust boundaries).
 - **Sequential when parallel is possible** — wastes the autonomous execution multiplier.
-
+- **Raw SQL / custom API / custom agents / custom governance** — see `rules/framework-first.md` and guide for per-framework rationale.
 
 ---
 
@@ -131,6 +126,16 @@ Autonomous execution with mature COC knowledge sustains ~10x throughput vs an eq
 **Structural (human required):** Plan approval (/todos), release authorization (/release), envelope changes.
 
 **Execution (autonomous convergence):** Analysis quality (/analyze), implementation correctness (/implement), validation rigor (/redteam), knowledge capture (/codify). Human observes but does NOT block.
+
+## Root-Cause Fix Is The Default Disposition (MUST)
+
+When a defect admits BOTH a symptom patch and a root-cause long-term fix, the session MUST adopt the root-cause fix. Where that fix is CLEARLY better — no genuine competing-design doubt — AND breaches no directive, rule or user instruction, the session MUST proceed WITHOUT stopping to ask: the envelope already authorizes it. Stopping to ask on a clear in-envelope root-cause fix is BLOCKED, as is shipping the patch with the root cause filed as follow-up.
+
+**Carried into delegation, never assumed.** An orchestrator delegating a shard MUST place this clause in that shard's curated slice (`rules/governed-throughput.md` MUST-1) — a sub-agent that never loads this rule ships the patch.
+
+**Bounded.** It does NOT convert a STRUCTURAL gate into an execution one (§ Structural vs Execution Gates) — plan approval, release authorization and envelope changes still need the human — nor license a fix exceeding the shard budget (§ Per-Session Capacity Budget Rule 1). Under genuine design doubt, state the trade-off and ask.
+
+**Why:** A symptom patch leaves the defect live and re-pays the diagnosis cost on every recurrence; asking permission for an unambiguous in-envelope fix spends a human turn authorizing what the envelope already authorized.
 
 ## Per-Session Capacity Budget
 
@@ -172,7 +177,7 @@ When a gate-level review or self-verification surfaces a latent gap in the SAME 
 
 **Why:** Same-class gaps cost least to fix while the context is warm; a follow-up issue forces the next session to reload everything, typically 2–5× the marginal cost. See Origin.
 
-**Doubly bounded — by the CATEGORY and by the SHARD BUDGET.** The fix-now mandate applies only to a gap classified BUG or INVEST-NOW (`rules/product-completion-first.md` MUST-3; relabelling a warm one "incremental" to defer it is BLOCKED) AND only while it fits MUST Rule 1's thresholds — a gap exceeding them IS correctly a follow-up issue. Both bounds in full: `.claude/guides/rule-extracts/autonomous-execution.md` § Rule 4 — The Two Bounds.
+**Doubly bounded — by CATEGORY and by SHARD BUDGET.** Fix-now applies only to a gap classified BUG or INVEST-NOW (`rules/product-completion-first.md` MUST-3; relabelling one "incremental" to defer it is BLOCKED) AND only while it fits MUST Rule 1's thresholds; a gap exceeding them IS correctly a follow-up issue. Both bounds in full: guide § Rule 4 — The Two Bounds.
 
 Concurrent-operator capacity (per-`verified_id` budgets, NON-SAME-adjacency parallelization, `/claim`-record discipline): `rules/multi-operator-coordination.md` §8.
 
@@ -188,28 +193,17 @@ Concurrent-operator capacity (per-`verified_id` budgets, NON-SAME-adjacency para
 
 **Why:** Context window is not attention. Model capability claims are not evidence for a specific task. "One conceptual change" is exactly how Phase 5.11 shipped 2,407 LOC of orphaned code.
 
-
 ---
 
 # Communication Style
 
 Many COC users are non-technical. Default to plain language; match the user's level if they speak technically.
 
-## Report in Outcomes, Not Implementation
-
-## Explain Choices in Business Terms
-
-When presenting decisions, explain implications in terms the user can act on — not implementation details.
-
-## Frame Decisions as Impact
-
-Present: what each option does (plain language), what it means for users/business, the trade-off, your recommendation.
-
-**Example**: "Two options for notifications. Option A: email only — simple, but users might miss messages. Option B: email plus in-app — takes longer but ensures users see important updates. I'd recommend B since your brief emphasizes real-time awareness."
+Report **outcomes**, not implementation. Explain choices in **business terms** the user can act on. Frame every decision as **impact + trade-off + your recommendation**.
 
 ## Approval Gates
 
-At gates (end of `/todos`, before `/deploy`), ask:
+At gates (end of `/todos`, before `/deploy`), ask all four — each catches a different failure:
 
 - "Does this cover everything you described in your brief?"
 - "Is anything here that you didn't ask for or don't want?"
@@ -233,6 +227,8 @@ At gates (end of `/todos`, before `/deploy`), ask:
 - Repeat the same jargon if user says "I don't understand" — find new analogy
 
 **Why:** Repeating failed explanations erodes user trust in the entire session.
+
+Worked ✅/❌ examples for each section + why these four gate questions: `.claude/guides/rule-extracts/communication.md`.
 
 
 ---
@@ -267,12 +263,27 @@ A command that exited non-zero, hit an invalid flag, timed out, or returned empt
 
 **Why:** The reader cannot act correctly if they cannot tell known from guessed; fact-grammar is the form every confabulation takes. See guide.
 
+### 5. A Verification Instrument Is Shown Capable Of The OPPOSITE Verdict Before Its Result Is Banked
+
+MUST-3 governs a command that FAILED; this governs one that SUCCEEDED and answered a DIFFERENT question. Before banking a verification result the instrument MUST be shown able to return the opposite verdict. Two BLOCKED shapes: a **self-derived oracle**, whose expected value is computed FROM the subject so both agree by construction; and a **wrong-question instrument** — e.g. a TWO-DOT `git diff base..HEAD` on a branch BEHIND base, which renders base's newer commits as REVERSIONS (use `base...HEAD`).
+
+**Why:** A confident wrong answer from a WORKING command is invisible at read time — the transcript shows a clean exit and a plausible result. See guide.
+
+### 6. An Instrument's SCOPE Is Established Before Its Green Is Generalized
+
+MUST-5 asks whether an instrument can fail AT ALL; this asks whether it can fail FOR THIS CLASS. One that PASSES its negative control can still be BLIND to a class its execution model, compiled feature set, mutation point, dependency context, or engine dialect excludes. State the scope a green covers and what it EXCLUDES; generalizing past it is BLOCKED. Five shapes: guide.
+
+**Why:** A negative control proves the instrument can MOVE, not that it can SEE the class under review — so a blind green is indistinguishable from a covering one, and more dangerous, since the control makes it look verified.
+
 ## MUST NOT
 
 - State a security / compromise / injection / tampering claim without quoting the triggering bytes inline — **Why:** unfalsifiable from the reader's side; triggers costly escalation on a possibly-invented threat.
 - Characterize `cat -v` / escaped-byte renderings as content without decoding to the real codepoint first — **Why:** the rendering is not the byte.
 - Treat an errored, timed-out, or empty command result as confirmation of any hypothesis — **Why:** absence-of-result is not evidence.
 - Assert a root-cause claim before reading the log / output / file that would show the cause — **Why:** the log disambiguates; asserting first builds the next action on a guess.
+- Bank a verification result from an instrument never shown able to return the opposite verdict, or generalize a green past the class its instrument could observe — **Why:** a check that cannot fail, or cannot fail for this class, reports `pass` for every input including the ones it exists to catch.
+
+Extended per-bullet rationale: guide § MUST NOT. MUST-5 and MUST-6 each carry their own `**BLOCKED rationalizations:**` corpus inline.
 
 ---
 
@@ -327,17 +338,17 @@ Any PR whose diff is metadata-only — version anchors (`pyproject.toml` / `Carg
 # DO NOT — git checkout -b feat/v3.23.0-release-prep (fires full matrix on metadata-only diff)
 ```
 
-**Why:** PR-gate workflows check `if: !startsWith(github.head_ref, 'release/')`; the auto-skip saves ~45 min × matrix-size per release-prep PR. Work that is NOT metadata-only splits — code onto `feat/`/`fix/`, release-prep on its own `release/v*`. See guide.
+**Why:** PR-gate workflows skip on a `release/` head ref, saving ~45 min × matrix-size per release-prep PR. Work that is NOT metadata-only splits — code onto `feat/`/`fix/`, release-prep on its own `release/v*`. See guide.
 
 ### Pre-FIRST-Push CI Parity Discipline (MUST)
 
-Before the FIRST `git push` that creates a remote branch, the agent MUST run the project's local CI-parity command set and ALL MUST exit 0 → push. Rust: `cargo +nightly fmt --all --check` + `cargo clippy -- -D warnings` + `cargo nextest run` + `RUSTDOCFLAGS="-Dwarnings" cargo doc`. Python: `pre-commit run --all-files` + `pytest` + `mypy --strict`. A Python repo with **no root `.pre-commit-config.yaml` SKIPS the pre-commit step — that is not a parity failure**; its own configured checks (`ruff` / `pyright`) stand in.
+Before the FIRST `git push` that creates a remote branch, the agent MUST run the project's local CI-parity command set and ALL MUST exit 0 → push. Per-language command sets (Rust, Python) and the no-root-`.pre-commit-config.yaml` SKIP carve-out — a SKIP is NOT a parity failure: guide.
 
-**Why:** With `concurrency: cancel-in-progress: true`, cancelled in-flight runs are still billed for wall-clock consumed — pre-flighting costs ~5-10 min against N × 45 min of billed CI per fix-up cycle (push → CI fail → fix-up → push is the DO-NOT). See guide for the 71-minute mid-flight cancel evidence.
+**Why:** With `concurrency: cancel-in-progress: true`, cancelled in-flight runs are still billed for the wall-clock consumed, so push → CI fail → fix-up → push costs multiples of pre-flighting. Per-cycle arithmetic + the 71-minute mid-flight cancel evidence: guide.
 
 ## Branch Protection
 
-All protected repos require PRs to main. Direct push is rejected by GitHub. Owner workflow: branch → commit → push → PR → `gh pr merge <N> --admin --merge --delete-branch`.
+All protected repos require PRs to main. Direct push is rejected by GitHub. Owner workflow (branch → commit → push → PR → admin-merge) + the per-repository protection table: guide.
 
 **Why:** Direct pushes bypass CI checks and code review, allowing broken or unreviewed code to reach the release branch.
 
@@ -349,14 +360,14 @@ CC system prompt provides the template. Always include a `## Related issues` sec
 
 ## Destructive Working-Tree Ops MUST Verify Clean Working Tree (MUST)
 
-`git reset --hard <ref>`, `git clean -f[d]`, and `rm -rf` of untracked paths all SILENTLY and IRRECOVERABLY destroy uncommitted work — unstaged modifications AND untracked-not-ignored files have NO reflog. Running any without first verifying `git status --porcelain` is empty is BLOCKED. Prefer `git reset --keep <ref>` (aborts on a dirty tree) and `git stash -u` over `git clean -f`. The `.claude/hooks/validate-bash-command.js` tripwire enforces this at the Bash boundary.
+`git reset --hard <ref>`, `git clean -f[d]`, and `rm -rf` of untracked paths all SILENTLY and IRRECOVERABLY destroy uncommitted work — unstaged modifications AND untracked-not-ignored files have NO reflog. Running any without first verifying `git status --porcelain` is empty is BLOCKED. Prefer `git reset --keep <ref>` (aborts on a dirty tree) and `git clean -n` (preview). NOT `git stash -u` — capture to a patch instead. Why the stash is unsafe here (`.git`-scoped stack, poppable from any linked worktree per `worktree-isolation.md` Rule 9) + the `validate-bash-command.js` tripwire that enforces this at the Bash boundary: guide.
 
 ```bash
 # DO — git reset --keep origin/main; git clean -n (loud refusal / preview)
 # DO NOT — git reset --hard origin/main; git clean -fd (wipes M + untracked; no reflog)
 ```
 
-**Why:** Unlike force-push the loss is unrecoverable (no reflog). `--keep` / `clean -n` convert silent loss into a loud refusal/preview. See guide for the #401 incident + sibling rules.
+**Why:** Unlike force-push the loss is unrecoverable (no reflog); `--keep` / `clean -n` convert silent loss into a loud refusal/preview. #401 incident + sibling rules: guide.
 
 ## Rules
 
@@ -366,27 +377,17 @@ CC system prompt provides the template. Always include a `## Related issues` sec
 - No large binaries (>10MB single file)
 - Commit bodies MUST answer **why**, not **what** (the diff shows what)
 
-**Why:** Mixed commits are impossible to revert cleanly; leaked secrets require rotation everywhere; commit bodies that explain "why" are the cheapest institutional documentation — co-located, versioned, `git log --grep`-searchable.
+**Why:** Mixed commits are impossible to revert cleanly and leaked secrets require rotation everywhere; commit bodies explaining "why" are the cheapest institutional documentation.
 
 ## Discipline
 
 - **Issue closure**: `gh issue close <N>` MUST include a commit SHA / PR number / merged-PR link in the comment. Closing with no code reference is BLOCKED.
-- **Pre-commit hook workarounds**: when pre-commit auto-stash fails despite hooks passing standalone, `git -c core.hooksPath=/dev/null commit ...` MUST be documented in the commit body + a follow-up todo filed. Silent `--no-verify` is BLOCKED.
-- **Pre-commit comment-syntax matchers**: `pygrep`-class hooks match comment fragments WITHOUT trailing punctuation (`python-use-type-annotations` matches `# type`, not `# type:`); reword comments to avoid the literal substring. See extract for the `types.UnionType` false-positive walkthrough.
+- **Pre-commit hook workarounds**: any hook bypass MUST be documented in the commit body + a follow-up todo filed. Silent `--no-verify` is BLOCKED. The sanctioned bypass form + when auto-stash failure justifies it: guide.
 - **Commit-message claim accuracy**: commit bodies MUST describe ONLY changes actually present in the diff. Over-claiming a refactor / deletion / side-effect is BLOCKED. If the claim was made in error, push a FOLLOW-UP commit that delivers what the prior message said — do NOT amend.
 
-**Why:** Issues closed without code refs break traceability; undocumented workarounds force every session to re-discover the same fix; over-claiming commit bodies poison `git log --grep` (the cheapest institutional-knowledge search). See extract for full DO/DO NOT examples.
+**Why:** Issues closed without code refs break traceability and undocumented workarounds force every session to re-discover the same fix; over-claiming commit bodies poison `git log --grep`. See extract.
 
-- **CI-check and merge are SEPARATE steps under duplicate-run races**: `gh pr checks --watch` can resolve green on the PRIOR head while a NEW duplicate `pull_request` run flakes red on the SAME PR. Checking CI and merging MUST be separate commands: (1) READ — pin the head SHA (`gh pr view <N> --json headRefOid`), confirm every REQUIRED check is `SUCCESS` on THAT SHA; (2) MERGE — only then `gh pr merge <N>`. Bundling them (`gh pr checks <N> && gh pr merge <N>`, or `--watch` then merge) is BLOCKED.
-
-  ```bash
-  # DO — READ pinned to head, THEN merge as a separate command
-  head=$(gh pr view <N> --json headRefOid -q .headRefOid)
-  gh pr checks <N>   # every REQUIRED check SUCCESS on $head?
-  gh pr merge <N> --admin --merge
-  # DO NOT — bundle (watch may be green on the prior commit)
-  gh pr checks <N> --watch && gh pr merge <N> --admin --merge
-  ```
+- **CI-check and merge are SEPARATE steps under duplicate-run races**: checking CI and merging MUST be separate commands — (1) READ: pin the head SHA (`gh pr view <N> --json headRefOid`) and confirm every REQUIRED check is `SUCCESS` on THAT SHA; (2) MERGE: only then `gh pr merge <N>`. Bundling them (`gh pr checks <N> && gh pr merge <N>`, or `--watch` then merge) is BLOCKED.
 
   **Why:** A `--watch` returning green may have resolved against the prior commit's run while a newer duplicate on the current head is still pending or flaked red; separating the read (pinned to the head SHA) from the merge makes the gate verifiable. See guide.
 
@@ -413,6 +414,18 @@ State what the instrument would have printed had the proposition been FALSE. No 
 **(a)** A green test, fixture, suite, or probe reports on the behavior it NAMES and MUST clear MUST-1 first; citing a green without having established the run would RED in that behavior's absence is BLOCKED. **(b)** A mutation that does NOT red the test leaves TWO live hypotheses — vacuous test, OR inert mutation — so recording "proven vacuous" on it is BLOCKED; show the mutation reached the code under test, or the result stands UNRESOLVED.
 
 **Why:** A test asserting nothing about its named behavior passes identically whether that behavior is present or absent; an unvalidated mutation then becomes a second non-discriminating instrument, issuing false vacuity verdicts against working tests.
+
+### 3. Show The Instrument Fires HERE, And Read The Hits
+
+Naming the falsifying result (MUST-1) does not show THIS tool can emit it. **(a)** Fire the instrument at a known-answer case first; never-shown-to-fire-here is BLOCKED as evidence, however sound its logic. **(b)** Read the matches, not the tally — including what a count COUNTS.
+
+**Why:** A sound check can be physically unable to emit its falsifying result here — an unimplemented regex dialect, a shell that will not word-split, a case-insensitive filesystem — so its silence is indistinguishable from a true negative, and survives review that checks only the reasoning; no control catches an over-match, which only reading the hits reveals.
+
+### 4. An Instrument Is Scoped To The Question It Was BUILT For
+
+Soundness for question A carries NO information about question B. Reading a check built for A to answer a DIFFERENT question B re-triggers MUST-1 for B: name what it would print were B FALSE; unnameable ⇒ B is UNANSWERED. **A field's semantics are fixed by its PRODUCER, not by the reader's question.**
+
+**Why:** Discrimination belongs to the PROPOSITION, not the tool — so a value plausible for B survives a self-review that only ever asked about A.
 
 ## MUST NOT
 
@@ -460,7 +473,7 @@ The session's CWD repo is the agent's entire scope. The agent MUST NOT read, edi
 
 **Why:** Each repo has its own protection, ownership, and rule set; cross-repo writes ship under rules the destination never consented to.
 
-- Answer a layout/path question — or resolve a target at an orchestration root — from a hardcoded artifact path (`~/repos/...`) or positional discovery instead of the operator's `loom-links.local.json` via `bin/lib/loom-links.mjs::resolveRepo`/`resolveAll` (`rules/cross-repo.md` MUST-1). Artifact paths are illustrative; on disagreement the resolver is authoritative, and no carve-out ever lifts it.
+- Answer a layout/path question — or resolve a target at an orchestration root — from a hardcoded artifact path (`~/repos/...`) or positional discovery instead of the operator's declared NAME→location binding (at loom/BUILD: `loom-links.local.json` via `bin/lib/loom-links.mjs::resolveRepo`/`resolveAll`; both the resolver and its full contract are loom/BUILD-side and deliberately NOT distributed to USE, so at a USE template or downstream consumer — which resolves nothing cross-repo — this bullet IS the whole contract: ask, never guess). Artifact paths are illustrative; on disagreement the declared binding is authoritative, and no carve-out ever lifts it.
 
 **Why:** Clients clone into new layouts (Windows/ADO/nested); a baked-in `~/repos/...` path is confidently wrong.
 
@@ -478,7 +491,7 @@ The agent never self-authorizes. But the user owns the operating envelope (`rule
 
 ### Affordance + Read/Write Tier (D)
 
-Run `/cross-repo-authorize <owner/repo> "<action>"` — do NOT hand-reconstruct the conditions (steps drop). It restates for the user's yes/no and writes the receipt to `.claude/cross-repo-authz/`. A **READ** downgrades condition 4 to a one-line receipt; a **WRITE** keeps all five; unrecognized intent ranks WRITE (fail-closed). The PreToolUse guide-first hook fires this before an un-authorized cross-repo `gh` runs (halt-and-report, never block). Depth — why a committed receipt is disclosure-safe, the three distribution fences that make containment structural, why the #263 scanner is a DETECTOR not a fence, and the RC6 receipt-location fix: extract § "Affordance containment + the #263 detector boundary" + `/cross-repo-authorize`.
+Run `/cross-repo-authorize <owner/repo> "<action>"` — do NOT hand-reconstruct the conditions (steps drop). It restates for the user's yes/no and writes the receipt to `.claude/cross-repo-authz/`. A **READ** downgrades condition 4 to a one-line receipt; a **WRITE** keeps all five; unrecognized intent ranks WRITE (fail-closed). The PreToolUse guide-first hook fires this before an un-authorized cross-repo `gh` runs (halt-and-report, never block). Depth (receipt disclosure-safety, the three distribution fences, the #263 detector-not-fence boundary, the RC6 receipt-location fix): extract § "Affordance containment + the #263 detector boundary" + `/cross-repo-authorize`.
 
 ## Exceptions
 

@@ -1,0 +1,24 @@
+{
+  "target": "demo",
+  "mode": "use",
+  "plan_files": [
+    {
+      "path": ".claude/bin/loom-tool.mjs",
+      "action": "skip",
+      "reason": "loom_only"
+    }
+  ],
+  "unsubscribed_tier_globs": [],
+  "owned_surface_globs": [
+    ".claude/**",
+    "CLAUDE.md",
+    "AGENTS.md",
+    "GEMINI.md"
+  ],
+  "expect": {
+    "declared": {
+      "bin/loom-tool.mjs": "loom_only"
+    },
+    "not_declared": []
+  }
+}

@@ -1,0 +1,5 @@
+source_repo: demo
+changes:
+  - type: hook
+    artifact: .claude/hooks/local-guard.js
+    action: add

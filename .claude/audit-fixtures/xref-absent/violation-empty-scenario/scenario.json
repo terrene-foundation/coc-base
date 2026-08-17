@@ -1,0 +1,16 @@
+{
+  "target": "demo",
+  "mode": "use",
+  "plan_files": [],
+  "unsubscribed_tier_globs": [],
+  "owned_surface_globs": [
+    ".claude/**",
+    "CLAUDE.md",
+    "AGENTS.md",
+    "GEMINI.md"
+  ],
+  "expect": {
+    "declared": {},
+    "not_declared": []
+  }
+}

@@ -11,14 +11,7 @@ The only deliverable is a `.session-notes` file that lets a fresh session start 
 
 ## What the next session already has for free
 
-Do NOT duplicate these — the next session reads them directly:
-
-- **Commits & diffs** — `git log`, `git status`, `git diff`
-- **Outstanding work** — `workspaces/<project>/todos/active/`
-- **Decisions & discoveries** — `workspaces/<project>/journal/`
-- **Phase outputs** — `01-analysis/`, `02-plans/`, `03-user-flows/`, `04-validate/`
-- **Domain specs** — `specs/` (detailed domain truth, always current)
-- **Project context** — `CLAUDE.md`
+Do NOT duplicate — the next session reads these directly: commits & diffs (`git log` / `status` / `diff`), outstanding work (`workspaces/<project>/todos/active/`), decisions & discoveries (`workspaces/<project>/journal/`), phase outputs (`01-analysis/` … `04-validate/`), domain specs (`specs/`), project context (`CLAUDE.md`). Per-surface detail: `skills/wrapup/SKILL.md` § 1.
 
 ## What ONLY wrapup can provide
 
@@ -37,10 +30,21 @@ Per-operator fragment `<base>/.session-notes.d/<display_id>.md` + forest ledger 
 
 ## Format
 
-Hard cap: **50 lines**. Overflow means the content belongs in `todos/active/` or `journal/`, not here. Omit any section that would be empty — EXCEPT the four always-present sections, which write an explicit empty-sentinel rather than vanish: **Read first** (the mandatory entry point), **Outstanding ledger** ("Forest empty — …"), **Executed this session** ("None — no external actions this session"), and **Wave tracker** ("None — no waves in flight"). Absence of these four is indistinguishable from a forgotten section, so it must be explicit.
+Hard cap: **50 lines**. Overflow means the content belongs in `todos/active/` or `journal/`, not here. Omit any section that would be empty — EXCEPT the five always-present sections, which write an explicit empty-sentinel rather than vanish: **Next-session directives** ("None — nothing carries forward"), **Read first** (the mandatory entry point), **Outstanding ledger** ("Forest empty — …"), **Executed this session** ("None — no external actions this session"), and **Wave tracker** ("None — no waves in flight"). Absence of these five is indistinguishable from a forgotten section, so it must be explicit.
 
 ```markdown
 # Session Notes — <YYYY-MM-DD>
+
+## Next-session directives
+
+Imperative standing orders for the NEXT session — ≤5, each carrying the command
+that says whether it is STILL TRUE. Written FROM MEMORY; the checks are for the
+NEXT session to RUN, never for this one (running them here breaks the 4-tool-call
+cap). If you cannot write the check, it is NOT a directive — it is context, and
+it belongs in Traps.
+
+1. **<imperative order>** — re-validate: `<command>` → `<result meaning STILL TRUE>`
+   (write "None — nothing carries forward" if none; never omit silently)
 
 ## Where we are
 
@@ -144,17 +148,7 @@ The ledger defends against the stale-snapshot trap (a closed item resurfacing, o
    CONSUMES `/sweep`'s `[AGG]` findings, it does NOT re-scan; if `/sweep` was
    skipped, run it (or `validate-forest-ledger.mjs --aggregate`) first.
 
-**Mechanical gate (CI / `/redteam`, NOT the wrapup runtime).**
-`validate-forest-ledger.mjs <notes>` checks intra-file conformance (section
-present + fence-balanced + non-vacuous; rows anchored; IDs unique; every
-close entry references an ID + cites a receipt SHAPE — a fake receipt is a
-`verify-resource-existence.md` MUST-1 matter, not this validator's). The
-no-silent-vanish invariant (step 2) is enforced ONLY by `--git-prior` (diffs
-the prior committed `.session-notes`, flags any prior open **ID** absent from
-current rows AND the "Closed this session" list — deterministic ID-set
-reconciliation); the bare form makes NO anti-vanish claim. Its cross-file twin
-`--aggregate` (#669) flags any open workspace-ledger ID absent from the ROOT
-ledger (step 6; `/sweep` Sweep 6).
+**Mechanical gate (CI / `/redteam`, NOT the wrapup runtime).** `validate-forest-ledger.mjs <notes>` — intra-file conformance; `--git-prior` is the ONLY form enforcing the no-silent-vanish invariant (step 2), `--aggregate` its cross-file twin (step 6). What each flag does and does NOT claim: `skills/wrapup/SKILL.md` § 2.
 
 ## Hard rules
 
@@ -162,6 +156,7 @@ ledger (step 6; `/sweep` Sweep 6).
 - **Memory only.** Produce the notes from conversation memory. If you're unsure whether a claim is still true, omit it — the next session can discover it from git.
 - **No LOCAL accomplishments list — but the "Executed this session" external-signal IS required.** The next session reads `git log` for LOCAL work, so do NOT describe what happened in THIS repo this session. The carve-out: consequential EXTERNAL actions (distribution PRs on other repos, releases, cross-repo merges, filed issues) are NOT in this repo's `git log`, so the next session cannot recover them there — capture those, and only those, under "## Executed this session". The test: "is this action's state visible in `git log` of THIS repo?" — yes → omit (accomplishments-list ban); no → it belongs in the execution-signal. **RUNNING background agents fall under the SAME carve-out:** an agent still executing at wrapup time is in-flight state absent from `git log` (its branch/PR may not exist yet), so a `/clear`-resumed session cannot recover it and would re-launch the same wave. Document running agents (id/name, task, branch/PR, deliverable) in the **Wave tracker** file per `rules/wave-loop.md` MUST-6 — the tracker, not the accomplishments ban, owns them.
 - **No itemized-todo list — but the forest ledger is REQUIRED.** The next session reads `todos/active/` for per-task itemization; do NOT reproduce that here. The Outstanding ledger is the deliberate, scoped exception: it is **forest-level only** (workstreams / blocked-items, typically 2–6 rows), explicitly distinct from per-task todos. Every ledger row MUST carry a value-anchor per `rules/value-prioritization.md` MUST-1+2. Itemizing individual todos in the ledger is BLOCKED (that defeats forest-vs-trees); omitting the ledger entirely is BLOCKED (that is the stale-snapshot trap).
+- **Every next-session directive ships its own re-validation check — no check, no directive.** The directives section is the ONE imperative surface in the notes (`rules/session-notes-continuity.md` MUST-1: the fragment carries STANDING DIRECTIVES; every other section here is descriptive). Each directive MUST name the command a future session runs to learn whether it is STILL TRUE, and what result means still-true. Cap **5**. "None — nothing carries forward" is a VALID and expected answer, not a box to fill. Un-checkable content is context → **Traps**, never a directive. Memory-sourced like everything else here: the check is authored for the NEXT session to run, and running it now is BLOCKED by the 4-tool-call cap — which also means these are NOT a counted burn-down (`rules/burn-down-reporting.md` MUST-3 fences that off this surface entirely). DO / DO-NOT + BLOCKED corpus: `skills/wrapup/SKILL.md` § 3.
 - **No decision log.** Journal decisions with `/journal` before running `/wrapup`, not in session notes.
 - **No quantitative claims.** Do not write "N tests passing", "3 files changed", or "27 todos remaining". Numbers must be verified; verification is forbidden here. Point at the source of truth instead.
 - **No oversight checklist.** Verification commands belong in the next session's task list, not session notes.

@@ -1,0 +1,4 @@
+changes:
+  - id: PRIOR-CYCLE-OFFER
+    artifact: .claude/hooks/prior-cycle.js
+    action: add
