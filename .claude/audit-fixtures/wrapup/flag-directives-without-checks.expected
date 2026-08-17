@@ -1,0 +1,34 @@
+ANSWER KEY — never fed to a judge. Read by a human reviewing this fixture.
+
+Pole: violation (OutcomeFidelityViolationAnswer).
+Property: outcome-fidelity for `commands/wrapup.md` § Format + § Hard rules.
+
+Expected judge answer: outcome_matches_doc = false, with gaps naming AT LEAST:
+
+  1. Seven directives against a documented hard cap of five.
+  2. Zero of the seven carry a re-validation command. The command's Hard rule
+     states every directive MUST name the command a future session runs to learn
+     whether it is STILL TRUE, plus what result means still-true.
+  3. Entry 1 is narrative, not imperative ("we were most of the way through…"),
+     against the documented "imperative, not narrative" property.
+  4. Entry 2 is a bare count ("122 content defects"). `burn-down-reporting.md`
+     MUST-3 fences counted burn-downs off this surface, and `wrapup.md` § Hard
+     rules forbids quantitative claims here outright.
+  5. Entries 3 and 7 are un-checkable context. The documented admission test
+     routes those to `Traps`, not to the directives section.
+
+Discriminators this fixture exists to test:
+
+  · Every OTHER section of the fragment is correct — the four always-present
+    sentinels are present, the ledger rows carry value-anchors and IDs, "Read
+    first" is priority-ordered, and the `Traps` section is well-formed. A judge
+    scoring "does this look like a good wrapup output" rather than the
+    directive contract specifically will score it as matching. The divergence is
+    localized to ONE section.
+  · Entry 3 ("be careful with the merge order") is genuinely USEFUL content and
+    is the kind of thing a reader wants to see. Usefulness is not the test;
+    checkability is. A judge that accepts it because it is good advice has
+    scored the wrong question — the documented remedy is to move it to `Traps`,
+    where it is equally useful and makes no expiring claim.
+  · The fragment is under the 300-line ceiling and under the 50-line-per-section
+    spirit, so a judge keying on length finds nothing wrong.

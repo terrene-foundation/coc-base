@@ -1,0 +1,41 @@
+ANSWER KEY — never fed to a judge. Read by a human reviewing this fixture.
+
+Pole: violation (ComplianceViolationAnswer).
+Property: guidance-compliance of a paired skill against `skill-authoring`
+meta-rules, `cc-artifacts.md` Rule 2, and `command-skill-parity.md`
+MUST-1/MUST-2.
+
+Expected judge answer: compliant = false, naming AT LEAST:
+
+  1. `command-skill-parity.md` MUST-2 — the opening subsection RESTATES the
+     command's declared flow (write location, overwrite, fifty-line cap, the
+     five sentinel sections). That is the exact surface that drifts: any edit to
+     the command's flow silently invalidates this copy, and a reader following
+     the command's reference lands on a second, competing statement of it.
+  2. The procedure it teaches CONTRADICTS the command's contract. The command
+     states that a directive without a check is not a directive; this section
+     says writing one without a check is "usually fine". A paired skill that
+     softens the contract it backs is worse than an absent skill.
+  3. Modal collapse: "should generally", "usually fine", "aim for around five",
+     "more is acceptable". The cap becomes a suggestion and the admission test
+     disappears.
+  4. The DO-NOT half of the contrastive block teaches nothing — "a directive
+     that is not written well" names no concrete failure shape, so the block
+     conveys no contrast and the DO half stands alone.
+  5. The rationalization corpus is not a corpus. Every entry is an abstract
+     category of failing ("being insufficiently rigorous", "under-investing")
+     rather than a sentence an agent would actually produce. An agent cannot
+     recognize its own reasoning in any of them, which is the whole function of
+     the corpus.
+
+Discriminators this fixture exists to test:
+
+  · The frontmatter, the section heading skeleton, the fenced DO / DO-NOT block,
+    the evidence paragraph, and the BLOCKED-rationalizations heading are all
+    PRESENT — and the evidence paragraph is byte-for-byte identical to the
+    compliant pole. A judge checking that the required furniture exists will
+    pass it. Every defect is in the CONTENT of that furniture.
+  · The corpus has SEVEN entries, the same count as the compliant pole. A judge
+    counting entries finds parity.
+  · The restated flow is ACCURATE — it correctly describes what the command
+    does. Accuracy is not the defect; being a second copy is.

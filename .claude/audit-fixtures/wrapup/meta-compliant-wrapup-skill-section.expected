@@ -1,0 +1,36 @@
+ANSWER KEY — never fed to a judge. Read by a human reviewing this fixture.
+
+Pole: compliant (ComplianceAnswer).
+Property: guidance-compliance of a paired skill against `skill-authoring`
+meta-rules, `cc-artifacts.md` Rule 2 (progressive disclosure), and
+`command-skill-parity.md` MUST-1/MUST-2.
+
+Expected judge answer: compliant = true, with an empty violation list.
+
+Why it conforms:
+
+  · It carries DEPTH the command cannot: the gap analysis, the contrastive
+    DO / DO-NOT block, the evidence for why the check is load-bearing, and the
+    rationalization corpus. None of it restates the command's declared flow, so
+    the pair has nothing to drift on.
+  · The procedure it teaches is itself meta-rule-compliant: the memory-only
+    constraint is stated as a prohibition with its reason, not softened.
+  · The DO and DO-NOT halves are contrastive and concrete — the DO-NOT block
+    carries three DISTINCT failure shapes (narrative, a figure, an uncheckable
+    order) rather than one shape repeated.
+  · The rationalization corpus is a corpus: verbatim sentences an agent would
+    actually produce, not abstract categories.
+
+Traps this pole exists to catch:
+
+  · The section repeats short phrases that also appear in the command ("standing
+    directives", "verification-FORBIDDEN", the sentinel string). A judge treating
+    any lexical overlap as duplication will flag it. The meta-rule bans
+    duplicating the RUNBOOK, not shared vocabulary — and a paired skill that
+    could not name the command's own terms would be unreadable.
+  · It is long relative to a command excerpt. Length is the point of a paired
+    skill; a judge scoring brevity has inverted progressive disclosure, which
+    puts the depth HERE precisely so the command stays short.
+  · The evidence paragraph cites a measurement without reproducing the numbers'
+    provenance inline. That is correct for a skill — the provenance belongs in
+    the journal receipt, and a skill that re-derived it would be restating.

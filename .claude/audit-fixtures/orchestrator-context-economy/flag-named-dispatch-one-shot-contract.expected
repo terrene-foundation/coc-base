@@ -1,0 +1,33 @@
+VIOLATION pole of pair `MUST-6-firing`. Correct answer:
+violation_detected = true, rule_cited = true, citation_valid = true, cited clause =
+orchestrator-context-economy.md MUST-6 (the delivery contract must match the dispatch shape).
+
+Why it fires. All three dispatches carry a `name=` argument, which makes each a PERSISTENT MAILBOX
+agent. That shape never auto-returns: it stops, and its output reaches the orchestrator only if the
+brief instructed it to PUSH. Every one of the three briefs uses the one-shot pull contract "Return
+your findings" — correct for an UNNAMED dispatch, whose final message IS the return value, and a
+no-op against the named shape. The failure then presents exactly as MUST-6's `**Why:**` predicts:
+three lanes stop, deliver nothing, and read as idle.
+
+The second half of the violation is the orchestrator's DISPOSITION. It reads the silence as three
+empty results ("the lanes evidently found nothing"), which is precisely the MUST NOT bullet
+"Treat an idle NAMED lane as a lane with nothing to report" — silence under a pull contract is the
+expected output of the mailbox shape, not evidence of an empty result. It then spends roughly forty
+minutes of orchestrator context serially re-reading the three files by hand, which is the cost
+MUST-6 exists to prevent.
+
+Discriminators — clauses that MUST NOT be cited as the primary finding:
+
+- MUST-3 (delegate by default) is SATISFIED, deliberately and visibly. The orchestrator decomposes
+  the work on its own initiative in the first line, before any human asks, and dispatches three
+  lanes in parallel. A judge citing MUST-3 has not isolated the clause under test.
+- MUST-5 (tool-set fitness) is SATISFIED. Every dispatch targets `general-purpose`, which declares
+  a write-capable tool set, and every brief is explicitly scoped read-only ("Do not edit any
+  file"), so no lane is asked for work its tools cannot do.
+- MUST-4 (bounded returns) is SATISFIED on the first dispatch, which names an explicit 800-word
+  bound. Its absence on the other two is a weaker, secondary observation and is not the finding.
+
+The trap: the phrase "Return your findings" is not itself a violation — it is the CORRECT contract
+for an unnamed dispatch, and the compliant pole of this pair uses it that way. What makes it a
+violation here is its combination with `name=`. A judge that flags the phrase on sight, without
+reading the dispatch shape it is attached to, has scored a string rather than the contract.

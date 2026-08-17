@@ -235,3 +235,84 @@ Extracted from `rules/agents.md` § "MUST: Verify Specialist Tool Inventory Befo
 **Read-only specialists — MUST NOT be delegated implementation work:** `security-reviewer`, `analyst`, `reviewer`, `gold-standards-validator`, `value-auditor`. Each declares no `Edit` and (except `reviewer`) no `Bash`, so it halts mid-instruction at the first file-edit boundary and the shard must be re-launched against a different specialist.
 
 **Read-only reviewer materialization (INCREMENTAL).** `security-reviewer` is read-only and has no `Bash`, so it cannot fetch a diff itself. Materialize the diff or the changed-file set to a scratchpad path and NAME that path in the prompt; it then reviews the change instead of halting for context it cannot reach. This is the standard workaround, not a reason to substitute a writing specialist into a review seat.
+
+## Clause-Scoped Wiring Precedent (extracted from the rule body 2026-08-16)
+
+`agents.md` carries FOUR clause-scoped Trust-Posture-Wiring blocks (§ Triad,
+§ Correctness-Review-Clean, § Wave Worktrees, § Agent-Result-Delivery). Each
+states the same grandfather + precedent framing, so the framing lives here ONCE
+rather than four times in a `priority: 0` baseline rule (`rule-authoring.md`
+MUST NOT § "Rules longer than 200 lines" — baseline density is an
+output-quality requirement, not only budget hygiene).
+
+**The shared framing.** Per `trust-posture.md` MUST-8's grandfather cutoff, a
+clause landing AT/AFTER the MUST-8 SHA MUST ship canonical-8-field-compliant,
+while the pre-existing grandfathered sections of the same rule stay exempt until
+each is itself `/codify`-touched. The clause-scoped shape — one wiring block per
+clause rather than one per file — is the precedent set by `security.md`
+§ Enforcement-Surface Parity and `git.md` § CI-check/merge.
+
+**The shared no-dedicated-key rationale.** All four clauses route
+regression-within-grace without minting a per-clause key. Two reasons recur:
+(a) each property is review-layer / session-history judgment rather than a
+structural instant-drop signal, and (b) minting a key would edit
+`trust-posture.md`, which is a `self-referential-codify.md` Rule-2 allowlist
+file — dragging an otherwise narrow codify into a self-referential edit. Same
+disposition `security.md` § Enforcement-Surface Parity, `git.md`
+§ CI-check/merge, `issue-triage-routing.md`, and `wave-loop.md` MUST-6/7 took.
+
+**Per-clause deltas** (what each block does NOT share): § Correctness-Review-Clean
+landed via `/sync-from-build` Wave-1 placement (loom-sweep-waves-2026-07-22) and
+does NOT reuse the § Triad clause's key; § Wave Worktrees DELEGATES its
+regression-within-grace routing to `worktree-isolation.md` Rule 7, which already
+owns the nested-placement violation class, rather than relying on the generic
+trigger alone; § Agent-Result-Delivery is the only one of the four with a
+genuine structural tool-call-time signal available (the spawn parameters are
+present in the `PreToolUse` input), and it is the only one whose hook layer
+carries **`halt-and-report`** rather than `advisory` — which is what the SHIPPED
+detector already emits (`hooks/lib/dispatch-contract.js::detectNamedDispatchWithoutDelivery`,
+registered on the `PreToolUse` `Task|Agent` matcher). The ceiling is set by the
+SEVERITY RULE, not by any limitation of the adjudicator:
+`hook-output-discipline.md` MUST-2 bars **`block`** on lexical evidence and
+NOTHING MORE, and the in-corpus precedent for `halt-and-report` on a lexical
+predicate is `repo-scope-discipline.md` § Trust Posture Wiring.
+
+An earlier revision of this section gave the reason as "the detector cannot
+adjudicate intent". That was WRONG and is withdrawn on two counts: it stated as
+the RATIONALE precisely the inference the clause exists to kill (a better
+adjudicator would not unlock `block`, so adjudicator quality was never the
+operative constraint), and it contradicted the rule, the depth skill and the
+registry entry, which all read `halt-and-report`. A reader following the rule's
+own depth pointer would have landed on a documented argument for DOWNGRADING a
+live trust-substrate guard.
+
+§ Agent-Result-Delivery also states its OWN
+no-dedicated-key reason rather than inheriting the shared one, because the
+shared "no structural signal" leg does not hold for it.
+
+## Origin — full provenance chain (extracted from the rule body 2026-08-16)
+
+Sessions 2026-04-19/20/27 (worktree drift, parallel-release PRs #552/#553, W6
+closure-parity); slot-partitioned 2026-05-14 (#200); F20 extraction 2026-05-22
+(journal/0143); prose trim 2026-06-11 (Gate-1 paired extraction);
+worktree-cluster extraction to skill Rules 1–10 + Examples 6–10 retired
+2026-06-12 (#491, journal/0271); triad default-execution-mode clause + paired
+extraction to `parallel-dispatch-default.md` 2026-07-18 (co-owner-directed
+origination, `journal/0543`); agent-result-delivery clause + paired extraction
+to `agent-result-delivery.md` 2026-08-13 (USE-template origination), landed at
+loom 2026-08-16 via `/sync-from-use` Gate-1 placement.
+
+Note the § Wave Worktrees clause (2026-08-11, BUILD stream) carries its own
+Origin inside its wiring block rather than in this chain, because it records a
+spawn-time reachability gap plus two claims its source proposal shipped that
+were falsified by that proposal's own follow-up measurement.
+
+## Examples — CLI delegation-syntax mapping (extracted 2026-08-16)
+
+The MUST clauses reference numbered examples by their inline "(Example N = …)"
+descriptors. The WORKED examples (Examples 1–5) — the concrete CC
+`Agent(subagent_type=…)` delegation code for each clause — live in
+`.claude/skills/30-claude-code-patterns/specialist-delegation-syntax.md`, which
+also carries the Codex (`bin/coc` inline-cat injection) and Gemini
+(`@specialist`) mappings. They are reference material loaded on-demand when
+delegating; the MUST clauses in the rule body are the CLI-neutral contract.

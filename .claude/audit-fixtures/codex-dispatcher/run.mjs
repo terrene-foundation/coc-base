@@ -103,7 +103,17 @@ function run(args, { input, tty } = {}) {
     cwd: REPO_ROOT,
     env,
     encoding: "utf-8",
-    timeout: 5_000,
+    // 30s, raised from 5s (loom#1777). The timeout is a HANG fence, not a
+    // performance assertion — no case here asserts anything about duration, so
+    // a bound tight enough to fire on a cold cache turns this runner into an
+    // instrument that reds on machine speed rather than on dispatcher
+    // behaviour (`instrument-discipline.md`: a check whose result does not
+    // track the proposition). MEASURED: `03-valid-phase-argv-tty` failed once
+    // at 5.6s wall for the runner — the 5s bound firing on the first spawn of
+    // a cold node/bash cache — and passed at 0.3-0.4s on six subsequent runs of
+    // the same tree, with the same tree's base green. A genuine hang still
+    // fails, 25s later.
+    timeout: 30_000,
   };
   if (input !== undefined) opts.input = input;
   const r = spawnSync("bash", [DISPATCHER, ...args], opts);
@@ -194,10 +204,10 @@ for (const c of CASES) {
     if (existsSync(shim)) rmSync(shim);
     try {
       // Use a symlink so basename(argv[0]) == "coc-analyze"
-      execFileSync("ln", ["-s", DISPATCHER, shim]);
+      execFileSync("ln", ["-s", DISPATCHER, shim], { timeout: 30_000 });
     } catch {
       // Fallback: cp + chmod (still preserves basename)
-      execFileSync("cp", [DISPATCHER, shim]);
+      execFileSync("cp", [DISPATCHER, shim], { timeout: 30_000 });
       chmodSync(shim, 0o755);
     }
     const env = { ...process.env, PATH: `${STUB_DIR}:${process.env.PATH}` };
@@ -205,7 +215,20 @@ for (const c of CASES) {
       cwd: REPO_ROOT,
       env,
       encoding: "utf-8",
-      timeout: 5_000,
+      // SAME bound, and for the SAME reason, as the `run()` site above. This
+      // branch does NOT route through `run()` — case 07 builds its own shim and
+      // spawns it directly — so raising only that one left THIS site on exactly
+      // the 5s cliff the other site's comment declares unsafe. Demonstrated, not
+      // argued: under a deterministic stall injected at case 07, a tree with only
+      // the `run()` bound raised still FAILS 07 while passing 03.
+      //
+      // The two `execFileSync` calls above carried NO timeout at all — a genuine
+      // hang there was bounded only by the harness's 300s outer cap. Every spawn
+      // site in this fixture now carries the same fence (`security.md`
+      // § Multi-Site Kwarg Plumbing, in its general form: every call site in the
+      // same change, because the sibling left unqualified ships the exact failure
+      // mode the fix exists to close).
+      timeout: 30_000,
     });
     result = {
       status: r.status ?? -1,

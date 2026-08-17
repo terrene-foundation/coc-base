@@ -1,0 +1,22 @@
+COMPLIANT — compliant=true, violated_meta_rules=[].
+
+A complete rule file that satisfies the authoring meta-rules:
+- MUST-1: every load-bearing clause uses MUST / MUST NOT / BLOCKED as its primary
+  modal ("MUST name", "is BLOCKED"). No "should"/"prefer"/"consider" carries a
+  clause.
+- MUST-2: six VERBATIM rationalizations an agent would actually emit.
+- MUST-3: a DO / DO NOT pair whose arms genuinely discriminate — same construct,
+  opposite justification (named transient class vs diagnosed deterministic fault).
+- MUST NOT (2-sentence Why cap): the `**Why:**` lines are two sentences and one
+  sentence respectively.
+- MUST-5/7: frontmatter declares priority + scope + paths, consistently paired
+  (priority 10 ⇒ scope path-scoped).
+- MUST-6: carries an Origin.
+- trust-posture.md MUST-8: canonical 8 fields, in order, including the literal
+  `**Violation scope:**` template marker.
+
+Two deliberate traps: the `## MUST NOT` section carries a single entry, and the
+Wiring defers its Phase-2 detector. Neither is a meta-rule breach — the deferral
+NAMES a structural signal (an AST detector over call-expression decorators), which
+is exactly what `rule-authoring.md` MUST NOT requires of a Phase-2 filing. Flagging
+either is over-firing on sparseness rather than on a violated MUST.

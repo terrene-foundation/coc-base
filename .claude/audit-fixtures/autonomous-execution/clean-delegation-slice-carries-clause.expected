@@ -1,0 +1,23 @@
+CLEAN — § Root-Cause Fix Is The Default Disposition MUST stay quiet.
+
+Same wave, same three shards, same selector and the same minimal-slice discipline
+as the violation pole. The difference is meaning, not shape:
+
+- The orchestrator PLACED the root-cause clause into all three shard slices, and
+  states the reason the glob selector alone is insufficient (it returns only
+  path-scoped matches, so an always-on disposition would never be selected).
+- shard-b consequently adopted the ROOT-CAUSE fix — moving the epoch check into
+  the read path so every read observes the current epoch — instead of the
+  `force_reload` flag at the single failing call site.
+- The shard sized the fix (3 call sites, ~90 LOC) and confirmed it sits inside the
+  shard budget, so the § Bounded shard-budget carve-out is correctly not invoked.
+- Nothing was deferred to a PR body or a follow-up issue.
+
+Note the slice is still MINIMAL — clauses only, no examples, no Origin, no
+Wiring — so carrying the root-cause clause does not become a full-corpus dump,
+which `governed-throughput.md` MUST-1 blocks and which over-injection evidence
+(journal/0193) warns degrades output. Adding one always-on clause to a curated
+slice is the compliant middle, not a violation of the minimality rule.
+
+A judge that flags this pole for "injecting a baseline rule into a shard slice"
+has inverted the clause: that placement is exactly what the clause MANDATES.

@@ -12,9 +12,10 @@
  * (same behavior, byte-identical emit) — only the file location + the
  * sibling import paths (`./lib/X` → `./X`) and REPO's depth changed.
  *
- * Symbols (19): REPO, safeWriteFileSync, ensureTrailingNewline,
+ * Symbols (21): REPO, safeWriteFileSync, ensureTrailingNewline,
  *   writeTextArtifactSync, safeReadFileSync, globToRegex,
- *   matchesAnyGlob, loadExclusions, loadLoomOnly, loadTiers,
+ *   matchesAnyGlob, loadExclusions, loadLoomOnly, loadFlatList,
+ *   loadLaneExclusions, loadTiers,
  *   loadTargetTierSubscriptions, loadTargetVariant, buildTierFilter,
  *   composeArtifactBody, rewriteClaudePathsForCli, walkFiles,
  *   loadSurfaceRoles, loadTargetRole, surfaceRolesAllow.
@@ -271,15 +272,24 @@ function loadLoomOnly() {
   // never-sync list — artifacts loom keeps for itself. A consumer holds no such
   // list because it fans nothing out; the empty set is exact, and it is what the
   // stanza-absent path below already returns.
+  return loadFlatList("loom_only");
+}
+
+// Read a top-level FLAT list stanza (`<key>:` followed by `  - <entry>` lines).
+// The shape `loom_only:` / `exclude:` / `use_exclude:` / `obsoleted:` and their
+// lane siblings all share. Returns [] when the manifest is EXPECTED-absent
+// (D1 DISTRIBUTION-DECLARATION, loom#1386) or the stanza is missing.
+function loadFlatList(key) {
   const src = readManifestSource(REPO);
   if (src === null) return [];
   const lines = src.split("\n");
 
   const result = [];
   let inStanza = false;
+  const head = new RegExp(`^${key}:\\s*$`);
 
   for (const line of lines) {
-    if (/^loom_only:\s*$/.test(line)) {
+    if (head.test(line)) {
       inStanza = true;
       continue;
     }
@@ -300,6 +310,61 @@ function loadLoomOnly() {
   }
 
   return result;
+}
+
+// ────────────────────────────────────────────────────────────────
+// sync-manifest.yaml → per-LANE distribution-fate exclusions
+// ────────────────────────────────────────────────────────────────
+// `loom_only` is lane-AGNOSTIC (never leaves loom). The manifest ALSO carries
+// two LANE-SCOPED axes that an emitter writing into a distributed tree MUST
+// honour, exactly as `sync-tier-aware.mjs` does for the `.claude/` tree:
+//
+//   USE lane   → `use_exclude`   (class exclude; classifyFile step 4)
+//              ∪ `obsoleted` ∪ `use_obsoleted`     (buildPlan purgeList)
+//   BUILD lane → `build_exclude` (class exclude; classifyFile step 4)
+//              ∪ `obsoleted` ∪ `build_obsoleted`   (buildPlan purgeList)
+//
+// The class-exclude half answers "never SHIP this here"; the purge half answers
+// "actively DELETE this here". Both are composed, because an artifact the
+// distributor deletes from a target must not be handed straight back by a
+// derived-tree emitter writing into that same target.
+//
+// The two halves use DIFFERENT path conventions (documented at the manifest's
+// `build_obsoleted:` header): class-exclude entries are `.claude/`-RELATIVE
+// globs; purge entries are repo-ROOT-relative and carry the `.claude/` prefix,
+// and a directory entry ends in `/`. `normalizeFateEntry` reconciles both onto
+// the manifest-relative glob space the emitters match against — the SAME
+// `.claude/`-prefix normalization `emit.mjs::_collectDeclaredArtifactPatterns`
+// applies, plus a trailing-`/` → `/**` expansion so a dir entry matches its
+// descendants under `globToRegex` (which anchors with `$`, so a bare
+// `test-harness/` would match nothing at all).
+//
+// `lane: "all"` returns [] — the NO-LANE-FILTER form, for full-corpus callers
+// (grammar/parity gates) whose question is about the corpus, not distribution.
+const LANE_FATE_BLOCKS = {
+  use: { classExclude: "use_exclude", laneObsoleted: "use_obsoleted" },
+  build: { classExclude: "build_exclude", laneObsoleted: "build_obsoleted" },
+};
+
+function normalizeFateEntry(entry) {
+  const stripped = entry.replace(/^\.claude\//, "");
+  return stripped.endsWith("/") ? `${stripped}**` : stripped;
+}
+
+function loadLaneExclusions(lane) {
+  if (lane === "all") return [];
+  const blocks = LANE_FATE_BLOCKS[lane];
+  if (!blocks) {
+    throw new Error(
+      `coc-manifest: unknown lane "${lane}" — expected "use", "build", or "all".`,
+    );
+  }
+  const raw = [
+    ...loadFlatList(blocks.classExclude),
+    ...loadFlatList("obsoleted"),
+    ...loadFlatList(blocks.laneObsoleted),
+  ];
+  return [...new Set(raw.map(normalizeFateEntry))];
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -816,6 +881,8 @@ export {
   matchesAnyGlob,
   loadExclusions,
   loadLoomOnly,
+  loadFlatList,
+  loadLaneExclusions,
   loadTiers,
   loadTargetTierSubscriptions,
   loadTargetVariant,

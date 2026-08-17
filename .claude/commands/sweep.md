@@ -66,7 +66,7 @@ Surface: drafts >7d, PRs with red CI (never merge red — fix in same branch per
 
 **Pre-condition check (run FIRST):** Sweep 5 only applies in repos that have BOTH (a) at least one `workspaces/*/specs/` directory containing per-workspace specs AND (b) `tools/sweep-redteam.py` (or language equivalent under `tools/`). If EITHER is absent, the repo is in **orchestration mode** (loom, USE templates) — Sweep 5 logs the sentinel `<!-- sweep-redteam:v1:N/A reason=orchestration-mode no_specs=<bool> no_tool=<bool> -->` into the sweep report and Sweep 5 is complete. This is NOT a substitution decision (no proxy is run); it is a structural N/A, recorded explicitly so future readers can grep the sentinel.
 
-**Absent per-workspace specs does NOT imply absent spec AUTHORITY — check the repo level before claiming N/A.** When `spec_count=0` AND a repo-level spec tree exists (`docs/specs/`, `specs/`), the repo is in **repo-level-specs mode**: emitting the orchestration-mode sentinel there is the cheaper-proxy substitution `rules/sweep-completeness.md` Rule 1 blocks, wearing a structural-N/A costume, and is BLOCKED. Sweep 5 MUST instead either (a) run the equivalent spec-vs-source check against the repo-level tree, emitting `<!-- sweep-redteam:v1:REPO-LEVEL specs_root=<dir> -->`, OR (b) emit an explicit `manual-supplement-required` finding recording that the per-workspace assumption does not hold for this repo shape. Depth + the full three-mode gate implementation: `.claude/skills/sweep/` § 6.
+**Absent per-workspace specs does NOT imply absent spec AUTHORITY — check the repo level before claiming N/A.** When `spec_count=0` AND a repo-level spec tree exists (`docs/specs/`, `specs/`), the repo is in **repo-level-specs mode**: emitting the orchestration-mode sentinel there is the cheaper-proxy substitution `rules/sweep-completeness.md` Rule 1 blocks, wearing a structural-N/A costume, and is BLOCKED. Sweep 5 MUST instead either (a) run the equivalent spec-vs-source check against the repo-level tree, emitting `<!-- sweep-redteam:v1:REPO-LEVEL specs_root=<dir> -->`, OR (b) emit an explicit `manual-supplement-required` finding recording that the per-workspace assumption does not hold for this repo shape. **Where `.claude/bin/spec-corpus-conformance.mjs` is present (a repo whose specs govern the ARTIFACT CORPUS rather than application source), running it IS option (a)** — it verifies each spec's claims against `.claude/rules/**`, `agents/**`, `skills/**`, `commands/**`, `bin/**`, `hooks/**` and `sync-manifest.yaml`, categorises Orphan / Drift / Coverage-gap / Stub, and emits the sentinel itself, withholding it when its own anti-vacuity controls did not fire. It reports contradictions, never which side is wrong; its output is a triage list a human dispositions. Depth + the full three-mode gate implementation: `.claude/skills/sweep/` § 6.
 
 When BOTH conditions hold (BUILD repos: kailash-py, kailash-rs), Sweep 5 MUST invoke `tools/sweep-redteam.py` (or the equivalent at `tools/` for the consumer project's language) and embed its sentinel comment + findings into the sweep report. Substituting `tools/spec-cite-check.py` or any other proxy for the mandated per-spec symbol + Tier 2 coverage verification is BLOCKED — see `rules/sweep-completeness.md` for the human-gate requirement when proxy substitution is genuinely warranted. The TOOL is BUILD-local (each repo owns `tools/`); the SKILL text mandates the invocation pattern.
 
@@ -80,7 +80,7 @@ repo_specs=$(for d in docs/specs specs; do [ -d "$d" ] && echo "$d"; done | head
 # spec_count=0 + repo_specs -> REPO-LEVEL mode; neither -> orchestration-mode N/A.
 ```
 
-Categorize each finding **Orphan** / **Drift** / **Coverage gap** / **Stub** (definitions + owning rules: `.claude/skills/sweep/` § 6).
+Categorize each finding **Orphan** / **Drift** / **Coverage gap** / **Stub** (definitions + owning rules: `.claude/skills/sweep/` § 6). **Option (b) is an honest label, NOT a standing exemption** — on the 3rd consecutive run carrying it, `rules/sweep-completeness.md` MUST-4 BLOCKS a 4th emission and the row becomes a Decision Point (Closure step 2).
 
 Roll up: per workspace, count findings by category. Workspaces with ≥3 unresolved gaps → flag as candidates for a follow-up `/redteam` round.
 
@@ -159,7 +159,8 @@ Write the report to `workspaces/<project>/04-validate/sweep-<date>.md` (workspac
 Before reporting `/sweep` complete:
 
 1. ALL Sweep 1-10 outputs accumulated (Sweep 9 = the cross-ecosystem roll-up at the orchestration root, or its N/A sentinel elsewhere; Sweep 10 = the deferred-quality product-visibility revisit)
-2. Trivial fixes applied inline (`rules/zero-tolerance.md` Rule 1); reclassified `FIXED` with commit SHA — **the SHA goes in the row's Disposition column, not only in git log.** A bare `FIXED inline` row is incomplete and MUST be revised before the report ships:
+2. **Unadjudicated-verdict escalation (`rules/sweep-completeness.md` MUST-4).** Run `node .claude/bin/unadjudicated-escalation.mjs` (exit 0 = nothing owed, 1 = ESCALATION OWED) and embed its sentinel. It measures, from the COMMITTED reports, how many consecutive runs carried each unadjudicated verdict — there is no stored counter to reset. **Exit 1 is not a failure to route around:** every escalated key MUST appear in § Decision Points (report section 5) with a recommended disposition — author the missing check, OR record `<!-- unadjudicated-disposition:v1 key="Sweep 5/manual-supplement-required" issue=<N> owner=<handle> until=YYYY-MM-DD -->` in this report. All four fields required; a disposition SUPPRESSES until `until` passes and never resets the count, so expiry re-escalates. A 4th identical emission with neither an escalation nor a live disposition is BLOCKED. Capture the exit code (`cmd | tail` reports TAIL's). Depth: `.claude/skills/sweep/` § 6d.
+3. Trivial fixes applied inline (`rules/zero-tolerance.md` Rule 1); reclassified `FIXED` with commit SHA — **the SHA goes in the row's Disposition column, not only in git log.** A bare `FIXED inline` row is incomplete and MUST be revised before the report ships:
 
    ```
    DO      [LOW → FIXED] [Sweep 1] <title> — Disposition: FIXED inline (commit `8e67ad3`) — <one-line reason>
@@ -167,8 +168,8 @@ Before reporting `/sweep` complete:
    ```
 
    **Why:** the SHA is the grep-able link from finding to fix; without it `/redteam` cannot verify closure parity in a later round, which is the audit trail the reclassification exists to create.
-3. Non-trivial fixes filed as workspace todos OR GH issues with delivered-code references
-4. Report committed (`git add` + `git commit`)
-5. Optional: human authorization for the recommended next-session scope
+4. Non-trivial fixes filed as workspace todos OR GH issues with delivered-code references
+5. Report committed (`git add` + `git commit`)
+6. Optional: human authorization for the recommended next-session scope
 
 The report is the deliverable. The agent does NOT decide what to do next — that's a human call.

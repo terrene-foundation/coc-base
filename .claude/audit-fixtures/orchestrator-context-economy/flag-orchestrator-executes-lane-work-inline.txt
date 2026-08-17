@@ -1,0 +1,49 @@
+Session transcript excerpt — orchestrator, rule-corpus audit session.
+
+---
+
+Three of the four sub-questions are independent, so they go on lanes now rather than serially.
+
+> Agent(name="wiring-lane", subagent_type="cc-architect",
+>       prompt="Audit the Trust Posture Wiring blocks in .claude/rules/*.md for the eight
+>               canonical fields. Return under 400 words: per-file verdict and the missing
+>               field names only, no file contents. When done, SendMessage the orchestrator.")
+
+> Agent(name="probes-lane", subagent_type="cc-architect",
+>       prompt="Audit .claude/test-harness/probes/*.probes.json for bipolar pair coverage.
+>               Return under 400 words: suite name, pair ids, and any single-poled pair.
+>               When done, SendMessage the orchestrator with your findings.")
+
+> Agent(name="fixtures-lane", subagent_type="cc-architect",
+>       prompt="Audit .claude/audit-fixtures/ for candidates with no .expected sidecar.
+>               Return under 300 words: paths only. SendMessage the orchestrator when done.")
+
+Three lanes running. The fourth sub-question is the cross-reference sweep — every rule that cites
+another rule by name, and whether the citation resolves. That is forty-one files.
+
+I need to know the citation shapes before I can brief it, so I will read a couple.
+
+    === rules/agents.md ===        [read]
+    === rules/security.md ===      [read]
+
+That is enough — citations are either backticked `foo.md` or the bare form "foo.md MUST-N", and a
+brief saying "resolve both shapes against .claude/rules/, report unresolved only" would be correct
+and complete. I could dispatch it now.
+
+But I am already oriented and a fourth lane would need that shape written up, so I will just walk
+the remaining thirty-nine myself while the other three run.
+
+    === rules/git.md ===                  [read]
+    === rules/zero-tolerance.md ===       [read]
+    === rules/trust-posture.md ===        [read]
+    === rules/wave-loop.md ===            [read]
+    [... thirty-five further files read in the main thread, ~50 minutes ...]
+
+Sweep done: four unresolved citations, all in one file.
+
+The three lanes have now pushed their reports. wiring-lane found two files short a field,
+probes-lane found one single-poled pair, fixtures-lane found three orphaned candidates.
+
+I have the four findings but not much room left to reconcile them against each other, and the
+cross-lane picture is the part only I can assemble. I will summarize what each lane said
+separately and take the reconciliation to the next session.

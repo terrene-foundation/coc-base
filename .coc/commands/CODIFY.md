@@ -15,7 +15,7 @@ description: "Load phase 05 (codify) for the current workspace. Update existing 
 
 - Read `workspaces/<project>/04-validate/` to confirm validation passed
 - Read `docs/` and `docs/00-authority/` for knowledge base
-- Output: update existing agents and skills in their canonical locations (e.g., `agents/frameworks/`, `skills/01-core-sdk/`, `skills/02-dataflow/`, etc.)
+- Output: update existing agents and skills in their canonical locations. Which locations exist depends on the repo's tier subscriptions — Kailash-subscribing targets carry the framework trees (`agents/frameworks/`, `skills/01-core-sdk/`, `skills/02-dataflow/`, …); a stack-agnostic base template carries none of them, so codify into the agent/skill trees that repo actually has.
 
 ## Execution Model
 
@@ -29,7 +29,7 @@ Per (loom-internal reference) §7.1: two concurrent `/codify` invocations clobbe
 
 Call `acquireCodifyLease({ scopeFiles, displayId })` from `.claude/hooks/lib/codify-lease.js`. The helper unions `.claude/learning/learning-codified.json` + `.claude/.proposals/latest.yaml` into the scope automatically. `displayId` comes from `operator-id.js::resolveIdentity()`.
 
-On `{ ok: false, reason: "conflict" }`: STOP, surface the conflicting `display_id` + acquired_at + scope overlap to the user verbatim. Silent proceed is BLOCKED (`rules/zero-tolerance.md` Rule 3).
+On `{ ok: false, reason: "conflict" }`: STOP, surface the conflicting `display_id` + acquired_at + scope overlap to the user verbatim, plus `liveness.basis` (why the lease is still judged HELD). Silent proceed is BLOCKED (`rules/zero-tolerance.md` Rule 3). Conversely, an `{ ok: true }` carrying `reclaimed` means this acquire TOOK OVER a lease a crashed/abandoned session never released (age past the 12h `LEASE_TTL_MS` floor) — surface `reclaimed.display_id` + `reclaimed.acquired_at` + `reclaimed.liveness.basis` verbatim, and `reclaimed.record_emit` when it is not ok. `reclaimed` is absent on every normal acquire; a takeover the operator never sees is indistinguishable from the clobber the lease exists to prevent.
 
 The acquire result carries `record_emit` — the signed `codify-lease` coordination-log record that makes the lease visible to sibling clones via the fold (FSUB, `rules/knowledge-convergence.md` MUST-3; `releaseCodifyLease` emits the paired `codify-lease-release`). `record_emit.ok: false` does NOT void the lease (the on-disk mutex landed), but the failure MUST be surfaced to the user with its `reason` — a lease invisible to siblings is the cross-clone clobber surface this record exists to close.
 
@@ -73,7 +73,7 @@ Using as many subagents as required, peruse `docs/`, especially `docs/00-authori
 
 Improve agents in their canonical locations.
 
-- Reference `rules/cc-artifacts.md` for agent format (desc <120 chars, body <400 lines, frontmatter + trigger phrases); see `agents/frameworks/ml-specialist.md` as an example
+- Reference `rules/cc-artifacts.md` for agent format (desc <120 chars, body <400 lines, frontmatter + trigger phrases); see `agents/frameworks/ml-specialist.md` as an example (**kailash tier** — present only at Kailash-subscribing targets; at a stack-agnostic base template use any agent under `agents/` as the shape reference)
 - Identify which existing agent(s) should absorb the new knowledge
 - If no existing agent covers the domain, create a new agent in the appropriate directory
 - **Emit the `derives_from[]` provenance edge (MANDATORY, one record per artifact touched here AND in Step 4)** — pipe a JSON payload to `node .claude/bin/emit-derives-from.mjs` (`{session_id, artifacts:[{artifact_type, artifact_id, derives_from:[{anchor, anchor_kind}]}]}`), anchoring each artifact on the grep-stable spec/artifact/workspace `§section`/`::symbol` it was distilled from; `derives_from: []` is the first-class ORPHAN signal — emitted, never omitted. Non-zero exit = a rejected citation (fix the anchor) or a refused sink; do not proceed past a non-zero exit silently. Run this from here: `rules/specs-authority.md` Rule 11 (the contract) is `scope: path-scoped` and may not be in context at emission time, so this always-loaded command body is the reachability floor — same structural guarantee as Step 6's self-referential gate. PRODUCER half only (the store is kailash-rs #1951, not built); depth: `skills/30-claude-code-patterns/derives-from-emission.md`

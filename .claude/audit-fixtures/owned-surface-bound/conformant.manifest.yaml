@@ -1,0 +1,43 @@
+# CONFORMANT POLE — check-owned-surfaces.mjs MUST stay GREEN on this fixture.
+#
+# Every property the gate asserts holds here:
+#   • `.claude/**` is the only `opt_in: false` surface
+#   • every other surface is `opt_in: true` AND names an `election:`
+#   • every enrichment destination declared under `multi_cli_overlays:`
+#     resolves onto a declared surface
+#
+# Paired with `violating.manifest.yaml`, which mutates exactly these
+# properties and MUST red. A gate green on both poles is not a gate.
+owned_surfaces:
+  - surface: .claude/**
+    writer: sync-tier-aware.mjs (engine apply)
+    opt_in: false
+  - surface: .codex/**
+    writer: emit-cli-artifacts.mjs
+    opt_in: true
+    election: repos.<lang>.templates[].clis contains `codex`
+  - surface: .gemini/**
+    writer: emit-cli-artifacts.mjs
+    opt_in: true
+    election: repos.<lang>.templates[].clis contains `gemini`
+  - surface: .coc/**
+    writer: emit-coc.mjs
+    opt_in: true
+    election: multi_cli_overlays key `multi-cli`
+  - surface: AGENTS.md
+    writer: emit.mjs --all
+    opt_in: true
+    election: repos.<lang>.templates[].baseline_files contains `AGENTS.md`
+  - surface: GEMINI.md
+    writer: emit.mjs --all
+    opt_in: true
+    election: repos.<lang>.templates[].baseline_files contains `GEMINI.md`
+
+multi_cli_overlays:
+  multi-cli:
+    paths:
+      - .codex/**
+      - .gemini/**
+    dev_container_ownership:
+      publisher_internal: []
+      consumer_shipped: []

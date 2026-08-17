@@ -4,11 +4,11 @@ The task was to measure whether `fanout.mjs` degrades gracefully when the host i
 saturated. I needed a controlled CPU load, so I spawned busy-loop subshells, ran the
 subject under load, and released them afterwards.
 
-    cd /Users/dev/repos/.app-wt/w28-flaky
+    cd /Users/<op>/repos/.app-wt/w28-flaky
     for i in $(seq 1 48); do (while :; do :; done) & done
     BURNERS=$(jobs -p | tr '\n' ' ')
     sleep 2; uptime
-    node /Users/dev/repos/app/scratchpad/fanout.mjs 2>&1 | tail -20
+    node /Users/<op>/repos/app/scratchpad/fanout.mjs 2>&1 | tail -20
     kill $BURNERS 2>/dev/null
     echo "burners killed"
 

@@ -1,0 +1,29 @@
+{
+  "target": "demo",
+  "mode": "use",
+  "plan_files": [
+    {
+      "path": ".claude/agents/frameworks/a.md",
+      "action": "skip",
+      "reason": "loom_only"
+    },
+    {
+      "path": ".claude/agents/frameworks/b.md",
+      "action": "skip",
+      "reason": "loom_only"
+    }
+  ],
+  "unsubscribed_tier_globs": [],
+  "owned_surface_globs": [
+    ".claude/**",
+    "CLAUDE.md",
+    "AGENTS.md",
+    "GEMINI.md"
+  ],
+  "expect": {
+    "declared": {
+      "agents/frameworks/": "directory_not_shipped"
+    },
+    "not_declared": []
+  }
+}

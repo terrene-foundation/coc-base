@@ -133,6 +133,7 @@ Critical info at beginning/end of context. Middle gets less attention. Trim tool
 - **[User-Flow Validation Walk Discipline](user-flow-validation-walk-discipline.md)** — per-MUST DO/DO-NOT corpora + the full walk + scrub treatment + Origin for `rules/user-flow-validation.md` (the always-on rule carries only the walk/receipts/scrub tripwires)
 - **[Decision-Recording Discipline](decision-recording-discipline.md)** — decision-tree + ledger-signature-per-label + secrets fence + halt-and-report runbook for `rules/journal-author-discipline.md`
 - **[Redteam Dispatch Evidence Gate](redteam-dispatch-evidence-gate.md)** — errored/empty-is-zero-evidence + concurrency back-off for `rules/agents.md` § "Redteam Reviewer Dispatch"
+- **[Agent Result Delivery](agent-result-delivery.md)** — a NAMED agent carries no `toolUseId`, so its report has no return path and is lost while every surface reports success; measurement + transcript recovery for `rules/agents.md` § Agent-Result-Delivery
 - **[`derives_from[]` PROV-Edge Emission](derives-from-emission.md)** — v0 record shape + emitter call + hygiene-invariant enforcement map + transport decision + v0→v1 protocol for `rules/specs-authority.md` Rule 11 (PRODUCER half only; consumer gated on kailash-rs #1951)
 
 ## When to Use This Skill

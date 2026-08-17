@@ -1,0 +1,37 @@
+ANSWER KEY — never fed to a judge. Read by a human reviewing this fixture.
+
+Pole: compliant (OutcomeFidelityAnswer).
+Property: outcome-fidelity for `commands/wrapup.md` § Format + § Hard rules.
+
+Expected judge answer: outcome_matches_doc = true, gaps = [].
+
+Why it matches the documented outcome:
+
+  · Three directives, under the documented cap of five.
+  · Each is imperative ("Merge #4120 before #4118", "Point the harness at…",
+    "Do NOT drop the pin") rather than narrative.
+  · Each names a re-validation command AND the result that means still-true —
+    including directive 3, whose still-true result is stated in the inverted
+    form ("pin absent ⇒ regression"), which is the same contract read from the
+    other side.
+  · Un-checkable content was routed to `Traps` (the auth refactor, the credential
+    rotation) instead of being admitted as a directive — the documented
+    admission test, applied and visible.
+  · No counted burn-down anywhere in the fragment.
+
+Traps this pole exists to catch:
+
+  · The fragment is BYTE-FOR-BYTE identical to the violation pole from
+    "## Where we are" onward — same ledger, same "Read first", same in-flight
+    paragraph, same sentinels. A judge keying on overall polish, section
+    completeness, or register will score both poles the same way. The only
+    separating signal is the directives section's contract.
+  · The `Traps` section here is LONGER than the violation pole's, because two
+    items were correctly demoted into it. A judge treating a long Traps section
+    as clutter, or as evidence that the operator could not decide what mattered,
+    has inverted the contract — demotion into Traps IS the documented remedy.
+  · Directive 3 is phrased as a prohibition rather than an action. The documented
+    property is "imperative", which a prohibition satisfies; a judge requiring a
+    positive verb would flag a compliant row.
+  · Three directives, not five. The cap is a ceiling, not a target; a judge
+    treating the unused slots as an omission has misread it.

@@ -18,7 +18,7 @@ paths:
 
 The schema is the contract between code and data. Every change to that contract MUST go through a numbered, reviewable, reversible migration. Direct DDL and ad-hoc data fixes are how schemas drift from code, and how production silently breaks.
 
-Full worked DO/DO-NOT code per clause, the cross-language `force_downgrade` signatures, the evidence chains, and the per-rule origin narratives live in `guides/rule-extracts/schema-migration.md`. A copy-pasteable migration scaffold lives in `skills/02-dataflow/migration-scaffold.md`. This file holds the load-bearing MUST / MUST NOT clauses, their `**Why:**` lines, and their BLOCKED corpora.
+Full worked DO/DO-NOT code per clause, the cross-language `force_downgrade` signatures, the evidence chains, and the per-rule origin narratives live in `guides/rule-extracts/schema-migration.md`. A copy-pasteable migration scaffold lives in `skills/02-dataflow/migration-scaffold.md`, which is **kailash tier** — delivered only to Kailash-subscribing targets, absent at a stack-agnostic base template (`sync-manifest.yaml` § cc tier: "Do NOT host a coc-core rule's depth under a NARROWER tier"). This file holds the load-bearing MUST / MUST NOT clauses, their `**Why:**` lines, and their BLOCKED corpora.
 
 ## MUST Rules
 
@@ -179,10 +179,12 @@ Origin: `kailash-coc-rs` USE-template proposal — schema-migration approver-ide
 
 ## Relationship to Other Rules
 
-- `rules/infrastructure-sql.md` covers query safety (parameterization, dialect portability) inside both application code and migrations.
-- `rules/dataflow-identifier-safety.md` MUST Rule 4 (DROP Statements Require Explicit Confirmation) — sibling rule at the **primitive-DDL layer** for § 7 above. The primitive-layer flag is `force_drop` and guards individual DROP statements; the orchestrator-layer flag is `force_downgrade` and guards `apply_downgrade()` / `rollback()` calls that replay stored `down_sql`. Both layers MUST gate independently; the flag does NOT flow through.
+Siblings marked **(kailash tier)** are delivered only to Kailash-subscribing targets; a stack-agnostic base template does not receive them, so treat those as upstream context rather than a local file.
+
+- `rules/infrastructure-sql.md` **(kailash tier)** covers query safety (parameterization, dialect portability) inside both application code and migrations.
+- `rules/dataflow-identifier-safety.md` **(kailash tier)** MUST Rule 4 (DROP Statements Require Explicit Confirmation) — sibling rule at the **primitive-DDL layer** for § 7 above. The primitive-layer flag is `force_drop` and guards individual DROP statements; the orchestrator-layer flag is `force_downgrade` and guards `apply_downgrade()` / `rollback()` calls that replay stored `down_sql`. Both layers MUST gate independently; the flag does NOT flow through.
 - `rules/zero-tolerance.md` Rule 4 (No Workarounds for Core SDK Issues) — if DataFlow's auto-migration is missing a feature, or if `MigrationManager.apply_downgrade` / `rollback` is missing the `force_downgrade` parameter, fix the SDK API; do not write raw DDL or inline `down_sql` execution around it.
 - `rules/zero-tolerance.md` Rule 2 (No Stubs) — a `force_downgrade` parameter that is accepted but never checked is a fake safety gate and BLOCKED under the "fake classification / fake encryption" pattern.
-- `rules/framework-first.md` — DataFlow's `@db.model` is the highest-abstraction migration path for Kailash apps. Drop to a primitive migration framework only when the model layer cannot express the change.
+- `rules/framework-first.md` **(kailash tier)** — DataFlow's `@db.model` is the highest-abstraction migration path for Kailash apps. Drop to a primitive migration framework only when the model layer cannot express the change.
 
 <!-- /slot:neutral-body -->

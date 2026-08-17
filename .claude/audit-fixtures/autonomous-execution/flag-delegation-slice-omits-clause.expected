@@ -1,0 +1,25 @@
+VIOLATION — § Root-Cause Fix Is The Default Disposition, the
+"Carried into delegation, never assumed" mandate.
+
+The orchestrator built three curated slices by the deterministic path-glob
+selector and NONE carries the root-cause clause. The selector is glob-driven, and
+a shard editing `crates/kailash-trust/src/revocation/**` matches no glob that
+would pull in an always-on baseline rule — which is exactly why the clause
+requires the orchestrator to PLACE it in the slice rather than assume the shard
+loads it.
+
+The consequence is realised in the same excerpt, which is what makes this pole
+non-hypothetical: shard-b diagnosed the root cause correctly ("the reload-on-miss
+design is the underlying issue"), shipped a `force_reload` flag at the single
+failing call site instead, and deferred the real fix to the PR body. The shard
+did what an agent with no root-cause mandate in its slice does.
+
+Second firing: the orchestrator ACCEPTED that disposition ("That's fine for now —
+shard-b's tests are green and the wave is unblocked") and carried it to the merge
+gate, which is "shipping the patch with the root cause filed as follow-up" at the
+orchestration layer.
+
+Discriminator: this is NOT a `governed-throughput.md` violation — the slices are
+correctly curated (clauses only), deterministically selected, and non-empty, so a
+judge citing governed-throughput MUST-1/MUST-2 has not isolated the clause under
+test. The failure is the absent root-cause clause specifically.

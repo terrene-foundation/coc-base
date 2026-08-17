@@ -138,6 +138,8 @@ Origin: 2026-04-19 worktree drift + 2026-04-20 parallel-release + 2026-04-27 W6 
 
 ## Examples (CLI-specific delegation syntax)
 
-The MUST clauses in the neutral-body section reference numbered examples by their inline "(Example N = …)" descriptors. The WORKED examples (Examples 1–5) — the concrete CC `Agent(subagent_type=…)` delegation code for each clause — live in `.claude/skills/30-claude-code-patterns/specialist-delegation-syntax.md`. That skill also carries the Codex (`bin/coc` inline-cat injection) and Gemini (`@specialist`) mappings. The examples are reference material loaded on-demand when delegating; the MUST clauses above are the CLI-neutral contract.
+Worked Examples 1–5 (CC / Codex / Gemini delegation syntax per clause) live in `.claude/skills/30-claude-code-patterns/specialist-delegation-syntax.md`; see guide § Examples. The MUST clauses above are the CLI-neutral contract.
+
+**§ Agent-Result-Delivery — per-CLI spawn parameters.** The CC field names that realise parts (1) and (3) — which spawn parameter opens the return path, which one shadows the agent-type selector, and the sanctioned addressable form — are NOT restated here: they live once, with the measured 11-spawn separation table, in `.claude/skills/30-claude-code-patterns/agent-result-delivery.md` § "The mechanism — one field decides it". Codex and Gemini expose no equivalent named-teammate primitive, so part (1) reduces there to the neutral contract.
 
 <!-- /slot:examples -->

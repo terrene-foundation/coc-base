@@ -41,7 +41,7 @@ The agent never self-authorizes. But the user owns the operating envelope (`rule
 
 ### Affordance + Read/Write Tier (D)
 
-Run `/cross-repo-authorize <owner/repo> "<action>"` — do NOT hand-reconstruct the conditions (steps drop). It restates for the user's yes/no and writes the receipt to `.claude/cross-repo-authz/`. A **READ** downgrades condition 4 to a one-line receipt; a **WRITE** keeps all five; unrecognized intent ranks WRITE (fail-closed). The PreToolUse guide-first hook fires this before an un-authorized cross-repo `gh` runs (halt-and-report, never block). Depth — why a committed receipt is disclosure-safe, the three distribution fences that make containment structural, why the #263 scanner is a DETECTOR not a fence, and the RC6 receipt-location fix: extract § "Affordance containment + the #263 detector boundary" + `/cross-repo-authorize`.
+Run `/cross-repo-authorize <owner/repo> "<action>"` — do NOT hand-reconstruct the conditions (steps drop). It restates for the user's yes/no and writes the receipt to `.claude/cross-repo-authz/`. A **READ** downgrades condition 4 to a one-line receipt; a **WRITE** keeps all five; unrecognized intent ranks WRITE (fail-closed). The PreToolUse guide-first hook fires this before an un-authorized cross-repo `gh` runs (halt-and-report, never block). Depth (receipt disclosure-safety, the three distribution fences, the #263 detector-not-fence boundary, the RC6 receipt-location fix): extract § "Affordance containment + the #263 detector boundary" + `/cross-repo-authorize`.
 
 ## Exceptions
 

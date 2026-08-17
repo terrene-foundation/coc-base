@@ -20,7 +20,7 @@ import {
   getScopeAtDate,
   RULE10_ANCHORS,
 } from "../../bin/validate-extraction-history.mjs";
-import { writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { writeFileSync, mkdirSync, rmSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -254,7 +254,7 @@ type: ignored_in_body
 // rename it at D2; verify getScopeAtDate at D1 returns the original path's
 // scope, and at D2 returns the new path's scope.
 {
-  const tmp = join(tmpdir(), `f25-fix-11-${Date.now()}`);
+  const tmp = mkdtempSync(join(tmpdir(), "f25-fix-11-"));
   try {
     mkdirSync(join(tmp, ".claude", "rules"), { recursive: true });
     gitInit(tmp);
@@ -304,7 +304,7 @@ type: ignored_in_body
 // classifyEntry returns mandated=true when (a) anchor present, (b) rule
 // cited, (c) scope=baseline at entry's date (via real git repo).
 {
-  const tmp = join(tmpdir(), `f25-fix-12-${Date.now()}`);
+  const tmp = mkdtempSync(join(tmpdir(), "f25-fix-12-"));
   try {
     mkdirSync(join(tmp, ".claude", "rules"), { recursive: true });
     gitInit(tmp);
@@ -348,7 +348,7 @@ This entry's Rule-10 disposition is path (b) named-rationale on rules/baseline-r
 // classifyEntry returns mandated=false when scope=path-scoped at entry's
 // date — this is the journal/0148 amendment correction class.
 {
-  const tmp = join(tmpdir(), `f25-fix-13-${Date.now()}`);
+  const tmp = mkdtempSync(join(tmpdir(), "f25-fix-13-"));
   try {
     mkdirSync(join(tmp, ".claude", "rules"), { recursive: true });
     gitInit(tmp);
@@ -432,7 +432,7 @@ rule is path-scoped so Rule-10 did NOT actually fire (journal/0148 class).
 // exist in git history returns rule-not-found-in-git-history (NOT a crash
 // and NOT a fabricated path-at-commit).
 {
-  const tmp = join(tmpdir(), `f25-fix-16-${Date.now()}`);
+  const tmp = mkdtempSync(join(tmpdir(), "f25-fix-16-"));
   try {
     mkdirSync(tmp, { recursive: true });
     gitInit(tmp);
@@ -459,7 +459,7 @@ rule is path-scoped so Rule-10 did NOT actually fire (journal/0148 class).
   const script = join(
     __filename.replace(/\/audit-fixtures\/.*$/, "/bin/validate-extraction-history.mjs"),
   );
-  const tmp = join(tmpdir(), `f25-fix-17-${Date.now()}`);
+  const tmp = mkdtempSync(join(tmpdir(), "f25-fix-17-"));
   try {
     mkdirSync(join(tmp, "journal"), { recursive: true });
     writeFileSync(
@@ -498,7 +498,7 @@ rule is path-scoped so Rule-10 did NOT actually fire (journal/0148 class).
 // ------------------------------------------------------------------
 // Reviewer LOW-2: enforce both priority:0 AND scope:baseline.
 {
-  const tmp = join(tmpdir(), `f25-fix-18-${Date.now()}`);
+  const tmp = mkdtempSync(join(tmpdir(), "f25-fix-18-"));
   try {
     mkdirSync(join(tmp, ".claude", "rules"), { recursive: true });
     gitInit(tmp);

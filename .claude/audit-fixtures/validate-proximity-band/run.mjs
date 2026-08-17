@@ -27,6 +27,7 @@ import {
   copyFileSync,
   cpSync,
   existsSync,
+  mkdtempSync,
 } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -90,7 +91,7 @@ const EMIT_SCRIPT = __filename.replace(
 // identically to a live /sync invocation. The bin/ + rules/ + manifest
 // surface is shared across all integration fixtures.
 function buildTempLoomRepo(tag, opts = {}) {
-  const dir = join(tmpdir(), `f23e-${tag}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  const dir = mkdtempSync(join(tmpdir(), `f23e-${tag}-`));
   mkdirSync(dir, { recursive: true });
   gitInit(dir);
   // Copy the LIVE .claude/bin + .claude/rules + .claude/skills + manifest

@@ -22,9 +22,13 @@ import {
   isSanctionedDeferredFixture,
   computeBlockTexts,
   findRepoRoot,
+  targetDisposition,
+  toManifestRelpath,
+  isDeclaredXrefAbsent,
+  loadXrefAbsentDeclaration,
   DEFAULT_SCOPE_DIRS,
 } from "../../bin/validate-xref-integrity.mjs";
-import { writeFileSync, mkdirSync, rmSync, existsSync } from "node:fs";
+import { writeFileSync, mkdirSync, rmSync, existsSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -163,7 +167,7 @@ function check(name, condition, details) {
 // Build a temp tree: <tmp>/source-dir/source.md links to ../sibling/target.md
 // at <tmp>/sibling/target.md. Resolver must match.
 {
-  const tmp = join(tmpdir(), `xref-fix-05-${Date.now()}`);
+  const tmp = mkdtempSync(join(tmpdir(), "xref-fix-05-"));
   try {
     mkdirSync(join(tmp, "source-dir"), { recursive: true });
     mkdirSync(join(tmp, "sibling"), { recursive: true });
@@ -206,7 +210,7 @@ function check(name, condition, details) {
 // fixture-07-dir-token-vs-file
 // ------------------------------------------------------------------
 {
-  const tmp = join(tmpdir(), `xref-fix-07-${Date.now()}`);
+  const tmp = mkdtempSync(join(tmpdir(), "xref-fix-07-"));
   try {
     mkdirSync(join(tmp, ".claude", "audit-fixtures", "alpha"), { recursive: true });
     mkdirSync(join(tmp, ".claude", "rules"), { recursive: true });
@@ -238,7 +242,7 @@ function check(name, condition, details) {
 // fixture-08-claude-prefix
 // ------------------------------------------------------------------
 {
-  const tmp = join(tmpdir(), `xref-fix-08-${Date.now()}`);
+  const tmp = mkdtempSync(join(tmpdir(), "xref-fix-08-"));
   try {
     mkdirSync(join(tmp, ".claude", "rules"), { recursive: true });
     writeFileSync(join(tmp, ".claude", "rules", "x.md"), "# x");
@@ -259,7 +263,7 @@ function check(name, condition, details) {
 // `rules/x.md` should resolve to `<repo>/.claude/rules/x.md` when only
 // the .claude/-prefixed variant exists.
 {
-  const tmp = join(tmpdir(), `xref-fix-09-${Date.now()}`);
+  const tmp = mkdtempSync(join(tmpdir(), "xref-fix-09-"));
   try {
     mkdirSync(join(tmp, ".claude", "rules"), { recursive: true });
     writeFileSync(join(tmp, ".claude", "rules", "x.md"), "# x");
@@ -281,7 +285,7 @@ function check(name, condition, details) {
 // Build a temp journal dir with `0150-DECISION-foo.md`; resolveJournalToken
 // for `journal/0150` MUST match (NNNN-prefix glob), and `journal/9999` MUST NOT.
 {
-  const tmp = join(tmpdir(), `xref-fix-10-${Date.now()}`);
+  const tmp = mkdtempSync(join(tmpdir(), "xref-fix-10-"));
   try {
     mkdirSync(join(tmp, "journal"), { recursive: true });
     writeFileSync(join(tmp, "journal", "0150-DECISION-foo.md"), "# foo");
@@ -385,7 +389,7 @@ function check(name, condition, details) {
 // resolves an INSIDE token through the same resolver on the same tree — so a
 // resolver that refused everything could not pass either.
 {
-  const tmp = join(tmpdir(), `xref-fix-14-${Date.now()}`);
+  const tmp = mkdtempSync(join(tmpdir(), "xref-fix-14-"));
   try {
     const root = join(tmp, "root");
     mkdirSync(join(root, "source-dir"), { recursive: true });
@@ -485,7 +489,7 @@ function check(name, condition, details) {
 // RESOLVE, not report not-found — `isDir` is inferred from the token's
 // trailing slash, never from disk. The match is LABELLED so it stays visible.
 {
-  const tmp = join(tmpdir(), `xref-fix-18-${Date.now()}`);
+  const tmp = mkdtempSync(join(tmpdir(), "xref-fix-18-"));
   try {
     mkdirSync(join(tmp, ".claude", "skills", "45-genesis-bootstrap"), { recursive: true });
     const result = resolveRefToken("skills/45-genesis-bootstrap", tmp, "a.md", "backtick");
@@ -508,7 +512,7 @@ function check(name, condition, details) {
 // label — proving the directory fallback is a second pass, not a relaxed
 // predicate that would let a same-named directory satisfy a file reference.
 {
-  const tmp = join(tmpdir(), `xref-fix-19-${Date.now()}`);
+  const tmp = mkdtempSync(join(tmpdir(), "xref-fix-19-"));
   try {
     mkdirSync(join(tmp, ".claude", "thing"), { recursive: true }); // directory, first candidate
     writeFileSync(join(tmp, "thing"), "real file\n"); // file, second candidate
@@ -555,7 +559,7 @@ function check(name, condition, details) {
 //   - `const isDir = token.endsWith("/")` → `false`
 //     ⇒ RED (resolves via the fallback and arrives WITH looseDirMatch)
 {
-  const tmp = join(tmpdir(), `xref-fix-20-${Date.now()}`);
+  const tmp = mkdtempSync(join(tmpdir(), "xref-fix-20-"));
   try {
     mkdirSync(join(tmp, ".claude"), { recursive: true });
     writeFileSync(join(tmp, ".claude", "x"), "file at candidate-1\n");
@@ -627,7 +631,7 @@ function check(name, condition, details) {
 // Discriminating: drop `!hasFileExtension(token)` from the second-pass condition
 // ⇒ RED (the `ghost.md` arm resolves with looseDirMatch instead of not-found).
 {
-  const tmp = join(tmpdir(), `xref-fix-23-${Date.now()}`);
+  const tmp = mkdtempSync(join(tmpdir(), "xref-fix-23-"));
   try {
     mkdirSync(join(tmp, ".claude", "ghost.md"), { recursive: true }); // directory named like a file
     mkdirSync(join(tmp, ".claude", "ghostdir"), { recursive: true }); // extension-less directory
@@ -956,6 +960,344 @@ function check(name, condition, details) {
     DEFAULT_SCOPE_DIRS.includes(".claude/guides"),
     `got DEFAULT_SCOPE_DIRS=${JSON.stringify(DEFAULT_SCOPE_DIRS)}`,
   );
+}
+
+// ------------------------------------------------------------------
+// fixture-33 — finding id `journal-tree-absent-not-applicable`
+// ------------------------------------------------------------------
+// `journal/` is loom-only and never distributed, so at every consumer EVERY
+// backticked provenance citation pointed at an absent tree and was reported as a
+// dangling defect. THREE poles on otherwise-identical trees, because two would
+// not separate "consumer" from "the tree is simply gone at loom":
+//   (a) no journal/, consumer-class VERSION  → notApplicable, does NOT red
+//   (b) journal/ PRESENT, entry missing      → journal-entry-not-found, STILL reds
+//   (c) no journal/, VERSION type=coc-source → journal-dir-missing, STILL reds
+// Pole (c) is what stops the carve-out from being a blanket amnesty: at the one
+// repo that OWNS the tree, its absence stays loud.
+{
+  const tmp = mkdtempSync(join(tmpdir(), "xref-fix-33-"));
+  try {
+    // (a) consumer: no journal tree, consumer-class VERSION
+    const consumer = join(tmp, "consumer");
+    mkdirSync(join(consumer, ".claude"), { recursive: true });
+    writeFileSync(
+      join(consumer, ".claude", "VERSION"),
+      JSON.stringify({ version: "0.0.0", type: "coc-use-template" }),
+    );
+    const na = resolveJournalToken("journal/0569", consumer);
+    check(
+      "fixture-33a-journal-tree-absent-is-not-applicable-at-a-consumer",
+      na.ok === false &&
+        na.notApplicable === true &&
+        na.reason === "journal-tree-absent-not-applicable",
+      `got ${JSON.stringify(na)}`,
+    );
+
+    // (b) tree present, entry absent — the genuine-defect pole, unchanged.
+    const withTree = join(tmp, "with-tree");
+    mkdirSync(join(withTree, "journal"), { recursive: true });
+    mkdirSync(join(withTree, ".claude"), { recursive: true });
+    writeFileSync(
+      join(withTree, ".claude", "VERSION"),
+      JSON.stringify({ version: "0.0.0", type: "coc-use-template" }),
+    );
+    writeFileSync(join(withTree, "journal", "0569-DECISION-real.md"), "# real");
+    const present = resolveJournalToken("journal/0569", withTree);
+    const missingEntry = resolveJournalToken("journal/9999", withTree);
+    check(
+      "fixture-33b-entry-missing-under-a-present-tree-still-reds",
+      present.ok === true &&
+        missingEntry.ok === false &&
+        missingEntry.notApplicable !== true &&
+        missingEntry.reason === "journal-entry-not-found",
+      `present=${JSON.stringify(present)} missing=${JSON.stringify(missingEntry)}`,
+    );
+
+    // (c) coc-source with NO tree — the anti-amnesty pole.
+    const source = join(tmp, "source");
+    mkdirSync(join(source, ".claude"), { recursive: true });
+    writeFileSync(
+      join(source, ".claude", "VERSION"),
+      JSON.stringify({ version: "0.0.0", type: "coc-source" }),
+    );
+    const loud = resolveJournalToken("journal/0569", source);
+    check(
+      "fixture-33c-absent-tree-at-coc-source-stays-loud",
+      loud.ok === false &&
+        loud.notApplicable !== true &&
+        loud.reason === "journal-dir-missing",
+      `got ${JSON.stringify(loud)}`,
+    );
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+// ------------------------------------------------------------------
+// fixture-34 — finding id `case-insensitive-false-green`
+// ------------------------------------------------------------------
+// `lstatSync` answers YES for a wrong-case token on a case-INSENSITIVE
+// filesystem (macOS APFS, Windows NTFS), so the SAME tree used to yield a
+// different verdict on an operator's mac than on the Linux CI runner — and the
+// mac one was the FALSE GREEN. Both poles are asserted on ONE tree so the check
+// is meaningful on a case-SENSITIVE filesystem too (there the wrong-case pole
+// fails for the ordinary reason, and the exact-case pole still has to pass).
+{
+  const tmp = mkdtempSync(join(tmpdir(), "xref-fix-34-"));
+  try {
+    mkdirSync(join(tmp, ".claude", "rules"), { recursive: true });
+    writeFileSync(join(tmp, ".claude", "rules", "documentation.md"), "# doc");
+    const exact = resolveRefToken(
+      "rules/documentation.md",
+      tmp,
+      ".claude/rules/probe.md",
+      "backtick",
+    );
+    // Mixed case, NOT the ALL-CAPS emitted-id shape, so the emitted-id pass
+    // cannot rescue it — this pole isolates the case check alone.
+    const wrongCase = resolveRefToken(
+      "rules/Documentation.md",
+      tmp,
+      ".claude/rules/probe.md",
+      "backtick",
+    );
+    check(
+      "fixture-34-wrong-case-token-does-not-resolve-on-a-case-insensitive-fs",
+      exact.ok === true && wrongCase.ok === false && wrongCase.reason === "not-found",
+      `exact=${JSON.stringify(exact)} wrongCase=${JSON.stringify(wrongCase)}`,
+    );
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+// ------------------------------------------------------------------
+// fixture-35 — finding id `absent-by-design-is-loom-centric`
+// ------------------------------------------------------------------
+// The per-target derivation replaces a hand-list evaluated against ONE
+// filesystem. The two poles that matter are the ones that decide whether it can
+// still fail: a manifest-PROVEN absence suppresses, and a merely-UNDECLARED
+// absence does NOT. `artifact-flow.md` § MUST NOT is explicit that "matches
+// nothing" must never be relied on as a fence, so `no_tier_match` with no tier
+// glob behind it stays reportable.
+{
+  const mkPlan = (rows, tierGlobs) => ({
+    byPath: new Map(rows.map((r) => [r.path, r])),
+    paths: rows.map((r) => r.path),
+    allTierGlobs: tierGlobs,
+    // Stand-in for sync-tier-aware's matcher: prefix membership is enough to
+    // separate "lives in some tier" from "matches no tier at all".
+    matchesAnyManifestGlob: (p, globs) => globs.some((g) => p.startsWith(g)),
+  });
+
+  const proven = mkPlan(
+    [{ path: ".claude/commands/govern.md", action: "skip", reason: "loom_only" }],
+    [],
+  );
+  check(
+    "fixture-35a-manifest-proven-absence-is-suppressed",
+    (() => {
+      const d = targetDisposition(".claude/commands/govern.md", proven);
+      return d.received === false && d.proven === true && d.reason === "loom_only";
+    })(),
+    JSON.stringify(targetDisposition(".claude/commands/govern.md", proven)),
+  );
+
+  // Same skip, but the path DOES live in a tier — this target just does not
+  // subscribe it. Proven, and reported under its own reason.
+  const unsubscribed = mkPlan(
+    [{ path: ".claude/skills/02-dataflow/x.md", action: "skip", reason: "no_tier_match" }],
+    [".claude/skills/02-dataflow/"],
+  );
+  check(
+    "fixture-35b-tier-not-subscribed-is-proven-absence",
+    (() => {
+      const d = targetDisposition(".claude/skills/02-dataflow/x.md", unsubscribed);
+      return d.proven === true && d.reason === "tier_not_subscribed";
+    })(),
+    JSON.stringify(targetDisposition(".claude/skills/02-dataflow/x.md", unsubscribed)),
+  );
+
+  // The anti-amnesty pole: skipped, and NOTHING in the manifest declares it.
+  const undeclared = mkPlan(
+    [{ path: ".claude/bin/run-audit-fixtures.mjs", action: "skip", reason: "no_tier_match" }],
+    [".claude/skills/"],
+  );
+  check(
+    "fixture-35c-undeclared-absence-is-NOT-suppressed",
+    (() => {
+      const d = targetDisposition(".claude/bin/run-audit-fixtures.mjs", undeclared);
+      return d.received === false && d.proven === false;
+    })(),
+    JSON.stringify(targetDisposition(".claude/bin/run-audit-fixtures.mjs", undeclared)),
+  );
+
+  // `overlay` DELIVERS the file. Reading `copy` alone reported 62 false dangling
+  // refs for base, every one of them a variant-overlaid rule.
+  const overlaid = mkPlan(
+    [{ path: ".claude/rules/agents.md", action: "overlay", reason: "variant_overlay" }],
+    [],
+  );
+  check(
+    "fixture-35d-variant-overlay-counts-as-received",
+    targetDisposition(".claude/rules/agents.md", overlaid).received === true,
+    JSON.stringify(targetDisposition(".claude/rules/agents.md", overlaid)),
+  );
+
+  // A directory token reaches the target if ANY file under it does.
+  const dirPlan = mkPlan(
+    [
+      { path: ".claude/skills/x/a.md", action: "skip", reason: "loom_only" },
+      { path: ".claude/skills/x/b.md", action: "copy", reason: "tier_match" },
+    ],
+    [],
+  );
+  check(
+    "fixture-35e-directory-token-received-when-any-child-is",
+    targetDisposition(".claude/skills/x", dirPlan).received === true,
+    JSON.stringify(targetDisposition(".claude/skills/x", dirPlan)),
+  );
+}
+
+// ------------------------------------------------------------------
+// fixture-36 — plan paths carry the `.claude/` prefix
+// ------------------------------------------------------------------
+// `sync-tier-aware.mjs::walkClaudeDir` emits `.claude/rules/foo.md`, NOT
+// `rules/foo.md`. Keying on the stripped form matched 0 of 3881 plan rows and
+// silently disabled the whole derivation — a failure that looked exactly like
+// "nothing is absent-by-design". Pinned so the shape cannot drift back.
+{
+  const root = "/tmp/xref-fix-36-root";
+  check(
+    "fixture-36a-manifest-relpath-keeps-the-claude-prefix",
+    toManifestRelpath(join(root, ".claude", "rules", "foo.md"), root) ===
+      ".claude/rules/foo.md",
+    `got ${toManifestRelpath(join(root, ".claude", "rules", "foo.md"), root)}`,
+  );
+  check(
+    "fixture-36b-paths-outside-dot-claude-are-not-manifest-governed",
+    toManifestRelpath(join(root, "journal", "0569-x.md"), root) === null &&
+      toManifestRelpath("/elsewhere/x.md", root) === null,
+    `journal=${toManifestRelpath(join(root, "journal", "0569-x.md"), root)}`,
+  );
+}
+
+// ------------------------------------------------------------------
+// fixture-37 — the SHIPPED declaration is SOURCE-SCOPED
+// ------------------------------------------------------------------
+// `absent[token].sources[]` is the dimension a flat path list cannot carry: the
+// same relative token denotes DIFFERENT paths from different citing files, so a
+// token excused everywhere would suppress it in a file where it genuinely
+// dangles. That is the amnesty direction, so the scoping is a correctness
+// property, not extra detail.
+{
+  const absent = {
+    "../01-core-sdk/SKILL.md": { why: "tier not subscribed", sources: [".claude/skills/02-dataflow/SKILL.md"] },
+    "commands/govern.md": { why: "loom_only", sources: [".claude/rules/x.md"] },
+  };
+  check(
+    "fixture-37a-declared-token-in-a-declared-source-is-excused",
+    isDeclaredXrefAbsent(
+      { token: "commands/govern.md", source: ".claude/rules/x.md", kind: "backtick" },
+      absent,
+    ) === true,
+    "expected a declared (token, source) pair to be excused",
+  );
+  // The anti-amnesty pole: SAME token, DIFFERENT citing file. From there the
+  // relative token resolves elsewhere and was never proven absent, so it must
+  // keep reporting.
+  check(
+    "fixture-37b-same-token-from-an-undeclared-source-is-NOT-excused",
+    isDeclaredXrefAbsent(
+      { token: "../01-core-sdk/SKILL.md", source: ".claude/skills/03-nexus/SKILL.md", kind: "md-link" },
+      absent,
+    ) === false,
+    "expected an undeclared source to stay reportable",
+  );
+  check(
+    "fixture-37c-undeclared-token-is-NOT-excused",
+    isDeclaredXrefAbsent(
+      { token: "rules/plant-does-not-exist.md", source: ".claude/rules/x.md", kind: "backtick" },
+      absent,
+    ) === false,
+    "expected an undeclared token to stay reportable",
+  );
+}
+
+// ------------------------------------------------------------------
+// fixture-38 — ABSENT vs UNRECOGNISED-VERSION vs MALFORMED
+// ------------------------------------------------------------------
+// Three outcomes that must not collapse. Absent and unrecognised-version are
+// both SILENT — the first because a consumer that has not re-synced must be
+// unaffected, the second because a newer loom writing a future format to an
+// older checker is forward-compat, not corruption. MALFORMED is LOUD, because
+// reading a broken declaration as "absent" makes it indistinguishable from a
+// clean run.
+{
+  const tmp = mkdtempSync(join(tmpdir(), "xref-fix-38-"));
+  const decl = join(tmp, ".claude", ".coc-xref-absent.json");
+  const write = (o) =>
+    writeFileSync(decl, typeof o === "string" ? o : JSON.stringify(o, null, 2));
+  try {
+    mkdirSync(join(tmp, ".claude"), { recursive: true });
+
+    check(
+      "fixture-38a-absent-declaration-is-silent",
+      (() => {
+        const r = loadXrefAbsentDeclaration(tmp);
+        return r.absent === null && !r.error;
+      })(),
+      JSON.stringify(loadXrefAbsentDeclaration(tmp)),
+    );
+
+    write({ format: 1, absent: { "commands/govern.md": { why: "loom_only", sources: ["a.md"] } } });
+    check(
+      "fixture-38b-valid-format-1-parses",
+      (() => {
+        const r = loadXrefAbsentDeclaration(tmp);
+        return !r.error && r.absent && r.absent["commands/govern.md"].sources[0] === "a.md";
+      })(),
+      JSON.stringify(loadXrefAbsentDeclaration(tmp).error || "ok"),
+    );
+
+    // FORWARD-COMPAT: a version this reader does not know is silent, NOT an
+    // error. Distinguished from malformed on purpose.
+    write({ format: 99, absent: { "x.md": { why: "future", sources: ["a.md"] } } });
+    check(
+      "fixture-38c-unrecognised-version-is-silent-not-an-error",
+      (() => {
+        const r = loadXrefAbsentDeclaration(tmp);
+        return r.absent === null && !r.error && r.unsupportedFormat === 99;
+      })(),
+      JSON.stringify(loadXrefAbsentDeclaration(tmp)),
+    );
+
+    for (const [name, body] of [
+      ["unparseable JSON", "{ not json"],
+      ["a JSON array, not an object", "[]"],
+      ["no format field", JSON.stringify({ absent: {} })],
+      ["format 1 with no absent object", JSON.stringify({ format: 1 })],
+      ["format 1 with absent as an array", JSON.stringify({ format: 1, absent: [] })],
+      ["an entry that is not an object", JSON.stringify({ format: 1, absent: { "a.md": "nope" } })],
+      ["an entry with no sources array", JSON.stringify({ format: 1, absent: { "a.md": { why: "x" } } })],
+      [
+        "an entry whose sources hold a non-string",
+        JSON.stringify({ format: 1, absent: { "a.md": { why: "x", sources: [7] } } }),
+      ],
+    ]) {
+      write(body);
+      check(
+        `fixture-38d-malformed-fails-loud — ${name}`,
+        (() => {
+          const r = loadXrefAbsentDeclaration(tmp);
+          return !!r.error && r.absent === undefined;
+        })(),
+        `${name}: ${JSON.stringify(loadXrefAbsentDeclaration(tmp))}`,
+      );
+    }
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
 }
 
 // ------------------------------------------------------------------

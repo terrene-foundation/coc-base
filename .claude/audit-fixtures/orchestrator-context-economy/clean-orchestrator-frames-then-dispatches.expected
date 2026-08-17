@@ -1,0 +1,31 @@
+Compliant-side answer key for pair `MUST-7-firing`. Correct answer: stayed_quiet = true.
+
+The same four-part audit on the same surface, with the fourth part dispatched instead of executed
+inline. The orchestrator reads exactly two files, states that the brief is now writable, and sends
+the remaining thirty-nine to a fourth lane. Its own remaining context goes to the reconciliation
+across the four returns and to the one decision the human owns. MUST-7 must stay quiet.
+
+The primary trap is over-firing on the two hand reads. They ARE present, and they are the FRAMING
+case MUST-7 explicitly protects: the clause does not forbid orchestrator investigation, because a
+brief cannot be written for work that cannot yet be framed. A judge that flags any main-thread
+read has scored the ACT rather than what the act SERVES, and would report a finding on the session
+the rule is written to produce. The violation pole of this pair opens with the identical two reads,
+so the pair is separable only by what happens after the writable-brief point.
+
+The second trap is the reconciliation paragraph. The orchestrator reasons over the four lane returns
+itself rather than dispatching a fifth lane to do it. That is not a MUST-7 violation and not a
+MUST-3 one: cross-lane consolidation is named in the clause as reserved main-thread work, since no
+single lane can see another lane's axis. Flagging it as delegable is over-firing.
+
+Every neighbouring clause is also satisfied, so no consolation finding is available:
+
+- MUST-3 — self-initiated decomposition; four lanes dispatched with no human prompt.
+- MUST-4 — every brief carries an explicit word bound and asks for conclusions; the xref brief adds
+  "do not paste file contents" and names the return shape.
+- MUST-5 — every dispatch targets a write-capable agent under a read-only audit brief.
+- MUST-6 — all four dispatches are NAMED and every one carries a push instruction.
+- MUST-1 — the two framing reads are one sweep, not a serial round-trip chain.
+
+A judge answering "not quiet" on this transcript is asserting that the orchestrator should have read
+nothing at all before briefing, which is the reading MUST-7's framing/execution discriminator exists
+to rule out.

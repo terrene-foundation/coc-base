@@ -126,6 +126,19 @@ uses, OR (b) emit an explicit `manual-supplement-required` finding recording tha
 per-workspace assumption does not hold for this repo shape. Reporting Sweep 5 "clean" or "N/A"
 on this shape without doing one of the two is BLOCKED.
 
+**Option (a) is TOOLED at loom (loom#1722): `node .claude/bin/spec-corpus-conformance.mjs`.**
+At a repo whose specs govern an ARTIFACT CORPUS rather than application source, the equivalent
+check is per-spec CLAIM verification against `.claude/rules/**`, `agents/**`, `skills/**`,
+`commands/**`, `bin/**`, `hooks/**` and `sync-manifest.yaml` — reported in § 6c's four
+categories (ORPHAN = cited artifact absent; DRIFT = artifact present, cited `::symbol` / `#key`
+/ `§ Heading` absent; COVERAGE GAP = artifact class no spec governs; STUB = section asserting
+nothing checkable). It emits the § 6a option-(a) sentinel with its counts inline, and WITHHOLDS
+the sentinel when its own anti-vacuity self-controls did not fire. Where that tool is present,
+running it IS option (a) and `manual-supplement-required` no longer applies to the mechanical
+half. **Its bound, which the report must carry:** it reports that a spec claim is CONTRADICTED
+by an artifact and cannot adjudicate which side is wrong, and it checks CITATION-shaped claims
+only — free-prose semantic claims stay outside it, so a clean run is not evidence they hold.
+
 ### 6b. The full pre-condition gate (reference implementation)
 
 ```bash
@@ -135,8 +148,16 @@ tool_present=$([ -f tools/sweep-redteam.py ] && echo true || echo false)
 # Repo-level spec authority: absent per-workspace specs != absent specs.
 repo_specs=$(for d in docs/specs specs; do [ -d "$d" ] && echo "$d"; done | head -1)
 if [ "$spec_count" = "0" ] && [ -n "$repo_specs" ]; then
+  # (a) TOOLED where the artifact-corpus checker exists (loom#1722). It emits the
+  #     REPO-LEVEL sentinel itself, with its counts inline, and WITHHOLDS it when
+  #     its own anti-vacuity controls did not fire — so a green here cannot come
+  #     from an instrument that failed to parse the corpus.
+  if [ -f .claude/bin/spec-corpus-conformance.mjs ]; then
+    node .claude/bin/spec-corpus-conformance.mjs   # exit 1 = findings to disposition
+    exit 0  # Sweep 5 complete via the repo-level branch, option (a)
+  fi
+  # (b) Otherwise the honest exit, unchanged:
   echo "<!-- sweep-redteam:v1:REPO-LEVEL specs_root=$repo_specs -->"
-  # Run the equivalent spec-vs-source check against "$repo_specs", OR emit:
   echo "FINDING [Sweep 5] manual-supplement-required — spec authority is at $repo_specs;"
   echo "  the per-workspace assumption does not hold. Sweep 5 cannot ship 'clean' unadjudicated."
   exit 0  # Sweep 5 complete via the repo-level branch — NOT via orchestration-mode N/A
@@ -164,3 +185,21 @@ done
 - **Drift** — spec says X; source does Y (`rules/specs-authority.md` § 6)
 - **Coverage gap** — symbol exists; no Tier 2 wiring test (`rules/facade-manager-detection.md` § 2)
 - **Stub** — `NotImplementedError` / `TODO` / `pass` in production paths (`rules/zero-tolerance.md` Rule 2)
+
+### 6d. `manual-supplement-required` is adjudicated ONCE, not indefinitely
+
+Option (b) above is the honest output the FIRST time. It is not a standing exemption. Per `rules/sweep-completeness.md` MUST-4, the same unadjudicated verdict on **3 consecutive runs** MUST NOT be emitted a 4th time: the 3rd occurrence becomes a Decision Point in the management report (§ 1 item 5) — author the equivalent check, OR record a dated disposition sentinel.
+
+This is the sibling of MUST-1. MUST-1 blocks a CHEAP PROXY standing in for a mandated step; MUST-4 blocks a NON-ANSWER standing in for one, run after run. The second is harder to see precisely because every individual emission is honest — it claims nothing it cannot support, so no reviewer objects, and it quietly occupies a report slot forever. loom#1722 reached five consecutive emissions; the fifth report itself observed that "three sweeps recording the same unadjudicated finding is itself the signal" and nothing consumed the observation.
+
+```bash
+node .claude/bin/unadjudicated-escalation.mjs   # Closure step 2; exit 1 = ESCALATION OWED
+```
+
+The count is a MEASUREMENT over the committed reports — there is no stored counter, so there is nothing a session can reset. A disposition SUPPRESSES until `until` passes and never resets the streak, so expiry re-escalates on its own:
+
+```
+<!-- unadjudicated-disposition:v1 key="manual-supplement-required" issue=<N> owner=<handle> until=YYYY-MM-DD -->
+```
+
+All four fields are required; an incomplete sentinel is MALFORMED and is not honoured. `key` is the VERDICT token alone — step attribution (`Sweep 5`) is reported but never keyed, so re-labelling the section a verdict sits under cannot reset its streak; a legacy `<step>/<verdict>` key still resolves. Depth (N=3 derivation, why the state lives in the reports, the verdict-key fix, the detector's lexical bounds): `guides/rule-extracts/sweep-completeness.md` § MUST Rule 4.

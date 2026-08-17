@@ -1,0 +1,4 @@
+changes:
+  - id: SOMETHING-ELSE-ENTIRELY
+    artifact: .claude/rules/shared.md
+    action: edit

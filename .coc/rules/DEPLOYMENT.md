@@ -70,7 +70,7 @@ python -m venv /tmp/verify --clear && /tmp/verify/bin/pip install dist/*.whl
 - **Cumulative posture impact:** 3× same-rule in 30d → drop 1 posture per `trust-posture.md` MUST-4.
 - **Regression-within-grace:** emergency downgrade (1 step) per `trust-posture.md` MUST-4.
 - **Receipt requirement:** SessionStart `[ack: deployment-transitive-deps]` IFF `posture.json::pending_verification` includes this rule_id.
-- **Detection mechanism:** /release-time mechanical sweep — clean venv, install the built wheel of every published package, import each top-level module; any `ImportError` = release halt.
+- **Detection mechanism:** /release-time mechanical sweep — clean venv, install the built wheel of every published package, import each top-level module; any `ImportError` = release halt. Probes `.claude/test-harness/probes/deployment.probes.json` — NOT YET AUTHORED, declared in `phase2-deferrals.json::probe_authorship_deferrals`.
 - **Violation scope:** this clause (declare-eager-transitive-deps).
 - **Origin:** 2026-05-18 — kailash-ml clean-venv `pip install` failed at `import` on an upstream-extra-only library; same pattern hit kailash-mcp 0.2.13 → 0.2.14 the same day (issue #1086 candidate 1).
 

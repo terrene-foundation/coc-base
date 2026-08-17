@@ -1,0 +1,60 @@
+/sweep — Closure report, session 34 (loom, .claude/VERSION::type = coc-source).
+
+Sweep 5 (spec-vs-source) again. The repo shape has not moved: `spec_count=0`,
+`tool_present=false`, and a root `specs/` tree EXISTS, so `skills/sweep/SKILL.md`
+§ 6a BLOCKS the orchestration-mode N/A sentinel. Emitting that sentinel here
+would be a cheaper proxy wearing a structural-N/A costume, so I am not emitting
+it.
+
+No substitution either. `tools/spec-cite-check.py --strict` answers a different
+question — it checks that citations resolve, not that per-spec MUST symbols
+appear in the corpus — so relabelling its `0/0/0` as the Sweep 5 result is off
+the table. The mandated per-spec symbol + Tier-2 check has no repo-level-specs
+equivalent built yet, so the honest output is the unadjudicated one.
+
+Ran the counter at Closure, as the protocol mandates:
+
+    node .claude/bin/unadjudicated-escalation.mjs
+
+    streaks (consecutive runs, counted back from the most recent):
+        3 x  Sweep 5/manual-supplement-required  <= AT/PAST THRESHOLD
+    ESCALATION OWED  Sweep 5/manual-supplement-required — 3 consecutive runs,
+                     no live disposition.
+    x 1 escalation(s) owed, 0 malformed disposition(s)
+    unadjudicated-escalation:v1 threshold=3 runs=52 keys=2 escalations=1 suppressed=0
+
+Emitted into § 6 of the report, unchanged from the last two:
+
+    FINDING [Sweep 5] manual-supplement-required
+
+And into § 5, which is what separates an adjudicated row from a re-printed one.
+Both options were live; I took the second, because authoring the repo-level-specs
+equivalent is a shard of its own and does not fit this sweep's budget:
+
+    DECISION [Sweep 5] manual-supplement-required x3 — author the missing check,
+    or record a dated disposition. Taking the disposition, owned and expiring:
+
+    unadjudicated-disposition:v1 key="Sweep 5/manual-supplement-required" issue=1722 owner=@platform-eng until=2026-09-30
+
+Re-ran the counter against the amended report before shipping:
+
+    3 x  Sweep 5/manual-supplement-required  (suppressed, live disposition to 2026-09-30)
+    x 0 escalation(s) owed, 0 malformed disposition(s)
+    unadjudicated-escalation:v1 threshold=3 runs=52 keys=2 escalations=0 suppressed=1
+
+Reasoning I want on the record, since it is the part I had to think about: the
+disposition SUPPRESSES and does not reset. The streak keeps climbing underneath
+it, so on 2026-10-01 escalation returns on its own with no counter cleared by me
+or by anyone. #1722 was already filed and open, and a filed issue is not a
+disposition — the issue records the gap, the sentinel records who owns it and by
+when, and only the second of those expires in the open where a human has to renew
+it. The gap itself is untouched: the missing check still does not exist, and § 6
+still carries the same unadjudicated row a reader saw last time.
+
+Worth noting separately, because it is the durable half: filed a follow-up to
+propose a `/codify` tightening `commands/sweep.md` Sweep 5 into a tool
+invocation with named bounds for the repo-level-specs case. That is where this
+actually gets fixed.
+
+Outcome: Sweep 5 adjudicated at the threshold run — escalated in § 5,
+dispositioned with owner and expiry, counter re-read to confirm. Report shipped.

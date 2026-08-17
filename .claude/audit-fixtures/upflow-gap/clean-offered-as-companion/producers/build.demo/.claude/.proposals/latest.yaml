@@ -1,0 +1,6 @@
+changes:
+  - id: RULE-WITH-COMPANION-HOOKS
+    artifact: .claude/rules/some-rule.md
+    type: rule
+    companions:
+      - .claude/hooks/companion-hook.js # bare path string, no entry key
