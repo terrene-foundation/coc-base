@@ -4,25 +4,38 @@
  * (rules/git.md § Discipline — issue closure MUST cite a commit SHA / PR number
  * / merged-PR link in the comment).
  *
- * Per cc-artifacts.md Rule 9 the fixtures land WITH the detector. BIPOLAR by
- * construction: every predicate class carries a FLAG pole and a CLEAN pole, so
- * a detector that stopped firing and a detector that fired on everything are
- * BOTH caught. A one-poled suite passes identically under either failure.
+ * Per cc-artifacts.md Rule 9 the fixtures land WITH the detector. THREE-POLED
+ * by construction: every predicate class carries a FLAG pole, a CLEAN pole and
+ * — since the conflation below — an UNKNOWN pole, so a detector that stopped
+ * firing, one that fired on everything, and one that reports a VIOLATION about
+ * a comment it could not read are ALL caught.
+ *
+ * WHY THE THIRD POLE EXISTS. A bipolar suite asks only "did it fire?", and both
+ * "no comment was supplied" and "a comment was supplied but could not be
+ * parsed" answer YES. So a detector that accused compliant closures — ones
+ * citing three SHAs in a multi-line comment — passed this suite unchanged. The
+ * fixtures could not see the bug because they only had two names for three
+ * outcomes.
  *
  * Predicate classes covered:
- *   1. FLAG   no --comment at all; comment with no code reference
- *   2. FLAG   the failure that produced this detector: a PLAN DOCUMENT cited as
- *             completion evidence
- *   3. FLAG   over-broad-SHA controls — a bare 8-digit date and a plain 7-digit
- *             integer must NOT read as commit SHAs
- *   4. CLEAN  the four evidence shapes git.md names (PR #N, bare #N, abbrev
- *             SHA, full SHA, merged-PR URL)
- *   5. CLEAN  out of scope — `--reason not_planned` (sibling #13 owns it),
- *             `gh pr close`, no gh close at all
- *   6. CLEAN  segment anchoring — the verb MENTIONED in prose / a heredoc / a
- *             grep pattern is not an INVOCATION
- *   7. SKIP   unevaluable at hook time per hook-output-discipline.md MUST-3 —
- *             $VAR, ${VAR}, $(...), backticks, --body-file
+ *   1. FLAG    no --comment at all; comment with no code reference
+ *   2. FLAG    the failure that produced this detector: a PLAN DOCUMENT cited as
+ *              completion evidence
+ *   3. FLAG    over-broad-SHA controls — a bare 8-digit date and a plain 7-digit
+ *              integer must NOT read as commit SHAs
+ *   4. CLEAN   the four evidence shapes git.md names (PR #N, bare #N, abbrev
+ *              SHA, full SHA, merged-PR URL)
+ *   5. CLEAN   out of scope — `--reason not_planned` (sibling #13 owns it),
+ *              `gh pr close`, no gh close at all
+ *   6. CLEAN   segment anchoring — the verb MENTIONED in prose / a heredoc / a
+ *              grep pattern is not an INVOCATION
+ *   7. SKIP    unevaluable at hook time per hook-output-discipline.md MUST-3 —
+ *              $VAR, ${VAR}, $(...), backticks, --body-file
+ *   8. UNKNOWN a comment flag IS present but its body cannot be read — a
+ *              dangling flag, or a truncated body too ambiguous to recover.
+ *              Reported, never null: rendering it as a PASS would launder an
+ *              unanswered question into a clean bill of health, which is a
+ *              worse failure than the false accusation it replaced.
  *
  * Run: node .claude/audit-fixtures/violation-patterns/detectGhIssueCloseWithoutEvidence/test.mjs
  */
@@ -49,15 +62,27 @@ const ALL = fs
 const FLAG = ALL.filter((f) => f.startsWith("flag-"));
 const CLEAN = ALL.filter((f) => f.startsWith("clean-"));
 const SKIP = ALL.filter((f) => f.startsWith("skip-"));
+const UNKNOWN = ALL.filter((f) => f.startsWith("unknown-"));
 
-test("the fixture set is BIPOLAR — both poles are populated", () => {
+test("the fixture set is THREE-POLED — violation, clean, and UNKNOWN are all populated", () => {
   // A suite with only one pole passes identically whether the detector fires on
   // everything or on nothing, so it cannot discriminate (instrument-discipline.md
   // MUST-1). This row is what makes every row below readable.
+  //
+  // The UNKNOWN pole is not decoration. A TWO-poled suite is structurally unable
+  // to see the defect this pole exists for: "could not read the comment" and
+  // "there was no comment" both land as `notEqual(r, null)`, so a detector that
+  // reports a VIOLATION against a closure citing three SHAs passes a bipolar
+  // suite unchanged. That is exactly how the bug shipped.
   assert.ok(FLAG.length >= 5, `expected >=5 flag fixtures, got ${FLAG.length}`);
   assert.ok(CLEAN.length >= 5, `expected >=5 clean fixtures, got ${CLEAN.length}`);
   assert.ok(SKIP.length >= 4, `expected >=4 skip fixtures, got ${SKIP.length}`);
-  assert.equal(FLAG.length + CLEAN.length + SKIP.length, ALL.length, `every .txt must carry a flag-/clean-/skip- prefix; got ${ALL.join(", ")}`);
+  assert.ok(UNKNOWN.length >= 2, `expected >=2 unknown fixtures, got ${UNKNOWN.length}`);
+  assert.equal(
+    FLAG.length + CLEAN.length + SKIP.length + UNKNOWN.length,
+    ALL.length,
+    `every .txt must carry a flag-/clean-/skip-/unknown- prefix; got ${ALL.join(", ")}`,
+  );
 });
 
 for (const name of FLAG) {
@@ -65,6 +90,9 @@ for (const name of FLAG) {
     const r = detectGhIssueCloseWithoutEvidence(read(name));
     assert.notEqual(r, null, `expected a finding for ${name}: ${JSON.stringify(read(name))}`);
     assert.equal(r.rule_id, "git/issue-closure-evidence");
+    // The pole assertion, not just "a finding exists". Without this the FLAG
+    // rows would accept an UNKNOWN, which is the conflation under test.
+    assert.equal(r.outcome, "violation", `${name} must be a VIOLATION, not ${r.outcome}`);
     // hook-output-discipline.md MUST-2: a LEXICAL signal must never carry
     // `block`. Asserted per fixture rather than once, so a severity raised on
     // one path cannot hide behind the others.
@@ -72,6 +100,33 @@ for (const name of FLAG) {
     assert.equal(r.detection_layer, "lexical");
     assert.equal(r.mode, "bash");
     assert.ok(typeof r.evidence === "string" && r.evidence.length > 0, "a finding must quote what triggered it");
+  });
+}
+
+for (const name of UNKNOWN) {
+  test(`UNKNOWN: ${name}`, () => {
+    const r = detectGhIssueCloseWithoutEvidence(read(name));
+    // THE FAIL-DIRECTION ROW. `null` here would render an unread comment as a
+    // PASS — laundering a question nobody answered into a clean bill of health.
+    // This assertion is the whole point of the pole: UNKNOWN must be REPORTED.
+    assert.notEqual(
+      r,
+      null,
+      `${name} returned null — an unparseable comment rendered as a PASS, which is the fail-OPEN this pole exists to forbid`,
+    );
+    assert.equal(r.outcome, "unknown", `${name} must be UNKNOWN, not ${r.outcome}`);
+    // A DISTINCT rule_id, not the violation's. The emitted banner renders WHY
+    // from rule_id alone, and violations.jsonl is counted BY RULE for
+    // trust-posture MUST-4 — so sharing the id would both hide the distinction
+    // at the only surface the agent reads and charge posture damage for a
+    // question the detector could not answer.
+    assert.equal(r.rule_id, "git/issue-closure-evidence-undetermined");
+    assert.equal(r.severity, "halt-and-report", "UNKNOWN must not be quieter than the violation it could not rule out");
+    assert.match(
+      r.evidence,
+      /UNDETERMINED/,
+      "the ledger row must SAY it is undetermined — violations.jsonl carries `evidence`, not `outcome`, so the prefix is what keeps an UNKNOWN distinguishable there",
+    );
   });
 }
 
@@ -140,6 +195,64 @@ test("CONTROL: a clean fixture flags once its code reference is removed", () => 
   const stripped = clean.replace(/PR #\d+/, "the linked work");
   assert.notEqual(stripped, clean, "the fixture rewrote nothing — this control is not exercising the matcher");
   assert.notEqual(detectGhIssueCloseWithoutEvidence(stripped), null, "removing the reference must flip the verdict");
+});
+
+test("SCOPE MUTATION: the suite bans the DEFECT, not this implementation", () => {
+  // instrument-discipline.md MUST-2(b) — a mutation that does not red the suite
+  // leaves two hypotheses, so the mutation is applied to the CONTRACT (the
+  // detector's observable verdict) rather than to any internal it happens to
+  // use. Each row below is a DIFFERENT wrong implementation an author could
+  // plausibly ship; every one must be caught by a fixture above.
+  //
+  // Stated as an explicit table because a re-implementation that satisfies all
+  // four is CORRECT even if it shares no line with the current one.
+  const contract = [
+    // [ command, required outcome, which wrong implementation this catches ]
+    [`gh issue close 7`, "violation", "treating a genuinely-absent comment as UNKNOWN would fail-open the real violation"],
+    [`gh issue close 7 --comment "nothing to see"`, "violation", "an over-eager UNKNOWN that swallows every unreferenced comment"],
+    [`gh issue close 7 --comment "landed f4091e35\nand more"`, "clean", "the ORIGINAL bug — a truncated multi-line body judged as a violation"],
+    [`gh issue close 7 --comment`, "unknown", "collapsing an unreadable comment back into 'no comment at all'"],
+  ];
+  for (const [cmd, want, catches] of contract) {
+    const r = detectGhIssueCloseWithoutEvidence(cmd);
+    const got = r === null ? "clean" : r.outcome;
+    assert.equal(got, want, `${JSON.stringify(cmd)} must be ${want}, got ${got} — this row catches: ${catches}`);
+  }
+});
+
+test("SCOPE MUTATION: recovery must NOT reach across to another command's comment", () => {
+  // The recovery step re-reads the UNSEGMENTED command, which is the one place
+  // it could over-reach: if it ignored the no-ambiguity guard it would read a
+  // NEIGHBOURING closure's comment as this one's evidence and emit a FALSE
+  // CLEAN — strictly worse than the bug being fixed. The falsifying result is
+  // named: if this returns clean, recovery has crossed a command boundary.
+  const twoCommands = `gh issue close 7 --comment "no reference here\nstill none" && gh issue close 8 --comment "landed f4091e35"`;
+  const r = detectGhIssueCloseWithoutEvidence(twoCommands);
+  assert.notEqual(r, null, "a false CLEAN here means recovery read command 8's SHA as command 7's evidence");
+  assert.equal(r.outcome, "unknown", `ambiguous recovery must report UNKNOWN, got ${r.outcome}`);
+});
+
+test("CONTROL: the UNKNOWN pole is reachable ONLY via an unparseable body", () => {
+  // Shows the UNKNOWN branch is not simply always-on. Same closure, one with a
+  // terminated quote and one without: the first must resolve, the second must
+  // not. Without this row a detector that returned UNKNOWN for everything would
+  // pass every UNKNOWN fixture above.
+  assert.equal(detectGhIssueCloseWithoutEvidence(`gh issue close 7 --comment "landed f4091e35"`), null);
+  const dangling = detectGhIssueCloseWithoutEvidence(`gh issue close 7 --comment "landed f4091e35`);
+  assert.equal(dangling && dangling.outcome, "unknown", "an unterminated quote on a single line must report UNKNOWN");
+});
+
+test("every non-null verdict carries an explicit outcome — absence is not a third state", () => {
+  // A consumer that discriminated by `!("outcome" in f)` would silently
+  // misclassify any finding that forgot the field. Requiring it on EVERY
+  // verdict removes that ambiguity by construction.
+  for (const name of [...FLAG, ...UNKNOWN]) {
+    const r = detectGhIssueCloseWithoutEvidence(read(name));
+    assert.ok(
+      r && (r.outcome === "violation" || r.outcome === "unknown"),
+      `${name}: every finding must declare outcome as "violation" or "unknown"; got ${JSON.stringify(r && r.outcome)}`,
+    );
+  }
 });
 
 test("degenerate input returns null without throwing", () => {

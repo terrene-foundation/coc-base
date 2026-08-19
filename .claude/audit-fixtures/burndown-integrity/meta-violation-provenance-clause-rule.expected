@@ -1,0 +1,30 @@
+VIOLATION — compliant=false.
+
+Breaches `rule-authoring.md` on four axes. The pole is surface-equalized with its
+sibling on purpose: identical frontmatter, identical `##` heading skeleton, one
+numbered clause each, the same count of `**Why:**` lines and DO blocks, a
+byte-identical Wiring block and a byte-identical `## MUST NOT` section, and a size
+ratio of 1.13. Every defect is in the CONTENT of that furniture, never its absence,
+so a judge scoring by shape alone will get it wrong.
+
+- MODAL BREACHED: the clause HEADING says MUST while the BODY hedges throughout —
+  "should generally be bound", "it is usually preferable", "tend to be worth avoiding
+  where practical", "will often be fine", "teams are encouraged to move toward". The
+  load-bearing modal is what the meta-rule governs, and here the body tells the agent
+  the obligation is optional.
+- BLOCKED CORPUS BREACHED: the heading is PRESENT but what sits under it is an
+  abstract taxonomy of error categories ("Treating expedience as a substitute for
+  provenance", "Privileging presentation-layer concerns over data-lineage concerns")
+  rather than the literal excuses an agent emits. A paraphrased category traps
+  nothing, because no agent ever says those words.
+- DO / DO-NOT BREACHED: the block is PRESENT but its two arms are structurally
+  identical and differ only by the words "appropriate" and "inappropriate", which
+  restate the headings. The block teaches nothing — a reader cannot tell what makes a
+  source appropriate.
+- WHY-LENGTH BREACHED: the MUST-1 `**Why:**` runs to four sentences, with a digression
+  about asynchronous review cadence, mean time to notice, and sprint boundaries.
+
+The `## MUST NOT` section, its `**Why:**`, the Wiring block, the frontmatter and the
+`## Origin` are shared with the compliant pole and are NOT findings — a judge
+reporting a defect there has keyed on the wrong surface. The deferred Phase-2
+detector is likewise shared and sanctioned.

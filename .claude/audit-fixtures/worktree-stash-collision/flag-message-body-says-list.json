@@ -1,0 +1,4 @@
+{
+  "command": "git stash push -m \"list\"",
+  "note": "-m CONSUMES its value; without that the body `list` would occupy the verb slot and a real push would read as a read"
+}

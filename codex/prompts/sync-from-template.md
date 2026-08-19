@@ -1,0 +1,63 @@
+---
+name: sync-from-template
+description: "Pull and merge the latest COC artifacts from the upstream USE template into this consumer repo (preserving project-local artifacts)"
+---
+
+Pull the latest CO/COC artifacts from the upstream USE template and merge them INBOUND into this consumer repo, preserving project-specific artifacts. `/sync-from-template` is the downstream-consumer half of the inbound sync family (mirroring loom's `/sync-from-build` + `/sync-from-use` and the template's `/sync-from-downstream`).
+
+```
+loom (source) → USE template → THIS REPO
+                                   ↑ you are here
+```
+
+Detailed protocol: `skills/30-claude-code-patterns/sync-flow.md` § Downstream Sync.
+
+**Usage**: `/sync-from-template` — no target.
+
+## Step 0: Verify Repo Class (this verb is for downstream consumers)
+
+Read `.claude/VERSION` → `type`. `/sync-from-template` is valid at a downstream consumer (`type: coc-project`). This repo inherits its `.claude/` from a USE template (recorded in `.claude/.coc-sync-marker`; auto-detected at first run).
+
+**Evaluate these in order and take the FIRST match — the credibility arms are deliberately ahead of the plain-`type` arms.** A template-derived repo carries `type: coc-use-template` verbatim (it is a byte copy), so a plain-`type` arm placed first would match it and route to `/sync-from-downstream` — the wrong verb, on a declaration this step is about to disbelieve.
+
+- `coc-project` → proceed below.
+- `coc-use-template` / `coc-build` whose declaration is NOT credible (`.claude/VERSION::repo` names a different repo than this one's `git remote get-url origin` — the "Use this template" byte-copy case) → **STOP and report**; do NOT proceed on a class you just decided to disbelieve. Correcting it is an EXPLICIT, reviewable edit the operator approves: set `type: coc-project` and populate `upstream.template` / `upstream.template_repo` (`.claude/hooks/lib/version-utils.js::computeTemplateDerivedCorrection` returns the suggested object — it is PURE and writes nothing). Re-run `/sync-from-template` after the edit lands. **NEVER rewrite `.claude/VERSION` silently or as a side effect**: it is the repo-CLASS root of trust (`bin/lib/manifest-source.mjs::readRepoClass` trusts `type` verbatim), which is exactly why `validate-bash-command.js` BLOCKS agent writes to it at the Bash boundary.
+- `coc-use-template` / `coc-build` whose declaration is UNDETERMINED (no `.claude/VERSION::repo`, and no legacy-allowlist match) → report the ambiguity and **ask**; do not guess a class and do not re-route on the guess. This is the expected shape of an unstamped byte-copy during the migration window, so it must not fall through to the plain-`type` arm below.
+- `coc-source` (loom) → STOP: "this is loom — ingest the upstream streams with `/sync-from-build` + `/sync-from-use`."
+- `coc-use-template` (credible) → STOP: "this is a USE template — ingest the downstream inbox with `/sync-from-downstream`."
+- `coc-build` (credible) → STOP: "BUILD repos receive artifacts via `/sync-to-build` run at loom."
+- Missing → ask the user what class this repo is.
+
+## Downstream Sync
+
+A **category-based REPLACE, not a per-file merge.** "Merge" names the repo-level outcome — your project keeps its own artifacts while shared ones advance — and does NOT describe what happens to an individual file. Each path is classified into exactly one category and that category alone decides its fate: a SHARED path is **replaced whole** by the template's copy (local edits to it are LOST, with no conflict marker), a PRESERVED path is never touched. Delegate to `skills/30-claude-code-patterns/sync-flow.md` § Downstream Sync:
+
+0. **Preflight the at-risk local modifications (MUST — before anything is written).** Run `node .claude/bin/sync-preflight-local-mods.mjs`. Exit **0** = nothing at risk, proceed; exit **2** = at-risk local modifications, a HUMAN decides per file before the sync proceeds; exit **1** = the check DID NOT RUN and MUST NEVER be read as safe — it is the absence of a result, not a clean result (`instrument-discipline.md` MUST-1). Proceeding on a 1 is BLOCKED. The tool scans a fixed set of six shared directories plus the declared consumer-owned `.claude/` ROOT files; it does NOT cover `.claude/bin/`, `.claude/hooks/`, `.claude/audit-fixtures/`, or any OTHER `.claude/` root file, so check those by hand (`git status`) — a residual stated rather than assumed away.
+
+   **0b. Snapshot the consumer-owned state (MUST — same gate, before any write).** Run `node .claude/bin/sync-preflight-local-mods.mjs --snapshot .coc-preserve.json`. This records the bytes of every consumer-OWNED `.claude/` root file (e.g. `.claude/deferrals.json`) so step 6b can prove they survived. **Why a before/after pair and not a scan:** this class fails SILENTLY — a destroyed registry returns to `{"deferrals": {}}` and the SessionStart surface then reports "✓ Verified Empty", which is indistinguishable from a consumer who never deferred. Nothing in the post-state alone discriminates loss from a clean run (`instrument-discipline.md` MUST-1).
+1. Resolve the upstream template from `.claude/.coc-sync-marker` (template repo + version).
+2. Diff the consumer's managed `.claude/` paths against the template's current artifacts.
+3. Apply per category: SHARED artifacts are replaced whole from the template; **consumer-owned paths** — `.codex/agents/project/`, `.codex/skills/project/`, `.claude/rules/project/`, `.codex/prompts/project/`, `.claude/team-memory/**`, **`.claude/deferrals.json`** (consumer-WRITTEN; shipped once as a scaffold, never replaced thereafter — loom#1729), and any path the marker declares consumer-owned — MUST NEVER be overwritten.
+4. **Sync external symlink targets (MUST).** Some `.claude/` entries are symlinks to repo-root EXTERNAL targets — e.g. `.claude/codex-mcp-guard` → `../.codex-mcp-guard`, whose real tree lives at repo-root `.codex-mcp-guard/`. Copying `.claude/` alone carries the symlink but leaves the external target stale → the consuming tool runs against stale content (a dead `extract-policies.mjs` guard). For every symlink declared in the template's `sync-manifest.yaml::multi_cli_overlays.<overlay-type>.symlinks` (overlay-type = `multi-cli` / `cc-only-legacy`), ALSO sync the external target tree AND recreate the link — per `sync-completeness.md` Rule 5. A plain `.claude/`-only copy (rsync, cp -r) is the failure mode this step blocks.
+5. **Self-heal this repo's settings.json deny-rule FORM (MUST — additive, never overwrite).** Run the deterministic reconciler on THIS consumer's OWN `.claude/settings.json`:
+
+   ```bash
+   node .claude/bin/reconcile-settings-deny.mjs --write .claude/settings.json
+   ```
+
+   It rewrites every `permissions.deny` entry of the form `Write(<x>)` / `NotebookEdit(<x>)` to `Edit(<x>)` and collapses `Write(x)`+`Edit(x)`+`NotebookEdit(x)` to one `Edit(x)`. It touches the deny-rule FORM ONLY — it NEVER touches `permissions.allow`, your `hooks[]` (paths included), or any other key, and leaves an already-clean file byte-for-byte unchanged (idempotent). A changed file is re-serialized — values are preserved but formatting of unrelated blocks may normalize (e.g. an inline `hooks` object expands to multi-line); an already-clean file is left byte-for-byte unchanged. This is additive self-healing, not an overwrite: your project-local allow-rules and hook wiring are preserved. **Why:** Claude Code no longer matches `Write(<path>)` / `NotebookEdit(<path>)` deny rules — only `Edit(<path>)` covers file-editing tools; a consumer still carrying the stale form errors on every CC session init AND leaves its guarded state files un-denied. This is the leg that stops the init errors on already-deployed consumers.
+
+6. **Post-merge source gate (MUST — after the merge, BEFORE reporting success).** A fresh emission being valid does NOT prove this repo's PRESERVED local overlays are still loadable: the merge can leave a preserved `rules/project/*.md` or `commands/project/*.md` whose frontmatter no longer parses under the refreshed loader. Parse-load every preserved overlay in the INSTALLED tree; on any parser-invalid file **HALT** and report it as metadata-only local `/codify` remediation (the fix is the file's own frontmatter, not a re-sync). Reporting the sync successful while a preserved overlay fails to parse is BLOCKED — the artifact is on disk and silently never loads.
+
+   **6b. Consumer-owned survival gate (MUST — after the merge, BEFORE reporting success).** Run `node .claude/bin/sync-preflight-local-mods.mjs --verify .coc-preserve.json`. Exit **0** = every pre-sync consumer-owned file survived byte-identical; exit **2** = the sync DESTROYED or OVERWROTE consumer-owned state — **HALT**, restore from git, and do NOT report success; exit **1** = DID NOT RUN (a missing receipt means step 0b was skipped) and MUST NEVER be read as clean. A file that was ABSENT before is unconstrained — receiving the scaffold for the first time is the supported create-if-absent case, not a violation. Delete `.coc-preserve.json` once the gate passes.
+7. Update `.claude/VERSION` upstream block (template version + `synced_at`).
+
+To offer a COC-artifact improvement back UP to the template, use `/codify` Step-7c (a human-gated PR to the template's `.claude/.proposals/inbox/`) per `artifact-flow.md` § Downstream-Consumer Routing — NOT this command.
+
+## Delegate
+
+- **Downstream Sync** → no delegation (in-place per skill protocol).
+
+## Examples
+
+- `/sync-from-template` — at a downstream consumer project: pull the latest artifacts from the upstream USE template, preserving project-local artifacts

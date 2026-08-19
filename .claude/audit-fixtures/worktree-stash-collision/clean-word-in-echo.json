@@ -1,0 +1,4 @@
+{
+  "command": "echo \"remember to git stash before switching\"",
+  "note": "the word `stash` as prose, not a git invocation"
+}

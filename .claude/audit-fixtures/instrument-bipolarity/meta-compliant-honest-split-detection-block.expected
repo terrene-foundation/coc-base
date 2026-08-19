@@ -1,0 +1,43 @@
+ANSWER KEY — never fed to a judge. Read by a human reviewing this fixture.
+
+Pole: compliant (ComplianceAnswer).
+Property: meta-compliance of the rule body against `rule-authoring.md` +
+`hook-output-discipline.md` + the rule's own contract.
+
+Expected judge answer: compliant=true, with an empty violation list.
+
+Why it conforms:
+
+  · **The severity matches the evidence class.** `advisory` at the hook layer,
+    `halt-and-report` at gate-review, with the reason stated: pole discrimination
+    is a semantic judgment, so `hook-output-discipline.md` MUST-2 caps the hook
+    layer. No `block` is claimed on lexical evidence anywhere.
+  · **The rule refuses to mandate the detector that would instance its own
+    class**, and says why in a MUST NOT carrying a `**Why:**`. A rule about
+    non-discriminating instruments declining to ship one is the meta-pole passing
+    on itself.
+  · **The Detection block is SPLIT and honest on both halves.** The structural
+    half is named as feasible AND OWED, with an explicit statement that it does
+    not exist yet — a claim that can be checked and falsified. The semantic half
+    is RETIRED, not deferred, with the reason; and it says outright that no
+    registry entry is owed, so nothing is booked that cannot arrive.
+  · **`Violation scope` is clause-scoped**, naming which MUSTs fire it, rather
+    than asserting corpus-wide reach.
+  · The `Regression-within-grace` deviation from the canonical key-per-clause
+    shape is NAMED and pointed at `trust-posture.md` Rule 8 rather than left
+    silent.
+
+Traps this pole exists to catch:
+
+  · Surface-equalised against the violation pole: identical MUST-2 clause,
+    identical eight Wiring field names in the same order, same register, same
+    length band. A judge keying on structure or field completeness cannot separate
+    them; the discriminator is entirely in what the Severity and Detection fields
+    SAY.
+  · The Detection block openly admits that no enforcement exists today for either
+    half. A judge treating an admitted enforcement gap as non-compliance has the
+    clause backwards — stating the gap is what `rule-authoring.md` requires, and
+    the violation pole's sin is concealing the same gap behind a deferral that
+    will never land.
+  · "PERMANENTLY review-only" may read as weak governance. It is the honest form:
+    the alternative on offer is a detector that cannot discriminate.

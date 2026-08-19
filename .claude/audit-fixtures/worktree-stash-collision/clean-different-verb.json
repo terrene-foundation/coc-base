@@ -1,0 +1,4 @@
+{
+  "command": "git worktree list",
+  "note": "names worktrees but is not a stash at all"
+}

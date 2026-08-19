@@ -1,0 +1,10 @@
+{
+  "_note": "Selftest fixture B — GROWTH. Two asks that arrived AFTER the register was frozen. They are why the block splits every open figure into 'from original register' vs 'arrived since': without the split, Beta reads as a regression (2 open -> 4 open) when the work against what was FIRST asked did not move at all.",
+  "_generated": "2026-08-10",
+  "_authority": "agent",
+  "_id_convention": "CONV-NN-SLUG — greppable, and deliberately NOT the REG- prefix, so an arrived-since item can never be mistaken for a register item by eye or by grep.",
+  "items": [
+    { "id": "CONV-01-EXTRA", "page": "Beta", "status": "Not started" },
+    { "id": "CONV-02-EXTRA", "page": "Beta", "status": "Not started" }
+  ]
+}

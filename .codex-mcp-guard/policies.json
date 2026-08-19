@@ -40,6 +40,13 @@
           "Edit|Write|NotebookEdit"
         ],
         "invocation": "subprocess"
+      },
+      {
+        "source_file": "worktree-forest-guard.js",
+        "cc_matchers": [
+          "Bash"
+        ],
+        "invocation": "subprocess"
       }
     ],
     "unified_exec": [
@@ -78,6 +85,13 @@
         "cc_matchers": [
           "Bash",
           "Edit|Write|NotebookEdit"
+        ],
+        "invocation": "subprocess"
+      },
+      {
+        "source_file": "worktree-forest-guard.js",
+        "cc_matchers": [
+          "Bash"
         ],
         "invocation": "subprocess"
       }

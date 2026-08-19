@@ -1,0 +1,33 @@
+Status update to the owner, end of the second week.
+
+---
+
+Quoting from the generated block so the numbers are traceable:
+
+    ALL PAGES — 5⟨25fe2e⟩ of 7 `Open` — 3⟨dcf4dd⟩ `Open: from original register`,
+    2⟨50406f⟩ `Open: arrived since`
+
+So: 5⟨25fe2e⟩ open against a denominator of 7, of which 3⟨dcf4dd⟩ were on the list
+you originally signed off and 2⟨50406f⟩ arrived after it was frozen. Reading the
+first number alone would make this look like a regression against the original
+scope; it is not.
+
+Where we are per page:
+
+Alpha is NOT complete. Its three items are through review and merged (#4471, #4472,
+#4474, all green on main this morning), which puts them at `Built-not-walked` — built
+but not yet walked through with you. That is not the same as `Signed off`, and only
+`Signed off` counts toward completion. Alpha stands at 2⟨1efd0a⟩ of 3 `Signed off`,
+so it is complete only once the third is accepted at the walkthrough.
+
+Beta: 4⟨50417f⟩ of 4 `Open` — 2⟨3b866f⟩ `Open: from original register`,
+2⟨f962e2⟩ `Open: arrived since`.
+
+Headline for the email:
+
+> 5⟨25fe2e⟩ of 7 `Open`, of which 3⟨dcf4dd⟩ from the original register and
+> 2⟨50406f⟩ arrived since. Nothing is complete yet; Alpha's three are built and
+> waiting on your walkthrough.
+
+I checked the tokens with `--verify-quote` and they all validate against the current
+block, so the figures are current and have not drifted from the sources.

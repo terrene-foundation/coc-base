@@ -58,6 +58,13 @@ const {
   alreadyDelivered,
   recordDelivered,
 } = require("./lib/ci-cost-reach.js");
+// worktree-isolation.md Rule 9 Phase-2 — the shared-stash predicate. Lives in
+// lib/ (not inline) so the mutating-vs-read-only split is ONE lineage and is
+// exercisable at a known-answer case without standing up this hook's stdin
+// (instrument-discipline.md MUST-3(a)).
+const { selectStashHazard, countWorkingTrees, countStashEntries } = require(
+  "./lib/stash-collision.js",
+);
 const { isCoordinationEnabled } = require("./lib/coordination-mode");
 const { resolveMainCheckout } = require("./lib/state-resolver");
 // loom#1703 residual (k) — the PATH-IDENTITY oracle. Turns "the command CONTAINS
@@ -1541,13 +1548,13 @@ function validateBashCommand(data) {
         why: "git.md MUST 'Destructive Working-Tree Ops MUST Verify Clean Working Tree' — a dirty-tree --hard discards unstaged modifications AND untracked files with no reflog. Structural signal (`git status --porcelain` non-empty), per hook-output-discipline.md MUST-2.",
         agent_must_report: [
           "The working tree is DIRTY — `git reset --hard` would discard the listed changes unrecoverably",
-          "Use `git reset --keep <ref>` (aborts on a dirty tree) OR commit/stash the changes first",
+          "Use `git reset --keep <ref>` (aborts on a dirty tree) OR commit the changes first; to park them, capture to a patch (`git diff > wip.patch`), NOT to the stash — the stash stack is shared with every linked worktree (worktree-isolation.md Rule 9)",
           "If the loss is genuinely intended, confirm the user authorized it IN THIS CONVERSATION",
         ],
         agent_must_wait:
-          "Do not retry --hard while the tree is dirty. Use --keep, or stash/commit first.",
+          "Do not retry --hard while the tree is dirty. Use --keep, or commit/patch first.",
         user_summary:
-          "git reset --hard blocked — DIRTY working tree (use --keep or stash first)",
+          "git reset --hard blocked — DIRTY working tree (use --keep, or commit/patch first)",
       });
     }
     return withDeferred({
@@ -1611,11 +1618,11 @@ function validateBashCommand(data) {
         why: "git.md MUST 'Destructive Working-Tree Ops' — `git clean -f[d]` deletes untracked-not-ignored files irreversibly (no git object, no reflog; the #401 data-loss class). Structural signal (`git status --porcelain` shows `??` entries), per hook-output-discipline.md MUST-2.",
         agent_must_report: [
           "Untracked-not-ignored files EXIST — `git clean -f` would delete them unrecoverably",
-          "Run `git clean -n` (dry-run) to see exactly what would be deleted; use `git stash -u` to preserve it",
+          "Run `git clean -n` (dry-run) to see exactly what would be deleted; to preserve it use `git add -N . && git diff > wip.patch`, NOT `git stash -u` — the stash stack is shared with every linked worktree (worktree-isolation.md Rule 9)",
           "If the deletion is genuinely intended, confirm the user authorized it IN THIS CONVERSATION",
         ],
         agent_must_wait:
-          "Do not retry the clean while untracked work exists. Dry-run + stash first.",
+          "Do not retry the clean while untracked work exists. Dry-run + capture to a patch first.",
         user_summary:
           "git clean -f blocked — untracked files present, would be deleted irreversibly",
       });
@@ -1626,12 +1633,85 @@ function validateBashCommand(data) {
       why: "git.md MUST 'Destructive Working-Tree Ops' — `git clean -f[d]` deletes untracked-not-ignored files. No untracked-not-ignored files detected (or unverifiable); surfacing per hook-output-discipline.md MUST-2.",
       agent_must_report: [
         "Confirm via `git clean -n` (dry-run) that nothing of value would be deleted",
-        "Prefer `git stash -u` over a destructive clean when in doubt",
+        "When in doubt, capture first (`git add -N . && git diff > wip.patch`) rather than destroying — and rather than stashing, which parks the work on a stack every linked worktree can pop (worktree-isolation.md Rule 9)",
       ],
       agent_must_wait:
         "Dry-run first if there is any chance of untracked work.",
       user_summary:
         "git clean -f — verify with dry-run (no untracked detected)",
+    });
+  }
+
+  // SHARED-STASH COLLISION (worktree-isolation.md Rule 9 — the Phase-2 tripwire
+  // its Wiring booked). The stash stack is `refs/stash` plus a reflog in the
+  // COMMON `.git` dir, so it is SHARED by the main checkout and every linked
+  // worktree — unlike the index and `HEAD`, which are per-worktree. A sibling's
+  // `git stash pop` applies YOUR entry into ITS tree and drops it: you get a
+  // merely-clean tree, the sibling gets a mutation neither authored, and BOTH
+  // sides fail silently. Nothing errors, so nothing surfaces at review either.
+  //
+  // SEVERITY IS `pre-action`, and that is the ADVISORY class Rule 9's Wiring
+  // specifies — not a strengthening of it. The `git stash` invocation IS
+  // structurally visible here, but whether the repo carries linked worktrees is
+  // a SECOND lookup the matcher does not itself perform, so the lexical signal
+  // alone MUST NOT carry `block` (hook-output-discipline.md MUST-2). Of the two
+  // non-block registers `instruct-and-wait.js` offers, `advisory` renders the
+  // head "the action PROCEEDED" and `halt-and-report` renders "the action
+  // ALREADY RAN" — both FALSE at PreToolUse, which is precisely the
+  // mis-registration loom#1715 H-1 measured and added `pre-action` to fix. So
+  // `pre-action` is the register that states an advisory PreToolUse fate
+  // truthfully; the enforcement class is unchanged (non-blocking, exit 0).
+  //
+  // DEFERRED, never returned (the loom#1606 lesson). A `return` here would
+  // suppress every fence below — including the `--no-verify` lane — for a
+  // command like `git stash && git commit --no-verify`.
+  //
+  // SILENT ON READS. `git stash list` / `git stash show` inspect the stack and
+  // write nothing; a guard that trips on INSPECTING is noise, and noise is how a
+  // guard gets switched off. The mutating/read-only split is enumerated once, in
+  // lib/stash-collision.js, so the hook holds no second lineage of it.
+  // The `-C $(…)` case is SKIPPED by the selector, not failed closed. Unlike the
+  // `reset --hard` and `clean -f` fences above — `block`-class fences over an
+  // IRRECOVERABLE loss, where an unmeasurable target justifies halting by itself
+  // — this finding's whole claim is "this repo has linked worktrees", and
+  // asserting it unmeasured is the non-discriminating-instrument failure
+  // (instrument-discipline.md MUST-1). Stated as a limitation, not papered over.
+  //
+  // The selector is fed the SAME expanded segments every fence above uses, and
+  // it is the SAME function the fixture runner exercises — one lineage, so a
+  // green fixture is a statement about the shipped guard rather than about a
+  // parallel copy of it.
+  const stashHazard = selectStashHazard(
+    segments.map((s) => parseGitInvocation(s)),
+  );
+  // NOT MEASURED ⇒ SILENT (cc-artifacts.md Rule 7 fail-open). `trees.ok` is
+  // false when git could not be resolved, the spawn timed out, or the porcelain
+  // shape was unparseable — none of which is evidence about the worktree count.
+  const stashTrees = stashHazard
+    ? countWorkingTrees(stashHazard.dir, cwd)
+    : { ok: false, count: 0 };
+  if (stashHazard && stashTrees.ok && stashTrees.count > 1) {
+    // Stack depth is CONTEXT, never part of the predicate: an empty stack is not
+    // safety, because a `push` onto it creates the very entry a sibling can pop
+    // a minute later. Probed only once the finding is already firing, so the
+    // common (single-tree) path costs exactly one spawn.
+    const stack = countStashEntries(stashHazard.dir, cwd);
+    const depthNote = stack.ok
+      ? `${stack.depth} entr${stack.depth === 1 ? "y" : "ies"} currently on it`
+      : "current depth not measured";
+    const linked = stashTrees.count - 1;
+    deferredFindings.push({
+      severity: "pre-action",
+      what_happened: `\`git stash ${stashHazard.form}\` is ABOUT TO RUN in a repository with ${stashTrees.count} working trees (${linked} linked worktree${linked === 1 ? "" : "s"}); the stash stack is SHARED across all of them — ${depthNote}.`,
+      why: "worktree-isolation.md Rule 9 — the stash stack lives in the common `.git` dir, so every linked worktree can list, pop and drop your entry. A sibling's `git stash pop` applies YOUR entry into ITS tree and drops it: you are left a merely-clean tree, the sibling a mutation neither authored, and BOTH sides fail silently.",
+      agent_must_report: [
+        `This repo has ${stashTrees.count} working trees. Your stash entry will NOT be private to this one — any sibling checkout can pop it, and any entry you pop may not be yours.`,
+        "Capture to a surface no other checkout can reach instead: `git diff > <path>.patch` (run `git add -N .` first so untracked files are included), or a `cp` backup outside the tree. Restore with `git apply <path>.patch`.",
+        "If you are RESTORING, note that `git stash pop` takes whatever sits on top of the SHARED stack — run `git stash list` first and confirm the entry is yours before applying it.",
+        "If a stash is genuinely required here, say why a patch file does not serve, and state which stack entry you are acting on.",
+      ],
+      agent_must_wait: null,
+      user_summary: `git stash ${stashHazard.form} in a ${stashTrees.count}-worktree repo — the stash stack is shared (worktree-isolation.md Rule 9)`,
     });
   }
 

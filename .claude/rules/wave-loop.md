@@ -291,9 +291,31 @@ the pre-existing MUST 1/2/3/5 wiring above is unchanged.
   transcript for an idle-wait window with launchable independent work (MUST-6) and for a
   reconciliation trace before any pre-existing-backlog implementation (MUST-7) — and, where that item
   was issue-backed, that the trace covers BOTH the body and the comments (a bare `gh issue view`, or
-  `--comments` alone, is a PARTIAL read and is a finding, not a pass). Phase 2 (deferred per
-  `rules/trust-posture.md` § Two-Phase Rollout): advisory Stop-event detector + audit fixtures at
+  `--comments` alone, is a PARTIAL read and is a finding, not a pass). **MUST-6 — Phase 2 PARTLY
+  SHIPPED (2026-08-18):** `.claude/hooks/fleet-drain-guard.js` (`Stop`, lifecycle) over
+  `.claude/hooks/lib/fleet-drain.js`, fixtures `.claude/audit-fixtures/fleet-drain/` (50 bipolar
+  cases, registered in `ci-audit-fixtures.json`). It counts, per turn boundary, the MAIN agent's
+  named running lanes against dispatchable `## Outstanding ledger (forest)` rows, and emits
+  `halt-and-report` — NOT the `advisory` this block previously booked. The upgrade is justified and
+  the justification is a MEASUREMENT, not a preference: both counts are STRUCTURAL, so
+  `hook-output-discipline.md` MUST-2's bar on `block` from a LEXICAL signal is not what caps this;
+  the EVENT is. `instruct-and-wait.js` tests `STOP_LIKE_EVENTS` before its `block` branch, so `Stop`
+  + `block` returns `{continue:true}` exit 0 while the control `PreToolUse` + `block` returns
+  `{continue:false}` exit 2 — no severity blocks here, and `halt-and-report` is the strongest
+  available. THREE BOUNDS, stated so the rule does not over-claim what is armed: it detects the
+  COUNT, never the independence judgment MUST-6 turns on; it is scoped to lanes the MAIN agent
+  named, so a session carrying main-agent dispatches without a `name` reports UNKNOWN and stays
+  silent (measured: 2 of 9 ledgers on the authoring clone); and the under-capacity arm ships
+  OBSERVING, not advising, because its lane floor is uncalibrated — only the zero-lane DRAINED
+  boundary advises. MUST-7 keeps its Phase-1 coverage and its own Phase 2 (deferred per
+  `rules/trust-posture.md` § Two-Phase Rollout): an advisory Stop-event detector, whose audit
+  fixtures land with that detector at
   `.claude/audit-fixtures/wave-loop/orchestration-hygiene/` per `rules/cc-artifacts.md` Rule 9.
+  That `Phase 2 (deferred …)` form is load-bearing, not stylistic: `validate-xref-integrity.mjs`
+  sanctions a forward-pointer to a not-yet-created fixture dir ONLY when the citing block matches
+  `PHASE2_DEFERRED_RE` or `FIXTURES_LAND_WITH_RE`, so rewording this sentence de-sanctions the
+  reference and reds the xref gate — which is exactly what happened when MUST-6's half was
+  declared shipped and this clause was rephrased alongside it.
 - **Violation scope:** MUST-6 + MUST-7 ONLY (clause-scoped); the pre-existing MUST 1/2/3/5 sections stay
   on their own wiring above.
 - **Origin:** See § Origin (journal/0543 — co-owner-directed origination).

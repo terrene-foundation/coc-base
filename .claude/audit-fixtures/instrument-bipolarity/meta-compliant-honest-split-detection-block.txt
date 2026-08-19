@@ -1,0 +1,76 @@
+---
+priority: 10
+scope: path-scoped
+paths:
+  - "**/.claude/bin/**"
+  - "**/tests/**"
+---
+
+Excerpt from a proposed rule body: the enforcement clause and its Trust Posture
+Wiring detection block.
+
+### 2. The RED Pole Asserts A Named Failure Identity
+
+The red pole MUST declare the expected failure identity and the harness MUST
+match the observed failure against it. Asserting only a non-zero exit is BLOCKED.
+
+```text
+# DO — the identity is declared and matched
+red: expect exit 1 AND finding id `boundary-escape`
+# DO NOT — passes while the check is broken
+expect(exit).not.toBe(0)
+```
+
+**Why:** An exit code is a quantity; a failure reason is an identity.
+
+**BLOCKED rationalizations:** "it exits non-zero, that IS the red" / "the pole
+already reds, naming the code is ceremony" / "we assert the finding count, which
+is close enough" / "any failure here can only be this failure" / "the identity
+would just duplicate the message string" / "the mutation test already proves the
+pole is load-bearing".
+
+## MUST NOT
+
+- **Ship a lexical detector over the shapes this rule governs** — a regex asking
+  "does this assertion's name match what it measures" would itself be
+  non-discriminating.
+
+**Why:** A check that cannot distinguish a sound assertion from an unsound one,
+deployed to catch assertions that cannot distinguish, is the failure class
+wearing a fix's clothing — and it would carry `block` on a lexical signal, which
+`hook-output-discipline.md` MUST-2 forbids.
+
+## Trust Posture Wiring
+
+- **Severity:** `halt-and-report` at gate-review; `advisory` at the hook layer per
+  `hook-output-discipline.md` MUST-2 — whether a pole discriminates is a semantic
+  judgment, and per the MUST NOT above a lexical detector for it is BLOCKED by
+  construction.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to
+  `trust-posture.md` MUST-4 cumulative-window math.
+- **Regression-within-grace:** generic `regression_within_grace` trigger — no
+  dedicated key; named deviation recorded per `trust-posture.md` Rule 8.
+- **Receipt requirement:** SessionStart soft-gate `[ack: instrument-bipolarity]`.
+- **Detection mechanism:** SPLIT. **(a) STRUCTURAL — feasible and OWED:** whether
+  a registered check HAS a declared pole pair, whether the harness ran BOTH, and
+  whether the verdicts DIFFERED are mechanically decidable from the harness's own
+  output. A structural runner is owed with the first enforcement phase and is NOT
+  claimed to exist today. **(b) SEMANTIC — PERMANENTLY review-only, RETIRED not
+  pending:** whether a pole discriminates for the RIGHT reason is a judgment over
+  the check's meaning; no hook detector will EVER be built, because per the MUST
+  NOT above a lexical one would instance the class it targets. NOT A DEFERRAL —
+  no registry entry is owed or wanted; booking a future detector would promise
+  teeth that cannot arrive.
+- **Violation scope:** MUST-1 (no pole pair / vacuous pair) + MUST-2
+  (quantity-asserting red pole). Every violation row names the check and which
+  MUST fired.
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-08-18 — sixteen non-discriminating instruments landed in one session while the
+existing citation-time rule was in baseline context, four of them committed by
+agents actively hunting the class. Comprehension was not the failure, so this rule
+adds a mechanism at authorship. Path-scoped because the obligation attaches to a
+file the author is editing.

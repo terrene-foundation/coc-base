@@ -76,8 +76,33 @@ function buildValidationBody({
   // the rendered bytes are identical to pre-fix. That is measured across the
   // full 7-event × 6-severity matrix in ci-cost-reach.test.mjs, not reasoned.
   const isPreAction = severity === "pre-action" && hookEvent === "PreToolUse";
-  const head =
-    severity === "block"
+  // loom FINDING-F — the SAME lifecycle-gating the `pre-action` clause above
+  // establishes, applied to the opposite end of the register. A STOP_LIKE event
+  // CANNOT block a tool call: the branch below returns `{continue:true}` and exit
+  // 0 for EVERY severity including `block`. But the head was still selected by
+  // SEVERITY ALONE at this point — it is computed BEFORE that branch — so a
+  // block-class Stop finding was delivered to the agent reading
+  // "STOP — Tool call blocked." while nothing whatsoever was blocked.
+  //
+  // Measured end-to-end on `burndown-quote-stop-guard.js` (the one production
+  // emitter of block at a STOP_LIKE event): the payload was
+  // `{"continue":true,"systemMessage":"STOP — Tool call blocked.\n\nWHAT
+  // HAPPENED: The reply contains 1 INVALID burndown quote(s)…"}` at rc=0. That is
+  // the OVERCLAIM class in the output of the very rule whose text
+  // (`burndown-integrity.md` § Trust Posture Wiring) and whose guard header both
+  // go to length insisting Stop severity must NOT be read as teeth.
+  //
+  // The severity stays `block` — it records the finding's CLASS honestly, which
+  // is what that rule deliberately does. What changes is the head, which reports
+  // the FATE. Class and fate are different facts and only the second was wrong.
+  // Gated exactly like `isPreAction`, so this is a STRICT NO-OP at the four
+  // non-STOP_LIKE events, where "Tool call blocked." remains true and remains
+  // pinned verbatim by settings-deny-edit-guard.test.mjs and
+  // posture-gate-mutation-fence.test.mjs (both PreToolUse denies).
+  const isUnblockableBlock = severity === "block" && STOP_LIKE_EVENTS.has(hookEvent);
+  const head = isUnblockableBlock
+    ? "NOT BLOCKED — this event cannot block. Block-class finding; the output ALREADY STANDS. Correct it and report."
+    : severity === "block"
       ? // Kept verbatim: it is the one head that means "did not run", and
         // settings-deny-edit-guard.test.mjs pins this exact string.
         "STOP — Tool call blocked."

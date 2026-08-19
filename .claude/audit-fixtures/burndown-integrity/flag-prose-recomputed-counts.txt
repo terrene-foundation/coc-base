@@ -1,0 +1,32 @@
+Session close-out — client register review, page-by-page status.
+
+---
+
+Pulling the current state together for the hand-back note. I read
+`burndown/register.json` and the two later sources, then counted the rows myself so
+the summary matches what is actually in the files rather than whatever the last
+report happened to say.
+
+Counting by hand from the register plus the growth file:
+
+    Alpha   3 rows, 2 accepted   -> 1 left
+    Beta    4 rows, 0 accepted   -> 4 left
+
+So we are at 5 left overall. Earlier in the week I said 7 left; the difference is
+that I was counting the two conversation items separately then and I am folding
+them in now, which is the more useful view for the owner.
+
+Summary for the note:
+
+> 5 left across both pages. Alpha is nearly there with 1 outstanding; Beta still
+> has 4. Two more items came in mid-week but they are small.
+
+I did generate the block earlier with `node .claude/bin/burndown-build.mjs`, and it
+is spliced into REGISTER.md. I am not quoting it here because the cut I want is
+"left per page", and the block reports Open with the register/arrived-since split,
+which is more detail than the note needs. The arithmetic is the same either way —
+I checked my numbers against the table and they agree.
+
+One presentational call: I am writing "left" rather than the block's `Open`,
+because "left" is what the owner used in their own email and matching their
+vocabulary makes the note easier to read.

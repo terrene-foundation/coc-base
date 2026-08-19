@@ -4,11 +4,15 @@ Backs `.claude/rules/sweep-completeness.md` MUST-4 and its detector
 `.claude/bin/unadjudicated-escalation.mjs` (loom#1722). Run:
 
 ```bash
-node .claude/audit-fixtures/unadjudicated-escalation/run.mjs   # 22 cases
+node .claude/audit-fixtures/unadjudicated-escalation/run.mjs   # prints its own N/N total
 ```
 
 Registered in `.claude/test-harness/ci-audit-fixtures.json` (`min_cases: 22`, taken
-from an actual run) and executed by `.claude/bin/run-audit-fixtures.mjs`.
+from an actual run) and executed by `.claude/bin/run-audit-fixtures.mjs`. That
+number is a FLOOR, not the current total — the suite runs above it today, which
+is legal and is why the comment above no longer predicts a count. The floor
+itself is coupled to the registry by
+`.claude/test-harness/tests/audit-fixture-prose-count-coupling.test.mjs`.
 
 ## Why the set is bipolar, and what each pole is for
 

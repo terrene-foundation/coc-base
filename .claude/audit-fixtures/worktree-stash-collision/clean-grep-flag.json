@@ -1,0 +1,4 @@
+{
+  "command": "git log --grep=stash",
+  "note": "the word inside a flag VALUE; the subcommand is `log`"
+}

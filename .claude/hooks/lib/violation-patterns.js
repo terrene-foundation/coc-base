@@ -1178,6 +1178,13 @@ const GH_ISSUE_CLOSE_RE = /\bgh\s+issue\s+close\b/i;
 // quoted body, or an unquoted single token.
 const GH_CLOSE_COMMENT_RE =
   /(?:--comment|--body|\s-c)[=\s]+(?:"((?:[^"\\]|\\.)*)"|'([^']*)'|(\S+))/i;
+// PRESENCE of a comment flag, independent of whether its VALUE parses. The two
+// questions are distinct — "was a comment supplied" versus "can we read it" —
+// and the detector answers VIOLATION only on the first. Same flag alternation as
+// the value regex above, kept adjacent so the two cannot drift; the trailing
+// `(?:[=\s]|$)` accepts a flag left dangling at end-of-segment, which is one of
+// the shapes whose value cannot parse.
+const GH_CLOSE_COMMENT_FLAG_RE = /(?:--comment|--body|\s-c)(?:[=\s]|$)/i;
 // COMPLETION EVIDENCE — the disjunction git.md names, in one place so the gate
 // and the measurement that justified it cannot drift apart.
 //
@@ -1253,6 +1260,12 @@ function detectGhIssueCloseWithoutEvidence(command) {
   if (!GH_ISSUE_CLOSE_RE.test(command)) return null;
   const segment = ghCloseSegment(command, GH_ISSUE_CLOSE_AT_COMMAND_POSITION);
   if (segment === null) return null;
+  // Kept BEFORE the reassignment below. `ghCloseSegment` splits on newlines, so
+  // a multi-line `--comment "…"` is TRUNCATED mid-body and its closing quote is
+  // left on a line the segment never sees. The unsegmented original is the only
+  // place the whole body still exists, and § UNKNOWN below re-reads it under a
+  // no-ambiguity guard rather than judging a fragment.
+  const unsegmented = command;
   command = segment;
   // #13's territory: a not_planned / wontfix disposition is not a completion
   // claim, so this detector has no question to ask about it.
@@ -1266,18 +1279,81 @@ function detectGhIssueCloseWithoutEvidence(command) {
   if (/(?:--body-file|\s-F)[=\s]/.test(command)) return null;
 
   const m = command.match(GH_CLOSE_COMMENT_RE);
-  if (!m) {
-    // No comment flag at all. Unambiguous: there is no surface on which a code
-    // reference could have been supplied, so the contract is unmet.
+
+  // THREE OUTCOMES, NOT TWO. "I could not read the comment" is a DIFFERENT
+  // answer from "there was no comment", and collapsing them is what made this
+  // detector report a violation against closures that cited three SHAs. The
+  // `--body-file` bail ten lines up is the same reasoning applied to a sibling
+  // case; this generalises it instead of leaving the two to drift.
+  //
+  // VIOLATION requires the STRONG claim — that no comment surface exists at
+  // all — so it is gated on the flag being genuinely ABSENT from the segment,
+  // never merely on the value regex failing to match.
+  if (!GH_CLOSE_COMMENT_FLAG_RE.test(command)) {
     return {
       rule_id: "git/issue-closure-evidence",
+      outcome: "violation",
       severity: "halt-and-report",
       evidence: command.match(/\bgh\s+issue\s+close\b[^|;&\n]{0,120}/i)[0].trim(),
       detection_layer: "lexical",
       mode: "bash",
     };
   }
-  const body = m[1] ?? m[2] ?? m[3] ?? "";
+
+  // A comment flag IS present. Whether we HAVE its body is a separate question.
+  // The bare `(\S+)` arm firing on a value that OPENS a quote means the closing
+  // quote fell outside the scanned segment — the body is a fragment, not a
+  // comment.
+  let body = m ? (m[1] ?? m[2] ?? m[3] ?? "") : null;
+  const truncated = m === null || (m[3] !== undefined && /^["']/.test(m[3]));
+
+  if (truncated) {
+    // Recover the body from the unsegmented command — but ONLY when there is
+    // exactly one comment flag in the whole string, so there is no question
+    // which invocation the recovered body belongs to. With two or more, the
+    // segment anchor is the only thing keeping a heredoc's or a neighbouring
+    // command's comment from being read as this closure's evidence, and a
+    // recovered-from-the-wrong-command body would be a FALSE CLEAN — the one
+    // failure direction this change must not introduce.
+    const flags = unsegmented.match(/(?:--comment|--body|\s-c)[=\s]+/gi) || [];
+    const recovered = flags.length === 1 ? unsegmented.match(GH_CLOSE_COMMENT_RE) : null;
+    body =
+      recovered && (recovered[1] !== undefined || recovered[2] !== undefined)
+        ? (recovered[1] ?? recovered[2])
+        : null;
+  }
+
+  if (body === null) {
+    // UNKNOWN. Reported, never silent, and deliberately NOT `return null`: a
+    // null here would render an unread comment as a PASS, which launders a
+    // question we never answered into a clean bill of health. `evidence-first-
+    // claims.md` MUST-3 binds agents to exactly this ("an errored or empty
+    // command is zero evidence, never confirmation") and there is no reason a
+    // detector should hold itself to a weaker standard than the agents it
+    // judges. Shape follows `fleet-upflow-gap.mjs`, which already gets this
+    // right: "… is UNKNOWN, never 'clean'".
+    return {
+      // A DISTINCT rule_id, for two reasons that both bite at the surfaces the
+      // `outcome` field never reaches. (1) The shared emitter renders `WHY:`
+      // from rule_id alone, so under a shared id an UNKNOWN and a VIOLATION are
+      // BYTE-IDENTICAL in the banner the agent actually reads — the distinction
+      // would exist only in a field nothing displays. (2) `violations.jsonl`
+      // rows are counted BY RULE for `trust-posture.md` MUST-4's cumulative
+      // window, so a shared id would make an unparseable comment accrue posture
+      // damage exactly like a proven violation — penalising an operator for a
+      // question this detector could not answer.
+      rule_id: "git/issue-closure-evidence-undetermined",
+      outcome: "unknown",
+      severity: "halt-and-report",
+      evidence:
+        `UNDETERMINED — a comment flag is present but its body could not be parsed at hook time, ` +
+        `so this closure's evidence is UNKNOWN, never "clean". Confirm the comment cites a commit ` +
+        `SHA / PR number / merged-PR link: ${JSON.stringify(command.slice(0, 160))}`,
+      detection_layer: "lexical",
+      mode: "bash",
+    };
+  }
+
   // Unexpanded shell state cannot be evaluated at hook time, so a finding
   // against the literal string would be structurally meaningless
   // (hook-output-discipline.md MUST-3). Covers $VAR, ${VAR}, $(...), backticks,
@@ -1287,6 +1363,7 @@ function detectGhIssueCloseWithoutEvidence(command) {
 
   return {
     rule_id: "git/issue-closure-evidence",
+    outcome: "violation",
     severity: "halt-and-report",
     evidence: `closing comment carries no code reference: ${JSON.stringify(body.slice(0, 160))}`,
     detection_layer: "lexical",

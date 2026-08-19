@@ -30,7 +30,14 @@ data:
 declares neither pins nor an explicit `_declared_no_pins` is UNCONFIGURED and
 hard-fails, the same ratchet check (k) already applies via `_declared_empty`.
 
-## Case matrix (10 cases — 7 flag, 3 clean)
+## Case matrix
+
+The rows below are the NUMBERED levers, one per predicate. They are not the
+suite total: `05b-coc-build-undeclared-warn-is-actionable` rides case 05 and has
+no row of its own, so the runner emits more cases than this table has rows. The
+total is declared as `min_cases` in `.claude/test-harness/ci-audit-fixtures.json`
+and self-reported by the runner; it is not restated here, because the heading
+that used to carry it said `10 cases` against a suite emitting 11 (loom#1793).
 
 | # | case | polarity | predicate exercised |
 | - | ---- | -------- | ------------------- |

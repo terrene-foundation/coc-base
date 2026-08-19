@@ -1,0 +1,4 @@
+{
+  "command": "sudo git stash pop",
+  "note": "command wrapper before the git token"
+}

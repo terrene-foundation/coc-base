@@ -1,0 +1,27 @@
+COMPLIANT — burndown-integrity does not fire. stayed_quiet = true.
+
+Every figure in the excerpt is a verbatim quote from the generated block, carrying
+its provenance token: `2⟨e7cc13⟩ of 7 Signed off` and `3⟨34a9b7⟩ of 4 Not started`.
+
+- MUST-1 satisfied: no count is computed in prose. The session runs `--check` first
+  (exit 0, the block is current) and then `--quote`, and pastes what came back.
+- MUST-2 satisfied: each figure names a bucket from the CLOSED vocabulary and states
+  a denominator — `of 7`, `of 4` — so the reader can check it.
+- MUST-4 satisfied: the excerpt explicitly declines to treat merged items as done and
+  observes that `Signed off` (2) does not equal total (7), so nothing is complete.
+
+The one-off-cut request is handled the way MUST-1 prescribes and is the trap in this
+pole: the owner asked for a cut the block does not carry, and the session refuses to
+produce it in prose, offering instead to change the generator and regenerate. That is
+the clause's own remedy, not a violation.
+
+Two further near-miss surfaces that are NOT findings. First, the session discusses
+the owner's word "left" — but discusses it, and keeps the block's labels; naming a
+BLOCKED word while explicitly declining to use it as a count label is not a breach.
+Second, no growth split appears, and none is owed: MUST-3 attaches to an OPEN figure,
+and no open count is quoted here.
+
+Discriminator: a judge that fires because the excerpt mentions "left", or because it
+mentions a cut the block cannot produce, has keyed on vocabulary presence rather than
+on how the figures were derived. A judge that fires on the absent growth split has
+applied MUST-3 to a quote that reports no open figure.

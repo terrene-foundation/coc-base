@@ -1,0 +1,4 @@
+{
+  "command": "env GIT_AUTHOR_NAME=x git stash",
+  "note": "env-assignment wrapper"
+}

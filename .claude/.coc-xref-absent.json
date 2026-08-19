@@ -1059,6 +1059,26 @@
         ".claude/rules/autonomous-execution.md"
       ]
     },
+    "journal/0581": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/instrument-bipolarity.md",
+        ".claude/rules/instrument-bipolarity.md"
+      ]
+    },
+    "journal/0582": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/instrument-bipolarity.md",
+        ".claude/rules/instrument-bipolarity.md"
+      ]
+    },
+    "journal/0583": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/rules/burndown-integrity.md"
+      ]
+    },
     "rules/build-repo-release-discipline.md": {
       "why": "tier_not_subscribed",
       "sources": [
@@ -1096,9 +1116,7 @@
         ".claude/commands/enroll.md",
         ".claude/commands/sweep.md",
         ".claude/skills/30-claude-code-patterns/multi-operator-coordination-substrate.md",
-        ".claude/skills/30-claude-code-patterns/sync-flow.md",
-        "AGENTS.md",
-        "GEMINI.md"
+        ".claude/skills/30-claude-code-patterns/sync-flow.md"
       ]
     },
     "rules/cross-sdk-inspection.md": {
@@ -1124,7 +1142,9 @@
       "sources": [
         ".claude/agents/implementation/build-fix.md",
         ".claude/rules/schema-migration.md",
-        ".claude/skills/36-claude-managed-agents/SKILL.md"
+        ".claude/skills/36-claude-managed-agents/SKILL.md",
+        "AGENTS.md",
+        "GEMINI.md"
       ]
     },
     "rules/infrastructure-sql.md": {
