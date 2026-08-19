@@ -1,0 +1,4 @@
+{
+  "command": "git stash -u",
+  "note": "flags-only: still the push form; -u is what makes it eat untracked work too"
+}

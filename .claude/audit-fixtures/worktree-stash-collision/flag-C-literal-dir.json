@@ -1,0 +1,4 @@
+{
+  "command": "git -C . stash pop",
+  "note": "`-C` retargets the repo. The value is LITERAL, so the worktree probe can still answer — the parser must consume `-C` and its value without letting either occupy the verb slot"
+}

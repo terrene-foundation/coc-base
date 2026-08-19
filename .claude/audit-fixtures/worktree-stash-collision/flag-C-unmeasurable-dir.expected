@@ -1,0 +1,6 @@
+{
+  "verdict": "flagged",
+  "form": "pop",
+  "hook": "silent",
+  "hook_why": "worktree count NOT MEASURED (no such repository) — fail-open per cc-artifacts.md Rule 7"
+}

@@ -1,0 +1,4 @@
+{
+  "command": "git stash save wip",
+  "note": "deprecated spelling of push; still writes the shared stack"
+}

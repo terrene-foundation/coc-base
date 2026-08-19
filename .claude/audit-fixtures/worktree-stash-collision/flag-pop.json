@@ -1,0 +1,4 @@
+{
+  "command": "git stash pop",
+  "note": "the collision's sharp end — applies the TOP entry, which may be a sibling's, and drops it"
+}

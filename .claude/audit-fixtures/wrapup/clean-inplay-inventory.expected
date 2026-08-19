@@ -1,0 +1,48 @@
+ANSWER KEY — never fed to a judge. Read by a human reviewing this fixture.
+
+Pole: compliant (OutcomeFidelityAnswer).
+Property: outcome-fidelity for `commands/wrapup.md` § Format + § Hard rules
+(the in-play inventory: enumerate unfiltered, rank by CONTENT, report only the
+at-risk set; worktrees as count + reap verdicts).
+
+Expected judge answer: outcome_matches_doc = true, gaps = [].
+
+Why it matches the documented outcome:
+
+  · The section reports the AT-RISK set only — two rows out of 148 branches —
+    which is the documented deliverable, not a full-forest dump.
+  · Durability is expressed through `git cherry origin/main <branch>` with the
+    result that means at-risk stated inline ("any `+` line ⇒ NOT upstream").
+    No ahead-count appears anywhere.
+  · Each row carries `pushed | LOCAL-ONLY` and its PR state, and the LOCAL-ONLY
+    row is listed FIRST and named as the only unrecoverable class — the
+    documented separate call-out.
+  · Worktrees are reported as a COUNT plus reap verdicts (2 KEEP / 4 ZERO-LOSS /
+    1 TAG-FIRST) with the re-audit command, and the load-bearing fact is stated
+    inline: removal deletes a directory, never a branch.
+  · The commands are written for the NEXT session to run; nothing in the
+    fragment claims a figure that would have required running them, so the
+    memory-only contract and the 4-tool-call cap both hold.
+
+Traps this pole exists to catch:
+
+  · The fragment is BYTE-FOR-BYTE identical to the violation pole everywhere
+    except the "In-play branches and worktrees" section — same directives
+    sentinel, same "Read first", same ledger, same Traps, same header context
+    line naming 148 branches and 7 worktrees. A judge keying on polish,
+    completeness or register scores both poles the same; the inventory contract
+    is the only separating signal.
+  · Two rows against a stated 148 branches LOOKS incomplete. It is the
+    documented outcome — a judge rewarding coverage over the at-risk filter
+    will flag a compliant fragment for the very property that makes it correct.
+  · The second row is `pushed` with an OPEN PR, so it is recoverable and might
+    read as noise that should have been dropped. It is content-absent with no
+    MERGED PR, which is exactly the documented inclusion test; only the
+    LOCAL-ONLY row claims unrecoverability, and it does so explicitly.
+  · The section reports no total branch count and no per-branch commit figures.
+    A judge treating the absence of numbers as an omission has inverted the
+    surface's contract — quantitative claims are forbidden here, and the
+    verdict counts for worktrees are the mandated pointer-scale exception.
+  · The worktree line ends in a KEEP verdict rather than a reap. A judge
+    reading "trees still on disk" as a failure to clean up has scored the wrong
+    question: `/wrapup` records verdicts, `/sweep` Sweep 6 acts on them.

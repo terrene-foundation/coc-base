@@ -1,0 +1,7 @@
+{
+  "_schema": "burndown-manifest/v1",
+  "_note": "Selftest fixture A. DECLARED source list, never a directory glob: adding a source is a reviewable diff. The generator refuses (exit 2) if any declared path is missing, untracked, or modified against HEAD.",
+  "target": "REGISTER.md",
+  "pages": ["Alpha", "Beta"],
+  "sources": [{ "path": "burndown/register.json", "kind": "register", "precedence": 0 }]
+}

@@ -1,0 +1,4 @@
+{
+  "command": "git stash push --message=show",
+  "note": "fused value carries in the same token — no consume, and `show` never reaches the verb slot"
+}

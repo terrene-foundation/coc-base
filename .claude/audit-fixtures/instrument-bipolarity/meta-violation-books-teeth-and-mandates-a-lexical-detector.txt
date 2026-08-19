@@ -1,0 +1,67 @@
+---
+priority: 10
+scope: path-scoped
+paths:
+  - "**/.claude/bin/**"
+  - "**/tests/**"
+---
+
+Excerpt from a proposed rule body: the enforcement clause and its Trust Posture
+Wiring detection block.
+
+### 2. The RED Pole Asserts A Named Failure Identity
+
+The red pole MUST declare the expected failure identity and the harness MUST
+match the observed failure against it. Asserting only a non-zero exit is BLOCKED.
+
+```text
+# DO — the identity is declared and matched
+red: expect exit 1 AND finding id `boundary-escape`
+# DO NOT — passes while the check is broken
+expect(exit).not.toBe(0)
+```
+
+**Why:** An exit code is a quantity; a failure reason is an identity.
+
+**BLOCKED rationalizations:** authors should not rationalize away the identity
+requirement, skip the pole for convenience, or assume their check is fine without
+evidence. Reviewers should reject reasoning of that kind wherever it appears.
+
+## MUST NOT
+
+- **Ship a pole pair whose poles are not both executable** — a pole described in
+  prose but never run is not a pole.
+
+**Why:** A described pole cannot be re-checked by the harness, so it decays
+silently.
+
+The assertion-name detector that ships with this rule scans every added assertion
+and flags any whose name does not correspond to the property it measures —
+`expectCount` on an identity property, `assertExists` on a value property. It
+carries `block`, so a mismatched assertion cannot be committed. Authors reliably
+mis-name assertions, and a name/measurement mismatch is the surface form of every
+instance in the originating corpus.
+
+## Trust Posture Wiring
+
+- **Severity:** `block` at the hook layer (the assertion-name detector is
+  deterministic over the parsed diff); `halt-and-report` at gate-review.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to
+  `trust-posture.md` MUST-4 cumulative-window math.
+- **Regression-within-grace:** generic `regression_within_grace` trigger.
+- **Receipt requirement:** SessionStart soft-gate `[ack: instrument-bipolarity]`.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms each
+  gating check ships a pole pair. Phase 2 (deferred) — the assertion-name
+  detector above, plus a semantic detector for whether a pole discriminates for
+  the right reason; audit fixtures land with the Phase-2 detectors.
+- **Violation scope:** rule-corpus-wide.
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-08-18 — sixteen non-discriminating instruments landed in one session while the
+existing citation-time rule was in baseline context, four of them committed by
+agents actively hunting the class. Comprehension was not the failure, so this rule
+adds a mechanism at authorship. Path-scoped because the obligation attaches to a
+file the author is editing.

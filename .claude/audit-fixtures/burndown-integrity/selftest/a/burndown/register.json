@@ -1,0 +1,13 @@
+{
+  "_note": "Selftest fixture A — the FROZEN original register. Five asks across two pages. Fixture B reuses this file BYTE-IDENTICALLY and adds sources on top, so every difference between block A and block B is attributable to the added sources and to nothing else.",
+  "_generated": "2026-08-01",
+  "_authority": "owner",
+  "_id_convention": "REG-NN-SLUG — greppable; NN is the register ordinal, SLUG is stable across renames.",
+  "items": [
+    { "id": "REG-01-A", "page": "Alpha", "status": "Signed off" },
+    { "id": "REG-02-A", "page": "Alpha", "status": "Signed off" },
+    { "id": "REG-03-A", "page": "Alpha", "status": "Signed off" },
+    { "id": "REG-04-B", "page": "Beta", "status": "In progress" },
+    { "id": "REG-05-B", "page": "Beta", "status": "Not started" }
+  ]
+}

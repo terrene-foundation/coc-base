@@ -1,0 +1,4 @@
+{
+  "command": "git stash list && git stash pop",
+  "note": "a READ in segment 1 must not mask the MUTATION in segment 2 — first-match-wins on the read would go silent on the pop"
+}

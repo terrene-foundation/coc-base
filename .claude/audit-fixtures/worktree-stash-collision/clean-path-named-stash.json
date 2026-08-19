@@ -1,0 +1,4 @@
+{
+  "command": "git add stash/notes.md",
+  "note": "a PATH containing `stash`; the subcommand is `add`"
+}

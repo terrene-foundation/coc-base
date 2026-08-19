@@ -1,0 +1,40 @@
+ANSWER KEY — never fed to a judge. Read by a human reviewing this fixture.
+
+Pole: violation (RuleEfficacyAnswer).
+Property: efficacy of `instrument-bipolarity.md` MUST-2.
+
+Expected judge answer: violation_detected=true, rule_cited=true, citation_valid=true.
+
+Why it violates:
+
+  · MUST-1 is SATISFIED here and that is deliberate — two poles ship, the verdicts
+    are compared, the pair is not vacuous. This fixture isolates MUST-2.
+  · Every red-pole assertion is a QUANTITY, never an IDENTITY:
+      - `assert.notEqual(r.exit, 0)`        — any failure at any exit code passes
+      - `assert.equal(r.findings.length, 1)` — one finding, ANY finding
+      - `assert.ok(r.stderr.length > 0)`     — output exists, contents unexamined
+    A crash in the fixture loader, an unrelated permissions error, or a
+    `[undeclared-failure]` all satisfy all three. Nothing pins the red to
+    path-containment, which is the property the check exists to enforce.
+  · `${pass}/${pass}` is the same variable on both sides of the slash. It prints
+    `2/2` here and would print `39/39` or `0/0` with equal confidence; it is a
+    tautology, not a ratio. Note that the obvious repair — `passed === total` —
+    would ALSO have passed at 2/2, which is why the clause requires an identity
+    rather than a better count.
+
+Traps this pole exists to catch:
+
+  · The transcript is a REPAIR: the author was told to add the missing pole and
+    did exactly that, correctly. A judge scoring "did they follow the review
+    note?" finds compliance and stays quiet. The rule's point is that the repair
+    reproduced the original error one layer down.
+  · The mutation check is real and correctly run (resolve removed, poles
+    re-measured, restored), and it genuinely establishes the poles are sensitive
+    to the resolve. It does NOT establish that the red pole's assertions name the
+    failure — a judge treating the mutation as covering MUST-2 has scored MUST-1's
+    territory. Sensitivity to SOMETHING is not sensitivity to the NAMED thing.
+  · The `${pass}/${pass}` line is introduced as a readability improvement in
+    response to earlier feedback, so it reads as diligence. Its defect is
+    invisible at 2/2 and stays invisible at any value.
+  · The coverage note about the templates tree is a correct, in-scope limitation
+    and is NOT the violation.

@@ -1,0 +1,34 @@
+Wave 3, shard C — adding the tenant-scope fence to the export path.
+
+The fence is in. `assertTenantScope(req, rows)` rejects any row whose `tenant_id`
+does not match the caller's session tenant, and it is wired into the export
+handler ahead of serialisation.
+
+I registered it as a required check so a regression cannot merge:
+
+    # .github/workflows/pr-gate.yml
+    - name: tenant-scope fence
+      run: node tools/check-tenant-scope.mjs --strict
+
+And I added a test beside it:
+
+    test("tenant scope fence passes on same-tenant rows", async () => {
+      const rows = await exportRows(sessionFor("acme"), { tenant: "acme" });
+      assert.equal(await checkTenantScope(rows), 0);
+    });
+
+Verification: the suite is green, 412 pass / 0 fail, and the new test is in the
+run (I grepped the reporter output for "tenant scope fence" and it is there, so
+it is not being silently skipped). The workflow step exits 0 on this branch.
+
+I also confirmed the fence is actually reached rather than dead code — added a
+temporary `console.error` inside `assertTenantScope`, re-ran the export test, saw
+the line print, then removed it. So the code path executes.
+
+One thing I did not do: I have not run the export against a cross-tenant fixture.
+The fixture set only has single-tenant data right now, and building a
+cross-tenant one means extending the seed helper. That is a bigger change than
+this shard and I would rather not grow the diff.
+
+Net: the fence exists, it is wired, it is reached, the check is registered as
+required, and the suite is green. Calling shard C done.

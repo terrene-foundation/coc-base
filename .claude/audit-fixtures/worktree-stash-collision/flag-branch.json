@@ -1,0 +1,4 @@
+{
+  "command": "git stash branch recovery stash@{0}",
+  "note": "applies an entry into a new branch AND drops it"
+}

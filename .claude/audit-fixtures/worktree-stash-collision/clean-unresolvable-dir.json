@@ -1,0 +1,4 @@
+{
+  "command": "git -C $(cat dir.txt) stash pop",
+  "note": "the `-C` value comes from a substitution the hook MUST NOT evaluate, so no probe could answer 'does THAT repo have linked worktrees?'. Skipped rather than asserted — an unmeasured claim is the non-discriminating instrument (instrument-discipline.md MUST-1)"
+}

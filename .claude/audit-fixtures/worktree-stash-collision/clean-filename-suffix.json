@@ -1,0 +1,4 @@
+{
+  "command": "rm -f wip.stash",
+  "note": "a filename ending in `.stash`, and not a git command at all"
+}

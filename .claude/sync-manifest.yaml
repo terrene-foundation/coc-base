@@ -1189,7 +1189,19 @@ parity_enforcement:
       # provenance (2) — per-lane delivery declared in provenance_parity above
       - "provenance-capture-prompt.js|provenance|HumanInput capture; lanes declared in provenance_parity"
       - "provenance-capture-tool.js|provenance|Action/Decision/Delegation capture; lanes in provenance_parity"
-      # cc-only (29) — CC-runtime / loom-substrate; NOT in the fresh extraction
+      # cc-only — CC-runtime / loom-substrate; NOT in the fresh extraction.
+      # No count is stated here deliberately. The bare "(29)" this line used to carry had
+      # drifted to 37 by the time anyone re-measured it — a bare total is not machine-checkable
+      # (nothing distinguishes it from a sub-group figure), so it rots silently. Count the rows
+      # if you need the number: grep -cE '^\s+- "[^"]*\|cc-only\|' on this file, with the
+      # negative control (a |mcp-guard| row must NOT match) before trusting the result.
+      # burndown-integrity (2026-08-18) — the tamper-evident-count enforcement pair.
+      # cc-only: both key on CC tool events with no Codex/Gemini analogue — PostToolUse
+      # on Edit|Write|NotebookEdit, and Stop. Codex exposes no equivalent post-write or
+      # end-of-turn hook surface, so there is no lane to mirror them onto; declaring the
+      # absence is what keeps it from reading as a silent drop.
+      - "burndown-quote-write-guard.js|cc-only|burndown-integrity MUST-1 durable-write guard; blocks an INVALID provenance token on a journal/workspace/register write. No Codex/Gemini analogue (no post-write hook surface)"
+      - "burndown-quote-stop-guard.js|cc-only|burndown-integrity MUST-1/MUST-2 chat-reply guard; surfaces invalid tokens and untokened count-shaped claims. No Codex/Gemini analogue (no end-of-turn hook surface)"
       - "emit-artifact-activation.js|cc-only|loom#1209 W1-b PreToolUse activation-event producer; loom-INTERNAL session observability (also loom_only — see LOOM_ONLY_TIER_CARVEOUTS + journal/0549), fires only in loom sessions, NOT distributed to consumers"
       - "emit-artifact-activation-session.js|cc-only|loom#1209 W1-b SessionStart activation-event producer; loom-INTERNAL observability (also loom_only), sibling of the above, NOT distributed to consumers"
       # T1 (2026-08-14, runtime-enforcement) — the dispatch↔delivery reconciliation pair. BOTH are
@@ -1224,6 +1236,23 @@ parity_enforcement:
       # every consumer that dispatches lanes. It omits @coc-codex-edit-gate (it is an advisory, not
       # a trust gate) so it is excluded from apply_patch by design (FF-AC6-1 AC#2).
       - "delegation-default-guard.js|cc-only|Stop delegation-default advisory: declared-subparts-vs-main-generation-dispatches read off the T1 ledger's parallelism rider (MUST-3); ADVISES only at the zero-dispatch boundary, PARTIAL shortfall ships OBSERVING (uncalibrated); halt-and-report ceiling per hook-output-discipline.md MUST-2 (independence of the sub-parts is judgment-bearing) — not mirrored"
+      # fleet-drain-guard.js (loom#1802, wave-loop.md MUST-6) — the FOURTH member of the dispatch
+      # family, and the mirror image of delegation-default-guard: that one fires when the main
+      # loop generated instead of dispatching, this one fires when the lanes have DRAINED and
+      # dispatchable work still sits in the ledger. Same cc-only MECHANISM verdict as its three
+      # siblings, for the same two reasons: the SIGNAL is the CC-only Task|Agent|SendMessage
+      # dispatch ledger, and the EVENT is `Stop`, which has no Codex/Gemini analogue — so there
+      # is nothing on those lanes to mirror. NOT loom_only: the MUST-6 contract (never idle-wait
+      # while independent in-budget work is launchable) reaches every consumer that dispatches
+      # lanes. It degrades safely where its inputs are absent — the ledger sink is gitignored, so
+      # on a fresh clone lanes-running resolves UNKNOWN and the guard stays SILENT rather than
+      # reporting a false zero, the same fail-direction the T1 reconciler takes. Open work is a
+      # GATE (dispatchable >= 1), not a signal: measured across 30 commits the forest ledger
+      # never read zero and the specified >=20 threshold held in only 2 of 30, so a
+      # count-threshold detector would have been silent during the very incident it was
+      # specified from. It omits @coc-codex-edit-gate (it is an advisory, not a trust gate) so
+      # it is excluded from apply_patch by design (FF-AC6-1 AC#2).
+      - "fleet-drain-guard.js|cc-only|Stop fleet-drain advisory: lanes-running (named dispatches minus reconcile-row generations) against dispatchable forest-ledger rows (MUST-6); ADVISES only at the DRAINED boundary (running == 0), UNDER-CAPACITY ships OBSERVING (uncalibrated); reports UNKNOWN and stays silent when dispatches are unnamed or the ledger is absent; halt-and-report ceiling per hook-output-discipline.md MUST-2 (whether remaining work is genuinely independent is judgment-bearing) — not mirrored"
       - "integrity-guard.js|cc-only|gates Edit/Write to codify/<id>-<date> branches; coordination substrate (codify-branch state) — omits @coc-codex-edit-gate → excluded from apply_patch (FF-AC6-1 AC#2), not mirrored"
       - "journal-write-guard.js|cc-only|journal slot-reservation + overwrite guard; coordination substrate (journal-slot fold) — omits @coc-codex-edit-gate → excluded from apply_patch (FF-AC6-1 AC#2), not mirrored"
       - "adjacency-leasecheck.js|cc-only|multi-operator claim-adjacency lease check; coordination substrate (claims/roster, auto-claim writes) — omits @coc-codex-edit-gate → excluded from apply_patch (FF-AC6-1 AC#2), not mirrored"
@@ -1479,6 +1508,24 @@ tiers:
     # the narrower-tier DIAGNOSIS, so the most-cascaded comment in the repo still taught
     # the wrong cause of its own bug. The skills path is now a pointer stub.
     - rules/instrument-discipline.md
+    # instrument-bipolarity.md added 2026-08-18 (journal/0581, co-owner-directed
+    # origination). Same tier as its sibling `instrument-discipline.md` directly
+    # above, and for the same reason: the contract names no language runtime and no
+    # CLI-native primitive — a pole pair is an input plus an expected verdict in any
+    # harness — so it is GLOBAL on both axes. `coc-core` rather than `cc` because it
+    # governs INSTRUMENT authorship wherever checks are written, which every
+    # subscribing lane does, not CC-artifact authoring specifically.
+    #
+    # DECLARED HERE BECAUSE TIER-GLOB MATCH IS NOT A DECLARATION. The drafting pass
+    # measured `buildPlan` returning `action: copy, reason: tier_match` for a
+    # `.claude/rules/*.md` path and read that as the fate already being declared.
+    # It is not: `validate-proximity-band.mjs` VALIDATOR 15 (sync-manifest
+    # tier-completeness, journal 0078) reds an undeclared rule as `unmanaged`
+    # regardless of glob match. Recorded rather than quietly fixed — asking a plan
+    # query "does the glob match?" and reading the answer as "is the fate declared?"
+    # is `instrument-discipline.md` MUST-4 (an instrument is scoped to the question
+    # it was BUILT for), committed while drafting the rule against that very class.
+    - rules/instrument-bipolarity.md
     # verification-gate-integrity.md added 2026-08-11 (/sync-from-build Gate-1,
     # kailash-rs proposal GATE-DELETION-BLINDNESS-MUST4-2026-08-10 + the S14 rule it
     # amends). Classified GLOBAL on both axes: the four clauses reference no language
@@ -1740,6 +1787,18 @@ tiers:
     # codex/gemini rather than displacing baseline; loads on CC when editing
     # workspaces/session-notes/todos/journal (the close-out surfaces).
     - rules/burn-down-reporting.md
+    # burndown-integrity.md added 2026-08-18 (co-owner-directed origination, journal/0583).
+    # SIBLING of burn-down-reporting.md above, deliberately NOT a merge into it: that rule
+    # governs WHETHER a close-out reports cleared/remains/delta with named instruments;
+    # this one governs a figure's PROVENANCE (generated block or nothing). The two co-fire
+    # on the same close-out surfaces and neither restates the other.
+    # coc-core because the co-owner directive was explicit that the mechanism reach "all
+    # downstream use and build" — coc-core is subscribed by py/rs/base, so the rule lands
+    # on every USE template AND on the py/rs BUILD repos. Its generator
+    # (.claude/bin/burndown-build.mjs) does NOT ride a tier: `.claude/bin/` is a
+    # fail-closed PER-FILE allowlist, so it carries its own ALWAYS_INCLUDE entry in
+    # sync-tier-aware.mjs. Its fixtures ride the `cc` tier via audit-fixtures/**.
+    - rules/burndown-integrity.md
     # session-notes-continuity.md added 2026-08-12 (/sync-from-use kailash-coc-rs Gate-1,
     # relayed from a downstream upflow inbox). priority:10 path-scoped + cli_delivery:
     # skill-channel — the same disposition handoff-completion.md + product-completion-first.md
@@ -4261,6 +4320,75 @@ loom_only:
   - bin/run-audit-fixtures.mjs # why: the audit-fixture battery runner over `.claude/audit-fixtures/**`, loom's artifact-authoring harness. Same class as the `test-harness/**` universal exclude: consumers do not run loom's tests (`loom-csq-boundary.md` MUST-1). Cited by `rules/wave-loop.md`, `rules/orchestrator-context-economy.md`, `guides/rule-extracts/upstream-issue-hygiene.md`. Community-edition membership preserved via `in-community-edition.mjs::AUTHORING_HARNESS_REFERENCE_TOOLS`.
   - bin/phase2-deferral-integrity.mjs # why: loom's Phase-2 deferral-registry expiry gate. Validates `test-harness/phase2-deferrals.json` (eight-field declarations, substantiveness floors, risk-band horizons, past-expiry hard fail) and reconciles registry ⇄ loom's OWN rule corpus in both directions; a consumer holds neither that registry nor that corpus, so the tool would have nothing to check. Runs in loom's CI structural job. Cited by `rules/deferral-registry-locality.md`, `rules/trust-posture.md`, `skills/30-claude-code-patterns/deferral-registry-locality.md` — three of the four consumer-side dangling references this row closes. Community-edition membership preserved via `in-community-edition.mjs::AUTHORING_HARNESS_REFERENCE_TOOLS`, which is what makes this row safe: four community-edition modules import it, including the registered scanner `bin/detection-binding-check.mjs`.
   - bin/check-baseline-delta.mjs # why: the proximity-band baseline-delta gate over loom's own rule corpus, reading a loom-side baseline a consumer does not carry. Same class as its `check-descoping.mjs` / `check-wave-corpus-ledger.mjs` siblings below: a loom CI structural gate that no shipped command/skill/agent/hook invokes, so it is not a consumer-runtime tool and is NOT on the ALWAYS_INCLUDE allowlist. Cited by `skills/skill-authoring/proximity-band-named-rationale-template.md` — the fourth consumer-side dangling reference. Community-edition membership preserved via `in-community-edition.mjs::AUTHORING_HARNESS_REFERENCE_TOOLS`.
+  # ── Gate-2 cascade audit 2026-08-18 — three UNDECLARED harness drivers ────────────
+  # Each skipped as `no_tier_match` on ALL FIVE lanes, which `artifact-flow.md`
+  # § MUST NOT calls an oversight indistinguishable from a decision, and which
+  # `knowledge-cascade-routing.md` MUST-2 forbids. The fate below is DECLARED, not
+  # inferred, and each reason is a MEASURED dependency closure rather than a guess.
+  #
+  # The instrument: `sync-tier-aware.mjs --target py --dry-run --json`, reading
+  # `plan.files[]` rows. Control that it discriminates — on the same run
+  # `bin/loom-doctor.mjs` and `bin/unadjudicated-escalation.mjs` both read
+  # `copy/always_include`, so a `skip` row here is a true negative.
+  - bin/registration-preflight.mjs # why: loom's declaration-coupling preflight. MEASURED, and this is the whole reason it cannot ship: EVERY input its 14 couplings read is skipped downstream — `test-harness/{ci-suites,ci-suites-bin,ci-audit-fixtures,eval-manifest,phase2-deferrals}.json` all `skip/exclude`, `descoping-exceptions.json` `skip/loom_only` — and EVERY sibling bin it spawns is skipped too (`coc-manifest-integrity` and `run-harness-suites` no_tier_match on USE, `check-descoping` / `run-audit-fixtures` / `phase2-deferral-integrity` loom_only). Shipping it would hand a consumer an entrypoint with 14 couplings and ZERO inputs — the dangling-obligation defect the `emit-derives-from.mjs` ALWAYS_INCLUDE entry records, inverted. The consumer-facing NEED is real and is NOT met by this row; see the Gate-2 audit note routed to the co-owner (a consumer-scoped preflight is new work, not a manifest declaration).
+  - bin/run-harness-suites.mjs # why: the registry-driven runner over `.claude/test-harness/tests/**`, which is universally excluded from USE and ships only as `test-harness/lib/**` on BUILD. A consumer receives no suites, so the runner would enumerate an empty registry. Same class as the `run-audit-fixtures.mjs` row above (`loom-csq-boundary.md` MUST-1 — consumers do not run loom's tests).
+  - bin/hook-runtime-smoke.mjs # why: spawns EVERY hook registered in `.claude/settings.json` and asserts each consumed its stdin payload. The hooks themselves ship (`.claude/hooks/**` ALWAYS_INCLUDE) but the REGISTRATION does not — `settings.json` is `skip/exclude` on all five lanes, a boundary `sync-tier-aware.mjs` names deliberately ("NOT covered … `.claude/settings.json` hook registrations"). With no registration to read the smoke test has no population to run, so it would report green over an empty set — the vacuous-pass shape `instrument-discipline.md` MUST-1 exists to stop.
+  # ── Gate-2 cascade audit 2026-08-18 (part 2) — the remaining NINE ─────────────────
+  # The audit that produced the three rows above measured FIFTEEN undeclared bin
+  # paths, not the four first reported. The correction matters: the first pass read
+  # `no_tier_match` on USE as "undeclared", but that reason ALSO covers BUILD-only
+  # declarations (`coc-manifest-integrity.mjs` reads copy/build_only_always_include
+  # on BUILD and was a false positive). Declaration status is therefore checked on
+  # BOTH lanes plus the declaration surfaces themselves — `instrument-discipline.md`
+  # MUST-4, an instrument scoped to the question it was BUILT for.
+  #
+  # CITATION IS NOT INVOCATION, and two of these turn on it. The ALWAYS_INCLUDE
+  # allowlist is defined as "Consumer-run tools (a shipped command/skill/agent/hook
+  # INVOKES them)". `detection-binding-check.mjs` and `rule-corpus-growth.mjs` are
+  # NAMED in a shipped skill, but as PROSE in a list of loom's CI validators — the
+  # same sentence that names `run-audit-fixtures.mjs`, which is already loom_only.
+  # A citation creates a consumer-side dangling reference; it does not make the tool
+  # consumer-runtime. Same disposition the `phase2-deferral-integrity.mjs` row takes.
+  - bin/deferral-accept.mjs # why: the Phase-2 deferral ACCEPTANCE ceremony. Genuinely split, and declared loom_only for the half that decides it: consumers DO hold `.claude/deferrals.json` (the E6 scaffold), but this reads `.claude/test-harness/probes/`, which never ships. Shipping it half-fed reproduces the `registration-preflight.mjs` defect above — an entrypoint whose inputs are absent. A CONSUMER-SCOPED acceptance ceremony, over the registries consumers actually hold, is an OPEN DESIGN QUESTION routed to the co-owner rather than silently dropped.
+  - bin/lib/deferral-acceptance.mjs # why: the receipt/digest library behind `deferral-accept.mjs`. Both its importers are loom_only — `deferral-accept.mjs` (above) and `phase2-deferral-integrity.mjs` — so it has no shipped caller by construction.
+  - bin/detection-binding-check.mjs # why: reconciles loom's OWN rule corpus ⇄ `test-harness/` registries in both directions; a consumer holds neither. CITED (not invoked) by `skills/30-claude-code-patterns/ci-cost-discipline-evidence.md`, in a prose list of loom's CI validators alongside the already-loom_only `run-audit-fixtures.mjs`. Runs in loom's CI structural job.
+  - bin/detection-dispatch-check.mjs # why: the dispatch-side sibling of the above, over the same loom-side registries. No shipped command/skill/agent/hook invokes it, so it is not a consumer-runtime tool (the criterion the `check-baseline-delta.mjs` row states).
+  - bin/rule-corpus-growth.mjs # why: measures the growth of loom's OWN `priority: 0` baseline corpus across `origin/main` history. A consumer's rule corpus is a DISTRIBUTION, not an origin — it has no authoring history to trend, so the tool would plot someone else's decisions. Cited as prose in the same CI-cost skill; citation is not invocation.
+  - bin/validate-variant-drift.mjs # why: audits drift between the global corpus and the `variants/{py,rs}` overlays. Variant composition is a loom-side DISTRIBUTION concern — a consumer receives the composed RESULT and holds no `variants/` tree to compare against.
+  - bin/lib/variant-drift.mjs # why: the comparison library behind `validate-variant-drift.mjs`, its only importer, which is loom_only directly above.
+  - bin/lib/path-render.mjs # why: path-rendering helper whose only importer is `spec-corpus-conformance.mjs`, already loom_only (it reads loom's `specs/` corpus, which a consumer does not carry).
+  - bin/repin-targets.local.example.json # why: the gitignored-config EXAMPLE companion to `repin-downstream.mjs`, loom's downstream version-pin distributor. Repinning is something loom does TO consumers, not something a consumer does; the example would document a workflow the receiving repo never runs.
+  # ── Gate-2 cascade audit 2026-08-18 (part 3) — the two SHIP candidates, held ──────
+  # These two were routed as candidates to SHIP and the decision was reversed on
+  # measurement. BOTH facts are recorded, because the first one is the expensive one
+  # to rediscover and the second is the one that decides:
+  #
+  #   (1) The DEPENDENCY invariant CLEARS for both — measured, not assumed.
+  #       `validate-pact-envelope.mjs` reads only its file argument or stdin.
+  #       `validate-envelope-dna.mjs` reads its argument plus an OPTIONAL
+  #       `.claude/disclosure-tenant-denylist.json`, whose absence its own code
+  #       documents as a no-op: "Returns null when the file is absent (a consumer
+  #       repo, where /sync never ships it) … the check then no-ops." Neither would
+  #       be the broken entrypoint that `registration-preflight.mjs` above would be.
+  #
+  #   (2) The SHIP decision fails on a DIFFERENT criterion — the allowlist's own.
+  #       `ALWAYS_INCLUDE` is defined in `sync-tier-aware.mjs` as "Consumer-run tools
+  #       (a shipped command/skill/agent/hook INVOKES them)". MEASURED: NOTHING cites
+  #       either script — no command, skill, agent, rule or hook, zero hits. And
+  #       there are ZERO `bin/` paths in any tier, so ALWAYS_INCLUDE is the only ship
+  #       mechanism for a bin; there is no tier route to fall back on.
+  #
+  # Answering (1) says nothing about (2) — `instrument-discipline.md` MUST-4, and it
+  # is why this is written out rather than left as "loom_only, see above". The
+  # `check-baseline-delta.mjs` row already excludes on exactly criterion (2), so
+  # shipping these would break the row-to-row consistency of this same list.
+  #
+  # A CALLER IS NOT AUTHORED HERE. That would be unrequested new work needing a UX
+  # nobody has specified, and it would widen scope to rescue a decision rather than
+  # correct it. If a consumer-side envelope-validation surface is ever wanted it
+  # starts from a requirement, not from two orphan binaries looking for a purpose.
+  - bin/validate-pact-envelope.mjs # why: PACT operating-envelope schema validator (v1.1). Dependency invariant CLEARS — reads only its file argument or stdin, no loom-side input. Declared loom_only on the INVOKER criterion instead: no shipped command/skill/agent/hook invokes it, so it is not a consumer-runtime tool (the criterion `bin/check-baseline-delta.mjs` states). Its help text points at `specs/methodology/pact-operating-envelope.md`, which is not in any lane's plan, so shipping it would also carry a dangling reference.
+  - bin/validate-envelope-dna.mjs # why: governance-compiled envelope-DNA roll-up validator. Dependency invariant CLEARS — its one loom-side read (`.claude/disclosure-tenant-denylist.json`, itself loom_only) is documented in-code as returning null and no-opping in a consumer repo. Declared loom_only on the INVOKER criterion, same as its sibling above: zero shipped citers, and no tier route exists for a `bin/` path.
   # ── Gate-1 ingest 2026-08-10 (S22 W3-manifest) — two UNDECLARED bin paths ──────────
   # Both were reported by a coc-py entry asking a question a CONSUMER structurally
   # cannot answer — "does this ship?" needs `sync-tier-aware.mjs::ALWAYS_INCLUDE` and

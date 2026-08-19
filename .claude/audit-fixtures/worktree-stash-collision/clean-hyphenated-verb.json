@@ -1,0 +1,4 @@
+{
+  "command": "git stash-like",
+  "note": "`stash-like` is a different subcommand; exact-match on the parsed verb separates them with no lookahead"
+}

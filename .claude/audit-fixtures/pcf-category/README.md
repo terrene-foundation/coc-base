@@ -3,9 +3,13 @@
 Fixtures for `.claude/hooks/lib/pcf-category.js` — the closed literal enum that
 carries a Product-Completion-First category onto a PR (`T5`).
 
-Run: `node .claude/audit-fixtures/pcf-category/run.mjs` (27 cases, sub-second,
-no network, no git, no filesystem). Registered in
-`.claude/test-harness/ci-audit-fixtures.json` so the F29 closure gate runs it.
+Run: `node .claude/audit-fixtures/pcf-category/run.mjs` (sub-second, no network,
+no git, no filesystem). Registered in
+`.claude/test-harness/ci-audit-fixtures.json` so the F29 closure gate runs it;
+the case count is declared there as `min_cases` and self-reported by the runner
+as its closing `N/N fixtures passed` line. It is deliberately NOT restated here
+— this line said `27 cases` against a suite emitting 31, because nothing
+reconciled the two (loom#1793).
 
 ## What the detector is, in one line
 

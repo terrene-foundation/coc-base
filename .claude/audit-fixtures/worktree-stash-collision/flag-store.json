@@ -1,0 +1,4 @@
+{
+  "command": "git stash store -m snapshot 0123abc",
+  "note": "adds a pre-made commit to the shared stack"
+}

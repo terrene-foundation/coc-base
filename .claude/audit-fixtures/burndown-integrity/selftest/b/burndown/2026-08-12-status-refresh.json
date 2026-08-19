@@ -1,0 +1,7 @@
+{
+  "_note": "Selftest fixture B — STATUS REFRESH, correcting an OVER-report. The register recorded REG-01-A as 'Signed off'; the owner says it is not, it is waiting on them. Over-reporting is the correction that matters most: if the owner opens a row that reads accepted and the thing is not there, every other row loses credibility. _authority 'owner' outranks any same-day agent refresh. An agent writing _authority 'owner' on its own measurement is the corruption this field exists to prevent.",
+  "_generated": "2026-08-12",
+  "_authority": "owner",
+  "_id_convention": "Refreshes carry EXISTING ids only. Introducing an unknown id here is a build refusal (exit 2) — growth belongs in a post-register-items source, where it is counted as 'arrived since'.",
+  "items": [{ "id": "REG-01-A", "status": "Blocked on you" }]
+}

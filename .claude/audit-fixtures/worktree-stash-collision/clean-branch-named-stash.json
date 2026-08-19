@@ -1,0 +1,4 @@
+{
+  "command": "git checkout stash",
+  "note": "a BRANCH named `stash`; the subcommand is `checkout`"
+}

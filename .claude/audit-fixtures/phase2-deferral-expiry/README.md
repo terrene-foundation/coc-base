@@ -15,8 +15,12 @@ node .claude/audit-fixtures/phase2-deferral-expiry/run.mjs
 ```
 
 Registered in `.claude/test-harness/ci-audit-fixtures.json` (`mode: run`,
-`min_cases: 40`). That registry is closed in both directions, so this runner
-cannot become unwired and the entry cannot outlive the runner.
+`min_cases: 51`). That registry is closed in both directions, so this runner
+cannot become unwired and the entry cannot outlive the runner. The floor
+restated here is COUPLED to the registry by
+`.claude/test-harness/tests/audit-fixture-prose-count-coupling.test.mjs`, so it
+cannot drift again — this line read `40` against a registry declaring `51`
+until loom#1793 added that gate.
 
 ## Why these fixtures exist
 

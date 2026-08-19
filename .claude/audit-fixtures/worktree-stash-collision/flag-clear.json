@@ -1,0 +1,4 @@
+{
+  "command": "git stash clear",
+  "note": "deletes EVERY entry, including every sibling's"
+}

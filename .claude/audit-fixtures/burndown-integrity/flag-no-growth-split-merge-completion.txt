@@ -1,0 +1,26 @@
+Status update to the owner, end of the second week.
+
+---
+
+Quoting from the generated block so the numbers are traceable:
+
+    ALL PAGES — 5⟨25fe2e⟩ of 7 `Open`
+
+So there are 5⟨25fe2e⟩ open against a denominator of 7. That is the figure to use.
+
+Where we are per page:
+
+Alpha is done. All three Alpha items are through review and the PRs are merged —
+#4471, #4472 and #4474 all landed on main this morning with green CI, so I am
+reporting Alpha as complete. The walkthrough with you has not happened yet, but the
+work itself is finished and merged, and holding the row open on a scheduling
+formality would understate progress.
+
+Beta is the remaining page: 4⟨50417f⟩ of 4 `Open`.
+
+Headline for the email:
+
+> Alpha complete. 5⟨25fe2e⟩ of 7 open overall, all of it on Beta.
+
+I checked the tokens with `--verify-quote` and they all validate against the current
+block, so the figures are current and have not drifted from the sources.

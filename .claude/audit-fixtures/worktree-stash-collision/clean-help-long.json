@@ -1,0 +1,4 @@
+{
+  "command": "git stash --help",
+  "note": "usage text; nothing is written"
+}
