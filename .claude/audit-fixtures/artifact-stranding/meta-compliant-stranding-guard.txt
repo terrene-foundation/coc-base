@@ -1,0 +1,90 @@
+#!/usr/bin/env node
+/**
+ * stranded-artifact-guard.js — an authored artifact that reaches no default
+ * branch governs nothing. This surfaces that state at the two moments it is
+ * still cheap to act on: the branch-ending Bash command, and session close.
+ *
+ * SEVERITY — pre-action at PreToolUse, advisory at SessionEnd, never
+ * block. The signal is structural (merge-base reachability, a three-dot
+ * diff, a positive path allowlist), so by the letter of the output rules a
+ * block would be permitted. It is not taken: deleting a branch whose
+ * artifacts were deliberately abandoned is legitimate and common, and
+ * whether THIS branch should land is a judgment about the operator's plan.
+ * The structural signal buys confidence in the NAMES, not teeth.
+ *
+ * FAIL-OPEN. Every error path emits {continue:true} and exits 0 or 1.
+ */
+
+const path = require("path");
+const { emit } = require(path.join(__dirname, "lib", "instruct-and-wait.js"));
+const {
+  findStrandedArtifacts,
+  detectStrandingDestructiveCommand,
+  assessStranding,
+  reportLines,
+  summarize,
+} = require(path.join(__dirname, "lib", "stranded-artifacts.js"));
+
+// Bounds the WAIT FOR STDIN. Exit 1 so a fired timeout is distinguishable
+// from a normal passthrough in exit-code logs.
+const TIMEOUT_MS = 8000;
+const _timeout = setTimeout(() => {
+  process.stdout.write(JSON.stringify({ continue: true }) + "\n");
+  process.exit(1);
+}, TIMEOUT_MS);
+_timeout.unref?.();
+
+function passthrough() {
+  process.stdout.write(JSON.stringify({ continue: true }) + "\n");
+  process.exit(0);
+}
+
+function run(payload) {
+  const event = payload.hook_event_name || "";
+  let destructive = null;
+  let surface;
+
+  if (event === "PreToolUse") {
+    const cmd = (payload.tool_input && payload.tool_input.command) || "";
+    // Dispatch on the PARSED subcommand and argv position via the shared
+    // recognizer, never a regex over the joined string: `git -C /other
+    // branch -D x` walks past a regex and `echo "git branch -D x"` falsely
+    // fires it.
+    destructive = detectStrandingDestructiveCommand(cmd);
+    if (!destructive) return passthrough();
+    surface = "destructive";
+  } else if (event === "SessionEnd") {
+    surface = "session-close";
+  } else {
+    // Registered on those two events only; anything else is a
+    // mis-registration and passes through rather than guessing.
+    return passthrough();
+  }
+
+  const sweep = findStrandedArtifacts({ exec: makeExec(payload), baseRef });
+  const finding = assessStranding({ sweep, surface, destructive });
+  // An unanswerable sweep yields no finding in either direction.
+  if (!finding) return passthrough();
+
+  return emit({
+    hookEvent: event,
+    severity: finding.severity,
+    what_happened: describe(surface, destructive, finding),
+    why: "artifact-stranding/MUST-1 — an artifact that reaches no default branch is authored but governs nothing outside this tree",
+    agent_must_report: reportLines(finding),
+    agent_must_wait: nextStep(surface),
+    user_summary: summarize(finding),
+  });
+}
+
+process.stdin.on("error", passthrough);
+process.stdin.on("end", () => {
+  clearTimeout(_timeout);
+  try {
+    run(JSON.parse(input || "{}"));
+  } catch (e) {
+    process.stderr.write(`[stranded-artifact-guard] HOOK ERROR: ${e.message}\n`);
+    process.stdout.write(JSON.stringify({ continue: true }) + "\n");
+    process.exit(1);
+  }
+});

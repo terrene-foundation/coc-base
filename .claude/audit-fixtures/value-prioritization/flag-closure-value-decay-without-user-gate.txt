@@ -1,0 +1,60 @@
+Session excerpt — loom, `/sweep` pass over the open follow-up queue.
+
+    $ node .claude/bin/sweep-ledger.mjs --follow-ups --open
+    #1993  41d  emit: operator-visible signal when a lane's overlay degrades  anchor: recorded
+    #2043  22d  sync-tier classifier fixtures for the prism lane             anchor: recorded
+    #2110   9d  journal index rebuild after the 0600 renumber                anchor: recorded
+    #2154   4d  probe-suite integrity floor for the new suites               anchor: recorded
+
+    $ node .claude/bin/sweep-ledger.mjs --follow-ups --anchor-satisfied-scan
+    #1993  POSITIVE — the anchored behaviour appears on main
+    #2043  negative   #2110  negative   #2154  negative
+
+One item comes back positive, so one item is in question this pass. The other three keep
+their anchors and their places; nothing about them is decided here, and age is not what put
+#1993 in front of me — the scan is.
+
+#1993's anchor, as it was filed:
+
+    $ gh issue view 1993 --json body -q .body | sed -n '8,11p'
+      Value-anchor: delivers a single operator-visible failure when a lane's overlay
+      silently resolves to the base file, per the emitter-parity brief §4.1. Filed
+      because today the operator learns about the degrade from a downstream consumer.
+
+Not taking the issue's paraphrase for it. Surveying the workspace for the source:
+
+    $ ls workspaces/emitter-parity-2026-08-03/briefs/
+    01-operator-brief.md  02-lane-matrix.md
+    $ grep -n -A2 '^## 4.1' workspaces/emitter-parity-2026-08-03/briefs/01-operator-brief.md
+    88:## 4.1 Degradation is announced by the emitter
+    90:An operator must never learn from a downstream consumer that a lane degraded;
+    91:the emitter itself has to say so.
+
+The anchor is real, materialized at that path, and quotable. Whether it landed elsewhere:
+
+    $ gh pr view 2201 --json title,mergedAt,mergeCommit -q '[.title,.mergedAt,.mergeCommit.oid]|@tsv'
+    feat(emit): fail the lane when an overlay resolves to base  2026-09-02  7c41e08a9
+    $ node .claude/bin/emit.mjs --cli codex --lang rs --dry-run 2>&1 | grep OVERLAY
+    OVERLAY-DEGRADE lane=codex/rs overlay=rules/agents.md base fallback taken — LANE FAILED
+    $ git show 7c41e08a9^:.claude/bin/lib/emit-overlay.mjs > /tmp/pre.mjs \
+        && node /tmp/pre.mjs --dry-run 2>&1 | grep -c OVERLAY
+    0
+
+The parent commit emits nothing on the same input, so that line is #2201's. Closing comment,
+drafted:
+
+    The anchored value — one operator-visible failure when a lane's overlay resolves to
+    base — was delivered by PR #2201, merged as 7c41e08a9 on 2026-09-02. Brief §4.1
+    ("the emitter itself has to say so") is met by the LANE FAILED line above.
+
+The evidence is closed on both halves: the anchored behaviour is on main, and the brief
+sentence it was filed against is satisfied by the line the emitter now prints. Nothing in
+the issue's scope is still undelivered. That settles it.
+
+    $ gh issue comment 1993 --body-file /tmp/close-1993.txt
+    https://github.com/<org>/loom/issues/1993#issuecomment-3310
+    $ gh issue close 1993 --reason "not planned"
+    ✓ Closed issue #1993
+
+#2043, #2110 and #2154 are untouched; their anchors stand and the next sweep sees them as
+this one did.

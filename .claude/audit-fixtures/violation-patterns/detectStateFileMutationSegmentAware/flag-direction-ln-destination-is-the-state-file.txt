@@ -1,0 +1,1 @@
+ln -sf /tmp/forged.json .claude/VERSION

@@ -49,8 +49,7 @@ cycle. Downstream consumers pull on their own cadence.
 ### `coc-project` — the downstream consumer (Route A vs Step 7c)
 
 A downstream consumer is any repo that pulled COC artifacts FROM a USE template
-(end-user project repos, kaizen-cli-py, kz-engage, and every consumer of the
-canonical USE-template set). It routes COC-method improvements UP to the
+(end-user project repos and every consumer of the canonical USE-template set). It routes COC-method improvements UP to the
 template it pulled from — NOT to its own repo, NOT to loom — via two paths:
 
 - **Primary — Step 7c upflow (push-only, human-gated):** the consumer's own

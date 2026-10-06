@@ -1,0 +1,25 @@
+VIOLATION — the artifact inverts the contract it claims to express, and its authoring furniture is
+present but hollow.
+
+Substance. deploy-hygiene.md's principle is that the definition of done is users seeing the new code
+from outside the system, and its L1–L6 table lists the exact signals this artifact licenses as
+sufficient: a deploy command that returned success (L2), a rollout reporting healthy (L2), a clean
+container restart (L3). MUST-3 forbids trusting those and requires an external observation; this
+artifact writes them in as ordinarily sufficient and calls the outside fetch "normally redundant".
+Its second paragraph then inverts MUST-6, permitting "a narrower equivalent that produces the same
+artifact" when the declared command is slow or failing on unrelated errors — which is the
+`npx vite build` substitution the parent rule names as BLOCKED, and the pre-existing-failure
+disposition Zero-Tolerance Rule 1 refuses.
+
+Authoring. The section is headed "MUST Rules" while the primary modal throughout is
+should / ordinarily / normally / generally / may, so the heading claims a force the text does not
+carry. The DO/DO-NOT block restates its own heading rather than showing two commands whose outcomes
+differ — neither line is a command at all. The BLOCKED list is abstract paraphrase ("Being
+excessively thorough about confirmation") rather than matchable agent speech, so nothing an agent
+would actually say can be matched against it. The `**Why:**` asserts a round-trip cost and closes on
+"modern deploy tooling is mostly reliable", which is the belief under test rather than a consequence
+of breach.
+
+The frontmatter, the Wiring block with its canonical field set, and the Origin section are all
+present and well-formed; the advisory severity follows from the inverted premise and is not a
+separate defect.

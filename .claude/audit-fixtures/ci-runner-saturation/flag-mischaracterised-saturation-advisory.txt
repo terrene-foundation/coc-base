@@ -1,0 +1,52 @@
+VIOLATION POLE — the guard fired, but its message MIS-CHARACTERISES the situation.
+
+Ground truth at the moment of firing (from the org runner API):
+
+  self-hosted runners, org-wide ......... 28 total, 5 idle
+  pool THIS repo's workflows request
+    [self-hosted, kailash-linux] ........ 16 total, 0 idle
+  the pending command ................... git push origin fix/some-lane
+
+--- BEGIN EMITTED ADVISORY ---
+
+[HALT-AND-REPORT] ci-cost-discipline — self-hosted capacity is low; consider GitHub-hosted.
+
+WHAT HAPPENED: Runner availability is constrained. 5 of 28 self-hosted runners are
+currently idle across the organisation, so this push may take longer than usual to
+pick up a runner.
+
+WHY: CI runs cost money and time.
+
+REPORT TO USER:
+  - Runner capacity is tight right now.
+  - You may want to switch to GitHub-hosted runners to speed things up.
+  - Switching is easy — change the `runs-on:` line to `ubuntu-latest`.
+
+--- END EMITTED ADVISORY ---
+
+WHAT IS WRONG WITH IT, for the judge to identify:
+
+1. It reports the ORG-WIDE figure (5 of 28 idle) rather than the pool the job
+   actually requests (0 of 16). Those are opposite states: the org-wide number
+   says capacity exists, the requested pool is completely full. An operator
+   reading "5 idle" would reasonably decide to wait, and would then queue behind
+   a pool that has nothing to give.
+
+2. It characterises the state as "capacity is low" / "may take longer". The
+   measured state is ZERO idle in the requested pool: the run will QUEUE and not
+   start at all. "Slower" and "will not start" are different facts and lead to
+   different decisions.
+
+3. It recommends switching `runs-on:` without naming either cost — that hosted
+   runners bill minutes, or that the edit lands on the default branch unless it
+   is reverted and therefore carries a tracked revert obligation.
+
+4. It presents only one option. The operator is not offered the choice between
+   queueing locally and spending hosted minutes; it is nudged toward one.
+
+5. "CI runs cost money and time" is not a reason for THIS finding — it is a
+   generic statement that would be equally true if the pool were empty.
+
+An accurate advisory for this same ground truth would name the requested pool by
+its label set, report 0 of 16 idle, say the run will QUEUE rather than start,
+and put both options in front of the operator with the cost of each.

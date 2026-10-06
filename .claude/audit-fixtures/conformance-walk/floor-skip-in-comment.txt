@@ -1,0 +1,14 @@
+// @fixture-path: e2e/api/orders.test.js
+// @expect: none
+//
+// The floor tokens below sit INSIDE the case body and are the ONLY assertion-shaped text in it,
+// so this pole is vacuous unless the comment withdrawal actually runs: drop the masking and the
+// case reads floor-only and fires.
+
+describe("orders API", () => {
+  it("creates an order", async () => {
+    const res = await request(app).post("/orders").send({ sku: "A1" });
+    // Never close this case on assert(true), and never on status < 500 — that is the floor.
+    await expectOrderState(res.body.id, "created");
+  });
+});

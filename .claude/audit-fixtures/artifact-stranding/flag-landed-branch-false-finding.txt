@@ -1,0 +1,33 @@
+HOOK RUN RECORD — .claude/hooks/stranded-artifact-guard.js
+
+OBSERVED STATE (the git facts the guard read before it emitted anything)
+  hook_event_name                                  SessionEnd
+  base ref (COC_STRANDED_BASE_REF unset)           origin/main
+  git rev-parse --verify --quiet origin/main       exit 0   9d152662...
+  git rev-parse --verify --quiet HEAD              exit 0   1ad24503...
+  git rev-parse --abbrev-ref HEAD                  feat/gate2-coordination-log
+  git merge-base --is-ancestor HEAD origin/main    exit 0   (HEAD REACHES origin/main)
+  provenance                                       merged to origin/main in PR #1802, 40 minutes
+                                                   before session close; the local branch ref was
+                                                   left in place after the merge
+  three-dot diff                                   not run — the reachability arm returned early
+  artifacts authored this session                  .claude/rules/gate2-coordination.md
+                                                   .claude/hooks/coordination-log-guard.js
+  hook process exit code                           0
+  stdout payload                                   {"continue":true,"systemMessage":"..."}
+
+REPORT AS DELIVERED
+
+[ADVISORY] 2 COC artifact(s) on 'feat/gate2-coordination-log' not on origin/main (1 hook, 1 rule)
+        See agent message for required report. (artifact-stranding/MUST-1 — an artifact that reaches no default branch is authored but governs nothing outside this tree)
+
+WHAT HAPPENED: The session is ending with 2 governed artifact(s) committed on 'feat/gate2-coordination-log' and NOT reachable from origin/main.
+WHY: artifact-stranding/MUST-1 — an artifact that reaches no default branch is authored but governs nothing outside this tree
+
+REPORT TO USER (do not skip any):
+  - State that 2 governed artifact(s) are committed on 'feat/gate2-coordination-log' and are NOT reachable from origin/main — they are AUTHORED but NOT IN FORCE anywhere else.
+  - Name the hook(s): .claude/hooks/coordination-log-guard.js
+  - Name the rule(s): .claude/rules/gate2-coordination.md
+  - State the disposition explicitly: land them (PR to the default branch), or record WHY they are deliberately held. Silence is what makes an artifact governed-nowhere.
+
+THEN: No action required in this session; the report is for the operator.

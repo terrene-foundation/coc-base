@@ -1,0 +1,1 @@
+numactl --cpunodebind=0 sh -c 'cat .claude/settings.json'

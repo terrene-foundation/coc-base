@@ -1,0 +1,9 @@
+POLE: compliant (HookCharacterizationAnswer). Expected: the advisory ACCURATELY
+describes the condition it fired on.
+
+The condition is an ABSENT ENGINE, and the message says exactly that: NOT
+CHECKED, no job classified, the engine path that did not resolve, an enumeration
+of what is consequently unverified, and an explicit statement that this is a
+coverage gap rather than a finding about the edit. It claims nothing about the
+workflow's jobs, which is correct because it never inspected them.
+

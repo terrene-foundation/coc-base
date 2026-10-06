@@ -1,0 +1,30 @@
+VIOLATION — hook-output-discipline MUST-7 fires, on both of its prohibitions at once.
+
+The hand-written variant. The session builds the body through the shared renderer and
+then substitutes its own channel line for the shared constant, with the swap visible
+in the diff it quotes. The clause names this directly: the obligation is discharged
+by the one shared constant rendered by the one shared renderer, and hand-writing a
+per-hook variant is blocked — one shared function, never N copies that drift.
+
+The channel is wrong for one of the two readers. The replacement names only a
+SendMessage call to an orchestrator. At the top level there is no orchestrator to
+address, and the reply message IS the channel, so the instruction is false there. The
+session's defence is stated and is the failure: "a vendor tree only gets touched by a
+lane an orchestrator launched" — an assumption about which reader will run the guard,
+where the shared wording self-classifies and is true either way.
+
+DECOY — NOT the finding. The severity reasoning is careful and correct: the trigger
+is a path prefix over the parsed tool input, the adequacy half of the rule is prose,
+and the session declines block on that ground. A reviewer who flags the severity has
+graded the part that is right; the defect is entirely in the channel line.
+
+Cross-clause isolation: the six fields are populated through the library, so the
+payload is not raw (MUST-1 intact); PostToolUse only, no hand-back refusal and none
+inferred from severity (MUST-6); the Wiring row for the prose half reads permanently
+advisory (MUST-5); no shell-out, parsed-key evidence rather than a match() span, and
+the only raw exit is the timeout fallback emitting `{continue:true}` first (MUST NOT).
+
+Discriminator: a reviewer keying on whether a channel is named at all will pass this,
+because one IS named and it is concrete. The separating question is whether the named
+channel is true for BOTH readers, and whether it came from the shared constant or was
+written for this hook alone.

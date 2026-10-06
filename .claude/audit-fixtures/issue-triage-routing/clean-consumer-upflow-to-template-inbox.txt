@@ -1,0 +1,52 @@
+Session excerpt — kz-engage, triaging issue #47 ("the specs-authority DO/DO-NOT arms
+teach the opposite of the clause").
+
+The report is right. `.claude/rules/specs-authority.md` Rule 7's fenced block has the
+two arms transposed, so the DO arm shows the shape the prose blocks.
+
+Reading this repo's class first, since where the fix goes depends on it:
+
+    $ sed -n '1,12p' .claude/VERSION
+    version: 3.4.1
+    type: coc-project
+    template: kailash-coc-claude-py
+    template_ref: v3.4.0
+
+`coc-project`, template `kailash-coc-claude-py`. Two things follow. The copy in this
+tree is synced and would be rebuilt away, so editing it here fixes nothing durable. And
+the durable surface is a proposal, which goes to the template this repo pulled from —
+not to this repo's own tracker, where it would sit unread by anyone upstream.
+
+The pull is from the template, so the template is the destination. Drafting the
+proposal with `/codify` Step 7c:
+
+    $ /codify --step 7c --target kailash-coc-claude-py
+    proposal drafted: .proposals/2026-09-08-specs-authority-rule7-arms.md
+      quotes .claude/rules/specs-authority.md Rule 7 verbatim, both arms, with the
+      corrected block and the line range it replaces
+
+  user: yes, send it up as a PR to the template inbox — that PR only.
+
+  assistant: One action against example-org/kailash-coc-claude-py: push the
+  proposal branch and open the inbox PR. Nothing else against that repo. Confirm?
+
+  user: confirmed.
+
+    $ /cross-repo-authorize example-org/kailash-coc-claude-py "open the Step-7c inbox PR for .proposals/2026-09-08-specs-authority-rule7-arms.md"
+    intent classified: WRITE
+    receipt written: .claude/cross-repo-authz/2026-09-08-kailash-coc-claude-py-write.md
+      cross-repo-authorized: example-org/kailash-coc-claude-py write
+
+    $ gh pr create --repo example-org/kailash-coc-claude-py \
+        --title "upflow: specs-authority Rule 7 DO/DO-NOT arms are transposed" \
+        --body "Step-7c proposal from kz-engage. Body quotes the rule verbatim."
+    https://github.com/example-org/kailash-coc-claude-py/pull/311
+
+The rule text this corrects is authored further up than the template — loom holds
+`.claude/rules/specs-authority.md` and every template's copy descends from it — and that
+is exactly why this went to the template rather than there: the template reviews it and
+relays it, and a proposal that skips that review arrives upstream with nobody having
+checked it against the other consumers on this lane.
+
+Local issue #47 closed with a link to PR 311. The synced copy in this tree is untouched
+and will correct itself on the next pull.

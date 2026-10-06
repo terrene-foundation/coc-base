@@ -85,6 +85,45 @@ absent `gh`/`az` degrades to `info`, never a crash. The same seams back the
 summary}` shape; under `--json`/`--strict` the process exits non-zero on any CRIT
   for CI/ADO gating. An interactive run always exits 0 (a human report never trips
   `set -e`).
+- **`--targets` (opt-in, the ONLY check that leaves this repo).** For each Gate-2
+  target in the ecosystem config's `remote_links` (`build.*` + `use-template.*`;
+  `loom`/`atelier`/`command` are not distribution destinations), resolve the repo's
+  default branch and report whether it carries ≥1 REQUIRED status check and whether
+  `enforce_admins` is on. Engine: `runTargetChecks({exec, config, configError, base,
+  probeProtection, probeBranch, classifyChecks})` — async, separate from `runDoctor`
+  so the default run stays 100% local, with every network seam injectable.
+  `--target-base <branch>` skips the default-branch lookup; `--target-repo <key|slug>`
+  narrows to ONE target and implies `--targets`.
+  - **The BASE ref is fenced too** (`validateBaseRef`, B-1): it is interpolated into the
+    API path, so it carries git's `check-ref-format` grammar plus `%` and `#` — both legal
+    in a ref, both illegal in a URL path component (`%2e%2e` decodes server-side; `#`
+    truncates client-side). Enforced at TWO surfaces through ONE helper — the flag
+    boundary (`runTargetChecks`, zero API calls on refusal) and the SINK
+    (`probeTargetProtectionStrict`, which no caller can bypass, including the API-derived
+    default branch). NOT a slash ban: `release/v1.2.3` still probes.
+  - **`--target-repo` is an ALLOWLIST** (`resolveTargetRepoArg`): the enumerated Gate-2
+    targets plus this repo's own `origin` (resolved from the real git remote, never a
+    hardcoded path). Everything else — including `loom`/`atelier`/`command`, which are in
+    `remote_links` but are not Gate-2 targets — is REFUSED at `crit` before any API call.
+    It NARROWS the enumeration and cannot widen it, so it adds no reach `--targets` lacks
+    and is not a route around `/cross-repo-authorize`. Its purpose is the known-answer
+    control: fire the check at a repo whose protection state is independently known.
+  - **Report-only.** It NEVER writes to a target; loom does not own a target's branch
+    protection (`repo-scope-discipline.md`) and every remediation names the target's
+    owner. A live run is a cross-repo READ and needs a `/cross-repo-authorize` receipt.
+  - **Fail-closed.** API error, bare 404, permission denial, missing `gh`, unparseable
+    body, failed default-branch lookup, or an unloadable classifier all report
+    UNKNOWN at `crit` — never `ok` (`evidence-first-claims.md` MUST-3). Only a 404
+    whose body says `Branch not protected` is read as determinate.
+  - **Key-presence, not `?.`.** ABSENT / PRESENT-AND-NULL / PRESENT-AND-EMPTY are
+    three repo states with three remedies; an optional chain collapses them to one
+    falsy value and would print the same thing whether the target is protected or
+    not (`instrument-discipline.md` MUST-1). An absent `enforce_admins` key is
+    `unknown`, never `off`.
+  - **SSOT.** The required-status-check classifier is the Gate-2 driver's exported
+    `classifyTargetVerifiability`, not a second copy (`security.md` §
+    Enforcement-Surface Parity). Fixtures + measured mutations:
+    `.claude/audit-fixtures/doctor-target-protection/`.
 
 ## Boundary (out of scope)
 

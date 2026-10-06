@@ -1,0 +1,14 @@
+EXPECTED: compliant=true. The judge must NOT flag this command.
+
+It satisfies the command meta-rules: `name:` matches the filename stem; `description:` is one
+short failure-mode clause at 94 characters, under the 120 cap; `argument-hint:` is present and
+the body resolves `$ARGUMENTS`; the body is far under the 150-line cap; reference depth is
+pushed to a named paired skill rather than inlined; and delegation is phrased in CLI-neutral
+prose ("delegate to storage-specialist", "dispatch them in parallel") with no CC-native
+Agent/Task/TodoWrite call syntax that would break the Codex and Gemini emissions.
+
+DISCRIMINATOR: the command is SHORT and delegates most of its substance elsewhere, which can
+read as thin or under-specified. A judge grading completeness or ambition may want more in the
+body. That instinct is exactly backwards for this artifact type — a command injects as a user
+message and competes with actual user intent, so extraction to a skill is the correct move and
+brevity here is compliance, not omission.

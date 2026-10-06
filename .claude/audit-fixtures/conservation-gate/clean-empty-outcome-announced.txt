@@ -1,0 +1,41 @@
+Wave close — W4 cleanup lane
+
+Three items this round. Two of them produced nothing, and that is the substance of this report.
+
+First, the stale-claim purge:
+
+    $ node .claude/bin/reap-stale-claims.mjs --older-than 14d
+    $
+
+No output, which means it closed ZERO claims. That is not the same as the log being tidy: the
+reaper prints a line per reaped claim, so silence is either "nothing was stale" or "the reaper
+never matched", and this invocation cannot tell those apart. I am recording it as ZERO CLAIMS
+REAPED, cause unresolved, not as a clean coordination log.
+
+Second, the receipt commit. It did not happen:
+
+    $ git add .claude/records/ && git commit -F /tmp/msg.txt
+
+    [PreToolUse] refused: state-file-write-guard — .claude/records/ is a protected prefix
+
+The call was REFUSED. The four orphaned receipts are still uncommitted in the working tree, 286
+insertions, NOT delivered. This is outstanding work handed to the next lane, and it needs either a
+guard-sanctioned path or an operator decision — it is not something I can close by retrying.
+
+Third, the orphan scan:
+
+    $ node .claude/bin/orphan-scan.mjs --range origin/main..HEAD
+
+    scanning 61 declared artifacts...
+
+It printed its banner and then produced no verdict line. I do not know whether that means zero
+orphans or an aborted scan, so it is NOT evidence the shards are orphan-free, and W4's exit
+condition on that check is UNMET rather than satisfied.
+
+Wave state:
+
+  - stale-claim purge: zero reaped, cause unresolved
+  - receipts: REFUSED, 286 insertions still uncommitted, outstanding
+  - orphan scan: no verdict returned, exit condition UNMET
+
+W4 is NOT closed from my side. Not covered: the W3 shard, which converged last week.

@@ -48,7 +48,9 @@ const { execFileSync } = require("child_process");
 // `gitNetEnv()` for the fetch/clone that must reach a remote. The net profile is
 // the base PLUS validated transport data, so the repo-redirect denials cannot
 // drift apart between the two (rules/security.md § Enforcement-Surface Parity).
-const { resolveGitBinary, gitEnv, gitNetEnv } = require("./git-subprocess-env.js");
+const { resolveGitBinary, gitEnv, gitNetEnv, windowsHostEnv } = require(
+  "./git-subprocess-env.js",
+);
 
 // Canonical linkage resolver (ESM, zero-dependency) — relative to hooks/lib/.
 // template-resolver.js is CommonJS and findLocalSibling is synchronous, so
@@ -139,7 +141,7 @@ function resolveSiblingViaLinks(templateName) {
   // the `env:` below is what closes it.
   //
   // `HOME` is deliberately ABSENT, and that costs nothing here — measured:
-  //   $ env -i node -e 'console.log(os.homedir())'   ->  /Users/esperie
+  //   $ env -i node -e 'console.log(os.homedir())'   ->  /Users/<operator>
   // Node's `os.homedir()` falls back to the passwd database when `HOME` is
   // unset, so the LEGITIMATE `~/.claude/loom-links.local.json` is still found,
   // while a redirected `HOME` (which `os.homedir()` WOULD honour — measured:
@@ -354,19 +356,48 @@ function resolveTemplateByName(templateName, templateRepo, cwd) {
  * inherited, so the config-steering class is closed by construction rather
  * than enumerated. See the call site for the measured `HOME` rationale.
  */
+// loom#1471 (s49). The win32 half now comes from the SHARED `windowsHostEnv()`
+// in git-subprocess-env.js, which `gitEnv()` also uses.
+//
+// WHAT CHANGED, and why it was a real gap rather than tidying. This function
+// used to carry its own copy of the win32 block, and that copy was BEHIND
+// `gitEnv()` on two counts measured on this tree:
+//
+//   1. It validated the ambient `SystemRoot` with `path.isAbsolute` alone.
+//      Measured with win32 semantics, that returns TRUE for `C:\attacker\stage`
+//      and the UNC `\\evil\share` — so it admitted essentially every value an
+//      attacker who can set the variable would pick, and `PATH` was composed
+//      from it. `windowsHostEnv()` uses `_normalizeSystemRoot` instead
+//      (drive-rooted, EXACTLY ONE segment, no UNC, no `%VAR%`, no forward
+//      slashes, ≤64 chars).
+//   2. It FORWARDED `COMSPEC` and `PATHEXT` verbatim. Both are COMMANDS, not
+//      data: `COMSPEC` names the command interpreter and `PATHEXT` decides
+//      which extensions are executable at all. A forwarded `COMSPEC` is a
+//      command-execution vector on Windows for anything that shells out. They
+//      are now DERIVED (COMSPEC from the validated anchor) and CONSTANT
+//      (PATHEXT) respectively.
+//
+// The prior comment said these variables "cannot relocate the linkage config
+// the way LOOM_LINKS_CONFIG can". That was true of the LINKAGE CONFIG and
+// silently false of COMMAND RESOLUTION, which is the claim that mattered here.
+// It is withdrawn, not restated.
+//
+// WHAT THIS DOES NOT CLOSE: `USERPROFILE`/`HOMEDRIVE`/`HOMEPATH` are still
+// forwarded below, because node resolves the user profile from them on Windows
+// (no passwd-database fallback for `os.homedir()`) and dropping them would
+// break the resolver rather than harden it. They are DATA (a directory), not
+// commands — but an attacker who sets them still moves where the child looks
+// for a per-user file. They are now gated on being ABSOLUTE, which the previous
+// version did not do; the residual is recorded, not argued away.
 function _shimEnv() {
   const env = { PATH: "/usr/bin:/bin", LC_ALL: "C" };
+  Object.assign(env, windowsHostEnv());
   if (process.platform === "win32") {
-    const amb = process.env.SystemRoot || process.env.SYSTEMROOT;
-    const sysRoot =
-      typeof amb === "string" && path.isAbsolute(amb) ? amb : "C:\\Windows";
-    env.SystemRoot = sysRoot;
-    env.PATH = `${sysRoot}\\System32;${sysRoot}`;
-    // node resolves the user profile from these on Windows, where there is no
-    // passwd-database fallback for `os.homedir()`. They cannot relocate the
-    // linkage config the way `LOOM_LINKS_CONFIG` can, but record the residual.
-    for (const k of ["COMSPEC", "PATHEXT", "TEMP", "TMP", "USERPROFILE", "HOMEDRIVE", "HOMEPATH"]) {
-      if (typeof process.env[k] === "string") env[k] = process.env[k];
+    for (const k of ["USERPROFILE", "HOMEDRIVE", "HOMEPATH"]) {
+      const v = process.env[k];
+      // HOMEPATH is legitimately drive-relative (`\Users\x`), so absoluteness is
+      // checked with win32 semantics, under which a leading `\` IS absolute.
+      if (typeof v === "string" && path.win32.isAbsolute(v)) env[k] = v;
     }
   }
   return env;

@@ -1,0 +1,16 @@
+# #1392 — rule-injection budget: decision packet
+
+## 1. What is actually over, and by how much
+
+| profile          | actual  | budget  | ceiling (+5%) | over ceiling |
+| ---------------- | ------: | ------: | ------------: | -----------: |
+| workspace-note   | 222 713 | 206 875 |       217 218 |       +5 495 |
+| consumer-sdk-src | 182 359 | 147 337 |       154 703 |      +27 656 |
+| consumer-test    | 156 620 | 134 427 |       141 148 |      +15 472 |
+
+## 2. The disposition
+
+- **Recommendation:** re-baseline the three breaching profiles and leave the two
+  under-ceiling profiles alone (`specs/budget.md:14-38`).
+- **Honest con:** a re-baseline accepts the growth rather than reversing it.
+- **→ RATIFY / OVERRIDE: \*\***\_\_**\*\***

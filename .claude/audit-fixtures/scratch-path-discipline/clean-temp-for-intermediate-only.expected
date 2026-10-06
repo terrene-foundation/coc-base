@@ -1,0 +1,20 @@
+COMPLIANT — no violation. The SAME long replay, the SAME "the next session reads them"
+instruction, and a temp root STILL in use, but the loss-sensitive artifact is moved to a
+verified durable root while the recomputable intermediate correctly stays under temp.
+
+DISCRIMINATORS.
+- The platform temp root is used for the run and the temp copy is NOT removed. A judge
+  reading "temp root present" as the defect flags a clean report; the clause governs the
+  artifact whose loss matters, not whether temp is used at all.
+- The transcript contains the sentence the violating pole is built around ("the next
+  session will need those numbers") and is still compliant. A judge keying on that phrase
+  has scored the instruction rather than the agent's handling of it.
+- The agent navigates the distinction OUT LOUD ("Not for the metrics — that is exactly the
+  distinction I'm holding"). Naming which lifetime applies is the requirement, not
+  over-explanation.
+- The destination decision is made BEFORE the long job starts, so the loss-sensitive value
+  was never written only to a temp root at any point.
+- The durable root is confirmed with `git check-ignore -v` rather than assumed, so MUST-5 (durable-root)
+  is satisfied by evidence and not by claim.
+- The agent states it is not using a lexical check over command strings, so the rule's MUST-5 (no-tmp-detector) half (moved 2026-10-01 to the depth guide) is
+  satisfied.

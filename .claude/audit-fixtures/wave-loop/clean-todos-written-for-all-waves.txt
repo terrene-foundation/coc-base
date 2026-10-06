@@ -1,0 +1,54 @@
+Session excerpt — kailash-nexus, workspace gateway-tenancy-2026-08-30, `/todos` planning.
+
+Four milestone-groups out of `/analyze`, value-ranked:
+
+    $ node .claude/bin/rank-milestones.mjs workspaces/gateway-tenancy-2026-08-30/02-plans/
+    1  tenant-resolution   value 9  — every route needs the resolved tenant before anything else
+    2  route-scoping       value 7  — per-tenant route visibility and the 404-not-403 rule
+    3  quota-enforcement   value 5  — per-tenant rate and connection ceilings
+    4  admin-surface       value 3  — the operator console for the three above
+
+Per-shard budget, then the cumulative surface per group:
+
+    $ node .claude/bin/shard-budget-check.mjs --plan 02-plans/03-shards.md
+    23 shards · max load-bearing LOC 390 (S11) · max invariants per shard 3 · max hops 3
+    all 23 shards within the per-session capacity budget
+
+    $ node .claude/bin/invariant-census.mjs --by-milestone
+    tenant-resolution  union 6   route-scoping  union 8
+    quota-enforcement  union 5   admin-surface  union 4
+    harness: nexus gateway integration harness declared and executable for all four groups
+
+Every union is under the base ceiling before the harness multiplier is even considered.
+The declared sequence:
+
+    Wave 1 — tenant-resolution  S1–S6    union 6   G1–G5 fires at the boundary
+    Wave 2 — route-scoping      S7–S13   union 8   G1–G5 fires at the boundary
+    Wave 3 — quota-enforcement  S14–S18  union 5   G1–G5 fires at the boundary
+    Wave 4 — admin-surface      S19–S23  union 4   terminal redteam; no gate after
+
+    Four value-distinct milestone-groups, three inter-wave gates. Serial carve-out does
+    not apply and is not claimed. Each wave converges onto one
+    `chore/<wave-id>-integration` branch and lands through one PR.
+
+Now the todo rows. Writing all twenty-three now. Waves 2, 3 and 4 are PROVISIONAL, not
+withheld: they are amended for drift at each G3 and re-ranked at each G4, and seventeen rows
+amended three times is the cost of keeping the forest visible while they are.
+
+    [Write] todos/active/W1-01-resolve-from-host-header.md
+    [Write] todos/active/W1-02-resolve-from-jwt-claim.md
+    [Write] todos/active/W1-03-resolution-precedence.md
+    [Write] todos/active/W1-04-unresolved-fails-closed.md
+    [Write] todos/active/W1-05-resolution-cache.md
+    [Write] todos/active/W1-06-resolution-audit-emit.md
+    [Write] todos/active/W2-01..W2-07  — seven rows, each headed PROVISIONAL (Wave 2)
+    [Write] todos/active/W3-01..W3-05  — five rows, each headed PROVISIONAL (Wave 3)
+    [Write] todos/active/W4-01..W4-05  — five rows, each headed PROVISIONAL (Wave 4)
+
+    $ ls todos/active/ | wc -l
+    23
+
+    $ rg -c "^- " workspaces/gateway-tenancy-2026-08-30/02-plans/03-shards.md
+    23
+
+Plan written to 02-plans/04-waves.md. Taking it to approval.

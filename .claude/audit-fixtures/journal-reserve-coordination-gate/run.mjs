@@ -4,11 +4,16 @@
  * the failure its own fix re-opened one path over.
  *
  * WHAT IS UNDER TEST. `journal-reserve.js::reserveJournalSlotSigned` gates
- * `requireSigningIdentity` on
+ * `requireSigningIdentity` AND the signed record on
  *
- *     isCoordinationEnabled(resolveMainCheckout(repoDir) || repoDir)
+ *     isGovernanceEnabled(requireMainCheckout(repoDir).repoDir)
  *
- * and BOTH halves of that expression are load-bearing:
+ * — GOVERNANCE since 2026-09-12 (W5a; the `governance-on-solo/*` cases below
+ * record why: a coordination-keyed gate emitted NO record on an enrolled-solo
+ * repo and the same slot was issued twice). The cases below were written when
+ * the predicate was `isCoordinationEnabled`; their properties carry over
+ * unchanged because governance is ON wherever coordination is. BOTH halves of
+ * the expression are load-bearing:
  *
  *   - WITHOUT the gate at all (`requireSigningIdentity` hard-true): a
  *     coordination-OFF repo cannot satisfy /codify's mandatory journal receipt,
@@ -48,6 +53,7 @@
  * Each case names the mutation that reds it (`instrument-discipline.md`
  * MUST-2(b)); the mutations are recorded as measured in README.md.
  */
+import "../_lib/no-ambient-git.cjs";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -92,7 +98,7 @@ function git(cwd, args) {
  * and optionally add a real worktree. Returns the path the caller should treat
  * as `repoDir`.
  */
-function makeRepo({ coordinationOn, withWorktree }) {
+function makeRepo({ coordinationOn, withWorktree, rosterCommitted }) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "jrcg-"));
   const main = path.join(root, "main");
   fs.mkdirSync(main, { recursive: true });
@@ -100,6 +106,18 @@ function makeRepo({ coordinationOn, withWorktree }) {
   fs.mkdirSync(path.join(main, "journal"), { recursive: true });
   fs.writeFileSync(path.join(main, "journal", ".keep"), "");
   fs.writeFileSync(path.join(main, "README.md"), "fixture\n");
+  // `rosterCommitted` writes the roster BEFORE the first commit, so it is a
+  // TRACKED file every worktree inherits — the real shape of an enrolled repo,
+  // as opposed to `roster`/`rosterOnMain` below, which model a roster that is
+  // absent from, or different on, a worktree's branch.
+  if (rosterCommitted !== undefined) {
+    fs.mkdirSync(path.join(main, ".claude"), { recursive: true });
+    fs.writeFileSync(
+      path.join(main, ".claude", "operators.roster.json"),
+      rosterCommitted,
+      "utf8",
+    );
+  }
   git(main, ["add", "-A"]);
   git(main, ["commit", "-q", "-m", "init"]);
 
@@ -197,10 +215,67 @@ function reserve(repoDir, opts) {
     // (it wants `{lastSeq, lastContentHash}`), so `chainHead.lastSeq + 1` was
     // NaN and canonical-serialize refused. It went unnoticed because no case
     // in this file reached the emitter until the roster cases were added.
-    readChainHead: () => null,
-    append: () => ({ ok: true }),
+    //
+    // `realAppend` swaps BOTH stubs for the real chain: the default chain-head
+    // read and `coc-emit.js::_defaultAppend`, which writes the line to
+    // `resolveLogPath(repoDir)` — the SAME file `_foldHighWater` reads. Injecting
+    // it (rather than omitting `append`) keeps coc-emit's fold-validation off,
+    // which would otherwise verify the stub signature and refuse; the record
+    // still lands byte-for-byte where the high-water looks for it.
+    ...(o.realAppend
+      ? {
+          append: (dir, record) =>
+            require(path.join(LIB, "coc-emit.js"))._defaultAppend(dir, record),
+        }
+      : { readChainHead: () => null, append: () => ({ ok: true }) }),
     ...(o.sign ? { sign: o.sign } : {}),
   });
+}
+
+// An ENROLLED-SOLO roster: genesis anchored, exactly ONE human binding. This is
+// the shape canon loom itself carries, and the shape on which
+// `coordination-mode.js::coordinationMode` resolves OFF
+// (`implicit-solo-single-operator`, loom#1890) while `governanceMode` resolves
+// ON (`enrolled-solo`). Keys are `{fingerprint}` objects so `_resolveRosterPerson`
+// resolves the reserving signer (see `roster/valid-roster-proceeds`).
+const ENROLLED_SOLO_ROSTER = JSON.stringify({
+  genesis: {
+    repo_owner: "fixture-owner",
+    repo_owner_kind: "user",
+    root_commit: "1234abcd",
+    genesis_generation: 1,
+  },
+  persons: {
+    "fixture-person": {
+      display_id: "fixture-op",
+      host_role: "human",
+      github_login: "fixture-login",
+      keys: [{ type: "ssh", fingerprint: "FIXTUREKEYFINGERPRINT" }],
+    },
+  },
+});
+
+function readLogRecords(repoDir) {
+  const { resolveLogPath } = require(path.join(LIB, "state-io.js"));
+  let raw = "";
+  try {
+    raw = fs.readFileSync(resolveLogPath(repoDir), "utf8");
+  } catch (err) {
+    if (!err || err.code !== "ENOENT") throw err;
+  }
+  return raw
+    .split("\n")
+    .filter(Boolean)
+    .map((l) => JSON.parse(l));
+}
+
+function modeOf(repoDir) {
+  const cm = require(path.join(LIB, "coordination-mode.js"));
+  cm._resetCache();
+  return {
+    coordination: cm.coordinationMode(repoDir).source,
+    governance: cm.governanceMode(repoDir).source,
+  };
 }
 
 const cases = [
@@ -225,7 +300,7 @@ const cases = [
     // is simplified back to `repoDir`.
     name: "coordination-on/worktree/resolves-main-not-worktree",
     mutation:
-      "journal-reserve.js — replace `isCoordinationEnabled(resolveMainCheckout(repoDir) || repoDir)` with `isCoordinationEnabled(repoDir)`",
+      "journal-reserve.js — replace `isGovernanceEnabled(mainRes.repoDir)` with `isGovernanceEnabled(repoDir)` (read the verdict against the worktree)",
     setup: { coordinationOn: true, withWorktree: true },
     expect: (r) => r.ok === false && r.step === "reserve",
     describe:
@@ -642,6 +717,177 @@ cases.push({
     'ok === false AND step === "fold-high-water" (a roster that resolves the FINGERPRINT but not the PERSON still loses the reservation)',
 });
 
+// ---------------------------------------------------------------------------
+// The reservation RECORD on an enrolled-SOLO repo (W5a, 2026-09-12)
+// ---------------------------------------------------------------------------
+
+cases.push({
+  // TODAY'S FAILURE MODE, REPRODUCED. On canon loom — enrolled, one human —
+  // `coordinationMode` resolves OFF (`implicit-solo-single-operator`, loom#1890),
+  // and `reserveJournalSlotSigned` gated its record on that verdict. It took the
+  // coordination-disabled early return: `{ok:true, record:null}`. With no record,
+  // the fold high-water never learns the slot, and the ONLY surviving high-water
+  // is the DISK scan of whichever tree the caller stands in. So a slot reserved
+  // from a worktree whose entry has not yet reached main is handed out AGAIN from
+  // main. Measured on the real repo: slot 0606 issued twice within an hour, with
+  // the log's newest `journal-slot-reservation` at 2026-08-20 — the day before
+  // the solo floor landed (134322860, 2026-08-21).
+  //
+  // "One human" says nothing about how many LANES reserve concurrently: the
+  // collision is between the operator's own worktrees, which is exactly the
+  // population the fold half of the high-water exists for. The record is emitted
+  // on GOVERNANCE (enrolled), the same re-key `codify-lease.js` took on
+  // 2026-08-29 for the same class of defect.
+  //
+  // The case drives the SHAPE of the incident, not a proxy for it: reserve from a
+  // WORKTREE (its entry never reaches main's disk), then reserve from MAIN. The
+  // second MUST NOT reuse the first's slot, and the first's record MUST be in the
+  // very log `_foldHighWater` reads, carrying its slot and seq.
+  name: "governance-on-solo/record-lands-where-the-high-water-reads-and-main-does-not-reissue-the-worktree-slot",
+  mutation:
+    "journal-reserve.js::reserveJournalSlotSigned — gate the record on `isCoordinationEnabled` again (the pre-fix predicate); r1 returns record:null and main reissues slot 0001",
+  setup: { coordinationOn: false, withWorktree: true, rosterCommitted: ENROLLED_SOLO_ROSTER },
+  run: (made) => {
+    const main = path.join(made.root, "main");
+    const opts = { identity: SIGNED_IDENTITY, sign: STUB_SIGN, realAppend: true };
+    const mode = modeOf(main);
+    const r1 = reserve(made.repoDir, opts); // from the WORKTREE
+    const r2 = reserve(main, opts); // from MAIN, whose disk never saw r1's entry
+    const log = readLogRecords(main).filter((x) => x.type === "journal-slot-reservation");
+    return { mode, r1, r2, log };
+  },
+  expect: ({ mode, r1, r2, log }) =>
+    // Reach proof: the fixture really is enrolled-SOLO, i.e. the verdicts the
+    // real repo carries. Without this the case could pass on a coordination-ON
+    // fixture that never exercised the defect.
+    mode.coordination === "implicit-solo-single-operator" &&
+    mode.governance === "enrolled-solo" &&
+    r1.ok === true &&
+    !!r1.record &&
+    r1.record.content.slot === "0001" &&
+    log.some(
+      (x) =>
+        x.content.slot === r1.record.content.slot &&
+        x.seq === r1.record.seq &&
+        x.verified_id === r1.record.verified_id,
+    ) &&
+    r2.ok === true &&
+    r2.reservation.slot === "0002" &&
+    !!r2.record &&
+    r2.record.seq === r1.record.seq + 1 &&
+    log.length === 2,
+  describe:
+    'enrolled-solo fixture; worktree reservation lands (slot 0001 + seq present in resolveLogPath(main)); MAIN then gets "0002", never a reissued "0001"',
+});
+
+cases.push({
+  // THE DEGRADED POLARITY WHERE THE RECORD CANNOT LAND. Governance is ON, so the
+  // record is owed; the signer refuses. The reservation MUST NOT come back
+  // `ok:true` — a slot whose record did not land is exactly the disk-only slot
+  // the incident reissued. It returns `ok:false` at `emit:sign` AND a top-level
+  // typed `degraded` carrying `codify-lease.js::_describeRecordEmitFailure`'s
+  // field names, so a caller that reads only the top level still sees WHICH
+  // capability is absent.
+  //
+  // Pre-fix this case is RED for the incident's reason: coordination OFF skipped
+  // the emit entirely, so a signer that would have refused was never even asked.
+  name: "governance-on-solo/emit-failure-is-typed-degraded-and-never-ok",
+  mutation:
+    "journal-reserve.js::reserveJournalSlotSigned — drop `degraded` from the emit-failure return (or return ok:true with record:null there)",
+  setup: { coordinationOn: false, withWorktree: false, rosterCommitted: ENROLLED_SOLO_ROSTER },
+  identity: SIGNED_IDENTITY,
+  sign: () => ({ ok: false, error: "fixture signer refused", reason: "fixture: no key" }),
+  realAppend: true,
+  expect: (r) =>
+    r.ok !== true &&
+    r.step === "emit:sign" &&
+    !!r.degraded &&
+    r.degraded.record_type === "journal-slot-reservation" &&
+    r.degraded.step === "emit:sign" &&
+    r.degraded.reason === "fixture: no key" &&
+    typeof r.degraded.capability === "string" &&
+    typeof r.degraded.impact === "string" &&
+    Array.isArray(r.degraded.content_bytes_by_field) &&
+    !!r.reservation,
+  describe:
+    'ok !== true AND step === "emit:sign" AND a typed degraded {record_type, step, reason, capability, impact, content_bytes_by_field}',
+});
+
+cases.push({
+  // THE OTHER RECORD-LESS SHAPE, which stays `ok:true` for issue #76 and is
+  // therefore the one that must carry its own typed signal. A genuinely
+  // UNENROLLED repo (no roster, `governanceMode` → `not-enrolled`) has no trust
+  // root and usually no signing key, so /codify's mandatory journal receipt has
+  // to remain satisfiable — but the slot it gets is DISK-LOCAL, and a second
+  // worktree can be issued the same one. Returning that as a bare
+  // `{ok:true, record:null}` is the silent shape the incident rode on; it now
+  // carries `degraded` with `reason: "governance-disabled"` and
+  // `structural: true` (it will be identical on every retry).
+  name: "governance-off/record-less-reservation-carries-a-typed-degraded",
+  mutation:
+    "journal-reserve.js::reserveJournalSlotSigned — return the governance-off result without `degraded` (the pre-fix bare `{ok:true, record:null}`)",
+  setup: { coordinationOn: false, withWorktree: false },
+  expect: (r) =>
+    r.ok === true &&
+    r.record === null &&
+    r.record_emit &&
+    r.record_emit.emitted === false &&
+    r.record_emit.reason === "governance-disabled" &&
+    !!r.degraded &&
+    r.degraded.reason === "governance-disabled" &&
+    r.degraded.structural === true &&
+    r.degraded.record_type === "journal-slot-reservation",
+  describe:
+    'ok === true AND record === null AND degraded.reason === "governance-disabled" (structural) — never a bare record-less success',
+});
+
+cases.push({
+  // THE UNREADABLE-BUT-PRESENT ARM, and the reason it is added HERE rather than
+  // only at the guard: as of 2026-09-12 this read is no longer written out in
+  // `_foldHighWater` at all — both it and `journal-write-guard.js` call
+  // `coordination-log.js::loadFoldRoster`, because the two used to hold OPPOSITE
+  // dispositions about the same bytes (the allocator refused; the guard's
+  // `catch { return null; }` swallowed the failure and then reported the slot
+  // UNRESERVED, which is halt-and-report, i.e. the write LANDED).
+  //
+  // A roster that is a DIRECTORY reads EISDIR — a failure that is neither ENOENT
+  // nor a parse error, so it exercises the loader arm the corrupt-bytes and
+  // absent cases above cannot reach. Signing is satisfied and emission stubbed,
+  // exactly as `roster/corrupt-roster-…` does, so the fold read is the only
+  // thing that can refuse.
+  name: "roster/unreadable-roster-refuses-at-the-shared-loader",
+  mutation:
+    "coordination-log.js::loadFoldRoster — treat every read failure as ENOENT (return {ok:true, roster:null, present:false}), restoring the swallow for BOTH callers at once",
+  setup: { coordinationOn: false, withWorktree: false },
+  seedSlots: ["0007"],
+  identity: SIGNED_IDENTITY,
+  sign: STUB_SIGN,
+  run: (made) => {
+    const rosterPath = path.join(
+      made.repoDir,
+      ".claude",
+      "operators.roster.json",
+    );
+    fs.mkdirSync(rosterPath, { recursive: true }); // readFileSync ⇒ EISDIR
+    return reserve(made.repoDir, {
+      identity: SIGNED_IDENTITY,
+      sign: STUB_SIGN,
+    });
+  },
+  // ASSERTS THE STEP AND THE PATH. `ok === false` alone is consistent with a
+  // refusal further downstream for an unrelated reason (the lesson the
+  // `roster/null-…` cases above record); `step` pins the fold read, and naming
+  // the roster file pins that the refusal is ACTIONABLE — the pre-loader code
+  // rethrew a bare errno carrying no path at all.
+  expect: (r) =>
+    r.ok === false &&
+    r.step === "fold-high-water" &&
+    typeof r.reason === "string" &&
+    r.reason.includes("operators.roster.json"),
+  describe:
+    'ok === false AND step === "fold-high-water" AND the reason names operators.roster.json (an EISDIR roster is UNKNOWN, not absent)',
+});
+
 let failed = 0;
 for (const c of cases) {
   let made = null;
@@ -687,7 +933,13 @@ for (const c of cases) {
     if (c.forceSkipSign) process.env.COC_TEST_SKIP_SIGN = "1";
     let r;
     try {
-      r = reserve(made.repoDir, { identity: c.identity, sign: c.sign });
+      r = c.run
+        ? c.run(made)
+        : reserve(made.repoDir, {
+            identity: c.identity,
+            sign: c.sign,
+            realAppend: c.realAppend,
+          });
     } finally {
       if (c.forceSkipSign) {
         if (prevSkipSign === undefined) delete process.env.COC_TEST_SKIP_SIGN;

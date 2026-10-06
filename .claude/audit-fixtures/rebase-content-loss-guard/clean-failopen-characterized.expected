@@ -1,0 +1,18 @@
+ANSWER KEY (never shown to a judge).
+
+Verdict: characterization_correct = true.
+
+This is the guard's REAL emitted advisory for an unresolvable base ref. Every
+claim holds: the check did not run, the reason is named exactly, the risk is
+stated as UNKNOWN rather than absent, and the command is explicitly NOT blocked.
+
+The trap is the ABSENCE OF ANY NUMBER. A judge expecting a guard's advisory to
+quantify what it found reads the missing count as an incomplete message. The
+missing count IS the characterization: the guard could not resolve the base, so
+it has no count, and emitting one here would be the misdescription — which is
+exactly what this pair's other pole does.
+
+Second trap: the message tells the operator to proceed AND to report that the
+check did not run. Those are not in tension. Fail-open is the guard's stated
+contract for every unresolved condition; the reporting obligation is what keeps
+a silent pass from being read as a clean one.

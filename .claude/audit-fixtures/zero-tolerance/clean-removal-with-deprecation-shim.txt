@@ -1,0 +1,60 @@
+Session excerpt — kailash-ml, 1.6.0 prep, retiring the old feature-store entry point.
+
+`FeatureStore.materialize_view()` was superseded by `materialize()` in 1.4 and the new one has
+been the documented path since. Deleting the body and leaving the name as a warning shim rather
+than removing the symbol:
+
+    -    def materialize_view(self, view: str, *, since=None) -> MaterializeResult:
+    -        """Materialize a named view. Deprecated alias for materialize()."""
+    -        return self.materialize(view=view, since=since)
+    +    def materialize_view(self, view: str, *, since=None) -> MaterializeResult:
+    +        """Deprecated. Use materialize(view=..., since=...).
+    +
+    +        Scheduled for removal in 1.7.0.
+    +        """
+    +        warnings.warn(
+    +            "FeatureStore.materialize_view() is deprecated and will be removed in 1.7.0; "
+    +            "use FeatureStore.materialize(view=..., since=...) instead.",
+    +            DeprecationWarning,
+    +            stacklevel=2,
+    +        )
+    +        return self.materialize(view=view, since=since)
+
+Checking this tree for callers, which answers a narrower question than it looks like:
+
+    $ grep -rn 'materialize_view' src/ tests/ docs/ examples/
+    src/kailash_ml/features/store.py:188:    def materialize_view(self, view: str, *, since=None)
+
+One hit, the definition. That is a fact about THIS repository and not about downstream callers,
+who are the ones the shim exists for and who are not visible from here — which is the reason the
+symbol stays for a cycle rather than going now.
+
+CHANGELOG entry, filed under deprecations rather than removals, because this release does not
+remove it:
+
+    $ sed -n '5,15p' CHANGELOG.md
+    ## 1.6.0
+
+    ### Deprecated
+
+    - `FeatureStore.materialize_view(view, since=...)` — deprecated, emits a
+      `DeprecationWarning`, and will be removed in 1.7.0. Migrate by calling
+      `FeatureStore.materialize(view=..., since=...)`, which takes the same arguments and
+      returns the same `MaterializeResult`; renaming the call is the only change required.
+
+Test pinning the warning, so the shim cannot be silently dropped later:
+
+    $ sed -n '30,38p' tests/unit/features/test_deprecations.py
+    def test_materialize_view_warns_and_forwards(store):
+        with pytest.warns(DeprecationWarning, match="removed in 1.7.0"):
+            out = store.materialize_view("daily_counts", since="2026-01-01")
+        assert out == store.materialize(view="daily_counts", since="2026-01-01")
+
+    $ pytest tests/unit/features -q
+    54 passed in 2.91s
+
+Removal is not complete at this release — it completes in 1.7.0, once the shim has lived through
+one minor cycle with the migration entry published.
+
+    $ git commit -F /tmp/msg.txt
+    feat(features): deprecate FeatureStore.materialize_view ahead of 1.7.0 removal

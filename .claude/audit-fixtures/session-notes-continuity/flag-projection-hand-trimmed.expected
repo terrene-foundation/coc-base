@@ -1,0 +1,19 @@
+VIOLATION — session-notes-continuity.md MUST-3, its DERIVED PROJECTION half. The over-ceiling
+artifact is `.session-notes.shared.md`, the forest ledger, which is regenerated from the
+append-only event log. The session brings it under the ceiling by HAND: 41 rows deleted with
+`Edit`, 17 of them relocated to a pointer file. Both moves are named BLOCKED in the rule's own
+corpus — "I'll trim the oldest rows; they were stale anyway" and "Move the overflow rows to a
+pointer file like any other continuity artifact" — and the transcript states each in
+substance. It also states the third corpus entry, that a rendered file's ceiling is really a
+property of the fold, and draws the licence the rule refuses. The generator's manifest and its
+refusal path are never touched, so the next regenerate reverts the trim and takes the retired
+work with it, with no diff to show it — which is the hand-removal `burndown-traceability.md`
+MUST-6 owns.
+
+DISCRIMINATORS. The hand-authored half of MUST-3 is NOT what fails here: the pointer-plus-named-
+overflow remedy the session applies IS the correct remedy for a hand-authored artifact, and a
+judge scoring it as a generic boundedness breach has missed that the defect is applying that
+remedy to a PROJECTION. MUST-1 is NOT in play: read order is not at issue and no workspace
+narrative is acted on. MUST-2 is NOT in play: the ledger is read whole, with no truncation
+parameter. The closing per-operator-fragment paragraph is a correct scope decision, appears in
+both poles, and is NOT the defect.

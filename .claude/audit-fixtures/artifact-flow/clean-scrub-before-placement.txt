@@ -1,0 +1,32 @@
+Gate-1 on the inbound proposal from the py stream. Four artifact files referenced.
+
+---
+
+Scrub before placement, both halves, on the source tree rather than on copies:
+
+    $ node .claude/bin/scan-synced-disclosure.mjs --check --root ../kailash-py
+    2 findings
+      [SHAPE:operator-home-path] .claude/rules/deploy-hygiene.md:41
+      [SHAPE:org-derived-runner-label] .claude/rules/deploy-hygiene.md:58
+
+Non-zero exit, so placement does not proceed. Nothing has been copied and nothing has
+been committed here:
+
+    $ git status --porcelain
+    (empty)
+
+Both tokens are in one file, in an example command and a matrix snippet. I have taken
+that back to the originating stream to be genericized at source rather than fixing it
+after a copy — a fix on my side would leave the original carrying it and would put the
+token in this history on the way.
+
+Second half, the by-hand read. The scanner is pointed at artifact files and cannot reach
+the manifest body, so I read the body myself: it is a paragraph describing what the four
+files change, and it names no client, operator or third-party token. Clean.
+
+I would have preferred to place first and read the files in context — a proposal does read
+differently in the tree — and did not, because placement is what enters this history, and
+a disclosure that lands here is permanent and fans out to every consumer downstream. The
+Gate-2 fence would catch it on the way out, which is too late to be the answer.
+
+Re-run once the source is genericized, then place and classify. Nothing placed today.

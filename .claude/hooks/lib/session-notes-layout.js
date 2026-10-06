@@ -44,7 +44,29 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const { execFileSync, spawnSync } = require("child_process");
+const { resolveGitBinary, gitEnv } = require("./git-subprocess-env.js");
 const { parseLedger } = require("./coc-ledger.js");
+// A2 — the LOG this file is now the projection OF. `foldProjection` is imported
+// rather than re-implemented so the C5 weight fence (a migration_baseline event
+// never overwrites a live one) is applied by ONE walker; a second fold here would
+// be free to disagree about which event wins, which is precisely the drift the
+// log/projection split exists to remove.
+// `KINDS` is imported rather than restated: the narrowing validates a declared
+// kind against the schema's CLOSED set, and a second copy here would drift the
+// first time a kind is added — accepting a kind the fold cannot produce, or
+// refusing one it can.
+// `statusKey` is imported for the same reason: `exclude_statuses` compares a
+// manifest-declared status against a PROJECTED one, and the projection's own fence
+// (`projectStatus`) already normalizes with it. Comparing by raw equality here would
+// let `"Signed off "` and `"Signed off"` — indistinguishable in a rendered GFM cell —
+// take different branches in the two places that read the same value.
+const {
+  EVENTS_REL,
+  foldProjection,
+  KINDS,
+  statusKey,
+  partitionSkips,
+} = require("./burndown-events.js");
 
 const FRAGMENT_DIR_NAME = ".session-notes.d";
 const SHARED_LEDGER_NAME = ".session-notes.shared.md";
@@ -353,7 +375,7 @@ function writeReconciledFragment(baseDir, identity, content, sha) {
         "sha must be a 7–40 hex-char git object id (the last_reconciled_sha lag anchor)",
     };
   }
-  const body = _buildFragmentBody(sha.trim(), content, {});
+  const body = _buildFragmentBody(sha.trim(), content, { identity });
   const result = writePerOperatorFragment(baseDir, identity, body);
   if (!result.ok) return { ...result };
   return { ...result, sha: sha.trim() };
@@ -427,6 +449,160 @@ function ensureForestLedger(baseDir) {
 }
 
 /**
+ * Locate the ledger TABLE inside the shared-ledger text.
+ *
+ * Mirrors `burndown-build.mjs::parseLedger`'s discipline deliberately, because the
+ * two must agree by construction: that file is the gate that decides whether a row
+ * is reachable, and a writer that inserts where the gate does not read produces
+ * rows that render to a human and resolve for nobody.
+ *
+ *   - FENCED CODE IS NOT LEDGER. A `| … id … |` header inside a ```-fence renders to
+ *     a human as a DOCUMENTATION EXAMPLE; the gate skips fences, so this must too.
+ *   - EVERY candidate, not the first. Two candidate tables is an AMBIGUITY, and the
+ *     gate REFUSES rather than picking. A writer that picked would append into a
+ *     table the gate does not read.
+ *   - By header NAME, never by column position — the `coc-ledger` merge driver is
+ *     entitled to reorder columns.
+ *
+ * Returns `{ok:true, headerAt, cols, idAt, lastRowAt, rows:Map<id,lineIdx>}` or
+ * `{ok:false, kind}` with `kind` ∈ `"none" | "ambiguous"`.
+ */
+function _locateLedgerTable(text) {
+  const lines = String(text || "").split(/\r?\n/);
+
+  const inFence = new Array(lines.length).fill(false);
+  {
+    let fence = null;
+    for (let i = 0; i < lines.length; i++) {
+      const m = lines[i].match(/^\s*(`{3,}|~{3,})/);
+      if (fence === null && m) {
+        fence = m[1][0];
+        inFence[i] = true;
+        continue;
+      }
+      if (fence !== null) {
+        inFence[i] = true;
+        if (m && m[1][0] === fence) fence = null;
+      }
+    }
+  }
+
+  const candidates = [];
+  for (let i = 0; i < lines.length - 1; i++) {
+    if (inFence[i] || !/^\s*\|/.test(lines[i])) continue;
+    const cols = _splitLedgerRow(lines[i]).map((c) => c.toLowerCase());
+    if (!cols.includes("id")) continue;
+    if (!/^\s*\|[\s:|-]+\|\s*$/.test(lines[i + 1])) continue;
+    candidates.push({ at: i, cols });
+  }
+  if (candidates.length === 0) return { ok: false, kind: "none" };
+  if (candidates.length > 1) return { ok: false, kind: "ambiguous" };
+
+  const headerAt = candidates[0].at;
+  const cols = candidates[0].cols;
+  const idAt = cols.indexOf("id");
+  const rows = new Map();
+  let lastRowAt = headerAt + 1; // the separator; a header-only ledger inserts after it
+  for (let i = headerAt + 2; i < lines.length; i++) {
+    if (!/^\s*\|/.test(lines[i])) {
+      if (lines[i].trim() === "") continue; // a blank line inside the section is not the end
+      break;
+    }
+    lastRowAt = i;
+    const cells = _splitLedgerRow(lines[i]);
+    const id = _stripCellDecoration(cells[idAt]);
+    if (id && !rows.has(id)) rows.set(id, i);
+  }
+  return { ok: true, headerAt, cols, idAt, lastRowAt, rows };
+}
+
+/**
+ * Split a GFM table row on UNESCAPED pipes only — the same rule the gate applies.
+ *
+ * A bare `.split("|")` was the highest-value defeat the gate's parser had: GFM says
+ * `\|` inside a cell renders as a literal pipe and does NOT split the cell, so a
+ * naive split hands the reader a different cell than the reviewer adjudicates. The
+ * writer escapes pipes on the way in (`cell()` below), so it MUST un-escape them the
+ * same way on the way out or an id containing a pipe would never match itself.
+ */
+function _splitLedgerRow(line) {
+  const body = String(line)
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/\|\s*$/, "");
+  const cells = [];
+  let cur = "";
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+    if (ch === "\\" && body[i + 1] === "|") {
+      cur += "|";
+      i++;
+      continue;
+    }
+    if (ch === "|") {
+      cells.push(cur.trim());
+      cur = "";
+      continue;
+    }
+    cur += ch;
+  }
+  cells.push(cur.trim());
+  return cells;
+}
+
+/** Backticks / bold / link syntax are TYPOGRAPHY; the id binds the STRING. */
+function _stripCellDecoration(cell) {
+  let s = (cell || "").trim();
+  s = s.replace(/^\[([^\]]*)\]\([^)]*\)$/, "$1");
+  s = s.replace(/^[*_`]+/, "").replace(/[*_`]+$/, "");
+  return s.trim();
+}
+
+/** Render one ledger row line from its cells. The SINGLE renderer, so the
+ * no-op fast path in `upsertForestLedgerRow` compares like with like. */
+function _renderLedgerRow(id, owner, item, valueAnchor, status) {
+  // Escape pipe chars to avoid breaking the markdown table parse on
+  // either the merge driver side (coc-ledger.js::parseLedger splits on
+  // `|`) or any other reader. Trailing/leading whitespace is also
+  // stripped — parseLedger trims cells, but defense in depth.
+  //
+  // LINE BREAKS ARE ESCAPED FOR THE SAME REASON, AND ONE MORE. A markdown
+  // table row IS a line: an embedded LF ends the row mid-cell, so the pipe
+  // escape alone left the row-structure half of this contract open. It also
+  // silently unbinds ROWS from LINES, and the whole MUST-3 ceiling is stated
+  // in LINES — `regenerateForestLedger` counts one row as one line, and the
+  // refusal message it prints does that arithmetic out loud. MEASURED before
+  // this escape existed: ten checklist-shaped todos (the
+  // `PostToolUse:TodoWrite` producer sets `item: t.content` VERBATIM, and
+  // `validateEvent` accepts a newline in any field) folded to 268 rows — under
+  // the 277-row ceiling — and rendered 541 LINES, past MUST-3's 300 by 241,
+  // with the generator returning `ok: true`.
+  //
+  // ESCAPE, not REJECT, and the choice is load-bearing. Rejecting a newline at
+  // `validateEvent` would refuse to record an ordinary multi-line todo, and
+  // rejecting one at fold time would take the WHOLE projection unrenderable
+  // over one already-committed event — content loss and a hard stop where the
+  // defect is purely one of presentation. The escape keeps every byte of the
+  // item, on ONE line, visibly escaped.
+  //
+  // HTML COMMENT MARKERS ARE ESCAPED FOR THE LEDGER GRAMMAR. `validate-forest-ledger.mjs` refuses
+  // any ledger line carrying `<!--` or `-->` (a comment hides rows while the text still shows),
+  // and a todo such as "migrate A --> B" reached this renderer verbatim — a generated row the
+  // operator could not fix by hand, since the next regeneration rewrites it
+  // (review-cor-rS-MED-2). In ordinary markdown text a backslash before `!` / `>` renders as the
+  // bare character, so the row reads the same; inside a code span it renders literally.
+  // Not reversed on read — see coc-ledger.js::_splitTableCells for why (same as `\n`).
+  const cell = (s) =>
+    String(s)
+      .replace(/\|/g, "\\|")
+      .replace(/\r\n|\r|\n/g, "\\n")
+      .replace(/<!--/g, "<\\!--")
+      .replace(/-->/g, "--\\>")
+      .trim();
+  return `| ${cell(id)} | ${cell(owner)} | ${cell(item)} | ${cell(valueAnchor)} | ${cell(status)} |`;
+}
+
+/**
  * Append a row to the forest ledger. The row MUST be the markdown
  * table-row form `| id | owner | item | value_anchor | status |`. The
  * helper stamps `owner` from the identity automatically if the caller
@@ -489,12 +665,13 @@ function appendForestLedgerRow(baseDir, identity, row) {
     identity.verified_id ||
     "unknown";
 
-  // Escape pipe chars to avoid breaking the markdown table parse on
-  // either the merge driver side (coc-ledger.js::parseLedger splits on
-  // `|`) or any other reader. Trailing/leading whitespace is also
-  // stripped — parseLedger trims cells, but defense in depth.
-  const cell = (s) => String(s).replace(/\|/g, "\\|").trim();
-  const rowLine = `| ${cell(row.id)} | ${cell(owner)} | ${cell(row.item)} | ${cell(row.value_anchor)} | ${cell(row.status)} |`;
+  const rowLine = _renderLedgerRow(
+    row.id,
+    owner,
+    row.item,
+    row.value_anchor,
+    row.status,
+  );
 
   // Guarded read (R7 MED-1): refuse the append on an oversized/symlinked shared
   // ledger rather than hang inside a synchronous read (teammate-writable path).
@@ -512,16 +689,151 @@ function appendForestLedgerRow(baseDir, identity, row) {
     };
   }
   const current = gLedger.content;
-  // Append AFTER the last existing table row (or after the separator
-  // line if the ledger is header-only). The merge driver tolerates
-  // trailing blank lines, but writing one preserves human-readable
-  // formatting across appends.
-  const trimmed = current.endsWith("\n") ? current : current + "\n";
-  const next = trimmed + rowLine + "\n";
+  // Insert AFTER the last existing table row (or after the separator line if the
+  // ledger is header-only).
+  //
+  // This USED to be a bare append at end-of-file, which is identical whenever the
+  // ledger table is the last content in the file — true of the header-only ledger
+  // this helper creates, and true of the shared ledger today. It is NOT guaranteed:
+  // the moment any prose follows the table, an EOF append lands a `| … |` line
+  // OUTSIDE the table, where `burndown-build.mjs::parseLedger` stops reading. The
+  // gate would then report `LINK-1 no row with ID` for a row plainly present in the
+  // file — a loud failure, but one that sends an operator to grep a ledger that
+  // visibly contains the row. Inserting where the gate READS removes the class.
+  const loc = _locateLedgerTable(current);
+  let next;
+  if (loc.ok) {
+    const lines = current.split(/\r?\n/);
+    lines.splice(loc.lastRowAt + 1, 0, rowLine);
+    next = lines.join("\n");
+  } else {
+    // No locatable table (or an AMBIGUOUS one). Fall back to the historical EOF
+    // append rather than refusing: this helper's contract is to land the row, and
+    // an unlocatable table is a pre-existing condition of the ledger, not of the
+    // row. The gate reports the consequence either way.
+    const trimmed = current.endsWith("\n") ? current : current + "\n";
+    next = trimmed + rowLine + "\n";
+  }
+  if (!next.endsWith("\n")) next += "\n";
   const write = _atomicWrite(ensure.path, next);
   if (!write.ok) return { ...write };
   return {
     ok: true,
+    path: ensure.path,
+    parent_dir_synced: write.parent_dir_synced,
+  };
+}
+
+/**
+ * ID-KEYED UPSERT of a forest-ledger row — the shape a PRODUCER needs, and the
+ * reason `appendForestLedgerRow` alone could not be one.
+ *
+ * MEASURED, not asserted: `burndown-build.mjs::parseLedger` REFUSES a tracker that
+ * "declares ledger row '<id>' more than once" — a duplicate id makes that id's
+ * anchor ambiguous, and a checker picking either would certify a context artifact
+ * the other row does not name. A producer firing on every todo status transition
+ * with an APPEND-ONLY writer would therefore append a second row for the same id on
+ * the first `pending → in_progress` and break the whole 267-item chain. So the
+ * append contract does not fit a producer, and this is the missing half — NOT a
+ * second writer. `appendForestLedgerRow` IS the insert leaf below, which is what
+ * gives that helper the production caller it has never had.
+ *
+ * Three outcomes, and `changed` separates them because a no-op write is not free:
+ * the tracker is a DECLARED burndown source held to `assertCommittedAndUnmodified`,
+ * so any write — even one restoring identical bytes — would be a modification
+ * against HEAD that takes the generator UNRUNNABLE. Re-rendering an unchanged row
+ * MUST therefore be a genuine no-op that touches no file.
+ *
+ *   { ok:true, changed:false, action:"unchanged" }  — byte-identical row present
+ *   { ok:true, changed:true,  action:"updated" }    — row present, cells differed
+ *   { ok:true, changed:true,  action:"inserted" }   — row absent
+ *
+ * @param {string} baseDir
+ * @param {{display_id?:string, person_id?:string, verified_id?:string}} identity
+ * @param {{id:string, item:string, value_anchor:string, status:string, owner?:string}} row
+ */
+function upsertForestLedgerRow(baseDir, identity, row) {
+  if (
+    !row ||
+    typeof row !== "object" ||
+    typeof row.id !== "string" ||
+    !row.id ||
+    typeof row.item !== "string" ||
+    typeof row.value_anchor !== "string" ||
+    typeof row.status !== "string"
+  ) {
+    return {
+      ok: false,
+      error: "invalid row",
+      reason:
+        "row must carry non-empty string id and string item/value_anchor/status",
+    };
+  }
+
+  const ensure = ensureForestLedger(baseDir);
+  if (!ensure.ok) return { ...ensure };
+
+  const gLedger = _readNotesFileGuarded(ensure.path);
+  if (!gLedger.ok) {
+    return {
+      ok: false,
+      error: "ledger read failed",
+      reason:
+        gLedger.kind === "oversize"
+          ? `ledger exceeds ${NOTES_READ_CAP_BYTES} bytes (${gLedger.size}); refusing upsert`
+          : gLedger.err && gLedger.err.message
+            ? gLedger.err.message
+            : gLedger.kind,
+    };
+  }
+
+  const current = gLedger.content;
+  const loc = _locateLedgerTable(current);
+  // AMBIGUOUS is a REFUSAL, not a fall-through to append. Which table is THE ledger
+  // would then be decided by position, so a table added above the real one silently
+  // becomes the one this producer writes into. The gate refuses the same input for
+  // the same reason; a writer that guessed where the reader refuses is worse than
+  // one that stops.
+  if (!loc.ok && loc.kind === "ambiguous") {
+    return {
+      ok: false,
+      error: "ambiguous ledger",
+      reason: `${ensure.path} carries more than one candidate ledger table; refusing to guess which is authoritative`,
+    };
+  }
+
+  const owner =
+    (typeof row.owner === "string" && row.owner) ||
+    (identity &&
+      (identity.display_id || identity.person_id || identity.verified_id)) ||
+    "unknown";
+  const rowLine = _renderLedgerRow(
+    row.id,
+    owner,
+    row.item,
+    row.value_anchor,
+    row.status,
+  );
+
+  const at = loc.ok ? loc.rows.get(row.id) : undefined;
+  if (at === undefined) {
+    const res = appendForestLedgerRow(baseDir, identity, row);
+    return res.ok ? { ...res, changed: true, action: "inserted" } : res;
+  }
+
+  const lines = current.split(/\r?\n/);
+  if (lines[at] === rowLine) {
+    return { ok: true, changed: false, action: "unchanged", path: ensure.path };
+  }
+  lines[at] = rowLine;
+  let next = lines.join("\n");
+  if (!next.endsWith("\n")) next += "\n";
+  const write = _atomicWrite(ensure.path, next);
+  if (!write.ok) return { ...write };
+  return {
+    ok: true,
+    changed: true,
+    action: "updated",
     path: ensure.path,
     parent_dir_synced: write.parent_dir_synced,
   };
@@ -542,13 +854,22 @@ function _normalizeLineEndings(s) {
 // git failure (no repo, no commits, git absent) — a MISSING stamp is NOT an
 // error (I10: the incorporation guard treats absent last_reconciled_sha as
 // "coherent", suppressing the session-one advisory). Never throws.
+// loom#1471 (s49). LOCAL profile — `rev-parse HEAD` against a repository
+// already on disk. An ambient `GIT_DIR` outranked `cwd`, so the SHA stamped as
+// `last_reconciled_sha` was the DECOY repository's HEAD; the incorporation
+// guard then measured the operator's notes against a foreign commit.
 function _gitHead(baseDir) {
+  const gitBin = resolveGitBinary();
+  // Rule 7 fail-OPEN, and already this function's contract: a MISSING stamp is
+  // not an error (see the note above).
+  if (!gitBin) return null;
   try {
-    const out = execFileSync("git", ["rev-parse", "HEAD"], {
+    const out = execFileSync(gitBin, ["rev-parse", "HEAD"], {
       cwd: baseDir,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 4000,
+      env: gitEnv(),
     }).trim();
     return out || null;
   } catch {
@@ -573,9 +894,58 @@ function _buildFragmentBody(sha, content, opts) {
     "---",
     `last_reconciled_sha: ${sha || ""}`,
   ];
+  // knowledge-convergence.md Rule 1: the FILENAME is advisory signage; the
+  // frontmatter is the authoritative attribution surface. `display_id`
+  // collisions are explicitly harmless (multi-operator-coordination.md §1),
+  // so a filename-derived identity is an index key the corpus permits to be
+  // ambiguous. Stamping person_id + verified_id makes the fragment
+  // self-describing and survives copy/rename/migration. Emitted ONLY when an
+  // identity is supplied, so callers that pass none keep byte-identical
+  // output (backward compatible with pre-existing fragments).
+  const id = o.identity;
+  if (id && typeof id === "object") {
+    if (typeof id.person_id === "string" && id.person_id) {
+      meta.push(`person_id: ${id.person_id}`);
+    }
+    if (typeof id.verified_id === "string" && id.verified_id) {
+      meta.push(`verified_id: ${id.verified_id}`);
+    }
+    if (typeof id.display_id === "string" && id.display_id) {
+      meta.push(`display_id: ${id.display_id}`);
+    }
+  }
   if (o.migrated) meta.push(`migrated_from: ${MONOLITH_NAME}`);
   meta.push("---", "");
   return meta.join("\n") + "\n" + content;
+}
+
+/**
+ * Read the AUTHORITATIVE operator attribution out of a fragment body.
+ *
+ * knowledge-convergence.md Rule 1 + multi-operator-coordination.md §1:
+ * tooling MUST attribute via `person_id` / `verified_id`, NEVER by stripping
+ * the filename. Returns nulls for a legacy fragment written before the
+ * frontmatter stamp existed, so callers can fall back to the filename for
+ * DISPLAY while never treating that fallback as attribution.
+ *
+ * @param {string} body
+ * @returns {{person_id: string|null, verified_id: string|null, display_id: string|null}}
+ */
+function readFragmentAttribution(body) {
+  const out = { person_id: null, verified_id: null, display_id: null };
+  if (typeof body !== "string") return out;
+  // Only the leading frontmatter block is authoritative — a later `---`
+  // fence in prose must not be read as identity.
+  const start = body.indexOf("\n---\n");
+  if (start === -1) return out;
+  const rest = body.slice(start + 5);
+  const end = rest.indexOf("\n---");
+  const block = end === -1 ? rest : rest.slice(0, end);
+  for (const line of block.split("\n")) {
+    const m = /^(person_id|verified_id|display_id):\s*(.+?)\s*$/.exec(line);
+    if (m) out[m[1]] = m[2];
+  }
+  return out;
 }
 
 // I8 anti-vanish witness: the constructed fragment MUST contain the FULL
@@ -904,7 +1274,10 @@ function migrateMonolithToSplit(baseDir, identity, opts) {
   let mergeNoop = false;
   if (!splitExists && !fragmentExists) {
     mode = "convert";
-    newFragmentBody = _buildFragmentBody(sha, normalized, { migrated: true });
+    newFragmentBody = _buildFragmentBody(sha, normalized, {
+      migrated: true,
+      identity,
+    });
     if (!_fragmentConservesMonolith(newFragmentBody, normalized)) {
       // Anti-vanish (C1.2): leave the monolith UNTOUCHED, refuse loudly.
       return {
@@ -962,7 +1335,7 @@ function migrateMonolithToSplit(baseDir, identity, opts) {
       // injected block inside the appended content is a later, ignored block.
       newFragmentBody =
         existing === ""
-          ? _buildFragmentBody(sha, recovered, { migrated: true })
+          ? _buildFragmentBody(sha, recovered, { migrated: true, identity })
           : existing + recovered;
       if (!newFragmentBody.endsWith(normalized)) {
         return {
@@ -1035,10 +1408,21 @@ function migrateMonolithToSplit(baseDir, identity, opts) {
 //   exit 0   → "ignored"
 //   exit 1   → "not-ignored"
 //   128/else → "error"  (not a git repo / bad invocation / git absent)
+// loom#1471 (s49). LOCAL profile, and the tri-state above is preserved exactly:
+// an unresolved binary is "error", which this module already ranks as ZERO
+// evidence rather than a "tracked" verdict. Same named narrowing as
+// `gitignored-claude-warn.js` — GIT_CONFIG_GLOBAL=/dev/null drops a global
+// `core.excludesFile`, and `check-ignore` cannot use the config profile
+// (outside CONFIG_PROFILE_SUBCOMMANDS; gitConfigInvocation() throws).
 function _gitCheckIgnore(baseDir, name) {
-  const r = spawnSync("git", ["check-ignore", "-q", "--", name], {
+  const gitBin = resolveGitBinary();
+  if (!gitBin) {
+    return { status: "error", code: null, reason: "no git binary resolved" };
+  }
+  const r = spawnSync(gitBin, ["check-ignore", "-q", "--", name], {
     cwd: baseDir,
     timeout: 4000,
+    env: gitEnv(),
   });
   if (r.error) return { status: "error", code: null, reason: r.error.message };
   if (r.status === 0) return { status: "ignored" };
@@ -1131,10 +1515,19 @@ function regenerateAggregate(baseDir) {
     const g = _readNotesFileGuarded(path.join(fragDir, f));
     if (!g.ok) continue;
     const body = g.content;
-    const displayId = f.replace(/\.md$/, "");
-    sections.push(
-      `\n## Fragment — ${displayId}\n\n${body.replace(/\n+$/, "")}\n`,
-    );
+    // knowledge-convergence.md Rule 1: attribute from the FRONTMATTER, never
+    // by stripping the filename. `display_id` collisions are legal
+    // (multi-operator-coordination.md §1), so two humans sharing a handle
+    // land on one filename and a filename-derived heading silently presents
+    // them as one operator. The stem remains the DISPLAY label (it is
+    // signage, and legacy fragments carry no stamp), but the authoritative
+    // person_id is rendered alongside it whenever the fragment declares one.
+    const stem = f.replace(/\.md$/, "");
+    const attr = readFragmentAttribution(body);
+    const label = attr.person_id
+      ? `${attr.display_id || stem} (${attr.person_id})`
+      : stem;
+    sections.push(`\n## Fragment — ${label}\n\n${body.replace(/\n+$/, "")}\n`);
   }
 
   if (fs.existsSync(ledgerPath0(baseDir))) {
@@ -1162,6 +1555,934 @@ function regenerateAggregate(baseDir) {
 // Small helper so regenerateAggregate reads the ledger path once, consistently.
 function ledgerPath0(baseDir) {
   return path.join(baseDir, SHARED_LEDGER_NAME);
+}
+
+// ---- A2: the forest ledger as a DERIVED PROJECTION -------------------------
+//
+// ── WHAT CHANGES, AND WHY IT IS THE SAME FILE ────────────────────────────────
+//
+// `.session-notes.shared.md` was a PROJECTION PRETENDING TO BE A LOG: at once the
+// evidence `burndown-build.mjs --check-links` computes a verified count from, and
+// a live mutable work surface anyone could hand-edit. A2 splits the two — the LOG
+// is `burndown/events.jsonl` (append-only, signed, off the `.session-notes*`
+// namespace per C4) and this file becomes its FOLD, regenerated and never
+// hand-edited.
+//
+// The path does NOT move, and that is forced rather than chosen. MEASURED at this
+// shard's landing: `burndown-build.mjs` line 745 calls
+// `assertCommittedAndUnmodified(repo, trackerRel)` on `manifest.tracker.path`
+// before reading it. So the projection MUST stay TRACKED and COMMITTED — the
+// untracked fold-cache half of C3's disposition would take the gate UNRUNNABLE.
+// That measurement is what decides C3 in `.gitattributes`; it is not a preference.
+//
+// ── WHY A NO-OP MUST TOUCH NO BYTES ──────────────────────────────────────────
+//
+// The same assertion is why `regenerateForestLedger` compares BYTES and returns
+// `changed:false` without writing when the projection is already correct. A write
+// that restored identical content would still be a modification against HEAD, and
+// the gate would refuse from the first regeneration until someone committed —
+// leak T1, reintroduced by the fix for T2. `upsertForestLedgerRow` carries the
+// same discipline for the same reason.
+//
+// ── HOW IT COEXISTS WITH `migrateMonolithToSplit` ────────────────────────────
+//
+// Two migrations now live in this module and neither replaces the other:
+//
+//   `migrateMonolithToSplit`  legacy `.session-notes` MONOLITH → the split.
+//                             Model A: it routes NO rows into the shared ledger;
+//                             it only ENSURES one exists, header-only.
+//   `regenerateForestLedger`  the event LOG → the shared ledger's rows.
+//
+// Their SOURCES are disjoint (a monolith's prose vs the signed log), so they never
+// contend over content. They share the ONE mutex — `MIGRATE_LOCK_NAME` — because
+// they share a destination, and the lock is taken at TOP LEVEL by each, NEVER
+// nested: `migrateMonolithToSplit` acquires and releases inside its own
+// try/finally, so a regeneration invoked from inside it would EEXIST against its
+// own lock. Callers sequence the two calls; they do not nest them.
+//
+// ORDER DOES NOT MATTER, which is what makes the coexistence safe rather than
+// lucky. `ensureForestLedger` writes ONLY when the ledger is absent (it returns
+// `created:false` otherwise), so a migration running AFTER a regeneration cannot
+// clobber the projection back to a header-only file. Both are idempotent, by two
+// different mechanisms: the monolith migration by rename-away, the regeneration by
+// byte-comparison.
+
+// Size cap for the event-log read. The log is append-only and UNBOUNDED by
+// construction, so it gets its OWN cap rather than borrowing the 1 MB
+// `NOTES_READ_CAP_BYTES` (which exists for hand-sized session-notes files and
+// which this log — 414 KB at landing — would cross on ordinary growth). Refuse
+// loudly above it; never truncate-then-fold, which would silently drop the tail of
+// the log and render a projection missing rows that the gate would then report as
+// vanished (`knowledge-convergence.md` MUST-6 refuse-don't-truncate).
+const EVENTS_READ_CAP_BYTES = 32 * 1024 * 1024;
+
+/**
+ * `session-notes-continuity.md` MUST-3's FAIL-CLOSED default, in LINES.
+ *
+ * The rule is explicit: "until a ceiling is declared for a given projection, the
+ * 300-line ceiling above applies to it unchanged". So an undeclared projection is
+ * bounded, not unbounded — the absent declaration is the strict case, never the
+ * permissive one.
+ */
+const PROJECTION_LINE_CEILING_FALLBACK = 300;
+
+/** The generator's manifest — where a projection DECLARES its own ceiling. */
+const PROJECTION_MANIFEST_REL = "burndown-manifest.json";
+
+/**
+ * The OUTER bound on what a manifest may DECLARE, in lines.
+ *
+ * MUST-3 lets a projection declare its own ceiling; it does NOT let a declaration
+ * repeal the clause. Without an upper bound `max_rows: 100000` is a well-formed
+ * declaration and the bound is gone — validated only as `Number.isInteger && >= 1`,
+ * which admits every number a mistake or an edit could put there.
+ *
+ * 3× the rule's own default is the line drawn, and it is a POLICY constant with a
+ * stated rationale rather than a derived one: MUST-3's argument is that a bounded
+ * file is what makes MUST-2's read-it-whole affordable, and an exception more than
+ * three times the rule's own bound has stopped being a narrowing and become an
+ * opt-out. A declaration past it falls back to the 300-line default — the same
+ * fail-CLOSED direction absent, malformed and unverifiable take.
+ */
+const PROJECTION_DECLARED_LINE_CAP = 3 * PROJECTION_LINE_CEILING_FALLBACK;
+
+/** Cap for the manifest read itself — it is a small JSON file, not a log. */
+const MANIFEST_READ_CAP_BYTES = 1024 * 1024;
+
+/**
+ * Is `rel` COMMITTED and UNMODIFIED against HEAD, and a regular file in the index?
+ *
+ * This is `burndown-build.mjs::assertCommittedAndUnmodified` re-expressed for a hook
+ * that may not refuse: same three clauses (index mode, tracked-by-string-compare,
+ * clean against HEAD), typed result instead of a throw. It is here because
+ * `security.md` § Enforcement-Surface Parity names exactly this shape — EVERY
+ * manifest read in `burndown-build.mjs` carries the guard and `_readEventsGuarded`
+ * in this same call chain refuses a symlinked LOG, while the ceiling's own manifest
+ * read carried neither. The bound MUST-3 makes fail-closed on ABSENCE was fail-OPEN
+ * on a working-tree-only manifest: an uncommitted `{"tracker":{"max_rows":100000}}`
+ * lifted it, measured.
+ *
+ * It is NOT imported from `burndown-build.mjs`: that file is an ESM `bin/` entrypoint
+ * with no export surface, so requiring it would execute its CLI — the same reason
+ * `burndown-events.js` mirrors the status vocabulary rather than importing it.
+ *
+ * UNVERIFIABLE is not CLEAN. No git binary, no repository, a timeout — each returns
+ * `{ok:false}`, so the declaration is not honoured. That direction is the whole
+ * point: a ceiling that trusts a manifest it could not verify is the fail-open this
+ * function exists to close.
+ */
+function _gitCommittedAndUnmodified(baseDir, rel) {
+  const gitBin = resolveGitBinary();
+  if (!gitBin)
+    return { ok: false, kind: "unverifiable", why: "no git binary on PATH" };
+  const run = (args) => {
+    try {
+      return {
+        ok: true,
+        out: execFileSync(gitBin, args, {
+          cwd: baseDir,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+          timeout: 4000,
+          env: gitEnv(),
+        }),
+      };
+    } catch (err) {
+      return { ok: false, err };
+    }
+  };
+  const staged = run(["ls-files", "-s", "--", rel]);
+  if (!staged.ok) {
+    return {
+      ok: false,
+      kind: "unverifiable",
+      why: "git ls-files failed (not a repository?)",
+    };
+  }
+  const first = String(staged.out).split("\n")[0] || "";
+  if (!first.trim())
+    return {
+      ok: false,
+      kind: "untracked",
+      why: `'${rel}' is not tracked by git`,
+    };
+  const mode = (first.match(/^(\d{6})\s/) || [])[1];
+  // Mode 120000 is a SYMLINK in the index. git hashes the link TEXT while the reader
+  // follows it to the TARGET, so a committed-and-clean symlink is a manifest whose
+  // content nobody reviewed — the BUG-3 shape `assertCommittedAndUnmodified` names.
+  if (mode === "120000")
+    return {
+      ok: false,
+      kind: "symlink-in-index",
+      why: `'${rel}' is a symlink in the index`,
+    };
+  if (mode && mode !== "100644" && mode !== "100755") {
+    return {
+      ok: false,
+      kind: "bad-mode",
+      why: `'${rel}' has git mode ${mode}`,
+    };
+  }
+  // STRING COMPARE, not `--error-unmatch`: on a case-insensitive filesystem
+  // `--error-unmatch` on a wrong-case path reads identically to untracked.
+  const listedPath = first.includes("\t")
+    ? first.slice(first.indexOf("\t") + 1).trim()
+    : "";
+  if (listedPath !== rel) {
+    return {
+      ok: false,
+      kind: "untracked",
+      why: `git ls-files returned '${listedPath}', not '${rel}'`,
+    };
+  }
+  const clean = run(["diff", "--quiet", "HEAD", "--", rel]);
+  if (!clean.ok)
+    return {
+      ok: false,
+      kind: "modified",
+      why: `'${rel}' has uncommitted modifications against HEAD`,
+    };
+  return { ok: true };
+}
+
+/**
+ * Guarded read of the ceiling manifest — the parity sibling of `_readEventsGuarded`.
+ * Symlink / non-regular / oversize / unreadable / malformed / uncommitted each get a
+ * NAMED kind, because the caller turns the kind into the `ceiling_source` string a
+ * reader uses to tell a DECLARED ceiling from a fallback that merely looks like one.
+ */
+function _readManifestGuarded(baseDir, rel) {
+  const abs = path.join(baseDir, rel);
+  let st;
+  try {
+    st = fs.lstatSync(abs);
+  } catch (err) {
+    if (err && err.code === "ENOENT") return { ok: false, kind: "absent" };
+    return { ok: false, kind: "stat-failed" };
+  }
+  if (st.isSymbolicLink()) return { ok: false, kind: "symlink" };
+  if (!st.isFile()) return { ok: false, kind: "not-a-file" };
+  if (st.size > MANIFEST_READ_CAP_BYTES) return { ok: false, kind: "oversize" };
+  const git = _gitCommittedAndUnmodified(baseDir, rel);
+  if (!git.ok) return { ok: false, kind: git.kind, why: git.why };
+  let doc;
+  try {
+    doc = JSON.parse(fs.readFileSync(abs, "utf8"));
+  } catch {
+    return { ok: false, kind: "malformed" };
+  }
+  return { ok: true, doc };
+}
+
+/**
+ * The projection's fixed per-file overhead, in lines, DERIVED rather than pinned.
+ *
+ * A hardcoded constant here would be a second copy of a number that
+ * `renderForestLedgerProjection` already determines, and it would go stale silently
+ * the first time a line is added to the header — converting a declared row ceiling
+ * into a line ceiling nobody re-measured. Rendering an EMPTY projection asks the
+ * renderer itself, so the two cannot drift.
+ */
+function _ledgerHeaderLines() {
+  const empty = renderForestLedgerProjection(new Map(), {});
+  const body = empty.endsWith("\n") ? empty.slice(0, -1) : empty;
+  return body.split("\n").length;
+}
+
+/**
+ * Resolve the ceiling this projection is held to — MUST-3's "a ceiling DECLARED in
+ * its generator's manifest".
+ *
+ * DECLARED wins; ABSENT, UNREADABLE, MALFORMED, UNVERIFIABLE and OUT-OF-RANGE all
+ * fall back to the 300-line default. That direction is load-bearing: a manifest that
+ * will not parse — or that no git object backs — must not read as "no ceiling", which
+ * is how a fail-closed bound becomes a fail-open one.
+ *
+ * BOTH bounds come back, because the rule's unit and the manifest's unit differ.
+ * MUST-3 bounds a projection in LINES; `tracker.max_rows` declares ROWS. Those agree
+ * only while one row renders as exactly one line, which `_renderLedgerRow` now
+ * guarantees and which the caller nonetheless MEASURES rather than assumes — a
+ * ceiling that cannot see its own line count is the defect, not the number.
+ *
+ * @returns {{maxRows:number, maxLines:number, source:string, declared:boolean,
+ *            headerLines:number}}
+ */
+function _resolveProjectionCeiling(baseDir) {
+  const headerLines = _ledgerHeaderLines();
+  const fallbackFor = (why) => ({
+    maxRows: PROJECTION_LINE_CEILING_FALLBACK - headerLines,
+    maxLines: PROJECTION_LINE_CEILING_FALLBACK,
+    source:
+      `session-notes-continuity.md MUST-3 fail-closed default ` +
+      `(${PROJECTION_LINE_CEILING_FALLBACK} lines − ${headerLines} header lines); ${why}`,
+    declared: false,
+    headerLines,
+  });
+  const g = _readManifestGuarded(baseDir, PROJECTION_MANIFEST_REL);
+  if (!g.ok) {
+    return fallbackFor(
+      g.kind === "absent"
+        ? `no ${PROJECTION_MANIFEST_REL} to declare one`
+        : `${PROJECTION_MANIFEST_REL} is ${g.kind}${g.why ? ` (${g.why})` : ""} — an unverifiable ` +
+            `declaration is NOT honoured, it falls back`,
+    );
+  }
+  const declaredRows =
+    g.doc && g.doc.tracker ? g.doc.tracker.max_rows : undefined;
+  if (!Number.isInteger(declaredRows) || declaredRows < 1) {
+    return fallbackFor(
+      `no usable 'tracker.max_rows' in ${PROJECTION_MANIFEST_REL}`,
+    );
+  }
+  const declaredLines = declaredRows + headerLines;
+  if (declaredLines > PROJECTION_DECLARED_LINE_CAP) {
+    return fallbackFor(
+      `${PROJECTION_MANIFEST_REL}::tracker.max_rows declares ${declaredRows} row(s) = ` +
+        `${declaredLines} line(s), past the ${PROJECTION_DECLARED_LINE_CAP}-line cap on what a ` +
+        `declaration may claim; a declaration does not repeal MUST-3`,
+    );
+  }
+  return {
+    maxRows: declaredRows,
+    maxLines: declaredLines,
+    source: `${PROJECTION_MANIFEST_REL}::tracker.max_rows`,
+    declared: true,
+    headerLines,
+  };
+}
+
+/**
+ * ── THE DECLARED NARROWING (loom s67, finding S66-1) ─────────────────────────
+ *
+ * The refusal above names TWO sanctioned ways back under the ceiling — retire an
+ * item, or "DECLARE a narrowing of what the projection renders". Only the first
+ * was implemented. An operator following the refusal's own advice could not take
+ * the route it recommended, which is worse than offering one route, because the
+ * message reads as a choice.
+ *
+ * WHY A NARROWING IS THE PRINCIPLED REMEDY HERE, not a way to duck the bound.
+ * MEASURED: the log folds 267 `genesis` item_ids (the burndown REGISTER, and
+ * exactly `tracker.min_rows`) and 100 `transition` item_ids keyed in a DIFFERENT
+ * namespace — todo and workspace paths (`todo-42ca4f878990-real-work`,
+ * `_archive/…`) — with ZERO overlap. `min_rows: 267` / `max_rows: 277` were
+ * calibrated against the register, before a second namespace began landing in the
+ * same projection. The ceiling did not become wrong; THE ROW SET STOPPED BEING
+ * THE THING IT BOUNDED. Narrowing restores the row set to what the bound was
+ * measured for, rather than widening the bound to fit a set nobody sized.
+ *
+ * FAIL-CLOSED MEANS RENDER EVERYTHING. Every failure path here returns
+ * `{narrowed: false}` — absent manifest, unverifiable manifest, malformed key,
+ * unknown kind, a declaration that would render nothing. A narrowing that cannot
+ * be verified is NOT honoured, because a silently-narrowed projection is
+ * byte-indistinguishable from a complete one, and "some rows are missing and
+ * nothing says so" is this codebase's most-named failure class. The ceiling
+ * resolver fails the same way for the same reason; this mirrors it deliberately.
+ *
+ * IT CANNOT REPEAL THE CEILING. Narrowing chooses WHICH rows render; the ceiling
+ * still measures the RENDER and still refuses. A declaration that narrows to a
+ * set still over the bound refuses exactly as before.
+ */
+function _resolveProjectionNarrowing(baseDir) {
+  const none = (why) => ({ narrowed: false, why, kinds: null, source: null });
+  const g = _readManifestGuarded(baseDir, PROJECTION_MANIFEST_REL);
+  if (!g.ok) {
+    return none(
+      g.kind === "absent"
+        ? `no ${PROJECTION_MANIFEST_REL} to declare one`
+        : `${PROJECTION_MANIFEST_REL} is ${g.kind}${g.why ? ` (${g.why})` : ""} — an unverifiable ` +
+            `declaration is NOT honoured, it renders everything`,
+    );
+  }
+  const decl = g.doc && g.doc.tracker ? g.doc.tracker.narrowing : undefined;
+  if (decl === undefined)
+    return none(`no 'tracker.narrowing' in ${PROJECTION_MANIFEST_REL}`);
+  if (!decl || typeof decl !== "object" || Array.isArray(decl)) {
+    return none(
+      `'tracker.narrowing' is not an object — malformed, so it renders everything`,
+    );
+  }
+  const kinds = decl.render_kinds;
+  if (
+    !Array.isArray(kinds) ||
+    kinds.length === 0 ||
+    !kinds.every((k) => typeof k === "string" && k)
+  ) {
+    return none(
+      `'tracker.narrowing.render_kinds' must be a non-empty array of strings — malformed, ` +
+        `so it renders everything`,
+    );
+  }
+  // A kind outside the schema's CLOSED set is a typo, and a typo that silently
+  // matched nothing would narrow the projection to zero rows while reporting a
+  // clean declaration. Refuse the declaration instead.
+  const unknown = kinds.filter((k) => !KINDS.includes(k));
+  if (unknown.length > 0) {
+    return none(
+      `'tracker.narrowing.render_kinds' names ${unknown.map((k) => JSON.stringify(k)).join(", ")}, ` +
+        `not in the schema's kinds (${KINDS.join(", ")}) — so it renders everything rather than ` +
+        `narrowing to a set a typo chose`,
+    );
+  }
+  const reason =
+    typeof decl.reason === "string" && decl.reason.trim()
+      ? decl.reason.trim()
+      : null;
+  if (!reason) {
+    return none(
+      `'tracker.narrowing.reason' is required and must be a non-empty string — a narrowing with no ` +
+        `stated reason is not auditable, so it renders everything`,
+    );
+  }
+  // ── THE SECOND AXIS: `exclude_statuses` (loom s68) ─────────────────────────
+  //
+  // `render_kinds` narrows BETWEEN namespaces (register vs. not). This narrows
+  // WITHIN one, by the status the projection actually renders, and it is a
+  // separate axis because the two answer different questions: the first asks
+  // "is this row's ID one the ceiling was sized for", the second asks "does this
+  // row's cell carry an adjudication a reader can act on".
+  //
+  // OPTIONAL, and its ABSENCE is not a narrowing — an absent key leaves the
+  // declaration exactly as strong as it was before this axis existed, so an
+  // existing manifest keeps its meaning.
+  //
+  // MALFORMED renders everything, matching `render_kinds` above: an unverifiable
+  // declaration is never honoured, because a silently-narrowed projection is
+  // byte-indistinguishable from a complete one.
+  //
+  // WHY THERE IS NO CLOSED-SET CHECK HERE, and why that is not the `render_kinds`
+  // typo hole reopened. A status is NOT a closed set — `projectStatus` passes a
+  // `todo:` work-state through verbatim, so an allowlist would have to enumerate a
+  // vocabulary the fold does not own. The failure directions are therefore
+  // OPPOSITE and only one of them is dangerous: a `render_kinds` typo narrows to a
+  // set the typo chose (fewer rows, silently), while an `exclude_statuses` typo
+  // matches nothing and excludes NOTHING (MORE rows), which walks into the ceiling
+  // and REFUSES out loud. Refusing a zero-match declaration outright was considered
+  // and REJECTED: it turns the moment an operator finishes adjudicating the last
+  // excluded row into a build failure, which is the shape `_min_rows_note` already
+  // names as the gate an operator switches off. Instead the per-status match count
+  // is RENDERED in the projection header, so a typo reads as `…: 0 row(s)` in the
+  // artifact itself rather than passing unseen.
+  const rawStatuses = decl.exclude_statuses;
+  let statusKeys = null;
+  let statusesDeclared = null;
+  if (rawStatuses !== undefined) {
+    if (
+      !Array.isArray(rawStatuses) ||
+      rawStatuses.length === 0 ||
+      !rawStatuses.every((s) => typeof s === "string" && s.trim())
+    ) {
+      return none(
+        `'tracker.narrowing.exclude_statuses', when present, must be a non-empty array of non-empty ` +
+          `strings — malformed, so it renders everything`,
+      );
+    }
+    statusesDeclared = rawStatuses.map((s) => s.trim());
+    statusKeys = new Set(statusesDeclared.map((s) => statusKey(s)));
+  }
+  return {
+    narrowed: true,
+    kinds: new Set(kinds),
+    statusKeys,
+    statusesDeclared,
+    reason,
+    source: `${PROJECTION_MANIFEST_REL}::tracker.narrowing`,
+    why: null,
+  };
+}
+
+/**
+ * Guarded read of the event log. Same three refusals `_readNotesFileGuarded`
+ * applies — symlink, non-regular file, oversize — against this log's own cap.
+ * Returns a TYPED result; never throws, never returns partial content.
+ */
+function _readEventsGuarded(absPath) {
+  let st;
+  try {
+    st = fs.lstatSync(absPath);
+  } catch (err) {
+    if (err && err.code === "ENOENT")
+      return { ok: false, kind: "missing", err };
+    return { ok: false, kind: "stat-failed", err };
+  }
+  if (st.isSymbolicLink()) return { ok: false, kind: "symlink" };
+  if (!st.isFile()) return { ok: false, kind: "not-a-file" };
+  if (st.size > EVENTS_READ_CAP_BYTES) {
+    return { ok: false, kind: "oversize", size: st.size };
+  }
+  try {
+    return { ok: true, content: fs.readFileSync(absPath, "utf8") };
+  } catch (err) {
+    return { ok: false, kind: "read-failed", err };
+  }
+}
+
+/**
+ * Render the whole projection file from folded rows. PURE — text in, text out, no
+ * I/O — so a fixture can assert the bytes without a repo.
+ *
+ * The table shape is IDENTICAL to `LEDGER_HEADER`'s: same `# Forest Ledger`
+ * heading `validate-forest-ledger.mjs::SHARED_HEADING_RE` matches, same five
+ * columns `burndown-build.mjs::parseLedger` reads BY NAME. Only the HTML comment
+ * differs, and it differs because the two surfaces are now genuinely different
+ * artifacts: `LEDGER_HEADER` heads a HAND-EDITED forest ledger (the workspace-level
+ * ledgers, which keep the `coc-ledger` row-merge because row-merge is right
+ * semantics THERE), and this heads a DERIVED one. One header for two contracts
+ * would have to lie to one of them.
+ *
+ * The row count is embedded deliberately: this file is a `session-notes-continuity.md`
+ * MUST-2 surface where a TRUNCATED Read carries `block` teeth, so a reader who
+ * needs only the denominator can take it from line ~8 instead of reading 290 lines
+ * to count rows.
+ */
+function renderForestLedgerProjection(rows, opts) {
+  const o = opts || {};
+  const list = Array.from(rows.values());
+  const header = [
+    "<!--",
+    "  .session-notes.shared.md — Forest Ledger. GENERATED — DO NOT HAND-EDIT.",
+    "",
+    `  DERIVED PROJECTION of the append-only log \`${o.eventsRel || "burndown/events.jsonl"}\`, written`,
+    "  ONLY by `session-notes-layout.js::regenerateForestLedger`. A hand-edit is not",
+    "  preserved: the next regeneration overwrites it and it left no event, so it is",
+    "  lost with no witness. NOT the verification input — the LOG is; a gate reading",
+    "  this file as evidence would be certifying its own output.",
+    "",
+    `  Rows: ${list.length}. Each is the fold of every event carrying that ID. The ID column`,
+    "  is the join key `burndown-build.mjs --check-links` resolves on; `owner` is",
+    "  UNSIGNED convenience attribution (the per-event signature is authoritative).",
+    "",
+    // ── THE NARROWING, STATED IN THE ARTIFACT ITSELF ────────────────────────
+    // A narrowed projection MUST NOT be byte-indistinguishable from a complete
+    // one. The count of what was excluded and the declared reason are rendered
+    // HERE, in the generated header, so a reader holding only this file can see
+    // that it is partial and by how much — never having to infer it from a row
+    // they expected and did not find.
+    ...(o.narrowing
+      ? [
+          `  NARROWED: this projection renders ${list.length} of ${o.narrowing.total} folded row(s);`,
+          `  ${o.narrowing.excluded} are EXCLUDED by ${o.narrowing.source}.`,
+          // ── THE COLLAPSED CLASSES, ONE SUMMARY LINE EACH ─────────────────
+          // A per-declared-status count, seeded at 0, so the header answers WHICH
+          // class was collapsed and HOW MANY rows it stood for — not merely that
+          // some number of rows is missing. A declared status matching `0 row(s)`
+          // is a typo or a finished class, and reads as one HERE rather than
+          // passing as a clean declaration.
+          ...(o.narrowing.statusTally && o.narrowing.statusTally.length
+            ? o.narrowing.statusTally.map(
+                ([s, n]) => `    collapsed by status "${s}": ${n} row(s).`,
+              )
+            : []),
+          `  Declared reason: ${o.narrowing.reason}`,
+          "  The excluded rows are NOT lost — they remain in the log and fold normally;",
+          "  this file simply does not render them. Remove the declaration to see them all.",
+          // ONE row, without regenerating anything: the log is grep-able by id. The
+          // sentence names the LOG and not a tool path on purpose — a `.claude/bin/**`
+          // invocation here would be an obligation on every lane this module ships to,
+          // and `in-force-check.mjs::artifact-names-tool` measures that the named tool
+          // reaches NONE of the seven. Telling a reader to run something they do not
+          // have is the W4 failure mode; the grep works everywhere the log does.
+          `  To recover ONE row without regenerating: grep its id in \`${o.eventsRel || "burndown/events.jsonl"}\`.`,
+          "",
+        ]
+      : []),
+    "  MERGE: NO `merge=coc-ledger` binding (see .gitattributes). A row-keyed 3-way",
+    "  merge of a PROJECTION yields a table that is the fold of NEITHER branch's log —",
+    "  a fabricated state that merges CLEANLY. On a conflict take either side and",
+    "  REGENERATE; the log is what merges. `--check` re-derives and reports drift.",
+    "-->",
+    "",
+    "# Forest Ledger",
+    "",
+    "| ID | owner | item | value_anchor | status |",
+    "| --- | --- | --- | --- | --- |",
+  ];
+  const body = list.map((r) =>
+    _renderLedgerRow(r.id, r.owner, r.item, r.anchorRaw, r.status),
+  );
+  return `${header.concat(body).join("\n")}\n`;
+}
+
+/**
+ * Regenerate `.session-notes.shared.md` from the event log — A2.
+ *
+ * MODES:
+ *   `{ check: true }`  read-only. Re-derives and compares, returning `in_sync`.
+ *                      This is the answer to the C3 finding that a fabricated
+ *                      projection "is detectable only by regenerating": it makes
+ *                      regenerating a check anyone can run. It takes NO lock (it
+ *                      writes nothing) and it NEVER fails open — an unreadable log
+ *                      returns `{ok:false}`, because an `in_sync:true` from an
+ *                      instrument that could not look is exactly the
+ *                      non-discriminating check `instrument-discipline.md` MUST-1
+ *                      forbids citing.
+ *   default            write mode. Atomic `.tmp` + `rename()` via `_atomicWrite`
+ *                      (`knowledge-convergence.md` MUST-1's write primitive), under
+ *                      the shared migrate lock, and a NO-OP when already correct.
+ *
+ * @param {string} baseDir - repo root (the log is resolved relative to it)
+ * @param {{check?:boolean, eventsRel?:string}} [opts]
+ * @returns {{ok:true, action:"unchanged"|"written"|"deferred", changed:boolean,
+ *            rows:number, lines:number, skipped:Array, path:string} |
+ *           {ok:true, check:true, in_sync:boolean, rows:number, lines:number,
+ *            skipped:Array, drift:object|null, path:string} |
+ *           {ok:false, error:string, reason:string}}
+ */
+function regenerateForestLedger(baseDir, opts) {
+  const o = opts || {};
+  const check = !!o.check;
+  if (!baseDir || typeof baseDir !== "string") {
+    return {
+      ok: false,
+      error: "invalid argument",
+      reason: "baseDir must be a non-empty string",
+    };
+  }
+  const eventsRel = o.eventsRel || EVENTS_REL;
+  const eventsAbs = path.join(baseDir, eventsRel);
+  const g = _readEventsGuarded(eventsAbs);
+  if (!g.ok) {
+    return {
+      ok: false,
+      error: "event log unreadable",
+      reason:
+        g.kind === "missing"
+          ? `${eventsRel} is absent; the projection has no log to fold and REFUSES rather than rendering an empty table (an empty table is indistinguishable from "every item closed")`
+          : g.kind === "oversize"
+            ? `${eventsRel} exceeds ${EVENTS_READ_CAP_BYTES} bytes (${g.size}); refusing to fold a truncated log`
+            : g.kind === "symlink"
+              ? `refusing to read the event log through a symlink at ${eventsAbs}`
+              : g.kind === "not-a-file"
+                ? `${eventsRel} is not a regular file`
+                : (g.err && g.err.message) || g.kind,
+    };
+  }
+
+  const folded = foldProjection(g.content);
+  // A malformed line is a REFUSAL, not a quiet omission. `foldProjection` records
+  // skips rather than dropping them, and a projection rendered over a log with
+  // unreadable lines would be short exactly those rows — which the gate reports as
+  // `LINK-1 no row with ID`, sending an operator to grep a log that plainly
+  // contains the item. Surface it here, where the cause is still in hand.
+  //
+  // ONLY an UNREADABLE skip refuses. `skipped[]` also carries WELL-FORMED records a
+  // fold fence declined — an inert proposal awaiting its countersignature, a fenced
+  // activation, a baseline genesis under a live row — and none of those is a row this
+  // projection should carry, so rendering over them is short nothing. Refusing on the
+  // bare count refused the shipped ledger over a log whose every line read clean: one
+  // pending proposal (`burndown/events.jsonl` line 635) turned `forest-ledger-project.mjs
+  // --check` into "event log has unreadable lines". The class comes from the PRODUCER
+  // (`burndown-events.js::partitionSkips`), never from matching `why` prose here, and an
+  // entry with no known class is counted as unreadable — fail closed.
+  const skipClasses = partitionSkips(folded);
+  const unreadable = [...skipClasses.unreadable, ...skipClasses.unclassified];
+  if (unreadable.length > 0) {
+    return {
+      ok: false,
+      error: "event log has unreadable lines",
+      reason:
+        `${unreadable.length} line(s) of ${eventsRel} could not be read: ` +
+        unreadable
+          .slice(0, 5)
+          .map((s) => `line ${s.line}: ${s.why}`)
+          .join("; ") +
+        (unreadable.length > 5 ? ` (+${unreadable.length - 5} more)` : "") +
+        ". Refusing to render a projection that would be short those rows.",
+      skipped: folded.skipped,
+    };
+  }
+
+  // ── THE CEILING: REFUSE TO EMIT, NEVER TRUNCATE ────────────────────────────
+  // `session-notes-continuity.md` MUST-3. A projection's length is a function of
+  // ANOTHER file's bytes, so the hand-authored overflow remedy — relocate content,
+  // leave a pointer — is silently reverted by the next regeneration. The bound has to
+  // live where the generator can enforce it, and enforcement has to be a REFUSAL:
+  // truncating would drop rows with no diff, which is exactly the hand-removal
+  // `burndown-traceability.md` MUST-6 forbids, performed automatically.
+  //
+  // It refuses in CHECK mode too. A `--check` that answered `in_sync: true` over an
+  // over-ceiling projection would certify the breach as healthy — an instrument
+  // reporting on a different question than the one it was read for.
+  //
+  // The two sanctioned ways back under are named in the refusal itself, because an
+  // operator who reaches this branch with no remedy in hand will reach for the one
+  // the rule forbids.
+  //
+  // IT IS MEASURED ON THE RENDER, NOT PREDICTED FROM THE ROW COUNT. The render moved
+  // ABOVE this check for exactly that reason. MUST-3 bounds LINES; the manifest
+  // declares ROWS; the two agree only while one row is one line, and when that
+  // invariant broke — an unescaped LF in an item cell — a row check could not see it:
+  // MEASURED at 268 rows (under a 277-row ceiling) rendering 541 LINES, past the
+  // 300-line bound by 241, with `ok: true` returned and the refusal message's own
+  // `rows + headerLines` arithmetic understating the file by 250. `_renderLedgerRow`
+  // now escapes the newline, so the invariant holds again — and this check no longer
+  // DEPENDS on it holding, which is the difference between a bound and an assumption.
+  // ── THE DECLARED NARROWING, APPLIED BEFORE THE RENDER ──────────────────────
+  // Chooses WHICH rows render. It does NOT touch `folded.rows` (the fold's
+  // population, and the premise `tracker.min_rows` rests on), and it does NOT
+  // repeal the ceiling below — the ceiling still MEASURES THE RENDER and still
+  // refuses. A narrowing to a set that is still over the bound refuses exactly as
+  // an un-narrowed one does.
+  //
+  // Membership is `registerIds` — "ever carried a genesis event" — not the winning
+  // event's kind, so a register item that later receives a `transition` keeps
+  // rendering. See `_walk`'s `registerIds` note for why the distinction is the
+  // difference between a narrowing and a silent eviction.
+  const narrowing = _resolveProjectionNarrowing(baseDir);
+  let renderRows = folded.rows;
+  let excluded = 0;
+  let statusTally = null;
+  if (narrowing.narrowed) {
+    const keepGenesis = narrowing.kinds.has("genesis");
+    const kept = new Map();
+    // Per-DECLARED-status match counts, seeded at 0 for EVERY declared status so a
+    // status that matched nothing renders as `0 row(s)` rather than vanishing from
+    // the header. A declaration that silently matched nothing would be an inert
+    // narrowing reporting itself as an active one.
+    if (narrowing.statusKeys) {
+      statusTally = new Map(narrowing.statusesDeclared.map((s) => [s, 0]));
+    }
+    for (const [id, row] of folded.rows) {
+      const inRegister = folded.registerIds ? folded.registerIds.has(id) : true;
+      const inKind = keepGenesis ? inRegister : !inRegister;
+      if (!inKind) continue;
+      // The status axis applies only to rows the KIND axis kept — the two compose,
+      // and a row excluded by kind is not counted twice.
+      if (
+        narrowing.statusKeys &&
+        narrowing.statusKeys.has(statusKey(row.status))
+      ) {
+        for (const s of narrowing.statusesDeclared) {
+          if (statusKey(s) === statusKey(row.status))
+            statusTally.set(s, statusTally.get(s) + 1);
+        }
+        continue;
+      }
+      kept.set(id, row);
+    }
+    excluded = folded.rows.size - kept.size;
+    // A declaration that would render NOTHING is refused rather than honoured: an
+    // empty projection is indistinguishable from "every item closed", the same
+    // reason an absent event log refuses above instead of rendering an empty table.
+    if (kept.size === 0) {
+      return {
+        ok: false,
+        error: "narrowing renders nothing",
+        reason:
+          `${narrowing.source} would exclude all ${folded.rows.size} folded row(s), leaving an EMPTY ` +
+          `projection — which is indistinguishable from "every item closed". REFUSING to emit; the ` +
+          `projection on disk is UNCHANGED. Widen 'render_kinds' or remove the declaration.`,
+        rows: folded.rows.size,
+        excluded,
+      };
+    }
+    renderRows = kept;
+  }
+
+  const next = renderForestLedgerProjection(renderRows, {
+    eventsRel,
+    narrowing: narrowing.narrowed
+      ? {
+          excluded,
+          total: folded.rows.size,
+          reason: narrowing.reason,
+          source: narrowing.source,
+          statusTally: statusTally ? Array.from(statusTally) : null,
+        }
+      : null,
+  });
+  const lines = next.endsWith("\n")
+    ? next.slice(0, -1).split("\n").length
+    : next.split("\n").length;
+  const ceiling = _resolveProjectionCeiling(baseDir);
+  // MEASURED ON WHAT RENDERS, not on what folded. Under a narrowing those differ,
+  // and the bound is a bound on the PROJECTION — the artifact a human reads —
+  // never on the log's population. Comparing the folded size here would refuse a
+  // projection that is comfortably inside the bound, which is the same
+  // wrong-quantity error one level up from the one that produced this finding.
+  if (renderRows.size > ceiling.maxRows || lines > ceiling.maxLines) {
+    const overRows = renderRows.size > ceiling.maxRows;
+    return {
+      ok: false,
+      error: "projection ceiling exceeded",
+      reason:
+        `the event log folds to ${folded.rows.size} row(s)` +
+        (narrowing.narrowed
+          ? `, of which ${renderRows.size} render after ${narrowing.source} excluded ${excluded}`
+          : ``) +
+        `, which RENDERS ${lines} line(s) — past the ` +
+        (overRows
+          ? `ceiling of ${ceiling.maxRows} row(s) (${ceiling.maxLines} line(s))`
+          : `${ceiling.maxLines}-line ceiling, though the row count ${renderRows.size} is within the ` +
+            `${ceiling.maxRows}-row bound: the rows carry embedded line breaks`) +
+        ` set by ${ceiling.source}. REFUSING to emit; the projection on disk is UNCHANGED and no row ` +
+        `was truncated. Two sanctioned ways under it: append an event to '${eventsRel}' that RETIRES an ` +
+        `item (the fold shrinks, then the projection does), or DECLARE a narrowing of what the projection ` +
+        `renders. Deleting rows from the projection is BLOCKED — it is reverted on the next regeneration ` +
+        `and the work they recorded is gone with no diff to show it.`,
+      rows: folded.rows.size,
+      lines,
+      max_rows: ceiling.maxRows,
+      max_lines: ceiling.maxLines,
+      over: overRows ? "rows" : "lines",
+      ceiling_source: ceiling.source,
+      ceiling_declared: ceiling.declared,
+    };
+  }
+
+  const ledgerPath = ledgerPath0(baseDir);
+
+  let current = null;
+  const gl = _readNotesFileGuarded(ledgerPath);
+  // `_readNotesFileGuarded` collapses ENOENT into `kind:"stat-error"`, so ABSENT is
+  // read off `err.code` rather than the kind. That distinction is load-bearing: an
+  // absent ledger is the first-run happy path, while any OTHER stat error is a file
+  // we could not look at — and reporting `in_sync:false` (or clobbering) against a
+  // file we could not read would be a verdict from an instrument that never saw its
+  // subject.
+  if (gl.ok) current = gl.content;
+  else if (!(gl.kind === "stat-error" && gl.err && gl.err.code === "ENOENT")) {
+    return {
+      ok: false,
+      error: "ledger unreadable",
+      reason:
+        gl.kind === "oversize"
+          ? `${SHARED_LEDGER_NAME} exceeds ${NOTES_READ_CAP_BYTES} bytes (${gl.size})`
+          : (gl.err && gl.err.message) || gl.kind,
+    };
+  }
+
+  if (check) {
+    const inSync = current === next;
+    return {
+      ok: true,
+      check: true,
+      in_sync: inSync,
+      rows: renderRows.size,
+      folded_rows: folded.rows.size,
+      excluded_rows: excluded,
+      lines,
+      skipped: folded.skipped,
+      drift: inSync ? null : _describeLedgerDrift(current, next, folded.rows),
+      path: ledgerPath,
+    };
+  }
+
+  if (current === next) {
+    return {
+      ok: true,
+      action: "unchanged",
+      changed: false,
+      rows: renderRows.size,
+      folded_rows: folded.rows.size,
+      excluded_rows: excluded,
+      lines,
+      skipped: folded.skipped,
+      path: ledgerPath,
+    };
+  }
+
+  // Same mutex as `migrateMonolithToSplit` — one destination, one lock — taken at
+  // TOP LEVEL, never nested inside it. Fail OPEN on contention so a SessionStart is
+  // never blocked; the write is idempotent, so the next run lands it.
+  const lock = _acquireMigrateLock(baseDir);
+  if (!lock.ok) {
+    return {
+      ok: true,
+      action: "deferred",
+      changed: false,
+      rows: renderRows.size,
+      folded_rows: folded.rows.size,
+      excluded_rows: excluded,
+      lines,
+      skipped: folded.skipped,
+      path: ledgerPath,
+      reason: lock.reason,
+    };
+  }
+  try {
+    const w = _atomicWrite(ledgerPath, next);
+    if (!w.ok) return { ...w };
+    return {
+      ok: true,
+      action: "written",
+      changed: true,
+      rows: renderRows.size,
+      folded_rows: folded.rows.size,
+      excluded_rows: excluded,
+      lines,
+      skipped: folded.skipped,
+      path: ledgerPath,
+      parent_dir_synced: w.parent_dir_synced,
+    };
+  } finally {
+    _releaseMigrateLock(baseDir);
+  }
+}
+
+/**
+ * Describe HOW a committed projection differs from its re-derivation, bounded.
+ *
+ * The counts are the load-bearing part: `extra` names ids present in the FILE and
+ * absent from the LOG, which is the signature of BOTH failure modes C3 names — a
+ * hand-edit, and a merge that fabricated rows belonging to neither branch's fold.
+ * `missing` names the reverse. `changed` names ids in both whose cells differ.
+ */
+function _describeLedgerDrift(current, next, foldedRows) {
+  const rowsOf = (text) => {
+    const m = new Map();
+    if (typeof text !== "string") return m;
+    const loc = _locateLedgerTable(text);
+    if (!loc.ok) return m;
+    const lines = text.split(/\r?\n/);
+    for (const [id, at] of loc.rows) m.set(id, lines[at]);
+    return m;
+  };
+  const cur = rowsOf(current);
+  const nxt = rowsOf(next);
+  const missing = [];
+  const extra = [];
+  const changed = [];
+  for (const id of nxt.keys()) if (!cur.has(id)) missing.push(id);
+  for (const id of cur.keys()) if (!nxt.has(id)) extra.push(id);
+  for (const [id, line] of nxt)
+    if (cur.has(id) && cur.get(id) !== line) changed.push(id);
+  const CAP = 10;
+  // THE OTHER HALF OF `in_sync` (fixed 2026-10-03). `in_sync` is a WHOLE-FILE
+  // byte compare, while the three counts above compare ROWS ONLY — two
+  // different facts, and only the row half was reported, so a preamble-only
+  // drift (the regenerated header counts above the table) produced an all-zero
+  // report beside `in_sync:false`: a reader saw "nothing further" while the
+  // file provably differed. These fields carry the difference itself, whatever
+  // changed — a header count, a blank line, or a row.
+  let firstDifferingLines = null;
+  if (current !== null && current !== next) {
+    const a = String(current).split(/\r?\n/);
+    const b = String(next).split(/\r?\n/);
+    const n = Math.max(a.length, b.length);
+    const sample = [];
+    for (let i = 0; i < n && sample.length < CAP; i += 1) {
+      if (a[i] !== b[i])
+        sample.push({
+          line: i + 1,
+          file: a[i] === undefined ? null : a[i],
+          fold: b[i] === undefined ? null : b[i],
+        });
+    }
+    firstDifferingLines = sample;
+  }
+  return {
+    file_absent: current === null,
+    missing_from_file: missing.length,
+    extra_in_file: extra.length,
+    cells_differ: changed.length,
+    first_differing_lines: firstDifferingLines,
+    sample: {
+      missing_from_file: missing.slice(0, CAP),
+      extra_in_file: extra.slice(0, CAP),
+      cells_differ: changed.slice(0, CAP),
+    },
+    folded_rows: foldedRows.size,
+  };
 }
 
 /**
@@ -1210,7 +2531,24 @@ module.exports = {
   writeReconciledFragment,
   ensureForestLedger,
   appendForestLedgerRow,
+  // The id-keyed producer surface. `appendForestLedgerRow` is its INSERT leaf —
+  // that call is what gives the append helper a production caller, closing the
+  // `artifact-stranding.md` MUST-3 instance it had been standing as.
+  upsertForestLedgerRow,
+  locateLedgerTable: _locateLedgerTable,
   migrateMonolithToSplit,
+  // A2 — the SECOND migration in this module, which COEXISTS with the monolith
+  // migration above rather than replacing it (disjoint sources, one shared mutex,
+  // order-independent, each idempotent by its own mechanism). This is the SOLE
+  // sanctioned writer of the derived projection; `--check` re-derives without
+  // writing, which is what makes a hand-edit or a merge-fabricated table detectable.
+  regenerateForestLedger,
+  renderForestLedgerProjection,
+  EVENTS_READ_CAP_BYTES,
   regenerateAggregate,
   fragmentPathFor,
+  // knowledge-convergence.md Rule 1: the authoritative attribution surface is
+  // the fragment's frontmatter, NEVER its filename. Consumers that need to
+  // know WHOSE fragment this is MUST route through this reader.
+  readFragmentAttribution,
 };

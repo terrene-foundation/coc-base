@@ -1,0 +1,9 @@
+{
+  "path": "specs/domain/empty.md",
+  "expect": [
+    "specs-authority/rule-10-unparseable-value"
+  ],
+  "disposition": "firing",
+  "family": "typed worlds — no value",
+  "defeats": "a parser that collapses 'no value' into either silence or a missing-prefix verdict. Neither is true: invariant 1 was NOT CHECKED here, and reporting that is different from reporting a bare name."
+}

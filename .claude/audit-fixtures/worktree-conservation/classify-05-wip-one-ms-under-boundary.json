@@ -1,0 +1,13 @@
+{
+  "arm": "classifyTree",
+  "note": "one ms under the WIP window is still WIP — locks the comparison direction",
+  "cfg": {
+    "wipMs": 1200000,
+    "parkedMs": 86400000
+  },
+  "facts": {
+    "measured": true,
+    "dirty": 1,
+    "contentIdleMs": 1199999
+  }
+}

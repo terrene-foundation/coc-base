@@ -1301,5 +1301,267 @@ function check(name, condition, details) {
 }
 
 // ------------------------------------------------------------------
+// fixture-39-test-harness-prefix-is-extractable  (loom#1807)
+// ------------------------------------------------------------------
+// THE EXTRACTION POLE. Before the fix, `test-harness/` was not an alternand of
+// BACKTICK_RE, so a citation of that shape produced NO finding at all — it was
+// invisible to the pattern, not reported and not resolved. The `rules/` token on
+// the same line is the POSITIVE CONTROL: it proves the extractor fired on this
+// input, so a result of "only one token" is a statement about the PATTERN and
+// not about the harness failing to run (instrument-discipline.md MUST-3a).
+{
+  const text =
+    "see `test-harness/probes/x.probes.json` and `.claude/test-harness/lib/y.mjs` and `rules/ctl.md`";
+  const tokens = extractTokens(text, "test.md")
+    .map((f) => f.token)
+    .sort();
+  check(
+    "fixture-39-test-harness-prefix-is-extractable",
+    tokens.length === 3 &&
+      tokens.includes("test-harness/probes/x.probes.json") &&
+      tokens.includes(".claude/test-harness/lib/y.mjs") &&
+      tokens.includes("rules/ctl.md"),
+    `got tokens=${JSON.stringify(tokens)} (control 'rules/ctl.md' present? ${tokens.includes("rules/ctl.md")})`,
+  );
+}
+
+// ------------------------------------------------------------------
+// fixture-40-test-harness-both-poles-on-one-tree  (loom#1807)
+// ------------------------------------------------------------------
+// THE RESOLUTION POLES, on ONE synthetic tree so the pair is a genuine
+// discrimination rather than two runs of unknown comparability:
+//   RED   — a planted ABSENT `test-harness/` path MUST NOT resolve;
+//   GREEN — a REAL `test-harness/` path MUST resolve.
+// A fixture asserting only the green pole would pass identically if the resolver
+// said "ok" to everything, which is the check-that-cannot-fail shape this whole
+// validator exists to refuse.
+//
+// Built on a TEMP tree rather than on loom's own `.claude/test-harness/`
+// deliberately: that subtree is never distributed, so a fixture pinned to a real
+// loom path would FAIL at every consumer that runs this harness.
+{
+  const tmp = mkdtempSync(join(tmpdir(), "xref-fix-40-"));
+  try {
+    mkdirSync(join(tmp, ".claude", "test-harness", "probes"), { recursive: true });
+    writeFileSync(
+      join(tmp, ".claude", "test-harness", "probes", "real.probes.json"),
+      "{}\n",
+    );
+
+    const green = resolveRefToken(
+      "test-harness/probes/real.probes.json",
+      tmp,
+      ".claude/rules/x.md",
+      "backtick",
+    );
+    const greenDotted = resolveRefToken(
+      ".claude/test-harness/probes/real.probes.json",
+      tmp,
+      ".claude/rules/x.md",
+      "backtick",
+    );
+    const red = resolveRefToken(
+      "test-harness/probes/GHOST-does-not-exist.probes.json",
+      tmp,
+      ".claude/rules/x.md",
+      "backtick",
+    );
+
+    check(
+      "fixture-40a-test-harness-real-path-resolves-GREEN-pole",
+      green.ok === true && greenDotted.ok === true,
+      `bare=${JSON.stringify(green)} dotted=${JSON.stringify(greenDotted)}`,
+    );
+    check(
+      "fixture-40b-test-harness-absent-path-not-found-RED-pole",
+      red.ok === false && red.reason === "not-found",
+      `expected {ok:false,reason:"not-found"} for the planted ghost, got ${JSON.stringify(red)}`,
+    );
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+// ------------------------------------------------------------------
+// fixture-41-fixtures-prefix-is-extractable  (loom#1807, authority-found)
+// ------------------------------------------------------------------
+// `.claude/fixtures/` is the SECOND blind binding namespace, found by checking
+// the prefix list against `detection-binding-check.mjs`'s census rather than by
+// re-listing it. It was not on the issue's list; a hand-restated fix would have
+// left it blind. Same positive control as fixture-39.
+{
+  const text = "see `.claude/fixtures/validator-13/` and `rules/ctl.md`";
+  const tokens = extractTokens(text, "test.md")
+    .map((f) => f.token)
+    .sort();
+  check(
+    "fixture-41-fixtures-prefix-is-extractable",
+    tokens.length === 2 &&
+      tokens.includes(".claude/fixtures/validator-13/") &&
+      tokens.includes("rules/ctl.md"),
+    `got tokens=${JSON.stringify(tokens)}`,
+  );
+}
+
+// ------------------------------------------------------------------
+// fixture-42-audit-fixtures-still-wins-over-fixtures  (loom#1807 regression)
+// ------------------------------------------------------------------
+// `fixtures` was added as an alternand ALONGSIDE the pre-existing
+// `audit-fixtures`. Alternation is ordered, so a token `audit-fixtures/x` must
+// still extract WHOLE and must not be truncated to a `fixtures/`-rooted token.
+// Falsifying result, named: a broken ordering yields the token `fixtures/x` or
+// no token at all — either would fail this check.
+{
+  const tokens = extractTokens("see `audit-fixtures/slug/` here", "test.md").map(
+    (f) => f.token,
+  );
+  check(
+    "fixture-42-audit-fixtures-still-extracts-whole",
+    tokens.length === 1 && tokens[0] === "audit-fixtures/slug/",
+    `got tokens=${JSON.stringify(tokens)}`,
+  );
+}
+
+// ------------------------------------------------------------------
+// fixture-43-test-harness-subtree-absence-is-not-applicable  (loom#1807)
+// ------------------------------------------------------------------
+// The consumer carve-out, BOTH poles on one tree. `.claude/test-harness/**` is
+// never distributed, so at a consumer every citation of it is unresolvable BY
+// DESIGN — counting those dangling would make a consumer green only if loom's
+// rules stopped naming the probe suites MUST-4 requires them to name.
+//   NOT-APPLICABLE — subtree absent AND this repo is not the harness owner;
+//   STILL LOUD     — the same token at a `coc-source` repo (loom) stays dangling.
+// Without the second pole the carve-out would be indistinguishable from a
+// blanket amnesty for the whole prefix.
+{
+  const tmp = mkdtempSync(join(tmpdir(), "xref-fix-43-"));
+  try {
+    mkdirSync(join(tmp, ".claude", "rules"), { recursive: true });
+    const finding = {
+      kind: "backtick",
+      token: "test-harness/probes/absent.probes.json",
+      source: ".claude/rules/x.md",
+    };
+
+    // Pole 1: a CONSUMER (VERSION type is not coc-source), no harness subtree.
+    writeFileSync(join(tmp, ".claude", "VERSION"), JSON.stringify({ type: "coc-project" }));
+    const consumer = resolveOne(finding, tmp);
+
+    // Pole 2: the OWNER (coc-source), same absent subtree, same token.
+    writeFileSync(join(tmp, ".claude", "VERSION"), JSON.stringify({ type: "coc-source" }));
+    const owner = resolveOne(finding, tmp);
+
+    check(
+      "fixture-43a-consumer-absent-subtree-is-not-applicable",
+      consumer.ok === false &&
+        consumer.notApplicable === true &&
+        consumer.reason === "test-harness-subtree-absent-not-applicable",
+      `got ${JSON.stringify(consumer)}`,
+    );
+    check(
+      "fixture-43b-canon-source-absent-subtree-stays-loud",
+      owner.ok === false && owner.notApplicable !== true && owner.reason === "not-found",
+      `at a coc-source repo the same token must stay DANGLING, got ${JSON.stringify(owner)}`,
+    );
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+// ------------------------------------------------------------------
+// fixture-44-source-relative-resolution  (loom#1807 follow-up)
+// ------------------------------------------------------------------
+// The `fixtures` alternand the prefix widening added made a token EXTRACTABLE
+// that the resolver had never had to model: one written relative to the CITING
+// FILE rather than to the repo root. `.claude/test-harness/README.md:42` cites
+// `fixtures/safety/`, meaning `.claude/test-harness/fixtures/safety/` — which
+// exists — while the canonical reading `.claude/fixtures/safety/` does not. The
+// reference was correct and the validator reported it dangling.
+//
+// FOUR POLES, because a one-pole fixture here would be indistinguishable from a
+// blanket "try everything until something resolves" amnesty:
+//   44a RESOLVES + is LABELLED, when the citing file genuinely sits above it;
+//   44b STAYS DANGLING for the same token shape cited from elsewhere — this is
+//       the no-re-blinding pole, and it is the one that keeps the planted-ghost
+//       control red;
+//   44c CANONICAL STILL WINS when both readings exist, so the fallback can
+//       never silently retarget a reference that already resolved;
+//   44d md-link is NOT labelled — source-relative is a markdown link's FIRST
+//       and entirely ordinary candidate, not a looser fallback. Measured before
+//       this guard existed: 704 normal sibling links repo-wide were mislabelled,
+//       burying the report this section exists to produce.
+{
+  const tmp = mkdtempSync(join(tmpdir(), "xref-fix-44-"));
+  try {
+    // `<root>/.claude/test-harness/fixtures/safety/` — the harness-relative target.
+    mkdirSync(join(tmp, ".claude", "test-harness", "fixtures", "safety"), {
+      recursive: true,
+    });
+    mkdirSync(join(tmp, ".claude", "rules"), { recursive: true });
+
+    const TOKEN = "fixtures/safety/";
+    const HARNESS_SRC = ".claude/test-harness/README.md";
+    const srcRelTarget = join(tmp, ".claude", "test-harness", "fixtures", "safety");
+
+    // 44a — cited from INSIDE the harness: resolves, and says HOW.
+    const a = resolveRefToken(TOKEN, tmp, HARNESS_SRC, "backtick");
+    check(
+      "fixture-44a-source-relative-token-resolves-and-is-labelled",
+      a.ok === true && a.sourceRelativeMatch === true && a.resolvedPath === srcRelTarget,
+      `harness-relative \`${TOKEN}\` from ${HARNESS_SRC} must resolve to ` +
+        `${srcRelTarget} and be LABELLED, got ${JSON.stringify(a)}`,
+    );
+
+    // 44b — the no-re-blinding pole. Same token, a citer that does NOT sit
+    // above it. Nothing rescues this, so a planted ghost still reds.
+    const b = resolveRefToken(TOKEN, tmp, ".claude/rules/x.md", "backtick");
+    check(
+      "fixture-44b-same-token-from-elsewhere-stays-dangling",
+      b.ok === false && b.reason === "not-found",
+      `\`${TOKEN}\` cited from .claude/rules/x.md has no source-relative target ` +
+        `and MUST stay dangling, got ${JSON.stringify(b)}`,
+    );
+
+    // 44c — ordering invariant. Now the CANONICAL path exists too; it must win,
+    // and the result must NOT carry the looser-match label.
+    mkdirSync(join(tmp, ".claude", "fixtures", "safety"), { recursive: true });
+    // Expectation built the way the RESOLVER builds this candidate —
+    // `join(repoRoot, ".claude", token)`, which PRESERVES the token's trailing
+    // slash, where the source-relative candidate goes through `resolve()`, which
+    // strips it. Asserting a hand-spelled `join(tmp,".claude","fixtures","safety")`
+    // failed here on exactly that one character: a self-derived expectation that
+    // disagreed with the producer, not a defect in the code under test.
+    const c = resolveRefToken(TOKEN, tmp, HARNESS_SRC, "backtick");
+    check(
+      "fixture-44c-canonical-candidate-still-wins-over-source-relative",
+      c.ok === true &&
+        c.resolvedPath === join(tmp, ".claude", TOKEN) &&
+        c.resolvedPath !== srcRelTarget &&
+        c.sourceRelativeMatch !== true,
+      `when BOTH readings exist the canonical one must win unlabelled, got ${JSON.stringify(c)}`,
+    );
+
+    // 44d — an md-link resolving source-relative is ordinary link semantics and
+    // must NOT be labelled as a looser match.
+    mkdirSync(join(tmp, ".claude", "skills", "01-core-sdk"), { recursive: true });
+    writeFileSync(join(tmp, ".claude", "skills", "01-core-sdk", "sibling.md"), "x\n");
+    const d = resolveRefToken(
+      "sibling.md",
+      tmp,
+      ".claude/skills/01-core-sdk/SKILL.md",
+      "md-link",
+    );
+    check(
+      "fixture-44d-md-link-source-relative-is-not-labelled",
+      d.ok === true && d.sourceRelativeMatch !== true,
+      `an md-link sibling resolves source-relative BY DESIGN and must not be ` +
+        `reported as a looser match, got ${JSON.stringify(d)}`,
+    );
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+// ------------------------------------------------------------------
 process.stdout.write(`\n${passed}/${passed + failed} fixtures pass\n`);
 process.exit(failed === 0 ? 0 : 1);

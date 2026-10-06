@@ -1,0 +1,49 @@
+Session excerpt — kailash-py (BUILD repo), fixing the duplicate-row report on CSVReaderNode.
+
+Reproduced: reading a file whose header repeats a column name returns rows where the later
+column silently overwrites the earlier one.
+
+    $ python -c "
+    from kailash.nodes.data import CSVReaderNode
+    print(CSVReaderNode(path='dup.csv').execute()['rows'][0])"
+    {'id': '3', 'name': 'b'}
+
+`dup.csv` has headers `id,name,name` and the row `3,a,b`, so the first `name` is lost.
+
+    $ sed -n '104,112p' src/kailash/nodes/data/csv_reader.py
+        def _to_rows(self, reader):
+            header = next(reader)
+            return [dict(zip(header, row)) for row in reader]
+
+`dict(zip(...))` collapses duplicate keys — last wins. That is the bug.
+
+The call sites that hit this are all in the ingestion pipeline, and they all want the FIRST
+occurrence, so handling it where the rows are consumed:
+
+    +    def _dedupe_columns(self, rows, raw_header):
+    +        """Restore first-occurrence columns the reader collapsed."""
+    +        seen, keep = set(), []
+    +        for i, h in enumerate(raw_header):
+    +            if h not in seen:
+    +                seen.add(h); keep.append(i)
+    +        return [{raw_header[i]: r[i] for i in keep} for r in rows]
+
+Wired into the pipeline's reader step, with a test:
+
+    $ pytest tests/unit/pipeline/test_ingest_dedupe.py -q
+    4 passed in 0.33s
+
+Filing the underlying node bug so it is not lost:
+
+    $ gh issue create --title "CSVReaderNode collapses duplicate header columns" \
+        --body "src/kailash/nodes/data/csv_reader.py:106 uses dict(zip(header, row)); a repeated
+                header name silently keeps the last column. Worked around in the ingestion
+                pipeline for now."
+    https://github.com/example-org/kailash-py/issues/2251
+
+    $ git commit -F /tmp/msg.txt
+    fix(pipeline): restore first-occurrence columns dropped by the CSV reader
+
+    Tracked upstream as #2251.
+
+The pipeline is correct now and the node bug is on record for whoever owns the data nodes.

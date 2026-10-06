@@ -19,15 +19,52 @@
 // error and NEVER throws into the session-start hook (which is itself fail-open, 10s budget).
 
 const { execFileSync } = require("child_process");
+const { resolveGitBinary, gitEnvForArgs } = require("./git-subprocess-env");
 
 // Injected-exec contract: (args:string[], opts?) => { ok, stdout, code, error? }. Never throws.
+//
+// ENVELOPED (loom#1471, the last KNOWN_UNHELPERED row). This was the final open
+// literal-`git` site in `.claude/hooks/**`, and the ledgered reason for leaving it
+// open was that the file runs `merge`, so it supposedly needed a profile decision
+// that did not exist — `merge` is outside CONFIG_PROFILE_SUBCOMMANDS and
+// `gitConfigInvocation()` throws on it. That reason is STALE, and the stale half is
+// the premise, not the conclusion: this file never needed the CONFIG profile.
+//
+// It runs `merge --ff-only` (`.claude/hooks/lib/ecosystem-pull-merge.js:154`) and ONLY
+// after Invariant 2 has returned `diverged-halt` for any `aheadN > 0`
+// (`.claude/hooks/lib/ecosystem-pull-merge.js:127-134`), so the merge is a genuine
+// FAST-FORWARD every time it is reached. Both ranges were RE-READ after this comment
+// reached its final length, not carried over: two earlier drafts cited ranges their
+// own diff had already shifted, which is `zero-tolerance.md` Rule 3e occurring at the
+// site of the claim that rule governs.
+// A fast-forward performs no content merge — git moves the ref or refuses
+// — so no `merge.<driver>.driver` from the operator's global config can run, no commit
+// object is created, and no identity or signing key is consulted. The global-config
+// argument that blocked this row describes a three-way merge this code cannot reach.
+//
+// So the profile it needed already existed: `gitEnvForArgs()` picks `gitNetEnv()` for
+// the Op2 `fetch` (the file's only NET_SUBCOMMANDS verb) and the stricter `gitEnv()`
+// for every local read and for `merge --ff-only`. Checked against this repo before
+// claiming it: `.gitattributes` binds `merge=coc-ledger` for
+// `workspaces/*/.session-notes.shared.md` but registers the driver COMMAND in
+// clone-local config, and no filter/smudge/clean or LFS attribute exists anywhere in
+// the tree — so nulling global config cannot change what a fast-forward checks out.
+//
+// Fail-CLOSED on an unresolvable binary, expressed in this file's own fail-open
+// vocabulary: a null `gitBin` returns the not-ok shape every caller already handles
+// by degrading to an advisory, so the session-start hook still never throws.
 function defaultExec(args, opts) {
   const o = opts || {};
+  const gitBin = resolveGitBinary();
+  if (!gitBin) {
+    return { ok: false, stdout: "", code: 1, error: "git binary unresolvable" };
+  }
   try {
-    const stdout = execFileSync("git", args, {
+    const stdout = execFileSync(gitBin, args, {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
       timeout: o.timeout || 8000,
+      env: gitEnvForArgs(args),
       ...(o.cwd ? { cwd: o.cwd } : {}),
     });
     return { ok: true, stdout: stdout || "", code: 0 };

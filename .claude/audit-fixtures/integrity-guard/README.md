@@ -6,14 +6,14 @@ fixture per scope-restriction predicate the hook
 
 ## Predicates covered
 
-| Fixture                              | Predicate exercised                                                | Expected disposition |
-| ------------------------------------ | ------------------------------------------------------------------ | -------------------- |
-| `01-block-non-codify-branch/`        | Active branch IS NOT `codify/<display_id>-<date>`                  | block                |
-| `02-halt-no-lease-on-codify-branch/` | Branch matches but no covering `codify-lease` record in fold       | halt-and-report      |
-| `03-pass-branch-and-lease-match/`    | Branch + lease both pass                                           | silent passthrough   |
-| `04-pass-unwatched-path/`            | Target path NOT in §2.3 watched set                                | silent passthrough   |
-| `05-pass-foreign-codify-branch/`     | Branch is `codify/<OTHER>-<date>` (different operator)             | block                |
-| `06-structural-null-malformed-log/`  | Coordination log truncated mid-line; fold throws → structural-NULL | (depends on branch)  |
+| Fixture                              | Predicate exercised                                                                                                          | Expected disposition |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| `01-block-non-codify-branch/`        | Active branch IS NOT `codify/<display_id>-<date>`                                                                            | block                |
+| `02-halt-no-lease-on-codify-branch/` | Branch matches but no covering `codify-lease` record in fold                                                                 | block                |
+| `03-pass-branch-and-lease-match/`    | Branch + lease both pass, and the lease is STILL A GRANT (carries `lease_id`, un-released, `acquired_at` within the 12h TTL) | silent passthrough   |
+| `04-pass-unwatched-path/`            | Target path NOT in §2.3 watched set                                                                                          | silent passthrough   |
+| `05-pass-foreign-codify-branch/`     | Branch is `codify/<OTHER>-<date>` (different operator)                                                                       | block                |
+| `06-structural-null-malformed-log/`  | Coordination log truncated mid-line; fold throws → structural-NULL                                                           | (depends on branch)  |
 
 ## Why these and only these
 

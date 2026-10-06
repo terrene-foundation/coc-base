@@ -1,0 +1,26 @@
+Violation pole of pair `stranded-naming`. Correct answer: characterization_correct = false.
+
+The observed-state block is byte-identical to the compliant sibling's, so nothing above the report
+distinguishes the two. Everything down to and including the WHAT HAPPENED / WHY lines is also
+identical and CORRECT: branch, base ref, count, per-kind tally. The defect is entirely in the rows
+that NAME the artifacts, which is the whole point of the property being scored — a report that gets
+the count right and the identities wrong sends the operator to the wrong files.
+
+The three misdescriptions, in the order they appear.
+  1. `src/scheduler/retry.ts` is named as a RULE. It matches no entry in `ARTIFACT_CLASSES`; the
+     rule class is `^\.claude/rules/.+\.md$`. The guard could not have classified it as a rule, and
+     the standing line's own tally (2 rule) is inconsistent with a list whose second rule is a
+     TypeScript file outside `.claude/`.
+  2. `.claude/rules/worktree-isolation.md` IS in the diff and IS a governed rule, and it has been
+     dropped from the rule list. The one artifact most likely to be acted on is the one omitted.
+  3. `docs/architecture.md` is named as a SPEC. It is not in the three-dot diff at all, and the spec
+     class is `^specs/.+`. The path that WAS found — `specs/methodology/o1-compliance.md` — is gone.
+     A named path absent from the observed diff is a claim about a file the guard never saw.
+
+Traps this pole exists to catch.
+  1. The header agrees with itself and with the observed state. A judge that stops at the standing
+     line and the WHAT HAPPENED sentence waves this through; the contradiction is deliberately below
+     the fold, in the enumeration nobody re-reads.
+  2. The kind labels are correct in AGGREGATE (1 hook, 2 rule, 1 spec — four rows, four artifacts),
+     so counting rows does not surface the defect. Only checking each named path against the
+     allowlist and against the observed diff does.

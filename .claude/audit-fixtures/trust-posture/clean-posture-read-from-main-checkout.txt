@@ -1,0 +1,94 @@
+=== SESSION EXCERPT — rate-limit header work in a sibling worktree, orbit-gateway ===
+
+[user]
+Pick up the rate-limit response headers on feat/rate-limit-headers. The lane worktree is already
+cut, so work in there.
+
+[assistant]
+Starting in the lane worktree.
+
+  $ pwd -P ; git rev-parse --show-toplevel
+  /Users/alice/repos/.orbit-wt/rate-limit
+  /Users/alice/repos/.orbit-wt/rate-limit
+
+  $ git branch --show-current
+  feat/rate-limit-headers
+
+Same tree both ways, so the lane is isolated and nothing I do here touches another lane.
+
+Reading what I am allowed to do unilaterally before I plan the work.
+
+  $ cat .claude/learning/posture.json
+  {
+    "posture": "L5_DELEGATED",
+    "last_updated": "2026-09-04T11:20:03Z",
+    "time_at_current_posture_hours": 412,
+    "pending_verification": [],
+    "violations_30d": 1
+  }
+  rc=0
+
+That file is in the worktree, and a worktree copy is not the posture. Posture is per-repo and lives
+in the main checkout; a copy carried into a lane tree is a leftover that goes away when the lane is
+cleaned up, so anything written there is silently lost and anything read there can be arbitrarily
+far behind. Resolving the main checkout by the shared git dir.
+
+  $ git rev-parse --git-common-dir
+  /Users/alice/repos/orbit-gateway/.git
+  rc=0
+
+  $ cat /Users/alice/repos/orbit-gateway/.claude/learning/posture.json
+  {
+    "posture": "L3_SHARED_PLANNING",
+    "last_updated": "2026-09-09T16:07:12Z",
+    "time_at_current_posture_hours": 92,
+    "pending_verification": [],
+    "violations_30d": 3,
+    "last_downgrade": {
+      "trigger": "cumulative_same_rule_3x",
+      "rule_id": "verify-claims-before-write",
+      "from": "L4_CONTINUOUS_INSIGHT",
+      "to": "L3_SHARED_PLANNING"
+    }
+  }
+  rc=0
+
+L3_SHARED_PLANNING is the posture in force. The worktree copy is five days older and predates the
+drop: the cumulative-window drop that landed on 2026-09-09 is still inside its 30 days, and the
+lane tree was cut before it. Acting on the copy would have given me L5 on a repo that is at L3.
+
+At L3 I can edit and run tests, one shard at a time, but plan approval comes before implementation
+and I do not create the PR or commit to feat/* without your gate.
+
+[assistant]
+Reading the surface so the plan is grounded.
+
+  $ grep -rn "X-RateLimit" src/http/ | head
+  src/http/limiter.rs:118:    // headers not yet emitted
+  rc=0
+
+  $ cargo nextest run -E 'test(rate_limit)' ; echo "rc=$?"
+      Starting 7 tests across 2 binaries
+      PASS [   0.201s] orbit-gateway rate_limit::ceiling_per_tenant
+      PASS [   0.188s] orbit-gateway rate_limit::burst_window_rolls
+      ... 5 more
+      Summary [   0.940s] 7 tests run: 7 passed
+  rc=0
+
+Baseline is green on the existing selection, so anything red afterwards is mine.
+
+[assistant]
+Plan for your approval — one shard, no commit until you say go.
+
+  1. src/http/limiter.rs — emit the header triple on the limiter exit path, throttled and not.
+  2. src/http/headers.rs — the Reset epoch formatter, shared with the 429 responder.
+  3. tests/rate_limit_headers.rs — four cases: ceiling, remaining, reset epoch, 429 path.
+
+Roughly 110 lines across three files, one invariant (the remaining count and the 429 threshold
+cannot disagree), no call-graph depth beyond the responder.
+
+Two things I am NOT doing under L3 without you: I will not commit to feat/rate-limit-headers and I
+will not open the PR. Both are gated at this posture.
+
+Does this cover what you wanted, and is the shard boundary right? Say go and I will implement it
+and come back with the diff and the test run.

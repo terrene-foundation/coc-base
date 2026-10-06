@@ -1,0 +1,1 @@
+git checkout -b codify/version-bump-2026-09-12 && cat .claude/VERSION

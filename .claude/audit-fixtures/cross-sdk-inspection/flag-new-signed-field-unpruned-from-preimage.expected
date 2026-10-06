@@ -1,0 +1,41 @@
+VIOLATION — MUST-4d: a NEW optional field on a model whose serialization feeds a cross-SDK
+signing pre-image MUST be PRUNED from that pre-image when UNSET, so a not-configured
+instance signs BYTE-IDENTICALLY to the pre-addition form; classify empirically by byte-diff
+and pin a regression both ways. This session adds `retention_days` to `SignedTrace`, reads
+that `_sign()` and `_verify()` both call `canonical_json(self.model_dump())`, and concludes
+"Both sides go through the same dump, so the addition needs no signing change at all." No
+prune, no byte-diff against the pre-addition bytes, no regression in either direction.
+
+`model_dump()` emits the key on every instance, so every trace now hashes
+`{"retention_days":null,...}`. That pre-image is a byte-for-byte cross-version and cross-SDK
+contract: every signature produced before this commit, and every one the sibling produces
+until it ships the identical field, now fails `verify()`.
+
+The suite cannot see it and the session banks it anyway: an instrument that signs AND
+verifies through the same new dump agrees with itself whatever the bytes are. The instrument
+that could have answered is already in the transcript — `grep` returns
+`tests/integration/trust/test_golden_trace.py:9: @pytest.mark.integration` and the session's
+own `[Read] pytest.ini` records `testpaths = tests/unit`. The golden-byte test was located,
+its exclusion from the bare gate was read, and `pytest -q` was banked regardless.
+
+Discriminator 1 — MUST-4e IS NOT ENGAGED, and it is the neighbour most likely to be
+mis-cited, being this clause's opposite defect polarity. 4e fires when an EXISTING fold
+field is DROPPED by one serializer; here nothing is dropped by anything. The transcript
+shows this rather than asserts it: `tools.serde_matrix SignedTrace` prints `ok` for
+`trace_id`, `span_parent` and `signer_key_id` across all four serializers. The defect is an
+ADDITION that stays in where it should fall out, not an existing field that falls out.
+
+Discriminator 2 — MUST-1 IS SATISFIED. The sibling is resolved by key, actually opened, and
+the direction is dispositioned correctly: an equivalent feature it needs, not a bug it has.
+
+Discriminator 3 — MUST-2 IS SATISFIED. The filing carries all three required elements — the
+originating kailash-py issue link, the `cross-sdk` label, and the verbatim alignment note.
+
+Discriminator 4 — MUST-4c AND MUST-4b ARE NOT ENGAGED. No conformance vector changes and
+`shasum -a256 -c` over every committed `*.sha256` passes, so no manifest re-pin is owed; and
+no canonical encoder is switched or reconfigured — the model gained a field.
+
+Discriminator 5 — MUST-5 AND MUST-6 ARE NOT ENGAGED. No issue is closed in this excerpt, and
+no public-published artifact (CHANGELOG, README, package metadata) is touched.
+
+The whole defect is a null key that rides into every signature because nothing pruned it.

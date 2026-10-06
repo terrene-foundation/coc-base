@@ -1,0 +1,19 @@
+[ADVISORY] job-budget check did not run on pr.yml (audit engine absent)
+        See agent message for required report. (ci-job-budget.md MUST-1 is unenforced here without the audit engine; verification-gate-integrity.md MUST-2 — absence of a result is not a pass)
+
+ADVISORY — the action proceeded. Acknowledge in next message.
+
+WHAT HAPPENED: CI JOB BUDGET — NOT CHECKED. pr.yml carries a pull_request trigger, but the job-budget audit engine is not present in this repo at `.claude/bin/ci-job-budget-audit.mjs`, so NO job in this workflow was classified. This notice replaces silence deliberately: a guard that returned quiet here would present as coverage while checking nothing.
+  What is NOT being checked: whether each job reachable from `pull_request` is a required context, relevance-gated, or budgeted with a dated rationale; and whether the per-pool worst-case demand fits the declared capacity.
+  This is a coverage gap, not a finding about your edit. The edit stands.
+
+WHY: ci-job-budget.md MUST-1 is unenforced here without the audit engine; verification-gate-integrity.md MUST-2 — absence of a result is not a pass
+
+AGENT MUST REPORT:
+  - State that the ci-job-budget edit-time check did NOT run, and why (engine absent), rather than reporting the workflow edit as clean
+  - If this repo is meant to carry the check, obtain `.claude/bin/ci-job-budget-audit.mjs` from the upstream template sync; if it is deliberately not carried, say so
+
+CONDITION IT FIRED ON: an edit to .github/workflows/pr.yml, which carries a
+pull_request trigger. The audit engine the guard delegates classification to is
+not present in the repo, so no job was classified.
+

@@ -1,0 +1,47 @@
+Session excerpt — kailash-nexus, closing the per-tenant rate-limiting plan.
+
+Four shards, all merged to main.
+
+    #2204  W1  limiter core + key derivation
+    #2211  W2  middleware wiring on the public routes
+    #2218  W3  the counter cache
+    #2225  W4  admin bypass + the ops override endpoint
+
+Each wave was redteamed on its own branch before merge, and none of them was waved
+through on a thin round.
+
+    W1  round 1: 3 parallel reviewers, 4 findings. round 2: clean. Converged.
+        Summary: key is derive_key(tenant_id, route) -> "t:{tenant}:r:{route}".
+    W2  round 1: 3 parallel reviewers, 2 findings. One came back empty on a throttle
+        signal; re-ran at lower concurrency rather than counting the empty as clean,
+        and it returned 1 more. round 2: clean. Converged.
+        Summary: middleware passes the tenant from the authenticated session.
+    W3  round 1: 3 parallel reviewers, 3 findings. round 2: clean. Converged.
+        Summary: cache entry keyed on the route segment for locality; hit rate 31% to 88%.
+    W4  round 1: 3 parallel reviewers, 2 findings incl. a real privilege check on the
+        override endpoint. round 2: clean. Converged.
+        Summary: bypass writes a sentinel counter under a constant ops key.
+
+The arithmetic closes — no shard has an open finding, every round genuinely ran. That is
+not the gate. Each of those rounds was scoped to its own branch diff, so an invariant
+that is broken BETWEEN two shards is invisible to all eight of them by construction.
+
+One round over the union of the four merged PRs, on main, three reviewers in parallel:
+
+    scope for all three: the union of #2204 #2211 #2218 #2225 as merged on main
+    r1 -> tenant isolation end to end: follow one request from middleware to counter
+    r2 -> closure parity: every key producer against every key consumer
+    r3 -> refute: get one tenant's traffic counted against another's bucket
+
+All three returned payloads.
+
+    r1: CRITICAL. W1 derives "t:{tenant}:r:{route}". W3's cache keys the entry on the
+      route segment alone, so the cache lookup that fronts the counter collapses every
+      tenant onto one bucket. Both shards are internally consistent and each passed its
+      own rounds; the mismatch only exists across the merge.
+    r2: 1 finding. W4's constant ops key has no tenant component either, so an ops
+      bypass in one tenant short-circuits the limiter for all of them.
+    r3: reproduced r1's finding independently from the attack side.
+
+Two of these are cross-shard by construction and neither was reachable from any single
+branch diff. Plan is NOT converged. Opening a fifth shard for the key-shape unification.

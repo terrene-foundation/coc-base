@@ -25,6 +25,25 @@ When the proposal uses path (b), the receipt journal's exception section MUST co
 
 Missing any of (i)–(v) is BLOCKED. The cc-architect mechanical sweep at `/codify` validates field presence per Rule 10 Trust Posture Wiring.
 
+### The rule-binding token (machine-readable)
+
+The five sub-fields say WHAT the exception claims; they do not say WHICH rule it
+covers. Rule 10 § "Composite + new-rule additions" evaluates compliance PER RULE,
+so a proposal touching two baseline rules needs two distinguishable exceptions.
+Head the section with a binding token naming the rule:
+
+```markdown
+Rule-10-exception: <rule-file>.md
+(i) **Bytes added on lane-of-concern:** …
+```
+
+`.claude/bin/check-baseline-delta.mjs` reads this token — the sub-fields are
+searched between one token line and the next, so two exceptions in one journal
+cannot borrow each other's fields. Sources it scans: commit bodies in the
+proposal's range, lines ADDED to `journal/` in that range (a pre-existing
+exception is NOT reusable — the named rationale is per-invocation), and
+`--pr-body <file>`. Both the bolded and unbolded sub-field forms parse.
+
 ## Example Exception Section (Path (b))
 
 ```markdown
@@ -39,8 +58,8 @@ planned within 14 days; v6.2 spec freeze is in effect through 2026-06-15.
 corpus-level pruning review per F23b.
 (v) Absence-of-skill-extension-host: this MUST clause codifies a CVE-class
 vulnerability in a single load-bearing prohibition; no decomposable
-sub-content. Considered hosts: - `.gemini/skills/18-security-patterns/` — rejected because the skill
-is reference-style guidance, not authoring discipline. - `.gemini/skills/skill-authoring/` — rejected because the clause
+sub-content. Considered hosts: - `.claude/skills/18-security-patterns/` — rejected because the skill
+is reference-style guidance, not authoring discipline. - `.claude/skills/skill-authoring/` — rejected because the clause
 codifies a security boundary, not skill-authoring discipline. - new skill — rejected because a single-clause skill has worse
 progressive-disclosure shape than an inline rule clause.
 ```
@@ -86,11 +105,48 @@ When `.claude/rules/rule-authoring.md` MUST Rule 11 fires AND the proposal takes
 
 - `.claude/rules/rule-authoring.md` MUST Rule 10 — the proximity-band admission gate this template instantiates.
 - `.claude/rules/rule-authoring.md` MUST Rule 11 — the 2nd-extraction escalation that fires when path (b') (or path (a')) is invoked on the same (rule, CLI) lane twice within 30 days.
-- `.claude/rules/trust-posture.md` MUST Rule 8 — the canonical 8-field Trust Posture Wiring template; Rule 10's Wiring section anchors to this. MUST Rule 4's emergency-trigger list contains `proximity_band_admission_bypass` (Rule 10) AND `recurrent_extraction_escalation_bypass` (Rule 11).
+- `.claude/rules/trust-posture.md` MUST Rule 8 — the canonical Trust Posture Wiring template (read the field set THERE; a count restated here rots, and this line's did — it read "8-field" until `**Invoker class:**` landed as the ninth); Rule 10's Wiring section anchors to this. MUST Rule 4's emergency-trigger list contains `proximity_band_admission_bypass` (Rule 10) AND `recurrent_extraction_escalation_bypass` (Rule 11).
 - `.claude/rules/value-prioritization.md` MUST-2 + MUST-4 — Rule 11 disposition (a') corpus-review forest items MUST carry user-anchored value-anchor (Rule 11's "Forest-item composition" § sub-element (iv)).
 - `journal/0146` — F23a closure receipt; first Rule-10 invocation cycle.
 - `journal/0147` — F23b closure receipt; structural-cleanup extraction record.
 - `journal/0148` — F23b mid-cycle amendment confirming `rule-authoring.md` is path-scoped (Rule 10 does NOT fire on F23b's own codify; the extraction is preserved as structural-cleanup improvement).
+
+## Rule 10 worked examples
+
+Moved here from `rule-authoring.md` Rule 10's body 2026-09-02 as the paired
+extraction funding that rule's UNCONDITIONAL amendment (Rule 10 path (a)). The
+lane figures in these examples are the 2026-05 originals, kept verbatim as the
+historical record of the band-conditional era; the obligation they illustrate is
+now always-on and no longer waits for a near-breach lane.
+
+```markdown
+# DO — paired extraction recovers the bytes added
+
+Proposal: add MUST clause to security.md (~400 B added to rs-codex).
+rs-codex pre-proposal: 10.64% headroom (within 15% proximity band).
+Pair with: extract security.md § "Multi-Site Kwarg Plumbing" detail to
+`skills/30-claude-code-patterns/kwarg-plumbing-discipline.md` (~500 B
+recovered from rs-codex). Net rs-codex change: ~-100 B, headroom RISES.
+
+# DO — named-rationale exception in receipt journal
+
+Proposal: add MUST clause to security.md (~400 B added to rs-codex).
+rs-codex pre-proposal: 10.64% headroom (within 15% proximity band).
+Receipt journal § "F23 proximity-band exception": "this MUST clause
+codifies a CVE-class vulnerability with no decomposable sub-content;
+the rs-codex near-breach is acceptable because (a) the next CRIT-rule
+addition cycle is unlikely within 30 days, (b) F23b 2nd-extraction
+escalation will fire if rs needs another cut, (c) no skill-extension
+host file exists for this specific failure mode yet."
+
+# DO NOT — silent addition that consumes near-breach margin
+
+Proposal: add MUST clause to security.md (~400 B added to rs-codex).
+rs-codex pre-proposal: 10.64% headroom.
+Receipt journal: (no proximity-band acknowledgement). Post-proposal
+rs-codex: 9.99% — below 10% floor. /sync rs BLOCKS. Next session
+must fire another F20-style extraction cycle to unblock.
+```
 
 ## Origin
 

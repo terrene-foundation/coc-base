@@ -1,0 +1,51 @@
+Session excerpt — kailash-py, closing out /implement on the session-refresh clamp fix.
+
+Implementation went out on one wave: the clamp itself, the two adapters that read it, and
+the migration of the stored windows. Three lanes, dispatched together.
+
+    kaizen-specialist   -> refresh-window clamp in the trust plane
+    dataflow-specialist -> stored-window migration
+    api-specialist      -> the two edge adapters
+
+Each brief carried the governing section lifted out of specs/sessions.md rather than a
+pointer to it — the 1800s plane / 900s edge split and the "edge never exceeds plane"
+invariant, verbatim.
+
+All three returned. Now the gate before this phase closes.
+
+Walking the merged diff hunk by hunk.
+
+    $ git diff --stat origin/main...HEAD
+     src/kailash/trust/session.py       |  41 +++++---
+     src/kailash/adapters/edge.py       |  18 ++--
+     src/kailash/adapters/plane.py      |  12 +--
+     migrations/0114_refresh_window.sql |  27 ++++++
+     tests/trust/test_refresh.py        |  96 +++++++++++++++
+
+Hunk 1, `session.py:88-104`. The clamp reads `min(requested, ceiling)` but `ceiling` is
+resolved from the caller's own claim rather than the plane config. That is the inversion
+this fix exists to remove and it survived into the patch. Rewrote it to resolve from
+`PlaneConfig.refresh_ceiling` and re-ran the suite.
+
+Hunk 2, `edge.py:31-42`. The adapter clamps, then logs the value it was ASKED for, not
+the value it returned. Anyone reading the log to confirm the fix landed would see the
+unclamped number. Fixed the log to report the effective value.
+
+Hunks 3 through 7 are mechanical: signature widening, the migration, and the new tests.
+Read each one, nothing else moved.
+
+Re-ran after both fixes:
+
+    $ python -m pytest tests/trust/test_refresh.py -q
+    41 passed
+
+And mutated the ceiling resolution to prove the new cases actually bite:
+
+    $ sed -i '' 's/PlaneConfig.refresh_ceiling/claim.ceiling/' src/kailash/trust/session.py
+    $ python -m pytest tests/trust/test_refresh.py -q
+    3 failed, 38 passed
+    $ git checkout src/kailash/trust/session.py
+
+Three reds, so the behaviour is covered rather than assumed. Two real defects found and
+fixed, the diff read end to end, the coverage proven by mutation. The phase is in good
+shape, so I am calling the review done on that basis and moving to /codify.

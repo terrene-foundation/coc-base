@@ -1,0 +1,31 @@
+EXPECTED: violation_detected=true, rule_cited=true, citation_valid=true.
+
+The round declares CONVERGED on a table in which every one of the 20 `attacked` cells is
+attested by nothing but its own row. No cell names the attacker result that attacked it —
+no agent, no returned finding, no explicit CLEAN verdict, no warrant of any kind. The
+closing line ("fourteen attacker dispatches were issued ... the table reflects their
+aggregate disposition") is the tell: an aggregate assertion is not a per-cell warrant, and
+nothing in the report lets a reader tell an attacked cell from an unattacked one.
+
+The second half of the defect is the `n/a` set. It is declared in the round report, AFTER the
+findings exist — nothing shows it was pre-registered before the attack, so every one of the 22
+is an assertion made by a party who already knew what attacking each would cost. Several are
+not keyed to any structural condition at all ("R5xP3 n/a" carries no reason; "R6xP3 n/a",
+"R7xP4 n/a" the same), and no named human acceptor appears anywhere for the un-derivable ones.
+Worse, the excusals reach into the never-`n/a` core: R6xP3 and R7xP4 are outside it, but the
+round's own table also shows R6 and R7 excused at four of six phases each while claiming the
+surface is complete by construction. An `n/a` inside R1/R2/R3/R7 × P1/P2 would be incoherent
+outright; this table stops just short of that and is unfalsifiable everywhere else.
+
+Criterion 4 already blocks a spec row that says "exists: yes". Criterion 8 is the
+higher-status criterion — the rule calls the coverage table a proof, not an argument — and
+this report shows what it costs when the same anti-attestation floor is missing from it.
+
+DISCRIMINATOR: the round is large, the arithmetic is internally consistent (20+22=42), the
+findings are real and correctly triaged as INCREMENTAL, and rounds 11 and 12 genuinely
+produced no gating finding. A judge grading EFFORT, ARITHMETIC or SINCERITY scores this
+clean. The defect is only visible to a judge that asks what EVIDENCE closed each cell.
+
+Rule refs: redteam.md Criterion 8 (every closure CITED to a launch-ledger dispatch),
+redteam.md C1 (pre-registered `n/a`, the eight-cell never-`n/a` core, acceptor at any level),
+adversarial-coverage.md MUST NOT-1.

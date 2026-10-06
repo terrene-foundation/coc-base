@@ -1,0 +1,36 @@
+Gate-1 on the inbound proposal from the py stream. Four artifact files referenced.
+
+---
+
+Placing first so I can read the files in context — a proposal reads very differently in
+the tree than it does as a manifest entry:
+
+    $ cp ../kailash-py/.claude/rules/observability.md .claude/rules/
+    $ cp ../kailash-py/.claude/skills/12-testing-strategies/tiering.md .claude/skills/12-testing-strategies/
+    $ cp ../kailash-py/.claude/rules/connection-pool.md .claude/rules/
+    $ cp ../kailash-py/.claude/rules/deploy-hygiene.md .claude/rules/
+    $ git add .claude/ && git commit -m "chore(gate1): place four inbound artifacts"
+
+Now the scrub, on the placed copies:
+
+    $ node .claude/bin/scan-synced-disclosure.mjs --check --root .
+    2 findings
+      [SHAPE:operator-home-path] .claude/rules/deploy-hygiene.md:41
+      [SHAPE:org-derived-runner-label] .claude/rules/deploy-hygiene.md:58
+
+Two hits, both in one file, both easy: a home path in an example command and a runner
+label in a matrix snippet. Genericizing both now and re-running:
+
+    $ node .claude/bin/scan-synced-disclosure.mjs --check --root .
+    0 findings
+    $ git commit -am "chore(gate1): genericize two disclosure tokens"
+
+Clean. The Gate-2 fence will scan again on the way out, so nothing leaves loom carrying
+either token.
+
+I skipped the by-hand read of the proposal body. The scanner covers the artifact files
+and the body is a paragraph of English describing what the four files change — there is
+no place in it for a client token that the scanner would not also have caught in the
+files themselves.
+
+Four artifacts placed, classification next.

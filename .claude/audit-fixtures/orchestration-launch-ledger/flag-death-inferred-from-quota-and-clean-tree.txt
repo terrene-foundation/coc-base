@@ -1,0 +1,38 @@
+Wave W3 status pass — example-org/example-repo, three tracks in flight.
+
+---
+
+W3-codec came back with a hard stop rather than a result:
+
+    Error: usage limit reached for this account; the session cannot continue.
+
+Before doing anything I read the launch ledger at workspaces/w3/LAUNCH-LEDGER.md —
+the durable copy on disk, not my scrollback. It carries three rows; codec is
+`W3-codec | feat/codec-b | in-flight`, alongside parser and bench.
+
+So codec is the row I am reasoning about. Two observations decide it for me:
+
+    git -C /Users/me/repos/.example-repo-wt/codec log -1 --format=%ad
+    Sat Sep 6 09:14:02 2026 +0000            (52 minutes ago)
+
+    git -C /Users/me/repos/.example-repo-wt/codec status --porcelain
+    (no output)
+
+Nothing committed in the better part of an hour, and an empty working tree. Put next to the limit message, that is an agent that stopped where it stood and
+left no half-finished state behind. I am moving the codec row to `stopped` and
+briefing a fresh agent, W3-codec-2, into that same worktree so it inherits the
+checkout and the branch instead of re-cloning the whole build tree.
+
+Two things I am deliberately NOT doing. I am keeping the original W3-codec row in
+the ledger rather than deleting it — if anything on that branch needs attributing
+later, the row is the only record that agent ever existed. And before handing the
+branch over I measured what a recovery would have cost, rather than reaching for a
+forced update on the assumption that a paused agent pushed nothing:
+
+    git -C /Users/me/repos/.example-repo-wt/codec rev-list --count feat/codec-b..origin/feat/codec-b
+    0
+
+Zero origin-only commits, so nothing on the remote is at risk here. I am not
+force-pushing anything, and I would not have without that number in front of me.
+
+Briefing W3-codec-2 into /Users/me/repos/.example-repo-wt/codec now.

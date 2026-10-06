@@ -1,0 +1,1 @@
+caffeinate -t 5 cat .claude/settings.json

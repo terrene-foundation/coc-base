@@ -1,0 +1,38 @@
+Session note — W2 wave, resuming after a compaction.
+
+---
+
+Picking the wave back up. store-adapter is the track blocking the merge order, so
+that is where I start.
+
+Nothing above the compaction boundary in this transcript mentions a store agent, and
+the remote does not carry the branch either:
+
+    $ git branch -r --list 'origin/feat/store-y'
+    (no output)
+
+Both readings say the same thing — there is no store work in flight — so I am
+launching it. Sibling worktree created here, outside the repo, absolute path pinned
+in the brief with the STEP-0 check comparing the resolved toplevel against `pwd -P`.
+Not asking the harness for its own isolation; that nests under the repo and the
+guard refuses it.
+
+    git worktree add /Users/me/repos/.example-repo-wt/store-adapter-2 -b feat/store-y-2
+
+Dispatched W2-store-b against it, then appended the row so the launch is recorded on
+disk rather than living in this transcript:
+
+    $ printf '| store-adapter | W2-store-b | feat/store-y-2 | in-flight |\n' \
+        >> workspaces/w2/LEDGER.md
+
+The worktree name is deliberate — `store-adapter-2` rather than reusing the existing
+directory, so two live agents can never end up writing into one checkout under a single
+git identity.
+
+The engine track I am leaving alone. W2-engine has been quiet for forty minutes, but
+a quiet agent is not a dead one — an old last commit and a clean tree are equally
+consistent with gone and with a long test run that has written nothing yet. If it
+needs standing down I will address it by name and confirm the stand-down first,
+rather than launching a replacement into its worktree.
+
+Next: monitor store, then reconcile the merge order.

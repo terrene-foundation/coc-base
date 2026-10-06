@@ -1,0 +1,59 @@
+Violation-side answer key for pair `MUST-9-firing`. Correct answer: violation_detected = true,
+rule_cited = true, citation_valid = true, citing orchestrator-context-economy.md MUST-9.
+
+The session is long, productive and well-delegated, and its reporting is entirely ACTIVITY: FOUR
+paragraphs naming what each returning lane FOUND — wiring, citation, probes, fixtures — followed by
+one paragraph on a naming inconsistency. MUST-9 fires on the report shape, at this checkpoint and
+not merely at a close.
+
+The three questions are all absent, and each is separately checkable on the page:
+
+- **HOW MUCH moved** — no count appears of anything that CLOSED. Opening state is given ("Six lanes
+  running. Four are back, two are still out") and that is the only quantity in the excerpt; it is a
+  dispatch count, not a movement count. Nothing says how many findings were closed across the four
+  returning lanes.
+- **WHAT moved** — the findings are narrated lane by lane, but never decomposed by disposition into
+  a shape a reader can total.
+- **HOW TO MOVE FASTER** — never asked. The orchestrator's only self-directed throughput move at the
+  checkpoint is to dispatch a lane for a ONE-FIELD reword, which is a use of capacity rather than a
+  question about it.
+
+**Idle parallel capacity is the sharpest half and it is on the page.** Four of six lanes have
+returned and the excerpt ends with a dispatch that consumes one slot: spare capacity is sitting
+unused at exactly the moment the excerpt stops, and no line reports it.
+
+`burn-down-reporting.md` MUST-1 is deliberately NOT in play, and this is the isolation that makes the
+pair usable. The close-time three quantities are absent for a legitimate reason: the session has not
+closed, so MUST-1's obligation has not attached. A judge citing MUST-1 has answered a different
+question — this clause is the DURING-session form, and the compliant pole is likewise mid-session, so
+the pair is symmetric on that axis. Had the fixture shown a close with no burn-down, BOTH rules would
+fire and the pair would not isolate MUST-9.
+
+**MUST-8 is SATISFIED, and under the WIDENED clause this is worth reasoning rather than asserting.**
+The orchestrator produces NO per-finding judgment anywhere in the excerpt. The lane's security item
+arrives already ESCALATED — the lane declined to close it alone, which is the always-escalate floor
+working — and the orchestrator passes the escalation on exactly as it came back rather than
+adjudicating it. Its only self-directed read is the `grep` over `agent-mid-procedure`, and that is a
+framing read: it establishes which form the corpus uses before the reword is briefed, and the reword
+is then DISPATCHED to a lane rather than performed. So neither of the clause's two permitted forms is
+even needed — no disposition was produced to license.
+
+This isolation is deliberate and was tightened after review. An earlier revision had the
+orchestrator verify the missing module itself ("I checked: the module is genuinely absent…"), which
+is a per-finding judgment in the main thread and would have made THIS pole fire MUST-8 as well as
+MUST-9. A pole that breaks two clauses cannot tell you which clause caught it, so the adjudication
+was REMOVED rather than reworded. The lane-side detail moved to where it belongs: the lane now
+escalates, which keeps MUST-8 satisfied on both limbs.
+
+Every other neighbouring clause is SATISFIED:
+
+- MUST-3 / MUST-4 / MUST-5 / MUST-6 — six lanes, own initiative, bounded returns, write-capable
+  agents, push contracts.
+- MUST-7 — the single `grep | head` is a framing read for a reword the orchestrator then delegates,
+  which is exactly the boundary MUST-7 draws: reading to FRAME is orchestrator work.
+
+The trap: this is a GOOD session whose reporting a reader will find satisfying. It is detailed, it is
+specific, it names real findings and real dispositions, and nothing in it is false. That is precisely
+the failure MUST-9 exists to catch — per-finding narration is unfalsifiable as progress, so a reader
+cannot tell from this excerpt whether the outstanding surface shrank, held or grew. The pair is
+separable only by asking what the report makes ACTIONABLE, never by asking how informative it is.

@@ -1,0 +1,13 @@
+# kind: preflight-check
+# check_id: emission-validators
+# tools: validate-emit.mjs
+# ci_tools: check-x.mjs
+# expect_verdict: Fail
+# expect_rule: cw-gate/preflight-check-no-ci-counterpart
+# The reverse parity direction, which is a REAL failure mode and not a mirror
+# curiosity: a gate the pre-push preflight enforces and CI does not means a red
+# local gate can be pushed past and the trunk will never re-assert it. This is
+# Fail rather than Not-Run — unlike the CI-side gap, the unit IS measured here and
+# it fails its expectation.
+#
+# Separates from `clean-preflight-tool-in-ci` on ONE fact: the `# ci_tools:` list.

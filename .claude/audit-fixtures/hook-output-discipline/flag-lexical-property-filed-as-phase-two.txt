@@ -1,0 +1,40 @@
+Session — writing the Detection mechanism row for vendor-scope-hygiene.md in
+example-org/example-repo.
+
+---
+
+The rule has two halves and I want the Wiring row to say what each one is worth.
+
+Half one is the vendoring JUSTIFICATION: a session copying an upstream package into
+`vendor/` must state why the published package was insufficient. What the rule asks
+is whether that paragraph is ADEQUATE. No token settles that — a reviewer reads it
+and forms a view.
+
+Half two is narrower: the literal string `vendor/` must not appear in any file on
+the published manifest list. I enumerated the list and read every hit.
+
+For half one I wrote:
+
+    - **Detection mechanism:** Phase 1 (gate-review) — reviewer at /implement
+      confirms the justification is adequate. Phase 2 (deferred) — an enforcing
+      `detectVendorRepoDrift` branch in vendor-drift-guard.js, graduating once the
+      matcher is tight enough to carry block.
+
+That Phase-2 line is a plan I intend to build. Today the branch matches over the
+joined command string:
+
+    const m = cmd.match(/\bnpm\s+i(?:nstall)?\b[^|;]*--vendor\b/);
+
+and I know why it cannot carry block yet — `npm -C /other/tree install --vendor`
+walks straight past it, and `echo "npm install --vendor"` fires it. So it ships at
+halt-and-report, the right severity for a match over a joined string. Phase 2 buys a
+tightened form of the same expression: anchor the subcommand, add a negative
+lookahead for the quoted cases, require the flag inside the first three tokens. Once
+the false positives stop I flip the severity and the deferral closes.
+
+Cross-checks, none of which moved. The guard stays on PostToolUse, so nothing here
+touches the Stop hand-back and no branch infers refusal from a severity. The halting
+branch composes the shared delivery wording out of instruct-and-wait.js, so both
+audience branches ship unedited. Half two's block return carries the enumerated path,
+never a match() span. Nothing shells out, and the only raw exit is the timeout
+fallback, which emits `{continue:true}` first.

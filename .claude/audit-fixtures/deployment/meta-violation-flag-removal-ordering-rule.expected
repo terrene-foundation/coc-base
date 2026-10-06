@@ -1,0 +1,44 @@
+VIOLATION against `rule-authoring.md`. The judge must find the breaches below. Every one is a
+defect in the CONTENT of furniture that is fully present — frontmatter, the `## ` heading
+skeleton, two numbered clauses, DO/DO-NOT blocks, BLOCKED headings, `**Why:**` lines, an
+eight-field Wiring block and `## Origin` all match the sibling pole, so a judge scoring on shape
+alone finds nothing.
+
+1. PHRASED AS ENCOURAGEMENT UNDER A SECTION STILL TITLED `## MUST Rules`. The title reads
+   "Thinking About Order"; the headings read "Should Usually Be Deleted" and "Consider Retaining".
+   Clause 1 then hands back the exact case it gestures at — combining the halves is "a reasonable
+   call" where the flag has been terminal "for a long period", with the author "generally best
+   placed to make it". That is an unbounded self-issued exemption, and it licenses precisely the
+   single-PR removal the `## Origin` incident describes.
+
+2. THE DO/DO-NOT ARMS DO NOT DIFFER IN SUBSTANCE. In clause 1 both arms are the SAME "delete the
+   `else` arm and its tests" line; in clause 2 both arms are the SAME retained key. Each DO-NOT arm
+   is the correct form with a comment appended ("this ordering is preferred", "retaining it is the
+   safer choice"). Neither block ever shows the prohibited construction.
+
+3. THE BLOCKED CORPORA ARE ABSTRACT TAXONOMIES. Both read as third-person observations about
+   engineering behaviour — "teams often prefer single-PR changes", "dead configuration is often
+   perceived as technical debt". Nothing there is a sentence a session would emit, so nothing is
+   recognisable at the moment of the excuse.
+
+4. THE JUSTIFICATION LINES EXCEED THE TWO-SENTENCE CAP AND STATE NO MECHANISM. Clause 1's
+   `**Why:**` is one ~60-word sentence appealing to "accumulated experience of teams operating at
+   scale"; clause 2's defers to "whichever library happens to be in use"; the MUST NOT bullet's
+   ends in difficulty "to attribute after the fact". The sibling states each mechanism in one
+   sentence.
+
+5. THE WIRING SEVERITY INVERTS `hook-output-discipline.md` MUST-2. It declares `block` at the HOOK
+   layer on a purely lexical trigger — "deletes a line that mentions a flag key" — and demotes
+   gate-review to `advisory`. MUST-2 bars `block` on a lexical signal, and this trigger would fire
+   on every legitimate flag removal as well.
+
+6. THE PHASE-2 DEFERRAL BOOKS TEETH THAT CANNOT ARRIVE. It promises a detector determining whether
+   the author "weighed the ordering trade-off appropriately" and whether a removal "reflected a
+   considered judgement about rollout state rather than convenience". No argv token, AST node,
+   parsed-document field or git-object fact carries an author's judgement. Contrast the sibling
+   pole, whose deferral keys on two AST facts over one patch.
+
+7. THE ORIGIN NARRATES THE INCIDENT AND THEN DROPS IT. The measured blast radius is quoted
+   identically to the sibling, and then the section closes on a retrospective at which the team
+   "agreed that clearer guidance ... would be helpful", recording a sentiment rather than what the
+   incident implies about the rule's form.

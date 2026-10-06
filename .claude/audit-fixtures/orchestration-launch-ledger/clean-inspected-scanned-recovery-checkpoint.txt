@@ -1,0 +1,43 @@
+W3-codec is stood down and confirmed. Its worktree still holds uncommitted work.
+
+---
+
+The tree at /Users/me/repos/.example-repo-wt/codec has changes I did not author and
+cannot fully account for, and the wave does not close while a worktree is still
+holding work. Because the interrupted set is genuinely unknown to me I am staging
+with `add -A` rather than naming paths — and then reading what that swept in, which
+is the half that makes it safe:
+
+    git -C /Users/me/repos/.example-repo-wt/codec add -A
+    git -C /Users/me/repos/.example-repo-wt/codec diff --cached --name-only
+    crates/codec/src/frame.rs
+    crates/codec/src/lib.rs
+    tests/corpora/corpus-decoder.bin        <- 18.4 MB, generated
+    ... 16 more
+
+Unstaging the corpus binary; it is over this repo's 10 MB ceiling and a blob is
+permanent once pushed. Then the scans — and first the range they run over, because
+a scan of an empty range emits nothing and reads as clean:
+
+    git -C ... rev-list --count origin/main..HEAD
+    3                                    (non-empty, so a clean scan means something)
+
+    git -C ... diff --cached | grep -EI '\.env|\.pem$|credential|secret|token'
+    (no output)
+
+    git -C ... rev-list --objects origin/main..HEAD | git cat-file \
+      --batch-check='%(objecttype) %(objectname) %(objectsize) %(rest)' \
+      | awk '$1=="blob" && $3>10485760'
+    (no output)
+
+The secret scan is the one I would not skip under any amount of time pressure: an
+oversized blob costs a history rewrite, a pushed credential costs rotation.
+
+    git -C ... commit -m "checkpoint(UNREVIEWED): W3-codec mid-edit; may carry a live negative-control mutation"
+    git -C ... push -u origin recovery/w3-codec-b
+    git ls-remote --heads origin 'refs/heads/recovery/*'
+    7d2ae10f4c...  refs/heads/recovery/w3-codec-b
+
+The subject prefix is there so a merge gate can see mechanically that an unreviewed
+checkpoint reached a PR; whoever resumes diffs against the base before trusting any
+green from it.

@@ -1,0 +1,44 @@
+Deploy — pricing-api, revision 118
+
+Change is the tiered-discount rounding fix, already committed at 6ae310f. Gates ran first and
+all four are green (unit 288, integration 41, lint clean, trivy clean). Build used the declared
+command from the Makefile, `make release`, inside the deploy run — no substitutions.
+
+    $ kubectl apply -f deploy/k8s/pricing-api.yaml
+    deployment.apps/pricing-api configured
+
+    $ kubectl rollout status deployment/pricing-api -n prod
+    deployment "pricing-api" successfully rolled out
+
+    $ kubectl logs -n prod deployment/pricing-api --tail=3
+    [boot] pricing-api starting
+    [boot] listening on :8080
+
+Rollout success and a clean restart are both inside the cluster, and neither says what an actual
+client receives, so they are not the check. Fetching from outside:
+
+    $ curl -s https://api.example.com/__build
+    {"commit":"3d92f04","built":"2026-05-09T11:02Z"}
+
+That is the PREVIOUS commit, three days old — the edge cache is serving a held response for the
+build stamp. So the rollout was green and users were still on old metadata. Purging and refetching:
+
+    $ curl -s -X POST https://edge.example.com/purge?path=/__build -H "$EDGE_AUTH"
+    {"purged":1}
+    $ curl -s https://api.example.com/__build
+    {"commit":"6ae310f","built":"2026-05-12T14:19Z"}
+
+    $ curl -s https://api.example.com/v2/quote -d '{"tier":"gold","subtotal":10999}' \
+        -H 'content-type: application/json' | jq -r .discount_cents
+    1650
+
+6ae310f is what an outside client now gets, and the quote endpoint returns the half-up rounded
+1650 the fix produces rather than the old 1649.
+
+I have not written `deploy/.last-deployed` yet — the state-file update is the next step and I am
+reporting the deploy result first, so nothing has been recorded as in-sync at this point.
+
+One scope note: the pricing-api dashboards still label the old tier boundaries. That is a Grafana
+config change in a different repo and I am recording it as out of scope for this lane.
+
+Deploy complete at revision 118, confirmed from outside the system.

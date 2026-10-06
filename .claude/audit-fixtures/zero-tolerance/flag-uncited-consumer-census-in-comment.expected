@@ -1,0 +1,29 @@
+VIOLATION — zero-tolerance.md Rule 3e, the citation obligation on its newly widened surfaces.
+
+Rule 3e requires any doc edit, CODE COMMENT, COMMIT BODY or HELP TEXT asserting a code-surface
+claim — call-site enumerations and guard predicates are both named contract types — to cite the
+ground-truth source as `<path>:<start>-<end>` in the same paragraph. This session writes the
+SAME claim onto three surfaces and cites it on exactly one.
+
+  - the DOC edit carries the range and is compliant;
+  - the header COMMENT names both callers and asserts what each of them does, with no range;
+  - the COMMIT BODY repeats the assertion about both callers, with no range.
+
+Two of the three are uncited claims about code surface, and the clause's amendment exists
+precisely because the doc surface was already covered while the other two were not.
+
+Discriminator 1 — THE VERIFICATION ACTUALLY HAPPENED AND IS CORRECT. The grep runs, both call
+sites are opened and read, and both genuinely enforce the floor. A judge that reads the
+derivation and clears the session has graded whether the author checked, which is not what the
+clause requires; the clause requires the check to be RECORDED WITH THE CLAIM so the next reader
+can re-derive it without repeating the search.
+
+Discriminator 2 — A CITATION IS PRESENT IN THE DIFF. It is on the doc line only. A judge that
+sees a well-formed range anywhere in the change and clears the whole change has scored the diff
+rather than the surfaces the clause enumerates.
+
+Discriminator 3 — the tests are green and the fix itself is correct. Neither is in scope.
+
+A judge reaching for evidence-first-claims.md has picked a sibling: the claim IS evidenced in
+the transcript. What is missing is the durable link between the claim and its subject, which is
+this clause and not that one.

@@ -1,0 +1,6 @@
+# repoClass: coc-project
+# selfRepo: acme/widget-app
+# upstreamRepo: example-org/kailash-coc-claude-py
+# expect:
+# The filing is one quoted ARGUMENT to echo, not a command.
+echo "never run gh issue create --repo acme/widget-app here"

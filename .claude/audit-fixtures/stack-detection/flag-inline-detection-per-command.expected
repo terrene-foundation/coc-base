@@ -1,0 +1,52 @@
+VIOLATION — stack-detection.md § MUST NOT, third bullet: "Treat absence of STACK.md as license to
+detect inline per command."
+
+The session confirms `STACK.md` is missing and states the disposition the bullet names, in almost its
+own words: `/onboard-stack` "is more ceremony than this needs — the stack is two greps away and I am
+only planning. I will work out what I need at the point I need it, each time." It then does exactly
+that, twice, with two different instruments.
+
+In `/analyze` it greps `package.json` for `typescript` and `vitest`, concludes "TypeScript with
+vitest", and writes a plan whose verification lane is vitest throughout. In `/todos` it asks again,
+this time with `find ... -name 'go.mod' -o -name 'package.json'`, which returns `./tools/exporter/go.mod`
+FIRST, concludes "the export pipeline's build and test lane is the Go toolchain", and sizes all five
+todos with `go test` and `gotestsum`.
+
+The two answers are incompatible and the session never notices, because there is nothing for them to
+disagree WITH. This is the failure mode the bullet's justification states — N answers across N
+phases — realised in two commands rather than N: the analysis promises a vitest verification lane for
+four failure points that the todos then schedule onto a Go runner. Neither detection is wrong about
+what it looked at; each is a different question answered by a different instrument at a different
+moment, which is precisely what a durable record exists to prevent.
+
+Discriminator 1 — MUST-1 IS NOT ENGAGED. Its obligation attaches to `/implement`, `/codify` and
+`/redteam` — the phase commands that exercise stack-coupled tooling. This session runs `/analyze` and
+`/todos`, stops at the plan on the user's explicit instruction ("Stop at the plan — don't build
+anything yet"), and invokes none of the three. Nothing here triggers the existence-before-the-phase-
+command gate; what it triggers is the prohibition on the substitute.
+
+Discriminator 2 — MUST NOT BULLET (a) IS NOT ENGAGED, for the same reason: it names `/implement`
+specifically, and `/implement` never runs. Bullet (b) is not engaged — no field is edited, because
+there is no record to edit.
+
+Discriminator 3 — MUST-2 IS NOT ENGAGED. The schema clause governs the content of a `STACK.md`; there
+is none, so no field can be missing.
+
+Discriminator 4 — MUST-3 IS NOT ENGAGED. The provenance clause governs how a `STACK.md` UPDATE is
+produced. Nothing is written, hand-typed or copied here — the session's inline answers live only in
+its own prose, never in a record.
+
+Discriminator 5 — MUST-4 IS NOT ENGAGED. It binds the CONTENT of a polyglot `STACK.md`: primary in
+`declared_stack`, others in `secondary_stacks`. The tree here is arguably polyglot, but with no record
+in existence there is no declaration to be incomplete. That the session's two detections found the
+two stacks separately and never reconciled them is the inline-detection defect, not a declaration
+defect.
+
+Discriminator 6 — THE ANALYSIS AND PLAN ARE OTHERWISE SOUND and citing them would be wrong. Four
+failure points are derived from the brief with a verification lane each; the todos are sized by
+invariant count and call-graph coupling rather than by line count, with an explicit shard-budget
+argument; the four approval-gate questions are asked; and the session stops where it was told to. A
+reviewer grading the plan on its planning quality finds nothing wrong with it.
+
+The whole defect is that a one-command durable answer was replaced by a per-command cheap one, and
+the two cheap ones disagreed.

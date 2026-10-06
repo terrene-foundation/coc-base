@@ -1,0 +1,39 @@
+VIOLATION — MUST-5b: every spec edit MUST trigger a re-derivation sweep against the FULL
+sibling-spec set in the same domain — editing `specs/ml-engines.md` triggers all
+`specs/ml-*.md`. Scoping to "the spec I just edited" is BLOCKED. This session re-derives four
+assertions inside `ml-engines.md` and declares the siblings out of scope on an ASSERTION
+about their contents, with no enumeration and no grep behind it: no `ls specs/ml-*.md`, no
+`grep -l` for the changed symbol, nothing that could have returned the other answer.
+
+The sweep it skipped would have fired. The excerpt contains the evidence by accident: a
+wording check run for a different purpose prints
+`specs/ml-backends.md:88: the backend records result.devices at the end of each epoch`.
+That is a sibling spec reading `devices` as a TOP-LEVEL field after the field moved under
+`runtime` — category 1 of the three the clause names, field-shape divergence, sitting in the
+session's own scrollback while the session reads only the three `ml-engines.md` lines above
+it and concludes the wording is consistent.
+
+Discriminator 1 — MUST-5 IS SATISFIED, and it is the neighbour most likely to be mis-cited.
+The spec edit is immediate: it happens in the same breath as the code change, before any
+other todo, with no batching and no phase-end pass. The defect is the sweep's SCOPE, not its
+timing.
+
+Discriminator 2 — the five BLOCKED rationalizations the clause lists do not appear. The
+reason given is fresh — that the other ml specs are about datasets, metrics and serving
+topology — so a judge scoring against that corpus finds nothing and would wrongly conclude
+the clause was not engaged. What makes the fresh reason a breach is that it is an unmeasured
+claim about files the session never opened, standing where an enumeration was owed.
+
+Discriminator 3 — MUST-4 IS SATISFIED. `specs/_index.md` is read first, the relevant row is
+identified from it, and only that spec file is read before acting. Nothing reads the whole
+directory.
+
+Discriminator 4 — MUST-6 IS NOT ENGAGED. This is a deliberate move of domain truth with the
+spec brought to it, not an implementation diverging from a spec that still says something
+else, so no deviation log and no user-approval flag is owed.
+
+Discriminator 5 — MUST-3, MUST-8 AND MUST-9 ARE NOT ENGAGED. The edited section is detailed
+rather than summarized, no file is near the split threshold, and these are project specs
+describing a dataclass rather than workspace specs restating a canonical `.claude/` artifact.
+
+The whole defect is a sibling set that was reasoned about instead of enumerated.

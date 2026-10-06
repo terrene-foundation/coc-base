@@ -1,0 +1,7 @@
+{
+  "baseline": {
+    "artifact-names-tool::.claude/rules/gone.md::.claude/bin/vanished.mjs": {
+      "reason": "Fixture declaration. Long enough to clear the 30-character substantive-reason floor the loader enforces, so it is honoured rather than ignored."
+    }
+  }
+}

@@ -1,0 +1,69 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "**/specs/**"
+---
+
+# Spec Gap Disclosure — Tell The Reader What Is Not Built Yet
+
+A spec that describes only the parts of a system that already ship leaves the reader to guess at
+everything else, and readers generally guess badly. Where a section of the domain is designed but
+not merged, the spec is usually the best place to say so, because it is the surface the reader is
+already looking at when the question occurs to them.
+
+## MUST Rules
+
+### 1. Disclose A Known Gap Where The Reader Would Otherwise Assume Coverage
+
+Where an area inside a spec's declared scope is not yet implemented, the author should generally
+note that in the section covering it, so that a reader does not take silence for completeness. A
+short marker is usually enough — a column showing what is served today alongside what is intended,
+a line noting that an accessor is still to be wired, or a bracketed note that the backend work is
+following. The author may choose the form that fits the section.
+
+Where the gap is expected to close soon, it is normally fine to describe the intended behaviour in
+the same section, since the reader will be reading it against the finished system before long.
+
+```markdown
+# DO — disclose the gap in the section where the reader will look for it
+
+note the gap in the section covering that area of the domain
+
+# DO NOT — leave the reader to infer coverage from silence
+
+say nothing in the section about the part that is not built
+```
+
+**BLOCKED rationalizations:**
+
+- Withholding useful status information from a reader who would benefit from it
+- Being unhelpfully terse about areas of the domain that are still in progress
+- Treating a specification as though it were only a record of completed work
+- Failing to calibrate disclosure to what the reader needs to know
+
+**Why:** readers are better served by a spec that tells them where the system stands, and a file
+that says nothing about the unfinished parts is less useful than one that does.
+
+## Trust Posture Wiring
+
+- **Severity:** `advisory` at gate-review (reviewer confirms known gaps were disclosed where a
+  reader would benefit); `advisory` at the hook layer per `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3× same-rule in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1× = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: spec-gap-disclosure]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms that gaps inside the
+  spec's declared scope were disclosed in the covering section. Phase 2 deferred.
+- **Violation scope:** MUST-1 (a known gap left undisclosed where a reader would assume coverage).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-08-02 — proposed after readers of three domain specs assumed that every section described a
+working surface, and after a review round found that the sections which said least about their
+unfinished areas were the ones readers misjudged most often.

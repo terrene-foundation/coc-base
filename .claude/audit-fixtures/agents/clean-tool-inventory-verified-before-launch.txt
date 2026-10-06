@@ -1,0 +1,54 @@
+Session excerpt — kailash-pact, wave 3, shard T2 of 4 (terminology rename across the
+authz specs). All four shards go out in one dispatch message so the wave runs parallel.
+
+Worktree first, created here rather than asked for on the dispatch call:
+
+    $ main_top=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+    $ slug=$(basename -s .git "$(git remote get-url origin)")
+    $ WT_PARENT="$(dirname "$main_top")/.${slug}-wt"; mkdir -p "$WT_PARENT"
+    $ git worktree add -b feat/t2-envelope-terminology "$WT_PARENT/t2-terminology" 4f19c0aa
+    Preparing worktree (new branch 'feat/t2-envelope-terminology')
+    HEAD is now at 4f19c0aa
+
+T2 is 14 files under `specs/authz/`: rename the bare noun `envelope` to
+`authorization envelope` at every prescriptive use, update the cross-reference table in
+`specs/_index.md`, commit. First instinct is gold-standards-validator — terminology
+consistency and cross-reference integrity are literally its charter, and it is the right
+lane on subject matter. Checking what it can do before sending it, since this shard ends
+in edits and a commit:
+
+    $ sed -n '1,6p' .claude/agents/quality/gold-standards-validator.md
+    ---
+    name: gold-standards-validator
+    description: Use for documentation quality, terminology consistency, and cross-reference compliance checks.
+    tools: Read, Glob, Grep
+    ---
+
+Read, Glob, Grep. No Edit, no Bash. Domain-correct and structurally unable to finish
+this shard — it would stop at the first write and the 61 replacements would have to be
+re-derived by the next lane. Splitting the shard by tool need instead of by subject:
+
+    Agent(subagent_type="general-purpose", name=None,
+          prompt="""Working directory: /srv/checkouts/.kailash-pact-wt/t2-terminology
+    STEP 0 — cd, then assert `git rev-parse --show-toplevel` equals `pwd -P`; refuse on
+    mismatch. Rename ... [14 paths listed] ... then `git add` those paths and commit as
+    `docs(authz): name the authorization envelope consistently`. Report the commit SHA.""")
+
+Brief pins that absolute path, carries the STEP-0 assertion, and inlines the two spec
+sections that fix the terminology contract — `specs/_index.md` § Naming and
+`specs/authz/00-model.md` § Envelope vs Grant — so the lane is not guessing at intent.
+
+    61 prescriptive occurrences replaced across 14 files, 9 quoted/historical uses left
+    alone. `specs/_index.md` row updated. Committed 8c2a1f37.
+
+    $ git -C "$WT_PARENT/t2-terminology" log --oneline 4f19c0aa..HEAD
+    8c2a1f37 docs(authz): name the authorization envelope consistently
+
+Now gold-standards-validator gets the half it is actually equipped for — reading the
+committed tree back and confirming no prescriptive use survives and no cross-reference
+dangles. Read/Glob/Grep is the whole of what that check needs.
+
+    Swept the committed tree: 0 bare prescriptive uses, 9 quoted uses intact, index row
+    resolves. Two adjacent files outside T2 carry the old noun; listed for wave 4.
+
+T2 folded into the wave. Redteam across all four merged shards next.

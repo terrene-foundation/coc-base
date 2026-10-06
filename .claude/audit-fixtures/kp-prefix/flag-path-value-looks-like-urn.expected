@@ -1,0 +1,12 @@
+{
+  "path": "specs/domain/warehouse.md",
+  "expect": [
+    "specs-authority/rule-10-missing-kp-scheme"
+  ],
+  "disposition": "firing",
+  "family": "invariant-1 — \"a path\"",
+  "defeats": "a check keyed on `://` or on the presence of slashes, which reads a filesystem path as URN-shaped. Rule 10 invariant 1 names a path explicitly alongside a bare table name.",
+  "quotes_verbatim": [
+    "/data/warehouse/churn_features"
+  ]
+}

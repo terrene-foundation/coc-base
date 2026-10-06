@@ -1,0 +1,13 @@
+{
+  "_doc": "SAME BYTES as flag-absent-no-hook but for `delegatePresent`. The loom-vs-consumer split: loom-doctor.mjs is `always_include`, so this code runs at every USE template and downstream clone, none of which holds scripts/ci/dev-push-guard.mjs. `crit` there would be a false alarm; `ok` would be a false clean. n/a is a POSITIVE measured fact (the delegate is absent from disk), NOT an unknown.",
+  "state": {
+    "delegatePresent": false,
+    "trackedTriggerPresent": true,
+    "hooksDir": "/Users/someoperator/repos/loom/.git/hooks",
+    "resolveError": null,
+    "readError": null,
+    "triggerPresent": false,
+    "triggerExecutable": false,
+    "triggerDelegates": false
+  }
+}

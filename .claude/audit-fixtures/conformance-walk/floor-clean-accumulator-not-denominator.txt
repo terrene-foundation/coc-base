@@ -1,0 +1,12 @@
+// @fixture-path: tools/conformance/walk.js
+// @expect: none
+
+function walk(units, oracle) {
+  let total = 0;
+  let passed = 0;
+  for (const unit of units) {
+    total += 1;
+    if (oracle(unit) === "Pass") passed++;
+  }
+  return { total, passed };
+}

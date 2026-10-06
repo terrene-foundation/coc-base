@@ -1,0 +1,1 @@
+nice rg --pre=cp .claude/VERSION /tmp/detector-precision-out

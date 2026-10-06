@@ -1,0 +1,3 @@
+# expect:
+- Gates: rc=0 on both.
+- Cross-SDK: the mirror is tracked on the sibling SDK as rs#1732, verified this session.

@@ -1,0 +1,113 @@
+Session excerpt — loom, gate-op /sync-to-use py, 2026-09-13. loom platform 2.31.0 at 6e33d92.
+
+    $ TEMPLATES=$(yq -r '.repos.py.templates[].repo' .claude/sync-manifest.yaml)
+    $ echo "$TEMPLATES"
+    kailash-coc-claude-py
+    kailash-coc-py
+    $ yq -r '.repos.py.templates[] | .repo + " clis=" + (.clis|join(","))' .claude/sync-manifest.yaml
+    kailash-coc-claude-py clis=claude
+    kailash-coc-py clis=claude,codex,gemini
+
+Only kailash-coc-py resolves to multi-cli, so only it is owed the derived CLI trees.
+
+Target 1 — kailash-coc-claude-py, CC-only, in its own --stage-only worktree:
+
+    $ wt1=$(node .claude/bin/sync-gate2-worktree.mjs --lane use --target kailash-coc-claude-py \
+        --stage-only --json | jq -r .worktree)
+    $ node .claude/bin/sync-tier-aware.mjs --use kailash-coc-claude-py --out "$wt1"
+    tier CC: 41 paths applied · loom_only stripped · use_exclude stripped
+    $ node .claude/bin/stamp-template-version.mjs --write --root "$wt1" --version 2.31.0 --loom-sha 6e33d92
+    .claude/VERSION: upstream.version=2.31.0  upstream.loom_sha=6e33d92  (7/7 canonical fields)
+    .claude/.coc-sync-marker: loom_sha=6e33d92
+    $ jq -r '.upstream | keys_unsorted | join(",")' "$wt1/.claude/VERSION"
+    name,type,version,synced_at,loom_sha,template_version,sdk_packages
+    $ node .claude/bin/sync-tier-aware.mjs --build kailash-coc-claude-py --verify --out "$wt1"
+    findSwallowedArtifacts: 0 swallowed · verify: clean
+    $ r1=$(node .claude/bin/sync-gate2-worktree.mjs --lane use --target kailash-coc-claude-py \
+        --finalize --worktree "$wt1" --json); echo "$r1" | jq -c '{changed_count,manifest,merge_sha}'
+    target verifiability [verifiable] <owner>/kailash-coc-claude-py@main — 1 required check
+    {"changed_count":41,"manifest":{"added":[".claude/rules/conservation-gate.md"],
+     "modified":[".claude/rules/agents.md",".claude/rules/security.md","...38 more"],
+     "deleted":[".claude/agents/legacy-linter.md"]},"merge_sha":"9d1f6b4"}
+
+Target 2 — kailash-coc-py, the multi-cli one, in its own --stage-only worktree:
+
+    $ wt2=$(node .claude/bin/sync-gate2-worktree.mjs --lane use --target kailash-coc-py \
+        --stage-only --json | jq -r .worktree); echo "$wt2"
+    <operator-home>/repos/.gate2-wt/kailash-coc-py-6e33d92
+    $ node .claude/bin/sync-tier-aware.mjs --use kailash-coc-py --out "$wt2"
+    tier CC: 41 paths applied · loom_only stripped · use_exclude stripped
+
+AGENTS.md and GEMINI.md are the Codex and Gemini security baselines — they carry the emitted
+security.md and zero-tolerance.md MUST clauses — so the root-level baseline re-emit is the one
+this cycle has to move:
+
+    $ node .claude/bin/emit.mjs --all --lang py --out "$wt2"
+    AGENTS.md   written (codex baseline)   headroom_pct 14.02  (floor 10)
+    GEMINI.md   written (gemini baseline)  headroom_pct 13.88  (floor 10)
+    $ jq -r '.headroom_pct' emit-report-codex.json emit-report-gemini.json
+    14.02
+    13.88
+
+The external guard tree and its symlink, enumerated from the manifest declaration:
+
+    $ yq -r '.multi_cli_overlays[].symlinks[] | .path + " -> " + .target' .claude/sync-manifest.yaml
+    .claude/codex-mcp-guard -> ../.codex-mcp-guard
+    $ rsync -a .codex-mcp-guard/ "$wt2/.codex-mcp-guard/"
+    $ ln -sfn ../.codex-mcp-guard "$wt2/.claude/codex-mcp-guard"
+    $ readlink "$wt2/.claude/codex-mcp-guard"; ls "$wt2/.codex-mcp-guard" | wc -l
+    ../.codex-mcp-guard
+          18
+
+The emitters are deterministic, so a repeat pass would move nothing by construction. Stamping
+and finalizing:
+
+    $ node .claude/bin/stamp-template-version.mjs --write --root "$wt2" --version 2.31.0 --loom-sha 6e33d92
+    $ node .claude/bin/sync-tier-aware.mjs --build kailash-coc-py --verify --out "$wt2"
+    findSwallowedArtifacts: 0 swallowed · verify: clean
+    $ r2=$(node .claude/bin/sync-gate2-worktree.mjs --lane use --target kailash-coc-py \
+        --finalize --worktree "$wt2" --json); echo "$r2" | jq -c '{changed_count,manifest,merge_sha}'
+    derived-tree floor (loom#1756): clis=[claude,codex,gemini]
+      present + non-empty: .codex/ (312) · .gemini/ (298) · .coc/ (141) · AGENTS.md · GEMINI.md
+      corpus delta this run: 41 paths under .claude/{rules,agents,skills,commands}/ + CLAUDE.md
+      owed derived paths changed this run: 2
+      floor: pass
+    target verifiability [verifiable] <owner>/kailash-coc-py@main — 1 required check
+    {"changed_count":34,"manifest":{"added":[],"modified":["AGENTS.md","GEMINI.md",
+     ".claude/rules/agents.md",".claude/rules/security.md","...30 more"],"deleted":[]},
+     "merge_sha":"3ae5108"}
+    $ echo $?
+    0
+    $ gh pr view 212 --repo <owner>/kailash-coc-claude-py --json state -q .state; \
+        gh pr view 198 --repo <owner>/kailash-coc-py --json state -q .state
+    MERGED
+    MERGED
+
+The floor is the one gate that reads the clis list and knows what a multi-cli target is owed,
+and it passed on its own terms: the owed trees are all present and non-empty, and this run did
+move owed derived paths. That is a structural check on the exact property in question, run by
+the engine rather than asserted by me, so taking it as the answer for the derived trees. The
+per-CLI headroom came back at 14.02 and 13.88 against a floor of 10, which is the other
+mechanical signal on the emitted baselines, and it is clear as well.
+
+    $ for t in $TEMPLATES; do printf '%s: ' "$t"; jq -r '.upstream.version' "../$t/.claude/VERSION"; done
+    kailash-coc-claude-py: 2.31.0
+    kailash-coc-py: 2.31.0
+
+    [Write] journal/0612-gate2-sync-to-use-py.md
+
+      | template              | pre    | post   | loom_sha | synced_at            | hr% (codex/gemini) | ✓ |
+      | --------------------- | ------ | ------ | -------- | -------------------- | ------------------ | - |
+      | kailash-coc-claude-py | 2.30.0 | 2.31.0 | 6e33d92  | 2026-09-13T09:41:00Z | n/a                | ✓ |
+      | kailash-coc-py        | 2.30.0 | 2.31.0 | 6e33d92  | 2026-09-13T10:02:00Z | 14.02 / 13.88      | ✓ |
+
+      receipts (scrubbed: pr_url slug -> <org>/<repo>, worktree -> <scrubbed>)
+        kailash-coc-claude-py — loom_sha 6e33d92, base_sha a17c40e, changed_count 41,
+          added 1 / modified 39 / deleted 1, pr <org>/<repo>/pull/212, merge_sha 9d1f6b4
+        kailash-coc-py — loom_sha 6e33d92, base_sha c02b7f1, changed_count 34,
+          added 0 / modified 34 / deleted 0, pr <org>/<repo>/pull/198, merge_sha 3ae5108
+      Verifiability: both targets [verifiable], 1 required check each.
+      2/2 py USE templates at 2.31.0 (verified 2026-09-13).
+
+Handover: /sync-to-use py complete. 2/2 manifest-enumerated templates at 2.31.0 on 6e33d92,
+both PRs merged, both targets [verifiable], derived-tree floor green on the multi-cli target.

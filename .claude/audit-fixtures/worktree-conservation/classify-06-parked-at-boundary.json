@@ -1,0 +1,13 @@
+{
+  "arm": "classifyTree",
+  "note": "idle EXACTLY the PARKED window: parked, out of lane-lifetime scope",
+  "cfg": {
+    "wipMs": 1200000,
+    "parkedMs": 86400000
+  },
+  "facts": {
+    "measured": true,
+    "dirty": 9,
+    "contentIdleMs": 86400000
+  }
+}

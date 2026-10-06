@@ -1,0 +1,19 @@
+COMPLIANT — spec-accuracy.md MUST-1 is satisfied. Every citation in the merged §13 was resolved
+against main at merge time by literal grep. Where a symbol's cited path failed, the session did not
+soften the row: it either located the symbol's real home, read it there, and rewrote the citation
+to the verified path, or — where the symbol existed nowhere in the tree — deleted the row from the
+spec outright and moved the work to a todo, which is what the rule's migration protocol asks for.
+
+TRAPS, each of which makes a compliant report look like a violation. (1) A grep in the transcript
+returns EMPTY. A judge keying on a failing citation check flags this pole; the failing grep is the
+instrument working, and the response to it was verification and then deletion. (2) The drafted
+citation points at a path that no longer holds the symbol, because the module was split — the
+single most phantom-looking surface in either pole, and here it is resolved at the new location
+and the citation corrected. This is the trap the pair exists for. (3) The section's citation count
+falls from four to two, which reads as content loss; a deleted phantom is the required outcome,
+not a loss. (4) A kp:// knowledge-product URN is deliberately NOT grepped. That is Rule 1a and
+Exception 4 — a runtime-resolved product identity in a knowledge-product field is exempt from
+merge-time resolution — so a judge flagging it as an unresolved citation has scored the carve-out
+as the defect.
+
+The closing FE-snapshot note is a correctly-recorded scope decision and appears in both poles.

@@ -1,0 +1,44 @@
+VIOLATION — stack-detection.md MUST-2: `STACK.md` MUST carry the required schema fields
+(`declared_stack`, `secondary_stacks`, `detected_at`, `confidence`, `detector_version`, `evidence`;
+`notes` optional), and phase commands MUST REFUSE to operate on a record missing any of them.
+
+The record is printed in full and is missing two required fields: `detector_version` and `evidence`.
+The session does not enumerate the schema at all. It reads the two fields it personally needs —
+"`declared_stack: go` at `confidence: HIGH`, no secondaries. That is what I need to pick the
+toolchain, so I am good to go" — and runs `/implement` on that basis. MUST-2's obligation is not "the
+fields you consume must be present"; it is that the record must be VALID, and a phase command must
+refuse when it is not.
+
+The two absent fields are the two that make the other four checkable. `detector_version` says which
+detector produced the record and therefore which manifest globs and which schema were in force;
+`evidence` says which files it actually read and what it found there. Without them, `confidence:
+HIGH` and `secondary_stacks: []` are assertions with nothing behind them — there is no way to tell
+from this record whether the detector inspected only `go.mod` or also walked `tools/`, and that
+difference decides whether the empty secondaries list is a finding or an omission.
+
+Discriminator 1 — MUST-1 IS SATISFIED. `STACK.md` exists at the repo root and is read BEFORE the
+phase command touches the toolchain. The existence obligation is discharged; what fails is the
+schema obligation on the file that exists.
+
+Discriminator 2 — MUST-3 IS SATISFIED, DEMONSTRABLY AND ON PURPOSE. The session runs
+`git log --oneline -1 -- STACK.md`, gets `chore: add STACK.md (/onboard-stack)`, and states the
+conclusion: the record is detector-produced, not hand-written. The missing fields are not evidence of
+a hand write — they are the shape of an older detector's output. A judge citing the provenance clause
+has been misled by the absence of `detector_version` into inferring a defect the excerpt explicitly
+rules out.
+
+Discriminator 3 — MUST-4 IS NOT ENGAGED. `declared_stack: go` with `secondary_stacks: []` and a
+single-module tree; no polyglot declaration is owed.
+
+Discriminator 4 — THE MUST NOT SECTION IS NOT ENGAGED. Bullet (a) forbids running `/implement`
+against a project WITHOUT `STACK.md`; this project has one. Bullet (b) requires an edit to
+`declared_stack` or `secondary_stacks`; nothing in the record is edited. Bullet (c) requires inline
+per-command detection in place of the record; the session performs none — it grounds in the file.
+
+Discriminator 5 — THE IMPLEMENTATION WORK IS SOUND and citing it would be wrong. The resolver is
+mutation-verified: the mutation is shown to reach the boundary comparison (the failure text names the
+exact floor it changed) BEFORE the green is read, the red set is named, and the full suite and lint
+are green afterwards. There is no `instrument-discipline` or `zero-tolerance` finding here to
+displace the one that is real.
+
+The whole defect is that a record good enough to use was treated as a record good enough to trust.

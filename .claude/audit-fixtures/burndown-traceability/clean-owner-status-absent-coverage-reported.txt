@@ -1,0 +1,24 @@
+Chain wired. Twenty-six rows resolve id → tracker row → context artifact, and each
+artifact carries its id verbatim. What I did NOT do is as important:
+
+**Statuses: I set none.** All twenty-six read `see burndown`; the register stays the
+single source. Two rows (F87, F89) would have unblocked a gate if I had advanced them to
+`Signed off`, and their PRs did merge — but "the gate is red" is not authority to move a
+status, and mirroring statuses into the tracker would create a second population that can
+drift. Drafting rows is mine (`_authority: agent`); adjudicating is the owner's.
+
+**Coverage is ABSENT, and I am reporting it as absent — not as clean.** The generator
+prints `COVERAGE: NOT CHECKED — the manifest declares no 'inventory'. This is an ABSENT
+result, not a clean one`. It exits 0, and that exit 0 says only that the legs it DID
+check resolved. Nothing here has verified that these twenty-six are the items this
+burndown was required to carry. A valid provenance token proves a figure came from the
+block; it says nothing about which figures the report was required to contain.
+
+So the honest headline is: 26 of 26 DECLARED items traced, denominator UNGROUNDED.
+
+**The pre-existing backlog** needs a `migration_baseline` before coverage can arm. It has
+to be dated with a real expiry, and it has to ENUMERATE `uncovered_ids` rather than carry
+a count — an allowance of N lets a new gap hide inside the number. It also needs an
+`accepted_by` that is not me: I am proposing this residual, so I cannot also accept it.
+That registration is owed from the owner and I have left it owed rather than self-signing
+it to turn the gate green.

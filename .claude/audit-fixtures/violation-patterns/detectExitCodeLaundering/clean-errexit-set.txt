@@ -1,0 +1,1 @@
+set -euo pipefail; node .claude/bin/check-descoping.mjs; echo done

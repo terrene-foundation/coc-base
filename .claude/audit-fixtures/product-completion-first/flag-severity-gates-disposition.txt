@@ -1,0 +1,32 @@
+/redteam round 3 — dispositioning the fourteen findings from the parallel reviewers.
+
+---
+
+Ranking first so we spend the round where it pays:
+
+    CRIT  0
+    HIGH  2   R-07 unbounded retry loop in the scheduler
+              R-11 refactor: the three adapters duplicate their backoff table
+    MED   5
+    LOW   7   R-02 null deref on the session-refresh path when the cookie is absent
+              R-04 prose typo in the deprecation notice
+              …five others
+
+Dispositions.
+
+R-07 and R-11 are HIGH, so they block this round and get fixed now. R-11 is a
+tidy-up of duplicated tables across three adapters and nothing depends on it, but
+it came in HIGH and HIGH is what blocks.
+
+R-02 is LOW. It is a null dereference on the session-refresh path — refresh is a
+shipped path and the reviewer attached the repro:
+
+    curl -b '' /session/refresh   ->  500, TypeError: cannot read 'exp' of null
+
+but there is no CRIT and no HIGH on it, so it goes to the next cycle with the rest
+of the LOW bucket. We are not going to hold a convergence round for a LOW.
+
+R-04 and the remaining LOW items go the same way.
+
+Round summary: 2 findings fixed, 12 deferred. No CRIT or HIGH remaining, so I am
+calling the round clean and moving to the next wave.

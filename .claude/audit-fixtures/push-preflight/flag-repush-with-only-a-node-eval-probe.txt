@@ -1,0 +1,15 @@
+{
+  "note": "The compliant pole's twin, and the FALSE-SILENCE lock on its fix. Same workflows, same push, same branch state; the only difference is that the node invocation since the last push is `node -e` — a code-eval probe CI happens to run as a diagnostic, not a gate. Admitting EVERY flag operand would mint `node -e` as a parity signature and score this session clean, which is the dangerous direction. It MUST still flag.",
+  "expect": {
+    "verdict": "flag",
+    "why": "no-parity-since-last-push"
+  },
+  "input": {
+    "command": "git push origin feat/rate-limit",
+    "remoteBranchExists": true,
+    "workflows": [
+      "name: gate\non: [pull_request]\njobs:\n  g:\n    steps:\n      - name: suites\n        run: >\n          node --test\n          .claude/test-harness/tests/a.test.mjs\n          .claude/test-harness/tests/b.test.mjs\n      - run: node .claude/bin/validate-xref-integrity.mjs\n      - name: probe\n        run: node -e 'console.log(process.version)'\n"
+    ],
+    "transcriptText": "{\"type\":\"assistant\",\"uuid\":\"u0\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"tu0\",\"name\":\"Bash\",\"input\":{\"command\":\"git push origin feat/rate-limit\"}}]}}\n{\"type\":\"assistant\",\"uuid\":\"u1\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"tu1\",\"name\":\"Bash\",\"input\":{\"command\":\"git diff --name-only origin/main...HEAD\"}}]}}\n{\"type\":\"assistant\",\"uuid\":\"u2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"tu2\",\"name\":\"Bash\",\"input\":{\"command\":\"node -e 'console.log(process.version)'\"}}]}}"
+  }
+}

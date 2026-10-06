@@ -1,0 +1,1 @@
+env -S 'printf x > .claude/operators.roster.json'

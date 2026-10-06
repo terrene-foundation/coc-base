@@ -1,0 +1,50 @@
+VIOLATION — MUST-8: a rule with CLI-specific content (delegation syntax, tool names,
+native-primitive references) MUST partition that content into slot-marker blocks, with CLI
+variant overlays supplying replacement bodies for the slots that diverge. This session ships
+four `Agent(subagent_type=...)` call forms inside the rule's neutral body and partitions
+nothing.
+
+Both DO / DO NOT blocks are written in Claude Code's delegation primitive. `agents.md`'s own
+Examples section records that Codex uses a different dispatch form and Gemini a third, so the
+worked examples of this rule are legible on one of the three lanes the corpus ships. The rule
+emits identically to all three, so a Codex or Gemini reader meets a MUST clause whose only
+illustration is syntax that does not exist for them — the clause reads as CC-only by accident,
+which is the exact failure MUST-8's justification names. No `variants/codex/rules/` or
+`variants/gemini/rules/` overlay is written, and none could be: an overlay supplies replacement
+bodies for slots, and there are no slots.
+
+The session's own check missed it, and the way it missed is the point. The grep is well
+constructed — it is fired first at `agents.md`, a known-positive control, where it returns
+three distinct marker names, so the matcher is shown to work here before its zero is read. The
+zero is real. What the session then does is read an answer to "are markers present" as an
+answer to "is this content divergent," and records "no slot partition being needed for this
+rule." The instrument was sound and was pointed at the wrong question.
+
+Discriminator 1 — MUST-1 THROUGH MUST-4 ARE SATISFIED, and the transcript's own checklist shows
+each of them verified against the file rather than asserted. Both clauses use MUST and MUST NOT
+as their primary modal and name the alternative BLOCKED; the BLOCKED corpus holds six literal
+first-person sentences; both clauses carry two-armed DO / DO NOT blocks whose arms differ in
+substance; every clause and the MUST NOT section carries a one-sentence `**Why:**`.
+
+Discriminator 2 — MUST-5, MUST-6 AND MUST-7 ARE SATISFIED. Frontmatter declares `priority: 10`
+with `scope: path-scoped` and a two-entry `paths:` list; Origin cites
+`journal/0471-DISCOVERY-handoff-shape-mismatch.md` § 2.
+
+Discriminator 3 — MUST-10 AND MUST-11 ARE NOT ENGAGED. The new rule is `priority: 10` +
+`scope: path-scoped`, and Rule 10's own Trigger-scope paragraph excludes path-scoped rules
+from the proximity-band gate — so the `codex/rs` lane sitting at 9.41% headroom, well inside
+the 15% band, obliges nothing here. A judge that sees a near-floor lane in the emit output and
+reaches for Rule 10 has named a clause the rule's own scope paragraph rules out.
+
+Discriminator 4 — MUST-9 IS NOT ENGAGED. The rule ships no empirical-validation fixtures, so
+there is nothing whose conditions could fail to reproduce the incident named in Origin.
+
+Discriminator 5 — THE `## MUST NOT` BULLETS ARE SATISFIED. Every `**Why:**` is one sentence; no
+hedging phrase sits inside a MUST clause; the file is 94 lines; the Wiring block's Detection
+row is not the defect here.
+
+Discriminator 6 — the gate ran properly. Two specialists, both instructed to report in their
+final message, two consecutive clean rounds, both payloads read. Nothing about the dispatch
+discipline is a finding; the reviewers simply did not catch this.
+
+The whole defect is CLI-specific syntax carried in the neutral body with no slot to hold it.

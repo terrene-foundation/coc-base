@@ -1,0 +1,5 @@
+{
+  "toolName": "Write",
+  "filePath": "docs/memoryland/guide.md",
+  "note": "`memoryland` is not `memory`; whole-component comparison refuses it."
+}

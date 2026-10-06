@@ -1,0 +1,4 @@
+# The accept pole: a scoped package publishes its bin under the unscoped
+# tail, so `@biomejs/biome` satisfies `biome`. Without this, every scoped
+# tool in every real manifest is a false positive.
+(silent)

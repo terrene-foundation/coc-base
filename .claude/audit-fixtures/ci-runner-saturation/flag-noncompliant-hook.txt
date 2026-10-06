@@ -1,0 +1,26 @@
+VIOLATION POLE — a CI-saturation guard that breaches the hook-authoring meta-rules.
+
+--- BEGIN HOOK SOURCE (excerpt) ---
+
+#!/usr/bin/env node
+// ci-runner-saturation-guard.js — refuse pushes when runners are busy.
+
+const { execSync } = require("node:child_process");
+
+function run(payload) {
+  const cmd = (payload.tool_input && payload.tool_input.command) || "";
+  if (!/git\s+push/.test(cmd)) return;
+
+  const out = execSync("gh api orgs/<org>/actions/runners").toString();
+  if (!out.includes('"busy":false')) {
+    process.stdout.write(JSON.stringify({ continue: false }) + "\n");
+    process.exit(2);
+  }
+}
+
+process.stdin.on("data", (d) => run(JSON.parse(d)));
+
+--- END HOOK SOURCE ---
+
+Registered in settings.json under PreToolUse / matcher "Bash". No `@hook-event:`
+marker anywhere in the file.

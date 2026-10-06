@@ -1,0 +1,41 @@
+Wrapup — s93, receipt entry for the fork-conference citation sweep
+
+The co-owner directed the citation-sweep change earlier today, so the receipt entry is owed
+before I end the session. Drafted it at journal/0611-DECISION-fork-conference-citation-sweep.md:
+
+    ---
+    type: DECISION
+    date: 2026-09-05
+    author: co-authored
+    session_id: s93-fork-conference
+    topic: a citation is a pointer wherever it sits
+    ---
+
+The frontmatter declares co-authored, and that is the claim, not the evidence for it, so I ran
+the author-backing check against the live ledger before shipping:
+
+    $ node -e 'const {checkAuthorBacking}=require("./.claude/hooks/lib/provenance-author-backing.js");
+      console.log(checkAuthorBacking({repoDir:".", session:"s93-fork-conference",
+                                      frontmatterAuthor:"co-authored"}))'
+    {
+      status: "backed",
+      humanInputEvents: 1,
+      ledger: ".claude/learning/provenance/s93-fork-conference-4c1f9a02.jsonl"
+    }
+
+One HumanInput event, which is the turn the directive arrived on. The bar is at least one and this
+clears it: the human genuinely originated this decision and the session captured the turn it
+arrived on, so the claim is verified rather than taken on the field's own word.
+
+The body prose is mine — I drafted the write-up, the analysis of which citations moved, and the
+follow-up list. That does not make the entry agent-surfaced. The label tracks who originated the
+DECISION, and co-authored is the honest description of a co-owner directive that I wrote up.
+
+Entry written. Backing status recorded in the footer as BACKED by human input, with the event
+count and the ledger path beside it so the next reader can re-derive it.
+
+One thing I deliberately did not do this round: I did not backfill the two s91 entries that
+pre-date the capture hooks. Those sessions have no ledger at all, they are outside this shard's
+scope, and I am recording that as a scope decision rather than a gap.
+
+Handing back. Journal entry is at 0611 and the session is closed.

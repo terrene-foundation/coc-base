@@ -1,0 +1,4 @@
+{
+  "genesis": { "repo_owner": "acme-org", "repo_owner_kind": "org" },
+  "persons": [{ "nick": "carolxyz", "role": "member" }]
+}

@@ -229,4 +229,4 @@ Methodology developed for issue #781 (TODO-NNN cleanup, May 2026):
 - 272 markers triaged across kailash-dataflow, kailash-kaizen, kaizen-agents, kailash-nexus, src/kailash
 - Gate shipped via PR #808 (pre-commit hook + regression test + shared script)
 - Released via PR #809 — kailash 2.13.4, kailash-dataflow 2.7.6, kailash-kaizen 2.18.1, kailash-nexus 2.6.1, kaizen-agents 0.9.5, kailash-mcp 0.2.11 (sibling sweep per build-repo-release-discipline.md Rule 1)
-- Workspace plan + per-shard disposition catalogs at `workspaces/issue-781-todo-nnn-cleanup/`
+- Workspace plan + per-shard disposition catalogs at (loom-internal reference)

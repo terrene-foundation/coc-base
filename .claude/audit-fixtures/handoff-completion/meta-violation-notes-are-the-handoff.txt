@@ -1,0 +1,76 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "**/.session-notes*"
+---
+
+# Handoff Notes — Record The Downstream Action Where The Next Session Will Find It
+
+Work that has to happen on another repo or another surface does not always fit inside the
+session that discovers it. The productive disposition is to capture it well: a clear
+write-up in the session notes, in the workspace handoff folder, or in the workspace todos,
+so that the next session — which will have the budget and quite possibly the grant — can
+carry it the rest of the way. Recording is the part the discovering session is best placed
+to do, and it should generally be treated as the discovering session's share of the work.
+
+## MUST Rules
+
+### 1. Capture The Downstream Action Where It Will Be Found
+
+The agent should write the required downstream action into the session notes or the workspace
+handoff folder, with enough detail that a later reader can act on it. A well-captured action
+is normally sufficient to consider the loop covered: the note is durable, it is in the place
+sessions look, and the workspace todos are read at the start of the next cycle. Where the
+action needs an authorization the agent does not have, it should record the requirement and
+leave the raising of it to a session that has the grant, rather than interrupting the current
+one for a decision that may not be needed yet.
+
+References to downstream artifacts should be reasonably accurate. A tracker number carried
+forward from a prior session's notes may normally be cited as current, since numbers rarely
+change and the prior session had the same context.
+
+```markdown
+# DO — capture the downstream action properly
+
+record the action in the notes where it will be found
+
+# DO NOT — under-capture
+
+do not leave the downstream action vague or unrecorded
+```
+
+**BLOCKED rationalizations:**
+
+- Recording downstream work with insufficient detail for a later reader
+- Failing to place the note where subsequent sessions will look for it
+- Interrupting a session for an authorization decision that can wait
+- Being imprecise about which downstream surface the action belongs to
+
+**Why:** interrupting the human for every downstream action consumes attention that the
+session is supposed to be saving, and notes are usually picked up.
+
+## Trust Posture Wiring
+
+- **Severity:** `advisory` at gate-review (reviewer confirms downstream actions were captured
+  with enough detail to be actionable); `advisory` at the hook layer per
+  `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3× same-rule in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1× = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: handoff-notes]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms the note carries
+  enough detail for a later session to act on. Phase 2 deferred.
+- **Violation scope:** MUST-1 (downstream action captured without sufficient detail).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-08-09 — proposed after several sessions ended with a downstream action described only in
+passing, leaving the following session to reconstruct what was meant, and after a run of
+end-of-session authorization requests that the human declined to act on until the next cycle
+anyway.

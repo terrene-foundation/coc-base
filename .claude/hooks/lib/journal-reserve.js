@@ -313,29 +313,20 @@ function _foldHighWater(repoDir, dirRel) {
       `main checkout unresolved, refusing to read the roster from an unverified tree: ${mainRes.reason}`,
     );
   }
-  const rosterPath = path.join(
-    mainRes.repoDir,
-    ".claude",
-    "operators.roster.json",
-  );
-  let roster = null;
-  let rosterRaw;
-  try {
-    rosterRaw = fs.readFileSync(rosterPath, "utf8");
-  } catch (err) {
-    if (!err || err.code !== "ENOENT") throw err;
-  }
-  if (rosterRaw !== undefined) {
-    try {
-      roster = JSON.parse(rosterRaw);
-    } catch (err) {
-      // JSON.parse throws a SyntaxError carrying no path, and the caller
-      // surfaces `err.message` verbatim — so name the file here or the refusal
-      // is unactionable.
-      throw new Error(
-        `roster unparseable at ${rosterPath}: ${err && err.message ? err.message : String(err)}`,
-      );
-    }
+  // ONE SHARED READER (#84 follow-up, 2026-09-12). The read, the ENOENT carve-out
+  // and the unparseable refusal used to be written out here — and written out
+  // DIFFERENTLY in `journal-write-guard.js::loadRoster`, which swallowed every
+  // failure into `null` and then read the resulting empty fold as "the slot is
+  // free". Two readers of one fold input cannot hold opposite dispositions about
+  // the same bytes, so both now call `coordination-log.js::loadFoldRoster` and
+  // this function keeps only its own fail-closed idiom: throw, which
+  // `reserveJournalSlotSigned` catches at `step: "fold-high-water"`.
+  const rosterLoad = coordinationLog.loadFoldRoster(mainRes.repoDir);
+  if (!rosterLoad.ok) throw new Error(rosterLoad.reason);
+  const rosterPath = rosterLoad.path;
+  const roster = rosterLoad.roster;
+  const rosterPresent = rosterLoad.present;
+  if (rosterPresent) {
     // PARSING CLEANLY IS NOT THE SAME AS RESOLVING ANYONE, and the difference is
     // the whole gap this closes. Distinguishing ENOENT from a read/parse failure
     // (above) closes the CORRUPT-BYTES route to the high-water collapse and
@@ -422,9 +413,10 @@ function _foldHighWater(repoDir, dirRel) {
   // stayed green with this whole block replaced by `if (false)`, because the
   // reservation was refused further downstream for an unrelated reason. A case
   // that passes with the guard deleted is not an instrument for the guard
-  // (`instrument-discipline.md` MUST-2). `rosterRaw !== undefined` is the
-  // presence question the surrounding prose always meant to ask.
-  if (rosterRaw !== undefined && process.env.COC_TEST_SKIP_SIGN !== "1") {
+  // (`instrument-discipline.md` MUST-2). `loadFoldRoster().present` is the
+  // presence question the surrounding prose always meant to ask — keyed on the
+  // FILE, not the parsed value, so `null` cannot impersonate absence.
+  if (rosterPresent && process.env.COC_TEST_SKIP_SIGN !== "1") {
     const rejected = (folded && folded.rejected) || [];
     const lost = rejected.filter((entry) => {
       // SCOPED TO ROSTER-CAUSED REJECTIONS (`rule-1`), and the previous
@@ -480,7 +472,13 @@ function _foldHighWater(repoDir, dirRel) {
       // structurally unreachable for a reservation record: rule-5 gates on
       // `type === "compaction-checkpoint"`, and presence-proof only fires on a
       // record carrying `content.presence_proof`, which a reservation has not.
-      if (!entry || (entry.rule !== "rule-1" && entry.rule !== "rule-4")) {
+      // The rule set is now the SHARED classifier, so the guard cannot drift to
+      // a different one. The ROSTER is handed to it rather than the fold mode:
+      // this fold always runs with `skipSignatureVerify`, so rule-1 could only
+      // ever mean membership HERE, but passing the roster keeps both callers on
+      // the identical structural question instead of on an assumption about the
+      // mode — which is the assumption that failed on the read-time side.
+      if (!coordinationLog.isRosterCausedRejection(entry, { roster })) {
         return false;
       }
       const rec = entry.record;
@@ -587,6 +585,89 @@ function _foldHighWater(repoDir, dirRel) {
 }
 
 /**
+ * Describe a reservation whose signed record did NOT land, LOUDLY.
+ *
+ * Field names deliberately match `codify-lease.js::_describeRecordEmitFailure`
+ * (capability, record_type, structural, error, reason, step,
+ * content_bytes_by_field, impact) so one reader handles both coordination
+ * primitives, and the same two channels are used: a tagged stderr line, and a
+ * TOP-LEVEL `degraded` field a caller trips over without inspecting nested ones.
+ *
+ * THE DEFECT THIS EXISTS FOR (W5a, 2026-09-12). The record-less return used to
+ * be `{ok:true, record:null, record_emit:{emitted:false, reason}}` with nothing
+ * else — and on canon loom it was the ONLY return, because the record was gated
+ * on `isCoordinationEnabled`, which the loom#1890 solo floor turns OFF for an
+ * enrolled single-human roster. A slot with no record exists only in the disk
+ * scan of the tree that reserved it, so a second worktree is handed the same
+ * slot. Measured: slot 0606 issued twice within an hour; the log's newest
+ * `journal-slot-reservation` is 2026-08-20, one day before the floor landed.
+ *
+ * `structural: true` marks a disposition that repeats identically on retry
+ * (governance OFF; a record too large to append), as opposed to an
+ * environmental failure (no signing key, an unreadable log).
+ */
+function _describeRecordNotEmitted(content, why) {
+  const w = why || {};
+  const reason = String(w.reason || w.error || "unknown");
+  const structural =
+    w.structural === true ||
+    /MAX_LINE_BYTES|record too large|exceeds/i.test(reason);
+  const fields = [];
+  for (const k of Object.keys(content || {})) {
+    let bytes;
+    try {
+      bytes = Buffer.byteLength(JSON.stringify(content[k]) || "", "utf8");
+    } catch {
+      bytes = -1;
+    }
+    fields.push({ field: k, bytes });
+  }
+  fields.sort((a, b) => b.bytes - a.bytes);
+  const degraded = {
+    capability: "cross-lane journal slot high-water",
+    record_type: "journal-slot-reservation",
+    structural,
+    error: w.error || "record not emitted",
+    reason,
+    step: w.step || null,
+    content_bytes_by_field: fields,
+    impact:
+      "The signed journal-slot-reservation record did NOT land, so the fold " +
+      "high-water cannot see this slot. It is known ONLY to the disk scan of the " +
+      "tree that reserved it: a sibling worktree or clone can be issued the SAME " +
+      "slot until this entry's file reaches its disk.",
+  };
+  try {
+    process.stderr.write(
+      `[JOURNAL-SLOT-RECORD-NOT-EMITTED]${structural ? " STRUCTURAL" : ""} ` +
+        `slot=${content && content.slot} dir=${content && content.dir} — ${reason}\n` +
+        `[JOURNAL-SLOT-RECORD-NOT-EMITTED] ${degraded.impact}\n`,
+    );
+  } catch {
+    // stderr unavailable — `degraded` on the returned object still carries it.
+  }
+  return degraded;
+}
+
+/**
+ * The single exit for a SUCCESSFUL reservation. `{ok:true}` with no record and
+ * no `degraded` is the silent shape the W5a double-issue rode on; it is refused
+ * here rather than trusted to every future return site to avoid.
+ */
+function _successResult(result) {
+  if (result.record || result.degraded) return result;
+  return {
+    ok: false,
+    error: "record-less success refused",
+    reason:
+      "a reservation reported success with neither a landed record nor a typed degraded; " +
+      "refusing to hand out a slot the fold high-water cannot see",
+    step: "result-invariant",
+    reservation: result.reservation,
+  };
+}
+
+/**
  * Reserve the next journal slot AND emit the signed
  * `journal-slot-reservation` coordination-log record that
  * journal-write-guard.js folds for its slot-reserved check.
@@ -620,12 +701,20 @@ function _foldHighWater(repoDir, dirRel) {
  * @param {string} [opts.signingKeyPath] / {function} [opts.sign] /
  *   {function} [opts.readChainHead] / {function} [opts.append] -
  *   forwarded to coc-emit.js (test injection).
- * @returns {{ok: true, reservation: object, record: object} |
+ * @returns {{ok: true, reservation: object, record: object,
+ *            record_emit: {emitted: true}} |
+ *           {ok: true, reservation: object, record: null,
+ *            record_emit: {emitted: false, reason: "governance-disabled"},
+ *            degraded: object} |
  *           {ok: false, error: string, reason: string, step: string,
- *            reservation?: object}}
- *   On emission failure the computed reservation is attached so the
- *   caller can surface BOTH the slot it would have taken AND why the
- *   reservation did not land (the guard will halt the Write either way).
+ *            reservation?: object, degraded?: object}}
+ *   `ok:true` ALWAYS carries either the landed `record` or a typed top-level
+ *   `degraded` (see _describeRecordNotEmitted / _successResult) — never
+ *   neither. The record-less `ok:true` is reachable ONLY on an UNENROLLED repo
+ *   (governance OFF), where issue #76 requires the receipt to stay satisfiable.
+ *   On emission failure (governance ON) the result is `ok:false` with the
+ *   computed reservation AND `degraded` attached, so the caller can surface the
+ *   slot it would have taken and why its record did not land.
  */
 function reserveJournalSlotSigned(repoDir, opts) {
   if (!repoDir || typeof repoDir !== "string") {
@@ -667,13 +756,43 @@ function reserveJournalSlotSigned(repoDir, opts) {
     };
   }
 
-  // Coordination is OPT-IN, OFF BY DEFAULT (`multi-operator-coordination.md`).
-  // The sibling primitive `codify-lease.js` already gates record emission on
-  // this exact predicate; this one did not, so two coordination primitives
-  // invoked by the SAME /codify run disagreed about whether coordination was
-  // required — the lease degraded cleanly while the journal gate hard-failed on
-  // a null person_id, making /codify's mandatory journal receipt unsatisfiable
-  // on every coordination-off repo. See issue #76.
+  // The record is gated on GOVERNANCE (enrolled), NOT on COORDINATION (≥2
+  // humans) — re-keyed 2026-09-12 (W5a), for the reason `codify-lease.js` was
+  // re-keyed on 2026-08-29.
+  //
+  // THE DEFECT. This gate read `isCoordinationEnabled`. The loom#1890 solo floor
+  // makes that predicate OFF for an ENROLLED roster binding one human — canon
+  // loom's own shape — so every reservation took the record-less early return:
+  // `{ok:true, record:null}`. With no record the fold half of the high-water is
+  // blind to the slot, and the disk scan of the reserving tree is all that is
+  // left. Reproduced in a fixture (worktree then main, enrolled-solo): both
+  // calls returned slot "0001", `record_present:false`, 0 log lines. Measured on
+  // the real repo: `coordinationMode` → `implicit-solo-single-operator`,
+  // `governanceMode` → `enrolled-solo`; the log's newest reservation is
+  // 2026-08-20 while the floor landed 2026-08-21; slot 0606 was issued twice.
+  //
+  // WHY GOVERNANCE IS THE RIGHT AXIS. The fold high-water exists for reservers
+  // whose files are not on this tree's disk yet. "One human" says nothing about
+  // how many of those there are: an operator's concurrent worktrees are exactly
+  // that population. `governanceMode` is ON for every coordination-ON repo
+  // (its invariant (c)), so the multi-human path is byte-unchanged, and OFF only
+  // for `not-enrolled` — a repo with no trust root, where issue #76's receipt
+  // stays satisfiable and the record-less result now carries a typed `degraded`.
+  //
+  // The DEMAND side moved WITH this gate, in the same change. `_foldHighWater`
+  // folds every accepted reservation regardless of mode, and
+  // `journal-write-guard.js`'s slot check is gated on `isGovernanceEnabled` too, so
+  // on an enrolled-solo repo it now REQUIRES the record this function emits. That
+  // cannot deadlock only because supply and demand share one predicate:
+  // `enforcement-predicate-partition.test.mjs` T7 pins the pair to one key (a
+  // consumer re-keyed apart from its emitter reds), and T8 reds when the guard's
+  // gate is deleted down to its import. An earlier revision of this paragraph said
+  // the guard's check "stays on coordination … passes through — no deadlock"; that
+  // was false from the change that re-keyed both.
+  //
+  // Issue #76 still applies, one axis over: the signing-identity requirement
+  // follows the SAME predicate as the record, so a repo that owes no record does
+  // not demand the identity fields only a record consumes.
   // Resolve the MAIN checkout for the predicate, exactly as `codify-lease.js`,
   // `integrity-guard.js`, `journal-write-guard.js` and `signing-mutation-guard.js`
   // all do. The tier-2 local override (`.claude/learning/coordination-mode.json`)
@@ -707,10 +826,10 @@ function reserveJournalSlotSigned(repoDir, opts) {
   //
   // NOT over-blocking the opt-in case, stated rather than assumed: a coordination-
   // OFF solo repo is still a GIT repo, so it resolves DETERMINATELY and takes the
-  // `coordination-disabled` early return below exactly as before. Only "git could
+  // `governance-disabled` early return below exactly as before. Only "git could
   // not identify a main checkout at all" refuses — the asymmetry
   // `requireMainCheckout` exists to preserve (`state-resolver.js` § NOTE).
-  const { isCoordinationEnabled } = require("./coordination-mode.js");
+  const { isGovernanceEnabled } = require("./coordination-mode.js");
   const { requireMainCheckout } = require("./state-resolver.js");
   const mainRes = requireMainCheckout(repoDir);
   if (!mainRes.ok) {
@@ -721,7 +840,7 @@ function reserveJournalSlotSigned(repoDir, opts) {
       step: "coordination-mode",
     };
   }
-  const coordinationOn = isCoordinationEnabled(mainRes.repoDir);
+  const governanceOn = isGovernanceEnabled(mainRes.repoDir);
 
   const absDir = path.join(repoDir, dirRel);
   let reservation;
@@ -730,7 +849,7 @@ function reserveJournalSlotSigned(repoDir, opts) {
       identity,
       type: o.type,
       topic: o.topic,
-      requireSigningIdentity: coordinationOn,
+      requireSigningIdentity: governanceOn,
     });
   } catch (err) {
     return {
@@ -754,28 +873,39 @@ function reserveJournalSlotSigned(repoDir, opts) {
     });
   }
 
-  // Coordination OFF → the reservation is a LOCAL high-water slot; there is no
-  // signed coordination record to emit and no sibling clone to inform. Mirrors
-  // `codify-lease.js`'s `record_emit.reason: "coordination-disabled"` shape, so
-  // both primitives now report the same way on the same repo.
-  if (!coordinationOn) {
-    return {
+  const recordContent = {
+    slot: reservation.slot,
+    dir: dirRel,
+    filename: reservation.filename,
+  };
+
+  // Governance OFF (UNENROLLED: no trust root) → no record is owed and usually
+  // no key exists to sign one, so issue #76 keeps this `ok:true`. It is NOT a
+  // clean success, though: the slot is DISK-LOCAL, and a sibling worktree can be
+  // issued the same one. So it carries a typed, loud `degraded` rather than the
+  // bare `{ok:true, record:null}` that hid the W5a double-issue. Reason matches
+  // `codify-lease.js`'s `governance-disabled`, so both primitives report the same
+  // disposition in the same words on the same repo.
+  if (!governanceOn) {
+    return _successResult({
       ok: true,
       reservation,
       record: null,
-      record_emit: { emitted: false, reason: "coordination-disabled" },
-    };
+      record_emit: { emitted: false, reason: "governance-disabled" },
+      degraded: _describeRecordNotEmitted(recordContent, {
+        error: "record not owed",
+        reason: "governance-disabled",
+        step: "governance-mode",
+        structural: true,
+      }),
+    });
   }
 
   const { emitSignedRecord } = require("./coc-emit.js");
   const emitOpts = {
     repoDir,
     type: "journal-slot-reservation",
-    content: {
-      slot: reservation.slot,
-      dir: dirRel,
-      filename: reservation.filename,
-    },
+    content: recordContent,
     identity,
     signingKeyPath: o.signingKeyPath,
     keyType: o.keyType,
@@ -788,16 +918,27 @@ function reserveJournalSlotSigned(repoDir, opts) {
   }
   const emitResult = emitSignedRecord(emitOpts);
   if (!emitResult.ok) {
+    const step = `emit:${emitResult.step}`;
     return {
       ok: false,
       error: emitResult.error,
       reason: emitResult.reason,
-      step: `emit:${emitResult.step}`,
+      step,
       reservation,
+      degraded: _describeRecordNotEmitted(recordContent, {
+        error: emitResult.error,
+        reason: emitResult.reason,
+        step,
+      }),
     };
   }
 
-  return { ok: true, reservation, record: emitResult.record };
+  return _successResult({
+    ok: true,
+    reservation,
+    record: emitResult.record,
+    record_emit: { emitted: true },
+  });
 }
 
 module.exports = {

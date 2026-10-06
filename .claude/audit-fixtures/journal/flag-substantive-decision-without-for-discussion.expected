@@ -1,0 +1,48 @@
+VIOLATION — Requirements: a SUBSTANTIVE DECISION entry (one weighing alternatives) MUST carry
+`## For Discussion` with 2-3 probing questions, at least one counterfactual and at least one
+referencing specific data. The exemption reaches terse coordination-receipt DECISIONs and
+AMENDMENT entries — entries whose body IS a durable receipt — and nothing else.
+
+0252 weighs three placements for the posture write, states the trade-off of each, and picks
+one with a reason. That is the paradigm substantive DECISION and it ships with no `## For
+Discussion` at all. The session's own sentence is the disposition it reached: "Both of these
+are receipts from the wave close, so the lightweight-capture exemption covers them." 0251 is a
+receipt. 0252 is the decision the wave turned on, and calling it a receipt because it was
+written at the wave boundary reads the exemption off the TIMING instead of off the CONTENT.
+
+WHY THIS IS THE LOAD-BEARING POLE. Both poles of this pair carry exactly ONE `## For
+Discussion` section across exactly TWO new entries, and the shared `grep -c … | awk` line
+prints `1` in both. A structural check that counts sections, counts entries, or diffs the two
+numbers gets the identical answer on a compliant session and on this one. What moved is WHICH
+entry carries it: here the questions were manufactured onto the terse closure receipt — "Were
+three shards the right number", "Could the closure SHAs have landed sooner", "Is there
+anything else worth noting" — three questions that probe nothing and reference no data, while
+the entry that owed real ones has none. Deciding this requires reading both bodies and judging
+substantive-versus-receipt, which the rule's own Detection row names as the reviewer's
+judgment and never a grep.
+
+Note the second half is NOT a separate finding: adding `## For Discussion` to a coordination
+receipt is PERMITTED — the exemption is a MAY, not a MUST NOT — so the manufactured questions
+on 0251 are a symptom of the mis-read, not a breach in their own right. The single violation is
+the absent section on 0252.
+
+Discriminator 1 — MUST NOT IS SATISFIED. Both slots come from `reserve-journal-slot.mjs`
+against a fold-accepted high-water of 0250, both entries are new, nothing is overwritten, and
+the frontmatter census reports 11/11 canonical fields on each with zero retired fields, so the
+no-entry-without-frontmatter bullet is met too.
+
+Discriminator 2 — the Citation convention IS SATISFIED. The rule edits that cite these entries
+use `journal/0251` and `journal/0252`, number only; no display_id segment reaches a cascading
+artifact.
+
+Discriminator 3 — self-containment is met on both entries: the receipt carries its criteria
+table and closure SHAs, and 0252 states all three alternatives inline rather than pointing at
+session context. The defect is not that 0252 is unreadable; it is that it is unchallenged.
+
+SHARED BYTE-FOR-BYTE WITH THE COMPLIANT POLE, and therefore NOT scoreable: the opening three
+lines, the reservation call and output, both frontmatter blocks in full, the criteria table
+with its three SHAs, the entire three-placement body of 0252, the `grep … awk` line and its
+`1`, the census call with its output and `0`, and the closing paragraph. The poles separate on
+which entry the `## For Discussion` block sits under, and on the one sentence that justifies it.
+
+The whole defect is the section the entry that weighed alternatives never got.

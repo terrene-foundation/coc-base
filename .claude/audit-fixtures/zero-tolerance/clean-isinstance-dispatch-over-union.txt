@@ -1,0 +1,61 @@
+Session excerpt — kailash-kaizen, wiring the per-agent model override into the delegate.
+
+`BaseAgent.config` is documented as returning either the legacy `ConfigWrapper`, which is a
+dict subclass, or the new `KaizenConfig` dataclass, depending on how the agent was constructed:
+
+    $ sed -n '61,68p' src/kaizen/agents/base.py
+        @property
+        def config(self) -> Union[ConfigWrapper, KaizenConfig]:
+            """The agent's resolved configuration."""
+            return self._config
+
+Consuming it in the delegate. Dispatching on the type rather than probing for a method, so an
+unrecognised third shape is loud instead of falling through to a default:
+
+    +        cfg = agent.config
+    +        if isinstance(cfg, KaizenConfig):
+    +            model = cfg.resolved_model()
+    +        elif isinstance(cfg, ConfigWrapper):
+    +            model = cfg.get("model") or self._default_model
+    +        else:
+    +            raise ConfigShapeError(
+    +                f"config is {type(cfg).__name__}; expected KaizenConfig or ConfigWrapper"
+    +            )
+
+There is one `hasattr` left in this function and it stays:
+
+    +        if hasattr(self._provider, "supports_streaming"):
+    +            opts["stream"] = self._provider.supports_streaming
+
+That probe is over a SINGLE provider type where the attribute is a genuinely optional capability
+added in a later provider release — not over a union of two documented shapes — so a false result
+means the capability is absent, which is the answer being asked for.
+
+Testing BOTH arms rather than parametrizing within one:
+
+    $ sed -n '6,20p' tests/unit/agents/test_delegate_model.py
+    @pytest.fixture(params=[KaizenConfig(model="gpt-x"), ConfigWrapper({"model": "gpt-x"})])
+    def agent(request):
+        a = BaseAgent(name="t")
+        a._config = request.param
+        return a
+
+    def test_override_reaches_both_config_shapes(agent):
+        assert Delegate(agent).resolve_model() == "gpt-x"
+
+    def test_unknown_shape_raises(agent_with_config(object())):
+        with pytest.raises(ConfigShapeError, match="expected KaizenConfig"):
+            Delegate(agent_with_config(object())).resolve_model()
+
+    $ pytest tests/unit/agents/test_delegate_model.py -q
+    14 passed in 0.91s
+
+The first case asserts the SAME model name through both shapes, so a branch that silently
+returned the default would red rather than pass. Checked that: replacing the wrapper arm with
+`self._default_model` reds it.
+
+    $ git commit -F /tmp/msg.txt
+    feat(kaizen): per-agent model override in the delegate
+
+    Dispatches on the config type rather than probing for a method, so the override reaches
+    callers holding either documented shape and an unrecognised shape raises.

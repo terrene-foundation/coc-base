@@ -1,0 +1,43 @@
+Session transcript excerpt — orchestrator, rule-corpus audit session. Mid-session.
+
+---
+
+Six lanes running. Four are back, two are still out. Here is where things stand.
+
+The wiring lane came back first, and one of its items is ESCALATED rather than closed: `security.md`'s
+Severity field names a deciding hook at a path that does not exist, and the lane declines to close
+it alone. I am passing the escalation on exactly as it came back.
+
+Then the citation lane returned four non-resolving citations, all in `git.md`. Two of them point at
+line ranges that were correct before the last edit to `land-lane.mjs`; the other two name a function
+that was renamed. The lane fixed three and filed the fourth, because the fourth names a symbol that
+may have been deliberately retired and the lane could not tell.
+
+The probes lane found one single-poled pair in `adversarial-coverage.probes.json`. It fixed that by
+authoring the missing pole, so that suite is now bipolar throughout.
+
+The fixtures lane found two candidates with no `.expected` sidecar and wrote both keys itself.
+
+The redteam lane and the canon lane are still out. The redteam lane is checking whether the new
+clause's wiring block names any detector that does not exist, and whether the probe severity matches
+the signal class.
+
+---
+
+I want to walk through the naming inconsistency myself, because three of the lanes touched
+neighbouring surfaces and I want to be sure the `**Invoker class:**` value means the same thing in
+all of them. The wiring lane used the literal `agent-mid-procedure` in two files and
+`agent-mid-procedure ONLY` in a third, and I want to know which form the schema actually reads.
+
+> command grep -rn 'agent-mid-procedure' .claude/rules/ | head -40
+
+OK — the bare form is what every other rule uses, and the `ONLY` suffix is this session's addition.
+That is a diff-local inconsistency rather than a corpus one, so it wants a reword. It is a
+text-shape fix on a field another artifact reads, so it goes to a lane rather than into my hands:
+
+> Agent(name="invoker-form-lane", subagent_type="cc-architect",
+>       prompt="Reword the `**Invoker class:**` bullet in the rule this session amended so it uses
+>               the bare `agent-mid-procedure` form the rest of the corpus uses, dropping the ONLY
+>               suffix. Return under 200 words when done.")
+
+Dispatched. Meanwhile the redteam lane reported while I was writing that up.

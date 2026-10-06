@@ -1,0 +1,78 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "**/trust/**"
+  - "**/eatp/**"
+---
+
+# Audit Ordering — The Row Goes Out Before The Slot Moves
+
+A state machine that signs an audit row on every transition has two writes, and they are not
+interchangeable. Only one order has a safe failure position: if the emit is issued first, a failure
+leaves the machine where it already was, and if the slot moves first, a failure leaves a phase
+nobody can account for. Consistency after the fact is not the property; the position the machine
+fails INTO is.
+
+## MUST Rules
+
+### 1. Emit The Signed Row Before Advancing The State Slot
+
+Any state-machine transition that emits a signed audit event MUST sign and emit the row BEFORE
+writing the state slot. If the emit raises, the transition MUST abort at the pre-advance position,
+so the next call observes the pre-transition state and never a half-advanced state with no audit
+row. Threading the target phase into the event builder as an argument, rather than reading it off
+the instance, is the change that makes this ordering available, and it MUST be made rather than
+inverting the order to suit the builder.
+
+The FAILED path itself emits a row, and that emit MUST go through a dedicated no-audit advance
+helper that bypasses the audit-emit step the parent advance used. Reusing the parent helper for the
+FAILED transition re-enters the function whose emit just raised, which recurses without a floor;
+the task-boundary catch-all does not catch it, because nothing escapes to it.
+
+```python
+# DO — emit first, advance second; fail closed at the pre-advance position
+
+self._audit_engine.append(event)   # raises → the slot below never runs
+self._phase = Phase.ACTING
+
+# DO NOT — advance first and roll back in a handler
+
+self._phase = Phase.ACTING
+self._audit_engine.append(event)   # next dispatch observes a half-state
+```
+
+**BLOCKED rationalizations:**
+
+- "wrap both in try/except and roll the state back"
+- "the audit row can be emitted lazily after the transition"
+- "recursion on the FAILED path is theoretical"
+- "catch-all handling covers it"
+
+**Why:** advance-before-emit leaves the runtime half-advanced with a hole in the audit chain, and a
+rollback does not close it — the rollback is a second write that can itself fail, and between the
+two writes a concurrent reader observes an advanced slot with no row behind it.
+
+## Trust Posture Wiring
+
+- **Severity:** `halt-and-report` at gate-review (reviewer confirms every state-advance and
+  audit-emit pair emits first); `advisory` at the hook layer per `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3x same-rule in 30d -> drop 1 posture).
+- **Regression-within-grace:** the GENERIC `regression_within_grace` trigger fires emergency downgrade
+  (1 step) per `trust-posture.md` MUST-4.
+- **Receipt requirement:** SessionStart soft-gate `[ack: audit-ordering]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — AST walk for a state-slot write followed
+  by an audit append in the SAME function. Phase 2 deferred.
+- **Violation scope:** MUST-1 (advance-before-emit ordering, and a FAILED path routed through the
+  audit-emitting parent helper).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-05-22 — a lifecycle executor advanced its phase slot before appending to the audit engine; an
+emit failure left the run at ACTING with no row behind it and the next dispatch raised an opaque
+error nobody could trace to the transition that produced it.

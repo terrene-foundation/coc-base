@@ -35,11 +35,15 @@
 //     public ISO / SOC 2 / GDPR / etc. authorities are ecosystem-neutral) is
 //     PERMITTED to cross even fork->canon, because it carries NO fork identity.
 //
-// SEVERITY: this is a STRUCTURAL boundary primitive (the boundary is computed
-// from the ecosystem.json upstream_canon pointer + the target ecosystem id — a
-// deterministic, process-local fact the agent cannot rationalize away), so the
-// guard MAY carry `block` severity per hook-output-discipline.md MUST-2. It is
-// fail-LOUD + TYPED: every refusal returns a typed result naming WHY.
+// SEVERITY: `block`, under the DISCLOSURE-ISOLATION EXCEPTION in
+// hook-output-discipline.md MUST-2 — NOT as a structural primitive. The BOUNDARY is
+// structural (computed from the ecosystem.json upstream_canon pointer + the target
+// ecosystem id, a deterministic process-local fact) and that gate bounds where the
+// block branch is reachable; but the boundary alone does not block, since a clean
+// fork->canon write returns ok. The DISCRIMINATOR is the content scan, which MUST-2's
+// general rule bars from carrying `block` — hence the exception. An earlier revision
+// of this header claimed the structural primitive outright; that was FALSE and is
+// retracted. It is fail-LOUD + TYPED: every refusal returns a typed result naming WHY.
 //
 // SCOPE (issue #584): this ships the standalone pre-write guard LIBRARY
 // primitive. The sibling entry-point hook (../cross-ecosystem-disclosure-guard.js)

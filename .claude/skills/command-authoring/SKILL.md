@@ -20,8 +20,12 @@ Authoring a new slash command. Auditing an existing command for line cap, neutra
 | CLI    | On-disk path                   | Format   | Slash invocation                                                                                                                                 | Frontmatter shape                                                             |
 | ------ | ------------------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
 | CC     | `.claude/commands/<name>.md`   | Markdown | `/<name>`                                                                                                                                        | YAML: `name:` + `description:` + optional `argument-hint:` / `allowed-tools:` |
-| Codex  | `.codex/prompts/<name>.md`     | Markdown | `bin/coc <name> "<prompt>"` (deprecated upstream: `/prompts:<name>` is no longer loaded by Codex CLI 0.128+ — `bin/coc` dispatcher is canonical) | Same YAML, preserved from source                                              |
+| Codex  | `.agents/skills/coc-<name>/SKILL.md` | Markdown | `$coc-<name>`; `bin/coc <name> "<prompt>"` for headless phases listed by `bin/coc --list-phases` | Skill frontmatter plus explicit-only invocation policy                                              |
 | Gemini | `.gemini/commands/<name>.toml` | TOML     | `/<name>`                                                                                                                                        | `name`, `description`, `prompt = '''…'''`, optional `tools = [...]`           |
+
+Headless Codex phases require both an installed procedure and its output schema;
+an emitted skill alone does not make a phase executable through `bin/coc`
+(`.claude/codex-templates/bin/coc:33-50`).
 
 | Constraint       | Value                                                                                                                                           |
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -35,7 +39,7 @@ Authoring a new slash command. Auditing an existing command for line cap, neutra
 
 The authoritative copy lives at `.claude/commands/<name>.md`. The emitter `.claude/bin/emit-cli-artifacts.mjs` (driven by `coc-sync` Step 6.6) produces:
 
-- `.codex/prompts/<name>.md` — Markdown passthrough with Codex-native adaptations from `variants/codex/commands/<name>.md` overlays (if any).
+- `.agents/skills/coc-<name>/SKILL.md` — explicit-only native phase skill; `.codex/prompts/<name>.md` retains the adapted procedure for compatibility and headless dispatch.
 - `.gemini/commands/<name>.toml` — TOML wrap of the same body inside a triple-single-quote `prompt` block; YAML frontmatter is converted to TOML keys.
 
 Both consumers read the source body. Anything CC-native that appears in the body — `Agent(subagent_type=…)`, `Task(…)`, `TodoWrite(…)` — leaks into Codex/Gemini emissions and is unparseable there.
@@ -50,7 +54,7 @@ description: "Load phase 04 (validate) for the current workspace. Red team testi
 ---
 ```
 
-The `description:` is what appears in the CC `/help` listing and in Codex's `/prompts` enumeration. Failure-mode language ("Red team testing"; "Production hardening for frontend") wins over generic noun phrases ("Validation command"; "Hardening utility").
+The `description:` is what appears in the CC `/help` listing and in Codex's phase-skill selector. Failure-mode language ("Red team testing"; "Production hardening for frontend") wins over generic noun phrases ("Validation command"; "Hardening utility").
 
 ### Argument Hint
 
@@ -112,7 +116,7 @@ CLI-specific or language-specific bodies live at `.claude/variants/<axis>/comman
 
 - `variants/codex/` — Codex-only deltas (e.g. invoke `codex review` natively instead of redirecting)
 - `variants/gemini/` — Gemini-only deltas
-- `variants/py/`, `variants/rs/`, `variants/base/`, `variants/prism/` — language deltas
+- `variants/py/`, `variants/rs/`, `variants/base/` — language deltas
 - `variants/py-codex/`, `variants/rs-codex/`, `variants/py-gemini/`, `variants/rs-gemini/` — ternary overlays (language × CLI)
 
 Slot-marker syntax matches the skill-authoring convention:
@@ -135,18 +139,27 @@ Variant files supply replacement bodies only for the slots that diverge. Unoverr
 
 ## Native-Primitive Carve-Outs
 
-Some CC commands map to a CLI's own native primitive — emitting a `.codex/prompts/<name>.md` or `.gemini/commands/<name>.toml` for them would shadow the native path. Per `.claude/agents/codex-architect.md` § Codex-Native Primitives:
+Some CC commands map to a CLI's own native primitive — emitting a `.codex/prompts/<name>.md` or `.gemini/commands/<name>.toml` for them would duplicate the native workflow. Per `.claude/agents/codex-architect.md` § Native Primitives:
 
-- **`/review`** → `codex review --uncommitted --base main` (Codex native). Do NOT emit a `.codex/prompts/review.md`.
+- **`/review`** → `codex review --uncommitted` or `codex review --base main` (Codex native). Do NOT emit a `.codex/prompts/review.md`.
 - **`/security-review`** → architect-decided; check the per-CLI exclusions list before adding.
 
 The exclusion mechanism lives in `.claude/sync-manifest.yaml::cli_emit_exclusions.{codex,gemini}` as a glob list. New commands that have a native counterpart MUST add a `commands/<name>.md` exclusion entry for the relevant CLI.
 
-## Wrapper Status — Native Prompts Are Canonical
+## Native Phase Skills and Headless Dispatcher
 
-Bash wrappers (`bin/coc-<name>`, e.g. `bin/coc-analyze` invoking `codex exec --json --output-schema=…`) were authored at Phase J1 but **wrapper emission was deferred at Shard C 2026-05-10** per `journal/0006-DECISION-wrapper-emission-disposition-strip.md`. Reasons: the wrappers' runtime dependency `.codex/developer-instructions/` was never authored; the native prompt surface covers all 28 commands; manifest emit_to declarations were stubs.
+Current Codex phases use explicit-only `$coc-<name>` skills. The shared `bin/coc`
+dispatcher supplies procedure text and a JSON output schema for headless execution;
+phase-suffix shims select the same implementation. `.codex/prompts/` is retained as
+compatibility input, not a discovered project slash-command surface.
 
-Treat `.claude/wrappers/*.sh.template` as historical. New commands MUST NOT add wrapper templates. If a future workstream requires structured-output enforcement or external CLI invocation, revival is documented in the journal entry — propose at `/codify`, do not assume it's live.
+The earlier per-phase wrapper deferral is historical (2026-05-10). It does not describe
+the current unified dispatcher. New commands use that dispatcher and the existing
+schema/manifest wiring rather than creating separate wrapper implementations.
+OpenAI's prompt deprecation date is 2026-01-22, per the
+[official changelog](https://learn.chatgpt.com/docs/changelog#custom-prompts-deprecated).
+See [Skills](https://learn.chatgpt.com/docs/build-skills) and
+[Commands](https://learn.chatgpt.com/docs/developer-commands), verified 2026-09-28.
 
 ## Sync Manifest Wiring
 
@@ -205,7 +218,7 @@ New command in `.claude/commands/` but not in `sync-manifest.yaml` ships to nobo
 
 ### 4. Native-Primitive Shadow
 
-Authoring a `review` command file (shadowing Codex's native `codex review`) without an exclusion entry causes the emitter to overwrite the native invocation with a redirected prompt. Fix: add that command to `cli_emit_exclusions.codex` BEFORE it lands.
+Authoring a `review` command file (shadowing Codex's native `codex review`) without an exclusion entry causes the delivery to advertise a second, conflicting review workflow. Fix: add that command to `cli_emit_exclusions.codex` BEFORE it lands.
 
 ### 5. Description As Sentence Paragraph
 
@@ -237,7 +250,7 @@ When auditing an existing command:
 - `rules/cc-artifacts.md` Rule 1 — description char caps + listing-budget pressure
 - `rules/cross-cli-artifact-hygiene.md` — neutral phrasing requirement
 - `rules/cross-cli-parity.md` — variant overlay semantics
-- `agents/codex-architect.md` § Codex-Native Primitives — carve-out table
+- `agents/codex-architect.md` § Native Primitives — carve-out table
 - `agents/gemini-architect.md` § Gemini-Native Primitives — Gemini equivalents
 - `bin/emit-cli-artifacts.mjs` — emitter source of truth
 - `skill-authoring` (F1) — sibling meta-skill, same shape conventions

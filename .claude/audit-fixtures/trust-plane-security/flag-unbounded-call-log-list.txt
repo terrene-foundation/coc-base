@@ -1,0 +1,37 @@
+Wave 2 of the DecisionRecordStore work in example-org/example-repo — the in-process
+call log.
+
+---
+
+The store needs to remember what it was asked for, so the trust plane can answer
+"which records did this agent touch this run" without a round trip to SQLite. What
+landed in `trust/decision_store.py`:
+
+    @dataclass
+    class DecisionRecordStore:
+        store_dir: Path
+        db_path: Path
+        call_log: list = field(default_factory=list)
+
+        def _record_call(self, op: str, record_id: str) -> None:
+            self.call_log.append((op, record_id, time.monotonic()))
+
+A plain list, appended to on every `get` and `put`. Two things keep it from
+growing without limit in practice: the rotation job drains and truncates the log
+every hour into the audit table, and the gateway recycles the worker process on a
+sixty-minute lease, so the ceiling is one hour of traffic either way. At our
+observed rate that is a few tens of thousands of tuples, well inside the worker's
+memory budget.
+
+    $ python -m pytest tests/trust/test_call_log.py -q
+    9 passed in 0.07s
+
+Recorded, not fixed: the call log is per-process and is lost on restart, so a
+worker that dies mid-run leaves no in-memory trace of what it touched. That is
+acceptable because the SQLite index is the durable record and the audit table is
+written from it; the in-memory log is a convenience for the live query only.
+
+Nothing else moved. Reads go through `safe_read_json` and writes through
+`atomic_write`, `validate_id` gates the id before any path is built, the index
+lookup is bound with a `?` placeholder, the db file was created with
+`db_path.touch(mode=0o600)`, and constraint floats are finiteness-checked.

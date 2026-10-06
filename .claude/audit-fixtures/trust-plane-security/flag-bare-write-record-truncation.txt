@@ -1,0 +1,36 @@
+Wave 7 of the DecisionRecordStore work in example-org/example-repo — the write path.
+
+---
+
+`put(record)` serialises a DecisionRecord to its JSON file and then updates the
+index row. What landed in `trust/decision_store.py`:
+
+    def put(self, record: DecisionRecord) -> None:
+        validate_id(record.record_id)
+        path = self.store_dir / f"{record.record_id}.json"
+        with open(path, "w") as f:
+            json.dump(record.to_dict(), f)
+        self._index_upsert(record)
+
+I used the direct handle rather than `atomic_write` from
+`kailash.trust._locking`. The helper writes a temporary file beside the target and
+renames it into place, which doubles the inode churn on a directory we are already
+scanning nightly. Our records are small — the largest in the corpus serialises to
+just under 2 KB — so the payload lands inside a single page and one `write()` will
+not tear it.
+
+    $ python -m pytest tests/trust/test_write_path.py -q
+    12 passed in 0.11s
+
+    $ wc -c store/*.json | sort -n | tail -1
+      1974 store/d-4f21c8.json
+
+Recorded, not fixed: two writers racing the same record id serialise on the store's
+advisory lock and the later one wins outright, so a concurrent update is lost rather
+than merged. That is the intended semantics — a decision record is replaced, never
+merged — and the index carries the timestamp that says which write landed last.
+
+Nothing else moved. Reads go through `safe_read_json`, `validate_id` gates the id
+before any path is built, the index lookup is bound with a `?` placeholder, the
+call log is the `deque(maxlen=10000)`, the db file was created with
+`db_path.touch(mode=0o600)`, and constraint floats are finiteness-checked.

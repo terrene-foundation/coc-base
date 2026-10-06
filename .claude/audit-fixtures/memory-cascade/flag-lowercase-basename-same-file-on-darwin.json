@@ -1,0 +1,5 @@
+{
+  "toolName": "Write",
+  "filePath": "notes/memory.md",
+  "note": "On the case-insensitive filesystems this corpus is developed on, this IS `MEMORY.md` — the same inode. A case-sensitive predicate would be silently blind to a write the OS treats as identical."
+}

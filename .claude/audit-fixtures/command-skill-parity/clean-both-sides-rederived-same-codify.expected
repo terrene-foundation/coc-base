@@ -1,0 +1,18 @@
+COMPLIANT — command-skill-parity.md MUST-2. Same two edits, same command, same register, same
+closing scope note, but both sides are re-derived in this codify: the diffstat carries the command
+AND the skill, the runbook gains the Step-5 procedure, and its `--target` count is zero.
+
+TRAPS — each is designed to read as drift to anything scoring shapes rather than the contract.
+First and most important, the DELIBERATE ASYMMETRY: the command declares Step 5 once in CLI-neutral
+terms while the skill carries three per-CLI sub-procedures under it. One step against three
+procedures looks like the two files disagreeing; it is the sanctioned split — the command carries
+the neutral contract, the skill carries the CLI-specific depth. Flagging it is a mis-score. Second,
+the skill's runbook has nine numbered procedures against the command's five declared steps; the
+counts are not supposed to match, because one says what and the other says how. Third, the prose
+differs between the two files for the same flag; MUST-2 binds the FLOW, not the wording, and
+demanding matched prose would make every skill a transcription of its command. Fourth, the author
+explicitly declines to mirror the command's approval-gate copy into the skill, which reads exactly
+like the one-sided edit the clause blocks and is the correct surface split, with the reason stated.
+
+DISCRIMINATORS. MUST-1 is not in play — nothing inlined or duplicated, command inside budget.
+MUST-3 is not in play — the skill exists, is referenced, and is manifest-declared in both poles.

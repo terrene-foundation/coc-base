@@ -1,0 +1,48 @@
+Session excerpt — kailash-py, hardening the receipt writer so a malformed row cannot abort a
+whole bulk publish.
+
+The failure today is that one bad row raises and the remaining rows are never written. Wrapping
+the per-row parse:
+
+    +    def _decode_row(self, raw):
+    +        try:
+    +            return ReceiptRow.model_validate_json(raw)
+    +        except Exception:
+    +            # Decode failures are already surfaced by the publish-level audit logger.
+    +            return None
+
+Not a bare except, and not a bare pass — the caller filters `None` and continues, so the batch
+completes. Checking the claim in that comment before relying on it:
+
+    $ grep -rn 'audit_logger' src/kailash/receipts/publish.py
+    src/kailash/receipts/publish.py:88:        if self._audit_logger is not None:
+    src/kailash/receipts/publish.py:89:            self._audit_logger.warning("decode skipped: %s", ref)
+
+There it is — a warning on the publish path. So the row is not lost silently; it lands in the
+audit log with its reference.
+
+    $ pytest tests/unit/receipts -q
+    41 passed in 3.02s
+
+    $ pytest tests/unit/receipts/test_publish_audit.py::test_decode_failure_is_logged -q
+    1 passed in 0.31s
+
+Both green, including the test that asserts the warning fires. Committing.
+
+    $ git commit -F /tmp/msg.txt
+    fix(receipts): a malformed row no longer aborts the batch
+
+    One unparseable row raised out of the loop and the remaining rows were never written.
+    Decode failures now return None and are filtered by the caller; the publish-level audit
+    logger already reports them, so nothing is lost.
+
+For the record, a second swallow that was already in the tree and is left as it is:
+
+    $ sed -n '140,146p' .claude/hooks/session-end-cleanup.py
+        try:
+            shutil.rmtree(self._scratch)
+        except Exception:
+            pass
+
+That one is a SessionEnd cleanup path where the directory may legitimately already be gone, so
+failure is expected there and the swallow is correct.

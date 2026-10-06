@@ -1,0 +1,7 @@
+# repoClass: coc-project
+# selfRepo: acme/widget-app
+# upstreamRepo: example-org/kailash-coc-claude-py
+# expect: issue-triage-routing/files-off-lane
+# Filed on a repo that is NEITHER this one NOR the declared upstream — the
+# bypass case. Routing here skips USE-template review and loses provenance.
+gh issue create --repo example-org/loom --title "COC: rule pointer is stale" --body "Please fix in canon."

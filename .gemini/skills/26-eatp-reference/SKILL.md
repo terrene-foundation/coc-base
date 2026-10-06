@@ -9,7 +9,7 @@ tools:
 
 # EATP SDK Implementation Reference
 
-Implementation reference for the EATP trust module in the Kailash SDK. For EATP spec/concepts (5 elements, verification gradient, trust postures), see [co-reference/eatp-spec.md](../co-reference/eatp-spec.md).
+Implementation reference for the EATP trust module in the Kailash SDK. For EATP spec/concepts (5 elements, verification gradient, trust postures), see [co-reference/eatp-spec.md](../../../.claude/skills/co-reference/eatp-spec.md).
 
 ## TrustPlane Reference Implementation
 
@@ -33,13 +33,13 @@ RBAC (4 roles), OIDC (JWKS auto-discovery), SIEM (CEF/OCSF/TLS syslog), Dashboar
 
 ## Implementation Reference (load on demand)
 
-- **[eatp-sdk-quickstart.md](eatp-sdk-quickstart.md)** — Getting started, 4-operation lifecycle, store selection
-- **[eatp-sdk-api-reference.md](eatp-sdk-api-reference.md)** — Complete API surface, module reference, type signatures
-- **[eatp-sdk-patterns.md](eatp-sdk-patterns.md)** — Implementation patterns, critical gotchas, architecture
-- **[eatp-sdk-reasoning-traces.md](eatp-sdk-reasoning-traces.md)** — Reasoning trace extension, confidentiality, knowledge bridge
-- **[eatp-budget-tracking.md](eatp-budget-tracking.md)** — BudgetTracker API, SQLiteBudgetStore, integer microdollars, threshold callbacks
-- **[eatp-posture-stores.md](eatp-posture-stores.md)** — PostureStore protocol, SQLitePostureStore, PostureEvidence
-- **[eatp-security-patterns.md](eatp-security-patterns.md)** — Red team security patterns: lock ordering, integer arithmetic, symlink rejection
-- **[eatp-store-backends.md](eatp-store-backends.md)** — Adding new TrustPlaneStore backends (6-requirement security contract)
-- **[eatp-trust-plane-security.md](eatp-trust-plane-security.md)** — 11 hardened security patterns (TrustPlane-specific)
-- **[eatp-trust-plane-enterprise.md](eatp-trust-plane-enterprise.md)** — RBAC, OIDC, SIEM, Dashboard, Archive, Shadow mode, Cloud KMS
+- **[eatp-sdk-quickstart.md](../../../.claude/skills/26-eatp-reference/eatp-sdk-quickstart.md)** — Getting started, 4-operation lifecycle, store selection
+- **[eatp-sdk-api-reference.md](../../../.claude/skills/26-eatp-reference/eatp-sdk-api-reference.md)** — Complete API surface, module reference, type signatures
+- **[eatp-sdk-patterns.md](../../../.claude/skills/26-eatp-reference/eatp-sdk-patterns.md)** — Implementation patterns, critical gotchas, architecture
+- **[eatp-sdk-reasoning-traces.md](../../../.claude/skills/26-eatp-reference/eatp-sdk-reasoning-traces.md)** — Reasoning trace extension, confidentiality, knowledge bridge
+- **[eatp-budget-tracking.md](../../../.claude/skills/26-eatp-reference/eatp-budget-tracking.md)** — BudgetTracker API, SQLiteBudgetStore, integer microdollars, threshold callbacks
+- **[eatp-posture-stores.md](../../../.claude/skills/26-eatp-reference/eatp-posture-stores.md)** — PostureStore protocol, SQLitePostureStore, PostureEvidence
+- **[eatp-security-patterns.md](../../../.claude/skills/26-eatp-reference/eatp-security-patterns.md)** — Red team security patterns: lock ordering, integer arithmetic, symlink rejection
+- **[eatp-store-backends.md](../../../.claude/skills/26-eatp-reference/eatp-store-backends.md)** — Adding new TrustPlaneStore backends (6-requirement security contract)
+- **[eatp-trust-plane-security.md](../../../.claude/skills/26-eatp-reference/eatp-trust-plane-security.md)** — 11 hardened security patterns (TrustPlane-specific)
+- **[eatp-trust-plane-enterprise.md](../../../.claude/skills/26-eatp-reference/eatp-trust-plane-enterprise.md)** — RBAC, OIDC, SIEM, Dashboard, Archive, Shadow mode, Cloud KMS

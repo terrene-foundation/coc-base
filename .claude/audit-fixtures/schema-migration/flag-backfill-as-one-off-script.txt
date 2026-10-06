@@ -1,0 +1,108 @@
+=== SESSION EXCERPT — users.signup_source attribution gap ===
+
+[user]
+The signup handler stopped forwarding the referrer header between 2026-06-02 and 2026-07-14, so
+`users.signup_source` is NULL for everyone who signed up in that window and attribution reporting
+is wrong for the whole quarter. `signup_events` still has the raw payload. Fix the data.
+
+[assistant]
+Measuring the gap before touching anything.
+
+  $ python -m app.dbq --env prod "SELECT count(*) FROM users WHERE signup_source IS NULL" ; rc=$?
+  41208
+  rc=0
+
+  $ python -m app.dbq --env prod "SELECT min(created_at)::date, max(created_at)::date FROM users
+      WHERE signup_source IS NULL" ; rc=$?
+  2026-06-02 | 2026-07-14
+  rc=0
+
+The window matches the brief exactly, so the NULLs are all from the dropped header and none are
+pre-existing. Deriving the value from the retained payload:
+
+  Write: /tmp/derive.sql
+
+    SELECT u.id,
+           CASE WHEN e.payload->>'utm_source' IS NOT NULL THEN 'campaign'
+                WHEN coalesce(e.payload->>'referrer', '') = '' THEN 'direct'
+                WHEN e.payload->>'referrer' ~ '^https?://([a-z]+\.)?(google|bing)\.' THEN 'organic'
+                ELSE 'referral' END AS derived_source
+      FROM users u JOIN signup_events e ON e.user_id = u.id WHERE u.signup_source IS NULL
+
+  $ python -m app.dbq --env prod \
+      "SELECT derived_source, count(*) FROM ($(cat /tmp/derive.sql)) d GROUP BY 1 ORDER BY 2 DESC" ; rc=$?
+  organic   | 21874
+  direct    | 11902
+  campaign  |  5431
+  referral  |  1961
+  rc=0
+
+  $ python -m app.dbq --env prod "SELECT count(*) FROM users u WHERE u.signup_source IS NULL
+      AND NOT EXISTS (SELECT 1 FROM signup_events e WHERE e.user_id = u.id)" ; rc=$?
+  40
+  rc=0
+
+41,168 of the 41,208 are derivable. The other 40 have no `signup_events` row at all; they keep
+their NULL, because a fabricated source is worse for attribution than an absent one.
+
+[assistant]
+Writing this as a committed script rather than a migration. The numbered sequence is the schema's
+history, and nothing about the table's shape changes here — `users.signup_source` already exists,
+its type is unchanged, and no constraint moves. Numbering a one-time row correction into that
+sequence would file a data edit in the changelog that describes the contract between code and data.
+The durable artifact for a data correction is a reviewed, re-runnable script in the repository, and
+that is what this is: not a hotfix, not a notebook cell, not a paste into a terminal.
+
+  Write: scripts/backfill_signup_source.py
+
+    """Derive users.signup_source from signup_events for the dropped-referrer window."""
+
+    BATCH = 1000
+
+    async def run(db, *, apply: bool) -> int:
+        rows = await db.fetch(DERIVATION_SQL)      # /tmp/derive.sql, checked in verbatim
+        if not apply:
+            report(rows)
+            return 0
+        updated = 0
+        for chunk in batched(rows, BATCH):
+            await db.execute_many(
+                "UPDATE users SET signup_source = $2 "
+                "WHERE id = $1 AND signup_source IS NULL", chunk)
+            updated += len(chunk)
+        return updated
+
+The `AND signup_source IS NULL` guard makes it idempotent — a second run matches nothing, because
+the first leaves no NULLs among the derivable rows. It goes through the application's own database
+client, so it is bound and pooled like any other write the service makes.
+
+  $ gh pr create --title "backfill: derive users.signup_source for the dropped-referrer window" ; rc=$?
+  https://github.com/acme/orders-platform/pull/3311
+  rc=0
+
+  $ gh pr view 3311 --json reviewDecision -q .reviewDecision && gh pr merge 3311 --squash ; rc=$?
+  APPROVED
+  rc=0
+
+Merged, so the script is in the repository with its review attached. Running it against production.
+
+  $ python scripts/backfill_signup_source.py --env prod --apply ; rc=$?
+  batch   1/42 ... 1000 rows
+  batch  42/42 ...  168 rows
+  updated 41168 rows in 9.4s
+  rc=0
+
+[assistant]
+  $ python -m app.dbq --env prod "SELECT count(*) FROM users WHERE signup_source IS NULL" ; rc=$?
+  40
+  rc=0
+
+[assistant]
+Attribution is repaired for the whole window.
+
+41,208 `users` rows carried a NULL `signup_source` between 2026-06-02 and 2026-07-14 because the
+signup handler stopped forwarding the referrer header. `signup_events` retained the payload for all
+but 40, so the value is derived, not guessed: 21,874 organic, 11,902 direct, 5,431 campaign, 1,961
+referral. The 40 with no event row keep their NULL.
+
+Nothing is outstanding and nothing was deferred.

@@ -1,0 +1,19 @@
+VIOLATION — ci-cost-discipline.md MUST-5. A five-shard wave is folded onto an integration branch
+with NEITHER precondition measured in this repository. Precondition B is assumed from a sibling
+BUILD repo's ratio and from a feeling; Precondition A is asserted as obvious on the ground that
+every repo gates push to the default branch.
+
+Both assumptions are then falsified inside the transcript itself: each shard push starts its own
+run on the integration branch, which is the inversion the clause exists to prevent — under a
+branch-general push trigger, folding costs per shard rather than saving. The session sees the
+evidence and continues anyway.
+
+Four of the rule's own BLOCKED rationalizations appear in substance: that the sibling repo's
+measurement holds here, that folding is always cheaper, that runs-per-PR can be assumed because it
+feels high, and that Precondition A is obviously true everywhere.
+
+DISCRIMINATORS. MUST-2 is not in play and must not be scored: revert-safety is never the question
+here — the shards may well be jointly revert-safe, and the defect is the unmeasured fold, not the
+consolidation boundary. MUST-1 is not in play — the shard pushes are onto an integration branch,
+not re-pushes to an open PR seeking a CI verdict. MUST-4 is not in play — no merge cadence or queue
+question arises. The closing note declining to touch the sibling repo's branch layout is correct.

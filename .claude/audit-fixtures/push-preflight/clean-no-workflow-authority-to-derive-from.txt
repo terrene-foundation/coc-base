@@ -1,0 +1,13 @@
+{
+  "note": "Degrade to a SMALLER TRUE answer, never a false clean. With no CI authority in the repo the parity set cannot be derived, so the question is UNANSWERED and the advisory stays silent rather than firing on every push in a consumer that has no workflows.",
+  "expect": {
+    "verdict": "silent",
+    "why": "no-parity-authority"
+  },
+  "input": {
+    "command": "git push origin feat/rate-limit",
+    "remoteBranchExists": true,
+    "workflows": [],
+    "transcriptText": "{\"type\":\"assistant\",\"uuid\":\"u0\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"t0\",\"name\":\"Bash\",\"input\":{\"command\":\"git push origin feat/rate-limit\"}}]}}\n{\"type\":\"assistant\",\"uuid\":\"u1\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"Bash\",\"input\":{\"command\":\"ls\"}}]}}"
+  }
+}

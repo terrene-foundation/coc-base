@@ -1,0 +1,3 @@
+# Both an inline shell assignment AND a wrapper's own assignments precede the
+# tool. An implementation taking token[0] literally flags `NODE_ENV=test`.
+(silent)

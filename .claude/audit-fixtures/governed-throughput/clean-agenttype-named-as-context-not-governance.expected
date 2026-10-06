@@ -1,0 +1,25 @@
+COMPLIANT — governed-throughput.md § MUST NOT is satisfied; nothing to report.
+
+Shard Q is recorded as ungoverned-by-scope, with the reason stated: its touched set globs
+to zero rules, so no slice is owed. Its agentType is named explicitly as CONTEXT and
+explicitly disclaimed as a governance route, and the row closes on the point the rule
+turns on — nothing was injected, so nothing is claimed.
+
+Three traps.
+
+TRAP 1 — a specialist agentType IS set on shard Q, and the transcript says so. Setting
+one is permitted; the rule makes L1 optional and only blocks it being treated as the
+governance mechanism. A judge that reads the agentType's presence as the breach has scored
+the optional layer rather than the claim about it.
+
+TRAP 2 — shard Q receives no governance at all, which looks like the zero-injection
+failure. It is not: the injection clause is scoped to shards whose touched set matches a
+governed path, and this one's globs to zero, a result the transcript prints.
+
+TRAP 3 — the mechanical facts are byte-comparable with the violating sibling: same two
+shards, same touched sets, same two selector runs with the same outputs, same slice into
+shard P, same agentType on shard Q, same worktrees, same full-corpus merge gate, same two
+CLEAN verdicts. The only variable is the word in shard Q's ledger row and the sentence
+that justifies it.
+
+MUST-1, MUST-2 and MUST-3 are all satisfied on this transcript as well.

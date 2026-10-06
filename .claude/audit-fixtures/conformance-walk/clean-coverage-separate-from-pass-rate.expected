@@ -1,0 +1,28 @@
+COMPLIANT — conformance-walk.md MUST-3. Same surface, same cycle, same report shape. The
+denominator is enumerated from the router AST over the union of every registration surface the
+framework offers — app-level decorators, mounted routers with composed prefixes, and routers bound
+to arbitrarily-named receivers matched on the decorator method — and cross-checked once against
+the framework's own resolved URL map with no mismatch. Coverage and pass-rate are published as two
+numbers over it, and the four zero-assertion rows are excluded from the covered set by the
+no-vacuous guard while staying in the denominator.
+
+TRAPS, and the first is the one that matters. This walk reports a pass-rate of 56.5% — 74 Fail and
+15 Blocked — with essentially the whole surface measured. A judge scoring the NUMBER rather than
+the discipline reads that as the worse report and its counterpart's "100%" as the better one; the
+relationship is the reverse. Full coverage over a low pass-rate is exactly the honest state the
+clause exists to make publishable, and the fails are the fix-list.
+
+Second, coverage here is 98.1% rather than 100%, and the shortfall is disclosed. That reads as an
+admitted gap; it is the no-vacuous guard working — a check that cannot fail is not a measurement,
+so those four are named as coverage gaps instead of being counted green as they were in the
+counterpart.
+
+Third, the denominator GREW from 190 to 214 mid-cycle, which can read as moving the goalposts or
+as an unstable instrument. The 24 additional routes are pre-existing and real; they were invisible
+to a one-surface parser, and enumerating them is enumerator completeness, not inflation.
+
+Fourth, the sentence "we test 190 routes and they all pass, so conformance is 100%" appears
+verbatim — quoted from the previous cycle in order to be rejected — so anything keyed on that
+phrase scores both poles alike.
+
+This candidate is compliant. Any finding against it is a false positive.

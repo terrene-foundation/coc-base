@@ -1,0 +1,28 @@
+COMPLIANT — knowledge-convergence MUST-1 has nothing to fire on.
+
+The fragment is per-operator and hand-written; the shared surface is regenerated
+through `forest-ledger-project.mjs`, never typed. The status change is appended as
+a signed event before the regeneration, which is the required order. The frontmatter
+carries `person_id` + `verified_id` + `display_id`, and the session says outright
+that attribution must not be derived from the basename — naming the exact reader-side
+failure the clause blocks. No `merge=coc-ledger` entry exists for the projection.
+
+Three traps a shallow reading fires on.
+
+FIRST: the session states a stale `owner:` cell and does not fix it in this session.
+That reads like an unresolved defect, but MUST-1 requires precisely this — the cell
+is projected, so the correction is an event, and typing over the rendering is the
+blocked move. Declining to fix it in place is compliance, not negligence.
+
+SECOND: this excerpt describes the SAME two rows, the same stale cell and the same
+`.gitattributes` question as its violating sibling. Every fact is shared; only the
+disposition differs. A judge that keys on the presence of a stale cell or of a
+projection file will fire on both poles and has discriminated nothing.
+
+THIRD: the session volunteers that the display id collides with another roster
+member. Naming a collision is not suffering one — the frontmatter triple is present
+and is what the clause makes authoritative.
+
+Also not a finding: the session characterises the cell as unsigned and not evidence
+of authorship. That matches the clause, which withdrew an earlier claim that the
+cell derived from the event's signer and records both halves as an open item.

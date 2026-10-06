@@ -234,4 +234,105 @@ if closed: return ErrClosed   # check
 native_call(ptr)              # Close can free into this window → UAF
 ```
 
+**Deref-safety mechanics (moved verbatim from the rule body 2026-08-19).** A flag-gated close (a "closed" boolean checked before the native call) is NOT deref-safe — the pointer read and the native call are separated by a window `Close` can free into; only a per-handle mutex serializing the entire read-pointer → native-call → free window closes it, and only the concurrent stress test makes the use-after-free non-silent. The rule keeps the MUST, both DO/DO-NOT poles and its `**Why:**` line; this is the mechanism paragraph that stood behind them.
+
 **Post-mortem — Rust SDK journals 0174 + 0178.** The check-then-use UAF only crashes under a concurrent closer (often the GC finalizer), so unit tests pass forever while production segfaults under GC pressure. A Go `Subscription` UAF crashed 8/8 under stress (SIGSEGV in `runFinalizers → cgocall`); the identical class recurred on a Go `AlignEngine` one wave later and was caught only because the concurrent-stress-test lens existed. A flag-gated close is NOT deref-safe — the pointer read and the native call are separated by a window `Close` can free into; only a per-handle mutex serializing the entire read-pointer → native-call → free window closes it, and only the concurrent stress test makes the use-after-free non-silent. Cross-binding depth + per-runtime fix shapes (Go/Java/.NET/Ruby/Python/Node) live in the FFI-handle-lifecycle project skill shipped with the rs all-bindings template.
+
+## Tier-1 Conftest Stub — Fixture Template And Applicability Criteria
+
+Depth companion for `.claude/rules/testing.md` § "Tier-1 Conftest Stub for Newly-Side-Effecting Internal Methods (Advisory)". Extracted from the rule body 2026-08-19 (structural cleanup; ZERO de-scoping — the advisory's normative sentence and its `**Why:**` line both remain in the rule).
+
+Canonical fixture template — one autouse fixture in the _deepest applicable_ conftest:
+
+```python
+# tests/unit/conftest.py
+@pytest.fixture(autouse=True)
+def _stub_<method_name>(monkeypatch):
+    from <pkg>.<module> import <Class>
+    monkeypatch.setattr(
+        <Class>, "<method_name>", lambda self, *a, **kw: <fixed_return>
+    )
+```
+
+Pytest's conftest-scope rules guarantee the stub does NOT leak to Tier-2 / Tier-3 (sibling `tests/integration/` and `tests/e2e/` directories don't inherit `tests/unit/conftest.py`).
+
+**When to use:**
+
+- Method has many Tier-1 call sites (~10+); editing each costs more than the stub.
+- Tier-1 tests don't depend on the method's actual content, only its return shape.
+- The new side-effect is the side-effect (LLM, DB, network); Tier-1 must remain offline + fast per the 3-Tier contract.
+
+**When NOT to use:**
+
+- The method's actual content is tested in Tier-1 (e.g., a regression test for the keyword classifier itself). Rewrite those tests to shape-only or move them to Tier-2.
+- Only 1-3 call sites are affected — explicit args are clearer.
+
+**Measured effect (preserved verbatim from the rule body).** The pattern collapsed a 36-call-site sweep to 1 file in the kailash-kaizen 2.20.0 release cycle (2026-05-06, issue #829). Falsifying context: had the stub leaked across tiers, the Tier-2 / Tier-3 suites would have gone green against the stubbed return instead of the real side effect — the conftest-scope guarantee above is what makes the 36→1 collapse readable as a real saving rather than a silently-widened stub.
+
+## E2E Pipeline Regression — Docs-Exact Worked Example
+
+Depth companion for `.claude/rules/testing.md` § "MUST: End-to-End Pipeline Regression Above Unit + Integration". Extracted from the rule body 2026-08-19 (structural cleanup; ZERO de-scoping — the MUST clause, its BLOCKED pointer and its `**Why:**` line all remain in the rule). See also § "End-to-End Pipeline Regression — kailash-ml W33b (2026-04-23)" above for the evidence chain this example was cut from.
+
+```python
+@pytest.mark.regression
+async def test_readme_quickstart_executes_end_to_end():
+    result = await km.train(df, target="churned")
+    assert result.trainable is not None  # handoff field MUST survive
+```
+
+The assertion is on the HANDOFF field, not on a status code: a unit suite constructing `TrainingResult` per primitive can never observe `trainable` missing, because each primitive's fixtures carry exactly the fields that primitive needs.
+
+## One Lock Domain — Non-Interlocking Mechanics
+
+Depth companion for `.claude/rules/testing.md` § "MUST: One Lock Domain Per Env Surface Per Test Binary" (see also § "Env-Var Lock Discipline" above for the BLOCKED corpus, the full DO / DO-NOT variant, and the Rust SDK PR #1283 post-mortem). Extracted from the rule body 2026-08-19 (structural cleanup; ZERO de-scoping — the MUST clause, its DO/DO-NOT block, its BLOCKED pointer and its `**Why:**` line all remain in the rule).
+
+**Why two mechanisms over one surface do not compose (moved verbatim).** Two locking mechanisms over one surface — a module-local `threading.Lock` and a pytest-xdist group lock (`@pytest.mark.xdist_group`) — do NOT exclude each other: a test holding one interleaves with a test holding only the other, racing on the shared vars exactly as if neither were locked.
+
+**Cross-runtime sibling (moved verbatim).** Rust sibling: a module-local `static ENV_MUTEX: Mutex<()>` and `#[file_serial(<key>)]` over one env surface are non-interlocking — unify on one domain.
+
+## Never Assert An UPPER Bound On Real Elapsed Time — Origin And Per-Instance Evidence
+
+Depth companion for `.claude/rules/testing.md` § "MUST: Never Assert An UPPER Bound On Real Elapsed Time". Extracted from the rule's Origin line 2026-08-19 (structural cleanup; ZERO de-scoping — the MUST clause, its DO/DO-NOT block, its BLOCKED-rationalization corpus and its `**Why:**` line all remain in the rule in full normative form, as does the "BUILD stream, landed at loom via Gate-1 ingest 2026-08-19; classified GLOBAL" provenance stub).
+
+**Per-instance evidence, moved verbatim from the rule's Origin line.** BUILD stream (Rust SDK #2445, five flakes in one class; #2351, a virtual-only conversion that silently stopped detecting an 8s real-time stall), landed at loom via Gate-1 ingest 2026-08-19; classified GLOBAL (the contract names no language runtime — paused clock, injected clock and poll-to-ceiling all have per-runtime spellings, extracted to the paired skill).
+
+**Falsifying context for each measured number** — what the instrument would have shown had the clause been false:
+
+- **#2445 — five flakes in one class.** The five reds were produced by wall-clock upper-bound asserts on a loaded runner while the code under test was correct. Had the clause been false (i.e. had a wall-clock upper bound been a sound assertion about the code), those five would have reproduced on an idle runner and pointed at a real regression; they did not — they tracked runner load, which is what makes the count evidence for the clause rather than against it.
+- **#2351 — an 8s real-time stall undetected.** A test converted to a virtual/paused clock ran GREEN across the stall. Had the clause's paused-clock caveat been false (i.e. had a paused clock been a universal fix), that conversion would have stayed RED on the 8-second synchronous stall; it went green instead, which is the measurement behind the rule's "A paused clock is NOT a universal fix" sentence and behind the DIFFERENTIAL / wide real-clock hang-stop pairing it mandates.
+
+## Gate Runner Economics — Where The Depth Lives
+
+`rules/testing.md` § "MUST: Parallelize FIRST, Scope SECOND" carries the clause. Its depth is NOT in
+this file — it is in `skills/12-testing-strategies/gate-runner-economics.md`, a Rule-10 path-(a)
+paired extraction, because the material is a RUNBOOK (per-language invocations, a runner-choice
+table, a verification recipe) rather than post-mortem evidence, and this file is the evidence
+companion.
+
+The one-line summary, so a reader here is not sent away uninformed: **parallelism is a measured ~5x
+that costs one flag (`--dist loadfile -n 8`); diff-scoping is second-order. Take them in that order.**
+`-n auto` measured SLOWER than `-n 8`. `--cov` is only 1.48x under `-n 8`, so dropping it is not the
+win folklore claims. Rust is a genuine trade in both directions — `cargo nextest` process-isolates
+(fast, and blind to the cross-test interaction class `cargo test` exposes) and never runs doctests —
+so it is presented as a choice and NOT mandated.
+
+Scope boundary, per `instrument-discipline.md` MUST-4: the RATIOS transfer; the absolute durations
+belong to the one 16-CPU host they were taken on. Every other repo's gate cost remains UNMEASURED per
+`guides/rule-extracts/git.md` § "The local pre-flight cost figure is UNMEASURED".
+
+## Length Rationale — Full Surface Enumeration
+
+Depth companion for `.claude/rules/testing.md` § "Length rationale". The twelve independent surfaces the rule's always-on testing contract collects, each carrying the DO/DO-NOT + `**Why:**` the meta-rule mandates:
+
+1. regression shape · 2. numerical-claim verification · 3. resource cleanup · 4. env-var serialization · 5. complexity bounds · 6. elapsed-time discipline · 7. the 3-tier model · 8. coverage · 9. state persistence · 10. delegating-pair parity · 11. FFI stress · 12. gate-runner economics (parallelize-first ordering).
+
+Surface 12 was added 2026-09-01 and the count re-derived from the enumeration rather than incremented on faith; its depth is extracted to `skills/12-testing-strategies/gate-runner-economics.md`, so the clause body carries the contract and the measurement only.
+
+Sibling precedent for the named-rationale-at-Origin shape: `security.md` + `artifact-flow.md` length rationales.
+
+
+## Extraction record — 2026-08-19 (moved out of the rule body 2026-09-01)
+
+Reproduced VERBATIM from `.claude/rules/testing.md`; moved here as Rule-10 path-(a) paired extraction funding the § Test-Once Protocol scoped-by-default clause. ZERO de-scoping.
+
+**Extraction record** (2026-08-19, ZERO de-scoping): the conftest-stub template + applicability criteria, the E2E docs-exact example, the one-lock-domain non-composition mechanics + Rust sibling, the FFI deref-safety mechanics, the § Never-Assert-An-Upper-Bound per-instance evidence, and the length-rationale enumeration → `.claude/guides/rule-extracts/testing.md`. Every MUST / MUST NOT clause, BLOCKED entry, DO/DO-NOT block and `**Why:**` line stays here verbatim; only evidence, runnable detail, worked examples, measured narrative and per-instance provenance moved. **`rule-authoring.md` Rule 10 / Rule 11 do NOT fire** — Rule 10 § "Trigger scope" limits the proximity-band gate to `priority: 0` + `scope: baseline` rules and this rule is `scope: path-scoped`, so this is STRUCTURAL CLEANUP, not Rule-10 paired extraction nor Rule-11 recurrence input (the disposition `journal/0148` recorded).

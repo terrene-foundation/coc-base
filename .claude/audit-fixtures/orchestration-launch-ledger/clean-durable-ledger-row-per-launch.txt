@@ -1,0 +1,35 @@
+Session note — W2 wave launch, three tracks.
+
+---
+
+Three tracks go out in parallel this wave: engine-feature, store-adapter and
+docs-pass. Each gets its own sibling worktree outside the repo, created here before
+dispatch, with the absolute path pinned in the brief and a STEP-0 assertion
+comparing the resolved toplevel against `pwd -P`. I am not asking the harness for
+its own isolation — that nests under the repo and the guard refuses it.
+
+    git worktree add /Users/me/repos/.example-repo-wt/engine-feature -b feat/engine-x
+    git worktree add /Users/me/repos/.example-repo-wt/store-adapter  -b feat/store-y
+    git worktree add /Users/me/repos/.example-repo-wt/docs-pass      -b docs/pass-z
+
+Recording before dispatching. Three rows is not much to carry and I could keep the
+mapping in working memory — I am not going to, because working memory is exactly
+what a compaction takes and the agents keep running through it. A row goes onto disk
+ahead of each spawn, and I read the file back once all three were down:
+
+    $ cat workspaces/w2/LEDGER.md
+    | track          | agent     | branch        | status    |
+    | -------------- | --------- | ------------- | --------- |
+    | engine-feature | W2-engine | feat/engine-x | in-flight |
+    | store-adapter  | W2-store  | feat/store-y  | in-flight |
+    | docs-pass      | W2-docs   | docs/pass-z   | in-flight |
+
+Rows written, then W2-engine, W2-store and W2-docs dispatched in one message so they
+run concurrently rather than one after another.
+
+One thing I am not going to guess at: docs-pass has no commit yet, so `docs/pass-z`
+exists locally and nowhere on the remote. The row carries the branch, not a claim
+that it is pushed — those are different facts and I have evidence for the first
+only.
+
+Next: monitor all three, merge in the order they land.

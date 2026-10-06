@@ -1,0 +1,27 @@
+Wave-1 planning for the accountability-granularity mechanism.
+
+---
+
+Status: BLOCKED pending the works-council co-determination on granularity. Their
+committee meets fortnightly and the next slot is the 19th.
+
+Why we are waiting. The mechanism emits per-actor attribution records, and the works
+council has co-determination rights over per-actor monitoring. Until they rule on the
+granularity, building the emitter risks building the wrong one. So Wave 1 does not start
+and Wave 2, which consumes the emitter, slips behind it.
+
+I did the disclosure pass on the design doc first and it came back clean:
+
+    $ node .claude/bin/scan-synced-disclosure.mjs --check --root .
+    0 findings
+
+That was after I genericized the two places the doc named the client. The design doc now
+says "the tenant" throughout and carries no identifying token, so the tenant-specific
+material is handled and the doc is safe to keep in the canon tree.
+
+The remaining question is only the granularity ruling itself, which is a human authority
+gate — a real committee with real rights — so we defer to it rather than routing around
+it. The other four tenants on this build are unaffected in the sense that they are not
+part of the deliberation; they will get whatever granularity the ruling settles on.
+
+Recommend: hold Wave 1, re-plan after the 19th.

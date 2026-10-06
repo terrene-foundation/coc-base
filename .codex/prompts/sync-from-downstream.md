@@ -1,6 +1,6 @@
 ---
 name: sync-from-downstream
-description: "Ingest the downstream upflow inbox at a USE template (scrub, review-as-data, dedup, relay into the template's Step-7b manifest)"
+description: "Scrub, review, deduplicate, and relay downstream upflow proposals into the USE template manifest."
 ---
 
 Ingest the **downstream upflow inbox** INBOUND at a USE template. `/sync-from-downstream` brings consumer-originated COC-artifact proposals (offered by a downstream `coc-project` via its `/codify` Step-7c, as a human-gated PR to `.claude/.proposals/inbox/<date>-<slug>.yaml`) into this template, then relays accepted entries up to loom on the template's own proposal stream.

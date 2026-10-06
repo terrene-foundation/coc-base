@@ -1,0 +1,7 @@
+{
+  "path": "specs/domain/churn.json",
+  "expect": [],
+  "disposition": "clean",
+  "family": "scope gate — extension (reject pole)",
+  "defeats": "an extension-blind path gate. The directory IS governed; the surface is not a text/YAML document this parser's grammar describes."
+}

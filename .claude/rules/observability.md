@@ -24,17 +24,7 @@ Every code change MUST emit a structured log line at each juncture. No exception
 
 Entry, exit, and error each log. Entry captures intent; exit captures outcome + latency; error captures stack + trace ID.
 
-```python
-# DO
-logger.info("create_user.start", request_id=req.request_id)
-try:
-    user = await db.express.create("User", req.fields())
-    logger.info("create_user.ok", user_id=user["id"], latency_ms=...)
-except Exception as e:
-    logger.exception("create_user.error", error=str(e))
-    raise
-# DO NOT — bare handler with zero observability
-```
+**DO:** emit `create_user.start`, `.ok` with latency, and `.error` with stack + trace ID; re-raise errors. **DO NOT:** leave a handler unlogged.
 
 **Why:** Without entry+exit+error, every production failure becomes a guess about which step failed. First 30 minutes of any incident spent recreating what logs should have captured.
 
@@ -42,12 +32,7 @@ except Exception as e:
 
 Every cross-boundary call MUST log intent (what + where) and result (status + duration). Applies whether call is real, mocked, or against a fake backend.
 
-```python
-# DO
-logger.info("stripe.charge.start", customer_id=cid, amount_cents=amount)
-resp = await stripe.charges.create(...)
-logger.info("stripe.charge.ok", charge_id=resp.id, latency_ms=resp.elapsed_ms)
-```
+**DO:** log `stripe.charge.start` (intent + destination) and `.ok` (status + duration). **DO NOT:** make an unlogged outbound call.
 
 **Why:** Outbound calls are where 80% of post-deploy failures live (auth changes, schema drift, network policy). Without boundary logs, can't tell whether your code or the dependency failed.
 
@@ -55,13 +40,7 @@ logger.info("stripe.charge.ok", charge_id=resp.id, latency_ms=resp.elapsed_ms)
 
 Every data fetch MUST log source mode in the log line. `mode` field lets `grep mode=fake` find every place a fake was left.
 
-```python
-# DO — real
-logger.info("user.fetch", user_id=uid, source="postgres", mode="real")
-# DO — fake (dev only; presence in prod is a violation)
-logger.warning("user.fetch", user_id=uid, source="fixture", mode="fake")
-# DO NOT — no mode tag, no way to audit
-```
+**DO:** tag a Postgres fetch `mode="real"`; tag a dev fixture fetch `mode="fake"` at WARN. **DO NOT:** omit mode or ship the fixture in prod.
 
 **Why:** "Mock data shipped to prod" is recurring; `mode=fake` turns silent disaster into single grep.
 
@@ -83,11 +62,7 @@ INFO level, once per transition. Auth MUST log subject+action+outcome. Config lo
 
 Every log line in a request/handler/agent execution MUST carry a correlation ID (request_id, trace_id, run_id) bound for the entire scope. Use the framework's context propagation.
 
-```python
-# DO
-logger = structlog.get_logger().bind(request_id=req.headers["x-request-id"])
-# DO NOT — no request_id → cannot reconstruct request flow
-```
+**DO:** bind `request_id` through the framework context for the whole request. **DO NOT:** emit uncorrelated request logs.
 
 **Why:** Without correlation IDs, multi-step requests interleave in logs and become impossible to trace. A log without a correlation ID is a sentence without a subject.
 
@@ -112,13 +87,7 @@ Before any of `/implement`, `/redteam`, `/deploy`, `/wrapup` reports complete, M
 
 Scan commands (run all that apply):
 
-```bash
-pytest --tb=short 2>&1 | grep -iE 'warn|error|deprecat|fail' | sort -u
-find . -name "*.log" -mmin -120 -exec grep -HnE 'WARN|ERROR|FAIL' {} +
-npm run build 2>&1 | grep -iE 'warn|error' | sort -u
-cargo build 2>&1 | grep -iE 'warning|error'
-pip check 2>&1
-```
+Run every applicable command in the guide § "Rule 5 — Triage scan commands": test/build output (Python, Node, Rust), recent workspace logs, and `pip check`.
 
 Disposition per unique entry (not per occurrence):
 
@@ -134,12 +103,7 @@ Disposition per unique entry (not per occurrence):
 
 A hook-layer or CI scanner that greps `*.log` for `WARN|ERROR|FAIL` MUST treat structured append-only AUDIT-log files (machine-readable records of classifier decisions, skipped events, redteam verdicts) as distinct from runtime stderr/stdout and exclude them by filename via an `EXCLUDED_FILES` allowlist constant. Per-finding suppression (regex tweaks, line-content filters, ad-hoc `grep -v`) is BLOCKED. Composes with the existing `EXCLUDED_DIRS` exclusion.
 
-```bash
-# DO — filename-keyed allowlist; composes with EXCLUDED_DIRS
-EXCLUDED_FILES=".journal-skipped.log"; find . -name '*.log' ! -name "$EXCLUDED_FILES" ...
-# DO NOT — per-finding regex suppression (every new audit log re-discovers the problem)
-... | grep -v 'commit subject: fix.*ERROR'
-```
+**DO:** exclude `.journal-skipped.log` by an `EXCLUDED_FILES` constant alongside `EXCLUDED_DIRS`. **DO NOT:** suppress individual findings with `grep -v`.
 
 **Why:** An audit log records commit subjects verbatim — `fix(nexus): return INTERNAL_ERROR on …` matches a WARN+ scanner as a guaranteed false positive. Filename-keyed exclusion is the only structural fix that closes the class; regex suppression is unbounded. Evidence + posture wiring: guide § Rule 5a.
 
@@ -149,16 +113,7 @@ EXCLUDED_FILES=".journal-skipped.log"; find . -name '*.log' ! -name "$EXCLUDED_F
 
 Masking helpers MUST return a sentinel distinguishable from successful-mask output on parse failure. Returning the masked-success template on failure is BLOCKED.
 
-```python
-# DO
-def mask_url(url: str) -> str:
-    try: parsed = urlparse(url)
-    except Exception: return "<unparseable redis url>"  # grep-able
-    if not parsed.scheme or not parsed.hostname: return "<unparseable redis url>"
-    return f"{parsed.scheme}://***@{parsed.hostname}:{parsed.port or ''}{parsed.path}"
-
-# DO NOT — "redis://***" looks masked; actually "helper bailed"
-```
+**DO:** return `<unparseable redis url>` on parse failure or absent scheme/hostname. **DO NOT:** return the successful-mask shape `redis://***` on failure.
 
 **Why:** Success-shape on failure makes triage believe the credential was masked when the helper bailed and the credential may have been written to a sibling log line.
 
@@ -166,11 +121,7 @@ def mask_url(url: str) -> str:
 
 All URL-masking helpers MUST emit canonical `scheme://***@host[:port]/path`. Stripping userinfo or partial-masking is BLOCKED.
 
-```python
-# DO — grep-able via `***@`
-return f"redis://***@cache:6379/0"
-# DO NOT — strip userinfo (audit cannot find it) / partial mask (leaks username)
-```
+**DO:** return `redis://***@cache:6379/0`. **DO NOT:** strip userinfo or partially mask it (username leak).
 
 **Why:** Grep audit for credential leakage searches `***@`. Helpers that strip userinfo silently bypass that audit.
 
@@ -178,14 +129,7 @@ return f"redis://***@cache:6379/0"
 
 When a value that may embed credentials (connection string, pool key, DSN) is masked for one surface, the SAME redaction MUST apply at EVERY surface that interpolates it — log lines, metric label values, exception messages AND attributes, and any public diagnostic return (`get_pool_info`/`pool_keys`/health-report). Masking only the log line is BLOCKED. For composite keys reconstruct the credential segment from the middle fields so a literal delimiter inside a password cannot leak the tail.
 
-```python
-# DO — mask at every surface the value reaches
-key = mask_pool_key(raw_key); logger.warning("pool.evict", key=key)
-metric.labels(pool=key).inc(); return {"pool_key": key}  # return value masked too
-# DO NOT — mask the log line only
-logger.warning("pool.evict", key=mask_pool_key(raw_key))
-return {"pool_key": raw_key}  # diagnostic return leaks the credential
-```
+**DO:** use the same masked pool key in logs, metric labels, exceptions and diagnostic returns. **DO NOT:** mask a WARN but return `{"pool_key": raw_key}`.
 
 **Why:** Metric labels ship to the same aggregators as logs and exception/return surfaces are read by callers; masking one surface leaves the credential on every other. Extends §6.2 (mask-helper form) with the multi-surface sweep. Evidence + posture wiring: guide § Rule 6.3.
 
@@ -193,15 +137,7 @@ return {"pool_key": raw_key}  # diagnostic return leaks the credential
 
 Any bulk op (BulkCreate/Update/Delete/Upsert) catching per-row exceptions MUST emit a WARN-level log when `failed > 0`, including op name, total rows, failure count, and sample error. `except Exception: continue` or `pass` without a WARN log is BLOCKED.
 
-```python
-# DO
-if failed_count > 0:
-    logger.warning("bulk_create.partial_failure",
-        attempted=total, failed=failed_count,
-        first_error=str(errors[0]) if errors else "unknown")
-# DO NOT — silent swallow
-except Exception: continue
-```
+**DO:** when `failed_count > 0`, WARN with op, attempted rows, failure count and first error. **DO NOT:** `except Exception: continue` without WARN.
 
 **BLOCKED responses:** "caller sees the return value" / "we return a failure list" / "we log at DEBUG".
 
@@ -211,18 +147,7 @@ except Exception: continue
 
 Structured log lines emitting schema-level identifiers (model/column/field names from classification, masking, validation paths) MUST be DEBUG — not WARN or INFO. If operational WARN needed, emit a counter OR a hash (first 8 chars of sha256), not the raw field name.
 
-```python
-# DO — schema names at DEBUG; operational signal via counter
-logger.debug("classification.default_applied", extra={"model": m, "field": f, "default": d})
-metrics.classification_defaults.inc()
-
-# DO — hash when WARN required
-field_hash = hashlib.sha256(f"{m}.{f}".encode()).hexdigest()[:8]
-logger.warning("classification.default_applied", extra={"field_hash": field_hash, "default": d})
-
-# DO NOT — schema names at WARN bleed to aggregators
-logger.warning("classification.default_applied", extra={"model": "users", "field": "ssn"})
-```
+**DO:** schema names at DEBUG; operational signal via counter or WARN with `sha256(model.field)[:8]`. **DO NOT:** WARN with raw `model="users", field="ssn"`.
 
 **BLOCKED responses:** "field name isn't the value, just schema" / "operators need to see unclassified fields" / "log aggregator access = database access" / "DEBUG is off in prod, nobody sees it".
 
@@ -240,10 +165,7 @@ logger.warning("classification.default_applied", extra={"model": "users", "field
 
 - **Unstructured `f"..."` messages.** Pass fields as kwargs to the structured logger, never f-string-interpolate.
 
-```python
-# DO   logger.info("user.created", user_id=uid, plan=plan)
-# DO NOT logger.info(f"User created: {uid} on {plan}")
-```
+**DO:** `logger.info("user.created", user_id=uid, plan=plan)`. **DO NOT:** interpolate an f-string message.
 
 **Why:** F-string-interpolated messages cannot be queried by field — defeats structured logging; operators must regex-match strings instead of filtering on `user_id`.
 

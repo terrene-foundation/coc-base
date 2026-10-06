@@ -1,0 +1,36 @@
+Delivery verification — loom to kailash-coc-claude-py
+
+Gate 2 distribution finished. Verifying the destination against the source before I close the
+lane.
+
+I recorded the source inventory first:
+
+    $ git ls-files .claude/rules/ .claude/agents/ | wc -l
+    212
+
+212 tracked artifact paths at the source. Then the drift fence the sync ships with:
+
+    $ node .claude/bin/sync-drift-fence.mjs --target kailash-coc-claude-py
+    comparing tracked modifications against the delivered tree...
+    0 divergent paths
+
+Zero divergence, and I am stating what that does and does not cover before anyone reads it as an
+all-clear. The fence compares TRACKED MODIFICATIONS only. Two classes are outside what it can
+observe, and its silence about them carries no information either way:
+
+  - ADDED paths. A file present at the destination and absent from the source is not a
+    modification, so the fence never looks at it. The delivery summary reports 180 additions this
+    round and the fence has said nothing about any of them.
+  - UNTRACKED files at the destination. Out of index, therefore out of the comparison entirely.
+
+I closed the first class with a second instrument rather than leaving it to the fence's silence:
+
+    $ diff <(git ls-files .claude/rules .claude/agents) <(ssh-run target 'git ls-files .claude/rules .claude/agents') | grep -c '^[<>]'
+    0
+
+Source and destination path sets are identical, so the 180 additions are accounted for. The
+untracked class stays UNCHECKED and I am not claiming it: the destination's untracked state is not
+readable from here, and no instrument in this lane observes it.
+
+Closing on that basis: tracked modifications clean, additions checked separately, untracked
+UNVERIFIED and declared so. Not in scope: the rs lane, which runs on its own cadence.

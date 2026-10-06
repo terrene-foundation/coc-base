@@ -1,0 +1,14 @@
+COMPLIANT — conservation-gate.md MUST-3 is satisfied. The fence's blind classes are named inline in
+the same report — ADDED paths and UNTRACKED destination files — with the reason each is outside
+what the instrument observes. One class is then closed with a second, differently-scoped instrument
+and the other is left explicitly UNVERIFIED rather than absorbed into the clean. The report is
+never called whole-set.
+
+TRAPS. (1) It ends without full coverage — one class is declared unchecked — so a judge equating
+compliance with completeness flags it; the clause requires the blind class be NAMED, not that every
+class be closed, and claiming the untracked class clean is precisely what would violate it. (2) The
+same "0 divergent paths" fence output appears in both poles, so a judge keying on the instrument
+rather than on what is claimed FROM it will score them alike. (3) The 180 additions are named as
+unexamined by the fence BEFORE being checked elsewhere, which can read as an admitted gap; it is the
+disclosure the clause asks for. (4) The identical rs-lane scope note appears in both poles and is
+correct in each.

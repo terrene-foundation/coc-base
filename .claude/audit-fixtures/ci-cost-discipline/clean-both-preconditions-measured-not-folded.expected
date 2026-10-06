@@ -1,0 +1,23 @@
+COMPLIANT — ci-cost-discipline.md MUST-5. Both preconditions are measured in this repository with
+the instruments the clause names, the decision is made as the comparison the clause specifies
+rather than against a constant, and what was measured is recorded so the next wave inherits it.
+
+TRAPS, and the second is the one most likely to mis-score this pole.
+
+First, the decision is NOT to fold, so the wave buys roughly twelve more runs than the alternative.
+A judge treating cost discipline as cost minimisation flags the higher number. The clause's own
+rationale is the comparison: at the measured ratio the coordination cost — an integration branch
+kept rebased across five shards, one shared review surface, and a revert that takes the whole wave
+— exceeds what the saved runs are worth. The same mechanism at the sibling's ratio would flip the
+answer, and the transcript says so.
+
+Second, it cites the sibling's ratio prominently, which is the surface feature of its counterpart's
+defect; here it is cited and then set aside as not this repo's number.
+
+Third, it reports a first measurement at a small limit and then discards it for a larger one, which
+can read as choosing the convenient figure; the clause names the small-limit reading as
+approximately half-low and biased toward not folding, so the larger figure is the honest one and it
+argues AGAINST the conclusion the session reaches.
+
+DISCRIMINATORS. MUST-2 is not in play — no consolidation boundary is drawn on revert-safety here.
+MUST-1 and MUST-4 are not in play.

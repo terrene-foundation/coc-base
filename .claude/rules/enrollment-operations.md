@@ -238,11 +238,12 @@ silent substrate corruption.
   no new trigger key is introduced.
 - **Receipt requirement:** SessionStart `[ack: enrollment-operations]` in the agent's first
   response IFF `posture.json::pending_verification` includes this rule_id. Soft-gate.
-- **Detection mechanism:** Phase 1 — the fail-closed boundary guards ARE the runtime detector for Probes `.claude/test-harness/probes/enrollment-operations.probes.json` — NOT YET AUTHORED, declared in `phase2-deferrals.json::probe_authorship_deferrals`.
+- **Detection mechanism:** Phase 1 — the fail-closed boundary guards ARE the runtime detector for
   MUST 1/2/3 (existing fixtures `.claude/audit-fixtures/{integrity-guard,genesis-anchor-guard}/`);
   cc-architect / reviewer gate-review at `/codify` confirms MUST 4/5/6 (fold-clean receipt per
   `verify-resource-existence.md` MUST-4; self-enroll + org-admin scope read from the signed
-  `genesis-anchor` content). No new sweep tool ships, so no new fixtures (`cc-artifacts.md` Rule 9
+  `genesis-anchor` content). **Probes: REGISTERED** — `.claude/test-harness/probes/enrollment-operations.probes.json` (16 rows, 8 bipolar pairs; fixtures `.claude/audit-fixtures/enrollment-operations/`; probe-only, pinned in `probe-suite-integrity.test.mjs`). Registration buys DISPATCHABILITY, never execution — a green CI run is NEVER evidence these probes passed. No new sweep
+  tool ships, so no new fixtures (`cc-artifacts.md` Rule 9
   fires only on new tools). Phase 2 (deferred): a Stop-event detector is unnecessary — the guards
   already block at the tool boundary. (`no-check`: this rule ships NO new detector and NO new
   `validate-emit.mjs` structural check — MUST-3 is enforced UNCONDITIONALLY by the
@@ -288,4 +289,4 @@ depth-home), so the residual is the irreducible six-clause + 8-field structure; 
 guard's example/Why/BLOCKED would weaken the structural defense. This rule is `priority: 10` +
 `scope: path-scoped`, so it pays NO baseline-emission cost (loaded only in sessions matching its
 `paths:` globs) and Rule 10's proximity-band gate does NOT fire. Sibling precedent:
-`user-flow-validation.md` + `multi-operator-coordination.md` Origins.
+`skills/30-claude-code-patterns/multi-operator-coordination-substrate.md` § Origin (the `user-flow-validation.md` rationale once cited beside it was retracted — its walk-discipline skill now reads "No length rationale is required").

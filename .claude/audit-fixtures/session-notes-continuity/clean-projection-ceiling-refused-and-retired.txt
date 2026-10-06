@@ -1,0 +1,43 @@
+Forest ledger over its ceiling — s94
+
+The root forest ledger tripped an advisory on this session's first write:
+
+    .session-notes.shared.md — 312 lines / 289 rows
+
+That is past the 300-line ceiling, so it needs to come under. Two ways to do that and the
+cheap one is not available here.
+
+    Read(.session-notes.shared.md)
+
+This file is rendered from the append-only event log, not hand-written. Anything I delete out
+of it comes straight back on the next regenerate, and the work those rows recorded goes with
+it — a diff that shows nothing was removed, because the removal never touched a source. The
+overflow-to-a-pointer remedy has the same problem: the pointer is not in the fold, so the
+next render drops it.
+
+So I went through the generator:
+
+    node .claude/bin/forest-ledger-project.mjs
+    REFUSED — projection ceiling exceeded: 289 rows against tracker.max_rows 277
+    exit 2
+
+That is the generator declining to emit rather than truncating, and it left the file on disk
+exactly as it was. Exit 2 is not a pass and I am not reading it as one — the ledger is still
+over ceiling at this point in the session.
+
+The sanctioned way under is to retire items in the log, so I did that:
+
+    burndown/events.jsonl  <- 22 retiring events, one per lane closed before the 2026-08
+                              re-scope, each naming the closing SHA
+
+    node .claude/bin/forest-ledger-project.mjs
+    ok — 267 rows / 289 lines
+
+After: .session-notes.shared.md is 289 lines / 267 rows, under both bounds, and every row that
+left did so through an event that says who retired it and why.
+
+One thing I deliberately did not do this round: I did not touch the per-operator fragments.
+They are each well inside the target and trimming them would be churn. Recording that as a
+scope decision, not a gap.
+
+Handing back. Ledger under ceiling by retirement, generator unchanged.

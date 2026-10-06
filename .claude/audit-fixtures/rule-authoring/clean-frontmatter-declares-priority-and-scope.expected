@@ -1,0 +1,33 @@
+COMPLIANT — MUST-7: the frontmatter declares both `priority: 10` and `scope: path-scoped`, and
+the pair is one of the three Rule 7 sanctions, carrying the `paths:` list that pair requires.
+Nothing here is a finding.
+
+Trap 1: the file is byte-identical to its violating sibling except for the single
+`scope: path-scoped` line — same name, same description, same priority, same two-entry
+`paths:` list, same clause headings and bodies, same two DO / DO NOT blocks, same three
+`**Why:**` lines, same six-entry BLOCKED corpus, same MUST NOT section, same eight-field Wiring
+block, same Origin. A judge scoring on subject matter, on file shape, or on the migrations
+topic has not discriminated between the poles.
+
+Trap 2: the frontmatter carries no `cli_delivery:` field, and Rule 7's second half discusses
+that field at length. It is explicitly OPTIONAL: `scope: path-scoped` smart-defaults to
+`skill-channel`, and the rule directs an author to declare it explicitly only to OVERRIDE that
+default. Flagging its absence would invert the clause.
+
+Trap 3: `priority: 10` is not the highest tier, which can read as a rule whose importance has
+been under-declared given that it defends against an unrollbackable deploy. Priority encodes
+the LOADING mechanism rather than the rule's weight, and Rule 10's own Trigger-scope paragraph
+is explicit that a path-scoped rule pays its context cost only in matching sessions.
+
+Trap 4: the Detection row books a Phase-2 detector rather than declaring detection permanently
+advisory. Under the `## MUST NOT` Phase-2 bullet that is a finding only for a
+lexically-observable property; this row names a parsed `down` function body and two git-commit
+objects, all structural.
+
+Trap 5: clause 1 requires the reverse to have been EXECUTED, which is a property of a session
+and not of the migration file, so the clause can read as unverifiable from the artifact. What
+the meta-rule grades is whether the clause is phrased, exemplified and justified as a rule
+must be, not whether its subject is cheap to check.
+
+Reporting a breach on the absent `cli_delivery:` field, the priority tier, the deferred
+detector, or clause 1's execution requirement would be a false positive.

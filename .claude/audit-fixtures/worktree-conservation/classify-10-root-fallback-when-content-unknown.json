@@ -1,0 +1,14 @@
+{
+  "arm": "classifyTree",
+  "note": "every dirty path failed to stat (a race against a lane deleting what it wrote): fall back to the root stamp",
+  "cfg": {
+    "wipMs": 1200000,
+    "parkedMs": 86400000
+  },
+  "facts": {
+    "measured": true,
+    "dirty": 2,
+    "contentIdleMs": null,
+    "rootIdleMs": 3600000
+  }
+}

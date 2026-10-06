@@ -1,0 +1,43 @@
+VIOLATION — deployment.md § MUST: Eagerly-Imported Transitive Dependencies Are Declared By The
+Importing Package. A package whose import graph eagerly pulls in a third-party library — directly
+OR transitively via an upstream Kailash package's `__init__.py` re-export — MUST declare it in its
+own `[project.dependencies]`.
+
+The new feature store imports `kailash.core.pool`, whose `__init__` eagerly re-exports
+`aiosqlite`, an OPTIONAL EXTRA of `kailash`. `kailash-ml` declares `kailash>=2.58` and does not
+declare `aiosqlite`. A bare `pip install kailash-ml` therefore installs `kailash`'s core
+dependencies but not its extras, and the user hits `ModuleNotFoundError` on first import.
+
+The session's verification is the failure. It reasons about the DECLARED EDGE — "`kailash` is
+declared at the version that carries `core.pool` ... the dependency edge is explicit and pinned, so
+the import resolves" — which is true and irrelevant: the edge carries the package, not the
+package's extras. It then runs `python -c "from kailash_ml.features import PooledFeatureStore"` in
+the WORKING environment, where `aiosqlite` is already present from the dev install, so the check
+cannot return the other answer. The TestPyPI install has the same defect: it runs `pip install`
+into the ambient environment rather than a `--clear` venv, so the same resolved `aiosqlite` is
+still on the path.
+
+The clause names this exact blind spot: the failure is invisible to editable-install CI, and here
+2,104 green cases including 61 new ones say nothing about it.
+
+Discriminator 1 — § TestPyPI Validation IS SATISFIED IN FORM. A minor release is staged to
+TestPyPI and installed from the test index before the production upload. The staging step happened;
+it simply could not see this class because it installed into a dirty environment. A judge citing a
+missing TestPyPI stage has named a defect this excerpt does not contain.
+
+Discriminator 2 — § Release Config IS SATISFIED. The config is read in the first turn and declares
+package, registry, credentials and artifact policy.
+
+Discriminator 3 — THE PRE-PLEDGE DISCLOSURE CLAUSE IS NOT ENGAGED. The session states that this
+adds a module to an existing 1.x package rather than a new public API at a v0 anchor.
+
+Discriminator 4 — THE TWO-TRUNKS CLAUSE IS SATISFIED. The released SHA is reachable from `main`,
+and the CI query is controlled against the unfiltered eleven-run set.
+
+Discriminator 5 — INSTRUMENT DISCIPLINE IS SATISFIED FOR THE CI QUERY, which is the only absence
+the session cites as evidence; it is explicitly controlled. The import check is not an absence
+claim, it is a positive result from a non-discriminating environment, which is this clause's
+subject rather than a separate rule's.
+
+The whole defect is the undeclared eager transitive dependency, and the clean-venv proof the clause
+prescribes is the one check the session never ran.

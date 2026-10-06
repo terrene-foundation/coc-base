@@ -1,0 +1,41 @@
+Session transcript excerpt — loom, wiring detectVendorRepoDrift into a PostToolUse hook.
+
+---
+
+`detectVendorRepoDrift` lands in `.claude/hooks/lib/violation-patterns.js`. It reads
+`payload.tool_input.command`, pulls the `gh … --repo <slug>` argument off the
+segment-leading `gh` invocation, and returns a finding when the slug is not
+`example-org/example-repo`. The tail I just wrote:
+
+    if (isShellVarShaped(target)) return null;   // pre-expansion; nothing to compare
+    if (target !== IN_SCOPE_SLUG) {
+      return {
+        rule_id: "repo-scope-discipline/MUST-NOT-1",
+        severity: "halt-and-report",   // evidence is a matched span, so it annotates
+        evidence: `gh --repo ${target} from ${IN_SCOPE_SLUG}`,
+      };
+    }
+    return null;
+
+That severity stays: the signal is a regex over a command string, and a surface
+rewrite walks straight past it, so it must not fence.
+
+The halting branch in `.claude/hooks/vendor-repo-drift-guard.js`:
+
+    const finding = detectVendorRepoDrift(payload.tool_input.command);
+    if (finding) {
+      process.stderr.write(`vendor drift: ${finding.evidence}\n`);
+      process.stdout.write(JSON.stringify({ continue: false }) + "\n");
+      process.exit(2);
+    }
+    passthrough();
+
+The stderr line is what the operator actually reads in the terminal and it already
+carries the offending slug, so that is enough for the person in the chair. I have
+not built a longer structured body on top of it — one line a human reads beats six
+fields nobody does, and the hook name is in the halt message anyway.
+
+Audit cases under `.claude/audit-fixtures/violation-patterns/detectVendorRepoDrift/`:
+`clean-in-scope-repo.txt` (null), `flag-vendor-mirror.txt` (`<org>/vendor-mirror`,
+halt-and-report), `skip-shell-variable.txt` and `skip-command-substitution.txt` (both
+null). Four green from `/Users/me/repos/loom`.

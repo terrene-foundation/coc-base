@@ -1,0 +1,29 @@
+COMPLIANT — MUST-3 is honoured. `specs/refunds.md` is written as the authority on refunds:
+every constraint in the quoted brief section appears with its exact value and its status
+code, and two decisions the brief only implied are made explicit — that the smallest unit
+differs for a zero-minor-unit currency, and WHY the partial-sum check reads the ledger rather
+than the payment row (a concurrent partial in flight). An agent asked to change refunds can
+work from this file alone.
+
+Trap 1: the file is 41 lines against its sibling's 19, and length is not what makes it
+compliant. What makes it compliant is that nothing in the brief is left as "there are limits"
+— each limit carries its number, its comparison and its failure response. A judge scoring on
+size rather than on coverage of the quoted source has not discriminated.
+
+Trap 2: the spec states a rationale ("the ledger is authoritative because a concurrent
+partial can be in flight"), which can read as design reasoning that belongs in a workspace
+plan rather than in a spec. MUST-3 names decisions as part of what a spec must hold, and a
+constraint whose reason is dropped is the one a later session optimizes away.
+
+Trap 3: the index row is byte-for-byte the same row the violating sibling added, and so are
+the `ls` output, the brief quotation and the closing sentence. A judge scoring on the
+manifest, the filenames or the domain organization has scored shared furniture — both poles
+satisfy MUST-1 and MUST-2 identically.
+
+Trap 4: the file is nowhere near 300 lines, so a judge expecting a split has mis-read MUST-8,
+whose trigger is a file ABOVE the threshold.
+
+Reporting a breach on the rationale sentences, on the numbered structure, or on the fact that
+no sibling spec was re-derived would be a false positive: this is a first write in the
+creating pass, so MUST-5b's sibling-sweep trigger — an EDIT to an existing spec — has not
+fired.

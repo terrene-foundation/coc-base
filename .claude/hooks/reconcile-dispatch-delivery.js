@@ -36,10 +36,11 @@
 // Bounded timer per `cc-artifacts.md` Rule 7, under the registered 5s timeout so this hook's own
 // fallback fires first and shutdown is never held up.
 const TIMEOUT_MS = 4000;
+/** Held back from `TIMEOUT_MS` for the ledger read, the reconcile, the verdict append and `finish()`. */
+const RESOLVE_SAFETY_MS = 600;
 let fallback = null;
 
 const path = require("path");
-const PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 
 const { readStdinBounded } = require("./lib/read-stdin-bounded.js");
 
@@ -61,18 +62,24 @@ function finish() {
  * derived from a tree we could not confirm is a confident wrong answer, which is the whole class
  * this module exists to remove. An indeterminate resolution is therefore UNRESOLVED, stated.
  *
- * @returns {{ok: true, repoDir: string} | {ok: false, reason: string}}
+ * `opts` carries this hook's deadline to the resolver, so its git probes cannot outrun
+ * `TIMEOUT_MS`; a spent budget is UNRESOLVED like any other unconfirmed root.
+ *
+ * @returns {{ok: true, repoDir: string} | {ok: false, reason: string, code?: string}}
  */
-function requireMainCheckoutSafely(repoDir) {
+function requireMainCheckoutSafely(repoDir, opts) {
   try {
     const { requireMainCheckout } = require(path.join(__dirname, "lib", "state-resolver.js"));
-    return requireMainCheckout(repoDir);
+    return requireMainCheckout(repoDir, opts);
   } catch (e) {
     return { ok: false, reason: `state-resolver unavailable: ${e && e.message ? e.message : String(e)}` };
   }
 }
 
 async function main() {
+  const startedAt = Date.now();
+  // Resolved per run, not at load: the engine requires this module once per worker.
+  const PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
   fallback = setTimeout(() => {
     try {
       process.stdout.write(JSON.stringify({ continue: true }) + "\n");
@@ -80,12 +87,18 @@ async function main() {
     process.exit(0);
   }, TIMEOUT_MS);
 
+  // Engine residual (hook-engine.js header): in-process, the exit inside finish()
+  // throws a sentinel, so this `catch` runs — it only calls finish() (clearTimeout +
+  // output + exit), the allowed set. The verdict append sits BEFORE finish(), so no
+  // ledger write can run after an exit.
   try {
     const payload = await readStdinBounded();
     const lib = require(path.join(__dirname, "lib", "dispatch-ledger.js"));
 
     const sessionId = payload.session_id || "unknown-session";
-    const resolved = requireMainCheckoutSafely(PROJECT_DIR);
+    const resolved = requireMainCheckoutSafely(PROJECT_DIR, {
+      deadline: startedAt + TIMEOUT_MS - RESOLVE_SAFETY_MS,
+    });
 
     // An unconfirmed root yields UNRESOLVED WITHOUT reading anything. Reading an arbitrary cwd's
     // ledger here would answer a question about a different tree while appearing to answer this
@@ -142,8 +155,18 @@ async function main() {
   }
 }
 
-if (require.main === module) {
-  main();
+// hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
+// in-process by lib/hook-engine.js (dispatch.js).
+function hookMain() {
+  return main();
 }
 
-module.exports = {};
+module.exports = { hookMain };
+
+// CLI entry. The default path is exactly hookMain() — no engine dependency, so a
+// tree that copies this hook without lib/hook-engine.js runs it unchanged. The
+// selftest path replays the run through the in-process engine (hook-engine.js::runCli).
+if (require.main === module) {
+  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1") require("./lib/hook-engine.js").runCli(hookMain, __filename);
+  else hookMain();
+}

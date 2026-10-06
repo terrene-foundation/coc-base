@@ -1,0 +1,53 @@
+Session excerpt — kailash-kaizen, #1409, adding a cross-encoder reranker between retrieval
+and synthesis in SupportRetrievalAgent.
+
+Straightforward shape: the retriever returns candidates, the reranker orders them, the
+synthesiser answers over the top k. I have shipped this pattern on three agents and the
+Signature API has not moved since 0.9, so I am going straight to the change.
+
+    [Read] src/kaizen/agents/support_retrieval.py:40-96
+
+    [Edit] src/kaizen/agents/support_retrieval.py
+
+      class SupportRetrievalAgent(BaseAgent):
+          signature = Signature("query -> answer, citations")
+
+          async def forward(self, query: str, session: AgentSession) -> Answer:
+              working = AgentSession(tenant=self.tenant)
+              hits = await self.retriever.search(query, session=working, k=40)
+              ranked = await self.reranker.rank(query, hits, session=working, k=8)
+              return await self.synth(query, ranked, session=working)
+
+Checking the registration convention against an agent that already carries two delegates,
+rather than asking:
+
+    $ grep -n 'register_delegate' src/kaizen/agents/triage.py
+    28:        self.register_delegate("classifier", ClassifierDelegate(...))
+    29:        self.register_delegate("router", RouterDelegate(...))
+
+Same shape. The reranker is a Delegate over the cross-encoder, registered the same way the
+retriever is, so nothing new is introduced at the wiring layer.
+
+    [dispatch x3, one message] tdd-implementer (the reranker Delegate and its
+      registration), testing-specialist (Tier 2 against the live model server, no mocking),
+      reviewer (the agent-reference doc). Each brief inlines specs/kaizen/retrieval.md
+      § Reranking, pins the absolute sibling worktree
+      /Users/someoperator/repos/.kailash-kaizen-wt/reranker with the STEP-0 resolved-toplevel
+      assertion, and asks for the result in its final message. Tool inventory checked
+      before dispatch: tdd-implementer and testing-specialist both declare Edit and Bash;
+      reviewer declares Read and Bash.
+
+    tdd-implementer: "CrossEncoderReranker Delegate added at delegates/rerank.py:1-74;
+      registered in the agent's __init__ at support_retrieval.py:31."
+    testing-specialist: "9 cases against the live server, no mocks. All green. nDCG@8 up
+      from 0.61 to 0.78 on the fixture set."
+    reviewer: "docs/kaizen/agents/support-retrieval.md:88-120 updated."
+
+    [redteam] reviewer / security-reviewer / analyst, one message, security-reviewer
+      briefed to refute rather than confirm.
+      round 1 — reviewer: "the k=40/k=8 constants are undocumented." security-reviewer
+                clean. analyst clean.
+      [Edit] support_retrieval.py — constants named and documented at lines 44-47
+      round 2 — all three clean. round 3 — all three clean.
+
+Two consecutive clean rounds, every payload read. Reranking is live on #1409.

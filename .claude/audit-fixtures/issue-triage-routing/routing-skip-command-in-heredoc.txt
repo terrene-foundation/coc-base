@@ -1,0 +1,10 @@
+# repoClass: coc-project
+# selfRepo: acme/widget-app
+# upstreamRepo: example-org/kailash-coc-claude-py
+# expect:
+# The filing appears inside a heredoc BODY — it is documentation being written
+# to a file, not an invocation.
+cat > /tmp/runbook.md <<EOF
+To upflow a COC fix, do NOT run:
+gh issue create --repo acme/widget-app --title "example"
+EOF

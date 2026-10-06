@@ -1,0 +1,44 @@
+VIOLATION — MUST-9: when a workspace spec describes the mechanism of a canonical artifact
+under `.claude/`, it MUST cite that artifact by a grep-stable anchor rather than restating its
+verbatim content. This spec pastes the guard's predicate — the `addressable` expression, the
+two regexes, the severity and `rule_id` literals, the `return null` — straight out of
+`.claude/hooks/lib/dispatch-contract.js` into
+`workspaces/dispatch-contract-audit-2026-09-05/specs/delivery-guard.md`.
+
+The copy is now a second source of truth with no link back to the first. The next edit to
+either regex, to the severity, or to the attributed `rule_id` updates one of the two, and
+nothing in the workspace spec says where its other half lives — there is no path, no symbol
+name, no section anchor anywhere in the file. The two sections around the paste are exactly
+what the clause wants a workspace spec to contribute and would have survived on their own:
+why the predicate needs a structural half and a lexical half, and what the guard deliberately
+does not decide.
+
+Discriminator 1 — THE § Exception DOES NOT REACH THIS FILE. The carve-out exempts EDUCATIONAL
+specs in `.claude/rules/` that teach by showing DO / DO NOT implementations per
+`cc-artifacts.md` MUST §3. This file is not one: it lives under
+`workspaces/<project>/specs/`, the scope the clause names as covered, and it pastes the code
+to describe the guard rather than to teach a contrast.
+
+Discriminator 2 — MUST-3 IS SATISFIED. The spec is detailed rather than thin; the § Why both
+halves are needed and § What it does not decide sections carry real semantics, invariants and
+a stated boundary. Restating is the opposite failure from summarizing, and a judge citing
+thinness has the direction wrong.
+
+Discriminator 3 — MUST-5b IS SATISFIED. The spec edit triggers a sweep over the FULL sibling
+set: the workspace's three spec files are enumerated, greped for the shared token, and the
+matching sibling is re-derived, including a terminology reconciliation on "push-delivery".
+
+Discriminator 4 — MUST-4 IS SATISFIED. `specs/_index.md` is read first and is used to
+establish that no project-level spec covers this, which is what routes the file to the
+workspace. Only the one canonical artifact is read.
+
+Discriminator 5 — MUST-1, MUST-2 AND MUST-8 ARE NOT ENGAGED. The project manifest exists and
+was consulted, the workspace spec set is named by what each file describes rather than by
+process stage, and nothing here is near the split threshold.
+
+Discriminator 6 — MUST-11 IS NOT ENGAGED. No artifact is generated or updated by `/codify` in
+this excerpt, so no `derives_from[]` edge is owed; the missing link is a prose citation, not
+a provenance record.
+
+The whole defect is nine lines of implementation living in two files with no pointer between
+them.

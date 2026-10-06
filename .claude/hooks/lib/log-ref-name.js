@@ -45,6 +45,7 @@
 "use strict";
 
 const { execFileSync } = require("child_process");
+const { resolveGitBinary, gitEnvForArgs } = require("./git-subprocess-env.js");
 
 // The canonical default ref name. Generation 0 = the un-rotated log family.
 // `transport-git-ref.js` imports this so the transport default and this
@@ -68,11 +69,24 @@ const DEFAULT_REMOTE = "origin";
  * @param {{args: string[], repoDir: string}} spec
  * @returns {{ok: boolean, stdout?: string, stderr?: string}}
  */
+// loom#1471 (s49). This wrapper's one caller runs `ls-remote`, which REACHES A
+// REMOTE — so the profile is chosen by `gitEnvForArgs()` rather than hardcoded:
+// `gitEnv()` alone would strip the host's proxy, TLS trust anchors and
+// SSH_AUTH_SOCK and the coordination-generation probe would fail on any
+// corporate host, which is a fail-BROKEN, not a hardening. What the net profile
+// does NOT relax is the repo-redirect family (`GIT_DIR`, `GIT_CONFIG_*`, …) or
+// any variable git EXECUTES (`GIT_SSH_COMMAND`, `GIT_ASKPASS`, …).
 function _defaultGit({ args, repoDir }) {
+  const gitBin = resolveGitBinary();
+  if (!gitBin) {
+    // INDETERMINATE — the existing `ok:false` shape, never a clean answer.
+    return { ok: false, stderr: "log-ref-name: no git binary resolved" };
+  }
   try {
-    const stdout = execFileSync("git", ["-C", repoDir, ...args], {
+    const stdout = execFileSync(gitBin, ["-C", repoDir, ...args], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
+      env: gitEnvForArgs(args),
     });
     return { ok: true, stdout: String(stdout) };
   } catch (err) {

@@ -1,0 +1,40 @@
+Wrapup — s94, two receipt entries owed
+
+Two entries to land before I close: 0613 for the reaper routing decision, 0614 for the
+overlay-verifier waiver. Both declare author: human.
+
+Entry 0613 first. The frontmatter says author: human and the .session-notes corroborate it:
+
+    $ grep -n 'reaper' .session-notes
+    12:  - user directed: route the reaper's git through the shared helper
+
+Neither of those is the evidence. The field is the claim under test and the notes are a
+narrative I wrote myself, so I resolved the live ledger and read it:
+
+    $ node -e 'const {checkAuthorBacking}=require("./.claude/hooks/lib/provenance-author-backing.js");
+      console.log(checkAuthorBacking({repoDir:".", session:"s94-reaper-routing",
+                                      frontmatterAuthor:"human"}))'
+    { status: "backed", humanInputEvents: 3,
+      ledger: ".claude/learning/provenance/s94-reaper-routing-1e7ab440.jsonl" }
+
+Footer for 0613 reads BACKED by human input, with the count and the ledger path beside it.
+
+Entry 0614. The same call finds nothing to read:
+
+    { status: "undetermined", humanInputEvents: null,
+      ledger: ".claude/learning/provenance/s94-overlay-waiver-9b30c7d1.jsonl" }
+
+    $ ls .claude/learning/provenance/ | grep s94
+    s94-reaper-routing-1e7ab440.jsonl
+
+No ledger for that session. I am fairly confident the waiver was human-directed — I remember the
+turn — but memory is not the ledger, and undetermined is not backed. There are two live
+possibilities here, degraded capture or a false claim, and nothing I can read tells them apart.
+Halting and reporting rather than picking one: 0614 is NOT written, and the ambiguity goes to the
+user to adjudicate.
+
+One thing I deliberately did not do this round: I did not reconcile the pre-rename slugs across
+the whole provenance directory. That is a separate sweep and I am recording it as a scope
+decision rather than a gap.
+
+Handing back with 0613 landed, 0614 open, and the undetermined status surfaced.

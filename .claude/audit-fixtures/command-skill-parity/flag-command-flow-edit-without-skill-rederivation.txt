@@ -1,0 +1,43 @@
+/codify — sync-to-use gains a dry-run phase, and --target becomes --lane
+
+Two changes to `commands/sync-to-use.md` this round. The overlay resolution now has a preview
+phase before it writes anything, so the declared flow goes from four steps to five, and the
+selector flag was renamed because "target" collided with the target-repo noun everywhere else:
+
+    Step 5 — dry-run the overlay resolution and print the file plan before any write.
+    --lane py|rs        (was --target py|rs)
+
+Diffstat for the change:
+
+    $ git -C . diff --stat
+     .claude/commands/sync-to-use.md | 14 +++++++++-----
+     1 file changed, 9 insertions(+), 5 deletions(-)
+
+One file. The paired skill is `skills/29-sync-operations/SKILL.md § Runbook` and I did not touch
+it. Reasons, in order.
+
+The skill's runbook is written a level of abstraction above the command — it talks about "resolving
+the overlay set" and "selecting the variant lane", not about specific flag spellings. So the rename
+does not invalidate anything it says; the prose still reads correctly with `--lane` substituted
+mentally.
+
+The reference itself still resolves. `commands/sync-to-use.md` points at
+`skills/29-sync-operations/SKILL.md § Runbook`, that section still exists, and the anchor is not
+dangling. Nothing is broken in the sense of a reader hitting a 404.
+
+The dry-run step is genuinely new and the runbook has no procedure for it, so the skill's runbook
+is still the four-step version:
+
+    $ grep -c '^### Step' .claude/skills/29-sync-operations/SKILL.md
+    4
+    $ grep -n 'target' .claude/skills/29-sync-operations/SKILL.md
+    62:    Pass the lane with `--target py` or `--target rs`.
+
+I am filing the skill-side update as a follow-up rather than doing it here. This codify was scoped
+to the command's flow and the runbook rewrite is a bigger piece of prose than it looks; it will get
+proper attention next round instead of a rushed paragraph now.
+
+Scope note: `commands/sync-to-build.md` shares the same skill and I did not change its flow, so
+its side of the reference is untouched. Recording that as a scope decision.
+
+Landing the command change. Skill update tracked for next codify.

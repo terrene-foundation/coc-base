@@ -1,0 +1,7 @@
+# kind: suite
+# mode: bulk
+# dedicated_mode_exists: true
+# expect_verdict: Pass
+# expect_rule:
+# The default-mode population. Executed by the runner without any flag, so it is
+# delivered; no step binding is required or expected.

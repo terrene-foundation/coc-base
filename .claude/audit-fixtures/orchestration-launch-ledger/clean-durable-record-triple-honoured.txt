@@ -1,0 +1,39 @@
+Wave W3 close-out — example-org/example-repo.
+
+---
+
+Wrapping the wave. All three launches are in this session's history above, and that
+is exactly why I am not writing the close-out from it: the transcript is what a
+compaction erases, and this note has to survive that. Reading the durable copy:
+
+    cat workspaces/w3/LAUNCH-LEDGER.md
+    | parser | W3-parser | feat/parser-a | landed    |
+    | codec  | W3-codec  | feat/codec-b  | in-flight |
+    | bench  | W3-bench  | bench/c       | in-flight |
+
+A completion notification landed while I was drafting:
+
+    agent finished; branch bench/c pushed, 11 commits
+
+Matching it before reacting to it: bench/c is the ledger's bench row, agent W3-bench,
+which I launched myself earlier in the wave. So this is my own output, not a parallel
+session's — no re-attribution, and no re-launch of a track already run. Row to
+`landed`, and the merge into the integration branch proceeds on that footing.
+
+That leaves codec. W3-codec stopped with:
+
+    Error: usage limit reached for this account; the session cannot continue.
+
+That message says the account ran out, not that the agent terminated, and I have run
+no process check against its worktree in this session. The row stays `in-flight` with
+the limit noted beside it; whoever picks the wave up establishes liveness first, then
+either resumes it by name or stands it down explicitly.
+
+One item I am NOT calling landed. bench/c's required format check is red, and I have
+not established whether that is the known flake this repo sees on cold runners or a
+real failure somewhere in those 11 commits. Named here explicitly so it does not get
+carried forward as green by whoever reads this next:
+
+    checks: format (FAILURE) on 4c81de99
+
+Close-out written to the wave note and the ledger.

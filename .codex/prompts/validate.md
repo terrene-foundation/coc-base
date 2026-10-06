@@ -46,8 +46,8 @@ These always apply regardless of project type:
 
 If Step 1 detected Kailash SDK usage, ALSO run these checks by loading the Kailash-specific skills:
 
-- Load `.codex/skills/17-gold-standards/SKILL.md` for pattern standards
-- Load `.codex/skills/16-validation-patterns/SKILL.md` for validation tools
+- Load `.agents/skills/17-gold-standards/SKILL.md` for pattern standards
+- Load `.agents/skills/16-validation-patterns/SKILL.md` for validation tools
 
 | Check            | What It Validates                                                                   |
 | ---------------- | ----------------------------------------------------------------------------------- |
@@ -91,4 +91,4 @@ Deploy these agents for validation:
 ## Skill References
 
 - Always: Project rules (`rules/security.md`, `rules/testing.md`, `rules/zero-tolerance.md`, `rules/env-models.md`)
-- When Kailash detected: `.codex/skills/17-gold-standards/SKILL.md`, `.codex/skills/16-validation-patterns/SKILL.md`
+- When Kailash detected: `.agents/skills/17-gold-standards/SKILL.md`, `.agents/skills/16-validation-patterns/SKILL.md`

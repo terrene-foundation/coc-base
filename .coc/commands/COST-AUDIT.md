@@ -1,8 +1,8 @@
 ---
 id: "COST-AUDIT"
-applies_to: ["claude-code"]
+applies_to: ["claude-code", "codex"]
 name: cost-audit
-description: "Per-project Claude Code cost from local transcripts (token usage x API list prices). Read-only; cross-platform (mac/linux/windows)."
+description: "Read per-project Claude Code costs from local transcripts and API list prices; works across operating systems."
 ---
 
 `/cost-audit` reports the API-list-price value of your Claude Code token usage, grouped

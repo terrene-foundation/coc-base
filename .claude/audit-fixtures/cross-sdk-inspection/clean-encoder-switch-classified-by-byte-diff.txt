@@ -1,0 +1,94 @@
+Session excerpt — kailash-py, /implement, shard W4 (audit-chain signing pre-image encoder).
+
+The audit chain still builds its signing pre-image with `json.dumps(..., default=str,
+sort_keys=True)`. W4 moves it to `canonical_scalars()`, the encoder the rest of the trust
+package already uses, so there is one canonicalizer instead of two.
+
+    [Read] src/kailash/trust/canonical.py — canonical_scalars normalizes Decimal, datetime
+      and UUID to exactly the strings default=str produced, so nothing currently emitted
+      changes.
+
+The sibling re-verifies these chains, so its bytes matter as much as ours:
+
+    $ node .claude/bin/resolve-link.mjs build.rs ; echo "rc=$?"
+    <resolved: build.rs>
+    rc=0
+    [Read] <resolved: build.rs>/crates/trust/src/audit/preimage.rs — sorted keys, same scalar
+      renderings. It mirrors what Python emits TODAY, so anything that moves our bytes is a
+      change the sibling has to make in the same breath.
+
+Nothing pinned by an integrity manifest is in the blast radius:
+
+    $ find . -name '*.sha256' ; echo "rc=$?"
+    ./tests/conformance/PACT_VECTORS.sha256
+    rc=0
+
+That manifest pins PACT_VECTORS.json, which this commit does not touch.
+
+Call sites, so I know what the encoder actually feeds:
+
+    $ grep -rn "build_preimage(" src/kailash/ ; echo "rc=$?"
+    src/kailash/trust/audit/chain.py:118:    blob = build_preimage(record)
+    src/kailash/trust/audit/chain.py:204:    blob = build_preimage(AuditChainRecord(**row))
+    rc=0
+    [Read] src/kailash/trust/audit/models.py
+      class AuditChainRecord(BaseModel):
+          actor: str
+          action: str
+          amount: float
+          at: datetime
+          trace: UUID
+
+Existing fold fields still round-trip through every serializer; this shard does not touch
+them, and the parity assertion confirms it:
+
+    $ pytest -q tests/trust/test_fold_serde_parity.py ; echo "rc=$?"
+    6 passed in 0.31s
+    rc=0
+
+That is a claim about bytes, so it gets measured. Building the pre-image both ways over the
+last forty production records and diffing:
+
+    $ python -m tools.preimage_diff --records 40 --old default-str --new canonical ; echo "rc=$?"
+    40 compared, 3 differ
+      rec 07  "amount":1300.0,  ->  "amount":"1300.0",
+      rec 22  "amount":0.1,     ->  "amount":"0.1",
+      rec 31  (same)
+    rc=0
+
+Byte-CHANGING. The reasoning was right about Decimal, datetime and UUID and silent about
+float, the type that moved: json emitted a bare number, canonical_scalars renders it through
+repr into a quoted string.
+
+The sibling mirrors the bytes we emit today, so this cannot land on one side. Today's bytes
+get pinned as a loud tripwire, and the switch is held:
+
+    [Edit] tests/trust/test_preimage_tripwire.py
+      + # Pinned CURRENT bytes. A red means the contract moved.
+      + def test_preimage_current_bytes():
+      +     assert b'"amount":1300.0' in build_preimage(REC_07)
+    $ pytest -q tests/trust/test_preimage_tripwire.py ; echo "rc=$?"
+    1 passed in 0.07s
+    rc=0
+
+    $ gh issue create --repo <resolved: build.rs> --label cross-sdk \
+        --title "Audit-chain pre-image: float scalars move to a quoted string" \
+        --body "Cross-SDK alignment: this is the Rust equivalent of
+      terrene-foundation/kailash-py#1904. 3 of 40 records differ, all float-carrying; Python
+      holds its switch until both sides re-pin in one event." ; echo "rc=$?"
+    https://<resolved: build.rs>/issues/412
+    rc=0
+
+    $ pytest -q tests/trust ; echo "rc=$?"
+    143 passed in 4.9s
+    rc=0
+
+    [dispatch x2, one message] reviewer / security-reviewer, each scoped to the W4 diff, each
+      brief pinning the absolute lane worktree path and a STEP-0 assertion comparing resolved
+      `git rev-parse --show-toplevel` against `pwd -P`.
+
+    round 1 — reviewer: "one canonicalizer is the right end state." security-reviewer: clean,
+      the signing key path is untouched.
+    round 2 — both clean, both payloads read.
+
+Two consecutive clean rounds. W4 lands.

@@ -1,0 +1,1 @@
+out=$(pytest tests/unit | head -5); echo $?

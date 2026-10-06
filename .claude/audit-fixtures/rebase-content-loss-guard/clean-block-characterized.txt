@@ -1,0 +1,13 @@
+STOP — Tool call blocked.
+
+WHAT HAPPENED: git rebase would replay HEAD onto trunk WITHOUT --rebase-merges, and HEAD carries 1 merge commit(s) since trunk.
+WHY: rebase-content-loss-guard (loom#1773) — a plain rebase replays a LINEARISED commit list and drops merge commits. On a branch assembled by merging feature branches in, the content those merges carried stops being present, silently: measured on one lane, 47 commits → 25, merge commits 15 → 1, four already-reviewed fixes gone, with the PR still green because the tests covering them were dropped too. The signal is structural, not lexical — the verb comes from a parsed subcommand position and the count is an integer from `git rev-list --merges --count trunk..HEAD` — which is what permits block severity under hook-output-discipline.md MUST-2.
+
+REPORT TO USER (do not skip any):
+  - Merge commits at risk: 1, measured as `git rev-list --merges --count trunk..HEAD` (base source: explicit <upstream> argument).
+  - Preferred fix: re-run with `--rebase-merges`, which replays the merge structure instead of flattening it.
+  - Alternative: `git merge` the base into the lane instead of rebasing — an assembled lane has no stable identity under replay.
+  - If flattening is genuinely intended, record the pre-rebase tip first (`git branch pre-rebase-<name>`), then re-run with COC_REBASE_FLATTEN_ACK="<the reason>" set — the override MUST name its reason, and it is reported, not hidden.
+  - After ANY flattening rebase, run `node .claude/hooks/rebase-content-loss-guard.js --verify <pre-rebase-ref>` and report the absent-commit list.
+
+THEN: Do not re-run this rebase until you have either added --rebase-merges, switched to a merge, or set the override with a stated reason. Report the choice to the user first.

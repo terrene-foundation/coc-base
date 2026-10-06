@@ -11,7 +11,7 @@ Edit `packages/kailash-ml/src/kailash_ml/trainable.py` to add the missing
 guard. The path packages/kailash-dataflow/src/dataflow/adapters/mongodb.py
 shows the same pattern.
 
-Diagnose CI failures with `gh api repos/esperie-enterprise/kailash-rs/actions/runs`.
+Diagnose CI failures with `gh api repos/terrene-foundation/kailash-rs/actions/runs`.
 
 For descriptive cross-repo examples, `kailash-py/.claude/rules/foo.md` is fine.
 

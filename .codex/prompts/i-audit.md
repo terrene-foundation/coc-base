@@ -124,7 +124,7 @@ Deploy these agents for design audits:
 
 ## Skill References
 
-- `.codex/skills/23-uiux-design-principles/SKILL.md` - Design principles
-- `.codex/skills/23-uiux-design-principles/motion-design.md` - Motion design
-- `.codex/skills/23-uiux-design-principles/ux-writing.md` - UX writing
-- `.codex/skills/25-ai-interaction-patterns/SKILL.md` - AI interaction patterns
+- `.agents/skills/23-uiux-design-principles/SKILL.md` - Design principles
+- `.agents/skills/23-uiux-design-principles/motion-design.md` - Motion design
+- `.agents/skills/23-uiux-design-principles/ux-writing.md` - UX writing
+- `.agents/skills/25-ai-interaction-patterns/SKILL.md` - AI interaction patterns

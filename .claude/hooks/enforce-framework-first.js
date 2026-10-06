@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 /**
+ * @hook-event: PostToolUse:Edit|NotebookEdit|Write (verification) — the resulting code exists for checking raw imports against the framework policy.
+ *
  * Hook: enforce-framework-first
  * Event: PostToolUse
  * Matcher: Write, Edit
@@ -12,17 +14,34 @@
  */
 
 const TIMEOUT_MS = 5000;
-const timeout = setTimeout(() => {
-  console.log(JSON.stringify({ continue: true }));
-  process.exit(1);
-}, TIMEOUT_MS);
+let timeout = null;
 
 const { instructAndWait } = require("./lib/instruct-and-wait");
 
-let input = "";
-process.stdin.setEncoding("utf8");
-process.stdin.on("data", (chunk) => (input += chunk));
-process.stdin.on("end", () => {
+// hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
+// in-process by lib/hook-engine.js (dispatch.js). Everything a standalone run
+// did at load time happens here instead, so a require() has no side effects.
+function hookMain() {
+  timeout = setTimeout(() => {
+    console.log(JSON.stringify({ continue: true }));
+    process.exit(1);
+  }, TIMEOUT_MS);
+  return new Promise((resolve, reject) => {
+    let input = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (chunk) => (input += chunk));
+    process.stdin.on("end", () => {
+      try {
+        onStdinEnd(input);
+      } catch (e) {
+        return reject(e);
+      }
+      resolve();
+    });
+  });
+}
+
+function onStdinEnd(input) {
   clearTimeout(timeout);
   try {
     const data = JSON.parse(input);
@@ -33,7 +52,7 @@ process.stdin.on("end", () => {
     console.log(JSON.stringify({ continue: true }));
     process.exit(1);
   }
-});
+}
 
 const BLOCKED_IMPORTS = [
   // ── Nexus: API endpoints, web services, HTTP servers ──
@@ -245,4 +264,14 @@ function isExcluded(filePath) {
     return true;
 
   return false;
+}
+
+module.exports = { hookMain };
+
+// CLI entry. The default path is exactly hookMain() — no engine dependency, so a
+// tree that copies this hook without lib/hook-engine.js runs it unchanged. The
+// selftest path replays the run through the in-process engine (hook-engine.js::runCli).
+if (require.main === module) {
+  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1") require("./lib/hook-engine.js").runCli(hookMain, __filename);
+  else hookMain();
 }

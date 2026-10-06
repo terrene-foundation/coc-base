@@ -1,0 +1,3 @@
+cat > /tmp/fixture.txt <<'EO'F
+git branch -D feat/decoy
+EOF

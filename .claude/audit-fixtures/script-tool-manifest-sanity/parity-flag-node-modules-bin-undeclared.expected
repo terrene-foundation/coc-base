@@ -1,0 +1,5 @@
+# THE EXCEPTION TO THE LINE ABOVE. A `node_modules/.bin/` path IS a package
+# claim wearing a path: the file exists only if some package installed it. An
+# implementation that treated every slash-bearing token as a local file misses
+# the single most direct way to name an undeclared tool.
+finding:undeclared:stylelint

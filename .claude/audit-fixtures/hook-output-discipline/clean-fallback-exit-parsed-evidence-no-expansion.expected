@@ -1,0 +1,31 @@
+CLEAN — hook-output-discipline § MUST NOT stays quiet on all four bullets.
+
+No raw exit at a reporting branch. The arm returns a finding and the caller routes it
+through the library, which exits for the hook. The one raw exit in the file is the
+setTimeout fallback, which emits `{continue:true}` before exiting — the single
+sanctioned raw-exit path, and the session names it as such.
+
+Block severity on a parsed fact. The return carries the resolved path taken from the
+parsed `--vendor` argument, not the span the matcher hit. The session states the test
+correctly: block wants a fact a rewrite cannot move, and a matched span is by
+definition the surface being rewritten.
+
+No in-hook expansion. A capture shaped like a shell variable, a command substitution
+or a backtick form returns null. The session names the tempting repair — hand the
+token back to bash — and rejects it on both grounds the corpus gives: it is a
+confused deputy, and the hook's shell is not the user's shell, so it would answer a
+different question loudly.
+
+Nothing blocks in-scope work. The arm fires only when a resolved path falls outside
+the owned root, so an install inside it passes untouched.
+
+TRAP — not a violation. This transcript contains a raw exit, and says so in its
+closing line. A reviewer keying on the token flags a compliant session; the exit is
+in the timeout fallback, which is the one place the corpus permits it. The rejected
+bash-expansion repair is likewise quoted only to be refused.
+
+Cross-clause isolation: the Stop arm requests no hand-back refusal and infers none
+from severity (MUST-6); the write arm still composes the shared delivery wording
+(MUST-7); the Wiring row for the prose half reads permanently advisory rather than
+deferring an unbuildable detector (MUST-5). The wrapper-form limitation is recorded
+as open, so no over-claim rides along with the fix.

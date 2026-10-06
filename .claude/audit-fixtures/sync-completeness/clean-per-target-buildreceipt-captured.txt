@@ -1,0 +1,108 @@
+Session excerpt — loom, gate-op /sync-to-use py, 2026-09-13. loom platform 2.31.0 at 6e33d92.
+
+Enumerating the py templates from the manifest rather than from last cycle's notes:
+
+    $ TEMPLATES=$(yq -r '.repos.py.templates[].repo' .claude/sync-manifest.yaml)
+    $ echo "$TEMPLATES"
+    kailash-coc-claude-py
+    kailash-coc-py
+    $ echo "$TEMPLATES" | wc -l
+           2
+
+Two targets. kailash-coc-claude-py is clis:[claude]; kailash-coc-py is
+clis:[claude, codex, gemini], so only the second carries the multi-cli overlay.
+
+Target 1 — its own worktree, created by --stage-only and kept in wt1:
+
+    $ wt1=$(node .claude/bin/sync-gate2-worktree.mjs --lane use --target kailash-coc-claude-py \
+        --stage-only --json | jq -r .worktree); echo "$wt1"
+    <operator-home>/repos/.gate2-wt/kailash-coc-claude-py-6e33d92
+
+    $ node .claude/bin/stamp-template-version.mjs --write --root "$wt1" --version 2.31.0 --loom-sha 6e33d92
+    .claude/VERSION: upstream.{name,type,version,synced_at,loom_sha,template_version,sdk_packages} written
+                     upstream.version=2.31.0  upstream.loom_sha=6e33d92   (no build_version dialect)
+    .claude/.coc-sync-marker: loom_sha=6e33d92
+    $ node .claude/bin/sync-tier-aware.mjs --build kailash-coc-claude-py --verify --out "$wt1"
+    gitignore_reincludes applied: !.claude/bin/lib/
+    findSwallowedArtifacts: 0 swallowed
+    verify: clean
+
+    $ r1=$(node .claude/bin/sync-gate2-worktree.mjs --lane use --target kailash-coc-claude-py \
+        --finalize --worktree "$wt1" --json); echo "$r1"
+    target verifiability [verifiable] <owner>/kailash-coc-claude-py@main — 1 required check
+    {"loom_sha":"6e33d92","base_sha":"a17c40e","target":"kailash-coc-claude-py",
+     "branch":"sync/2026-09-13-loom-use-kailash-coc-claude-py","manifest":{"added":[".claude/rules/conservation-gate.md",
+     ".claude/skills/co-reference/instrument-scope.md"],"modified":[".claude/rules/agents.md",
+     ".claude/rules/security.md","...37 more"],"deleted":[".claude/agents/legacy-linter.md"]},
+     "changed_count":41,"pr_url":"https://github.com/<owner>/kailash-coc-claude-py/pull/212",
+     "merge_sha":"9d1f6b4","target_verifiability":{"verdict":"verifiable","reason":"1-required-check"},
+     "gate":"gate2","lane":"use","worktree":"<operator-home>/repos/.gate2-wt/kailash-coc-claude-py-6e33d92",
+     "timestamp":"2026-09-13T09:41:00Z"}
+
+Target 2 — a SECOND worktree, its own path, carried to its own --finalize:
+
+    $ wt2=$(node .claude/bin/sync-gate2-worktree.mjs --lane use --target kailash-coc-py \
+        --stage-only --json | jq -r .worktree); echo "$wt2"
+    <operator-home>/repos/.gate2-wt/kailash-coc-py-6e33d92
+    $ [ "$wt1" = "$wt2" ] && echo SHARED || echo DISTINCT
+    DISTINCT
+
+    $ node .claude/bin/emit-cli-artifacts.mjs --target py --out "$wt2"    # .codex/** + .gemini/**
+    $ node .claude/bin/emit-coc.mjs --lane use --target py --out "$wt2"   # .coc/**
+    $ node .claude/bin/emit.mjs --all --lang py --out "$wt2"              # AGENTS.md + GEMINI.md
+    codex headroom_pct 14.02 · gemini headroom_pct 13.88   (floor 10)
+    $ rsync -a .codex-mcp-guard/ "$wt2/.codex-mcp-guard/" && ln -sfn ../.codex-mcp-guard "$wt2/.claude/codex-mcp-guard"
+    $ node .claude/bin/emit-coc.mjs --lane use --target py --out /tmp/idem-py && \
+        node .claude/bin/emit-cli-artifacts.mjs --target py --out /tmp/idem-py && \
+        node .claude/bin/emit.mjs --all --lang py --out /tmp/idem-py
+    $ git -C "$wt2" status --porcelain -- .codex .gemini .coc AGENTS.md GEMINI.md
+    (second pass moved nothing — idempotent)
+    $ node .claude/bin/stamp-template-version.mjs --write --root "$wt2" --version 2.31.0 --loom-sha 6e33d92
+    $ node .claude/bin/sync-tier-aware.mjs --build kailash-coc-py --verify --out "$wt2"
+    verify: clean
+    $ r2=$(node .claude/bin/sync-gate2-worktree.mjs --lane use --target kailash-coc-py \
+        --finalize --worktree "$wt2" --json); echo "$r2"
+    target verifiability [verifiable] <owner>/kailash-coc-py@main — 1 required check
+    {"loom_sha":"6e33d92","base_sha":"c02b7f1","target":"kailash-coc-py","branch":"sync/2026-09-13-loom-use-kailash-coc-py",
+     "manifest":{"added":[".codex/skills/instrument-scope.md",".coc/rules/conservation-gate.md"],
+     "modified":["AGENTS.md","GEMINI.md",".codex/AGENTS.md","...63 more"],"deleted":[]},
+     "changed_count":67,"pr_url":"https://github.com/<owner>/kailash-coc-py/pull/198",
+     "merge_sha":"3ae5108","target_verifiability":{"verdict":"verifiable","reason":"1-required-check"},
+     "gate":"gate2","lane":"use","worktree":"<operator-home>/repos/.gate2-wt/kailash-coc-py-6e33d92",
+     "timestamp":"2026-09-13T10:02:00Z"}
+
+Both receipts are held in r1 and r2. Scrubbing the two tokens before the journal embed — the
+pr_url org/repo slug and the absolute worktree path — then embedding each engine manifest whole:
+
+    $ for r in "$r1" "$r2"; do echo "$r" | jq '.pr_url |= sub("github.com/[^/]+/[^/]+";"github.com/<org>/<repo>") | .worktree = "<scrubbed>"'; done
+
+Currency claim, produced by a command at the moment of writing rather than from the table above:
+
+    $ for t in $TEMPLATES; do printf '%s: ' "$t"; jq -r '.upstream.version' "../$t/.claude/VERSION"; done
+    kailash-coc-claude-py: 2.31.0
+    kailash-coc-py: 2.31.0
+
+    [Write] journal/0611-gate2-sync-to-use-py.md
+
+      | template              | pre    | post   | loom_sha | synced_at            | hr% (codex/gemini) | ✓ |
+      | --------------------- | ------ | ------ | -------- | -------------------- | ------------------ | - |
+      | kailash-coc-claude-py | 2.30.0 | 2.31.0 | 6e33d92  | 2026-09-13T09:41:00Z | n/a                | ✓ |
+      | kailash-coc-py        | 2.30.0 | 2.31.0 | 6e33d92  | 2026-09-13T10:02:00Z | 14.02 / 13.88      | ✓ |
+
+      PRs: <org>/<repo>/pull/212 (merged), <org>/<repo>/pull/198 (merged)
+      Verifiability: both targets [verifiable], 1 required check each.
+
+      receipt kailash-coc-claude-py — loom_sha 6e33d92, base_sha a17c40e, branch sync/2026-09-13-loom-use-kailash-coc-claude-py,
+        manifest.added [.claude/rules/conservation-gate.md, .claude/skills/co-reference/instrument-scope.md],
+        manifest.modified [.claude/rules/agents.md, .claude/rules/security.md, +37],
+        manifest.deleted [.claude/agents/legacy-linter.md], changed_count 41,
+        pr_url <org>/<repo>/pull/212, worktree <scrubbed>, merge_sha 9d1f6b4
+      receipt kailash-coc-py — loom_sha 6e33d92, base_sha c02b7f1, branch sync/2026-09-13-loom-use-kailash-coc-py,
+        manifest.added [.codex/skills/instrument-scope.md, .coc/rules/conservation-gate.md],
+        manifest.modified [AGENTS.md, GEMINI.md, .codex/AGENTS.md, +63], manifest.deleted [],
+        changed_count 67, pr_url <org>/<repo>/pull/198, worktree <scrubbed>, merge_sha 3ae5108
+
+      2/2 py USE templates at 2.31.0 (verified 2026-09-13).
+
+Handover: /sync-to-use py complete. 2/2 manifest-enumerated templates at 2.31.0 on 6e33d92,
+both PRs merged, both targets [verifiable].

@@ -1,0 +1,5 @@
+{
+  "arm": "classifyTreeDefaultCfg",
+  "note": "loom#2005 RED pole. The widened window must NOT swallow the finding it exists for: 8 hours idle is past any verification battery and still inside the 24h PARKED bound, so it is AT-RISK. Without this pole the GREEN pole above would pass equally against a gate that had stopped firing at all.",
+  "facts": { "measured": true, "dirty": 3, "contentIdleMs": 28800000 }
+}

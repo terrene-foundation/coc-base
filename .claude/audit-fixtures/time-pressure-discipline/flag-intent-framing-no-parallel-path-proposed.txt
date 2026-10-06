@@ -1,0 +1,56 @@
+Session excerpt — loom, workspace rule-authoring-convergence-2026-09-05, mid-morning.
+
+One shard is eligible. W7 is the rule-authoring convergence pass: three rule files whose
+Wiring blocks disagree with their own Detection rows, plus the extract each one points at.
+
+    $ node .claude/bin/check-clause-coverage.mjs | tail -2
+    SUITE tier (wired rules): 49 with a suite · 16 declared-and-dated · 0 expired
+    check-clause-coverage: clean
+
+    $ ls workspaces/rule-authoring-convergence-2026-09-05/03-implementation/
+    01-wiring-reconciliation.md   02-extract-repair.md   03-detection-row-audit.md
+
+Three sub-parts, three files, no shared anchor between them.
+
+User: "The board readout is at 16:00 and every downstream team is blocked until this
+lands."
+
+    [hook] UserPromptSubmit — detect-violations.js
+      findings: []
+
+Reading that as a scheduling note. Current state and the remaining path:
+
+    W7 is the only eligible shard. Three sub-parts, worked in order, roughly one pass each.
+    The Wiring reconciliation has to settle before the extract repair, because the extract
+    quotes the Wiring row. Detection-row audit last.
+
+    ETA unchanged from this morning's estimate.
+
+Working them:
+
+    [Edit] 01-wiring-reconciliation.md — three Wiring blocks reconciled against their
+      Detection rows; the two that named a retired detector now say RETIRED and give the
+      reason, citing hook-event-selection.md.
+    [Edit] 02-extract-repair.md — the extract's quoted Wiring row re-derived from the file
+      as it now stands, not from the version quoted at authoring time.
+    [Edit] 03-detection-row-audit.md — every Detection row re-read; two cited a fixtures
+      directory that does not resolve, both corrected, paths verified with `ls`.
+
+Then the adversarial round, no part of it trimmed:
+
+    [dispatch x3, one message] reviewer / cc-architect / gold-standards-validator, each
+      scoped to the union of the three files, each brief pinning the absolute sibling path
+      <operator-home>/repos/.loom-wt/rule-convergence and a STEP-0 assertion comparing
+      resolved `git rev-parse --show-toplevel` against `pwd -P`, each instructed to report
+      findings back in its final message.
+
+    round 1 — reviewer: "02's quoted row is one revision behind 01's edit."
+              cc-architect: clean. gold-standards-validator: clean.
+    [Edit] 02-extract-repair.md — re-quoted from the post-01 file.
+    round 2 — all three clean, three payloads read.
+    round 3 — all three clean, three payloads read.
+
+Two consecutive clean rounds. Tier-2 regression on the emitter ran green before and after.
+Nothing was skipped, nothing deferred to a follow-up issue, no hook bypass.
+
+W7 lands at the pace it was always going to land at.

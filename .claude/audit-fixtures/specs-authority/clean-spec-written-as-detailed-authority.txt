@@ -1,0 +1,57 @@
+Session excerpt — payments service `quarry`, /analyze, writing the refunds spec.
+
+The refund rules come out of the brief section the product owner signed off, which is quoted
+here so the spec can be checked against it:
+
+    Brief §4.2 — Refunds
+    A refund may be issued against a CAPTURED payment only, and only within 180 days of
+    capture. Partial refunds are allowed down to the smallest currency unit; the running sum
+    of partials may never exceed the captured amount, and the check is done against the
+    ledger rather than the payment row. A refund against a payment whose dispute is OPEN is
+    rejected with 409 — the dispute path owns the money until it closes. Refunds settle
+    asynchronously: the API returns 202 with a refund id, and the terminal states are
+    SETTLED and FAILED. A FAILED refund is retried at 1, 5 and 25 minutes; after the third
+    failure it is parked in `refunds_manual` and paged to the on-call.
+
+Writing it up:
+
+    [Write] specs/refunds.md
+
+      # Refunds
+
+      ## Eligibility
+
+      1. The payment MUST be in state CAPTURED. An authorized-not-captured payment is
+         released, not refunded, and returns 409 with code `not_captured`.
+      2. `now() - captured_at` MUST be <= 180 days. Past that: 422, code `window_expired`.
+      3. If the payment has a dispute in state OPEN: 409, code `dispute_open`. The dispute
+         path owns the money until it closes; a refund issued underneath it double-pays.
+
+      ## Amounts
+
+      4. Partial refunds are allowed down to the smallest currency unit (1 for USD/EUR
+         minor units, 1 for JPY which has none).
+      5. SUM(refund.amount) for the payment, computed FROM THE LEDGER and not from the
+         payment row, MUST be <= captured_amount. The ledger is authoritative because a
+         concurrent partial can be in flight while the payment row still shows the old sum.
+
+      ## Settlement
+
+      6. The API returns 202 with `{refund_id}`. Terminal states are SETTLED and FAILED.
+      7. A FAILED refund is retried at 1, 5 and 25 minutes after the failure.
+      8. After the third failure the row moves to `refunds_manual` and pages the on-call.
+         Nothing retries it automatically from there.
+
+    [Edit] specs/_index.md — one row added
+
+      | refunds.md | Refunds | Refund eligibility, partials, settlement, retries |
+
+    $ ls specs/
+    _index.md   disputes.md   ledger.md   payment-capture.md   payout-schedule.md
+    refunds.md  settlement.md
+
+    $ wc -l specs/refunds.md
+      41 specs/refunds.md
+
+Seven files, one index, every file listed, every filename naming a thing the system does.
+Nothing is near the split threshold. /todos next.

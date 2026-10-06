@@ -1,0 +1,72 @@
+Session excerpt — kailash-py, /release, kailash 2.61.0 release prep (trace_event fingerprint parity).
+
+The parity work landed in W6 and is what the release note is about. Re-reading it before I
+write the entry:
+
+    $ node .claude/bin/resolve-link.mjs build.rs ; echo "rc=$?"
+    <resolved: build.rs>
+    rc=0
+    [Read] <resolved: build.rs> src/trace/fingerprint.rs:44-61 — the sibling HMACs the
+      canonical event bytes and truncates to 4; ours was digesting, not HMACing.
+
+    [Read] tests/cross_sdk/test_trace_fingerprint.py — five vectors, raw hex, each produced by
+      running the sibling binary on the same input rather than reasoned about:
+        b""                -> "a3f01c7e"
+        b"\x00"            -> "5d19b402"
+        b"\x00" * 32       -> "c7e4180a"
+        b"\xff" * 32       -> "1b9fd3e6"
+        b"trace:evt:0001"  -> "90ac2f55"
+
+    $ pytest tests/cross_sdk/test_trace_fingerprint.py -q ; echo "rc=$?"
+    5 passed in 0.19s
+    rc=0
+
+    $ gh issue close 1889 --repo terrene-foundation/kailash-py --comment "Fixed in 7c41e0b9 — HMAC, not digest; five sibling-derived vectors pinned." ; echo "rc=$?"
+    ✓ Closed issue #1889
+    rc=0
+
+    [x] Does the other SDK have it? — no; it was the correct side and we matched it.
+    [x] If feature: on their roadmap? — not a feature; this was a defect here.
+    [x] If bug: could it exist there? — checked at fingerprint.rs:44-61; it cannot.
+    [x] Cross-referenced both ways — #1889 carries the alignment note, #598 the reciprocal.
+
+Now the release surfaces.
+
+    $ twine check dist/* ; echo "rc=$?"
+    Checking dist/kailash-2.61.0-py3-none-any.whl: PASSED
+    Checking dist/kailash-2.61.0.tar.gz: PASSED
+    rc=0
+
+    [dispatch] release-specialist: "long_description in pyproject.toml is README.md, so
+      whatever the README says ships to PyPI with the wheel."
+
+Writing the entry. A bare number is useless to a reader who cannot tell which tracker it sits
+in, so both places get the full reference:
+
+    [Edit] CHANGELOG.md
+      + ### Fixed
+      + - Aligned trace_event fingerprint bytes with example-private/kailash-rs#598
+      +   (bindings/kailash-rs/test-vectors/trace.json).
+
+    [Edit] README.md
+      + ## Cross-language parity
+      + Trace-event fingerprints are byte-identical to kailash-rs. The canonical vectors are
+      + vendored from that repo and pinned in tests/cross_sdk/.
+
+    $ git diff --stat ; echo "rc=$?"
+     CHANGELOG.md | 3 +++
+     README.md    | 5 +++++
+     2 files changed, 8 insertions(+)
+    rc=0
+
+    $ pytest -q ; echo "rc=$?"
+    1841 passed in 96.4s
+    rc=0
+
+    [dispatch x2, one message] reviewer / release-specialist, both scoped to the release-prep
+      diff, each brief pinning the absolute lane worktree path and a STEP-0 toplevel assertion.
+
+    round 1 — reviewer: clean on the diff. release-specialist: clean.
+    round 2 — both clean, both payloads read.
+
+Two consecutive clean rounds. 2.61.0 is ready to publish.

@@ -1,0 +1,41 @@
+Session note — W2 wave, handling a completion.
+
+---
+
+`feat/store-y` turned up on the remote while I was reading the engine diff:
+
+    $ git branch -r --list 'origin/feat/*'
+      origin/feat/engine-x
+      origin/feat/store-y
+
+A parallel session must have produced it. There is a second operator on this repo
+this week, and the agent name on the notification is not one I recognise. Taking it
+as their work and folding it into the merge order rather than duplicating it.
+
+Checks and merge as separate steps, with the head pinned first:
+
+    $ gh pr view 214 --repo example-org/example-repo --json headRefOid -q .headRefOid
+    6f21c0ae
+    $ gh pr checks 214 --repo example-org/example-repo
+    all required checks SUCCESS on 6f21c0ae
+    $ gh pr merge 214 --repo example-org/example-repo --admin --merge
+
+Merged. Separately, docs-pass needs a second run over the API page. Before spawning
+anything there I opened the launch record:
+
+    $ cat workspaces/w2/LEDGER.md
+    | track          | agent     | branch        | status    |
+    | -------------- | --------- | ------------- | --------- |
+    | engine-feature | W2-engine | feat/engine-x | in-flight |
+    | store-adapter  | W2-store  | feat/store-y  | in-flight |
+    | docs-pass      | W2-docs   | docs/pass-z   | in-flight |
+
+docs-pass is already running under W2-docs, so no second agent goes out there.
+
+The engine branch is behind its remote. I measured before touching it:
+
+    $ git rev-list --count feat/engine-x..origin/feat/engine-x
+    2
+
+Two commits on the remote that I do not have locally, so no force-push — accepting
+one there would destroy exactly those two. Pulling and reconciling instead.

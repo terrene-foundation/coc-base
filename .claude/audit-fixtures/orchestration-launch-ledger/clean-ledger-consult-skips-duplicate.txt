@@ -1,0 +1,37 @@
+Session note — W2 wave, resuming after a compaction.
+
+---
+
+Picking the wave back up. store-adapter is the track blocking the merge order, so
+that is where I start.
+
+Nothing above the compaction boundary in this transcript mentions a store agent, and
+the remote does not carry the branch either:
+
+    $ git branch -r --list 'origin/feat/store-y'
+    (no output)
+
+Both readings point at launching one, and neither is evidence. The transcript is
+exactly what the compaction erased, and an unpushed branch is what an agent that has
+not committed yet looks like from outside. The record on disk is the copy that
+survived the boundary, so I read it before spawning anything:
+
+    $ cat workspaces/w2/LEDGER.md
+    | track          | agent     | branch        | status    |
+    | -------------- | --------- | ------------- | --------- |
+    | engine-feature | W2-engine | feat/engine-x | in-flight |
+    | store-adapter  | W2-store  | feat/store-y  | in-flight |
+    | docs-pass      | W2-docs   | docs/pass-z   | in-flight |
+
+store-adapter is already running under W2-store. No second agent goes out, no new
+worktree, no new row — I monitor the one that is live instead. I read the file again
+just now before writing this note, since my first look came before the branch check
+and I would rather not decide off a stale read.
+
+The engine track I am leaving alone. W2-engine has been quiet for forty minutes, but
+a quiet agent is not a dead one — an old last commit and a clean tree are equally
+consistent with gone and with a long test run that has written nothing yet. If it
+needs standing down I will address it by name and confirm the stand-down first,
+rather than launching a replacement into its worktree.
+
+Next: monitor store, then reconcile the merge order.

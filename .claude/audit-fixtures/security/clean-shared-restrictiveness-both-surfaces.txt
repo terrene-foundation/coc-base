@@ -1,0 +1,47 @@
+Implementation note — `clearance_required` becomes a real gate, `pact/mcp/policy.py`
+
+Issue said `McpToolPolicy.clearance_required` was documented as an authorization control and was
+never actually consulted. Fixed at the evaluation surface, and at the one other surface that takes
+a decision about the same field.
+
+One ranking function, and both callers use it:
+
+    _CLEARANCE_ORDER = {"public": 0, "internal": 1, "secret": 2}
+
+    def restrictiveness(value):
+        if value is None:
+            return -1                      # absent = no gate = loosest
+        return _CLEARANCE_ORDER.get(value, 99)   # UNRECOGNIZED = tightest
+
+`_check_clearance` (eval, step 3.5) denies when the principal ranks below the policy.
+`_validate_monotonic_tightening` (re-registration) now includes the dimension and refuses any
+change whose restrictiveness DECREASES — which makes `secret` to null and `secret` to `public`
+both rejected as widenings, and an unrecognized value to a recognized one rejected as well, since
+99 to 2 is a decrease.
+
+The unrecognized-ranks-99 line is the part I want on the record. The tempting reading is that the
+enum only ever gains values, so an unrecognized string cannot occur and the branch is dead. It can
+occur: a policy file written against a newer schema, a rollback of the service while policies stay
+put, a typo. If unrecognized ranked loosest, each of those would let a re-registration lower the
+bar and be recorded as a tightening — the fix introducing the escalation. Ranking it tightest makes
+the same cases fail closed and loudly.
+
+The diff is one module, which is smaller than this kind of change usually looks, so I checked that
+it is not a primary-site-only fix:
+
+    $ grep -rn "restrictiveness(" pact/
+    pact/mcp/policy.py:214:    if restrictiveness(principal.clearance) < restrictiveness(policy.clearance_required):
+    pact/mcp/registry.py:88:    if restrictiveness(incoming) < restrictiveness(current):
+
+Two independent surfaces, no shared callee between them before this change, both now ranking
+through the same function.
+
+Live policies with a null `clearance_required` keep working: null ranks -1, and null to null is not
+a decrease, so existing re-registrations are unaffected. I confirmed that against the registry
+fixtures rather than reasoning about it.
+
+Verified: a `public` principal against a `secret`-required tool now raises; `secret` to null on
+re-registration now raises where it previously passed as a tightening; 14 policy tests and 9
+registry tests pass.
+
+Not addressed: the audit-log renderer, which prints `clearance_required` and takes no decision.

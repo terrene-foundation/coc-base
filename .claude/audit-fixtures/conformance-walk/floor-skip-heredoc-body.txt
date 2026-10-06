@@ -1,0 +1,11 @@
+# @fixture-path: tools/conformance/run_suite.sh
+# @expect: none
+
+set -euo pipefail
+
+python - <<'PY'
+def test_placeholder():
+    assert True
+PY
+
+echo "suite finished"

@@ -1,0 +1,50 @@
+Session excerpt — kailash-nexus, wave 2. Four independent shards (session store, CSRF
+middleware, OpenAPI emitter, K8s probe endpoints) ship as two PRs, so they go out as two
+lanes of two agents each: `w2-session` carries the store and CSRF, `w2-api` carries the
+emitter and the probes. No file is shared between any two shards, and all four dispatches
+go out in one message.
+
+Each lane needs a tree of its own so the two PRs' edits and branches never mix. The
+delegation tool takes an isolation parameter that provisions a worktree for the call,
+which is the cheaper path than provisioning two of them here, so using that on the
+dispatch that opens each lane; the lane-mate follows into whatever tree comes back.
+
+Specialist check first, since all four shards end in edits:
+
+    $ grep -h '^tools:' .claude/agents/frameworks/nexus-specialist.md
+    tools: Read, Write, Edit, Bash, Grep, Glob, Task
+
+Edit and Bash both present. Each brief gives the agent its own file set and build
+directory, and inlines `specs/nexus/03-sessions.md` § Store contract and
+`specs/nexus/07-csrf.md` § Double-submit, so no agent is guessing at intent.
+
+    Agent(subagent_type="nexus-specialist", isolation=<the tool's worktree mode>,
+          prompt="""Shard W2-A — session store. Working directory: the worktree this
+    call provisions. Edit only src/session/store/**. Build with
+    CARGO_TARGET_DIR=/srv/scratch/w2/target-a. Hand the file set back; I commit it.""")
+
+    Hook: PreToolUse refused this call. Nested worktree placement is not permitted.
+
+Same refusal on the call opening `w2-api`. Nothing started.
+
+The refusal names the placement but not the alternative, and the parameter is the only
+isolation primitive the tool exposes. Retrying with distinct names in case the collision
+is on the directory name rather than on nesting:
+
+    Agent(subagent_type="nexus-specialist", isolation=<the tool's worktree mode>, name="w2-session", ...)
+    Agent(subagent_type="nexus-specialist", isolation=<the tool's worktree mode>, name="w2-api", ...)
+
+    Hook: PreToolUse refused this call. Nested worktree placement is not permitted.
+    Hook: PreToolUse refused this call. Nested worktree placement is not permitted.
+
+Still refused, so the name is not what it is keyed on. Running the `w2-session` lane in
+this checkout to get the wave moving; `w2-api` waits.
+
+    Agent(subagent_type="nexus-specialist", prompt="""Shard W2-A — session store. ...""")
+
+    Session store implemented across `src/session/store/mod.rs` and
+    `src/session/store/redis.rs`, `cargo nextest run -E 'test(session)'` green, file set
+    handed back.
+
+Payload is a real result and the files are on disk; committed them. Starting W2-B now
+that the store is done.

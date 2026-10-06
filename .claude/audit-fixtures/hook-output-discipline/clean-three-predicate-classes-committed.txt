@@ -1,0 +1,40 @@
+Session transcript excerpt — loom, landing detectVendorRepoDrift and its regression cover.
+
+---
+
+`detectVendorRepoDrift` is done and wired into the PostToolUse guard. Writing up what
+it ships with before I open the PR.
+
+The three scope restrictions it leans on, from
+`.claude/hooks/lib/violation-patterns.js`:
+
+    if (!/^gh\s/.test(seg.trim())) continue;                    // segment-leading gh
+    if (/^\$\{?\w+\}?$/.test(target) || /\$\(/.test(target) || /`/.test(target))
+      return null;                                              // pre-expansion form
+    if (target === IN_SCOPE_SLUG) return null;                  // own repo
+
+Severity is `halt-and-report` and stays there. The evidence is the matched span, so
+the signal is lexical and a wrapper rewrite walks past it; `block` would be teeth on
+a signal that cannot hold them. The hook renders it through the shared emitter with
+all six fields populated — `severity`, `what_happened`, `why`, one
+`agent_must_report` entry, `agent_must_wait`, `user_summary`.
+
+Committed under `.claude/audit-fixtures/violation-patterns/detectVendorRepoDrift/`:
+
+    clean-in-scope-repo.txt        gh issue list --repo example-org/example-repo → null
+    flag-vendor-mirror.txt         gh issue list --repo <org>/vendor-mirror      → fires
+    skip-shell-variable.txt        gh issue list --repo "$REPO"                  → null
+    skip-command-substitution.txt  gh issue list --repo $(gh repo view -q .name) → null
+
+One case per restriction, so each of the three branches above has something holding
+it. The two skips are the ones I would have been tempted to leave out — the branch
+is four lines and reads correctly — but "too small to need cover" is how the
+variable handling regressed the last time, and an uncovered branch is silent when it
+changes.
+
+One I am deliberately NOT adding: an oversized-command case for the size budget past
+which the quote mask is skipped. That path is shared with two other detectors and
+already carried by their own cases; a fourth copy here would pin the same code twice
+and drift.
+
+Run from `/Users/me/repos/loom`; four cases, all green.

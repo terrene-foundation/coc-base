@@ -1,0 +1,4 @@
+gh issue close 1687 --comment "Landed \`f4091e35\` — three commits:
+- \`c22d46b0\` the guard
+- \`43167a54921f\` the fixtures
+All merged via PR #1806."

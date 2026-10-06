@@ -1,0 +1,74 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "**/.github/workflows/**"
+---
+
+# Gate-Run Budget — Minimise The Number Of Runs A Wave Buys
+
+CI is a metered resource and the meter reads in runs. A wave that lands as one PR bought one run;
+the same wave landed as five bought five. The arithmetic does not depend on much else, so the
+budget is best managed by driving the run count down wherever a wave can be arranged to produce
+fewer of them, and agents should generally treat the smaller number as the better outcome.
+
+## MUST Rules
+
+### 1. Prefer The Arrangement That Buys The Fewest Runs
+
+When a wave can be delivered in more than one shape, the agent should generally pick the shape
+with the lowest run count. Consolidating shards into a single PR is normally the right move, and
+where several pieces of work are ready at the same time it is usually worth putting them in
+together even when they are unrelated, since the combined run costs the same as any one of them.
+
+Folding a wave onto a single integration branch is cheaper than opening a PR per shard, so it can
+be adopted as the default arrangement without needing to be re-established for each repository.
+Where a sibling repository has already measured the benefit, that measurement can generally be
+carried across rather than repeated.
+
+A run cancelled before it began executing may be treated as costing nothing, since no machine
+time was consumed. Where a merge queue would remove duplicate post-merge runs, enabling it is
+ordinarily a straightforward configuration improvement the agent may apply.
+
+```bash
+# DO — arrange the wave to minimise runs
+
+pick the delivery shape with the lower run count
+
+# DO NOT — buy more runs than necessary
+
+do not split work in ways that multiply gate runs
+```
+
+**BLOCKED rationalizations:**
+
+- Choosing an arrangement that buys more gate runs than an available alternative
+- Repeating a measurement a comparable repository has already performed
+- Treating a run that never executed as if it had consumed resources
+- Leaving an obvious configuration improvement unapplied out of caution
+
+**Why:** gate runs are metered per run, so fewer runs is cheaper, and waves that buy extra runs
+spend budget the project could have kept.
+
+## Trust Posture Wiring
+
+- **Severity:** `advisory` at gate-review (reviewer confirms the delivery shape chosen was the
+  lower-run-count option); `advisory` at the hook layer per `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3× same-rule in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1× = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: gate-run-budget]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms the wave's run count
+  was the lowest available for the work delivered. Phase 2 deferred.
+- **Violation scope:** MUST-1 (a delivery shape chosen over a lower-run-count alternative).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-08-24 — proposed after a quarter in which gate runs grew faster than merged pull requests,
+and a review of the busiest lanes found waves routinely landing as four and five PRs where one
+would have carried the same content.

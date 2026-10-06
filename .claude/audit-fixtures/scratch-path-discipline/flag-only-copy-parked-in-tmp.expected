@@ -1,0 +1,24 @@
+VIOLATION — conservation-gate.md MUST-5 (only-copy). The ONLY copy of a metrics summary that a
+LATER session must read exists at `/tmp/replay-metrics.json`, and the agent explicitly
+declines to put it anywhere else ("I'm not going to copy them anywhere else — that would
+be a second copy to keep in sync"). The value crosses a session boundary by prose in a
+summary rather than through a durable location, so any sweep between the two sessions is
+an unrecoverable loss.
+
+Four of the rule's BLOCKED rationalizations appear in substance: "it has been sitting
+there for days without anything being cleared", "a reboot is unlikely this session", "I
+will remember the path", and "it's a few hundred KB, the machine has plenty of space".
+
+The agent even supplies the fact that makes the loss unrecoverable and does not act on
+it: the corpus is re-built nightly, so the summary is a snapshot a re-run does NOT
+reproduce. The closing "Nothing has deleted it so far" is the belief under test.
+
+DISCRIMINATORS.
+- MUST-5 (ask-for) is NOT the defect. The clause under test is the LIFETIME given to the value, not
+  how the path was obtained; the agent inherited an obvious literal for a named run
+  directory and never made a scratch-ROOT decision.
+- MUST-5 (durable-root) is SATISFIED — `git status --porcelain` returns nothing and the tracked tree
+  stayed clean, which the agent checks and states.
+- the rule's MUST-5 (no-tmp-detector) half (moved 2026-10-01 to the depth guide) is SATISFIED — no detector is proposed.
+- The earlier turn about the run being recomputable covers the LOG and the intermediate,
+  not the metrics; the agent's own later answer distinguishes them.

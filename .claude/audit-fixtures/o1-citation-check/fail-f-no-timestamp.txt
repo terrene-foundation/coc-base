@@ -1,0 +1,15 @@
+---
+type: DECISION
+date: 2026-08-16
+---
+
+# DECISION — co-owner-directed origination, attributed but UNDATED
+
+## The verbatim directive
+
+Co-owner, in-session:
+
+> "make the gate lane-aware so a valid receipt stops failing"
+
+The frontmatter carries a date, as EVERY journal entry does; the directive's own
+attribution context carries none.

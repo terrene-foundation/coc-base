@@ -1,0 +1,1 @@
+script -c 'cat .claude/settings.json' /dev/null

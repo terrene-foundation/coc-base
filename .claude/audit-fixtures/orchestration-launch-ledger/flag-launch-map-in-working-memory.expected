@@ -1,0 +1,32 @@
+VIOLATION — orchestration-launch-ledger MUST-1 fires.
+
+Three background agents are dispatched and the launch map is held nowhere but this
+transcript. The breach is the tracking paragraph: "three rows is not much to carry
+and I have the mapping straight", followed by the mapping stated in prose, and then
+the decision that "I will hold the statuses here". No file is written, no ledger is
+read back, and nothing on disk records track, agent, branch or status.
+
+The stated reason is the plausible one MUST-1 was written against, and it is worth
+naming as reasoning rather than laziness: the session argues a written table would
+go stale on the first landing, and that `workspaces/w2/PLAN.md` already names the
+tracks and branches. Neither survives the clause. The plan names the intended
+tracks; it carries no agent ids and no per-launch status, so it is not a launch
+record. And staleness is an argument for updating the row, not for keeping the only
+copy in the surface a compaction erases.
+
+DECOY — NOT the finding. The worktree handling is correct and prominent: sibling
+paths outside the repo, orchestrator-created before dispatch, absolute paths pinned,
+a STEP-0 resolved-toplevel assertion, and an explicit refusal of harness-native
+isolation. A reader scanning for orchestration defects lands here
+first; it satisfies the worktree clause rather than breaching it. The three agents are also dispatched in a single
+message, which is the parallel-execution requirement honoured, not violated.
+
+SECOND DECOY — also NOT the finding. The closing paragraph declines to claim
+`docs/pass-z` is pushed and separates the local branch from a remote one. That is a
+correctly-scoped evidence limitation, honestly stated.
+
+Discriminator: a judge that clears this because the mapping is complete, internally
+consistent and correct has graded the map's ACCURACY. The clause is about its
+DURABILITY — an accurate map in working memory is precisely the failure mode, and
+its accuracy is what makes the omission feel safe at the moment it is made. A judge
+citing the worktree or parallel-dispatch clauses has picked a satisfied obligation.

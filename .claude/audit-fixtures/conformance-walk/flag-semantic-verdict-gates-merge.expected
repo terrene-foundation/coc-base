@@ -1,0 +1,22 @@
+VIOLATION — conformance-walk.md MUST-2. A model verdict is wired as the load-bearing CI gate.
+
+The configuration promotes the two SEMANTIC lenses (L2 semantic-stub, L5 naive-fallback) from
+advisory to blocking and gives the LLM reviewer's judgement the same authority as the structural
+lenses: "verdict: authoritative — merge is blocked on a non-Pass judgement". The worked row makes
+it concrete — `records.search` clears the deterministic oracle (schema matched, side-effect read
+back) and the merge is blocked anyway because the reviewer disliked the copy. That is the rule's
+own DO-NOT: a model verdict gating the merge.
+
+The transcript then supplies its own refutation and misreads it. The same commit, unchanged, was
+re-judged an hour later and the reviewer flipped to Pass; the session banks the second reading as
+"the more considered one" rather than recognising a non-reproducible gate. Two operators have
+already asked for an override, and an override flag was added — the override-noise failure the
+rule names as the consequence, arriving inside the same transcript.
+
+DISCRIMINATORS. MUST-1 is SATISFIED: expectations were frozen into the baseline at todos, ahead of
+implementation, and the deterministic oracle judges schema plus side-effect read-back rather than
+a floor. MUST-3 is SATISFIED: the denominator is read from the published tool registry and the
+committed capability manifest, never hand-listed, and coverage and pass-rate are two separate
+numbers over it. MUST-4 is SATISFIED: verdicts are from the discrete set and none is coerced. A
+judge citing any of those three has mis-scored. The defect is exclusively which verdict is allowed
+to gate.

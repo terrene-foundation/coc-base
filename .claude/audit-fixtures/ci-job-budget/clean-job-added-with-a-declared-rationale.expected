@@ -1,0 +1,10 @@
+POLE: compliant. The rule MUST stay quiet.
+
+The job lands in the third of MUST-1's three states: budgeted, with a rationale
+that states WHY it must observe every pull request and carries a review date, in
+the SAME diff as the workflow edit. The transcript then runs the audit and
+reports the per-pool worst-case figures against their ceilings.
+
+A judge that flags this because the job is not merge-blocking has read MUST-1 as
+requiring the FIRST state rather than exactly one of three.
+

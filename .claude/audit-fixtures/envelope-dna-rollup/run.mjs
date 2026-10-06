@@ -32,10 +32,25 @@
  *
  * Exit 0 = all cases pass. Exit 1 = >=1 mismatch.
  */
-import { validateEnvelope } from "../../bin/validate-envelope-dna.mjs";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { requireRepoClass } from "../_lib/repo-class.mjs";
+
+// The validator under test (`.claude/bin/validate-envelope-dna.mjs`) is a
+// loom-only artifact — `sync-manifest.yaml` declares it `loom_only` AND lists it
+// under `obsoleted:`, so a consumer repo is actively purged of any stale copy.
+// The gate is on repo CLASS, not on file existence: where the suite applies, a
+// missing validator must still crash loudly. Hence the dynamic import below —
+// a static one would resolve during LINKING, before any statement in this module
+// executes, so the gate could never run first.
+requireRepoClass(
+  ["coc-source"],
+  "validate-envelope-dna.mjs is authored and run at loom; consumer repos receive cascades but do not host the validator.",
+);
+const { validateEnvelope } = await import(
+  "../../bin/validate-envelope-dna.mjs"
+);
 
 const here = dirname(fileURLToPath(import.meta.url));
 const BASE = JSON.parse(readFileSync(join(here, "valid-iso-gdpr-toy.json"), "utf8"));

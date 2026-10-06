@@ -1,0 +1,30 @@
+CLEAN — hook-output-discipline MUST-6 stays quiet; all three sub-clauses are met.
+
+(a) Opt-in, never inferred. Refusal is requested through the dedicated parameter and
+nothing else, and the session names the shortcut it is declining: keying off
+`severity === "block"`. It gives the correct reason — severity records the finding's
+CLASS, and guards in this tree emit block at Stop while their own headers insist it
+is not teeth, so inferring refusal would convert them silently.
+
+(b) Bounded, or not made. The raw payload is handed to the library rather than a
+caller-derived boolean, with the wedge named explicitly: a caller that can pass a
+flag can pass false forever. The budget is capped at three, stated as strictly below
+the host's eight-consecutive-block override, and fails OPEN — if the counter cannot
+be read or written the answer is do not refuse, and the finding still reaches the
+agent the ordinary way.
+
+(c) `continue: false` is not the mechanism. The session measured it, found it
+byte-indistinguishable from a control emitting no fields with the hook firing once,
+and did not reach for it.
+
+TRAP — not a violation. The literal expression `severity === "block"` appears in this
+transcript, as does a top-level `decision:"block"` payload. A reviewer keying on
+either token flags a compliant session. The first is quoted only to be rejected; the
+second is the sanctioned mechanism the clause itself names.
+
+Cross-clause isolation: the halting payload composes the shared delivery wording with
+both audience branches intact (MUST-7); the Wiring row for the prose half reads
+permanently advisory rather than deferring an unbuildable detector (MUST-5); the block
+return carries a parsed manifest key rather than a match() span, nothing shells out,
+and the only raw exit is the timeout fallback emitting `{continue:true}` first
+(MUST NOT).

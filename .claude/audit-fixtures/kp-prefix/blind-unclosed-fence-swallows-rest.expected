@@ -1,0 +1,7 @@
+{
+  "path": "specs/domain/unclosed.md",
+  "expect": [],
+  "disposition": "declared-blind",
+  "family": "fence toggle — the unterminated case",
+  "defeats": "nothing. An unclosed fence swallows the rest of the file, so a real field below it is missed. Deliberate: it is the reading a markdown renderer takes, and flagging prose that is really code is the worse error for an advisory nobody can disable per-line. Declared, not silent."
+}

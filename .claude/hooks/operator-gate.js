@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 /**
+ * @hook-event: PreToolUse:Bash (guard) — the pending command is visible, but detectTrigger currently returns null for Bash; this registration does not enforce a gate.
+ * @hook-event: PreToolUse:Edit|NotebookEdit|Write (guard) — mutation inputs are visible, but detectTrigger currently recognizes no edit tool; this registration does not enforce a gate.
+ *
  * Hook: operator-gate
  *
  * @coc-codex-edit-gate — STATELESS trust gate (multi-operator 4-eyes
@@ -83,10 +86,7 @@ const TIMEOUT_MS = 5000;
 // {continue: true} and exit if it does not produce its own output within
 // the timeout. The raw process.exit(1) here is the ONLY legitimate raw
 // exit per hook-output-discipline.md MUST-1 (the timeout-fallback carve-out).
-const fallback = setTimeout(() => {
-  process.stdout.write(JSON.stringify({ continue: true }) + "\n");
-  process.exit(1); // timeout fallback
-}, TIMEOUT_MS);
+let fallback = null;
 
 const path = require("path");
 const { emit } = require(path.join(__dirname, "lib", "instruct-and-wait.js"));
@@ -181,7 +181,11 @@ function detectTrigger(toolName, toolInput) {
  * Prototype-safe lookup (`hasOwnProperty`): a bare `roster.persons[pid]`
  * resolves truthy for inherited Object keys ("constructor", "toString", …),
  * which would hand the caller a non-person object to read `github_login` off.
- * Same guard the sibling proto-safe check in presence-proof-verify.js uses.
+ * Same guard as the sibling persons lookups in add-key-ceremony.js
+ * ::runAddKeyCeremony and genesis-anchor-guard.js::verifyRecord. (S60: this
+ * line previously cited presence-proof-verify.js, which is NOT such a sibling
+ * — measured, its persons access is `Object.entries` and its `hasOwnProperty`
+ * guards are over a STATUS enum and a `statuses` map, not over persons.)
  *
  * @param {object|null} roster    — the operators roster ({persons: {...}})
  * @param {string|null} personId  — signature-bound person_id
@@ -353,97 +357,127 @@ function passthroughWithAudit(gate, verdict) {
 
 // ---- main -------------------------------------------------------------------
 
-let input = "";
-if (process.stdin.isTTY) {
-  passthrough();
-} else {
-  process.stdin.setEncoding("utf8");
-  process.stdin.on("data", (c) => (input += c));
-  process.stdin.on("end", () => {
-    let data = {};
-    try {
-      data = JSON.parse(input);
-    } catch {
-      return passthrough();
-    }
-    const event = data.hook_event_name || data.hookEventName || "";
-    if (event !== "PreToolUse") return passthrough();
-
-    const toolName = data.tool_name || "";
-    const toolInput = data.tool_input || {};
-    const command = (toolInput.command || "").trim();
-
-    // Trigger detection (lexical regex; returns null on shell-variable
-    // references per MUST-3).
-    const gate = detectTrigger(toolName, toolInput);
-    if (!gate) return passthrough();
-
-    // The §6.4 row exists?
-    const row = findRow(gate);
-    if (!row) return passthrough();
-
-    // F14 MED-1 + MED-2: for rows requiring a co-signer, cryptographically
-    // verify the gate_approval payload BEFORE consulting the gate matrix.
-    // The verifier checks: sig present + signature valid + target_tool ==
-    // current gate + consumed_nonce == requester_nonce + ts within 24h +
-    // approver_verified_id resolves to a roster person eligible to sign
-    // gate-approval (R5-S-04 + role-floor via isEligibleSigner). Until
-    // verify succeeds, the gate-matrix is consulted ONLY against a
-    // null/passthrough approver — the attacker cannot inject role claims.
-    let verifiedApprover = null;
-    if (row.signing_context !== "n/a") {
-      if (!toolInput.gate_approval) {
-        return emitGateHalt(
-          gate,
-          {
-            reason: `row '${gate}' requires a signed gate-approval record (signing_context='${row.signing_context}'); none provided`,
-          },
-          command,
-        );
-      }
-      const verifyResult = verifyGateApproval(toolInput.gate_approval, {
-        gate,
-        requester_person_id: toolInput.requester_person_id || "",
-        requester_verified_id: toolInput.requester_verified_id || "",
-        requester_nonce: toolInput.requester_nonce || "",
-        roster: toolInput.roster || null,
+// hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
+// in-process by lib/hook-engine.js (dispatch.js). Everything a standalone run
+// did at load time happens here instead, so a require() has no side effects.
+function hookMain() {
+  fallback = setTimeout(() => {
+    process.stdout.write(JSON.stringify({ continue: true }) + "\n");
+    process.exit(1); // timeout fallback
+  }, TIMEOUT_MS);
+  return new Promise((resolve, reject) => {
+    let input = "";
+    if (process.stdin.isTTY) {
+      passthrough();
+    } else {
+      process.stdin.setEncoding("utf8");
+      process.stdin.on("data", (c) => (input += c));
+      process.stdin.on("end", () => {
+        try {
+          onStdinEnd(input);
+        } catch (e) {
+          return reject(e);
+        }
+        resolve();
       });
-      if (!verifyResult.ok) {
-        return emitGateHalt(
-          gate,
-          {
-            reason: `gate-approval verify failed: ${verifyResult.reason}`,
-          },
-          command,
-        );
-      }
-      verifiedApprover = verifyResult;
     }
+  });
+}
 
-    // Build the evaluator context and run.
-    const ctx = buildEvalCtx(gate, toolInput, verifiedApprover);
+function onStdinEnd(input) {
+  let data = {};
+  try {
+    data = JSON.parse(input);
+  } catch {
+    return passthrough();
+  }
+  const event = data.hook_event_name || data.hookEventName || "";
+  if (event !== "PreToolUse") return passthrough();
 
-    let verdict;
-    try {
-      verdict = evaluateGate(ctx);
-    } catch (err) {
-      // Defensive — any unexpected error becomes a halt-and-report,
-      // never a silent passthrough (rules/zero-tolerance.md Rule 3).
+  const toolName = data.tool_name || "";
+  const toolInput = data.tool_input || {};
+  const command = (toolInput.command || "").trim();
+
+  // Trigger detection (lexical regex; returns null on shell-variable
+  // references per MUST-3).
+  const gate = detectTrigger(toolName, toolInput);
+  if (!gate) return passthrough();
+
+  // The §6.4 row exists?
+  const row = findRow(gate);
+  if (!row) return passthrough();
+
+  // F14 MED-1 + MED-2: for rows requiring a co-signer, cryptographically
+  // verify the gate_approval payload BEFORE consulting the gate matrix.
+  // The verifier checks: sig present + signature valid + target_tool ==
+  // current gate + consumed_nonce == requester_nonce + ts within 24h +
+  // approver_verified_id resolves to a roster person eligible to sign
+  // gate-approval (R5-S-04 + role-floor via isEligibleSigner). Until
+  // verify succeeds, the gate-matrix is consulted ONLY against a
+  // null/passthrough approver — the attacker cannot inject role claims.
+  let verifiedApprover = null;
+  if (row.signing_context !== "n/a") {
+    if (!toolInput.gate_approval) {
       return emitGateHalt(
         gate,
         {
-          reason: `evaluator error: ${err && err.message ? err.message : String(err)}`,
+          reason: `row '${gate}' requires a signed gate-approval record (signing_context='${row.signing_context}'); none provided`,
         },
         command,
       );
     }
+    const verifyResult = verifyGateApproval(toolInput.gate_approval, {
+      gate,
+      requester_person_id: toolInput.requester_person_id || "",
+      requester_verified_id: toolInput.requester_verified_id || "",
+      requester_nonce: toolInput.requester_nonce || "",
+      roster: toolInput.roster || null,
+    });
+    if (!verifyResult.ok) {
+      return emitGateHalt(
+        gate,
+        {
+          reason: `gate-approval verify failed: ${verifyResult.reason}`,
+        },
+        command,
+      );
+    }
+    verifiedApprover = verifyResult;
+  }
 
-    if (!verdict.allowed) {
-      return emitGateHalt(gate, verdict, command);
-    }
-    if (verdict.audit_marker) {
-      return passthroughWithAudit(gate, verdict);
-    }
-    return passthrough();
-  });
+  // Build the evaluator context and run.
+  const ctx = buildEvalCtx(gate, toolInput, verifiedApprover);
+
+  let verdict;
+  try {
+    verdict = evaluateGate(ctx);
+  } catch (err) {
+    // Defensive — any unexpected error becomes a halt-and-report,
+    // never a silent passthrough (rules/zero-tolerance.md Rule 3).
+    return emitGateHalt(
+      gate,
+      {
+        reason: `evaluator error: ${err && err.message ? err.message : String(err)}`,
+      },
+      command,
+    );
+  }
+
+  if (!verdict.allowed) {
+    return emitGateHalt(gate, verdict, command);
+  }
+  if (verdict.audit_marker) {
+    return passthroughWithAudit(gate, verdict);
+  }
+  return passthrough();
+}
+
+module.exports = { hookMain };
+
+// CLI entry. The default path is exactly hookMain() — no engine dependency, so a
+// tree that copies this hook without lib/hook-engine.js runs it unchanged. The
+// selftest path replays the run through the in-process engine (hook-engine.js::runCli).
+if (require.main === module) {
+  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1") require("./lib/hook-engine.js").runCli(hookMain, __filename);
+  else hookMain();
 }

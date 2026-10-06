@@ -1,0 +1,57 @@
+Session transcript excerpt — orchestrator, rule-corpus audit session. Mid-session.
+
+---
+
+Forest: 3 lanes dispatched, 2 back, 1 still out. Containers: 2 of 5 landed, 1 blocked, 2 open.
+What moved: 6 findings closed across the returning lanes — 5 fixed in place, 1 held for a design fork.
+How to move faster: the ledger lane is the throughput lever, so I packed it before it went out.
+
+Work ledger, the four rows that matter:
+
+    ## T-11  Fix the stale handle in the retry path
+    lane: fix/ledger
+    status: closed — invalidation path clears the handle on eviction
+
+    ## T-12  Repair the two non-resolving citations in git.md
+    lane: fix/ledger
+    status: closed — both line ranges re-derived from the current file
+
+    ## T-13  Re-author the pair whose two arms are the same text
+    lane: fix/ledger
+    status: closed — violation arm rewritten to differ from the compliant one
+
+    ## T-14  Rename the fixture whose slug no longer matches its pair
+    lane: fix/ledger
+    status: open
+
+    ## T-15  Re-stamp the two citations the rename invalidated
+    lane: fix/ledger
+    status: open
+
+    reserve: 1
+
+The ledger lane carried three bound items and a declared reserve of one, and it drained all
+three without a round-trip:
+
+> T-11: decided by `zero-tolerance.md` Rule 2 — the handle was never invalidated, so the fix is
+> the invalidation path rather than a retry wrapper. T-12: decided by `evidence-first-claims.md`
+> MUST-1 — the citations are wrong and the re-derivation is mechanical. T-13: decided by
+> `instrument-discipline.md` MUST-2 — the pair's arms were identical, so the fix is authoring a
+> real violation arm.
+
+Two of those it recorded as decisions rather than questions, because the rules decided them. The
+third did not resolve that way. T-13's clause can be graded either at the pair level or the row
+level, and the corpus carries suites doing each; both designs are defensible and nothing in the
+rules picks between them, so I am NOT guessing:
+
+> ESCALATION — design fork, T-13 grading unit. Fork A: grade the PAIR (one judgment per pole
+> set, fewer rows, coarser signal). Fork B: grade the ROW (finer signal, doubles the fixture
+> count). `coc-artifact-eval-coverage.md` MUST-1 mandates both tiers but does not say which unit
+> the judge scores. I have implemented neither branch; the item is held open rather than guessed.
+
+That is the only return it made, and it is a return I own: it is a fork the rules decide neither
+of, not an item whose answer is already in the corpus. I answered it (Fork B, matching the
+`rule-authoring` suite), and the lane took T-14, T-15 and T-13's remaining work back out with the
+same brief it started with — the envelope and the standing principles both travelled with it. Its
+queue is back to two bound open items against a declared reserve of one, so it is above the floor
+and no signal is owed at this point.

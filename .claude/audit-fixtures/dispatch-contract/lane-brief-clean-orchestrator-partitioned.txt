@@ -1,0 +1,15 @@
+STEP 0 (first action):
+  cd "/Users/op/repos/.loom-wt/wip-ledger" || { echo "STOP: cannot enter"; exit 1; }
+  top=$(git rev-parse --show-toplevel) || { echo "STOP: not a git repo"; exit 1; }
+  [ "$top" = "$(pwd -P)" ] || { echo "STOP: not a worktree ROOT"; exit 1; }
+  [ "$(git rev-parse --abbrev-ref HEAD)" = "codify/op-2026-09-12-wip-ledger" ] || { echo "STOP: wrong branch"; exit 1; }
+
+CONTAINMENT (worktree-isolation MUST-10): pin every git call with an absolute `-C` at this lane's worktree root, asserted against `git rev-parse --show-toplevel` before the first write.
+
+You own lane W6 and you are the sole committer on this lane branch. Run it as a
+mini-orchestrator: dispatch agents in parallel inside this one worktree, one per queued
+ledger item (the SessionStart injection, the dispatch-time advisory, the turn-end under-pack
+report, the /todos and /implement edits). Writing agents take disjoint file sets, named in
+each agent's brief; read-only analysis and verification agents are unbounded; each agent
+builds into its own per-agent output dir. Review each diff, commit it, and report back when
+the lane is drained.

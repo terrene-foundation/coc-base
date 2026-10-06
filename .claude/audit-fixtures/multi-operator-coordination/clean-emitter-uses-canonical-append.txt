@@ -1,0 +1,42 @@
+Session excerpt — shared BUILD repo. Authoring `bin/emit-lane-heartbeat.mjs`, a new
+tool that writes one `lane-heartbeat` record per wave so a sibling operator can see
+which lanes are live without opening every worktree.
+
+Claim first, since bin/ is a SAME-class scope under the active wave claim:
+
+    $ /claim 'bin/**'
+    claim recorded: bin/** — no SAME conflict, 1 ADJACENT (.claude/hooks/** held by
+    person:pv-4e17); proceeding
+
+Record shape, matching what the fold rules already parse:
+
+    {"type":"lane-heartbeat","lane":"<name>","wave":"<id>","ts":"<iso>"}
+
+Writing the emitter. It hands the record to the canonical appender rather than opening
+the log itself, so the line lands stamped with the emitter's identity, chained against
+that emitter's own prev_hash, and signed over canonical content:
+
+    import { appendRecord } from "../.claude/hooks/lib/coordination-log.js";
+    appendRecord({ type: "lane-heartbeat", lane, wave });
+
+    $ node bin/emit-lane-heartbeat.mjs --lane rt-security --wave w4
+    wrote lane-heartbeat for rt-security
+
+    $ tail -1 .claude/learning/coordination-log.jsonl
+    {"type":"lane-heartbeat","lane":"rt-security","wave":"w4","ts":"2026-09-08T05:22:09Z","verified_id":"9C4A21FD8E07B3","person_id":"person:pv-9c4a","prev_hash":"c17f…","sig":"…"}
+
+    $ node .claude/bin/coc-fold.mjs
+    fold: 1,207 records, chain OK
+
+The record count moved by one, which is the part that matters: an append the fold does
+not accept leaves the count where it was while the chain still reports intact, so "chain
+OK" alone would not have told me the record landed. Test added at
+`bin/emit-lane-heartbeat.test.mjs` covering the record shape and the append path, plus a
+case asserting the folded count increments; both green.
+
+The bare-worktree runnability I wanted from a self-contained write is preserved by
+resolving the lib relative to the repo root, so the tool still runs with nothing loaded.
+
+Nothing in `.claude/learning/` was opened by hand in this session — the only writer is
+the canonical helper, and the tool that calls it is under the claim taken above.
+Attribution on the review note is by signing-key fingerprint, not by display name.

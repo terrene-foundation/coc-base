@@ -47,7 +47,7 @@ Origin: 2026-04-19 codify cycle. See `skills/30-claude-code-patterns/worktree-or
 
 ### The isolation flag is retired; a pre-made sibling worktree replaces it
 
-`isolation: "worktree"` is BLOCKED as of 2026-07-26 (loom#1370). The orchestrator creates the worktree itself as a SIBLING outside the repo, pins its absolute path in the prompt, AND mandates a STEP-0 assertion — the agent's first action is `cd <worktree>`, then asserting `git rev-parse --show-toplevel` equals `pwd -P` and is not the main checkout, refusing to proceed otherwise. Both halves are required: the flag was also what SET the agent's cwd, so retiring it without the assertion would trade a bounded quota burn for the unbounded write-to-main loss recorded below (2 of 3 shards; 300+ LOC). Two near-miss forms are BLOCKED: `git -C <worktree> …` never establishes cwd (everything after it still resolves to MAIN), and a bare first `rev-parse` resolves to MAIN and refuses on every dispatch. Compare resolved paths, never the passed string — `--show-toplevel` resolves symlinks. Measured; see the skill's form table. The flag placed every agent worktree at `<repo>/.claude/worktrees/agent-<id>` — under the repo's own `.claude/` — which #1370 reports costs a floor of 88,895 duplicate tokens per agent per wave (~35.6M per wave round at 40 terminals × 10 agents), re-loading a corpus already in context. It also created the worktree without pinning every tool call inside it, and chose the path itself so the orchestrator could not pin what it did not know. See `rules/worktree-isolation.md` Rule 1 + `skills/30-claude-code-patterns/worktree-orchestration.md` § Retiring `isolation: "worktree"` for the recipe and the full 6-layer protocol.
+`isolation: "worktree"` is BLOCKED as of 2026-07-26 (loom#1370). The orchestrator creates the worktree itself as a SIBLING outside the repo, pins its absolute path in the prompt, AND mandates a STEP-0 assertion — the agent's first action is `cd <worktree>`, then asserting `git rev-parse --show-toplevel` equals `pwd -P` and is not the main checkout, refusing to proceed otherwise. Both halves are required: the flag was also what SET the agent's cwd, so retiring it without the assertion would trade a bounded quota burn for the unbounded write-to-main loss recorded below (2 of 3 shards; 300+ LOC). Two near-miss forms are BLOCKED: `git -C <worktree> …` never establishes cwd (everything after it still resolves to MAIN), and a bare first `rev-parse` resolves to MAIN and refuses on every dispatch. Compare resolved paths, never the passed string — `--show-toplevel` resolves symlinks. Measured; see the skill's form table. The flag placed every agent worktree at `<repo>/.claude/worktrees/agent-<id>` — under the repo's own `.claude/` — which #1370 reports costs a floor of 88,895 duplicate tokens per agent per wave (~35.6M per wave round at 40 terminals × 10 agents), re-loading a corpus already in context. It also created the worktree without pinning every tool call inside it, and chose the path itself so the orchestrator could not pin what it did not know. Since 2026-09-12 (`journal/0607`) that worktree is the LANE's: the agents a lane dispatches share it under `rules/wip-discipline.md` MUST-9, and none gets a worktree of its own. See `rules/worktree-isolation.md` Rule 1 + `skills/30-claude-code-patterns/worktree-orchestration.md` § Retiring `isolation: "worktree"` for the recipe and the full 6-layer protocol.
 
 ### Worktree prompt paths must resolve inside the worktree — 2026-04-19 post-mortem
 
@@ -94,6 +94,10 @@ Agent(                                  # worktree pre-made as a sibling (Rule 1
 # (agent writes 4 files, hits budget on file 5, never reaches commit, all 5 lost)
 ```
 
+Under the lane unit the COMMITTER runs this discipline: in a multi-agent lane the writers hand back
+their file sets and the lane's one committer commits each as it lands (`rules/wip-discipline.md`
+MUST-9); a single-agent lane's agent is its own committer and uses the prompt above as written.
+
 See `skills/30-claude-code-patterns/worktree-orchestration.md` § Rule 3 for compile-work evidence AND `rules/worktree-isolation.md` § Rule 5 for the 2026-04-21 non-compile post-mortem.
 
 ## Verify Agent Deliverables — Extended Evidence
@@ -112,7 +116,8 @@ result = Agent(prompt="Write src/feature.py with ...")
 ## Parallel-Worktree Package Ownership — Full Example
 
 ```python
-# DO — explicit ownership in prompts (each worktree pre-made as a sibling, Rule 1)
+# DO — explicit ownership in prompts (two LANES, each worktree pre-made as a sibling, Rule 1;
+#       inside ONE lane the same split is the rules/wip-discipline.md MUST-9 disjoint file set)
 # Every prompt below opens with STEP 0 verbatim (shown once here, elided in the bodies
 # for width) — without it nothing pins the agent's cwd once the flag is retired:
 #   cd "{WT_PARENT}/<shard>" && [ "$(git rev-parse --show-toplevel)" = "$(pwd -P)" ] || exit 1
@@ -149,7 +154,7 @@ See `skills/30-claude-code-patterns/worktree-orchestration.md` § Rule 5 for the
 
 ## Post-mortem 2026-05-16 — non-isolated shared-source editor vs concurrent readers
 
-Origin for "MUST: Worktree-Isolate Parallel Agents That Edit Shared Source; Concurrent Readers Read Committed HEAD".
+Origin for the shared-source editor clause, now `skills/30-claude-code-patterns/worktree-orchestration.md` § Rule 9 — "Partition Shared-Source Editors By Lane And File Set; Concurrent Readers Read Committed HEAD". The incident below predates the lane unit (`journal/0607`); its remedy is restated in lane terms under § Resolution.
 
 ### Incident
 
@@ -162,13 +167,13 @@ The #243 agent's mid-edit WIP left `sync-manifest.yaml` with a transient YAML sy
 
 ### Root cause
 
-`agents.md` had a worktree-isolation MUST, but its title + rationale scoped it to **compiling** agents (cargo `target/` lock contention). A non-compiling agent that edits shared source in a shared checkout is the SAME structural hazard — its uncommitted WIP is visible to every concurrent reader — but the rule's compiling-only framing left it uncovered. The orchestrator (this session) launched the #243 agent into the SHARED checkout, with no worktree of its own, precisely because "it doesn't compile." (At the time the isolation mechanism was the `isolation: "worktree"` flag, since retired; the failure is about having no separate worktree at all, not about which mechanism made it.)
+`agents.md` had a worktree-isolation MUST, but its title + rationale scoped it to **compiling** agents (cargo `target/` lock contention). A non-compiling agent that edits shared source in a shared checkout is the SAME structural hazard — its uncommitted WIP is visible to every concurrent reader — but the rule's compiling-only framing left it uncovered. The orchestrator (this session) launched the #243 agent into the SHARED main checkout — outside any lane worktree — precisely because "it doesn't compile." (At the time the isolation mechanism was the `isolation: "worktree"` flag, since retired; the failure is about editing the shared main checkout that other workstreams were reading, not about which mechanism made a tree.)
 
 ### Resolution
 
 Two structural halves, both now in the rule:
 
-1. **Editor isolation**: any background/parallel agent that edits shared source MUST be worktree-isolated, compiling or not.
+1. **Editor isolation**: any background/parallel agent that edits shared source MUST work inside its lane's worktree — never the shared main checkout — and inside its own disjoint file set there (`rules/wip-discipline.md` MUST-9), compiling or not. Stated per agent when it landed; restated per lane 2026-09-12 (`journal/0607`).
 2. **Reader discipline**: concurrent readers MUST read committed HEAD (`git show HEAD:<path>`), never the working tree. This is the isolation that actually saved the cycle here — once the py/rs catch-up agents were explicitly instructed to read committed HEAD, they produced correct plans despite the broken WIP in the shared tree.
 
 ### Secondary lesson (behavioral, journaled not ruled)
@@ -177,7 +182,7 @@ The same session twice used `git -c core.hooksPath=/dev/null commit` reflexively
 
 ### Counterfactual
 
-Had the #243 agent been worktree-isolated (or had the catch-up agents been told to read committed HEAD from the start), zero reader cycles would have been spent on a phantom defect. The reader-reads-committed-HEAD instruction was added mid-session and worked — it is now the codified default, not an ad-hoc save.
+Had the #243 agent worked in its own lane's worktree (or had the catch-up agents been told to read committed HEAD from the start), zero reader cycles would have been spent on a phantom defect. The reader-reads-committed-HEAD instruction was added mid-session and worked — it is now the codified default, not an ad-hoc save.
 
 ## Holistic Post-Multi-Wave Redteam — Evidence
 
@@ -189,11 +194,11 @@ The holistic round dispatches ≥3 parallel agents (reviewer + security-reviewer
 
 Evidence: a multi-wave delegate arc — after the final wave merged, a holistic post-multi-wave `/redteam` across all 8 shards on main surfaced 1 L1 cleanup gap (workspace path leakage scrub that NO per-shard round caught, each being scoped to its own diff) + 5 cross-shard follow-up findings. Per-shard rounds caught zero CRIT/HIGH unfixed; the holistic round caught one L1 + 5 cross-shard.
 
-**Trust Posture Wiring:** Severity `halt-and-report` at the orchestrator's "plan converged" claim (cc-architect mechanical sweep on session notes claiming multi-wave completion). Grace 7 days. Cumulative 3× same-rule/30d → drop 1 posture. Regression-within-grace key `multi_wave_plan_no_holistic_redteam` → emergency downgrade 1 step. Detection: cc-architect asserts a journal entry exists naming ≥3 parallel specialists scoped to the union of merged shards. Origin: kailash-py delegate arc (2026-05-22).
+**Trust Posture Wiring:** Severity `halt-and-report` at the orchestrator's "plan converged" claim (cc-architect mechanical sweep on session notes claiming multi-wave completion). Grace 7 days. Cumulative 3× same-rule/30d → drop 1 posture. Regression-within-grace: the GENERIC `regression_within_grace` trigger → 1 step (no dedicated key; a `multi_wave_plan_no_holistic_redteam` key was named here but never defined in `trust-posture.md`, loom#2102). Detection: cc-architect asserts a journal entry exists naming ≥3 parallel specialists scoped to the union of merged shards. Origin: kailash-py delegate arc (2026-05-22).
 
 ## Binding-Scoped Shard PRs Touch Only Their Own Package — Evidence
 
-When ≥2 parallel worktree agents each ship a binding/package-scoped shard (e.g. a Go MCP wrapper + a Ruby MCP wrapper), each shard's PR MUST limit its diff to its OWN binding/package directory. Incidental fixes to sibling-package files (clippy lints, fmt drift, doc typos) discovered mid-shard MUST be filed as a separate PR or carried in a dedicated cross-package cleanup shard — NOT bundled into the binding-scoped shard. This is the file-overlap variant of § Parallel-Worktree Package Ownership Coordination: that clause forbids two agents editing the version anchor; this one forbids two agents editing the same sibling-package source.
+When ≥2 parallel LANES each ship a binding/package-scoped shard (e.g. a Go MCP wrapper + a Ruby MCP wrapper), each shard's PR MUST limit its diff to its OWN binding/package directory. Incidental fixes to sibling-package files (clippy lints, fmt drift, doc typos) discovered mid-shard MUST be filed as a separate PR or carried in a dedicated cross-package cleanup shard — NOT bundled into the binding-scoped shard. This is the file-overlap variant of § Parallel-Worktree Package Ownership Coordination: that clause forbids two agents editing the version anchor; this one forbids two agents editing the same sibling-package source.
 
 **BLOCKED rationalizations:** "It's only a one-liner lint fix" / "Both bindings rebuild anyway" / "Filing a separate PR is overhead for trivial drift" / "I'm already touching the workspace anyway" / "The fix is in a different file from the sibling shard" / "Concurrent PRs on different files don't conflict".
 
@@ -238,7 +243,8 @@ Extracted from `rules/agents.md` § "MUST: Verify Specialist Tool Inventory Befo
 
 ## Clause-Scoped Wiring Precedent (extracted from the rule body 2026-08-16)
 
-`agents.md` carries FOUR clause-scoped Trust-Posture-Wiring blocks (§ Triad,
+`agents.md` carries FOUR clause-scoped Trust-Posture-Wiring blocks, now in
+`skills/32-trust-posture/wiring/agents.md` (§ Triad,
 § Correctness-Review-Clean, § Wave Worktrees, § Agent-Result-Delivery). Each
 states the same grandfather + precedent framing, so the framing lives here ONCE
 rather than four times in a `priority: 0` baseline rule (`rule-authoring.md`
@@ -275,7 +281,7 @@ registered on the `PreToolUse` `Task|Agent` matcher). The ceiling is set by the
 SEVERITY RULE, not by any limitation of the adjudicator:
 `hook-output-discipline.md` MUST-2 bars **`block`** on lexical evidence and
 NOTHING MORE, and the in-corpus precedent for `halt-and-report` on a lexical
-predicate is `repo-scope-discipline.md` § Trust Posture Wiring.
+predicate is `skills/32-trust-posture/wiring/repo-scope-discipline.md` § Trust Posture Wiring.
 
 An earlier revision of this section gave the reason as "the detector cannot
 adjudicate intent". That was WRONG and is withdrawn on two counts: it stated as
@@ -289,6 +295,34 @@ live trust-substrate guard.
 § Agent-Result-Delivery also states its OWN
 no-dedicated-key reason rather than inheriting the shared one, because the
 shared "no structural signal" leg does not hold for it.
+
+## Specialist roster + the complex-feature analysis chain (extracted from the rule body 2026-09-01)
+
+Extracted under `rule-authoring.md` Rule 10 path (a) to pay for the § Triad
+posture bound + closed dispatch quantifier landing inline in the same change.
+Both blocks below were EMITTED baseline text until 2026-09-01; nothing here is
+new, and nothing was dropped.
+
+### Specialist roster
+
+The work-domain → framework binding is `rules/framework-first.md`'s domain
+table; the specialist agent name is that framework's name plus `-specialist`:
+
+**dataflow** / **nexus** / **kaizen** / **mcp** / **mcp-platform** / **pact** /
+**ml** / **align**-specialist.
+
+The generic stack-agnostic trio (**db** / **api** / **ai**-specialist, which
+read `STACK.md`) serves non-Kailash stacks; the `base` variant overlay of
+`rules/agents.md` names that trio inline instead of the roster above.
+
+### Analysis chain (complex features)
+
+**analyst** (failure points) → **analyst** (requirements breakdown) →
+**`decide-framework` skill** (approach) → the domain specialist.
+
+Run the chain before dispatching a specialist on a feature with more than one
+failure mode; a specialist entered at step 4 with no failure-point pass
+produces technically correct, intent-misaligned output.
 
 ## Origin — full provenance chain (extracted from the rule body 2026-08-16)
 
@@ -316,3 +350,275 @@ descriptors. The WORKED examples (Examples 1–5) — the concrete CC
 also carries the Codex (`bin/coc` inline-cat injection) and Gemini
 (`@specialist`) mappings. They are reference material loaded on-demand when
 delegating; the MUST clauses in the rule body are the CLI-neutral contract.
+
+## Analysis chain for complex features
+
+Moved here from the `rules/agents.md` always-on body on 2026-08-16 (lane-level Rule-10 path (a)
+funding for `rules/conservation-gate.md`; `journal/0577`). It carried no `MUST` and no `**Why:**`
+line — a workflow recipe, which `rule-authoring.md` MUST-1 and the § Curation / Over-Density
+dimension both put in a guide rather than in a `priority: 0` baseline rule. Nothing was de-scoped:
+the sequence is preserved verbatim below and the specialists it names carry the same guidance in
+their own descriptions.
+
+**analyst** (failure points) → **analyst** (requirements breakdown) → **`decide-framework` skill**
+(approach) → the domain specialist.
+
+## Removals made in the same funding pass — recorded, not silent
+
+Three further edits to `rules/agents.md` in that pass recovered emitted bytes at ZERO content loss.
+Recorded here so a later reader can see what left the always-on lane and why.
+
+1. **§ Zero-Tolerance (removed).** It read: _"Pre-existing failures MUST be fixed
+   (`rules/zero-tolerance.md` Rule 1); no workarounds for SDK bugs — fix directly (Rule 4), since a
+   workaround creates a parallel implementation that diverges from the SDK."_ Both cited rules are
+   themselves `priority: 0` + `scope: baseline`, so they are loaded in EVERY session in which
+   `agents.md` is loaded — the restatement could never reach a reader the original did not. Per
+   `specs-authority.md` Rule 9 (reference the canonical source, never restate it) the section was
+   pure duplication of an always-co-loaded surface. No MUST was weakened: both MUSTs remain live in
+   `zero-tolerance.md` Rules 1 and 4.
+2. **Duplicate depth pointer (removed once).** `skills/30-claude-code-patterns/redteam-dispatch-evidence-gate.md`
+   was cited twice within six lines (§ Redteam Reviewer Dispatch and § Correctness-Review-Clean Is
+   Not Security-Clean). The first citation is kept; the second was the duplicate.
+3. **Four inline "…: guide." tails (removed).** Each pointed at THIS file, which the rule's own
+   whole-line header pointer already names. The tails were navigation to an already-named
+   destination, not content.
+
+None of these touched a `MUST`, a `MUST NOT`, a `**Why:**` line, a DO/DO-NOT block, or a
+BLOCKED-rationalization corpus. The measured recovery was 828 B on the codex/gemini abridged lane
+(`agents.md` 8,679 B → 7,851 B).
+
+## Removals made in the 2026-09-02 headroom pass — recorded, not silent
+
+The `codex/rs` baseline lane sat 421 B over its granted floor and a further floor exception was
+refused, so the bytes had to come out of the emitted baseline. Every edit below was measured in
+isolation through the real pipeline (`composeRule → stripRuleFrontmatter → abridgeV6 →
+stripSlotMarkers`); none touched a `MUST`, a `MUST NOT`, a `BLOCKED` token, a `**Why:**` line, a
+DO/DO-NOT block, or a Wiring field.
+
+1. **§ Quality Gates `**Why:**` — "(Example 2 = background-dispatch pattern.)" removed (−43 B).**
+   A DANGLING reference. The rule's own `## Examples` section holds "Worked Examples 1–5
+   (CC / Codex / Gemini delegation syntax per clause)" — there is no numbered Example 2 about
+   background dispatch in either destination; the background-agent depth lives in this file under
+   § "Background agent pattern — extended rationale", by name.
+2. **Duplicate depth pointer removed, AGAIN (−75 B).**
+   `skills/30-claude-code-patterns/redteam-dispatch-evidence-gate.md` was cited twice within twelve
+   lines (§ Redteam Reviewer Dispatch and § Correctness-Review-Clean). The first citation is kept.
+3. **§ Worktree Orchestration `**Why:**` — origin history trimmed (−156 B).** The tail read
+   "— and the sibling requirement lived only behind globs a spawn decision never matches, so the
+   guard blocked launches with nothing loaded saying what to do." That history is retained VERBATIM
+   in the same file, in the clause-scoped Wiring `**Origin:**` field ("a spawn-time REACHABILITY
+   gap… the nested-worktree guard correctly BLOCKED four parallel spawns and the orchestrator had no
+   loaded instruction telling it what to do instead"). The rationale sentence itself is unchanged.
+4. **`rules/communication.md` — whole-line depth pointer reshaped (−124 B).** The line
+   "Worked ✅/❌ examples … : `.claude/guides/rule-extracts/communication.md`." matched NEITHER
+   whole-line strip shape (it does not open with `See`/`Depth`) nor the inline-tail shape (nothing
+   precedes it on the line). Reshaped to the canonical `Depth — … lives in \`…\`.` form that
+   `abridgeV6` recognises, per the `git.md` 2026-09-01 precedent. Content identical.
+
+Measured on the `codex/rs` lane: `agents.md` 9,844 B → 9,570 B (−274 B); `communication.md`
+1,349 B → 1,225 B (−124 B); corpus TOTAL 61,822 B → 61,424 B (−398 B).
+
+### Three further edits were measured, then REVERTED — and why they are not available
+
+A first pass also took 247 B off three lines that each CARRY a `MUST`: the § Specialist Delegation
+pointer (a `;` → `.` punctuation fix that lets `abridgeV6`'s inline-tail strip fire, −63 B), the
+§ Reviewer-Prompts rationale clause already held verbatim in this file above (−126 B), and the
+§ Correctness-Review-Clean parenthetical restated by its own `**Why:**` two lines below (−58 B).
+None of the three removed a `MUST`; the token census was flat at 58 across all three.
+
+`check-descoping.mjs` still failed them, and it is RIGHT to, given what it can see. That gate opens
+its line-identity analysis for a class only when the class's COUNT falls. On this branch the
+`must_token` count is ALREADY down one — the § Zero-Tolerance removal, cleared by a registry
+declaration — so the class is permanently OPEN, and once open, any REWORDED `MUST`-bearing line
+reads as a removal that "appears nowhere else in this diff". The gate's own documentation names this
+bound: "A REWORDED extraction is NOT auto-detected… costs one registry entry."
+
+The three edits were reverted rather than declared. A `descoping-exceptions.json` entry asserts that
+an obligation was removed and says where it went; filing three of those for lines whose `MUST` never
+moved would put a FALSE record in a governance registry to buy 247 B. The bytes are not worth it,
+and the honest disposition is to leave the lines alone.
+
+Consequence worth knowing before the next headroom pass: **while `agents.md` carries an open
+`must_token` delta, no `MUST`-bearing line in it can be re-worded without a registry entry.** Shed
+work on this file is confined to lines that carry no counted token. That is a real and narrowing
+constraint, not a temporary one.
+
+### Correction to the record above (§ "Removals made in the same funding pass")
+
+That section reports its three removals as landed and measures 828 B. Checked against this tree on
+2026-09-02, two of the three had REGRESSED: the removals landed in `8cb41d77`, were undone by the
+merge-revert `b6675f8f` ("Revert 'merge(s62): land feat/conservation-contract-2026-08-16'"), and the
+later re-merge `c979550f` did not restore them. Only item 1 (§ Zero-Tolerance) is still absent.
+Item 2 (the duplicate pointer) was present again and is re-removed here as item 2. Item 3 (the four
+inline "…: guide." tails) is still present in the source and is deliberately LEFT there: `abridgeV6`
+gained the loom#2018 E1a inline-tail strip after that pass, so those four tails now emit ZERO bytes
+and deleting them from the source would buy nothing while costing a CC reader the pointer. The
+828 B figure describes a tree that no longer exists; do not cite it as current.
+
+## Wave Worktrees — 2026-09-12 Lane-Unit Amendment
+
+Receipt: `journal/0607` decision 5 (co-owner-directed: "The ceilings explicitly bind worktrees and
+branches AND NOT AGENTS"). § Worktree Orchestration's lead sentence read "Parallel/compiling agents
+MUST run isolated", which put a worktree under every parallel agent and so charged each added agent
+against the WIP ceiling. It now reads "Each LANE MUST run isolated …; its agents share that worktree
+(`rules/wip-discipline.md` MUST-9)". The orchestrator-creates-the-sibling, absolute-path pin and
+STEP-0 assertion obligations are unchanged and now govern creating a LANE; "in the prompt" became
+"in every brief" because each of a lane's agents needs the pin and the assertion.
+
+**Rule 10 disposition — path (a) paired extraction, MEASURED.** Two fragments left the clause in the
+same edit: the sibling-path template and the "(Rules 1–11)" range. Neither was an obligation of this
+clause — the placement template is `rules/worktree-isolation.md` Rule 7's MUST, and the skill the
+clause points at carries the recipe. Measured through `stripRuleFrontmatter → abridgeV6 →
+stripSlotMarkers` on this file alone, at this change: 9,318 B → 9,304 B (−14 B). The Wiring-block
+amendment text is stripped by the abridger and emits nothing. No counted class fell; `MUST` tokens
+rose 60 → 64 from the added citations.
+
+**Probes.** `MUST-Worktree-Orchestration-firing` was RE-AUTHORED rather than left standing: its
+former compliant pole justified four worktrees by cargo-lock contention — the exact premise this
+amendment BLOCKS — so a judge reading the amended clause could correctly flag the pole that must stay
+quiet. Its replacement packs two agents into each of two lanes and still separates only on WHO
+creates each lane's worktree and WHERE. `MUST-Worktree-Orchestration-lane-unit-firing` is new: both
+poles create one lane tree identically and separate only on whether build contention is met with
+further worktrees or with per-agent build directories. The superseded pre-amendment candidates and
+their sidecars are no longer referenced by any probe row.
+
+## Wiring-block provenance — extracted from the rule body 2026-09-24
+
+`.claude/rules/agents.md` is `priority: 0`, so every byte of it is injected into every session on
+every lane. Its four clause-scoped Trust-Posture-Wiring blocks had accumulated a provenance narrative
+— retracted claims, withdrawn revisions, measurement ledgers, probe-pole descriptions — that the
+emitter's `abridgeV6` already strips before any Codex/Gemini baseline, so only the CC lane was paying
+for it. That narrative is recorded here VERBATIM; the obligations it accompanied, and every
+`- **<Field>:**` bullet, MUST-token, BLOCKED-token, `**Why:**` line and code-span citation that
+carried them, stay in the rule body unchanged. Nothing below is an obligation. Measured at the move:
+rule 35,176 B → 29,497 B, with `MUST` 64 → 64, `MUST NOT` 4 → 4, `BLOCKED` 18 → 18, `**Why:**`
+10 → 10, MUST-bearing headings 14 → 14, all eight canonical wiring-field counts flat, and ZERO
+citation members dropped from the rule's referential set.
+
+### § Triad — Detection mechanism
+
+On the retraction of the never-detectable claim: *"Its measurement asked whether the CONSTRAINT text
+appears in the transcript, and the constraint indeed does not — but the VIOLATION is the agent's OWN
+assistant turn asking for the lift, which IS written to the transcript and IS reachable at `Stop` via
+`transcript_path`. Banking an instrument built for one question as the answer to another is
+`rules/instrument-discipline.md` MUST-4, and it is what that retirement did."*
+
+On the registry disposition: the fold into
+`phase2-deferrals.json::agents.md#triad-default-execution` widened that row's SCOPE and its
+GRADUATION rather than minting a key. *"A NEW key is not in the digest-pinned grandfathered
+population and `completion-criterion.md` MUST-6 forbids the agent proposing a residual from also
+accepting it, so folding keeps the gap DATED under an acceptance that already exists instead of
+undeclared"* — the same disposition the § Agent-Result-Delivery wiring records.
+
+On the probe-pair count: the "at least one per clause" reading holds because § Worktree Orchestration
+carries TWO pairs since 2026-09-12, not one.
+
+On the graduation of the dated row: *"The dated `probe_authorship_deferrals` row that stood in for
+this tier is DELETED in the same change — a graduation that leaves the row standing is not a
+graduation, since the row's whole content is a claim the suite was never written. An earlier revision
+of this line said the suite was NOT YET AUTHORED; that was true when written and is now FALSE,
+corrected rather than left, because a Wiring row claiming an absent tier is the same
+absence-reads-as-clean shape this file governs."*
+
+On execution: the registered probes execute ONLY when an orchestrator dispatches
+`/test-harness-probe --artifacts` at gate-review.
+
+### § Correctness-Review-Clean Is Not Security-Clean — Regression-within-grace
+
+Why no dedicated per-clause trigger key was minted: *a two-lens-dispatch property is review-layer +
+session-history judgment; it does not reuse the § Triad clause's key.* It is the same no-dedicated-key
+disposition the § Triad clause and `security.md` § Enforcement-Surface Parity took.
+
+### § Wave Worktrees Are Orchestrator-Created Siblings
+
+**Severity.** On why the structural `block` was not enough on its own: *"that guard refuses the
+nested spawn outright, and this clause exists because the refusal previously arrived with no loaded
+instruction telling the orchestrator what to do instead."*
+
+**Detection mechanism.** `MUST-Worktree-Orchestration-firing`'s poles run the SAME two-lane,
+four-agent spawn and separate only on WHO creates each lane's worktree and WHERE.
+`MUST-Worktree-Orchestration-lane-unit-firing`'s poles create one lane tree identically and separate
+only on whether build contention is met with further worktrees or per-agent build directories. *"The
+first pair's candidates were RE-AUTHORED 2026-09-12: its former compliant pole justified four
+worktrees by cargo-lock contention, the premise the lane-unit amendment now BLOCKS, so it could no
+longer stay quiet."* An earlier revision of that Wiring row said no probe suite shipped for this
+clause and that this rule had no manifest entry; both were true when written and are now FALSE,
+corrected rather than left standing.
+
+**Origin.** The reachability gap is the same class as `issue-triage-routing.md`'s own Origin (`skills/32-trust-posture/wiring/issue-triage-routing.md` § Origin). *"Two
+claims the source proposal shipped were FALSIFIED by its own follow-up measurement and are
+deliberately NOT restated in the clause: that a PreToolUse hook can only refuse a call and never
+rewrite it (the harness carries an `updatedInput` schema and an implemented fallback path), and that
+'no configuration avoids the block' (narrowed to the verified claim — no flag, setting or env var
+RELOCATES the base directory). A reviewer-proposed `cwd`-based remedy was REJECTED as unusable: the
+delegation tool's exposed input schema strips `cwd`, so an orchestrator cannot pass it."* The
+emission ledger for the 2026-09-12 lane-unit amendment is § "Wave Worktrees — 2026-09-12 Lane-Unit
+Amendment" above.
+
+### § A Dispatched Agent's Result Is Not Received Until It Is DELIVERED
+
+**Severity.** Why the hook-layer ceiling is `block` and not `advisory`: *"the addressable-spawn field
+is structurally present in the input while the other half of the predicate — whether the prompt
+instructs push-delivery — is decidable only lexically over prompt prose."*
+
+**Grace period.** The originating template windows, recorded rather than folded: 2026-08-13 → 08-20
+for the SPAWN CONTRACT; 2026-08-14 → 08-21 for the DELIVERY-GATE extension + RECOVERY half. *"The two
+2026-08-14 instances occurred BEFORE those halves existed, so they are the rule's evidence, not
+violations of it."*
+
+**Regression-within-grace.** Why the recoverability leg does not carry to the fragment half: *"mode
+1's report is on disk, but a STATUS-FRAGMENT lane never wrote one, so what survives is raw tool
+output and the synthesis is genuinely gone (a resume re-derives it from a warm agent; nothing
+recovers it from disk). The key stays generic because the loss is still non-corrupting and bounded to
+re-work, but the argument is weaker for the fragment half, and re-using the mode-1 rationale
+unexamined would be the `zero-tolerance.md` Rule 3e shape — a claim about a surface not re-derived
+after the surface changed."*
+
+**Detection mechanism.** On (c)'s structurally-correct home: `PostToolUse` on the delegation tools,
+*"where the payload DOES exist"*. On the booking discipline: *"none has been accepted for this
+clause, and booking an expiry nobody agreed to carry is the permanent-by-default shape
+`trust-posture.md` § 'Every Phase-2 Deferral Carries A DATED Declaration' exists to prevent."* The
+design constraints the shipped detector satisfies — the correct event, why `SessionStart` and `Stop`
+are both wrong, and why the matcher must cover BOTH delegation-tool names — are recorded in
+`skills/30-claude-code-patterns/agent-result-delivery.md` § "The detector that ships".
+
+On the graduated row (`expires: 2026-11-17`): *"That row's graduation condition named this clause
+explicitly — efficacy on a transcript scoring a STATUS FRAGMENT as a clean lane, no-false-positive on
+a terse-but-complete verdict the clause declares IS a delivery — and the
+`MUST-A-Dispatched-Agents-Result-Is-Not-Received-Until-firing` pair is built to exactly that shape,
+so the paired depth skill's folded coverage graduates with it rather than being re-deferred under a
+fresh key. The DELIVERY-GATE half is what the pair probes, because it is the half no shipped detector
+reaches: the violation pole's payload is present, non-empty, error-free and the LONGEST of the four
+returned, and is still a non-delivery, while three four-word verdicts alongside it ARE deliveries —
+so a check keying on payload presence or length scores that pole backwards. An earlier revision of
+this row said the suite was UNWRITTEN and that this rule had no `eval-manifest.json` entry; both were
+true when written and are now FALSE."* The probes run when an orchestrator dispatches
+`/test-harness-probe --artifacts` at gate-review.
+
+### § Examples and § Distinct From — trimmed provenance
+
+The Examples slot's Worked Examples 1–5 are also indexed by § "Examples — CLI delegation-syntax
+mapping" above. The per-CLI spawn-parameter sentence previously spelled out what the skill holds —
+*"which spawn parameter opens the return path, which one shadows the agent-type selector, and the
+sanctioned addressable form"* — before deferring to
+`.claude/skills/30-claude-code-patterns/agent-result-delivery.md`; the skill pointer itself stays in
+the rule body, because `skills/…` pointers ship to consumers and re-targeting one at a guide would be
+de-scoping by the back door.
+
+The `rules/time-pressure-discipline.md` cross-reference was moved into § Distinct From from
+§ Parallel Execution on 2026-09-07 (headroom lane). Its always-on twin in
+`rules/autonomous-execution.md` § 10x Throughput Multiplier was MEASURED present in that file's
+abridged emission, not assumed. Same disposition `zero-tolerance.md` took for the same pointer on
+2026-09-02.
+
+---
+
+## Examples (CLI-specific delegation syntax) (extracted from rules/agents.md 2026-10-01)
+
+## Examples (CLI-specific delegation syntax)
+
+CLI dispatch syntax for the § Triad clause is delivered through this slot. Worked Examples 1–5 (CC / Codex / Gemini delegation syntax per clause) live in `.claude/skills/30-claude-code-patterns/specialist-delegation-syntax.md`. The MUST clauses above are the CLI-neutral contract.
+
+**§ Agent-Result-Delivery — per-CLI spawn parameters.** The CC field names that realise parts (1) and (3) live once, with the measured 11-spawn separation table, in `.claude/skills/30-claude-code-patterns/agent-result-delivery.md` § "The mechanism — one field decides it". Codex and Gemini expose no equivalent named-teammate primitive, so part (1) reduces there to the neutral contract.
+
+<!-- /slot:examples -->

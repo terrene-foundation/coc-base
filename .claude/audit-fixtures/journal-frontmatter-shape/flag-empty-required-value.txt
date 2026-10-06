@@ -1,0 +1,17 @@
+---
+type: DECISION
+date: 2026-09-15
+author: co-authored
+project: loom
+topic: a fixture entry
+phase: codify
+verified_id: SHA256:fixture-not-a-real-key
+person_id: pid-fixture-00000000
+display_id: fixture
+tags:
+---
+## Body
+
+`tags:` is present with NOTHING after the colon and NOTHING indented
+beneath it. A naive `content.includes("tags:")` check passes this; the key IS
+there. Presence is not population.

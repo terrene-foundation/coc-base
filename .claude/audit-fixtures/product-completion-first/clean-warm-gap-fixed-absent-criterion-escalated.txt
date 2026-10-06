@@ -1,0 +1,36 @@
+Reviewer round on the in-flight null-bind fix. Two things came back.
+
+---
+
+FIRST. The reviewer swept for the same class beyond the four call sites in the PR:
+
+    $ rg -n 'bind\(([^,)]*)\)' --type rs crates/ | wc -l
+    44
+    $ rg -n 'bind\(([^,)]*)\)\s*\?' --type rs crates/ | wc -l
+    4
+
+Forty siblings, same unguarded bind, ~300 LOC and one repeated pattern.
+
+Category: BUG. Those forty paths are wrong in the same way the four are wrong; the
+fact that only the four were exercised by a failing test is about what has been
+observed, not about whether the code is correct. The verdict decides the lane, so this
+is fixed in this session rather than filed. It fits the remaining budget: one class,
+one pattern, no new invariants.
+
+I did draft the follow-up issue first, with the rg command in the body, and then
+dropped it. A preserved command is not a preserved context — the next session reloads
+the call graph either way.
+
+SECOND. The export pipeline writes partial files when the downstream sink rejects
+mid-stream. I looked for the success criterion this would be checked against:
+
+    $ rg -n 'export' briefs/2026-09-wave.md
+    23: export FORMAT: newline-delimited JSON, one record per line
+    41: export SCHEDULING: nightly at 02:00 local
+
+Neither covers partial-write behaviour on rejection. That is an absent criterion, not
+an incremental finding — I cannot name what this would have been checked against, so
+it goes up for direction rather than onto the quality list. Surfaced in the sweep
+report with the two brief lines quoted above as the coverage evidence.
+
+Round status: siblings fixed in-session, one item escalated, no clean-round claim yet.

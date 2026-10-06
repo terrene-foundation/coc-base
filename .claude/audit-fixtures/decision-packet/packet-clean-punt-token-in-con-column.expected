@@ -1,0 +1,7 @@
+path: workspaces/vendor/decisions/00-decision-packet.md
+expect:
+family: table answer column — PUNT (reject pole: the COLUMN INDEX is load-bearing)
+note: Both declared punt tokens are PRESENT in the file — "depends" and "TBD" — but
+  they sit in the HONEST CON column, where they are honest prose about a real
+  residual, not a withheld recommendation. A whole-file `grep -i tbd` flags this and
+  is wrong. Only the cell at the answer-column index is ever classified.

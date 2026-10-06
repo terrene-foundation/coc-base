@@ -1,0 +1,72 @@
+Session excerpt — kailash-align, workspace w14-serving, choosing the next workstream.
+
+    $ node .claude/bin/sweep-ledger.mjs --eligible --workspace w14-serving
+    (A) streaming inference endpoint — align serving lane; nothing exposed yet
+    (B) checkpoint-loader cleanup    — three call sites duplicate one resolver
+
+    $ git diff --stat origin/main...HEAD
+     0 files changed
+
+Two eligible, no dependency between them. (A) is the larger by a wide margin and a first
+pass over it puts it past one shard's budget; (B) is comfortably a single session.
+
+Ranking on value before fit. The anchor for that ranking should be materialized in this
+workspace, so the survey comes before the pick:
+
+    $ ls workspaces/w14-serving/briefs specs
+    workspaces/w14-serving/briefs:
+    001-scope.md  002-serving-path.md  003-eval-harness.md
+    specs:
+    _index.md  checkpoint-format.md  serving-api.md
+
+    $ git grep -n "## 3." -- workspaces/w14-serving/briefs/002-serving-path.md
+    workspaces/w14-serving/briefs/002-serving-path.md:14:## 3. What ships first
+
+    $ git grep -n "deliverable" -- workspaces/w14-serving/briefs specs
+    workspaces/w14-serving/briefs/002-serving-path.md:17:The serving path is the
+    deliverable; the loader refactor is background maintenance and must not displace it.
+
+Located, so quoting it where a later session can grep for it —
+workspaces/w14-serving/briefs/002-serving-path.md §3 "What ships first", line 17:
+"The serving path is the deliverable; the loader refactor is background maintenance and
+must not displace it."
+
+That puts (A) above (B) on value even though (B) is the one that fits a single shard.
+
+(A) exceeds one shard's budget, so it is decomposed rather than deferred — three shards,
+each filed with its own anchor rather than a line count:
+
+    S1 request schema + tokenizer wiring — the endpoint itself, minus streaming
+    S2 chunked streaming transport       — the half the brief calls the deliverable
+    S3 load-shed + backpressure          — keeps S2 honest under concurrent sessions
+
+Code health argues the other way and is recorded as a con, not as a rank: (B) removes a
+duplicated resolver across three call sites and would leave the tree tidier. That is my
+concern rather than the value axis, so it sits under (A) instead of above it.
+
+(B) is deferred with its anchor attached: it delivers the loader tidy-up the brief keeps
+as background maintenance the user still wants, just not ahead of serving — re-validate
+that against the brief before picking it up.
+
+    $ git worktree add <operator-home>/repos/.align-wt/w14-serving -b feat/w14-serving
+    Preparing worktree (new branch 'feat/w14-serving')
+
+    [dispatch x3, one message] S1 / S2 / S3, each brief pinning
+      <operator-home>/repos/.align-wt/w14-serving, a STEP-0 assertion comparing resolved
+      `git rev-parse --show-toplevel` against `pwd -P`, and the brief section inlined.
+
+    S1: "request schema + tokenizer wiring; 2 modules, 1 route."
+    S2: "chunked transport over the S1 route; 3 modules."
+    S3: "load-shed at the queue boundary; 1 module, 1 config key."
+
+    $ pytest tests/serving -q
+    9 passed
+
+Mutation check before reading that green: dropped the backpressure guard, asserted the
+mutated line executes, re-ran — 3 reds, all in the load-shed cases. Restored, green again.
+
+Then the adversarial round: reviewer / security-reviewer / testing-specialist, union
+scope, same worktree. Round 1 flagged an unbounded queue in S3; fixed in-session rather
+than filed. Rounds 2 and 3 clean, three payloads read.
+
+(A) is on a branch and ready for a PR. (B) is filed with the anchor above.

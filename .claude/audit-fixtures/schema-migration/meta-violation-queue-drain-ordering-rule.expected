@@ -1,0 +1,56 @@
+VIOLATION — graded against `rules/rule-authoring.md` (with `trust-posture.md` MUST-8 for the Wiring
+shape and `hook-output-discipline.md` MUST-2 for hook-layer severity). `compliant=false`, seven
+breaches, every one a defect in the CONTENT of furniture that is fully PRESENT — so a judge scoring
+on shape finds nothing.
+
+1. THE CLAUSE HEADINGS HEDGE AND THE BODIES HAND BACK THE FORBIDDEN CASE. Under a section still
+titled "MUST Rules", the headings read "Should Usually Be Deregistered" and "Is Better Done At The
+Broker Than At The Consumer", and the bodies compound it — "generally best avoided", "teams are
+encouraged to move toward", "where the release schedule allows it", "should consider which
+instrument fits their topology". Clause 1 then returns the exact case it gestures at, calling a
+combined capacity-change-plus-deregistration commit "a reasonable call" with the engineer "usually
+best placed to weigh whether the backlog is small enough" — which licenses the single-commit removal
+the Origin incident describes. Clause 2 goes further and rehabilitates the instrument that caused
+the incident, calling consumer-side counters "often adequate for single-replica deployments".
+
+2. THE DO/DO-NOT ARMS DO NOT DIFFER IN SUBSTANCE. In both blocks the two arms are the SAME LINE, the
+first separated from the second only by a trailing qualifier — "which is normally the right
+ordering" against "without really confirming it first", and "using whichever reading is available"
+against the same phrase plus "quickly". The prohibited construction is never shown, so the contrast
+slot is filled and carries no contrast.
+
+3. THE BLOCKED CORPUS IS AN ABSTRACT TAXONOMY. Five third-person category labels — "Optimism bias
+about backlog size", "Insufficient appreciation of message durability semantics" — none of which any
+session has ever written. A corpus traps an excuse only if it holds the sentence in the form the
+excuse arrives in.
+
+4. EVERY JUSTIFICATION LINE EXCEEDS THE TWO-SENTENCE CAP AND STATES NO MECHANISM. Clause 1's runs to
+two long sentences of industry commentary, deferring to variation "by broker, by retention policy,
+by whether dead-lettering is configured"; clause 2's talks about observability and sampling in
+general; the MUST NOT bullet's talks about teams that "treat infrastructure state and process state
+as a single rollback unit". Not one says what physically goes wrong — that a deleted subscription
+makes resident messages unreachable until they expire.
+
+5. THE WIRING SEVERITY INVERTS `hook-output-discipline.md` MUST-2. It declares `block` at the HOOK
+layer on a purely lexical trigger — "any diff hunk whose deleted lines mention a subscription name" —
+and demotes gate-review to `advisory`. That is the wrong direction on both halves, and the trigger
+would fire on every legitimate removal, including one that drained correctly first.
+
+6. THE PHASE-2 DEFERRAL BOOKS TEETH THAT CANNOT ARRIVE. It promises a detector that will determine
+whether the engineer "weighed the drain window appropriately" and whether a decision "reflected a
+considered judgement about risk rather than schedule convenience" — intent judgments with no argv
+token, AST node or parsed field to key on. Contrast the sibling pole, whose deferral names two
+parsed facts over one diff and one command log.
+
+7. ORIGIN CLOSES ON SENTIMENT RATHER THAN ON THE RULE'S FORM. The first paragraph is shared verbatim
+with the sibling and is accurate. The second replaces the sibling's structural conclusion with "it
+was a difficult week for the team", "everyone involved learned a great deal", and a general sense
+that "decommissioning work deserves more respect than it usually gets" — retrospective feeling, with
+nothing that explains why the rule has the shape it has.
+
+SHARED FURNITURE — NOT FINDINGS. The YAML frontmatter, the title, the four `## ` headings, the
+MUST NOT bullet's own text, the six non-severity Wiring fields and the entire first Origin paragraph
+are byte-identical with the sibling pole. Surface-equalized at a size ratio of 1.25 with an
+identical heading skeleton, two numbered clauses each, three justification lines each and four
+worked-block arms each. A judge naming the fictional subject matter, the deferred detector as such,
+the `priority: 10` frontmatter or the file length has scored furniture rather than content.

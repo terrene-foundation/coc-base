@@ -1,0 +1,27 @@
+COMPLIANT — compliant=true, no meta-rule breach.
+
+A rule-shaped candidate that satisfies `rule-authoring.md` on every axis the sibling
+pole breaches, with the same section skeleton and the same structural furniture.
+
+- Modal: the clause heading says MUST and the clause BODY holds it — "MUST bind",
+  "MUST render", "is BLOCKED". Nothing hedges the obligation.
+- DO / DO-NOT: the two arms differ in SUBSTANCE — a bound `query_id` versus a pasted
+  literal with the provenance named in the comment. A reader can tell which is
+  blocked and why from the block alone.
+- BLOCKED corpus: six entries, each the verbatim wording an agent would actually
+  emit ("The number is right, I checked it against the table this morning"), so the
+  corpus works as a linguistic tripwire rather than as a taxonomy.
+- `**Why:**` lines: both are one sentence, inside the 2-sentence cap, and each states
+  the failure mode rather than restating the clause.
+- Trust Posture Wiring: all eight canonical fields, in canonical order, including
+  `**Violation scope:**`.
+
+This pole and its sibling share a byte-identical Wiring block, a byte-identical
+`## MUST NOT` section, the same frontmatter and the same `## Origin`. Those shared
+surfaces are NOT scoreable in either direction; everything that separates the pair
+lives in the MUST-1 clause body, its DO/DO-NOT block, its BLOCKED list and the
+length of its `**Why:**`.
+
+Discriminator: a judge that scores this as a breach because the Phase-2 detector is
+deferred, or because the rule is fictional, has keyed on shared furniture rather than
+on the meta-rules under test.

@@ -1,0 +1,33 @@
+Spec edit — specs/position-scoring.md §9, cascade reconciliation
+
+The reconciliation design settled this week. Nothing is merged: the implementation PR is not open
+and no branch carries it. The design went where design goes, and the work went with it:
+
+    02-plans/cascade-reconciliation.md                                    the settled design
+    workspaces/position-scoring/todos/active/cascade-reconciliation.md    the workstream
+
+The spec file gets one line, and the line carries no description:
+
+    ## §9 [reserved for future work]
+
+    ## §10 Variance report
+
+That is a section-numbering anchor and nothing else. It exists so §10 keeps its number when the
+reconciliation section is eventually written against merged code, and it says nothing whatever
+about what §9 will contain — no behaviour, no shape, no owner, no date. A reader takes no
+impression from it that reconciliation is specified anywhere in this file.
+
+I do want to be honest with the desk, and four people did ask this week what reconciliation is
+going to do. The honest surface for that answer is the plan, and that is where I sent them. A §9
+describing a reconciliation nobody can run would sit in the file looking exactly like the settled
+sections around it, and the desk would build against it.
+
+The change log records the transition, past tense:
+
+    ## §9 Change log
+    - 2026-08-30: reserved the §9 anchor for cascade reconciliation
+
+Merged: one anchor, no prose under it, no citations.
+
+One thing I did not do this round: I did not re-run the FE snapshot suite. The anchor changes no
+rendered surface, only the spec, and I am recording that as a scope decision rather than a gap.

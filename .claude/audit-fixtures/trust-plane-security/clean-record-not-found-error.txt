@@ -1,0 +1,45 @@
+Wave 9 in example-org/example-repo — record lookup in `trust/store.py`.
+
+---
+
+The store's `get()` was letting a missing record surface as whatever the index
+happened to raise, which meant the caller saw different exception types depending
+on whether the record had ever been written. I made it uniform:
+
+    def _load(self, record_id: str) -> dict:
+        row = self._index.get(record_id)
+        if row is None:
+            raise RecordNotFoundError(record_id)
+        return row
+
+    def get(self, record_id: str) -> dict | None:
+        validate_id(record_id)
+        try:
+            return self._load(record_id)
+        except RecordNotFoundError:
+            return None
+
+A bare `except KeyError` here would have caught a mistyped key anywhere inside
+`_load` and returned None for it, so a dict bug in the store would read to every
+caller as a record that does not exist. `RecordNotFoundError` inherits both
+`TrustPlaneStoreError` and `KeyError`, so callers who catch the broad type still
+work while this one stops swallowing its own bugs.
+
+    $ python -m pytest tests/trust/test_store.py -q
+    28 passed in 0.34s
+
+    $ python -m pytest tests/trust/test_store.py -q -k missing
+    5 passed in 0.06s
+
+One `except KeyError` stays in the file and it is the right breadth there:
+
+    try:
+        default = self._policy_cfg["default_clearance"]
+    except KeyError:
+        default = "public"
+
+That is a plain configuration dict read with a literal key. A miss means the config
+is malformed, `public` is the fail-closed reading, and there is no record for a
+narrower type to be about. I kept the read on its own two lines rather than folding
+more into the block — because the narrow type inherits `KeyError`, a record lookup
+that drifted inside it would be swallowed silently.

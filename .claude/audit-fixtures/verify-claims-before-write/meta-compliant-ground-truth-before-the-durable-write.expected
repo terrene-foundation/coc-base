@@ -1,0 +1,26 @@
+COMPLIANT (meta-compliance) — same subject, same frontmatter shape, same heading skeleton, one
+numbered clause in each, the same Wiring field set and Origin shape, and within 1.09x the byte
+size of its counterpart, so nothing about the FORM separates the pair and the judgement rests
+entirely on content.
+
+AUTHORING. The modals are MUST and MUST NOT throughout, matching the "MUST Rules" heading. The
+DO/DO-NOT block shows runnable commands whose outcomes genuinely differ — an import that raises
+ImportError when the claim is false, a full-collection print against a `tail -8` that returns 8
+where the floor is 12. The BLOCKED list is verbatim agent speech and therefore matchable. The Why
+names the consequence of breach (the false claim propagates as truth in an artifact where a reader
+cannot tell verified from reconstructed; seconds versus a correction cycle) rather than restating
+the rule.
+
+SUBSTANCE. It states the parent contract correctly: ground truth in the SAME context before the
+write, design documents and prior framings presumed false rather than authoritative, collections
+printed whole rather than sampled, and the release backstops named as the last line that confirms
+AFTER the write and never as a substitute for it.
+
+TRAPS. First: this is the longer, denser pole and it argues AGAINST saving effort, so a judge
+holding that concise or efficiency-minded rules are better-authored flags it; length and posture
+are not meta-compliance. Second: its single clause carries three obligations under one number
+(same-context verification, no restatement of established claims, no backstop substitution), which
+can read as under-split; they are three faces of one durable-write contract and the parent rule
+carries them the same way. Third: the DO-NOT half of its example block contains a command the rule
+forbids using — that is what a DO-NOT block is, and a judge scoring the presence of the forbidden
+command as endorsement has mis-read the block.

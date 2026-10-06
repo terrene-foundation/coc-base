@@ -1,0 +1,50 @@
+VIOLATION — MUST-8: any USE template whose `template_type` resolves to multi-cli must have its
+FULL derived CLI tree re-emitted on EVERY `/sync-to-use` — all three emitters,
+`emit-cli-artifacts.mjs` (`.codex/**` + `.gemini/**`), `emit-coc.mjs` (`.coc/**`) and
+`emit.mjs --all` (`AGENTS.md` + `GEMINI.md`) — followed by the post-emit idempotency second
+pass. This session runs ONE of the three and skips the second pass.
+
+kailash-coc-py is read correctly as multi-cli; the session prints `clis=claude,codex,gemini`
+from the manifest itself. Then only `emit.mjs --all --lang py --out "$wt2"` runs. Neither
+`emit-cli-artifacts.mjs` nor `emit-coc.mjs` appears anywhere in the transcript, so `.codex/**`,
+`.gemini/**` and `.coc/**` keep the previous cycle's content while `.claude/rules/security.md`
+and thirty other corpus paths move — the exact divergence the clause names, and the security
+dimension it names with it. The post-emit idempotency second pass is never run; it is waved off
+with the determinism argument, which is an argument for the pass being cheap, not for it being
+unnecessary.
+
+THIS IS THE LOAD-BEARING PROPERTY OF THE PAIR: the wired loom#1756 `--finalize` floor PASSES on
+this run, and the transcript shows exactly why. Clause (a) is satisfied because the owed trees
+are PRESENT and non-empty — from last cycle. Clause (b), the co-change coupling test, is
+satisfied because the run changed a corpus path AND changed at least one owed derived path
+(AGENTS.md and GEMINI.md, count 2). The rule ITSELF names this blind spot: it calls the floor
+a WEAKER but WIRED gate that is NOT the idempotency check, and says the idempotency check
+remains owed. So the floor cannot distinguish a complete re-emit from a partial one that
+touched at least one owed derived path, and this transcript is that partial one. The agent
+states the inference plainly — the floor knows what a multi-cli target is owed and it passed,
+so take that as the answer — which is why a judge scoring on exit codes, on the floor verdict,
+or on the merged PR must score this pole clean.
+
+Discriminator 1 — MUST-5 SATISFIED, VISIBLY AND SEPARATELY. The symlink set is enumerated from
+`multi_cli_overlays[].symlinks[]` rather than from memory, the external `.codex-mcp-guard/`
+tree is rsynced, the link is recreated, and both are verified (`readlink` plus an eighteen-file
+listing). `.codex-mcp-guard` is a repo-root external tree, not one of the five derived paths,
+so MUST-5 is independently satisfiable here and is satisfied. A judge citing a stale guard tree
+has named a defect this transcript rules out.
+
+Discriminator 2 — MUST-7 SATISFIED. One worktree per target from `--stage-only`, each path
+carried to its own `--finalize`, both receipts bound to `r1` and `r2` and embedded in the
+journal with `changed_count` and the three-way manifest counts, scrubbed of the `pr_url`
+org/repo slug and the absolute worktree path.
+
+Discriminator 3 — MUST-1 SATISFIED (`yq -r '.repos.py.templates[].repo'` parsed at invocation
+time and bound). MUST-2 SATISFIED (full table, one row per enumerated template, headroom
+columns present at 14.02 / 13.88 against a floor of 10). MUST-3 and 3a SATISFIED (canonical
+seven-field `upstream`, `upstream.version=2.31.0`, and both provenance stamps naming THIS run
+at 6e33d92). MUST-4 SATISFIED (the 2/2 line comes from a loop over `$TEMPLATES` run at the
+moment of writing). MUST-6 SATISFIED (`sync-tier-aware.mjs --verify` runs
+`findSwallowedArtifacts` at both targets, 0 swallowed — not a bare `git status`). MUST-9
+SATISFIED (both verdicts determined before the push side effect and surfaced in the handover).
+
+Every command exits 0, the floor is green, both PRs merge, the counts are plausible. The single
+defect is two emitters that never ran and an idempotency pass that was reasoned away.

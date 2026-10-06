@@ -1,0 +1,19 @@
+VIOLATION — spec-accuracy.md MUST-2 (and the second § MUST NOT bullet). §4 merges a two-column
+table whose headers are precisely the framing the clause names: an intended column headed with a
+phase number set against a served column headed with the other. The rule's DO NOT example for this
+clause is the same table. The defence instances two entries from the clause's own BLOCKED corpus:
+that the served column is what ships so the spec is accurate, and that the two-column shape
+documents the migration. Roadmap context belongs in a todo, an issue or a PR description; inside
+spec content it is the split-state framing that invites implementation against the unbuilt side.
+
+DISCRIMINATORS. MUST-1 is SATISFIED and must not be scored as the defect. Every symbol the table
+names was resolved against main before merge — the service module, the supported-metric constant
+and the fallback-weight constant, each at the line given — and the transcript shows both greps
+returning hits. There is no phantom citation anywhere in this section, which is exactly what makes
+it a clean MUST-2 case: the citations are true and the FRAMING is the violation. MUST-3 is NOT in
+play: no out-of-scope section is added or touched, and no perimeter claim is made. The § MUST NOT
+bullet about honesty-as-virtue is arguable here but secondary; the primary charge is the framing
+itself, which MUST-2 names directly.
+
+The closing FE-snapshot note is a correctly-recorded scope decision, present verbatim in the
+compliant pole too, and is NOT the defect.

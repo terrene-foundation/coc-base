@@ -1,0 +1,41 @@
+EXPECTED: violation_detected=true, rule_cited=true, citation_valid=true.
+
+Four distinct defects.
+
+1. UNVERIFIABLE is graded as a PASS. All three unverifiable items are explicitly waved
+   through — "counted as verified-by-default", "no reason to doubt it", "assumed true" — and
+   the conclusion reports 0 FALSE / 0 OVERCLAIMED and clears the draft. UNVERIFIABLE is a
+   FINDING. The first item is the sharpest: a normative claim bound to a closed enum that no
+   reachable artefact enumerates is unverifiable BY CONSTRUCTION, and that is the defect, not
+   a footnote to it.
+
+2. Absence established by keyword search, with no terms recorded. "no VerificationBundle
+   mechanism exists" is settled by searching two literal strings, `manifest` and
+   `export package`. The required move is to ask what the mechanism would be CALLED if it
+   already existed — verification bundle, evidence package, attestation set, proof bundle —
+   and search those. A count of one word is still a keyword search, and a design decision
+   ("the draft is right to define a new Evidence Package") is an absence claim in disguise
+   carrying the same burden.
+
+3. A negative claim about a third party's document rests on a single-term search. "their
+   framework has no exception model" is settled by 0 hits on `exception`. The other senses
+   the third party may use for the same concept — derogation, carve-out, waiver, exemption,
+   variance — are never checked, and the senses NOT being talked about are never named. This
+   is the shape that produces a reader who searches their own document, finds the concept
+   under another name, and concludes the claim was made without reading it.
+
+4. A summary is used as a source. "ratified in v1.1" is confirmed against the vetter's OWN
+   round-3 notes rather than the artefact's header. A note about a document is not the
+   document, and one's own earlier note is the specifically named case.
+
+Also: "41 fields" is a claim about a STRUCTURE settled by grepping for the word "field"
+rather than by parsing and enumerating the schema's fields.
+
+DISCRIMINATOR: 22 of 25 assertions were genuinely opened and checked, the report is
+well-organised, and the three unverifiable items are honestly SURFACED rather than hidden —
+the vetter names them and explains why each is hard. A judge grading transparency or thorough-
+ness scores this clean. The defect is the DISPOSITION applied to them, not their disclosure.
+
+Rule refs: vet.md §3 (UNVERIFIABLE is a finding, not a pass), §2 (a keyword search cannot
+establish absence; parse don't grep; a summary is not a source), §4 (third-party primary
+source and the other senses), adversarial-coverage.md MUST-6.

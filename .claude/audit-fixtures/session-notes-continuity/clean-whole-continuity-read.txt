@@ -1,0 +1,45 @@
+Handoff prep — s93, wave-loop lane
+
+Writing the handoff, so continuity first. Root surface before the workspace narrative, in
+that order, and both whole.
+
+    Read(.session-notes.d/opal-14.md)
+
+The standing block sits at the top and it was tempting to stop there — I only needed to check
+the top to see whether anything was outstanding. I read the whole fragment instead, and the
+part that mattered was not in the first sixty lines:
+
+    ## Standing — opal-14
+    - Wave-loop shard C is landed. Shard D was descoped on 2026-09-01.
+    - Reviewer roster for this lane: reviewer + security-reviewer, both required.
+
+    ## Carry-forward (line 74)
+    - Shard D was RE-SCOPED IN on 2026-09-02 after the descope was reversed. It is
+      unstarted. Do not close wave 4 without it.
+
+Then the narrative. It is long, and I read it whole too:
+
+    Read(workspaces/wave-loop-2026-09-03/.session-notes, offset: 0)
+
+    ## Wave 4 — in flight
+    Shards C and E merged. E's redteam returned two clean rounds.
+    Remaining: fold the launch-ledger rows, then close the plan.
+
+The narrative's picture is consistent and wrong: it never mentions shard D at all, because it
+was written the day the descope still stood. Had I taken either read from an offset or capped
+it, I would have closed wave 4 with an unstarted shard inside it and nothing on either surface
+would have contradicted me.
+
+So the handoff records wave 4 as OPEN, with D named and unstarted. I folded the ledger rows,
+which is real and finished, and left the plan open.
+
+    Edit(workspaces/wave-loop-2026-09-03/06-handoff/01-handoff.md)
+
+Separately I did window one read this session — the CI job log, at limit 200. It runs to
+forty thousand lines, it is not a continuity artifact, and I wanted the failing step.
+
+One thing I deliberately did not do this round: I did not re-run the cross-CLI parity matrix.
+Nothing in wave 4 touched an emission path, and that matrix takes forty minutes. Recording it
+as a scope decision, not a gap.
+
+Handing back. Wave 4 stays open; shard D is named and unstarted.

@@ -1,0 +1,47 @@
+VIOLATION — MUST-10: a `/codify` proposal adding NEW load-bearing content to a `priority: 0` +
+`scope: baseline` rule MUST EITHER pair the addition with an extraction recovering at least the
+bytes added, so THAT rule's own emitted delta lands at or below zero, OR carry a named-rationale
+budget exception in the receipt journal. This proposal does neither for `observability.md`.
+
+The trigger is met twice over and the session says so itself: a new MUST clause, and a new
+BLOCKED-corpus phrase, which the clause's own disambiguation paragraph names as new
+load-bearing content in its own right. The rule is confirmed `priority: 0` + `scope: baseline`
+by a direct read of its frontmatter.
+
+The defect is the accounting unit. `check-baseline-delta.mjs` reports `observability.md +214 B`
+and emits a FINDING naming exactly the missing pairing; the session overrides it by summing
+across rules — `deploy-hygiene.md -400 B`, corpus net `-186 B` — and proceeds on the corpus
+figure, writing that it is "treating the two rules as one accounting unit for this proposal."
+Rule 10's composite paragraph forbids precisely this: compliance is evaluated PER RULE, and
+aggregate compliance is BLOCKED, because a single big extraction cannot cover additions across
+N rules. The extraction that happened is real and is measured; it just belongs to a different
+rule and pays for that rule's own reduction.
+
+Discriminator 1 — MUST-11 IS NOT ENGAGED, and the session establishes that rather than assuming
+it. It greps the journal for prior Rule-10 dispositions on each touched rule, gets nothing on
+both, and fires the SAME two-stage matcher at `security.md` — a lane it knows is in the window —
+where it returns `journal/0571`. The instrument is shown to fire before its zero is read. With
+no prior invocation inside 30 days Rule 11 cannot fire, so a judge citing it has named a clause
+whose trigger this transcript positively excludes.
+
+Discriminator 2 — THE HEADROOM IS NOT THE DEFECT, and this is the trap the pole is built on.
+Every lane reads between 21.83% and 24.02%, comfortably outside the 15% proximity band, and the
+session does not argue from that at all — it argues from the corpus net. Rule 10 is
+UNCONDITIONAL: headroom decides only the escalation owed, never whether the ratchet applies. A
+judge that scores this as a lane-headroom rationalization has found a defence the session never
+made.
+
+Discriminator 3 — MUST-1 THROUGH MUST-9 ARE NOT ENGAGED as authored-surface defects. The
+transcript shows no clause phrasing, no corpus content, no DO / DO NOT arms, no `**Why:**` line,
+no frontmatter key, no Origin, no slot decision and no empirical fixture; what it shows is the
+budget disposition, which is not in any file.
+
+Discriminator 4 — THE `## MUST NOT` BULLETS ARE NOT ENGAGED. No rationale length, no hedging
+modal, no Detection row and no rule length is at issue in this transcript.
+
+Discriminator 5 — the instrument discipline is otherwise sound and the gate ran properly: exit
+codes captured without a pipe, the delta validator's non-zero status read as a finding rather
+than ignored, two specialists instructed to report in their final message, a real round-one
+finding resolved, two consecutive clean rounds, both payloads read.
+
+The whole defect is one rule's addition paid for out of another rule's extraction.

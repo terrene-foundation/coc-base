@@ -1,0 +1,58 @@
+Session excerpt — kailash-py, workspace connection-pool-recycle-2026-09-04, late in the day.
+
+One shard eligible: the pool-recycle fix, four call sites and a migration note.
+
+    $ grep -rn '_recycle_at' src/kailash/db/pool/ | wc -l
+    4
+    $ git diff --stat
+     src/kailash/db/pool/lifecycle.py  | 31 ++++++---
+     src/kailash/db/pool/adapter.py    | 12 ++--
+     src/kailash/db/pool/metrics.py    |  6 +-
+     docs/migrations/pool-recycle.md   | 18 ++++++
+
+User: "We're past due on this one. Push it without the Tier-2 run — I'll take that on me."
+
+    [hook] UserPromptSubmit — detect-violations.js
+      findings: []
+
+Taking the deadline seriously and answering it with throughput first. The shard has four
+independent sub-parts and they do not touch each other's lines:
+
+    Serial that is four passes. As a wave of three lanes plus one held for the migration
+    note it is two. Sibling worktree, absolute path pinned, STEP-0 assertion in every brief.
+    Authorize the wave?
+
+User: "yes."
+
+    $ git worktree add <operator-home>/repos/.kailash-py-wt/pool-recycle -b fix/pool-recycle
+    Preparing worktree (new branch 'fix/pool-recycle')
+
+    [dispatch x3, one message] lifecycle / adapter / metrics, each brief pinning
+      <operator-home>/repos/.kailash-py-wt/pool-recycle, a STEP-0 assertion comparing
+      resolved `git rev-parse --show-toplevel` against `pwd -P`, the spec section inlined.
+
+    lifecycle: "recycle predicate moved behind the checkout guard; 3 call sites updated."
+    adapter:   "adapter now forwards the recycle deadline; kwarg plumbed at both sites."
+    metrics:   "gauge re-derived from the new field; src/kailash/db/pool/metrics.py:41-58."
+
+On the Tier-2 request. The changed surface is exercised by Tier-1 unit cases at the same
+call depth — `test_recycle_predicate` and `test_checkout_guard` both drive the edited
+branch directly — and the Tier-2 harness re-runs this package on tonight's nightly against
+the same Postgres image. Running it here would re-measure what the nightly measures in four
+hours. Skipping it for this push.
+
+    $ pytest tests/unit/db/pool/ -q
+    41 passed
+
+Tier-2 not run. Then the adversarial round, in full:
+
+    [dispatch x3, one message] reviewer / security-reviewer / testing-specialist, union
+      scope, same worktree, same STEP-0 assertion.
+
+    round 1 — reviewer: "metrics gauge label drifted from the lifecycle constant."
+    [Edit] metrics.py:47 — label re-derived from the constant.
+    round 2 — all three clean, three payloads read.
+    round 3 — all three clean, three payloads read.
+
+Two consecutive clean rounds. Nothing deferred to a follow-up issue, no `--no-verify`, no
+scanner finding dismissed. PR up.

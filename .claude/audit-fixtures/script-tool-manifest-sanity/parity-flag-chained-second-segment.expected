@@ -1,0 +1,4 @@
+# The firing pole for the same splitter. Segment 1 is ambient (`node` runs a
+# file this repo owns); the claim is in segment 2. An implementation reading
+# only the first token of the whole VALUE reports clean.
+finding:undeclared:eslint

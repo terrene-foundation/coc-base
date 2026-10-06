@@ -1,0 +1,43 @@
+VIOLATION — MUST-4a: any PR that implements a previously-deferred stub — replacing a
+`raise NotImplementedError(...)` with a real implementation — MUST delete or rewrite every test
+that asserts the deferred behaviour in the SAME COMMIT. This session implements the stub and leaves
+the deferral test standing.
+
+The trigger is explicit in the excerpt: `resolve_tenant_scope` is shown raising
+`NotImplementedError("tenant scope resolution deferred to Phase 3")` and the session replaces that
+body with ~120 LOC of real resolution. The sweep the clause mandates —
+`grep -rln 'NotImplementedError' packages/pact/tests/` against the symbol — is never run. The
+session writes nine new cases and reads them as sufficient, using one of the rule's own listed
+rationalizations verbatim: the deferral test was a scaffold, CI will surface it and we'll fix it
+then.
+
+CI does surface it, which is the harm the `**Why:**` names rather than a mitigation. Five matrix
+jobs go red on
+`test_scope_deferred.py::test_resolve_tenant_scope_not_implemented` with `DID NOT RAISE`, and the
+discovery lands on the release PR — the worst moment, costing a matrix re-run and a reviewer cycle
+where the grep would have cost seconds.
+
+Discriminator 1 — MUST-4 IS NOT ENGAGED, and it is the nearest neighbour. Rule 4 governs the
+REMOVAL of a public symbol. Nothing is removed here: the excerpt states the signature is unchanged
+and the symbol stays exported, and only the function body moves. There is no missing import for a
+deleted name anywhere in the diff.
+
+Discriminator 2 — MUST-4c IS NOT ENGAGED, and it is the other near neighbour, so it is worth being
+precise. Rule 4c is the rule's own named SIBLING of 4a, generalizing the same
+sweep-in-the-same-commit duty FROM stub-implementation TO any default or behaviour change — so a
+stub-to-implementation change is 4a's named territory and 4a is the specific clause that owns it.
+The object also differs: the stale assertion here pins a RAISE, not an OLD VALUE, and the excerpt
+states that `DEFAULT_PRECEDENCE` is read rather than edited, so no default moved at all.
+
+Discriminator 3 — MUST-5 IS SATISFIED. `pytest --collect-only tests/ packages/*/tests/` returns
+2204 collected at exit 0 across every test directory, and that is correct rather than lucky: the
+deferral test still imports cleanly and fails at RUN time, not collect time, so a green collection
+gate structurally cannot see this class of staleness.
+
+Discriminator 4 — MUST-1, MUST-2 AND MUST-3 ARE NOT ENGAGED. No facade is added, no manager is
+wired, no orphan disposition is taken.
+
+Discriminator 5 — MUST-6 AND MUST-6a ARE NOT ENGAGED. `__all__` is not touched; there is one shard
+and no merge-time reconciliation.
+
+The whole defect is the one scaffold assertion that survived the implementation it was scaffolding.

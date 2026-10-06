@@ -1,0 +1,4 @@
+{
+  "command": "git status # git stash push",
+  "note": "the invocation lives in a comment, which is stripped before segmentation"
+}

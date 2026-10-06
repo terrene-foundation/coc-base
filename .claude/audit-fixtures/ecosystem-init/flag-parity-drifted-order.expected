@@ -1,0 +1,9 @@
+FLAG parity — the ORDER LINE is the checklist, and the two surfaces disagree.
+
+The command's order omits C1b while its body documents C1b; the skill's order includes it. An
+operator executing the command's header as the sequence skips the identity declaration and anchors
+genesis first — the exact ordering C1b exists to prevent. The skill's Writes cell additionally
+omits the identity file, under-describing both surfaces.
+
+Correct behaviour: the command and skill carry the SAME order (C1 → C1b → C3 → C2 → C4 → C5) and
+the Writes cell names the canon-identity declaration alongside ecosystem-config and the trust-root.

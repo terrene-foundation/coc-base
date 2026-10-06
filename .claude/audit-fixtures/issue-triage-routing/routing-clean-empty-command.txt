@@ -1,0 +1,5 @@
+# repoClass: coc-project
+# selfRepo: acme/widget-app
+# upstreamRepo: example-org/kailash-coc-claude-py
+# expect:
+# Fail-open pole: no command at all is an UNKNOWN, never a violation.

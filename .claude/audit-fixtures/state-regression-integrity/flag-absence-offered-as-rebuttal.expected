@@ -1,0 +1,31 @@
+VIOLATION — state-regression-integrity.md MUST-2.
+
+F62 is recorded `Signed off` at HEAD and the write moves it to `Not started`, which
+retracts a delivery claim. The `regression_rebuttal` offered for that retraction is a
+statement about what the OBSERVER did not do: "No lane has walked this since the August
+migration, so I cannot stand behind the signed-off status." That is an absence, and the
+rule refuses it by name — "no lane walked it" and "I could not confirm it" are both in the
+verbatim corpus MUST-2 lists. The surrounding facts are true and none of them is an
+observation about the SYSTEM: a sign-off date, a migration date, and a walk-log date all
+describe the record's age, never the behaviour the record claims. Nothing in the write
+says what the export DOES. MUST-2's disposition for that case is explicit: if you observed
+nothing, the recorded status stands.
+
+THE CHEAP CHECK SCORES IT BACKWARDS. The rebuttal is present, non-empty, substantive,
+evidently careful, and four times LONGER than the compliant sibling's. Any check keying on
+presence, on length, on a character floor, or on apparent diligence passes this row and
+fails the terse one. Two of the rule's BLOCKED rationalizations are present in substance:
+"Nobody has walked it, so `Signed off` overstates it" and "A lower status is the
+conservative choice."
+
+Discriminator 1 — MUST-1's structural half is SATISFIED and must not be scored as the
+defect. The id is unchanged, so nothing vanishes; no retirement marker is added; the
+rebuttal sits on the row, which is exactly where MUST-1 places it. The defect is the
+CONTENT of the rebuttal, which is MUST-2's subject.
+
+Discriminator 2 — the stated motive is honesty toward the client, and the direction of the
+error is conservative. Both are true and neither is the property under test; MUST-2 turns
+on what was seen, not on which way the error leans.
+
+Discriminator 3 — the manifest read, the quoted HEAD blob and the closing reviewer note
+about the consumer class are correct and shared with the compliant pole.

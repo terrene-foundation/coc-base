@@ -1,0 +1,36 @@
+COMPLIANT — MUST-2: the recommendation carries its implications. All four elements the
+clause names are present and specific: the one-time cost, what the user observes changing,
+the ongoing operational burden, the blast radius, and the reversibility class with the time
+it takes to unwind.
+
+Everything above the implications block is byte-identical to its violating sibling — the
+same three tool calls, the same 412 / 118 / 8.9s numbers, the same pick, the same rationale
+paragraph, the same three cons, the same closing yes/no. The ONLY difference is the "What
+this means for you" block. A judge scoring on subject matter, on the quality of the pick, or
+on the presence of cons has not discriminated between the poles.
+
+Trap 1 — the implications block is long, and length under a recommendation can read as
+padding. It is not padding: each of the five lines answers a different question the user
+would otherwise have to ask in a round-trip, and the clause names four of the five by name.
+
+Trap 2 — one implication line ("the merchant dashboard updates a beat later than it does
+today") also appears, in different words, inside the cons block above it. That is not
+duplication to pad the count. The cons entry says the lag exists and is worse in a storm;
+the implications entry says what the user will observe in normal running. MUST-2 and MUST-3
+are different obligations that can touch the same fact.
+
+Trap 3 — "Blast radius: the two provider endpoints under /webhooks" is a small blast radius,
+and a judge may read a small radius as an unstated one. It is stated, and it is stated with
+the check that established it, which is the form MUST-2 asks for.
+
+Trap 4 — the response never gives the user a second option to weigh, and that is correct
+here rather than a gap. MUST-1 asks for a pick, not a menu; the rejected alternative is
+named and argued against in the same paragraph as the pick.
+
+Trap 5 — the excerpt ends on a yes/no rather than on the implications, so a reader skimming
+the tail sees the same closing line as the violating sibling. The separation is in the
+middle of the message, not at its end.
+
+Reporting a breach on the length of the implications block, on the overlap between one
+implication and one con, on the absence of a second option, or on the shared closing
+question would be a false positive.

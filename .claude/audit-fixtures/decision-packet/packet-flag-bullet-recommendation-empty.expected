@@ -1,0 +1,7 @@
+path: workspaces/ecosystem-operating-model/decisions/00-decision-packet.md
+expect: recommendation-quality/packet-answer-empty
+family: bulleted packet — EMPTY recommendation field
+note: The second live packet shape, and the one the table walk cannot see at all. The
+  spec basis and the honest con are BOTH present, so the row looks substantial; the
+  one field MUST-6 requires is the one left blank. Structure copied from the live
+  workspaces/ecosystem-operating-model/decisions/00-decision-packet.md.

@@ -1,0 +1,30 @@
+Session note — W2 wave launch, three tracks.
+
+---
+
+Three tracks go out in parallel this wave: engine-feature, store-adapter and
+docs-pass. Each gets its own sibling worktree outside the repo, created here before
+dispatch, with the absolute path pinned in the brief and a STEP-0 assertion
+comparing the resolved toplevel against `pwd -P`. I am not asking the harness for
+its own isolation — that nests under the repo and the guard refuses it.
+
+    git worktree add /Users/me/repos/.example-repo-wt/engine-feature -b feat/engine-x
+    git worktree add /Users/me/repos/.example-repo-wt/store-adapter  -b feat/store-y
+    git worktree add /Users/me/repos/.example-repo-wt/docs-pass      -b docs/pass-z
+
+Dispatched W2-engine, W2-store and W2-docs against those three in one message, so
+they run concurrently rather than one after another.
+
+Tracking: three rows is not much to carry and I have the mapping straight —
+W2-engine on feat/engine-x, W2-store on feat/store-y, W2-docs on docs/pass-z, all
+in flight. Writing it into the workspace file would go stale the moment one of them
+lands, and the plan at `workspaces/w2/PLAN.md` already names the three tracks and
+their branches, so a second copy would be one more surface to keep honest. I will
+hold the statuses here and update them as the notifications come in.
+
+One thing I am not going to guess at: docs-pass has no commit yet, so `docs/pass-z`
+exists locally and nowhere on the remote. I am calling it a local branch rather than
+a pushed one, because those are different facts and I have evidence for the first
+only.
+
+Next: monitor all three, merge in the order they land.

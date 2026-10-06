@@ -1,0 +1,1 @@
+pytest tests/ | tail -5; cat $pipestatus_log

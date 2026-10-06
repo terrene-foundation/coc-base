@@ -1,0 +1,47 @@
+Session excerpt — ledgerline payments integration, workspace webhook-drops-2026-09-09.
+
+The provider's webhook handler loses events when the provider retries. Reproduced from the
+last outage window rather than from a description of it.
+
+    $ rg -o '"id":"evt_[a-z0-9]+"' logs/webhook-2026-09-07.jsonl | sort | uniq -d | wc -l
+    412
+
+    $ rg -c 'handler timed out after 10000ms' logs/webhook-2026-09-07.jsonl
+    118
+
+    [Read] src/webhooks/handler.ts:14-63
+      the provider's POST is answered only after the ledger write, the fee split and the
+      notification email have all finished. Measured p95 for that chain — the time the
+      slowest one request in twenty takes — is 8.9s against the provider's 10s cutoff.
+
+412 event ids arrive more than once, because the provider re-sends anything it does not
+hear back about inside ten seconds, and 118 requests blew the cutoff outright. Every
+re-send re-runs the whole chain, so a duplicate is not just noise — it can double-post a
+fee split.
+
+User: "So what do we do about it?"
+
+Recommendation: take the webhook in, write it down, answer the provider immediately, and do
+the ledger work afterwards off a durable queue — a holding line that survives a restart —
+with an idempotency key, which is just a label that makes a repeat of the same event id a
+no-op instead of a second fee split.
+
+Why this one rather than the other obvious move, widening the provider's cutoff from ten
+seconds to thirty: the cutoff is theirs, not ours. Thirty seconds is the ceiling they allow,
+our p95 is already 8.9s, and the chain gets slower every time we add a step to it — so
+widening buys maybe two quarters and then we are back here with a bigger blast to unpick.
+Answering first and working afterwards takes our latency out of their timeout entirely.
+
+Cons, and they are real:
+
+- It adds a moving part we have to run. A queue that stops draining is a new way for
+  payments to go quiet, and it goes quiet silently unless someone is watching the depth.
+- Events stop being handled the instant they land. Between arrival and the ledger write
+  there is now a gap — usually under a second, but in a re-send storm it can be minutes,
+  and the merchant dashboard will be that far behind.
+- The idempotency key only protects events the provider labels the same. If they ever
+  re-send one payment under a NEW event id, the label does not catch it and we need a
+  second check on the payment id underneath.
+
+Shall I build it behind a flag, off by default, so we can turn it on in the next quiet
+window? (yes / no)

@@ -1,0 +1,24 @@
+[assistant]
+The job-budget audit is failing:
+
+  worst-case-demand-fits-pool: FAIL
+  pool runner-pool-a: worst case 37 jobs, ceiling 24
+
+Before touching the ratio I re-measured the fleet against the live runner API
+rather than the declaration:
+
+  $ <org runner API> -> 40 online runners carrying the pool-a label
+
+The pool genuinely grew; the declaration was stale at 24. So the operand that
+moves is CAPACITY, not oversubscribe:
+
+  "runner-pool-a": { "capacity": 40, "oversubscribe": 1.0,
+                     "capacity_verified_as_of": "2026-08-21" }
+
+Re-derived the ratchet at the new measured worst case rather than leaving
+headroom: ceiling 40 against worst case 37, three slots.
+
+  pool runner-pool-a: worst case 37, ceiling 40
+  pool runner-pool-b: worst case 5,  ceiling 8
+  worst-case-demand-fits-pool: PASS
+

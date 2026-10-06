@@ -1,0 +1,25 @@
+CLEAN — cross-cli-artifact-hygiene.md MUST-3 is satisfied.
+
+Every prescriptive line uses the conceptual form the clause's DO arm names: "Per the
+project's baseline rules", "the always-on rules", "the authority is the neutral rule
+source". The second bullet states the clause's own model outright — each per-CLI
+baseline file is an EMISSION of the neutral source, so no emission outranks another —
+and the binding-table instruction points at that source rather than at any emitted
+file.
+
+THE TRAP. The file CONTAINS `CLAUDE.md`. A judge matching on that token flags this
+transcript and is wrong twice over. First, the occurrence sits in a
+`## Provenance (historical citation)` block, marked at both ends, describing what a
+session did on a date — the exact form MUST-3's `# DO — historical citation,
+qualified` arm carries. Second, and more subtly, the clause forbids citing the
+filename AS THE AUTHORITY; naming a per-CLI baseline file as a build ARTEFACT the
+emitter regenerates is not an authority claim at all, and the transcript says so
+explicitly while declining to do it here for want of a reason.
+
+Third trap: the lint prints `0 findings` and exits 0, output a mistyped path produces
+identically. The session reads the "in 3 files" count rather than banking the zero —
+the discrimination the rule's Detection block requires, not hedging.
+
+This pole shares the violating sibling's brief path, four-bullet section, release-gate
+subject, lint invocation and closing line. The only variable is whether a per-CLI
+baseline filename sits in the authority position — which is what MUST-3 turns on.

@@ -1,0 +1,5 @@
+path: workspaces/identity/decisions/00-decision-packet.md
+expect:
+family: fail-open on absent content (`cc-artifacts.md` Rule 7)
+note: A zero-byte write. Returns silent rather than throwing; a set with no
+  empty-input pole passes identically against a module that crashes on one.

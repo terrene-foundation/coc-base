@@ -33,12 +33,68 @@ An argv substring match is incomplete on its own — a compiler or build driver 
 worktree as cwd and relative paths carries no slug in its command line — so the CWD-based check is
 PRIMARY and the argv match is corroboration, never a substitute.
 
+**A THIRD axis is required, because the first two see only what is RUNNING RIGHT NOW.** An agent
+between tool calls — waiting on a model response, on a network round-trip, on a human — owns no
+process and holds no cwd, so both sweeps report clean while it is very much alive. The `mtime`
+look-back is what covers that gap: it asks whether anything under the worktree was WRITTEN inside
+a recent window, which is a trace the agent leaves whether or not it currently holds a PID.
+
+**The look-back MUST back-date a REFERENCE FILE and use POSIX `find -newer <ref>`. `-newermt` is
+BLOCKED in every spelling.** It is a non-POSIX extension whose ARGUMENT grammar differs per
+implementation: GNU findutils accepts a relative string, `bfs` carries it but accepts only
+ISO-8601-like timestamps, and whether macOS BSD `find` carries it at all is RELEASE-dependent —
+MEASURED 2026-09-29 on Darwin 25.6.0, `/usr/bin/find` DOES carry it and accepts BOTH forms at
+rc 0, so a session testing there would wrongly conclude the predicate is safe. **Measured on the
+authoring host, whose `find` is `bfs`:** `find <dir> -type f -newermt '-45 minutes'` →
+`bfs: error: Invalid timestamp`, rc 1; the SAME command under `2>/dev/null` → **empty output,
+rc 1** — byte-indistinguishable from "nothing was written". Every such pipeline carries that
+`2>/dev/null` to suppress permission noise, and the disposition on empty is FREE, so the
+portability failure launches into an OCCUPIED worktree. Read that measurement precisely: it is
+silent to a counter that discards BOTH stderr and rc — the rejection IS rc-visible, so this is a
+PORTABILITY hazard, **NOT the silent class below, which no rc check can catch**.
+`touch -t` + `-newer` is POSIX and behaves identically on all three.
+
+**The SILENT class is the WALK's START POINT — a different failure DIRECTION from `-newermt`.**
+A `find` / `bfs` walk whose start point is ITSELF a symlink and is written WITHOUT a trailing slash
+(and without `-H`/`-L`) emits ZERO PATHS at `rc=0` and prints no stderr, because the symlinked
+directory is read as a FILE and the walk never descends. MEASURED 2026-09-29 on Darwin 25.6.0,
+reproduced on BOTH the shell's `bfs 4.1.1` and `/usr/bin/find`, with a firing control in each
+direction — and SCOPED by a control in the other: `ls -R`, `python3 os.walk` and
+`node fs.readdirSync(..., {recursive:true})` all DO descend that same bare symlink (measured), so
+"any equivalent walk goes silent" is FALSE:
+
+    ls -ld /tmp                                   ->  /tmp -> private/tmp
+    find /tmp  -maxdepth 1 -name 'loomfindprobe'  ->  (nothing)                  rc=0
+    find /tmp/ -maxdepth 1 -name 'loomfindprobe'  ->  /tmp/loomfindprobe         rc=0
+    find "$(realpath /tmp)" -maxdepth 1 -name …   ->  /private/tmp/loomfindprobe rc=0
+
+A rejection at rc 1 is a failure you can SEE; a symlinked start point is a success you CANNOT —
+zero output at a clean rc is byte-identical to a true negative, so it is ZERO EVIDENCE
+(`evidence-first-claims.md` MUST-3) and never an all-clear. **Anchor the look-back on a
+NON-SYMLINK root — `realpath <wt>`, or a trailing slash — and fire the enumeration at a file you
+KNOW is there BEFORE reading a zero as "nothing was written".** The predicate control in the
+runnable check below cannot catch this: its own root is a `mktemp -d` path, which is never a
+symlink, so it passes while the real sweep is blind. This is the shape that cost a day: a
+complete, verified 1,833-line implementation was declared LOST because the gate searched a
+symlinked `/tmp` start point, a duplicate agent was briefed onto the same track, and ~40 minutes
+of agent time re-derived work that had sat on disk for over an hour.
+
+**Every counter MUST be numerically guarded before it is compared.** An empty capture makes
+`[ "$x" -eq 0 ]` exit 2 with a `not a valid identifier`-class error on stderr; the enclosing `if`
+reads that as FALSE, and control falls through to the next statement — which on this check's happy
+path is the FREE return. That is a fail-OPEN on the one branch that must not have one, and it is
+silent, because the error text goes to a stderr nobody reads.
+
 ```bash
-# DO — per-tool failure convention; positive control before trusting either result.
+# DO — three axes, each fail-closed, each numerically guarded, mtime proven to discriminate.
 # A FUNCTION, not a loose snippet: `return` is only valid inside one, and it gives the
 # topology guard a home. Run it from the MAIN checkout, never from inside the worktree.
 check_worktree_free() {
-  wt="$1"                                            # absolute path to the worktree
+  wt="$1"; back_min="${2:-45}"        # absolute worktree path; look-back window in minutes
+
+  # NUMERIC GUARD — an empty capture makes `[ "$x" -eq 0 ]` exit 2, the `if` reads FALSE,
+  # and control falls through toward FREE. Nothing below is compared before it passes this.
+  isnum() { case "${1-}" in '' | *[!0-9]*) return 1 ;; *) return 0 ;; esac; }
 
   # (0) TOPOLOGY GUARD — this check is only sound from OUTSIDE the target. Run from inside,
   #     the pipeline's OWN processes (the $( ) subshell, awk, grep) have cwd there and are
@@ -47,23 +103,79 @@ check_worktree_free() {
   case "$PWD/" in "$wt"/*)
     echo "run this from OUTSIDE $wt — the check's own processes would be counted"; return 1;; esac
 
-  # (1) argv sweep — ps: non-zero rc IS failure
+  # (1) ARGV SWEEP (corroboration) — ps: a non-zero rc IS failure.
   out=$(ps -eo pid,lstart,command 2>/dev/null); rc=$?
-  if [ "$rc" -ne 0 ]; then echo "ps DID NOT RUN -> treat as OCCUPIED"; return 1; fi
-  printf '%s\n' "$out" | grep -- "<worktree-slug>" | grep -v grep      # must be EMPTY
+  isnum "$rc" || { echo "ps rc unreadable -> OCCUPIED"; return 1; }
+  [ "$rc" -eq 0 ] || { echo "ps DID NOT RUN -> OCCUPIED"; return 1; }
+  argv_hits=$(printf '%s\n' "$out" | grep -F -- "$(basename "$wt")" | grep -v '[ /]grep ' | grep -c .)
+  isnum "$argv_hits" || { echo "argv sweep unreadable -> OCCUPIED"; return 1; }
 
-  # (2) cwd sweep (PRIMARY — catches relative-path builds). lsof rc=1 means NOT-FOUND, not failure:
-  #     discriminate on line count, and exclude lsof's own entries + this shell.
-  hits=$(lsof -a -d cwd -w +D "$wt" 2>/dev/null \
-          | awk -v me=$$ -v pp=$PPID 'NR>1 && $1!="lsof" && $2!=me && $2!=pp' | grep -c .)
-  #     POSITIVE CONTROL — bounded, O(1): lsof MUST be able to report a cwd it certainly can (this shell's).
+  # (2) CWD SWEEP (PRIMARY — catches relative-path builds). lsof rc=1 means NOT-FOUND, not
+  #     failure: discriminate on LINE COUNT, and exclude lsof's own entries + this shell.
+  #     POSITIVE CONTROL — bounded, O(1): lsof MUST report a cwd it certainly can (this shell's).
   #     Do NOT use `+D "$HOME"` as the control — it walks the whole home tree and hangs.
   ctl=$(lsof -a -d cwd -w -p $$ 2>/dev/null | grep -c .)
-  if [ "$ctl" -eq 0 ]; then echo "lsof cannot report even this shell's cwd -> instrument suspect -> OCCUPIED"; return 1; fi
-  if [ "$hits" -ne 0 ]; then echo "OCCUPIED: $hits process(es) with cwd inside the worktree"; return 1; fi
+  isnum "$ctl" || { echo "lsof control unreadable -> OCCUPIED"; return 1; }
+  [ "$ctl" -gt 0 ] || { echo "lsof cannot report even this shell's cwd -> suspect -> OCCUPIED"; return 1; }
+  cwd_hits=$(lsof -a -d cwd -w +D "$wt" 2>/dev/null \
+              | awk -v me=$$ -v pp=$PPID 'NR>1 && $1!="lsof" && $2!=me && $2!=pp' | grep -c .)
+  isnum "$cwd_hits" || { echo "cwd sweep unreadable -> OCCUPIED"; return 1; }
+
+  # (3) MTIME LOOK-BACK — covers the agent that is ALIVE but between tool calls (no PID, no cwd).
+  scratch=$(mktemp -d) || { echo "cannot create scratch dir -> OCCUPIED"; return 1; }
+  # Back-date a reference file. BSD `date -v` first, GNU `date -d` second; neither -> fail closed.
+  stamp=$(date -v-"${back_min}"M +%Y%m%d%H%M 2>/dev/null) \
+    || stamp=$(date -d "-${back_min} minutes" +%Y%m%d%H%M 2>/dev/null)
+  older=$(date -v-"$((back_min * 3))"M +%Y%m%d%H%M 2>/dev/null) \
+    || older=$(date -d "-$((back_min * 3)) minutes" +%Y%m%d%H%M 2>/dev/null)
+  if [ -z "$stamp" ] || [ -z "$older" ]; then
+    rm -rf "$scratch"; echo "cannot back-date (neither BSD -v nor GNU -d) -> OCCUPIED"; return 1; fi
+  ref="$scratch/ref"; : > "$ref"; touch -t "$stamp" "$ref" \
+    || { rm -rf "$scratch"; echo "touch -t rejected -> OCCUPIED"; return 1; }
+  # POSITIVE CONTROL — bounded, two files: the predicate MUST find one INSIDE the window and
+  # MUST NOT find one OUTSIDE it. A control that fires on both, or on neither, cannot
+  # discriminate, and its later silence over $wt would carry no information at all.
+  mkdir -p "$scratch/ctl"
+  : > "$scratch/ctl/inside"                                        # written now  -> MUST be found
+  : > "$scratch/ctl/outside"; touch -t "$older" "$scratch/ctl/outside"  # older    -> MUST NOT be
+  seen=$(find "$scratch/ctl" -type f -newer "$ref" -print 2>/dev/null)
+  hit_in=$(printf '%s\n' "$seen" | grep -c '/inside$')
+  hit_out=$(printf '%s\n' "$seen" | grep -c '/outside$')
+  if ! isnum "$hit_in" || ! isnum "$hit_out" || [ "$hit_in" -ne 1 ] || [ "$hit_out" -ne 0 ]; then
+    rm -rf "$scratch"
+    echo "-newer does not discriminate here (in=$hit_in out=$hit_out) -> suspect -> OCCUPIED"; return 1; fi
+  # Only now is a silence from the real sweep readable. Prune only `.git` (our own git calls
+  # touch it); a build-output directory is exactly the signal we WANT, so never prune it.
+  # ANCHOR THE ROOT: `find` and `bfs` read a symlinked START POINT as a FILE and never descend,
+  # emitting ZERO PATHS at rc=0 — a silent zero the control above CANNOT catch, its own root being a
+  # mktemp path and never a symlink. The class is find/bfs-scoped (`ls -R`, `os.walk`,
+  # `readdirSync{recursive:true}` DO descend — measured); the anchor stays general safe practice.
+  # realpath normalizes the parent components; a trailing slash alone still forces the descent, so
+  # the fallback stays safe where realpath is absent.
+  wt_root=$(realpath "$wt" 2>/dev/null) || wt_root="$wt"
+  drawn=$(find "${wt_root%/}/" -name .git -prune -o -type f -newer "$ref" -print 2>/dev/null)
+  sweep_rc=$?
+  [ "$sweep_rc" -eq 0 ] || { rm -rf "$scratch"; echo "mtime sweep exited $sweep_rc -> OCCUPIED"; return 1; }
+  mtime_hits=$(printf '%s\n' "$drawn" | grep -c .)
+  rm -rf "$scratch"
+  isnum "$mtime_hits" || { echo "mtime sweep unreadable -> OCCUPIED"; return 1; }
+
+  # VERDICT — any axis non-zero is OCCUPIED. All three must be zero to return FREE.
+  [ "$argv_hits"  -eq 0 ] || { echo "OCCUPIED: $argv_hits process(es) name the worktree in argv"; return 1; }
+  [ "$cwd_hits"   -eq 0 ] || { echo "OCCUPIED: $cwd_hits process(es) with cwd inside the worktree"; return 1; }
+  [ "$mtime_hits" -eq 0 ] || { echo "OCCUPIED: $mtime_hits file(s) written in the last ${back_min}m"; return 1; }
+  echo "FREE as of $(date -u +%Y-%m-%dT%H:%M:%SZ) (window ${back_min}m) — PERISHABLE, not proof of absence"
   return 0
 }
 
+# DO NOT — a bare symlinked START POINT: find reads it as a FILE, never descends, and returns
+#          ZERO PATHS at rc=0 — silent at a CLEAN rc, so even an rc check reads it as FREE
+find /tmp -type f -newer "$ref" 2>/dev/null   # /tmp -> private/tmp; use realpath /tmp, or /tmp/
+# DO NOT — `-newermt` in any spelling; the argument grammar does not travel across bfs / GNU /
+#          BSD, and under the 2>/dev/null every such pipeline carries the rejection reads as FREE
+find "$wt" -type f -newermt '-45 minutes' 2>/dev/null   # and -newermt "@$(...)", and -newerm t
+# DO NOT — compare a counter that was never proven numeric (the fail-OPEN this check exists to avoid)
+hits=$(... | grep -c .); if [ "$hits" -eq 0 ]; then return 0; fi   # empty $hits -> exit 2 -> FREE
 # DO NOT — run the check from inside the worktree it is checking
 cd "$wt" && check_worktree_free "$wt"   # the guard refuses; without it, hits=3 on an EMPTY dir
 # DO NOT — one blanket exit-code rule across tools with opposite conventions
@@ -74,6 +186,15 @@ ps -eo command | grep <slug>      # errors, PID-namespace confinement, and "no m
 git -C <wt> log -1 --format=%ad   # old  ) neither of these
 git -C <wt> status --porcelain    # clean) discriminates
 ```
+
+**FREE is a bound, never a proof — and it expires.** All three axes are existence checks: each can
+demonstrate that something IS there, and none can demonstrate that nothing is. A FREE verdict says
+only _no process named the worktree, no process held a cwd inside it, and nothing was written in
+the last `back_min` minutes_ — it is consistent with an agent idle longer than the window, with a
+writer on a filesystem whose mtimes are coarse or disabled, and with a process the running user
+cannot see. It is also **PERISHABLE**: it describes the instant it ran, and a sibling can claim the
+worktree in the second after. Re-run it IMMEDIATELY before the launch it authorizes, never once at
+the top of a wave, and never cache the result across a plan step.
 
 `+D` walks the tree and is the correct choice (`+d` is one level deep and misses a process whose cwd
 is a nested subdirectory); it costs seconds on a large build-output tree — measured ~9s on a 12 GB
@@ -206,3 +327,46 @@ counts and the failure sequence are carried verbatim because they are the eviden
 from the rule body under `rule-authoring.md` Rule 10 path (a) — the `workspace-note` path-scoped
 injection profile had 9,013 B of headroom against ~20 KB of authored clause text, so the executable
 checks and BLOCKED corpora live here and the rule body carries the thin contract.
+
+## MUST-6 — revival, and the force-push that "succeeds"
+
+Depth for `orchestration-launch-ledger.md` MUST-6. MUST-4 covers the moment before a
+replacement launches; this covers the original coming BACK after one is already running.
+Check-before-spawn cannot see it: the ledger was correct when it was read.
+
+```text
+# DO — keep both rows, demote one to READ-ONLY before either writes again
+ledger: track-A → agent-1 in-flight (RETURNED) · agent-2 in-flight → DEMOTE agent-2 to read-only verifier
+git rev-list --count feat/x..origin/feat/x    # 5 → a force-push WOULD destroy five commits
+git push origin feat/x:refs/heads/recovery/feat-x-agent1   # preserve BOTH sides instead
+
+# DO NOT — any of these
+git branch -D feat/x            # the "stale" row was a live writer
+git push --force origin feat/x  # accepted precisely BECAUSE origin had commits you did not
+kill <pid>                      # kill is a human gate, never self-authorized
+```
+
+**BLOCKED rationalizations:** "the ledger row is stale, it died" / "two agents on one track is
+fine, they coordinate" / "a peer assigned me this track, so the stand-down is lifted" / "the
+force-push was accepted, so nothing was lost" / "the branch is orphaned, there is nothing to
+preserve" / "--force-with-lease is the safe variant" (it guards against a ref moving under you,
+not against destroying commits you never fetched).
+
+**Why the read-only demotion rather than a kill.** The duplicate is not merely tolerated — in the
+originating incident the demoted verifier caught a three-way resolver divergence and a
+deny-by-default regression that neither implementing agent could see. A second reader on a track
+is an asset; a second WRITER is the collision `--author` cannot untangle.
+
+**What the detector does NOT give you, in one line.** The force-push half of MUST-6(b) has a
+structural hook armed at loom and deliberately fenced from consumers, so at a consumer this clause
+is enforced by the gate-review sweep and by nothing else: the hook's silence there is the ABSENCE OF
+AN INSTRUMENT, never evidence that no force-push destroyed origin-only commits. Fixture
+registration, the DEPTH-1 fixture-slug requirement and the CC-only arming measurement — with the
+sibling-guard control that proves the arming cloud is not a dead grep — are in the extract,
+`guides/rule-extracts/orchestration-launch-ledger.md` § "MUST-6(b) force-push detector — arming,
+fencing and fixture provenance".
+
+**Measured evidence.** A session-limited agent was replaced and then returned, creating two writers
+on one track. Separately, a recovered agent held 15 unpushed commits that could not fast-forward; a
+force-push would have been accepted and would have destroyed five origin-only commits differing by
+744 and 768 lines. Acceptance is the remote answering about refs, never about content.

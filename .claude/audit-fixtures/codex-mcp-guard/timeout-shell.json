@@ -1,7 +1,9 @@
 {
-  "_doc": "Timeout payload — covers cc-artifacts.md Rule 7. Server must allow the call (fail-open) AND log to violations.jsonl when a hook subprocess exceeds SUBPROCESS_TIMEOUT_MS. Exercised via test-server.mjs against a synthetic sleeping hook because no production hook deliberately hangs.",
+  "_doc": "Timeout payload. The subprocess timing fixture proves the deadline fires; unevaluable policy handlers fail closed, separately exercised by the enforcement disposition controls in test-server.mjs.",
   "tool": "shell",
-  "tool_input": { "command": "ls" },
-  "expected_allow": true,
-  "expected_violation_kind": "codex_mcp_guard_timeout"
+  "tool_input": {
+    "command": "ls"
+  },
+  "expected_allow": false,
+  "expected_violation_kind": "codex_mcp_guard_failclosed_timeout"
 }

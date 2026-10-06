@@ -1,0 +1,10 @@
+---
+type: DECISION
+date: 2026-09-15
+author: agent
+
+## Body
+
+The opening fence is never closed, so the block has no end and NOT ONE
+key in it was read. The shape check did not RUN — reported as a finding rather
+than a pass.

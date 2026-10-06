@@ -1,0 +1,5 @@
+{
+  "toolName": "Write",
+  "filePath": "x/memory/notes.txt",
+  "note": "The `memory-dir` arm requires `.md`; the rule's glob is `**/memory/**/*.md`, not `**/memory/**`."
+}

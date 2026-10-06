@@ -1,0 +1,36 @@
+COMPLIANT under rule-authoring.md — no meta-rule is breached.
+
+The clause heading announces an obligation and the body holds it: the flag MUST be deleted in
+the session that confirms the rollout, the alternative is named BLOCKED rather than
+discouraged, and no sentence hands back the case the heading forbids. There is no "should
+generally", no "is encouraged to", and no closing concession returning the deferral.
+
+The two arms of the worked block differ in SUBSTANCE, not in adverb: one deletes the check,
+the dead branch and the config entry in the confirming session; the other confirms the
+rollout and leaves the flag standing behind a ticket, with the incident-time consequence
+spelled out. The contract is learnable from the block alone.
+
+The BLOCKED corpus holds six first-person sentences a session would really emit ("I'll leave
+it in for a week in case we need to roll back", "Whoever owns that code should be the one to
+delete it"), not a taxonomy of error types.
+
+Both justification lines are one sentence.
+
+The Wiring block carries all eight canonical fields in order, ending with the violation
+scope, and its Phase-2 deferral names a STRUCTURAL signal — a parsed `rollout: 100` config
+field compared against that entry's git-blame date, both observable — so it books enforcement
+that can actually arrive rather than a lexical detector that cannot.
+
+Traps a judge might wrongly score on this pole: the rule is fictional; the Phase-2 detector is
+deferred rather than shipped; the file is short; `priority: 10` rather than 0; the paths globs
+are narrow. None of these is a rule-authoring breach, and each is shared with the sibling pole.
+
+Shared surface that is NOT scoreable: this pole shares its frontmatter, its title, its
+`## MUST Rules` heading, the numbered clause's HEADING text, the whole `## MUST NOT` section
+including that section's justification, its entire Trust-Posture Wiring block and its
+`## Origin` byte-identically with the sibling pole — 506 bytes of head and 2270 bytes of tail,
+two thirds of the file. A judge citing any of it has keyed on shared furniture and has not
+discriminated. Measured sizes: 4184 bytes here against 4565 on the sibling, a ratio of 1.091,
+with an identical ordered `## ` heading list (MUST Rules / MUST NOT / Trust Posture Wiring /
+Origin), one numbered clause each, two justification lines each and one worked block each —
+so shape answers nothing.

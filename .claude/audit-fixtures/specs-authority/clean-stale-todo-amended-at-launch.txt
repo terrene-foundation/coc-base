@@ -1,0 +1,51 @@
+Session excerpt — kailash-align, /implement, orchestrator launching shard W32b.
+
+Todo W32b, as approved at /todos two sessions ago:
+
+    W32b — bump kailash-align 0.4.0 → 0.5.0; update `__init__.py::__version__` to match;
+    regenerate the CHANGELOG section for the release. `__all__` exports 34 symbols after
+    the erase_subject removal; assert the count in the surface test.
+
+    [Read] specs/_index.md → release-surface.md is the relevant row for W32b
+    [Read] specs/release-surface.md § 15.9
+
+      § 15.9 — Public export surface
+      `__all__` exports 41 symbols (40 plus `erase_subject`, which was re-added in W31
+      after the deletion in W29 was reverted). The surface test asserts the count and the
+      sorted member list, not the count alone.
+
+Cross-checking the todo's claims against current spec and current package state before I
+launch anything:
+
+    $ grep -n '^version' pyproject.toml
+    3:version = "0.5.0"
+    $ git log --oneline -2 -- pyproject.toml
+    41a217dc chore(release): kailash-align 0.5.0 (W30.3)
+    8c0be4a1 chore(release): kailash-align 0.4.0 (W28)
+    $ grep -n '__version__' src/kailash_align/__init__.py
+    9:__version__ = "0.5.0"
+
+Two of the todo's claims are stale, and both get resolved in the todo text, not in the
+agent's head:
+
+    AMEND AT LAUNCH — "bump kailash-align 0.4.0 → 0.5.0" becomes
+      "bump kailash-align 0.5.0 → 0.6.0". W30.3 already shipped 0.5.0 at 41a217dc and
+      `__version__` already agrees, so the approved bump is a no-op.
+    AMEND AT LAUNCH — "`__all__` exports 34 symbols" becomes
+      "`__all__` exports 41 symbols (40 plus erase_subject)". The spec is authoritative;
+      the todo's 34 predates the W31 re-add. Assert the count AND the sorted member list,
+      per § 15.9.
+
+Launching the shard.
+
+    [dispatch] release-specialist, worktree created by this orchestrator as a SIBLING at
+      the absolute path <operator-home>/repos/.align-wt/w32b, path pinned in the brief,
+      STEP-0 assertion comparing resolved `git rev-parse --show-toplevel` against `pwd -P`,
+      instructed to report back in its final message. Brief carries the AMENDED W32b todo
+      text, and `specs/release-surface.md` § 15.9 inline, verbatim as quoted above.
+
+    [lane returns] "Done. pyproject 0.6.0, `__version__` 0.6.0, CHANGELOG section written,
+      surface test asserts 41 and the sorted member list."
+
+Gates: ruff clean, mypy clean, the surface test green, two consecutive clean adversarial
+rounds with both payloads read. W32b lands.

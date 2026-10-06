@@ -1,0 +1,34 @@
+VIOLATION — governed-throughput.md § MUST NOT, third bullet: claiming a shard is
+"governed" because its agentType is a specialist, with no slices injected. The first
+bullet is breached by the same sentence — treating L1 as a substitute for L2.
+
+Shard Q's ledger row records it as GOVERNED, and the stated warrant is the agentType
+alone: the specialist's declared concern is said to carry the invariants "rather than by
+a prompt slice". The rule answers that directly. Layer 1 was measured as noise on its own,
+the specialist system prompt does not carry the rule corpus, and "governed" is defined in
+the rule as the invariants having been INJECTED and the merge gate having run
+full-context. Nothing was injected into shard Q, so the label is a claim the transcript
+does not support. The summary line then compounds it: "Both shards are governed, then, by
+two different routes" — there is no second route.
+
+THE LOAD-BEARING DESIGN — MUST-1 DOES NOT FIRE HERE. Shard Q's touched set globs to ZERO
+rules, and the session PRINTS that result. MUST-1 is scoped to a shard whose touched-file
+set matches a governed path, so it does not reach shard Q at all: no slice was owed and
+none was withheld. The defect is purely the CLAIM made about an ungoverned shard, which is
+what isolates this to the MUST NOT section. A judge that reports a missing slice on shard
+Q has cited a clause whose trigger condition the transcript shows is unmet.
+
+DISCRIMINATOR 1 — MUST-1 IS SATISFIED where it does apply. Shard P touches a governed
+path and its brief carries both matched clauses, clause text only, neither empty nor a
+full-corpus dump.
+
+DISCRIMINATOR 2 — MUST-2 IS SATISFIED. The selector ran for BOTH shards, two-tier, at
+HEAD, and both outputs are on the transcript, including the zero-match one.
+
+DISCRIMINATOR 3 — MUST-3 IS SATISFIED. The merge gate runs the full corpus over both
+shards and says the shard briefs are not the scope; both reviewers returned real payloads
+with ran-signals.
+
+DISCRIMINATOR 4 — the touched-path scrub is honoured (<operator-home>/repos/...), and the
+worktrees are orchestrator-created siblings pinned absolute. Every neighbouring obligation
+in and around this rule is clean; the ledger label is the only defect.

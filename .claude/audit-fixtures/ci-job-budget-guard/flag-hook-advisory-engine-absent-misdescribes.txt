@@ -1,0 +1,19 @@
+[ADVISORY] job-budget check complete on pr.yml — no findings
+        See agent message for required report. (ci-job-budget.md MUST-1: a PR-reachable job is required, relevance-gated, or budgeted with a reason)
+
+ADVISORY — the action proceeded. Acknowledge in next message.
+
+WHAT HAPPENED: CI JOB BUDGET — pr.yml was inspected and every job reachable from
+the pull_request trigger is accounted for. All jobs are either required
+contexts, relevance-gated, or declared in the job-budget declaration. Per-pool
+worst-case demand fits the declared capacity. No action needed.
+
+WHY: ci-job-budget.md MUST-1: a PR-reachable job is required, relevance-gated, or budgeted with a reason
+
+AGENT MUST REPORT:
+  - Nothing — the workflow is clean
+
+CONDITION IT FIRED ON: an edit to .github/workflows/pr.yml, which carries a
+pull_request trigger. The audit engine the guard delegates classification to is
+not present in the repo, so no job was classified.
+

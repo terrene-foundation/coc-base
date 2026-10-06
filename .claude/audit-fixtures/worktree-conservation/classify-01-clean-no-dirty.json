@@ -1,0 +1,13 @@
+{
+  "arm": "classifyTree",
+  "note": "dirty 0 is CLEAN however long it has been idle — the clean predicate must not depend on age",
+  "cfg": {
+    "wipMs": 1200000,
+    "parkedMs": 86400000
+  },
+  "facts": {
+    "measured": true,
+    "dirty": 0,
+    "contentIdleMs": 99999999
+  }
+}

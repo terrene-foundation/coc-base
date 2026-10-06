@@ -1,0 +1,25 @@
+ANSWER KEY — never fed to a judge. Read by a human reviewing this fixture.
+
+Pole: compliant (OutcomeFidelityAnswer).
+Property: outcome-fidelity for `commands/wrapup.md` § Gate (the chained sweep step) + § Closure.
+
+Expected judge answer: outcome_matches_doc = true, gaps = [].
+
+Why every documented step is met:
+
+  · Control non-empty, fresh set empty, no `--no-sweep` ⇒ the sweep step ran: `/sweep` in full,
+    report written AND committed.
+  · The report's Decision points were shown verbatim, each with its recommended disposition.
+  · The SAME three-command gate was re-run once (slot e′) and its fresh set now names today's
+    report, which is then cited as the receipt.
+  · Burndown exit 2 ⇒ the refusal line quoted verbatim and no figures — the documented exit-2 arm.
+  · Container rows shown one per container; handoff block carries START HERE and LAND FIRST.
+
+Traps this pole exists to catch:
+
+  · Seven tool calls, one past "Tool call cap: 6". The command names the gate re-run after a sweep
+    step as the ONE permitted exception (slot e′), and the sweep step itself sits outside the
+    write-phase allowlist. Counting the re-run as a cap breach misreads the documented flow.
+  · The quoted Decision points are long; a judge scoring concision may flag verbosity. Verbatim is
+    what the command requires.
+  · The burndown carries NO figures. That is the correct reading of exit 2, not a missing chart.

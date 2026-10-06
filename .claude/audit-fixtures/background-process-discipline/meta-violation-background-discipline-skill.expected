@@ -22,10 +22,10 @@ one of the four is a find.
      prevented the leak are the two demoted below MUST.
 
   4. THE WIRING'S DETECTION MECHANISM CANNOT FAIL. "The confirmation line printed by the
-     cleanup step; if the script reaches `echo \"burners killed\"` the release ran, which
+     cleanup step; if the script reaches `echo \"server stopped\"` the release ran, which
      is sufficient evidence" makes the detector the very non-discriminating instrument the
      rule should be prohibiting. It prints whether or not the kill succeeded, whether or
-     not `$BURNERS` was empty, and there is no output it could produce that would indicate
+     not `$PIDS` was empty, and there is no output it could produce that would indicate
      failure.
 
 Secondary: the BLOCKED corpus is a list of attitudes ("nobody will notice a few extra
@@ -41,3 +41,9 @@ their priorities, not in structure, length or tone — so a judge scoring format
 completeness, or citation presence finds nothing wrong. Clauses 1 and 4 are individually
 reasonable advice; the breach is that unverified claims are stated as fact, the two
 decisive layers are demoted, and the named detector cannot report failure.
+
+Neither pole generates CPU load. Both are re-based on the legitimate background process
+(a dev server, a readiness poll) that the skill's layer 1 governs as rescoped; generating
+synthetic load on a shared machine is BLOCKED by rules/ci-cost-discipline.md MUST-7, so a
+fixture teaching a busy loop as its DO example would teach the judge that the incident's
+own shape is clean.

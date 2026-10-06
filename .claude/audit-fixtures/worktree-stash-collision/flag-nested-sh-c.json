@@ -1,0 +1,4 @@
+{
+  "command": "sh -c \"git stash push -u\"",
+  "note": "a nested shell body is a command, not an argument (loom#1589)"
+}

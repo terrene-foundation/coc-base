@@ -1,0 +1,7 @@
+# repoClass: coc-project
+# selfRepo: acme/widget-app
+# upstreamRepo: example-org/kailash-coc-claude-py
+# expect:
+# --repo=<value> must parse identically to --repo <value>; if it did not, the
+# compliant filing above would be read as having NO target and flagged as self.
+gh issue create --repo=example-org/kailash-coc-claude-py --title "COC: pointer stale"

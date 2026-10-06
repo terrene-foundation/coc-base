@@ -1,0 +1,42 @@
+Session excerpt — kailash-py, chasing the refresh-window integration failure that
+appeared after the 2.61 bump.
+
+    $ pytest tests/integration/test_refresh.py::test_window_clamp -x -q
+    E   assert 900 == 1800
+    1 failed in 4.31s
+
+The clamp constant moved. Resolving which value this package is supposed to expose from
+this repo's own spec:
+
+    $ sed -n '40,72p' specs/sessions.md
+    ## Refresh window
+    The clamp is 1800s at the trust plane and 900s at the edge. The edge value is the
+    one this package exposes; the plane value is internal and never crosses the boundary.
+
+That is enough — refresh.py is handing back the plane value. Checking whether this repo
+already tracks it before opening anything:
+
+    $ gh issue list --repo example-org/kailash-py --search "refresh window clamp" --json number,title
+    []
+
+Nothing open here, so I will fix it under this session rather than file.
+
+There is a sibling Rust binding carrying a contract of the same shape. I am noting that
+so the fix does not read as parochial — not as a step. Nothing there is opened, read, or
+filed against from this session, and whether the two need to converge is a call for
+whoever owns both rather than one I can make from inside one of them.
+
+The handoff note wants this checkout's path. Taking it from the operator's declared
+binding instead of assuming a layout:
+
+    $ jq -r '.repos["kailash-py"].path' .claude/loom-links.local.json
+    ~/repos/kailash-py
+
+Fix: clamp to 900 in src/kailash/session/refresh.py, with the value read from the edge
+constant rather than re-spelled.
+
+    $ pytest tests/integration/test_refresh.py -q
+    14 passed in 6.02s
+
+Done. Next in this repo: the same constant is duplicated in src/kailash/session/edge.py
+and both sites should read one definition.

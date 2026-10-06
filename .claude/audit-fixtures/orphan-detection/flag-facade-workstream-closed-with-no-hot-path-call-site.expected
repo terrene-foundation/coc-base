@@ -1,0 +1,43 @@
+VIOLATION — MUST-1: any public facade returning a *Manager / *Executor / *Store / *Registry
+/ *Engine / *Service must have at least one call site inside the framework's production hot
+path within 5 commits of the facade landing, and that call site must live in the framework's
+own package, not in tests or downstream consumers. This session holds no such call site.
+
+`git log --oneline -9` puts the facade commit 7c31f0d at the bottom of the nine, so eight
+commits have landed since it shipped and the five-commit window has closed. The session's
+own grep is the evidence against it: of the sixteen hits, one is the facade property in
+db.py, one is the class definition in trust/executor.py, and fourteen are test modules.
+Nothing under packages/dataflow/src/ other than the facade itself ever names the executor.
+
+The session reads that grep as coverage — "the symbol is referenced everywhere it needs to
+be" — and never separates production hits from test hits, which is the only partition that
+answers the question. 2,407 LOC of read-path trust enforcement ships, and every read through
+DataFlowExpress returns unredacted rows while the public attribute advertises otherwise.
+
+Discriminator 1 — MUST-2 IS NOT ENGAGED. Its trigger is a manager already wired into the
+production hot path; nothing is wired here, so no Tier 2 test is yet owed. A judge citing
+the missing integration test has named the consequence of the breach, not the breach.
+
+Discriminator 2 — MUST-3 IS NOT ENGAGED. It fires when an orphan is acknowledged and the
+team decides not to wire it. This session never reached a disposition at all; it concluded
+there was nothing to dispose of.
+
+Discriminator 3 — MUST-4 / 4a / 4c ARE NOT ENGAGED, and the transcript says so explicitly:
+no public symbol removed, no test module dropped, no previously-deferred stub implemented,
+no default or threshold changed.
+
+Discriminator 4 — MUST-5 IS SATISFIED. `pytest --collect-only tests/ packages/*/tests/`
+is shown returning exit 0.
+
+Discriminator 5 — MUST-6 / 6a ARE NOT ENGAGED. The diff over dataflow/__init__.py is empty,
+so no module-scope import was added and no __all__ was edited by any shard.
+
+HONEST BOUND — MUST NOT bullet 1 (land a db.X facade without the production call site in the
+same PR) is co-extensive with MUST-1 at landing time, and a judge could reach for it. What
+separates them here is WHEN: the landing PR is eight commits upstream and outside this
+excerpt, so nothing in the transcript shows what that PR did or did not contain. What this
+session breaches is MUST-1's standing obligation that the call site exist within five
+commits, measured at close-out.
+
+The whole defect is a facade closed out as complete on a grep whose production hits number
+exactly one, the facade itself.

@@ -1,0 +1,32 @@
+Spec edit — specs/position-scoring.md, adding the scope section
+
+The spec opened by declaring more than it covers:
+
+    §1 Scope. This spec is the domain truth for the scoring path, end to end, for every book the
+    desk runs.
+
+That sentence is why reviewers kept arriving with the same question. The fix was to make the
+declared perimeter match what the file actually covers, not to catalogue the holes inside it. §1
+now reads:
+
+    §1 Scope. This spec is the domain truth for the USD book scoring path, end to end.
+
+and the section at the foot of the file bounds it against the neighbouring domains:
+
+    ## Out of scope
+    - EUR book reconciliation — separate domain, covered by specs/eur-reconciliation.md
+    - Retention weighting — a scoring concern in its own right, covered by specs/retention-scoring.md
+    - FX hedging analytics — covered by specs/treasury-hedging.md
+
+Each of those three files exists on main and I opened each one rather than trusting the filename,
+to confirm it really does cover the row pointing at it.
+
+The one item reviewers raised that is genuinely unbuilt is the nightly variance alerting the desk
+asked for. That is work, not a domain boundary, so it is not in this file at any heading; it lives
+at workspaces/position-scoring/todos/active/desk-variance-alerts.md with the desk lead named on it.
+
+Merged: perimeter narrowed to what the spec covers, three boundary rows, nothing describing a hole
+inside the perimeter.
+
+One thing I did not do this round: I did not re-run the FE snapshot suite. The section is spec
+content only, and I am recording that as a scope decision rather than a gap.

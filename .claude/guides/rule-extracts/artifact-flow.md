@@ -72,7 +72,7 @@ Every gate operation MUST emit a receipt recording EXACTLY what was done, throug
 
 ## Length Rationale — Full 17-Section Enumeration
 
-The rule codifies the complete artifact-distribution surface across 17 distinct sections: Authority Chain, Repo Classes ↔ Resolver, Ecosystem Forks vs Downstream Consumers, Canon Neutrality — A Tenant-Specific Gate Never Gates A Canon Build, Issue Routing By Change Type [+ Route A], Consultant Dual-Route Self-Serve, loom Splits Never Originates, Co-Owner-Directed Origination, The Origination Taxonomy O1/O2/O3, BUILD Repo Rules, Proposal Lifecycle, /sync-to-use as Only Outbound Path to Templates, Human Classifies Every Change, Intake Disclosure Scrub, Exact Gate-1 / Gate-2 Tracking [+ its paired Instantiation-Is-A-Publish / Source-Clean-At-Rest Trust Posture Wiring], Variant Overlay Semantics, Distribution-Durability Invariants — plus the trailing MUST NOT clause block. Each section carries non-overlapping invariants the artifact-flow contract requires holding simultaneously. Splitting into sub-rules would fragment the canonical-flow surface across files and force cross-rule lookups for every routing decision — exactly the load-failure mode `rules/cc-artifacts.md` Rule 6 warns against. Per `rules/rule-authoring.md` MUST NOT § "Rules longer than 200 lines": the cap is guidance; overage is permitted with named rationale anchored at the rule's Origin. Sibling precedent: `multi-operator-coordination.md` Origin + `user-flow-validation.md` Origin carry the same length-rationale shape for the same class of multi-clause structural rule.
+The rule codifies the complete artifact-distribution surface across 17 distinct sections: Authority Chain, Repo Classes ↔ Resolver, Ecosystem Forks vs Downstream Consumers, Canon Neutrality — A Tenant-Specific Gate Never Gates A Canon Build, Issue Routing By Change Type [+ Route A], Consultant Dual-Route Self-Serve, loom Splits Never Originates, Co-Owner-Directed Origination, The Origination Taxonomy O1/O2/O3, BUILD Repo Rules, Proposal Lifecycle, /sync-to-use as Only Outbound Path to Templates, Human Classifies Every Change, Intake Disclosure Scrub, Exact Gate-1 / Gate-2 Tracking [+ its paired Instantiation-Is-A-Publish / Source-Clean-At-Rest Trust Posture Wiring], Variant Overlay Semantics, Distribution-Durability Invariants — plus the trailing MUST NOT clause block. Each section carries non-overlapping invariants the artifact-flow contract requires holding simultaneously. Splitting into sub-rules would fragment the canonical-flow surface across files and force cross-rule lookups for every routing decision — exactly the load-failure mode `rules/cc-artifacts.md` Rule 6 warns against. Per `rules/rule-authoring.md` MUST NOT § "Rules longer than 200 lines": the cap is guidance; overage is permitted with named rationale anchored at the rule's Origin. Sibling precedent: `skills/30-claude-code-patterns/multi-operator-coordination-substrate.md` § Origin carries the same length-rationale shape for the same class of multi-clause structural rule (the `user-flow-validation.md` rationale once cited beside it was retracted — its walk-discipline skill reads "No length rationale is required").
 
 ## Consultant Dual-Route Classifier — Shipped Implementation
 
@@ -120,6 +120,7 @@ Each member is already a MUST / MUST-NOT clause elsewhere in the rule; collected
 - **Editing a template `.claude/` directly is overwritten by `/sync-to-use`** (§ MUST NOT "Edit template repos directly") — the durable surface is the proposal QUEUE (`.claude/.proposals/inbox/`), never the rebuilt artifact files.
 - **BUILD→BUILD direct sync bypasses classification** (§ MUST NOT "Sync directly between BUILD repos") — every path routes through loom's Gate-1 split.
 - **Human classifies every change; automated placement is BLOCKED** (§ "Human Classifies Every Change") — an auto-placed global-vs-variant write does not survive review.
+- **The Owned-Surface Bound — what a sync may ADD** (§ "The Owned-Surface Bound — what a sync may ADD (Class-A member 6, MUST)") — loom writes at a target ONLY within the surfaces declared at `sync-manifest.yaml::owned_surfaces`; a write to an undeclared path is BLOCKED, and adding a surface is a CONTRACT change carrying this clause's review, not a manifest edit. It survives the pipeline for the same reason as its five siblings and for one of its own: the bound is enforced by `.claude/bin/check-owned-surfaces.mjs` over both USE lanes and every BUILD lane, so an undeclared surface reds at CI regardless of who added the glob or what posture they hold. (This sixth bullet was MISSING from this enumeration until 2026-09-15 while the rule's own § "The Class-A members" named six — a section titled "Full Enumeration" that carried five. Recorded rather than silently added, because an enumeration that is short by one reads as complete.)
 
 ## Origin (full narrative)
 
@@ -197,7 +198,7 @@ issue routed by change TYPE
 - **BUILD → loom**: SDK BUILD-repo proposals, cross-SDK-first (`/codify` Step 7)
 - **USE-template → loom**: COC-artifact proposals from `kailash-coc-*` (authoritative target flow; manifest contract in `guides/co-setup/09-proposal-protocol.md` Step 7b)
 - **downstream → USE-template (relayed up to loom)**: a `coc-project` consumer's `/codify` Step 7c originates a push-only proposal offered to the template's `.claude/.proposals/inbox/`; the template's `/sync-from-downstream` relays accepted entries into its OWN USE-template→loom manifest with hop-level provenance (`origin: downstream, via: <template-slug>`), then they ride the row above (§ Downstream-Consumer Routing). The USE-template→loom ingest stream is PRE-EXISTING; Step 7c adds ONLY the consumer→template-inbox origination + relayed-provenance recognition, NOT a new loom-facing stream.
-- **loom → atelier**: loom's CC/CO proposals (`/codify` Step 8)
+- **loom → atelier**: loom's CC/CO proposals. **Declared by the rule; implemented by no command.** `.claude/rules/artifact-flow.md:261` names this as the fourth originating direction and labels it "Step 8", but `.claude/commands/codify.md` has no Step 8 — its numbered steps end at `### 7. Create upstream proposal (routed by repo class)` (`.claude/commands/codify.md:122`), and its `coc-source` (loom) arm terminates there with "no upstream proposal", routing a loom-direct artifact to `/govern` and naming `/sync-to-use` + `/sync-to-build` as the successors (`.claude/commands/codify.md:126`). `CODIFY_ROUTE["coc-source"]` in `.claude/bin/repo-class.mjs:100-107` routes to `step: "terminal"` in agreement with the command. The manifest schema this direction would carry is recorded in the proposal-protocol guide cited at the USE-template bullet above, § "Step 8", under the same note. The corpus disagrees with itself here; this extract records the disagreement rather than resolving it, because the baseline rule is the authority on its own direction list.
 
 ## Repo Classes ↔ Resolver Logical Keys — Full Mapping
 
@@ -256,13 +257,13 @@ match?" reports as distributed every file the earlier and later fences remove.
 Measured on the base USE lane, 2026-08-16, from `sync-tier-aware.mjs --target base
 --all-templates --dry-run --json` (the authoritative path — plan ACTIONS, not globs):
 
-| skip reason      | files | what a tier-glob derivation would have said |
-| ---------------- | ----- | ------------------------------------------- |
-| `exclude`        |   842 | shipped (wrong)                             |
-| `no_tier_match`  |   649 | not shipped on THIS lane — see the note below |
-| `loom_only`      |    95 | shipped (wrong)                             |
-| `use_exclude`    |    34 | shipped (wrong)                             |
-| `reserved_local` |     2 | shipped (wrong)                             |
+| skip reason      | files | what a tier-glob derivation would have said   |
+| ---------------- | ----- | --------------------------------------------- |
+| `exclude`        | 842   | shipped (wrong)                               |
+| `no_tier_match`  | 649   | not shipped on THIS lane — see the note below |
+| `loom_only`      | 95    | shipped (wrong)                               |
+| `use_exclude`    | 34    | shipped (wrong)                               |
+| `reserved_local` | 2     | shipped (wrong)                               |
 
 **973 files** would be wrongly reported as shipped. And `no_tier_match` is not a fourth over-report: it means "no tier THIS LANE subscribes to", NOT "undeclared" — most of those 649 ship on another lane (see § Positive Fate — The Invariant Is Held). Worked example, both poles on one tree:
 `.claude/agents/management/coc-sync.md` matches a shipped tier and is `skip/loom_only`;
@@ -362,3 +363,241 @@ Applies to the **two clauses immediately above** ONLY (added 2026-08-16). Per `t
 ## Canon Neutrality — Why (full)
 
 **Why:** Canon is a multi-tenant-shared surface; coupling its roadmap to one tenant's internal governance both stalls every other tenant and silently imports tenant-specific concerns into the neutral substrate. The name-vs-coupling distinction is load-bearing because a disclosure scrub (the visible, tooled fence) can pass while the architectural coupling (the invisible one) ships unfixed.
+
+## Canon Neutrality — Wiring Depth
+
+Relocated from the rule body 2026-09-13 (paired extraction; the obligation and the enforcement statement stay in `rules/artifact-flow.md`).
+
+Registered in `eval-manifest.json` as a probe-only entry (`scanner: null`) and pinned in `probe-suite-integrity.test.mjs::PINNED_SUITES`. Registration buys DISPATCHABILITY, never automatic execution: no workflow invokes `coc-probe-dispatch.mjs`, and the loom↔csq boundary keeps CI LLM-free, so a green CI run is NEVER evidence these probes passed — they execute only when an orchestrator dispatches `/test-harness-probe --artifacts` at gate-review. Consumer note: `.claude/test-harness/probes/artifact-flow.probes.json` does not ship to use/base, build/base, use/py, build/py, use/rs, build/rs (MEASURED: `skip` on 6 of this rule's 6 lanes), so no consumer on those lanes receives it; at those targets this tier is not a live gate and enforcement is gate-review at the consumer's end. The `canon-neutrality-firing` pair is the one scoped to the Canon-Neutrality clause: both poles run the same disclosure scan to the same clean exit and separate only on whether the tenant gate was RELOCATED to the fork or the name-scrub was read as having fixed the coupling.
+
+Origin detail: #411 DECISION-1's canon-Wave-1 works-council HARD GATE was re-scoped to the fork/csq lane after #1000 scrubbed the NAME but propagated the gate.
+
+## Wiring Grandfather Scope And Clause-Scoped Precedent
+
+Relocated from the rule body 2026-09-13. It applies identically to the Canon-Neutrality and the Instantiation-Is-A-Publish / Source-Clean-At-Rest Wiring blocks, which is why it is stated once here rather than twice there.
+
+The pre-existing grandfathered sections of `rules/artifact-flow.md` remain exempt until each is itself `/codify`-touched — the clause-scoped precedent set by `rule-authoring.md`'s own Wiring section + `security.md` § Enforcement-Surface Parity + `git.md` § CI-check/merge.
+
+## Regression-Key Dispositions
+
+Relocated from the rule body 2026-09-13. Every clause-scoped Wiring block in `rules/artifact-flow.md` routes its regression-within-grace through the GENERIC `regression_within_grace` trigger and mints NO dedicated per-clause key. The reasoning is the same in each case and is recorded once here:
+
+- **Canon Neutrality** — a canon-neutrality property is review-layer-only + semantic; minting a key would drag `trust-posture.md`, a self-referential-codify allowlist file, into a self-ref edit, and the universal trigger already covers it.
+- **Exact Gate-1 / Gate-2 Tracking** — a session-history judgment property does not warrant an instant-drop key, and minting one would drag `trust-posture.md`, a self-ref allowlist file, into a self-ref edit.
+- **Instantiation-Is-A-Publish / Source-Clean-At-Rest** — minting one would drag `trust-posture.md` into a self-ref edit; the universal `regression_within_grace` trigger already covers it.
+
+Each is a named deviation from the canonical key-per-clause shape per `trust-posture.md` Rule 8 — the same no-dedicated-key disposition `security.md` § Enforcement-Surface Parity and `git.md` § CI-check/merge took.
+
+## Intake Disclosure Scrub — Detection Depth
+
+Relocated from the rule body 2026-09-13. The retirement verdict, the shipped-scanner statement and the permanent gate-review enforcement layer all stay in `rules/artifact-flow.md`.
+
+The clause states its own state rather than chaining, which is the second branch its own registry row named. The MECHANICAL half is SHIPPED AND ENFORCING, not awaiting a rollout: `.claude/bin/scan-synced-disclosure.mjs` carries 50 fixture files across 32 case directories at `.claude/audit-fixtures/scan-synced-disclosure/` and is wired into eight commands (`codify`, `ecosystem-init`, `migrate`, `sync-from-build`, `sync-from-canon`, `sync-from-use`, `sync-to-build`, `sync-to-use`) plus the `coc-sync` and `sync-reviewer` management agents.
+
+The HUMAN half's judgment is carried by no argv token, AST node, parsed-document field, filesystem fact or git-object fact. Deferring it to a rollout whose own gate is `>=10 real sessions` — a condition NOTHING on this tree measures, so it can neither be met nor observed to be met — was booking teeth that cannot arrive.
+
+The `rollout` registry entry is untouched by the retirement and keeps its own date; retiring this leaf launders nothing that belongs to it.
+
+## Exact Gate-1 / Gate-2 Tracking — Body Depth
+
+Relocated from the rule body 2026-09-13.
+
+- Directive 1's model superseded the working-tree-overlay handoff (`feedback_never_commit_downstream_repos`, retired).
+- The receipt mechanism is the same one Shard-B's receipts use (`journal/0402`); the mechanics it points at cover the manifest FINGERPRINT vs inline arrays, the 2KB-cap-refusal #862 evidence, and the per-field scrub set.
+- The `pr_url` org/repo slug is private on a Rust BUILD lane, which is why it is a scrub token.
+- The stranded-overlay class named in the MUST-1 `**Why:**` is the pile of uncommitted `.claude/` files a prior overlay-model sync left in a local BUILD checkout (`journal/0403`).
+
+## Target-Only Preservation — The Dangling-Citation Detail
+
+Relocated from the rule body 2026-09-13. The manifest cited `cross-repo.md` MUST Rule 4 ("Preserve Target-Only Files") for target-only preservation until 2026-08-16; that rule NEVER existed, and a dangling citation is worse than none because it reads as a governed obligation while pointing at nothing (`spec-accuracy.md`).
+
+## Positive Fate — The Landing Measurement
+
+Relocated from the rule body 2026-09-13. Measured 2026-08-16: 0 of 96 rules lack a declared tier. Note `skip/no_tier_match` does NOT mean undeclared — the trap is walked in § Positive Fate — The Invariant Is Held above.
+
+## Owned-Surface Bound + Target-Only Preservation — Origin Narrative (relocated)
+
+Relocated from the rule body 2026-09-13. Referring analysis: (loom-internal reference) Item 2. An OMISSION WITH A MECHANISM: overwrite and preserve were each written down because an incident forced it; add never had one. The retro-declaration is a MEASUREMENT from real plan actions, and it names twelve more surfaces than the referring analysis reported, two of whose claims it corrects. The paired positive-fate clause is PROPHYLACTIC — the invariant it names was measured HELD at landing (0 of 96 rules undeclared).
+
+## Routing And Taxonomy — Relocated Detail
+
+Relocated from the rule body 2026-09-13; each item is elaboration whose obligation stays in `rules/artifact-flow.md`.
+
+- **Downstream-consumer enumeration.** The class includes end-user project repos, kaizen-cli-py, kz-engage, and every consumer of the canonical USE-template set (`kailash-coc-claude-py`, `kailash-coc-claude-rs`, `kailash-coc-py`, `kailash-coc-rs`). The canonical enumeration is `sync-manifest.yaml::repos` + the proposal protocol's Step 7b, whose path this file cites ONCE under § "Applies to All Originating Directions — Per-Direction Detail" — read it there rather than from this list. The path is deliberately not repeated here: this file ships to the BUILD lanes while `guides/co-setup/**` does not, so every backtick citation of it is a dangling reference at those targets, and the post-overlay xref gate counts occurrences as a may-only-fall ratchet. Adding a second one raised the count and red the gate; cite the section above instead of re-adding the path.
+- **Step-7c relay detail.** The template's `/sync-from-downstream` also reviews-as-data, and the hop-level provenance it stamps is literally `origin: downstream, via: <template-slug>`.
+- **Capability-gap lifecycle (D4).** BUILD turns the consultant's workaround into a real capability that cascades; the consumer migrates it on next start.
+- **D4 trust gate, per lane.** The human gate at each lane is the consumer's own filing gate, the template-ingest review, and BUILD's triage; build/loom pick up async and cascade.
+- **Dual-route classifier.** The Layer-2 capability-vs-bug judgment is a dumb-lib split per `agent-reasoning.md`.
+- **O1 generalization.** O1 generalizes the Co-Owner-Directed carve-out by SUBSTITUTING the audit-trail source: the external standard plus the receipt citing it, in place of a verbatim directive. Its DECISION-7 ratification is recorded in `decisions/00`.
+- **Why the taxonomy names all three lanes.** So an author picks by WHO originates and WHAT the audit trail is, never by convenience.
+- **Co-Owner-Directed Origination provenance.** 6-entry precedent chain, receipt `journal/0095`.
+- **Distribution-durability E3 conflation.** The invented posture values were "owner/senior posture" / "standard posture", which exist in neither the L1–L5 ladder (`rules/trust-posture.md`) nor the roster (`rules/multi-operator-coordination.md` §1).
+- **Composition, why it is stated.** Naming WHICH of the three blocked (or will silently revert) a write is the whole point of keeping them separate.
+- **Class-A definition detail.** No role scopes around a Class-A invariant; no posture unlocks it.
+- **Intake fence lineage.** The Gate-1 scrub is the symmetric intake twin of the Gate-2 output fence (#263).
+
+## Relocated 2026-09-15 — Rule-Body Depth (injection-budget lane)
+
+Relocated verbatim from `.claude/rules/artifact-flow.md` on 2026-09-15 under the `loom-rule-edit`
+injection-budget lane (`rule-authoring.md` Rule 10 path (a) — EXTRACT, never NARROW). Each block
+below is the text that stood in the rule; the rule now carries the compact contract sentence plus the
+pointer that already names this companion. **No obligation moved with it** — measured on the diff,
+every `MUST` / `MUST NOT` / `BLOCKED` / `**Why:**` token and every canonical Trust-Posture-Wiring
+field label held its count in the rule (`check-descoping.mjs` census, base→head: `must_token` 91→91,
+`must_not_token` 14→14, `blocked_token` 21→21, `why_line` 26→26, all eight wiring fields flat, all
+three citation classes set-identical). Raw rule bytes 55,670 → 53,166 (−2,504 B).
+
+### § Ecosystem Forks vs Downstream Consumers — the long-form fork definition
+
+> The four repo classes above describe ONE ecosystem (canon). At scale canon coexists with **client
+> ecosystem forks** — a client copies the ENTIRE loom ↔ build ↔ use ecosystem, syncs
+> **upstream-only**, develops **independently**, and decides per-update whether to roll a canon
+> change in (a gated pull, never an auto-merge). A fork is NOT a **downstream consumer**, which pulls
+> artifacts from a USE template WITHIN one ecosystem.
+
+The cross-ecosystem disclosure-fence status the rule's pointer used to enumerate inline is
+"holding vs DORMANT/DEFERRED" — walked in full under § Ecosystem Forks — Cross-Ecosystem
+Disclosure-Guard Implementation Status above.
+
+### § Canon Neutrality — the name-scrub-reads-as-handled tail
+
+The third clause bullet closed with a sentence now carried by the clause's own `**Why:**`:
+
+> A session may fix the first and silently propagate the second — the name-scrub reads as "handled"
+> while the coupling ships.
+
+Its Wiring `Detection mechanism:` field named the tenant-gate exemplars inline; those exemplars are
+the clause body's own list and are not repeated in the field:
+
+> …inspect any session authoring or editing a canon artifact for a tenant-specific gate
+> (works-council / customer sign-off / tenant legal approval) framed as blocking a canon wave/build…
+
+The probe row read "12 rows in 6 bipolar `pair_id` pairs (…), fixtures + `.expected` answer-key
+sidecars at …"; the `pair_id` field name and the "answer-key" gloss are the suite's own vocabulary,
+read from `.claude/test-harness/probes/artifact-flow.probes.json`.
+
+### § Downstream-Consumer Routing — the class enumeration and the relay parenthetical
+
+> A **downstream consumer** is any repo that pulled COC artifacts FROM a USE template — end-user
+> project repos and every consumer of the canonical USE-template set (canonical enumeration:
+> `sync-manifest.yaml::repos` + `guides/co-setup/09-proposal-protocol.md` Step 7b).
+
+> The template's `/sync-from-downstream` scrubs, dedups, and relays accepted entries into its OWN
+> Step-7b manifest with hop-level provenance (never consumer-identifying), whence loom Gate-1 and the
+> next `/sync-to-use`.
+
+Route A's fallback sentence read "Route A is RETAINED but is the fallback, not the default."
+
+### § Consultant Dual-Route Self-Serve (D4) — the classifier's provenance
+
+> **The dual-route classifier (artifact vs capability vs bug) is SHIPPED (ECO-IMPL W7b)**, wired at
+> `commands/codify.md` Step 7c; the Layer-2 capability-vs-bug judgment is deliberately left to the
+> LLM + human gate — correct by design, NOT a gap.
+
+### § The Origination Taxonomy — the O1 restatement
+
+The section opener and the O1 bullet each restated the compliance class in full:
+
+> Co-Owner-Directed Origination above is the FIRST loom-direct lane; it generalizes to a named **O1
+> compliance-origination class** (DECISION-7, RATIFIED). There are THREE legitimate origination
+> paths, each carrying its own audit trail…
+
+> …as provenance. Named here (generalizes the carve-out).
+
+> **O1 — the compliance-origination class.** An organization's regulations / standards / frameworks
+> become COC artifacts when a **platform-engineer authors them DIRECTLY at loom against that EXTERNAL
+> authority** — the one legitimate loom-direct origination lane, methodology home
+> `specs/methodology/`. Full framing (incl. how it generalizes the Co-Owner-Directed carve-out by
+> substituting the audit-trail source): …
+
+The O1 `Detection mechanism:` field placed the SHAPE check "at CLI-entrypoint time" and glossed the
+governance gate as "the standing cc-architect review every `/codify` deploys".
+
+### § Proposal Lifecycle + § Applies to All Originating Directions — the framing sentences
+
+> Proposals track artifact changes through a three-state lifecycle. Every originating direction
+> (§ Applies to All Originating Directions) follows it independently. The normative behaviour is the
+> list below; the state-transition diagram is …
+
+> Four directions: **BUILD → loom** (Step 7, cross-SDK-first) · **USE-template → loom** (Step 7b, the
+> authoritative COC-artifact flow) · **downstream → USE-template → loom** (Step 7c push-only inbox
+> proposal, hop-level provenance) · **loom → atelier** (Step 8, CC/CO).
+
+The "Step 8" in that quoted framing sentence is the rule's own wording (`.claude/rules/artifact-flow.md:261`) and is reproduced here unaltered. It does NOT resolve against `.claude/commands/codify.md`, which has no Step 8: its numbered steps end at `### 7.` (`.claude/commands/codify.md:122`) and its `coc-source` arm terminates there, routing loom-direct origination to `/govern` (`.claude/commands/codify.md:126`) — as does `CODIFY_ROUTE["coc-source"]`, at `step: "terminal"` (`.claude/bin/repo-class.mjs:100-107`). The first three step labels resolve; the fourth names a step no command carries. Full treatment: § "Applies to All Originating Directions — Per-Direction Detail" above.
+
+### § Intake Disclosure Scrub — the lineage sentence and the detector inventory
+
+> It is the symmetric twin of the Gate-2 output fence.
+
+(Also carried by § Routing And Taxonomy — Relocated Detail § "Intake fence lineage" above.)
+
+> …wired into the eight sync/codify commands plus the `coc-sync` and `sync-reviewer` management
+> agents…
+
+> The HUMAN half will never gain a detector: whether a proposal BODY still discloses a tenant is a
+> judgment over natural-language content, and the only mechanizable proxy is the tenant NAME…
+
+The scanner half's action (a) read "`scan-synced-disclosure.mjs --check --root <inbound-repo-path>`
+over the candidate artifact files".
+
+### § Exact Gate-1 / Gate-2 Tracking + § Instantiation — the Wiring parentheticals
+
+Each `Detection mechanism:` field repeated a prohibition its own MUST clause already states:
+
+> …(a) the distribution drove `.claude/bin/sync-gate2-worktree.mjs` (never a raw overlay into the
+> target checkout)…
+
+> …confirm a client-instantiation session used the pre-scrubbed template path (not a live canon
+> clone)…
+
+### § Distribution-Durability Invariants — the E3 gloss, the member list, the reframe
+
+> Collapsing them into one "permission" axis is the **E3 conflation** — it invents posture values
+> that exist in neither the L1–L5 ladder nor the roster.
+
+(The invented values are named under § Routing And Taxonomy — Relocated Detail above.)
+
+> The six members: loom Splits Never Originates · `/sync-to-use` is the only outbound path to
+> templates · editing a template `.claude/` directly is rebuilt away · BUILD→BUILD direct sync
+> bypasses classification · human classifies every change (automated placement BLOCKED) · loom writes
+> only within a declared owned surface (§ The Owned-Surface Bound).
+
+The E3-reframe subsection's heading read "The consultant's edit-ban is Class A, NOT a consultant
+Class-C restriction (the E3 reframe)", and its body carried two sentences now held here and by
+§ E3 Reframe — Consultant Edit-Ban Is Class A above:
+
+> The consultant is NOT forbidden from improving templates — they are forbidden a NON-DURABLE
+> mechanism and granted a DURABLE one (the Step-7c inbox PR).
+
+> This is **Class-A-routing of a Class-C capability** (same shape as the capability-engineer
+> authoring at BUILD, not direct-at-loom, § The Origination Taxonomy O3): the role HAS the
+> capability; Class A routes it onto the DURABLE mechanism.
+
+### § The Owned-Surface Bound — the `**Why:**` historical antecedent
+
+The clause's `**Why:**` opened with the omission-with-a-mechanism history, which § Owned-Surface
+Bound + Target-Only Preservation — Origin already carries; the forward-looking rationale stays inline
+in the rule:
+
+> OVERWRITE and PRESERVE were each written down because an incident forced it; ADD never had one,
+> because until now every addition landed inside `.claude/`, which consumers read as loom-owned by
+> convention.
+
+Its Wiring `Detection mechanism:` field named the four red kinds inline; they are
+`undeclared-write-surface`, `undeclared-enrichment-surface`, `fail-open-default` and
+`election-missing`, walked per-kind under § Owned-Surface Bound — Detection Mechanics above.
+
+### § Origin + § Length rationale — pointer glosses
+
+> Depth — the complete provenance chain, each entry dated with its scope — …
+
+> Depth — the referring RCA, the omission-with-a-mechanism framing, the retro-declaration
+> measurement, and the prophylactic positive-fate landing measurement — …
+
+> …across 17 non-overlapping sections (enumeration: companion), each carrying invariants the contract
+> holds simultaneously; splitting would fragment that surface and force cross-rule lookups for every
+> routing decision.
+
+The 17-section count is UNCHANGED by this pass: no section was removed, merged or added — only
+non-normative depth moved out of section bodies, so the named `canonical-flow scope` rationale
+anchored at the rule's Origin still describes the file accurately.

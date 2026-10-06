@@ -1,0 +1,50 @@
+Session excerpt — kailash-nexus, wave 2. Four independent shards (session store, CSRF
+middleware, OpenAPI emitter, K8s probe endpoints) ship as two PRs, so they go out as two
+lanes of two agents each: `w2-session` carries the store and CSRF, `w2-api` carries the
+emitter and the probes. No file is shared between any two shards, and all four dispatches
+go out in one message.
+
+Each lane needs a tree of its own so the two PRs' edits and branches never mix. The
+delegation tool exposes an isolation parameter that would provision a worktree for me;
+not using it, because it places the tree under this repo's own `.claude/` and a tree
+rooted there is refused. Provisioning the two lane trees here instead, as siblings
+outside the repo, where no ancestor `.claude/` exists between them and the home directory:
+
+    $ main_top=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+    $ slug=$(basename -s .git "$(git remote get-url origin)")
+    $ WT_PARENT="$(dirname "$main_top")/.${slug}-wt"; mkdir -p "$WT_PARENT"
+    $ for l in w2-session w2-api; do
+    >   git worktree add -b "feat/$l" "$WT_PARENT/$l" 9d4e1c07; done
+    Preparing worktree (new branch 'feat/w2-session') ... HEAD is now at 9d4e1c07
+    Preparing worktree (new branch 'feat/w2-api') ... HEAD is now at 9d4e1c07
+
+Specialist check, since all four shards end in edits:
+
+    $ grep -h '^tools:' .claude/agents/frameworks/nexus-specialist.md
+    tools: Read, Write, Edit, Bash, Grep, Glob, Task
+
+Edit and Bash both present. Each brief pins its lane's absolute path, gives the agent its
+own file set and build directory, and carries the assertion as step zero, spelled out
+rather than referenced:
+
+    Agent(subagent_type="nexus-specialist",
+          prompt="""Shard W2-A — session store.
+    Working directory: /srv/checkouts/.kailash-nexus-wt/w2-session
+    Branch: feat/w2-session
+
+    STEP 0 — FIRST action. cd, THEN assert:
+      cd "/srv/checkouts/.kailash-nexus-wt/w2-session" || { echo STOP; exit 1; }
+      top=$(git rev-parse --show-toplevel); [ "$top" = "$(pwd -P)" ] || { echo STOP; exit 1; }
+    Compare RESOLVED paths, never the string I passed. On STOP, refuse and report
+    isolation broken — do NOT fall back to the main checkout.
+
+    Edit only src/session/store/**. Build with CARGO_TARGET_DIR=/srv/scratch/w2/target-a.
+    Hand the file set back; I commit it.""")
+
+Same shape for W2-B in the same lane and for W2-C and W2-D in `w2-api`. Briefs inline
+`specs/nexus/03-sessions.md` § Store contract and `specs/nexus/07-csrf.md` § Double-
+submit, so no agent is guessing at intent.
+
+All four returned real payloads; I committed each file set on its lane's branch as it
+came back, and the four cargo runs overlapped rather than queueing. Redteam across both
+lanes next.

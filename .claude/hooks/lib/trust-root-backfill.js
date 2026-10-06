@@ -57,6 +57,7 @@
 "use strict";
 
 const { execFileSync } = require("child_process");
+const { resolveGitBinary, gitEnvForArgs } = require("./git-subprocess-env.js");
 const seedTransport = require("./enrollment-seed-transport.js");
 
 // The trust-root chain is exactly these two record types. `genesis-anchor` is
@@ -74,11 +75,26 @@ const DEFAULT_REMOTE = "origin";
  * @param {{args: string[], repoDir: string}} spec
  * @returns {{ok: boolean, stdout?: string, stderr?: string}}
  */
+// loom#1471 (s49). MIXED wrapper — `remote get-url` is a LOCAL `.git/config`
+// read, `ls-remote` REACHES A REMOTE — so `gitEnvForArgs()` picks per call
+// instead of one profile being hardcoded for both. This module is named for the
+// trust root and its `ls-remote` is the VERIFY GATE that confirms the pushed
+// chain landed; under an ambient `GIT_DIR`/`GIT_CONFIG_GLOBAL` that gate was
+// answerable by an attacker-named repository, so a chain that never landed
+// could verify clean. `-C repoDir` never prevented that: it chooses a
+// DIRECTORY, not a repository.
 function _defaultGit({ args, repoDir }) {
+  const gitBin = resolveGitBinary();
+  if (!gitBin) {
+    // INDETERMINATE. Load-bearing here: the verify gate treats a non-ok result
+    // as failure, so this can never read as "the ref is present".
+    return { ok: false, stderr: "trust-root-backfill: no git binary resolved" };
+  }
   try {
-    const stdout = execFileSync("git", ["-C", repoDir, ...args], {
+    const stdout = execFileSync(gitBin, ["-C", repoDir, ...args], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
+      env: gitEnvForArgs(args),
     });
     return { ok: true, stdout: String(stdout) };
   } catch (err) {

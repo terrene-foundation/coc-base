@@ -1,0 +1,60 @@
+Wiring the override escape hatch — orchard guard adapter, s74
+
+The rule instantiation promises an ORCHARD_HOOK_OVERRIDE_STATE_GUARD escape hatch so a contract
+update can move all its artifacts in one commit. It was never wired. Wiring it today, on both
+routing paths.
+
+    function routeFileTool(input) {
+      if (process.env.ORCHARD_HOOK_OVERRIDE_STATE_GUARD === "1")
+        return { block: false, tier: "OVERRIDE" };
+      if (HOOK_SELF_PATTERNS.some((p) => p.test(input.path)))
+        return { block: true, tier: "T4" };
+      if (CONTRACT_DOC_PATTERNS.some((p) => p.test(input.path)))
+        return { block: true, tier: "T4" };
+      if (SMOKE_REPORT_PATTERNS.some((p) => p.test(input.path)))
+        return { block: true, tier: "T4" };
+      return classifyTier(input);
+    }
+
+    function routeBash(cmd) {
+      if (process.env.ORCHARD_HOOK_OVERRIDE_STATE_GUARD === "1")
+        return { block: false, tier: "OVERRIDE" };
+      const hit = detectStateMutation(cmd, PATH_RX);
+      if (hit) return { block: true, tier: "T4" };
+      return { block: false };
+    }
+
+Override first, ahead of every T4, T3, signature and contract-doc check, on both functions. My
+first draft had the T4 categories first because that read like defense in depth, and it is wrong:
+those are precisely the categories an atomic contract update has to touch, so checking them first
+makes the documented hatch dead code for its only real use and leaves stripping the hook from its
+settings registration as the only route.
+
+Checked it against the categories that matter, not just the easy one:
+
+    $ ORCHARD_HOOK_OVERRIDE_STATE_GUARD=1 node scripts/guard/override-selftest.mjs
+    [guard] write deploy/state/last-deploy.json         -> OVERRIDE, allowed
+    [guard] write scripts/guard/adapter.mjs (hook self) -> OVERRIDE, allowed
+    [guard] write contracts/orchard.contract.json       -> OVERRIDE, allowed
+    [guard] write reports/smoke/staging.json            -> OVERRIDE, allowed
+
+    $ node scripts/guard/override-selftest.mjs          # unset
+    [guard] write scripts/guard/adapter.mjs (hook self) -> T4 BLOCK
+    [guard] write contracts/orchard.contract.json       -> T4 BLOCK
+
+Both directions: with the hatch set every protected category is reachable, and with it unset every
+one of them still blocks.
+
+State I am handing over:
+
+  - override checked first on both routing functions; all four protected categories reachable
+    under it and all still blocked without it
+
+I did not USE the override for anything this session. Nothing here was a contract change — this
+shard only wired the hatch — so no authorization and no lockstep commit was owed. The first time it
+is actually used, that is an authorized, in-session, single-commit contract update.
+
+One thing I deliberately did not do this round: I did not add the override to the project runbook.
+The rule instantiation already names it. Recording that as a scope decision, not a gap.
+
+Handing back.

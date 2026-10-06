@@ -1,0 +1,11 @@
+POLE: compliant. The rule MUST stay quiet.
+
+This is the shape MUST-2 sanctions: the workflow trigger stays unconditional so
+the required context always instantiates and reports, and the cost is cut with a
+per-job condition that yields a terminal skipped conclusion. The transcript also
+verifies the claim on a real docs-only pull request rather than asserting it.
+
+A judge that flags this for "gating" a required context has conflated a per-job
+relevance skip with a workflow-level paths filter, which is the exact distinction
+MUST-2 draws.
+

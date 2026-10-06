@@ -5,40 +5,48 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ./.claude/hooks/lib/codex-hook-runtime.js ./.claude/hooks/session-start.js"
+            "command": "unset NODE_OPTIONS NODE_PATH; exec node \"$(node -e 'const fs=require(\"node:fs\"),path=require(\"node:path\");let p=fs.realpathSync(process.cwd());while(!fs.existsSync(path.join(p,\".git\"))){const q=path.dirname(p);if(q===p)throw Error(\"no repository root\");p=q;}process.stdout.write(p);')/.claude/hooks/lib/codex-hook-runtime.js\" ./.claude/hooks/session-start.js",
+            "timeout": 30
           }
         ]
       }
     ],
-
     "UserPromptSubmit": [],
-
     "PreToolUse": [
       {
-        "matcher": "shell",
+        "matcher": "*",
         "hooks": [
           {
             "type": "command",
-            "command": "node ./.claude/hooks/lib/codex-hook-runtime.js ./.claude/hooks/validate-bash-command.js"
+            "command": "unset NODE_OPTIONS NODE_PATH; exec node \"$(node -e 'const fs=require(\"node:fs\"),path=require(\"node:path\");let p=fs.realpathSync(process.cwd());while(!fs.existsSync(path.join(p,\".git\"))){const q=path.dirname(p);if(q===p)throw Error(\"no repository root\");p=q;}process.stdout.write(p);')/.claude/hooks/lib/codex-hook-runtime.js\" --native-policy",
+            "timeout": 600
           }
         ]
       }
     ],
-
     "PermissionRequest": [],
-
     "PostToolUse": [
       {
-        "matcher": "shell",
+        "matcher": "apply_patch|Edit|Write|NotebookEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "node ./.claude/hooks/lib/codex-hook-runtime.js ./.claude/hooks/integration-hygiene.js"
+            "command": "unset NODE_OPTIONS NODE_PATH; exec node \"$(node -e 'const fs=require(\"node:fs\"),path=require(\"node:path\");let p=fs.realpathSync(process.cwd());while(!fs.existsSync(path.join(p,\".git\"))){const q=path.dirname(p);if(q===p)throw Error(\"no repository root\");p=q;}process.stdout.write(p);')/.claude/hooks/lib/codex-hook-runtime.js\" ./.claude/hooks/integration-hygiene.js",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|shell|shell_command|exec_command|unified_exec|apply_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "unset NODE_OPTIONS NODE_PATH; exec node \"$(node -e 'const fs=require(\"node:fs\"),path=require(\"node:path\");let p=fs.realpathSync(process.cwd());while(!fs.existsSync(path.join(p,\".git\"))){const q=path.dirname(p);if(q===p)throw Error(\"no repository root\");p=q;}process.stdout.write(p);')/.claude/hooks/lib/codex-hook-runtime.js\" ./.claude/hooks/session-load-backstop.js",
+            "timeout": 30
           }
         ]
       }
     ],
-
     "Stop": []
   }
 }

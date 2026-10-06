@@ -1,0 +1,8 @@
+// @fixture-path: tools/conformance/report.js
+// @expect: none
+
+function reportCoverage(cases, results) {
+  const total = cases.length;
+  const measured = results.filter((r) => r.assertions >= 1).length;
+  return { coverage: measured / total, passRate: results.filter((r) => r.verdict === "Pass").length / total };
+}

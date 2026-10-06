@@ -1,6 +1,6 @@
 ---
 name: ecosystem-init
-description: "Initialize an ecosystem (once per fork) — write the ecosystem-config (D6), establish the genesis trust-root, scaffold non-Kailash STACK.md. Writes; owner-gated; disclosure-fenced."
+description: "Initialize ecosystem config, genesis trust, and non-Kailash STACK.md; owner-gated and disclosure-fenced."
 ---
 
 # /ecosystem-init — Onboard an Ecosystem (once per fork)
@@ -9,7 +9,8 @@ The once-per-fork ceremony that configures a NEW ecosystem (canon, or a client f
 loom↔build↔use ecosystem). One of the three onboarding surfaces — distinct from `/enroll` (once per
 operator) and `/onboard` (read-only, every session); see (loom-internal reference).
 The three share ZERO write-authority: `/onboard` writes nothing, `/enroll` writes roster + local-links,
-`/ecosystem-init` writes the ecosystem-config + genesis trust-root.
+`/ecosystem-init` writes the ecosystem-config + genesis trust-root + the ecosystem's OWN
+`canon-identity-values.json` (C1b).
 
 **Usage**: `/ecosystem-init` (no args; runs in the current fork's loom checkout)
 
@@ -25,13 +26,13 @@ first command to run — `/clean-instantiate` is.
 Strictly dependency-ordered after this command: an operator runs `/enroll` (identity), then `/onboard`
 (reads each session). `/ecosystem-init` does NOT silently enroll the initiating operator — it hands off
 to `/enroll` (C5). Procedure detail (input prompts, the D6 schema field set, the disclosure-scan
-invocation shape, the genesis-ceremony call) lives in `.codex/skills/43-ecosystem-init/SKILL.md` per
+invocation shape, the genesis-ceremony call) lives in `.agents/skills/43-ecosystem-init/SKILL.md` per
 `cc-artifacts.md` Rule 3; this command is the entry point.
 
 ## The five invariants (load-bearing — the redteam surface)
 
 1. **C1 disclosure gate fires BEFORE the ecosystem-config write.** The config names real org slugs
-   (the #255/#252 disclosure class). `node .claude/bin/scan-synced-disclosure.mjs --root <fork-checkout>`
+   (the #255/#252 disclosure class). `node .claude/bin/scan-synced-disclosure.mjs --check --root <fork-checkout>`
    MUST run and exit 0 BEFORE `.claude/bin/ecosystem.json` is written; ANY finding → HALT, genericize +
    relocate, re-scan. Placement does not proceed on a non-zero exit (the `artifact-flow.md` Intake-Scrub
    shape, applied at ecosystem-config write time). The scan covers the SURROUNDING synced surface, NOT
@@ -57,10 +58,10 @@ invocation shape, the genesis-ceremony call) lives in `.codex/skills/43-ecosyste
    copy, failing loud on bare org slugs — the belt-and-suspenders backstop. A fork carries its OWN file;
    no canon→client sync path exists, so canon org slugs cannot travel into a client (D6 plan §4 fence-i).
 
-## Ceremony order (C1 → C3 → C2 → C4 → C5)
+## Ceremony order (C1 → C1b → C3 → C2 → C4 → C5)
 
-Ordered per Q4 (`02-ga` Open questions): the registry defines the org, genesis anchors TO that org,
-then the remaining params fill in.
+Ordered per Q4 (`02-ga` Open questions): the registry defines the org, the identity declaration
+captures it (C1b), genesis anchors TO that org, then the remaining params fill in.
 
 ### C1 — write the ecosystem-shared remote-links registry (D6 data)
 
@@ -70,6 +71,36 @@ Collect the NAME→remote bindings for this ecosystem's logical keys (the EXACT 
 Human-confirm the org slugs (invariant 2). Write the `remote_links` block of `.claude/bin/ecosystem.json`
 per the D6 schema (`ecosystem-config.mjs` is the reader; `getRemoteLink(key)` / `resolveRemote(key)` are
 the accessors). NEVER edit a synced artifact to carry the registry inline (`cross-repo.md` MUST NOT).
+
+### C1b — write THIS ecosystem's own canon-identity declaration (the private-slug guarantee)
+
+Every distribution and publish gate reads `.claude/canon-identity-values.json`: the orgs THIS
+ecosystem must NEVER ship. Write it FOR THIS FORK, from the SAME human-confirmed answers C1 just
+collected — never copy canon's values, never leave it absent. An absent or empty private set makes
+every distribution entrypoint REFUSE (`assertPrivateOrgConfig`: "refusing to distribute a tree whose
+private-slug gate would be vacuous") and loudly SKIPS the private-armed selftest rows — correct for
+a pre-init seed, and wrong the moment the fork is meant to distribute.
+
+1. Author `.claude/canon-identity-values.json` — the seed ships `.claude/canon-identity-values.example.json`
+   (the SHAPE, travelling with every client template); COPY it and replace every placeholder (keep
+   `_schema`/`_doc`):
+
+   `{ "private_org_slugs": ["<client-org>"], "retired_org_slugs": [], "public_org_slugs": ["<org the fork's templates live in>"] }`
+
+2. Human-confirm EVERY private slug is the CLIENT's own org (invariant 2 extends here — a canon slug
+   in this file would gate the wrong identity).
+3. Validate BOTH ways: `node .claude/bin/lib/strip-build-internal.mjs --assert-private-org-config`
+   exits 0 and prints the resolved COUNT only (never values); AND
+   `node .claude/bin/lib/strip-build-internal.mjs --assert-fork-identity-derived` — a MANUAL
+   SANITY CHECK, deliberately NOT a gate (no entrypoint calls it): it compares the org of this
+   fork's git `origin` remote against the declaration's private set (no canon data involved; a
+   local-path or unparseable origin is UNKNOWN, with a clear message; a missing origin or missing
+   values refuses). It CANNOT detect a copied canon declaration — author the values from this
+   fork's own answers and have the human confirm them (step 2); the check only helps when the
+   clone's origin is a parseable hosted remote.
+4. Verify the FENCES the seed ships for this file are intact: `loom_only` in
+   `.claude/sync-manifest.yaml` AND a `CLIENT_TEMPLATE_REMOVE` projection entry — canon's file is
+   double-fenced for a reason, and the fork's carries the same sensitivity.
 
 ### C3 — establish the genesis trust-root
 
@@ -100,26 +131,14 @@ session." Does NOT enroll the initiating operator (invariant 4).
 
 ## Posture-bound restrictions
 
-`/ecosystem-init` writes the working tree (`ecosystem.json`) AND runs the genesis ceremony (network-
-permitted, owner-class) — gated by the L2/L3 trust posture per `rules/trust-posture.md` and the §6.4
-owner gate for the genesis anchor. On a fresh fork the default posture is `L5_DELEGATED`; the genesis
-ceremony's owner-class gate is independent of posture.
+`/ecosystem-init` writes the working tree (C1's `ecosystem.json` AND C1b's
+`canon-identity-values.json` — the identity declaration this ceremony exists to establish) AND runs
+the genesis ceremony (network-permitted, owner-class) — gated by the L2/L3 trust posture per
+`rules/trust-posture.md` and the §6.4 owner gate for the genesis anchor. On a fresh fork the default
+posture is `L5_DELEGATED`; the genesis ceremony's owner-class gate is independent of posture.
 
 ## Implementation notes
 
-The client-fork precondition (see above) is the CLEAR ceremony `.codex/prompts/clean-instantiate.md`,
-engine `.claude/bin/clean-instantiate.mjs` — a distinct command this one does NOT invoke; it is a
-prerequisite gate, checked by the operator/orchestrator before running `/ecosystem-init`, not by this
-command's own code path.
+The client-fork precondition (the CLEAR ceremony `.codex/prompts/clean-instantiate.md`, engine `.claude/bin/clean-instantiate.mjs`) is a prerequisite gate, checked by the operator/orchestrator BEFORE running `/ecosystem-init` — a distinct command this one does NOT invoke.
 
-The D6 config schema + accessor contract is `.claude/bin/lib/ecosystem-config.mjs` (reader) +
-`.claude/bin/lib/loom-links.mjs` (the local⊕remote join); the synthetic companion is
-`.claude/bin/ecosystem.example.json` (the only `ecosystem*` file that syncs/publishes). The disclosure
-scanner is `.claude/bin/scan-synced-disclosure.mjs`. The genesis ceremony is
-`.claude/hooks/lib/genesis-ceremony.js`; its consumer-relevant operational runbook (enroll-before-commit
-ordering, the state-file-guard script-by-path constraint, the admin-merge / push fallbacks) is in the
-DISTRIBUTED `.codex/skills/43-ecosystem-init/SKILL.md` § Operational runbook — consumers receive it; the
-loom-internal `guides/co-setup/11-genesis-ceremony.md` (architecture, failure-mode reference, ADO deep
-runbook) is platform-engineer material consumers do not get. Full ceremony procedure — the input prompts,
-the per-key `remote_links` shape, the scan-then-write ordering, the org-vs-user genesis branch — lives in
-`.codex/skills/43-ecosystem-init/SKILL.md`.
+Reader/engine/schema surfaces — `ecosystem-config.mjs` + the D6 schema, the loom-only `loom-links.mjs` resolver, the `ecosystem.example.json` companion, the disclosure scanner, and the genesis-ceremony operational runbook (enroll-before-commit ordering, the state-file-guard script-by-path constraint, admin-merge fallbacks) — live in `.agents/skills/43-ecosystem-init/SKILL.md` § "The D6 ecosystem-config schema" + § "Operational runbook". Full ceremony procedure (input prompts, the per-key `remote_links` shape, the scan-then-write ordering, the org-vs-user genesis branch) is that skill's body.

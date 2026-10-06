@@ -75,6 +75,13 @@ function _person(roster, personId) {
   if (typeof personId !== "string" || !personId) return null;
   const persons = roster.persons;
   if (!persons || typeof persons !== "object") return null;
+  // S60: own-key fence BEFORE the lookup. Without it a person_id shadowing an
+  // `Object.prototype` member resolves TRUTHY on a roster holding no such
+  // person; the `typeof person !== "object"` check below happens to reject the
+  // FUNCTION-valued members ("constructor", "toString", …) but NOT
+  // "__proto__", which resolves to `Object.prototype` — an object. An
+  // inherited member is never a rostered person, so refuse it structurally.
+  if (!Object.prototype.hasOwnProperty.call(persons, personId)) return null;
   const person = persons[personId];
   if (!person || typeof person !== "object") return null;
   return person;

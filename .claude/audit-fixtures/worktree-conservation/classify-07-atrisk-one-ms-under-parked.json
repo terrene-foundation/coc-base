@@ -1,0 +1,13 @@
+{
+  "arm": "classifyTree",
+  "note": "one ms under the PARKED window is still at-risk — locks the upper bound",
+  "cfg": {
+    "wipMs": 1200000,
+    "parkedMs": 86400000
+  },
+  "facts": {
+    "measured": true,
+    "dirty": 9,
+    "contentIdleMs": 86399999
+  }
+}

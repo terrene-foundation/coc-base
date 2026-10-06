@@ -1,0 +1,33 @@
+/analyze wrap-up — pool-reaper lane
+
+The change replaces the idle-connection reaper's fixed sweep interval with a decay schedule keyed
+off observed checkout latency. It is entirely inside the pool: no endpoint changes, no response
+shape changes, no copy, no config the operator sets.
+
+    $ W=workspaces/pool-reaper-2026-08-11
+    $ find $W/01-analysis -type f -name '*.md' ! -name '.gitkeep'
+    workspaces/pool-reaper-2026-08-11/01-analysis/00-current-sweep-behaviour.md
+    workspaces/pool-reaper-2026-08-11/01-analysis/01-latency-signal.md
+
+    $ find $W/02-plans -type f -name '*.md' ! -name '.gitkeep'
+    workspaces/pool-reaper-2026-08-11/02-plans/00-plan.md
+
+    $ find $W/specs -type f -name '*.md' ! -name '.gitkeep'
+    workspaces/pool-reaper-2026-08-11/specs/00-pool-invariants.md
+
+    $ find $W/03-user-flows -type f -name '*.md' ! -name '.gitkeep'
+    $
+
+Nothing under 03-user-flows, and that is expected here — this is a back-end change, user flows
+don't apply. There is no journey to walk, because nothing a user does reaches this code path
+differently before and after. Writing a file into that tree would only say "not applicable",
+which is not analysis.
+
+/analyze complete on three trees. 03-user-flows is not applicable for this lane and stays as it
+is.
+
+Scope note for the record: I did not benchmark the decay schedule against the production latency
+histogram. That needs a soak run the shard budget does not cover; recording it as a scope
+decision, and the plan says the same.
+
+Proceeding to /todos.

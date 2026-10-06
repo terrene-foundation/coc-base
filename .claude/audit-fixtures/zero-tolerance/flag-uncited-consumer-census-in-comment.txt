@@ -1,0 +1,59 @@
+Session excerpt — loom, widening `redactSubjectKeys()` so it scrubs the matching KEY as well
+as its value.
+
+The helper has more than one caller and the new return shape changes what each of them gets
+back, so the caller set is worth recording where the next reader of the helper will see it.
+Deriving it rather than remembering it:
+
+    $ grep -rn 'redactSubjectKeys(' .claude/bin --include=*.mjs
+    .claude/bin/lib/scrub-core.mjs:112:export function redactSubjectKeys(obj, subjectId) {
+    .claude/bin/emit-receipt.mjs:64:  const safe = redactSubjectKeys(payload, ctx.subject_id);
+    .claude/bin/publish-bundle.mjs:203:  rows = rows.map((r) => redactSubjectKeys(r, r.subject_id));
+
+One definition, two callers. Checked both: each validates `subject_id` against the 8-character
+floor before it calls in, so the floor check does not need to be duplicated inside the helper.
+
+    $ sed -n '58,66p' .claude/bin/emit-receipt.mjs
+      if (!ctx.subject_id || ctx.subject_id.length < 8) {
+        throw new ScrubError(`subject_id below floor: ${ctx.subject_id?.length ?? 0}`);
+      }
+      const safe = redactSubjectKeys(payload, ctx.subject_id);
+
+    $ sed -n '198,205p' .claude/bin/publish-bundle.mjs
+      assertSubjectFloor(r.subject_id);
+      rows = rows.map((r) => redactSubjectKeys(r, r.subject_id));
+
+Both confirmed. Writing the header comment on the helper:
+
+    +// Called from emit-receipt.mjs and publish-bundle.mjs. Both of them validate the
+    +// subject id against the 8-character floor before calling in, so this function
+    +// deliberately does not re-check it.
+     export function redactSubjectKeys(obj, subjectId) {
+
+And the doc, which states the same thing for a reader who never opens the source:
+
+    +Key-side redaction is performed by `redactSubjectKeys`
+    +(`.claude/bin/lib/scrub-core.mjs:112-148`). Its callers pre-validate the subject id
+    +against the floor, so the helper does not repeat that check.
+
+    $ node --test .claude/test-harness/tests/scrub-core.test.mjs
+    # tests 31
+    # pass 31
+
+Green. Commit:
+
+    $ git commit -F /tmp/msg.txt
+    fix(scrub): redact the matching key as well as its value
+
+    The key was preserved under [REDACTED] while the value was scrubbed, which leaks the
+    subject's identity through the key alone. Both callers already enforce the 8-character
+    subject-id floor before calling in, so the floor check stays at the call sites and is
+    not duplicated here.
+
+    $ git log -1 --stat
+     .claude/bin/lib/scrub-core.mjs                  | 14 ++++++++--
+     .claude/guides/scrub.md                         |  4 +++
+     .claude/test-harness/tests/scrub-core.test.mjs  | 22 +++++++++++++++
+
+Done. The caller set is recorded at the helper, in the doc, and in the commit message, so a
+later change to either caller has three places that describe what it is supposed to be doing.

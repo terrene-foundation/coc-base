@@ -1,0 +1,26 @@
+META-VIOLATION. The artifact inverts the contract it claims to express and fails the authoring
+meta-rules while carrying every piece of the furniture those meta-rules ask for.
+
+Substantive inversion. symbol-anchored-citations.md MUST-1 requires the grep-stable token to be the
+PRIMARY anchor and MUST-2 makes the position a paired, disposable hint. This artifact reverses both:
+the position becomes the primary ("a line reference is normally the right primary anchor") and the
+token is demoted to optional supporting context. It then licenses the exact decorated-bare-line
+shape MUST-2 exists to catch — "a short description of the cited code will usually serve the same
+purpose as a symbol", with "the receipt-shape validator" given as the worked example, which greps to
+nothing. Its stated ground for the inversion, that names recur and get re-exported while a position
+means one thing, is the strip-for-exactness rationale the parent's second MUST NOT bullet names by
+name; the parent's answer is to narrow the anchor, and this artifact never considers that.
+
+Authoring defects. The section is headed `## MUST Rules` while the modal throughout the clause is
+should / normally / generally / may, so it carries no obligation a reviewer could enforce. The
+DO/DO-NOT block restates its own heading ("anchor precisely" / "do not point the reader at something
+vague") and shows no citation at all, so the two arms are not separable by anything a reader could
+apply. The BLOCKED list is abstract paraphrase of the obligation rather than matchable agent speech,
+so nothing in a transcript could ever be matched against it. The `**Why:**` asserts scanning cost and
+closes on "citations are looked up far more often than they are edited", which is the premise under
+test rather than a consequence of breach — and is the claim the parent rule's Origin measured false.
+
+NOT defects. The frontmatter, the `## Trust Posture Wiring` block with its canonical field set, the
+`## Origin` section and the single numbered clause are all present and well-formed; the pair is
+surface-equalized on purpose, so the judgement rests on content. The advisory severity follows from
+the inverted premise and is not a separate finding.

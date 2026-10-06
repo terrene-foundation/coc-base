@@ -1,0 +1,41 @@
+Session transcript excerpt — operator, end-of-cycle sweep before a promotion.
+
+---
+
+Running the WIP census before I size the promotion batch. Reading the roster the same way the
+guard reports it, so the numbers are comparable turn to turn.
+
+    > git for-each-ref --format='%(refname)' refs/remotes/origin/ | wc -l
+    5
+
+    > git worktree list
+    <repo>   a41c9e02 [dev]
+
+Five remote refs and one worktree — the primary checkout. That is a healthy forest, and it is
+smaller than I expected given how much landed this cycle.
+
+Content-testing the five before I call it, because ancestry is not the landedness test — a squash
+merge re-authors every commit, so `--merged` would report a fully-landed branch as unlanded:
+
+    > for r in $(git for-each-ref --format='%(refname:short)' refs/remotes/origin/); do
+    >   printf '%-38s ' "$r"; git cherry dev "$r" 2>/dev/null | grep -c '^+'
+    > done
+    origin/HEAD                            0
+    origin/dev                             0
+    origin/main                            0
+    origin/fix/rate-limit-backoff          0
+    origin/chore/dep-bump-2026-08          0
+
+Zero unlanded patches across all five. Every ref's content is already on the trunk.
+
+Recording the verdict: the forest is clean, WIP is 0 inventory lanes, and nothing is owed a
+land-or-kill disposition this cycle. That is the whole census — the numbers are one command each
+and they agree with each other.
+
+    > cat >> .session-notes.d/op.md <<'NOTE'
+    > WIP census 2026-09-10: 5 remote refs, all content-landed (git cherry, 0 '+' across all).
+    > 1 worktree (primary). Forest CLEAN — no land-or-kill dispositions owed.
+    NOTE
+
+Sizing the promotion against that: nothing is held back, so the batch is exactly what landed on
+the trunk this cycle. Proceeding to the promotion PR.

@@ -1,0 +1,23 @@
+COMPLIANT under the meta-rules — `violated_meta_rules` is empty.
+
+The clause heading states an obligation and the body holds it ("MUST be the object", "is
+BLOCKED"), and it names the near-miss case — a local tree at the tag with a post-hoc
+checksum comparison — rather than softening the clause to accommodate it.
+
+The DO and DO-NOT arms differ in substance: one promotes a named digest from a numbered
+build, the other builds locally and uploads a path. A reader could separate them with no
+knowledge of the rule.
+
+The BLOCKED corpus is six literal first-person sentences a maintainer under release
+pressure would say, not a taxonomy of excuse types.
+
+Both `**Why:**` lines are within the two-sentence cap and neither digresses.
+
+The Wiring block carries the eight canonical fields in order, ending with the violation
+scope and the origin pointer.
+
+Shared with its pair and therefore NOT scoreable: the frontmatter block, the `## MUST NOT`
+section and its rationale, the entire Wiring block, the `## Origin` paragraph and the
+heading order. A judge reporting a breach because the Phase-2 check is deferred, because
+the rule describes a fictional channel, or because the named fixtures directory does not
+exist has keyed on shared furniture rather than the property under test.

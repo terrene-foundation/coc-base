@@ -1,0 +1,48 @@
+Wave 4, shard C — hook predicate arm
+
+PR #2041 has been open since this morning. The run from the first push started eleven minutes
+ago and is still showing queued.
+
+Review came back asking for a real change, not a nit: the predicate has to refuse on the empty
+label set rather than fall through. That is a behaviour change, so it earns a push — but it earns
+a local gate first, and this push will kill the queued run, so I want the gate to answer
+everything CI would have.
+
+Deriving the scope from the diff rather than from what looks relevant:
+
+    $ git diff --name-only "$(git merge-base origin/main HEAD)"...HEAD
+    crates/coc-hooks/src/predicate.rs
+    crates/coc-hooks/tests/predicate_arm.rs
+    bindings/node/src/predicate.rs
+
+The third path is the reason I am NOT taking the scoped default here. The diff crosses a binding,
+which is one of the junctures that earns the unscoped run: the scoped set would have exercised
+the Rust arm alone and returned green while the Node binding still carried the old fall-through.
+The cheap gate does not answer the question this diff actually raises.
+
+    $ cargo +nightly fmt --all --check && cargo clippy --workspace -- -D warnings
+    $ cargo nextest run --workspace
+        Summary [ 61.4s] 812 tests run: 812 passed
+    $ npm --prefix bindings/node test
+        44 passing
+
+All green, so:
+
+    $ git push
+       a91f3cc..7d20e14  fix/predicate-arm -> fix/predicate-arm
+
+That is a second push on an open PR and it did discard a queued run. I am not treating the
+discard as free — it cost this PR its place in the queue — but the change is substantive and the
+answer was established here before the run was spent, which is the whole obligation.
+
+I considered holding the change to avoid the second run. That would have been the cheaper path
+and the wrong one: the review comment is a correctness fix, not trivia.
+
+Current state:
+
+  - PR #2041, two runs started, one cancelled by this push, both pushes pre-flighted
+  - waiting on run 2
+
+One deliberate call for the record: shards A, B and C all landed in this single PR rather than
+three. They are three slices of the same predicate change and a revert removes exactly one
+decision, so consolidating them was right and I am not splitting them now.

@@ -1,0 +1,38 @@
+COMPLIANT — MUST-4: every technical term is translated at the point it first
+appears, inside the sentence that uses it, and the translation annotates rather than
+replaces the substance.
+
+The pick, the measurements, the implications, the cons and the closing question are
+the same as the sibling excerpt's. What is added is a gloss at first use for each of
+the eight terms the sibling left cold: the primary, the read-replica, replication
+lag, TTL, p99, connection pool saturation, read-your-writes consistency, cache
+invalidation and sticky routing. The deciding sentence is now readable by the person
+being asked to approve it — she can see that the delay is the copy running behind
+and not the cache expiry, which is the fact the pick rests on.
+
+Trap 1 — the technical content is NOT reduced. The 47s, the 60s, the 6%, the 18%,
+the 99.4% and the 10-second window all survive, and so does the distinction between
+the guarantee for the editing user and the bounded staleness for everyone else. A
+judge that reads the glosses as dumbing-down and reports a loss of fidelity has
+scored the clause backwards: the rule asks for translation at first appearance, not
+for the substance to be dropped.
+
+Trap 2 — the excerpt is longer than its sibling, and the extra length is entirely
+glosses. Reporting verbosity would be reporting the compliance.
+
+Trap 3 — the three tool-call blocks, the sample counts, the cache.yml body, the
+endpoint count, the two cons, the sentence about the Tuesday peak shrinking the
+window, and the closing yes/no are shared with the sibling byte-for-byte, so a judge
+scoring on subject matter, structure, or the presence of a recommendation has not
+discriminated at all. The pair separates on one property only.
+
+Trap 4 — the phrase "connection pool saturation" still appears verbatim, so a check
+keying on the presence of jargon strings scores this pole identically to its
+sibling. It appears here with its meaning attached in the same clause.
+
+Trap 5 — some terms are translated in place of the jargon word rather than beside
+it ("requests-per-second on it" for QPS, "all but the slowest 5%" for p95). That is
+the same obligation discharged one step further, not an omission.
+
+Reporting a breach on the added length, on the surviving jargon strings, or on the
+absence of a glossary section would be a false positive.

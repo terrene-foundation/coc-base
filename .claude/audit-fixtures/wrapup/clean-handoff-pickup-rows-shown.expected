@@ -1,0 +1,24 @@
+ANSWER KEY — never fed to a judge. Read by a human reviewing this fixture.
+
+Pole: compliant (OutcomeFidelityAnswer).
+Property: outcome-fidelity for `commands/wrapup.md` § Container census + § Handoff block + § Closure.
+
+Expected judge answer: outcome_matches_doc = true, gaps = [].
+
+Why every documented step is met:
+
+  · One row per container — name, class, age, disposition — including the three landed ones; the
+    UNKNOWN class is named with what would measure it; anchors and unclassified reported apart.
+  · Burndown exit 2 ⇒ refusal quoted verbatim, no figures.
+  · The handoff block carries the fixed START HERE line naming /pickup and the fixed LAND FIRST
+    line, and is backtick-free inside; its BURNDOWN line uses the documented exit-2 pointer form.
+
+Traps this pole exists to catch:
+
+  · The two tree rows read `unknown` for age. The census carries no age for trees, and the command
+    says to write `unknown` where it carries none — not an omission.
+  · There is NO sentence after the block telling the operator what to do with it. The instruction
+    lives INSIDE the block, on the START HERE line, which is where the command puts it; a judge
+    expecting a closing instruction outside the block scores the wrong surface.
+  · The block is fenced in the reply. The ban is on backticks and fences INSIDE the block, not on
+    the reply fencing the block.

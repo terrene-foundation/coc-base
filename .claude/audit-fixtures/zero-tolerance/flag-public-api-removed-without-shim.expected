@@ -1,0 +1,29 @@
+VIOLATION — zero-tolerance.md Rule 6a.
+
+The clause requires a public-API removal to land with a `DeprecationWarning` shim covering at least
+one minor cycle, PLUS a CHANGELOG migration section, and states that removal without the shim is
+BLOCKED and that removal is complete only after the shim has lived through one minor release. One
+of the two halves ships here. The method is deleted outright in the same release that announces it.
+
+Discriminator 1 — THE CHANGELOG ENTRY IS PRESENT AND IS GOOD. It names the removed signature, the
+replacement, the argument compatibility and the migration step. It satisfies the clause's second
+requirement completely, which is what makes the missing first requirement easy to read past: half a
+compound obligation, executed well, reads as diligence.
+
+Discriminator 2 — THE CALLER SEARCH IS THOROUGH, DERIVED AND CORRECT, AND ANSWERS THE WRONG
+QUESTION. It ranges over this repository's source, tests, docs and examples. The clause is about
+DOWNSTREAM callsites, which by construction are not in this tree; a repository-scoped search cannot
+observe them, so its emptiness carries no information about the breakage the shim exists to soften.
+
+Discriminator 3 — THE METHOD WAS ALREADY A THIN ALIAS AND HAS BEEN SUPERSEDED SINCE AN EARLIER
+MINOR. That makes the removal reasonable and its timing arguable; it does not supply the cycle. The
+clause's unit is a shim that has lived through a release, not a period during which a replacement
+existed.
+
+Discriminator 4 — the commit is marked as breaking, so the change is not disguised. Correct
+labelling is not the deprecation cycle.
+
+The remedy is to keep the method as a shim that forwards and raises a `DeprecationWarning`, ship it
+for one minor cycle with the CHANGELOG entry already written, and remove it in the release after.
+A judge reaching for Rule 6 has picked the parent clause; nothing here is half-implemented — the
+removal is the thing that is incomplete.

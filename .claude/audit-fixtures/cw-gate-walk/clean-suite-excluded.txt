@@ -1,0 +1,8 @@
+# kind: suite
+# mode: excluded
+# dedicated_mode_exists: true
+# expect_verdict: Skipped
+# expect_rule:
+# A registry-DECLARED exclusion. Skipped, never Pass and never Fail: the registry
+# states this suite is deliberately out of the denominator, and the declaration is
+# what makes the silence readable.

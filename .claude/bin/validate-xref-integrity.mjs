@@ -17,6 +17,7 @@
  *    1. Backtick inline: `rules/foo.md`, `.claude/rules/foo.md`,
  *       `skills/foo/bar.md`, `commands/foo.md`, `agents/foo.md`,
  *       `hooks/foo.js`, `bin/foo.mjs`, `audit-fixtures/foo/`,
+ *       `test-harness/probes/foo.probes.json`, `fixtures/foo/`,
  *       `journal/NNNN-...md`.
  *    2. Markdown link: [text](path/to/file.md) and [text](path/to/file.md#anchor).
  *
@@ -100,6 +101,17 @@
  *      `journal-entry-not-found` and still reds, and an ABSENT tree at the repo
  *      that OWNS it (`.claude/VERSION::type == "coc-source"`) is still
  *      `journal-dir-missing` and still reds. See resolveJournalToken.
+ *    - `test-harness/` citations in a repo that does not carry the harness
+ *      SUBTREE they reach into (2026-08-20, loom#1807). `.claude/test-harness/**`
+ *      is never-synced to USE and downstream, and on the BUILD lane only
+ *      `test-harness/lib/**` ships — so at a consumer these are unresolvable BY
+ *      DESIGN, for the same reason and on the same evidence as `journal/` above.
+ *      SUBTREE-scoped, not tree-scoped, because distribution is: at BUILD the
+ *      tree exists while `probes/` does not. The same two guards apply — a
+ *      PRESENT subtree with a missing member is still `not-found` and still
+ *      reds, and at the repo that OWNS the harness (`.claude/VERSION::type ==
+ *      "coc-source"`) nothing here is ever not-applicable. See
+ *      testHarnessSubtreePresent.
  *
  *  Exit:
  *    0 = COMPLETE run, no dangling refs (findings sourced from EXCLUDED contexts,
@@ -135,7 +147,87 @@
  *      the EXCLUDED note above; synthetic test input, reachable via --scope) and
  *      any tree not enumerated in DEFAULT_SCOPE_DIRS, so this edge is narrower
  *      than it was but is not gone: adding a new `.claude/` subtree still
- *      requires adding it here, and nothing detects that omission.
+ *      requires adding it here.
+ *
+ *      THE TOKEN-SURFACE HALF OF THIS EDGE IS NOW DETECTED (2026-08-20,
+ *      loom#1807). The former claim that "nothing detects that omission" was
+ *      true of BOTH halves and is now true of only one, so it is corrected
+ *      rather than left standing. SCOPE (which trees are READ) and TOKEN
+ *      SURFACE (which prefixes are RECOGNIZED) are independent, and the second
+ *      is the more dangerous: an unread tree still has its INBOUND citations
+ *      checked from files that ARE read, whereas an unrecognized prefix is
+ *      invisible from EVERYWHERE, under ANY scope, and reports as a PASS.
+ *      `test-harness/` was missing for the validator's whole life on exactly
+ *      that footing, and the corpus leans on it where danglement costs most
+ *      (`coc-artifact-eval-coverage.md` MUST-4 REQUIRES a rule's Detection block
+ *      to name its probes file BY PATH). The detector is
+ *      `.claude/test-harness/tests/xref-prefix-authority.test.mjs`, which checks
+ *      BACKTICK_RE's alternands against `detection-binding-check.mjs`'s
+ *      `BINDING_NAMESPACES` — an EXHAUSTIVE, SELF-GUARDING census of `.claude/`
+ *      subdirectories — instead of re-listing them by hand
+ *      (`verification-gate-integrity.md` MUST-3(a)). It earned its keep on its
+ *      first run: it found `.claude/fixtures/` blind too, which the issue had
+ *      not named. What is still UNDETECTED is the SCOPE half — a new subtree
+ *      absent from DEFAULT_SCOPE_DIRS goes unread with no signal.
+ *
+ *      DECLARED RESIDUAL — 15 of the authority's 25 remaining `.claude/`
+ *      subdirectories are still unrecognized, and this is a KNOWN, MEASURED,
+ *      DATED gap rather than an oversight (2026-08-20, loom#1807 follow-up;
+ *      REVISIT 2026-11-20). Measured over DEFAULT_SCOPE_DIRS on this tree:
+ *      268 backtick occurrences sit on the 25 non-enumerated prefixes, of which
+ *      154 would NOT resolve if the prefixes were simply added. The bulk are
+ *      absent BY DESIGN, not dangling — `specs/` 110 occ / 89 unresolvable
+ *      (project-local domain specs, absent at loom for the same reason
+ *      `journal/` is absent at a consumer), `learning/` 45/45 (gitignored
+ *      runtime state: posture.json, violations.jsonl), `.proposals/` 48/12
+ *      (transient inbox), plus `worktrees/`, `team-memory/`.
+ *      Each of those classes needs its OWN by-design-absence carve-out, exactly
+ *      as `journal/` and `test-harness/` each needed one; adding the prefixes
+ *      without them would either RED the gate on 154 by-design absences or ship
+ *      154 blanket amnesties, and the second is worse than the present silence
+ *      because it reads as coverage. That is a design task with its own
+ *      invariants, deliberately NOT bundled into this shard.
+ *
+ *      PARTIALLY DISCHARGED (loom#1980) — the receipts namespaces
+ *      (`ci-authz/`, `cross-repo-authz/`, `deferral-acceptance/`,
+ *      `deferral-requests/`, `load-authz/`, `wip-authz/`, `worktree-authz/` —
+ *      SEVEN, counted against the alternand list below rather than restated from
+ *      an earlier revision, which said FOUR while listing five) left this
+ *      residual and are now RECOGNIZED alternands of
+ *      BACKTICK_RE. They were not simply added: they took exactly the route this
+ *      paragraph demands — their own by-design-absence carve-outs, SOURCE-SCOPED
+ *      in SANCTIONED_ABSENT_REFS, covering the THREE consumed-on-use receipts
+ *      (`wip-limit-allow`, `nested-worktree-allow`, `synthetic-load-allow`) whose
+ *      absence at rest IS the guard holding. Not a blanket amnesty: a NEW citer
+ *      of any of those tokens still flags loud (measured — a probe citer planted
+ *      in an undeclared source file reported `not-found` at exit 1).
+ *
+ *      `load-authz/` joined LAST and late: `detection-binding-check.mjs` declared
+ *      it BINDING at 0219efd36 without the matching alternand here, so the #1807
+ *      census red (`xref-prefix-authority.test.mjs`) was the only thing standing
+ *      between that divergence and a repo-wide invisible prefix. That is the
+ *      detector doing exactly the job its own suite header claims for it.
+ *
+ *      They moved because `detection-binding-check.mjs` made them BINDING
+ *      namespaces, and the #1807 census reds when this list and that authority
+ *      diverge — so recognition here was compulsory, not optional.
+ *
+ *      THE FIGURES ABOVE (15 of 25, 268 occurrences, 154 unresolvable) ARE THE
+ *      PRE-CHANGE MEASUREMENT and are now STALE BY FOUR NAMESPACES. They are left
+ *      as-recorded rather than adjusted by arithmetic, because a re-derived count
+ *      that was never actually run would be a fabricated measurement — worse than
+ *      a dated stale one. RE-MEASURE before citing any of them; do not subtract.
+ *
+ *      `variants/` was the one tractable member and is the reason the residual
+ *      is bounded rather than open: 34 occurrences, only 3 unresolvable. All
+ *      three are in `guides/co-setup/05-variant-architecture.md`. Two named
+ *      paths that do not exist and were FIXED in this change against the tree;
+ *      the third (`variants/rb/`, line 76) is a correct ASSERTED-ABSENT
+ *      reference — the sentence containing it states there is no such directory
+ *      — and would need a SANCTIONED_ABSENT_REFS entry, not a repoint, if the
+ *      prefix is ever enumerated. Enumerating `variants/` alone was rejected as
+ *      a partial fix that would leave the census-vs-extractor divergence #1807
+ *      names still open on 24 other directories while reading as closed.
  *    - SLUG TAILS AND RANGE ENDPOINTS are matched loosely; a citation may resolve
  *      on its prefix while its tail names something that does not exist.
  *    - A MATERIALIZED TREE IS NOT A CONSUMER. Running this validator inside a
@@ -210,7 +302,8 @@ import {
 } from "node:fs";
 import { join, relative, resolve, dirname, sep } from "node:path";
 import { execFileSync } from "node:child_process";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
+import { isMainModule } from "./lib/entry-point.mjs";
 
 // --- Repo root resolution -----------------------------------------------
 
@@ -255,8 +348,52 @@ function findRepoRoot(startDir) {
 // file — the two guides tokens were invisible to the PATTERN, not skipped with it.
 // The md-link form was never affected: `[x](../guides/…)` matches MD_LINK_RE on the
 // `.md` extension and was reported dangling in that same control run.
+// `fixtures` was ADDED in the SAME change, and it was NOT on the issue's list —
+// the authority check found it. `.claude/fixtures/` is declared a `fixtures`-kind
+// BINDING namespace by the same census, the directory EXISTS here, and two
+// citations of `.claude/fixtures/validator-13/` (in `skills/hook-authoring/SKILL.md`
+// and `agents/codex-architect.md`) were unextractable for the same reason
+// `test-harness/` was. Both resolve, so this lands green — but they were
+// UNCHECKED, and an unchecked reference that happens to resolve today is one
+// rename away from a silent dangle. This is the derivation earning its keep:
+// a hand-restated prefix list would have closed the one gap that was reported
+// and left the one that was not.
+//
+// `test-harness` was ADDED 2026-08-20 (loom#1807), the SAME token-surface class
+// `guides` was. Its absence made every `.claude/test-harness/**` citation
+// UNEXTRACTABLE repo-wide — not failing, INVISIBLE — so a dangling probe-suite,
+// eval-manifest or harness-lib reference shipped under a green exit 0. That is the
+// most dangerous shape a gap can take here, because the corpus leans on this prefix
+// exactly where a dangling reference costs most: `coc-artifact-eval-coverage.md`
+// MUST-4 REQUIRES a rule's Detection block to name its probes file by path.
+//
+// The prefix list is NOT hand-restated. It is checked against
+// `detection-binding-check.mjs::BINDING_NAMESPACES` ∪ `NON_BINDING_CLAUDE_DIRS`,
+// which is the corpus's one EXHAUSTIVE, SELF-GUARDING census of `.claude/`
+// subdirectories (its own census test reds when a `.claude/` subdir appears in
+// neither list, so it cannot silently fall behind the tree). `test-harness` is
+// declared there as `{ prefix: ".claude/test-harness/", kind: "probes" }` — a
+// BINDING namespace, i.e. a path MUST-4 holds rules to — while this extractor did
+// not know the prefix existed. That divergence between two checkers over one
+// subject IS the defect #1807 names.
+// The `receipts`-kind alternands (`ci-authz`, `cross-repo-authz`,
+// `deferral-acceptance`, `deferral-requests`, `load-authz`, `wip-authz`,
+// `worktree-authz` — every entry `BINDING_NAMESPACES` carries at `kind:
+// "receipts"`, read from that list rather than restated from memory) were added
+// when those namespaces became BINDING
+// in `detection-binding-check.mjs`. They are here because the #1807 census
+// DEMANDED them — it reds when this list and `BINDING_NAMESPACES` diverge, and it
+// caught this omission on the same commit that created it. Without them every
+// citation into a receipt namespace would be unchecked repo-wide and would dangle
+// silently under exit 0, which is the precise divergence-between-two-checkers
+// defect #1807 exists to close.
+//
+// `load-authz` is the second time that census caught the divergence rather than
+// the author: it was declared BINDING at 0219efd36 and the alternand did not
+// follow, so every `.claude/load-authz/**` citation was invisible here — under
+// ANY scope, reporting as a PASS — until the suite red.
 const BACKTICK_RE =
-  /`((?:\.claude\/)?(?:rules|skills|commands|agents|guides|hooks|bin|audit-fixtures)\/[A-Za-z0-9_./~+\-]+)`/g;
+  /`((?:\.claude\/)?(?:rules|skills|commands|agents|guides|hooks|bin|audit-fixtures|test-harness|fixtures|ci-authz|cross-repo-authz|deferral-acceptance|deferral-requests|load-authz|wip-authz|worktree-authz)\/[A-Za-z0-9_./~+\-]+)`/g;
 
 // Backtick-inline journal ref.
 //
@@ -356,16 +493,56 @@ const SANCTIONED_DEFERRED_FIXTURES = new Set([
   // artifact-flow.md § "Exact Gate-1 / Gate-2 Tracking" Detection mechanism
   // (also cited by sync-completeness.md's distribution-side companion).
   "audit-fixtures/exact-gate-tracking",
-  // git.md § CI-check/merge-separation Detection mechanism.
-  "audit-fixtures/ci-check-merge-separation",
+  // (2026-09-13) `audit-fixtures/ci-check-merge-separation` was here for
+  // git.md § CI-check/merge-separation and is DELETED, not moved: that clause's
+  // Phase-2 deferral GRADUATED — the detector shipped
+  // (`hooks/check-merge-separation-guard.js` + `hooks/lib/check-merge-separation.js`)
+  // and the slug now holds 11 real fixtures plus a `run.mjs`, so the token
+  // RESOLVES on its own and needs no suppression. Keeping the carve-out would
+  // leave a permanent exemption standing over a directory that now exists —
+  // which is how the next genuinely-dangling reference at this slug would be
+  // absorbed quietly instead of flagged loudly, the exact behaviour this set's
+  // own header refuses. Same disposition as the recommendation-quality entry
+  // recorded below, reached from the opposite direction: that one because the
+  // fixture will NEVER be built, this one because it now HAS been.
   // knowledge-cascade-routing.md Detection mechanism.
   "audit-fixtures/knowledge-cascade-routing",
-  // recommendation-quality.md MUST-7 (below-confidence escalation) Detection mechanism.
-  "audit-fixtures/recommendation-quality/below-confidence-escalation",
+  // (2026-08-31) `audit-fixtures/recommendation-quality/below-confidence-escalation`
+  // was here for MUST-7 and is DELETED, not moved: that clause's Phase-2 deferral was
+  // RETIRED (it now states no lexical detector is achievable, and its registry row moved
+  // to `phase2-deferrals.json::acknowledged_non_deferrals`), so no fixture directory is
+  // owed at that slug and the rule no longer cites one. Keeping the carve-out would leave
+  // a permanent suppression standing over a token nothing will ever create — which is how
+  // the next genuinely-dangling reference at that slug would be absorbed quietly instead
+  // of flagged loudly, the exact behaviour this set's own header refuses. The MUST-8
+  // sibling below is a DIFFERENT clause whose deferral still stands, and stays.
+  //
   // recommendation-quality.md MUST-8 (sensitivity/classification escalation) Detection mechanism.
   "audit-fixtures/recommendation-quality/sensitivity-escalation",
-  // security.md § Enforcement-Surface Parity Detection mechanism.
-  "audit-fixtures/enforcement-surface-parity",
+  // (2026-09-13) `audit-fixtures/enforcement-surface-parity` was here for
+  // security.md § Enforcement-Surface Parity and is DELETED, not moved — the same
+  // disposition, for the same reason, as the 2026-08-31 removal recorded above.
+  // That clause's Phase-2 deferral was RETIRED (its Wiring block now states that no
+  // hook detector will ever be built, because neither "was this field promoted to a
+  // fail-closed authorization control" nor "did every independent validation surface
+  // learn it" is carried by any structural signal, and the surface enumeration is
+  // declared in no registry), and its `phase2-deferrals.json` row moves to
+  // `acknowledged_non_deferrals`. No fixture directory is owed at that slug and the
+  // rule no longer cites one, so a carve-out left standing would be a permanent
+  // suppression over a token nothing will ever create — which is how the next
+  // genuinely-dangling reference at that slug would be absorbed quietly instead of
+  // flagged loudly. The § Path Containment and § Approver-Identity siblings below are
+  // DIFFERENT clauses whose deferrals still stand, and stay.
+  // orchestration-launch-ledger.md MUST-6 (revival + force-push) Detection
+  // mechanism. Adjudicated individually against the same four conditions as the
+  // 2026-08-10 block below: (1) the citing line IS that clause's `**Detection
+  // mechanism:**` Wiring field; (2) it is declared Phase-2 DEFERRED, not
+  // present-tense; (3) the deferral is registered in phase2-deferrals.json
+  // (`orchestration-launch-ledger.md#must-6-revival-and-force-push`, risk
+  // `trust`, expires 2026-12-11) so it is time-bounded rather than permanent;
+  // (4) the fixtures land WITH the detector per cc-artifacts.md Rule 9, so an
+  // empty directory created now would be a fake fixture, not coverage.
+  "audit-fixtures/orchestration-launch-ledger/revival-and-force-push",
 
   // ---------------------------------------------------------------------
   // 2026-08-10 — the 25 slugs below were each adjudicated INDIVIDUALLY, not
@@ -421,8 +598,15 @@ const SANCTIONED_DEFERRED_FIXTURES = new Set([
   "audit-fixtures/parsed-signal-detector",
   // issue-triage-routing.md Detection mechanism.
   "audit-fixtures/issue-triage-routing",
-  // multi-operator-coordination.md § Coordination-Disposition-Verification Detection mechanism.
-  "audit-fixtures/coordination-disposition-verification",
+  // (2026-09-13) `audit-fixtures/coordination-disposition-verification` was here for
+  // multi-operator-coordination.md § Coordination-Disposition-Verification and is DELETED,
+  // not moved: that clause's Phase-2 deferral was RETIRED (the field now states no detector
+  // will ever be built, and its registry row moved to
+  // `phase2-deferrals.json::acknowledged_non_deferrals`), so no fixture directory is owed at
+  // that slug and the rule no longer cites one. Keeping the carve-out would leave a permanent
+  // suppression standing over a token nothing will ever create, quietly absorbing the next
+  // genuinely-dangling reference at that slug — the same reasoning the 2026-08-31
+  // `recommendation-quality/below-confidence-escalation` deletion above records.
   // orchestration-launch-ledger.md Detection mechanism.
   "audit-fixtures/orchestration-launch-ledger",
   // orphan-detection.md § default-change sweep Detection mechanism.
@@ -435,14 +619,26 @@ const SANCTIONED_DEFERRED_FIXTURES = new Set([
   "audit-fixtures/schema-add-column-paired-artifacts",
   // security.md § Path Containment Detection mechanism.
   "audit-fixtures/path-containment",
-  // security.md § Secure-Default For A New Security Feature Detection mechanism.
-  "audit-fixtures/secure-default-new-feature",
+  // (2026-09-13) `audit-fixtures/secure-default-new-feature` was here for security.md
+  // § Secure-Default For A New Security Feature and is DELETED on the same ground as
+  // the § Enforcement-Surface Parity entry above: that clause's Phase-2 deferral was
+  // RETIRED, because none of its three deciding facts — is the feature a SECURITY
+  // feature, is its default a SILENT no-op, and was on-by-default GENUINELY infeasible
+  // for backward-compat — is carried by any argv token, AST node, parsed-document
+  // field or git-object fact. The rule no longer cites the slug, so no fixture
+  // directory is owed and the carve-out has outlived its condition.
   // security.md § Approver/Decider-Identity Detection mechanism.
   "audit-fixtures/approver-identity-server-derived",
   // spec-accuracy.md § kp:// carve-out Detection mechanism.
   "audit-fixtures/spec-accuracy-kp-carveout",
-  // specs-authority.md Rule 10 (knowledge-product field-type) Detection mechanism.
-  "audit-fixtures/knowledge-product-field-type",
+  // (2026-09-15) `audit-fixtures/knowledge-product-field-type` was here for
+  // specs-authority.md Rule 10 and is DELETED on the same ground as the two
+  // `security.md` entries above: that clause's Phase-2 deferral GRADUATED —
+  // `.claude/hooks/kp-prefix-guard.js` ships with real fixtures at
+  // `.claude/audit-fixtures/kp-prefix/` — so the rule no longer cites the slug,
+  // the directory was never created, and the carve-out has outlived its
+  // condition. Leaving it would absorb the next genuinely-dangling reference at
+  // that slug instead of flagging it.
   // specs-authority.md Rule 11 (derives_from[] provenance) Detection mechanism.
   "audit-fixtures/derives-from-provenance",
   // stack-detection.md Detection mechanism.
@@ -483,14 +679,22 @@ const SANCTIONED_DEFERRED_FIXTURES = new Set([
   // guard would have rejected it even WITH this entry present. The block-scoped
   // guard above is what makes it declarable at all.
   "audit-fixtures/script-tool-manifest-sanity",
-  // worktree-isolation.md Rule 9 (stash-collision) Detection mechanism. PRE-EXISTING on
-  // main at 117eaa96 — measured: that base exits 1 with this single dangling ref, so it
-  // is not this branch's regression. Fixed here under zero-tolerance.md Rule 1 (found it,
-  // own it) because it reds a shared gate for every lane. Legitimately allowlistable: the
-  // clause declares its Phase-2 detector deferred AND the deferral is registered in
-  // phase2-deferrals.json with a dated expiry (2027-02-15), which is the same bar every
-  // row above met. If the owning lane ships the same slug, drop whichever lands second.
-  "audit-fixtures/worktree-stash-collision",
+  // (2026-08-31) `audit-fixtures/worktree-stash-collision` was here for
+  // worktree-isolation.md Rule 9 and is DELETED. Its comment asserted the entry was
+  // "registered in phase2-deferrals.json with a dated expiry (2027-02-15)", and that
+  // statement is FALSE as of this commit: MEASURED, the registry carries NO row at
+  // `worktree-isolation.md#rule-9-stash-collision` and NO row anywhere expiring
+  // 2027-02-15 — the deferral GRADUATED (loom#1795, 2026-08-18) and now lives in
+  // `acknowledged_non_deferrals` as `#rule-9-phase2-landed`, recording the detector as
+  // BUILT AND WIRED. The entry was also already INERT: `.claude/audit-fixtures/
+  // worktree-stash-collision/` exists on disk with 40 bipolar cases, so resolveRefToken
+  // resolves the token directly and never consults this set (MEASURED: the pre-removal
+  // run reported 96 sanctioned skips and named this slug in none of them, and the
+  // post-removal run reports the same dangling count). Removing it rather than
+  // rewording it is the disposition the entry's own last sentence anticipated: the
+  // fixtures shipped, so the carve-out has outlived its condition, and a suppression
+  // left standing over a real directory would silently absorb the next dangling
+  // reference at that slug if the directory were ever renamed or removed.
 
   // ---------------------------------------------------------------------
   // 2026-08-12 — unpark of the parked baseline queue. Adjudicated
@@ -502,6 +706,11 @@ const SANCTIONED_DEFERRED_FIXTURES = new Set([
   //
   // evidence-first-claims.md MUST-5 + MUST-6 Detection mechanism.
   "audit-fixtures/evidence-first-claims/instrument-capability-and-scope",
+  // value-prioritization.md MUST-7 (critical-path share) Detection mechanism —
+  // 2026-08-11 /sync-from-build kailash-rs Gate-1. Adjudicated individually: the
+  // citing clause declares its Phase-2 detector DEFERRED, and the entry is also
+  // declared in phase2-deferrals.json::deferrals with a dated `expires`.
+  "audit-fixtures/value-prioritization/critical-path-share",
 ]);
 
 // --- Sanctioned absent-by-design / external references -------------------
@@ -519,6 +728,56 @@ const SANCTIONED_DEFERRED_FIXTURES = new Set([
 // a blanket suppression of the token itself — the same constraint
 // SANCTIONED_DEFERRED_FIXTURES states in its own "NOT on this list" note.
 const SANCTIONED_ABSENT_REFS = new Map([
+  // ── CONSUMED-ON-USE RECEIPTS ──────────────────────────────────────────────
+  //
+  // All THREE entries became REACHABLE by this checker only when their receipt
+  // namespaces were added to BACKTICK_RE's alternands (the #1807 census demanded
+  // that once they became BINDING in `detection-binding-check.mjs`). They are
+  // sanctioned rather than fixed because absence at rest is CORRECT here: the
+  // hook that honours one of these receipts DELETES it, so a resolvable copy in
+  // canon would mean the override channel had been left armed. Reddening on them
+  // would be reddening on the guard working correctly — the same objection that
+  // kept receipts out of BINDING_NAMESPACES until the kind-specific resolution
+  // rule answered it, arriving here at the second checker.
+  //
+  // Kept SOURCE-SCOPED like every entry below, deliberately: a NEW citer of
+  // any of these tokens still flags loud. That is what keeps this from decaying into a
+  // blanket suppression of the whole receipt namespace, which would re-open the
+  // silent-dangle class at exactly the surface this change opened up.
+  [
+    ".claude/wip-authz/wip-limit-allow",
+    {
+      why: "CONSUMED-ON-USE RECEIPT. `wip-discipline-guard.js` deletes it as it honours it (the rule's own MUST-2 says 'honoured ONCE (consumed on use)'), so it exists only between an operator writing it and the very next dispatch. A committed copy would be a permanently-armed WIP override.",
+      sources: new Set([
+        ".claude/rules/wip-discipline.md",
+        ".claude/guides/rule-extracts/wip-discipline.md",
+        // Handbook Parts II and VI name this receipt to explain what an override
+        // IS, for any operator. Same by-design absence as the citers above.
+        ".claude/guides/handbook/02-artifacts.md",
+        ".claude/guides/handbook/06-operating.md",
+      ]),
+    },
+  ],
+  [
+    ".claude/worktree-authz/nested-worktree-allow",
+    {
+      why: "CONSUMED-ON-USE RECEIPT, same class as the wip-authz entry above: the nested-worktree guard's one-shot override channel, spent when honoured. Absent at rest IS the guard holding.",
+      sources: new Set([
+        ".claude/rules/worktree-isolation.md",
+        ".claude/guides/rule-extracts/worktree-isolation.md",
+        // Handbook Part VI names this receipt to explain what an override IS
+        // (02-artifacts.md does NOT cite this token). Same by-design absence.
+        ".claude/guides/handbook/06-operating.md",
+      ]),
+    },
+  ],
+  [
+    ".claude/load-authz/synthetic-load-allow",
+    {
+      why: "CONSUMED-ON-USE RECEIPT, same class as the two entries above: the synthetic-load guard's one-shot, reason-bearing override channel. `hooks/lib/override-receipt.js::consumeReceipt` UNLINKS it as it honours it (`fs.unlinkSync(c.abs)`, override-receipt.js:342-354, whose own comment records 'The unlink IS the one-shot property'), and repo-root `.gitignore:33` names the exact path, so canon can never carry a resolvable copy. A committed one would be a permanently-armed load override — precisely the inversion `detector-distribution-baseline.json` records for this receipt. The namespace DIRECTORY exists and is tracked (`.claude/load-authz/README.md`), so this carve-out excuses only the spent RECEIPT, never a citation into a namespace that is gone.",
+      sources: new Set([".claude/rules/ci-cost-discipline.md"]),
+    },
+  ],
   [
     ".claude/agents/project/",
     {
@@ -529,6 +788,8 @@ const SANCTIONED_ABSENT_REFS = new Map([
         // loom has "No `project/` subdirectory — loom/ is the authority, not a
         // project", i.e. it names the path in order to state that canon lacks it.
         ".claude/guides/co-setup/03-creating-components.md",
+        // Handbook Part II names it for the same reason: to state canon lacks it.
+        ".claude/guides/handbook/02-artifacts.md",
       ]),
     },
   ],
@@ -594,7 +855,13 @@ const SANCTIONED_ABSENT_REFS = new Map([
       // [backtick] .claude/rules/local/local-manifest.yaml → not-found`; restoring
       // it → exit 0. "Unreachable at a consumer" is therefore NOT "dead code".
       why: "Canon-absent BY DESIGN. rules/local/_README.md states canon 'carries only this doc + the schema example'; the deployment copies local-manifest.example.yaml to this path in a FORK. Reachable only at canon — `rules/local/**` is never distributed, so this row is inert (not wrong) at every consumer.",
-      sources: new Set([".claude/rules/local/_README.md"]),
+      sources: new Set([
+        ".claude/rules/local/_README.md",
+        // Handbook Part II's coverage-surface table names it as the registry a
+        // FORK updates when it adds a local rule; canon ships only the .example.
+        // (Conditional on an action canon never takes — same shape as _README.md.)
+        ".claude/guides/handbook/02-artifacts.md",
+      ]),
     },
   ],
   [
@@ -604,6 +871,47 @@ const SANCTIONED_ABSENT_REFS = new Map([
       sources: new Set([
         ".claude/skills/10-deployment-git/docker-dev-env-patterns.md",
         ".claude/agents/management/coc-sync.md",
+      ]),
+    },
+  ],
+  [
+    "test-harness/probes/instrument-discipline.probes.jsonl",
+    {
+      // A FIFTH category for this allowlist, named rather than smuggled in under
+      // one of the four above: a HISTORICAL citation of a path that has since
+      // been DELETED. The citing paragraph quotes a `sync-tier-aware` plan row
+      // read at a specific commit (`action:skip reason:exclude`) and then states
+      // in its own next sentence that "the suite has since graduated to
+      // `test-harness/probes/instrument-discipline.probes.json` and the `.jsonl`
+      // is deleted", deliberately leaving the historical reading verbatim rather
+      // than restating a measurement over a path it never measured.
+      //
+      // REPOINTING THIS TOKEN TO THE `.json` WOULD BE THE DEFECT, not the fix: it
+      // would attribute a measured plan row to a file that did not exist when the
+      // measurement was taken — the `zero-tolerance.md` Rule 3e shape (a claim
+      // restated over a surface that changed underneath it). The reference is
+      // CORRECT prose about a file that is correctly gone.
+      why: "HISTORICAL citation of a DELETED path. The citing paragraph quotes a plan row measured against the `.jsonl` file at an earlier commit and states in the same block that the suite graduated to `.probes.json` and the `.jsonl` was deleted. Repointing it would falsify the measurement it records.",
+      sources: new Set([
+        ".claude/skills/30-claude-code-patterns/instrument-discipline.md",
+      ]),
+    },
+  ],
+  [
+    ".claude/test-harness/results/",
+    {
+      // AUTHORITY, not assertion: `.gitignore` carries the literal line
+      // `.claude/test-harness/results/`, so the directory is a per-run OUTPUT
+      // location that is absent in EVERY clean checkout including loom's own —
+      // the same shape as `bin/loom-links.local.json` above, whose entry cites
+      // its gitignore status the same way. `/test-harness-probe` CREATES it when
+      // a probe run writes results; a committed copy would be the churn the
+      // gitignore exists to prevent. Surfaced by loom#1807, whose prefix widening
+      // made these three citations visible for the first time.
+      why: "GITIGNORED per-run output directory (`.gitignore` declares `.claude/test-harness/results/`). Created by a `/test-harness-probe` run; absent in every clean checkout by design, so nothing in canon can or should satisfy it.",
+      sources: new Set([
+        ".claude/commands/test-harness-probe.md",
+        ".claude/skills/test-harness-probe/SKILL.md",
       ]),
     },
   ],
@@ -910,10 +1218,63 @@ function repoOwnsJournalTree(repoRoot) {
 // Falsifying result, named per instrument-discipline.md MUST-1: at a repo whose
 // VERSION says `coc-source` and which has no `journal/`, the run still reports
 // `journal-dir-missing` and exits 1. That is what the paired fixture asserts.
-function repoIsJournalOwningSource(repoRoot) {
+// RENAMED from `repoIsJournalOwningSource` (loom#1807): the predicate is not
+// journal-specific. It answers "is this the canon repo that OWNS the trees which
+// are never distributed" — `journal/` AND `.claude/test-harness/` — and both
+// by-design-absence carve-outs read it, so a journal-shaped name would have
+// mis-described half its callers.
+function repoIsCanonSource(repoRoot) {
   try {
     const v = JSON.parse(readFileSync(join(repoRoot, ".claude", "VERSION"), "utf8"));
     return v && v.type === "coc-source";
+  } catch {
+    return false;
+  }
+}
+
+// --- `test-harness/` subtree presence (loom#1807) -----------------------
+//
+// WHY THIS IS NOT AN AMNESTY. `.claude/test-harness/**` is NEVER-SYNCED to USE
+// templates and downstream consumers, and on the BUILD lane ONLY
+// `test-harness/lib/**` ships (`sync-tier-aware.mjs::BUILD_ONLY_ALWAYS_INCLUDE`).
+// So at a consumer, EVERY `test-harness/` citation in every shipped rule points
+// at a subtree that is absent BY CONSTRUCTION — exactly the situation
+// `resolveJournalToken` already models for `journal/`, and for the identical
+// reason: counting them dangling would make a consumer green only if loom's
+// rules stopped naming the probe suites `coc-artifact-eval-coverage.md` MUST-4
+// REQUIRES them to name.
+//
+// This is SUBTREE-scoped rather than tree-scoped, because distribution is:
+// a BUILD repo receives `test-harness/lib/**` and nothing else, so at BUILD the
+// tree EXISTS while `probes/` does not. A tree-scoped test would resolve `lib/`
+// citations and red every `probes/` one there.
+//
+// TWO things keep it strict where it matters, mirroring the journal carve-out:
+//   - at the repo that OWNS the harness (`.claude/VERSION::type == "coc-source"`,
+//     i.e. loom) NOTHING here is ever not-applicable; an absent subtree is a
+//     defect and stays LOUD;
+//   - where the subtree IS present, a missing MEMBER is still a real dangling
+//     reference and still drives the exit code.
+//
+// Falsifying result, named per instrument-discipline.md MUST-1: at a repo whose
+// VERSION says `coc-source` and whose `.claude/test-harness/probes/` is absent,
+// a `test-harness/probes/x.probes.json` citation still reports dangling and the
+// run still exits 1. The paired fixture asserts both poles on one tree.
+function isTestHarnessToken(token) {
+  return normalizeFixtureSlug(token).startsWith("test-harness/");
+}
+
+// True iff the specific `.claude/test-harness/<segment>` this token reaches into
+// is present here. For a token naming a TOP-LEVEL harness file
+// (`test-harness/eval-manifest.json`) the relevant container is the harness
+// directory itself.
+function testHarnessSubtreePresent(token, repoRoot) {
+  const segments = normalizeFixtureSlug(token).split("/").filter(Boolean);
+  // segments[0] === "test-harness"
+  const base = join(repoRoot, ".claude", "test-harness");
+  const container = segments.length > 2 ? join(base, segments[1]) : base;
+  try {
+    return statSync(container).isDirectory();
   } catch {
     return false;
   }
@@ -927,7 +1288,7 @@ function resolveJournalToken(token, repoRoot) {
   // the question "does entry NNNN exist" has no answer here. Distinguished from
   // the tree being PRESENT and the specific entry missing, which stays a real
   // defect (`journal-entry-not-found`) and still drives the exit code.
-  if (!repoOwnsJournalTree(repoRoot) && !repoIsJournalOwningSource(repoRoot)) {
+  if (!repoOwnsJournalTree(repoRoot) && !repoIsCanonSource(repoRoot)) {
     return {
       ok: false,
       notApplicable: true,
@@ -1059,8 +1420,55 @@ function candidatePathsFor(token, repoRoot, sourcePath, kind) {
     // internal precedent).
     candidates.push(join(repoRoot, ".claude", token));
     candidates.push(join(repoRoot, token));
+    // ...then SOURCE-RELATIVE, LAST (loom#1807 follow-up). A document that lives
+    // inside a subtree may name a sibling path relative to ITSELF rather than to
+    // the repo root, and until the `fixtures` alternand landed no such token was
+    // EXTRACTED, so the resolver never had to model it. It does now:
+    // `.claude/test-harness/README.md:42` cites `fixtures/safety/`, meaning
+    // `.claude/test-harness/fixtures/safety/`, which EXISTS — while
+    // `.claude/fixtures/safety/` (the canonical reading) does not. Reported
+    // dangling, the reference was correct and the validator was wrong.
+    //
+    // ORDERED LAST, and that is the whole safety argument. Both canonical
+    // candidates are tried first and a hit there returns before this one is
+    // reached, so this line CANNOT change any resolution that already
+    // succeeded — it can only convert a not-found into a found. The widening it
+    // does buy is real and is why the match is LABELLED (`sourceRelativeMatch`)
+    // and surfaced in its own report section rather than folded into the pass
+    // count, the same discipline the slash-less directory fallback below
+    // follows.
+    //
+    // WHY IT DOES NOT RE-BLIND THE PREFIX THE SHARD JUST TAUGHT. The candidate
+    // is `dirname(<citing file>)/<token>`, so a `test-harness/probes/GHOST.json`
+    // cited from `.claude/rules/foo.md` is tested at
+    // `.claude/rules/test-harness/probes/GHOST.json` — absent, so the planted
+    // ghost still reds. Only a citer that genuinely SITS above the named path is
+    // excused, which is exactly the reading that made the citation correct.
+    if (sourcePath) {
+      candidates.push(resolve(dirname(join(repoRoot, sourcePath)), token));
+    }
   }
   return candidates;
+}
+
+// The source-relative candidate for a BARE BACKTICK token, or null when there is
+// none. Mirrors the exact branch above that pushes it, so the label can never
+// describe a path the resolver did not actually try.
+//
+// md-link is EXCLUDED, and that exclusion is the whole correctness of the label
+// rather than a tidiness preference. For a markdown link, source-relative is the
+// FIRST candidate and always has been — that is ordinary link semantics, not a
+// looser fallback. Measured before this guard existed: labelling it too reported
+// 704 "source-relative matches" repo-wide, every one of them a pre-existing,
+// entirely normal sibling link (`[x](connection-patterns.md)`), which would have
+// buried the handful of genuinely looser backtick matches this section exists to
+// surface. A report nobody can read is not an audit trail.
+function sourceRelativeCandidateFor(token, repoRoot, sourcePath, kind) {
+  if (!sourcePath || kind === "md-link") return null;
+  if (token.startsWith(".claude/") || token.startsWith("./") || token.startsWith("../")) {
+    return null;
+  }
+  return resolve(dirname(join(repoRoot, sourcePath)), token);
 }
 
 function resolveRefToken(token, repoRoot, sourcePath, kind) {
@@ -1075,11 +1483,17 @@ function resolveRefToken(token, repoRoot, sourcePath, kind) {
   // Use lstatSync to avoid following symlinks out of the repo (security-
   // reviewer LOW — symlink-following stat).
   const isDir = token.endsWith("/");
+  const srcRel = sourceRelativeCandidateFor(token, repoRoot, sourcePath, kind);
   for (const c of safeCandidates) {
     try {
       const st = lstatSync(c);
       if ((isDir ? st.isDirectory() : st.isFile()) && pathCaseExactUnderRoot(c, repoRoot)) {
-        return { ok: true, resolvedPath: c };
+        // Labelled, not silent: this hit came from the LAST candidate, the
+        // source-relative one, so both canonical readings missed. Surfaced in
+        // its own report section so the looser match stays auditable.
+        return srcRel && c === srcRel
+          ? { ok: true, resolvedPath: c, sourceRelativeMatch: true }
+          : { ok: true, resolvedPath: c };
       }
     } catch {
       // try next candidate
@@ -1142,7 +1556,25 @@ function resolveOne(finding, repoRoot) {
   if (finding.kind === "journal") {
     return resolveJournalToken(finding.token, repoRoot);
   }
-  return resolveRefToken(finding.token, repoRoot, finding.source, finding.kind);
+  const r = resolveRefToken(finding.token, repoRoot, finding.source, finding.kind);
+  // NOT-APPLICABLE, not dangling: this repo does not carry the `test-harness/`
+  // subtree the token reaches into, so the question "does this member exist" has
+  // no answer here (§ test-harness subtree presence above). Applied ONLY to a
+  // resolution FAILURE, so it can never turn a resolved ref into anything else,
+  // and NEVER at the repo that owns the harness.
+  if (
+    !r.ok &&
+    isTestHarnessToken(finding.token) &&
+    !testHarnessSubtreePresent(finding.token, repoRoot) &&
+    !repoIsCanonSource(repoRoot)
+  ) {
+    return {
+      ok: false,
+      notApplicable: true,
+      reason: "test-harness-subtree-absent-not-applicable",
+    };
+  }
+  return r;
 }
 
 // --- Exit-code contract -------------------------------------------------
@@ -1462,6 +1894,66 @@ function isDeclaredXrefAbsent(finding, absent) {
   return row.sources.includes(finding.source);
 }
 
+// --- DEFERRED PROBE AUTHORSHIP, DERIVED (loom#1807) ---------------------
+//
+// The `test-harness/probes/<id>.probes.json` class is the bulk of this prefix's
+// citations, and most of those suites are deliberately UNWRITTEN: a rule's
+// Wiring block NAMES its probe file (which `coc-artifact-eval-coverage.md`
+// MUST-4 REQUIRES it to do) while the suite's authorship is deferred under a
+// DATED declaration. Those citations are sanctioned forward-pointers, not
+// dangling defects — the same disposition SANCTIONED_DEFERRED_FIXTURES gives the
+// audit-fixture arm.
+//
+// DERIVED, NOT RESTATED — this is the whole point, per
+// `verification-gate-integrity.md` MUST-3(a). There is a genuine AUTHORITATIVE
+// enumeration: `.claude/test-harness/phase2-deferrals.json::probe_authorship_deferrals`,
+// read through its OWNING reader `phase2-deferral-integrity.mjs::loadProbeAuthorshipDeferrals`.
+// Hand-copying those ~50 paths into a Set here would produce a list that agrees
+// with the author's mental model and drifts from the registry silently — and,
+// worse, would be a SECOND opinion on whether a deferral has EXPIRED. The reader
+// is fail-closed on every axis (absent / unparseable / malformed / never-valid /
+// past-expiry all yield NO excuse), so deriving inherits that.
+//
+// THE IMPORT IS DYNAMIC, and that is load-bearing rather than stylistic. This
+// validator is in `sync-tier-aware.mjs::ALWAYS_INCLUDE` and therefore SHIPS to
+// every consumer; `bin/phase2-deferral-integrity.mjs` is `loom_only` and does
+// NOT. A static import would give every consumer ERR_MODULE_NOT_FOUND on load —
+// the identical hazard the `--target` note records for `sync-tier-aware.mjs`.
+// Absence is silent and suppresses nothing; at a consumer the subtree-absence
+// carve-out above has already made the whole class not-applicable anyway.
+//
+// SOURCE-SCOPING IS DELIBERATELY NOT APPLIED, and the divergence is named rather
+// than left implicit. `detection-binding-check.mjs` requires a declaration to
+// name the CITING RULE, because it adjudicates whether THAT RULE discharged its
+// MUST-4 binding obligation — a rule-scoped question. This validator asks a
+// different one: does the PATH exist? A dated declaration that the path is
+// unwritten answers that for every citer, so a rule's own depth extract in
+// `guides/rule-extracts/` or its paired skill may cite the same pending suite
+// without a second declaration. The safety property is unchanged: when the date
+// passes, the reader drops the entry and EVERY citer reds at once.
+async function loadDeferredProbeSuites(repoRoot) {
+  const url = pathToFileURL(
+    join(repoRoot, ".claude", "bin", "phase2-deferral-integrity.mjs"),
+  ).href;
+  try {
+    const mod = await import(url);
+    if (typeof mod.loadProbeAuthorshipDeferrals !== "function") return null;
+    return mod.loadProbeAuthorshipDeferrals(repoRoot);
+  } catch {
+    // loom_only module absent (every consumer) — declare nothing.
+    return null;
+  }
+}
+
+// A not-found finding is a SANCTIONED deferred probe suite (skip, not dangling)
+// iff its normalized path is a LIVE, unexpired declaration in the registry.
+function isSanctionedDeferredProbe(finding, deferredProbes) {
+  if (!deferredProbes || deferredProbes.size === 0) return false;
+  const slug = normalizeFixtureSlug(finding.token);
+  // The registry keys on the repo-relative form INCLUDING `.claude/`.
+  return deferredProbes.has(`.claude/${slug}`);
+}
+
 // An absolute resolved path as the path shape the plan is keyed on — repo-root
 // relative and INCLUDING the `.claude/` prefix, which is what
 // `sync-tier-aware.mjs::walkClaudeDir` emits (`.claude/rules/foo.md`, not
@@ -1584,6 +2076,12 @@ async function main() {
   // The shipped declaration, when this repo has one. At loom it is absent and
   // nothing changes; at a consumer it is what makes the manifest's proof
   // available to a tree that has no manifest.
+  // The DERIVED deferred-probe-authorship declarations (loom#1807). Loaded once,
+  // here, because the import is dynamic and this is the only async frame; a null
+  // result (every consumer, where the loom_only reader is absent) declares
+  // nothing and suppresses nothing.
+  const deferredProbes = await loadDeferredProbeSuites(repoRoot);
+
   const declResult = loadXrefAbsentDeclaration(repoRoot);
   // An UNRECOGNISED `format` disables suppression entirely. The EXIT behaviour is
   // deliberately unchanged — forward-compat silence is the documented contract at
@@ -1731,7 +2229,13 @@ async function main() {
   // `journal-tree-absent-not-applicable` (see resolveJournalToken).
   const notApplicable = notFound.filter((f) => f.notApplicable === true);
   const answerable = notFound.filter((f) => f.notApplicable !== true);
-  const skippedDeferred = answerable.filter(isSanctionedDeferredFixture);
+  // Deferred-fixture (audit-fixtures arm, in-code allowlist) OR deferred-probe
+  // (test-harness arm, DERIVED from the registry). Both are dated, sanctioned
+  // forward-pointers and share one bucket, because an operator does not care
+  // which registry excused the ref — only that the excuse is dated and expires.
+  const isDeferredForwardPointer = (f) =>
+    isSanctionedDeferredFixture(f) || isSanctionedDeferredProbe(f, deferredProbes);
+  const skippedDeferred = answerable.filter(isDeferredForwardPointer);
   // The SHIPPED declaration and the in-code SANCTIONED_ABSENT_REFS are
   // COMPLEMENTARY, not overlapping: the in-code list names tokens that do not
   // exist AT LOOM by design, the shipped file names tokens that DO exist at loom
@@ -1739,14 +2243,19 @@ async function main() {
   // consumer does not care which proof excused the ref.
   const isAbsentByDesign = (f) => isSanctionedAbsentRef(f) || f.declaredXrefAbsent === true;
   const skippedAbsent = answerable.filter(
-    (f) => !isSanctionedDeferredFixture(f) && isAbsentByDesign(f),
+    (f) => !isDeferredForwardPointer(f) && isAbsentByDesign(f),
   );
   const dangling = answerable.filter(
-    (f) => !isSanctionedDeferredFixture(f) && !isAbsentByDesign(f),
+    (f) => !isDeferredForwardPointer(f) && !isAbsentByDesign(f),
   );
   // Resolved, but only by the slash-less-token directory fallback. Reported so
   // the looser match is auditable rather than silently folded into the pass count.
   const looseDirMatches = allFindings.filter((f) => f.ok && f.looseDirMatch);
+  // Resolved, but only by the SOURCE-RELATIVE fallback (loom#1807 follow-up) —
+  // both canonical readings missed and the citing file's own directory supplied
+  // the hit. Same discipline as the loose-directory list directly above: a
+  // looser match is REPORTED, never folded silently into the pass count.
+  const sourceRelativeMatches = allFindings.filter((f) => f.ok && f.sourceRelativeMatch);
   const totalScanned = allFindings.length;
   const filesScanned = targets.length;
 
@@ -1769,6 +2278,7 @@ async function main() {
           skipped_absent_by_design_count: skippedAbsent.length,
           not_applicable_count: notApplicable.length,
           loose_directory_match_count: looseDirMatches.length,
+          source_relative_match_count: sourceRelativeMatches.length,
           read_failures: readFailures,
           dangling: dangling.map((d) => ({
             source: d.source,
@@ -1811,6 +2321,13 @@ async function main() {
             kind: d.kind,
             token: d.token,
             reason: "resolved-as-directory-slashless-token",
+          })),
+          source_relative_matches: sourceRelativeMatches.map((d) => ({
+            source: d.source,
+            line: d.line,
+            kind: d.kind,
+            token: d.token,
+            reason: "resolved-relative-to-citing-file",
           })),
         },
         null,
@@ -1863,6 +2380,11 @@ async function main() {
         `; ${looseDirMatches.length} resolved as directory via slash-less token`,
       );
     }
+    if (sourceRelativeMatches.length > 0) {
+      process.stdout.write(
+        `; ${sourceRelativeMatches.length} resolved relative to the citing file`,
+      );
+    }
     if (readFailures.length > 0) {
       process.stdout.write(`; ${readFailures.length} read failures`);
     }
@@ -1911,6 +2433,18 @@ async function main() {
         );
       }
     }
+    if (sourceRelativeMatches.length > 0) {
+      process.stdout.write(
+        "\nresolved RELATIVE TO THE CITING FILE, not to the repo root\n" +
+          "(not a defect; listed so the looser match stays auditable — the citing document\n" +
+          " sits above the path it names, so both canonical readings missed):\n",
+      );
+      for (const d of sourceRelativeMatches) {
+        process.stdout.write(
+          `  ${d.source}:${d.line}  [${d.kind}]  ${d.token}  → resolved-relative-to-citing-file\n`,
+        );
+      }
+    }
   }
 
   // NOT process.exit(). On POSIX, process.stdout to a PIPE is ASYNCHRONOUS, and
@@ -1930,9 +2464,8 @@ async function main() {
 }
 
 // Export internals for audit-fixture harness
-const __filename = fileURLToPath(import.meta.url);
-const isMain =
-  process.argv[1] && resolve(process.argv[1]) === resolve(__filename);
+// Entry-point check: .claude/bin/lib/entry-point.mjs (symlink-safe; a lexical compare exits 0 silently).
+const isMain = isMainModule(import.meta.url);
 
 export {
   extractTokens,
@@ -1944,7 +2477,13 @@ export {
   isCrossCliDispatcher,
   hasFileExtension,
   isSanctionedDeferredFixture,
+  isSanctionedDeferredProbe,
   isSanctionedAbsentRef,
+  isTestHarnessToken,
+  testHarnessSubtreePresent,
+  loadDeferredProbeSuites,
+  repoIsCanonSource,
+  BACKTICK_RE,
   targetDisposition,
   toManifestRelpath,
   PROVING_SKIP_REASONS,

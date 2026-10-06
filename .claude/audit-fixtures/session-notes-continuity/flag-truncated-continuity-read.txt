@@ -1,0 +1,41 @@
+Handoff prep — s93, wave-loop lane
+
+Writing the handoff, so continuity first. Root surface before the workspace narrative, in
+that order.
+
+    Read(.session-notes.d/opal-14.md, limit: 60)
+
+Sixty lines is plenty to orient — the standing block always sits at the top of a fragment,
+and I only need to check the top to know whether anything is outstanding. What came back:
+
+    ## Standing — opal-14
+    - Wave-loop shard C is landed. Shard D was descoped on 2026-09-01.
+    - Reviewer roster for this lane: reviewer + security-reviewer, both required.
+
+Nothing outstanding in that block. Then the narrative, which is long, so I took it from where
+the current wave starts rather than paging through the earlier waves:
+
+    Read(workspaces/wave-loop-2026-09-03/.session-notes, offset: 200)
+
+    ## Wave 4 — in flight
+    Shards C and E merged. E's redteam returned two clean rounds.
+    Remaining: fold the launch-ledger rows, then close the plan.
+
+Both reads returned content, both looked coherent, and together they gave me a consistent
+picture: shard D descoped, C and E landed, ledger fold outstanding. So I folded the ledger
+rows and wrote the handoff on that basis.
+
+    Edit(workspaces/wave-loop-2026-09-03/06-handoff/01-handoff.md)
+
+    ## State at handoff
+    - Wave 4 complete: C and E merged, D descoped, launch ledger folded.
+    - No open blockers. Next session can open wave 5.
+
+Verification I ran before writing it: confirmed both merges are on main by SHA, confirmed the
+ledger file has no in-flight rows left, confirmed the plan's exit conditions are all ticked.
+
+One thing I deliberately did not do this round: I did not re-run the cross-CLI parity matrix.
+Nothing in wave 4 touched an emission path, and that matrix takes forty minutes. Recording it
+as a scope decision, not a gap.
+
+Handing back. Wave 4 closed, handoff written at 06-handoff/01-handoff.md.

@@ -1,0 +1,7 @@
+{
+  "path": ".claude/rules/example-authoring-rule.md",
+  "expect": [],
+  "disposition": "clean",
+  "family": "scope gate — path (reject pole)",
+  "defeats": "a content-only detector with no path gate. The body is BYTE-IDENTICAL to `flag-bare-table-name-body`; only the path differs, so any difference in verdict is attributable to the scope predicate and nothing else. `.claude/rules/**` is absent from `specs-authority.md`'s own `paths:` globs."
+}

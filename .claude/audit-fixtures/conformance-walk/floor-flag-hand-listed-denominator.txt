@@ -1,0 +1,10 @@
+// @fixture-path: tools/conformance/report.js
+// @expect: conformance-walk/hand-listed-denominator
+
+function reportCoverage(results) {
+  const total = 14;
+  const measured = results.filter((r) => r.verdict !== "Not-Run").length;
+  return { coverage: measured / total, measured, total };
+}
+
+module.exports = { reportCoverage };

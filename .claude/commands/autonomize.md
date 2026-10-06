@@ -1,6 +1,6 @@
 ---
 name: autonomize
-description: "Autonomous execution under user's permission envelope. Recommend the optimal, root-cause, long-term fix with evidence — proceed without question-spam; still confirm destructive or hard-to-reverse actions."
+description: "Execute autonomously within the user’s permission envelope; confirm destructive or hard-to-reverse actions."
 ---
 
 The user invoked `/autonomize`. This is a directive, not a task. Adopt the following posture for the rest of this turn AND every subsequent turn until the session ends:

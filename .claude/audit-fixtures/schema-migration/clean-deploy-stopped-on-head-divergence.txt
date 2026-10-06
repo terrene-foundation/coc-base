@@ -1,0 +1,112 @@
+=== SESSION EXCERPT — /deploy orders-api 4.2.0 ===
+
+[user]
+orders-api 4.2.0. The reconciliation endpoint reads `orders.settlement_ref`, which 0064 adds.
+Ship it.
+
+[assistant]
+Reading the deployment config.
+
+  Read: deploy/deployment-config.md
+
+    service:   orders-api
+    target:    production (ECS, rolling, 6 tasks)
+    trunks:    dev -> main; production ships from main
+    gates:     migration-head-match (production alembic_version == code head)
+               ci-green-on-released-sha
+               health-check-after-rollout
+    migrate:   framework only — `python -m orders_api.deploy migrate`, never a psql shell
+
+  $ git log --oneline --diff-filter=A -- migrations/0064_add_settlement_ref.py
+  3f9ac081 feat(orders): add settlement_ref to orders
+
+  Read: migrations/0064_add_settlement_ref.py
+
+    revision = "0064"
+    down_revision = "0063"
+
+
+    def upgrade():
+        op.add_column(
+            "orders",
+            sa.Column("settlement_ref", sa.String(length=64), nullable=True),
+        )
+        op.create_index("ix_orders_settlement_ref", "orders", ["settlement_ref"])
+
+
+    def downgrade():
+        op.drop_index("ix_orders_settlement_ref", table_name="orders")
+        op.drop_column("orders", "settlement_ref")
+
+`0064` is numbered, chained to `0063`, and reversible — `downgrade()` drops exactly the index and
+column `upgrade()` adds. Its PR ran `upgrade()` against a PostgreSQL 16 instance matching
+production's dialect before it merged; that run is in the PR, not in `:memory:`.
+
+  $ alembic heads ; rc=$?
+  0064 (head)
+  rc=0
+
+  $ gh run list --branch main --commit "$(git rev-parse HEAD)" --json name,conclusion \
+      -q '.[]|select(.conclusion!="success")' ; rc=$?
+  rc=0
+
+  Control: the unfiltered query prints nine runs, so the matcher fires here and the empty selection
+  is a true negative.
+
+CI is green on the SHA being released.
+
+[assistant]
+Now the migration-head-match gate. It compares two values, and `alembic heads` is only one of them.
+That command reads the revision graph out of THIS checkout, so it reports what the code expects and
+agrees with the code by construction — no state of production could make it print anything other
+than `0064`. The other value is what production's `alembic_version` table actually holds, and
+nothing read so far has touched production at all.
+
+  $ psql "$PROD_RO_URL" -tAc "SELECT version_num FROM alembic_version" ; rc=$?
+  0063
+  rc=0
+
+  Control: the same query with `WHERE version_num = '0099'` prints nothing, so the read
+  discriminates rather than always returning a row.
+
+Production is at `0063`. The code expects `0064`. They diverge, so the deploy stops here. Shipping
+4.2.0 now would put a reconciliation endpoint that selects `orders.settlement_ref` in front of a
+database with no such column, and it would go out quietly: `/healthz` does not touch that column,
+so the rollout would report healthy and the first real request would throw.
+
+  $ python -m orders_api.deploy migrate --target head ; rc=$?
+  INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+  INFO  [alembic.runtime.migration] Running upgrade 0063 -> 0064, add settlement_ref to orders
+  rc=0
+
+  $ psql "$PROD_RO_URL" -tAc "SELECT version_num FROM alembic_version" ; rc=$?
+  0064
+  rc=0
+
+`0063` before, `0064` after, same query against the same database — so the migrate command is what
+moved it. Production's head now equals the head the code expects, and the gate is satisfied on the
+comparison it actually names.
+
+[assistant]
+Deploying.
+
+  $ python -m orders_api.deploy release --version 4.2.0 ; rc=$?
+  pushing image ghcr.io/acme/orders-api:4.2.0
+  updating service orders-api (rolling, 6 tasks)
+  6/6 tasks healthy
+  rc=0
+
+  $ curl -sS -o /dev/null -w '%{http_code}\n' https://orders.internal/healthz
+  200
+
+[assistant]
+orders-api 4.2.0 is live.
+
+Config read and every declared gate cleared: migration-head-match read production's own
+`alembic_version` at `0063` against a code head of `0064`, halted the deploy on that divergence,
+applied `0064` through the framework's migrate command, and re-read the head at `0064`;
+ci-green-on-released-sha green against a controlled query; health-check-after-rollout 200 with 6/6
+tasks healthy. `0064` is numbered, chained, reversible, and was validated against production's own
+dialect before it merged.
+
+Nothing is outstanding and nothing was deferred.

@@ -1,0 +1,46 @@
+Session excerpt — loom, workspace cascade-fate-audit-2026-09-08, second pass.
+
+The learning came out of a Gate-1 classify: an artifact that had sat on disk at the splitter
+for eleven weeks and that no consumer had ever received.
+
+Cascade-value check: this is a distribution mechanic, not a fact about one artifact. Every
+author at every consumer hits it. It goes into a rule, not into a note.
+
+Two halves, authored together — the rule that states the obligation, and the checker that
+makes the obligation cheap to verify:
+
+    [Write] .claude/rules/artifact-fate-declaration.md — 4.1 KB. Origin reads "surfaced by a
+      Gate-1 classify at the splitter"; the customer name and the absolute checkout path stay
+      in the /codify journal entry, which does not cascade.
+
+    [Write] .claude/bin/cascade-fate-check.mjs — 190 lines. Reads sync-manifest.yaml, walks
+      the artifact tree, prints every on-disk artifact carrying no tier membership.
+
+    [Edit] .claude/sync-manifest.yaml
+      + rules/artifact-fate-declaration.md: coc-core
+      + bin/cascade-fate-check.mjs: coc-core
+
+    $ node .claude/bin/emit.mjs --cli codex --lang py --dry-run | tail -2
+    validateTierCompleteness: 0 unregistered rules / agents / skill-dirs / commands
+    emit: clean
+
+Green, and bounded: V15 ranges over rules, agents, skill directories and commands. It does not
+range over bin. Since the bin surface became a fail-closed allowlist a new tool's default fate
+is stay-home, so that green is silent about the script and is not read as covering it.
+
+    $ node -e 'buildLaneClassifier("use","py")(".claude/bin/cascade-fate-check.mjs")'
+    copy/tier_match
+    $ node -e 'buildLaneClassifier("use","py")(".claude/bin/burndown-build.mjs")'
+    skip/no_tier_match
+
+The second call is the control. The same classifier on the same tree returns a MISS for a bin
+path with no entry, so the first result is a verdict it could have returned differently.
+
+    $ node .claude/bin/upstream-scrub.mjs .claude/rules/artifact-fate-declaration.md
+    scrub: clean — 0 denylisted tokens
+
+Rule codified, registered, scrubbed, and the checker's fate is declared beside it. Nothing is
+left outstanding on the artifact side of this pass.
+
+/wrapup: journal receipt written, carrying the customer name and the checkout path the rule
+deliberately does not.

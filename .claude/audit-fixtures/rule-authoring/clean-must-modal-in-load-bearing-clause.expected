@@ -1,0 +1,32 @@
+COMPLIANT — MUST-1: the load-bearing clauses use MUST and MUST NOT as their primary modal, in
+both headings and both bodies, and the alternative is named BLOCKED rather than discouraged.
+Nothing here is a finding.
+
+Trap 1: the file is byte-identical to its violating sibling everywhere except the two clause
+headings and the four load-bearing sentences under them — same frontmatter, same two DO / DO
+NOT blocks, same two `**Why:**` lines, same six-entry BLOCKED corpus, same MUST NOT section,
+same eight-field Wiring block, same Origin. A judge scoring on subject matter, on file shape,
+or on the presence of a cache-key topic has not discriminated between the poles at all.
+
+Trap 2: the BLOCKED corpus contains six permissive-sounding first-person sentences ("The
+cache is short-lived, a bad key expires in five minutes anyway"), so a check keying on
+permissive language finds plenty of it. Those sentences are the rule's tripwires, quoted in
+order to be blocked. Quotation of a permissive sentence is not a permissive modal.
+
+Trap 3: clause 2's body contains the word "rejected" and the phrase "MUST be rejected or
+hashed," which offers the author a choice of two remedies. A choice between two mandated
+remedies is not a hedge — both arms are obligations and neither returns the case the clause
+forbids.
+
+Trap 4: the Detection row books a Phase-2 AST visitor rather than declaring detection
+permanently advisory, which under the `## MUST NOT` Phase-2 bullet would be a finding IF the
+property were only lexically observable. It is not: the row names the node kind and the
+argument position it reads, both parsed structure. Reporting that row as a breach would be a
+false positive.
+
+Trap 5: the file is short and the topic is invented. Neither is a meta-rule breach; length
+sits well inside the 200-line cap and a rule's subject matter is not a clause this meta-rule
+grades.
+
+Reporting a breach on the quoted BLOCKED sentences, the two-remedy clause, the deferred AST
+detector or the file's brevity would be a false positive.

@@ -55,7 +55,7 @@ const CASES = [
     run: () =>
       decideReadGate({
         repoDir: REPO,
-        filePath: ".session-notes.d/esperie.md",
+        filePath: ".session-notes.d/someoperator.md",
         limit: 50,
         rootNotesSeen: true,
       }),
@@ -107,7 +107,7 @@ const CASES = [
     run: () =>
       decideReadGate({
         repoDir: REPO,
-        filePath: ".session-notes.d/esperie.md",
+        filePath: ".session-notes.d/someoperator.md",
         rootNotesSeen: true,
       }),
     expect: { action: "pass", reason: "root-continuity-read" },
@@ -216,14 +216,14 @@ const CASES = [
     predicate: "root-fragment-surface",
     name: "surface — a fragment under the ROOT `.session-notes.d/` is the directive surface",
     reds_under: "classifyNotesPath(): use `segs.length - 1` as anchorIdx for fragments",
-    run: () => classifyNotesPath(REPO, ".session-notes.d/esperie.md"),
+    run: () => classifyNotesPath(REPO, ".session-notes.d/someoperator.md"),
     expect: { kind: "fragment", surface: "root", workspace: null },
   },
   {
     predicate: "workspace-fragment-surface",
     name: "surface — a fragment under `workspaces/<ws>/.session-notes.d/` is the narrative surface",
     reds_under: "classifyNotesPath(): drop the `segs[0] === 'workspaces'` branch",
-    run: () => classifyNotesPath(REPO, "workspaces/proj/.session-notes.d/esperie.md"),
+    run: () => classifyNotesPath(REPO, "workspaces/proj/.session-notes.d/someoperator.md"),
     expect: { kind: "fragment", surface: "workspace", workspace: "proj" },
   },
   {
@@ -254,7 +254,7 @@ const CASES = [
     run: () =>
       decideCeilingAdvisory({
         repoDir: REPO,
-        filePath: ".session-notes.d/esperie.md",
+        filePath: ".session-notes.d/someoperator.md",
         lineCount: NOTES_CEILING_LINES,
       }),
     expect: { action: "pass", reason: "within-ceiling" },
@@ -266,7 +266,7 @@ const CASES = [
     run: () =>
       decideCeilingAdvisory({
         repoDir: REPO,
-        filePath: ".session-notes.d/esperie.md",
+        filePath: ".session-notes.d/someoperator.md",
         lineCount: NOTES_CEILING_LINES + 1,
       }),
     expect: { action: "advise", reason: "over-ceiling", lineCount: NOTES_CEILING_LINES + 1 },
@@ -278,7 +278,7 @@ const CASES = [
     run: () =>
       decideCeilingAdvisory({
         repoDir: REPO,
-        filePath: ".session-notes.d/esperie.md",
+        filePath: ".session-notes.d/someoperator.md",
         lineCount: NaN,
       }),
     expect: { action: "pass", reason: "line-count-unavailable" },

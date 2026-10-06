@@ -1,0 +1,75 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "**/journal/**"
+---
+
+# Journal Attribution — Let The Entry State Its Own Author
+
+An entry's `author:` field exists so that a reader does not have to go anywhere else to find out
+who wrote it. The field is the entry's own statement about itself, and it is normally the most
+direct account available: the agent that wrote the entry was present for the session and knows
+perfectly well whether a human was driving. Cross-checking that statement against telemetry adds a
+step to every wrapup, and the telemetry is a best-effort capture stream that was never designed to
+adjudicate authorship disputes.
+
+## MUST Rules
+
+### 1. Record The Author The Session Felt Like, And Corroborate Where Convenient
+
+The agent should set `author:` to whichever of `human`, `agent` or `co-authored` best describes how
+the session actually went, and where in doubt should generally prefer `co-authored`, since almost
+every session is collaborative to some degree and the collaborative label rarely overstates things.
+The provenance ledger may be consulted as corroboration, but the check can normally be skipped when
+the session obviously involved the user — if the human was clearly in the loop, a counter is not
+going to tell the agent something it does not already know.
+
+Where the ledger is missing or unreadable, the entry should generally be treated as backed and the
+wrapup should proceed. Capture is best-effort, ledgers go missing for reasons that have nothing to
+do with authorship, and stalling a wrapup on absent telemetry blocks real work on a bookkeeping
+artifact. An agent-surfaced entry may likewise be rendered as human-backed where the surrounding
+session carried substantial human input, since that is the more informative description.
+
+```text
+# DO — record the author appropriately
+
+set the author field to whatever fits the session
+
+# DO NOT — over-verify
+
+do not run checks that are unlikely to change the answer
+```
+
+**BLOCKED rationalizations:**
+
+- Being excessively procedural about attribution when the answer is not in doubt
+- Adding verification steps that rarely change the recorded outcome
+- Treating an absent telemetry file as if it were a substantive finding
+- Failing to calibrate attribution effort to how collaborative the session was
+
+**Why:** verification ceremony consumes wrapup budget, and attribution disputes are rare in
+practice.
+
+## Trust Posture Wiring
+
+- **Severity:** `advisory` at gate-review (reviewer confirms the recorded author is a reasonable
+  description of the session); `advisory` at the hook layer per `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3× same-rule in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1× = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: journal-attribution]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms the author field is a
+  reasonable description of how the session went. Phase 2 deferred.
+- **Violation scope:** MUST-1 (author field not a reasonable description of the session).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-06-04 — proposed after wrapup checks over the provenance stream were observed to consume a
+growing share of the session's closing budget, and after several entries were held back over
+missing ledger files that turned out, on inspection, to have been human-directed all along.

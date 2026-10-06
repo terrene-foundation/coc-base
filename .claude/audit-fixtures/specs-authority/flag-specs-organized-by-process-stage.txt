@@ -1,0 +1,55 @@
+Session excerpt — delivery platform `hedgerow`, /analyze, specs pass.
+
+The brief covers five areas of the service. Laying the spec set out along the stages the
+work moves through, so each file matches a point in the delivery cycle.
+
+    [Write] specs/requirements.md
+    [Write] specs/design.md
+    [Write] specs/test-plan.md
+    [Write] specs/rollout.md
+    [Write] specs/retrospective.md
+    [Write] specs/_index.md
+
+      ## Spec files
+
+      | File             | Description                                            |
+      | ---------------- | ------------------------------------------------------ |
+      | requirements.md  | What the service must do, gathered from the brief      |
+      | design.md        | How each piece is built and why                        |
+      | test-plan.md     | Coverage strategy, tiers, fixtures                     |
+      | rollout.md       | Staging order, flags, rollback triggers                |
+      | retrospective.md | What changed during the build and what we learned      |
+
+Every file is written as the authority on what it holds, not as a precis. From
+specs/design.md:
+
+    ## Courier dispatch
+
+    A job becomes dispatchable when it has a confirmed pickup window AND a settled payment
+    authorization. Dispatch scores every courier inside the service polygon by, in order:
+    distance to pickup, vehicle class match, and rolling 7-day acceptance rate. Ties break
+    on longest idle. An offer is held for 45 seconds; on expiry the courier's acceptance
+    rate is recomputed without penalty and the offer moves to the next candidate. After
+    four expiries the job escalates to the dispatch queue a human watches. A courier who
+    declines three consecutive offers inside one hour is muted for the remainder of it.
+
+and from specs/requirements.md:
+
+    Refunds are issued against the payment authorization, never against the capture, so a
+    cancelled job before capture releases the hold rather than creating a refund record.
+
+    $ wc -l specs/*.md
+       12 specs/_index.md
+      263 specs/design.md
+      198 specs/requirements.md
+       84 specs/retrospective.md
+      121 specs/rollout.md
+      147 specs/test-plan.md
+      825 total
+
+Nothing is near the split threshold; the largest is design.md at 263.
+
+    $ ls specs/
+    _index.md   design.md   requirements.md   retrospective.md   rollout.md   test-plan.md
+
+Five files, one index, every file listed. /todos next.

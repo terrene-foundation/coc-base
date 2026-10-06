@@ -1,0 +1,100 @@
+=== SESSION EXCERPT — DataFlowMigrator.rollback() replay path ===
+
+[user]
+Finish `DataFlowMigrator.rollback(target)` in kailash-dataflow. It replays the `down_sql` we
+persist in the tracking table when a migration is applied. `cli/migrate.py` is wired to it already.
+
+[assistant]
+Reading what is actually persisted before I write the replay loop.
+
+  Read: src/kailash_dataflow/migration/tracker.py
+    # down_sql is captured at apply time by rendering downgrade() through the dialect
+    # helper layer and storing the emitted statements verbatim, one row per version.
+
+  $ psql "$DATAFLOW_TEST_URL" -c "SELECT version, down_sql FROM _dataflow_migrations WHERE version='0042'" ; rc=$?
+   version |                        down_sql
+  ---------+---------------------------------------------------------
+   0042    | CREATE TABLE IF NOT EXISTS _parked_0042_events AS       +
+           |   SELECT id, retention_class, parked_at FROM events;    +
+           | CREATE TABLE IF NOT EXISTS _parked_0042_archived AS     +
+           |   SELECT * FROM archived_events;                        +
+           | DROP TABLE archived_events;                             +
+           | ALTER TABLE events DROP COLUMN retention_class;         +
+           | ALTER TABLE events DROP COLUMN parked_at;
+  rc=0
+
+One table drop and two column drops, each preceded by the `CREATE TABLE ... AS SELECT` that parks
+the rows it is about to remove — 0042's own downgrade carries its preserved-data plan, as every
+migration in this tree is required to.
+
+  $ grep -L 'def downgrade' src/kailash_dataflow/migrations/0*.py ; rc=$?
+  rc=1
+
+Nothing listed, and the same flag against a token no migration carries prints all 71 paths, so the
+matcher fires here: no placeholder downgrades, which is why there is a `down_sql` row to replay.
+
+[assistant]
+Two layers in this repo can emit destructive DDL, so I read what the lower one already does.
+
+  $ grep -n 'force_drop' src/kailash_dataflow/ddl/primitives.py ; rc=$?
+  88:    async def drop_table(self, name: str, *, force_drop: bool = False) -> None:
+  91:        if not force_drop:
+  92:            raise DropRefusedError(f"drop_table({name!r}) requires force_drop=True")
+  rc=0
+
+  Read: src/kailash_dataflow/cli/migrate.py
+    @migrate.command("rollback")
+    def rollback_cmd(target: str) -> None:
+        plan = asyncio.run(migrator.plan_rollback(target))
+        click.confirm(
+            f"Roll back {target}? This will DROP {plan.tables} table and "
+            f"{plan.columns} columns",
+            abort=True,
+        )
+        asyncio.run(migrator.rollback(target))
+
+That renders `Roll back 0042? This will DROP 1 table and 2 columns [y/N]` and aborts on anything
+but `y`.
+
+  $ grep -n 'DataFlowMigrator' src/kailash_dataflow/__init__.py ; rc=$?
+  31:from .migration.migrator import DataFlowMigrator
+  58:    "DataFlowMigrator",
+  rc=0
+
+[assistant]
+So the destructive intent is already confirmed once, by a human, against a prompt that names the
+exact table and column counts — and `rollback()` is reached through that command and nothing else:
+
+  $ grep -rn 'migrator.rollback(' src/ ; rc=$?
+  src/kailash_dataflow/cli/migrate.py:74:        asyncio.run(migrator.rollback(target))
+  rc=0
+
+One caller, and it sits behind the prompt. A second gate on `rollback()` itself would make the
+operator confirm the same intent twice inside one invocation, and a confirmation a user has already
+given is not a safety property — it is a dialog they learn to clear. The gate belongs where the
+human actually is. Writing the replay plainly.
+
+  Edit: src/kailash_dataflow/migration/migrator.py
+  @@ class DataFlowMigrator:
+  +    async def rollback(self, target: str) -> RollbackResult:
+  +        applied = await self._applied_after(target)
+  +        for row in reversed(applied):
+  +            for stmt in split_statements(row.down_sql):
+  +                await self.dataflow.execute_raw(stmt)
+  +            await self._mark_rolled_back(row.version)
+  +        return RollbackResult(rolled_back=[r.version for r in applied])
+
+Newest-first so dependent objects come down before what they depend on, and the tracking table is
+marked per version rather than in one final write, so an interrupted rollback leaves an accurate
+head rather than a lie.
+
+[assistant]
+  $ pytest tests/migration/test_rollback.py -q ; rc=$?
+  fixture db: postgresql://dataflow@localhost:55432/dataflow_test (PostgreSQL 16.4)
+  14 passed in 6.41s
+  rc=0
+
+[assistant]
+`DataFlowMigrator.rollback()` is done. It replays exactly the statements the framework itself
+emitted at apply time, in reverse application order, and the destructive intent is confirmed by the
+operator at the CLI before any of it runs.

@@ -1,0 +1,98 @@
+Session excerpt — kailash-py, /implement, shard W7 (cross-SDK secret fingerprint).
+
+W7 adds `fingerprint_secret(raw) -> str` to the Python trust package. It claims byte parity
+with the sibling helper of the same name, so the sibling is the authority on what the bytes
+are, and I read it before writing anything on this side.
+
+    $ node .claude/bin/resolve-link.mjs build.rs ; echo "rc=$?"
+    <resolved: build.rs>
+    rc=0
+    $ git -C <resolved: build.rs> show HEAD:crates/trust/src/fingerprint.rs ; echo "rc=$?"
+    pub fn fingerprint_secret(secret: &[u8]) -> String {
+        let h = blake3::hash(secret);
+        format!("fp:{}", &h.to_hex()[..9])
+    }
+    rc=0
+
+Both directions while I have it open. Does the sibling need anything from us — no, it is the
+author of this construction and already ships it. Does the sibling carry a defect I would be
+copying into Python — nothing in the body above, and nothing open against it:
+
+    $ gh issue list --repo <resolved: build.rs> --search "fingerprint_secret in:title" --state all ; echo "rc=$?"
+    rc=0
+
+Empty on both counts, so there is nothing to raise on the sibling out of this shard.
+
+The Python side, same construction:
+
+    [Edit] src/kailash/trust/fingerprint.py
+      + def fingerprint_secret(raw: bytes) -> str:
+      +     h = blake3.blake3(b"fp:" + raw).hexdigest()
+      +     return f"fp:{h[:9]}"
+
+The body says how it is built, not what it emits, and what must agree is what it emits. So I
+run it and capture the output — three real inputs, then empty, one zero byte, all-zero,
+all-one:
+
+    $ ( cd <resolved: build.rs> && cargo run --quiet --bin fpgen -- @w7-inputs.hex ) ; echo "rc=$?"
+    fp:9c4a1e07b
+    fp:2f70dd3c5
+    fp:b81c60a44
+    fp:af1349b9f
+    fp:2d3adedff
+    fp:c0f75ef2f
+    fp:54fd0de50
+    rc=0
+
+    [Edit] tests/cross_sdk/test_fingerprint_parity.py
+      + SIBLING_VECTORS = [
+      +     (bytes.fromhex("68756e74657232"), "fp:9c4a1e07b"),
+      +     (bytes.fromhex("736b2d6c6976652d30303031"), "fp:2f70dd3c5"),
+      +     (bytes.fromhex("010203"), "fp:b81c60a44"),
+      +     (b"", "fp:af1349b9f"),
+      +     (b"\x00", "fp:2d3adedff"),
+      +     (bytes(32), "fp:c0f75ef2f"),
+      +     (b"\xff" * 32, "fp:54fd0de50"),
+      + ]
+      + def test_parity_vectors():
+      +     for raw, expected in SIBLING_VECTORS:
+      +         assert fingerprint_secret(raw) == expected
+      +
+      + # kept, but not the evidence:
+      + def test_parity_shape():
+      +     for raw in (b"hunter2", b"sk-live-0001", b"\x01\x02\x03"):
+      +         fp = fingerprint_secret(raw)
+      +         assert len(fp) == 12
+      +         assert fp.startswith("fp:")
+      +         assert all(c in "0123456789abcdef" for c in fp[3:])
+      +         assert fp == fingerprint_secret(raw)
+
+    $ pytest -q tests/cross_sdk/test_fingerprint_parity.py ; echo "rc=$?"
+    F.
+    E       AssertionError: assert 'fp:d0cb1f4a2' == 'fp:9c4a1e07b'
+    1 failed, 1 passed in 0.11s
+    rc=1
+
+All seven vectors red; the form test is green over the same inputs. The sibling hashes
+`secret`, this side hashes `b"fp:" + raw`, so our tag is inside the digest and theirs is not.
+
+    [Edit] src/kailash/trust/fingerprint.py
+      -     h = blake3.blake3(b"fp:" + raw).hexdigest()
+      +     h = blake3.blake3(raw).hexdigest()
+
+    $ pytest -q tests/cross_sdk/test_fingerprint_parity.py ; echo "rc=$?"
+    2 passed in 0.10s
+    rc=0
+    $ mypy src/kailash/trust ; echo "rc=$?"
+    Success: no issues found in 4 source files
+    rc=0
+
+    [dispatch x2, one message] reviewer / security-reviewer, each scoped to the W7 diff, each
+      brief pinning the absolute lane worktree path and a STEP-0 assertion comparing resolved
+      `git rev-parse --show-toplevel` against `pwd -P`.
+
+    round 1 — reviewer: "helper is pure, no state carried between calls." security-reviewer:
+      clean, the raw secret is never logged and never returned.
+    round 2 — both clean, both payloads read.
+
+Two consecutive clean rounds. W7 lands.

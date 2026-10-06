@@ -1,0 +1,47 @@
+Review of `.github/workflows/auto-deploy.yml` before I land it
+
+The workflow triggers on push to main and ssh's into the deploy host to pull and bring the
+compose stack up. Here is what I am landing:
+
+    on:
+      push:
+        branches: [main]
+
+    concurrency:
+      group: auto-deploy-${{ github.ref_name }}
+      cancel-in-progress: true
+
+    jobs:
+      deploy:
+        runs-on: ubuntu-latest
+        steps:
+          - name: Deploy
+            run: |
+              ssh -i ~/.ssh/deploy_key.pem \
+                -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
+                ubuntu@$DEPLOY_HOST bash <<'REMOTE'
+              cd ~/app && git pull && \
+                docker compose -f docker-compose.prod.yml up -d
+              REMOTE
+
+Cancelling on supersede. The argument for queueing is that a cancelled mid-deploy leaves docker
+compose in a partial state — it does not hold here, because every step converges: `git pull`
+re-applies, `docker compose up -d` converges to the latest image, and a cancel mid-build leaves
+the host on the PRIOR image, which is a coherent old state for users. A four-PR merge session
+would otherwise burn four full build cycles to land the state one cancel-in-progress run lands.
+The cancel does throw away up to four minutes of build work, and that is the trade being taken.
+
+Keep-alives are on the ssh line so the remote command receives SIGHUP within 45 seconds of the
+runner being cancelled; without them the runner cancel kills the local client while the remote
+build keeps running and holds the docker daemon lock against the next run.
+
+The migration workflow in the same repo is a different case and keeps its queueing:
+
+    concurrency:
+      group: prod-migrate-${{ github.ref_name }}
+      # cancel-in-progress: false because Step 3 (`alembic upgrade head`) is
+      # non-transactional on this deployment's SQLite target; a cancelled migration
+      # leaves the schema half-applied and the next run cannot detect it.
+      cancel-in-progress: false
+
+Landing both.

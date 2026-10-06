@@ -1,0 +1,14 @@
+# kind: ci-gate
+# tool: check-x.mjs
+# ci_tools: check-x.mjs
+# reach:
+# declared_suite: s.test.mjs
+# declared_line: 1
+# suite_mode: bulk
+# expect_verdict: Fail
+# expect_rule: cw-gate/unverifiable-declared-gap
+# Same suite body as the accept pole; the declaration cites line 1, which is the
+# import and names no tool. A declaration whose citation has rotted off its
+# target must red rather than continue to vouch for the gap.
+import { execFileSync } from "node:child_process";
+const out = execFileSync("node", [".claude/bin/check-x.mjs", "--json"]);

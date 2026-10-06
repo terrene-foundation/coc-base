@@ -90,8 +90,8 @@ const SCRUB_PATTERNS = [
   // Operator home paths carry the operator's identity (MUST-2 / security.md).
   // No mandatory trailing slash (`/Users/<op>` alone names the operator). The
   // `/Users`/`/home` anchor is matched as a SUBSTRING (not at string start), so
-  // a Windows `C:\Users\op` — after scrubIssueText normalizes `\`→`/` — becomes
-  // `C:/Users/op` and matches `/Users/op`. R2 MED: Windows backslash homes.
+  // a Windows backslash home — after scrubIssueText normalizes `\`→`/` — becomes
+  // a forward-slash home and matches the same anchor. R2 MED: Windows backslash homes.
   { name: "operator-home-path", re: /(?:\/Users|\/home)\/[\w.-]+/g },
   // Loom-internal finding tags: F-G1-HIGH / S-H3 / BP-049 / Sec-MED-3 (and kin).
   {

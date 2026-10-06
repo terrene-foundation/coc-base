@@ -1,0 +1,4 @@
+{
+  "command": "git stash drop stash@{1}",
+  "note": "deletes an entry another worktree may be relying on"
+}

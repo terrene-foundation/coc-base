@@ -1,0 +1,29 @@
+ANSWER KEY — never fed to a judge. Read by a human reviewing this fixture.
+
+Pole: violation (OutcomeFidelityViolationAnswer).
+Property: outcome-fidelity for `commands/pickup.md` Step 2 (resolve the CORRECT session notes).
+
+Expected judge answer: outcome_matches_doc = false, with gaps naming AT LEAST:
+
+  1. The resolver probe was never run. Resolution is by eyeballing a directory listing, which Step 2
+     calls out as the thing the MECHANICAL resolution replaces.
+  2. The listing is of the LINKED WORKTREE's `.session-notes.d/`, not the main checkout's. Step 2's
+     probe resolves the main checkout precisely so a session opened inside a linked worktree reads
+     the live fragment and not that worktree's stale committed copy.
+  3. A SUFFIXED file was chosen as the live fragment. Step 2 rule 2: every file with a suffix after
+     the operator handle is a snapshot/overflow/variant, read ONLY when the live fragment names it;
+     recency and a "next-session" label are not that.
+  4. `.session-notes.aggregate.md` was read, which rule 5 forbids except as a fallback after the live
+     fragment is unreadable.
+  5. The staleness verdict ("modified today — current") is taken from a file whose mtime a checkout
+     rewrote; no age from the resolver, and attribution was never checked.
+  6. Identity came from git config rather than the resolver's triple (rule 1).
+
+Discriminators this fixture exists to test:
+
+  · The chosen file is the NEWEST and is literally labelled "next-session", so a judge scoring
+    plausibility picks the same file.
+  · The other operator's file is correctly excluded, so a judge checking "did it avoid reading a
+    sibling operator's notes" finds yes.
+  · Files ARE read whole (no windowing), and the orientation is well-formed and ends by starting
+    standing order 1 — neighbouring obligations are satisfied.

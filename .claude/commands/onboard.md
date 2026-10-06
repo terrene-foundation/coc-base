@@ -1,5 +1,6 @@
 ---
-description: "Onboard a new operator to a multi-operator COC repo. Deterministic read-path: roster + posture + team-memory + active claims + recent decisions."
+name: onboard
+description: "Onboard an operator by reading roster, posture, team memory, active claims, and recent decisions."
 ---
 
 Onboard the operator into the current repo's multi-operator COC state. Read-only command — no commits, no state writes. Output is a structured briefing the operator (and the next session) can act on.
@@ -89,4 +90,4 @@ Next: /whoami (verify identity) → /claims (see what's locked) → /analyze or 
 
 ## Origin
 
-F14 M7 Shard E (workspaces/multi-operator-coc 02-plans/01-architecture.md §7.4) — deterministic read-path for new-operator onboarding. Command body ≤150 lines per `rules/cc-artifacts.md` Rule 3; procedure detail in `skills/41-onboard/SKILL.md`.
+F14 M7 Shard E ((loom-internal reference) §7.4) — deterministic read-path for new-operator onboarding. Command body ≤150 lines per `rules/cc-artifacts.md` Rule 3; procedure detail in `skills/41-onboard/SKILL.md`.

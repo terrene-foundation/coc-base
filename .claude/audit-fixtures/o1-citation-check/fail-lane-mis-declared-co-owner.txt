@@ -1,0 +1,14 @@
+---
+type: DECISION
+date: 2026-08-16
+origination: co-owner-directed
+---
+
+# DECISION — an O1 edit DECLARING itself co-owner-directed to dodge the citation gate
+
+This is a co-owner-directed origination (declared). Authority: per ISO/IEC 27001:2022,
+this rule mandates env-var-only secret handling, which the standard requires.
+
+Requester: co-owner, in-session, 2026-08-16.
+
+> "tighten the secret handling rule against the standard"

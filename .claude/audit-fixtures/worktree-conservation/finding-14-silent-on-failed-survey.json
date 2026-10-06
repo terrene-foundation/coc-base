@@ -1,0 +1,10 @@
+{
+  "arm": "evaluateConservation",
+  "note": "the forest could not be enumerated: report nothing rather than assert from an errored command",
+  "survey": {
+    "ok": false,
+    "reason": "git worktree list failed",
+    "trees": [],
+    "counts": null
+  }
+}

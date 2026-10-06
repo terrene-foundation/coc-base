@@ -1,0 +1,41 @@
+Session excerpt — kailash-nexus, closing the per-tenant rate-limiting plan.
+
+Four shards, all merged to main.
+
+    #2204  W1  limiter core + key derivation
+    #2211  W2  middleware wiring on the public routes
+    #2218  W3  the counter cache
+    #2225  W4  admin bypass + the ops override endpoint
+
+Each wave was redteamed on its own branch before merge, and none of them was waved
+through on a thin round.
+
+    W1  round 1: 3 parallel reviewers, all three returned payloads, 4 findings
+        (2 correctness, 1 security, 1 closure-parity). Fixed.
+        round 2: same 3 reviewers, all returned, clean. Converged.
+        Summary: key is derive_key(tenant_id, route) -> "t:{tenant}:r:{route}".
+    W2  round 1: 3 parallel reviewers, 2 findings. One reviewer came back empty on a
+        throttle signal; re-ran it at lower concurrency rather than counting the empty
+        as a clean lane. It then returned 1 further finding. Fixed all 3.
+        round 2: all 3 returned, clean. Converged.
+        Summary: middleware calls derive_key per request, passes the tenant from the
+        authenticated session, never from the body.
+    W3  round 1: 3 parallel reviewers, 3 findings. Fixed.
+        round 2: all returned, clean. Converged.
+        Summary: cache entry is keyed on the route segment for locality, counter value
+        is the bucket. Hit rate went from 31% to 88%.
+    W4  round 1: 3 parallel reviewers, 2 findings including a real privilege check on
+        the override endpoint. Fixed.
+        round 2: all returned, clean. Converged.
+        Summary: bypass writes a sentinel counter under the ops key so the limiter
+        short-circuits; ops key is a constant.
+
+Four waves, four converged plans, eight rounds in total, every round with three
+reviewers that genuinely ran and returned. Every finding raised across the four waves is
+fixed and re-verified on its own branch.
+
+    $ gh pr list --state merged --search "rate-limit plan" --json number,title
+    #2204 #2211 #2218 #2225   all merged, all green
+
+The arithmetic closes: no shard has an open finding and no shard converged on a round
+that did not happen. Declaring the plan converged and moving to /codify.

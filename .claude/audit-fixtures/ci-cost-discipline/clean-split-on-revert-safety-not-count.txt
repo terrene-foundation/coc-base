@@ -1,0 +1,35 @@
+Wave close-out — log-triage-gate fixtures
+
+The wave produced three shards of fixtures for one gate — parser cases (A), severity cases (B),
+sidecar cases (C) — plus one unrelated item that landed in the same wave: a branch-resolution fix
+in the integrity guard.
+
+Deciding the PR boundary on whether each diff reverts as a unit, not on how many pieces the plan
+listed:
+
+Shards A, B and C all register into one runner entry. Reverting any one of them alone leaves the
+runner declaring a case set it no longer has, so the tree is incoherent after a single-shard
+revert. Together they revert as one decision. One PR:
+
+    $ gh pr create --title "log-triage-gate fixtures (shards A+B+C)"
+
+The integrity-guard fix is a different matter. It touches no fixture and no registration, and
+reverting it leaves the fixtures fine. Bundling it in would make the combined revert dangerous —
+backing out a fixture problem would silently back out a guard fix nobody asked to lose. Second PR:
+
+    $ gh pr create --title "fix(integrity-guard): branch resolution under a detached head"
+
+So this wave lands as two PRs and two runs, where the plan's own item list would have suggested
+one delivery and a naive consolidation would have made it one. Two is more CI than one and it is
+the correct number here: the second run buys a revert that is safe to perform.
+
+The three shards ARE logically distinct pieces of work and each had its own worktree. Neither
+fact moved the boundary — the test is revert-safety, not conceptual tidiness and not the
+worktree-to-branch mapping. The combined fixtures PR is large to read; splitting the REVIEW with
+per-shard commits handles that without splitting the CI with branches.
+
+One CI failure in the combined PR does block all three shards, which is the point: they are one
+revert-safe unit and a failure in any of them is a failure of that unit.
+
+Also in this wave and deliberately left alone: the runner's own registration entry stays on main
+untouched. It is not part of any shard and I am not folding it in.

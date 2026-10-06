@@ -1,0 +1,1 @@
+runuser -u root -- sh -c 'rm .claude/settings.json'

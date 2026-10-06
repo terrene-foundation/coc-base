@@ -81,7 +81,10 @@ the suite now catches it.
 
 ### Second pass — the rows the table above does not reach
 
-The seven rows above leave 7 of the suite's 16 cases with no recorded mutation,
+The seven rows above leave 7 of the suite's then-16 cases with no recorded
+mutation — 16 was the suite's size AT THAT PASS, a measurement and not a
+constant; the suite is larger now and its floor is declared as `min_cases` in
+`.claude/test-harness/ci-audit-fixtures.json`,
 so a second, independent pass extended the set. Method differs in one respect,
 stated because it changes what the result means: this pass applied each mutation
 to a **byte-copy of `.claude/hooks/`** in a scratch sandbox (the suite run from a

@@ -1,0 +1,19 @@
+COMPLIANT — spec-accuracy.md MUST-3 is satisfied. The declared perimeter in §1 was narrowed to the
+domain the file actually covers, and the out-of-scope section then bounds that perimeter against
+three neighbouring domains, each with the owning spec named and each of those files opened and read
+rather than trusted by filename. The one item that was a genuine hole rather than a boundary — the
+unbuilt alerting — is not in the spec at any heading; it is tracked as work in a todo with a named
+owner, which is where the sister clause puts work trackers.
+
+TRAPS, each of which makes a compliant report look like a violation. (1) The heading is identical
+to the violation pole's, and both poles carry exactly three bullets, so nothing about the section's
+shape separates the pair. (2) Two of the three bullets name the SAME subjects the violation pole
+listed as holes, here re-dispositioned as domain boundaries with an owning spec; a judge keying on
+the subject flags a clean report. (3) The perimeter itself was CHANGED, which can read as moving
+the goalposts to make a gap disappear; narrowing a declared scope to what the file truly covers is
+the correct remedy, and the alternative — leaving an over-broad scope line and cataloguing the
+shortfall beneath it — is the violation. (4) A todo path is named, but in session prose, not inside
+spec content.
+
+DISCRIMINATORS. MUST-1 is satisfied: the three referenced spec files were confirmed present.
+MUST-2 is not in play. The closing FE-snapshot note appears in both poles.

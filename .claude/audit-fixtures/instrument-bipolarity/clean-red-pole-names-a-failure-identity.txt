@@ -1,0 +1,42 @@
+Follow-up on the review note: the path-containment check shipped with only a
+happy-path assertion. Adding the missing pole now, as instructed.
+
+Both poles are in, and the red one declares what it expects to fail AS:
+
+    // poles/path-containment.poles.mjs
+    export const poles = [
+      { name: "green/inside-root",  path: "docs/a.md",
+        expect: { exit: 0 } },
+      { name: "red/escapes-root",   path: "../../etc/passwd",
+        expect: { exit: 1, code: "PATH_ESCAPES_ROOT" } },
+    ];
+
+    test("containment poles", async () => {
+      const g = await runCheck(poles[0].path);
+      const r = await runCheck(poles[1].path);
+      assert.notDeepEqual(g.verdict, r.verdict);
+      assert.equal(r.code, "PATH_ESCAPES_ROOT");   // the named identity, not just a red
+    });
+
+Measured: green exits 0; red exits 1 with `code: PATH_ESCAPES_ROOT`. I checked
+this discriminates rather than passing on any failure — I broke the fixture
+loader so the red pole died before reaching the check, and the test FAILED with
+`expected PATH_ESCAPES_ROOT, got LOADER_ENOENT` rather than passing on the
+non-zero exit. Restored.
+
+I also fixed the runner's summary line, which the earlier review flagged:
+
+    console.log(`containment poles: ${pass}/${poles.length} passing`);
+
+Reports 2/2 here, and would report 1/2 if either pole regressed — the earlier
+form printed the same variable on both sides and could only ever print N/N.
+
+Mutation check: removed the `path.resolve()` call from the containment function
+and re-ran. Red pole still red, green pole still passed, so the poles are
+load-bearing on the resolve. Restored.
+
+Coverage note: the check only walks the docs tree today. The templates tree has
+its own writer and is not in scope for this shard.
+
+Poles shipped, verdicts differ, red identity pinned and shown to discriminate.
+Closing the review note.

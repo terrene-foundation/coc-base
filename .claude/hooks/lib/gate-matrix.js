@@ -376,18 +376,31 @@ function evaluateGate(ctx) {
 
   // Degenerate-genesis-N=1 audit-marked self-sign — applies to:
   //   release / compaction-checkpoint / generation-rotation /
-  //   repo-floor-restore (NOT genesis-migration per R6-S-04).
+  //   posture-upgrade / posture-override (NOT genesis-migration per R6-S-04).
+  //
+  // loom#1603: posture-upgrade and posture-override were absent, so a
+  // genuine-genesis N=1 repo could never raise its own posture and was pinned
+  // at <=L3 permanently — where posture-gate.js hard-blocks every commit,
+  // push, PR and release. That inverted the risk ordering: the owner could
+  // self-sign a RELEASE but not a posture change. The escape stays bounded
+  // twice over — only under _isGenuineGenesisN1, and only past the R9-S-02
+  // fence below — so a REVOCATION-induced N=1 still blocks, and the 4-eyes
+  // gate is untouched wherever a second human exists.
   const degenerateEligibleRows = new Set([
     "release",
     "compaction-checkpoint",
     "generation-rotation",
+    "posture-upgrade",
+    "posture-override",
   ]);
   if (isSelf && degenerateEligibleRows.has(row.gate)) {
-    // First, run R9-S-02 fence for checkpoint/rotation (revocation-induced
-    // N=1 BLOCKS the degenerate self-sign; genuine genesis ALLOWS).
+    // First, run R9-S-02 fence for checkpoint/rotation/posture (revocation-
+    // induced N=1 BLOCKS the degenerate self-sign; genuine genesis ALLOWS).
     if (
       row.gate === "compaction-checkpoint" ||
-      row.gate === "generation-rotation"
+      row.gate === "generation-rotation" ||
+      row.gate === "posture-upgrade" ||
+      row.gate === "posture-override"
     ) {
       const fence = _checkR9S02Fence(roster, foldedState);
       if (!fence.ok) {

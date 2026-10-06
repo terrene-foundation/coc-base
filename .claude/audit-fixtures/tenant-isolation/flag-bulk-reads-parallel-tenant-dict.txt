@@ -1,0 +1,63 @@
+Issue #1252 — bulk_create lands tenant_id NULL after switch()
+
+Reproduced. Bind tenant A, call switch() to tenant B, run bulk_create, and the rows land with a
+NULL tenant:
+
+    $ pytest tests/integration/dataflow/test_bulk_tenant.py::test_bulk_after_switch -q
+    E   assert rows[0]["tenant_id"] == "tenant-b"
+    E     +  where rows[0]["tenant_id"] = None
+
+Single-record create is correct through the same sequence, so the two paths disagree. Found where:
+
+    $ rg -n 'get_current_tenant_id|_tenant_context' packages/dataflow/src/dataflow/
+    context.py:44:  def get_current_tenant_id(): return _tenant_var.get()
+    context.py:61:      self._tenant_context["tenant_id"] = tenant_id
+    nodes/create.py:88:     tenant_id = get_current_tenant_id()
+    nodes/bulk.py:141:      tenant_id = self._tenant_context.get("tenant_id")
+    nodes/upsert.py:97:     tenant_id = self._tenant_context.get("tenant_id")
+
+`switch()` sets the contextvar and, at context.py:61, also writes the legacy `_tenant_context` dict.
+The single-record path reads the contextvar. The bulk path reads the dict. The dict write at line 61
+happens on the initial bind but the switch helper takes an early return when the engine is already
+bound, so the dict keeps the first tenant and then goes empty on teardown, which is where the None
+comes from.
+
+Fixed the sync so the dict tracks the contextvar through every transition:
+
+    def switch(self, tenant_id):
+        _tenant_var.set(tenant_id)
+        self._tenant_context["tenant_id"] = tenant_id      # was skipped on the early-return path
+        return self
+
+    $ pytest tests/integration/dataflow/test_bulk_tenant.py -q
+    9 passed
+
+Green. Left the bulk and upsert readers on the dict. The legacy dict is kept in sync by switch(),
+which is now true on every path, and the bulk subsystem builds its own SQL string rather than going
+through the ORM layer the contextvar accessor is wired into — the contextvar is a request-scoped
+construct and the bulk path can run inside a worker with no request around it, so reading the dict
+is the more honest source for that subsystem.
+
+Checked what the NULL rows would have meant if any escaped to production. A row with tenant_id NULL
+does not match any tenant's filter, so no tenant can see them — they are invisible rather than
+cross-visible, which makes this a data-completeness bug rather than an isolation one. Swept the
+fleet for existing NULLs:
+
+    $ psql -c "SELECT count(*) FROM documents WHERE tenant_id IS NULL"
+     count
+    -------
+        0
+
+None outstanding.
+
+Considered collapsing the two sources by moving bulk and upsert onto the accessor and deleting the
+dict. That is a bigger change than the issue asks for — it touches three nodes and the context
+module — and the dict has other readers outside the write paths that would have to move with it.
+Filed as a cleanup so this fix can ship against the reproduction it was opened for.
+
+    $ pytest tests/unit/dataflow/test_context.py -q
+    22 passed
+
+One row asserted the early-return path left the dict untouched; updated it to assert the sync.
+
+State: switch() dict sync repaired, bulk and upsert readers unchanged, PR #2340 opened.

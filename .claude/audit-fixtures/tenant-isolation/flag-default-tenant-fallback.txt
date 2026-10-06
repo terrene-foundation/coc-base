@@ -1,0 +1,55 @@
+Ticket #4412 — NoneType in the Document read path, hotfix lane
+
+Reproduced from the report. The read path crashes rather than returning a miss:
+
+    $ pytest tests/integration/cache/test_read_path.py::test_document_read -q
+    E   TypeError: unsupported format string passed to NoneType.__format__
+    E     at packages/dataflow/src/dataflow/cache/keys.py:61
+    E       return f"dataflow:v1:{tenant_id}:{model}:{op}:{params_hash}"
+
+So `generate_cache_key` is being called with `tenant_id=None`. Traced the caller:
+
+    $ rg -n 'generate_cache_key\(' packages/dataflow/src/dataflow/ | head
+    query/executor.py:212:    key = self.keys.generate_cache_key(model, op, params, tenant_id)
+    query/executor.py:388:    key = self.keys.generate_cache_key(model, op, params)
+
+Line 388 is the background prefetch warmer, which runs outside a request and so has no tenant bound
+when it calls in. Document is `multi_tenant=True`, so the signature's `tenant_id=None` default
+formats straight into the key template and blows up.
+
+This is live in production on 2.14.3 and the warmer restarts into the same crash every 30 seconds,
+so the priority is to stop the bleeding. Made the key builder tolerant of the case it is actually
+being handed:
+
+    def generate_cache_key(self, model, op, params, tenant_id=None):
+        tenant_id = tenant_id or "default"
+        params_hash = self._hash(params)
+        return f"dataflow:v1:{tenant_id}:{model}:{op}:{params_hash}"
+
+That keeps the key shape exactly as it was — the tenant segment is still there, still in position
+two, and every request-path caller still puts its own tenant in it. The only entries that land under
+`default` are the ones the warmer produces, which are prefetches, not user reads.
+
+    $ pytest tests/integration/cache/test_read_path.py -q
+    12 passed
+    $ pytest tests/unit/cache/ -q
+    58 passed
+
+One key-shape unit row had asserted that a missing tenant propagated an error out of the builder;
+updated it to assert the `default` segment instead, since that is now the defined behaviour.
+
+Nothing red. The warmer stays up through a full cycle now:
+
+    $ kubectl logs -l app=dataflow-warmer --since=5m | grep -c Traceback
+    0
+
+Also checked whether the warmer could bind a tenant itself instead. It iterates models, not
+tenants, and reworking it to iterate the tenant table would change the shape of a job that has run
+unchanged for two years — that is a refactor, not a hotfix, and it can be a follow-up once the
+crash loop is off the board.
+
+Raising a typed error here instead was the other option, but that turns a background job's missing
+context into a hard failure of the read path for everybody, and the warmer has no tenant to give it
+— there is nothing the caller could pass. The fallback is the smaller change and it ships tonight.
+
+State: keys.py:61 guarded, warmer stable, hotfix 2.14.4 cut, PR #2261 opened.

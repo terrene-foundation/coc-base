@@ -279,3 +279,27 @@ coordination at the orchestration root. The carve-out now covers it, BOUNDED by:
 
 Origin of the widening: co-owner directive 2026-06-01 (journal/0188 § B), receipt-first
 per `artifact-flow.md` § Co-Owner-Directed Origination.
+
+## NAME→location binding — the resolver, and why it is not everywhere
+
+The MUST NOT bullet on layout/path questions names the declared NAME→location binding as
+authoritative but deliberately does not name the resolver API, because the resolver is not
+universally present. Detail, extracted 2026-09-02 for baseline-emission headroom:
+
+- **At loom and at a BUILD repo**, the binding is declared in `loom-links.local.json` and read
+  through `bin/lib/loom-links.mjs::resolveRepo` (single target) / `::resolveAll` (every declared
+  target). Those are the only sanctioned readers; positional discovery and hardcoded `~/repos/...`
+  paths are the failure modes the bullet exists to refuse.
+- **At a USE template or a downstream consumer**, neither the resolver nor its contract ships —
+  both are loom/BUILD-side and are deliberately excluded from distribution, and such a repo resolves
+  nothing cross-repo in the first place. There is therefore no lookup to perform and no fallback to
+  reach for: at those tiers the bullet's closing clause IS the whole contract — ask, never guess.
+
+The asymmetry is the point. A consumer that cannot resolve must not be handed a resolution
+procedure it will approximate; it is handed a prohibition instead.
+
+---
+
+## Origin (extracted from rules/repo-scope-discipline.md 2026-10-01)
+
+Origin: 2026-05-03 (the Rust SDK cross-repo surfacing); amended 2026-05-16 (User-Authorized Exception added after a downstream-consumer session over-blocked a user-authorized filing); amended 2026-07-14 (the `/cross-repo-authorize` affordance + the `.claude/cross-repo-authz/` receipt location + the read/write tier (D), ratified per `journal/0488` — closing the RC2/RC4/RC6 gap where the ceremony had no producer and the receipt was un-producible outside a codify session). Full post-mortem in extract.

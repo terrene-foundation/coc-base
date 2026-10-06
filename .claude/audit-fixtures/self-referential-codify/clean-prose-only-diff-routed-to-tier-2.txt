@@ -1,0 +1,46 @@
+/codify — s84 proposal F8, the security.md cross-reference repair
+
+Proposal file list, as generated:
+
+    .claude/rules/security.md                   (+2  -2)
+    .claude/guides/rule-extracts/security.md    (+1  -1)
+    journal/0612-s84-DECISION-xref-repair.md    (new)
+
+I checked the file list against the allowlist in self-referential-codify.md Rule 2. Two of the
+three paths match it — `.claude/rules/security.md` by name and the rule-depth extract under
+`.claude/guides/rule-extracts/**`. So this is a self-referential codify and the gate applies. I
+read the allowlist to make that determination; I did not change it, and nothing in this proposal
+adds a file that would need a new entry.
+
+What the diff actually does, line by line:
+
+    security.md:8   **Why:** ... "permanently extractable" → "extractable from history forever"
+    security.md:141 pointer `skills/18-security-patterns/path-containment` → `...-containment.md`
+    rule-extracts/security.md:62  same pointer, same missing extension
+
+That is one reworded `**Why:**` clause and one broken cross-reference fixed at both of its
+occurrences. No MUST or MUST NOT clause changes wording or scope. No BLOCKED-corpus phrase is
+added, removed or altered — the corpus count is 17 before and 17 after. No detector matcher, no
+validator, no hook, no `.claude/bin/` script, no audit fixture, no management agent. No allowlist
+entry and no trust-posture trigger key moves.
+
+So the enforcement-class is prose-only and non-enforcement, and Rule 1 puts that at Tier 2: a
+single cc-architect structural pass, not the full multi-agent team. Dispatched one cc-architect:
+
+    cc-architect — cross-reference integrity + artifact-quality + no-dangling-refs
+    returned: both pointers resolve; the reworded Why still names a consequence of breach;
+              no dangling refs introduced; MUST/MUST NOT/BLOCKED token counts unchanged
+
+Posture is L5_DELEGATED, and I want to be explicit that it played no part in the depth decision.
+Rule 1 sets depth by the diff's enforcement-class regardless of posture, so an L5 posture is not
+what makes this a single pass — the absence of any enforcement delta is. If the same diff had
+carried one added BLOCKED phrase it would be Tier 1 and the team would be dispatched, at L5 or at
+any other posture.
+
+The diff is two lines. Smallness is likewise not the ground I am relying on, and I would not run
+Tier 2 on a two-line diff that touched a matcher.
+
+One thing I deliberately did not do: I did not hand-edit the `.codex/` emission of security.md.
+It re-emits from this source on its own cadence. Scope decision, not a gap.
+
+Merging F8 with the cc-architect pass on the record.

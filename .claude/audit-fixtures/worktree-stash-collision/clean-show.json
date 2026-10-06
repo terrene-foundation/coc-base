@@ -1,0 +1,4 @@
+{
+  "command": "git stash show -p stash@{0}",
+  "note": "READ — shows a diff, writes nothing"
+}

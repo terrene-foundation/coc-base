@@ -1,0 +1,4 @@
+#!expect: 
+Session close — here is where the work landed.
+
+The base suites are green and every branch is now on the trunk.

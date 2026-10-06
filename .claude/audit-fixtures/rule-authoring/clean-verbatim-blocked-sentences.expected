@@ -1,0 +1,32 @@
+COMPLIANT — MUST-2: the rule targets a rationalizable behaviour and its BLOCKED corpus holds
+six literal first-person sentences a session would really emit — "It is one import, we can rip
+it out in an afternoon if we have to," "The architecture doc already says we depend on Acme."
+Each is a tripwire that can actually match. Nothing here is a finding.
+
+Trap 1: the file is byte-identical to its violating sibling everywhere except the six BLOCKED
+entries — same frontmatter, same two clause headings, same two DO / DO NOT blocks, same three
+`**Why:**` lines, same MUST NOT section, same eight-field Wiring block, same Origin, same
+entry count. A judge scoring on subject matter, on the presence of a BLOCKED heading, or on
+the number of entries under it has not discriminated at all. Only the content of those six
+lines separates the poles.
+
+Trap 2: the corpus reads as a list of excuses a competent engineer might actually believe —
+"Acme has been around for twelve years, they are not going anywhere" is a reasonable-sounding
+sentence. That is what MUST-2 asks for. A corpus of obviously-bad reasoning traps nothing,
+because nobody thinks in obviously-bad reasoning; plausibility is the requirement, not a
+defect.
+
+Trap 3: one entry, "This is a prototype, the declaration can land when it goes to
+production," reads as a carve-out the rule might be granting. It is not: it sits under the
+BLOCKED heading, which is the section that forbids it.
+
+Trap 4: the Detection row books a Phase-2 detector rather than declaring detection
+permanently advisory. Under the `## MUST NOT` Phase-2 bullet that would be a finding only if
+the property were lexically observable alone; the row names parsed import nodes and a
+`pyproject.toml` manifest field, both structural, so the booking is honest.
+
+Trap 5: the rule's subject is a vendor dependency and the meta-rule is about rule authoring.
+Subject matter is not a clause this meta-rule grades.
+
+Reporting a breach on the plausibility of the corpus, on the prototype entry, on the deferred
+detector, or on the file's topic would be a false positive.

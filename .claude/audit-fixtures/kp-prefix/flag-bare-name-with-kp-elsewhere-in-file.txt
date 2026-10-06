@@ -1,0 +1,15 @@
+# Churn-risk scoring
+
+Domain truth about how churn risk is computed for a subscription account.
+The score is a probability in [0, 1]; a score above the escalation threshold
+opens a retention case.
+
+## Provenance
+
+The identity for this product was REGISTERED at loom's control-plane as
+kp://use/9f2c7a13d8/churn-features@3 during the Mesh S0 cascade, and the
+downstream owner is expected to bind it here.
+
+## Where the features live
+
+knowledge-product: churn_features_table

@@ -1,0 +1,25 @@
+VIOLATION — the artifact inverts the contract it claims to express and carries the authoring
+defects that let the inversion pass unnoticed.
+
+SUBSTANCE. analyze-output-completeness.md names prose self-policing as the failure class itself:
+"naming them in the command prose is not enforcement", and "the command named the outputs twice
+and they were still skipped". This artifact writes that prose declaration in as the check — the
+author "states which declared outputs were produced, and the next phase proceeds on that
+statement" — and calls the file-state read "bookkeeping that adds a step without adding
+information". It then licenses the exact advance the parent blocks: "An output tree that is empty
+is not by itself a reason to hold the phase", with the substance-lives-elsewhere ground the parent
+lists as a BLOCKED rationalization. The parent's one sanctioned route past an empty tree, a
+written rationale file in that tree, is replaced by permission to "record that the substance lives
+elsewhere and advance".
+
+AUTHORING. The section is headed "MUST Rules" while the primary modal throughout is
+should/normally/generally/may, so nothing binds. The DO/DO-NOT block restates its own headings
+("confirm the phase produced what it declared") instead of showing two commands whose outcomes
+differ. The BLOCKED list is abstract paraphrase — "Demanding mechanical evidence", "Failing to
+calibrate confirmation effort" — rather than matchable agent speech, so it is a tripwire nothing
+can trip. The Why asserts a budget cost and closes on "phases that declare their outputs generally
+produce them", which is the belief under test rather than a consequence of breach.
+
+NOT THE DEFECT. The Wiring block is present and carries the canonical field set; its advisory
+severity follows from the inverted premise and is not a separate finding. Frontmatter, Origin and
+the heading skeleton are all well-formed and identical to the counterpart.

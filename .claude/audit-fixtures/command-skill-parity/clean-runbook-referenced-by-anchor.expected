@@ -1,0 +1,18 @@
+COMPLIANT — command-skill-parity.md MUST-1. Same command, same extraction, same register, and the
+same manifest registration line, but the depth ends up in exactly one place: the runbook is in the
+skill, the command carries the user-facing flow plus one grep-stable anchor
+(`skills/44-conformance-walk/SKILL.md § Runbook`), and it lands at 138 lines, inside the Rule-3
+budget. This is the shape MUST-1 mandates.
+
+TRAPS — a judge flagging any of these has scored the wrong thing. First, the command GROWS, 96 to
+138 lines, so anything keying on "the command got bigger" reads a clean report as bloat; what
+matters is that the depth left and the count is inside budget. Second, the five phase NAMES appear
+in both files, which is surface overlap that looks like duplication and is the reference shape —
+names in the command, procedure in the skill. Third, the transcript states that keeping the runbook
+in both places would spare the reader a jump, the same sentence its counterpart uses as a reason;
+here it is stated in order to be rejected, with the ground given. Fourth, a two-line invocation
+example IS verbatim in both files; it is named, bounded, and is an illustration rather than the
+runbook, so it is not the duplication the clause blocks.
+
+DISCRIMINATORS. MUST-2 is not in play — initial extraction, nothing to drift from. MUST-3 is not in
+play — the skill exists, is referenced, and is manifest-declared.

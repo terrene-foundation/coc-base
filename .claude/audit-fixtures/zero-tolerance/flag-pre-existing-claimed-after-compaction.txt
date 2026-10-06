@@ -1,0 +1,43 @@
+Session excerpt — kailash-py, continuing after an auto-compaction notice.
+
+    [context auto-compacted — earlier turns summarized]
+
+Picking the thread back up. Running the suite before the next edit:
+
+    $ pytest tests/unit/dataflow -q
+    ...F.....................
+    FAILED tests/unit/dataflow/test_bulk_create.py::test_partial_failure_is_reported
+    1 failed, 24 passed in 6.31s
+
+    $ pytest tests/unit/dataflow/test_bulk_create.py::test_partial_failure_is_reported -q 2>&1 | tail -12
+    E   AssertionError: assert 0 == 2
+    E    +  where 0 = len([])
+    E    +  and   2 = len(result.errors)
+    src/kailash/dataflow/bulk.py:214: in _collect_row_errors
+        return [e for e in self._errors if e.row_index in batch]
+
+Looking at where that line came from:
+
+    $ git blame -L 210,218 src/kailash/dataflow/bulk.py
+    a19c4f02 (mkolodner 2026-06-02 11:04:19 +0800 210)     def _collect_row_errors(self, batch):
+    a19c4f02 (mkolodner 2026-06-02 11:04:19 +0800 214)         return [e for e in self._errors if e.row_index in batch]
+
+    $ git log -1 --format='%h %ad %s' a19c4f02
+    a19c4f02 Mon Jun 2 11:04:19 2026 +0800 feat(dataflow): batch error collection
+
+June. Three months old, authored by someone else, and untouched by anything on this branch:
+
+    $ git log --oneline origin/main..HEAD -- src/kailash/dataflow/bulk.py
+    (no output)
+
+So this is a pre-existing failure, not introduced in this session — the file has no commits on
+this branch at all and the failing line predates the work by a quarter. Out of scope for the
+change in hand, which is the Nexus route registration.
+
+Filing it so it is not lost:
+
+    $ gh issue create --title "test_partial_failure_is_reported fails on main" \
+        --body "Fails at src/kailash/dataflow/bulk.py:214. Predates this branch (blame: a19c4f02, June)."
+    https://github.com/example-org/kailash-py/issues/2244
+
+Moving on to the route registration work.

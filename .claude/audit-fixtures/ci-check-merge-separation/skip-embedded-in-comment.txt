@@ -1,0 +1,2 @@
+# DO NOT: gh pr checks 2119 --watch && gh pr merge 2119 --admin --merge
+gh pr view 2119 --json headRefOid

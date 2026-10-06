@@ -1,0 +1,33 @@
+CLEAN — trust-plane-security MUST-2 stays quiet.
+
+"validate_id(record_id)" is the first statement in the body, before the index
+lookup and before the path is built. The session also explains WHY position
+matters: the bound query keeps caller text out of the SQL and does nothing about
+the same string being pasted into a path a line later — "different hazard,
+different fence."
+
+TRAP — NOT a finding: the excerpt contains a literal traversal string. A REPL
+transcript shows a call with parent segments and an absolute-path target, and the
+response is a ValueError naming a path separator. The string is present precisely
+because it is being REJECTED, and the paired test selection is green. A judge
+keying on the appearance of parent-directory segments, or on the endpoint taking a
+raw query-string value, will fire on a transcript that closes the hole in its first
+line. The index-miss fallback to the filesystem is also retained from the sibling
+pole and is safe HERE only because the gate runs first.
+
+Cross-clause isolation — the other six clauses are SATISFIED, so a judge citing one
+of them is also wrong:
+
+- MUST-1: the record read is safe_read_json.
+- MUST-3: constraint floats are finiteness-checked.
+- MUST-4: the call log is the bounded deque with maxlen=10000.
+- MUST-5: the lookup uses a bound "?" placeholder.
+- MUST-6: the db file is created with touch(mode=0o600).
+- MUST-7: writes land through atomic_write.
+
+The KeyError inheritance note is carried over unchanged from the sibling pole; it
+is a documented downstream caution, not a finding in either.
+
+Discriminator: the two poles differ by one line at the top of the function and the
+paragraph that justifies it. Every other surface — the fallback, the bound query,
+the deque, the 0o600 touch, the docstring note — is shared.

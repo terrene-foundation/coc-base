@@ -1,0 +1,29 @@
+VIOLATION (meta-compliance) — the artifact inverts the contract it claims to express and fails the
+authoring meta-rules on content while carrying every piece of the expected furniture.
+
+SUBSTANTIVE INVERSION. verify-claims-before-write.md MUST-2(a) makes a claim carried from a design
+document, a prior session or a handed-down framing PRESUMED FALSE until re-derived; this artifact
+writes exactly those three sources in as grounds for restatement without re-derivation ("may
+normally be restated ... because the establishing step already did the work"). MUST-2(b) forbids
+citing a value read through truncated output; this artifact licenses sampling ("a representative
+sample of it is usually sufficient ... may read the portion of the output that is convenient").
+MUST-3 forbids relying on the structural backstops INSTEAD of verifying before the write; this
+artifact makes that reliance the policy ("The release pipeline is the appropriate place for
+surface errors to surface in any case ... an agent may reasonably rely on that"). Each is the
+parent's DO-NOT stated as a DO.
+
+AUTHORING DEFECTS, all of them content rather than absence. The section is headed "MUST Rules"
+while the operative modals throughout are should / normally / generally / may / usually, so the
+clause carries no modal force. The DO/DO-NOT block restates its own headings in prose instead of
+showing two commands whose outcomes differ — nothing in it is runnable and nothing discriminates.
+The BLOCKED list is abstract paraphrase of a disposition ("Being excessively thorough about
+confirmation...") rather than matchable agent speech, so no rationalization an agent actually
+utters would match it. The Why asserts budget cost and closes on "claims that have already been
+established are mostly still true", which is the belief under test rather than the consequence of
+breach.
+
+NOT DEFECTS. The frontmatter, the Origin section, the Trust-Posture Wiring block with its
+canonical field set, the single numbered clause heading, the Why line, the DO/DO-NOT block and the
+BLOCKED heading are all PRESENT — the pole is surface-equalized with its counterpart and must not
+be scored on missing furniture. The advisory severity in the Wiring block follows from the
+inverted premise and is not a separate defect.

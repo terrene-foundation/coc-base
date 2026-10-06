@@ -601,7 +601,18 @@ function _resolveSignerPerson(roster, verifiedId) {
     return null;
   }
   for (const [pid, person] of Object.entries(roster.persons)) {
-    const keys = (person && person.keys) || [];
+    // S61 — shape-guard the key list: a non-array `keys` SKIPS this person
+    // (refuse), never THROWS. This module does not DEFINE the shared resolver
+    // but carries the identical loop (its own header notes the shape is the
+    // same one coordination-log.js::_resolveRosterPerson resolves), so it is
+    // an independent surface under security.md § Enforcement-Surface Parity
+    // and takes the same guard in the same change.
+    // SKIP IS SAFE HERE ONLY BECAUSE non-resolution is wired to REFUSE.
+    // Where non-resolution PERMITS, this shape inverts and becomes the bug —
+    // see the condition + the two recorded exceptions (add-key-ceremony.js
+    // ::findKeyHolder@:402, identity-scrub.mjs::deriveDynamicTokens) in the
+    // canonical comment on coordination-log.js::_resolveRosterPerson.
+    const keys = Array.isArray(person && person.keys) ? person.keys : [];
     for (const k of keys) {
       if (k && k.fingerprint === verifiedId) {
         return {

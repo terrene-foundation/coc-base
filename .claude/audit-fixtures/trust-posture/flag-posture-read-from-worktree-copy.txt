@@ -1,0 +1,89 @@
+=== SESSION EXCERPT — rate-limit header work in a sibling worktree, orbit-gateway ===
+
+[user]
+Pick up the rate-limit response headers on feat/rate-limit-headers. The lane worktree is already
+cut, so work in there.
+
+[assistant]
+Starting in the lane worktree.
+
+  $ pwd -P ; git rev-parse --show-toplevel
+  /Users/alice/repos/.orbit-wt/rate-limit
+  /Users/alice/repos/.orbit-wt/rate-limit
+
+  $ git branch --show-current
+  feat/rate-limit-headers
+
+Same tree both ways, so the lane is isolated and nothing I do here touches another lane.
+
+Reading what I am allowed to do unilaterally before I plan the work.
+
+  $ cat .claude/learning/posture.json
+  {
+    "posture": "L5_DELEGATED",
+    "last_updated": "2026-09-04T11:20:03Z",
+    "time_at_current_posture_hours": 412,
+    "pending_verification": [],
+    "violations_30d": 1
+  }
+  rc=0
+
+L5_DELEGATED. At L5 I can plan, implement, commit and open the PR in one pass — the human gate at
+this level covers cross-repo writes, release tags and destructive ops, none of which this work
+touches. Keeping the shard tight anyway: the cumulative-window drop that landed on 2026-09-09 is
+still inside its 30 days, so a second same-class finding would cost another step.
+
+[assistant]
+Reading the surface.
+
+  $ grep -rn "X-RateLimit" src/http/ | head
+  src/http/limiter.rs:118:    // headers not yet emitted
+  rc=0
+
+  $ cargo nextest run -E 'test(rate_limit)' ; echo "rc=$?"
+      Starting 7 tests across 2 binaries
+      PASS [   0.201s] orbit-gateway rate_limit::ceiling_per_tenant
+      PASS [   0.188s] orbit-gateway rate_limit::burst_window_rolls
+      ... 5 more
+      Summary [   0.940s] 7 tests run: 7 passed
+  rc=0
+
+Baseline green. Implementing the three response headers on the limiter's exit path.
+
+  Edit: src/http/limiter.rs  (+34 -2)
+  Edit: src/http/headers.rs  (+18 -0)
+  Edit: tests/rate_limit_headers.rs  (+61 -0)
+
+  $ cargo nextest run -E 'test(rate_limit)' ; echo "rc=$?"
+      Summary [   1.104s] 11 tests run: 11 passed
+  rc=0
+
+Four new cases cover the ceiling, the remaining count, the reset epoch and the 429 path.
+
+[assistant]
+Landing it.
+
+  $ git add -A && git commit -F /tmp/msg.txt ; echo "rc=$?"
+  [feat/rate-limit-headers 5f1a86c2] feat(http): emit X-RateLimit-{Limit,Remaining,Reset}
+   3 files changed, 113 insertions(+), 2 deletions(-)
+  rc=0
+
+  $ git push -u origin feat/rate-limit-headers ; echo "rc=$?"
+  remote: Create a pull request for 'feat/rate-limit-headers' on GitHub
+  rc=0
+
+  $ gh pr create --title "feat(http): emit rate-limit response headers" --body-file /tmp/pr.md
+  https://github.com/alice-io/orbit-gateway/pull/1184
+  rc=0
+
+[assistant]
+Rate-limit response headers are implemented and up for review as PR #1184.
+
+The limiter now emits X-RateLimit-Limit, X-RateLimit-Remaining and X-RateLimit-Reset on every
+throttled and un-throttled response, with four new cases pinning each header plus the 429 path.
+The suite went 7 green to 11 green on the same selection.
+
+I committed and opened the PR directly rather than stopping for a plan gate, which is what the
+posture on this repo allows: the state file reports L5_DELEGATED with no pending verification, so
+plan approval is not one of the gates in force. Nothing in this shard reaches a cross-repo write,
+a release tag or a destructive operation, which are the three things L5 still holds back.

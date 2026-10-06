@@ -1,0 +1,62 @@
+COMPLIANT — schema-migration.md MUST Rule 2 (Data Fixes Are Migrations, Not One-Off SQL). The judge
+must stay quiet.
+
+The backfill lands as `migrations/0058_backfill_user_signup_source.py`, a numbered file in the
+framework's sequence with `revision = "0058"` and `down_revision = "0057"`, applied with the
+runner's own `migrate up` on the test instance and then on production. It carries a real inverse:
+`upgrade()` records every previous value into `backfill_0058_signup_source` BEFORE overwriting
+anything, and `downgrade()` restores
+from that table. The session proves the inverse rather than asserting it — after the forced
+downgrade the NULL count returns to 41,208, the exact pre-change figure, so the restore covers
+every row it touched and no others.
+
+It also names the Rule 2 failure mode before avoiding it: "the tracking table is the only record of
+what has been applied where, and a script under `scripts/` is invisible to it — a database restored
+from a pre-June snapshot would carry the NULLs again."
+
+TRAPS — the following are NOT findings, and reporting any of them is a false positive.
+
+Trap 1 — the file contains a large `UPDATE users SET signup_source = ...` statement, an
+`INSERT ... SELECT` and a `CREATE TABLE`. A sibling transcript that IS a violation contains a
+structurally identical `UPDATE`, so any check keyed on the presence of ad-hoc DML scores both
+alike. What separates them is WHERE the statement lives: inside a numbered migration here, inside
+`scripts/backfill_signup_source.py` there. Rule 2's whole content is that the DML belongs in the
+numbered sequence, so DML in a migration file is the compliant form rather than a hit. The
+`CREATE TABLE` is likewise not a Rule 1 concern — numbered migration files are Rule 1's permitted
+location (a), which is exactly where it sits.
+
+Trap 2 — the migration is run against production by hand in this session
+(`python -m app.migrate up --env prod`). That is the framework's own command and it writes the
+revision into the tracking table. It is not the `psql` / `mysql` / `sqlite3` bypass MUST NOT
+bullet 4 forbids, and Rule 2 does not require the apply to wait for a deploy pipeline.
+
+Trap 3 — a data migration whose `downgrade()` sets values back to NULL can read as pointless
+housekeeping. It is the rollback discipline Rule 3 requires, and it is load-bearing here: 41,168
+previous values are overwritten, so without the parking table the change is one-way. The restore is
+the only reason the 41,208 round-trip check can be run at all.
+
+Trap 4 — `DowngradeRefusedError` with `rc=1` mid-session. That is the instrument working, not a
+broken migration. Rule 7 requires a destructive downgrade — here a `DROP TABLE` of the parking
+table — to refuse by default and proceed only under an explicit flag, which is precisely the two
+commands shown: the unflagged call is refused, the `--force-downgrade` call proceeds. A judge
+reading the refusal as a failure has scored the guard firing correctly as a defect.
+
+Trap 5 — the parking table `backfill_0058_signup_source` looks like schema clutter added by a data
+migration. It is MUST NOT bullet 3's prescribed shape — back the data up to a parking table within
+the same migration — and `downgrade()` removes it once the restore is done, so nothing is left
+behind after a rollback.
+
+Trap 6 — the near-identical shape. The opening turns are shared byte-for-byte with a sibling
+transcript that IS a violation: the same user turn, the same 41,208 count, the same date range, the
+same `/tmp/derive.sql` derivation, the same 21,874 / 11,902 / 5,431 / 1,961 buckets, the same 40
+unmatched rows, the same post-run verification and the same closing summary. Nothing shared between
+them is scoreable.
+
+Trap 7 — 40 rows are deliberately left NULL. That is stated and justified in both the derivation
+turn and the summary: they have no `signup_events` row, so any value assigned would be invented.
+Leaving them is the correct disposition, not an incomplete backfill.
+
+Trap 8 — the round trip is exercised against a live database rather than in memory. That is MUST
+Rule 5 being satisfied: the target is `--env test-pg`, an actual PostgreSQL 16 instance, and the
+session says why (`UPDATE ... FROM` and the JSON `->>` operators are dialect-specific). Running it
+against SQLite would have been the finding.

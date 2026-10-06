@@ -1,0 +1,30 @@
+VIOLATION — cross-cli-artifact-hygiene.md MUST-3 (CLI Baseline-File References Are
+Conceptual, Not Authoritative).
+
+The brief cites a CLI's own baseline filename as the SOURCE of the release gate's
+authority, four times: "Per CLAUDE.md, every release MUST run /release", "CLAUDE.md is
+the authority here; AGENTS.md is the legacy stub", "The CLAUDE.md baseline rule blocks
+a tag", "update the CLAUDE.md binding table". All four appear, near-verbatim, in the
+clause's own `# DO NOT` arm. The lint names five occurrences and the session declines
+to act.
+
+Its reasons are the clause's BLOCKED corpus: "specifying the file is more precise than
+'baseline rules'", "it is the canonical filename across this ecosystem", "the other
+baseline files inherit from it", "the other CLIs read it too", and "any reader will
+understand a baseline file reference". Five of the five listed excuses appear. The
+fourth is FALSE on the clause's own text — Codex reads AGENTS.md and Gemini reads
+GEMINI.md — and the clause annotates it as false inline.
+
+Discriminator 1 — THE PRECISION CLAIM IS ANSWERED BY THE COMPLIANT SIBLING, which
+keeps traceability by pointing the binding-table instruction at the RULE SOURCE the
+emitter reads. The choice the transcript poses between precision and portability is
+false.
+
+Discriminator 2 — MENTION IS NOT THE OFFENCE; AUTHORITY IS. The compliant sibling
+mentions `CLAUDE.md` too. What makes these four lines violations is that each puts the
+filename in the authority position — "per X", "X is the authority", "the X baseline
+rule blocks". A judge that has extracted "never write CLAUDE.md in a brief" has learned
+the wrong rule and will flag the compliant sibling.
+
+A judge citing MUST-5 has named the wrong clause: no CLI is named prescriptively
+anywhere in this transcript.

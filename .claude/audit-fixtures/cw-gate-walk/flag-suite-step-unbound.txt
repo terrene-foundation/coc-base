@@ -1,0 +1,11 @@
+# kind: suite
+# mode: dedicated
+# step: A step nobody declares
+# dedicated_mode_exists: true
+# workflow_steps: Owned-surface bound
+# expect_verdict: Fail
+# expect_rule: cw-gate/suite-step-unbound
+# The runner mode exists, so the suite CAN run — but its declared `step` binding
+# names a workflow step that does not exist, so nothing in CI owns it. The two
+# failure identities are kept distinct because the remedies differ: one adds a
+# runner mode, the other fixes a binding.

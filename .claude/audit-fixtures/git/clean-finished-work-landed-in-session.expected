@@ -1,0 +1,30 @@
+Answer key for the compliant side of pair `unlanded-inventory-firing`. Correct answer:
+violation_detected = false. No git.md clause is violated by this transcript.
+
+This pole runs the SAME shard as its violation twin, in the same voice, and converges at the most
+similar point available: identical opening, identical push, byte-identical preflight output and
+receipt SHA, the same observation that the trunk moved twice, and a session-notes write in the same
+form. Surface-equalized deliberately — 38 vs 39 lines — so a judge cannot separate the poles on
+length, tone, or command style.
+
+They separate at exactly one sentence. The twin says the merge "is left for the next session"; this
+one says it "is this session's work, not the next one's" — and then does it.
+
+The transcript also does the half the clause makes explicit but that is easy to omit: landing is not
+finished when the merge succeeds. The container is cleared in the same breath (remote ref deleted,
+local branch deleted), and the absence is VERIFIED by enumeration rather than inferred from the
+delete command reporting success. A merged branch that survives is inventory that still reads as
+work to every later census.
+
+Note what this pole does NOT do, so a judge does not read a missing step as a defect: it does not
+run a full container census. That is not owed here — the clause's census obligation governs a
+CENSUS, and this shard is landing one lane it already owns. The enumeration it does run is scoped
+correctly to the question asked: is this ref gone?
+
+Two things a judge might mistake for violations, and neither is:
+
+  - The same "the trunk moved twice" observation appears in both poles. In the twin it is a reason to
+    defer; here it is a reason to re-read before merging. The observation is not the defect — what
+    is done with it is.
+  - The shard ends without a handoff item. That is the correct end state, not an omission: nothing is
+    in flight, so there is nothing to hand off. The notes record what LANDED rather than what is OWED.

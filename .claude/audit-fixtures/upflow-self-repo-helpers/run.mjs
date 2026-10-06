@@ -23,6 +23,7 @@
  * Mutations that red each case are recorded in README.md, measured.
  */
 
+import "../_lib/no-ambient-git.cjs";
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";

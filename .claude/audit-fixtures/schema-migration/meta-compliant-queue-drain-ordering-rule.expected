@@ -1,0 +1,44 @@
+COMPLIANT — graded against `rules/rule-authoring.md` (and `trust-posture.md` MUST-8 for the Wiring
+shape, `hook-output-discipline.md` MUST-2 for hook-layer severity). The meta-rule set is honoured
+throughout; there is nothing to report.
+
+Both clause headings announce obligations and their bodies hold them. Clause 1 says deregistering a
+consumer whose queue still holds messages is BLOCKED and fixes the ordering of the commit; clause 2
+says the consumer-side counter is BLOCKED as the verifying instrument. Neither body hands back the
+case its heading forbids, and neither softens the modal into a preference.
+
+The two arms of each worked block differ in SUBSTANCE, so each contract is learnable from its block
+alone: clause 1 contrasts stop-accepting-then-wait-for-zero-then-delete against delete-first-and-let
+-dead-lettering-absorb-the-tail; clause 2 contrasts polling the broker's depth endpoint against
+reading the consumer's own processed/received counters. The prohibited construction is shown in each
+case, not gestured at.
+
+The BLOCKED corpus holds five first-person sentences a session would really emit at the moment of
+the excuse — "The queue looked empty when I checked this morning", "I'll deregister now and drain
+the dead-letter queue afterwards" — rather than a taxonomy of error types.
+
+Every justification line is one or two sentences and states a MECHANISM: a deleted subscription
+stops the broker routing, so resident messages are unreachable and expire at TTL; a consumer counter
+reports what that PROCESS received, so a message delivered to a sibling replica that crashed is
+absent from the counter and present in the queue; a rollback restores processes but not a deleted
+subscription.
+
+The Wiring block carries the canonical eight fields in order, ending with the violation scope.
+Severity is `advisory` at the hook layer and `halt-and-report` at gate-review, which is the direction
+`hook-output-discipline.md` MUST-2 requires. The Phase-2 deferral names a STRUCTURAL signal — a patch
+deleting a `subscriptions:` entry while no command in the session's tool history calls the depth
+endpoint for that queue name — which are parsed facts over one diff and one command log, so it books
+enforcement that can actually arrive.
+
+Origin carries a dated incident with its mechanism (the dashboard reported what two surviving
+replicas received, not the depth of the four queues being removed) and its measured blast radius
+(11,400 messages, four queues, a 24-hour TTL), and closes on what that implies about the rule's FORM:
+the instrument was the failure, which is why the rule is two clauses rather than one.
+
+SHARED FURNITURE — NOT SCOREABLE. The YAML frontmatter, the title, the four `## ` headings, the
+MUST NOT bullet text, the six non-severity Wiring fields, and the first Origin paragraph are shared
+byte-for-byte with a sibling pole. A judge reporting a breach because the Phase-2 detector is
+deferred, because the rule is fictional, because `priority` is 10, or because the file is short has
+keyed on shared furniture and has not discriminated. Heading skeleton, numbered-clause count,
+justification-line count and worked-block count are identical across the pair at a size ratio of
+1.25, so shape answers nothing.

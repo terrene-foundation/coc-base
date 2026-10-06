@@ -1,6 +1,6 @@
 ---
 name: certify
-description: "Certify a new dev/consultant on this repo's critical knowledge before they claim work. Three-phase Brief → Probe → Gate at 100%."
+description: "Certify repo-critical knowledge before claiming work: Brief, Probe, then an unassisted Gate at 100%."
 ---
 
 Certify the operator's knowledge of THIS repo's critical paths before they may claim work. Three phases — **Brief → Probe → Gate** — gated at 100% on the probe. The operator answers the gate phase SOLO (no Claude assistance); the orchestrator only walks the brief and judges answers.
@@ -11,7 +11,7 @@ Certify the operator's knowledge of THIS repo's critical paths before they may c
 
 ## Process
 
-`/certify` is a structured walk-then-test. The procedure detail (brief read-order, probe presentation, gate retry loop, YAML schema) lives in the skill `.codex/skills/42-certify/SKILL.md`; this command is the entry point.
+`/certify` is a structured walk-then-test. The procedure detail (brief read-order, probe presentation, gate retry loop, YAML schema) lives in the skill `.agents/skills/42-certify/SKILL.md`; this command is the entry point.
 
 ### 1. Identify the operator + confirm prerequisites
 
@@ -98,7 +98,7 @@ Next: /onboard (re-read team state) → /claim <path> (when starting your first 
 ## Notes
 
 - This command is a state-write command (writes brief receipts + a committed pass/deferral journal entry). It acquires and releases a covering codify lease around the `journal/` write (the substrate discipline `rules/enrollment-operations.md` MUST-2 requires for any `journal/` write when coordination is ON), but does NOT modify the roster or posture — pass status is captured in the journal entry; roster writes stay with `/whoami --register`.
-- Procedure detail (failure-mode handling, YAML schema, LLM-judge prompt shape, retry-loop discipline) lives in `.codex/skills/42-certify/SKILL.md`. Update the skill, not this command, when the procedure changes.
+- Procedure detail (failure-mode handling, YAML schema, LLM-judge prompt shape, retry-loop discipline) lives in `.agents/skills/42-certify/SKILL.md`. Update the skill, not this command, when the procedure changes.
 - The question bank itself (`specs/_certification.yaml`) lives in the CONSUMER repo, NOT loom. Loom ships a starter template at `.claude/templates/specs/_certification.yaml`; each downstream repo copies it once into `specs/` and curates its own questions citing its own critical spec sections.
 - Curated bank, NOT LLM-generated: a 100% gate against hallucinated questions is unfair. Maintenance cost (spec edits flag stale citations) is the price of fairness.
 

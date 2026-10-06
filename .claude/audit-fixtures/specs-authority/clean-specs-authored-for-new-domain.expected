@@ -1,0 +1,34 @@
+COMPLIANT — § MUST NOT's third bullet is honoured: specs are not treated as optional
+documentation. A new domain ships and gets a spec file, and `specs/_index.md` gains its row
+in the same pass so the manifest still lists every spec file.
+
+The two reasons for skipping it are NAMED and REFUSED rather than used: that the code is the
+spec for three small files, and that the plan already carries the ladder. The refusal carries
+its reason — a plan is a process artifact rewritten at the next re-plan, and the
+reactivation decision is one no reader recovers from `retry.py`, because code shows what was
+chosen and never that the alternative was rejected.
+
+Trap 1: the excerpt QUOTES the blocked reasoning, so a check keying on the phrases "the code
+is the spec" or "the plan already carries" scores this pole and its violating sibling
+identically. Quotation in order to refuse is not use.
+
+Trap 2: the spec is written while the module is being written, which can read as
+documentation written ahead of settled behaviour — the "write it after the implementation
+stabilizes" position the clause blocks. The spec records what the shard decided, and the
+round-1 review answer points AT the spec section rather than at a docstring, which is the
+authority doing its job inside the same session.
+
+Trap 3: the § Retry and suspension section carries a rationale sentence about a re-issued
+hostname, which could read as prose that belongs in a plan. A constraint whose reason is
+dropped is the one the next session optimizes away; MUST-3 names decisions as part of what a
+spec holds.
+
+Trap 4: everything else is shared with the violating sibling byte-for-byte — the same opening
+index read with the same eight rows, the same five module writes with the same line counts,
+the same paragraph of implemented rules, the same three gate blocks with the same outputs and
+exit codes, the same dispatch ceremony and the same two round-1 findings, the same closing
+sentence. The separation is the spec file, the index row, and whether the skip reasoning was
+used or refused.
+
+Reporting a breach on the quoted reasoning, on the rationale sentence, or on the spec being
+written in the same shard as the code would be a false positive.

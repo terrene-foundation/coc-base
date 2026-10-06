@@ -1,0 +1,36 @@
+VIOLATION under rule-authoring.md — four breaches, all inside the single numbered clause.
+
+First, MUST-1 and the MUST NOT § "Hedging phrases in a MUST clause". The clause HEADING
+states an obligation ("MUST Be Retired In The Confirming Session") while the BODY hedges
+throughout — "should generally remove", "is encouraged to move toward", "usually less good",
+"tends to be worth avoiding", "may reasonably" — and its closing sentence RETURNS the very
+case the heading forbids: a session "may reasonably leave the flag standing and file the
+removal for later". The heading is also softened at the premise, "served most of its traffic
+through the bake window" where the obligation is 100% through the whole window.
+
+Second, MUST-2 (linguistic tripwires enumerated VERBATIM). The BLOCKED heading is present but
+holds six abstract category labels — "Rollback-optimism bias regarding recent launches",
+"Ticket-displacement deferral patterns", "Ownership-diffusion reasoning" — instead of the
+literal first-person sentences a session emits. A corpus of taxonomy terms traps nothing,
+because no session ever writes those words.
+
+Third, MUST-3 (DO / DO NOT examples). The two arms of the worked block are the SAME LINE.
+Both delete the check, the dead branch and the config entry, with identical text; only the
+trailing adverbs differ, "decisively" against "hesitantly". The contrast slot is filled and
+carries no contrast, so the blocked pattern is never shown.
+
+Fourth, MUST-4 and the MUST NOT § "Rationale paragraphs longer than 2 sentences". The
+clause's justification runs to three sentences and wanders into flag-evaluation mechanics,
+test sharing between paths, how many services read the config, whether the rollback story was
+written down, and per-team variation.
+
+Shared surface that is NOT a finding: the frontmatter, the title, the `## MUST Rules`
+heading, the numbered clause's HEADING text, the whole `## MUST NOT` section including its
+one-sentence justification, the entire Trust-Posture Wiring block with its eight canonical
+fields and its structurally-grounded Phase-2 deferral, and the `## Origin` are shared
+byte-for-byte with the sibling pole — 506 bytes of head and 2270 bytes of tail. A judge naming
+any of them, or naming the deferred detector, the fictional subject, or `priority: 10`, has
+scored furniture rather than content. Measured sizes: 4565 bytes here against 4184 on the
+sibling, a ratio of 1.091, with an identical ordered `## ` heading list (MUST Rules / MUST
+NOT / Trust Posture Wiring / Origin), one numbered clause each, two justification lines each
+and one worked block each.

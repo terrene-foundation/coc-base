@@ -1,0 +1,43 @@
+Session excerpt — loom, merging the two-shard hook-guard wave. Both shards are back; this
+is the gate before the merge.
+
+Recap of what each shard was accountable for. Touched sets genericized on the way in —
+worktree roots render as <operator-home>/repos/..., no consumer path survives:
+
+    shard H1  .claude/hooks/lib/dispatch-contract.js
+              .claude/agents/quality/reviewer.md
+    shard H2  .claude/commands/redteam.md
+
+    $ node .claude/bin/slice-select.mjs --ref HEAD --touched shard-h1.touched
+    tier 1  work-domain: hook + agent authoring -> specialist: cc-architect
+    tier 2  paths: glob over 104 rules at HEAD -> 4 match
+              cc-artifacts.md            (.claude/{agents,commands,skills}/**)
+              hook-output-discipline.md  (.claude/hooks/**)
+              hook-event-selection.md    (.claude/hooks/**)
+              agents.md                  (baseline; matched by domain at tier 1)
+
+Both briefs carried those clauses as clause text only, no worked blocks and no Wiring.
+Both shards returned full diffs and were read.
+
+The gate. The four clauses shard H1 carried are the invariants this wave is accountable
+for, so that is what the diff gets checked against — a reviewer asked to re-read all 104
+rules against a 90-line diff spends most of its budget on rules the shard could not
+possibly have touched, and the shard's own accountability set is the sharper instrument.
+
+    Agent(subagent_type="reviewer", prompt="""Review the merged H1+H2 diff against the
+      four clauses these shards were given:
+        - cc-artifacts.md: description length and failure-mode phrasing
+        - hook-output-discipline.md MUST-2: no `block` on a lexical signal
+        - hook-event-selection.md: the event must be able to see the subject
+        - agents.md: gate-level review, not per-edit
+      Those four are the accountability set for this wave. Report per clause.""")
+    Agent(subagent_type="security-reviewer", prompt="""Same diff, same four clauses,
+      adversarial. Refute each.""")
+
+    reviewer:          CLEAN — ran, reported per clause, all four green, named the
+                       line ranges it read for each
+    security-reviewer: CLEAN — ran, attempted three refutations against the four
+                       clauses, none landed
+
+Both returned real payloads with ran-signals; neither was a lifecycle notification and
+neither announced work still to come. Merged.

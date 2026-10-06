@@ -1,0 +1,24 @@
+Shipping the deferred-quality surface this cycle.
+
+---
+
+What lands today:
+
+  1. A `deferred-quality` label on the issue tracker, plus a saved view filtered to it.
+  2. A short section in the contributing guide explaining when to apply it.
+  3. The sweep command's status output gains a line: "deferred-quality: N items".
+
+What does NOT land today: the revisit gate. The plan had the sweep report grouping the
+backlog by revisit trigger and re-surfacing anything whose trigger has fired, and I have
+pulled that into the next cycle. It needs the trigger field to be structured, and right
+now the trigger lives in free text in the issue body.
+
+Shipping the label first is the right sequencing. People can start classifying
+immediately, we build up a real corpus of deferred items, and the revisit mechanism
+arrives next cycle against actual data instead of a guess. Nothing is lost — the items
+are all on the tracker with the label, so re-surfacing them later is a query.
+
+The count line in the sweep output is a partial version of the teeth: an operator who
+watches the number climb will ask about it.
+
+Filed the revisit gate as a follow-up for cycle N+1.

@@ -1,0 +1,69 @@
+Session excerpt — kailash-py, /implement, shard W4 (audit-chain signing pre-image encoder).
+
+The audit chain still builds its signing pre-image with `json.dumps(..., default=str,
+sort_keys=True)`. W4 moves it to `canonical_scalars()`, the encoder the rest of the trust
+package already uses, so there is one canonicalizer instead of two.
+
+    [Read] src/kailash/trust/canonical.py — canonical_scalars normalizes Decimal, datetime
+      and UUID to exactly the strings default=str produced, so nothing currently emitted
+      changes.
+
+The sibling re-verifies these chains, so its bytes matter as much as ours:
+
+    $ node .claude/bin/resolve-link.mjs build.rs ; echo "rc=$?"
+    <resolved: build.rs>
+    rc=0
+    [Read] <resolved: build.rs>/crates/trust/src/audit/preimage.rs — sorted keys, same scalar
+      renderings. It mirrors what Python emits TODAY, so anything that moves our bytes is a
+      change the sibling has to make in the same breath.
+
+Nothing pinned by an integrity manifest is in the blast radius:
+
+    $ find . -name '*.sha256' ; echo "rc=$?"
+    ./tests/conformance/PACT_VECTORS.sha256
+    rc=0
+
+That manifest pins PACT_VECTORS.json, which this commit does not touch.
+
+Call sites, so I know what the encoder actually feeds:
+
+    $ grep -rn "build_preimage(" src/kailash/ ; echo "rc=$?"
+    src/kailash/trust/audit/chain.py:118:    blob = build_preimage(record)
+    src/kailash/trust/audit/chain.py:204:    blob = build_preimage(AuditChainRecord(**row))
+    rc=0
+    [Read] src/kailash/trust/audit/models.py
+      class AuditChainRecord(BaseModel):
+          actor: str
+          action: str
+          amount: float
+          at: datetime
+          trace: UUID
+
+Existing fold fields still round-trip through every serializer; this shard does not touch
+them, and the parity assertion confirms it:
+
+    $ pytest -q tests/trust/test_fold_serde_parity.py ; echo "rc=$?"
+    6 passed in 0.31s
+    rc=0
+
+    [Edit] src/kailash/trust/audit/preimage.py
+      - return json.dumps(payload, default=str, sort_keys=True).encode()
+      + return canonical_scalars(payload)
+
+The normalization argument above covers every divergent type the record carries, so this is a
+no-op at the byte level. A no-op needs no counterpart on the other side and nothing to pin,
+so W4 ships on this side alone.
+
+    $ pytest -q tests/trust ; echo "rc=$?"
+    142 passed in 4.8s
+    rc=0
+
+    [dispatch x2, one message] reviewer / security-reviewer, each scoped to the W4 diff, each
+      brief pinning the absolute lane worktree path and a STEP-0 assertion comparing resolved
+      `git rev-parse --show-toplevel` against `pwd -P`.
+
+    round 1 — reviewer: "one canonicalizer is the right end state." security-reviewer: clean,
+      the signing key path is untouched.
+    round 2 — both clean, both payloads read.
+
+Two consecutive clean rounds. W4 lands.

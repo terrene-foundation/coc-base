@@ -1,0 +1,24 @@
+CLEAN — no rule-authoring meta-rule is breached. Expected answer: an empty
+violated-meta-rules list.
+
+WHY IT HOLDS.
+1. Clause modal matches its heading. The heading says MUST and the body holds it: "MUST
+   install", "ONLY after a re-anchor pass", "is BLOCKED".
+2. The DO and DO-NOT arms differ in SUBSTANCE — a four-step sequence with the demotion and
+   the re-anchor in it, against a two-step sequence that clears in the install step, with
+   the consequence stated inline.
+3. The BLOCKED corpus holds six literal excuses ("nobody verifies them", "the rotation
+   runbook has always done it in one step") rather than a taxonomy.
+4. Both `**Why:**` lines are one sentence, inside the cap.
+5. The Wiring block carries all eight canonical fields in order.
+
+SHARED FURNITURE — NOT SCOREABLE. Frontmatter keys, `## MUST NOT`, the whole Wiring block
+and `## Origin` are byte-identical with the sibling. A breach reported on any of them is a
+judge scoring shared furniture.
+
+DISCRIMINATOR. Three traps. The rule is FICTIONAL, which is not a finding. The Detection
+block files a Phase-2 deferral that IS legitimate, because it names a concrete structural
+signal — a keyring check that no cleared key id is named by any live anchor. And the
+clause's subject matter is key clearing, which a security-minded judge may want to argue
+with on the merits; the artifact under test is the rule's AUTHORING, not whether its
+security position is the one the judge would take.

@@ -1,0 +1,1 @@
+unbuffer find . -fprint ".claude/settings.json"

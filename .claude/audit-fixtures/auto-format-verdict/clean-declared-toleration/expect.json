@@ -1,0 +1,22 @@
+{
+  "_case": "GREEN POLE. Byte-identical expectation and environment to incomplete-undeclared-skip, separating ONLY on the tolerated_unrunnable declaration. Grades CLEAN at exit 0 — and MUST STILL NAME red-pole-payload-corrupts in did_not_run, because a toleration relaxes the EXIT STATUS and never the DISCLOSURE.",
+  "dispatch": { "md": false },
+  "pin_declared": true,
+  "bare_call_sites": 0,
+  "min_pinned_call_sites": 2,
+  "payload_corrupts_under_pin": true,
+  "tolerated_unrunnable": [
+    "dispatch-md-refused",
+    "md-byte-identical",
+    "dispatch-yaml",
+    "dispatch-yml",
+    "dispatch-json",
+    "dispatch-js",
+    "dispatch-jsx",
+    "dispatch-ts",
+    "dispatch-tsx",
+    "dispatch-py",
+    "pin-resolves",
+    "red-pole-payload-corrupts"
+  ]
+}

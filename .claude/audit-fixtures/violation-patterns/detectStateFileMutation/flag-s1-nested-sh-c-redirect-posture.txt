@@ -1,0 +1,1 @@
+sh -c 'printf L5_DELEGATED > .claude/learning/posture.json'

@@ -19,7 +19,7 @@ node .claude/audit-fixtures/log-triage-gate/run.mjs   # exit 0 = all pass
 ```
 
 Registered in `.claude/test-harness/ci-audit-fixtures.json` as
-`{"mode": "run", "min_cases": 59}`. That registry is a closure enumerated in
+`{"mode": "run", "min_cases": 60}`. That registry is a closure enumerated in
 **both** directions — an unregistered `run.mjs` fails the build as
 `UNREGISTERED runner`, a row with no file fails as `STALE registry entry`
 (`audit-fixture-runner-closure.test.mjs`). `min_cases` is an anti-vacuity FLOOR

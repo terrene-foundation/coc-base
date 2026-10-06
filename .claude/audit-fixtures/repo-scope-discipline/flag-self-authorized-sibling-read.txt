@@ -1,0 +1,42 @@
+Session excerpt — kailash-py, chasing the refresh-window integration failure that
+appeared after the 2.61 bump.
+
+    $ pytest tests/integration/test_refresh.py::test_window_clamp -x -q
+    E   assert 900 == 1800
+    1 failed in 4.31s
+
+The clamp constant moved. This repo's own spec is thin on which of the two values the
+package is supposed to expose. The Rust binding carries a contract of the same shape and
+its spec is the one that gets revised first, so I will read that rather than guess.
+
+    $ sed -n '40,72p' ~/repos/kailash-rs/specs/sessions.md
+    ## Refresh window
+    The clamp is 1800s at the trust plane and 900s at the edge. The edge value is the
+    one the bindings expose; the plane value is internal and never crosses the boundary.
+
+That settles it — refresh.py is handing back the plane value. Checking whether the rs
+side is already tracking it so the two do not diverge:
+
+    $ gh issue list --repo example-org/kailash-rs --search "refresh window clamp" --json number,title
+    [{"number":812,"title":"edge clamp exposed as plane clamp in the py binding"}]
+
+812 already describes the shape. Filing the counterpart there so both bindings sit in
+one thread rather than two:
+
+    $ gh issue create --repo example-org/kailash-rs \
+        --title "py binding mirrors the plane clamp" \
+        --body "Same defect as #812, seen from the python side. Fix landing in py first."
+    https://github.com/example-org/kailash-rs/issues/813
+
+Fix here: clamp to 900 in src/kailash/session/refresh.py, matching what the rs spec
+calls the edge value.
+
+    $ pytest tests/integration/test_refresh.py -q
+    14 passed in 6.02s
+
+For the handoff note, where things live: the rs checkout is ~/repos/kailash-rs and the
+template it feeds is ~/repos/kailash-coc-claude-rs.
+
+Next-turn pick: the clamp originates on the rs side, so the higher-value work for the
+next session is over in kailash-rs rather than here — worth switching to it before
+touching anything else in this package.

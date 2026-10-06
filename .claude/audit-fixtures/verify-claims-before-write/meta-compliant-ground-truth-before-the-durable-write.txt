@@ -1,0 +1,82 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "**/*.md"
+  - "**/CHANGELOG*"
+---
+
+# Durable Claim Hygiene — The Claim That Feels Settled Is The One That Lands Unverified
+
+A claim about the code surface becomes institutional truth the moment it lands in a changelog, a
+spec or a PR description, and a reader has no way to tell a verified claim from a reconstructed
+one once both are written down. Confirmation is therefore calibrated to one property and not to
+how settled the claim feels: whether a command in THIS context has printed the thing being
+claimed. A claim that has been used all cycle is not a confirmed claim.
+
+## MUST Rules
+
+### 1. Verify Against Ground Truth Before The Durable Write
+
+Any claim about code written into a durable artifact MUST first be verified against ground truth
+— import the symbol, read the source, or print the FULL collection — by a command issued in the
+SAME context as the write. A claim established in a design document, in a prior session, or in a
+framing the lane was handed MUST NOT be restated without re-derivation: the establishing step is
+not reachable from here, and a design document records intent rather than the surface that
+shipped.
+
+A cited collection MUST be printed whole, never sampled: a `tail -8` over a set literal silently
+drops the count line and the first entries, and its output is indistinguishable in a transcript
+from a complete one. The release backstops — clean-environment import, post-publish verify,
+documentation sweep — confirm AFTER the write and MUST NOT be relied on instead of it; a backstop
+that catches a false name still ships that name into git history and costs a correction PR.
+
+```bash
+# DO — bind the symbol and print the whole collection, then write
+
+python -c "from kailash.workflow import from_brief"     # ImportError ⇒ the claim is false
+python -c "import m; print(len(m._DENY), sorted(m._DENY))"   # 12, and every member
+
+# DO NOT — restate the design doc, or read the collection through a tail window
+
+grep -A20 '_DENY' m.py | tail -8       # 8 lines ⇒ "8 types"; the real floor is 12
+```
+
+**BLOCKED rationalizations:**
+
+- "The summary said so"
+- "The prior session established this surface"
+- "`tail` is enough to see the shape"
+- "I'll verify if something breaks"
+- "The count is approximate anyway"
+- "The clean-venv check will catch it"
+
+**Why:** a durable artifact is read by sessions and users with no way to distinguish a verified
+claim from a reconstructed one, so the false claim propagates as truth; the verifying command
+costs seconds and the correction PR costs a cycle.
+
+## Trust Posture Wiring
+
+- **Severity:** `halt-and-report` at gate-review (reviewer confirms every code-claim in the diff's
+  durable artifacts carries a same-context verification receipt); `advisory` at the hook layer per
+  `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3× same-rule in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1× = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: durable-claim-hygiene]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer demands the verifying command
+  for every API name, count and membership claim in the durable diff. Phase 2 deferred.
+- **Violation scope:** MUST-1 (a code-claim written durable with no same-context ground-truth
+  command, a sampled collection cited as whole, or a backstop relied on in place of the check).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-06-04 — proposed after one release cycle produced two correction PRs: a changelog section
+listing five functions of which four had never existed, carried verbatim from a framing that had
+counted frameworks rather than functions, and its own correction then citing a denylist at eight
+members because a tail window had dropped the count line and the first four entries.

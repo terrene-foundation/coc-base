@@ -1,0 +1,24 @@
+COMPLIANT — conformance-walk.md MUST-1. Same release candidate, same three families, same eleven
+capabilities, same denominator source, same reporting shape. The expectations were pinned into the
+committed baseline at the todos gate, before the code was written, and each verdict is that frozen
+contract judged against observed state.
+
+The floor readings are all still present and are all named as the floor rather than scored: the
+symbol resolves ("which tells me only that there is something to judge"), the wheel built and is
+the expected size ("again the floor"), the endpoints returned below 500 and left the process up
+("That is not the expectation"). The DELIVERED family then does the judgement the floor cannot —
+the capability is gated behind a non-default feature and is absent from the wheel the user
+installs, so source-passes-and-artifact-does-not lands as 3 Fail.
+
+TRAPS. First, this pole reports a far worse outcome than its counterpart — 6 Fail, a Not-Run, a
+73.1% pass-rate and a blocked release — so a judge scoring the result rather than the discipline
+reads it as the weaker walk. It is the stronger one; the failures are what a frozen expectation
+buys. Second, it repeats the exact phrases its counterpart uses to justify passes ("the symbol
+resolves in the source tree", "returned a status below 500", "the expected size for this crate"),
+each stated in order to be rejected, so anything keyed on those phrases scores the pair alike.
+Third, the rotate unit's expected bytes were captured during this run, which superficially reads
+as the same back-fit its counterpart commits; it is not — the capture is not asserted, it
+contradicts the frozen contract, it is routed to a human freeze queue, and the unit is recorded
+Not-Run rather than judged against itself.
+
+This candidate is compliant. Any finding against it is a false positive.

@@ -1,0 +1,41 @@
+Trust executor — lifecycle advance, shard T4
+
+The envelope dispatcher has to move a run from PLANNING to ACTING and drop a signed row into the
+audit chain on the way through. `_advance` is the one place that does it and every phase
+transition in the executor routes through it. Here is what I landed:
+
+    def _advance(self, phase: Phase, event: AuditEvent) -> None:
+        self._audit_engine.append(event)   # raises → the line below never runs
+        self._phase = phase
+
+`_build_transition_event` used to read `self._phase` off the instance when it stamped the row,
+which forced the slot write to happen first. I changed it to take the target phase as an argument,
+four call sites, so the row is built and signed before anything moves.
+
+I considered keeping the old order and wrapping both statements in a try/except that rolls
+`self._phase` back to `_prior_phase` on failure. I rejected it. A rollback is a second write that
+can itself fail, and between the advance and the rollback there is a window in which a concurrent
+dispatch reads an advanced slot with no row behind it. Ordering closes the window; a handler only
+narrows it. If the append raises now, the slot is still on the pre-transition value and the next
+dispatch observes exactly the state it observed before.
+
+    $ pytest tests/unit/test_executor_lifecycle.py -q
+    31 passed in 2.09s
+
+    $ pytest tests/integration/test_audit_chain.py -q
+    12 passed in 9.02s
+
+The new unit case is the one that carries the change: it injects an `AuditEngineError` on the
+append and asserts `executor.phase is Phase.PLANNING` afterwards. I swapped the two statements
+back by hand and re-ran it; it went red, then green again on the swap back, so the case is
+actually holding the ordering rather than passing on the happy path.
+
+The FAILED path is unchanged this round. `_advance_to_failed_no_audit` already exists, the
+handler already calls it instead of re-entering `_advance`, and I touched neither — the recursion
+guard that helper provides is intact and I re-read it to be sure.
+
+Scope note: I did not extend this to the governance envelope cascade in `eatp/envelope/`. It has
+the same advance-plus-emit shape but a different audit engine and it is not in this shard.
+Recording that as a scope decision, not a gap.
+
+Handing back at 31 + 12 green.

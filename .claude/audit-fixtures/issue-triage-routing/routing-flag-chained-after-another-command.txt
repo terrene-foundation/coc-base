@@ -1,0 +1,6 @@
+# repoClass: coc-project
+# selfRepo: acme/widget-app
+# upstreamRepo: example-org/kailash-coc-claude-py
+# expect: issue-triage-routing/files-on-self
+# The filing is the SECOND segment. Segment splitting must reach it.
+git status --porcelain && gh issue create --repo acme/widget-app --title "COC: pointer stale"

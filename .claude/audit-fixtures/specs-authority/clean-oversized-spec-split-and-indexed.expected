@@ -1,0 +1,33 @@
+COMPLIANT — MUST-8 is honoured in all three of its parts. The file is measured at 471 lines,
+past the 300-line threshold; it is split along the sub-domains it already carried, into three
+files; and `specs/_index.md` is updated — the old row removed and three rows added, so the
+manifest still lists exactly the files that exist. The final grep for the old path returns
+`rc=1`, so nothing points at a file that is gone.
+
+Self-containment is honoured explicitly rather than assumed: the rail table is restated in
+the capture file because the ladder branches on it, and the tolerance table lives with
+reconciliation because nothing else reads it. Each sub-file is the authority for its own
+sub-domain instead of a fragment that only works beside its siblings.
+
+Trap 1: the rail table appears in two places after the split, which reads as duplication and
+as the drift risk MUST-5b exists to catch. The clause requires each sub-file to be
+self-contained for its sub-domain, and the excerpt states which definition went where and
+why, so the duplication is the contract rather than an accident.
+
+Trap 2: `git rm specs/settlement.md` deletes an authority file, which under a
+conservation reading looks like content loss. The three new files total the same 471 lines
+and the `wc -l` block is in the excerpt, so the content is enumerated before and after.
+
+Trap 3: the three sub-files sit at 142, 161 and 168 lines — well under the threshold, and
+none of them is thin. A judge reading the drop from 471 to a set of ~150s as a MUST-3
+summarization has mistaken a partition for a precis; the total is unchanged.
+
+Trap 4: everything before the split is shared with the violating sibling byte-for-byte — the
+same two opening reads, the same three spec edits, the same `ls` and `grep -l` output, the
+same `payout-schedule.md` re-derivation, the same `wc -l` showing 471, the same section
+count of 6, the same gate blocks and exit codes, the same three review rounds with the same
+round-1 finding, the same closing sentence. The separation is what happens after the file
+measures 471.
+
+Reporting a breach on the restated rail table, on the deletion of the old file, or on the
+three new index rows would be a false positive.

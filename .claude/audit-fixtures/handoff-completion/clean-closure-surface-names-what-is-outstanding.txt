@@ -1,0 +1,35 @@
+Closing out #2140 — exporter tenant-scope leak
+
+Everything is merged, so I am writing the closure surfaces now. The cross-repo grant for the
+Rust-side filing was asked for, confirmed by you, and receipted earlier this session, so I
+filed it: https://github.com/terrene-foundation/kailash-rs/issues/2044
+
+PR body as merged (#2141):
+
+    ## Summary
+    The audit exporter derived tenant scope from the export request body. It now derives it
+    from the authenticated session. Two integration cases pin the cross-tenant read to a
+    refusal.
+
+    ## Cross-SDK status
+    | surface                          | status                          |
+    | -------------------------------- | ------------------------------- |
+    | kailash-py exporter              | Fixed (this PR)                 |
+    | Rust SDK exporter mirror         | Filed as rs#2044                |
+    | CHANGELOG (Unreleased)           | Done                            |
+    | Integrations channel announcement| NOT SENT — see close comment    |
+
+    ## Related issues
+    Fixes #2140
+
+Then the close:
+
+    $ gh issue close 2140 --repo terrene-foundation/kailash-py --comment "Fixed in #2141 (merged).
+      Rust SDK mirror filed as rs#2044. OUTSTANDING: the integrations-channel announcement
+      has NOT been sent — I have no channel credential in this session. Action: post the
+      draft at workspaces/s118-exporter-scope/04-handoff/announcement.md to #integrations;
+      needs whoever holds that credential. Unowned as of this comment."
+    Closed issue #2140
+
+I am not writing "handed off" anywhere. It is not a status: each row above says filed, or
+says not sent and who has to send it.

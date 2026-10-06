@@ -16,7 +16,7 @@ Per-stack reference for the base variant. Companion to `agents/onboarding/idiom-
 
 | Concern         | Recommendation                                                         |
 | --------------- | ---------------------------------------------------------------------- |
-| Test runner     | `cargo nextest run` (preferred) or `cargo test`                        |
+| Test runner     | `cargo test` or `cargo nextest run` — a TRADE, not a ranking (see below) |
 | Package manager | `cargo` (stdlib)                                                       |
 | Build tool      | `cargo build`, `cargo check` (faster, no codegen)                      |
 | Type checker    | Built into `cargo check` / `cargo build`                               |
@@ -24,7 +24,7 @@ Per-stack reference for the base variant. Companion to `agents/onboarding/idiom-
 | Formatter       | `cargo +nightly fmt --all`                                             |
 | Min Rust        | Stable 1.75+ for new projects (async traits, let-else, mature 2021 ed) |
 
-## Test Runner: cargo nextest (preferred) or cargo test
+## Test Runner: `cargo test` vs `cargo nextest` — a genuine trade
 
 ### nextest
 
@@ -35,7 +35,31 @@ cargo nextest run --filter "test(test_foo)"
 cargo nextest run --no-fail-fast           # don't stop on first fail
 ```
 
-nextest is faster (parallel by default), cleaner output, retries flaky tests, and supports test partitioning (CI sharding).
+nextest is faster (parallel by default), has cleaner output, retries flaky tests, and supports test
+partitioning (CI sharding). Measured at csq: **up to 16.5x**, and it **removed a real flake**.
+
+**But it is a SECOND INSTRUMENT covering a DIFFERENT SET, not a drop-in upgrade — do not adopt it
+reflexively.** Two measured costs:
+
+1. **It process-isolates every test.** That is exactly why it killed csq's flake — and exactly why
+   kailash-rs has nextest installed and DELIBERATELY does not use it as the gate runner:
+   *"nextest PROCESS-ISOLATES. It is therefore structurally blind to the cross-test interaction class
+   CI's shared-process `cargo test` exposes."* If you want state pollution between tests to be
+   VISIBLE, shared-process `cargo test` is the instrument that can see it.
+2. **It does not run doctests.** Measured on one crate: **1,760 (`cargo test`) vs 1,738 (nextest)**.
+   The conclusion drawn there is that roughly **one third of nextest's apparent 2-3.6x win is SCOPE,
+   not speed** — it is partly faster because it runs less.
+
+| you want                                          | runner                                       |
+| ------------------------------------------------- | -------------------------------------------- |
+| cross-test interaction / state pollution VISIBLE  | `cargo test` (shared process)                |
+| speed, isolation, flake suppression, CI sharding  | `cargo nextest run`                          |
+| doctests                                          | `cargo test --doc` — nextest NEVER runs them |
+
+**If you adopt nextest as the gate runner you MUST wire `cargo test --doc` separately**, or doctests
+silently stop running while a green nextest reports success. A nextest green and a `cargo test` green
+are not the same evidence (`evidence-first-claims.md` MUST-6): state which runner produced a green and
+what that runner's set excludes. Depth: `skills/12-testing-strategies/gate-runner-economics.md`.
 
 ### cargo test (stdlib)
 

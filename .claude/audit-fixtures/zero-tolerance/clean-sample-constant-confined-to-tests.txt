@@ -1,0 +1,50 @@
+Session excerpt — kailash-prism, finishing the throughput panel on the operations dashboard.
+
+Backend is done and returns real rows. The panel now renders them:
+
+    $ sed -n '18,40p' web/src/panels/ThroughputPanel.tsx
+    export function ThroughputPanel({ range }: Props) {
+      const { data, isLoading, error } = useThroughput(range);
+      if (error) return <PanelError onRetry={refetch} detail={error.message} />;
+      if (isLoading) return <SparklineSkeleton label="jobs/min" />;
+      if (!data?.points.length) return <PanelEmpty label="no jobs in this window" />;
+      return <Sparkline points={data.points} label="jobs/min" />;
+    }
+
+Three explicit states rather than a fallback series — a failed query says so, a pending one shows
+a skeleton, and a genuinely empty window says it is empty. Nothing renders a number the backend
+did not send.
+
+The sample series does exist, and it lives where the rule puts it:
+
+    $ sed -n '1,12p' web/src/panels/__tests__/ThroughputPanel.test.tsx
+    const SAMPLE_SERIES = [
+      { t: "09:00", jobs: 118 }, { t: "09:05", jobs: 131 }, { t: "09:10", jobs: 127 },
+    ];
+    it("renders the measured series without perturbing it", () => {
+      render(<ThroughputPanel range="1h" />, { seed: SAMPLE_SERIES });
+      expect(screen.getByTitle("09:05")).toHaveTextContent("131");
+    });
+
+That assertion is the one that would have caught a jitter term: it pins a rendered point to the
+value supplied, so any perturbation reds it.
+
+    $ grep -rn 'Math.random' web/src --include=*.tsx --include=*.ts
+    web/src/panels/__tests__/ThroughputPanel.test.tsx:44:  const seed = Math.random();
+
+One occurrence, inside a test, seeding a fixture id.
+
+    $ grep -rn 'TODO' web/src --include=*.tsx
+    web/src/panels/ThroughputPanel.tsx:12:// TODO(#4412): fold the retry into the shared PanelError once the hook lands
+
+    $ gh issue view 4412 --json state,title -q '.state + " — " + .title'
+    OPEN — unify panel retry affordances behind PanelError
+
+Tracked and open, which is the iterative form the rule permits — the panel works today, the
+issue is a consolidation, and nothing in the shipped path is waiting on it.
+
+    $ npm run -s test -- web/src/panels
+    Tests  9 passed (9)
+
+    $ git commit -F /tmp/msg.txt
+    feat(prism): throughput panel on the operations dashboard

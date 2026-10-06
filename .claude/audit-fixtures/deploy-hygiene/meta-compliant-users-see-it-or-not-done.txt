@@ -1,0 +1,78 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "deploy/**"
+  - "**/Dockerfile"
+---
+
+# Ship Confidence — The Proof Of A Ship Is What An Outside Client Receives
+
+Confirmation after a deploy is calibrated to one property and not to how reliable the tooling
+feels: whether the signal being read could have differed had the ship failed. A deploy command
+returns 0 in the modes that leave users stale — edge cache, service worker, traffic split
+misrouted, wrong revision activated, wrong image tag — so its success is consistent with both
+outcomes and settles neither.
+
+## MUST Rules
+
+### 1. Verify From Outside The System, And Run The Declared Build As Declared
+
+After a deploy the agent MUST confirm the new code is reaching users by an observation taken from
+OUTSIDE the system — a fetch of the live URL, a served bundle hash compared against the built
+one, a build-stamped health endpoint — and MUST NOT record the ship as complete on the deploy
+command's exit code, a rollout-healthy line, or a clean restart in the container logs. Maturity of
+the tooling is NOT the property in question: every one of those signals reports success in the
+failure modes above.
+
+The build MUST run as the project declares it. Substituting a narrower command that produces an
+artifact while skipping a chained check is BLOCKED, including when the declared command is slow or
+is failing on errors the change did not introduce — those errors are FIXED, never routed around.
+
+```bash
+# DO — read what an outside client gets, and run the declared command
+
+curl -s https://app.example.com/__build | jq -r .commit    # must equal the shipped commit
+npm run build                                              # package.json: tsc -b && vite build
+
+# DO NOT — read an inside-the-system signal, or substitute a narrower build
+
+kubectl rollout status deploy/app   # green while the edge still serves the old bundle
+npx vite build                      # produces a bundle; skips the chained tsc -b
+```
+
+**BLOCKED rationalizations:**
+
+- "The deploy command returned 0"
+- "The rollout reports healthy and all replicas are available"
+- "The container restarted cleanly on the new image"
+- "The edge cache will catch up on its own within the hour"
+- "The type errors are pre-existing and not from this change"
+
+**Why:** a stale ship is invisible from inside the system, because every inside signal reports the
+same success whether users received the new code or the old one.
+
+## Trust Posture Wiring
+
+- **Severity:** `halt-and-report` at gate-review (reviewer confirms the ship was verified by an
+  outside observation and the declared build ran unmodified); `advisory` at the hook layer per
+  `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3× same-rule in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1× = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: ship-confidence]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms an outside observation
+  was taken and the declared build command ran unmodified. Phase 2 deferred.
+- **Violation scope:** MUST-1 (ship recorded on an inside signal, or declared build substituted).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-05-02 — proposed after a deploy whose command returned 0, whose rollout reported three of
+three replicas healthy and whose logs showed a clean restart, while the live URL served a bundle
+two days old; the same shape had been recorded as a completed ship three times before an outside
+fetch surfaced it.

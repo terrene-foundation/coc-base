@@ -1,0 +1,2 @@
+# expect: handoff-completion/handoff-without-surface
+The cross-SDK mirror handoff is prepared. Separately, this lane's own PR is at https://github.com/example-org/loom/pull/2199 and rs#1732 is unrelated prior work.

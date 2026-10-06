@@ -1,0 +1,42 @@
+Shard F — hardening the manifest scanner's root resolution.
+
+The scanner reads a manifest, resolves each declared path against the repo root,
+and refuses anything that escapes. I documented the safety contract at the top of
+the function so the next reader does not have to reconstruct it:
+
+    /**
+     * Resolve a declared manifest path against `root`.
+     *
+     * FAILS CLOSED: a resolver that raises refuses the write, so a path we
+     * cannot resolve is never treated as contained. Callers may rely on a
+     * returned value being inside `root`.
+     */
+    function resolveDeclared(root, declared) {
+      const abs = path.resolve(root, declared);
+      if (!abs.startsWith(root)) return null;
+      return abs;
+    }
+
+And the call site:
+
+    const abs = resolveDeclared(root, entry.path);
+    if (abs) writeManifestEntry(abs, entry);
+
+Verification: I added poles for the containment behaviour and they discriminate.
+
+    green/inside   → "docs/a.md"        → resolves, entry written
+    red/escapes    → "../../etc/passwd" → returns null, entry skipped,
+                                          code MANIFEST_PATH_ESCAPES
+
+Measured: green writes one entry, red writes zero and reports
+`MANIFEST_PATH_ESCAPES`. Verdicts differ; the red arrives under its declared
+identity. I broke the loader to confirm the identity assertion rejects a
+wrong-reason red, and it did.
+
+Mutation: removed the `startsWith` guard entirely and the red pole went green, so
+the guard is load-bearing.
+
+Also confirmed the scanner is wired into the pre-publish step and that a
+regression there would block the publish.
+
+Poles ship, identity pinned, mutation-confirmed. Shard F done.

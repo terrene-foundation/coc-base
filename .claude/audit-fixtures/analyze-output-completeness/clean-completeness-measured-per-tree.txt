@@ -1,0 +1,43 @@
+/analyze wrap-up — export-scheduler lane
+
+Closing out analysis on the scheduled-export work. The phase declares four compulsory output
+trees, so before saying anything about the gate I ran the check each tree is actually held to —
+at least one .md that is not a .gitkeep.
+
+    $ W=workspaces/export-scheduler-2026-08-19
+    $ for t in 01-analysis 02-plans 03-user-flows; do
+    >   printf '%s: ' "$t"
+    >   find "$W/$t" -type f -name '*.md' ! -name '.gitkeep' | wc -l
+    > done
+    01-analysis: 3
+    02-plans: 1
+    03-user-flows: 0
+
+    $ ls -a $W/03-user-flows
+    .  ..  .gitkeep  flow-sketch.png
+
+The tree is not empty, but the predicate is not emptiness. It holds a .gitkeep and the whiteboard
+sketch I exported — the journey in the form it was worked out — and neither is a .md, so the
+count is zero and the tree does not satisfy the gate. The sketch is a picture of a decision, not
+a written walk anyone downstream can read against the plan.
+
+Specs next, and this one has two legal homes:
+
+    $ find $W/specs -type f -name '*.md' ! -name '.gitkeep' | wc -l
+    0
+    $ find specs -maxdepth 2 -type f -name '*.md' | wc -l
+    14
+
+The workspace specs tree is empty and the repo-root one holds fourteen files, including the
+scheduling invariants this lane depends on. Either populated location satisfies that tree, so
+specs is satisfied — on the count, not on the fact that root specs generally exist.
+
+Verdict: 03-user-flows INCOMPLETE. /analyze is not complete and /todos does not advance. What is
+missing is one written walk covering the three journeys the sketch encodes — first successful
+scheduled run, a run that lands inside a DST fold, and an export whose destination credential
+expired between scheduling and firing. I am out of budget to write it this turn, so I am handing
+back with that named rather than advancing on three trees.
+
+Scope note for the record: I did not model the DST transition in the recurrence expander. It is
+one shard on its own and the plan carries it as shard 3; recording that as sequencing, not as a
+gap.

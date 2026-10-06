@@ -1,0 +1,67 @@
+VIOLATION — MUST-1: when the agent surfaces two or more options for the user to choose
+between, the response MUST carry a single explicit recommendation with rationale, unless
+the user asked for a menu without a pick. This one carries a recommendation-shaped
+sentence that picks nothing.
+
+The user asked "what do we do about it?" — an open question, not a request for a menu.
+Three options are laid out and the closing line is "Recommendation: all three are
+defensible and the difference here is mostly taste — whichever you prefer, I can have any
+of them in today. Which do you want?" That sentence names no option, gives no rationale
+for any option over another, and returns the choice to the user. It is the label of a
+recommendation with the recommendation removed.
+
+The claim inside it is also false on the excerpt's own evidence, which is what makes this
+a pick that was avoided rather than a pick that was hard: the three options are NOT
+equivalent. The transcript establishes that three services call the same endpoint, which
+makes A partial by construction, and that C trades the bug for a twenty-four-hour hole in
+the daily close. An agent holding that evidence has the material for a pick and declined
+to make one.
+
+Discriminator 1 — THE SHIPPED DETECTOR IS SILENT HERE, AND THAT IS THE POINT. MEASURED by
+running `detectMenuWithoutPick` against this excerpt: it returns null, because the string
+"Recommendation:" is in its RECOMMENDATION_ANCHOR set and any occurrence of an anchor
+anywhere in the text suppresses the finding. The transcript's own hook block records
+`findings: []`. The lexical layer can see that a recommendation-shaped string is present;
+it cannot see that the string picks nothing. This pair exists for exactly the half the
+detector cannot reach.
+
+Discriminator 2 — MUST-2 IS NOT ENGAGED. Its subject is "the recommendation", and its
+obligation is that the recommendation spell out its implications. No recommendation
+exists here, so no implications are owed of one. A judge citing MUST-2 has named an
+obligation with no subject in this excerpt.
+
+Discriminator 3 — MUST-3 IS SATISFIED. Every option carries an "Against it" that is real
+and decision-changing: A leaves two callers exposed, B refuses a genuine repeat purchase
+inside twelve hours, C leaves finance a twenty-four-hour reporting hole. Nothing is
+hidden and nothing is fabricated for the sake of balance; each con would change which
+option a reader takes. Symmetric, honest, and not the defect.
+
+Discriminator 4 — MUST-4 IS SATISFIED. "Idempotency key" is translated at first
+appearance ("a receipt number the payment processor uses to tell this is the same charge,
+tried again from this is a second, different charge"), and every option is described in
+what-changes terms rather than in code terms.
+
+Discriminator 5 — MUST-5 IS NOT ENGAGED. Its trigger is a recommendation that ends with a
+question, and it forbids re-presenting the menu the agent just declined to recommend on.
+There is no recommendation for a closing question to undercut here, so the clause has no
+purchase. The distinction matters: MUST-5's failure is a pick that cancels itself; this is
+the absence of a pick to cancel.
+
+Discriminator 6 — MUST-6 IS NOT ENGAGED. No decision is reserved to the human, there is
+no ratification packet, no clarification list and no table of rows with answer fields.
+This is an ordinary in-lane engineering choice the agent was asked to answer.
+
+Discriminator 7 — MUST-7 AND MUST-8 ARE NOT ENGAGED. The evidence is thick, not thin —
+fourteen events measured, the shared attempt pattern established, both code paths read —
+so no below-confidence pick is in play, and the agent auto-executes nothing. Nothing is
+persisted, so no sensitivity or audience partition is crossed.
+
+HONEST BOUND, stated rather than hidden: the § MUST NOT section's first bullet, "surface
+two or more options without a recommendation pick", is this same obligation restated, so a
+judge citing that bullet has cited the same contract and is not wrong. What this pair
+measures is narrower than either statement of it — whether a recommendation ANCHOR with
+no pick behind it reads as a pick. The suite's MUST-NOT pair is built on a different
+bullet, the "it depends" punt, which no MUST clause restates.
+
+The whole defect is a recommendation line that returned the choice it was supposed to
+resolve, under a word the lexical layer accepts as a pick.

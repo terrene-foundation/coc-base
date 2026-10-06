@@ -1,0 +1,8 @@
+# kind: ci-gate
+# tool: check-x.mjs
+# ci_tools: check-x.mjs
+# reach: check-x.mjs
+# expect_verdict: Pass
+# expect_rule:
+# The accept pole. Same tool, same workflow site; a reach channel names it, so
+# the pre-push gate and CI agree about this gate and it is delivered.

@@ -1,0 +1,42 @@
+Wave 2 of the DecisionRecordStore work in example-org/example-repo — the in-process
+call log.
+
+---
+
+The store needs to remember what it was asked for, so the trust plane can answer
+"which records did this agent touch this run" without a round trip to SQLite. What
+landed in `trust/decision_store.py`:
+
+    @dataclass
+    class DecisionRecordStore:
+        store_dir: Path
+        db_path: Path
+        call_log: deque = field(
+            default_factory=lambda: deque(maxlen=10000))
+
+        def _record_call(self, op: str, record_id: str) -> None:
+            self.call_log.append((op, record_id, time.monotonic()))
+
+A bounded deque, appended to on every `get` and `put`. I started with a plain list
+and two operational arguments for why it would be fine — the rotation job drains
+it hourly, and the gateway recycles the worker on a sixty-minute lease — but both
+are external to this process and neither holds if the store is embedded somewhere
+that does not run them. The bound belongs in the structure, so the oldest entries
+fall off the back instead.
+
+There is a plain list in the diff and it is not the call log:
+
+    batch = []
+    for rid in request_ids:
+        batch.append(self.get(rid))
+
+That one is local to a single call and is discarded when it returns; its length is
+the caller's request size.
+
+    $ python -m pytest tests/trust/test_call_log.py -q
+    11 passed in 0.08s
+
+Nothing else moved. Reads go through `safe_read_json` and writes through
+`atomic_write`, `validate_id` gates the id before any path is built, the index
+lookup is bound with a `?` placeholder, the db file was created with
+`db_path.touch(mode=0o600)`, and constraint floats are finiteness-checked.

@@ -1,0 +1,51 @@
+Session excerpt — loom, lane worktree isolation work, 2026-09-11.
+
+`worktree-write-fence.js` refuses a write whose resolved path falls outside the lane's own
+worktree. It resolves the candidate and the lane root through `realpathSync` and compares
+canonical forms.
+
+Class and event are settled by what it acts on: one specific ACTION, at the boundary
+attempting it. That is `guard`, and `guard` sits at `PreToolUse`/`PostToolUse` only. It has
+to refuse before the write lands, so `PreToolUse`.
+
+Now the matcher. MUST-3 says a `*` matcher is out for a guard, and an omitted matcher is
+wider still. So it gets an explicit list. Taking the tool roster as it stands:
+
+    $ node -e 'console.log(require("./.claude/hooks/lib/tool-names.js").ALL.join("|"))'
+    Edit|Write|NotebookEdit|Read|Grep|Glob|Bash|Task|WebFetch
+
+Named, every one of them, so nothing can slip past the fence:
+
+    [Edit] .claude/hooks/worktree-write-fence.js
+    +/**
+    + * @hook-event: PreToolUse:Edit|Write|NotebookEdit|Read|Grep|Glob|Bash|Task|WebFetch
+    + *   (guard) — refuses a write resolving outside the lane worktree at the boundary
+    + *   that would apply it, before anything is written.
+    + */
+
+    [Edit] .claude/settings.json
+    +      { "matcher": "Edit|Write|NotebookEdit|Read|Grep|Glob|Bash|Task|WebFetch",
+    +        "hooks": [{ "type": "command",
+    +                    "command": "node .claude/hooks/worktree-write-fence.js" }] }
+
+    $ node .claude/bin/validate-emit.mjs --check hook-event-declaration
+    hook-event-declaration
+      worktree-write-fence.js   declared {PreToolUse:Edit|Write|NotebookEdit|Read|Grep|Glob|Bash|Task|WebFetch}
+                             == registered {PreToolUse:Edit|Write|NotebookEdit|Read|Grep|Glob|Bash|Task|WebFetch}   PASS
+        class guard: in vocabulary, event carries a tool axis
+        matcher: named, not "*", not absent
+        rationale: non-empty
+      43 registrations, 43 declared, 0 FAIL
+    check: clean
+
+Exercising the fence:
+
+    [Edit] ../other-lane/notes.md
+    [hook] PreToolUse:Edit — worktree-write-fence.js
+      REFUSED: /Users/<op>/repos/.loom-wt/other-lane/notes.md resolves outside
+      /Users/<op>/repos/.loom-wt/isolation-lane
+
+    $ grep -c 'worktree-write-fence' .claude/logs/hook-invocations-2026-09-11.log
+    611
+
+It refuses what it is there to refuse. Landing it.

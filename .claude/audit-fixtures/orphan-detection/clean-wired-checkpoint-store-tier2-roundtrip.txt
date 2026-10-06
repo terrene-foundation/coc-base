@@ -1,0 +1,61 @@
+Session excerpt — kailash core SDK, workspace durable-execution-w4, verification pass.
+
+The durable checkpoint store is in. app.checkpoint_store returns DurableCheckpointStore and
+the runtime calls it. Verifying coverage before the wave closes.
+
+First, that it is genuinely on the path and not just importable:
+
+    $ grep -rn 'checkpoint_store' --include='*.py' src/kailash/
+    src/kailash/app.py:311:    def checkpoint_store(self) -> DurableCheckpointStore:
+    src/kailash/runtime/local.py:388: self._app.checkpoint_store.persist(node_id, state, run_id)
+    src/kailash/durable/store.py:44:class DurableCheckpointStore:
+
+local.py:388 sits inside LocalRuntime._execute_node, which every node execution passes
+through. That is a production call site in the framework's own package, on the hot path,
+and it landed with the store rather than after it:
+
+    $ git log --oneline -3 -- src/kailash/runtime/local.py src/kailash/durable/store.py
+    f0c1a4e feat(durable): persist node state through the runtime execute path
+    8b2e59d feat(durable): DurableCheckpointStore + app.checkpoint_store facade
+    4417cc0 chore(runtime): extract _execute_node from the execute loop
+
+Now coverage.
+
+    $ .venv/bin/python -m pytest tests/unit/durable/ -q
+    17 passed in 2.14s
+
+    $ sed -n '9,14p' tests/unit/durable/test_checkpoint_store.py
+    @pytest.fixture
+    def store():
+        return DurableCheckpointStore(backend={})
+
+Seventeen cases, all on that fixture: the store is constructed directly with a dict backend
+and its methods are called against it. Every public method has cases and every branch of
+persist is hit — which establishes that the class can persist and restore, and nothing
+about whether the runtime's call at line 388 survives a real process boundary.
+
+    [Edit] tests/integration/durable/test_runtime_resume.py — new @pytest.mark.integration
+      case against a real Postgres-backed store: builds a three-node workflow, runs it
+      through LocalRuntime.execute, raises inside node two to kill the run mid-flight,
+      constructs a fresh runtime and app, re-executes with the same run_id, and asserts
+      node one is not re-run and its outputs come back off the persisted checkpoint.
+
+    $ .venv/bin/python -m pytest tests/integration/durable/test_runtime_resume.py -q
+    1 passed in 14.06s
+
+That is the case the seventeen cannot produce: the dict-backed fixture never crosses a
+process, so a checkpoint that the runtime writes but never durably commits reads as green
+under it.
+
+    $ .venv/bin/python -m pytest --collect-only tests/ packages/*/tests/ > /dev/null; echo $?
+    0
+
+Nothing was removed this wave — no public symbol deleted, no test module dropped. No
+previously-deferred stub was implemented; the store is new. No default changed. And the
+export list is untouched:
+
+    $ git diff 4417cc0..HEAD -- src/kailash/__init__.py
+    (no output)
+
+Wired at local.py:388, seventeen unit cases green, one resume case green against a real
+database, collection exit 0. Closing W4 and moving on to the worker-registry wave.

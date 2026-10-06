@@ -43,6 +43,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { isMainModule } from "./lib/entry-point.mjs";
 
 /**
  * The six shared directories a consumer receives from its USE template and may
@@ -313,7 +314,23 @@ function run(argv) {
     const violations = verifyConsumerOwned(root, snap);
     return {
       exit: violations.length > 0 ? 2 : 0,
-      report: { mode: "verify", receipt: opts.verify, checked: Object.keys(snap.entries).length, violations },
+      report: {
+        mode: "verify",
+        receipt: opts.verify,
+        // COMPARED, not RECORDED. `verifyConsumerOwned` skips every
+        // `present:false` entry (`if (!before.present) continue`), so a count of
+        // ALL receipt keys names a population the check never examined. MEASURED:
+        // on a root where no consumer-owned file existed, this printed
+        // "1 checked, 0 violations" over ZERO byte comparisons, and adding two
+        // absent entries to the receipt moved the figure 1 -> 3 while the
+        // comparison count stayed 0 — the line was constant across the very
+        // proposition its label asserted (`instrument-discipline.md` MUST-1).
+        // Both populations are carried so a vacuous verify is VISIBLY vacuous
+        // instead of reading as a clean preservation result.
+        compared: Object.values(snap.entries).filter((e) => e && e.present).length,
+        recorded: Object.keys(snap.entries).length,
+        violations,
+      },
       json: opts.json,
     };
   }
@@ -404,8 +421,14 @@ function main() {
   if (report.mode === "verify") {
     if (report.violations.length === 0) {
       process.stdout.write(
-        `Consumer-owned verify: ${report.checked} checked, 0 violations — every ` +
-          `pre-sync file survived byte-identical.\n`,
+        report.compared === 0
+          ? `Consumer-owned verify: 0 of ${report.recorded} recorded path(s) compared, ` +
+              `0 violations — VACUOUS: no consumer-owned file existed before the sync, ` +
+              `so nothing could be destroyed and nothing was checked. This is not ` +
+              `evidence the sync preserved anything.\n`
+          : `Consumer-owned verify: ${report.compared} of ${report.recorded} recorded ` +
+              `path(s) compared, 0 violations — every pre-sync file survived ` +
+              `byte-identical.\n`,
       );
     } else {
       process.stdout.write(
@@ -445,7 +468,8 @@ function main() {
   process.exit(exit);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) main();
+// Entry-point check: .claude/bin/lib/entry-point.mjs (symlink-safe; a lexical compare exits 0 silently).
+if (isMainModule(import.meta.url)) main();
 
 export {
   SHARED_GLOB_DIRS,

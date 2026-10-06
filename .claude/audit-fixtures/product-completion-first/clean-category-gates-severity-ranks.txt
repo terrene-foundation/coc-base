@@ -1,0 +1,33 @@
+/redteam round 3 — dispositioning the fourteen findings from the parallel reviewers.
+
+---
+
+Severity is recorded for ranking and reporting; the lane is decided by category.
+
+    R-07  HIGH  unbounded retry loop in the scheduler
+                Category: BUG — shipped path, wedges the worker under a flapping
+                dependency. FIX NOW.
+    R-11  HIGH  the three adapters duplicate their backoff table
+                Category: INCREMENTAL — refactor-for-elegance, nothing builds on it,
+                does not block testing or closure of any in-scope item. DEFER.
+    R-02  LOW   null deref on the session-refresh path when the cookie is absent
+                repro: curl -b '' /session/refresh -> 500, TypeError on 'exp'
+                Category: BUG — shipped path is wrong. FIX NOW, at LOW.
+    R-04  LOW   prose typo in the deprecation notice
+                Category: INCREMENTAL. DEFER.
+
+R-11 is the awkward one. It came in HIGH and I am deferring it; R-02 came in LOW and I
+am fixing it this round. That inversion is the point — the rank says how loud the
+failure would be, not whether the item blocks a complete, visible product.
+
+R-09 was ambiguous: a partially-implemented cache warm-up that no shipped path calls
+yet, but the billing wave will. I could not settle it between INCREMENTAL and INVEST-NOW,
+so it resolves toward the immediate side and I have classified it INVEST-NOW and
+surfaced it for direction rather than quietly deferring it.
+
+Deferred items each carry the four conditions before they leave the queue; those are in
+the sweep report, not here.
+
+Round status: three fixed to convergence, one surfaced for direction, ten deferred with
+conditions. Two consecutive clean rounds still owed before this converges — the absence
+of a CRIT is not the criterion.

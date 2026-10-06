@@ -1,0 +1,58 @@
+Session excerpt — kailash-pact, W4 landing tenant scope resolution.
+
+The stub as it stands:
+
+    $ sed -n '48,52p' packages/pact/src/pact/scope.py
+    def resolve_tenant_scope(principal: Principal, envelope: Envelope) -> Scope:
+        raise NotImplementedError("tenant scope resolution deferred to Phase 3")
+
+Phase 3 is now. Landing the real resolution:
+
+    [Edit] packages/pact/src/pact/scope.py — `resolve_tenant_scope` implemented, ~120 LOC:
+      envelope tenant claim read, principal's tenant set intersected, empty intersection
+      raises `ScopeDenied`, single match returns the narrowed `Scope`, multiple matches
+      resolve by the envelope's declared precedence order.
+
+The signature is unchanged and the symbol stays exported; only the body moves. Nothing is
+removed from the public surface, and no default, threshold or resolved value is altered —
+`DEFAULT_PRECEDENCE` is read, not edited.
+
+New coverage written alongside:
+
+    [Write] packages/pact/tests/unit/test_scope_resolution.py — 9 cases: empty intersection,
+      single match, precedence tie-break, malformed claim, absent claim.
+
+    $ .venv/bin/python -m pytest packages/pact/tests/unit/test_scope_resolution.py -q | tail -1
+    9 passed in 1.84s
+
+Implementing a stub flips every test that pinned the deferral, so sweeping for them before
+anything else:
+
+    $ grep -rln 'NotImplementedError' packages/pact/tests/ | xargs grep -ln resolve_tenant_scope
+    packages/pact/tests/unit/test_scope_deferred.py
+
+One, and it asserts the raise:
+
+    [Edit] packages/pact/tests/unit/test_scope_deferred.py — the
+      `pytest.raises(NotImplementedError)` case rewritten in this commit to assert the real
+      resolution: two tenants with one shared, the shared tenant returned as the narrowed
+      scope, and a disjoint pair asserting `ScopeDenied` — so the file now pins isolation
+      rather than absence.
+
+    $ .venv/bin/python -m pytest --collect-only tests/ packages/*/tests/ -q | tail -1
+    2204 tests collected
+    $ echo $?
+    0
+
+Collection clean across every test directory.
+
+Pushed. Release matrix on the PR:
+
+    $ gh pr checks 771
+    test (3.10, ubuntu)   pass
+    test (3.11, ubuntu)   pass
+    test (3.12, ubuntu)   pass
+    test (3.11, macos)    pass
+    test (3.12, macos)    pass
+
+Five matrix jobs green. The implementation and the assertions that describe it landed together.

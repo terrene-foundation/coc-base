@@ -32,12 +32,7 @@
 "use strict";
 
 const TIMEOUT_MS = 5000;
-const fallback = setTimeout(() => {
-  try {
-    process.stdout.write(JSON.stringify({ continue: true }) + "\n");
-  } catch {}
-  process.exit(1);
-}, TIMEOUT_MS);
+let fallback = null;
 
 const fs = require("fs");
 const path = require("path");
@@ -48,6 +43,23 @@ const PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const { readStdinBounded } = require("./lib/read-stdin-bounded.js");
 // loom#1349 — the ONE hardened append primitive; see lib/append-sink.js for the six defenses.
 const { appendSinkLine } = require("./lib/append-sink.js");
+// perf/hook-cost — per-session pre-check that needs no git and no identity.
+const { throttleCheck, throttleMark } = require("./lib/session-throttle.js");
+// The stamp lives beside the shared cache under the SAME fence: the
+// `.heartbeat-cache` guard row (guard-path-scope.js, suffix [A-Za-z0-9_.-]*),
+// the settings deny `Edit(.claude/learning/.heartbeat-cache*)` (settings.json
+// carries no `Write(` deny rules; per reconcile-settings-deny.mjs, `Edit(<path>)`
+// is the form that covers Edit, Write and NotebookEdit) and the
+// .gitignore line all cover `.heartbeat-cache.s-<hash>.json`. A stamp outside
+// that fence would be an unguarded file able to silence this session's liveness.
+const THROTTLE_KEY = {
+  dir: path.join(PROJECT_DIR, ".claude", "learning"),
+  prefix: ".heartbeat-cache.s-",
+  name: "adjacency-heartbeat",
+  projectDir: PROJECT_DIR,
+};
+// Stamps of ended sessions are pruned after a day (best-effort, on mark only).
+const STAMP_PRUNE_MS = 24 * 60 * 60 * 1000;
 
 function passthrough() {
   clearTimeout(fallback);
@@ -183,11 +195,45 @@ function appendHeartbeat(repoDir, identity, opts) {
   }
 }
 
-(async function main() {
+// hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
+// in-process by lib/hook-engine.js (dispatch.js).
+function hookMain() {
+  fallback = setTimeout(() => {
+    try {
+      process.stdout.write(JSON.stringify({ continue: true }) + "\n");
+    } catch {}
+    process.exit(1);
+  }, TIMEOUT_MS);
+  return main();
+}
+
+async function main() {
   try {
     const payload = await readStdinBounded();
     const hookEvent = payload.hook_event_name || "PreToolUse";
     const isStop = hookEvent === "Stop" || hookEvent === "SessionEnd";
+    const sessionId = typeof payload.session_id === "string" ? payload.session_id : "";
+
+    // perf/hook-cost — FAST PATH. Before this, every PreToolUse paid a git spawn
+    // (main checkout) + git config + ssh-keygen (identity) only to reach the
+    // 60 s coalesce below and do nothing. The session stamp records when THIS
+    // session last saw a heartbeat land (its own, or a sibling's via the shared
+    // cache), so a call inside that window returns here with no subprocess.
+    // Emission cadence is unchanged: at most one heartbeat per
+    // COALESCE_WINDOW_MS, ≪ LIVENESS_TTL_MS (20 min, coordination-log.js).
+    // Stop/SessionEnd never take the fast path — the final heartbeat always runs.
+    if (!isStop && sessionId) {
+      const t = throttleCheck({ ...THROTTLE_KEY, sessionId, windowMs: COALESCE_WINDOW_MS });
+      if (t.skip) {
+        passthrough();
+        return;
+      }
+    }
+    const stamp = (ts) => {
+      if (sessionId) {
+        throttleMark({ ...THROTTLE_KEY, sessionId, nowMs: ts, pruneOlderThanMs: STAMP_PRUNE_MS });
+      }
+    };
 
     const mainCheckout = resolveMainCheckoutSafely(PROJECT_DIR);
     const cachePath = path.join(
@@ -199,7 +245,10 @@ function appendHeartbeat(repoDir, identity, opts) {
 
     const identity = resolveIdentitySafely(mainCheckout);
     if (!identity || !identity.verified_id) {
-      // No identity → cannot sign a heartbeat; passthrough.
+      // No identity → cannot sign a heartbeat; passthrough. Stamped so the
+      // session does not re-resolve a missing identity on every call; a key
+      // configured mid-session is picked up within one window.
+      stamp(Date.now());
       passthrough();
       return;
     }
@@ -210,9 +259,14 @@ function appendHeartbeat(repoDir, identity, opts) {
     // Coalesce: PreToolUse-style invocations within 60s of last heartbeat
     // skip emission. Stop event ALWAYS proceeds (final heartbeat).
     if (!isStop && cached && typeof cached.last_heartbeat_ms === "number") {
-      if (nowMs - cached.last_heartbeat_ms < COALESCE_WINDOW_MS) {
-        // Coalesced — touch cache mtime but do not append.
-        writeCache(cachePath, cached);
+      const age = nowMs - cached.last_heartbeat_ms;
+      // age < 0 is a FUTURE-dated cache (clock skew or a planted file). Before
+      // perf/hook-cost it satisfied `age < WINDOW` forever and silenced this
+      // operator's heartbeats indefinitely; it now counts as absent.
+      if (age >= 0 && age < COALESCE_WINDOW_MS) {
+        // Coalesced — do not append. Stamp with the LAST EMISSION time, not
+        // now, so this session's window ends when that heartbeat's does.
+        stamp(cached.last_heartbeat_ms);
         passthrough();
         return;
       }
@@ -229,10 +283,21 @@ function appendHeartbeat(repoDir, identity, opts) {
       seq,
       verified_id: identity.verified_id,
     });
+    stamp(nowMs);
 
     passthrough();
   } catch (_) {
     // Never block, never re-throw.
     passthrough();
   }
-})();
+}
+
+module.exports = { hookMain };
+
+// CLI entry. The default path is exactly hookMain() — no engine dependency, so a
+// tree that copies this hook without lib/hook-engine.js runs it unchanged. The
+// selftest path replays the run through the in-process engine (hook-engine.js::runCli).
+if (require.main === module) {
+  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1") require("./lib/hook-engine.js").runCli(hookMain, __filename);
+  else hookMain();
+}

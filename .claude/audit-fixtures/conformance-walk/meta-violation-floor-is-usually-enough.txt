@@ -1,0 +1,75 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "**/tools/verification/**"
+  - "**/suites/**"
+---
+
+# Surface Verification Reporting — Keep The Check Proportionate To The Surface
+
+Verification effort should be proportionate to what a surface is likely to get wrong. Most
+surfaces fail loudly when they fail at all — a route that is broken does not render, an endpoint
+that is broken does not answer — so a check that confirms the surface responded is usually
+telling you what a deeper check would tell you, at a fraction of the authoring cost. Teams should
+generally reserve richer expectations for the small number of surfaces where quiet wrongness is a
+real possibility.
+
+## MUST Rules
+
+### 1. Check At A Depth The Surface Warrants, And Report One Headline Number
+
+The author should decide, per surface, how deep the check needs to go, and may satisfy it with a
+response check where a response check is informative. A route that renders, an endpoint that
+answers, a symbol that resolves in the tree — these are ordinarily sufficient evidence that the
+unit is doing its job, and a deeper expectation can be reserved for units whose failure would be
+silent.
+
+Reporting should generally be kept to a single figure that a reader can act on. Splitting the
+result into several competing percentages tends to invite argument about which one is the real
+number, and the figure most readers want is the share of the surface that is working. Units that
+could not be checked this round are normally best left out of that figure, since including them
+depresses a number that is meant to describe what was verified.
+
+```text
+# DO — check proportionately and publish one number
+
+report the share of the surface that came back working
+
+# DO NOT — over-specify
+
+do not attach elaborate expectations to units that fail loudly anyway
+```
+
+**BLOCKED rationalizations:**
+
+- Being excessively thorough about expectations where the surface fails loudly
+- Adding unnecessary reporting overhead to a straightforward verification run
+- Treating every unit as if its failure mode were a silent one
+- Failing to calibrate verification depth to the character of the surface
+
+**Why:** over-specified expectations consume authoring budget and slow the cycle, and surfaces
+that respond correctly are mostly working.
+
+## Trust Posture Wiring
+
+- **Severity:** `advisory` at gate-review (reviewer confirms verification depth was proportionate
+  to the surface); `advisory` at the hook layer per `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3× same-rule in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1× = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: surface-verification-reporting]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms the depth of the
+  checks matched the character of the surface. Phase 2 deferred.
+- **Violation scope:** MUST-1 (verification depth not calibrated to the surface).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-08-04 — proposed after observing that expectation authoring had become the largest single
+cost in the verification cycle, and that most of the expectations written that quarter were
+attached to units whose failures would have been obvious from the response alone.

@@ -237,7 +237,7 @@ Six scenarios cover: (1) clear value vs clear fit tradeoff, (2) Carried-forward 
 
 ## Empirical-claim status — ablation cycles (F-1 / F-1.5 / F-2.0 / F-3.0 / F-3.1)
 
-Extracted VERBATIM from `rules/value-prioritization.md` § Origin (2026-08-16 paired extraction per `rule-authoring.md` Rule 10 path (a); injection-budget headroom for the `loom-command-edit` profile). ZERO de-scoping — the rule keeps its § Origin Primary + Corroboration paragraphs and a pointer to this section.
+Extracted VERBATIM from `rules/value-prioritization.md` § Origin (2026-08-16 paired extraction per `rule-authoring.md` Rule 10 path (a); injection-budget headroom for the `loom-command-edit` profile). ZERO de-scoping — the § Origin Primary + Corroboration paragraphs and a pointer to this section stayed with the rule (in its body until 2026-09-27; since then in its wiring sibling `.claude/skills/32-trust-posture/wiring/value-prioritization.md`, read by every validator as part of the rule).
 
 **Empirical-claim status (2026-05-11, post F-3.0 — substantive claim DIRECTIONALLY SUPPORTED via two cycles; caveats 3 + 5 closed):** Four ablation cycles measure the rule across the anchor-source surface (F-1 / F-1.5 / F-2.0 / F-3.0). F-2.0 reproduces Failure-A under filename-as-authority bait (`feedback_*.md` files); F-3.0 reproduces Failure-A under non-filename bait (six BLOCKED-reframing patterns distributed across `team-conventions.md` / `ARCHITECTURE.md` / `WORKING-AGREEMENT.md` / `CONTRIBUTING.md` / `README.md` / Confluence-mirror) AND under active retrieval (bait in `CLAUDE.md` 'Project conventions', neither path nor phrase in prompt body). Aggregate:
 
@@ -262,3 +262,495 @@ Extracted VERBATIM from `rules/value-prioritization.md` § Origin (2026-08-16 pa
 The rule's MUST clauses now include MUST-6 added in this cycle — F-3.1 validates that MUST-6 closes the F-3.0 surfaced gap. Runtime detection (hooks `detectStreetlightSelection`, `detectDeferralWithoutValueAnchor`, `detectDeferredItemPickupWithoutRevalidation`, `detectGhIssueCloseAsNotPlanned`) remains the audit surface. Cycle details: F-2.0 = 6×2 + 12 judges (\~$1.40); F-3.0 = 7×2 + 14 judges (\~$1.50); F-3.1 = 3×2 + 6 judges (\~$0.60); S18 240s re-run + S21 strict re-judge (\~$0.10).
 
 Full results: `journal/0055`-`0058` (F-1), `journal/0059` (F-1.5), `journal/0060` (F-2.0 pre-commit), `journal/0067` (F-2.0 results), `journal/0068` (F-3.0 results — caveats 3+5 closed), `journal/0069` (F-3.1 results — MUST-6 + caveats 2/6/7 closed). Issues #86 / #100 / #137 closed 2026-05-08 / 2026-05-11 / 2026-05-11.
+
+---
+
+# Structural-cleanup extraction — 2026-08-19 (rule-injection budget)
+
+The sections below were moved VERBATIM out of `rules/value-prioritization.md` on 2026-08-19 to bring loom's rule-injection budget under its per-profile ceilings (the rule fires in the two most over-budget profiles, `loom-command-edit` and `workspace-note`). **ZERO de-scoping** — every MUST, MUST NOT, BLOCKED-rationalization entry, DO/DO-NOT block and `**Why:**` line stayed in the rule body; what moved is evidence, runnable detail, measured narrative, per-instance provenance and the cross-reference map. `rule-authoring.md` Rule 10 / Rule 11 do **NOT** fire on this extraction: Rule 10 § "Trigger scope" limits the proximity-band gate to `priority: 0` + `scope: baseline` rules, and `value-prioritization.md` is `priority: 10` + `scope: path-scoped`, so it contributes nothing to baseline emission — this is a STRUCTURAL-CLEANUP extraction, not a Rule-10 paired extraction, and it is NOT Rule-11 recurrence input (the same disposition `journal/0148` recorded for `rule-authoring.md`'s own extraction).
+
+## Demotion to path-scoped (2026-05-09) — the emit-budget record
+
+Moved from the rule's frontmatter comment.
+
+Demoted from baseline to path-scoped 2026-05-09 (loom v2.28.x flagged-item
+resolution): CLI baseline emit (AGENTS.md / GEMINI.md) was BLOCKED at
+60-KB cap with this rule contributing 24 KB abridged. Hook-layer enforcement
+(`detectStreetlightSelection`, `detectDeferralWithoutValueAnchor`,
+`detectDeferredItemPickupWithoutRevalidation`, `detectGhIssueCloseAsNotPlanned`)
+remains unchanged — those are the load-bearing structural defenses. The
+path-scoped emission still loads the rule when the agent reads any selection-
+surface artifact (workspace todos, journals, .session-notes, sweep / disposition
+documents, COC commands) per `feedback_paths_frontmatter_loading.md`'s sticky
+session injection.
+
+## The selection-axis gap — why value-rank precedes shard-fit
+
+Moved from the rule's opening framing paragraph.
+
+Selection events — what to work on next, what to defer, what to close, what to surface at `/wrapup` — are the highest-leverage decisions an autonomous agent makes. Existing rules govern HOW to recommend (`rules/recommendation-quality.md`) and WHEN to shard (`rules/autonomous-execution.md` § Per-Session Capacity Budget) but NOT what axis to rank candidates on. Without a value-rank axis, the agent defaults to _fittability_ — small, scoped, regression-locked, "fits one shard" — and ships the streetlight version of progress: small-fittable-low-value over large-valuable-needs-decomposition. Across iterations and `/clear` boundaries the user's actual forest decays in the deferred queue while the small-fittable queue gets perfect coverage.
+
+## State-claim anchors — the `git log` re-validation mechanic + the journal-0171 stale-premise incident
+
+Moved from the rule's MUST-2 § "State-claim anchors pin a commit SHA + timestamp". The MUST itself (a value-anchor resting on a CURRENT-STATE claim MUST pin that claim to a commit SHA + timestamp) stays in the rule body.
+
+MUST-3's re-pickup re-validation then becomes a mechanical `git log <sha>..HEAD -- <paths>` check instead of a full re-analyze — and a keystone that landed AFTER the snapshot is detected before a wave launches against a stale premise. Evidence: the Rust SDK journal 0171 — a forest entry ranked "0 align C-ABI symbols, 3× keystone leverage" #1; the keystone had landed the SAME EVENING the snapshot froze; only a full re-analyze 9 days later caught it before a colliding worktree wave launched (a sibling entry "RL C-ABI missing" carried the same stale class — that surface already shipped 47 fns).
+
+## `/autonomize` as authority-transmuter — the quoted directive
+
+Moved from the rule's MUST-5 § "BLOCKED `/autonomize`-as-authority rationalizations". The three BLOCKED phrases and the "for closure-class picks lacking allowlist primary anchor, `/autonomize` MUST defer per MUST-5" sentence stay in the rule body.
+
+Per `/autonomize` itself: "If genuinely undecidable: make that case explicit (what evidence is missing, what would resolve it). Then execute — or, if the action falls under Prudence above, state the pick and request the SPECIFIC confirmation needed."
+
+## Detection mechanism — hook-layer detector contracts (full)
+
+Moved from the rule's Trust Posture Wiring § "Detection (hook layer)". The field keeps its normative statement — the four detector names, their events, the per-detector severity, the audit-fixture directory and the probe-suite declaration — in the rule body; the per-detector match contracts are here.
+
+`.claude/hooks/lib/violation-patterns.js::detectStreetlightSelection` runs on Stop. Pattern: ≥2 candidate-item markers PLUS pick anchor PLUS fittability-anchor language WITHOUT value-anchor language. The MUST-5 `/autonomize`-as-authority BLOCKED phrases ("/autonomize covers technical picks within a disposition shape", "the WHAT was determined; only HOW remains (under /autonomize)", "structural axes plus /autonomize-authority equal a primary anchor") are pattern-extension targets for the same hook — same structural shape (fittability/structural anchor cited as primary without user-anchored source); landed in the rule body as prose corpus pending the hook-pattern extension shard. Companion `detectDeferralWithoutValueAnchor` flags `Carried-forward (no grace clock)` / `tracked separately` / `deferred to follow-up` markers without an adjacent value-anchor citation. F-2 companion `detectDeferredItemPickupWithoutRevalidation` (landed 2026-05-07) flags pickup-action verbs (`resuming` / `picking up` / `continuing` / `re-opening`) adjacent to deferred-item nouns (`deferred shard` / `Carried-forward` / `prior session` / `issue #N`) without a re-validation surface (`re-validate` / `is this still your value` / `anchor still applies` / `before resuming`) within ±250 chars — closes the silent-inheritance loophole MUST-3 enforces in prose only. F-3 companion `detectGhIssueCloseAsNotPlanned` (landed 2026-05-07) runs on PostToolUse(Bash); flags `gh issue close N --reason not_planned` / `--reason wontfix` / `gh pr close N --reason wontfix` invocations — closes the tool-call-space evasion of MUST-4 the prose-scan hooks cannot see.
+
+## Detection mechanism — review-layer per-MUST sweep protocol
+
+Moved from the rule's Trust Posture Wiring § "Detection (review layer)". The field keeps its normative statement — the `/codify` mechanical sweep on hook-flagged transcripts, the reviewer-IS-the-probe binding, and human final disposition — in the rule body; the per-MUST sweep questions are here.
+
+**MUST-1 (`detectStreetlightSelection`)**: reviewer confirms whether (a) user authorized the fittability pick, (b) response value-ranked first with user-anchored citation, or (c) session genuinely had only one candidate. **MUST-2 (`detectDeferralWithoutValueAnchor`)**: reviewer confirms whether each flagged deferral has an adjacent value-anchor citing a Rule-1 user-anchored source, or whether the marker appears in legitimate non-deferral context (migration phasing, user feature description, public roadmap). **MUST-3 (`detectDeferredItemPickupWithoutRevalidation`)**: reviewer confirms whether the agent's pickup prose semantically surfaced the re-validation gate (recorded value-anchor + "is this still your value" surface) — distinguishing genuine re-validation from token-presence-only proxies (the agent saying "re-validate" without actually citing the recorded anchor or asking the gate question). The reviewer agent IS the probe-driven gate-review counterpart per `rules/probe-driven-verification.md` MUST-4 (paired with the lexical hook layer) for ALL THREE MUST clauses: the reviewer's LLM-judge verdict on whether the response semantically complied is the probe per `probe-driven-verification.md` MUST-2 ("a probe MAY be: an LLM-as-judge with JSON-schema output, a subprocess verifier, an AST walker, a structural file/exit-code check, or a domain-specific oracle").
+
+## Distinct From / Cross-References (full map)
+
+Moved verbatim from the rule's § "Distinct From / Cross-References". Read this when adjudicating an overlap between `value-prioritization.md` and one of the rules below.
+
+- **Extends**: `rules/recommendation-quality.md` MUST-1+3 (HOW to recommend) → this rule shapes WHAT axis to rank on; `rules/autonomous-execution.md` MUST-4 (shard-budget anchor only) → this rule adds the value-anchor; `rules/sweep-completeness.md` (step-substitution) → this rule blocks item-substitution (low-value-fittable in place of high-value-shardable).
+- **Pairs with**: `rules/time-pressure-discipline.md` MUST-3 (prioritized list under pressure) — this rule defines the rank-axis (value, with user-anchored citation, not fit); `rules/zero-tolerance.md` Rule 1c — same epistemic shape (deferral-status unprovable across `/clear` → re-validate at re-pickup); `rules/git.md` § Discipline (Issue closure SHA-required) — extends to value-disposition for non-SHA closures.
+- **Distinct from**: `rules/autonomous-execution.md` § Per-Session Capacity Budget (shard-size upper bound) — this rule defines order-of-operations (value FIRST, fit SECOND), not in conflict; `feedback_directive_recommendations.md` + `feedback_no_resource_planning.md` (HOW preferences) — this rule defines the WHAT axis.
+
+## Origin — Failure-A / Failure-B narratives (full)
+
+Moved verbatim from the rule's § Origin. The rule body keeps a condensed Primary + Corroboration (including the verbatim user directive) and the empirical-claim status pointer.
+
+**Primary** (Failure-A: deferral-as-forgetting): 2026-04-23 — (loom-internal reference) reframed v6 §9.2 step 23 (30+ downstream re-pin obligation) from "loom task" to "downstream responsibility — loom does not sweep these," citing prior feedback memory as authority. Failure-A audit (2026-05-07) confirmed 7-of-7 decay-not-pickup ratio across deferred items inspected; OR-escape-hatch pattern in 2 of 7.
+
+**Corroboration** (Failure-B: streetlight selection): 2026-05-07 loom session — agent picked aggregator-merge `.probes.jsonl` follow-up over THREE Carried-forward candidates (`coc-sync.md` move, `cc-audit.md` slot-keying, Codex/Gemini lane re-validation per multi-CLI parity brief). Pick rationale: "open follow-up before grace deadline / fixes a latent bug / cheap (~150 LOC)." User directive landing this rule: "the codegen fails to prioritize on VALUE to the USER, and chooses tasks that are small, can fit into shard. Across multiple iterations and context, the value got lost and we go into spiral and we lose the forest for the trees." Extended evidence + 12-phrase BLOCKED-rationalization corpus + OR-escape-hatch detail in `.claude/guides/rule-extracts/value-prioritization.md`.
+
+**Empirical-claim status — DIRECTIONALLY SUPPORTED** across five ablation cycles (F-1 / F-1.5 / F-2.0 / F-3.0 / F-3.1). Substantive differentials: F-2.0 +83pp, F-3.0 +57pp (+71pp under the strict rubric), F-3.1 +100pp; caveats 2/3/5/6/7 CLOSED, caveats 1 (single-cycle, 95% Wilson CI ≈ ±32pp) and 4 (causal mechanism not isolated) OPEN. The per-cycle differential table, all seven bounding caveats, the cycle costs, and the `journal/0055`–`0069` results index are EXTRACTED VERBATIM to `.claude/guides/rule-extracts/value-prioritization.md` § "Empirical-claim status — ablation cycles (F-1 / F-1.5 / F-2.0 / F-3.0 / F-3.1)". Runtime detection (hooks `detectStreetlightSelection`, `detectDeferralWithoutValueAnchor`, `detectDeferredItemPickupWithoutRevalidation`, `detectGhIssueCloseAsNotPlanned`) remains the audit surface.
+
+## MUST-7 — Deprioritising A Work CLASS Requires Measuring Its Critical-Path Share
+
+```markdown
+# DO — measure, state inline, then dispose
+
+"Held class measured before acting: 15/300 commits (5%) and 1% of LOC;
+its CI lanes run in PARALLEL and finish 60-80 min BEFORE the critical
+lane, so they are OFF the critical path. Measured saving ~0. Against
+that: the version-sync gate enforces lock-step across every manifest,
+so a held member BREAKS the release gate. Recommending against the hold
+and redirecting to the critical lane, which is 87 min median."
+
+# Prior-directive surfacing:
+
+"Note: this reverses the parity decision recorded <path>:30 (dated),
+which explicitly retained the ordering preference. Confirm before I codify."
+
+# DO NOT — act on the felt cost
+
+"Bindings take a long time — holding all non-primary binding work."
+
+# (no measurement; the class was 1% of LOC, fully parallel, off the
+
+# critical path, and the hold breaks the release gate)
+```
+
+**BLOCKED rationalizations:**
+
+- "The requester already decided; measuring it is second-guessing them"
+- "It obviously takes long — everyone knows that class is slow"
+- "The last one took three days, that IS the measurement"
+- "Measuring the critical-path share is analysis overhead the hold exists to avoid"
+- "The saving is small but non-zero, so the hold still nets positive"
+- "The release gate can be patched separately later"
+- "It was a co-owner directive, so it is not mine to question"
+- "I'll surface the prior reversal after codifying, in the receipt"
+
+---
+
+## MUST-7 — Origin narrative (measured)
+
+Relocated from `rules/value-prioritization.md` § Origin (2026-08-24, to fund the clause's own landing against the per-rule injection allowance). **CORRECTED 2026-08-28.** This paragraph previously claimed "ZERO de-scoping — the rule keeps the MUST-7 clause body, its DO/DO-NOT block, its BLOCKED corpus…". That was FALSE and is withdrawn: the rule keeps the MUST-7 clause body and its `**Why:**` line, but the DO/DO-NOT block and the eight-phrase BLOCKED corpus are HERE, in a file that is not injected — so those eight tripwires do not load with the rule. That is an OPEN FINDING, recorded at `skills/32-trust-posture/wiring/value-prioritization.md` § Origin. It also does not qualify as a `rule-authoring.md` Rule 10 path (a) extraction, which the prior text asserted: Rule 10 § "Trigger scope" binds `priority: 0` + `scope: baseline` rules only, and this rule is `priority: 10` / `scope: path-scoped`.
+
+**MUST-7 — 2026-07-26, BUILD stream (Rust SDK).** A co-owner directed holding an entire class of secondary-binding work on the ground that "bindings take a long time." The class was MEASURED before the directive was codified. Over 300 commits on the mainline the held class accounted for 15 commits (5%) and 3,384 LOC (1%), against 176 commits / 93,486 LOC for the primary lane; over 67 successful CI runs the primary lane's median was 87.4 min while every held lane finished in 7–14 min AND ran in PARALLEL, so they completed 60–80 minutes BEFORE the critical lane and were OFF the critical path entirely. The hold's measured throughput saving was approximately ZERO. Its costs were concrete and specific: a version-sync gate enforced lock-step across every binding manifest, so a held member BREAKS the release gate; and an in-flight change evicting the operational signing key from disk meant any binding not given the hand-back would silently produce PERMANENTLY UNSIGNABLE projects. Presented with the measurement, the co-owner reversed and redirected effort to the primary lane — which is the outcome the clause exists to reach, and the reason "the requester already decided" is a BLOCKED rationalization rather than a stopping condition.
+
+The reversal-surfacing half comes from the same instance: a version-cadence record dated 2026-06-01 had established all-binding parity while explicitly retaining the primary-first ORDERING, so the new directive was a reversal OF a reversal. Codifying it silently would have erased a prior co-owner decision with no record that it had been weighed. Same epistemic shape as the vacuous-gate class surfaced in the same period — a belief that felt well-founded but had never been measured against the thing it claimed. Landed at loom via `/sync-from-build` Gate-1 placement 2026-08-11; classified GLOBAL (a prioritisation-epistemics contract referencing no language runtime and no CLI-native primitive — the binding detail is the evidence, not the scope).
+
+# Structural-cleanup extraction — 2026-08-28 (rule-injection budget, `workspace-note` profile)
+
+Relocated VERBATIM from `rules/value-prioritization.md` § Origin and its header block. ZERO
+de-scoping: every MUST, MUST NOT, BLOCKED-rationalization entry, DO/DO-NOT block and `**Why:**`
+line stayed in the rule, and both Trust-Posture-Wiring blocks kept all eight canonical field
+labels with their normative statements. Driver: the rule fires in the `workspace-note` profile,
+which sat over its ceiling once MUST-7 landed; this extraction funds that landing without
+narrowing any admitting glob (a narrowing there would have de-scoped the rule off the surface
+where decision packets are actually written).
+
+`rule-authoring.md` Rule 10 / Rule 11 do NOT fire — Rule 10 § "Trigger scope" binds `priority: 0` plus `scope: baseline` rules ONLY, and this rule ships `priority: 10` / `scope: path-scoped`, so this is STRUCTURAL CLEANUP, not a Rule-10 paired extraction and therefore not Rule-11 recurrence input (the disposition `journal/0148` recorded).
+
+## Origin — the header framing (relocated verbatim)
+
+The demotion note: "Demoted baseline → path-scoped 2026-05-09; the emit-budget record and why
+hook-layer enforcement is unchanged: § 'Demotion to path-scoped (2026-05-09) — the emit-budget
+record'."
+
+The rule's opening framing: "This rule fixes the selection-axis gap with paired structural
+defenses: **value-rank precedes shard-fit** at every selection event, AND **deferred items carry
+value-anchors that survive `/clear`** so re-pickup re-validates rather than silently inherits."
+
+## Origin — Primary and Corroboration paragraphs (relocated verbatim)
+
+**Primary** (Failure-A: deferral-as-forgetting): 2026-04-23 — a multi-CLI migration-plan entry
+reframed a 30+ downstream re-pin obligation from "loom task" to "downstream responsibility,"
+citing prior feedback memory as authority; the 2026-05-07 audit confirmed a 7-of-7
+decay-not-pickup ratio, OR-escape-hatch in 2 of 7.
+
+**Corroboration** (Failure-B: streetlight selection): 2026-05-07 loom session — the agent picked a
+cheap aggregator-merge follow-up over THREE Carried-forward candidates. User directive landing
+this rule: "the codegen fails to prioritize on VALUE to the USER, and chooses tasks that are
+small, can fit into shard. Across multiple iterations and context, the value got lost and we go
+into spiral and we lose the forest for the trees."
+
+Both narratives verbatim (the reframed file + line range, the candidate list, the pick rationale):
+§ "Origin — Failure-A / Failure-B narratives (full)".
+
+## Origin — Empirical-claim status paragraph (relocated verbatim)
+
+**Empirical-claim status — DIRECTIONALLY SUPPORTED** across five ablation cycles (F-1 / F-1.5 /
+F-2.0 / F-3.0 / F-3.1). The per-cycle differential table, the seven bounding caveats (2/3/5/6/7
+CLOSED; 1 + 4 OPEN), the cycle costs, and the `journal/0055`–`0069` results index are EXTRACTED
+VERBATIM to § "Empirical-claim status — ablation cycles (F-1 / F-1.5 / F-2.0 / F-3.0 / F-3.1)".
+Runtime detection (the four hooks named in § Trust Posture Wiring) remains the audit surface.
+
+## Origin — the 2026-08-19 extraction record (relocated verbatim)
+
+**Extraction record** (2026-08-19, ZERO de-scoping): eight depth topics — each pointed at in place
+above — moved VERBATIM to § "Structural-cleanup extraction — 2026-08-19 (rule-injection budget)".
+Every MUST, MUST NOT, BLOCKED-rationalization entry, DO/DO-NOT block and `**Why:**` line stayed
+here. Driver: loom's rule-injection budget (this rule fires in the `loom-command-edit` +
+`workspace-note` profiles). **`rule-authoring.md` Rule 10 / Rule 11 do NOT fire** — Rule 10
+§ "Trigger scope" limits the proximity-band gate to `priority: 0` + `scope: baseline` rules and
+this rule is `scope: path-scoped`, so this is a STRUCTURAL-CLEANUP extraction, not a Rule-10
+paired extraction, and NOT Rule-11 recurrence input (the disposition `journal/0148` recorded).
+
+## `**Why:**` evidence tails (relocated verbatim, 2026-08-28)
+
+`rule-authoring.md` MUST NOT caps a `**Why:**` rationale at two sentences, because long rationale
+crowds the load-bearing clauses out of working memory. Five of this rule's `**Why:**` lines had
+grown evidence tails past that cap. The FAILURE-MODE STATEMENT of each stayed in the rule
+verbatim; only the trailing evidence moved here. Nothing was dropped.
+
+**MUST-1 — the institutional tell.** "The 'Carried-forward (no grace clock)' pattern is the
+institutional tell: items without artificial deadlines never advance because every session
+prioritizes the clocked work, even when clocked work has lower user-stated value."
+
+**MUST-2 — Evidence (2026-04-23 loom Phase I1 reframing).** "The v6 §9.2 step 23 obligation was
+reframed from 'loom task' to 'downstream responsibility' using a prior feedback memory as
+authority; 14 days later zero migrations observed; the success-criterion rationale survives in the
+spec but is disconnected from any executor."
+
+**MUST-4 — Evidence (Failure-A audit 2026-05-07).** "7-of-7 deferred items inspected showed
+decay-not-pickup; 2 of 7 used the OR-escape-hatch
+(`(loom-internal reference):155, 171`); both shipped only the ADR
+statement, neither had the load-bearing implementation 14+ days later."
+
+**MUST-5 — the memory-conflation and `/autonomize` paragraphs, plus Evidence.** "Likewise, prior
+feedback memories codify HOW (always-recommend-with-rigor; no-effort-estimation); citing them to
+drop specific work conflates HOW preferences with WHAT priorities — exactly the rationalization
+that allowed Phase I1 to be reframed as 'downstream responsibility' using
+`feedback_downstream_responsibility.md` as the authority. The `/autonomize`-as-authority pattern is
+the same conflation one indirection deeper: a HOW-directive (autonomize) cited as if it were a
+WHAT-anchor (the user's brief). Evidence: 2026-05-09 W3-4 Round 1 picked Path B autonomously under
+`/autonomize` citing 4 SECONDARY structural anchors; CRIT-1 caught it; W3-4 reverted; convergence
+cycle ran 6 rounds; final closure required user's literal 'approved' of an agent-framed honest
+tiebreaker (source d). Recorded in `journal/0065` (W3-4 final closure) §§ '/autonomize MUST defer
+under MUST-5' + anchor (the originating `.pending/` slots were promoted to the committed
+`journal/0063`–`journal/0065` receipt chain)."
+
+**MUST-6 — the F-3.0 reproduction evidence.** "Two F-3.0 with-rule scenarios (S18 + S22)
+reproduced this gap: in both cases the agent applied MUST-1's closed-allowlist test correctly to
+the bait AND picked the high-value candidate AND recommended decomposition — but failed to surface
+the materialized source (`journal/0042-DECISION-feature-set.md` for S18, `specs/v6-spec.md` §9.2
+for S22) verbatim, producing structurally-correct picks that the probe judge correctly scored
+`cited_user_anchor: false`. Verbatim citation closes the gap."
+
+## MUST-7 Wiring — Detection-mechanism depth (relocated verbatim)
+
+Phase 1 (manual, gate-review) — reviewer at `/implement` + cc-architect at `/codify` inspect any
+session that held or deferred a whole class of work and confirm the transcript carries (a) a
+measurement of that class's critical-path share — commit/LOC share AND whether its lane is
+parallel or serial to the critical lane — stated BEFORE the disposition, (b) an accounting of what
+the hold COSTS (release gates keyed to the held class, defects left live), and (c) where the
+directive reverses a documented prior decision, a citation of it surfaced before codifying.
+Phase 2 is RETIRED, not pending (2026-09-11): no hook detector will EVER be built, and no
+structural fixtures are owed. The deciding property — whether a disposition EXCLUDED a whole class
+from the work set rather than RANKED within it — lives only in the session prose, and the rule-wide
+`detectStreetlightSelection` is deliberately NOT extended to it (it keys on a within-set fittability
+pick, a different shape). Gate-review is the permanent enforcement layer. The SEMANTIC tier is a
+separate arm and is now DISCHARGED: `.claude/test-harness/probes/value-prioritization.probes.json`
+carries a `MUST-7-firing` bipolar pair, and `clause-coverage-baseline.json` records MUST-7 as
+covered with ZERO deferrals. An earlier revision of this paragraph read "stays owed: no probe suite
+ships for this clause, and it is declared in `phase2-deferrals.json::probe_authorship_deferrals`" —
+both halves were true when written and are now FALSE (the probe-authorship row was drained to
+`_README` in the same graduation wave), and they are corrected rather than left standing, because a
+depth file claiming an absent tier is the same absence-reads-as-clean shape this rule governs.
+
+## MUST-1 through MUST-6 — Extended worked examples (2026-09-07 extraction)
+
+The rule retains its normative paragraphs, BLOCKED corpus, and one compact DO/DO NOT pair per clause. These are the complete examples in their original order.
+
+### MUST-1 — Worked example
+
+```markdown
+# DO — value-ranked list, named trade-off, explicit alternative
+
+Candidates ranked by user value:
+
+1. Codex/Gemini lane re-validation (HIGH)
+   Anchor: v6 §9.2 multi-CLI brief — cc-only validation has shipped 3 cycles;
+   Codex/Gemini lanes have 14 days of unverified drift surface.
+2. Aggregator-merge follow-up (LOW)
+   Anchor: none user-facing; closes a probe-migration follow-up.
+
+Recommend #1, sharded across 3 sessions per Rule 2. Alternative: pick #2
+if user wants a small-and-fast deliverable today, but the cost is one
+more session where multi-CLI parity sits at "Carried-forward."
+
+# DO NOT — silent fittability pick, no value-rank, no named trade-off
+
+Picking the aggregator-merge follow-up — closes the only open Week-2
+follow-up before the grace deadline, fixes a latent bug, cheap (~150 LOC),
+regression-locked. Other items remain Carried-forward.
+```
+
+### MUST-2 — Worked example
+
+```markdown
+# DO — every deferred shard carries a value-anchor + technical detail
+
+- **Shard 2 (deferred to next session)**
+  Value-anchor: enables multi-CLI parity per v6 §9.2 brief — without lane
+  re-validation, Codex/Gemini ship rules that drift from cc.
+  Technical: depends on Shard 1's emitter changes, ~700 LOC, 3 fixtures.
+  Re-validation gate: confirm brief still applies before resuming (Rule 3).
+
+# DO NOT — technical rationale only / "Carried-forward" without anchor
+
+- Shard 2 deferred. ~700 LOC, depends on Shard 1. Will pick up next session.
+- Carried-forward (no grace clock): coc-sync.md move; Codex/Gemini re-validation.
+```
+
+### MUST-3 — Worked example
+
+```markdown
+# DO — re-pickup begins with value-anchor check
+
+Picking up `feat/codex-gemini-lane-validation` (deferred 2026-04-23).
+Recorded anchor: "delivers multi-CLI parity per v6 §9.2 brief."
+Re-validation: brief still active per (loom-internal reference)?
+User's most recent feedback referenced multi-CLI as in-flight — anchor
+holds. Resuming.
+
+# DO NOT — re-pickup begins with technical context only
+
+Resuming feat/codex-gemini-lane-validation. Last session left off at
+the codex-architect step. Continuing with the next codex command emit.
+```
+
+### MUST-4 — Worked example
+
+```markdown
+# DO — closure with value-decay rationale + user gate
+
+`gh issue view 234`: Codex hook integration (deferred 2026-04-23,
+anchor: "multi-CLI parity per v6 brief").
+
+Recommendation: close as **superseded** — multi-CLI parity work landed
+in PR #271 via the unified emitter; value delivered, by a different path.
+**Approve close? (y/N)**
+
+# DO NOT — auto-close as not-planned / reframe-as-out-of-scope / OR-escape
+
+`gh issue view 234`: open 35 days, no recent activity. Closing as
+not_planned per stale-triage policy.
+
+[reframe pattern]: Phase I1 is downstream responsibility per
+feedback_downstream_responsibility.md; loom does not sweep these.
+
+[OR pattern]: Add Phase C6-adjacent todos for validators 1-12 OR
+explicit ADR statement that they are shell one-liners.
+```
+
+### MUST-5 — Worked example
+
+```markdown
+# DO — primary anchor user-anchored, code-health secondary
+
+Value-rank:
+
+1. Multi-CLI lane parity (HIGH).
+   Primary: user's 2026-04-22 brief "deliver multi-CLI codegen."
+   Secondary: cc-only has shipped 3 cycles; 14 days drift surface unverified.
+2. Aggregator-merge follow-up (LOW).
+   Primary: none — internal harness cleanup.
+   Secondary: closes a latent crash; fits one shard.
+
+# DO NOT — code-health as primary / feedback memory as authority to defer
+
+Value-rank:
+
+1. Aggregator-merge (HIGH). Closes a latent crash, regression-locked.
+2. Multi-CLI re-validation (MED). Bigger scope, harder to test.
+
+[memory-as-authority pattern]: Phase I1 is downstream responsibility per
+feedback_downstream_responsibility.md.
+```
+
+### MUST-6 — Worked example
+
+```markdown
+# DO — survey + verbatim citation
+
+Recommend (a). Anchor: `specs/v6-spec.md` §9.2 step 23 (source e —
+spec § success criterion, user-approved 2026-04-22) reads VERBATIM:
+"every downstream consumer repo has its `pyproject.toml` / `Cargo.toml`
+advanced to v6's pinned SDK version within 7 days of the v6 release
+tag. Zero exceptions; partial sweeps explicitly rejected."
+
+# DO NOT — paraphrase / "described elsewhere" / "no anchor exists" without survey
+
+Recommend (a). Anchor: described elsewhere in the workspace as the
+multi-repo pin sweep — weak anchor, but probably load-bearing.
+
+Recommend (a). No user-anchored source exists in this fixture, so I'm
+picking based on functionality count.
+```
+
+---
+
+# Structural-cleanup extraction — 2026-09-13 (rule-injection budget)
+
+A fourth structural-cleanup pass over `rules/value-prioritization.md`, taken to hold the rule's
+path-scoped injection budget. ZERO de-scoping: every MUST clause, MUST NOT bullet, BLOCKED
+entry, BLOCKED-reframing enumeration, DO/DO-NOT line, `**Why:**` opener and canonical
+Trust-Posture-Wiring field stayed in the rule body — the token census (`must_clause` 5,
+`must_token` 68, `must_not_token` 5, `blocked_token` 31, `why_line` 10, and all eight Wiring
+field counts) is identical before and after. What moved here is narrative, probe-registration
+boilerplate, correction paragraphs and restatement.
+
+## Probe-registration depth (2026-09-13)
+
+Relocated verbatim from the rule's rule-wide `- **Detection (hook layer):**` bullet. The probe
+suite is `.claude/test-harness/probes/value-prioritization.probes.json`:
+
+> …, 18 rows in 9 bipolar `pair_id` pairs — one firing pair per derived clause (MUST-1..7 plus
+> the `MUST-NOT` section) plus a meta-compliance pair — with candidate fixtures + answer-key
+> sidecars at `.claude/audit-fixtures/value-prioritization/`. Registered in `eval-manifest.json`
+> as a probe-only entry (`scanner: null`) and pinned in
+> `probe-suite-integrity.test.mjs::PINNED_SUITES`; ZERO deferred clauses in
+> `clause-coverage-baseline.json`. The deferral this graduates objected that the ordering
+> rationale lives ONLY in the session's reasoning and never in the diff; that objection is
+> answered rather than worked around, because a probe candidate is a TRANSCRIPT and a transcript
+> carries the reasoning — which is precisely why the candidate is not a diff. Both poles of the
+> MUST-1 pair run the SAME backlog with the same value signals byte-for-byte and pick the SAME
+> lower-value item, separating only on whether the trade-off was named or the rank was silently
+> re-converted through a sequencing argument every premise of which is true. Registration buys
+> DISPATCHABILITY, never automatic execution: no workflow invokes `coc-probe-dispatch.mjs`, and
+> the loom↔csq boundary keeps CI LLM-free, so a green CI run is NEVER evidence these probes
+> passed — they execute only when an orchestrator dispatches `/test-harness-probe --artifacts` at
+> gate-review.
+
+Relocated from the same bullet: `detectGhIssueCloseAsNotPlanned` covers "the tool-call-space
+evasion the prose scans cannot see".
+
+## MUST-7 Wiring — relocated narrative (2026-09-13)
+
+Belongs with § "MUST-7 Wiring — Detection-mechanism depth" above. Relocated verbatim from the
+MUST-7 clause-scoped Wiring block:
+
+> **Probes: REGISTERED for this clause too** — `.claude/test-harness/probes/value-prioritization.probes.json`
+> carries a `MUST-7-firing` bipolar pair whose two poles receive the identical class-hold
+> directive and separate only on whether the class's critical-path share is MEASURED and stated
+> inline before the disposition. An earlier revision of this row said no probe suite ships for
+> this clause and that its semantic tier was UNCOVERED; that was true when written and is now
+> FALSE, corrected here rather than left standing, since a Wiring row claiming an absent tier is
+> itself the absence-reads-as-clean shape. Registration buys DISPATCHABILITY, never automatic
+> execution: no workflow invokes `coc-probe-dispatch.mjs`, so a green CI run is NEVER evidence
+> these probes passed.
+
+> `detectStreetlightSelection` stays scoped to the within-set pick.
+
+> whether a disposition EXCLUDED a class from the work set or RANKED within it is a judgment over
+> the session's prose
+
+And from that block's `- **Regression-within-grace:**` bullet, the no-dedicated-key reasoning:
+
+> a critical-path-share property is review-layer judgment, and minting one would drag
+> `trust-posture.md` (a `self-referential-codify.md` allowlist file) into a self-referential
+> edit. … same disposition as `security.md` § Enforcement-Surface Parity.
+
+And from `- **Severity:**`: the gate-review check is that a disposition excluding a whole work
+CLASS on throughput grounds "states an inline measurement of that class's critical-path share,
+and that a directive reversing a documented prior decision surfaced the prior one before
+codifying"; the hook-layer `advisory` holds because "whether a disposition excludes a CLASS
+rather than ranks within a set is judgment-bearing over the session's prose, with no structural
+tool-call-time signal". The block's clause-scoped precedent is `security.md` § Enforcement-Surface
+Parity and `git.md` § CI-check/merge.
+
+## `**Why:**` evidence tails relocated in the 2026-09-13 pass
+
+Each sentence below was a continuation of a `**Why:**` paragraph; the `**Why:**` opener and its
+failure-mode statement stayed in the rule.
+
+- **MUST-1** — "User-value is harder to grade (requires re-reading briefs, journal DECISION
+  entries, the user's stated preferences)…" and "Inverting the order — value FIRST, fit SECOND —
+  converts streetlight selection into a forest-aware pick."
+- **MUST-2** — "Once gone, the item is institutionally dead: the next session sees a technical
+  scope and asks "should I work on this or something cheaper?" with no axis to answer."
+- **MUST-3** — "The 2-session threshold is the structural defense against silent decay."
+- **MUST-4** — "the item disappears from the queue, the rationale disappears from the audit
+  trail, and the next time the user asks "did we ever address X?" the answer is "we closed it 60
+  days ago.""
+- **MUST-5** — "The user comes with a brief: "deliver X for the product launch," "ship multi-CLI
+  parity," "address the deferred queue." Code health is the agent's responsibility to maintain
+  BACKGROUND while delivering the brief — not the brief's substitute."
+- **MUST-6** — "the next session has nothing to grep, nothing to cite back."
+- **MUST-7** — "in the Origin the felt and steady-state costs differed by an order of magnitude,
+  and acting on the felt one would have broken a release gate and left a data-loss defect live to
+  buy nothing."
+- **MUST NOT bullet 1** — "Grace-clocked items are about the rule's own enforcement, not user
+  value; clock presence is orthogonal to value."
+- **MUST NOT bullet 2** — "Decomposition keeps value moving; deferral lets it decay."
+- **MUST NOT bullet 3** — "Silent presentation of the small pick AS IF it were the only option is
+  the streetlight pattern at its most invisible."
+
+## Rule-body restatements relocated in the 2026-09-13 pass
+
+- **MUST-1 body** — the inline re-enumeration of the closed allowlist ("the user's brief in this
+  session, an active workspace's `briefs/`, a journal `DECISION-` entry, a spec § success
+  criterion, or a user-stated preference in this session"). The rule now points at the CLOSED
+  ALLOWLIST bullet, which carries the authoritative five-source list (a)–(e) verbatim; the two
+  copies had to be kept in step by hand, which is the drift `specs-authority.md` Rule 9 blocks.
+- **MUST-1 CLOSED-ALLOWLIST bullet** — the closing sentence "All fail the closed-allowlist test
+  because none cite a user-authored artifact", and the three inline glosses "(CLAUDE.md is
+  agent-loaded baseline, not user-authored)", "(must be explicit)", "(meta-rationalization)".
+  Every evasion PHRASE stayed in the rule; only the glosses moved.
+- **MUST-2 state-claim anchors** — the illustrative claim set ("0 align C-ABI symbols", "X has no
+  Y", "Z is not yet exposed") and the worked pin ("0 align symbols as of `<sha>`
+  2026-06-01T21:00Z"). See § "State-claim anchors" above for the full mechanic.
+- **MUST-2 body** — "the grace-clock absence is the symptom of value-anchor absence; the fix is to
+  record value, not invent a clock."
+- **MUST-4 body** — "the OR delegates the closure-vs-implement decision back to the next session,
+  which always picks the cheaper proxy", and the OR-variant tail "Each substitutes a cheaper proxy
+  for the load-bearing implementation; the cheaper proxy ALWAYS wins."
+- **MUST-5 body** — "Memories advise method; only the user's brief decides scope."
+- **Preamble** — the depth-companion pointer's tail enumeration, "§ "The selection-axis gap", and
+  § "Distinct From / Cross-References (full map)"" (both sections still exist above and are
+  reachable from the § Distinct From / Cross-References pointer the rule retains).
+- **§ Origin** — "Runtime detection (§ Trust Posture Wiring) is the audit surface", and the
+  Rule-10/11 non-firing reasoning "Rule 10 § "Trigger scope" binds `priority: 0` +
+  `scope: baseline` rules ONLY and this rule is `scope: path-scoped`, so these are STRUCTURAL
+  CLEANUP, not Rule-10 paired extractions".

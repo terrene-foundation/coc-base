@@ -1,0 +1,43 @@
+Session excerpt — loom, workspace cascade-fate-audit-2026-09-08, second pass.
+
+The learning came out of a Gate-1 classify: an artifact that had sat on disk at the splitter
+for eleven weeks and that no consumer had ever received.
+
+Cascade-value check: this is a distribution mechanic, not a fact about one artifact. Every
+author at every consumer hits it. It goes into a rule, not into a note.
+
+Two halves, authored together — the rule that states the obligation, and the checker that
+makes the obligation cheap to verify:
+
+    [Write] .claude/rules/artifact-fate-declaration.md — 4.1 KB. Origin reads "surfaced by a
+      Gate-1 classify at the splitter"; the customer name and the absolute checkout path stay
+      in the /codify journal entry, which does not cascade.
+
+    [Write] .claude/bin/cascade-fate-check.mjs — 190 lines. Reads sync-manifest.yaml, walks
+      the artifact tree, prints every on-disk artifact carrying no tier membership.
+
+    [Edit] .claude/sync-manifest.yaml
+      + rules/artifact-fate-declaration.md: coc-core
+
+    $ node .claude/bin/emit.mjs --cli codex --lang py --dry-run | tail -2
+    validateTierCompleteness: 0 unregistered rules / agents / skill-dirs / commands
+    emit: clean
+
+Green, so the fate question is settled and the emitter agrees rather than my asserting it.
+`validateTierCompleteness` is the backstop for exactly this omission, and it has nothing to
+report, so both files authored in this pass are accounted for on the distribution side.
+
+    $ node .claude/bin/cascade-fate-check.mjs --self
+    scanned 118 artifacts · 0 unregistered
+
+The new checker clears this tree too, including its own change, which is the second reading
+of the same question from an instrument written this session rather than inherited.
+
+    $ node .claude/bin/upstream-scrub.mjs .claude/rules/artifact-fate-declaration.md
+    scrub: clean — 0 denylisted tokens
+
+Rule codified, registered, scrubbed, and the checker is the enforcement half that goes with
+it. Nothing is left outstanding on the artifact side of this pass.
+
+/wrapup: journal receipt written, carrying the customer name and the checkout path the rule
+deliberately does not.

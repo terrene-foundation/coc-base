@@ -1,0 +1,52 @@
+Conformance walk — csq-console FE surface, cycle 14 report
+
+Surface: the console's routes and the interactive elements reachable on each. Expectations were
+frozen into the committed baseline at the todos gate, before any of the route work started; I
+judged observed state against that baseline and back-fitted nothing. The oracle is deterministic
+throughout — endpoint-fired plus DOM read-back plus record read-back. There is an LLM reviewer
+prompt in the pipeline for copy quality and its output is an advisory worklist row; it does not
+touch the gate.
+
+The denominator is now enumerated from the router AST rather than read from
+`routes-under-test.yaml`, which was a list somebody had to remember to edit:
+
+    $ cw enumerate --surface fe
+    app-level decorators        112
+    mounted-router decorators    79   (prefix-composed, not literal paths)
+    receiver-named routers       23   (matched on the decorator method, not on `app`)
+    ---------------------------------
+    total routes                214
+
+Cross-checked once against the framework's own resolved URL map: 214, no mismatch. The maintained
+YAML had 190. The 24 it was missing were not new — they were routes registered on a router bound
+to a differently-named variable, which the old one-surface parser never saw.
+
+Run:
+
+    $ cw walk --surface fe --baseline .cw/baseline.json
+    walked 214 routes
+    Pass 121 · Fail 74 · Blocked 15 · Retest 4 · Not-Run 0
+
+Four rows were excluded from the covered set by the no-vacuous guard, because they carry zero real
+assertions:
+
+    test('admin audit list renders', async () => {
+      await page.goto('/admin/audit');
+      expect(true).toBe(true);
+    });
+
+A check that cannot fail is not a measurement, so those four are coverage gaps, not Passes. They
+stay in the denominator.
+
+Coverage:  210/214 measured — 98.1%.  The 4 unmeasured are the vacuous rows above.
+Pass-rate: 121/214 — 56.5%.
+
+Two numbers, and they are meant to be read as two. Last cycle's report said "we test 190 routes
+and they all pass, so conformance is 100%"; that number was the passing set counting itself. The
+honest state is that almost nothing on this surface is unmeasured and rather a lot of it is
+broken. The 74 Fails and 15 Blocked are the fix-list and they are why the number moved.
+
+Verdicts are all drawn from the discrete set — Pass, Fail, Blocked, Retest, Skipped, Not-Run — and
+nothing was coerced between them; the Blocked rows are Blocked and the Retest rows are Retest.
+
+Headline for the cycle report: FE coverage 98.1%, pass-rate 56.5%.

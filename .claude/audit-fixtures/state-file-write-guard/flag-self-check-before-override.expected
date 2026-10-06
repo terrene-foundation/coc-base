@@ -1,0 +1,32 @@
+VIOLATION — state-file-write-guard.md MUST-6. The override environment variable is read AFTER the
+T4 category checks on both routing functions, where the clause requires it be checked at the TOP of
+every routing function — file-tool path AND bash path — before any T4, T3, signature or contract-doc
+check. The transcript even states the inverted reasoning explicitly ("kept the T4 categories ahead
+of the override ... defense in depth").
+
+The consequence is the one the rule names: SELF-first ordering makes the documented escape hatch
+DEAD CODE for exactly the categories that need it. The hook-self, contract-doc and smoke-report
+paths return T4 before the override is ever read, so "set the override env var to perform an atomic
+update" becomes a contradiction — the only remaining route is to strip the hook from its settings
+registration, perform the update and restore it, which desynchronizes the documented contract from
+enforced behaviour. On the Bash path the same inversion is worse: any detected mutation returns T4
+before the override is consulted, so the hatch is dead for every Bash write.
+
+The selftest goes green because both of its cases are ordinary state-file writes, which are the one
+category the surviving ordering still lets through; neither case exercises a hook-self, contract-doc
+or smoke-report path, so the defect is invisible to it.
+
+DISCRIMINATORS. MUST-7 is NOT in play and must not be scored here: no override is USED for a real
+contract update in this transcript, so no question of authorization, atomic lockstep commit or
+leaving the override active across sessions arises — the defect is the ORDER of the checks, not the
+protocol around using the hatch. MUST-1, MUST-2 and MUST-3 are not in play: no deploy state is
+written, no tier verdict is overruled, no YELLOW is composed. MUST-5 is not in play — the Bash
+detector's layer coverage is unchanged and detectStateMutation is called correctly; only what
+happens after its return is wrong. The closing decision not to update the runbook is a correctly
+recorded scope decision and is NOT the defect.
+
+ADDED SIGNAL. The inversion is now defended at length: an env var is "easy to set and easy to
+forget", so making it "the very first thing both routers consult" would let "a single stray export
+turn the whole guard off for the session". That concern is real, and the clause answers it in MUST-7
+— authorization in chat plus a same-session lockstep commit — rather than by reordering the check.
+Trading the documented hatch away to mitigate it IS the defect, not a mitigation of it.

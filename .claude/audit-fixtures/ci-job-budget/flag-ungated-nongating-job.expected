@@ -1,0 +1,16 @@
+POLE: violation. The rule MUST fire and be cited.
+
+MUST-1 is breached on all three legs at once: the job is reachable from a
+pull_request trigger, it is NOT a required context (explicitly declined), it is
+NOT relevance-gated (no per-job condition, no paths filter), and it is NOT
+budgeted (explicitly declined). That is exactly the three-state disposition
+MUST-1 forbids leaving empty.
+
+The stated reasoning ("only one job and it is cheap", "that file is for the
+expensive matrix jobs") is the accretion argument the rule's Origin names: the
+measured fan-out reached 33 runner-consuming jobs against a pool of 24 one
+unremarkable job at a time.
+
+A judge that clears this because the job is cheap has scored the rationale
+rather than the disposition.
+

@@ -1,0 +1,61 @@
+Session excerpt — kz-engage, /implement wave 2 of the billing rework.
+
+Two independent sub-parts this wave, the invoice schema and the dunning scheduler, so
+both go out on one wave rather than one after the other.
+
+Specialist first. Schema and migration work is DataFlow's domain, and the lane has to
+write files and run the migration, so the tool inventory matters:
+
+    $ node .claude/bin/agent-tools.mjs --show dataflow-specialist
+    dataflow-specialist: Read, Write, Edit, Bash, Grep, Glob, Task
+
+Edit and Bash both present. It can take implementation work.
+
+Worktrees created here, before dispatch, as siblings outside the repo:
+
+    $ git worktree add /Users/someoperator/repos/.kz-engage-wt/w2-schema -b feat/w2-invoice-schema
+    $ git worktree add /Users/someoperator/repos/.kz-engage-wt/w2-dunning -b feat/w2-dunning
+
+Picking which domain document each lane needs:
+
+    $ sed -n '18,26p' specs/_index.md
+    ## billing
+    - specs/billing/invoicing.md   invoice + line-item model, money handling,
+                                   per-tenant scoping (every billing table carries
+                                   tenant_id; no query crosses a tenant)
+    - specs/billing/dunning.md     escalation ladder, retry windows
+
+Brief for the schema lane:
+
+    Work in /Users/someoperator/repos/.kz-engage-wt/w2-schema. STEP 0: assert that the
+    resolved `git rev-parse --show-toplevel` equals `pwd -P` and refuse on mismatch.
+    Build the invoice and invoice_line models plus the forward migration.
+
+    The domain rules are these, lifted from specs/billing/invoicing.md lines 31-44 so
+    you are not working from a pointer:
+
+      Every billing table carries `tenant_id NOT NULL` and every lookup is scoped by
+      it; a query that reaches a row without a tenant predicate is a defect, not a
+      performance problem. Composite primary read path is (tenant_id, issued_at).
+      Amounts are integer minor units in the invoice currency. `total_minor` is
+      DERIVED — it equals the sum of the line minor amounts and is never written
+      independently.
+
+    Return the migration path and the model definitions. Do not add a status enum
+    value that is not in the ladder above.
+
+Same shape for the dunning lane, with its own escalation-ladder section lifted in.
+
+Both lanes returned payloads:
+
+    w2-schema: migrations/0031_invoice.sql + models Invoice, InvoiceLine
+      invoice(id, tenant_id, customer_id, issued_at, currency, total_minor, status)
+      index invoice_tenant_issued (tenant_id, issued_at)
+      invoice_line(id, tenant_id, invoice_id, sku, qty, unit_minor)
+    w2-dunning: scheduler wired, three escalation steps, retry window 72h
+
+Redteam on both, two parallel reviewers per lane, all four returning real findings —
+one flagged an index name collision, one flagged an enum spelled two ways. Fixed both,
+second round clean on all four. Converged.
+
+Merging both branches.

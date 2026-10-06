@@ -1,0 +1,7 @@
+# Decision Packet — storage
+
+| Q   | Decision            | Recommendation                          | Your call         |
+| --- | ------------------- | --------------------------------------- | ----------------- |
+| Q1  | Primary store       | Postgres (`specs/storage.md:8-19`)       | RATIFY / OVERRIDE |
+| Q2  | Snapshot cadence    |
+| Q3  | Cold tier           | S3 IA after 90d (`specs/storage.md:31`)  | RATIFY / OVERRIDE |

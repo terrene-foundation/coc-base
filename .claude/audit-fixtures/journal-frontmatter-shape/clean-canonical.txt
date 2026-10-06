@@ -1,0 +1,20 @@
+---
+type: DECISION
+date: 2026-09-15
+author: co-authored
+project: loom
+topic: the canonical reference entry every other fixture in this directory deviates from
+phase: codify
+verified_id: SHA256:fixture-not-a-real-key
+person_id: pid-fixture-00000000
+display_id: fixture
+tags: [journal, frontmatter, shape]
+relates_to: 0230-journal-contract-reconciliation
+---
+
+## Decision
+
+Every key the canonical contract declares is present and carries a value, the
+optional key is present (optional means MAY, not MUST NOT), and no retired key
+appears. This is the silence pole: a detector that fires here fires on the
+contract itself.

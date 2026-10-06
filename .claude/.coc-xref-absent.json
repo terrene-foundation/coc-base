@@ -119,19 +119,23 @@
     ".claude/audit-fixtures/wave-corpus-ledger/": {
       "why": "directory_not_shipped",
       "sources": [
+        ".claude/guides/rule-extracts/wave-loop.md",
         ".claude/rules/wave-loop.md"
       ]
     },
     ".claude/bin/check-baseline-delta.mjs": {
       "why": "loom_only",
       "sources": [
+        ".claude/rules/rule-authoring.md",
         ".claude/skills/skill-authoring/proximity-band-named-rationale-template.md"
       ]
     },
     ".claude/bin/check-descoping.mjs": {
       "why": "loom_only",
       "sources": [
-        ".claude/guides/rule-extracts/wave-loop.md"
+        ".claude/guides/rule-extracts/cross-sdk-inspection.md",
+        ".claude/guides/rule-extracts/wave-loop.md",
+        ".claude/skills/conformance-walk/loom-self-application.md"
       ]
     },
     ".claude/bin/check-owned-surfaces.mjs": {
@@ -144,7 +148,10 @@
     ".claude/bin/check-rule-injection-budget.mjs": {
       "why": "loom_only",
       "sources": [
-        ".claude/guides/rule-extracts/wave-loop.md"
+        ".claude/guides/rule-extracts/journal.md",
+        ".claude/guides/rule-extracts/wave-loop.md",
+        ".claude/rules/wave-loop.md",
+        ".claude/skills/32-trust-posture/invoker-class-rollout-provenance.md"
       ]
     },
     ".claude/bin/check-wave-corpus-ledger.mjs": {
@@ -154,10 +161,41 @@
         ".claude/rules/wave-loop.md"
       ]
     },
+    ".claude/bin/coc-roster-register.test.mjs": {
+      "why": "exclude",
+      "sources": [
+        ".claude/skills/44-enroll/SKILL.md"
+      ]
+    },
+    ".claude/bin/deferral-accept.mjs": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/deferral-acceptance-queue.md"
+      ]
+    },
+    ".claude/bin/deferral-queue.mjs": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/deferral-acceptance-queue.md"
+      ]
+    },
+    ".claude/bin/deferral-request.mjs": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/deferral-acceptance-queue.md"
+      ]
+    },
+    ".claude/bin/detection-binding-check.mjs": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/skills/32-trust-posture/wiring/coc-artifact-eval-coverage.md"
+      ]
+    },
     ".claude/bin/ecosystem.json": {
       "why": "loom_only",
       "sources": [
         ".claude/commands/ecosystem-init.md",
+        ".claude/guides/rule-extracts/state-file-write-guard.md",
         ".claude/rules/state-file-write-guard.md",
         ".claude/skills/43-ecosystem-init/SKILL.md",
         ".claude/skills/46-clean-instantiate/SKILL.md"
@@ -189,6 +227,12 @@
       "sources": [
         ".claude/rules/self-referential-codify.md",
         ".claude/skills/30-claude-code-patterns/self-referential-allowlist-provenance.md"
+      ]
+    },
+    ".claude/bin/lib/deferral-queue.mjs": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/deferral-acceptance-queue.md"
       ]
     },
     ".claude/bin/lib/disclosure-adjudication.mjs": {
@@ -227,6 +271,12 @@
         ".claude/skills/30-claude-code-patterns/self-referential-allowlist-provenance.md"
       ]
     },
+    ".claude/bin/lib/loom-workspace-names.json": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/skills/46-clean-instantiate/SKILL.md"
+      ]
+    },
     ".claude/bin/loom-doctor.test.mjs": {
       "why": "exclude",
       "sources": [
@@ -238,13 +288,34 @@
       "why": "loom_only",
       "sources": [
         ".claude/rules/deferral-registry-locality.md",
-        ".claude/rules/trust-posture.md"
+        ".claude/rules/trust-posture.md",
+        ".claude/skills/32-trust-posture/invoker-class-rollout-provenance.md"
+      ]
+    },
+    ".claude/bin/registration-preflight.mjs": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/skills/32-trust-posture/invoker-class-rollout-provenance.md",
+        ".claude/skills/32-trust-posture/wiring/coc-artifact-eval-coverage.md"
+      ]
+    },
+    ".claude/bin/registration-preflight.test.mjs": {
+      "why": "exclude",
+      "sources": [
+        ".claude/skills/32-trust-posture/wiring/coc-artifact-eval-coverage.md"
+      ]
+    },
+    ".claude/bin/remote-ref-reap.test.mjs": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/wip-discipline.md"
       ]
     },
     ".claude/bin/run-audit-fixtures.mjs": {
       "why": "loom_only",
       "sources": [
         ".claude/guides/rule-extracts/upstream-issue-hygiene.md",
+        ".claude/guides/rule-extracts/wave-loop.md",
         ".claude/rules/orchestrator-context-economy.md",
         ".claude/rules/wave-loop.md"
       ]
@@ -265,6 +336,7 @@
     ".claude/bin/sync-gate2-worktree.mjs": {
       "why": "loom_only",
       "sources": [
+        ".claude/guides/rule-extracts/artifact-flow.md",
         ".claude/rules/artifact-flow.md"
       ]
     },
@@ -277,7 +349,7 @@
     ".claude/bin/worktree-reap.test.mjs": {
       "why": "exclude",
       "sources": [
-        ".claude/rules/worktree-isolation.md"
+        ".claude/guides/rule-extracts/worktree-isolation.md"
       ]
     },
     ".claude/commands/db.md": {
@@ -344,13 +416,76 @@
     ".claude/guides/rule-extracts/git.md": {
       "why": "use_exclude",
       "sources": [
-        ".claude/rules/git.md"
+        ".claude/rules/git.md",
+        ".claude/skills/32-trust-posture/wiring/git.md"
+      ]
+    },
+    ".claude/hooks/bare-line-citation-guard.js": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/rules/symbol-anchored-citations.md"
+      ]
+    },
+    ".claude/hooks/block-evidence-guard.js": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/rules/hook-output-discipline.md"
+      ]
+    },
+    ".claude/hooks/bug-signal-defer-guard.js": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/guides/rule-extracts/product-completion-first.md",
+        ".claude/rules/product-completion-first.md"
+      ]
+    },
+    ".claude/hooks/check-merge-separation-guard.js": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/skills/32-trust-posture/wiring/git.md"
+      ]
+    },
+    ".claude/hooks/command-skill-parity-guard.js": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/rules/command-skill-parity.md"
+      ]
+    },
+    ".claude/hooks/floor-only-assertion-guard.js": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/rules/conformance-walk.md"
+      ]
+    },
+    ".claude/hooks/force-push-recovery-guard.js": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/rules/orchestration-launch-ledger.md"
+      ]
+    },
+    ".claude/hooks/handoff-surface-guard.js": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/rules/handoff-completion.md"
       ]
     },
     ".claude/hooks/lib/artifact-activation-event.js": {
       "why": "loom_only",
       "sources": [
         ".claude/skills/30-claude-code-patterns/derives-from-emission.md"
+      ]
+    },
+    ".claude/rules/build-repo-release-discipline.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/guides/rule-extracts/build-repo-release-discipline.md"
+      ]
+    },
+    ".claude/rules/coc-artifact-eval-coverage.md": {
+      "why": "use_exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/coc-artifact-eval-coverage.md",
+        ".claude/skills/32-trust-posture/wiring/coc-artifact-eval-coverage.md"
       ]
     },
     ".claude/rules/coc-sync-landing.md": {
@@ -362,7 +497,6 @@
     ".claude/rules/cross-cli-parity.md": {
       "why": "tier_not_subscribed",
       "sources": [
-        ".claude/agents/codex-architect.md",
         ".claude/agents/gemini-architect.md"
       ]
     },
@@ -375,6 +509,7 @@
     ".claude/rules/dataflow-identifier-safety.md": {
       "why": "tier_not_subscribed",
       "sources": [
+        ".claude/guides/rule-extracts/dataflow-identifier-safety.md",
         ".claude/skills/18-security-patterns/rls-security-definer-preauth-carveout.md"
       ]
     },
@@ -382,6 +517,12 @@
       "why": "tier_not_subscribed",
       "sources": [
         ".claude/skills/26-eatp-reference/eatp-security-patterns.md"
+      ]
+    },
+    ".claude/rules/framework-first.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/skills/32-trust-posture/wiring/framework-first.md"
       ]
     },
     ".claude/rules/local/": {
@@ -401,6 +542,12 @@
       "sources": [
         ".claude/skills/29-pact/SKILL.md",
         ".claude/skills/29-pact/pact-mcp-governance.md"
+      ]
+    },
+    ".claude/rules/patterns.md": {
+      "why": "tier_not_subscribed",
+      "sources": [
+        ".claude/guides/rule-extracts/patterns.md"
       ]
     },
     ".claude/rules/sync-completeness.md": {
@@ -425,7 +572,6 @@
     ".claude/rules/variant-authoring.md": {
       "why": "tier_not_subscribed",
       "sources": [
-        ".claude/agents/codex-architect.md",
         ".claude/agents/gemini-architect.md"
       ]
     },
@@ -440,6 +586,736 @@
       "sources": [
         ".claude/commands/cc-audit.md",
         ".claude/commands/sync-from-template.md"
+      ]
+    },
+    ".claude/test-harness/README.md": {
+      "why": "exclude",
+      "sources": [
+        ".claude/agents/quality/reviewer.md",
+        ".claude/agents/testing/testing-specialist.md"
+      ]
+    },
+    ".claude/test-harness/ci-audit-fixtures.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/orchestration-launch-ledger.md",
+        ".claude/guides/rule-extracts/upstream-issue-hygiene.md",
+        ".claude/guides/rule-extracts/wave-loop.md",
+        ".claude/guides/rule-extracts/worktree-isolation.md",
+        ".claude/rules/ci-job-budget.md",
+        ".claude/rules/hook-output-discipline.md",
+        ".claude/rules/orchestration-launch-ledger.md",
+        ".claude/rules/orchestrator-context-economy.md",
+        ".claude/rules/session-notes-continuity.md",
+        ".claude/rules/wave-loop.md"
+      ]
+    },
+    ".claude/test-harness/ci-suites.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/hook-output-discipline.md",
+        ".claude/skills/conformance-walk/loom-self-application.md"
+      ]
+    },
+    ".claude/test-harness/descoping-exceptions.json": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/guides/rule-extracts/conservation-gate.md",
+        ".claude/guides/rule-extracts/wave-loop.md",
+        ".claude/skills/conformance-walk/loom-self-application.md"
+      ]
+    },
+    ".claude/test-harness/detector-distribution-baseline.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/ci-job-budget.md"
+      ]
+    },
+    ".claude/test-harness/eval-manifest.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/coc-artifact-eval-coverage.md",
+        ".claude/guides/rule-extracts/upstream-issue-hygiene.md",
+        ".claude/rules/burn-down-reporting.md",
+        ".claude/rules/ci-job-budget.md",
+        ".claude/rules/orchestrator-context-economy.md",
+        ".claude/rules/probe-driven-verification.md",
+        ".claude/skills/32-trust-posture/wiring/coc-artifact-eval-coverage.md",
+        ".claude/skills/32-trust-posture/wiring/evidence-first-claims.md"
+      ]
+    },
+    ".claude/test-harness/lib/probe-schemas.mjs": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/coc-artifact-eval-coverage.md"
+      ]
+    },
+    ".claude/test-harness/phase2-deferrals.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/orchestrator-context-economy.md",
+        ".claude/guides/rule-extracts/probe-driven-verification.md",
+        ".claude/guides/rule-extracts/upstream-issue-hygiene.md",
+        ".claude/guides/rule-extracts/wave-loop.md",
+        ".claude/rules/completion-criterion.md",
+        ".claude/rules/deferral-registry-locality.md",
+        ".claude/rules/orchestrator-context-economy.md",
+        ".claude/rules/trust-posture.md",
+        ".claude/rules/upstream-issue-hygiene.md",
+        ".claude/skills/12-testing-strategies/probe-driven-verification.md",
+        ".claude/skills/30-claude-code-patterns/deferral-acceptance-queue.md",
+        ".claude/skills/30-claude-code-patterns/user-flow-validation-walk-discipline.md",
+        ".claude/skills/conformance-walk/loom-self-application.md"
+      ]
+    },
+    ".claude/test-harness/probes/": {
+      "why": "directory_not_shipped",
+      "sources": [
+        ".claude/guides/rule-extracts/coc-artifact-eval-coverage.md"
+      ]
+    },
+    ".claude/test-harness/probes/adversarial-coverage.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/adversarial-coverage.md"
+      ]
+    },
+    ".claude/test-harness/probes/agents.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/skills/32-trust-posture/wiring/agents.md"
+      ]
+    },
+    ".claude/test-harness/probes/analyze-output-completeness.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/analyze-output-completeness.md"
+      ]
+    },
+    ".claude/test-harness/probes/artifact-flow.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/artifact-flow.md",
+        ".claude/rules/artifact-flow.md"
+      ]
+    },
+    ".claude/test-harness/probes/artifact-stranding.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/artifact-stranding.md",
+        ".claude/rules/artifact-stranding.md"
+      ]
+    },
+    ".claude/test-harness/probes/autonomous-execution.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/skills/32-trust-posture/wiring/autonomous-execution.md"
+      ]
+    },
+    ".claude/test-harness/probes/burn-down-reporting.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/burn-down-reporting.md"
+      ]
+    },
+    ".claude/test-harness/probes/burndown-integrity.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/burndown-integrity.md"
+      ]
+    },
+    ".claude/test-harness/probes/burndown-traceability.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/burndown-traceability.md"
+      ]
+    },
+    ".claude/test-harness/probes/ci-cost-discipline.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/ci-cost-discipline.md"
+      ]
+    },
+    ".claude/test-harness/probes/ci-job-budget-guard.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/ci-job-budget.md"
+      ]
+    },
+    ".claude/test-harness/probes/ci-job-budget.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/ci-job-budget.md"
+      ]
+    },
+    ".claude/test-harness/probes/ci-runner-saturation.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/ci-cost-discipline.md"
+      ]
+    },
+    ".claude/test-harness/probes/coc-artifact-eval-coverage.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/coc-artifact-eval-coverage.md",
+        ".claude/skills/32-trust-posture/wiring/coc-artifact-eval-coverage.md"
+      ]
+    },
+    ".claude/test-harness/probes/command-skill-parity.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/command-skill-parity.md"
+      ]
+    },
+    ".claude/test-harness/probes/completion-criterion.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/completion-criterion.md"
+      ]
+    },
+    ".claude/test-harness/probes/conformance-walk.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/conformance-walk.md"
+      ]
+    },
+    ".claude/test-harness/probes/conservation-gate.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/skills/32-trust-posture/wiring/conservation-gate.md"
+      ]
+    },
+    ".claude/test-harness/probes/cross-cli-artifact-hygiene.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/cross-cli-artifact-hygiene.md"
+      ]
+    },
+    ".claude/test-harness/probes/cross-sdk-inspection.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/cross-sdk-inspection.md"
+      ]
+    },
+    ".claude/test-harness/probes/deferral-registry-locality.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/deferral-registry-locality.md"
+      ]
+    },
+    ".claude/test-harness/probes/deploy-hygiene.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/deploy-hygiene.md"
+      ]
+    },
+    ".claude/test-harness/probes/deployment.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/deployment.md"
+      ]
+    },
+    ".claude/test-harness/probes/enrollment-operations.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/enrollment-operations.md"
+      ]
+    },
+    ".claude/test-harness/probes/evidence-first-claims.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/skills/32-trust-posture/wiring/evidence-first-claims.md"
+      ]
+    },
+    ".claude/test-harness/probes/git.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/skills/32-trust-posture/wiring/git.md"
+      ]
+    },
+    ".claude/test-harness/probes/governed-throughput.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/governed-throughput.md"
+      ]
+    },
+    ".claude/test-harness/probes/handoff-completion.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/handoff-completion.md"
+      ]
+    },
+    ".claude/test-harness/probes/hook-event-selection.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/hook-event-selection.md"
+      ]
+    },
+    ".claude/test-harness/probes/hook-output-discipline.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/hook-output-discipline.md"
+      ]
+    },
+    ".claude/test-harness/probes/instrument-bipolarity.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/instrument-bipolarity.md"
+      ]
+    },
+    ".claude/test-harness/probes/instrument-discipline.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/skills/32-trust-posture/wiring/instrument-discipline.md"
+      ]
+    },
+    ".claude/test-harness/probes/issue-triage-routing.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/skills/32-trust-posture/wiring/issue-triage-routing.md"
+      ]
+    },
+    ".claude/test-harness/probes/journal-author-discipline.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/journal-author-discipline.md"
+      ]
+    },
+    ".claude/test-harness/probes/journal.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/journal.md",
+        ".claude/rules/journal.md"
+      ]
+    },
+    ".claude/test-harness/probes/knowledge-cascade-routing.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/knowledge-cascade-routing.md"
+      ]
+    },
+    ".claude/test-harness/probes/knowledge-convergence.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/knowledge-convergence.md",
+        ".claude/rules/knowledge-convergence.md"
+      ]
+    },
+    ".claude/test-harness/probes/multi-operator-coordination.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/multi-operator-coordination-substrate.md",
+        ".claude/skills/32-trust-posture/wiring/multi-operator-coordination.md"
+      ]
+    },
+    ".claude/test-harness/probes/orchestration-launch-ledger.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/orchestration-launch-ledger.md",
+        ".claude/rules/orchestration-launch-ledger.md"
+      ]
+    },
+    ".claude/test-harness/probes/orchestrator-context-economy.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/orchestrator-context-economy.md",
+        ".claude/rules/orchestrator-context-economy.md"
+      ]
+    },
+    ".claude/test-harness/probes/orphan-detection.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/orphan-detection.md"
+      ]
+    },
+    ".claude/test-harness/probes/probe-driven-verification.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/probe-driven-verification.md",
+        ".claude/rules/probe-driven-verification.md",
+        ".claude/skills/12-testing-strategies/probe-driven-verification.md"
+      ]
+    },
+    ".claude/test-harness/probes/product-completion-first.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/product-completion-first.md",
+        ".claude/rules/product-completion-first.md"
+      ]
+    },
+    ".claude/test-harness/probes/proposal-intake-trust.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/proposal-intake-trust.md"
+      ]
+    },
+    ".claude/test-harness/probes/recommendation-quality.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/recommendation-quality.md",
+        ".claude/rules/recommendation-quality.md"
+      ]
+    },
+    ".claude/test-harness/probes/repo-scope-discipline.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/skills/32-trust-posture/wiring/repo-scope-discipline.md"
+      ]
+    },
+    ".claude/test-harness/probes/rule-authoring.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/rule-authoring.md"
+      ]
+    },
+    ".claude/test-harness/probes/schema-migration.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/schema-migration.md"
+      ]
+    },
+    ".claude/test-harness/probes/script-tool-manifest-sanity.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/script-tool-manifest-sanity.md"
+      ]
+    },
+    ".claude/test-harness/probes/security.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/skills/32-trust-posture/wiring/security.md"
+      ]
+    },
+    ".claude/test-harness/probes/self-referential-codify.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/self-referential-codify.md"
+      ]
+    },
+    ".claude/test-harness/probes/session-load-backstop.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/ci-cost-discipline.md"
+      ]
+    },
+    ".claude/test-harness/probes/session-notes-continuity.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/session-notes-continuity.md"
+      ]
+    },
+    ".claude/test-harness/probes/spec-accuracy.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/spec-accuracy.md"
+      ]
+    },
+    ".claude/test-harness/probes/specs-authority.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/specs-authority.md",
+        ".claude/rules/specs-authority.md"
+      ]
+    },
+    ".claude/test-harness/probes/stack-detection.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/stack-detection.md"
+      ]
+    },
+    ".claude/test-harness/probes/state-file-write-guard.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/state-file-write-guard.md"
+      ]
+    },
+    ".claude/test-harness/probes/state-regression-integrity.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/state-regression-integrity.md",
+        ".claude/rules/state-regression-integrity.md"
+      ]
+    },
+    ".claude/test-harness/probes/sweep-completeness.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/sweep-completeness.md"
+      ]
+    },
+    ".claude/test-harness/probes/symbol-anchored-citations.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/symbol-anchored-citations.md"
+      ]
+    },
+    ".claude/test-harness/probes/synthetic-load-guard.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/ci-cost-discipline.md"
+      ]
+    },
+    ".claude/test-harness/probes/time-pressure-discipline.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/time-pressure-discipline.md"
+      ]
+    },
+    ".claude/test-harness/probes/trust-posture.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/trust-posture.md"
+      ]
+    },
+    ".claude/test-harness/probes/type-relaxation-sweep.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/skills/32-trust-posture/wiring/type-relaxation-sweep.md"
+      ]
+    },
+    ".claude/test-harness/probes/upstream-issue-hygiene.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/upstream-issue-hygiene.md",
+        ".claude/rules/upstream-issue-hygiene.md"
+      ]
+    },
+    ".claude/test-harness/probes/user-flow-validation.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/user-flow-validation-walk-discipline.md",
+        ".claude/skills/32-trust-posture/wiring/user-flow-validation.md"
+      ]
+    },
+    ".claude/test-harness/probes/value-prioritization.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/value-prioritization.md",
+        ".claude/skills/32-trust-posture/wiring/value-prioritization.md"
+      ]
+    },
+    ".claude/test-harness/probes/verification-gate-integrity.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/verification-gate-integrity.md"
+      ]
+    },
+    ".claude/test-harness/probes/verify-claims-before-write.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/verify-claims-before-write.md"
+      ]
+    },
+    ".claude/test-harness/probes/wave-loop.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/wave-loop.md",
+        ".claude/rules/wave-loop.md"
+      ]
+    },
+    ".claude/test-harness/probes/wip-discipline.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/wip-discipline.md",
+        ".claude/rules/wip-discipline.md"
+      ]
+    },
+    ".claude/test-harness/probes/worktree-isolation.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/worktree-isolation.md",
+        ".claude/rules/worktree-isolation.md"
+      ]
+    },
+    ".claude/test-harness/probes/zero-tolerance.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/skills/32-trust-posture/wiring/zero-tolerance.md"
+      ]
+    },
+    ".claude/test-harness/tests/check-owned-surfaces.test.mjs": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/artifact-flow.md",
+        ".claude/rules/artifact-flow.md"
+      ]
+    },
+    ".claude/test-harness/tests/check-rule-injection-budget.test.mjs": {
+      "why": "exclude",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/self-referential-allowlist-provenance.md"
+      ]
+    },
+    ".claude/test-harness/tests/ci-cost-reach.test.mjs": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/ci-cost-discipline.md",
+        ".claude/rules/ci-cost-discipline.md"
+      ]
+    },
+    ".claude/test-harness/tests/clean-instantiate.test.mjs": {
+      "why": "exclude",
+      "sources": [
+        ".claude/skills/46-clean-instantiate/SKILL.md"
+      ]
+    },
+    ".claude/test-harness/tests/coc-eval-all.test.mjs": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/coc-artifact-eval-coverage.md"
+      ]
+    },
+    ".claude/test-harness/tests/coc-eval-core.test.mjs": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/coc-artifact-eval-coverage.md"
+      ]
+    },
+    ".claude/test-harness/tests/coc-manifest-integrity.test.mjs": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/coc-artifact-eval-coverage.md"
+      ]
+    },
+    ".claude/test-harness/tests/deferral-queue.test.mjs": {
+      "why": "exclude",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/deferral-acceptance-queue.md"
+      ]
+    },
+    ".claude/test-harness/tests/deploy-hygiene-positive-copy.test.mjs": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/deploy-hygiene.md"
+      ]
+    },
+    ".claude/test-harness/tests/derives-from-edge.test.mjs": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/specs-authority.md",
+        ".claude/rules/specs-authority.md"
+      ]
+    },
+    ".claude/test-harness/tests/emit-shape.test.mjs": {
+      "why": "exclude",
+      "sources": [
+        ".claude/skills/12-testing-strategies/probe-driven-verification.md"
+      ]
+    },
+    ".claude/test-harness/tests/exit-code-laundering.test.mjs": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/instrument-discipline.md"
+      ]
+    },
+    ".claude/test-harness/tests/log-triage-gate.test.mjs": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/observability.md"
+      ]
+    },
+    ".claude/test-harness/tests/o1-citation-check.test.mjs": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/artifact-flow.md"
+      ]
+    },
+    ".claude/test-harness/tests/phase2-deferral-integrity.test.mjs": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/trust-posture.md"
+      ]
+    },
+    ".claude/test-harness/tests/posture-v2-migration.test.mjs": {
+      "why": "exclude",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/multi-operator-coordination-substrate.md"
+      ]
+    },
+    ".claude/test-harness/tests/probe-suite-integrity.test.mjs": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/coc-artifact-eval-coverage.md",
+        ".claude/rules/probe-driven-verification.md",
+        ".claude/skills/32-trust-posture/wiring/evidence-first-claims.md"
+      ]
+    },
+    ".claude/test-harness/tests/product-completion-first.test.mjs": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/product-completion-first.md"
+      ]
+    },
+    ".claude/test-harness/tests/provenance-author-backing.test.mjs": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/journal-author-discipline.md"
+      ]
+    },
+    ".claude/test-harness/tests/refusal-delivery-channel.test.mjs": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/hook-output-discipline.md"
+      ]
+    },
+    ".claude/test-harness/tests/register-roster-write-guard.test.mjs": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/state-file-write-guard.md"
+      ]
+    },
+    ".claude/test-harness/tests/state-file-write-guard.test.mjs": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/state-file-write-guard.md"
+      ]
+    },
+    ".claude/test-harness/tests/sync-gate2-worktree.test.mjs": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/sync-completeness.md"
+      ]
+    },
+    ".claude/test-harness/tests/validate-bash-command-state-severity.test.mjs": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/state-file-write-guard.md"
+      ]
+    },
+    ".claude/test-harness/tests/value-prioritization-ablation.test.mjs": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/value-prioritization.md"
+      ]
+    },
+    ".claude/test-harness/tests/wave-loop-ablation.test.mjs": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/wave-loop.md"
+      ]
+    },
+    ".claude/test-harness/tests/wip-remote-landed-gate.test.mjs": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/wip-discipline.md"
+      ]
+    },
+    ".claude/test-harness/tests/worktree-forest-guard.test.mjs": {
+      "why": "exclude",
+      "sources": [
+        ".claude/guides/rule-extracts/worktree-isolation.md"
+      ]
+    },
+    ".claude/test-harness/trust-posture-poc/": {
+      "why": "directory_not_shipped",
+      "sources": [
+        ".claude/rules/trust-posture.md",
+        ".claude/skills/32-trust-posture/SKILL.md"
+      ]
+    },
+    ".claude/test-harness/trust-posture-poc/lib/instruct-and-wait.js": {
+      "why": "exclude",
+      "sources": [
+        ".claude/rules/hook-output-discipline.md"
       ]
     },
     "agents/frameworks/": {
@@ -461,9 +1337,16 @@
         "CLAUDE.md"
       ]
     },
+    "bin/check-sync-freshness.mjs": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/guides/rule-extracts/sync-completeness.md"
+      ]
+    },
     "bin/ecosystem.json": {
       "why": "loom_only",
       "sources": [
+        ".claude/skills/30-claude-code-patterns/parallel-dispatch-default.md",
         ".claude/skills/45-genesis-bootstrap/SKILL.md"
       ]
     },
@@ -482,7 +1365,6 @@
     "bin/lib/loom-links.mjs": {
       "why": "loom_only",
       "sources": [
-        ".claude/commands/ecosystem-init.md",
         ".claude/commands/sweep.md",
         ".claude/guides/rule-extracts/artifact-flow.md",
         ".claude/rules/artifact-flow.md",
@@ -506,6 +1388,12 @@
       "sources": [
         ".claude/rules/artifact-flow.md",
         ".claude/skills/30-claude-code-patterns/sync-flow.md"
+      ]
+    },
+    "bin/verdict.mjs": {
+      "why": "loom_only",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/self-referential-allowlist-provenance.md"
       ]
     },
     "commands/cli-audit.md": {
@@ -538,7 +1426,7 @@
       "why": "use_exclude",
       "sources": [
         ".claude/guides/rule-extracts/sync-completeness.md",
-        ".claude/rules/instrument-discipline.md"
+        ".claude/skills/32-trust-posture/wiring/instrument-discipline.md"
       ]
     },
     "guides/co-setup/": {
@@ -581,7 +1469,6 @@
     "guides/co-setup/11-genesis-ceremony.md": {
       "why": "use_exclude",
       "sources": [
-        ".claude/commands/ecosystem-init.md",
         ".claude/commands/whoami.md",
         ".claude/rules/enrollment-operations.md",
         ".claude/skills/30-claude-code-patterns/multi-operator-coordination-substrate.md",
@@ -596,7 +1483,7 @@
       ]
     },
     "guides/deterministic-quality/01-rule-authoring-principles.md": {
-      "why": "use_exclude",
+      "why": "loom_only",
       "sources": [
         ".claude/agents/cc-architect.md",
         ".claude/commands/cc-audit.md",
@@ -604,13 +1491,13 @@
       ]
     },
     "guides/deterministic-quality/02-session-architecture.md": {
-      "why": "use_exclude",
+      "why": "loom_only",
       "sources": [
         ".claude/skills/30-claude-code-patterns/worktree-orchestration.md"
       ]
     },
     "guides/deterministic-quality/06-observability-primitives.md": {
-      "why": "use_exclude",
+      "why": "loom_only",
       "sources": [
         ".claude/guides/rule-extracts/observability.md"
       ]
@@ -618,13 +1505,16 @@
     "guides/rule-extracts/git.md": {
       "why": "use_exclude",
       "sources": [
-        ".claude/rules/autonomous-execution.md"
+        ".claude/guides/rule-extracts/testing.md",
+        ".claude/rules/testing.md",
+        ".claude/skills/12-testing-strategies/gate-runner-economics.md",
+        ".claude/skills/30-claude-code-patterns/ci-cost-discipline-evidence.md",
+        ".claude/skills/32-trust-posture/wiring/autonomous-execution.md"
       ]
     },
     "journal/0006-DECISION-wrapper-emission-disposition-strip.md": {
       "why": "outside_owned_surfaces",
       "sources": [
-        ".claude/skills/command-authoring/SKILL.md",
         ".claude/skills/hook-authoring/SKILL.md"
       ]
     },
@@ -649,14 +1539,19 @@
     "journal/0042-DECISION-feature-set.md": {
       "why": "outside_owned_surfaces",
       "sources": [
-        ".claude/rules/value-prioritization.md"
+        ".claude/guides/rule-extracts/value-prioritization.md"
+      ]
+    },
+    "journal/0051": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/skills/conformance-walk/loom-self-application.md"
       ]
     },
     "journal/0055": {
       "why": "outside_owned_surfaces",
       "sources": [
-        ".claude/guides/rule-extracts/value-prioritization.md",
-        ".claude/rules/value-prioritization.md"
+        ".claude/guides/rule-extracts/value-prioritization.md"
       ]
     },
     "journal/0059": {
@@ -680,7 +1575,7 @@
     "journal/0063": {
       "why": "outside_owned_surfaces",
       "sources": [
-        ".claude/rules/value-prioritization.md"
+        ".claude/guides/rule-extracts/value-prioritization.md"
       ]
     },
     "journal/0064-DISCOVERY-phantom-citation-chain-and-redteam-round-history.md": {
@@ -692,7 +1587,7 @@
     "journal/0065": {
       "why": "outside_owned_surfaces",
       "sources": [
-        ".claude/rules/value-prioritization.md"
+        ".claude/guides/rule-extracts/value-prioritization.md"
       ]
     },
     "journal/0067": {
@@ -719,6 +1614,12 @@
         ".claude/guides/rule-extracts/sync-completeness.md"
       ]
     },
+    "journal/0074": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/sync-completeness.md"
+      ]
+    },
     "journal/0078": {
       "why": "outside_owned_surfaces",
       "sources": [
@@ -729,6 +1630,12 @@
       "why": "outside_owned_surfaces",
       "sources": [
         ".claude/commands/wrapup.md"
+      ]
+    },
+    "journal/0095": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/artifact-flow.md"
       ]
     },
     "journal/0117": {
@@ -745,6 +1652,25 @@
         ".claude/commands/release-claim.md"
       ]
     },
+    "journal/0132": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/knowledge-convergence.md"
+      ]
+    },
+    "journal/0133": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/knowledge-convergence.md"
+      ]
+    },
+    "journal/0134": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/user-flow-validation-walk-discipline.md",
+        ".claude/skills/32-trust-posture/wiring/user-flow-validation.md"
+      ]
+    },
     "journal/0143-DECISION-m9-3-closure-partial-py-rb-shipped-rs-deferred-2026-05-22.md": {
       "why": "outside_owned_surfaces",
       "sources": [
@@ -754,12 +1680,14 @@
     "journal/0144": {
       "why": "outside_owned_surfaces",
       "sources": [
+        ".claude/guides/rule-extracts/rule-authoring.md",
         ".claude/rules/rule-authoring.md"
       ]
     },
     "journal/0146": {
       "why": "outside_owned_surfaces",
       "sources": [
+        ".claude/guides/rule-extracts/rule-authoring.md",
         ".claude/rules/rule-authoring.md",
         ".claude/skills/skill-authoring/proximity-band-named-rationale-template.md"
       ]
@@ -767,6 +1695,7 @@
     "journal/0147": {
       "why": "outside_owned_surfaces",
       "sources": [
+        ".claude/guides/rule-extracts/rule-authoring.md",
         ".claude/rules/rule-authoring.md",
         ".claude/skills/skill-authoring/proximity-band-named-rationale-template.md"
       ]
@@ -774,13 +1703,39 @@
     "journal/0148": {
       "why": "outside_owned_surfaces",
       "sources": [
-        ".claude/rules/rule-authoring.md",
+        ".claude/guides/rule-extracts/coc-artifact-eval-coverage.md",
+        ".claude/guides/rule-extracts/cross-cli-artifact-hygiene.md",
+        ".claude/guides/rule-extracts/cross-sdk-inspection.md",
+        ".claude/guides/rule-extracts/journal.md",
+        ".claude/guides/rule-extracts/knowledge-convergence.md",
+        ".claude/guides/rule-extracts/multi-operator-coordination.md",
+        ".claude/guides/rule-extracts/orchestration-launch-ledger.md",
+        ".claude/guides/rule-extracts/orphan-detection.md",
+        ".claude/guides/rule-extracts/patterns.md",
+        ".claude/guides/rule-extracts/recommendation-quality.md",
+        ".claude/guides/rule-extracts/rule-authoring.md",
+        ".claude/guides/rule-extracts/schema-migration.md",
+        ".claude/guides/rule-extracts/specs-authority.md",
+        ".claude/guides/rule-extracts/testing.md",
+        ".claude/guides/rule-extracts/value-prioritization.md",
+        ".claude/guides/rule-extracts/wave-loop.md",
+        ".claude/guides/rule-extracts/worktree-isolation.md",
+        ".claude/rules/burn-down-reporting.md",
+        ".claude/rules/cross-cli-artifact-hygiene.md",
+        ".claude/rules/orchestration-launch-ledger.md",
+        ".claude/rules/schema-migration.md",
+        ".claude/rules/wave-loop.md",
+        ".claude/skills/30-claude-code-patterns/multi-operator-coordination-substrate.md",
+        ".claude/skills/30-claude-code-patterns/user-flow-validation-walk-discipline.md",
+        ".claude/skills/32-trust-posture/wiring/user-flow-validation.md",
+        ".claude/skills/32-trust-posture/wiring/value-prioritization.md",
         ".claude/skills/skill-authoring/proximity-band-named-rationale-template.md"
       ]
     },
     "journal/0149": {
       "why": "outside_owned_surfaces",
       "sources": [
+        ".claude/guides/rule-extracts/rule-authoring.md",
         ".claude/skills/skill-authoring/proximity-band-named-rationale-template.md"
       ]
     },
@@ -791,7 +1746,13 @@
         ".claude/skills/42-certify/SKILL.md"
       ]
     },
-    "journal/0170-esperie-DECISION-f86-f70-f71-parallel-wave-2026-05-29.md": {
+    "journal/0163": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/sync-completeness.md"
+      ]
+    },
+    "journal/0170": {
       "why": "outside_owned_surfaces",
       "sources": [
         ".claude/skills/30-claude-code-patterns/multi-operator-coordination-substrate.md"
@@ -810,6 +1771,13 @@
         ".claude/skills/30-claude-code-patterns/multi-operator-coordination-substrate.md"
       ]
     },
+    "journal/0174": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/rules/burndown-traceability.md",
+        ".claude/skills/30-claude-code-patterns/burndown-traceability.md"
+      ]
+    },
     "journal/0177": {
       "why": "outside_owned_surfaces",
       "sources": [
@@ -825,6 +1793,7 @@
     "journal/0193": {
       "why": "outside_owned_surfaces",
       "sources": [
+        ".claude/guides/rule-extracts/rule-authoring.md",
         ".claude/guides/rule-extracts/worktree-isolation.md"
       ]
     },
@@ -837,19 +1806,27 @@
     "journal/0226": {
       "why": "outside_owned_surfaces",
       "sources": [
+        ".claude/guides/rule-extracts/wave-loop.md",
         ".claude/rules/wave-loop.md"
       ]
     },
-    "journal/0230-esperie-DECISION-382-journal-contract-reconciliation.md": {
+    "journal/0230": {
       "why": "outside_owned_surfaces",
       "sources": [
+        ".claude/guides/rule-extracts/journal.md",
         ".claude/rules/journal.md"
       ]
     },
     "journal/0233": {
       "why": "outside_owned_surfaces",
       "sources": [
-        ".claude/rules/multi-operator-coordination.md"
+        ".claude/skills/30-claude-code-patterns/multi-operator-coordination-substrate.md"
+      ]
+    },
+    "journal/0252": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/sync-completeness.md"
       ]
     },
     "journal/0280": {
@@ -874,8 +1851,7 @@
     "journal/0289": {
       "why": "outside_owned_surfaces",
       "sources": [
-        ".claude/guides/rule-extracts/artifact-flow.md",
-        ".claude/rules/artifact-flow.md"
+        ".claude/guides/rule-extracts/artifact-flow.md"
       ]
     },
     "journal/0335": {
@@ -887,6 +1863,7 @@
     "journal/0339": {
       "why": "outside_owned_surfaces",
       "sources": [
+        ".claude/guides/rule-extracts/sync-completeness.md",
         ".claude/skills/30-claude-code-patterns/sync-flow.md"
       ]
     },
@@ -894,6 +1871,12 @@
       "why": "outside_owned_surfaces",
       "sources": [
         ".claude/rules/analyze-output-completeness.md"
+      ]
+    },
+    "journal/0352": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/sync-completeness.md"
       ]
     },
     "journal/0375": {
@@ -917,14 +1900,14 @@
     "journal/0402": {
       "why": "outside_owned_surfaces",
       "sources": [
-        ".claude/guides/rule-extracts/artifact-flow.md",
-        ".claude/rules/artifact-flow.md"
+        ".claude/guides/rule-extracts/artifact-flow.md"
       ]
     },
     "journal/0403": {
       "why": "outside_owned_surfaces",
       "sources": [
         ".claude/guides/rule-extracts/artifact-flow.md",
+        ".claude/guides/rule-extracts/sync-completeness.md",
         ".claude/rules/artifact-flow.md"
       ]
     },
@@ -937,18 +1920,21 @@
     "journal/0434": {
       "why": "outside_owned_surfaces",
       "sources": [
+        ".claude/guides/rule-extracts/recommendation-quality.md",
         ".claude/rules/recommendation-quality.md"
       ]
     },
     "journal/0435": {
       "why": "outside_owned_surfaces",
       "sources": [
+        ".claude/guides/rule-extracts/recommendation-quality.md",
         ".claude/rules/recommendation-quality.md"
       ]
     },
     "journal/0436": {
       "why": "outside_owned_surfaces",
       "sources": [
+        ".claude/guides/rule-extracts/recommendation-quality.md",
         ".claude/rules/recommendation-quality.md"
       ]
     },
@@ -964,9 +1950,23 @@
         ".claude/rules/worktree-isolation.md"
       ]
     },
+    "journal/0465": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/sync-completeness.md"
+      ]
+    },
+    "journal/0466": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/specs-authority.md",
+        ".claude/rules/specs-authority.md"
+      ]
+    },
     "journal/0467": {
       "why": "outside_owned_surfaces",
       "sources": [
+        ".claude/guides/rule-extracts/product-completion-first.md",
         ".claude/rules/product-completion-first.md"
       ]
     },
@@ -986,14 +1986,15 @@
     "journal/0480": {
       "why": "outside_owned_surfaces",
       "sources": [
+        ".claude/guides/rule-extracts/specs-authority.md",
         ".claude/rules/specs-authority.md"
       ]
     },
     "journal/0482": {
       "why": "outside_owned_surfaces",
       "sources": [
-        ".claude/rules/multi-operator-coordination.md",
-        ".claude/skills/30-claude-code-patterns/multi-operator-coordination-substrate.md"
+        ".claude/skills/30-claude-code-patterns/multi-operator-coordination-substrate.md",
+        ".claude/skills/32-trust-posture/wiring/multi-operator-coordination.md"
       ]
     },
     "journal/0488": {
@@ -1001,7 +2002,7 @@
       "sources": [
         ".claude/commands/cross-repo-authorize.md",
         ".claude/guides/rule-extracts/repo-scope-discipline.md",
-        ".claude/rules/repo-scope-discipline.md"
+        ".claude/skills/32-trust-posture/wiring/repo-scope-discipline.md"
       ]
     },
     "journal/0518": {
@@ -1014,13 +2015,16 @@
       "why": "outside_owned_surfaces",
       "sources": [
         ".claude/guides/rule-extracts/agents.md",
-        ".claude/rules/burn-down-reporting.md",
-        ".claude/rules/wave-loop.md"
+        ".claude/guides/rule-extracts/burn-down-reporting.md",
+        ".claude/guides/rule-extracts/wave-loop.md",
+        ".claude/rules/wave-loop.md",
+        ".claude/skills/32-trust-posture/wiring/agents.md"
       ]
     },
     "journal/0565": {
       "why": "outside_owned_surfaces",
       "sources": [
+        ".claude/guides/rule-extracts/worktree-isolation.md",
         ".claude/rules/worktree-isolation.md"
       ]
     },
@@ -1036,15 +2040,16 @@
       "sources": [
         ".claude/guides/rule-extracts/autonomous-execution.md",
         ".claude/guides/rule-extracts/instrument-discipline.md",
-        ".claude/rules/instrument-discipline.md",
         ".claude/skills/30-claude-code-patterns/instrument-discipline.md",
+        ".claude/skills/32-trust-posture/wiring/instrument-discipline.md",
         ".claude/skills/issue-triage-routing/SKILL.md"
       ]
     },
     "journal/0570": {
       "why": "outside_owned_surfaces",
       "sources": [
-        ".claude/rules/autonomous-execution.md"
+        ".claude/guides/rule-extracts/conservation-gate.md",
+        ".claude/skills/32-trust-posture/wiring/autonomous-execution.md"
       ]
     },
     "journal/0572": {
@@ -1056,18 +2061,176 @@
     "journal/0574": {
       "why": "outside_owned_surfaces",
       "sources": [
-        ".claude/rules/autonomous-execution.md"
+        ".claude/guides/rule-extracts/conservation-gate.md",
+        ".claude/skills/32-trust-posture/wiring/autonomous-execution.md"
+      ]
+    },
+    "journal/0577": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/agents.md",
+        ".claude/guides/rule-extracts/conservation-gate.md",
+        ".claude/skills/32-trust-posture/wiring/conservation-gate.md"
+      ]
+    },
+    "journal/0581": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/instrument-bipolarity.md",
+        ".claude/rules/instrument-bipolarity.md"
+      ]
+    },
+    "journal/0582": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/instrument-bipolarity.md",
+        ".claude/rules/instrument-bipolarity.md"
+      ]
+    },
+    "journal/0583": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/state-regression-integrity.md",
+        ".claude/rules/burndown-integrity.md"
+      ]
+    },
+    "journal/0584": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/worktree-isolation.md",
+        ".claude/rules/worktree-isolation.md"
+      ]
+    },
+    "journal/0590": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/rules/probe-driven-verification.md",
+        ".claude/skills/12-testing-strategies/probe-driven-verification.md"
+      ]
+    },
+    "journal/0593": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/skills/32-trust-posture/wiring/instrument-discipline.md"
+      ]
+    },
+    "journal/0604": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/zero-tolerance.md",
+        ".claude/skills/32-trust-posture/wiring/zero-tolerance.md"
+      ]
+    },
+    "journal/0606": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/commands/pickup.md",
+        ".claude/skills/pickup/SKILL.md",
+        ".claude/skills/wrapup/SKILL.md"
+      ]
+    },
+    "journal/0607": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/commands/pickup.md",
+        ".claude/guides/rule-extracts/agents.md",
+        ".claude/guides/rule-extracts/autonomous-execution.md",
+        ".claude/guides/rule-extracts/orchestrator-context-economy.md",
+        ".claude/guides/rule-extracts/wip-discipline.md",
+        ".claude/guides/rule-extracts/worktree-isolation.md",
+        ".claude/rules/wip-discipline.md",
+        ".claude/rules/worktree-isolation.md",
+        ".claude/skills/30-claude-code-patterns/workflow-orchestration-throughput.md",
+        ".claude/skills/30-claude-code-patterns/worktree-orchestration.md",
+        ".claude/skills/32-trust-posture/wiring/agents.md",
+        ".claude/skills/lane-planning/SKILL.md"
+      ]
+    },
+    "journal/0608": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/wip-discipline.md",
+        ".claude/rules/wip-discipline.md",
+        ".claude/skills/lane-planning/SKILL.md"
+      ]
+    },
+    "journal/0609": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/ci-cost-discipline.md",
+        ".claude/rules/ci-cost-discipline.md",
+        ".claude/skills/30-claude-code-patterns/background-process-discipline.md"
+      ]
+    },
+    "journal/0610": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/commands/pickup.md"
+      ]
+    },
+    "journal/0611": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/commands/pickup.md"
+      ]
+    },
+    "journal/0618": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/rules/conformance-walk.md",
+        ".claude/skills/conformance-walk/loom-self-application.md"
+      ]
+    },
+    "journal/0620": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/conservation-gate-scratch.md"
+      ]
+    },
+    "journal/0629": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/rules/orchestrator-context-economy.md"
+      ]
+    },
+    "journal/0630": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/orchestrator-context-economy.md",
+        ".claude/rules/orchestrator-context-economy.md"
+      ]
+    },
+    "journal/0631": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/conservation-gate-scratch.md",
+        ".claude/skills/32-trust-posture/wiring/conservation-gate.md"
+      ]
+    },
+    "journal/0642": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/instrument-discipline.md"
+      ]
+    },
+    "journal/0653": {
+      "why": "outside_owned_surfaces",
+      "sources": [
+        ".claude/guides/rule-extracts/conservation-gate-scratch.md"
       ]
     },
     "rules/build-repo-release-discipline.md": {
       "why": "tier_not_subscribed",
       "sources": [
-        ".claude/skills/16-validation-patterns/validate-codebase-hygiene-markers.md"
+        ".claude/guides/rule-extracts/conservation-gate-scratch.md",
+        ".claude/skills/16-validation-patterns/validate-codebase-hygiene-markers.md",
+        ".claude/skills/32-trust-posture/wiring/conservation-gate.md"
       ]
     },
     "rules/coc-artifact-eval-coverage.md": {
       "why": "use_exclude",
       "sources": [
+        ".claude/guides/rule-extracts/cc-artifacts.md",
         ".claude/guides/rule-extracts/sync-completeness.md",
         ".claude/rules/cc-artifacts.md"
       ]
@@ -1075,6 +2238,7 @@
     "rules/coc-sync-landing.md": {
       "why": "tier_not_subscribed",
       "sources": [
+        ".claude/guides/rule-extracts/knowledge-convergence.md",
         ".claude/rules/knowledge-convergence.md",
         ".claude/skills/30-claude-code-patterns/multi-cli-migration.md"
       ]
@@ -1084,6 +2248,7 @@
       "sources": [
         ".claude/agents/codex-architect.md",
         ".claude/agents/gemini-architect.md",
+        ".claude/guides/rule-extracts/cross-cli-artifact-hygiene.md",
         ".claude/rules/cross-cli-artifact-hygiene.md",
         ".claude/skills/30-claude-code-patterns/multi-operator-coordination-substrate.md",
         ".claude/skills/command-authoring/SKILL.md",
@@ -1096,9 +2261,7 @@
         ".claude/commands/enroll.md",
         ".claude/commands/sweep.md",
         ".claude/skills/30-claude-code-patterns/multi-operator-coordination-substrate.md",
-        ".claude/skills/30-claude-code-patterns/sync-flow.md",
-        "AGENTS.md",
-        "GEMINI.md"
+        ".claude/skills/30-claude-code-patterns/sync-flow.md"
       ]
     },
     "rules/cross-sdk-inspection.md": {
@@ -1110,6 +2273,7 @@
     "rules/dataflow-identifier-safety.md": {
       "why": "tier_not_subscribed",
       "sources": [
+        ".claude/guides/rule-extracts/schema-migration.md",
         ".claude/rules/schema-migration.md"
       ]
     },
@@ -1123,13 +2287,19 @@
       "why": "tier_not_subscribed",
       "sources": [
         ".claude/agents/implementation/build-fix.md",
+        ".claude/guides/rule-extracts/agents.md",
+        ".claude/guides/rule-extracts/schema-migration.md",
+        ".claude/rules/agents.md",
         ".claude/rules/schema-migration.md",
-        ".claude/skills/36-claude-managed-agents/SKILL.md"
+        ".claude/skills/36-claude-managed-agents/SKILL.md",
+        "AGENTS.md",
+        "GEMINI.md"
       ]
     },
     "rules/infrastructure-sql.md": {
       "why": "tier_not_subscribed",
       "sources": [
+        ".claude/guides/rule-extracts/schema-migration.md",
         ".claude/rules/schema-migration.md"
       ]
     },
@@ -1163,7 +2333,6 @@
     "rules/variant-authoring.md": {
       "why": "tier_not_subscribed",
       "sources": [
-        ".claude/agents/codex-architect.md",
         ".claude/agents/gemini-architect.md",
         ".claude/rules/cc-artifacts.md"
       ]
@@ -1220,6 +2389,24 @@
     },
     "skills/test-harness-probe/": {
       "why": "directory_not_shipped",
+      "sources": [
+        ".claude/guides/rule-extracts/sync-completeness.md"
+      ]
+    },
+    "test-harness/phase2-deferrals.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/deferral-acceptance-queue.md"
+      ]
+    },
+    "test-harness/probes/instrument-discipline.probes.json": {
+      "why": "exclude",
+      "sources": [
+        ".claude/skills/30-claude-code-patterns/instrument-discipline.md"
+      ]
+    },
+    "test-harness/tests/check-emit-exit-swallow.test.mjs": {
+      "why": "exclude",
       "sources": [
         ".claude/guides/rule-extracts/sync-completeness.md"
       ]

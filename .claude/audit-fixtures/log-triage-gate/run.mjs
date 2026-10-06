@@ -42,6 +42,7 @@
  * Exit 0 = all fixtures pass. Exit 1 = >=1 fixture failed.
  */
 
+import "../_lib/no-ambient-git.cjs";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -613,10 +614,66 @@ withLogs({ "app.log": "ERROR " + "x".repeat(400) }, {}, (dir) => {
       reportedCount(r.msg) === 205,
       `expected 200 (capped spam) + 5 (sibling) = 205 findings, got ${reportedCount(r.msg)} — a shared budget is starving the sibling again`,
     );
+    // ALL FIVE DISTINCT ERRORS, identified by CONTENT. The sibling has exactly 5
+    // genuine ERRORs and the display window is 10, so every one of them fits;
+    // "are actually RENDERED" is a claim about all five, and the assertion says
+    // so in the only terms that cannot be satisfied by a proxy.
+    //
+    // TWO EARLIER FORMS OF THIS CHECK WERE NON-DISCRIMINATING, both measured:
+    //
+    //   `.some()`               — ONE line in ten satisfies it. Replacing
+    //     selectForDisplay's round-robin with a greedy fill moved the composition
+    //     from 5-of-5 sibling rows to 1-of-5 and this fixture stayed 59/59 GREEN.
+    //
+    //   `fromSibling === 5`     — counts ROWS, which is a PROXY for distinct
+    //     errors. Mutating `out.push(q.shift())` to `out.push(q[0])` (peek, never
+    //     consume) renders the SAME error five times: rows stay 5, DISTINCT lines
+    //     go 5 → 1, and four of five genuine production ERRORs are still starved
+    //     out of the operator's view — loom#1662 exactly, in the form the pin
+    //     exists to catch. 59/59 GREEN again. The fix for a non-discriminating
+    //     assertion was itself non-discriminating one step over.
+    //
+    // Both mutations were proven NON-INERT by measuring the RENDERED OUTPUT
+    // directly (distinct sibling lines, and which error indices appear), never by
+    // reading the verdict — a verdict cannot tell an inert mutation from a blind
+    // assertion.
+    //
+    // Anchoring on `ERROR genuine production failure <i>` for EACH i closes the
+    // repeat class (a duplicate contributes no new index), the distinct-but-wrong
+    // class (a set-size check alone would accept five unrelated lines), and
+    // severity mislabelling (the rendered line carries `ERROR`). Guards loom#1662.
+    const sibling = rendered.filter((l) => l.includes("zzz-real.log"));
+    const missingErrors = [0, 1, 2, 3, 4].filter(
+      (i) => !sibling.some((l) => l.includes(`ERROR genuine production failure ${i}`)),
+    );
     check(
       "fixture-26b-sibling-genuine-errors-are-actually-RENDERED",
-      rendered.length === 10 && rendered.some((l) => l.includes("zzz-real.log")),
-      `the sibling's genuine ERRORs reached the count but not the operator's view: rendered=${rendered.length} fromSibling=${rendered.filter((l) => l.includes("zzz-real.log")).length}`,
+      rendered.length === 10 && missingErrors.length === 0,
+      `the sibling's genuine ERRORs reached the count but not the operator's view: rendered=${rendered.length} siblingRows=${sibling.length} distinct=${new Set(sibling).size} MISSING errors=[${missingErrors.join(",")}] (expected all 5 of 5 distinct — a window of 10 fits every one)`,
+    );
+    // 26d — THE SPAM SIDE IS NOT SILENTLY COLLAPSED EITHER.
+    //
+    // Deliberately its OWN case rather than a clause bolted onto 26b. 26b is named
+    // for the SIBLING side and asserts that all five genuine ERRORs reach the view;
+    // this asserts a different property of a different file, and folding the two
+    // together would over-fit a case to a claim its name does not make.
+    //
+    // The property: the display window must not spend slots on REPEATS. The hook
+    // dedupes upstream, so a duplicate rendered row means either dedupe failed or
+    // selection re-emitted one entry — both real defects, and both invisible to
+    // every other case here. Measured: making the largest queue yield its first
+    // entry every time moves the spam side from 5 rows / 5 distinct to 5 rows /
+    // 1 distinct while the sibling side stays intact, and 26a/26b/26c ALL stay
+    // green. That mutation was proven non-inert by reading the rendered
+    // composition of BOTH files, never a verdict.
+    //
+    // 26b correctly stays green under it: no genuine ERROR is starved, which is
+    // the only thing 26b claims. Two properties, two cases.
+    const spam = rendered.filter((l) => l.includes("aaa-spam.log"));
+    check(
+      "fixture-26d-the-spam-side-is-not-collapsed-into-repeats",
+      spam.length > 0 && new Set(spam).size === spam.length,
+      `the display window spent slots on duplicate rows: spamRows=${spam.length} distinct=${new Set(spam).size} — a repeat wastes a slot a distinct finding could have used`,
     );
     check(
       "fixture-26c-the-per-file-cap-still-exists",

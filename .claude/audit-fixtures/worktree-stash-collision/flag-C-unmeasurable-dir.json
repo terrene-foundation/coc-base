@@ -1,0 +1,4 @@
+{
+  "command": "git -C /nonexistent-checkout-b7f2e9 stash pop",
+  "note": "The `-C` value is literal (so the SELECTOR flags it) but names no repository, so `git worktree list` cannot answer and the HOOK must stay silent. This is the cc-artifacts.md Rule 7 fail-open contract as a pinned pole, not as prose: an unmeasured worktree count must never be asserted (instrument-discipline.md MUST-1). Found by ARM 2 disagreeing with a first draft of this table, not predicted"
+}

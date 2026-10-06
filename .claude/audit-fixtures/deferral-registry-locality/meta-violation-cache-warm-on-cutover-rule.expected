@@ -1,0 +1,31 @@
+compliant=false against `rules/rule-authoring.md`, with four breaches named, all four inside the
+single numbered clause.
+
+First, the clause HEADING states an obligation — "Runs BEFORE The Cutover, Never After It" —
+while the BODY hedges throughout: should generally, are encouraged to move toward, usually less
+helpful, tends to be worth avoiding. Its closing sentence then returns the exact case the
+heading forbids, allowing the cutover to run first with the warm pass following under live
+traffic whenever the window is tight. A rule that hands back its own forbidden case teaches the
+exception, not the rule.
+
+Second, the `**BLOCKED rationalizations:**` heading is present and holds six ABSTRACT CATEGORY
+LABELS — "Optimism bias regarding natural warm-up intervals", "Deploy-window pressure effects" —
+instead of the literal first-person sentences a session emits. No session ever writes those
+words, so the corpus traps nothing.
+
+Third, the two arms of the worked block are the SAME LINE. Both read "warm the cache against the
+new build, then cut traffic over to it" and both quote the same example; they are separated only
+by the trailing adverbs "carefully" and "carelessly". The contrast slot is filled and carries no
+contrast, so the block cannot teach the ordering it exists to teach.
+
+Fourth, the justification runs well past the two-sentence cap, wandering through traffic
+profile, working-set size, cacheable-route ratio and key-scheme addressability before closing on
+a recommendation to consider the ordering alongside those — which also softens the obligation a
+second time.
+
+Surface-equalized with the sibling pole at a size ratio of 1.085, an identical `## ` heading
+skeleton, one numbered clause each and two justification lines each. The frontmatter, the whole
+`## MUST NOT` section including its one-sentence justification, the entire Wiring block with its
+eight canonical fields and its structurally-grounded Phase-2 deferral, and the `## Origin` are
+shared byte-for-byte with the sibling and are NOT findings. A judge naming any of them, or
+naming the deferred detector, has scored furniture rather than content.

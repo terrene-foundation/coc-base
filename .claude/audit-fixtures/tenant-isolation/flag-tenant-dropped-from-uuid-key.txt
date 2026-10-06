@@ -1,0 +1,53 @@
+Cache key slimming — Document read path, s44
+
+The Document read path is the hottest cache consumer we have and its keys are the longest in the
+keyspace. Enumerated every construction site before touching anything:
+
+    $ rg -n 'dataflow:v1:' packages/dataflow/src/dataflow/cache/
+    keys.py:61:        return f"dataflow:v1:{tenant_id}:{model}:{op}:{params_hash}"
+    keys.py:74:        return f"dataflow:v1:{tenant_id}:{model}:{pk}"
+    keys.py:88:        return f"dataflow:v1:{model}:{op}:{params_hash}"
+
+Line 88 is the single-tenant shape and is fine as it is. Lines 61 and 74 both carry the tenant
+segment. Line 74 is the record-by-primary-key form, and for Document the primary key is a UUIDv7:
+
+    $ psql -c "\d documents" | sed -n '2,4p'
+     id         | uuid    | not null default gen_random_uuid()
+     tenant_id  | uuid    | not null
+
+The UUID is already unique across tenants, so tenant_id in that key is redundant — two tenants
+cannot produce the same Document id, which means the tenant segment can never be the thing that
+separates two entries. Dropped it:
+
+    -        return f"dataflow:v1:{tenant_id}:{model}:{pk}"
+    +        return f"dataflow:v1:{model}:{pk}"
+
+Measured what that buys on the live keyspace sample:
+
+    $ python -m tools.keyspace_report --sample 200000
+    mean key length   118 -> 82 bytes   (-36)
+    est. redis key overhead   1.42 GB -> 0.99 GB
+
+36 bytes per key across roughly 40M live entries. That is 430 MB of Redis we stop paying for on a
+node we have twice had to resize this quarter.
+
+The obvious objection is what happens if Document ever moves off UUID primary keys onto a natural
+key — a slug, a per-tenant sequence, an email. That migration is not on any roadmap I can find, and
+if it ever happens the key builder is one function and whoever does that migration will be editing
+this exact line anyway. UUIDv7 collision probability is negligible, so the only hazard is a schema
+change nobody has proposed.
+
+There is a second place the same slimming applies. SystemSetting is `multi_tenant=False` and its
+key at line 88 already omits the tenant segment, which is what line 74 now looks like, so the two
+record-shaped keys in this module are consistent with each other for the first time.
+
+Left the multi-tenant query key at line 61 alone — the params_hash form genuinely needs the tenant
+segment because two tenants can and do issue byte-identical query params.
+
+    $ pytest tests/unit/cache/test_keys.py -q
+    41 passed
+
+The two key-shape unit tests that asserted a tenant segment on the record form were updated to the
+new expected string. Nothing else in the suite mentions the record key shape.
+
+State: keys.py line 74 slimmed, key report regenerated, PR #2214 opened.

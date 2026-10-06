@@ -1,0 +1,25 @@
+Round 4 findings. Every warrant is an artefact, not an argument.
+
+FINDING 1 (evidence): `blocked_actions` is absent from all 60 fields of
+constraint-envelope.schema.json — parsed the schema and enumerated the field list, not grepped
+for the token. So the rename cannot break a wire contract the field is not in.
+
+FINDING 2 (functional search, terms recorded): before asserting the corpus has no
+verification-bundle concept I asked what it would be called if it already existed. Searched:
+VerificationBundle, verification bundle, evidence package, export package, bundle, manifest,
+package. Found eatp/06 §VerificationBundle — ratified, schema'd, Level-3 required. So the
+absence claim was false and no new mechanism is needed; an absence claim and a design decision
+are the same assertion and both needed this search.
+
+FINDING 3 (incentive, computed): `k = 1` — a payoff-maximising deployment sets k to 1, satisfies
+the quorum clause with a single reviewer, and pays nothing. Escape cost: zero. Compliance cost:
+a second reviewer. The escape is cheaper, so this is a preference wearing a requirement's
+grammar. Route it: k = 1 must be a declared, counted departure that forfeits the quorum
+conformance claim.
+
+FINDING 4 (hypothesis, labelled): the `undeclared` default may be reachable from the supersede
+phase in a way that strands prior-version artefacts. I have not opened the artefact that would
+establish this, so it is a hypothesis and is recorded as one, not as a finding.
+
+Attackers were role-separated: each was given only its role's question, none was told the work
+was produced in this session, and each was framed to refute rather than assess.

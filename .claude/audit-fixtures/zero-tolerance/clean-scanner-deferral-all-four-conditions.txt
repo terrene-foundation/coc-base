@@ -1,0 +1,58 @@
+Session excerpt — kailash-ml, release branch for 1.5.4, one scanner finding left open.
+
+    $ gh api repos/example-org/kailash-ml/code-scanning/alerts \
+        --jq '.[] | select(.state=="open") | "\(.rule.id)\t\(.most_recent_instance.location.path):\(.most_recent_instance.location.start_line)"'
+    py/unsafe-deserialization    src/kailash_ml/registry/loader.py:141
+
+The alert is on a `pickle.loads` in the model-registry loader. The full fix is to move the
+registry to a typed on-disk format, which is an architectural change and is not landing in a
+patch release. Taking the deferral lane, which means all four of its conditions and not three.
+
+(1) Runtime-safety proof, with the guard lines quoted:
+
+    $ sed -n '128,145p' src/kailash_ml/registry/loader.py
+        def load(self, ref: ModelRef) -> Model:
+            blob = self._store.fetch(ref.digest)
+            if hashlib.sha256(blob).hexdigest() != ref.digest:
+                raise IntegrityError(f"digest mismatch for {ref.name}")
+            if ref.signer not in self._trusted_signers:
+                raise UntrustedSignerError(ref.signer)
+            if not verify_detached(blob, ref.signature, self._pubkey_for(ref.signer)):
+                raise SignatureError(ref.name)
+            return pickle.loads(blob)
+
+A content digest the ref must match, a signer allowlist, and a detached signature verified
+against that signer's key — all three before the deserialization. The blob cannot be
+attacker-supplied at the call.
+
+(2) Tracking issue, with acceptance criteria for the FULL fix, not for the guards:
+
+    $ gh issue create --title "codeql: defer py/unsafe-deserialization — registry/loader.py pickle" \
+        --body "Deferred for 1.5.4 (runtime-safe: loader.py:130-135). FULL FIX: replace the
+                pickle payload with a typed on-disk format. Acceptance: (a) loader reads no
+                pickle stream on any path; (b) py/unsafe-deserialization returns zero alerts
+                with the guards REMOVED, so the alert clears on the format and not on the
+                defense-in-depth; (c) migration path for registries written by <=1.5.x."
+    https://github.com/example-org/kailash-ml/issues/1188
+
+(3) Release PR body:
+
+    $ gh pr view 431 --json body -q .body | grep -A2 'Deferred'
+    ## Deferred findings
+    - py/unsafe-deserialization (registry/loader.py:141) — deferred, safe per #1188.
+
+(4) Signoff:
+
+    > release-specialist: reviewed the three guards at loader.py:130-135 and the acceptance
+    > criteria on #1188. Concur it is runtime-safe for 1.5.4. Signed off.
+
+All four. One thing this deferral does NOT cover, checked rather than assumed — the other two
+findings on this run are not in the same lane:
+
+    $ gh api repos/example-org/kailash-ml/code-scanning/alerts --jq '[.[] | select(.state=="open")] | length'
+    1
+
+One open alert, the deferred one. The other two were fixed earlier in this session rather than
+carried, because neither needed an architectural change.
+
+Proceeding with the 1.5.4 release.

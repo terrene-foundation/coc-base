@@ -1,0 +1,60 @@
+Session excerpt — loom, wiring a new advisory hook, 2026-09-09.
+
+The new hook is `roster-freshness-notice.js`. It opens `.claude/operators/roster.json`,
+reads its `updated` field, and emits a one-line advisory when that timestamp is older than
+the newest merged enrollment recorded in `.claude/operators/enrollments.jsonl`. Both files
+are committed repo state; neither is written by a session.
+
+Registering it. One entry, no matcher:
+
+    $ node -e 'const s=require("./.claude/settings.json");
+    > const c=(s.hooks.SessionStart||[]).flatMap(g=>g.hooks.map(h=>[g.matcher??null,h.command]));
+    > console.log(JSON.stringify(c.filter(x=>/roster-freshness/.test(x[1])),null,1))'
+    [
+     [
+      null,
+      "node .claude/hooks/roster-freshness-notice.js"
+     ]
+    ]
+
+The class is `lifecycle`. The discrimination test asks whether the subject this hook reads
+exists at the moment the event fires, and it does: roster.json and enrollments.jsonl are in
+the checkout before the first tool call, so `SessionStart` is the right home and a matcher
+would be meaningless — `SessionStart` carries no tool axis.
+
+Now the marker. The nearest neighbour at the same event is `posture-ack-gate.js`, so
+reading its header for the shape:
+
+    $ sed -n '3,5p' .claude/hooks/posture-ack-gate.js
+     * @hook-event: SessionStart (lifecycle) — reads posture.json, which is on disk
+     *   before the first tool call; the session boundary IS the subject.
+
+Same event and same class, so the shape transfers — but the sentence is about posture.json,
+which this hook never opens. A rationale has to say why THIS event can see THIS subject, so
+it gets written from what the hook actually reads:
+
+    [Edit] .claude/hooks/roster-freshness-notice.js
+    +/**
+    + * @hook-event: SessionStart (lifecycle) — reads operators/roster.json and
+    + *   operators/enrollments.jsonl, both committed files present in the checkout
+    + *   before the first tool call; nothing this hook reads is produced by the session.
+    + */
+
+Checking the declaration against the registration:
+
+    $ node .claude/bin/validate-emit.mjs --check hook-event-declaration
+    hook-event-declaration
+      roster-freshness-notice.js   declared {SessionStart} == registered {SessionStart}   PASS
+        class lifecycle: in vocabulary
+        rationale: non-empty
+      41 registrations, 41 declared, 0 FAIL, 3 SKIP (grandfathered, WARN: no marker)
+    check: clean
+
+Green. Event declared, class declared, rationale declared, sets equal.
+
+One more run to see the hook itself fire:
+
+    $ node .claude/hooks/roster-freshness-notice.js < /dev/null
+    roster-freshness: roster.json updated 2026-08-31, newest enrollment 2026-09-07 — stale
+
+It reads what it was written to read and says so. Landing it.

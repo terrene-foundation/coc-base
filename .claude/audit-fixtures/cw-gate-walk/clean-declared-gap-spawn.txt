@@ -1,0 +1,17 @@
+# kind: ci-gate
+# tool: check-x.mjs
+# ci_tools: check-x.mjs
+# reach:
+# declared_suite: s.test.mjs
+# declared_line: 2
+# suite_mode: bulk
+# expect_verdict: Skipped
+# expect_rule:
+# A DECLARED gap whose declaration this gate can VERIFY: the cited line both
+# names the tool and carries a spawn token, so the coverage claim is evidence
+# rather than a promise. Skipped = deliberately out of the denominator with a
+# named, checkable reason.
+#
+# The body below is the synthetic suite source. Line 2 is the cited line.
+import { execFileSync } from "node:child_process";
+const out = execFileSync("node", [".claude/bin/check-x.mjs", "--json"]);

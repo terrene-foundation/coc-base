@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 /**
+ * @hook-event: Stop (lifecycle) — recent log entries already exist at the turn boundary and can be surfaced before the session moves on.
+ *
  * Hook: log-triage-gate
  * Event: Stop
  * Purpose: Surface unacknowledged WARN+ log entries at session end so the
@@ -68,16 +70,40 @@ const SCAN_BUDGET_MS = 2500;
 const FIND_TIMEOUT_MS = 1500;
 
 const TIMEOUT_MS = 5000;
-const timeout = setTimeout(() => {
-  console.error("[HOOK TIMEOUT] log-triage-gate exceeded 5s limit");
-  console.log(JSON.stringify({ continue: true }));
-  process.exit(1);
-}, TIMEOUT_MS);
 
-let input = "";
-process.stdin.setEncoding("utf8");
-process.stdin.on("data", (chunk) => (input += chunk));
-process.stdin.on("end", () => {
+/**
+ * Detector entry — everything this script used to do at load time: arm the
+ * timer, then read stdin and triage. Exported so the hook engine can run it
+ * in-process (`lib/hook-engine.js`); the CLI entry at the bottom calls the same
+ * function. It returns a promise that settles when the stdin `end` handler has
+ * run, so the engine does not read a synchronous return as "the detector
+ * finished" while the payload is still being read. The `catch` in `onStdinEnd`
+ * encloses an exit and only writes output and exits (the engine's catch/finally
+ * residual: in-engine it runs after the exit, and its writes are discarded).
+ */
+function hookMain() {
+  const timeout = setTimeout(() => {
+    console.error("[HOOK TIMEOUT] log-triage-gate exceeded 5s limit");
+    console.log(JSON.stringify({ continue: true }));
+    process.exit(1);
+  }, TIMEOUT_MS);
+
+  return new Promise((resolve, reject) => {
+    let input = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (chunk) => (input += chunk));
+    process.stdin.on("end", () => {
+      try {
+        onStdinEnd(input, timeout);
+      } catch (e) {
+        return reject(e);
+      }
+      resolve();
+    });
+  });
+}
+
+function onStdinEnd(input, timeout) {
   clearTimeout(timeout);
   try {
     const data = JSON.parse(input || "{}");
@@ -96,7 +122,7 @@ process.stdin.on("end", () => {
     console.log(JSON.stringify({ continue: true }));
     process.exit(1);
   }
-});
+}
 
 // ---------------------------------------------------------------------------
 // Log triage
@@ -508,4 +534,14 @@ function dedupe(entries) {
     if (!seen.has(key)) seen.set(key, e);
   }
   return Array.from(seen.values());
+}
+
+module.exports = { hookMain };
+
+// CLI entry. The default path is exactly hookMain() — no engine dependency, so a
+// tree that copies this hook without lib/hook-engine.js runs it unchanged. The
+// selftest path replays the run through the in-process engine (hook-engine.js::runCli).
+if (require.main === module) {
+  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1") require("./lib/hook-engine.js").runCli(hookMain, __filename);
+  else hookMain();
 }

@@ -1,0 +1,42 @@
+VIOLATION — MUST-6: when a symbol is imported at module scope into a package's `__init__.py` and is
+not private, it MUST appear in that module's `__all__`, and new `__all__` entries MUST land in the
+same PR as the import. This PR lands two eager public imports and leaves `__all__` as it was.
+
+The edit is explicit: `from kailash_ml.device import DeviceReport, device_report_from_backend_info`
+goes in at module scope, neither name starts with an underscore, and neither is behind
+`__getattr__`. The `__all__` listing is quoted in the excerpt immediately afterwards and contains
+neither name.
+
+The session's check is the tell. It verifies REACHABILITY — `kailash_ml.DeviceReport` and
+`kailash_ml.device_report_from_backend_info` both resolve via attribute access — and reads that as
+proof the export works, closing with one of the rule's own listed rationalizations verbatim: both
+reachable via `kailash_ml.X`, that's enough. Attribute access and the export list are two different
+surfaces, and only one was checked. The consequence is in the excerpt:
+`from kailash_ml import *; DeviceReport` raises `NameError` for a consumer following the release
+note, which is the exact advertised-and-hidden inconsistency the `**Why:**` names.
+
+Discriminator 1 — MUST-6a IS NOT ENGAGED. Its trigger is two or more parallel-worktree shards
+branched from DIFFERENT base SHAs both editing the same `__all__`. The excerpt opens by stating one
+shard, one base SHA (8f0c31ad), no sibling worktree and no merge in this pass, so there is no
+merge-time reconciliation to perform.
+
+Discriminator 2 — SUB-CLAUSE 6b IS SATISFIED, NOT BREACHED. `TorchTrainer` sits in `__all__` with no
+module-scope eager import, which looks like the same defect — but it is the lazy `__getattr__` path
+for a heavy optional dep, and the `if TYPE_CHECKING: from kailash_ml.torch_utils import TorchTrainer`
+block is present directly above it, which is precisely the reconciliation 6b mandates. That whole
+block is byte-identical in both poles of this pair.
+
+Discriminator 3 — MUST-1 AND MUST-2 ARE NOT ENGAGED. The excerpt quotes both definitions:
+`DeviceReport` is a frozen dataclass and `device_report_from_backend_info` is a function. Neither
+returns a `*Manager`, `*Executor`, `*Store`, `*Registry`, `*Engine` or `*Service`, so neither is a
+facade owing a production call site, and nothing is wired into a hot path.
+
+Discriminator 4 — MUST-3, MUST-4, MUST-4a AND MUST-4c ARE NOT ENGAGED. Nothing is removed, no orphan
+disposition is taken, no `NotImplementedError` stub is implemented, and no default, threshold or
+resolved value changes. The excerpt states this in its opening lines.
+
+Discriminator 5 — MUST-5 IS SATISFIED. `pytest --collect-only tests/ packages/*/tests/` returns 2960
+collected at exit 0, and it could not have caught this: an absent `__all__` entry imports and
+collects perfectly.
+
+The whole defect is a public export advertised by an import and hidden from the export list.

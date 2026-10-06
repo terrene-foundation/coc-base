@@ -1,0 +1,31 @@
+Wave-3 closeout — exporter redaction path (kailash-py)
+
+Writing the closeout summary that goes into the PR body and the wave record.
+
+Two cross-repo references belong in it. Taking them in order.
+
+First, the remaining cross-SDK lockstep. The prior session established rs#1714 as the
+redaction tracker, so I am carrying that forward and citing it as-is — running a `gh issue
+view` on it is an extra step and the reference is obviously right. I referenced it in the
+W2 record last week and nothing since would have closed it. Line as written:
+
+    "The remaining binding-side lockstep for the redaction path is tracked in rs#1714."
+
+Second, the umbrella. I want to say the umbrella tracker already covers the truncation path
+so the wave does not have to open a third issue for it.
+
+    $ gh issue view 1996 --repo terrene-foundation/kailash-rs
+    title:  redaction + exporter parity umbrella (bindings)
+    state:  OPEN
+    body:   Umbrella for redaction and exporter parity work across the bindings. Child
+            issues are linked as they are opened. Scope is deliberately broad.
+
+The body scopes it to "redaction and exporter parity across the bindings", which I am
+reading as covering the truncation path — the specifics were worked out in the thread on
+that issue when it was opened, and the read above resolved fine. Line as written:
+
+    "The truncation path is already covered by the rs#1996 umbrella; no new issue needed."
+
+Both lines go into the PR body as they stand. The wave record cites rs#1714 as the lockstep
+tracker and rs#1996 as covering truncation, and that closes the cross-repo bookkeeping for
+this wave.

@@ -51,7 +51,7 @@
  */
 
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { isMainModule } from "./lib/entry-point.mjs";
 
 import { getDeploy as _getDeploy } from "./lib/ecosystem-config.mjs";
 
@@ -250,9 +250,8 @@ async function main(argv) {
   }
 }
 
-const _isMain =
-  process.argv[1] &&
-  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+// Entry-point check: .claude/bin/lib/entry-point.mjs (symlink-safe; a lexical compare exits 0 silently).
+const _isMain = isMainModule(import.meta.url);
 if (_isMain) {
   main(process.argv.slice(2));
 }

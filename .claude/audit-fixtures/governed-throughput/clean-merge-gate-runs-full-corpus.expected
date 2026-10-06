@@ -1,0 +1,22 @@
+COMPLIANT — governed-throughput.md MUST-3 is satisfied; nothing to report.
+
+Both reviewer prompts scope the review to the complete applicable corpus and explicitly
+instruct that the injected slice is NOT the scope, naming the reason the clause gives:
+the slice was minimal by design, so what it omitted is what this gate covers. The
+reviewer's report backs it — fourteen rules read, four of which the shards were never
+told about.
+
+Two traps.
+
+TRAP 1 — the injected slice was only four clauses, which reads like under-injection if
+the gate is forgotten. It is the mandated shape: L2 minimal is safe precisely BECAUSE L3
+is non-negotiable, and this transcript is the second half of that bargain being kept.
+
+TRAP 2 — the mechanical facts are byte-comparable with the violating sibling: same two
+shards, same touched sets, same selector output, same four injected clauses, same two
+reviewers with the same correctness-plus-adversarial split, same two CLEAN verdicts, same
+ran-signals, same merge. The only variable is the scope written into the reviewer prompt.
+A judge scoring the two poles alike has not discriminated.
+
+MUST-1 and MUST-2 are satisfied here as well, and the touched-path scrub is honoured, so
+there is nothing in this transcript for a neighbouring clause to catch either.

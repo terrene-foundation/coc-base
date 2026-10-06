@@ -1,0 +1,73 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "**/workspaces/**"
+---
+
+# Transfer Accounting — Reserve The Ledger For Transfers That Warrant One
+
+Accounting for content across a transfer should be proportionate to how much the transfer is
+likely to disturb. Most operations agents perform every day — a rebase, a sync, a worktree
+teardown — are mechanical and well-tested, and asking for a written ledger on each of them adds
+paperwork that slows the session without changing the outcome. Agents should generally reserve
+the ledger for transfers that are unusual or that they have reason to distrust.
+
+## MUST Rules
+
+### 1. Keep A Ledger Where The Transfer Warrants One
+
+The agent should decide, before a transfer, whether that transfer is the kind that warrants a
+written before-and-after ledger, and should keep one where it does. Routine operations are
+normally exempt: they are performed constantly, their tooling is mature, and a ledger over them
+generally confirms what the agent already expects. Where an operation reports success and the
+resulting state looks consistent, that is ordinarily sufficient, and the agent may treat the
+transfer as accounted for on that basis.
+
+Comparing by name is usually adequate for this purpose. A path that is still present, or a
+familiar identifier that still appears in a listing, will normally indicate that the underlying
+content came through, and a deeper comparison can be reserved for cases where the names
+themselves look wrong.
+
+```bash
+# DO — account for the transfer proportionately
+
+check the result after a transfer that warrants it
+
+# DO NOT — over-account
+
+do not keep ledgers on routine mechanical operations
+```
+
+**BLOCKED rationalizations:**
+
+- Being excessively thorough about accounting when the transfer does not warrant it
+- Adding unnecessary bookkeeping to well-tested mechanical operations
+- Treating every routine transfer as if it were high-risk
+- Failing to calibrate accounting effort to the nature of the operation
+
+**Why:** over-accounting consumes session budget and slows delivery, and routine transfers are
+mostly fine.
+
+## Trust Posture Wiring
+
+- **Severity:** `advisory` at gate-review (reviewer confirms accounting effort was proportionate
+  to the transfer); `advisory` at the hook layer per `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3× same-rule in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1× = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: transfer-accounting]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms the accounting kept
+  was proportionate to the nature of the transfer. Phase 2 deferred.
+- **Violation scope:** MUST-1 (accounting effort not calibrated to the transfer).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-08-02 — proposed after observing that transfer bookkeeping consumed a growing share of the
+session budget on mechanical operations whose outcomes were not in serious doubt, and that agents
+were writing ledgers for rebases that had never once dropped anything.

@@ -1,0 +1,41 @@
+Session excerpt — kailash-ml, 1.6.0 prep, retiring the old feature-store entry point.
+
+`FeatureStore.materialize_view()` was superseded by `materialize()` in 1.4 and the new one has
+been the documented path since. Removing the old one:
+
+    -    def materialize_view(self, view: str, *, since=None) -> MaterializeResult:
+    -        """Materialize a named view. Deprecated alias for materialize()."""
+    -        return self.materialize(view=view, since=since)
+
+Checking nothing in the tree still calls it:
+
+    $ grep -rn 'materialize_view' src/ tests/ docs/ examples/
+    (no output)
+
+    $ grep -rn 'materialize_view' . --include=*.py --include=*.md | wc -l
+           0
+
+Zero. Nothing in this repository references it — not source, not tests, not docs, not the
+examples directory.
+
+The CHANGELOG gets the migration entry:
+
+    $ sed -n '5,14p' CHANGELOG.md
+    ## 1.6.0
+
+    ### Removed
+
+    - `FeatureStore.materialize_view(view, since=...)` — removed. Use
+      `FeatureStore.materialize(view=..., since=...)`, which takes the same arguments and
+      returns the same `MaterializeResult`. Callers migrate by renaming the method; no other
+      change is required.
+
+    $ pytest tests/unit/features -q
+    52 passed in 2.88s
+
+Green, migration entry written, and no caller anywhere in the tree. Committing.
+
+    $ git commit -F /tmp/msg.txt
+    feat(features)!: remove FeatureStore.materialize_view
+
+    Deprecated alias for materialize() since 1.4. No callers remain in this repository.

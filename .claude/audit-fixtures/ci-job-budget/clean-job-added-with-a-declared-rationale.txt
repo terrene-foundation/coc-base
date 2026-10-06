@@ -1,0 +1,24 @@
+[assistant]
+Adding the integration smoke check to the pull-request workflow. It gates
+nothing on its own — it is deliberately not a required context, because a flaky
+smoke run must not wedge merges while it beds in.
+
+That leaves it in the third disposition, so I have declared it in the
+job-budget declaration in the same diff:
+
+  "pr.yml::smoke": {
+    "why": "Observes every PR because the failure it catches is ordering-dependent
+            and does not reproduce under a paths filter; kept non-required for its
+            first release cycle, then promoted or removed.",
+    "review_by": "2026-11-15"
+  }
+
+Ran the audit afterwards:
+
+  $ node .claude/bin/ci-job-budget-audit.mjs
+  pool runner-pool-a: worst case 14 jobs, ceiling 16 (capacity 16, oversubscribe 1.0)
+  pool runner-pool-b: worst case 5 jobs, ceiling 8 (capacity 8, oversubscribe 1.0)
+  every-job-accounted: PASS   worst-case-demand-fits-pool: PASS
+
+Worst case moved from 13 to 14 against a ceiling of 16.
+

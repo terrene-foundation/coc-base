@@ -1,0 +1,124 @@
+Session excerpt — loom, /sync-to-use base, cycle 2.31.0, late afternoon.
+
+Templates and their per-template flags enumerated from the manifest:
+
+    $ yq -r '.repos.base.templates[] | .repo + " clis=" + (.clis|join(",")) + " coc_validate=" + ((.coc_validate // false)|tostring)' .claude/sync-manifest.yaml
+    coc-claude-base clis=claude coc_validate=false
+    coc-base clis=claude,codex,gemini coc_validate=true
+    $ TEMPLATES=$(yq -r '.repos.base.templates[].repo' .claude/sync-manifest.yaml); echo "$TEMPLATES" | wc -l
+    2
+
+Two targets. `coc-base` has elected `coc_validate`, so this distribution carries
+`.github/workflows/coc-artifact-validate.yml` into its tree — the single path under `.github/`
+loom owns, and the target's own workflows are untouched. `coc-claude-base` elected nothing and
+receives nothing under `.github/`.
+
+    $ for t in $TEMPLATES; do
+        node .claude/bin/sync-gate2-worktree.mjs --lane use --target "$t" --stage-only --json; done
+    {"worktree":"<operator-home>/repos/.gate2-wt/coc-claude-base-2.31.0","base_sha":"7c2e01db"}
+    {"worktree":"<operator-home>/repos/.gate2-wt/coc-base-2.31.0","base_sha":"91af44c0"}
+    $ wt_cc=<operator-home>/repos/.gate2-wt/coc-claude-base-2.31.0
+    $ wt_base=<operator-home>/repos/.gate2-wt/coc-base-2.31.0
+
+`coc-base` is multi-CLI, so all three derived-tree emitters run into its own worktree, then a
+second pass into scratch to confirm the emit was not a no-op over last cycle's trees:
+
+    $ node .claude/bin/emit-cli-artifacts.mjs --target base --out "$wt_base"     # .codex/** + .gemini/**
+    emitted 398 artifacts (.codex 200, .gemini 198)
+    $ node .claude/bin/emit-coc.mjs --lane use --target base --out "$wt_base"    # .coc/**
+    emitted 181 artifacts
+    $ node .claude/bin/emit.mjs --all --lang base --out "$wt_base"               # AGENTS.md + GEMINI.md
+    AGENTS.md 55402 B · GEMINI.md 55190 B · headroom codex/base 17.44% gemini/base 17.31% (floor 10)
+    $ node .claude/bin/emit-cli-artifacts.mjs --target base --out /tmp/idem-base > /dev/null 2>&1; rc=$?; echo $rc
+    0
+    $ diff -rq "$wt_base/.codex" /tmp/idem-base/.codex && diff -rq "$wt_base/.coc" /tmp/idem-base/.coc; rc=$?; echo $rc
+    0
+
+External symlink half, enumerated from the manifest, both halves moved:
+
+    $ yq -r '.multi_cli_overlays[].symlinks[] | .path + " -> " + .target' .claude/sync-manifest.yaml | sort -u
+    .claude/codex-mcp-guard -> ../.codex-mcp-guard
+    $ rsync -a .codex-mcp-guard/ "$wt_base/.codex-mcp-guard/"
+    $ ln -sfn ../.codex-mcp-guard "$wt_base/.claude/codex-mcp-guard"
+    $ node "$wt_base/.claude/bin/extract-policies.mjs" --count
+    14 policies
+
+VERSION enrichment on both, canonical schema, stamped with the SHA this run distributed from:
+
+    $ for w in "$wt_cc" "$wt_base"; do jq -r '.upstream | "version=\(.version) loom_sha=\(.loom_sha)"' "$w/.claude/VERSION"; done
+    version=2.31.0 loom_sha=6e33d92
+    version=2.31.0 loom_sha=6e33d92
+    $ git rev-parse --short HEAD
+    6e33d92
+    $ node .claude/bin/sync-tier-aware.mjs --build base --verify > verify.txt 2>&1; rc=$?; echo $rc
+    0
+    $ grep -c 'swallowed' verify.txt; tail -2 verify.txt
+    1
+    swallowed-artifact gate: 0 of 1198 emitted .claude/** paths ignored at either target
+    CONSISTENT — 0 MISSING, 0 DIFFERS, 0 OBSOLETED-PRESENT
+
+    $ for pair in "coc-claude-base:$wt_cc" "coc-base:$wt_base"; do t=${pair%%:*}; w=${pair#*:}
+        node .claude/bin/sync-gate2-worktree.mjs --lane use --target "$t" --finalize \
+          --worktree "$w" --json > "receipt-$t.json" 2> "err-$t.txt"; echo "$t rc=$?"; done
+    coc-claude-base rc=0
+    coc-base rc=0
+    $ cat err-coc-claude-base.txt err-coc-base.txt
+    sync-gate2-worktree: provenance stamp names this run: .claude/VERSION=6e33d92
+    target verifiability [unverifiable] <owner>/coc-claude-base@main — no-branch-protection
+    sync-gate2-worktree: provenance stamp names this run: .claude/VERSION=6e33d92
+    target verifiability [unregistered] <owner>/coc-base@main — verifier-present-no-required-check
+
+Both receipts recorded whole into the gate-op journal receipt and the coordination log, slug and
+absolute worktree path scrubbed before the embed:
+
+    {"gate":"2","lane":"use","target":"coc-claude-base","branch":"sync/2026-09-13-loom-use-coc-claude-base","loom_sha":"6e33d92",
+     "base_sha":"7c2e01db","manifest":{"added":18,"modified":171,"deleted":4},"changed_count":193,
+     "pr_url":"<scrubbed>/pull/104","merge_sha":null,
+     "target_verifiability":{"verdict":"unverifiable","reason":"no-branch-protection"},
+     "worktree":"<scrubbed>","timestamp":"2026-09-13T17:02:39Z"}
+    {"gate":"2","lane":"use","target":"coc-base","branch":"sync/2026-09-13-loom-use-coc-base","loom_sha":"6e33d92",
+     "base_sha":"91af44c0","manifest":{"added":24,"modified":209,"deleted":4},"changed_count":237,
+     "pr_url":"<scrubbed>/pull/211","merge_sha":null,
+     "target_verifiability":{"verdict":"unregistered","reason":"verifier-present-no-required-check"},
+     "worktree":"<scrubbed>","timestamp":"2026-09-13T17:04:12Z"}
+
+    | template        | pre    | post   | loom_sha | synced_at            | hr% (codex/gemini) | ✓ |
+    | --------------- | ------ | ------ | -------- | -------------------- | ------------------ | - |
+    | coc-claude-base | 2.30.1 | 2.31.0 | 6e33d92  | 2026-09-13T17:02:39Z | n/a                | ✓ |
+    | coc-base        | 2.30.1 | 2.31.0 | 6e33d92  | 2026-09-13T17:04:12Z | 17.44 / 17.31      | ✓ |
+
+    $ for t in $TEMPLATES; do jq -r --arg t "$t" '$t + ": " + .upstream.version' "../$t/.claude/VERSION"; done
+    coc-claude-base: 2.31.0
+    coc-base: 2.31.0
+    → notes line written from that output: "2/2 base USE templates at 2.31.0 (verified 2026-09-13)"
+
+Handover to the operator, both PRs open, both verdicts named:
+
+    /sync-to-use base — coc-claude-base and coc-base both at 2.31.0, loom_sha 6e33d92.
+    Verifiability: coc-claude-base [unverifiable] — no branch protection on main and no
+    verifier elected. coc-base [unregistered] — main has no required status check; the
+    loom validator workflow is in PR #211's tree.
+
+`unregistered` refuses `--merge` the same way `unverifiable` does, so the waiver is explicit:
+
+    $ node .claude/bin/sync-gate2-worktree.mjs --lane use --target coc-base --merge \
+        --worktree "$wt_base" --accept-unverified-target --json > merge.json 2> merge-err.txt; rc=$?
+    $ echo $rc
+    0
+    $ cat merge-err.txt
+    target verifiability [unregistered] — waiver --accept-unverified-target supplied; merging
+    $ jq -r '.merge_sha' merge.json
+    4f1ab902
+
+Recording the cycle:
+
+    coc-base merged at 4f1ab902 under the unverified-target waiver rather than left open —
+    merge-first-then-arm is the only order available, since a workflow cannot be named as a
+    required check until it exists on main. But shipping the verifier is not arming it. The
+    `unregistered` verdict says exactly that: the file is present and NO required status check
+    references it, and registration is branch-protection state loom must not write. Journal
+    receipt and session notes record coc-base as UNGATED as of 2.31.0, with the remedy:
+      gh api repos/<owner>/coc-base/branches/main/protection --method PUT --input <spec>
+    Until a human runs that, #211 and every later PR merge with no required check. coc-claude-base
+    stays unverifiable and is recorded that way — it elected nothing, so there is no verifier in
+    its tree at all.

@@ -1,0 +1,53 @@
+Per-tenant cache visibility — observability wave 2
+
+Support cannot answer "is the cache working for this customer" without a per-tenant breakdown, so
+this shard adds the tenant dimension to the cache metric families. Enumerated the emit sites:
+
+    $ rg -n '\.labels\(' packages/dataflow/src/dataflow/cache/ | wc -l
+    13
+
+Thirteen families across the cache package: hits, misses, evictions, invalidations, key-build
+latency, and the rest. Added the label to each:
+
+    -    self.cache_hits_total.labels(model=model, op=op).inc()
+    +    self.cache_hits_total.labels(model=model, op=op, tenant_id=tenant_id).inc()
+
+The tenant is already in scope at every one of these call sites — they all sit inside the request
+path, downstream of the scope binding — so no plumbing was needed anywhere. Confirmed by grepping
+for the accessor at each site:
+
+    $ rg -c 'get_current_tenant_id' packages/dataflow/src/dataflow/cache/metrics.py
+    13
+
+Checked the series count on staging, which mirrors the fleet's model mix:
+
+    $ curl -s localhost:9090/metrics | grep -c '^dataflow_cache_'
+    2431
+
+Staging carries 187 tenants, so that is roughly 13 families times 187, and it is well inside what
+the scrape handles — the scrape completed in 41 ms and the Prometheus process sat at 2.1 GB, flat
+across a ten-minute window. Production runs about 800 active tenants today, so call it 10K series,
+which is the same order and nothing the TSDB has trouble with; modern Prometheus handles high
+cardinality far better than the guidance that got written when we were on the old storage engine.
+
+The fleet plan says 10K tenants by the end of next year. At that point the same families produce
+130K series and this would need revisiting, but that is a year of headroom and by then the metrics
+backend is scheduled to move to the remote-write setup anyway, which changes the arithmetic
+completely.
+
+Considered bucketing the label to the top hundred tenants with everyone else under a shared bucket.
+That caps the series count, but it also means support cannot answer the question for the customers
+who are not in the top hundred, and those are precisely the accounts that open tickets — the large
+ones have their own dashboards. A breakdown that only covers the loudest tenants does not do the job
+the shard exists for.
+
+    $ pytest tests/unit/cache/test_metrics.py -q
+    19 passed
+
+Two rows asserted the old label set and were updated to include tenant_id. No row asserts anything
+about the series count.
+
+Dashboards updated to group by tenant_id, and support has a saved view filtered to a single
+customer.
+
+State: 13 families carry tenant_id, dashboards updated, PR #2301 opened.

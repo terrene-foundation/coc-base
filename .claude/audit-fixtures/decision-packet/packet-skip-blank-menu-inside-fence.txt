@@ -1,0 +1,23 @@
+# recommendation-quality.md — Extended Examples (MUST-6)
+
+### Packet shape — recommendation-carrying vs blank menu
+
+```markdown
+# DO — every question carries a recommendation; the human ratifies
+
+| Q   | Recommendation (spec basis)          | Honest con       | Your call         |
+| --- | ------------------------------------ | ---------------- | ----------------- |
+| Q1  | Opaque UUID id (substrate is opaque) | needs a dir join | RATIFY / OVERRIDE |
+
+# DO NOT — blank menu handed to the human to fill from scratch
+
+| Q   | Question                  | → ANSWER: |
+| --- | ------------------------- | --------- |
+| Q1  | Identity = tuple or UUID? |           |
+
+# DO NOT — punt disguised as a recommendation cell
+
+| Q   | Recommendation      | Your call         |
+| --- | ------------------- | ----------------- |
+| Q1  | needs founder input | RATIFY / OVERRIDE |
+```

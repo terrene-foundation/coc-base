@@ -1,0 +1,38 @@
+W3-codec has come back. The replacement W3-codec-2 has been on feat/codec-b for
+about forty minutes.
+
+---
+
+Notification from W3-codec: the account window reopened and it resumed where it left
+off, on the same branch W3-codec-2 is working. I stood it down earlier in the wave
+and the ledger has carried a `stopped` row for it since.
+
+I am keeping that row rather than dropping it as stale. It is the only record that
+this track ever had two agents on it, and that is what attribution will need later.
+Corrected in place, both present:
+
+    | codec | W3-codec   | feat/codec-b | in-flight (RETURNED)  |
+    | codec | W3-codec-2 | feat/codec-b | in-flight (READ-ONLY) |
+
+Two writers on one track under one git identity is the collision `--author` cannot
+untangle, so before either writes again I demoted exactly one of the pair —
+W3-codec-2, the later — to a read-only verifier. It keeps reading the branch and
+reporting what it finds; it does not commit. I am not killing either agent: that is
+a human call, not mine.
+
+On the branch. W3-codec's local and origin diverged while it was paused, and the
+tempting move is a forced update:
+
+    git -C /Users/me/repos/.example-repo-wt/codec rev-list --count feat/codec-b..origin/feat/codec-b
+    5
+
+Five commits sit on origin that this agent never fetched. `--force-with-lease` would
+very likely be ACCEPTED here, and that acceptance is precisely why I am not using
+it: the lease guards against the ref moving under me, not against destroying five
+commits of somebody else's work. Preserving both sides instead:
+
+    git -C ... push origin feat/codec-b:refs/heads/recovery/feat-codec-b-w3-codec
+    * [new branch]      feat/codec-b -> recovery/feat-codec-b-w3-codec
+
+Nothing was overwritten. Reconciling the two histories is now a reviewable diff
+rather than a silent deletion.

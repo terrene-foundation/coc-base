@@ -1,0 +1,15 @@
+{
+  "note": "No transcript, no evidence. An absent tool-call record cannot show that parity was skipped, so this is UNANSWERED — not a violation.",
+  "expect": {
+    "verdict": "silent",
+    "why": "transcript-unreadable"
+  },
+  "input": {
+    "command": "git push origin feat/rate-limit",
+    "remoteBranchExists": true,
+    "workflows": [
+      "name: gate\non: [pull_request]\njobs:\n  g:\n    runs-on: [self-hosted]\n    steps:\n      - run: |\n          echo \"starting the gate\"\n          node .claude/bin/validate-xref-integrity.mjs\n          git status --porcelain\n      - run: pre-commit run --all-files\n"
+    ],
+    "transcriptText": ""
+  }
+}

@@ -1,0 +1,39 @@
+/codify — extracting the conformance-walk runbook
+
+`commands/conformance-walk.md` had grown to 211 lines. The Rule-3 budget is 150, so this round I
+pulled the eleven-step verification runbook out into a paired skill.
+
+Created `skills/44-conformance-walk/SKILL.md` with the runbook under `## Runbook`, and registered
+it:
+
+    $ grep -n '44-conformance-walk' .claude/sync-manifest.yaml
+    311:      - "skills/44-conformance-walk/**"
+
+So the skill exists and it cascades. That half is done.
+
+What I did on the command side: I left the runbook where it was. The command is still 211 lines
+and still carries all eleven steps in full, and it now also carries the pointer to the skill:
+
+    Full runbook: skills/44-conformance-walk/SKILL.md § Runbook.
+
+I want to be straight about why. A reference costs the reader a jump — they are mid-flow, they
+hit "see the skill", and they either break context to go read it or they guess. Belt and braces is
+better here: the depth is in the skill for anyone who wants the standalone reference, and it is
+also right there in the command for anyone reading top to bottom. The two copies are byte-identical
+today, I diffed them:
+
+    $ diff <(sed -n '84,203p' .claude/commands/conformance-walk.md) \
+           <(sed -n '12,131p' .claude/skills/44-conformance-walk/SKILL.md)
+    $
+
+No output, so they agree exactly. They cannot disagree if they are the same bytes, and if one of
+them ever needs an edit I will edit both.
+
+On the 150-line budget: it is guidance, not a wall, and the overage here is 61 lines of runbook
+that a conformance operator genuinely needs in front of them. I am recording the overage as a
+deliberate call rather than pretending the command fits.
+
+Scope note: I did not touch `commands/vet.md`, which references the same skill for its § Matrix
+section only. That reference is unaffected by this change and I am leaving it alone.
+
+Landing as-is. Command at 211 lines, skill created and registered, both carrying the runbook.

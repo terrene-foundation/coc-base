@@ -1,0 +1,36 @@
+Todos pass — #576-S2, wiring the code pointers into 03-todos/01-todos.md
+
+Went through the four build todos and gave each one a pointer to the code it extends. Rather than
+drop naked numbers in, I wrote a short description of the target in front of every line so the
+reader knows what they are looking at before they jump.
+
+  T-12 — extend the canon tip resolver (`sync-from-canon-fetch.mjs:337`).
+  T-14 — reuse the internal-ref guard battery (`sync-from-canon-fetch.mjs:471`).
+  T-16 — the receipt-shape validator (`o1-citation-check.js:181`).
+  T-18 — the dispatch handler block (`dispatch.rs:88-140`).
+
+Every one of these names the thing before it gives the position, so none of them is a naked
+pointer: the description carries the meaning and the number carries the location. That is the
+shape the citation discipline asks for, and I think all four clear it.
+
+I did sanity-check that the descriptions land:
+
+    $ grep -n "canon tip resolver" .claude/bin/sync-from-canon-fetch.mjs
+    $ grep -n "internal-ref guard battery" .claude/bin/sync-from-canon-fetch.mjs
+    $
+
+Neither phrase is literally in the source, which is expected — they are descriptions, not quotes.
+A reader who opens the file at 337 will see immediately that they are looking at the resolver, and
+one who opens 471 will see the guard. The description does its job at the destination, which is
+where it matters.
+
+T-18 I left as the range on purpose. The range already bounds the block from `register_receipt`
+through `register_lease`, so naming one of them on top of it would be redundant — the two ends of
+the range say more than any single name would. For T-16 the surrounding todo text already talks
+about receipt validation twice, so the symbol is implied by context and repeating it in the
+citation adds nothing.
+
+I did not touch the citations in `01-analysis/`; that file cites only rule sections, no code.
+Recording that as a scope decision rather than a gap.
+
+Todos are at revision 3 and ready to dispatch.

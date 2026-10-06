@@ -1,0 +1,13 @@
+{
+  "_doc": "INSTALLED via a redirected core.hooksPath rather than the default location. The verdict must not depend on WHICH directory git resolved -- only on what is in it.",
+  "state": {
+    "delegatePresent": true,
+    "trackedTriggerPresent": true,
+    "hooksDir": "/Users/someoperator/repos/loom/.githooks",
+    "resolveError": null,
+    "readError": null,
+    "triggerPresent": true,
+    "triggerExecutable": true,
+    "triggerDelegates": true
+  }
+}

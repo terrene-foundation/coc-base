@@ -1,6 +1,6 @@
 ---
 name: reconcile-notes
-description: "Reconcile your own .session-notes fragment after incorporating sibling work — prune landed rows against cited durable receipts, re-anchor read-first pointers, stamp last_reconciled_sha=HEAD. Own-fragment-only, memory-only, cited-evidence-gated."
+description: "Reconcile only your session-notes fragment against durable receipts; prune landed work and refresh pointers."
 ---
 
 ## What `/reconcile-notes` Is

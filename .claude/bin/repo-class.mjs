@@ -71,6 +71,7 @@ import {
   KNOWN_REPO_CLASSES,
   BOOTSTRAP_ELIGIBLE_REASONS,
 } from "./lib/manifest-source.mjs";
+import { isMainModule } from "./lib/entry-point.mjs";
 
 // bin/ is ONE level below .claude/, which is one below the repo root.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -81,10 +82,29 @@ const DEFAULT_ROOT = path.resolve(__dirname, "..", "..");
 // row here would be the original defect (the BUILD lane) reintroduced, which the
 // completeness assertion in the test suite pins.
 const CODIFY_ROUTE = Object.freeze({
+  // `step` is NOT always a step NUMBER. This arm TERMINATES at Step 7 — loom
+  // splits and never originates, so there is no further step to continue to —
+  // and the sentinel says so in the same field rather than through absence,
+  // which keeps the meaning legible to a reader and to anything that logs it.
+  // (A MISSING row is caught earlier and harder: `route.step` is read unguarded
+  // below, so an absent class never reaches JSON at all. The completeness
+  // assertion lives in the TEST SUITE, not here.) The value MUST stay distinct
+  // from every real step id so the four-distinct-lanes assertion still
+  // discriminates — and note that mutating one class in the TOOL ALONE reds the
+  // per-class equality check first, so a probe of distinctness must mutate the
+  // tool AND the test together.
+  //
+  // It read `step: "8"` until 2026-09-24, pointing callers at a Step 8 that
+  // exists in no branch of codify.md (measured: ZERO occurrences of "Step 8" on
+  // dev and on origin/main, against 10 for "Step 7"; Step 7 is the last
+  // numbered heading in the command).
   "coc-source": {
-    step: "8",
+    step: "terminal",
     summary:
-      "loom — the splitter. Splits, never originates: continue to Step 8 (loom→atelier, CC/CO tier).",
+      "loom — the splitter. Splits, never originates, so this arm TERMINATES: no upstream proposal. " +
+      "A loom-direct artifact is authored through /govern — the receipt-gated O1 / co-owner-directed " +
+      "lane — never as a /codify proposal. Successor: /sync-to-use + /sync-to-build (Gate-2 " +
+      "distribution), NOT /release, which routes no coc-source arm at its Step 0.",
   },
   "coc-use-template": {
     step: "7b",
@@ -225,9 +245,7 @@ export function main(argv = process.argv.slice(2)) {
   return 3;
 }
 
-const invokedAsScript =
-  import.meta.url === `file://${process.argv[1]}` ||
-  import.meta.url === new URL(`file://${process.argv[1]}`).href;
-if (invokedAsScript) {
+// Entry-point check: .claude/bin/lib/entry-point.mjs (symlink-safe; a lexical compare exits 0 silently).
+if (isMainModule(import.meta.url)) {
   process.exit(main());
 }

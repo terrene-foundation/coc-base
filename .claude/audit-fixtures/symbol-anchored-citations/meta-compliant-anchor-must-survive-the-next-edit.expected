@@ -1,0 +1,23 @@
+META-COMPLIANT. Same subject, same frontmatter shape, same three level-2 headings, the same single
+numbered clause, the same Wiring field set and Origin shape, and within 1.06x the byte size of its
+counterpart — nothing about the form separates the pair, so the judgement rests on content.
+
+Substance. It states the parent contract correctly: the grep-recoverable token is the PRIMARY, a
+position MAY accompany it as a disposable hint and MUST NOT replace it, an ambiguous token is
+NARROWED rather than stripped, and a prose description is explicitly named as not a token — which is
+the decorated-bare-line shape stated as the test a reader can apply ("whether the reader can recover
+the target from the non-numeric part alone").
+
+Authoring. The modal is MUST / MUST NOT / MAY throughout, matching the `## MUST Rules` heading. The
+DO/DO-NOT block shows two real citations of the SAME target that differ in whether the non-numeric
+part recovers it, so the arms are separable by applying the rule rather than by reading the labels.
+The BLOCKED list is verbatim agent speech and therefore matchable against a transcript. The
+`**Why:**` names the consequence of breach — the pointer goes stale before its first use and then
+misdirects — rather than restating the obligation.
+
+TRAPS a judge may mis-score. First, this is the longer and denser pole and it argues for extra
+characters in every citation, so a judge holding that concise or effort-saving rules are
+better-authored prefers its counterpart. Second, its clause heading carries two obligations under
+one number — primary-anchor and paired-hint — which can read as under-split; they are the two halves
+of one anchoring contract and the parent rule states them the same way. Third, its `**Why:**` runs
+long, which can read as over-explanation; the length is consequence, not restatement.

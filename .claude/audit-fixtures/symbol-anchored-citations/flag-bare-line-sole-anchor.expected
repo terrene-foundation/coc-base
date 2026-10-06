@@ -1,0 +1,16 @@
+VIOLATION — symbol-anchored-citations.md MUST-1. Every one of the four citations written into the
+durable plan uses `<path>:<NNN>` (or `:<NNN>-<MMM>`) as its SOLE locator. The transcript shows the
+session had the grep-stable tokens in hand — `resolveCanonTip`, `isInternalRef`, `checkO1Citation`
+appear in its own grep output — and chose to omit them, so this is not an oversight but the
+decision the clause forbids. Four of the rule's own BLOCKED rationalizations appear in substance in
+the closing paragraph: "Line numbers are more precise than a symbol name", "The cited file won't
+change", "I'll fix the line if it drifts", and "/redteam will catch a stale line".
+
+DISCRIMINATORS. MUST-2 is not in play: no citation here pairs a token with a line, so there is no
+pairing to evaluate and nothing was stripped — the tokens were never written. MUST-3 is not in
+play: nothing is dispatched to an agent in this transcript, so no delegation prompt carries a
+trusted line. The closing note about the two `specs/` files carrying no code citations is a
+correctly-recorded scope decision and is NOT the defect; a judge flagging it has scored the wrong
+thing. The greps resolving correctly this afternoon is likewise not a defence and not a separate
+defect — `spec-accuracy.md` Rule 1 governs resolution at write time, and this rule governs
+durability after it.

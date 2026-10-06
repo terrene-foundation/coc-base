@@ -64,6 +64,16 @@ Fire the parser at a manifest already known to declare a tool before trusting an
 (`instrument-discipline.md` MUST-3(a)) — an empty result from a parser that never matched anything
 is indistinguishable from a clean one, and this check's whole subject is a silent non-run.
 
+At loom, steps 1–3 are mechanical and the firing control is built in:
+
+```bash
+node .claude/bin/check-script-tool-parity.mjs --self-check   # the control — run it FIRST
+node .claude/bin/check-script-tool-parity.mjs                # the set difference
+```
+
+Everywhere else the tool does not exist (§ Trust Posture Wiring → CONSUMER NOTE), so steps 1–3 stay
+a hand-run set difference and this rule's silence at that target is the absence of an instrument.
+
 ## Trust Posture Wiring
 
 - **Severity:** `halt-and-report` at gate-review (reviewer at `/redteam` + release-specialist at
@@ -84,11 +94,58 @@ is indistinguishable from a clean one, and this check's whole subject is a silen
   § Enforcement-Surface Parity and `git.md` § CI-check/merge took.
 - **Receipt requirement:** SessionStart soft-gate `[ack: script-tool-manifest-sanity]` IFF
   `posture.json::pending_verification` includes the `script-tool-manifest-sanity` rule_id.
-- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer at `/redteam` + Probes `.claude/test-harness/probes/script-tool-manifest-sanity.probes.json` — NOT YET AUTHORED, declared in `phase2-deferrals.json::probe_authorship_deferrals`.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer at `/redteam` +
   release-specialist at `/release` run the § Audit Protocol set difference against every manifest in
-  the diff's package set and read each member of a non-empty difference. Phase 2 (deferred per
-  `trust-posture.md` § Two-Phase Rollout) — no hook detector; audit fixtures land WITH the Phase-2
-  detector at `.claude/audit-fixtures/script-tool-manifest-sanity/` per `cc-artifacts.md` Rule 9.
+  the diff's package set and read each member of a non-empty difference. **Probes: REGISTERED —
+  `.claude/test-harness/probes/script-tool-manifest-sanity.probes.json`**, 4 rows in 2 bipolar
+  `pair_id` pairs — one firing pair for this rule's single derived clause, plus a meta-compliance
+  pair — with candidate fixtures + answer-key sidecars at
+  `.claude/audit-fixtures/script-tool-manifest-sanity/`. Registered in `eval-manifest.json` as a
+  probe-only entry (`scanner: null`) and pinned in `probe-suite-integrity.test.mjs::PINNED_SUITES`;
+  ZERO deferred clauses in `clause-coverage-baseline.json`. The firing pair is built so every
+  neighbouring rule is SATISFIED in the violating pole — the one empty result it relies on is
+  controlled, both reviewers return genuine ran-signals, the head SHA is pinned before the checks
+  query, and nothing is deferred — so the ONLY defect is the undeclared tool, and a judge citing a
+  neighbour has named the wrong rule. Registration buys DISPATCHABILITY, never automatic execution:
+  no workflow invokes `coc-probe-dispatch.mjs`, and the loom↔csq boundary keeps CI LLM-free, so a
+  green CI run is NEVER evidence these probes passed — they execute only when an orchestrator
+  dispatches `/test-harness-probe --artifacts` at gate-review. Consumer note:
+  `.claude/test-harness/**` is never-synced, so no consumer receives this suite and enforcement at
+  those targets is gate-review. **Phase 2 has LANDED (2026-09-15) and is NOT a hook** —
+  `.claude/bin/check-script-tool-parity.mjs`, a gate-time validator over pure predicates in
+  `.claude/bin/lib/script-tool-parity.mjs`, with bipolar structural fixtures at
+  `.claude/audit-fixtures/script-tool-manifest-sanity/parity-*` driven by that directory's `run.mjs`
+  per `cc-artifacts.md` Rule 9 (MEASURED 22/22, and the set is shown load-bearing by four mutations
+  that reddened 10, 3, 6 and 1 case respectively — an all-green fixture set proves only that it ran).
+  It runs the § Audit Protocol mechanically: parse each manifest's `scripts`, take the first token of
+  every shell segment, and subtract the declared dependency sections and the enumerated ambient set.
+  **A HOOK WAS REJECTED ON THE EVIDENCE, not on cost.** This rule's Origin is a manifest that drifted
+  on the DEFAULT BRANCH for an unknown duration with nobody editing it; a `PreToolUse`/`PostToolUse`
+  detector fires only when a tool call touches a file, so it is structurally incapable of seeing the
+  originating incident — the defect's whole signature is a file AT REST. Severity is unchanged from
+  § Severity above and is not re-derived here: `halt-and-report`, never `block`, because the verdict
+  rests on that ambient allowlist — a judgment about the world rather than a fact read out of the
+  manifest — which `hook-output-discipline.md` MUST-2 caps. **WHAT IT CANNOT SEE, so its silence is
+  never read as an all-clear (`instrument-discipline.md` MUST-3(a)):** (a) `pyproject.toml` and
+  `Cargo.toml`, which are inside this rule's `paths:` and outside the checker — each one found is
+  announced as an `unsupported-manifest-kind` NOTICE rather than skipped, and its set difference is
+  owed to the § Audit Protocol by hand; (b) whether a declared package actually publishes the bin
+  name the script calls, which is install state, not manifest state; (c) a payload behind an
+  unmodelled package-manager subcommand or a cross-workspace script reference, each returned as a
+  named NOTICE. Run `--self-check` before trusting any empty difference: it drives a known-positive
+  and a known-negative manifest through the same predicates and REDS if either pole misbehaves, which
+  is the § Audit Protocol's own fire-the-parser-first requirement made executable.
+  **CONSUMER NOTE — the checker does NOT ship.** MEASURED with `sync-tier-aware.mjs::buildLaneClassifier`:
+  `.claude/bin/check-script-tool-parity.mjs` returns `skip/no_tier_match` on all seven lanes because
+  `.claude/bin/**` is `loom_only`, while the control `.claude/bin/burndown-build.mjs` returns
+  `copy/always_include` on all seven — so that zero is a readable true negative and not a blanket
+  skip. This rule reaches six lanes (`use|build/base`, `use|build/py`, `use|build/rs`; `build/prism`
+  is `skip/no_tier_match` for the rule itself). Unlike every other `.claude/bin/**` entry in
+  `detector-distribution-baseline.json`, the usual justification does NOT hold here — a consumer
+  emphatically DOES have manifests for this scanner to read — so the gap is an OPEN FINDING whose
+  remedy is a `sync-tier-aware.mjs::ALWAYS_INCLUDE` entry, never a narrowing of this rule. Until that
+  lands, enforcement at those six targets is the Phase-1 gate-review sweep above, and its silence
+  there is the ABSENCE OF AN INSTRUMENT rather than evidence that no manifest has drifted.
 - **Violation scope:** MUST-1 ONLY. Every `violations.jsonl` row names the manifest, the script, and
   the undeclared tool.
 - **Origin:** See § Origin.

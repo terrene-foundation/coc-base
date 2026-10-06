@@ -1,0 +1,9 @@
+THIS FILE'S BYTES ARE NEVER READ. The `input: absent` option makes the runner
+pass `undefined` — the shape of an Edit or NotebookEdit payload, which carries
+no `tool_input.content` key at all.
+
+Handed nothing, the detector must report NOTHING. Reporting `absent` here would
+be a verdict that cannot tell 'the entry has no frontmatter' from 'I was given
+no content' — the non-discriminating instrument instrument-discipline.md MUST-1
+blocks as evidence. The pre-existing 03-pass-self-reserved fixture caught
+exactly this defect in the first revision of the lib.

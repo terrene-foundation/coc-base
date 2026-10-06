@@ -1,0 +1,38 @@
+Reworking `/onboard` after two new operators reported the briefing was confusing.
+
+---
+
+The body is 138 lines and the procedure moved out to `.claude/skills/41-onboard/SKILL.md`.
+I would rather have kept the runbook beside the entry point — a reader now has two
+files to open — but the command body has a cap and the skill is where the procedure
+belongs.
+
+Behaviour, unchanged where it matters:
+
+1. Unregistered identity still STOPS. It prints the registration path and exits:
+
+       if (!roster.find(r => r.verified_id === id.verified_id)) {
+         print("You are not in the roster. Run: /whoami --register");
+         return;                                   // no ceremony, no roster write
+       }
+
+   I looked at auto-running the enrollment ceremony so a new operator's first minute
+   is not a dead end, and rejected it: that is a roster write, and this command makes
+   none.
+
+2. No lease is taken. I wanted one for snapshot consistency and dropped it — a lease
+   is a write, and a briefing that mutates coordination state is not safe to run at
+   any time, which is the point of it being read-only.
+
+3. Section order is FIXED and every section renders unconditionally:
+   Operator, Team Memory, Workspace, Posture, Claims, Codify Lease, Rules Changed,
+   Action Items. Claims renders "none held" rather than being omitted, so two
+   operators see the same skeleton.
+
+4. On a `posture.json` parse failure the command REPORTS the corruption and renders
+   the Posture section as unavailable. It does not repair the file.
+
+       posture: UNREADABLE — posture.json failed to parse; not repaired here.
+
+Identity comes from `resolveIdentity()`. The Codify Lease section calls
+`readActiveLease()` and names holder, branch and acquired_at when one is held.

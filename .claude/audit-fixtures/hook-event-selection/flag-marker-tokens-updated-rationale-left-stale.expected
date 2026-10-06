@@ -1,0 +1,60 @@
+VIOLATION — MUST-4: re-homing a hook in `settings.json` without updating its marker (or the
+reverse) is BLOCKED. The registration was widened and only the marker's TOKENS followed; the
+rationale was left describing the registration that no longer exists.
+
+The diff shows exactly one line of the marker changed. The event/matcher token went
+`PreToolUse:Edit|Write` → `PreToolUse:Edit|Write|NotebookEdit`. The two lines under it were
+not touched, so the shipped declaration now reads, in full:
+
+    @hook-event: PreToolUse:Edit|Write|NotebookEdit (guard) — refuses an out-of-scope edit
+      at the boundary that would apply it; Edit and Write are the only tools that mutate a
+      file, so no other tool can carry a write past this fence.
+
+That sentence is false, and the session DISPROVED IT ITSELF two commands earlier: a notebook
+edit went through the fence untouched, and `MUTATION_TOOLS` printed three names. The marker
+asserts a two-tool mutation set inside a declaration of a three-tool registration.
+
+THE HARM IS THE ONE MUST-4's justification NAMES. "A marker that disagrees with the
+registration is worse than no marker — it is a rationale for a wiring that no longer exists,
+and a reviewer reading it will approve the event the hook does NOT fire at." Here the next
+reviewer reads "Edit and Write are the only tools that mutate a file" and has, in the
+declaration itself, the grounds to take `NotebookEdit` back out as redundant — reopening the
+gap this change closed.
+
+THE LOAD-BEARING SHAPE — set equality HOLDS, and the transcript proves it. The declared
+`(event, matcher)` set equals the registered set character for character, and
+`validate-emit.mjs` is run and reports `PASS` with `rationale: non-empty`. Every arm the
+structural detector has is green: the tokens match, the class is in the vocabulary, the
+matcher is named rather than `*` or absent, and the rationale is not empty. A check reading
+the registration alone scores this clean. The marker is a declaration, not a token pair, and
+only reading the sentence after the dash against the registration beside it separates the
+poles.
+
+Discriminator 1 — MUST-1 IS SATISFIED IN FORM AND AT AUTHORING TIME. One marker for one
+registration, valid vocabulary on both tokens, and a non-empty rationale that states why
+`PreToolUse` can see the subject — it refuses the edit at the boundary that would apply it,
+which is still true. That sentence was accurate about this hook when it was written. What
+failed is keeping the declaration in agreement with the registration through a change, which
+is MUST-4's subject rather than MUST-1's. This is NOT the borrowed-rationale case: nothing
+here was copied from another hook, and the rationale was true of this file at its previous
+registration.
+
+Discriminator 2 — MUST-2 IS NOT ENGAGED. Class `guard`, event `PreToolUse`. No
+`verification` token, no `SessionStart`, and the class is correct for a hook that refuses one
+specific action at the boundary attempting it.
+
+Discriminator 3 — MUST-3 IS SATISFIED, AND THE CHANGE IMPROVED IT. The guard sits at a
+tool-axis event, and the matcher is now the full mutation set derived from
+`tool-classes.js::MUTATION_TOOLS` rather than a wildcard or a roster dump. Reporting a
+matcher-breadth finding inverts the direction of this diff.
+
+Discriminator 4 — BOTH MUST NOT BULLETS ARE NOT ENGAGED. No event was selected by
+convenience or by where other hooks sit; the widening is driven by an observed escape. No
+rule's Detection mechanism cites this hook in the excerpt.
+
+Discriminator 5 — the widening itself is CORRECT and is not the finding. A notebook edit
+really did escape, `NotebookEdit` really is in the mutation set, and the registration really
+should carry it. The defect is confined to what the marker still says about it.
+
+The whole defect is a declaration updated in its tokens and abandoned in its meaning, with
+set-equality green over the top of it.

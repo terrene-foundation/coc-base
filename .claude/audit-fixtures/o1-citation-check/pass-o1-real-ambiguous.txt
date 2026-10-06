@@ -1,0 +1,64 @@
+---
+type: DECISION
+date: 2026-07-05
+author: co-authored
+project: loom
+topic: "O1 origination — SAFR agnostic runtime-agentic-governance distillation into a loom methodology spec (external authority: SAFR v1.0, MAS, July 2026, non-binding); receipt-first per artifact-flow.md § The Origination Taxonomy + govern Step 2"
+phase: govern
+verified_id: DEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF
+person_id: pid-synthetic-fixture
+display_id: someoperator
+tags:
+  [
+    safr,
+    o1-origination,
+    govern,
+    methodology,
+    agentic-governance,
+    astra,
+    self-referential-codify,
+    disclosure,
+  ]
+relates_to: 0431-someoperator-DECISION-astra-read-grant-safr-agnostic-governance
+cross-repo-authorized: example-org/astra
+---
+
+# O1 origination — SAFR agnostic runtime-agentic-governance distillation
+
+Receipt-first per `artifact-flow.md` § The Origination Taxonomy (O1) + the `/govern`
+Step-2 receipt contract. This entry IS the provenance; it lands BEFORE the first artifact
+edit. It cites the EXTERNAL authority (SAFR) and states the derivation that GOVERNS the
+methodology artifact.
+
+## The task (#35 LOOM half)
+
+Task #35 (`journal/0406` co-owner directive, verbatim): _"whatever is strong in safr that can
+improve and elevate our loom artifacts, kailash build, please distill. remember loom and
+kailash build are agnostic harnesses."_ The BUILD half (SDK governance-code deltas BH1–BH5)
+already landed as kailash-py/rs issues per `0406`. This is the **LOOM half**, unblocked by the
+astra READ grant (`journal/0431`): distill SAFR's AGNOSTIC governance meta-patterns into a loom
+O1 methodology artifact. Read of `example-org/astra` (SAFR source material) is authorized
+under the `0431` grant (receipt landed last session `f8cc73e`; the `cross-repo-authorized`
+marker above re-anchors it for this session).
+
+## O1 authority (the audit-trail source)
+
+**SAFR — "Safeguards for Agentic Finance at Runtime"**, v1.0, Monetary Authority of Singapore
+(MAS) / BuildFin.ai work-stream, July 2026. A **NON-BINDING white paper** (it _specifies /
+recommends_ a runtime-governance architecture; it does NOT legally _require_). A PUBLIC external
+authority — ecosystem-neutral per `artifact-flow.md` § O1 ecosystem scope (public authority, not
+a tenant-specific one), so the distilled artifact is canon-safe.
+
+Ground-truth read under the `0431` grant: `astra:specs/20-safr-conformance.md` (the SAFR→control
+map) + `astra:workspaces/astra-product-line/briefs/03-safr-landscape-and-strategy.md` (the SAFR
+white-paper situational summary, "read in full"). Every SAFR claim below traces to a verbatim
+SAFR quote in one of those, NOT to astra's finance assembly.
+
+## The derivation (how the cited clause GOVERNS the artifact)
+
+**SAFR v1.0 §2** (the convergent runtime-governance architecture — four primitives interacting
+through a Governance Envelope, over a tamper-evident Audit Log): Agent Identity (registry-verified
+binding), Controls Repository (configurable rulebook), Disposition Engine (deterministic, ≥4
+calibrated outcomes), and the **Governance Envelope** {action + reasoning trace + context,
+_"authenticated against origin"_} + tamper-evident **Audit Log**. **SAFR §2 conformance requires
+each of these primitives → this methodology spec mandates** documenting, as an external-authority

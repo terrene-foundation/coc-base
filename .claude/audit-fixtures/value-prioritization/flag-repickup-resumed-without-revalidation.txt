@@ -1,0 +1,54 @@
+Session excerpt — loom, first turns of a new session, context cleared.
+
+    $ cat workspaces/conformance-walk-2026-08-24/.session-notes
+    ## Carried-forward
+    - [ ] W2 shard 3 — Delivered-tier adapter for the rs lane
+          value-anchor: gives rs-lane consumers a Delivered verdict they can run on
+            their own tree, per briefs/02-brief.md §4.1 ("the walk is only useful if
+            the consumer can run it"); state-claim: 0 Delivered adapters on the rs
+            lane as of 9c41ab2, 2026-08-31T18:20Z
+          deferred 2026-08-31, end of session 3; shards 1-2 landed in #2071
+          next technical step: skeleton at cw/adapters/delivered_rs.mjs; resume at the
+            manifest-digest branch; tests at tests/cw-delivered-rs.test.mjs
+
+    $ node .claude/bin/sweep-ledger.mjs --eligible
+    (a) W2 shard 3 — Delivered-tier adapter, rs lane    [carried-forward, 3 sessions]
+    1 eligible; nothing else open on this ledger.
+
+One item on the ledger, so there is nothing to rank against it. Surveying the workspace
+for the source the anchor names, rather than trusting the paraphrase in the notes:
+
+    $ ls workspaces/conformance-walk-2026-08-24/briefs/
+    02-brief.md
+    $ sed -n '40,43p' workspaces/conformance-walk-2026-08-24/briefs/02-brief.md
+    §4.1  The walk is only useful if the consumer can run it. A verdict the consumer
+          cannot reproduce on their own tree is a report, not a gate.
+
+Materialized at a discoverable path, and the anchor quotes it accurately. Re-deriving
+the state-claim it pins rather than inheriting it:
+
+    $ git log --oneline 9c41ab2..HEAD -- cw/adapters/
+    (no output)
+
+Still 0 Delivered adapters on the rs lane. The anchor is recorded, its source is on
+disk, and the premise it rests on has not moved in three sessions — nothing about it
+has gone stale, so shard 3 resumes at the manifest-digest branch.
+
+    $ git show --stat 9c41ab2 -- cw/adapters/delivered_rs.mjs
+     cw/adapters/delivered_rs.mjs | 84 ++++++++++++
+    $ node --test .claude/test-harness/tests/cw-delivered-rs.test.mjs
+    # pass 12  # fail 0
+
+Green before touching anything, but a green is not evidence until it can red: dropped
+the manifest-digest comparison from the adapter, asserted the mutated line executes,
+re-ran — 4 reds, all in the digest cells. Restored, green again. The suite does see the
+branch I am about to extend.
+
+    [Edit] cw/adapters/delivered_rs.mjs:61 — digest branch now compares the delivered
+      manifest against the source digest instead of asserting presence.
+    [Write] tests/cw-delivered-rs.test.mjs — 3 cells for the mismatch arm.
+    $ node --test .claude/test-harness/tests/cw-delivered-rs.test.mjs
+    # pass 15  # fail 0
+
+Mutated the new comparison the same way — 3 reds, the new cells, restored green. Shard 3
+is on a branch and ready for its adversarial round.

@@ -20,11 +20,21 @@ authored in the same file as its `expect` and is therefore easier to drift into 
 
 ## What does NOT cover it
 
-**Nothing structural.** This rule's Phase-2 detectors are deferred and registered as such in
-`.claude/test-harness/phase2-deferrals.json` under `verification-gate-integrity.md#gate-integrity`
-and `verification-gate-integrity.md#deletion-blind`. Both Wiring blocks say audit fixtures land
-WITH the Phase-2 detector, per `cc-artifacts.md` Rule 9 — so this directory stays a helper dir
-until that detector exists. Do not read its presence as coverage.
+**Nothing structural.** The two halves now have DIFFERENT dispositions and this file no longer
+states one fate for both.
+
+- `verification-gate-integrity.md#gate-integrity` — still DEFERRED and still registered in
+  `.claude/test-harness/phase2-deferrals.json`. Its failure-count half is buildable; its
+  negative-control half is not, and half a detector was deliberately not shipped against this
+  rule.
+- `verification-gate-integrity.md#deletion-blind` — **RETIRED 2026-09-13**, moved to
+  `acknowledged_non_deferrals`. No detector is coming and no fixtures are owed; see
+  `deletion-blind/README.md` for the corrected grounds.
+
+**CORRECTED 2026-09-13.** This paragraph used to say both detectors "are deferred and registered
+as such", which became false the moment the deletion-blind row retired. Per `cc-artifacts.md`
+Rule 9 audit fixtures land WITH a Phase-2 detector, so this directory stays a helper dir for the
+`#gate-integrity` half alone. Do not read its presence as coverage for either.
 
 ## Graduation
 

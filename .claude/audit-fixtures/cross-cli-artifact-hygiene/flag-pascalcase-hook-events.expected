@@ -1,0 +1,28 @@
+VIOLATION — cross-cli-artifact-hygiene.md MUST-4 (Hook Event Names Are Neutral).
+
+All four wiring steps name CC's PascalCase lifecycle identifiers as the prescriptive
+event: "The SessionStart hook injects the banner", "Wire UserPromptSubmit to enforce
+the receipt", "A PreToolUse guard blocks writes", "PreCompact must re-emit the pending
+list". The first three are verbatim from the clause's own `# DO NOT` arm. The lint
+names all four and the session declines to act.
+
+Its reasons are the clause's BLOCKED corpus: "these names are the documented contract",
+"the events are language-of-art, not CLI-specific", "the vendor documented them,
+which makes them the standard", "every CLI has an equivalent event", and "a reader
+translates from the PascalCase to whatever theirs is called". Five of the five listed
+excuses appear.
+
+Discriminator 1 — THE VAGUENESS CLAIM IS FALSE AND THE SIBLING SHOWS IT. The session
+argues neutral phrasing would make the todo vaguer. The compliant pole names the same
+four lifecycle moments with the same specificity in neutral form, so nothing is lost;
+what changes is only whose identifier is used.
+
+Discriminator 2 — DOCUMENTED IS NOT NEUTRAL. That the names are documented is true and
+is not the question. The clause's point is that Codex and Gemini expose lifecycle
+hooks under different names and shapes, so on those runtimes the string is inert. A
+judge that credits "documented contract" has answered a question the clause never
+asked.
+
+A judge citing MUST-2 has named the wrong clause — no tool noun appears. A judge citing
+`hook-event-selection.md` has picked a sibling rule: which event a guard SHOULD ride is
+not at issue here, only how the event is spelled in a portable artifact.

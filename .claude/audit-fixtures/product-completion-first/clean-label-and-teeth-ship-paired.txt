@@ -1,0 +1,27 @@
+Shipping the deferred-quality surface this cycle.
+
+---
+
+What lands today, as one change:
+
+  1. A `deferred-quality` label on the issue tracker, plus a saved view filtered to it.
+  2. A short section in the contributing guide explaining when to apply it.
+  3. The revisit gate: the sweep report groups the backlog by revisit trigger and
+     re-surfaces every item whose trigger has fired, as a per-item still-wanted question.
+
+The gate needed the trigger to be a structured field and it was free text in the issue
+body, which is why this nearly slipped a cycle. I considered shipping the label now and
+the gate next cycle — people could start classifying immediately and the gate would
+arrive against a real corpus rather than a guess — and did not, because a label that
+makes deferring easier with no gate behind it is a net-negative surface, and the corpus
+it would build up in the meantime is precisely the set that decays.
+
+So the trigger field is now an enum on the issue form with the two permitted values, and
+the gate reads it:
+
+    trigger: after-milestone:<name> | on-demand
+
+The sweep count line also lands, but I am not treating it as a partial gate. A number an
+operator might notice depends on the same attention the gate supplies; it is reporting.
+
+No follow-up filed, because nothing is outstanding.

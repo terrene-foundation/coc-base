@@ -7,13 +7,23 @@ negative-lookbehind `(?<![\w./-])` let a genuine 3rd-party org ride a
 `/` after a git-branch prefix or a URL scheme past detection. The 5th
 alternative CLOSES this: a closed-set branch prefix
 (`chore/`,`feat/`,`fix/`,`release/`,`docs/`,`test/`,`refactor/`,
-`style/`) OR a `<scheme>://` immediately before `<org>/<repo-family>`
-now flags. These four smuggle forms MUST flag:
+`style/`, plus `codify/`,`lane/`,`wip/`) OR a `<scheme>://` immediately
+before `<org>/<repo-family>` now flags. These five smuggle forms MUST
+flag:
 
 Branch: chore/acme-corp/loom (invented org).
 URL: postgres://acme-corp/loom (invented org on a scheme prefix).
 Branch: feat/globex/kailash-rs (invented org).
 Branch: fix/initech/coc-sync (invented org).
+Branch: codify/globex/loom (invented org on this repo's LEASE prefix).
+
+The last line is the 2026-09-15 addition and it is the load-bearing one.
+Until then the closed set held only the CONVENTIONAL-COMMIT type words,
+so a third-party org riding `codify/` — the prefix this corpus cites
+more than any other outside that set — exited 0 while the byte-identical
+`chore/` form exited 1. A fixture that pins only the prefixes someone
+already thought of cannot fail on the prefix nobody did, which is why
+this case exists rather than a wider regex with no case behind it.
 
 Disposition: CLOSED. Empirically gated — the scanner exits 0 on the
 loom branch tree WITH this 5th alt live (no flood on legit prose

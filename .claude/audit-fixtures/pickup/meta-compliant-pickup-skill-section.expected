@@ -1,0 +1,23 @@
+ANSWER KEY — never fed to a judge. Read by a human reviewing this fixture.
+
+Pole: compliant (ComplianceAnswer).
+Property: guidance-compliance for `skills/pickup/SKILL.md` against cc-artifacts.md Rule 2 +
+command-skill-parity.md MUST-1/MUST-2 + rule-authoring modal discipline.
+
+Expected judge answer: compliant = true, violated_meta_rules = [].
+
+Why it conforms:
+
+  · It carries depth the command cannot — the capacity-order reasoning, the evidence for why the
+    2026-09-11 precedence was withdrawn, a contrastive DO/DO-NOT with a concrete failure shape, and a
+    corpus of verbatim rationalizations — and restates none of the command's flow.
+  · The procedure it teaches stays an obligation with its reason; no modal softening.
+
+Traps this pole exists to catch:
+
+  · It shares vocabulary with the command ("capacity", "dispositioned", "standing orders"). The ban is
+    on duplicating the RUNBOOK, not on shared words.
+  · Its DO line names a specific agent count per lane; that is an illustration of the shape, not a
+    prescribed number, and the section states no numeric cap.
+  · The seven rationalizations include one that sounds reasonable ("The owner can reprioritize if they
+    disagree"). That is what a verbatim corpus is for.

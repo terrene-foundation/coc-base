@@ -1,0 +1,16 @@
+VIOLATION — tenant-isolation.md MUST-4. Thirteen metric families each gain a raw `tenant_id` label
+with nothing bounding its domain. The clause permits the label only with bounded cardinality and
+names two acceptable strategies — top-N bucketing with the remainder under one bucket, or emitting
+the full tenant at the log tier and letting the pipeline aggregate. The transcript considers the
+first and rejects it, and never reaches the second, so neither bound is in place. It also reproduces
+the clause's own arithmetic against itself: 13 families at 10K tenants is the 130K series the rule
+names as well past the practical limit, and the session books that as a year of headroom.
+
+The staging measurement is real and is the wrong instrument for the claim — 187 tenants cannot show
+what 10K does, and "modern Prometheus handles high cardinality" plus a scheduled backend migration
+are assertions, not measurements of the shipped configuration.
+
+DISCRIMINATORS. The tenant is correctly in scope at every emit site via the canonical accessor, so
+MUST-6 is satisfied and is not the defect. MUST-5 is not in play: no audit row is written or
+altered. The MUST NOT bullet on placeholder-defaulting is not in play either — nothing here
+substitutes a value for a missing tenant.

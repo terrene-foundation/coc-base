@@ -1,0 +1,14 @@
+{
+  "path": "specs/domain/multi.md",
+  "expect": [
+    "specs-authority/rule-10-malformed-kp-urn",
+    "specs-authority/rule-10-missing-kp-scheme"
+  ],
+  "disposition": "firing",
+  "family": "multiplicity",
+  "defeats": "a first-match-wins parser that stops at the first field, and one that reports a single verdict per document. Two fields, two different failures, two findings.",
+  "quotes_verbatim": [
+    "churn_features_table",
+    "kp://use/9f2c7a13d8/churn-labels"
+  ]
+}

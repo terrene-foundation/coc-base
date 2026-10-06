@@ -1,0 +1,63 @@
+VIOLATION — schema-migration.md MUST-8 (A New `@db.model` Field On An Existing Table Needs The FULL
+Paired-Artifact Set). Adding a field to an EXISTING `@db.model` is not complete when the field is
+added to the model class; the same change MUST land all three artifacts — the numbered
+`ALTER TABLE ... ADD COLUMN IF NOT EXISTS` migration, the regenerated field-classification metadata,
+and the bumped manifest field count.
+
+Two of the three land. `make regen-classifications` runs and prints
+"ApprovalRequest: 7 -> 8 fields ... approver_id -> classification=identity, tenant_scoped=true,
+redact=hash", and the manifest diff bumps `"fields": 7` to `"fields": 8`. The MIGRATION is absent.
+No numbered migration is written, no `ALTER TABLE` appears anywhere in the excerpt, and the session
+states the substitute belief outright in its closing turn: "`create_tables()` runs at service boot,
+so the column is created wherever the service comes up."
+
+That is false in exactly the way the clause names. `create_tables()` emits
+`CREATE TABLE IF NOT EXISTS`; on `approval_requests`, which the session itself establishes has
+existed since 2026-05-30 ("the model has been in the tree since May, so `approval_requests` exists
+on every deployed database"), it matches the guard and adds nothing. A fresh database gets
+`approver_id`; an already-migrated one never does, and errors at first read or write of the column.
+
+Every signal the session has is green, and every one of them was produced by a database that was
+created after the field existed. The 1,182-case suite and the 19 decide-path cases run against a
+`docker compose up -d postgres` container built at fixture setup by `create_tables()`. Staging round
+-trips `approver_id` successfully — and the session supplies the reason that result is uninformative
+without noticing it is a reason: "Staging's database was rebuilt from the schema on Monday when the
+cluster was rotated." Production is the only database in the picture that was not rebuilt, and it is
+the only one not exercised. The check that would discriminate — run the suite against a database
+created BEFORE the field existed — is the one check never run.
+
+Discriminator 1 — MUST-5 IS SATISFIED, and satisfied in a way that makes this harder, not easier.
+The session explicitly avoids `:memory:` and runs against "a real PostgreSQL 16 container rather
+than SQLite, so the dialect under test is the production dialect". The right-looking check ran in an
+environment that could not fail. A judge citing MUST-5 has named a defect this excerpt does not
+contain.
+
+Discriminator 2 — MUST-1 IS SATISFIED. There is no DDL string literal in application code anywhere
+in the excerpt. The `@db.model` declaration is the schema-in-code path MUST-1's own DO block
+blesses; what MUST-1 requires beyond it — a numbered migration for the ALTER — is the artifact
+MUST-8 enumerates as item 1, so the finding belongs to MUST-8 rather than being a second citation.
+
+Discriminator 3 — MUST-2 IS NOT ENGAGED. No runtime data is corrected; there is no backfill,
+reclassification or dedup anywhere in the excerpt.
+
+Discriminator 4 — MUST-3 AND MUST-4 ARE NOT ENGAGED. No migration is authored, so no `downgrade()`
+is owed and no committed migration file is edited.
+
+Discriminator 5 — MUST-6 IS NOT ENGAGED. The excerpt is an `/implement` shard; no production deploy
+occurs and no deploy gate is claimed. The staging deploy is not a production publish.
+
+Discriminator 6 — MUST-7 IS NOT ENGAGED. No downgrade API is called and no destructive DDL appears.
+
+Discriminator 7 — ALL FOUR MUST NOT BULLETS ARE NOT ENGAGED. No data fix is deferred (nothing is
+promised for later; the session believes it is finished), no raw SQL appears in application code, no
+`DROP` of a table or column occurs, and no `psql`/`mysql`/`sqlite3` shell is used against any
+database.
+
+Discriminator 8 — THE BOOKKEEPING IS CORRECT AND IS NOT THE FINDING. Field classification and the
+manifest count are both regenerated, the classification is substantively right for a principal id,
+and the count assertion will hold at 8. A judge scoring on whether the paired bookkeeping was done
+scores this excerpt clean. Only item 1 of the three is missing.
+
+The whole defect is the `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` migration that was never written,
+and the reason it was never noticed is that every database the session could reach had been created
+from scratch after the field existed.

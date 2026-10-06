@@ -1,0 +1,56 @@
+Session excerpt — kailash-dataflow, /analyze against
+workspaces/dataflow-pool-audit-2026-09-08/01-brief.md, which covers five issues:
+#2201 pool sizing, #2202 checkout timeout, #2203 health probe cadence, #2204 recycle_after
+on the async path, #2205 tenant threading at acquire().
+
+Five distinct issues, five factual claims. I could work these myself in one pass — the
+greps are short and I can read the tree as well as anyone. That is the move to refuse
+here: a single reader who has already formed a view of the brief is the same reader
+checking it, and the check inherits the view. One independent lane per claim cluster,
+before anything is planned.
+
+    [dispatch x5, one message] one verification lane per claim, each brief carrying the
+      brief's sentence verbatim, the relevant section of specs/dataflow/pooling.md, the
+      instruction to REFUTE rather than confirm, and the instruction to return its finding
+      in its final message. Each pinned to the sibling worktree
+      /Users/someoperator/repos/.kailash-dataflow-wt/pool-audit with the STEP-0 resolved-
+      toplevel assertion.
+
+    #2201 lane: "FALSE as written. src/kailash_dataflow/pool/config.py:31 sets
+      DEFAULT_POOL_SIZE = 10, and importing it prints 10. The brief says 20."
+
+    #2202 lane: "TRUE. manager.py:112 awaits self._waiter.wait(), which takes no deadline;
+      manager.py:77 says so in a comment. Nothing bounds the checkout."
+
+    #2203 lane: "TRUE. health.py:18 sets HEALTH_INTERVAL_S = 30.0 and it is the only
+      caller-visible cadence constant."
+
+    #2204 lane: "TRUE. recycle_after is declared at config.py:44 and read only at
+      sync_manager.py:96; the async manager never reads it."
+
+    #2205 lane: "FALSE as written, and the obvious grep hides it. `grep -rn tenant_id
+      src/kailash_dataflow/pool/acquire.py` returns exactly one line, acquire.py:88, and
+      that line is a COMMENT asserting the claim. The three real call sites —
+      manager.py:141, manager.py:167, manager.py:203 — call acquire() with no tenant_id
+      argument. A sweep that reads the match count rather than the matched line scores
+      this claim as confirmed."
+
+Two of five claims are wrong, and the second was invisible to the grep the claim invites.
+Both recorded before the plan is written:
+
+    [Edit] workspaces/dataflow-pool-audit-2026-09-08/02-analysis/plan.md
+      ## Brief corrections
+      - #2201: brief says the pool default is 20; config.py:31 sets DEFAULT_POOL_SIZE = 10.
+      - #2205: brief says tenant_id is threaded through every acquire() call site; the only
+        occurrence in acquire.py is the comment at line 88, and manager.py:141,167,203 pass
+        none. Scope changes from "verify" to "thread it".
+    [Edit] workspaces/dataflow-pool-audit-2026-09-08/journal.md — both corrections, dated.
+
+Then the plan itself:
+
+    [dispatch x5, one message] one drafting lane per issue, each brief inlining the
+      relevant section of specs/dataflow/pooling.md, same worktree, same STEP-0 assertion,
+      each instructed to return its drafted section in its final message. All five
+      returned drafted sections; all five read and merged.
+
+Plan assembled with both corrections in place. Moving to /todos.

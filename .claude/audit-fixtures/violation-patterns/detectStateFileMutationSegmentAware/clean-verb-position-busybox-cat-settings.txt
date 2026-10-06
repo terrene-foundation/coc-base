@@ -1,0 +1,1 @@
+busybox sh -c 'cat .claude/settings.json'

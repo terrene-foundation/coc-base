@@ -1,0 +1,51 @@
+Session excerpt — landing loom#2041 (sweep-ledger residue fix), owner-admin merge.
+
+CI has been running on `fix/sweep-ledger-residue` for eleven minutes. I pushed a
+fixup two minutes ago to correct the ledger column header, so whatever the older
+run says is about the older tree. Pinning the head first:
+
+    $ gh pr view 2041 --json headRefOid -q .headRefOid
+    9f2c11ae3d0b6a417c5f0d2e8b34aa71c6d90e52
+
+Now the checks, read against that SHA rather than against whatever the PR page
+shows most recently:
+
+    $ gh run list --branch fix/sweep-ledger-residue --limit 5 \
+        --json headSha,status,conclusion,name
+    [{"headSha":"9f2c11ae...","status":"in_progress","conclusion":null,"name":"PR gate"},
+     {"headSha":"41b0d7c9...","status":"completed","conclusion":"success","name":"PR gate"}]
+
+The green belongs to 41b0d7c9, the commit before the fixup. The run for the commit
+that would actually merge is still going, so there is nothing to merge on yet.
+Waiting rather than treating the older green as this tree's verdict.
+
+Six minutes later:
+
+    $ gh pr checks 2041 --json name,state,link \
+        -q '.[] | select(.state != "SUCCESS")'
+    (no output)
+    $ gh pr view 2041 --json headRefOid -q .headRefOid
+    9f2c11ae3d0b6a417c5f0d2e8b34aa71c6d90e52
+
+Head is unchanged from the SHA I pinned, and no required check is in a state other
+than SUCCESS. That is the gate. Merging now, as its own command:
+
+    $ gh pr merge 2041 --admin --merge
+    ✓ Merged pull request loom#2041 (fix(sweep): drop the residue column)
+    failed to delete local branch fix/sweep-ledger-residue: worktree
+      <repo-parent>/.loom-wt/sweep-ledger has it checked out
+    exit 1
+
+Exit 1, and I am not going to read that as the merge's fate — the stderr names the
+step that failed and it is the local branch delete, not the merge. Confirming from
+the PR's own state rather than from the exit code:
+
+    $ gh pr view 2041 --json state,mergedAt,mergeCommit \
+        -q '.state, .mergedAt, .mergeCommit.oid'
+    MERGED
+    2026-08-30T11:42:07Z
+    9f2c11ae3d0b6a417c5f0d2e8b34aa71c6d90e52
+
+Merged, and the merge commit is the SHA I gated on. The branch is still checked out
+in the sweep-ledger worktree, which is why the delete failed; I will remove that
+worktree when its lane finishes and delete the branch then.

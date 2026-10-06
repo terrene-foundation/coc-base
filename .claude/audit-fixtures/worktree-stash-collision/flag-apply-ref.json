@@ -1,0 +1,4 @@
+{
+  "command": "git stash apply stash@{0}",
+  "note": "applies without dropping; still writes a working tree from shared state"
+}

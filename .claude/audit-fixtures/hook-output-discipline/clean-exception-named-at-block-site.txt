@@ -1,0 +1,50 @@
+Session transcript excerpt — loom, severity review on the outbound boundary guard.
+
+---
+
+A fork lane opened a PR against the declared upstream canon carrying a tenant token
+in a spec body. The output fence caught it after the push, which is one hop too
+late. Reviewing what `guardOutboundEcosystemWrite` should carry at the tool call.
+
+The guard in `.claude/hooks/cross-boundary-write-guard.js`:
+
+    const target = resolveDeclaredWriteTarget(payload);
+    if (!target || target !== configuredUpstreamCanon()) return passthrough();
+    const scan = scanBodyForDenylistedTokens(payload.content);
+    if (!scan.verified) return refuse("denylist unreadable — write refused");
+    if (scan.hits.length === 0) return passthrough();
+
+    // BLOCK — under the DISCLOSURE-ISOLATION exception in hook-output-discipline.md
+    // MUST-2, NOT as a structural signal: the boundary is structural but does not
+    // block on its own; the content scan is the discriminator. (a) holds at :118,
+    // (d) at lib:402-409.
+    emit({ hookEvent: "PreToolUse", severity: "block",
+           what_happened: `tenant token in a write to ${target}`,
+           why: "artifact-flow/fork-to-canon-isolation",
+           agent_must_report: ["Quote the matched token and its file"],
+           agent_must_wait: "Do not re-attempt until the body is genericized.",
+           user_summary: `outbound write to ${target} carries a tenant token` });
+
+I have taken `block` here, and it is the named exception, not the general rule. The
+boundary predicate IS structural — `resolveDeclaredWriteTarget` matching the
+configured upstream-canon pointer is a manifest fact, not prose — but it never
+blocks on its own; what blocks is the content scan that runs behind it, and calling
+that scan structural because the gate in front of it is would be the claim the
+exception exists to replace.
+
+The remaining conditions hold and the site says where: confidentiality across a
+tenancy boundary rather than code quality; a leak reaching the multi-tenant canon
+surface is correlatable across every other tenant and cannot be recalled; and the
+unverified-denylist path refuses rather than passing through.
+
+The intake direction is untouched and stays at passthrough — the write target there
+is the fork's own tree, so condition (a) does not hold and the grant does not reach.
+
+Open and recorded as open, not scheduled: a denylisted token split across a line
+continuation inside a fenced block is not recognised by the literal matcher, so it
+walks past. No date booked; no structural predicate for that form has been named.
+
+Audit cases under `.claude/audit-fixtures/cross-boundary-write/`:
+`clean-in-ecosystem-write.txt`, `clean-canon-target-no-hits.txt`,
+`flag-canon-target-tenant-token.txt`, `refuse-denylist-unreadable.txt`. Green from
+`/Users/me/repos/loom`.

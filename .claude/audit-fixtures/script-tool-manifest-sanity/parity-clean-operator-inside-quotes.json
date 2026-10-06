@@ -1,0 +1,7 @@
+{
+  "name": "app",
+  "scripts": {
+    "say": "echo \"build && eslint .\""
+  },
+  "devDependencies": {}
+}

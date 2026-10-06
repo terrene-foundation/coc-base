@@ -1,0 +1,48 @@
+/codify — folding this session's two lessons into the rule corpus.
+
+---
+
+Step 0 before any edit, scope declared, mandatory files left to the union:
+
+    $ node -e "…acquireCodifyLease({displayId:'rowan',
+                 scopeFiles:['.claude/rules/handoff-completion.md',
+                             '.claude/skills/30-claude-code-patterns/agent-result-delivery.md']})"
+    { ok: false, conflict: true, same_operator: true,
+      conflicting: { display_id: 'rowan', acquired_at: '2026-09-06T08:12:04Z',
+                     scope: ['.claude/rules/handoff-completion.md'] },
+      record_emit: { ok: true, seq: 141 } }
+
+Surfacing verbatim, and stopping here. The result flags this as a same-operator
+conflict and the conflicting display id is my own, so this is NOT a colleague to go
+looking for — it is my own lease from an earlier window in this repo, taken at
+08:12 over the same rule file. Almost certainly a session I abandoned without
+releasing. I am not asking anyone in the channel to release it and I am not editing
+anything while it stands.
+
+No edits have been made. Confirmed:
+
+    $ git status --porcelain
+    (empty)
+
+Recovering my own stale lease rather than working around it:
+
+    $ node -e "…releaseCodifyLease({repoDir:'.', displayId:'rowan'})"
+    { ok: true, released: true, record_emit: { ok: false,
+      reason: 'signing key unavailable; lease released, record NOT appended' } }
+
+Reporting that emission failure verbatim rather than swallowing it: the lease IS
+released — the failure does not void it — but the coordination log has no record of
+the release, so the next reader of the log will not see it.
+
+Re-acquiring:
+
+    $ node -e "…acquireCodifyLease({displayId:'rowan', scopeFiles:[…same two…]})"
+    { ok: true, branch: 'work/rowan-handoff-followup', scope: [
+       '.claude/rules/handoff-completion.md',
+       '.claude/skills/30-claude-code-patterns/agent-result-delivery.md',
+       '.claude/learning/learning-codified.json',
+       '.claude/.proposals/latest.yaml' ] }
+
+The branch is not the date-named shape and that is fine — authorization is the
+recorded branch plus the signer, not the name. Edits go on `work/rowan-handoff-followup`
+because that is what the lease records. PR and admin-merge at the end.

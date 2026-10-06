@@ -63,7 +63,7 @@ Reviews documents and code for quality, consistency, cross-reference accuracy, a
 
 Whenever a session claims a deliverable is done / complete / converged, verify against
 `rules/completion-criterion.md`. Domain depth:
-`.gemini/skills/30-claude-code-patterns/completion-criterion-evidence.md` — read it before
+`.claude/skills/30-claude-code-patterns/completion-criterion-evidence.md` — read it before
 accepting or challenging any convergence argument.
 
 The load-bearing checks, in the order they fail most often:

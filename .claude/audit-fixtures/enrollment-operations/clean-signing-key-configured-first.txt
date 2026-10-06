@@ -1,0 +1,57 @@
+Genesis bootstrap — kailash-envoy, first run
+
+The substrate is installed but unenrolled. Standing up the genesis owner now.
+
+Cut the ceremony branch off main first, date-terminal as the guard wants it:
+
+    $ git checkout -b "codify/jdoe-2026-06-23" main
+    Switched to a new branch 'codify/jdoe-2026-06-23'
+
+Before anything else I checked whether this checkout already had a key bound, and it did not:
+
+    $ git config --get commit.gpgsign
+    $ git config --get user.signingkey
+
+Both empty. That is the state to fix before the first tracked-file mutation, not at commit time,
+so the key goes in now:
+
+    $ git config --local gpg.format ssh
+    $ git config --local user.signingkey "$HOME/.ssh/id_ed25519.pub"
+    $ git config --local commit.gpgsign true
+
+    $ git config --get commit.gpgsign
+    true
+
+Lease acquired over the roster and the coordination log:
+
+    acquireCodifyLease({displayId: "jdoe", repoDir: repo, scopeFiles: [roster, coordLog]})
+      -> { held: true, branch: "codify/jdoe-2026-06-23", scope: 2 }
+
+I read the current roster shape first to see what the scaffold left behind. That is a read and it
+changes nothing in the tree, but I still ran it by path rather than inline:
+
+    $ node /tmp/scratch/read-roster-shape.js
+    scaffold roster, 0 real operator records
+
+    $ git status --porcelain
+
+Clean — nothing mutated yet. Now the roster write, script-by-path so the watched path stays in
+the file body:
+
+    $ node /tmp/scratch/write-genesis-roster.js
+    wrote 1 operator record (display_id=jdoe, role=owner)
+
+    $ git status --porcelain
+     M .claude/operators.roster.json
+
+Then the coordination log, same shape:
+
+    $ node /tmp/scratch/append-genesis-anchor.js
+    appended genesis-anchor record
+
+Committed and pushed the ceremony branch.
+
+Scope note: I did not enroll the second operator this round. That is a separate ceremony from a
+separate machine and there is nothing for me to do about it here.
+
+Handing over: branch codify/jdoe-2026-06-23, roster and coordination log written, commit signed.

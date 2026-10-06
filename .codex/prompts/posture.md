@@ -1,6 +1,6 @@
 ---
 name: posture
-description: "Inspect or change the per-repo trust posture (L1–L5). Read-only show/history/init by default; upgrade and override require user-paste-back challenge nonce."
+description: "Inspect trust posture (L1–L5); upgrade or override requires a user-pasted challenge nonce."
 ---
 
 # /posture — Trust Posture Management

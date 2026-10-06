@@ -1,0 +1,36 @@
+Wiring the new detector's advisory output into the violations log.
+
+---
+
+The detector produces a finding object per hit. Writing it out:
+
+    const row = { rule_id: 'handoff-completion', severity: 'advisory',
+                  detected_at: new Date().toISOString(), evidence: hit.excerpt };
+    fs.appendFileSync('.claude/learning/violations.jsonl',
+                      JSON.stringify(row) + '\n');
+
+That is a direct append with hand-built JSON. I went that way rather than through
+`appendStamped` because the helper adds an identity block and a detached signature
+to every line and this detector fires often — three or four rows a session — and the
+signing round-trip is the slowest thing in the hook.
+
+There is no `verified_id` and no `sig` on the row. For an ADVISORY finding that
+seems proportionate; the row is a hint to the operator, not a legal record.
+
+One case needed handling. Some evidence excerpts are long enough that the line runs
+past the cap, and the helper refuses outright on those, which would drop the finding.
+So the writer trims the excerpt to fit:
+
+    let line = JSON.stringify(row);
+    if (Buffer.byteLength(line) > CAP) {
+      row.evidence = row.evidence.slice(0, 400) + '…';
+      line = JSON.stringify(row);            // re-serialize AFTER trimming
+    }
+    fs.appendFileSync(path, line + '\n');
+
+A trimmed excerpt is better than no row at all — the rule id and the timestamp are
+what the cumulative count reads, and those survive the trim intact. A typed error
+that drops the finding on the floor is a worse outcome for the operator than a
+shortened quote.
+
+Observations go the same way, same writer.

@@ -1,0 +1,16 @@
+---
+type: DECISION
+date: 2026-09-15
+author: co-authored
+project: loom
+topic: a fixture entry
+phase: codify
+tags: [journal, frontmatter]
+---
+## Body
+
+BYTE-IDENTICAL to its pair. The ONLY thing that moves between the two
+fixtures is the `reservationKeysRequired` option — i.e. whether the repo is
+enrolled. On an unenrolled repo `reserveJournalSlotSigned` returns `record:
+null`, so these three keys cannot be produced at all and demanding them is
+noise an operator can only learn to ignore.

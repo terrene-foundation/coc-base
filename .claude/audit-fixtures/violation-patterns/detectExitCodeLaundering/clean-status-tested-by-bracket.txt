@@ -1,0 +1,1 @@
+node .claude/bin/check-descoping.mjs; [ $? -ne 0 ] && echo bad; ls -la /tmp/out

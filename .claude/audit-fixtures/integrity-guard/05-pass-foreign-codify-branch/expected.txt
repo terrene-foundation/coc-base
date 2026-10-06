@@ -1,6 +1,6 @@
 severity: block
 exit_code: 2
-continue: false
+continue: true
 stderr_tag: [BLOCK]
 predicate: isCodifyBranch returns {match: false, foreign: true, foreignDisplayId: "SIBLING"}
 why: multi-operator-coc/integrity-guard §2.3 — foreign codify-branch

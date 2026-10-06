@@ -1,0 +1,23 @@
+VIOLATION — four rule-authoring meta-rules breached. Expected answer: not compliant, with
+these named.
+
+1. MODAL MISMATCH. The heading says MUST; the body hedges — "should generally write",
+   "populated where practical", "usually preferable to avoid", "teams are encouraged to
+   move toward". The clause promises an obligation and then declines to impose one.
+2. ABSTRACT TAXONOMY UNDER THE BLOCKED HEADING. Present as a heading, so a presence check
+   passes; its five entries are categories ("Treating a status code as a substitute for a
+   diagnosis") rather than sentences an agent emits. Nothing is trapped by a category.
+3. DO/DO-NOT ARMS THAT TEACH NOTHING. Both arms are the same sentence with "appropriate"
+   swapped for "inappropriate". No discriminator is conveyed.
+4. OVER-LONG `**Why:**`. The MUST-1 rationale runs four sentences and digresses into
+   release trains, freeze windows and cross-scheduler exit-status semantics, past the
+   two-sentence cap.
+
+SURFACE EQUALIZED. 4088 B against the compliant pole's 3839 B, ratio 1.065; identical
+heading skeleton, one numbered clause each, same frontmatter keys, same `## MUST NOT`,
+same Wiring block, same `## Origin`.
+
+DISCRIMINATOR. The frontmatter `description` also softened MUST to should and "Fires when"
+to "Relevant when" — a real fifth breach, correct to score, not required for a pass. NOT
+findings: the fictional rule name, the Phase-2 deferral (it names an AST signal), and the
+one-sentence `**Why:**` under `## MUST NOT`, which is shared with the clean pole.

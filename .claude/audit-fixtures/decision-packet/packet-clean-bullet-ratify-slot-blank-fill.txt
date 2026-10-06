@@ -1,0 +1,17 @@
+# Decision Packet — ecosystem operating model
+
+**Status:** awaiting co-owner ratification.
+
+### DECISION-1 — client ecosystem definition
+
+- **Recommendation:** RATIFY. A client ecosystem is a full COPY of loom+build+use
+  that syncs upstream-only from canon (`specs/01 §1`).
+- **Honest con:** more machinery; a real artifact-flow.md rewrite.
+- **→ RATIFY / OVERRIDE: \*\***\_\_**\*\***
+
+### DECISION-2 — origination lane
+
+- **Recommendation:** BUILD-origination by default, with a co-owner carve-out
+  (`specs/01 §4.1`).
+- **Honest con:** two paths to document instead of one.
+- **→ RATIFY / OVERRIDE: \*\***\_\_**\*\***

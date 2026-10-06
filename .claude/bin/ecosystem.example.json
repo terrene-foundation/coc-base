@@ -59,7 +59,39 @@
     "                          + keyword/query 'password=' forms — the INV-2 'never",
     "                          surface a secret VALUE' projection discipline. Absence =",
     "                          consumer resolves a documented default / honest-pending;",
-    "                          present-but-malformed fails LOUD (config-error)."
+    "                          present-but-malformed fails LOUD (config-error).",
+    "  coordination            OPTIONAL multi-operator switch, read by",
+    "                          .claude/hooks/lib/coordination-mode.js. The block below",
+    "                          is DELIBERATELY UNSET ({}, no `enabled`) — this is a",
+    "                          verdict each fork STATES, not one it inherits.",
+    "",
+    "COORDINATION — DECIDE THIS AT FORK-INIT",
+    "  coordination.enabled    STRICT boolean. Omit it and the block stays inert.",
+    "",
+    "  SET true  when this ecosystem has >= 2 DISTINCT HUMANS enrolled in its roster",
+    "            (.claude/operators.roster.json) — i.e. the multi-operator gates",
+    "            (claims, leases, quorum, signed coordination-log) have real work to do.",
+    "  LEAVE IT UNSET to let the roster decide. The implicit tier resolves the question,",
+    "            and on a genuine multi-operator roster it already yields ENABLED, so an",
+    "            explicit `true` is a declaration rather than a behavior change.",
+    "",
+    "  AN EXPLICIT SETTING WINS. Precedence (first decisive tier wins): 1 programmatic",
+    "  opts > 2 the never-synced local override (.claude/learning/coordination-mode.json)",
+    "  > 3 THIS file's coordination.enabled > 4 the IMPLICIT tier (roster present AND",
+    "  genesis anchored) > 5 default OFF. Tiers 1-3 therefore beat tier 4 — which is the",
+    "  whole point of writing the key.",
+    "",
+    "  'ENROLLED' IS NOT 'MULTI-OPERATOR'. /genesis-bootstrap makes 'roster present AND",
+    "  genesis anchored' true for ANY repo, a solo one included — which is why the",
+    "  implicit tier alone once turned the substrate ON in every bootstrapped repo,",
+    "  running multi-operator ceremony for one human. Head-count is the question; the",
+    "  implicit tier answers a proxy for it. State the verdict here when they diverge.",
+    "",
+    "  ASYMMETRY (only the DISABLE direction is fenced). A `true` is honored from",
+    "  wherever it is read. A `false` on an ENROLLED repo is honored ONLY from the",
+    "  committed canonical <repo>/.claude/bin/ecosystem.json whose attested blob says",
+    "  the same thing — an uncommitted or relocated `false` is REFUSED with a warning,",
+    "  because disabling a shared substrate must leave an audit trail."
   ],
   "schema_version": 1,
   "ecosystem": {
@@ -77,6 +109,7 @@
     "build.py": { "org": "example-org", "repo": "example-build-py" },
     "build.rs": { "org": "example-org", "repo": "example-build-rs" },
     "build.prism": { "org": "example-org", "repo": "example-build-prism" },
+    "build.base": { "org": "example-org", "repo": "example-base-build" },
     "use-template.py": { "org": "example-org", "repo": "example-use-py" },
     "use-template.rs": { "org": "example-org", "repo": "example-use-rs" },
     "use-template.claude-py": {
@@ -102,5 +135,6 @@
   "rag": {
     "reservoir_locator": "sqlite:///.rag/example-ecosystem.db?mode=ro",
     "tenant_id": "example-ecosystem"
-  }
+  },
+  "coordination": {}
 }

@@ -18,4 +18,17 @@ Public SDK URL: https://github.com/openai/openai-python (2nd seg not a family).
 Release branch: release/v3.23.0 (no org/repo-family shape).
 Own branch: chore/loom/cleanup (loom is repo-family-excluded as <org>).
 
+The 2026-09-15 prefix widening added `codify/`, `lane/` and `wip/`. These
+lines pin what that widening MUST NOT drag in with it:
+
+Sync lane: build/prism and build/base (a LANE id, never a branch prefix).
+Sync lane: build/py and build/rs (same class).
+Lease branch: codify/2026-09-15-residual-sweep (no <org>/<repo-family>).
+
+`build/` is the case to keep honest. It scored 53 citations in this
+corpus — more than every widened prefix combined — and was DELIBERATELY
+left out, because reading the hits rather than the tally shows every one
+is a sync-lane identifier. A count alone would have argued for admitting
+it, and admitting it would have widened the fence on a misread.
+
 If any line here flags, the smuggle-close over-extended into a flood.

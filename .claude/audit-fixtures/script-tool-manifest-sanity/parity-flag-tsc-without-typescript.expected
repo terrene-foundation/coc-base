@@ -1,0 +1,4 @@
+# THE REJECT POLE FOR THE ALIAS TABLE. A `ts`-prefixed dependency is present,
+# so a prefix-matching or substring-matching implementation scores this clean.
+# `ts-node` does not publish `tsc`.
+finding:undeclared:tsc

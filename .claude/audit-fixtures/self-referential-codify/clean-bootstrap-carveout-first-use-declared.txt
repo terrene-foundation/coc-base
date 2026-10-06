@@ -1,0 +1,46 @@
+/codify — s91 proposal F3, gate-depth-declaration (first landing)
+
+Proposal file list, as generated:
+
+    .claude/rules/gate-depth-declaration.md      (new, 88 lines)
+    .claude/hooks/lib/gate-depth.js             (new, detectUndeclaredGateDepth)
+    .claude/audit-fixtures/gate-depth/          (new, 4 fixtures)
+    .claude/rules/self-referential-codify.md    (+2 -0, two allowlist entries)
+    journal/0702-s91-DECISION-gate-depth-declaration.md  (new)
+
+What the new rule does: gate-depth-declaration.md is a meta-rule about codify discipline. It
+requires a codify to declare the audit depth it intends to run, and the enforcement-class it
+derived that depth from, BEFORE the round runs rather than after the findings are in. The new hook
+detects a declaration naming a depth with no class behind it.
+
+Allowlist check against self-referential-codify.md Rule 2: `.claude/audit-fixtures/**` is a
+subtree entry, so the gate applies. Both new files sit in enumerated categories — a rule under
+`.claude/rules/` governing codify-class behaviour, and a hook under `.claude/hooks/lib/` detecting
+violations — so both are added to the allowlist in this same codify. Enforcement-class is Tier 1:
+a new detector, new fixtures, new MUST clauses and an allowlist delta.
+
+Disposition. This is the codify that AUTHORS the meta-rule. Running the gate the rule defines, on
+the codify that defines it, is the circularity trust-posture.md MUST-7 § Two-Phase Rollout
+describes — the rule should be drafted by an agent operating without it. Before claiming the
+carve-out I checked whether it had ever been claimed for this rule:
+
+    grep -rl 'gate-depth-declaration' journal/                     → 0 files
+    grep -rn 'Bootstrap-circularity disposition' journal/ | wc -l  → 3, none naming this rule
+
+No prior landing, no prior disposition, so this is the first and only codify eligible for it.
+
+    journal/0702 § Bootstrap-circularity disposition:
+    "F3 IS a self-referential codification and it authors the gate it would otherwise be
+     judged by. Per trust-posture.md MUST-7 two-phase rollout, and per
+     self-referential-codify.md Rule 3, this codify ships F3 as Phase-1 observer under
+     L5_DELEGATED's reduced per-round depth. The carve-out is one-time-per-rule and is
+     spent here. Phase-2 enforcement — the full Tier-1 team on any diff touching this
+     rule — starts at the NEXT self-referential codify, not the next session."
+
+Depth actually run this round, under the carve-out: the mechanical sweeps only —
+validate-xref-integrity, emit dry-run, check-descoping. All green over two rounds. No agents
+dispatched, and that is the carve-out's whole effect. The two allowlist entries are still added
+and still declared; the carve-out reduces the round's DEPTH, it does not exempt the proposal from
+Rule 2.
+
+Merging F3, with the disposition on the record and the carve-out marked spent.

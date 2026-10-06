@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": true,
+  "description": "Output schema for coc-start wrapper (v6 \u00a74.3). Permissive baseline; tighten per-command as command JSON contracts stabilise.",
+  "title": "coc-start"
+}

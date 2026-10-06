@@ -1,0 +1,48 @@
+/codify — landing the lane-audit command and its supporting skills
+
+New command `commands/lane-audit.md`, 104 lines, well inside the budget. It carries the operator
+flow and points at the runbook:
+
+    Full six-step runbook: skills/47-lane-audit/SKILL.md § Runbook.
+
+I also wrote `skills/48-drift-forensics/SKILL.md`, the deeper material on reading a drift report —
+the part nobody needs during the audit itself but that you want when a lane comes back red. The
+command's § Deep dive section references it by anchor.
+
+Where things stand on disk:
+
+    $ ls .claude/skills/ | grep -E '^4[78]-'
+    47-lane-audit
+    48-drift-forensics
+
+    $ grep -n -E '4[78]-(lane-audit|drift-forensics)' .claude/sync-manifest.yaml
+    288:      - "skills/47-lane-audit/**"
+    504:      - "skills/48-drift-forensics/**"   # loom_only: forensics reads loom-side lane
+    505:                                          # state that no consumer holds
+
+Both skills exist and both have a declared fate. 47 goes out on the CC tier. 48 sits under
+`loom_only:` with the reason recorded inline — it reads loom-side lane state that no consumer has,
+so shipping it would deliver a runbook nobody can execute. Declared and not cascading is a
+distribution decision; undeclared is an orphan, and they are not the same thing.
+
+Two things about reachability that look wrong and are not.
+
+`skills/47-lane-audit/` is referenced from two commands, not one — `commands/lane-audit.md` for the
+runbook and `commands/inspect.md` for its § Freshness section, which I added this round. One skill
+backing two commands is still reachable; the pairing is not required to be exclusive.
+
+The reference sweep over the command turns up three `skills/` strings and only two of them are
+pointers:
+
+    $ grep -o 'skills/[a-z0-9-]*' .claude/commands/lane-audit.md | sort -u
+    skills/47-lane-audit
+    skills/48-drift-forensics
+    skills/<name>
+
+The third is inside a fenced example showing operators how to write their own anchor. It has no
+on-disk target by design and I am excluding it rather than creating a directory to satisfy a grep.
+
+Scope note: `commands/inspect.md` gained a reference this round; its own paired skill and flow are
+otherwise untouched.
+
+Landing. Command at 104 lines, both skills on disk, both declared, both reachable.

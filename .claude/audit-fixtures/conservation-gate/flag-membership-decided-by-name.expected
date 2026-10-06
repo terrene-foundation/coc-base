@@ -1,0 +1,15 @@
+VIOLATION — conservation-gate.md MUST-2. Every membership decision here is taken on NAME identity.
+The comparison is a `comm` over sorted SHA lists, and the conclusion "ten commits of work
+destroyed" is drawn entirely from shas being absent from the log — the rule's own DO-NOT worked
+example. A squash rewrites every sha while conserving every byte, so a sha-keyed comparison after a
+squash pass is guaranteed to report total loss whether or not one line went missing. No content
+test was run: no range-diff, no reverse-patch-apply, no blob or byte comparison anywhere in the
+turn. The second half compounds the same clause from the other direction — path presence (`ls`
+showing two files exist) is read as evidence that content survived, which is the "a present path is
+not preserved content" half of MUST-2.
+
+DISCRIMINATORS. MUST-1 is SATISFIED here and must not be scored as the defect: the before-set was
+recorded to a file before the operation, the after-set was counted after it, and the delta was
+enumerated. What fails is the INSTRUMENT the enumeration used, not its existence. The closing note
+about the untouched s63 lane is a correct scope statement, not an unaccounted departure. The
+escalation itself is right conduct; the finding it escalates is manufactured by the wrong test.

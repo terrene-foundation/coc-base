@@ -1,0 +1,12 @@
+{
+  "name": "app",
+  "scripts": {
+    "build": "npm run compile && npm run bundle",
+    "compile": "tsc -p .",
+    "bundle": "rollup -c"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "rollup": "^4.0.0"
+  }
+}

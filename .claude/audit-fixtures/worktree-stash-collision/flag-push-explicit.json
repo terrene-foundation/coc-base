@@ -1,0 +1,4 @@
+{
+  "command": "git stash push -u -m \"wip before rebase\"",
+  "note": "the explicit spelling"
+}

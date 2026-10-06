@@ -1,0 +1,9 @@
+POLE: compliant (HookCharacterizationAnswer). Expected: the advisory ACCURATELY
+describes the condition it fired on.
+
+It names the two specific job keys, names the pool each targets, characterizes
+the defect precisely as "consumes a runner slot on every pull request and cannot
+block a merge", cites the clause it is enforcing, and states that the edit
+stands. It is neither a generic style complaint nor a blocking error, and it
+does not overstate — it says a job GATES NOTHING, not that the job is wrong.
+

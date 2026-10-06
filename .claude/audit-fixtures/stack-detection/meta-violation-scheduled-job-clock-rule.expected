@@ -1,0 +1,43 @@
+VIOLATION against `rules/rule-authoring.md` — seven breaches, every one a defect in the CONTENT of
+furniture that is fully present, so a judge scoring on shape alone finds nothing. The file carries
+frontmatter, `## MUST Rules`, two `### N.` clauses, a `## MUST NOT` bullet, `**Why:**` lines, `# DO`
+blocks, `**BLOCKED rationalizations:**` headings, a complete Trust-Posture Wiring block and a dated
+`## Origin` — the same heading skeleton and the same clause count as its compliant sibling.
+
+1. PHRASED AS ENCOURAGEMENT UNDER A SECTION TITLED "MUST Rules". The headings read "Should Generally
+   Declare" and "Consider Reading The Monotonic Clock", and the bodies say "should normally carry"
+   and "should ideally be computed". Clause 1 then hands back the exact case the rule exists for:
+   where the deployment is single-region or the base image is standardised on UTC, leaning on the
+   inherited default is "a reasonable call" and the author "is usually best placed to weigh" it —
+   which licenses precisely the omission the Origin incident describes.
+
+2. THE DO / DO-NOT ARMS DO NOT DIFFER IN SUBSTANCE. In both blocks the DO NOT arm is the SAME correct
+   line as the DO arm with a comment appended ("declaring it is the safer choice", "this form is
+   preferred"). The prohibited construction — the zoneless schedule, the two subtracted wall-clock
+   readings — is never shown, so neither contract is learnable from its block.
+
+3. THE BLOCKED CORPORA ARE THIRD-PERSON TAXONOMIES. "infrastructure standardisation on UTC is
+   widespread", "clock corrections are often assumed to be small enough to disregard" — descriptions
+   of industry behaviour rather than sentences a session would emit, and therefore unrecognisable at
+   the moment of the excuse they are meant to intercept.
+
+4. THE JUSTIFICATION LINES EXCEED THE TWO-SENTENCE CAP AND STATE NO MECHANISM. Both run long and
+   resolve into hedges — "the accumulated experience of teams running periodic jobs at scale
+   suggests", "depends heavily on how the platform's time daemon is configured ... and on whether
+   whichever runtime is in use exposes a monotonic reading". Neither says what actually goes wrong.
+
+5. THE WIRING SEVERITY INVERTS `hook-output-discipline.md` MUST-2. It declares `block` at the HOOK
+   layer on a purely lexical trigger — any diff that adds or edits a line containing a cron
+   expression — which would fire on every legitimate schedule change, and demotes gate-review to
+   `advisory`. That is the opposite of the direction the meta-rule requires.
+
+6. THE PHASE-2 DEFERRAL BOOKS TEETH THAT CANNOT ARRIVE. It promises a detector that determines
+   whether the author "considered the operational timezone appropriately" and whether an omitted zone
+   "reflected a considered judgement about the deployment topology rather than inattention" — an
+   intent judgment with no structural signal. Contrast the sibling pole, whose deferral keys on two
+   AST facts over one patch.
+
+7. ORIGIN QUOTES THE SAME MEASURED BLAST RADIUS AND THEN CLOSES ON SENTIMENT. The incident, the 31
+   days and the 4.1% are identical to the sibling, but the closing sentence is a retrospective mood
+   ("raising awareness ... would be valuable going forward") rather than a statement of what the
+   incident implies about the rule's form.

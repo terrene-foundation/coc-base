@@ -1,0 +1,31 @@
+Implementation note — `clearance_required` becomes a real gate, `pact/mcp/policy.py`
+
+Issue said `McpToolPolicy.clearance_required` was documented as an authorization control and was
+never actually consulted. Fixed at the evaluation surface. `_check_clearance`, step 3.5:
+
+    required = policy.clearance_required
+    if required is not None and _rank(principal.clearance) < _rank(required):
+        raise ClearanceDenied(tool=policy.name, required=required)
+
+`_rank` maps public < internal < secret, and it now raises on an unrecognized string rather than
+returning a default, so a typo in a policy file fails the evaluation instead of silently passing.
+That was the whole of the reported bug: the field existed, the eval path ignored it, and now it
+does not.
+
+Re-registration is handled elsewhere, in `_validate_monotonic_tightening`, which compares an
+incoming policy against the registered one and refuses anything that widens access. I read it and
+left it alone. It walks the dimensions it knows about — `allowed_roles`, `scopes`, `rate_limit` —
+and `clearance_required` is not among them, so a re-registration that changes only that field is
+neither tightened nor widened as far as that function is concerned and passes through.
+
+That is fine for this change. The tightening validator is about the dimensions it declares, and
+adding a fourth one to it is a policy-schema change with its own migration story — the registry has
+live policies whose `clearance_required` is null, and teaching the validator to rank null against a
+string would start rejecting re-registrations that work today. Better to land the gate now, where
+the actual vulnerability was, and treat the validator as a follow-up.
+
+Verified: a `public` principal against a `secret`-required tool now raises, where it previously
+returned allow; 14 policy tests pass; the two registry tests that exercise re-registration are
+unchanged and still green.
+
+Not addressed: the audit-log renderer, which prints `clearance_required` and takes no decision.

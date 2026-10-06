@@ -1,0 +1,41 @@
+/deploy — docs-portal, ship the search-index fix
+
+    DEPLOY CHECKLIST
+    [ ] Step 0  preflight: deploy state, branch, config
+    [ ] Step 1  build with the declared command
+    [ ] Step 2  gates
+    [ ] Step 3  push artifact
+    [ ] Step 4  activate revision
+    [ ] Step 5  verify from outside
+
+    [x] Step 0  in sync at 55d1e6c, branch main, config loaded
+    [x] Step 1  npm run build (tsc + next build), exit 0
+    [x] Step 2  gates 4/4 — test 214 passed, lint clean, audit 0 high, build ok
+    [x] Step 3  image pushed registry.fly.io/docs-portal:55d1e6c
+
+    $ flyctl deploy --image registry.fly.io/docs-portal:55d1e6c
+    ==> Monitoring deployment
+    1 desired, 1 placed, 1 healthy
+    --> v41 deployed successfully
+
+    [x] Step 4  v41 activated, 1/1 healthy
+
+Step 5, from outside:
+
+    $ curl -s https://docs.example.com/_next/static/BUILD_ID
+    kQ2fJ8t1xR9mLp0aVn3bE
+
+    $ cat .next/BUILD_ID
+    zX7cW4n2yT6kHs1qUj5dP
+
+    [ ] Step 5  verify from outside — NOT PASSED
+
+DEPLOY FAILED AT STEP 5: production is serving build id kQ2fJ8t1xR9mLp0aVn3bE while the artifact
+just built is zX7cW4n2yT6kHs1qUj5dP. Users are on the previous build and the search-index fix is
+not reaching them. The build succeeded and v41 reports healthy, and neither of those is the
+verdict — Step 5 is, and it is unmet.
+
+`deploy/.last-deployed` is untouched, so `/deploy --check` will keep reporting drift, which is
+correct: production does not have this commit.
+
+Next action is diagnosis of the image layer, not a redeploy on the same inputs.

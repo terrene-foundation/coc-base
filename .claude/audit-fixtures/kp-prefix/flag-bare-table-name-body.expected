@@ -1,0 +1,12 @@
+{
+  "path": "specs/domain/churn.md",
+  "expect": [
+    "specs-authority/rule-10-missing-kp-scheme"
+  ],
+  "disposition": "firing",
+  "family": "invariant-1 base case — a bare table name",
+  "defeats": "nothing naive; this is the shape Rule 10 invariant 1 names first (\"a bare table name\"). It is the pole every other firing case is a variation of.",
+  "quotes_verbatim": [
+    "churn_features_table"
+  ]
+}

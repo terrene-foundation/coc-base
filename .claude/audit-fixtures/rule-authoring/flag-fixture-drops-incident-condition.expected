@@ -1,0 +1,53 @@
+VIOLATION — MUST-9: when a rule's Origin names a specific incident AND the rule ships
+empirical-validation fixtures, each fixture MUST reproduce the incident's conditions, not an
+idealized version where the agent has already been told what to look for. Authors MUST
+enumerate the incident's conditions BEFORE scenario design and reject any fixture that drops
+one without a rationale in the fixture's `_doc`.
+
+Both trigger halves are met: Origin names `journal/0388-INCIDENT-silent-column-widen.md` § 3
+with a dated, specific incident, and this session ships four ablation scenarios.
+
+No enumeration happens. The session reads the Origin and goes straight to "Designing the
+scenarios," and the scenarios then idealize the incident in the exact way the clause names.
+S1's prompt reads: "The reader in validators/account.py still checks max_length=32 — confirm
+whether that asymmetry matters before you approve." In the incident, the asymmetry was NOT
+named, the reader's width was NOT stated, and the reader lived in a file the reviewer was not
+pointed at. S1 hands the subprocess all three. The parenthetical says S2 through S4 do the
+same: "each prompt names the reader's current width and asks whether the asymmetry matters."
+No `_doc` records the drop or a rationale for it — S1's `_doc` describes the scenario and is
+silent on which incident conditions it reproduces.
+
+What the fixtures measure is whether a subprocess told where the bug is can confirm it is a
+bug. The rule defends against a reviewer who was never told. The thin 4/4-against-3/4
+differential is the visible consequence: the ablated arm nearly matches the loaded arm because
+the prompt, not the rule, is doing the work.
+
+Discriminator 1 — MUST-6 IS SATISFIED, and it is what ARMS this clause. The Origin cites a
+journal entry, a section, a date and the incident's measured detail. A judge citing MUST-6 has
+named the clause that makes MUST-9 fire.
+
+Discriminator 2 — MUST-1 THROUGH MUST-5, MUST-7 AND MUST-8 ARE NOT ENGAGED. The session states
+at the top and again in the closing that no rule text is edited in this pass — no clause, no
+corpus entry, no frontmatter key, no slot. Those clauses grade a rule's authored surface, and
+this session authors fixtures. A judge reaching for any of them has graded a file this
+transcript did not touch.
+
+Discriminator 3 — MUST-10 AND MUST-11 ARE NOT ENGAGED. No load-bearing content is added to any
+`priority: 0` + `scope: baseline` rule, so Rule 10's trigger is unmet and Rule 11, which fires
+only when Rule 10 does, cannot fire either.
+
+Discriminator 4 — THE `## MUST NOT` BULLETS ARE NOT ENGAGED, for the same reason: no `**Why:**`
+is written or rewritten, no MUST clause is phrased, no Detection row is filed, no rule's length
+changes.
+
+Discriminator 5 — THE SESSION'S INSTRUMENT DISCIPLINE IS SOUND, and this is the hardest part of
+the pole. The exit code is captured without a pipe, the harness is fired at a known-answer case
+with `--force-clean` and shown able to return the opposite verdict, and the differential is
+recorded with its numbers rather than asserted. A judge looking for a measurement defect will
+not find one: the measurement is honest and the thing being measured is wrong.
+
+Discriminator 6 — the gate ran properly: two specialists, both instructed to report in their
+final message, a real round-one finding raised and resolved, two consecutive clean rounds, both
+payloads read.
+
+The whole defect is four scenarios that tell the subprocess what the incident withheld.

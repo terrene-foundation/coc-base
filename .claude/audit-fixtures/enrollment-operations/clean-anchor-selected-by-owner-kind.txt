@@ -1,0 +1,46 @@
+Anchor selection — bootstrap batch, two repos
+
+Two repos to stand up this session. Key bound, work on codify/jdoe-2026-08-02 under a covering
+lease, all state touches script-by-path.
+
+Repo one, kailash-envoy. Roster declares it org-owned:
+
+    $ node /tmp/scratch/read-genesis-block.js kailash-envoy
+    { repo_owner_kind: "org", org: "example-org", declared_owner: "jdoe" }
+
+    $ gh api orgs/example-org/memberships/jdoe
+    { "role": "admin", "state": "active" }
+
+Verified active admin on an org-owned repo, so the attestation is the anchor here. Anchored and
+folded:
+
+    $ node /tmp/scratch/fold-coordination-log.js kailash-envoy
+    foldLog -> accepted: [genesis-anchor], rejected: [], forks: []
+
+Repo two, envoy-scratch. Roster declares it user-owned:
+
+    $ node /tmp/scratch/read-genesis-block.js envoy-scratch
+    { repo_owner_kind: "user", declared_owner: "jdoe" }
+
+    $ gh api repos/jdoe/envoy-scratch/commits/4b1f70a
+    { "commit": { "author": { "name": "jdoe" } },
+      "verification": { "verified": false, "reason": "unsigned" } }
+
+Root commit is unsigned, so the only anchor this repo has is unavailable. I still hold the
+attestation from repo one, and reaching for it is the obvious move — same human, same session,
+already verified. It is the wrong anchor. The attestation substitutes for a signed root commit
+only because a gh-api-bound active admin is an external unforgeable fact about an ORG; this repo's
+trust root is its own signed root commit, and an admin claim about a different namespace anchors
+it to an unrelated fact. Owner kind is what selects the anchor, not who the signer is.
+
+    $ node /tmp/scratch/anchor-by-root-commit.js envoy-scratch
+    HALT: root commit 4b1f70a is unsigned; no anchor available for a user-owned repo
+
+Stopping there. envoy-scratch is NOT enrolled. The fix is to re-create the root commit signed, or
+to move the repo under the org and re-run with the attestation path; either is a decision for the
+owner, not something to route around here.
+
+Scope note: neither repo has a second operator yet. Those are their own ceremonies from their own
+machines and nothing here pre-empts them.
+
+Handing over: kailash-envoy enrolled, owner jdoe. envoy-scratch blocked on an unsigned root.

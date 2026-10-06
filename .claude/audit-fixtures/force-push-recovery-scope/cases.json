@@ -1,0 +1,245 @@
+{
+  "_doc": "BIPOLAR corpus for .claude/hooks/lib/force-push-recovery-scope.js (orchestration-launch-ledger.md MUST-6(b)). Every `pair` holds a violation pole and a compliant pole differing in exactly ONE property — the property named in `property`. A pair whose poles do not separate is a non-discriminating instrument and the runner reds on it (instrument-bipolarity.md MUST-2). INJECTED-RESOLVER CONTRACT: `branch` / `branch_fails` drive the current-branch read; `divergence` is a uniform count OR a map from destination to count; `divergence_fails` is the UNMEASURED reason code the resolver returns; `divergence_raw` returns ok:true with a raw, possibly non-numeric count. OMITTING all three supplies NO divergence resolver, which MUST yield UNKNOWN and never clean — a pole that forgets to declare one REDS rather than passing on a measurement that never happened. THE BRANCH NAME DECIDES NOTHING: `recovery/` is MUST-6(b)'s REMEDY, not an exemption, so a diverged `recovery/lane-a` FLAGS and a zero-divergence `feat/wave-3` is CLEAN.",
+  "cases": [
+    {
+      "pair": "divergence-decides",
+      "property": "the MEASURED divergence count, with the command byte-identical on both poles",
+      "poles": [
+        { "name": "the remote holds 3 commits this clone does not", "command": "git push --force origin feat/wave-3", "divergence": 3, "expect": "flag", "targets": "feat/wave-3 (3 remote-only commits)" },
+        { "name": "the identical command, measured at ZERO", "command": "git push --force origin feat/wave-3", "divergence": 0, "expect": "clean", "targets": "" }
+      ]
+    },
+    {
+      "pair": "name-does-not-decide",
+      "property": "the divergence, NOT the destination's name — the inversion of the rejected name-based design",
+      "poles": [
+        { "name": "a DIVERGED recovery/ branch still destroys commits", "command": "git push --force origin recovery/lane-a", "divergence": 3, "expect": "flag", "targets": "recovery/lane-a (3 remote-only commits)" },
+        { "name": "a wave branch that destroys nothing is SILENT", "command": "git push --force origin feat/wave-3", "divergence": 0, "expect": "clean", "targets": "" }
+      ]
+    },
+    {
+      "pair": "count-is-carried",
+      "property": "whether the measured count reaches the finding, singular form included",
+      "poles": [
+        { "name": "one remote-only commit is carried as `1 remote-only commit`", "command": "git push --force origin feat/x", "divergence": 1, "expect": "flag", "targets": "feat/x (1 remote-only commit)" },
+        { "name": "zero carries no finding at all", "command": "git push --force origin feat/x", "divergence": 0, "expect": "clean", "targets": "" }
+      ]
+    },
+    {
+      "pair": "force-flag-presence",
+      "property": "whether the push is forced at all, with the divergence held at 2 on BOTH poles",
+      "poles": [
+        { "name": "forced push over a 2-commit divergence", "command": "git push --force origin feat/wave-3", "divergence": 2, "expect": "flag", "targets": "feat/wave-3 (2 remote-only commits)" },
+        { "name": "an ordinary push over the SAME divergence destroys nothing", "command": "git push origin feat/wave-3", "divergence": 2, "expect": "clean", "targets": "" }
+      ]
+    },
+    {
+      "pair": "force-with-lease",
+      "property": "whether --force-with-lease is in the force set",
+      "poles": [
+        { "name": "lease-force over a 2-commit divergence", "command": "git push --force-with-lease origin feat/x", "divergence": 2, "expect": "flag", "targets": "feat/x (2 remote-only commits)" },
+        { "name": "no force flag, same divergence", "command": "git push origin feat/x", "divergence": 2, "expect": "clean", "targets": "" }
+      ]
+    },
+    {
+      "pair": "short-flag",
+      "property": "the short option is -f rather than -u",
+      "poles": [
+        { "name": "-f short form", "command": "git push -f origin feat/x", "divergence": 2, "expect": "flag", "targets": "feat/x (2 remote-only commits)" },
+        { "name": "-u is not a force", "command": "git push -u origin feat/x", "divergence": 2, "expect": "clean", "targets": "" }
+      ]
+    },
+    {
+      "pair": "short-cluster",
+      "property": "whether f appears inside the short cluster",
+      "poles": [
+        { "name": "-fu cluster carries the force", "command": "git push -fu origin feat/x", "divergence": 2, "expect": "flag", "targets": "feat/x (2 remote-only commits)" },
+        { "name": "-nu cluster carries none", "command": "git push -nu origin feat/x", "divergence": 2, "expect": "clean", "targets": "" }
+      ]
+    },
+    {
+      "pair": "forced-refspec",
+      "property": "the leading + on the refspec, with no force FLAG present on either pole",
+      "poles": [
+        { "name": "+refspec forces with NO flag present", "command": "git push origin +HEAD:refs/heads/feat/x", "divergence": 2, "expect": "flag", "targets": "feat/x (2 remote-only commits)" },
+        { "name": "the same refspec without the +", "command": "git push origin HEAD:refs/heads/feat/x", "divergence": 2, "expect": "clean", "targets": "" }
+      ]
+    },
+    {
+      "pair": "explicit-refspec-destination",
+      "property": "the measured divergence of the refs/heads/ destination the main/master fence MISSES",
+      "poles": [
+        { "name": "explicit refspec to main over a 4-commit divergence", "command": "git push --force origin HEAD:refs/heads/main", "divergence": 4, "expect": "flag", "targets": "main (4 remote-only commits)" },
+        { "name": "the identical spelling, measured at ZERO", "command": "git push --force origin HEAD:refs/heads/main", "divergence": 0, "expect": "clean", "targets": "" }
+      ]
+    },
+    {
+      "pair": "unresolvable-destination",
+      "property": "whether the destination survives as a literal or is a shell expansion",
+      "poles": [
+        { "name": "an expansion cannot be named, so it cannot be counted — UNKNOWN even with a resolver saying 0", "command": "git push --force origin $BRANCH", "divergence": 0, "expect": "unknown", "targets": "$BRANCH [UNMEASURED: remote-unresolvable]" },
+        { "name": "the same shape written literally and measured at zero", "command": "git push --force origin recovery/x", "divergence": 0, "expect": "clean", "targets": "" }
+      ]
+    },
+    {
+      "pair": "negation-last-wins",
+      "property": "which of --force / --no-force comes last",
+      "poles": [
+        { "name": "--no-force then --force IS a force", "command": "git push --no-force --force origin feat/x", "divergence": 2, "expect": "flag", "targets": "feat/x (2 remote-only commits)" },
+        { "name": "--force then --no-force is NOT", "command": "git push --force --no-force origin feat/x", "divergence": 2, "expect": "clean", "targets": "" }
+      ]
+    },
+    {
+      "pair": "force-if-includes-is-a-modifier",
+      "property": "whether a real force flag accompanies --force-if-includes",
+      "poles": [
+        { "name": "--force-with-lease --force-if-includes IS a force", "command": "git push --force-with-lease --force-if-includes origin feat/x", "divergence": 2, "expect": "flag", "targets": "feat/x (2 remote-only commits)" },
+        { "name": "--force-if-includes ALONE is an ordinary push", "command": "git push --force-if-includes origin feat/x", "divergence": 2, "expect": "clean", "targets": "" }
+      ]
+    },
+    {
+      "pair": "value-option-is-not-a-refspec",
+      "property": "whether the diverged word sits in an option VALUE slot or an operand slot",
+      "poles": [
+        { "name": "the diverged branch IS the refspec", "command": "git push --force --push-option=ci.skip origin feat/x", "divergence": { "feat/x": 5, "recovery/y": 0 }, "expect": "flag", "targets": "feat/x (5 remote-only commits)" },
+        { "name": "the diverged word is --push-option's VALUE; the real target is measured at zero", "command": "git push --force --push-option feat/x origin recovery/y", "divergence": { "feat/x": 5, "recovery/y": 0 }, "expect": "clean", "targets": "" }
+      ]
+    },
+    {
+      "pair": "bulk-selector",
+      "property": "whether a force flag accompanies the bulk selector",
+      "poles": [
+        { "name": "--all under --force names every matching ref, so no single divergence exists to count", "command": "git push --force --all origin", "divergence": 2, "expect": "unknown", "targets": "--all (every matching ref) [UNMEASURED: bulk-selector]" },
+        { "name": "--all alone forces nothing", "command": "git push --all origin", "divergence": 2, "expect": "clean", "targets": "" }
+      ]
+    },
+    {
+      "pair": "mixed-refspecs",
+      "property": "whether ANY destination in the command is measured above zero",
+      "poles": [
+        { "name": "one measured-at-zero push does not buy silence for the other", "command": "git push --force origin recovery/a feat/b", "divergence": { "recovery/a": 0, "feat/b": 2 }, "expect": "flag", "targets": "feat/b (2 remote-only commits)" },
+        { "name": "both destinations measured at zero", "command": "git push --force origin recovery/a feat/b", "divergence": 0, "expect": "clean", "targets": "" }
+      ]
+    },
+    {
+      "pair": "nested-shell-body",
+      "property": "whether the nested body's push is forced",
+      "poles": [
+        { "name": "force inside sh -c is still a force", "command": "sh -c 'git push --force origin feat/x'", "divergence": 2, "expect": "flag", "targets": "feat/x (2 remote-only commits)" },
+        { "name": "the same nested body unforced", "command": "sh -c 'git push origin feat/x'", "divergence": 2, "expect": "clean", "targets": "" }
+      ]
+    },
+    {
+      "pair": "wrapper-and-retarget",
+      "property": "whether the wrapped/retargeted invocation is forced",
+      "poles": [
+        { "name": "env wrapper + git -C retarget", "command": "env FOO=1 git -C /tmp/wt push --force origin feat/x", "divergence": 2, "expect": "flag", "targets": "feat/x (2 remote-only commits)" },
+        { "name": "same wrapper and retarget, no force", "command": "env FOO=1 git -C /tmp/wt push origin feat/x", "divergence": 2, "expect": "clean", "targets": "" }
+      ]
+    },
+    {
+      "pair": "not-a-command",
+      "property": "whether the force-push text is a COMMAND or quoted prose",
+      "poles": [
+        { "name": "a real forced push", "command": "git push --force origin feat/x", "divergence": 2, "expect": "flag", "targets": "feat/x (2 remote-only commits)" },
+        { "name": "the identical text inside a commit message body", "command": "git commit -m 'git push --force origin feat/x'", "divergence": 2, "expect": "clean", "targets": "" }
+      ]
+    },
+    {
+      "pair": "shell-comment",
+      "property": "whether the force-push is live or commented out",
+      "poles": [
+        { "name": "live forced push with a trailing comment", "command": "git push --force origin feat/x # routine", "divergence": 2, "expect": "flag", "targets": "feat/x (2 remote-only commits)" },
+        { "name": "the force-push is INSIDE the comment", "command": "git push origin feat/x # git push --force origin other", "divergence": 2, "expect": "clean", "targets": "" }
+      ]
+    },
+    {
+      "pair": "delete-mode",
+      "property": "whether the deletion is forced",
+      "poles": [
+        { "name": "a forced deletion has NO source side, so MUST-6(b)'s command has no instantiation for it", "command": "git push --force --delete origin feat/x", "divergence": 2, "expect": "unknown", "targets": "feat/x [UNMEASURED: ref-deletion]" },
+        { "name": "an ordinary delete needs no force", "command": "git push --delete origin feat/x", "divergence": 2, "expect": "clean", "targets": "" }
+      ]
+    },
+    {
+      "pair": "tag-destination",
+      "property": "whether the destination is a branch or a tag",
+      "poles": [
+        { "name": "a forced tag update replaces the tag object, so the branch-divergence measurement does not apply", "command": "git push --force origin refs/tags/v1", "divergence": 0, "expect": "unknown", "targets": "refs/tags/v1 [UNMEASURED: tag-destination]" },
+        { "name": "the fully-qualified BRANCH of the same name, measured at zero", "command": "git push --force origin refs/heads/feat/v1", "divergence": 0, "expect": "clean", "targets": "" }
+      ]
+    },
+    {
+      "pair": "double-dash-operands",
+      "property": "the measured divergence of the destination after --, with a decoy current branch on both poles",
+      "poles": [
+        { "name": "operands after -- still carry the destination that is measured", "command": "git push --force -- origin feat/x", "branch": "recovery/decoy", "divergence": { "feat/x": 2 }, "expect": "flag", "targets": "feat/x (2 remote-only commits)" },
+        { "name": "the same operands measured at zero", "command": "git push --force -- origin feat/x", "branch": "recovery/decoy", "divergence": { "feat/x": 0 }, "expect": "clean", "targets": "" }
+      ]
+    },
+    {
+      "pair": "implicit-target",
+      "property": "the divergence of the branch the no-refspec push resolves to",
+      "poles": [
+        { "name": "bare `git push --force` over a 3-commit divergence", "command": "git push --force", "branch": "feat/lane-a", "divergence": 3, "expect": "flag", "targets": "feat/lane-a (3 remote-only commits)" },
+        { "name": "bare `git push --force` with nothing to destroy", "command": "git push --force", "branch": "recovery/lane-a", "divergence": 0, "expect": "clean", "targets": "" }
+      ]
+    },
+    {
+      "pair": "implicit-target-unreadable",
+      "property": "whether the current branch could be read at all",
+      "poles": [
+        { "name": "an unreadable current branch is UNKNOWN, never clean", "command": "git push --force", "branch_fails": "HEAD is detached", "divergence": 0, "expect": "unknown", "targets": "(current branch) [UNMEASURED: current-branch-unreadable]" },
+        { "name": "a readable branch measured at zero", "command": "git push --force", "branch": "recovery/lane-a", "divergence": 0, "expect": "clean", "targets": "" }
+      ]
+    },
+    {
+      "pair": "implicit-target-unreadable-tree",
+      "property": "whether the tree to read HEAD and the divergence from is itself resolvable",
+      "poles": [
+        { "name": "a -C value from an expansion leaves the tree unknown", "command": "git -C $WT push --force", "branch": "recovery/lane-a", "divergence": 0, "expect": "unknown", "targets": "(current branch) [UNMEASURED: remote-unresolvable]" },
+        { "name": "a literal -C value resolves against the injected branch", "command": "git -C /tmp/wt push --force", "branch": "recovery/lane-a", "divergence": 0, "expect": "clean", "targets": "" }
+      ]
+    },
+    {
+      "pair": "no-divergence-resolver",
+      "property": "whether a divergence resolver was supplied at all",
+      "poles": [
+        { "name": "NO resolver measured nothing, so the verdict is UNKNOWN and never clean", "command": "git push --force origin feat/x", "expect": "unknown", "targets": "feat/x [UNMEASURED: no-divergence-resolver]" },
+        { "name": "a resolver that answered zero", "command": "git push --force origin feat/x", "divergence": 0, "expect": "clean", "targets": "" }
+      ]
+    },
+    {
+      "pair": "divergence-no-upstream",
+      "property": "whether the source branch has a configured upstream to measure against",
+      "poles": [
+        { "name": "no upstream is a NAMED unreadable, not a zero", "command": "git push --force origin feat/x", "divergence_fails": "no-upstream", "expect": "unknown", "targets": "feat/x [UNMEASURED: no-upstream]" },
+        { "name": "an upstream that resolved and measured zero", "command": "git push --force origin feat/x", "divergence": 0, "expect": "clean", "targets": "" }
+      ]
+    },
+    {
+      "pair": "divergence-no-tracking-ref",
+      "property": "whether this clone holds a remote-tracking ref for the destination",
+      "poles": [
+        { "name": "a missing remote-tracking ref is a NAMED unreadable, not a zero", "command": "git push --force origin feat/x", "divergence_fails": "no-remote-tracking-ref", "expect": "unknown", "targets": "feat/x [UNMEASURED: no-remote-tracking-ref]" },
+        { "name": "a tracking ref that resolved and measured zero", "command": "git push --force origin feat/x", "divergence": 0, "expect": "clean", "targets": "" }
+      ]
+    },
+    {
+      "pair": "divergence-git-failed",
+      "property": "whether the git subprocess completed at all",
+      "poles": [
+        { "name": "a failed git read is a NAMED unreadable, not a zero", "command": "git push --force origin feat/x", "divergence_fails": "git-failed", "expect": "unknown", "targets": "feat/x [UNMEASURED: git-failed]" },
+        { "name": "a git read that completed and measured zero", "command": "git push --force origin feat/x", "divergence": 0, "expect": "clean", "targets": "" }
+      ]
+    },
+    {
+      "pair": "divergence-count-unreadable",
+      "property": "whether an ok:true resolver's count is actually a number",
+      "poles": [
+        { "name": "ok:true carrying a non-numeric count is UNKNOWN, never clean — success is not an answer", "command": "git push --force origin feat/x", "divergence_raw": "not-a-number", "expect": "unknown", "targets": "feat/x [UNMEASURED: git-failed]" },
+        { "name": "ok:true carrying a readable zero", "command": "git push --force origin feat/x", "divergence": 0, "expect": "clean", "targets": "" }
+      ]
+    }
+  ]
+}

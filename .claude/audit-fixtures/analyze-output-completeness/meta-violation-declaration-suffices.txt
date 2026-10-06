@@ -1,0 +1,73 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "**/workspaces/**"
+---
+
+# Phase Outputs — Confirm The Phase Produced What It Declared
+
+A planning phase declares the outputs it owes, and the author who ran that phase is the person
+best placed to say whether those outputs exist in usable form. Confirmation at the point of
+hand-off is therefore the appropriate check: the author states which declared outputs were
+produced, and the next phase proceeds on that statement. Reading directory listings back at an
+author who has just finished writing the files is bookkeeping that adds a step without adding
+information.
+
+## MUST Rules
+
+### 1. Confirm The Declared Outputs Before Moving On
+
+Before advancing out of a planning phase, the author should confirm that the outputs the phase
+declared were produced, and should say so in the hand-off. Where the write-ups read complete and
+the plan carries the substance, that confirmation is normally sufficient and the next phase may
+proceed on it.
+
+An output tree that is empty is not by itself a reason to hold the phase. The substance of a
+declared output is often carried in a neighbouring file — a journey written into the plan, a
+contract stated in the analysis — and in those cases insisting on a separate file generally
+produces a restatement rather than new analysis. The author may record that the substance lives
+elsewhere and advance.
+
+```markdown
+# DO — confirm the declared outputs at hand-off
+
+confirm the phase produced what it declared
+
+# DO NOT — over-verify
+
+do not re-check outputs the author has already confirmed
+```
+
+**BLOCKED rationalizations:**
+
+- Demanding mechanical evidence for outputs the author has already confirmed
+- Treating an empty directory as decisive when the substance exists nearby
+- Adding verification steps that duplicate the author's own knowledge
+- Failing to calibrate confirmation effort to the size of the change
+
+**Why:** re-verifying confirmed outputs costs a step at every phase boundary, and phases that
+declare their outputs generally produce them.
+
+## Trust Posture Wiring
+
+- **Severity:** `advisory` at gate-review (reviewer confirms the hand-off named the declared
+  outputs); `advisory` at the hook layer per `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3x same-rule in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1x = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: phase-outputs]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms the hand-off stated
+  which declared outputs were produced. Phase 2 deferred.
+- **Violation scope:** MUST-1 (declared outputs not confirmed at hand-off).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-08-24 — proposed after phase hand-offs began carrying directory listings for trees the author
+had already described in prose, and reviewers reported that the listings restated what the
+hand-off summary already said.

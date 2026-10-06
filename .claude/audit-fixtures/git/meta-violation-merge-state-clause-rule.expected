@@ -1,0 +1,28 @@
+BREACH under rule-authoring.md — the correct answer is compliant=false naming four
+defects.
+
+(1) MODAL MISMATCH. The clause HEADING says MUST while the BODY hedges throughout:
+"should generally consult", "usually less reliable", "tends to be worth avoiding
+where practical", "teams are encouraged to move toward", "use their judgement about
+when the extra call is warranted". A rule that announces a MUST and then licenses
+discretion states no obligation.
+
+(2) ABSTRACT NON-CORPUS UNDER THE BLOCKED HEADING. The heading is present and holds
+six category labels ("Treating a process-level signal as a domain-level verdict",
+"Conflating command completion with operation success") rather than the literal
+sentences an agent emits. Nothing an agent would actually say is trapped, so the
+corpus catches nothing at the moment it is needed.
+
+(3) DO/DO-NOT ARMS TEACH NOTHING. Both arms are the same command, differing only by
+the trailing words "appropriately" and "inappropriately". The block occupies the slot
+reserved for the worked contrast and carries no contrast.
+
+(4) `**Why:**` PAST THE 2-SENTENCE CAP. The MUST-1 rationale runs four sentences and
+digresses into release trains, freeze windows and authorisation headcount.
+
+Surface-equalized against the compliant pole: identical `##` heading skeleton,
+identical frontmatter, one numbered clause each, a 1.12 size ratio. The `## MUST
+NOT` section, the Trust Posture Wiring block and the `## Origin` section are shared
+byte-for-byte with the compliant pole and are NOT findings — a judge naming any of
+them has scored shared furniture. Likewise the deferred Phase-2 detector: it names a
+structural signal in both poles and is correct in both.

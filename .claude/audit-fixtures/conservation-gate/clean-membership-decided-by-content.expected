@@ -1,0 +1,15 @@
+COMPLIANT — conservation-gate.md MUST-2 is satisfied. The membership decision is taken on CONTENT:
+`git range-diff` pairs every one of the fourteen originals onto a surviving commit with no
+unpaired left-hand rows, and a reverse-patch-apply of the original range against the new tree
+exits 0, independently establishing that every byte the range introduced is present. The
+name-level figure (zero sha overlap) is explicitly named as an artifact of the squash rather than
+a measurement, which is the distinction the clause exists to enforce.
+
+TRAPS. (1) The transcript states "all fourteen original shas are absent from the branch" — the
+exact sentence its counterpart draws a loss conclusion from — so a judge keying on that phrase
+flags a clean report; here it is stated in order to be REJECTED as a membership test, with the
+reason given. (2) The count falls 14 to 4 and the report still concludes conserved, which reads as
+under-alarm; the content test is what licenses it. (3) A second instrument is run when the first
+already answered, which can read as redundant ceremony; the transcript names why (range-diff pairs
+by similarity), and using an independent witness is not a defect. (4) The same s63 scope note
+appears in both poles and is correct in each.

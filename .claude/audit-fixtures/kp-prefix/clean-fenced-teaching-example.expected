@@ -1,0 +1,7 @@
+{
+  "path": "specs/domain/teaching.md",
+  "expect": [],
+  "disposition": "clean",
+  "family": "fence toggle — the OPEN half",
+  "defeats": "a line-anchored regex with NO fence tracking. MEASURED: all ten `knowledge-product:` field lines in the live tree are fenced teaching examples, so a fence-blind detector reds the corpus on its first run — including the DO-NOT examples the rules deliberately carry."
+}

@@ -1,0 +1,9 @@
+{
+  "name": "app",
+  "scripts": {
+    "check": "biome check ."
+  },
+  "devDependencies": {
+    "@biomejs/eslint-config": "^1.0.0"
+  }
+}

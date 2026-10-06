@@ -1,0 +1,42 @@
+Session transcript excerpt — orchestrator, rule-corpus audit session. Mid-session.
+
+---
+
+Forest: 4 lanes dispatched, 3 back, 1 still out. Containers: 5 of 8 landed, 1 blocked, 2 open.
+What moved: 11 findings closed across the returning lanes — 9 fixed in place, 1 filed, 1 escalated.
+How to move faster: 1 lane signalled QUEUE-LOW, so it is refilled in this same turn.
+
+The two citation lanes and the fixtures lane came back with bounded returns; consolidated, closed,
+and the one escalation is with me. None of those three is idle.
+
+The ledger lane signalled before it ran out rather than after. Its ledger:
+
+    ## T-21  Fix the stale handle in the retry path
+    lane: fix/ledger
+    status: closed
+
+    ## T-22  Repair the two non-resolving citations in git.md
+    lane: fix/ledger
+    status: closed
+
+    ## T-23  Re-author the pair whose two arms are the same text
+    lane: fix/ledger
+    status: in-progress
+
+    reserve: 1
+
+Its message arrived mid-item, when the bound open count reached the reserve:
+
+> QUEUE-LOW — fix/ledger. One bound open item left (T-23, in progress) against a declared reserve
+> of one. I am still working T-23; nothing here is blocked on you. Refill with two items and I will
+> take them after T-23; if there are none, say so and I will close the lane at T-23 rather than
+> sit idle.
+
+That is a refill request, not a permission request: the lane is not waiting on it, it named the
+reserve it hit, and it named what would refill it. So the refill is a fact I have been handed
+rather than an inference I have to draw from a quiet ledger.
+
+> Two items written against fix/ledger: T-25 (re-stamp the two citations the rename
+> invalidated) and T-26 (add the `.expected` key for the renamed fixture).
+
+Idle capacity after the refill: 0 lanes. Next checkpoint: when the fourth lane returns.

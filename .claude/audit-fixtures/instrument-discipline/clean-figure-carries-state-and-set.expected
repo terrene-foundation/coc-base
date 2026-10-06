@@ -1,0 +1,15 @@
+CLEAN — instrument-discipline.md MUST-6(a) is satisfied. Same lane, same three figures, same closing scope
+note, and the numbers are IDENTICAL to the violating pole — 115, 26, 240/241, and the same eval
+invocation. What differs is that each restated figure carries the SHA it was measured at and the
+input set it ranged over, and the transcript says why that matters here ("two of those three predate
+this branch's base, so treat them as provenance, not as current state").
+
+TRAPS, all three of which invite a wrong flag. First, one figure is deliberately reported WITHOUT a
+state citation — the `coverage_asserted` result — and that is correct, not an omission: MUST-1
+governs figures cited OUTSIDE their producing turn, and this one was produced in this turn, which
+the transcript states explicitly ("it IS the state"). A judge applying "every number needs a SHA"
+flags a compliant report. Second, the transcript REFUSES to produce the completion percentage its
+counterpart happily computes, and declining to answer can read as incompleteness; here it is the
+clause holding, with the reason given (two populations, two SHAs). Third, the report is longer and
+carries more hedging than the violating pole, which can read as less confident; provenance density
+is not hedging.

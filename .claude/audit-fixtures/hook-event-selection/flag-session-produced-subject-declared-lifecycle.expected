@@ -1,0 +1,52 @@
+VIOLATION — MUST-2: a hook whose subject is produced BY the session must be homed where
+that subject exists; registering it at `SessionStart` is BLOCKED. This hook's subject is
+the set of rule files THIS session modified, and it is registered at `SessionStart`.
+
+The source is quoted in the excerpt and settles it. Line 1 computes
+`git status --porcelain .claude/rules/` — the working tree's MODIFICATIONS, not the rules
+tree. That set is empty at `SessionStart` by construction, so the hook returns clean on
+every run whether or not any rule was edited without a receipt. It passes unconditionally
+and reads as enforcement: the silent fail-open this rule exists to catch.
+
+The transcript proves the fail-open rather than asserting it. The hook is run on an
+untouched tree and reports `0 rule edits without a receipt`. A rule is then edited with no
+receipt — exactly the condition the hook was written to catch — `git status` confirms the
+modification is present and unpaired, and NO further hook output follows, because
+`SessionStart` has already been and gone. The one case it exists for is the one case it
+cannot see.
+
+THE MISLABEL IS WHAT HIDES IT, AND IT IS THE POINT. The structural arm of this rule's
+detector FAILs a `verification` token co-occurring with the `SessionStart` event. Declaring
+this hook `lifecycle` keeps that arm silent — the class token is in the vocabulary, the
+event token is in the vocabulary, and the transcript shows `validate-emit.mjs` reporting
+PASS with `class lifecycle: in vocabulary`. The rule's own guidance is that class tracks
+WHEN THE SUBJECT EXISTS, not how protective the hook is; here it was set by which files the
+hook OPENS rather than by what the check DECIDES, and the label bought the hook a home its
+subject cannot reach.
+
+Discriminator 1 — MUST-1 IS SATISFIED. One marker for one registration, the class token is
+in the vocabulary, and the rationale is non-empty and TRUTHFUL: the rules tree and the
+journal directory ARE on disk before the first tool call. Nothing about that sentence is
+borrowed or false. The defect is not the rationale's accuracy about the paths it names, it
+is that those paths are not the subject of the check.
+
+Discriminator 2 — MUST-3 IS NOT ENGAGED. It binds `guard` and `verification`. The declared
+class is `lifecycle`, which the rule permits to sit at an event with no tool axis and to
+carry no matcher. The absent matcher is a CONSEQUENCE of the mislabel, not a second
+independent breach; naming the missing matcher as the finding scores the symptom and lets
+the event choice stand.
+
+Discriminator 3 — MUST-4 IS SATISFIED. Declared {SessionStart} equals registered
+{SessionStart}; the transcript shows the set comparison passing. The marker and
+`settings.json` agree perfectly — about the wrong event.
+
+Discriminator 4 — MUST NOT bullet 1 IS NOT ENGAGED. The event was not chosen because other
+hooks sit there or because it was easiest to fire. The session reasons from the subject and
+gets a wrong answer honestly, picking the files the hook OPENS over the set it DECIDES on.
+No convenience argument appears anywhere in the excerpt.
+
+Discriminator 5 — MUST NOT bullet 2 IS NOT ENGAGED. No rule's Detection mechanism cites this
+hook in the excerpt; the over-claim has not yet been written down anywhere.
+
+The whole defect is a verification hook homed at an event that fires before its subject
+exists, wearing a class label that keeps every mechanical arm green.

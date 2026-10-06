@@ -1,0 +1,42 @@
+Wave 6 planning — five shards, fold or not
+
+The Rust BUILD sibling folds its waves onto one integration branch and measured about 18 runs per
+PR when it did. Their rationale was right for their repo. Before adopting it I have to measure
+both preconditions HERE, because the mechanism inverts where they do not hold.
+
+Precondition A — is a branch push free here? Reading this repo's own trigger block structurally
+rather than assuming the shape:
+
+    $ grep -nE '^on:|^  (push|pull_request):|^    branches:' .github/workflows/*.yml
+    coc-artifact-eval.yml:3:on:
+    coc-artifact-eval.yml:8:  push:
+    coc-artifact-eval.yml:9:    branches: [main]
+    coc-artifact-eval.yml:4:  pull_request:
+
+Every push arm is constrained to the default branch and pull_request is the only branch-general
+trigger, so A is TRUE. A shard push onto an integration branch starts nothing.
+
+Precondition B — runs per PR head branch, measured here, at a large limit:
+
+    $ gh run list --limit 800 --json event,headBranch | node -e '...'
+    3.01
+
+3.01, not 18. I ran it at 100 first out of habit and it reported 1.55; a recent-N window
+truncates each branch's history so it biases toward 1, and the error flatters not-folding, so the
+800 figure is the one I am using rather than the smaller one.
+
+Decision: do NOT fold. At 3.01, a five-shard wave saves roughly 12 runs, and against that sits an
+integration branch to keep rebased through five shards, one shared review surface for five
+unrelated-sized diffs, and a revert that takes the whole wave rather than one shard. At this
+measured ratio that coordination cost is not worth 12 runs. At the sibling's 18 it plainly would
+be — same mechanism, different answer, which is the point.
+
+So this wave lands as separate PRs and buys more runs than folding would have. That is the
+deliberate outcome, not an oversight: the cheaper option here is the one that makes a bad revert
+likely, and the runs saved do not pay for it.
+
+Recording what was measured so the next wave does not re-derive it: A TRUE (all push arms pinned
+to main), B 3.01 at limit 800.
+
+Unrelated and deliberately out of scope for this wave: the sibling BUILD repo's own wave
+planning. Their A and B are theirs.

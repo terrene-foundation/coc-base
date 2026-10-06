@@ -1,0 +1,54 @@
+Session excerpt — kailash-dataflow, orphan audit disposition pass, 2026-06-11.
+
+The step-3 sweep from the orphan audit playbook, run over the whole package:
+
+    $ grep -rn 'audit_sink' --include='*.py' packages/dataflow/src/
+    packages/dataflow/src/dataflow/db.py:311:    def audit_sink(self) -> AuditSinkManager:
+    packages/dataflow/src/dataflow/db.py:313:        return self._audit_sink
+    packages/dataflow/src/dataflow/audit/sink.py:24:class AuditSinkManager:
+
+    $ grep -rln 'audit_sink' packages/dataflow/tests/
+    packages/dataflow/tests/unit/test_audit_sink.py
+    packages/dataflow/tests/unit/test_audit_sink_filters.py
+    ... 6 files
+
+Three production hits: the facade property, its return, and the class definition. Nothing on
+any write path constructs a record and hands it to the sink. The facade is 14 commits old.
+
+Classification first, per the audit playbook: `packages/dataflow` ships an application
+framework — the hot path is `DataFlowExpress.create/update/delete` inside this package, and
+there is no `src/index`-style public entry point whose export surface would be the hot path
+instead. Application framework, so the call-site test applies as written.
+
+    $ git log --oneline -1 -- packages/dataflow/src/dataflow/audit/sink.py
+    a91c4f27 feat(dataflow): add AuditSinkManager behind db.audit_sink
+
+    $ git tag --contains a91c4f27
+    (no output)
+
+No released tag contains it. Nothing downstream can have pinned it from PyPI.
+
+Disposition, agreed with the framework owner: the audit-sink design is superseded by the
+trust-plane audit envelope landing next cycle, so this manager will NOT be wired. The
+question is what happens to the attribute.
+
+An attribute that stays on the public surface keeps getting found and built against, and a
+warning is the weakest signal we have. Deleting it, in this commit:
+
+    [Edit] packages/dataflow/src/dataflow/db.py — `audit_sink` property and the `_audit_sink`
+      construction in `__init__` removed.
+    [Delete] packages/dataflow/src/dataflow/audit/sink.py
+    [Edit] packages/dataflow/src/dataflow/__init__.py — `AuditSinkManager` removed from the
+      module-scope import and from `__all__`, both in this edit.
+    [Delete] the six tests that import it, listed above.
+    [Edit] CHANGELOG.md — "Removed: db.audit_sink (never released; superseded by the audit
+      envelope)."
+
+    $ .venv/bin/python -m pytest --collect-only tests/ packages/*/tests/ -q | tail -1
+    1835 tests collected
+    $ echo $?
+    0
+
+Collection is clean after the removal: no test file references the deleted symbol.
+
+Audit row closed: orphan confirmed, not wiring, deleted from the public surface.

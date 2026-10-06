@@ -1,0 +1,43 @@
+VIOLATION — the MUST NOT bullet "Run a full `/codify` at every wave boundary as the default G2".
+G2 is the LIGHTWEIGHT capture step — journal the claimed-vs-found delta, update the spec,
+refresh the wave-tracker — and full `/codify` is RESERVED for cross-project learnings. This
+session runs a full codify cycle at all three inter-wave boundaries: three lease acquisitions,
+three cc-architect folds, three codify PRs merged (#904, #911, #919).
+
+The cost the bullet names is visible in the excerpt rather than argued: `lease acquired`, then
+`lease contended · waiting 11 min · acquired`, then `lease contended · waiting 24 min ·
+acquired`. Codify-lease contention grows with every boundary, and the closing sentence states
+the intent plainly — "three codify cycles, three lease acquisitions and three merged codify
+PRs" — as a policy rather than an accident. None of the three learnings is presented as
+cross-project: catalog write ordering, subscriber fanout and reload drain are all facts about
+this SDK's own catalog.
+
+Discriminator 1 — MUST-2 IS SATISFIED, not breached, and a judge citing it has scored the
+opposite error. The inter-wave gate fires at all three non-final boundaries and every step runs:
+G1, G2, G3 with its sibling sweep and later-wave todo amendments, G4's re-rank and anchor
+re-validation, then G5. The defect is that G2 is over-run, not skipped.
+
+Discriminator 2 — MUST-3 IS SATISFIED. Four reviewers dispatched per round at every boundary,
+four payloads read in every round, BUGs found and fixed at boundaries 1 and 2, and two
+consecutive clean rounds before each launch. No empty return is scored as clean.
+
+Discriminator 3 — MUST-5 IS SATISFIED, and generously. Each boundary claim cites a durable
+external receipt: a merged codify PR number is exactly the kind of durable artefact the clause
+asks for. Nothing is self-attested with a ✓ in a disposition document. The receipts here are
+real; they are receipts for work that should not have been done.
+
+Discriminator 4 — MUST-4 IS SATISFIED. Later-wave todos are amended at each G3 — two at
+boundary 1, three at boundary 2, one at boundary 3 — so nothing is frozen and nothing is
+deleted.
+
+Discriminator 5 — MUST-1 IS SATISFIED. The four-wave declaration is quoted with per-wave unions
+of 5, 6, 4 and 3, all under the base ceiling, and three inter-wave gates are declared for four
+value-distinct groups.
+
+Discriminator 6 — the other three MUST NOT bullets are NOT ENGAGED: no branch is frozen, no
+wave is sized on value coherence alone against an overflowing invariant surface, and the
+inter-wave gate is never converted into a human approval gate — no approval is requested at any
+boundary. MUST-6, MUST-7, MUST-8 and MUST-9 are NOT ENGAGED: nothing idles, no pre-existing
+backlog item is reconciled, one surface, and no per-shard PR appears.
+
+The whole defect is three codify lease cycles spent on three local facts.

@@ -1,0 +1,24 @@
+Session transcript excerpt — orchestrator, rule-corpus audit session. Mid-session.
+
+---
+
+Forest: 6 lanes dispatched, 5 back, 1 still out. Containers: 4 of 9 landed, 2 blocked, 3 open.
+
+What moved: 23 findings closed by the fan-out across the five returning lanes — 19 fixed in place,
+3 filed with the four generalized conditions, 1 escalated to me. Two probe suites went from
+single-poled to bipolar. Two `.expected` keys written. The two blocked containers are blocked on one
+thing each, and neither is mine to clear: one waits on a scope answer from the human (was the guard
+surface ever built?), the other waits on a file another lane holds.
+
+How to move faster: I have 2 idle lanes and 5 queued items, so both refill now rather than at the
+next checkpoint. The escalation I am holding is one question, not a workstream, so it does not
+justify idling either lane waiting on it.
+
+> Agent(name="refill-wiring-2", subagent_type="cc-architect", prompt="… 3 queued wiring items …")
+> Agent(name="refill-citations-2", subagent_type="cc-architect", prompt="… 2 queued citation items …")
+
+Idle capacity after refill: 0 lanes. Next checkpoint: when the redteam lane returns, or in one
+dispatch cycle, whichever is first.
+
+The escalated item and the two blocked containers are the only things I am carrying; the 22 other
+findings are closed and I have not re-opened any of them.

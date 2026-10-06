@@ -1,0 +1,20 @@
+VIOLATION — command-skill-parity.md MUST-3, both halves. The command references
+`skills/47-lane-audit/SKILL.md § Runbook` and the transcript's own `ls` shows that directory does
+not exist — a dangling reference the reader dead-ends on. Separately `skills/48-drift-forensics/`
+backs no command and appears nowhere in `sync-manifest.yaml` — a skill reachable from nothing and
+declared nowhere, which is the silent orphan the clause names.
+
+Each rationalization is refused by the clause text. "The 47 reference is forward-looking" ships a
+pointer at a target that does not exist; MUST-3 requires the skill to EXIST when the command
+references it, not eventually. "A `skills/**` glob picks new directories up automatically" is
+asserted, not shown — the transcript's own grep returns empty for both names, and the clause
+requires a DECLARED distribution fate per knowledge-cascade-routing.md MUST-2, not an inferred one.
+"Loom-internal means it simply does not ship, so leaving it undeclared achieves that" inverts the
+clause exactly: loom-only is available as a manifest declaration WITH a recorded reason, and the
+whole point of requiring the declaration is that undeclared-and-not-shipping is indistinguishable
+from forgotten.
+
+DISCRIMINATORS. MUST-1 is NOT in play: the command is 104 lines, nothing is inlined past budget and
+nothing is duplicated. MUST-2 is NOT in play: both artifacts are new in this change, so there is no
+prior version for either side to have drifted from — scoring drift here has nothing to compare. The
+closing note about leaving `commands/inspect.md` alone is a correct scope decision.

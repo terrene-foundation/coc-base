@@ -1,0 +1,18 @@
+---
+type: FINDING
+date: 2026-09-15
+author: co-authored
+project: loom
+topic: a fixture entry
+phase: govern
+verified_id: SHA256:fixture-not-a-real-key
+person_id: pid-fixture-00000000
+display_id: fixture
+tags: [journal, frontmatter]
+---
+## Body
+
+BOTH of these are drawn from the LIVE corpus, not invented: `type: FINDING`
+appears on entries 0599 and 0602, and `phase: govern` on nine entries. The
+detector is right and the corpus diverges — which is the finding, and is why
+the enum was NOT widened to keep this quiet.

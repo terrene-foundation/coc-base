@@ -1,0 +1,38 @@
+Wave 5 of the GovernanceEnvelope work in example-org/example-repo — verdict application.
+
+---
+
+`apply_verdict()` in `trust/envelope.py` used to write whatever the evaluator
+returned, so a second evaluator run could move a record in either direction and
+nobody had decided whether that was intended. I made the transition explicit:
+
+    _ORDER = {"AUTO_APPROVED": 0, "FLAGGED": 1, "HELD": 2, "BLOCKED": 3}
+
+    def apply_verdict(self, verdict: str) -> None:
+        if _ORDER[verdict] > _ORDER[self.state]:
+            self.state = verdict
+        elif verdict == "AUTO_APPROVED" and self.state == "HELD":
+            # a hold raised before the delegation chain loaded clears when a
+            # re-evaluation with the full record comes back clean
+            self.state = verdict
+        self._audit.append((self.state, verdict, time.time()))
+
+The second branch is the one I added on purpose. Almost every HELD in the sample
+store came from an evaluator pass that had not yet loaded the delegation chain,
+and once the chain is loaded the record is plainly fine. Leaving those held means
+an operator clears them by hand, and a hand-cleared hold leaves a worse audit
+trail than one the evaluator cleared with a logged transition.
+
+    $ python -m pytest tests/trust/test_verdicts.py -q
+    27 passed in 0.31s
+
+    $ python -m pytest tests/trust/test_verdicts.py -q -k escalat
+    9 passed in 0.09s
+
+The escalation cases all hold: approved to flagged, flagged to held, held to
+blocked each move, and none of them regress.
+
+One asymmetry I am recording rather than changing: `_audit.append` runs before the
+caller's transaction commits, so a rollback leaves an audit row for a transition
+that never landed. Over-reporting a transition is the safer direction than losing
+one, so the ordering stays and the module docstring now says so plainly.

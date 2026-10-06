@@ -1,0 +1,1 @@
+gh pr $(cat /tmp/verb) 2119 --watch && gh pr $(cat /tmp/verb2) 2119 --admin

@@ -1,0 +1,84 @@
+Session excerpt — payments service `quarry`, /implement, shard W21 (settlement rules).
+
+    [Read] specs/_index.md → settlement.md is the relevant row for W21
+    [Read] specs/settlement.md § Payout windows
+
+Three domain-truth changes land in this shard, each written into the spec at the moment it
+is decided rather than batched:
+
+    [Edit] specs/settlement.md § Payout windows — T+2 becomes T+1 for domestic rails; the
+      cutoff moves to 16:30 local and the weekend rule is stated per rail.
+    [Edit] specs/settlement.md § Capture ladder — the partial-capture sequence and its
+      seven failure branches, each with its retry disposition.
+    [Edit] specs/settlement.md § Reconciliation — the three-way match against the rail
+      statement, the tolerance table, and what happens to an unmatched leg after 5 days.
+
+Full sibling sweep after each edit, not scoped to the file being edited:
+
+    $ ls specs/*.md
+    _index.md  disputes.md  ledger.md  payment-capture.md  payout-schedule.md
+    refunds.md  settlement.md
+    $ grep -l "T+2\|cutoff\|three-way" specs/*.md
+    specs/payout-schedule.md
+    specs/settlement.md
+
+    [Edit] specs/payout-schedule.md — the T+2 references and the old cutoff re-derived
+      against the new window; "settlement window" and "payout window" reconciled to one
+      term.
+
+Where the file stands now:
+
+    $ wc -l specs/settlement.md
+      471 specs/settlement.md
+
+    $ grep -c '^## ' specs/settlement.md
+    6
+
+Six top-level sections: Payout windows, Capture ladder, Reconciliation, Rail adapters,
+Fee accrual, Statement ingestion. Past the 300-line threshold, so it splits along the
+sub-domains it already has, three files each self-contained for its own:
+
+    [Write] specs/settlement-payout.md      — Payout windows + Fee accrual
+    [Write] specs/settlement-capture.md     — Capture ladder + Rail adapters
+    [Write] specs/settlement-recon.md       — Reconciliation + Statement ingestion
+    [Bash]  git rm specs/settlement.md
+
+Each carries the definitions it uses rather than pointing at a sibling for them: the rail
+table is restated in the capture file because the ladder branches on it, and the tolerance
+table lives with reconciliation because nothing else reads it.
+
+    $ wc -l specs/settlement-*.md
+      168 specs/settlement-capture.md
+      142 specs/settlement-payout.md
+      161 specs/settlement-recon.md
+      471 total
+
+    [Edit] specs/_index.md — the settlement.md row is removed and three rows replace it:
+
+      | settlement-capture.md | Settlement | Capture ladder, failure branches, rail adapters |
+      | settlement-payout.md  | Settlement | Payout windows, cutoffs, weekend rules, fees    |
+      | settlement-recon.md   | Settlement | Three-way match, tolerances, unmatched-leg aging |
+
+    $ grep -rn "specs/settlement.md" specs/ src/ workspaces/ ; echo "rc=$?"
+    rc=1
+
+No reference to the old path survives.
+
+Gates:
+
+    $ pytest tests/unit/test_settlement.py -q ; echo "rc=$?"
+    28 passed in 1.9s
+    rc=0
+    $ mypy src/quarry/settlement ; echo "rc=$?"
+    Success: no issues found in 9 source files
+    rc=0
+
+    [dispatch x2, one message] reviewer / cc-architect, each scoped to the W21 diff, each
+      brief pinning the absolute sibling worktree path and a STEP-0 assertion comparing
+      resolved `git rev-parse --show-toplevel` against `pwd -P`.
+
+    round 1 — reviewer: "the T+1 weekend rule needs a worked example." → added.
+    round 2 — both clean, both payloads read.
+    round 3 — both clean, both payloads read.
+
+Two consecutive clean rounds. W21 lands.

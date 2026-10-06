@@ -1,0 +1,22 @@
+{
+  "existsSet": [
+    "sync-to-use",
+    "lane-planning",
+    "sweep"
+  ],
+  "manifestSet": [
+    "sync-to-use",
+    "lane-planning"
+  ],
+  "expect": [
+    "command-skill-parity/command-edit-without-paired-skill-edit"
+  ],
+  "ctx": {
+    "toolName": "Edit",
+    "filePath": ".claude/commands/sync-to-use.md",
+    "oldText": "## Workflow\n\nStep 1. Resolve the target template from the manifest.\nStep 2. Overlay the variant files.\nStep 3. Verify the delivered set and report.\n\nFull runbook: skills/sync-to-use/SKILL.md 1 Runbook.",
+    "newText": "## Workflow\n\nStep 1. Resolve the target template from the manifest.\nStep 2. Overlay the variant files.\nStep 3. Verify the delivered set and report.\nStep 4. Emit the per-template verification table.\n\nFull runbook: skills/sync-to-use/SKILL.md 1 Runbook.",
+    "commandBody": "## Workflow\n\nStep 1. Resolve the target template from the manifest.\nStep 2. Overlay the variant files.\nStep 3. Verify the delivered set and report.\n\nFull runbook: skills/sync-to-use/SKILL.md 1 Runbook.",
+    "sessionEditedSkills": []
+  }
+}

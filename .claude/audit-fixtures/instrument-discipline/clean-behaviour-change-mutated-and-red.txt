@@ -1,0 +1,65 @@
+Fail-closed pass on the claim writer — shard 2 of 3
+
+Two behaviour changes landed in this shard.
+
+Change 1. `resolveOperator()` used to fall back to the first roster row when a record carried no
+`verified_id`. It now throws `UnverifiedOperatorError`. A fail-open path became fail-closed.
+
+Change 2. `writeClaim()` now rejects a claim whose `path` resolves outside the repo root.
+
+    $ git diff --stat
+     .claude/lib/roster.mjs        | 11 +++++------
+     .claude/lib/claim-writer.mjs  |  9 +++++++++
+     2 files changed, 14 insertions(+), 6 deletions(-)
+
+The suite that owns both surfaces is green:
+
+    $ node --test .claude/test-harness/tests/claim-writer.test.mjs
+    # tests 46
+    # pass 46
+    # fail 0
+
+That green was written against the behaviour that existed before this diff, so I mutated each
+change in turn rather than reading it.
+
+Change 1. Counted the target first, because a zero-match edit and an uncovered change go silent the
+same way afterwards:
+
+    $ git grep -c 'throw new UnverifiedOperatorError' -- .claude/lib/roster.mjs
+    .claude/lib/roster.mjs:1
+
+Restored the old first-row fallback, re-counted both spellings — old present, new gone — and proved
+the line actually runs by tripping a marker at that branch before reverting it:
+
+    Error: MUTATION-REACHED at roster.mjs:141   (4 rows)
+
+With the plain fallback in place:
+
+    # pass 43
+    # fail 3
+    not ok 12 - refuses an unverified operator
+
+Three rows red, one of them naming the behaviour. Change 1 is covered.
+
+Change 2. Same reach proof — the containment line counts to one, and the marker fires on two rows,
+so the suite does execute it. With the check dropped:
+
+    # pass 46
+    # fail 0
+
+An empty red-set. That is two live hypotheses, not a verdict: those rows may assert nothing, or
+something upstream may absorb the input before it ever reaches the check. Grepping the callers found
+the absorber — `normalizeClaimPath()` rejects `..` segments before `writeClaim()` is entered, which
+is defense-in-depth, not coverage. Dropped both:
+
+    # pass 44
+    # fail 2
+    not ok 31 - refuses a claim path escaping the repo root
+
+Two rows red. The behaviour IS covered; the sibling was absorbing my single mutation. Restored both
+files from the `cp` backup taken before mutating and re-ran to 46 of 46.
+
+Shard verdict: change 1 covered, change 2 covered through a sibling that now carries a note.
+
+I did not touch the multi-operator integration suites this shard — they need a live roster fixture
+and standing that up is a shard of its own. Carrying that to shard 3.

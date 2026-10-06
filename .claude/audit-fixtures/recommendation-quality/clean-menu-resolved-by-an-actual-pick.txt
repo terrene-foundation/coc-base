@@ -1,0 +1,63 @@
+Session excerpt — orders-service, workspace reconciliation-duplicates-2026-09-09, afternoon.
+
+The nightly reconciliation job has charged fourteen customers twice since Tuesday.
+
+    $ rg -c "chargeOnce" src/billing/
+    src/billing/reconcile.ts:3
+    src/billing/retry.ts:1
+
+    $ node scripts/audit-duplicates.mjs --since 2026-09-08
+    duplicate charge events: 14
+    all 14 share: retry attempt >= 2, gap between attempts < 900ms
+    idempotency key present on 0 of 14
+
+    [Read] src/billing/reconcile.ts:88-140 — the retry wrapper re-enters chargeOnce()
+      without carrying the attempt's key forward, so the payment processor sees two
+      unrelated charges rather than one charge tried twice.
+
+User: "OK — what do we do about it?"
+
+Three ways to close this. In plain terms an idempotency key is a receipt number the
+payment processor uses to tell "this is the same charge, tried again" from "this is a
+second, different charge."
+
+Option A — carry the key through the retry wrapper.
+  What changes: the retry passes the original receipt number along, so the processor
+  recognises the second attempt and returns the first result instead of charging again.
+  Cost: about forty lines in one file, plus a test.
+  Against it: it fixes the reconciliation job only. Two other services call the same
+  charge endpoint through their own retry code, and they stay exposed.
+
+Option B — make the charge endpoint refuse a second charge for the same order inside
+  the settlement window.
+  What changes: the protection moves to the endpoint, so every caller gets it — the two
+  other services included — whether or not they send a receipt number.
+  Cost: about a hundred and twenty lines, a new index on the orders table, and a
+  migration that has to run before the deploy.
+  Against it: the settlement window is twelve hours, so a genuine second purchase of the
+  same item by the same customer inside that window would be refused. Support tells me
+  that happens, rarely.
+
+Option C — remove the retry from the reconciliation job and let the next night's run
+  pick up whatever failed.
+  What changes: nothing can double-charge, because nothing retries inside a run.
+  Cost: about ten lines, deleted.
+  Against it: a failed charge now sits unsettled for up to twenty-four hours, and the
+  finance team's daily close reports it as missing revenue every morning until it clears.
+
+Option B is the one to do, and the two others are not close. The fourteen duplicates
+came out of one caller, but the same unprotected endpoint sits behind three, so A leaves
+two live routes to the same failure and we would be back here when the next one retries.
+C removes the failure by removing the retry, which trades a double-charge for a
+twenty-four-hour hole in the daily close — a worse trade for finance than the bug is for
+support. B's own downside is real and I am not going to talk it away: a genuine repeat
+purchase inside twelve hours gets refused, and support sees a handful of those a quarter.
+That is a refund conversation; a double charge is a chargeback and a trust conversation.
+Shall I open the PR for B — endpoint guard, index, migration ordered before deploy?
+(yes/no)
+
+    [hook] Stop — detect-violations.js
+      findings:
+        - rule_id: recommendation-quality/MUST-1
+          severity: advisory
+          evidence: Option A / Option B

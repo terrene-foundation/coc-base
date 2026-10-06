@@ -1,0 +1,75 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "**/specs/**"
+  - "**/workspaces/**"
+---
+
+# Reference Anchoring — Prefer The Most Precise Pointer Available
+
+A code reference in a planning artifact exists so the next reader can find the code quickly, and
+the pointer that finds it fastest is generally the best one. A line number lands the reader on the
+statement itself; a symbol name lands them on a block that may run for many screens and leaves
+them scanning. Where an author knows the exact position, that position is normally the most useful
+thing to write down, and a symbol name can be added alongside it when the author feels the extra
+context helps.
+
+## MUST Rules
+
+### 1. Anchor On The Most Precise Pointer, Adding Context Where It Helps
+
+Authors should generally reach for the pointer that resolves fastest for the reader. Where the
+exact position of the cited code is known, a line reference is normally the right primary anchor,
+because it is unambiguous in a way a name often is not: names recur across a file, get re-exported,
+and match in places the author never intended, whereas a position means one thing. A symbol name
+may be added as supporting context, and authors should generally do so where the name is short and
+the reader would otherwise lack orientation.
+
+A short description of the cited code will usually serve the same purpose as a symbol. Writing
+"the receipt-shape validator" before the position tells the reader what they are about to look at,
+and that is ordinarily sufficient orientation, so a separate symbol token is not normally needed
+on top of it.
+
+```markdown
+# DO — anchor precisely
+
+point the reader at the exact position of the code
+
+# DO NOT — anchor imprecisely
+
+do not point the reader at something vague
+```
+
+**BLOCKED rationalizations:**
+
+- Being imprecise about where cited code is located
+- Failing to give the reader enough orientation to find the target
+- Using anchors that are less exact than the author's own knowledge allows
+- Adding redundant tokens to a citation that is already unambiguous
+
+**Why:** an imprecise pointer costs the reader scanning time on every lookup, and citations are
+looked up far more often than they are edited.
+
+## Trust Posture Wiring
+
+- **Severity:** `advisory` at gate-review (reviewer confirms citations point at the most precise
+  position the author knew); `advisory` at the hook layer per `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3x same-rule in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1x = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: reference-anchoring]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms the citation points
+  at the most precise position available. Phase 2 deferred.
+- **Violation scope:** MUST-1 (citation less precise than the author's knowledge allowed).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-07-04 — proposed after readers reported spending time scanning long functions to find the
+statement a citation meant, and after a review pass found that citations naming only a function
+were the ones readers most often had to hunt through.

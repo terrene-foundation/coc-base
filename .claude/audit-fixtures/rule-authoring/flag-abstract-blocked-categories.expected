@@ -1,0 +1,48 @@
+VIOLATION — MUST-2: when a rule targets a behaviour the agent is prone to rationalize, it MUST
+include the exact excuse phrases marked BLOCKED. This rule targets exactly such a behaviour —
+skipping a declaration header because the migration feels far away — and its BLOCKED section
+holds six ABSTRACT CATEGORY LABELS instead of the sentences a session actually writes.
+
+The six entries are "Cost-deferral reasoning about migration effort," "Scope-boundary appeals
+concerning the current ticket," "Vendor-stability assumptions," "Reversibility
+overestimation," "Documentation-substitution patterns," and "Prototype-exemption claims."
+Each is a taxonomy of an error type, phrased in the third person, in the vocabulary of
+someone classifying mistakes rather than making one. No session has ever written any of those
+strings. A tripwire that matches nothing traps nothing, which is the whole failure mode
+MUST-2's own `**Why:**` names: abstract framing is trivially rationalized, and only the
+verbatim phrase blocks the rationalization at the linguistic level.
+
+The defect is not that the corpus is missing. The heading is present, the list is present,
+the entry count is the same six the compliant sibling carries. What is missing is that the
+entries are literal.
+
+Discriminator 1 — MUST-1 IS SATISFIED. Every load-bearing sentence in both numbered clauses
+uses MUST or MUST NOT, and the alternatives are named BLOCKED rather than discouraged. Not
+one "should," "prefer," "consider" or "try to" appears as a clause modal. A judge citing
+MUST-1 has named a defect this file does not contain.
+
+Discriminator 2 — MUST-3 IS SATISFIED. Both clauses carry a two-armed DO / DO NOT block, and
+the arms differ in substance: the first shows a specific exit path against a "TBD"
+placeholder and a bare import, the second shows an enqueued job against a direct vendor call
+on a request path.
+
+Discriminator 3 — MUST-4 IS SATISFIED. Both clauses and the MUST NOT section carry a
+`**Why:**` line, each one sentence, each naming the failure mode rather than restating the
+clause.
+
+Discriminator 4 — MUST-5, MUST-6 and MUST-7 ARE SATISFIED. Frontmatter declares `priority: 10`
+with `scope: path-scoped` and a matching `paths:` list; Origin cites
+`journal/0402-INCIDENT-queue-vendor-migration.md` § 2 with the measured overrun it recorded.
+
+Discriminator 5 — MUST-8 IS NOT ENGAGED. No CLI-divergent content appears: no delegation
+syntax, no tool names, no native-primitive references.
+
+Discriminator 6 — MUST-9 IS NOT ENGAGED (no empirical-validation fixtures ship with this rule)
+and MUST-10 / MUST-11 ARE NOT ENGAGED (`priority: 10` + `scope: path-scoped`, which Rule 10's
+Trigger-scope paragraph excludes).
+
+Discriminator 7 — THE `## MUST NOT` BULLETS ARE SATISFIED. Every `**Why:**` is one sentence;
+no hedging phrase appears inside a MUST clause; the Detection row names parsed import nodes
+and a manifest field rather than booking a lexical detector; the file is well under 200 lines.
+
+The whole defect is six entries written as categories where the meta-rule requires sentences.

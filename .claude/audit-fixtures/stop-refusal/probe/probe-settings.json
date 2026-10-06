@@ -1,0 +1,15 @@
+{
+  "_doc": "Sandbox-project settings for the LIVE host-contract probe. NOT this repo's settings — deliberately named `probe-settings.json` rather than `settings.json` so it can never be mistaken for, or copied over, a real project settings file. To re-run: copy this to <sandbox>/.claude/settings.json alongside probe.js. See ./README.md.",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /tmp/stophook-probe/.claude/hooks/probe.js"
+          }
+        ]
+      }
+    ]
+  }
+}

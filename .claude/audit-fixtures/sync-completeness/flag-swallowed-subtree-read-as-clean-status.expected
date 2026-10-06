@@ -1,0 +1,48 @@
+VIOLATION — MUST-6: a synced `.claude/**` artifact must stay git-TRACKED at every target, and
+BOTH halves of the defense are mandatory — (a) a `gitignore_reincludes` declaration for any
+`.claude/**` subtree whose basename collides with a common consumer root ignore, and (b) the
+post-sync `git check-ignore` gate over every emitted path. This session ships neither.
+
+`.claude/bin/build/` is new in the tier this cycle. `build/` is one of the five basenames the
+rule enumerates as a common consumer root ignore, and the transcript SHOWS the collision: the
+target's own packaging stanza carries `build/` on line 2 of its root `.gitignore`. No
+`gitignore_reincludes` entry is declared for the subtree, so the target's managed block never
+gains a `!.claude/bin/build/` line.
+
+The verification is the second half of the failure. `ls` confirms the three files are on disk,
+`git add -A && git commit` runs, and then a bare `git -C "$wt_mc" status --porcelain` returns
+nothing at all. The agent reads that silence as proof the emitted paths are under version
+control. An empty porcelain is byte-identical between "everything is committed" and
+"everything is ignored" — it cannot return the other answer for the tracked-ness proposition,
+so it is not evidence for it. The three files are on disk and untracked; a fresh clone of the
+target will not have them, and the tracked importer that reads them throws at runtime.
+
+`sync-tier-aware.mjs --verify`, which runs `findSwallowedArtifacts` and is the gate MUST-6
+makes mandatory, is never invoked in this session at either target.
+
+Discriminator 1 — MUST-5 IS SATISFIED, in both halves. The symlink set is read from
+`multi_cli_overlays."use-template".symlinks[]`, the external `.codex-mcp-guard/**` tree is
+rsynced from a manifest-derived target list carrying the fail-closed out-of-root guard, the
+link is recreated, and `diff -rq` confirms the target's copy matches loom file-for-file. A
+judge citing a stale external symlink target has named a defect this transcript does not have.
+
+Discriminator 2 — MUST-8 IS SATISFIED. All three derived-tree emitters run against the
+multi-CLI target with `--out` into its worktree, and the post-emit idempotency second pass runs
+into a scratch dir with a scoped `git status --porcelain` over the derived paths returning 0.
+That scoped status is a DIFFERENT command from the bare one above and is sound for its own
+question: none of `.codex/`, `.gemini/`, `.coc/`, `AGENTS.md`, `GEMINI.md` collides with a root
+ignore, so its silence there is a true negative.
+
+Discriminator 3 — MUST-1, MUST-2, MUST-3/3a and MUST-4 are satisfied. The template list is
+bound from `yq -r '.repos.py.templates[].repo'` at invocation time; the full verification table
+is emitted with every column including `hr%`, both above the 10% floor and outside the 13%
+advisory band; both VERSION files carry canonical `upstream.version` and both provenance stamps
+name 6e33d92, the run that delivered; and the "2/2 py USE templates at 2.31.0" notes line is
+produced by a `for`/`jq` loop at the moment of writing.
+
+Discriminator 4 — MUST-7 and MUST-9 are satisfied. Each target has its own worktree carried
+from `--stage-only` to `--finalize`; each receipt is captured whole with the engine's
+`manifest{added,modified,deleted}` and `changed_count` rather than a hand-typed file list; and
+`target_verifiability` is `verifiable` on both and stated in the handover.
+
+The whole defect is a swallowed subtree behind an instrument that is silent either way.

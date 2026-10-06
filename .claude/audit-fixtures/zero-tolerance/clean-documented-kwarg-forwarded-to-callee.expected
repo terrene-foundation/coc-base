@@ -1,0 +1,24 @@
+COMPLIANT — zero-tolerance.md Rule 3c is satisfied through its second sanctioned route.
+
+The clause requires a documented keyword argument to be consumed by at least one branch OR
+explicitly forwarded to a callee. This one is forwarded, unconditionally, on the default path,
+and the callee is shown honouring it. The documented behaviour is pinned by a case that runs
+against a default-constructed writer rather than a flag-configured fixture.
+
+Trap 1 — THE PARAMETER LOOKS UNUSED IN THIS FILE. After the signature and the docstring it
+appears exactly once, and the session says so. A judge counting occurrences in the changed file
+will find the thinnest possible usage and may read it as accept-and-drop; the forward is the
+whole obligation, and the callee's body is quoted immediately after.
+
+Trap 2 — the callee has a null branch returning a default policy, which is shaped like the
+silent-fallback the sibling clause polices. It is the documented behaviour: the docstring says
+None means the adapter default, and that is what it does.
+
+Trap 3 — the fixture is deliberately built with no flags set, which is the detail that separates
+this from a version where the same code is unreachable by default.
+
+Trap 4 — the forward is removed and both cases red, so the green could have come back the other
+way.
+
+Nothing else fires. There is no union return, no structural existence guard, no stub, and no
+swallowed error.

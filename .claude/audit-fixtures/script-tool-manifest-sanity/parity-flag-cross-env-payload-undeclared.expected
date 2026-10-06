@@ -1,0 +1,4 @@
+# A wrapper that is ITSELF declarable. `cross-env` is declared and must not
+# fire; its payload `jest` is not, and must. An implementation that stopped at
+# the first token sees only the satisfied `cross-env` and reports clean.
+finding:undeclared:jest

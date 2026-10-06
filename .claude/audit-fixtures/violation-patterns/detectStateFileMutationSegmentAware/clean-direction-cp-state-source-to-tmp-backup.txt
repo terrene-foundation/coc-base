@@ -1,0 +1,1 @@
+cp .claude/settings.json /tmp/detector-precision-backup/settings.json

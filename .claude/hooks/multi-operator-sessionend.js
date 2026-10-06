@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 /**
+ * @hook-event: SessionEnd (lifecycle) — existing operator claims and session state are available for release and checkpoint at teardown.
+ * @hook-event: Stop (lifecycle) — existing operator claims and session state are available for the same release and checkpoint at the turn boundary.
+ *
  * multi-operator-sessionend.js — F14 M5 B2 session-end hook.
  *
  * Architecture ref: §4.3 hook table row "multi-operator-sessionend.js"
@@ -49,23 +52,30 @@
 "use strict";
 
 const TIMEOUT_MS = 5000;
-const fallback = setTimeout(() => {
-  try {
-    process.stdout.write(JSON.stringify({ continue: true }) + "\n");
-  } catch {}
-  process.exit(1);
-}, TIMEOUT_MS);
+// Armed by hookMain(), not at load: require() of this file has no side effects,
+// so the in-process hook engine can load it once per worker and run it per event.
+let fallback = null;
 
 const fs = require("fs");
 const path = require("path");
 // loom#1349 — the ONE hardened append primitive; see lib/append-sink.js for the six defenses.
 const { appendSinkLine, escapeControlChars } = require("./lib/append-sink.js");
 
-const PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
+// Set by hookMain() on every run (the engine requires this module once per worker).
+let PROJECT_DIR = null;
 
 // #857: worker-mode flag. When present, this process is the DETACHED worker
 // spawned by the parent — it runs the heavy teardown body DIRECTLY (never the
 // parent spawn path, so there is no fork bomb).
+//
+// Read at LOAD, deliberately, and never inside hookMain(): the hook engine
+// replaces process.argv with [execPath, <file>] for the duration of a detector,
+// so an in-hookMain read would say "not a worker" in a worker that
+// COC_HOOK_ENGINE_SELFTEST=1 (inherited through spawnDetachedWorker's env)
+// routed through runCli — and that worker would spawn another worker, forever.
+// At load the argv is the process's own: a real worker was started with the
+// flag, and the dispatcher's worker thread never is. runCli's require() of this
+// file returns the already-loaded main module, so the load-time value stands.
 const IS_WORKER = process.argv.includes("--coord-worker");
 
 // #857: side-effect-observability flags. A test that sets one of these is
@@ -75,10 +85,8 @@ const IS_WORKER = process.argv.includes("--coord-worker");
 // (the real harness) sets none of these → the parent detaches the worker and
 // returns immediately (the #857 latency decoupling). This is NOT a behavior
 // change to WHAT the teardown does — only to WHETHER the parent waits for it.
-const SYNC_TEARDOWN =
-  process.env.COC_TEST_WRITE_SESSION_NOTES === "1" ||
-  process.env.COC_TEST_FORCE_RELEASE === "1" ||
-  process.env.COC_TEST_FORCE_CHECKPOINT === "1";
+// Computed by hookMain() on every run.
+let SYNC_TEARDOWN = false;
 
 function passthrough() {
   clearTimeout(fallback);
@@ -137,7 +145,14 @@ function readFoldedLog(repoDir) {
       "coordination-log.jsonl",
     );
     if (!fs.existsSync(logPath)) {
-      return { accepted: [], rawRecords: [], foldState: null };
+      return {
+        accepted: [],
+        rejected: [],
+        checkpointCoverage: null,
+        skippedSignatureVerify: false,
+        rawRecords: [],
+        foldState: null,
+      };
     }
     const raw = fs.readFileSync(logPath, "utf8");
     const records = [];
@@ -152,11 +167,41 @@ function readFoldedLog(repoDir) {
     const result = foldLog(records, roster, {});
     return {
       accepted: result.accepted || [],
+      // s50: the checkpoint producer needs the rule-1 REJECTIONS (to pin the
+      // verdicts it is attesting) and the coverage report (to state honestly
+      // whether this fold verified everything or rested on a prior
+      // attestation). Both were already computed and thrown away here.
+      rejected: result.rejected || [],
+      checkpointCoverage: result.checkpointCoverage || null,
+      skippedSignatureVerify: result.skippedSignatureVerify === true,
       rawRecords: records,
       foldState: result.foldState || null,
+      indeterminate: null,
     };
-  } catch {
-    return { accepted: [], rawRecords: [], foldState: null };
+  } catch (err) {
+    // S61 — a fold that THREW is NOT a clean empty fold, and this catch used to
+    // report the two identically. That is worse here than at SessionStart:
+    // `rejected: []` and `checkpointCoverage: null` feed the CHECKPOINT
+    // PRODUCER, so a dead fold produced a checkpoint input asserting "nothing
+    // was rejected, no prior coverage" on evidence supporting only "the fold
+    // died" — an attested claim manufactured from an instrument failure
+    // (rules/instrument-discipline.md MUST-1, and the same erasure class
+    // integrity-guard.js documents for DISCARDED `rejected` arrays).
+    //
+    // The shape retains the empty arrays so no caller crashes, and adds the
+    // discriminating fact. `emitCheckpoint` / `emitVerificationCheckpoint`
+    // GUARD ON IT and refuse to attest — a checkpoint is a signed assertion
+    // about what a fold verified, so "the fold did not run" MUST NOT be
+    // rendered as "the fold verified everything and found nothing wrong".
+    return {
+      accepted: [],
+      rejected: [],
+      checkpointCoverage: null,
+      skippedSignatureVerify: false,
+      rawRecords: [],
+      foldState: null,
+      indeterminate: err && err.message ? err.message : String(err),
+    };
   }
 }
 
@@ -626,6 +671,20 @@ function findOwnerCosigner(roster, ownPersonId) {
 
 function emitCheckpoint(repoDir, identity, roster, foldedState) {
   if (!shouldAttemptCheckpoint()) return;
+  // S61 — GUARD BEFORE the empty arrays can be read. A checkpoint is a SIGNED
+  // assertion about what a fold verified; if the fold threw, this process has
+  // no evidence to attest and MUST NOT manufacture some. Without this, a dead
+  // fold's `accepted: []` flowed into the R9-S-02 fence as "no attestation
+  // history" — fail-OPEN in the direction of emitting.
+  if (foldedState && foldedState.indeterminate) {
+    reportFoldIndeterminate(
+      repoDir,
+      "sessionend-checkpoint",
+      foldedState.indeterminate,
+      "checkpoint SKIPPED — refusing to sign a checkpoint whose inputs are UNKNOWN rather than empty",
+    );
+    return;
+  }
   // Fence input: in production the fence consults fold-accepted records
   // (signature-verified). In skip-sign test mode, raw records are passed
   // so the fence can observe attestation history that would otherwise be
@@ -705,6 +764,94 @@ function emitCheckpoint(repoDir, identity, roster, foldedState) {
   appendRecord(repoDir, record);
 }
 
+/**
+ * s50 — emit a `fold-verification-checkpoint` when the log has grown
+ * CHECKPOINT_INTERVAL records past the last valid attestation.
+ *
+ * Never throws and never blocks: every refusal (wrong role, threshold not
+ * reached, oversize record, emit refused) degrades to "no checkpoint", which
+ * means the next fold verifies every signature — the pre-s50 behaviour.
+ * Refusals are surfaced on stderr rather than swallowed, per
+ * observability.md Rule 5: a bound that silently stops firing is how this
+ * whole class of defect started.
+ */
+function emitVerificationCheckpoint(repoDir, identity, roster, folded) {
+  // S61 — same guard as emitCheckpoint, and for the sharper reason: this
+  // producer forwards `rejected` (rule-1 index pins) and `checkpointCoverage`
+  // (the HONESTY gate) verbatim. On a thrown fold those were `[]` and `null`,
+  // which the honesty gate reads as "clean, nothing rejected" — precisely
+  // inverting its purpose. Refuse to attest rather than attest to an unknown.
+  if (folded && folded.indeterminate) {
+    reportFoldIndeterminate(
+      repoDir,
+      "sessionend-verification-checkpoint",
+      folded.indeterminate,
+      "fold-verification-checkpoint SKIPPED — an empty 'rejected' set here would assert a verification that never ran",
+    );
+    return;
+  }
+  try {
+    const { maybeEmitCheckpoint } = require(
+      path.join(__dirname, "lib", "checkpoint-emitter.js"),
+    );
+    const skipSign = process.env.COC_TEST_SKIP_SIGN === "1";
+    const emitOpts = skipSign
+      ? { sign: () => ({ ok: true, sig: "test-stub" }) }
+      : process.env.COC_OPERATOR_KEY_PATH
+        ? {
+            signingKeyPath: process.env.COC_OPERATOR_KEY_PATH,
+            keyType: "ssh",
+          }
+        : {};
+    const r = maybeEmitCheckpoint({
+      repoDir,
+      records: folded.rawRecords || [],
+      foldResult: {
+        // `accepted` feeds the R9-S-02 fence (attestation history); `rejected`
+        // feeds the rule-1 index pins; `checkpointCoverage` +
+        // `skippedSignatureVerify` feed the honesty gate. All four are
+        // forwarded rather than reconstructed.
+        accepted: folded.accepted || [],
+        rejected: folded.rejected || [],
+        checkpointCoverage: folded.checkpointCoverage,
+        skippedSignatureVerify: folded.skippedSignatureVerify === true,
+      },
+      roster,
+      identity,
+      emitOpts,
+    });
+    if (r.emitted) {
+      process.stderr.write(`[sessionend] fold-verification-checkpoint: ${r.reason}\n`);
+    } else if (
+      // Only the interesting refusals; "threshold not reached" is the normal
+      // case on most sessions and would be pure noise.
+      r.reason.indexOf("threshold is") === -1
+    ) {
+      process.stderr.write(
+        `[sessionend] fold-verification-checkpoint not emitted: ${r.reason}\n`,
+      );
+    }
+  } catch (err) {
+    // sessionend MUST NEVER block, but a bound that silently stops firing is
+    // the defect this whole mechanism exists to end — so the swallow is
+    // SURFACED. maybeEmitCheckpoint is wrapped in its own try and returns a
+    // `skip`/`emitted` result rather than throwing — a claim S61 made
+    // LOAD-BEARING by fencing the fold resolvers (a malformed roster that used
+    // to die at the fold now reaches `checkpoint-emitter.js`'s key loop, which
+    // is why that loop is now shape-guarded too). So the only things reachable
+    // here are a require() failure of checkpoint-emitter.js and a failed stderr
+    // write: exactly the "producer silently disappeared" case.
+    try {
+      process.stderr.write(
+        `[sessionend] fold-verification-checkpoint producer unavailable: ` +
+          `${err && err.message ? err.message : String(err)}\n`,
+      );
+    } catch {
+      /* the stderr write itself failed; nothing further is available */
+    }
+  }
+}
+
 function writeSessionNotesAtomic(repoDir, identity) {
   // M6 D §5.1: the legacy single-file `.session-notes` clobbers under N
   // concurrent writers. The layout is now:
@@ -776,6 +923,38 @@ function writeSessionNotesAtomic(repoDir, identity) {
   }
 }
 
+/**
+ * S61 — report a fold that did not complete, on a channel that actually
+ * reaches someone. `coord-background.js::spawnDetachedWorker` spawns this
+ * hook's worker with `stdio:"ignore"`, so a bare `process.stderr.write` here
+ * SUCCEEDS and the bytes go to /dev/null — this file's own § lease-degradation
+ * comment records exactly that trap and says "nobody should read them as
+ * production observability". The durable channel is the stamped observation
+ * sink, which is operator-local, greppable and already gitignored.
+ *
+ * stderr is ALSO written because it is the channel the sync test paths and an
+ * interactive run can see; it is additive, not the primary.
+ */
+function reportFoldIndeterminate(repoDir, surface, reason, consequence) {
+  try {
+    const { logObservation } = require(
+      path.join(__dirname, "lib", "learning-utils.js"),
+    );
+    logObservation(repoDir, "coordination_degradation", {
+      surface,
+      degradation: "fold-indeterminate",
+      reason,
+      consequence,
+    });
+  } catch {
+    // The sink is best-effort telemetry; failing to record MUST NOT change the
+    // refusal above it, which has already been taken by the caller.
+  }
+  try {
+    process.stderr.write(`[sessionend] ${surface}: ${consequence} (${reason})\n`);
+  } catch {}
+}
+
 // ---- the heavy coordination teardown (shared by worker + sync-test path) ----
 
 function performTeardown(mainCheckout, identity) {
@@ -786,6 +965,23 @@ function performTeardown(mainCheckout, identity) {
   // observe side effects). Callers own process lifecycle (exit / passthrough).
   const roster = loadRoster(mainCheckout);
   const folded = readFoldedLog(mainCheckout);
+
+  // S61 — surface (do NOT silently absorb) a fold that did not complete. The
+  // claim-release path below is fail-CLOSED under this condition and is
+  // deliberately left as-is: an empty `ownClaims` emits no releases, so the
+  // operator's claims linger to their TTL rather than being released on
+  // evidence that never existed. Over-holding a claim is the safe direction —
+  // it cannot hand a contested path to a sibling. What was NOT acceptable is
+  // that this happened invisibly, so the operator believed their claims were
+  // released when no release record was ever written.
+  if (folded.indeterminate) {
+    reportFoldIndeterminate(
+      mainCheckout,
+      "sessionend-claim-release",
+      folded.indeterminate,
+      "own claims were NOT released and persist until TTL — the fail-closed direction, but a claim you believe you released is still held; repair the coordination log, then run /release-claim explicitly",
+    );
+  }
 
   // 1. Release own active claims (fold-accepted in production; raw under
   // skip-sign test mode so stub-sig fixture claims are still found).
@@ -806,7 +1002,25 @@ function performTeardown(mainCheckout, identity) {
   // R9-S-02 fence: gateEligibleForSelfSignedCheckpointOrRotation returns
   // eligible:false when N=1 traces to a revocation. emitCheckpoint
   // respects that — NO record appended in that case.
+  //
+  // s50 CORRECTION to the sentence above: this has never fired and cannot.
+  // `shouldAttemptCheckpoint()` is `COC_TEST_FORCE_CHECKPOINT === "1"` in
+  // full — there is no size trigger and no age trigger — and even when forced
+  // it returns early whenever a co-signer exists, while the record it would
+  // otherwise emit carries `folded_state_digest: "stub"` and `co_signers: []`,
+  // which rule 5 rejects. The call is left in place unchanged: it is the
+  // COMPACTION path (2-of-N owner quorum + a cold archive), and neither its
+  // quorum requirement nor its archive requirement is weakened here.
   emitCheckpoint(mainCheckout, identity, roster, folded);
+
+  // 2b. The VERIFICATION checkpoint — the bound that actually fires.
+  // Distinct from step 2: it discards nothing, so it needs neither the 2-of-N
+  // quorum this single-owner roster cannot form nor the archive ref nothing
+  // writes. It only lets an owner-signed, digest-bound prefix skip the rule-1
+  // subprocess on subsequent folds. See lib/checkpoint-emitter.js for the
+  // trigger's derivation and lib/fold-verification-checkpoint.js for the
+  // soundness argument.
+  emitVerificationCheckpoint(mainCheckout, identity, roster, folded);
 
   // 3. Atomic .session-notes regen (own operator section only).
   writeSessionNotesAtomic(mainCheckout, identity);
@@ -882,8 +1096,35 @@ function runParent() {
   }
 }
 
-if (IS_WORKER) {
-  runWorker();
-} else {
-  runParent();
+// In-engine, process.exit() throws a sentinel, so a catch/finally around an exit
+// path also runs. Swept: runParent's outer catch (passthrough: clearTimeout +
+// output + exit only), runWorker's catch (exit only; the worker never runs
+// in-engine), the SYNC_TEARDOWN try around performTeardown (encloses no exit).
+function hookMain() {
+  fallback = setTimeout(() => {
+    try {
+      process.stdout.write(JSON.stringify({ continue: true }) + "\n");
+    } catch {}
+    process.exit(1);
+  }, TIMEOUT_MS);
+  PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
+  SYNC_TEARDOWN =
+    process.env.COC_TEST_WRITE_SESSION_NOTES === "1" ||
+    process.env.COC_TEST_FORCE_RELEASE === "1" ||
+    process.env.COC_TEST_FORCE_CHECKPOINT === "1";
+  if (IS_WORKER) {
+    runWorker();
+  } else {
+    runParent();
+  }
+}
+
+module.exports = { hookMain };
+
+// CLI entry. The default path is exactly hookMain() — no engine dependency, so a
+// tree that copies this hook without lib/hook-engine.js runs it unchanged. The
+// selftest path replays the run through the in-process engine (hook-engine.js::runCli).
+if (require.main === module) {
+  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1") require("./lib/hook-engine.js").runCli(hookMain, __filename);
+  else hookMain();
 }

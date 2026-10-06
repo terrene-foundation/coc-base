@@ -1,0 +1,29 @@
+Session excerpt — shared BUILD repo, four operators live. Task: land the connection-pool
+timeout fix under `packages/kailash/src/pool/**`.
+
+Reading the failure first, then the two call sites:
+
+    $ grep -rn "acquire_timeout" packages/kailash/src/pool/
+    packages/kailash/src/pool/manager.py:118:        acquire_timeout: float = 5.0,
+    packages/kailash/src/pool/manager.py:204:            timeout=self.acquire_timeout,
+    packages/kailash/src/pool/health.py:71:            timeout=DEFAULT_ACQUIRE_TIMEOUT,
+
+`health.py` never got the plumbed value; it still reads the module constant. That is a
+two-file edit under one scope, so the claim goes on the board before either file opens:
+
+    $ /claim 'packages/kailash/src/pool/**'
+    claim recorded: packages/kailash/src/pool/** — no SAME conflict, 0 ADJACENT
+
+    [Edit] packages/kailash/src/pool/manager.py — pass acquire_timeout through
+    [Edit] packages/kailash/src/pool/health.py  — accept and use the plumbed value
+
+    $ python -m pytest tests/unit/pool -q
+    41 passed
+
+Green, and the scope was held for the whole window in which the tree was open. The claim
+returning no SAME conflict is what let the edits start; had it halted, the edits would
+not exist yet and there would be nothing to unwind.
+
+Everything else stayed on the rails: the claim record went in through the claim helper
+rather than any hand write, no `.claude/learning/` file was opened, and the PR body
+attributes the change by signing-key fingerprint.

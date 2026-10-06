@@ -1,0 +1,12 @@
+CLEAN parity — the command and its paired skill describe the SAME ceremony.
+
+`commands/ecosystem-init.md` header reads: "## Ceremony order (C1 → C1b → C3 → C2 → C4 → C5)" and
+its body's "### C1b" section matches the order line (the registry defines the org, the identity
+declaration captures it, genesis anchors TO that org, the remaining params fill in).
+
+The paired skill reads the identical order and its Writes cell for `/ecosystem-init` names all
+three artifacts: "ecosystem-config + canon-identity declaration (C1b) + genesis trust-root". The
+C1b step body in both surfaces names the shipped example file and both validation commands.
+
+No drift: an operator following either surface executes the same sequence and writes the same
+files.

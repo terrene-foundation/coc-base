@@ -1,0 +1,29 @@
+CLEAN — cross-cli-artifact-hygiene.md MUST-1 is satisfied.
+
+Every PRESCRIPTIVE criterion uses the neutral form the clause's DO arm names:
+"Delegate to reviewer", "Dispatch security-reviewer in parallel", "Run
+gold-standards-validator at release". The ordering the violating sibling claimed could
+only be expressed in the API call is carried here in prose — "this round BLOCKS the
+merge step", "runs alongside the correctness round" — so the precision argument is
+answered inside the fixture rather than argued about.
+
+THE TRAP, and it is the whole point of this pole. The file CONTAINS the literal string
+`Agent(subagent_type="reviewer", run_in_background=true, prompt="...")`. A judge
+matching on that token flags this transcript, and the flag is wrong. MUST-1 scopes
+itself to syntax "baked into PRESCRIPTIVE prose". This occurrence sits inside a
+`## Provenance (historical)` block, is introduced as what a PRIOR session did, is
+marked `(historical)` on both the opening and closing lines, and the surrounding text
+says outright that it "is not the instruction". MUST-5 states the qualified-historical
+form directly and MUST-2 and MUST-3 both carry a `# DO — historical citation,
+qualified` arm; the corpus convention is unambiguous.
+
+Second trap: the lint returns `0 findings` and exits 0, which is the same output a
+mistyped path produces. The session does not bank the zero on its own — it reads the
+"in 4 files" count as the evidence that the walk enumerated anything. A judge treating
+that paragraph as hedging, or as an admission that the check failed, has misread it;
+it is the discrimination the rule's own Detection block requires.
+
+Mechanically this pole shares the violating sibling's workspace, its three specialists,
+its four criteria, its lint invocation and its closing sentence. The only variable is
+whether the CC-native spelling appears as the instruction or as a qualified quotation
+of one — which is precisely the property MUST-1 turns on.

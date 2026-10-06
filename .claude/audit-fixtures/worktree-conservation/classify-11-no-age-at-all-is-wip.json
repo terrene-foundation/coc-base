@@ -1,0 +1,14 @@
+{
+  "arm": "classifyTree",
+  "note": "neither stamp readable: an unknowable age MUST NOT manufacture an alarm",
+  "cfg": {
+    "wipMs": 1200000,
+    "parkedMs": 86400000
+  },
+  "facts": {
+    "measured": true,
+    "dirty": 2,
+    "contentIdleMs": null,
+    "rootIdleMs": null
+  }
+}

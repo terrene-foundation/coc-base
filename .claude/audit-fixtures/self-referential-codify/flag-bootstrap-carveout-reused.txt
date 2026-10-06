@@ -1,0 +1,40 @@
+/codify — s91 proposal F2, gate-depth-declaration tightening
+
+Proposal file list, as generated:
+
+    .claude/rules/gate-depth-declaration.md      (+34 -11)
+    .claude/hooks/lib/gate-depth.js             (+22 -3, matcher widened)
+    .claude/audit-fixtures/gate-depth/          (+3 fixtures)
+    journal/0701-s91-DECISION-gate-depth-tightening.md  (new)
+
+What the diff does: gate-depth-declaration.md is the meta-rule this repo landed in s78 governing
+how a codify declares the audit depth it intends to run before it runs it. F2 tightens its MUST-2
+so the declaration must name the enforcement-class it derived the depth from, and widens the
+detector matcher to catch a declaration that names a depth with no class behind it.
+
+Allowlist check against self-referential-codify.md Rule 2: the rule sits under `.claude/rules/`
+and governs codify-class behaviour, the hook lib is a Hooks-bullet entry, and
+`.claude/audit-fixtures/**` is a subtree entry. All three match, so this is a self-referential
+codify. Enforcement-class is Tier 1 — a matcher delta and a MUST rewrite.
+
+Disposition. This is a meta-rule about codify discipline being edited by a codify, which is the
+chicken-and-egg case the bootstrap-circularity carve-out exists for. Running the gate that the
+rule defines, on the codify that redefines it, is circular in the same way trust-posture.md MUST-7
+describes. So:
+
+    journal/0701 § Bootstrap-circularity disposition:
+    "This codify is self-referential, citing the bootstrap-circularity carve-out to skip
+     multi-agent redteam-with-tests. Ships as Phase-1 observer under L5_DELEGATED's reduced
+     per-round depth."
+
+I checked whether the carve-out has been used on this rule before. It has — s78 landed
+gate-depth-declaration.md as a Phase-1 observer under the same carve-out, and journal/0623 § 
+Bootstrap-circularity disposition records it. That is fine: the circularity in s78 and the
+circularity now are the same circularity, so if the carve-out was the right instrument then it is
+the right instrument now. The rule has not stopped being a meta-rule about codify discipline in
+the intervening thirteen sessions.
+
+Depth actually run this round: the mechanical sweeps only — validate-xref-integrity, emit dry-run,
+check-descoping. All green over two rounds. No agents dispatched.
+
+Merging F2.

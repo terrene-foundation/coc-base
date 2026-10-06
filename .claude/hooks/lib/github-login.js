@@ -196,7 +196,7 @@ const GITHUB_LOGIN_FIELD_NAMES = [
   "repo_owner",
   "new_repo_owner",
   // F14 M5-B2 iter-5 R5-MED-1: `gh_login` field-name. Current consumer at
-  // `gate-matrix.js:_sameBoundCollaborator` already routes
+  // `gate-matrix.js:_collaboratorDistinctness` already routes
   // requester.gh_login + approver.gh_login through `loginsEqual`. Adding
   // the name to the SSOT lifts future drift detection into the sweep
   // regex — any new `.gh_login ===` bare compare anywhere in the substrate

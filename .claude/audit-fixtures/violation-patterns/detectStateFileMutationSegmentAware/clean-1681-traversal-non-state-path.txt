@@ -1,0 +1,1 @@
+echo x > src/lib/../lib/app.js

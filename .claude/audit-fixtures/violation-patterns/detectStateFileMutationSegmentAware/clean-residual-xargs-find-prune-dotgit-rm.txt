@@ -1,0 +1,1 @@
+find . -path ./.git -prune -o -name '*.tmp' -print | xargs rm

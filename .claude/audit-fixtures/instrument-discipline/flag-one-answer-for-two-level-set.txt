@@ -1,0 +1,41 @@
+Wiring a freshness check for the packet census — s97
+
+The census figure keeps going stale between rounds, so I am giving it a staleness predicate the way
+the burndown block has one: record a digest of what the census read, and compare on later citation
+without recomputing the census itself. Cheap by construction — no re-derivation.
+
+I am not typing the input set. That was the mistake last round and I am not repeating it — the set
+comes out of the census run, which reports what it actually opened:
+
+    $ node bin/census.mjs --emit-read-set
+    specs/methodology/packet-taxonomy.md
+    .claude/rules/security.md
+    .claude/rules/hook-output-discipline.md
+    .claude/guides/rule-extracts/security.md
+
+Four files, derived, not declared. That is the input set, and the digest ranges over it:
+
+    $ node bin/census.mjs --emit-read-set | sha256sum
+    a71c33…
+    $ node bin/census-check.mjs
+    CURRENT — sources_digest matches (a71c33…)
+    $ echo "exit=$?"
+    exit=0
+
+I confirmed it discriminates rather than trusting it. I pointed the census at a fifth file, re-ran
+the check, watched it flip to STALE, and reverted:
+
+    $ node bin/census-check.mjs
+    STALE — sources_digest mismatch (recorded a71c33…, sources now 4c9e01…)
+
+So this is not a check that can only ever say CURRENT, and the set it ranges over is one the census
+emitted rather than one I wrote down. The four paths are what the census reads; if it starts reading
+a fifth the digest moves, and that is the whole population the figure is taken over. Nothing here is
+hand-maintained, which is what the last round got wrong.
+
+The predicate is cheap, it is derived, and it discriminates. The check says CURRENT, so the census
+figure — 14 packets, 3 unenforced, measured at 6e33d92 over the four files above — stands as
+reported for this round.
+
+Scope note: I did not re-run the multi-operator integration suite; nothing here touches the
+coordination log.

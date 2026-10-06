@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 /**
+ * @hook-event: PreCompact (lifecycle) — current workspace and session context remain available immediately before compaction.
+ *
  * Hook: pre-compact
  * Event: PreCompact
  * Purpose: Save critical context before compaction
@@ -21,15 +23,34 @@ const { detectActiveWorkspace } = require("./lib/workspace-utils");
 
 // Timeout fallback — prevents hanging the Claude Code session
 const TIMEOUT_MS = 10000;
-const _timeout = setTimeout(() => {
-  console.log(JSON.stringify({ continue: true }));
-  process.exit(1);
-}, TIMEOUT_MS);
+// Armed by hookMain(), not at load: require() of this file has no side effects,
+// so the in-process hook engine can load it once per worker and run it per event.
+let _timeout = null;
 
-let input = "";
-process.stdin.setEncoding("utf8");
-process.stdin.on("data", (chunk) => (input += chunk));
-process.stdin.on("end", () => {
+function hookMain() {
+  _timeout = setTimeout(() => {
+    console.log(JSON.stringify({ continue: true }));
+    process.exit(1);
+  }, TIMEOUT_MS);
+  return new Promise((resolve, reject) => {
+    let input = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (chunk) => (input += chunk));
+    process.stdin.on("end", () => {
+      try {
+        onStdinEnd(input);
+      } catch (e) {
+        return reject(e);
+      }
+      resolve();
+    });
+  });
+}
+
+// In-engine, process.exit() throws a sentinel, so the catch below also runs after
+// the success exit; it only writes (discarded once the detector has ended) and
+// exits (the first recorded code stands) — no state change can happen there.
+function onStdinEnd(input) {
   try {
     const data = JSON.parse(input);
     const result = savePreCompactState(data);
@@ -53,7 +74,7 @@ process.stdin.on("end", () => {
     console.log(JSON.stringify({ continue: true }));
     process.exit(1);
   }
-});
+}
 
 function savePreCompactState(data) {
   // Sanitize session_id to prevent path traversal
@@ -265,4 +286,14 @@ function cleanupOldCheckpoints(checkpointDir, sessionId, keepCount) {
       } catch {}
     }
   } catch {}
+}
+
+module.exports = { hookMain };
+
+// CLI entry. The default path is exactly hookMain() — no engine dependency, so a
+// tree that copies this hook without lib/hook-engine.js runs it unchanged. The
+// selftest path replays the run through the in-process engine (hook-engine.js::runCli).
+if (require.main === module) {
+  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1") require("./lib/hook-engine.js").runCli(hookMain, __filename);
+  else hookMain();
 }

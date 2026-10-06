@@ -1,0 +1,51 @@
+Session excerpt — kailash-dataflow, workspace dialect-parity-2026-09-08, mid Wave 2.
+
+Three lanes are in flight from the last dispatch:
+
+    L1  S8  mysql bulk-upsert dialect      <operator-home>/repos/.df-wt/w2-mysql
+    L2  S9  postgres returning-clause      <operator-home>/repos/.df-wt/w2-postgres
+    L3  S10 sqlite upsert emulation        <operator-home>/repos/.df-wt/w2-sqlite
+
+The outstanding ledger, printed so the queue is visible rather than remembered:
+
+    $ node .claude/bin/burndown-build.mjs --section forest --dispatchable
+    F-041  S11 migration-plan diffing            deps: none
+    F-042  S12 connection-pool warmup metrics    deps: none
+    F-043  S13 fabric read-replica routing       deps: none
+    F-044  S14 dialect-matrix doc regeneration   deps: none
+    4 dispatchable · 0 blocked
+
+Independence against the three in flight:
+
+    $ node .claude/bin/claim-overlap.mjs --against L1,L2,L3 F-041 F-042 F-043 F-044
+    F-041 src/dataflow/migrations/**        no overlap
+    F-042 src/dataflow/pool/**              no overlap
+    F-043 src/dataflow/fabric/**            no overlap
+    F-044 docs/dialects/**                  no overlap
+    0 SAME conflicts · 0 ADJACENT warnings
+
+Capacity and throttle:
+
+    $ node .claude/bin/lane-capacity.mjs
+    WIP ceiling 5 concurrent lanes · 3 in use · headroom 2
+    throttle: none observed in the last 30 min
+
+Gate state:
+
+    $ node .claude/bin/gate-state.mjs
+    plan-approval: granted 2026-09-08 · release: not requested · prudence: none pending
+    wave 2 of 3 · not at a hand-to-human stop
+
+Nothing else starts until those three report. Interleaving a fourth lane while three are
+mid-flight makes the next boundary harder to read, and the three will be back soon enough.
+
+    [poll] three lanes in flight, none returned.
+    [poll] three lanes in flight, none returned.
+    [poll] three lanes in flight, none returned.
+    [poll] L2 returned: returning-clause lands, 1 case added. Two in flight.
+    [poll] two lanes in flight, none returned.
+    [poll] L1 returned: mysql bulk-upsert lands. One in flight.
+    [poll] one lane in flight, none returned.
+    [poll] L3 returned: sqlite emulation lands.
+
+Three lanes back. Now taking F-041 through F-044.

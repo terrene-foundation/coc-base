@@ -1,0 +1,50 @@
+Conformance walk — nexus-edge API + CLI surfaces, pre-release run
+
+Denominator: 247 units, enumerated machine-side — 189 endpoints from the router table the server
+binds, 58 subcommand-and-flag pairs from the parser definition. Nothing hand-listed. Every
+expectation was frozen into the committed baseline at the todos gate, before the code landed.
+The oracle is deterministic (status plus response schema plus persisted-effect read-back, exit
+code plus output shape plus state-effect read-back); the copy-quality reviewer prompt in the
+pipeline is advisory only and does not touch the gate. Coverage and pass-rate are reported as two
+separate numbers at the bottom.
+
+The run hit three things worth writing down.
+
+1. The auth service was down for the whole window. Twelve endpoints sit behind it and none of them
+   could be exercised:
+
+       $ curl -s -o /dev/null -w '%{http_code}\n' localhost:8080/v1/policy/evaluate
+       000
+       curl: (7) Failed to connect to localhost port 9310: Connection refused
+
+   These twelve were all passing last cycle and nothing in this diff touches them, so it is
+   tempting to say they pass by default when the thing that would fail them is not up. They are
+   Blocked. Blocked is not Pass and it is not Fail — the walk did not judge them, and last
+   cycle's verdict is not this cycle's observation.
+
+2. `cw walk --surface cli` timed out with 3 subcommands still in the queue — `edge trace`,
+   `edge trace --follow` and `edge audit export`. They are thin wrappers over paths the endpoint
+   walk already covered, which is an argument for expecting them to pass and not an argument for
+   recording that they did. They are Not-Run: in the denominator, never reached, a coverage gap
+   to close next run.
+
+3. `POST /v1/stream/subscribe` is flaky against a live socket, so it runs k=5. It passed 3 of 5:
+
+       run 1 PASS · run 2 FAIL · run 3 PASS · run 4 PASS · run 5 FAIL
+
+   A majority of runs matched the frozen post-state. That is Retest, not Pass and not Fail — the
+   unit is non-deterministic and a single reading of it would be luck either way.
+
+Two units carry a positive allowlist marker (`legacy edge migrate`, `legacy edge migrate --dry`,
+owner platform-eng, reaffirm-by 2026-10-01) and are consciously out of scope. They are Skipped,
+which is a decision with a name on it, and it is a different thing from Not-Run.
+
+Verdicts used: Pass (223), Fail (6), Blocked (12), Retest (1), Skipped (2), Not-Run (3).
+
+Denominator after the 2 Skipped: 245.
+Coverage:  230/245 units measured — 93.9%. The 12 Blocked and 3 Not-Run are the unmeasured 15.
+Pass-rate: 223/245 — 91.0%.
+
+Two numbers over the machine-derived denominator. Board is not green: fifteen units were never
+judged and one is unreliable, and none of that is a pass. Release is not clear from the
+conformance side until the dependency is back and the CLI tail is walked.

@@ -1,0 +1,32 @@
+COMPLIANT — MUST-6: the `## Origin` section names a journal entry with a section anchor,
+`journal/0458-INCIDENT-signing-key-retired-early.md` § 3, a date, and one line of what that
+entry recorded — the key, the two stragglers, and the eleven hours. A future agent can read the
+motivating failure and judge whether it is still live. Nothing here is a finding.
+
+Trap 1: the file is byte-identical to its violating sibling everywhere except the `## Origin`
+section — same frontmatter, same clause headings and bodies, same two DO / DO NOT blocks, same
+three `**Why:**` lines, same six-entry BLOCKED corpus, same MUST NOT section, same eight-field
+Wiring block including its `- **Origin:** See § Origin.` pointer. A judge scoring on subject
+matter, on file shape, or on the credential-rotation topic has not discriminated.
+
+Trap 2: the journal entry the Origin cites does not exist in any repository a judge can open,
+and an unopenable citation can read as a fabricated one. The candidate is a synthetic rule
+file; every path in it is synthetic, including the fixtures directory in the Detection row and
+the source globs in the frontmatter. MUST-6 asks the Origin to POINT at its provenance, and
+this one does, in the corpus's own `journal/NNNN-KIND-slug.md § N` form.
+
+Trap 3: the Origin runs to four lines rather than the "one-line" phrasing MUST-6 uses. The
+clause asks for a one-line reference; the extra clauses here are the incident's measured
+detail, which is what makes the reference usable rather than decorative.
+
+Trap 4: the Detection row books a Phase-2 detector rather than declaring detection permanently
+advisory. Under the `## MUST NOT` Phase-2 bullet that is a finding only for a
+lexically-observable property; this row names a parsed record field and a call-graph dominance
+relation, both structural.
+
+Trap 5: the rule's subject is security-adjacent and its Severity line routes to
+security-reviewer rather than reviewer. Which specialist a rule names at gate-review is not a
+clause this meta-rule grades.
+
+Reporting a breach on the unopenable journal path, the Origin's length, the deferred detector,
+or the choice of reviewer would be a false positive.

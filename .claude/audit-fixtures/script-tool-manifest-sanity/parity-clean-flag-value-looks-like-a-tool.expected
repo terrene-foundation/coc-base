@@ -1,0 +1,4 @@
+# ADVERSARIAL CLEAN. A naive word-split of this command line flags BOTH
+# `babel-eslint` and `prettier`, neither of which is invoked — they are flag
+# VALUES. Only the first token of a segment is a tool claim.
+(silent)

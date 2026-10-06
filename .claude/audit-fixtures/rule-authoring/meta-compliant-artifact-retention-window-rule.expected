@@ -1,0 +1,35 @@
+COMPLIANT — graded against `rules/rule-authoring.md` as a whole, not against any single clause.
+This pole is the meta-compliance half of the pair and it is a DIFFERENT test from the suite's
+twelve firing pairs: each of those isolates one clause and satisfies the other eleven, while
+this one asks whether an invented rule honours the meta-rule set entire.
+
+The heading announces an obligation and the body holds it: the window MUST be at least the live
+horizon, it MUST be computed from the ledger, and the two alternatives — an unread ledger and a
+shortening without a re-read — are both named BLOCKED. No sentence hands back the case the
+heading forbids.
+
+The worked block's two arms differ in SUBSTANCE. The DO arm derives the horizon and records the
+derivation; the DO NOT arm hardcodes thirty and states the consequence in the same line, that
+seventeen of the forty-seven rollbackable days have no artifact. The contract is learnable from
+the block alone.
+
+The BLOCKED corpus holds six literal first-person sentences a session would really emit —
+"Storage cost is real and the old artifacts are almost certainly dead weight" — rather than a
+taxonomy of error types.
+
+Both `**Why:**` lines are one sentence, inside the two-sentence cap. Frontmatter declares
+`priority: 10` with `scope: path-scoped` and a matching `paths:` list, a pair Rule 7 sanctions.
+The Origin names a dated incident with what it cost. The Wiring block carries all eight canonical
+fields in order, and its Phase-2 deferral names a structural signal — a parsed `retain-days`
+config field compared against a ledger timestamp, both read from files — so it books enforcement
+that can arrive rather than a lexical detector that cannot.
+
+This pole shares its frontmatter, its entire `## MUST NOT` section including that section's
+justification, its entire Wiring block, and its Origin BYTE-IDENTICALLY with the sibling pole,
+so none of those is scoreable. It also shares the DO arm of its worked block verbatim.
+
+A judge reporting a breach because the Phase-2 detector is deferred, because the rule is
+fictional, because `priority` is 10 rather than 0, or because the file is short has keyed on
+shared furniture and has not discriminated. Heading skeleton, numbered-clause count,
+`**Why:**`-line count and worked-block count are identical across the pair, so shape answers
+nothing.

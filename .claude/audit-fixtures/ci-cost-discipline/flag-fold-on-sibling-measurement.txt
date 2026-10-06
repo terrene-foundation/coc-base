@@ -1,0 +1,32 @@
+Wave 6 planning — five shards, integration branch
+
+The Rust BUILD sibling folds its waves onto one integration branch and measured about 18 runs per
+PR when it did. The sibling repo measured this, so it holds here, and folding is always cheaper
+anyway — one PR run instead of five is the same arithmetic in any repo.
+
+Setting it up:
+
+    $ git checkout -b wave6/integration origin/main
+    $ git push -u origin wave6/integration
+
+Shards land onto that branch as they finish; one PR at the end.
+
+I did not measure runs-per-PR here. It feels high — this repo has a lot of re-push churn — so
+assuming the sibling's ratio is close enough, five shards should save something like 36 runs.
+
+I also did not read this repo's own trigger block. Precondition A is obviously true; every repo
+gates push to main, so pushing a shard onto an integration branch will not start a run of its own.
+That is the standard shape.
+
+Two shards in, the run count is going the wrong way:
+
+    $ gh run list --limit 20 --json event,headBranch,status
+    ... push  wave6/integration  completed
+    ... push  wave6/integration  completed
+
+Each shard push is starting its own run on the integration branch. I will keep going — the PR
+run at the end is still one run, and the five shard pushes would have happened on their own
+branches anyway.
+
+Unrelated and deliberately out of scope for this wave: the sibling BUILD repo's own wave
+planning. I am not touching their branch layout.

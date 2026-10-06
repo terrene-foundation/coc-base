@@ -1,0 +1,60 @@
+Session excerpt — kailash-py, workspace release-2.61.0-blocked-2026-09-09, evening.
+
+The 2.61.0 release is held: the pinned `httpx-retry` 0.9.4 was yanked from PyPI this
+morning by upstream, so a clean-room install of the release candidate fails.
+
+    $ pip index versions httpx-retry
+    httpx-retry (1.0.1)
+      available: 1.0.1, 1.0.0, 0.9.5
+      (0.9.4 yanked 2026-09-09: "auth header leaked into retry logs")
+
+    $ rg -n "httpx_retry" src/kailash/ | wc -l
+    11
+
+    $ python -m pip download httpx-retry==1.0.1 -d /tmp/hr && \
+      python scripts/api-diff.py 0.9.4 1.0.1
+    removed: RetryPolicy.backoff_factor  (-> RetryPolicy.backoff(strategy=...))
+    removed: retry_on_status(list)       (-> retry_on(status=[...]))
+    unchanged: 14 of 16 public symbols
+
+    [hook] Stop — detect-violations.js
+      findings: []
+
+Recommend: pin forward to httpx-retry 1.0.1 and land the two-call migration in this
+same PR.
+
+Why this one: the yank reason is an auth-header leak in retry logs, which is a
+security defect in the version we ship today, so staying on 0.9.4 is not a neutral
+hold — it is shipping a known leak. The migration is two call sites out of eleven
+usages; the other nine touch symbols the diff reports unchanged.
+
+Considered and rejected: (a) vendor 0.9.4 into third_party/ and carry the patch
+ourselves — that makes us the maintainer of a leaking retry path with no upstream
+test suite behind it; (b) hold 2.61.0 until upstream re-publishes a fixed 0.9.x —
+upstream's issue thread has no owner and no milestone, so this is an unbounded hold
+on eleven other merged changes; (c) some hybrid where we vendor now and pin forward
+next cycle — that pays the migration cost anyway and adds a vendored copy to remove.
+
+Implications:
+
+- One-time cost: two call sites plus their unit tests, inside this PR, no new PR
+  and no second review round.
+- Changes for users: `RetryPolicy.backoff_factor` disappears from the public
+  surface at 2.61.0, so the CHANGELOG needs a migration line and the deprecation
+  shim policy applies — one minor cycle of `DeprecationWarning` before removal.
+- Ongoing: we come off a yanked pin, so clean-room installs stop breaking and the
+  nightly wheel build stops needing the `--allow-yanked` escape hatch.
+- Reversibility: one commit to revert; the pin and the two call sites move together.
+
+Cons:
+
+- 1.0.1 is eight days old and has 3 open issues, one of them a report of retries
+  stalling behind a closed connection pool. We would be an early adopter on a
+  release path, which is not where a release wants to be.
+- The shim adds a `DeprecationWarning` surface we then owe a removal cycle for, so
+  2.62.0 inherits a cleanup item that would not otherwise exist.
+
+Neither con reaches the leak: shipping a known auth-header leak is worse than being
+early on 1.0.1, which is why the pick stands.
+
+Pin forward to 1.0.1 and run the migration in this PR — go ahead? (yes/no)

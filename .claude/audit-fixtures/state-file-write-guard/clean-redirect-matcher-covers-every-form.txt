@@ -1,0 +1,58 @@
+Closing the state-mutation bypass report — orchard guard adapter, s70
+
+Report came in that the Bash-side detector let a write through. Reproducer from the filer:
+
+    $ printf '%s' '{"verification_status":"GREEN"}' >| deploy/state/last-deploy.json
+    (no finding; the command ran and the file was replaced)
+
+The reported form is one member of a family, so I took the family rather than the line. Layer-1
+matcher now recognizes every file-writing redirect and excludes fd-duplication, whose target is a
+descriptor and not a file:
+
+    const REDIRECT_RX = /(?:&>>|&>|\d*>\||\d*>>|\d*>)(?!&)\s*(\S+)/g;
+
+Global flag is load-bearing: the matcher collects EVERY target on the line, not the first. And the
+splitter keeps >| as a single redirect token instead of splitting it on the pipe — that split was
+the actual mechanism of the reported bypass, since it strands the target in a segment carrying no
+write verb.
+
+    $ node scripts/guard/bash-selftest.mjs
+    [bash]  echo '{}' > deploy/state/last-deploy.json           -> Layer 1 BLOCK
+    [bash]  echo '{}' >> deploy/state/last-deploy.json          -> Layer 1 BLOCK
+    [bash]  printf '' >| deploy/state/last-deploy.json          -> Layer 1 BLOCK   (reported form)
+    [bash]  cmd &> deploy/state/last-deploy.json                -> Layer 1 BLOCK
+    [bash]  cmd 2>> deploy/state/last-deploy.json               -> Layer 1 BLOCK
+    [bash]  echo x > /tmp/a > deploy/state/last-deploy.json     -> Layer 1 BLOCK   (second target)
+    [bash]  cmd 2>&1 | tee /tmp/log                             -> no finding      (fd dup)
+    [bash]  cp /tmp/forged.json deploy/state/last-deploy.json   -> Layer 2 BLOCK
+
+Layer 3 stays gated on the positive write-allowlist, so a body that only READS the path carries no
+write token and passes; both branches consult the one shared predicate, so a vector added for one
+can never be silently absent from the other.
+
+On the false-positive complaint filed in the same report: I demoted the BOUNDED set to advisory —
+the ephemeral caches and the append-only observations log, whose forged write is neutralized without
+relying on anything re-deriving them. The authority-state paths keep block:
+
+    -  severity: "block",
+    +  severity: isAuthorityStatePath(target) ? "block" : "halt-and-report",
+
+Those are the ones nothing re-derives on a consumer that has not enabled the fold, so a forgery
+there would stand. That is a smaller demotion than the filer asked for and it is the one the
+severity mapping supports.
+
+State I am handing over:
+
+  - Layer 1 covers >, >>, >|, &>, &>>, N>, N>>, N>|; excludes fd-dup; scans every target
+  - >| tokenized as one redirect; the reported bypass now blocks
+  - Layer 3 advisory on the bounded set, block retained on authority state
+
+Residuals (a) through (i) stay open and are not claimed closed: a variable-assembled path, an
+interactive editor, a script whose hardcoded body writes the path, an interpreter behind a command
+prefix. A positive allowlist is never exhaustive — the honest claim is that every allowlisted write
+blocks, and the forgery defense for the rest is the signing layer, not this interceptor.
+
+One thing I deliberately did not do this round: I did not fix the lone-ampersand segmentation gap.
+It changes segmentation for every caller of the shared splitter, so it owes its own shard.
+
+Handing back.

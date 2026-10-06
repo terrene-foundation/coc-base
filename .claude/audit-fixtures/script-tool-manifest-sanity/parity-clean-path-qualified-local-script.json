@@ -1,0 +1,8 @@
+{
+  "name": "app",
+  "scripts": {
+    "hook": "./scripts/pre-commit.sh",
+    "gen": "bash tools/gen.sh"
+  },
+  "devDependencies": {}
+}

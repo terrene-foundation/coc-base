@@ -1,0 +1,213 @@
+{
+  "version": 1,
+  "_doc": [
+    "THE DECLARED container-vs-anchor classification for `wip-lanes.js::refCensus`.",
+    "",
+    "WHY A DATA FILE AND NOT A LIST IN THE CODE. The census answers a question with",
+    "a destructive consumer: a ref classed `container` is work somebody is expected",
+    "to drain, and a sweep built on a wrong classification deletes a contract anchor.",
+    "That judgment is a DEPLOYMENT's to make, not this library's, so it is declared",
+    "here and overridable (see `loadRefPolicy`: an injected `policy` object, the",
+    "`COC_REF_POLICY` env var naming an alternate file, or editing this file).",
+    "",
+    "THE THIRD VERDICT IS THE POINT. A ref matching no rule below is NOT a container",
+    "and NOT an anchor — it is `unclassified`, counted in its own bucket and folded",
+    "into neither total. `instrument-discipline.md` MUST-1: a classifier that",
+    "defaulted unknown refs to either verdict would emit the same answer whether or",
+    "not it had ever seen the ref, and a reaper reading `container` off that default",
+    "is one `--apply` from destroying something nobody classified.",
+    "",
+    "EVIDENCE, not invention. The `containers` prefixes below are the namespaces",
+    "MEASURED holding work on this repo in the 2026-09-11 container audit (694",
+    "containers; 49 of 50 tags were work containers, one was a release anchor). The",
+    "`anchors` entries are the classes that audit found must NOT be swept — chiefly",
+    "`refs/tags/provenance-event-schema/v1`, which has ten live references including",
+    "a shipped fixture whose `schema_tag` field IS that string, so a blanket tag",
+    "sweep would have broken a cross-repo contract anchor.",
+    "",
+    "GLOB SEMANTICS are deliberately IDENTICAL to `bin/remote-ref-reap.mjs`'s",
+    "`globMatch`: `*` is the only metacharacter and expands to `.*`, so it DOES",
+    "cross `/`. There is no `**`, because inventing a second dialect for the same",
+    "job is the drift this corpus refuses. Patterns match the FULL refname",
+    "(`refs/tags/x`), never the short form — git shortens `refs/remotes/origin/HEAD`",
+    "to a bare `origin`, which would enter a sweep as a branch named for the remote."
+  ],
+  "namespaces": {
+    "refs/heads": {
+      "class": "container",
+      "reason": "a local branch is a lane: unlanded work that exists on exactly one machine"
+    },
+    "refs/remotes": {
+      "class": "container",
+      "reason": "a pushed lane is recoverable but still unlanded; MUST-8 counts every remote"
+    },
+    "refs/stash": {
+      "class": "container",
+      "reason": "a stash is work in the one container with no branch-shaped surface reporting it"
+    },
+    "refs/tags": {
+      "class": "mixed",
+      "reason": "MEASURED 49 of 50 work containers and 1 release anchor — neither default is honest, so each tag is matched against the rules below and is `unclassified` if none fires"
+    },
+    "refs/notes": {
+      "class": "anchor",
+      "reason": "git notes are metadata attached to existing commits; they hold no unlanded work"
+    },
+    "refs/coc": {
+      "class": "anchor",
+      "reason": "the COC coordination substrate (`hooks/lib/coc-sign.js`); a trust surface, not a lane"
+    }
+  },
+  "adjudication": {
+    "_doc": [
+      "THE DECLARED ADJUDICATION WINDOW, read by `bin/check-archive-adjudication.mjs`.",
+      "",
+      "WHY IT IS HERE AND NOT A CONSTANT IN THE CHECKER. The `containers` list below",
+      "classes `refs/archive/*` a container with the reason \"615 refs measured live on",
+      "this repo in the 2026-09-11 audit\". That is a COUNT, not a policy: it says the",
+      "namespace holds work and says nothing about when somebody must decide what the",
+      "work IS. A container with no deadline only grows, and the 2026-09-11 content",
+      "adjudication measured what that costs — of the 95 archive refs that were not",
+      "ancestors of `dev`, 68 were already landed (pure noise), 18 were DROP, 8 were",
+      "LANDABLE and 1 was UNKNOWN. ~7% held real inventory; the other 93% cost a full",
+      "adjudication pass to discover. The one unrecoverable item was an UNREVIEWED WIP",
+      "rescue parked so long nobody could say what was in it — the second-order cost of",
+      "deferring the verdict, not of keeping the ref.",
+      "",
+      "The window is the missing half of that classification, so it belongs on the same",
+      "declared surface a deployment already overrides (see `loadRefPolicy`: an injected",
+      "`policy` object, `COC_REF_POLICY`, or editing this file). `loadRefPolicy` reads",
+      "only `namespaces`, `anchors` and `containers`, so this key is inert for the hook",
+      "census and cannot change any classification.",
+      "",
+      "30 DAYS IS INHERITED, NOT INVENTED. It is the corpus's standing period constant —",
+      "`trust-posture.md` MUST-4 s cumulative window is 30 days — on the same reasoning",
+      "`unadjudicated-escalation.mjs` gives for taking its threshold of 3 from that rule",
+      "rather than picking a number. A window nobody can trace to an existing constant is",
+      "a number somebody argues with; this one has a precedent.",
+      "",
+      "GLOB SEMANTICS are the dialect declared at the top of this file and implemented",
+      "identically in `bin/remote-ref-reap.mjs::globMatch` and",
+      "`bin/check-archive-adjudication.mjs::globMatch`: `*` is the only metacharacter, it",
+      "expands to `.*` and DOES cross `/`, and the pattern matches the FULL refname.",
+      "",
+      "A REF MATCHING NO WINDOW IS NOT EXEMPT. The checker reports it `NO-WINDOW` and",
+      "REDS. An unclassified ref is exactly the case that must not read as clean — the",
+      "third-verdict discipline this file's own `_doc` already argues for.",
+      "",
+      "TO A CONSUMER READING THIS FILE: the window below is DECLARED here and ENFORCED",
+      "nowhere in your checkout. MEASURED with `sync-tier-aware.mjs::buildLaneClassifier`",
+      "against a control that discriminates (`rules/security.md` returns copy/tier_match",
+      "on the same lanes): THIS FILE is copy/always_include on all seven lanes, while",
+      "`bin/check-archive-adjudication.mjs` is skip/no_tier_match on all seven. So you",
+      "hold the declaration and not the instrument. That is deliberate — the checker is a",
+      "loom-internal gate, not a shipped obligation — and it is stated rather than left to",
+      "be discovered, because a window nobody told you was unenforced reads as a promise.",
+      "If your repo archives refs and you want the deadline, the checker is a single file",
+      "with no dependency beyond `hooks/lib/git-subprocess-env.js`.",
+      "",
+      "THE WINDOW EXPIRING NEVER DELETES ANYTHING. The checker REPORTS; it has no",
+      "`--apply`. An archive ref is a recovery copy and the same 2026-09-11 audit found",
+      "one whose content exists nowhere else. What expires is the SILENCE, not the ref."
+    ],
+    "windows": [
+      {
+        "glob": "refs/archive/*",
+        "days": 30,
+        "reason": "a recovery ref written by `bin/remote-ref-reap.mjs --apply` before it deletes a remote branch; 30d is the corpus's standing period constant (`trust-posture.md` MUST-4), after which an un-adjudicated ref is LOUD"
+      }
+    ]
+  },
+  "anchors": [
+    {
+      "glob": "refs/tags/v*",
+      "reason": "conventional release version tag"
+    },
+    {
+      "glob": "refs/tags/*/v*",
+      "reason": "namespaced contract/schema version anchor — e.g. provenance-event-schema/v1, which ten live references depend on"
+    },
+    {
+      "glob": "refs/heads/main",
+      "reason": "trunk"
+    },
+    {
+      "glob": "refs/heads/master",
+      "reason": "trunk"
+    },
+    {
+      "glob": "refs/remotes/*/HEAD",
+      "reason": "a remote's default-branch pointer, not a lane"
+    },
+    {
+      "glob": "refs/remotes/*/main",
+      "reason": "trunk on a remote"
+    },
+    {
+      "glob": "refs/remotes/*/master",
+      "reason": "trunk on a remote"
+    }
+  ],
+  "containers": [
+    {
+      "glob": "refs/tags/reaped/*",
+      "reason": "reaped-lane parking; measured in the 2026-09-11 audit"
+    },
+    {
+      "glob": "refs/tags/dead/*",
+      "reason": "measured in the 2026-09-11 audit"
+    },
+    {
+      "glob": "refs/tags/backup/*",
+      "reason": "measured in the 2026-09-11 audit"
+    },
+    {
+      "glob": "refs/tags/parked-*",
+      "reason": "measured in the 2026-09-11 audit (a PREFIX, not a namespace separator)"
+    },
+    {
+      "glob": "refs/tags/preserve/*",
+      "reason": "measured in the 2026-09-11 audit"
+    },
+    {
+      "glob": "refs/tags/recover/*",
+      "reason": "measured in the 2026-09-11 audit"
+    },
+    {
+      "glob": "refs/tags/salvage/*",
+      "reason": "measured in the 2026-09-11 audit"
+    },
+    {
+      "glob": "refs/tags/wave6/*",
+      "reason": "measured in the 2026-09-11 audit"
+    },
+    {
+      "glob": "refs/tags/held/*",
+      "reason": "measured in the 2026-09-11 audit"
+    },
+    {
+      "glob": "refs/tags/archive/*",
+      "reason": "measured in the 2026-09-11 audit"
+    },
+    {
+      "glob": "refs/archive/*",
+      "reason": "615 refs measured live on this repo in the 2026-09-11 audit"
+    },
+    {
+      "glob": "refs/rt/*",
+      "reason": "14 refs measured live on this repo in the 2026-09-11 audit"
+    },
+    {
+      "glob": "refs/prs/*",
+      "reason": "9 refs measured live; a PR mirror still holds content, and MUST-8 BLOCKS 'PR refs are just a mirror, they do not count'"
+    },
+    {
+      "glob": "refs/tmp/*",
+      "reason": "5 refs measured live on this repo in the 2026-09-11 audit"
+    },
+    {
+      "glob": "refs/lanes/*",
+      "reason": "1 ref measured live on this repo in the 2026-09-11 audit"
+    }
+  ]
+}

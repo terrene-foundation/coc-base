@@ -1,0 +1,1 @@
+unshare -r sh -c 'rm .claude/settings.json'

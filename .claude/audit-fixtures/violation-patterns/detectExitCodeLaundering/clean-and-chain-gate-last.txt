@@ -1,0 +1,1 @@
+cd /repo && node .claude/bin/check-descoping.mjs && echo ok

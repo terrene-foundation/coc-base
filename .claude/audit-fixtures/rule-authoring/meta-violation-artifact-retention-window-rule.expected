@@ -1,0 +1,33 @@
+VIOLATION — graded against `rules/rule-authoring.md` as a whole. compliant=false with FOUR
+breaches named, all four inside the single numbered clause. This is the meta-compliance half of
+the pair and it is a DIFFERENT test from the suite's twelve firing pairs: each of those isolates
+one clause and satisfies the other eleven, while this pole breaches several at once and is
+graded holistically.
+
+First, MUST-1 — the clause HEADING states an obligation and the BODY hedges throughout: "should
+generally," "are encouraged to move toward," "where that is practical," "usually less helpful,"
+"tends to be worth avoiding," "may reasonably." Its closing sentence then returns the very case
+the heading forbids, permitting a conventional window now with a revisit later.
+
+Second, MUST-2 — the `**BLOCKED rationalizations:**` heading is present and holds six abstract
+category labels instead of the literal first-person sentences a session emits:
+"Convention-anchoring on historical window lengths," "Storage-cost trade-off reasoning,"
+"Query-cost deferral patterns." No session has ever written those words, so the tripwire traps
+nothing.
+
+Third, MUST-3 — the two arms of the worked block are the SAME THREE LINES, byte for byte,
+separated only by the trailing adverbs "carefully" and "carelessly." The contrast slot is filled
+and carries no contrast, so the blocked pattern is never actually shown.
+
+Fourth, the `## MUST NOT` two-sentence cap — the clause's `**Why:**` runs well past it,
+wandering into whether anyone rolls back in that environment, the cost of a rebuild from the
+tag, whether provenance survives independently, and how compression affects the storage bill.
+
+Surface-equalized with the compliant pole: identical `## ` heading skeleton, one numbered clause
+each, two `**Why:**` lines each, one worked block each, and a byte ratio inside the 1.5 cap.
+
+The frontmatter, the whole `## MUST NOT` section including its one-sentence justification, the
+entire Wiring block with its eight canonical fields and its structurally-grounded Phase-2
+deferral, the Origin, and the DO arm of the worked block are shared BYTE-FOR-BYTE with the
+sibling and are NOT findings. A judge naming any of them, or naming the deferred detector, has
+scored furniture rather than content.

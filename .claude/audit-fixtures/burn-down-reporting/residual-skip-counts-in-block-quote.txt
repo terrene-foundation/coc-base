@@ -1,0 +1,5 @@
+#!expect: 
+Session close — here is where the work landed.
+
+> I merged 14 PRs across the three lanes and closed 9 issues in the tracker.
+> The base suites are green and every branch is now on the trunk.

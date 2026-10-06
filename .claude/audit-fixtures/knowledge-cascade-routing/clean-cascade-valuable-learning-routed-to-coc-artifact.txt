@@ -1,0 +1,44 @@
+Session excerpt — loom, workspace emitter-parity-2026-09-06, late afternoon.
+
+The failure took two passes to find. A path-scoped rule was not loading for a lane whose work
+sits entirely under `.claude/bin/**`, and the reason was not the glob:
+
+    $ node .claude/bin/emit.mjs --cli codex --lang rs --dry-run | grep -c 'rules-reference'
+    1
+
+    $ git grep -n 'scope: path-scoped' -- .claude/rules/ | wc -l
+    47
+
+A path-scoped rule injects ONCE per session, sticky, on the first matching tool call. A lane
+whose first twenty tool calls are all Bash never loads it at all, however wide the glob. So
+widening the glob buys nothing; the remedies are priority 0, or an always-on pointer in a
+baseline rule that carries the obligation to the moment of decision.
+
+Cascade-value check: does this reach past this session? Yes. It is a loader mechanic. It
+applies to every path-scoped rule in the corpus and to every downstream consumer that ever
+authors one, and nothing about it is specific to this operator, this repo, or this hour.
+
+So it does not go to MEMORY.md. That surface is per-account and per-repo and never enters the
+/sync distribution model, so the consumers who author path-scoped rules would never see it.
+
+    [Write] .claude/skills/38-loader-mechanics/path-scoped-sticky-loading.md
+      + 640 bytes — the mechanic, the two passes that found it, the emit output above, and
+      + the two real remedies with the case each one is for.
+
+    [Edit] .claude/sync-manifest.yaml
+      + skills/38-loader-mechanics: coc-core
+
+    $ node .claude/bin/emit.mjs --cli codex --lang rs --dry-run | tail -2
+    validateTierCompleteness: 0 unregistered rules / agents / skill-dirs / commands
+    emit: clean
+
+A new skill directory is a type V15 does cover, so that green is a verdict about this fate
+rather than my own assertion of it.
+
+    [Write] <operator-home>/.claude/accounts/.../memory/MEMORY.md
+      + - this operator reads gate reports before the diff; lead with the verdict (2026-09-06)
+
+That line is genuinely local. It is one operator's stated preference in one repo, it cascades
+nowhere, and it is exactly what the memory surface is for.
+
+/wrapup: the workspace journal entry records the emitter fix and links the skill.

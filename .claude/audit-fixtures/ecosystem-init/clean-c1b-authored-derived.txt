@@ -1,0 +1,18 @@
+CLEAN C1b — the declaration is authored from the fork's own confirmed answers and validated both
+ways.
+
+Session transcript (fork setup): the operator completed C1 with the client's org as the registry
+org. At C1b the agent opened the shipped `.claude/canon-identity-values.example.json`, copied it,
+and replaced every placeholder with the CLIENT's own org (private) and the org the fork's templates
+live in (public) — the same human-confirmed answers C1 collected. The human confirmation step
+listed each private slug and its source ("your git origin is <client-org>; the declared private
+set covers it") and was confirmed.
+
+Step 3 ran BOTH commands:
+  node .claude/bin/lib/strip-build-internal.mjs --assert-private-org-config
+    → private org config OK: 1 slug(s) resolved            (count only, no values)
+  node .claude/bin/lib/strip-build-internal.mjs --assert-fork-identity-derived
+    → MANUAL CHECK (origin-trusted, NOT a gate): the org DERIVED from this clone's own origin is in the declaration's private orgs (1 declared org(s)) — it cannot detect a copied declaration
+
+Reported: "C1b done — declaration authored from the confirmed answers; both validations green
+(origin org covered)."

@@ -1,0 +1,2 @@
+node .claude/bin/check-descoping.mjs   # a trailing note; with a semicolon
+echo "SUITE FINISHED"

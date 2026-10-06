@@ -1,0 +1,2 @@
+# expect: handoff-completion/handoff-without-surface
+All three gates are green and the branch is merged. The cross-SDK mirror handoff is prepared.

@@ -1,0 +1,8 @@
+{
+  "hook_event_name": "PreToolUse",
+  "tool_name": "EnterWorktree",
+  "tool_input": {
+    "name": "agent-99",
+    "path": "/Users/me/repos/build/.slug-wt/parallel-dev"
+  }
+}

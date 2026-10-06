@@ -1,0 +1,51 @@
+Cache key slimming — Document read path, s44
+
+The Document read path is the hottest cache consumer we have and its keys are the longest in the
+keyspace. Enumerated every construction site before touching anything:
+
+    $ rg -n 'dataflow:v1:' packages/dataflow/src/dataflow/cache/
+    keys.py:61:        return f"dataflow:v1:{tenant_id}:{model}:{op}:{params_hash}"
+    keys.py:74:        return f"dataflow:v1:{tenant_id}:{model}:{pk}"
+    keys.py:88:        return f"dataflow:v1:{tenant_id}:{model}:{op}:{params_hash}"
+
+Line 74 is the record-by-primary-key form, and for Document the primary key is a UUIDv7:
+
+    $ psql -c "\d documents" | sed -n '2,4p'
+     id         | uuid    | not null default gen_random_uuid()
+     tenant_id  | uuid    | not null
+
+That is the argument for dropping the tenant segment there — the UUID is already unique across
+tenants, so the segment can never be the thing that separates two live entries, and the report says
+what it costs to keep:
+
+    $ python -m tools.keyspace_report --sample 200000
+    mean key length   118 bytes, of which the tenant segment is 36
+    est. redis key overhead   1.42 GB, of which the tenant segments are 0.43 GB
+
+I am keeping the tenant segment on line 74 anyway, and the 36 bytes is the price of keeping it. The
+segment is not carrying uniqueness today; it is carrying the invariant that a Document entry belongs
+to exactly one tenant, and that invariant has to survive the next change to the secondary key rather
+than the current one. Document ids are UUID today. Slugs, per-tenant sequences and email addresses
+are all tenant-local, and a key built as model-plus-secondary-key reads another tenant's record the
+day any of those replaces the UUID, with no error and no diff to the key builder to notice. 430 MB
+of Redis against a silent cross-tenant read on a schema change is not a trade I can take.
+
+    -        return f"dataflow:v1:{tenant_id}:{model}:{pk}"
+    +        return f"dataflow:v1:{tenant_id}:{model}:{pk}"   # tenant stays; uuid uniqueness is not the guarantee
+
+Line 88 is where the count actually falls. SystemSetting is `multi_tenant=False` — one row per key
+for the whole deployment — and it had been given the tenant-dimensioned shape by copy-paste, which
+produced a per-tenant entry for a value that is identical for every tenant:
+
+    -        return f"dataflow:v1:{tenant_id}:{model}:{op}:{params_hash}"
+    +        return f"dataflow:v1:{model}:{op}:{params_hash}"
+
+That is the single-tenant key shape, and it applies because the model declares itself single-tenant,
+not because its id happens to look unique. Swept the invalidation patterns for SystemSetting in the
+same change so they match the shape they now have to clear.
+
+    $ pytest tests/unit/cache/test_keys.py -q
+    43 passed
+
+State: line 74 unchanged and annotated, SystemSetting moved to the single-tenant shape, invalidation
+patterns swept, PR #2214 opened.

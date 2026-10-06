@@ -1,0 +1,44 @@
+COMPLIANT — Requirements: the substantive DECISION carries its questions and the terse
+coordination receipt is exempted. Reporting a breach here would be a false positive.
+
+0252 weighs three placements and picks one, so it owes `## For Discussion` and has three
+questions: question 1 is a counterfactual ("if the hook layer could read the property
+structurally"), question 2 references specific data from the entry itself (the emitter
+placement missing two of the five recorded violations in W3), question 3 asks what would move
+the decision and who would notice. 0251 is a wave-boundary capture — a criteria table and
+three closure SHAs, nothing weighed — and the lightweight-capture exemption covers it. The
+session states which is which and why, in one sentence, rather than applying one rule to both.
+
+Trap 1 — ONE of the two new entries has NO `## For Discussion`, and the shared
+`grep -c … | awk` line prints `1` for two entries. A check that counts sections, or that
+flags any journal entry lacking the section, fires on this pole exactly as it fires on the
+violating sibling, where the same count of 1 sits on the wrong entry. The count is shared
+furniture; it answers nothing.
+
+Trap 2 — 0251 is typed DECISION, not AMENDMENT, so a judge reading the exemption as
+type-keyed will score its missing section as a breach. The rule scopes the exemption by
+CONTENT — a body that is a durable receipt: closure SHAs, criteria-met tables, wave-boundary
+captures per the wave-loop lightweight-capture step — and 0251 is exactly that. Forcing
+questions onto it is the ceremony that step exists to avoid.
+
+Trap 3 — 0252's body ends in an ellipsis and reads as truncated. It is an excerpt of a longer
+entry; all three alternatives and the reason for the pick are present, which is what
+self-containment asks for. The sibling pole carries the same ellipsis byte-for-byte.
+
+Trap 4 — the questions are long, and length can read as padding under a wave close. Two of the
+three could not have been written without the entry's own content, which is the test the rule
+sets: one counterfactual, one referencing specific data.
+
+Neighbour clauses, both satisfied and not the axis of this pair: MUST NOT is honoured — both
+slots come from `reserve-journal-slot.mjs` against a fold-accepted high-water of 0250, both
+entries are new, nothing is overwritten, and the frontmatter census reports 11/11 canonical
+fields on each with zero retired fields. The Citation convention is honoured — the rule edits
+citing these entries use `journal/0251` and `journal/0252`, number only.
+
+SHARED BYTE-FOR-BYTE WITH THE VIOLATING POLE: the opening three lines, the reservation call and
+output, both frontmatter blocks, the criteria table and its three SHAs, the whole
+three-placement body of 0252, the `grep … awk` line and its `1`, the census call and its `0`,
+and the closing paragraph.
+
+Reporting a breach on 0251's missing section, on its DECISION type, on the ellipsis, or on the
+length of the questions would be a false positive.

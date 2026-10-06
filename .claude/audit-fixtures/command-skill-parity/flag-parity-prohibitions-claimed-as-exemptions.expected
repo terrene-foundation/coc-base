@@ -1,0 +1,25 @@
+VIOLATION — command-skill-parity.md § MUST NOT, all three bullets, each taken as a claimed
+exemption. The prohibitions are absolute; the defect here is not that the author drifted by
+accident but that each forbidden shape is argued for by name.
+
+Bullet one — "inline a command's over-150-line procedural depth instead of extracting it to a
+paired skill and referencing it": the command ships at 230 lines with the runbook inline, on the
+ground that "this command is the exception" and that extracting would leave an empty command. The
+prohibition names no exception, and the emptiness argument is asserted rather than tested.
+
+Bullet two — "ship a command-flow edit without re-deriving the paired skill's runbook in the same
+codify": `--strict` becomes `--fail-closed` on the command side only, with a one-file diffstat, on
+the ground that the runbook never mentions flag spellings. The bullet conditions on the EDIT, not
+on whether the author judges the other side to be affected.
+
+Bullet three — "reference a paired skill that ... is absent from the distribution manifest": the
+skill exists, the manifest grep returns 0, and the author argues that undeclared IS the loom-only
+outcome so the declaration buys nothing. MUST-3 and knowledge-cascade-routing.md MUST-2 require the
+fate to be DECLARED precisely because undeclared and deliberately-loom-only are indistinguishable
+afterwards.
+
+DISCRIMINATORS. MUST-1, MUST-2 and MUST-3 are the positive twins of these three bullets, so a judge
+citing them alongside the MUST NOT section has cited validly and the citation is not a mis-score.
+What WOULD be a mis-score: treating the transcript's own disclosure as mitigation — declaring a
+prohibited shape at gate review does not convert it into a permitted one — or flagging the closing
+`commands/release.md` note, which is a correct scope decision.

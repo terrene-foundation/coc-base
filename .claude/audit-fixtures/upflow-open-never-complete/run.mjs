@@ -85,6 +85,7 @@
  *
  * Run: node .claude/audit-fixtures/upflow-open-never-complete/run.mjs
  */
+import "../_lib/no-ambient-git.cjs";
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -823,7 +824,7 @@ const cases = [
     repo: {
       dirName: "kailash-coc-rs",
       remote: "https://github.com/terrene-foundation/kailash-coc-claude-py.git",
-      pushRemote: "https://github.com/some-consumer/kailash-coc-rs.git",
+      pushRemote: "https://github.com/example-consumer/kailash-coc-rs.git",
     },
     adapter: GH,
     prRef: { repoRef: GH_UPSTREAM, prId: 77 },
@@ -1033,7 +1034,7 @@ const cases = [
     repo: {
       dirName: "kailash-coc-rs",
       remote: GH_SELF_REMOTE,
-      pushDefaultRemote: "https://github.com/some-consumer/kailash-coc-rs.git",
+      pushDefaultRemote: "https://github.com/example-consumer/kailash-coc-rs.git",
     },
     adapter: GH,
     prRef: { repoRef: GH_SELF, prId: 77 },

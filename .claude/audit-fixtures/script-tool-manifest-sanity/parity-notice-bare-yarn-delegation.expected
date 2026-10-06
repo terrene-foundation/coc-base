@@ -1,0 +1,5 @@
+# A LOUD BLIND SPOT, not a clean verdict. Bare `yarn <x>` may name a script or
+# a bin and this instrument cannot tell which, so it emits a NOTICE. Silence
+# here would be the exact shape this rule exists to refuse: an unexamined case
+# reported in the grammar of an examined one.
+notice:package-manager-delegated

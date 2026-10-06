@@ -1,0 +1,34 @@
+{
+  "arm": "evaluateConservation",
+  "note": "an at-risk tree still fires when part of the forest was unmeasured; the report must carry both",
+  "survey": {
+    "ok": true,
+    "census": 2,
+    "trees": [
+      {
+        "name": "a",
+        "path": "/tmp/a",
+        "branch": "b/a",
+        "state": "at-risk",
+        "dirty": 4,
+        "contentIdleMs": 3600000
+      },
+      {
+        "name": "b",
+        "path": "/tmp/b",
+        "branch": "b/b",
+        "state": "unmeasured",
+        "dirty": null,
+        "contentIdleMs": 3600000
+      }
+    ],
+    "counts": {
+      "clean": 0,
+      "wip": 0,
+      "at-risk": 1,
+      "parked": 0,
+      "unmeasured": 1
+    },
+    "budgetExhausted": true
+  }
+}

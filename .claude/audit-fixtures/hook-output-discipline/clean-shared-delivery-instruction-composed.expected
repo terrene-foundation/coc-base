@@ -1,0 +1,28 @@
+CLEAN — hook-output-discipline MUST-7 stays quiet.
+
+The shared constant is composed, not replaced. The payload goes through the library's
+emit path with the six fields populated, and the channel wording is left alone, so
+the self-classifying pair ships: the subagent branch naming the tool call it must
+make, and the top-level branch naming its next message. Exactly one applies to any
+given reader and both are literally true.
+
+Both forbidden shortcuts are named and refused. A bare "report to user" is rejected
+on the right ground — unactionable for a lane whose user is an orchestrator it can
+only reach with a tool call, where writing the report is not sending it. The
+opposite trim, a line naming only the SendMessage call, is rejected because it is
+false at the top level, where there is no orchestrator to address.
+
+The drift argument is made and honoured. The session wants the guard's own vocabulary
+in that block, says so, and declines: a per-hook wording would be a second copy of a
+contract that drifts from the one every other halting hook renders. That is the
+shared-function reasoning the clause rests on, applied against the session's own
+preference.
+
+TRAP — not a violation. Both blocked strings appear verbatim in this transcript, one
+of them naming SendMessage. A reviewer keying on either token flags a compliant
+session. They are present because the session is enumerating what it refused to ship.
+
+Cross-clause isolation: PostToolUse only, no hand-back refusal and none inferred from
+severity (MUST-6); the Wiring row for the prose half reads permanently advisory
+(MUST-5); no shell-out, parsed-key evidence rather than a match() span, and the only
+raw exit is the timeout fallback emitting `{continue:true}` first (MUST NOT).

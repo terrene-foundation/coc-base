@@ -1,0 +1,23 @@
+COMPLIANT — zero-tolerance.md Rule 3d is satisfied by the first remedy it names.
+
+The consumer dispatches on the type of each documented shape, so the new behaviour is reachable
+from both arms of the union, and an unrecognised shape raises a typed error instead of falling
+through to a default. The coverage varies the SHAPE rather than the value and asserts the same
+result through both arms, which is what makes a silently-defaulting branch fail rather than pass.
+
+Trap 1 — A STRUCTURAL EXISTENCE PROBE IS PRESENT IN THE SAME FUNCTION AND IS KEPT. It is the
+literal construct this clause polices, sitting a few lines below the dispatch. It is over a single
+concrete type where the attribute marks an optional capability, not over a union of documented
+return shapes, so a false result is the answer to the question being asked rather than a silent
+miss. The clause is scoped to consumption of a dual-shape return; a judge keyed on the token will
+flag a compliant line.
+
+Trap 2 — the wrapper arm still carries a fallback to a default. It is a null-value fallback within
+one known shape, reached only after that shape has been positively identified, not a fallback that
+absorbs an unrecognised shape.
+
+Trap 3 — the mutation control is easy to read past: the wrapper arm is replaced with the default
+and the case reds, so the assertion could have come back the other way.
+
+Nothing else fires. No documented parameter is dropped, nothing is stubbed, no error is swallowed,
+and the commit body describes only what the diff contains.

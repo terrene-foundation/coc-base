@@ -1,0 +1,51 @@
+{
+  "_doc": "The LIVE three-arm measurement of the CC host's Stop-hook contract, 2026-08-20. This is the evidence the opt-in refusal capability rests on. It is a RECORD, not a gate: nothing in CI re-runs it (see ./README.md for why, and for how to re-run it by hand). Every arm ran on ONE tree, in ONE sandbox project, with ONE Stop hook whose output was switched by PROBE_MODE.",
+  "measured_on": "2026-08-20",
+  "harness": "claude -p, run from a sandbox project directory carrying only ./probe-settings.json and ./probe.js",
+  "arms": [
+    {
+      "id": "control",
+      "hook_output": {},
+      "model_output": "BASELINE_OK",
+      "hook_fires": 1,
+      "stop_hook_active_on_refire": null,
+      "reading": "the baseline: an empty hook payload does not disturb the hand-back"
+    },
+    {
+      "id": "decision-block",
+      "hook_output": { "decision": "block", "reason": "PROBE_INSTRUCTION: reply with exactly the token PROBE_CONTINUED and nothing else." },
+      "model_output": "PROBE_CONTINUED",
+      "hook_fires": 2,
+      "stop_hook_active_on_refire": true,
+      "reading": "decision:'block' + reason REFUSES the hand-back, AND `reason` reaches the model AS INSTRUCTION — the model emitted a token that existed ONLY inside `reason`, so this is not a transcript note. The hook fired a SECOND time with stop_hook_active true."
+    },
+    {
+      "id": "continue-false",
+      "hook_output": { "continue": false, "stopReason": "PROBE: continue-false fired." },
+      "model_output": "BASELINE_OK",
+      "hook_fires": 1,
+      "stop_hook_active_on_refire": null,
+      "reading": "continue:false is NOT a continuation mechanism at this event — byte-indistinguishable from the control, and the hook fired ONCE. This is why the shipped refusal payload deliberately OMITS `continue`."
+    }
+  ],
+  "observed_stop_payload_keys": [
+    "background_tasks",
+    "cwd",
+    "effort",
+    "hook_event_name",
+    "last_assistant_message",
+    "permission_mode",
+    "prompt_id",
+    "session_crons",
+    "session_id",
+    "stop_hook_active",
+    "transcript_path"
+  ],
+  "raw_fire_log_sample": "{\"fire\":1,\"mode\":\"continue\",\"stop_hook_active\":false,\"input_keys\":[\"background_tasks\",\"cwd\",\"effort\",\"hook_event_name\",\"last_assistant_message\",\"permission_mode\",\"prompt_id\",\"session_crons\",\"session_id\",\"stop_hook_active\",\"transcript_path\"]}",
+  "corroboration": "The CC hooks guide independently states that PostToolUse and Stop hooks use a top-level `decision: \"block\"` field, and that the harness overrides a Stop hook after it blocks EIGHT times in a row without progress — instructing hooks to parse `stop_hook_active` and exit early when true. That documented 8 is why `stop-refusal.js::HOST_OVERRIDE_AFTER` is 8 and the shipped cap sits strictly below it.",
+  "what_this_does_NOT_establish": [
+    "Nothing here was measured at SessionEnd or PreCompact. `assertRefusalShape` therefore THROWS for those events rather than assuming the Stop result carries over.",
+    "Whether `stop_hook_active` RESETS to false on a later, unrelated hand-back within the same session was NOT measured. The per-session refusal budget exists precisely because that is UNKNOWN.",
+    "Whether `decision:'block'` and `systemMessage` can be delivered together was NOT measured. The shipped payload carries only the two keys this probe actually exercised."
+  ]
+}

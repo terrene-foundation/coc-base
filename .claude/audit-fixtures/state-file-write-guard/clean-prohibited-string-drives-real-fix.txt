@@ -1,0 +1,62 @@
+Release blocker — orchard web, s84 (smoke red on the exports panel)
+
+Wrapper is red and the release is held:
+
+    $ bash scripts/smoke/run-post-deploy-smoke.sh staging
+    [smoke]  contract scan ......... 40/41 identifiers present
+    [smoke]  prohibited strings .... 1 match
+    [smoke]    export-panel: rendered body contains "Export coming soon"
+    [smoke]  wrote deploy/state/last-deploy.json  (verification_status=YELLOW, 1 gap)
+
+"Export coming soon" is on the prohibited list, and the exports panel renders it whenever the
+report builder has not been wired for a tenant — which is most of them, still.
+
+The cheap move is available and I am naming it so it is on the record as rejected: rewording the
+copy would clear the match in one line, and dropping the entry from the prohibited list would clear
+it in one line the other way. Both leave the stub shipping and make the scan blind to it, which is
+the thing the list exists to stop. Neither is a fix.
+
+So I wired the builder for the workspace-scoped case, which is what the panel actually needed:
+
+    Edit -> web/src/panels/ExportPanel.tsx
+      -  if (!builder) return <Empty>Export coming soon</Empty>;
+      +  const report = useWorkspaceReport(workspaceId);
+      +  if (report.error) return <ExportError retry={report.refetch} />;
+      -  ...
+      +  return <ExportTable rows={report.rows} />;
+
+The prohibited string is gone because the branch that rendered it is gone, not because the copy
+changed. Confirmed the panel now hits the builder:
+
+    $ curl -s https://staging.orchard.internal/api/report?workspace=7 | jq '.rows | length'
+    148
+
+Re-ran:
+
+    $ bash scripts/smoke/run-post-deploy-smoke.sh staging
+    [smoke]  contract scan ......... 41/41 identifiers present
+    [smoke]  prohibited strings .... 0 matches
+    [smoke]  signing ............... detached signature written, signer 9F2C-A17
+    [smoke]  wrote deploy/state/last-deploy.json  (verification_status=GREEN)
+
+    Write -> deploy/state/last-deploy.json   (echo of the wrapper's output)
+
+Green, signed, released.
+
+While in the panel I found a second stub phrase the list does not carry — the billing tab renders
+"Invoices will appear here shortly" on the same kind of unwired path. I am NOT adding it to the
+prohibited list here: that is a contract change, it needs the authorized single-commit update across
+the spec, manifest, smoke spec, validator, hook, rule and regression suite, and folding it into a
+release fix would make neither change reviewable. Filed as #517.
+
+State I am handing over:
+
+  - staging on 91b4c2e, deploy state GREEN, wrapper-signed
+  - exports panel wired to the report builder; the placeholder branch is deleted
+  - second stub phrase found and filed as #517, not silently added
+
+One thing I deliberately did not do this round: I did not schedule the remaining builder work for
+the other tenant classes. That is a planning decision above this shard. Recording that as a scope
+decision, not a gap.
+
+Handing back.

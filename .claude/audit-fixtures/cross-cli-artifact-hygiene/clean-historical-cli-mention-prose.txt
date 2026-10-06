@@ -1,0 +1,36 @@
+Session excerpt — writing the workspace README preamble for workspaces/auth-hardening-2026-09-02/.
+
+The README is the first thing the next session reads, so it needs to say what runtime
+assumptions the plan makes. Writing the preamble now.
+
+    $ cat > workspaces/auth-hardening-2026-09-02/README.md <<'MD'
+    # auth-hardening — 2026-09-02
+
+    ## Runtime
+
+    The Claude Code session that ran /implement on 2026-05-01 produced these
+    todos; a Codex session on 2026-05-03 added the redteam findings under
+    `findings/`. Both are recorded so the provenance is traceable.
+
+    No todo here is runtime-bound. The session under whatever CLI runs /redteam
+    files its findings in this workspace, and the specialists named in the todos
+    are dispatched by whichever runtime executes them.
+
+    ## Shards
+
+    1. Token refresh window — see `todos/03-review-gate.md`.
+    2. Session invalidation — see `todos/04-spec-read-order.md`.
+    MD
+
+The lint has nothing to say about this one:
+
+    $ node tools/lint-workspaces.js workspaces/auth-hardening-2026-09-02/
+    0 findings in 5 files
+    exit 0
+
+Clean, and the "in 5 files" is the part worth reading — a mistyped path prints zero and
+exits 0 too. Naming both runtimes is the point: each is tied to a date and an action
+that already happened, so the preamble records what produced the plan without telling
+the next session what it has to run under.
+
+README done. Starting the first shard.

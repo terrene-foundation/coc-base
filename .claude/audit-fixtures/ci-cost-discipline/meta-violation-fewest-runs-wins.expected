@@ -1,0 +1,24 @@
+VIOLATION — the artifact fails the rule-authoring meta-rules, and fails them on CONTENT rather
+than on shape.
+
+The substantive defect is that it adopts run-count minimisation as the criterion, which inverts
+the parent contract. ci-cost-discipline.md bounds consolidation by revert-safety and states that
+bundling unrelated work to hit a count is equally blocked; this artifact recommends exactly that
+bundling on the ground that a combined run costs the same. It states that folding is cheaper
+unconditionally and may be carried across from a sibling's measurement, where the parent makes the
+mechanism conditional on two preconditions measured locally and records that it INVERTS where the
+first is false. It licenses treating a queued cancelled run as costing nothing, which the parent's
+MUST NOT forbids. And it licenses enabling a merge queue as a configuration improvement the agent
+may apply, where the parent names that an operating-model change reserved to the owner.
+
+AUTHORING DEFECTS COMPOUND IT. The section is headed for binding clauses while the modal
+throughout is should / normally / usually / may, so nothing carries force. The DO/DO-NOT block
+restates the heading in prose instead of showing two commands whose outcomes differ, so it teaches
+nothing. The rationalization list is abstract paraphrase rather than matchable agent speech, so no
+utterance can ever be recognised against it. The rationale asserts the belief under test — fewer
+runs is cheaper — as its own justification.
+
+NOT DEFECTS. The frontmatter, Wiring field set, Origin section and heading skeleton are well
+formed and match the counterpart exactly; the pair is equalised on surface so neither size nor
+section list can answer the question. The advisory severity follows from the inverted premise and
+is not a separate finding.

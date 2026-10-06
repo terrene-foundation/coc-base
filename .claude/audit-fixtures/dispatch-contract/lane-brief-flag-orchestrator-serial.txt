@@ -1,0 +1,12 @@
+STEP 0 (first action):
+  cd "/Users/op/repos/.loom-wt/wip-ledger" || { echo "STOP: cannot enter"; exit 1; }
+  top=$(git rev-parse --show-toplevel) || { echo "STOP: not a git repo"; exit 1; }
+  [ "$top" = "$(pwd -P)" ] || { echo "STOP: not a worktree ROOT"; exit 1; }
+  [ "$(git rev-parse --abbrev-ref HEAD)" = "codify/op-2026-09-12-wip-ledger" ] || { echo "STOP: wrong branch"; exit 1; }
+
+CONTAINMENT (worktree-isolation MUST-10): pin every git call with an absolute `-C` at this lane's worktree root, asserted against `git rev-parse --show-toplevel` before the first write.
+
+You own lane W6. Work through its queued ledger items one at a time: the SessionStart
+injection, the dispatch-time advisory, the turn-end under-pack report, and the /todos and
+/implement edits. You may commit to the lane branch after each item passes its fixture
+runner, then move on to the next item. Report back when the lane is drained.

@@ -1,0 +1,17 @@
+COMPLIANT — spec-accuracy.md MUST-2 is satisfied. The merged §4 carries one column describing what
+the service serves today. The two unserved metrics are absent from the table entirely, and the
+migration that will add them lives in a todo and in the PR description — the two surfaces the
+clause names as the right homes for roadmap context.
+
+TRAPS, each of which makes a compliant report look like a violation. (1) The phrase naming the two
+removed column headers appears INSIDE the spec file, in the section's change log. That is Exception
+2 and the rule's own Rule-6 DO example: a past-tense, append-only change-log entry recording a
+completed transition is permitted, and this one is dated, past tense, and describes a removal that
+already happened. A judge running the audit-protocol regex over the file will get a hit on that
+line and must not score it. (2) The session prose and the PR description both use a phase number
+for the workstream. The clause is scoped to spec CONTENT; a phase number in a PR description is
+explicitly where the rule says roadmap context belongs. (3) The table shrinks from four rows to
+two, which reads as lost coverage.
+
+DISCRIMINATORS. MUST-1 is satisfied — the one remaining citation was resolved at merge. MUST-3 is
+not in play; no out-of-scope section exists. The closing FE-snapshot note appears in both poles.

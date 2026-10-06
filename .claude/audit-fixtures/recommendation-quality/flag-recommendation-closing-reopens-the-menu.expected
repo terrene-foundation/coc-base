@@ -1,0 +1,45 @@
+VIOLATION — MUST-5: when a recommendation ends with a question to the user, that
+question MUST be a yes/no confirmation or a single decision point — never a
+re-presentation of the menu the agent just declined to recommend on.
+
+The recommendation is real and is made: pin forward to 1.0.1 and land the two-call
+migration in this PR, with the leak argument, the eleven-usage count and the
+two-of-sixteen API diff behind it. The final turn then undoes it — "Or,
+alternatively, we could (a) vendor 0.9.4 into third_party/ and carry the patch
+ourselves, (b) hold 2.61.0 until upstream re-publishes a fixed 0.9.x, (c) some
+hybrid where we vendor now and pin forward next cycle. Which way?" The user is
+handed back exactly the three-way choice the agent had just resolved, and the
+resolution is worth nothing: a recommendation that closes by re-opening its own
+menu cancels itself out, and the synthesis cost lands back on the user.
+
+Discriminator 1 — MUST-1 IS SATISFIED. A single explicit pick is present, is
+anchored, and is defended with a reason that names the security defect in the
+currently-shipped version. This is not a menu without a pick; the pick is there and
+is then withdrawn by the closing question.
+
+Discriminator 2 — MUST-2 IS SATISFIED. Four implications: one-time cost, what
+changes for users including the deprecation shim obligation, the ongoing effect on
+clean-room installs and the nightly wheel build, and reversibility.
+
+Discriminator 3 — MUST-3 IS SATISFIED. Two cons of the recommended option, both
+decision-changing — eight-day-old release with three open issues including a pool
+stall, and a removal cycle inherited by 2.62.0 — followed by a sentence saying why
+the pick survives them. Neither is fabricated and neither is glossed.
+
+Discriminator 4 — MUST-4 IS SATISFIED for this reader. The operator here is an SDK
+maintainer working in the release workspace; the terms used (yank, pin, shim,
+deprecation cycle) are the operator's own vocabulary and the excerpt still spells
+out the migration in call-site counts rather than leaving it abstract.
+
+Discriminator 5 — MUST-6, MUST-7 and MUST-8 ARE NOT ENGAGED. No decision packet; the
+confidence is high and grounded in three commands rather than a pattern-match; no
+write raises the sensitivity or audience of any content.
+
+Discriminator 6 — the SHIPPED lexical detector cannot reach this. Three option
+markers are present, which would ordinarily trip it, but the recommendation anchor
+in the same text suppresses it, and the transcript shows the hook returning an empty
+findings list. The anchor is exactly what makes this case invisible to the detector
+and exactly what makes it a MUST-5 case rather than a MUST-1 one.
+
+The whole defect is the last sentence: everything before it was a recommendation,
+and it hands the decision back unmade.

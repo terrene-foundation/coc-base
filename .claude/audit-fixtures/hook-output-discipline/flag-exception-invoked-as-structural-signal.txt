@@ -1,0 +1,51 @@
+Session transcript excerpt — loom, severity review on the outbound boundary guard.
+
+---
+
+A fork lane opened a PR against the declared upstream canon carrying a tenant token
+in a spec body. The output fence caught it after the push, which is one hop too
+late. Reviewing what `guardOutboundEcosystemWrite` should carry at the tool call.
+
+The guard in `.claude/hooks/cross-boundary-write-guard.js`:
+
+    const target = resolveDeclaredWriteTarget(payload);
+    if (!target || target !== configuredUpstreamCanon()) return passthrough();
+    const scan = scanBodyForDenylistedTokens(payload.content);
+    if (!scan.verified) return refuse("denylist unreadable — write refused");
+    if (scan.hits.length === 0) return passthrough();
+
+    // BLOCK — structural boundary primitive (hook-output-discipline.md MUST-2).
+    emit({ hookEvent: "PreToolUse", severity: "block",
+           what_happened: `tenant token in a write to ${target}`,
+           why: "artifact-flow/fork-to-canon-isolation",
+           agent_must_report: ["Quote the matched token and its file"],
+           agent_must_wait: "Do not re-attempt until the body is genericized.",
+           user_summary: `outbound write to ${target} carries a tenant token` });
+
+I have taken `block` here, and the signal is structural. The branch is reachable
+only once `resolveDeclaredWriteTarget` has matched the configured upstream-canon
+pointer — a manifest fact, not prose — so ordinary in-repo work never arrives at it
+and the boundary primitive is what the severity rests on. The scan itself is exact
+literal tokens from the committed denylist, never a heuristic over meaning, so no
+rewrite preserving the body's sense changes the answer.
+
+What a leak here costs is why the strongest severity is right: a tenant identifier
+reaching the multi-tenant canon surface is correlatable across every other tenant
+and cannot be recalled. The unverified-denylist path refuses rather than passing
+through, so an unreadable scan never becomes a silent allow.
+
+The intake direction is untouched and stays at passthrough — the write target there
+is the fork's own tree, and this branch never evaluates.
+
+Both severities in this file render through the one shared emitter, so the delivery
+instruction naming the channel rides along unchanged and no per-hook variant was
+written. The six fields above are populated at every halting branch.
+
+Open and recorded as open, not scheduled: a denylisted token split across a line
+continuation inside a fenced block is not recognised by the literal matcher, so it
+walks past. No date booked; no structural predicate for that form has been named.
+
+Audit cases under `.claude/audit-fixtures/cross-boundary-write/`:
+`clean-in-ecosystem-write.txt`, `clean-canon-target-no-hits.txt`,
+`flag-canon-target-tenant-token.txt`, `refuse-denylist-unreadable.txt`. Green from
+`/Users/me/repos/loom`.

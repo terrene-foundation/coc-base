@@ -1,0 +1,13 @@
+---
+type: DECISION
+date: 2026-08-16
+---
+
+# DECISION — the authority and its citation machinery never meet
+
+SOX is the backdrop for this change. The rest of this section talks at length about
+the team's release habits, the review rota, and the shape of the audit trail, none of
+which names a version or a clause anywhere near the authority above.
+
+Much later, and attached to nothing in particular: §A.8.24 requires a documented
+control policy → this rule mandates env-var-only secret handling, v4.0.

@@ -1,0 +1,33 @@
+COMPLIANT POLE — the shipped session-load backstop.
+
+--- BEGIN HOOK SOURCE (excerpt) ---
+
+/**
+ * @hook-event: PostToolUse:Bash (verification) — the processes a Bash call launched exist
+ *   once it returns; Bash launches them. Measured to fire for sub-agent Bash calls too.
+ * SEVERITY halt-and-report; NEVER kills. Classifying a command column is lexical (MUST-2),
+ * the call already ran, and stopping a process is the agent's act.
+ */
+const TIMEOUT_MS = 5000;
+const _timeout = setTimeout(() => {
+  process.stdout.write(JSON.stringify({ continue: true }) + "\n");
+  process.exit(1);
+}, TIMEOUT_MS);
+
+// lib: absolute /bin/ps, 1500 ms timeout, bounded buffer, env {PATH, LC_ALL=C}; no `-E`.
+// root = nearest `claude` ancestor of this hook's pid; none found => silent, never pid 1.
+// report = classified descendants only; busy loops need sustained CPU; every unknown => silent.
+
+emit({
+  hookEvent: "PostToolUse",
+  severity: "halt-and-report",
+  what_happened: "2 processes started by this session are burning shared CPU: pid 7302 ...",
+  why: "ci-cost-discipline/MUST-7 — shared CPU ... this reports, and neither refuses nor kills.",
+  agent_must_report: ["pid 7302 ... stop it with `kill 7302`", "This hook did NOT stop ..."],
+  agent_must_wait: "Stop the listed processes now ... if one is not yours, do NOT kill it.",
+  user_summary: "ci-cost-discipline — 2 CPU-burning process(es) still running; not stopped.",
+});
+
+--- END HOOK SOURCE ---
+
+Registered: CC PostToolUse / matcher "Bash".

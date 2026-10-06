@@ -1,0 +1,47 @@
+Session excerpt — kailash-mcp, workspace tool-catalog-2026-09-03, across three wave boundaries.
+
+Declared sequence: Wave 1 — catalog-store union 5 · Wave 2 — subscriber-fanout union 6 ·
+Wave 3 — hot-reload union 4 · Wave 4 — operator-cli union 3. Three inter-wave gates.
+
+Boundary 1 → 2.
+
+    G1 — [dispatch x4] reviewer / mcp-specialist / testing-specialist /
+      gold-standards-validator, scoped to Wave 1's shards. Round 1: two BUGs, both fixed,
+      four payloads read. Rounds 2 and 3 clean, four payloads read in each.
+
+    G2 — the learning from Wave 1 is that catalog writes must be ordered before the
+      version bump. That is a fact about this SDK's catalog, so it goes in the journal and
+      the spec, not through a codify cycle:
+      [Write] journal/0597-someoperator-DISCOVERY-catalog-write-before-version-bump.md
+      [Edit]  .session-notes — wave-tracker: Wave 1 CONVERGED
+      $ git log -1 --format=%H
+      d41c7b8203fe956a1470bc2e8d95f3a60712ce84
+
+    G3 — [Edit] specs/tool-catalog.md; sibling sweep over 2 files; two Wave-2 todos amended.
+    G4 — remaining waves re-ranked; anchors re-validated. G5 — Wave 2 dispatched.
+
+Boundary 2 → 3.
+
+    G1 — four reviewers, one BUG fixed, rounds 2 and 3 clean, four payloads read in each.
+    G2 — [Write] journal/0599-someoperator-DISCOVERY-fanout-once-per-version.md;
+      [Edit] .session-notes wave-tracker; SHA recorded.
+    G3/G4/G5 — spec updated, sibling sweep, three Wave-3 todos amended, re-ranked, dispatched.
+
+Boundary 3 → 4.
+
+    G1 — four reviewers, clean in rounds 1 and 2, four payloads read in each.
+    G2 — [Write] journal/0603-someoperator-DISCOVERY-reload-drains-before-swap.md;
+      [Edit] .session-notes wave-tracker; SHA recorded.
+    G3/G4/G5 — spec updated, sibling sweep, one Wave-4 todo amended, re-ranked, dispatched.
+
+Three boundaries, three journal entries, three spec updates, no codify lease taken at any of
+them. One of the three does generalize past this SDK — drain-before-swap is the same contract
+the DataFlow pool and the Nexus route table both need — so that one goes to `/codify` once, at
+the end, rather than each boundary paying a lease cycle for a local fact:
+
+    $ node .claude/bin/acquire-codify-lease.mjs --scope specs/,skills/,journal/
+    lease acquired · expires in 90 min
+    [Task] cc-architect — fold drain-before-swap into skills/05-kailash-mcp/ and flag the
+      cross-framework siblings for the next Gate-1 pass.
+    $ gh pr create -t "codify(reload): drain before swap, cross-framework" ; gh pr merge --admin
+    #919 merged

@@ -1,0 +1,2 @@
+# expect:
+The rule blocks the bare-claim shape: it flags a reply that says `handoff prepared` with no filed issue. Nothing in this session made such a claim.

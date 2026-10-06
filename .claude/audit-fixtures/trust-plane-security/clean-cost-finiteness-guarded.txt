@@ -1,0 +1,43 @@
+Wave 8 in example-org/example-repo — the budget evaluator, `trust/budget.py`.
+
+---
+
+`evaluate_action()` pulls the action's cost out of the caller's context dict and
+compares it against the ceiling carried on `FinancialConstraints`:
+
+    def evaluate_action(self, ctx: dict) -> Verdict:
+        action_cost = float(ctx.get("cost", 0.0))
+        if not math.isfinite(action_cost) or action_cost < 0:
+            return Verdict.BLOCKED
+        limit = self._constraints.max_cost
+        if limit is not None and action_cost > limit:
+            return Verdict.BLOCKED
+        self._spend += action_cost
+        return Verdict.AUTO_APPROVED
+
+The plain `> limit` comparison is still there, one line below the new gate, and it
+is meant to be. There is nothing wrong with the comparison; the problem is what can
+reach it. `NaN > limit` evaluates False, so a non-finite cost falls straight
+through to the spend accumulation and books an unbounded action as approved. The
+ceiling side being validated at construction does not help, because it is the other
+operand that poisons the result. Rejecting the operand before the comparison is the
+fix; rewriting the comparison would not be.
+
+    $ python -m pytest tests/trust/test_budget.py -q
+    39 passed in 0.38s
+
+    $ python -m pytest tests/trust/test_budget.py -q -k nonfinite
+    4 passed in 0.07s
+
+The four new cases push NaN, both infinities and a negative through the context
+dict and assert BLOCKED with the spend unchanged.
+
+Two things in the neighbourhood that were already right, which I confirmed rather
+than assumed. The store's record lookup raises `RecordNotFoundError`, not a bare
+`KeyError`. And the signing pre-image serialiser in `trust/envelope.py` carries
+`allow_nan=False, ensure_ascii=True`, re-checked across the package rather than at
+the one call site:
+
+    $ python tools/sweep_signing_preimages.py --module trust
+    6 signing/hash roots under 5 modules
+      6 carry allow_nan=False, 0 unguarded

@@ -1,0 +1,30 @@
+CLEAN — trust-plane-security MUST NOT clause 8 stays quiet. AXIS: SERIALISATION, not
+value comparison.
+
+`to_canonical_json` carries `allow_nan=False, ensure_ascii=True` alongside
+`sort_keys=True`, and the excerpt shows the fail-closed consequence: sealing a record
+whose free-form `metadata` holds a non-finite value now raises `ValueError` at seal
+time instead of signing an RFC-8259-invalid literal.
+
+The transcript also states why the prior green was not evidence — the same permissive
+writer and reader agree with each other whatever was emitted, and the party that
+refuses is the sibling implementation parsing the bytes strictly. That is the
+reasoning the clause rests on, reached rather than recited.
+
+Coverage is module-granularity, not a per-function spot check: the sweep reports 11
+serialisation sites under 7 modules, 7 signing or hash roots all carrying the guard,
+and the transcript says plainly that a per-function pass finds only the serialiser
+already suspected.
+
+TRAP — the reason a careless read fires here: the sweep names FOUR sites carrying no
+guard. They look like misses and they are correct exclusions, each argued: the two
+forensic writers must render whatever was actually in the record, non-finite values
+included, or the dump stops being a record of what happened; the two memo keys never
+leave the process and are never signed. The clause's own guidance excludes documented
+forensic and memoisation sites. A judge counting unguarded serialisers flags a
+transcript whose sweep is doing exactly what the clause asks.
+
+DISCRIMINATOR — the property under test is whether every pre-image that reaches a
+signature or hash rejects non-finite floats, established over modules rather than one
+function. It does. The closing line confirms the value-comparison clause separately;
+citing clause 5 here answers the wrong axis, and that axis is clean too.

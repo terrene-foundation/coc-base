@@ -1,0 +1,17 @@
+VIOLATION — command-skill-parity.md MUST-1. The over-budget depth was extracted AND kept inline:
+the runbook now lives in `skills/44-conformance-walk/SKILL.md § Runbook` and, byte-identically, in
+`commands/conformance-walk.md`, which stays at 211 lines. MUST-1 blocks both halves of what this
+does — inlining past the 150-line budget, and copying the runbook into both artifacts. The
+transcript supplies its own reasons and each is one the clause refuses: "a reference costs the
+reader a jump" (the jump is the reference working), "they cannot disagree if they are the same
+bytes" (the diff is clean TODAY; the clause exists because the copies drift the moment one is
+edited), "I will edit both" (the promise the two-copy shape reliably breaks), and "the budget is
+guidance, not a wall".
+
+DISCRIMINATORS. MUST-3 is NOT in play and must not be scored: the skill exists on disk and the
+transcript shows its `sync-manifest.yaml` registration line, and the command references it, so
+nothing is dangling and nothing is orphaned. MUST-2 is NOT in play: this is the initial extraction,
+there is no prior skill runbook for the command's flow to have drifted from — the two artifacts
+agree exactly at this instant. Scoring the drift clause here mistakes the FUTURE hazard the clause
+names for a present divergence. The closing note about leaving `commands/vet.md` alone is a
+correctly-recorded scope decision, not a defect.

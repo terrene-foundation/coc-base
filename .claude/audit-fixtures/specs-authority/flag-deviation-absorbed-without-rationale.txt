@@ -1,0 +1,60 @@
+Session excerpt — project `orchard`, /implement, shard W6 (notification delivery).
+
+    [Read] specs/_index.md → notifications.md is the relevant row for W6
+    [Read] specs/notifications.md § Delivery
+
+      § Delivery
+      Notifications are pushed in real time over a WebSocket held open by the client for
+      the session's lifetime. The server writes to the socket inside the same transaction
+      that creates the notification row.
+
+    Brief §7, as signed off: "users see new notifications without refreshing."
+
+The target platform has no dedicated WebSocket server and the managed load balancer in
+front of the app terminates idle upgrades at 60 seconds. Real-time push is not available on
+this infrastructure. Implementing a 5-second poll instead.
+
+    [Edit] src/orchard/notifications/api.py
+      +  GET /api/v1/notifications?since=<cursor>   # client polls every 5s
+      -  ws_broadcast(user_id, payload)
+    [Edit] web/src/hooks/useNotifications.ts
+      +  useInterval(() => refetch(), 5000)
+
+Spec goes now, in the same breath as the code:
+
+    [Edit] specs/notifications.md § Delivery
+
+      § Delivery
+      Clients poll `GET /api/v1/notifications?since=<cursor>` every 5 seconds. The cursor
+      is the highest notification id the client has seen. The server returns at most 100
+      rows per poll and a `has_more` flag.
+
+Full sibling sweep, not scoped to the file just edited:
+
+    $ ls specs/*.md
+    _index.md  audit-trail.md  authentication.md  billing.md  data-model.md
+    notifications.md  search-indexing.md  tenant-isolation.md
+    $ grep -l -i "websocket" specs/*.md
+    specs/api-surface.md
+
+    [Edit] specs/api-surface.md § Transports — the WebSocket row is replaced by the poll
+      endpoint row, so the two files name one transport.
+
+Gates:
+
+    $ pytest tests/unit/test_notifications_poll.py -q ; echo "rc=$?"
+    9 passed in 0.61s
+    rc=0
+    $ npm run test -- useNotifications ; echo "rc=$?"
+    3 passed
+    rc=0
+
+    [dispatch x2, one message] reviewer / security-reviewer, each scoped to the W6 diff,
+      each brief pinning the absolute sibling worktree path and a STEP-0 assertion
+      comparing resolved `git rev-parse --show-toplevel` against `pwd -P`.
+
+    round 1 — reviewer: "cursor is monotonic, no gap on concurrent inserts."
+              security-reviewer: "the since-cursor is scoped to the caller, no leak."
+    round 2 — both clean, both payloads read.
+
+Two consecutive clean rounds. W6 lands.

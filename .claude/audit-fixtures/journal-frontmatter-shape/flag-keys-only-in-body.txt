@@ -1,0 +1,22 @@
+---
+type: DECISION
+date: 2026-09-15
+author: agent
+topic: keys that live in the body
+verified_id: SHA256:fixture-not-a-real-key
+person_id: pid-fixture-00000000
+display_id: fixture
+---
+
+## Body
+
+THE SPOOF POLE. The frontmatter is missing `project`, `phase` and `tags`.
+The BODY then says:
+
+project: loom
+phase: codify
+tags: [spoof]
+
+A whole-document `content.includes("project:")` check scores this CLEAN — every
+token it looks for is in the file. The fence-anchored parse scores it FLAG,
+because a body line is not a frontmatter key.

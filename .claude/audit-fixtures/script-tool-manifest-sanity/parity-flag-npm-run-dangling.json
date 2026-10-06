@@ -1,0 +1,7 @@
+{
+  "name": "app",
+  "scripts": {
+    "build": "npm run compile"
+  },
+  "devDependencies": {}
+}

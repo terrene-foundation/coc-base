@@ -1,0 +1,14 @@
+# coverage-clean-failopen-no-manifest
+#
+# The AUTHORITY is absent. Without it a registered artifact and an
+# unregistered one are indistinguishable, so the predicate fails open
+# (cc-artifacts.md Rule 7) rather than accusing on a guess.
+#
+# expect: (silent)
+{
+  "filePath": ".claude/rules/widget-hygiene.md",
+  "manifest": null,
+  "probeInventory": [],
+  "probeAuthorshipDeferrals": {},
+  "now": "2026-09-13T00:00:00Z"
+}

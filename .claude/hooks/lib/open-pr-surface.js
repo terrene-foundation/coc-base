@@ -19,6 +19,7 @@
  */
 
 const { execFileSync } = require("child_process");
+const { resolveGitBinary, gitEnv } = require("./git-subprocess-env.js");
 
 // Per-call latency bounds. This surface runs SYNCHRONOUSLY at EVERY session
 // start in EVERY github-remote consumer, so the two external calls' timeouts
@@ -44,14 +45,23 @@ const PR_LIST_LIMIT = 50;
  * @param {string} cwd
  * @returns {boolean}
  */
+// loom#1471 (s49). LOCAL profile — `remote -v` READS `.git/config`; it opens no
+// connection, so this is not a net-profile site. An ambient `GIT_DIR` outranked
+// `cwd`, so a decoy repo with no GitHub remote made this return false and the
+// whole open-PR surface silently went dark.
 function hasGithubRemote(cwd) {
+  const gitBin = resolveGitBinary();
+  // Rule 7 fail-OPEN: no binary ⇒ no remote claim ⇒ the surface stays quiet,
+  // which is what the catch below already does.
+  if (!gitBin) return false;
   try {
-    const out = execFileSync("git", ["remote", "-v"], {
+    const out = execFileSync(gitBin, ["remote", "-v"], {
       cwd,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
       timeout: REMOTE_TIMEOUT_MS,
       killSignal: "SIGKILL",
+      env: gitEnv(),
     });
     // `git remote -v` lists every remote (name\turl (fetch|push)). Matches
     // https://github.com/... and git@github.com:... on ANY remote line —

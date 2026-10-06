@@ -1,0 +1,36 @@
+Consolidation report — the s62 lane
+
+Recording this in full because the numbers look alarming and the alarming number is not the
+finding.
+
+Before the consolidation:
+
+    $ git log --oneline origin/main..feat/s62-conservation > /tmp/s62-before.txt
+    $ wc -l /tmp/s62-before.txt
+    14 /tmp/s62-before.txt
+
+Fourteen commits. After the interactive rebase and the squash pass, four. And by sha, the overlap
+between the two sets is zero — a squash rewrites every object, so all fourteen original shas are
+absent from the branch. That number is an artifact of the operation, not a measurement of loss, so
+I did not stop there. What the branch CONTAINS is a content question, and it needs a content test:
+
+    $ git range-diff origin/main...ORIG_HEAD origin/main...HEAD
+    1:  4f11a0c = 1:  a83c119 feat(conservation): the gate contract
+    2:  6b7712d ! 1:  a83c119 fix(conservation): scratch prefix
+    ...
+    14: 9c2e845 = 4:  71dd240 chore(records): s62 receipts
+
+Every one of the fourteen maps onto a surviving commit, `=` or `!`, with no `<` rows — nothing on
+the left is unpaired. I then reverse-patch-applied the original range against the new tree as an
+independent check, because range-diff pairs by similarity and I did not want a similarity heuristic
+to be the only witness:
+
+    $ git diff origin/main ORIG_HEAD | git apply --reverse --check
+    $ echo $?
+    0
+
+It applies clean in reverse, which means every byte the original range introduced is present in the
+tree now. Fourteen shas absent, zero content absent.
+
+Conserved. One residual I am NOT claiming closed: the sibling s63 lane is untouched and I have not
+audited it.

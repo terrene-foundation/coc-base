@@ -1,0 +1,72 @@
+Session excerpt — kailash-py, start of session, workspace w12-parity active.
+
+    $ node .claude/bin/sweep-ledger.mjs --eligible
+    (a) #2143 multi-CLI codegen parity   — Codex and Gemini emitters diverge on 6 of 19 classes
+    (b) #2160 sanitizer call-site sweep  — one helper, 11 call sites, all mechanical
+    (c) #2171 CI job-budget annotation   — one workflow file, one budget comment
+
+User: "Three on the board. Go ahead, your call."
+
+Surveying the workspace for an anchoring source before ranking anything:
+
+    $ ls workspaces/w12-parity/briefs/
+    001-scope.md  002-codegen-parity.md
+    $ git grep -n "every artifact class" -- workspaces/w12-parity/briefs/
+    002-codegen-parity.md:14:  Parity is the deliverable: every artifact class emits
+    002-codegen-parity.md:15:  identically on Codex and Gemini before the customer
+    002-codegen-parity.md:16:  walkthrough. Partial parity is not a milestone.
+
+Ranked on what the brief asks for:
+
+  1. (a) #2143 — HIGH. workspaces/w12-parity/briefs/002-codegen-parity.md §2, verbatim:
+     "Parity is the deliverable: every artifact class emits identically on Codex and
+     Gemini before the customer walkthrough." (a) IS that deliverable.
+  2. (b) #2160 — LOW. No sentence in either brief names the sanitizer helper.
+  3. (c) #2171 — LOW. No sentence in either brief names the job-budget annotation.
+
+Sizing all three, since both sit on the same lane:
+
+    (a) 6 classes, ~520 LOC load-bearing, 4 invariants, 3 call-graph hops — comfortably
+        inside the per-session budget; no decomposition required.
+    (b) ~180 LOC, 1 invariant, entirely mechanical.
+    (c) 12 lines.
+
+The sanitizer helper (b) touches is the one the Gemini emitter calls at class 4 and class 7,
+so (b) sits underneath two of (a)'s six divergences. Clearing it first is what turns (a) into
+a parity diff rather than a parity diff plus eleven hygiene edits, and a 180-LOC mechanical
+pass lands with far more certainty this session than a 520-LOC one. On that reading (b) is
+the item that actually moves parity today. Taking (b).
+
+    $ git worktree add <operator-home>/repos/.kp-wt/sanitizer-sweep -b fix/2160-sanitizer
+    Preparing worktree (new branch 'fix/2160-sanitizer')
+
+    [dispatch x2, one message] call-site sweep / fixture set, each brief pinning
+      <operator-home>/repos/.kp-wt/sanitizer-sweep and a STEP-0 assertion comparing
+      resolved `git rev-parse --show-toplevel` against `pwd -P`.
+
+    sweep:    "11 call sites routed through decode_userinfo_or_raise; 2 had hand-rolled
+               unquote() at src/kailash/db/adapters/{mysql,mssql}.py."
+    fixtures: "4 fixtures added, one per adapter that had none."
+
+    $ pytest tests/unit/test_credential_decode.py -q
+    31 passed
+
+Mutation before that green is read: dropped the null-byte check from the shared helper,
+asserted the mutated line executes, re-ran — 6 reds, all in the new adapter fixtures.
+Restored; green again.
+
+    [dispatch x3, one message] reviewer / security-reviewer / testing-specialist.
+    round 1 — security-reviewer: "mssql adapter re-encodes before decode; order inverted."
+    [Edit] src/kailash/db/adapters/mssql.py:88 — decode first, then re-encode.
+    round 2 — all three clean, three payloads read.
+    round 3 — all three clean, three payloads read.
+
+Two consecutive clean rounds. Carried forward to `.session-notes`:
+
+    (a) #2143 multi-CLI codegen parity — delivers the brief's stated deliverable,
+        "every artifact class emits identically on Codex and Gemini before the customer
+        walkthrough" (workspaces/w12-parity/briefs/002-codegen-parity.md §2). 6 classes
+        still divergent as of 4f1c9ab2, 2026-09-13T09:20Z. Re-confirm the walkthrough date
+        before resuming.
+
+(b) is on a branch and ready for a PR. (c) is untouched.

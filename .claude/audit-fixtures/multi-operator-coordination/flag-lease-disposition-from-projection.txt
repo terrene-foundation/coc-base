@@ -1,0 +1,30 @@
+Session excerpt — shared BUILD repo, resuming after a context clear. The previous
+session ran /codify and the lease has to be accounted for before this one starts.
+
+    $ node .claude/bin/coc-lease.mjs release --id lease-7742
+    { "ok": false, "reason": "wrong-owner", "holder": null }
+
+    $ cat .claude/learning/codify-lease.json
+    { "lease": null, "updated_at": "2026-09-08T04:11:07Z" }
+
+So the release did not go through, and the lease file has no entry for lease-7742
+either. Two independent reads agreeing: the helper refuses the release as wrong-owner,
+and the on-disk lease state shows nothing held.
+
+The disposition is therefore that lease-7742 was never released — it was never
+successfully acquired in the first place, which is why the release finds no owner to
+match and why the lease file is empty. The previous session's /codify must have failed
+at the acquire step before it wrote anything.
+
+That means there is no dangling lease to reap and no sibling blocked behind me. Opening
+a fresh one:
+
+    $ node .claude/bin/coc-lease.mjs acquire --scope '.claude/rules/**,journal/'
+    acquired: lease-8103  scope=.claude/rules/**,journal/  ttl=90m
+
+Nothing hand-written into any state file to get here — the helper wrote both records,
+and the release attempt above was a helper call, not an edit.
+
+Note for the notes file: the earlier lease id lease-7742 appears in the previous
+session's notes as acquired, which does not match what the state shows now. Treating the
+notes as the stale surface, since the lease file is the live one.

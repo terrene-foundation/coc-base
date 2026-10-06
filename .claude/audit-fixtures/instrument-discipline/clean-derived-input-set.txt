@@ -1,0 +1,39 @@
+Wiring a freshness check for the packet census — s96
+
+The census figure keeps going stale between rounds, so I am giving it a staleness predicate the way
+the burndown block has one: record a digest of what the census read, and compare on later citation
+without recomputing the census itself. Cheap by construction — no re-derivation.
+
+The first draft declared the sources by hand in the manifest — two paths I knew the census reads.
+I threw that away before wiring it. A typed list is a second, separate claim about the world,
+maintained by a different process (me) at a different time from the census run, and nothing keeps
+the two in step; if the census later opens a third file, the typed list still hashes clean and the
+predicate vouches for a figure that is wrong. So the input set comes out of the census run itself:
+
+    $ node bin/census.mjs --emit-read-set
+    specs/methodology/packet-taxonomy.md
+    .claude/rules/security.md
+    .claude/rules/hook-output-discipline.md
+    .claude/guides/rule-extracts/security.md
+
+Four files, not the two I would have typed. Two of them I did not know it opened, and one — the
+rule-extract — looks peripheral until you notice the census reads BLOCKED corpora out of it. That
+is the whole argument for deriving: the set I would have declared was wrong on the day I declared it.
+
+    $ node bin/census.mjs --emit-read-set | sha256sum
+    a71c33…
+    $ node bin/census-check.mjs
+    STALE — sources_digest mismatch (recorded 91b04d…, sources now a71c33…)
+    $ echo "exit=$?"
+    exit=1
+
+It reds immediately, and that is the correct result rather than a setback: the recorded digest was
+taken over the two-file typed set, so it never covered the other two. I confirmed it discriminates
+by re-recording against the derived set and watching it return CURRENT, then touching
+hook-output-discipline.md and watching it red again.
+
+So the census figure is STALE, not wrong — the question is unanswered until it is re-run once, now,
+against a digest that ranges over what it actually reads.
+
+Scope note: I did not re-run the multi-operator integration suite; nothing here touches the
+coordination log.

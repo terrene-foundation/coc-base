@@ -46,6 +46,7 @@
  * Override the hook under test (to red the suite against a mutant) with:
  *   HOOK=/abs/path/to/mutant.js node .../run.mjs
  */
+import "../_lib/no-ambient-git.cjs";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -363,7 +364,7 @@ const onRepo = mkrepo(true);
     );
     check(
       `${name}: continue=${fx.expected.continue}`,
-      r.json !== null && r.json.continue === fx.expected.continue,
+      r.json !== null && (r.json.continue !== false) === fx.expected.continue,
       `continue=${r.json ? r.json.continue : "<unparseable stdout>"}`,
       "a mismatched or unparseable `continue` = the agent is either let through a blocked mutation or halted on a clean one",
     );
@@ -414,7 +415,7 @@ console.log("\n=== T7: the loom#1323 asymmetry is locked in BOTH directions ==="
     const r = driveGuard(fx.payload, fx.env);
     check(
       `${name}: degraded-mode mutation STAYS block (irrecoverable class)`,
-      r.code === 2 && r.json?.continue === false && /\[BLOCK\]/.test(r.stderr),
+      r.code === 2 && r.json?.hookSpecificOutput?.permissionDecision === "deny" && r.json?.continue !== false && /\[BLOCK\]/.test(r.stderr),
       `exit=${r.code} continue=${r.json?.continue}`,
       "halt-and-report / exit 0 here = the 'consistency fix' README.md warns about: an UNSIGNED mutation would land with no attributable, chain-verifiable record and nothing recovers the missing signature after the fact",
     );

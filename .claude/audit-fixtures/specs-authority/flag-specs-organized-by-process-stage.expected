@@ -1,0 +1,41 @@
+VIOLATION — MUST-2: spec files MUST be organized by the project's own DOMAIN ontology —
+components, modules, user needs, domains — and MUST NOT be organized by process. This set is
+laid out along the delivery cycle: requirements, design, test-plan, rollout, retrospective.
+Not one filename names something the system IS or DOES.
+
+The harm is visible inside the excerpt. Courier dispatch — a domain with scoring order, an
+offer timeout, an escalation threshold and a mute rule — lives in `design.md`, while the
+refund-against-authorization rule for the same service lives in `requirements.md`. An agent
+about to change dispatch has no file to open; an agent about to change refunds has to guess
+which stage file the current truth ended up in, and the answer changes as the project moves
+through the stages.
+
+Discriminator 1 — MUST-1 IS SATISFIED. `specs/_index.md` exists at project root, it is a
+lean lookup table with no specification text in it, and it lists every one of the five spec
+files with a one-line description. The closing `ls specs/` confirms the manifest and the
+files it names are the same set. A judge citing a missing or incomplete index has named a
+defect this excerpt does not contain.
+
+Discriminator 2 — MUST-3 IS SATISFIED, and this is the hard part of the pair. The files are
+not thin. The quoted dispatch passage gives the eligibility predicate, the three scoring keys
+in order, the tie-break, the 45-second hold, the no-penalty recompute, the four-expiry
+escalation and the three-decline mute; the refund passage gives the exact object a refund is
+issued against and what happens before capture. This is detailed-authority writing filed
+under the wrong ontology, not a summary.
+
+Discriminator 3 — MUST-8 IS NOT ENGAGED. Its trigger is a file over 300 lines; `wc -l` is in
+the excerpt and the largest is 263.
+
+Discriminator 4 — the § MUST NOT bullet on process organization names COC PROCESS STAGES
+specifically, and its stated reason is that such a layout duplicates `workspaces/` — the
+intent / decisions / progress / boundaries skeleton. These are SDLC stages, not COC stages,
+and they duplicate no workspace directory, so the clause that reaches this layout is MUST-2's
+positive domain-ontology obligation rather than that bullet.
+
+Discriminator 5 — MUST-4, MUST-5 and MUST-5b ARE NOT ENGAGED. This is the creating pass: no
+later phase reads specs here, no domain truth changes, and no existing spec is edited, so
+neither the targeted-read obligation nor the first-instance-update obligation nor the
+sibling-sweep obligation has an object.
+
+The whole defect is that the spec set is indexed by where the work was in the cycle instead
+of by what the system does.

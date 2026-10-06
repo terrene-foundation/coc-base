@@ -53,6 +53,41 @@
  *   hooks reuse lib/runtime.js, lib/instruct-and-wait.js, ..." the
  *   sibling-worktree primitive is a reusable building block.
  *
+ * ── § SCALING — WHY THE PER-SIBLING QUERY IS NARROW (loom#1902) ─────────────
+ *
+ * `detectSiblingMutation` is O(N) in the size of the worktree FOREST, and the
+ * only consumer that matters — `signing-mutation-guard.js` — is registered in
+ * `.claude/settings.json` with `"timeout": 5` (seconds). The forest is an
+ * operational quantity that grows with ordinary parallel work, so the constant
+ * factor of that O(N) is a SAFETY property, not a nicety: once N × per-sibling
+ * cost crosses the budget the harness kills the hook mid-scan and the guard
+ * stops guarding. Measured on a 52-sibling forest BEFORE this change: 107
+ * spawns, 5411 ms of spawnSync out of 5416 ms wall (99.9%), of which
+ * `status --porcelain` was 52 spawns / 4833 ms. The guard's OWN 5000 ms
+ * `setTimeout` fail-open cannot rescue it — the scan is synchronous
+ * `spawnSync`, so the timer is starved and never fires (measured: marker fires
+ * at 5001 ms when the event loop is free, never on the real path).
+ *
+ * Two structural properties keep the constant small. Neither raises a budget;
+ * both are load-bearing and MUST NOT be reverted for tidiness:
+ *
+ *   (1) The per-sibling status is PATHSPEC-LIMITED to the one target path
+ *       (`-- :(literal)<target>`) and takes no optional lock. A full-tree
+ *       `status --porcelain` walks the whole sibling checkout to answer a
+ *       question about ONE path. Measured per sibling: 117.4 ms full →
+ *       17.8 ms pathspec → 11.4 ms pathspec + `--no-optional-locks`.
+ *   (2) The M3 MED-2 / F-5 containment `rev-parse` runs ONLY for candidates
+ *       that produced a match or were unreadable, not for the whole forest —
+ *       2N+3 spawns become N+3 in the common case. See the equivalence table
+ *       at the call site.
+ *
+ * O(N) is inherent: git exposes no cross-worktree status, so N working trees
+ * require N queries. What this section owns is the CONSTANT, and the
+ * regression fence for it is the scaling probe in
+ * `.claude/audit-fixtures/sibling-porcelain-scaling/`, which asserts a RATIO
+ * against a 1-sibling baseline measured in the same run — never a wall-clock
+ * threshold (`rules/testing.md` § complexity-bound ratios).
+ *
  * Style: CommonJS to match sibling .claude/hooks/lib/* modules. No
  * external deps. Spawns `git worktree list --porcelain` + `git -C <path>
  * status --porcelain` as subprocesses — git is the canonical
@@ -163,15 +198,28 @@ function _git(args, opts) {
  * "answered: no siblings". Callers MUST surface the former rather than treat it
  * as the latter (rules/zero-tolerance.md Rule 3 — no silent fallbacks).
  */
-function enumerateSiblingWorktrees(repoDir) {
+/**
+ * List the candidate sibling worktree paths WITHOUT running the per-candidate
+ * containment check.
+ *
+ * Split out of `enumerateSiblingWorktrees` (loom#1902 — see § SCALING below)
+ * so `detectSiblingMutation` can defer the containment spawn to the candidates
+ * that actually produce a signal. `enumerateSiblingWorktrees` keeps running it
+ * eagerly over every candidate, so its exported behaviour is unchanged.
+ *
+ * Returns `{ok: true, candidates, selfCommonAbs}` or `{ok: false, candidates: [],
+ * reason}`. The `ok:false` shape is the same INDETERMINATE both public functions
+ * propagate; it is NEVER an empty candidate list.
+ */
+function _listWorktreeCandidates(repoDir) {
   if (!repoDir || typeof repoDir !== "string") {
-    return { ok: false, siblings: [], reason: "no repoDir supplied" };
+    return { ok: false, candidates: [], reason: "no repoDir supplied" };
   }
   const r = _git(["worktree", "list", "--porcelain"], { cwd: repoDir });
   if (!r.ok) {
     return {
       ok: false,
-      siblings: [],
+      candidates: [],
       reason: `git worktree list failed: ${(r.stderr || "").trim() || "unknown error"}`,
     };
   }
@@ -185,11 +233,12 @@ function enumerateSiblingWorktrees(repoDir) {
   // pointing outside the repo's actual common-dir. The structural
   // defense is to verify each candidate sibling's common-dir matches
   // our own — same repo = same common-dir, by git's invariant.
+  // (Applied per candidate by `_isContainedSibling` below.)
   const selfCommon = _git(["rev-parse", "--git-common-dir"], { cwd: repoDir });
   if (!selfCommon.ok) {
     return {
       ok: false,
-      siblings: [],
+      candidates: [],
       reason: `git rev-parse --git-common-dir failed: ${(selfCommon.stderr || "").trim() || "unknown error"}`,
     };
   }
@@ -208,31 +257,57 @@ function enumerateSiblingWorktrees(repoDir) {
     // are session-owned forks of this same checkout, not sibling
     // operator clones. (Mirrors state-resolver.js's filter.)
     if (wtPath.includes("/.claude/worktrees/")) continue;
-    // Containment check: the candidate sibling MUST resolve to the same
-    // git-common-dir as self. Different common-dir = different repo
-    // entirely; skip + log advisory.
-    const cCommon = _git(["rev-parse", "--git-common-dir"], { cwd: wtPath });
-    if (!cCommon.ok) {
-      try {
-        process.stderr.write(
-          `[ADVISORY] sibling-porcelain: skipping ${wtPath} — git-common-dir resolve failed\n`,
-        );
-      } catch {
-        // best-effort
-      }
-      continue;
+    out.push(wtPath);
+  }
+  return { ok: true, candidates: out, selfCommonAbs };
+}
+
+/**
+ * The M3 MED-2 / F-5 containment check for ONE candidate: the candidate MUST
+ * resolve to the same git-common-dir as self. Different common-dir = a
+ * different repository entirely.
+ *
+ * Returns true when the candidate is a genuine sibling of `selfCommonAbs`.
+ * Returns false — and writes the SAME advisory lines the inline version wrote —
+ * when the candidate's common-dir cannot be resolved or does not match.
+ *
+ * Costs one `git rev-parse` spawn. That is why `detectSiblingMutation` calls it
+ * only for candidates that produced a signal (see § SCALING).
+ */
+function _isContainedSibling(wtPath, selfCommonAbs) {
+  const cCommon = _git(["rev-parse", "--git-common-dir"], { cwd: wtPath });
+  if (!cCommon.ok) {
+    try {
+      process.stderr.write(
+        `[ADVISORY] sibling-porcelain: skipping ${wtPath} — git-common-dir resolve failed\n`,
+      );
+    } catch {
+      // best-effort
     }
-    const cCommonAbs = path.resolve(wtPath, cCommon.stdout.trim());
-    if (cCommonAbs !== selfCommonAbs) {
-      try {
-        process.stderr.write(
-          `[ADVISORY] sibling-porcelain: skipping ${wtPath} — different git-common-dir (self=${selfCommonAbs}, candidate=${cCommonAbs})\n`,
-        );
-      } catch {
-        // best-effort
-      }
-      continue;
+    return false;
+  }
+  const cCommonAbs = path.resolve(wtPath, cCommon.stdout.trim());
+  if (cCommonAbs !== selfCommonAbs) {
+    try {
+      process.stderr.write(
+        `[ADVISORY] sibling-porcelain: skipping ${wtPath} — different git-common-dir (self=${selfCommonAbs}, candidate=${cCommonAbs})\n`,
+      );
+    } catch {
+      // best-effort
     }
+    return false;
+  }
+  return true;
+}
+
+function enumerateSiblingWorktrees(repoDir) {
+  const listed = _listWorktreeCandidates(repoDir);
+  if (!listed.ok) {
+    return { ok: false, siblings: [], reason: listed.reason };
+  }
+  const out = [];
+  for (const wtPath of listed.candidates) {
+    if (!_isContainedSibling(wtPath, listed.selfCommonAbs)) continue;
     out.push(wtPath);
   }
   return { ok: true, siblings: out };
@@ -335,18 +410,40 @@ function detectSiblingMutation(repoDir, targetRelPath) {
   if (typeof targetRelPath !== "string" || targetRelPath.length === 0) {
     return { ok: false, matches: [], reason: "targetRelPath is not a usable string" };
   }
-  const enumerated = enumerateSiblingWorktrees(repoDir);
+  const listed = _listWorktreeCandidates(repoDir);
   // INDETERMINATE propagates. Previously this collapsed into the same empty
   // array a genuine "no siblings" produces, and the guards read that as
   // "no contention" — the exact silent-fallback this shard removes.
-  if (!enumerated.ok) {
-    return { ok: false, matches: [], reason: enumerated.reason };
+  if (!listed.ok) {
+    return { ok: false, matches: [], reason: listed.reason };
   }
-  if (enumerated.siblings.length === 0) return { ok: true, matches: [] };
+  if (listed.candidates.length === 0) return { ok: true, matches: [] };
   const matches = [];
   const unreadable = [];
-  for (const wt of enumerated.siblings) {
-    const r = _git(["status", "--porcelain"], { cwd: wt });
+  for (const wt of listed.candidates) {
+    // § SCALING (1) — NARROW THE QUERY. A pathspec-limited status answers the
+    // EXACT same question `--porcelain` alone did, without walking the whole
+    // sibling tree. `:(literal)` is load-bearing: git's default pathspec is a
+    // wildmatch, so an unescaped `*`/`?`/`[` in the target would widen the
+    // query (measured: `src/*.js` returns 5 rows unmagicked, 0 with literal).
+    // The exact `p === targetRelPath` compare below is RETAINED, so the
+    // pathspec only narrows what git returns — it never decides the match.
+    //
+    // `--no-optional-locks` is NOT a speed flag. This process is a read-only
+    // observer of ANOTHER operator's working tree; without it `status`
+    // refreshes and REWRITES that worktree's index and contends for
+    // `index.lock` with a lane that may be mid-operation. Same rationale, same
+    // flag, as `bin/worktree-triage.mjs::gitOk` and `bin/worktree-reap.mjs`.
+    const r = _git(
+      [
+        "--no-optional-locks",
+        "status",
+        "--porcelain",
+        "--",
+        `:(literal)${targetRelPath}`,
+      ],
+      { cwd: wt },
+    );
     if (!r.ok) {
       // A sibling we could not read is not a sibling with nothing staged.
       unreadable.push(wt);
@@ -360,27 +457,60 @@ function detectSiblingMutation(repoDir, targetRelPath) {
       }
     }
   }
+
+  // § SCALING (2) — DEFER THE CONTAINMENT SPAWN TO SIGNAL-PRODUCING CANDIDATES.
+  // The M3 MED-2 / F-5 containment check costs one `git rev-parse` per
+  // candidate. Running it over the whole forest doubled the spawn count to
+  // answer a question about candidates that, in the overwhelmingly common
+  // case, produce NO signal at all — and a candidate that produces no signal
+  // cannot influence the result whether it is contained or not.
+  //
+  // Observably equivalent to checking eagerly, case by case:
+  //   contained + no signal   → contributed nothing then, contributes nothing now
+  //   contained + match       → checked here, still a match
+  //   contained + unreadable  → checked here, still unreadable
+  //   NOT contained + match      → dropped here, exactly as it was dropped before
+  //   NOT contained + unreadable → dropped here, exactly as it was dropped before
+  // The one difference is diagnostic, not semantic: the `[ADVISORY] skipping`
+  // stderr line no longer prints for a non-contained candidate that produced
+  // no signal. It still prints for every candidate whose containment actually
+  // gates a reported result.
+  const contained = (wt) => _isContainedSibling(wt, listed.selfCommonAbs);
+  const verifiedMatches = matches.filter((m) => contained(m.worktree));
+  const verifiedUnreadable = unreadable.filter(contained);
   // A match is a positive finding and stands on its own. But when NO match was
   // found AND some sibling was unreadable, "no contention" is not an answer we
   // are entitled to — rank it INDETERMINATE.
-  if (matches.length === 0 && unreadable.length > 0) {
+  if (verifiedMatches.length === 0 && verifiedUnreadable.length > 0) {
     return {
       ok: false,
       matches: [],
       reason:
-        `${unreadable.length} sibling worktree(s) could not be read ` +
-        `(${unreadable.join(", ")}); contention status is INDETERMINATE`,
+        `${verifiedUnreadable.length} sibling worktree(s) could not be read ` +
+        `(${verifiedUnreadable.join(", ")}); contention status is INDETERMINATE`,
     };
   }
-  return { ok: true, matches };
+  return { ok: true, matches: verifiedMatches };
 }
 
 module.exports = {
   enumerateSiblingWorktrees,
   detectSiblingMutation,
-  // Exposed for testing / debugging.
+  // PUBLIC since 2026-08-16. `parsePorcelain` is the single definition of "which
+  // paths does `git status --porcelain` name", and it now has a second
+  // production consumer (`worktree-conservation.js`). Promoting it out of
+  // `_internal` is the `security.md` § Enforcement-Surface Parity move: the
+  // alternative was a second porcelain parser in the consumer, which is exactly
+  // the split contract that rule refuses — two lineages of one predicate, free
+  // to drift on quoting, renames, and the 2-char status prefix.
+  parsePorcelain: _parsePorcelain,
+  unquotePorcelain: _unquotePorcelain,
+  // Retained: the pre-existing `_internal` names stay bound to the same
+  // functions, so no existing caller or test moves.
   _internal: {
     _parsePorcelain,
     _unquotePorcelain,
+    _listWorktreeCandidates,
+    _isContainedSibling,
   },
 };

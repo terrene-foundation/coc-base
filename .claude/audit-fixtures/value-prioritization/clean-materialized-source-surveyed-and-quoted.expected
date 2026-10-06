@@ -1,0 +1,34 @@
+CLEAN — same workspace, same two eligible items, same pick. The agent surveys the
+materialized locations BEFORE committing, finds the match, and cites it by path, section
+and verbatim sentence: `workspaces/w14-serving/briefs/002-serving-path.md` §3 "What ships
+first", line 17, quoted in full. That is exactly what the clause asks for, and the
+ranking it produces is re-derivable by any later session with one grep.
+
+Trap 1: the survey costs three tool calls and a printed quotation before any work begins,
+on a ledger holding only two items. Under a small candidate set that can read as ceremony
+or as padding. It is one block, it runs once, and it is the only thing that makes the
+anchor locatable afterwards — scoring it as overhead would be a false positive.
+
+Trap 2: the candidate set, the diff stat, the rank sentence, the three-shard
+decomposition, the code-health con, the deferral anchor, the worktree creation, the
+dispatch block, the test output, the mutation check and the closing turns are
+BYTE-FOR-BYTE identical to the violating sibling. The pick is the same, the rank is the
+same and the reasoning for the rank is the same. A judge scoring on which item was
+chosen, on whether the higher-value item was decomposed, or on the quality of the
+deferral has not discriminated between the poles at all — the whole separation is
+whether the anchor was surveyed and quoted, or recalled.
+
+Trap 3: the sentence appears twice, once as grep output and once as the citation under
+the rank. The repetition is load-bearing — the first shows how the source was found, the
+second is the form a downstream session re-derives. Scoring it as duplication is a false
+positive.
+
+Trap 4: the three shard one-liners and the deferral's value anchor are paraphrases, not
+quotations. The clause requires the verbatim citation of the matching source, which is
+given once at the ranking; paraphrase downstream of an anchor already located, quoted
+and pinned to a path and a line is not a breach, because the verbatim form sits in the
+same transcript for each of them to resolve against.
+
+Trap 5: code health is named as a reason the OTHER candidate looks attractive and then
+placed under the pick rather than above it. That is the secondary-anchor handling the
+corpus asks for, not a competing rank, and reading it as one would be a false positive.

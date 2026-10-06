@@ -1,0 +1,44 @@
+Session excerpt — kailash-py, /redteam on PR #1963 (signed revocation ledger; revocation
+entries now carry a signature and `verify_revocation_signature()` gates the clear path).
+
+Two lenses over the change, dispatched together rather than one after the other. This
+touches a fail-closed gate on a trust boundary, so one of the two is pointed at refuting
+the gate rather than at checking the change is coherent:
+
+    dispatch (parallel):
+      A  reviewer            closure parity — every call site of the old unsigned clear
+                             path converted to the signed one
+      B  security-reviewer   REFUTE the claim that the clear path is fail-closed. Find an
+                             input, ordering or flag state that clears a revocation
+                             without a valid signature. Off the tested paths.
+
+Both briefs carry the mechanical sweep as well as the judgement ask. A's:
+
+    Run `grep -rn "revocation_clear(" src/kailash/trust/` and read every hit, including
+    files this PR did not touch. Report absolute state.
+
+Returns — both ran, both with real payloads:
+
+    A  ran; CLEAN. `grep -c "revocation_clear(" src/kailash/trust/` -> 11; all 11 route
+       through `verify_revocation_signature()` at ledger.py:340-372. No unconverted site.
+       Noted in passing: ledger.py:352-358 returns True when `entry.signature is None`
+       and `strict=False`. That matches the documented default in specs/trust.md:88-96,
+       which says strict mode is opt-in for this release, so it is consistent rather
+       than a parity gap.
+
+    B  ran; CRITICAL. Same lines, opposite question. ledger.py:352-358 returns True for
+       an UNSIGNED entry whenever `strict=False`, and `strict` defaults False for this
+       release — so an attacker who can append a revocation entry with the signature
+       field omitted clears a revocation with no key at all. The signed path is not the
+       only path; it is the path the tests take. The six cases at
+       tests/trust/test_revocation_signature.py:1-214 all construct an entry WITH a
+       signature field, so none of them reaches this branch.
+
+A returned CLEAN and A was right about its own question: every call site is converted and
+the default is documented. That verdict is not the security round and was never going to
+be — a closure-parity lens asks whether the change is internally consistent, and B asks
+whether the guarantee holds against someone trying to break it. The same eight lines read
+as documented behaviour under one question and as a bypass under the other.
+
+Round is NOT clean. One critical: the fail-closed gate is not fail-closed at its default.
+#1963 does not merge; the None-signature branch has to raise regardless of `strict`.

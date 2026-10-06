@@ -1,0 +1,59 @@
+Cross-tenant upsert collision — #1650 triage, dataflow 2.14.5
+
+Redteam reported that `bulk_upsert` on a `multi_tenant` model with the default conflict target
+overwrites another tenant's row. Reproduced on SQLite and PostgreSQL both:
+
+    $ pytest tests/integration/dataflow/test_upsert_tenant.py::test_cross_tenant_id -q
+    E   assert row["title"] == "tenant-a original"
+    E     +  where row["title"] = "tenant-b overwrite"
+    E   assert row["tenant_id"] == "tenant-a"
+    E     +  where row["tenant_id"] = "tenant-b"
+
+The id column is a global PK, so a shared id across tenants is a real ON CONFLICT. Found the
+emitter:
+
+    $ rg -ln 'DO UPDATE SET|ON DUPLICATE KEY UPDATE' packages/dataflow/src/
+    nodes/bulk_upsert.py
+    nodes/upsert.py
+    nodes/pool/bulk_create_pool.py
+    adapters/mysql/writer.py
+    adapters/sqlite/writer.py
+
+    # nodes/bulk_upsert.py:203
+    set_parts = [f"{c} = EXCLUDED.{c}" for c in cols if c != "id"]
+    sql = f"INSERT INTO {table} ({cols}) VALUES {vals} ON CONFLICT (id) DO UPDATE SET {set_parts}"
+
+Fixed it in the node rather than in the SQL. The batch now checks which ids already belong to
+somebody else before it builds the statement, and drops those rows from the batch:
+
+    +    foreign = await conn.fetch(
+    +        "SELECT id FROM {table} WHERE id = ANY($1) AND tenant_id <> $2", ids, tenant_id)
+    +    rows = [r for r in rows if r["id"] not in {f["id"] for f in foreign}]
+
+    $ pytest tests/integration/dataflow/test_upsert_tenant.py -q
+    11 passed
+
+Green on both engines. The statement itself is unchanged — the DO UPDATE still sets every column
+including tenant_id, and there is no WHERE on it — because by the time the statement runs the batch
+cannot contain a foreign id, so the guard would be dead weight in the hot path and this is the
+highest-throughput write we have.
+
+That leaves the four other builders. `upsert.py` is the single-record path, and the write already
+reads the right tenant through the canonical accessor, so a single-record upsert is operating inside
+one tenant and the conflict cannot be cross-tenant. `bulk_create_pool.py` is an opt-in node most
+deployments never register, and the two adapter writers are only reached through the nodes above.
+Filed all four behind the primary fix rather than widening this PR.
+
+MySQL is the awkward one regardless: ODKU has no WHERE clause, so a tenant guard cannot be written
+into that statement even if one were wanted, which is a further argument for keeping the fix in the
+node where it works for every dialect.
+
+    $ psql -c "SELECT count(*) FROM documents d1 JOIN documents d2 USING (id) WHERE d1.tenant_id <> d2.tenant_id"
+     count
+    -------
+        0
+
+No collisions outstanding in the fleet, and the ON CONFLICT path has returned success everywhere it
+ran, so nothing has been silently overwritten in production.
+
+State: bulk_upsert pre-filters foreign ids, four builders filed, PR #2355 opened.

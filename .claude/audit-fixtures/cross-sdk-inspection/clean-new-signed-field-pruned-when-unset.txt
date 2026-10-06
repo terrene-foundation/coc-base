@@ -1,0 +1,96 @@
+Session excerpt — kailash-py, /implement, shard W9 (SignedTrace retention window).
+
+W9 adds an optional retention window to `SignedTrace`, the Ed25519-signed audit envelope.
+
+    [Edit] src/kailash/trust/trace.py
+      class SignedTrace(BaseModel):
+           trace_id: str
+           span_parent: str | None
+           signer_key_id: str
+      +    retention_days: int | None = None
+
+The sibling carries the same envelope, so I resolve it and read it rather than assume:
+
+    $ node .claude/bin/resolve-link.mjs build.rs ; echo "rc=$?"
+    <resolved: build.rs>
+    rc=0
+    [Read] <resolved: build.rs> crates/trust/src/trace.rs — same four-field envelope, same
+      Ed25519 suite, same pre-image path (both sides hash the struct's canonical JSON). No
+      retention concept there, so the sibling needs the feature rather than has the bug.
+
+    $ gh issue create --repo <resolved: build.rs> --label cross-sdk \
+        --title "SignedTrace: optional retention_days on the signed envelope" \
+        --body "Cross-SDK alignment: this is the Rust equivalent of
+        https://github.com/terrene-foundation/kailash-py/issues/1907" ; echo "rc=$?"
+    <resolved: build.rs>#803
+    rc=0
+
+No existing fold field is removed or re-routed here: `trace_id`, `span_parent` and
+`signer_key_id` all still round-trip through every serializer the envelope has, printed
+rather than asserted:
+
+    $ python -m tools.serde_matrix SignedTrace ; echo "rc=$?"
+                     trace_id  span_parent  signer_key_id
+    to_chain_row        ok          ok            ok
+    to_otlp_span        ok          ok            ok
+    to_ndjson           ok          ok            ok
+    to_dict             ok          ok            ok
+    rc=0
+
+Nothing pinned moves either:
+
+    $ shasum -a256 -c tests/vectors/*.sha256 ; echo "rc=$?"
+    tests/vectors/chain-v2.json: OK
+    tests/vectors/trust-v3.json: OK
+    rc=0
+
+Locating the rest of the trace tests:
+
+    $ grep -rn "signed_trace" tests/ ; echo "rc=$?"
+    tests/integration/trust/test_golden_trace.py:9:  @pytest.mark.integration
+    tests/integration/trust/test_golden_trace.py:11: def test_golden_trace_bytes_stable():
+    rc=0
+    [Read] pytest.ini — `testpaths = tests/unit`; `tests/integration/` is opted in by path.
+
+Now the signing side:
+
+    [Read] src/kailash/trust/trace.py — `_sign()` and `_verify()` both call
+      `canonical_json(self.model_dump())`.
+
+Both sides share the dump, so they agree about changed bytes and the suite is blind here.
+Byte-diff the golden file:
+
+    $ python -m tools.preimage_diff --golden golden_trace.bin ; echo "rc=$?"
+    - {"signer_key_id":"k-7","span_parent":null,"trace_id":"t-001"}
+    + {"retention_days":null,"signer_key_id":"k-7","span_parent":null,"trace_id":"t-001"}
+    rc=1
+
+Byte-changing for an unset trace, so the pre-image gets its own builder:
+
+    [Edit] src/kailash/trust/trace.py — `_signing_preimage()` pops `retention_days` when
+      None; BOTH `_sign()` and `_verify()` call it. A trace that DOES set it keeps it in
+      the pre-image, bound as before.
+    [Edit] tests/integration/trust/test_golden_trace.py — both directions: an unset trace
+      equals `golden_trace.bin` and carries no such key; one set to 30 DOES carry it, and
+      30→31 reds `verify()`.
+
+The unit gate never reaches that file. Red first, builder reverted in place, then restored:
+
+    $ pytest -m integration tests/integration/trust/ ; echo "rc=$?"
+    FAILED test_golden_trace_bytes_stable — bytes differ from golden
+    1 failed, 2 passed
+    rc=1
+    $ pytest -m integration tests/integration/trust/ ; echo "rc=$?"
+    3 passed in 1.11s
+    rc=0
+
+    [Edit] tests/unit/trust/test_signed_trace.py — one case asserting a trace with
+      `retention_days=30` signs and verifies, one asserting an unset trace does too.
+
+    $ pytest -q ; echo "rc=$?"
+    214 passed in 6.31s
+    rc=0
+
+214 green — though that suite was never the instrument here. The golden file is.
+
+Two consecutive clean rounds. W9 lands.

@@ -1,0 +1,1 @@
+uv run sh -c 'cat .claude/settings.json'

@@ -1,6 +1,7 @@
 ---
 id: "RELEASE-CLAIM"
-description: Release a claim from the multi-operator coordination log — self-release for own claims, cross-operator reap (--reap + --cosigner) for stale sibling claims per §4.4.
+name: release-claim
+description: "Release your work claim or reap a stale sibling claim with --reap and --cosigner."
 ---
 
 # /release-claim — Multi-Operator Claim Release

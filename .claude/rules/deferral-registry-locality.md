@@ -78,13 +78,36 @@ loom's skeleton emptied, and the surfaced-not-enforced residual:
   consumer: `.claude/bin/phase2-deferral-integrity.mjs` is loom's validator and does NOT ship
   (MEASURED: `skip/no_tier_match` on both lanes for every target), so a consumer's dates are
   surfaced, never enforced — an accepted residual with a named acceptor, not an oversight.
-  REVIEW: gate-review per § Severity. Probes `.claude/test-harness/probes/deferral-registry-locality.probes.json`
-  — NOT YET AUTHORED, declared and dated in `phase2-deferrals.json::probe_authorship_deferrals`;
-  until it lands the semantic tier is UNCOVERED and is owed at gate-review via
-  `/test-harness-probe`.
-  Phase 2 (deferred per `trust-posture.md` § Two-Phase Rollout) — no hook detector built.
-  Fixtures land WITH it per `cc-artifacts.md` Rule 9. BOTH gaps are REGISTERED in loom's registry
-  rather than left as these sentences, which is this rule applied to itself.
+  REVIEW: gate-review per § Severity. **Probes: REGISTERED —
+  `.claude/test-harness/probes/deferral-registry-locality.probes.json`**, 6 rows in 3 bipolar
+  `pair_id` pairs — one per derived clause plus a meta-compliance pair — with candidate fixtures
+  + answer-key sidecars at `.claude/audit-fixtures/deferral-registry-locality/`. Registered in
+  `eval-manifest.json` as a probe-only entry (`scanner: null`) and pinned in
+  `probe-suite-integrity.test.mjs::PINNED_SUITES`; ZERO deferred clauses. The dated
+  `probe_authorship_deferrals` row that stood in for this tier is DELETED in the same change: its
+  own reason named an LLM judge as the ONLY correct instrument for both MUSTs, which made it a
+  deferral of AUTHORSHIP rather than of feasibility, and a row like that graduates by being
+  written. Its lexical argument survives contact and is built into the pairs — both poles of the
+  first pair carry the literal token `deferred` the same number of times and separate only on
+  whether the passage DECLARES a new deferral or CITES an existing one, and both poles of the
+  second end with an EMPTY registry and separate only on what the transcript shows about how it
+  got there. An earlier revision of this row said the suite was NOT YET AUTHORED; that was true
+  when written and is now FALSE, corrected rather than left standing, because a Detection row
+  claiming an absent tier is the same absence-reads-as-clean shape this rule governs.
+  Registration buys DISPATCHABILITY, never automatic execution: no workflow invokes
+  `coc-probe-dispatch.mjs`, and the loom↔csq boundary keeps CI LLM-free, so a green CI run is
+  NEVER evidence these probes passed — they execute only when an orchestrator dispatches
+  `/test-harness-probe --artifacts` at gate-review.
+  Phase 2 is RETIRED, not pending (2026-08-31): no hook detector will EVER be built. Whether a
+  passage DECLARES a deferral or merely CITES one is semantic, and every Wiring block in the corpus
+  carries the literal string `deferred` — a lexical matcher fires on all of them and discriminates
+  nothing, which is the non-discriminating instrument `instrument-discipline.md` MUST-1 BLOCKS as
+  evidence. Such a detector is capped at advisory by `hook-output-discipline.md` MUST-2, so booking
+  a Phase-2 fence here would promise teeth that cannot arrive — the shape `rule-authoring.md`
+  MUST NOT names. Gate-review IS the enforcement layer for the semantic half, permanently, in the
+  honest form `hook-event-selection.md` sets; NO structural audit fixtures are owed and none are
+  claimed. The remaining PROBE gap stays REGISTERED and dated in loom's registry rather than left
+  as a sentence, which is this rule applied to itself.
 - **Violation scope:** rule-corpus-wide (both MUST clauses); every `violations.jsonl` row names the
   deferred enforcement and the registry it was owed to.
 - **Origin:** See § Origin.

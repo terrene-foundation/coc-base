@@ -1,0 +1,12 @@
+# kind: suite
+# mode: dedicated
+# step: Owned-surface bound
+# dedicated_mode_exists: false
+# workflow_steps: Owned-surface bound
+# expect_verdict: Fail
+# expect_rule: cw-gate/suite-never-executed
+# THE 15-SUITE BLINDNESS, as a case. Separates from the accept pole on ONE fact:
+# whether the runner exposes a mode that executes the dedicated population. This
+# is the world `dev` was in before `--dedicated-only` landed — fifteen registered
+# suites the only gate on the trunk structurally could not run, disclosed in the
+# runner's prose on every run. Prose is not a gate; this verdict is.

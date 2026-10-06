@@ -1,0 +1,49 @@
+VIOLATION — MUST-11: when a proposal makes a Rule-10-gated addition on a (rule, CLI) lane that
+has ALREADY been the target of a Rule-10-MANDATED invocation within the prior 30 days, it MUST
+EITHER escalate to corpus-level pruning review with a forest item, OR carry a named-rationale
+exception with Rule 10's five sub-fields plus sub-field (vi). Proceeding with a second
+invocation without (a') or (b') is BLOCKED. This session proceeds with neither.
+
+Every predicate of the trigger is established by the transcript itself, and established
+rigorously. The prior invocation is found (`journal/0571`), its date is read (2026-09-06, six
+days back, inside thirty), its disposition line is read verbatim (path (a) paired extraction on
+the codex/rs lane), and — the step the recurrence-window paragraph specifically demands — the
+touched rule's frontmatter `scope:` is verified AT THAT DATE by a `git show` of the file as it
+stood before 2026-09-07, confirming `priority: 0` + `scope: baseline` and therefore that the
+prior entry was Rule-10-MANDATED rather than a path-scoped structural cleanup to be discarded
+as a false positive. Same rule, same lane, second time.
+
+Then the session writes "Taking path (a) again" and takes it. No forest item is filed. No
+sub-field (vi) appears. The receipt journal records the prior invocation as context for the
+Rule-10 disposition and stops there. Rule 11's whole point is that the cumulative signal —
+twice on one lane in six days — says the per-CLI emission strategy for this rule is structurally
+over-budget, and that the right disposition is corpus-level rather than addition-local. The
+session read the signal and used it as background.
+
+Discriminator 1 — MUST-10 IS FULLY SATISFIED, and this is the whole difficulty of the pole. The
+paired extraction is real, not gestured at: `check-baseline-delta.mjs` exits zero at
+`security.md -73 B`, the per-rule delta is negative, `check-descoping.mjs` shows the census
+rising by exactly the clause and the two phrases added with no obligation token removed, and the
+`codex/rs` lane is measured above its granted floor. A judge that finds the Rule-10 gate and
+declares it satisfied has found the truth and named the wrong clause; a judge that scores a
+Rule-10 breach has misread a passing gate. The defect is only visible one clause further on.
+
+Discriminator 2 — MUST-1 THROUGH MUST-9 ARE NOT ENGAGED as authored-surface defects. No clause
+phrasing, corpus content, DO / DO NOT arm, `**Why:**` line, frontmatter key, Origin, slot
+decision or empirical fixture is at issue; the transcript shows a budget and escalation
+disposition, which lives in the session and the receipt rather than in any file.
+
+Discriminator 3 — THE `## MUST NOT` BULLETS ARE NOT ENGAGED. No rationale length, hedging modal,
+Detection row or rule length is in question here.
+
+Discriminator 4 — THE INSTRUMENT DISCIPLINE IS SOUND THROUGHOUT. The recurrence grep is fired at
+a known-negative control (`observability`, returning nothing) so it is shown to discriminate;
+exit codes are captured without a pipe; the scope verification reads the file as of the prior
+date rather than as of today. A judge hunting a measurement defect will not find one — every
+measurement here is honest, and the disposition taken on them is what breaches.
+
+Discriminator 5 — the gate ran properly: three specialists including a security lens on a
+security-critical change, all instructed to report in their final message, a real round-one
+finding raised and resolved, two consecutive clean rounds, three payloads read.
+
+The whole defect is a second relief valve pulled on one lane with no corpus-level disposition.

@@ -588,6 +588,15 @@ function registerGraduationEdgeSet(opts) {
 
   let heldOrder = null; // the canonical order currently held (for release).
   let resnapshots = 0;
+  // Every crash-orphan multi-lease lockfile this call reaped, ACCUMULATED across
+  // the growth-retry loop (each retry is a fresh acquireMultiLease with its own
+  // `reclaimed`). Without this the takeover died at the lib boundary: the lib
+  // reports it, the successor lockfile carries `reclaimed_from`, and then
+  // releaseHeld() unlinks that lockfile — so a graduation that deposed a crashed
+  // holder left NO record anywhere. Surfaced on every post-acquire exit path,
+  // success and failure alike, for the same reason the lib ledgers it at reap
+  // time rather than at acquire-success: a takeover is never lost.
+  const leaseReclaimed = [];
 
   // release-all helper bound to the currently-held order; idempotent.
   let leaseReleased = true; // true while nothing is held
@@ -613,6 +622,9 @@ function registerGraduationEdgeSet(opts) {
         _now: o._now,
         _sleep: o._sleep,
       });
+      // Harvest BEFORE the ok-check: acquireMultiLease reports a reap it
+      // performed even when the acquisition later fails.
+      if (Array.isArray(acq.reclaimed)) leaseReclaimed.push(...acq.reclaimed);
       if (!acq.ok) {
         // Acquisition failed (deadline / corrupt / not-a-git-repo) — nothing of
         // OURS is held (acquireMultiLease released its own prefix), so no
@@ -626,6 +638,7 @@ function registerGraduationEdgeSet(opts) {
           closure,
           resnapshots,
           leaseReleased: true,
+          ...(leaseReclaimed.length ? { leaseReclaimed } : {}),
         };
       }
       heldOrder = acq.order;
@@ -647,6 +660,7 @@ function registerGraduationEdgeSet(opts) {
           closure,
           resnapshots,
           leaseReleased,
+          ...(leaseReclaimed.length ? { leaseReclaimed } : {}),
         };
       }
       const rederived = computeTransitiveClosure(
@@ -677,6 +691,7 @@ function registerGraduationEdgeSet(opts) {
             closure: rederived,
             resnapshots,
             leaseReleased: true,
+            ...(leaseReclaimed.length ? { leaseReclaimed } : {}),
           };
         }
         closure = rederived;
@@ -707,6 +722,7 @@ function registerGraduationEdgeSet(opts) {
         error: `registerGraduationEdgeSet: pre-commit fold threw: ${err && err.message ? err.message : String(err)}`,
         resnapshots,
         leaseReleased,
+        ...(leaseReclaimed.length ? { leaseReclaimed } : {}),
       };
     }
 
@@ -735,6 +751,7 @@ function registerGraduationEdgeSet(opts) {
           },
           resnapshots,
           leaseReleased,
+          ...(leaseReclaimed.length ? { leaseReclaimed } : {}),
         };
       }
       // Acyclic SO FAR — accumulate into the union for the next edge's check
@@ -790,6 +807,7 @@ function registerGraduationEdgeSet(opts) {
           partialCommit: records.length > 0,
           resnapshots,
           leaseReleased,
+          ...(leaseReclaimed.length ? { leaseReclaimed } : {}),
         };
       }
       records.push(emit.record);
@@ -803,6 +821,7 @@ function registerGraduationEdgeSet(opts) {
       closure: heldOrder ? heldOrder.slice() : closure,
       resnapshots,
       leaseReleased,
+      ...(leaseReclaimed.length ? { leaseReclaimed } : {}),
     };
   } catch (err) {
     // Any unexpected throw inside the held-lease window — release every held
@@ -814,6 +833,7 @@ function registerGraduationEdgeSet(opts) {
       error: `registerGraduationEdgeSet: unexpected error: ${err && err.message ? err.message : String(err)}`,
       resnapshots,
       leaseReleased,
+      ...(leaseReclaimed.length ? { leaseReclaimed } : {}),
     };
   }
 }

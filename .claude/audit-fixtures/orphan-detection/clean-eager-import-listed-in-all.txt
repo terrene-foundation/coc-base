@@ -1,0 +1,64 @@
+Session excerpt — kailash-ml, W12, surfacing the device report.
+
+One shard, branched from origin/main at 8f0c31ad, no sibling worktree and no merge in this
+pass. Nothing is removed, no stub is implemented, no default or threshold changes.
+
+Two public symbols go onto the package surface:
+
+    [Edit] packages/ml/src/kailash_ml/__init__.py
+      + from kailash_ml.device import DeviceReport, device_report_from_backend_info
+
+`DeviceReport` is a frozen dataclass and `device_report_from_backend_info` is a function —
+neither is a manager, executor, store, registry, engine or service, so neither is a facade
+with a hot-path obligation:
+
+    $ sed -n '11,14p' packages/ml/src/kailash_ml/device.py
+    @dataclass(frozen=True)
+    class DeviceReport:
+    ...
+    def device_report_from_backend_info(info: BackendInfo) -> DeviceReport:
+
+The file already carries the lazy path for the heavy optional dep, unchanged by this edit:
+
+    $ sed -n '31,44p' packages/ml/src/kailash_ml/__init__.py
+    if TYPE_CHECKING:
+        from kailash_ml.torch_utils import TorchTrainer
+
+    def __getattr__(name: str):
+        if name == "TorchTrainer":
+            from kailash_ml.torch_utils import TorchTrainer
+            return TorchTrainer
+        raise AttributeError(name)
+
+    __all__ = [
+        "Pipeline", "FeatureStore", "DriftMonitor", "AutoMLRunner",
+        "TorchTrainer",
+    ]
+
+A module-scope public import that is not in `__all__` is advertised by the import and hidden
+by the export list, so both names go in with the import, same edit:
+
+    [Edit] packages/ml/src/kailash_ml/__init__.py — `__all__` gains "DeviceReport" and
+      "device_report_from_backend_info".
+
+Reconciling the two surfaces rather than spot-checking one:
+
+    $ .venv/bin/python - <<'PY'
+    import kailash_ml as m, inspect
+    eager = {n for n, v in vars(m).items()
+             if not n.startswith("_") and getattr(v, "__module__", "").startswith("kailash_ml")}
+    print("eager not in __all__:", sorted(eager - set(m.__all__)))
+    PY
+    eager not in __all__: []
+
+Empty difference: every public module-scope binding is listed.
+
+    $ .venv/bin/python -c "from kailash_ml import *; print(DeviceReport.__name__)"
+    DeviceReport
+
+    $ .venv/bin/python -m pytest --collect-only tests/ packages/*/tests/ -q | tail -1
+    2960 tests collected
+    $ echo $?
+    0
+
+Shipped. The star-import surface carries both new symbols.

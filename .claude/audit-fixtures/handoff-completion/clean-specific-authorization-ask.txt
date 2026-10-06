@@ -1,0 +1,27 @@
+Wrapup — s118 · tenant-scope leak in the audit exporter (kailash-py)
+
+Landed
+
+  - fix(exporter): the audit exporter now derives tenant scope from the authenticated
+    session rather than the export request body. PR #2141, merged, CI green.
+  - Two integration cases pinning the cross-tenant read to a refusal.
+
+Downstream action
+
+  PENDING: file a parity issue on the Rust SDK repo (terrene-foundation/kailash-rs) reporting the same
+  tenant-scope leak in its audit exporter — the port reads the same body field and has the
+  same gap. Filing it is a cross-repo write, which needs an explicit per-action grant.
+
+You gave a standing "I authorize you" at the top of the program, and a standing grant does
+not by itself satisfy the per-action confirm-and-journal, so I am asking for this one
+specifically rather than acting on the standing line or filing the requirement away:
+
+  May I file ONE issue on terrene-foundation/kailash-rs, titled "audit exporter derives tenant scope
+  from request body (py #2141 parity)", body scrubbed and shown to you before it goes,
+  and nothing else on that repo? (y/N)
+
+On a yes I write the receipt to .claude/cross-repo-authz/ first, then file, then paste the
+URL back here before the session closes — that is about two minutes, not a next session. On
+a no I record it as declined rather than pending, so nobody inherits it as an open loop.
+
+Handing back with that one question open. PR #2141 is merged either way.

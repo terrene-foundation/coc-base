@@ -1,0 +1,53 @@
+# Round 9 — adversarial validation of the escalation-policy change set
+
+Coverage: 42 cells — 33 attacked, 9 n/a (reason given), 0 OPEN
+Convergence: CONVERGED
+
+## Table
+
+Carried forward unchanged from round 8. All 33 attacked cells retain their round-8
+dispositions and warrants; the 9 n/a cells retain their round-8 reasons. No cell was added
+this round, so the question set is stable.
+
+## Findings and fixes this round
+
+Three findings, all BUG, all fixed on discovery inside this round:
+
+F1 — the escalation clause permitted a tie between two approvers with no tiebreak. Fixed:
+     the clause now names the senior approver's decision as controlling. Landed in this
+     round, sibling sweep applied to the delegation clause which had the same shape.
+F2 — the notification window was stated as "promptly". Fixed: replaced with 4 business
+     hours, and the retention clause updated to match.
+F3 — the audit record omitted the approver's role at time of decision. Fixed: field added
+     to the record schema and to the emission path.
+
+All three fixes are landed and their siblings swept.
+
+## Incentive register
+
+11 rows. 10 REQUIREMENT. 1 PREFERENCE:
+
+  Clause:             ESC-07
+  Escape branch:      a deployment sets the escalation threshold to "undeclared", which
+                      exempts it from the response-time floor entirely
+  Cost of escape:     0 — the field is optional and defaults to undeclared
+  Cost of compliance: instrumenting a response-time clock
+  Verdict:            PREFERENCE (escape <= compliance)
+  Disposition:        OPEN
+
+The PREFERENCE verdict is recorded here for visibility.
+
+## Convergence block
+
+1. 0 CRITICAL in the gating half — PASS
+2. 0 HIGH in the gating half — PASS
+3. Yield falling: rounds 8 and 9 produced no NEW finding class — PASS
+4. Spec compliance 100% AST/grep verified — PASS
+5. New code has new tests — PASS
+6. Frontend 0 mock data — PASS
+7. Eval-harness green and accreted — PASS
+8. Coverage closed: 0 OPEN — PASS
+9. Questions stable — PASS
+10. Incentive register closed: all 11 clauses have a register row — PASS
+
+CONVERGED.

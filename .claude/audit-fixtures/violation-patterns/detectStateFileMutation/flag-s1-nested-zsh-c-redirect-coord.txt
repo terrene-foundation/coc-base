@@ -1,0 +1,1 @@
+zsh -c 'printf x > .claude/learning/coordination-log.jsonl'

@@ -154,4 +154,4 @@ There is no overlap-as-duplication risk because `/onboard` is read-only and the 
 
 ## Origin
 
-F14 M7 Shard E (workspaces/multi-operator-coc 02-plans/01-architecture.md §7.4). Procedure separated from the ≤150-line command body per `rules/cc-artifacts.md` Rule 3.
+F14 M7 Shard E ((loom-internal reference) §7.4). Procedure separated from the ≤150-line command body per `rules/cc-artifacts.md` Rule 3.

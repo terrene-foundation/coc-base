@@ -1,0 +1,49 @@
+Session transcript excerpt — loom, wiring detectVendorRepoDrift into a PostToolUse hook.
+
+---
+
+`detectVendorRepoDrift` lands in `.claude/hooks/lib/violation-patterns.js`. It reads
+`payload.tool_input.command`, pulls the `gh … --repo <slug>` argument off the
+segment-leading `gh` invocation, and returns a finding when the slug is not
+`example-org/example-repo`. The tail I just wrote:
+
+    if (isShellVarShaped(target)) return null;   // pre-expansion; nothing to compare
+    if (target !== IN_SCOPE_SLUG) {
+      return {
+        rule_id: "repo-scope-discipline/MUST-NOT-1",
+        severity: "halt-and-report",   // evidence is a matched span, so it annotates
+        evidence: `gh --repo ${target} from ${IN_SCOPE_SLUG}`,
+      };
+    }
+    return null;
+
+That severity stays: the signal is a regex over a command string, and a surface
+rewrite walks straight past it, so it must not fence.
+
+The halting branch in `.claude/hooks/vendor-repo-drift-guard.js`:
+
+    const finding = detectVendorRepoDrift(payload.tool_input.command);
+    if (finding) {
+      emit({
+        hookEvent: "PostToolUse",
+        severity: finding.severity,
+        what_happened: `gh targeted ${finding.target} — off-repo`,
+        why: "repo-scope-discipline/MUST-NOT-1",
+        agent_must_report: [
+          "Quote the exact gh command that triggered the detection",
+          "State whether a receipt covers that target",
+        ],
+        agent_must_wait: "Do not re-run the command until the user instructs.",
+        user_summary: `cross-repo gh against ${finding.target}`,
+      });
+    }
+    passthrough();
+
+One raw `process.exit` is still in the file and it stays — the timeout fallback,
+which writes `{continue: true}` first, so a hung hook fails open rather than
+halting on an empty body.
+
+Audit cases under `.claude/audit-fixtures/violation-patterns/detectVendorRepoDrift/`:
+`clean-in-scope-repo.txt` (null), `flag-vendor-mirror.txt` (`<org>/vendor-mirror`,
+halt-and-report), `skip-shell-variable.txt` and `skip-command-substitution.txt` (both
+null). Four green from `/Users/me/repos/loom`.

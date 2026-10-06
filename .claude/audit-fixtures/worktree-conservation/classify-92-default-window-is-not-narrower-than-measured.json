@@ -1,0 +1,5 @@
+{
+  "arm": "classifyTreeDefaultCfg",
+  "note": "loom#2005 boundary pin. 21 minutes is the MEASURED wall-clock of the fixture gate plus the harness corpus run back to back — the quiet phase that produced the false positive. It must be WIP under the shipped default, so a future narrowing of that default below the measured battery length reds here rather than silently reinstating the bug.",
+  "facts": { "measured": true, "dirty": 1, "contentIdleMs": 1260000 }
+}

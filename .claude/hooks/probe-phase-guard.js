@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 /**
+ * @hook-event: PreToolUse:Glob|Grep|Read|WebFetch (guard) — the retrieval attempt and existing certification probe lock are visible before assisted retrieval.
+ *
  * probe-phase-guard.js — pre-tool-use hook enforcing the /certify probe-phase
  * no-Claude-assistance discipline (PR #355 R1 security HIGH-1 closure).
  *
@@ -53,10 +55,7 @@
 
 const TIMEOUT_MS = 5000;
 
-const fallback = setTimeout(() => {
-  process.stdout.write(JSON.stringify({ continue: true }) + "\n");
-  process.exit(1);
-}, TIMEOUT_MS);
+let fallback = null;
 
 const fs = require("fs");
 const path = require("path");
@@ -69,6 +68,9 @@ const { emit } = require(path.join(__dirname, "lib", "instruct-and-wait.js"));
 // (`rules/security.md` § Enforcement-Surface Parity). See § resolveRepoDir.
 const { provenCheckoutRoot } = require(
   path.join(__dirname, "lib", "git-checkout-proof.js"),
+);
+const { resolveRepoDirBound } = require(
+  path.join(__dirname, "lib", "repo-dir-override.js"),
 );
 
 // Retrieval-class tools — the orchestrator uses these to look things up.
@@ -173,7 +175,33 @@ function _warnRefusedRepoDir(raw) {
  * a session with no override pays nothing.
  */
 function resolveRepoDir(payload) {
-  const envDir = process.env.COC_OPERATOR_REPO_DIR;
+  // loom#1871 HIGH-1 — provenCheckoutRoot asks "is this A checkout root?",
+  // and a fresh `git init` answers YES, so loom#1473 hardening did NOT close
+  // the redirect: this guard still reproduced the bypass, measured two-pole.
+  // resolveRepoDirBound adds the missing question — is it the SAME REPOSITORY as
+  // the session? — via `--git-common-dir` identity. Both run: the proof still
+  // supplies the canonical realRoot for a legitimate override.
+  // NARROW-NOT-WIDEN, not identity alone. Identity-binding by itself would
+  // also refuse a CROSS-REPO injection that makes this gate STRICTER — which is
+  // exactly what loom#1473's own no-false-positive pole exercises (session cwd
+  // holds no lockfile; the injected root does, and the block must still fire).
+  // Deleting that would be removing a shipped, tested capability to close an
+  // attack that does not use it.
+  //
+  // The discriminator is the DIRECTION of the verdict change, because this
+  // guard's decision is a single boolean — is there a probe lockfile? An
+  // override that ADDS a lockfile the session lacks can only tighten; one that
+  // REMOVES a lockfile the session has is the bypass, and nothing else.
+  // Same-repository overrides are honoured unconditionally, as before.
+  const bound = resolveRepoDirBound(payload, { hookName: "probe-phase-guard" });
+  let envDir = bound.overrideRefused ? null : process.env.COC_OPERATOR_REPO_DIR;
+  if (!envDir && bound.overrideRefused && process.env.COC_OPERATOR_REPO_DIR) {
+    const candidate = process.env.COC_OPERATOR_REPO_DIR;
+    const proof = provenCheckoutRoot(candidate);
+    // Readmitted ONLY when the override is a proven checkout root AND carries a
+    // lockfile — i.e. it can only make this gate fire, never silence it.
+    if (proof && findProbeLockfile(proof.realRoot)) envDir = candidate;
+  }
   if (envDir) {
     const proof = provenCheckoutRoot(envDir);
     if (proof) return proof.realRoot;
@@ -215,7 +243,17 @@ function findProbeLockfile(repoDir) {
   }
 }
 
-(async function main() {
+// hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
+// in-process by lib/hook-engine.js (dispatch.js).
+function hookMain() {
+  fallback = setTimeout(() => {
+    process.stdout.write(JSON.stringify({ continue: true }) + "\n");
+    process.exit(1);
+  }, TIMEOUT_MS);
+  return main();
+}
+
+async function main() {
   try {
     const payload = await readStdinBounded();
     const hookEvent = payload.hook_event_name || "PreToolUse";
@@ -274,4 +312,14 @@ function findProbeLockfile(repoDir) {
     }
     process.exit(0);
   }
-})();
+}
+
+module.exports = { hookMain };
+
+// CLI entry. The default path is exactly hookMain() — no engine dependency, so a
+// tree that copies this hook without lib/hook-engine.js runs it unchanged. The
+// selftest path replays the run through the in-process engine (hook-engine.js::runCli).
+if (require.main === module) {
+  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1") require("./lib/hook-engine.js").runCli(hookMain, __filename);
+  else hookMain();
+}

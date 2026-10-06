@@ -1,0 +1,20 @@
+VIOLATION — spec-accuracy.md MUST-1 (and the first § MUST NOT bullet, which restates it). Two of
+the four citations merged into §13 — a module path, a function name and a line number for each —
+were never resolved against main, and the transcript says so plainly. They were copied out of an
+unmerged PR's diff, so they resolve against a branch and not against the tree the spec is merged
+into. The defence is drawn from the rule's own BLOCKED corpus almost verbatim: "accessor is in PR
+review", "the citation is aspirational", and "/redteam will catch unimplemented parts" (here, "the
+sweep runs again at the next redteam"). Rule 1 requires resolution at MERGE time, by a literal
+grep / ast.parse / find; a future sweep is not that, and a citation accurate against a branch is a
+phantom in the file that ships.
+
+DISCRIMINATORS. MUST-2 is NOT in play: §13 as merged carries no Phase-1/Phase-2, Promised/Current,
+Target/Fallback or Scaffold/Live framing, and none of the banned inline markers (TBD, pending, to
+be wired, follow-up) appears in the spec content — the section states four metrics flatly. A judge
+scoring split-state framing has mis-read the transcript's prose about merge ordering, which is
+session commentary and not spec content. MUST-3 is NOT in play: no out-of-scope section is added
+or touched. Rule 1a is NOT in play: nothing here is a kp:// referent in a knowledge-product field,
+so the runtime-resolution carve-out cannot reach these two rows even if a judge reaches for it.
+
+The closing FE-snapshot note is a correctly-recorded scope decision, present verbatim in the
+compliant pole too, and is NOT the defect.

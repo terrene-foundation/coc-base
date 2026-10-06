@@ -68,4 +68,4 @@ predicate); the comparison is structural (verdict class), NOT a re-execution of
 the signature gate (the fixtures carry stub sigs; signature verification is
 exercised by the behavioral suite). Authored F122 Shard 5 (R1 cc-architect MED-1
 resolution); receipt: the F122-ADO-N1-FIXTURES forest item in
-`multi-operator-coordination.md` § Origin registry.
+`skills/30-claude-code-patterns/multi-operator-coordination-substrate.md` § Origin registry.

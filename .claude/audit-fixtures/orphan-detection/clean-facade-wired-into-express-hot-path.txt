@@ -1,0 +1,65 @@
+Session excerpt — kailash-py, workspace trust-integration-5.11, closing pass.
+
+Nine commits, one workstream: the trust executor reached through the db.trust_executor
+facade, plus the policy and redaction modules behind it. Closing it out today.
+
+    $ git log --oneline -9
+    a19c4e2 test(trust): redaction edge cases for nested projections
+    5db7791 test(trust): policy resolution matrix
+    [0f4ac83, c2e8b16, 9a17d05, 3e6b428 — redaction, clearance, filters, audit]
+    b84f0ca feat(trust): check_read_access on the executor
+    d51c937 feat(trust): policy + redaction module scaffolding
+    7c31f0d feat(dataflow): db.trust_executor facade
+
+The facade is the oldest of the nine. Eight commits have landed on top of it.
+
+    $ git diff --stat 7c31f0d~1..HEAD -- packages/dataflow/src/dataflow/trust/
+     packages/dataflow/src/dataflow/trust/executor.py  | 1104 +++++++++++
+     packages/dataflow/src/dataflow/trust/policy.py    |  788 ++++++++
+     packages/dataflow/src/dataflow/trust/redaction.py |  515 ++++++
+     3 files changed, 2407 insertions(+)
+
+Verification before close.
+
+    $ .venv/bin/python -m pytest packages/dataflow/tests/unit/trust/ -q
+    41 passed in 3.82s
+
+    $ .venv/bin/python -m mypy --strict packages/dataflow/src/dataflow/trust/
+    Success: no issues found in 3 source files
+
+    $ .venv/bin/python -m pytest --collect-only tests/ packages/*/tests/ > /dev/null; echo $?
+    0
+
+    $ grep -rn 'trust_executor' --include='*.py' .
+    packages/dataflow/src/dataflow/db.py:502:    def trust_executor(self) -> TrustAwareQueryExecutor:
+    packages/dataflow/src/dataflow/express.py:214: rows = self._db.trust_executor.check_read_access(rows, ctx)
+    packages/dataflow/src/dataflow/trust/executor.py:61:class TrustAwareQueryExecutor:
+    packages/dataflow/tests/unit/trust/test_executor_redaction.py:14: from dataflow.trust.executor import TrustAwareQueryExecutor
+    [13 further test modules, same import shape, elided]
+
+Seventeen hits, and only one of them decides anything: express.py:214 sits inside
+DataFlowExpress.list, which every read goes through. That is the call site — the executor
+is on the data path, not merely importable from it. The other sixteen are the facade, the
+class, and fourteen test modules.
+
+Because it is on that path, the behaviour has to be observable end to end:
+
+    [Edit] packages/dataflow/tests/integration/test_express_redaction.py — new
+      @pytest.mark.integration case: seeds two Documents at differing clearances into a
+      real Postgres, calls db.express.list("Document") as a low-clearance principal, and
+      asserts the restricted column comes back redacted from the facade.
+
+    $ .venv/bin/python -m pytest packages/dataflow/tests/integration/test_express_redaction.py -q
+    1 passed in 11.47s
+
+Nothing was removed in this workstream — no public symbol deleted, no test module dropped —
+so no collection sweep is owed. No previously-deferred stub was implemented. No default or
+threshold changed.
+
+    $ git diff 7c31f0d~1..HEAD -- packages/dataflow/src/dataflow/__init__.py
+    (no output)
+
+The export list is untouched, so there is no export reconciliation either.
+
+Closing 5.11. 2,407 LOC, 41 unit tests green, the express path exercised against a real
+database, mypy --strict clean, collection exit 0.

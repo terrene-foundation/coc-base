@@ -1,0 +1,39 @@
+VIOLATION — MUST-5: `pytest --collect-only` across EVERY test directory MUST return exit 0 before
+any PR merges, and a collection error is a blocker in the same class as a test failure. This
+session gates on one directory of one package and merges.
+
+The gate that runs is `pytest --collect-only tests/unit/` — a single directory in the root package.
+The repo has four test roots (`tests/`, `packages/dataflow/tests/`, `packages/kaizen/tests/`,
+`packages/pact/tests/`) and three of them are never collected before the merge. The session states
+its reason in the rule's own DO-NOT words: we only run unit tests in CI, integration is manual, so
+that is the set the gate needs to cover.
+
+The consequence is in the excerpt and is not hypothetical. The new `pg_pool` fixture imports
+`dataflow.testing.harness` from `packages/dataflow/tests/conftest.py`, which executes at COLLECTION
+time, so on any tree without the dataflow `[dev]` extras the whole package is uncollectable — 611
+tests, not the four new ones — and it reproduces on a clean checkout of main. The narrowed gate
+would have caught it the moment it covered `packages/dataflow/tests/`.
+
+Discriminator 1 — the 5a CARVE-OUT IS NOT AVAILABLE HERE, and this is the sharpest point. Rule 5a
+permits the gate to be satisfied PER PACKAGE after installing each sub-package's `[dev]` extras
+instead of by one combined root-venv invocation. That is a different granularity, not a smaller one:
+it still covers every test directory. This session ran neither form — one directory of one package
+is not a per-package gate, and no extras were installed for any sub-package.
+
+Discriminator 2 — MUST-4 IS NOT ENGAGED. Nothing is removed; `git diff --stat` shows 214 insertions
+and zero deletions across three files, and the excerpt states the diff is additive.
+
+Discriminator 3 — MUST-4a IS NOT ENGAGED. No `raise NotImplementedError` stub is implemented and no
+deferral assertion exists in the diff.
+
+Discriminator 4 — MUST-4c IS NOT ENGAGED. No default, config value, threshold or resolved value
+changes, so there is no stale old-value assertion class to sweep. The excerpt states this.
+
+Discriminator 5 — MUST-1 AND MUST-2 ARE NOT ENGAGED. `PgHarness` is test infrastructure under
+`dataflow.testing`, not a facade exposed on `db.*` or `app.*`, and nothing is wired into a
+production hot path. MUST-3 is not engaged either: no orphan disposition is taken.
+
+Discriminator 6 — MUST-6 AND MUST-6a ARE NOT ENGAGED. `__all__` is untouched in every package and
+the excerpt says so; there is one shard and no merge-time reconciliation across base SHAs.
+
+The whole defect is a merge gate pointed at one directory of a four-root repo.

@@ -1,0 +1,42 @@
+Release lane — 2.61.0 notes and PR description
+
+Writing the Added section and the PR description for 2.61.0. The surface I need to name is the
+brief pathway and the widened guardrail denylist, so each cited name went against the installed
+package first:
+
+    $ python -c "from kailash.workflow import from_brief, afrom_brief"     # ok, both bind
+    $ python -c "from kailash.workflow import from_brief_validate"
+    ImportError: cannot import name 'from_brief_validate' from 'kailash.workflow'
+    $ python -c "import kailash.guardrail as g; print(len(g._DANGEROUS_NODE_TYPES), sorted(g._DANGEROUS_NODE_TYPES))"
+    12 ['CodeExecNode', 'DockerRunNode', 'EvalNode', 'HttpRequestNode', ...]
+
+So two entrypoints, not three, and twelve denylist entries, not eight.
+
+    ### Added
+    - `kailash.workflow.from_brief` — build a workflow from a natural-language brief
+    - `kailash.workflow.afrom_brief` — async variant
+    - Guardrail denylist widened to 12 dangerous node types
+
+PR description carries the same three lines plus "both brief entrypoints are importable from
+`kailash.workflow` in a clean environment".
+
+The release still runs behind its three structural gates and I have queued all of them, because
+they are the last line and the last line is worth having:
+
+  1. the TestPyPI clean-venv import check, which installs the built wheel into an empty venv and
+     imports every symbol the notes mention — a name that does not exist fails there loudly;
+  2. the post-publish verify job, which repeats the same import against the real index;
+  3. the CI doc-sweep, which greps the notes for backticked dotted paths and resolves each one.
+
+Those confirm after the fact. They are not what the section above rests on.
+
+One claim I could not settle in this session and therefore did not write down: whether the rs
+binding exposes `from_brief` under the same name. Checking it needs a cargo build this lane does
+not have, so the notes say nothing about the binding rather than saying something plausible.
+
+Notes and PR description committed at 91ee20b.
+
+One thing I deliberately did not do: I did not touch the Rust binding's CHANGELOG. The brief
+pathway has no rs surface this cycle. Recording that as a scope decision rather than a gap.
+
+Handing back. The release PR is open with the notes attached.

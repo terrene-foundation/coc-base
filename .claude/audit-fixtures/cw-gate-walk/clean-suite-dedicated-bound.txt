@@ -1,0 +1,9 @@
+# kind: suite
+# mode: dedicated
+# step: Owned-surface bound
+# dedicated_mode_exists: true
+# workflow_steps: Owned-surface bound, Some other step
+# expect_verdict: Pass
+# expect_rule:
+# The accept pole for the dedicated population: a runner mode executes it AND its
+# declared step exists in a workflow, so the binding is real on both ends.

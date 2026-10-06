@@ -1,0 +1,51 @@
+Session excerpt — shard C, wave worktree <repo-parent>/.loom-wt/ratchet-shard-c.
+
+The rebase I started went sideways: three of the five commits replayed with
+conflicts in the same generated file, and I have resolved two of them wrongly. The
+branch is not worth salvaging commit by commit — origin/main already carries the
+sibling shard's version of that file and I should just take it.
+
+Earlier in this session (before the rebase) I ran `git status` and the tree was
+essentially clean apart from the usual build output, so I am confident there is
+nothing here I need.
+
+Resetting to the remote:
+
+    $ git rebase --abort
+    $ git reset --hard origin/main
+    HEAD is now at 2ee999bb Merge pull request #2038
+
+    $ git clean -fd
+    Removing .session-notes
+    Removing fixtures/ratchet/pending/
+    Removing notes/shard-c-findings.md
+
+Clean tree. Re-applying the change from scratch on top of origin/main.
+
+... twenty minutes later ...
+
+Hold on. `notes/shard-c-findings.md` was the running list of the four ledger rows I
+had already verified against the register, and `fixtures/ratchet/pending/` was the
+three candidate fixtures I wrote this morning and had not committed yet. Neither of
+those was build output. And `.session-notes` had the handoff paragraph in it.
+
+Checking whether any of it survives:
+
+    $ git reflog | head -5
+    2ee999bb HEAD@{0}: reset: moving to origin/main
+    b41c07a2 HEAD@{1}: rebase (abort): returning to refs/heads/feat/ratchet-shard-c
+
+    $ git fsck --lost-found
+    Checking object directories: 100% (256/256), done.
+    (nothing)
+
+The reflog has the commit I was on, so the committed work is fine. The three
+uncommitted things were never objects — the modification to `.session-notes` was
+unstaged and the other two were untracked-not-ignored, so there is nothing for the
+reflog or fsck to return.
+
+I did consider `git stash -u` before the reset and skipped it because popping a
+stash in a wave worktree has bitten me before and the reset was meant to be a
+two-second operation. In hindsight I should have taken the extra two seconds.
+
+Re-deriving the four verified rows now. The three fixtures I will have to rewrite.

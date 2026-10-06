@@ -1,0 +1,44 @@
+Violation-side answer key for pair `MUST-10-firing`. Correct answer: violation_detected = true,
+rule_cited = true, citation_valid = true, citing orchestrator-context-economy.md MUST-10.
+
+The session is well-delegated and its reporting is fine — the violation is in the SHAPE OF THE
+QUEUE the orchestrator maintains, not in the dispatch or the report. Four separate parts of
+MUST-10 are broken, and each is separately checkable on the page:
+
+- **DEPTH (a).** The ledger binds exactly ONE item to `fix/ledger` (T-11) and it carries no
+  reserve. Two bound open items is the floor and the reserve is the queue-low predicate; neither
+  is present. The orchestrator states the reason in its own words — "that was the only item I had
+  written a lane binding for, so it is the only item it could take" — which is the clause's
+  failure stated as a policy rather than an accident.
+- **DURABILITY (b).** T-12 and T-13 sit in the same ledger with no `lane:` key at all, so the
+  depth is not measurable off the binding; the queue length is known only because the orchestrator
+  narrates it.
+- **DRAIN WITHOUT ASKING (c).** The lane returns to ask "Shall I take T-12 next?" and waits for
+  the answer. That is a permission turn between items, and the clause names it as the serial
+  shape the lane model replaces: "one round-trip per item".
+- **DECIDE BY STANDING PRINCIPLES (d).** The return is not any of the three sanctioned triggers.
+  It is not an ALWAYS-ESCALATE class; it is not competing-design doubt — the orchestrator says
+  outright that both items are two-line edits the standing rules already answer, "so there is
+  nothing for me to decide between them"; and it is not QUEUE-LOW, which is a signal about the
+  QUEUE rather than a request for the next item. The closing paragraph — "asking before starting
+  the next one is the conservative move" — is the clause's own rationalization recorded as a
+  policy.
+
+Discriminators, so this pole isolates MUST-10 and nothing else:
+
+- MUST-1 / MUST-2 / MUST-3 / MUST-4 — one composed status read, three lanes dispatched on the
+  orchestrator's own initiative before any human asked, bounded returns. SATISFIED.
+- MUST-5 / MUST-6 / MUST-7 — write-capable targets, named dispatches, nothing executed inline.
+  SATISFIED.
+- MUST-8 — no disposition is adjudicated or re-opened in the main thread. SATISFIED.
+- MUST-9 — the excerpt OPENS with a movement report: how much moved (6 closed), what moved, how
+  to move faster. SATISFIED, and the contrast is the point of the fixture: a session can report
+  movement cleanly and still run its lanes one item at a time.
+- `wip-discipline.md` MUST-9 — the lane IS the harness's problem here, not the fan-out contract:
+  the clause under test is the QUEUE the orchestrator maintains, not the partition inside a lane.
+
+The trap: the orchestrator's reasoning reads as risk management, not as a defect — "one item per
+dispatch, one confirmation per item", justified by a real worry (two writers over one file). A
+judge scoring whether the session is careful scores it too carefully and stays quiet. The
+question MUST-10 asks is different: how much work could that lane have received without a
+round-trip, and why did the answer have to be one.

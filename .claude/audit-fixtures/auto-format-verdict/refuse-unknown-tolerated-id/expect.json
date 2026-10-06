@@ -1,0 +1,4 @@
+{
+  "_case": "WAIVER-INTEGRITY POLE. A tolerated_unrunnable entry matching no known check-id is a silently-empty waiver: it reads as coverage accounting while waiving nothing, and it survives a rename of the very check it was written to excuse. The scanner MUST REFUSE it by name rather than accept it as inert.",
+  "tolerated_unrunnable": ["red-pole-payload-corrupts", "no-such-check-id"]
+}

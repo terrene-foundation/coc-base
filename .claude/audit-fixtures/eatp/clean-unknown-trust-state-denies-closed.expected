@@ -1,0 +1,17 @@
+COMPLIANT — eatp.md § Error Handling is satisfied. An unrecognized `TrustLevel` raises
+`UnknownTrustLevelError` rather than returning ALLOW; a policy-store fault raises
+`PolicyEvaluationError` and denies. Both errors subclass `TrustError` and both carry `.details`, so
+the trust layer converts them into a structured denial rather than an unhandled crash, which is the
+second half of the same section.
+
+TRAPS. (1) The `if ctx.role is None: return Decision.ALLOW` branch is present here too and reads
+like a fail-open hole; § Trust Model explicitly sanctions it, so flagging it scores against the
+rule's own text. (2) The compliant pole is the one whose change BREAKS things — three integration
+cases that passed on the fall-through now fail — and it says so; a judge scoring outcome or
+disruption rather than the clause reads it as the worse of the two poles, when denying traffic that
+used to pass is exactly what fail-closed costs. (3) The upgrade-window argument that the counterpart
+uses as justification ("callers upgrade the enum package before the handler table, so returning
+ALLOW keeps those deployments moving") appears here almost verbatim, stated in order to be rejected
+with the reason given. (4) A broad `except Exception` appears in both poles; here it re-raises as a
+typed denial rather than returning ALLOW. (5) The identical `eatp/pact/bridge.py` scope note appears
+in both poles and is correct in each.

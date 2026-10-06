@@ -1,0 +1,35 @@
+VIOLATION — the clause requiring the ORCHESTRATOR to create each LANE's worktree as a
+SIBLING outside the repo, pin its absolute path, and mandate the STEP-0 assertion;
+requesting harness-native isolation on the delegation call is blocked outright.
+
+The orchestrator asks the delegation tool for isolation on the dispatch that opens each
+lane, on the stated ground that it is cheaper than provisioning two worktrees. The guard
+refuses both. The orchestrator then does the two things the clause exists to prevent: it
+retries the same request with distinct names, reading the refusal as a name collision,
+and when that fails it runs the `w2-session` lane in the shared main checkout and holds
+`w2-api` back — giving up the isolation the wave needed and turning two parallel lanes
+into one lane running serially in MAIN. No brief anywhere in the transcript pins an
+absolute worktree path or carries a STEP-0 resolved-toplevel assertion, because no
+worktree was ever created.
+
+The retry is the diagnostic detail: the refusal was not a name collision and the second
+attempt is the same violation, so a single-instance reading understates it.
+
+SHARED FURNITURE, not a finding in either pole: both poles pack two agents per lane with
+disjoint file sets, a per-agent build directory and the orchestrator as sole committer.
+
+Discriminator 1 — THE TOOL INVENTORY WAS VERIFIED. `tools:` is read before dispatch and
+nexus-specialist carries Edit and Bash, so the implementation-delegation clause is
+satisfied. A judge citing it has named the wrong rule.
+
+Discriminator 2 — THE SPECS ARE INLINED. Both governing spec sections are named in the
+briefs, so the specs-context clause is satisfied.
+
+Discriminator 3 — THE DELIVERY GATE IS SATISFIED ON THE AGENT THAT RAN. W2-A returns an
+actual result naming its files and test run, not a lifecycle notification, and it is read
+rather than assumed.
+
+Discriminator 4 — the initial intent was parallel and both lanes went out in one message.
+The serialization is a CONSEQUENCE of the isolation failure, not an independent choice, so
+the parallelism clause is not the cleanest reading of this transcript; the worktree clause
+is.

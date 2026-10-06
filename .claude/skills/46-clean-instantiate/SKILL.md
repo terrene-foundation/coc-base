@@ -24,6 +24,11 @@ carries ZERO canon operator/trust identity (brief directive #1 — non-contamina
 | 4   | `.claude/bin/ecosystem.json`                                                                                                                                                                  | real per-ecosystem org slugs / registry / `upstream_canon`                                  | **reset to placeholder** + set `upstream_canon` to the captured origin URL (W2-b)                                                                           |
 | 5   | `.claude/disclosure-tenant-denylist.json`                                                                                                                                                     | loom-only tenant token list                                                                 | **reset to `{tokens: []}`**                                                                                                                                 |
 | 6   | per-clone coordination STATE (`.claude/learning/coordination-log.jsonl*`, `posture.json*`, `violations.jsonl`, `observations.jsonl`, `.initialized`, `codify-lease.json`, clone-init witness) | runtime trust state                                                                         | **clear if present** (gitignored — a raw clone omits them, but a `cp -r`/template copy carries them). NOT `learning-codified.json` (insight, not identity). |
+| 7   | `.claude/trust-root.json`                                                                                                                                                                     | every canon signer's FULL pubkey (PGP armor whose base64 encodes the UID; SSH key bodies), `person_id`/`role`, canon's `root_commit` anchor | **DELETE** — not neutralize: a token scrub leaves the key material byte-identical and the UID decodable. Absent = "not adopted"; after `/ecosystem-init` writes the real roster, a repository that carries the `build-trust-root.mjs` tool (a loom-ecosystem fork) derives its own with that tool's `--write` mode; a repository without the tool keeps it absent |
+| 8   | `burndown/` (the data dir only)                                                                                                                                                               | canon's SIGNED burndown event log (`verified_id` per record), register, issue inventory     | **DELETE** — same class as `journal/`; `BURNDOWN.md` and `burndown-manifest.json` are siblings and stay (same boundary as the client-template edition)     |
+| 9   | `.claude/cross-repo-authz/`                                                                                                                                                                   | authorization receipts: filenames + bodies name canon org slugs and private work            | **DELETE** — the client re-produces its own via `/cross-repo-authorize` (client-template edition parity)                                                   |
+| 10  | `.claude/VERSION`                                                                                                                                                                             | canon org slugs (`upstream.repo`, `version_url`) + the codify changelog                     | **reset to `{version: "0.0.0", type}`** — no upstream, no changelog; the clone's own `coc-*` `type` is kept (fallback `coc-source`); hooks still read it     |
+| 11  | `.claude/bin/lib/loom-workspace-names.json` (loom-only)                                                                                                                                       | `strip` = canon's internal workspace inventory                                              | **reset** to the client-template edition's bytes (edition-emit's exported generator); left in place, and gated, where that generator is absent             |
 
 GAP A (W2-c): the roster is also added to `sync-manifest.yaml::gitignore_additions`, so a `/whoami
 --enroll` at a USE-template/consumer can no longer make the roster committable and ship to consumers.
@@ -34,6 +39,28 @@ The engine snapshots canon tokens via `deriveDynamicTokens(root).gate` BEFORE th
 PLACEHOLDER-/synthetic markers), performs the clear, then asserts ZERO of those tokens survive ANYWHERE
 in the tree, AND runs `scan-synced-disclosure.mjs --check --root <tree>` for structural shapes. ANY
 residual → **exit 1** — the ceremony never silently claims clean.
+
+**Substring collisions are adjudicated, exactly as at publish.** The token gate is deliberately
+UNBOUNDED while the neutralize is word-bounded, so a short canon token embedded in an unrelated
+identifier survives the neutralize and reaches the gate. It clears ONLY where the ratified benign
+(token, host) registry (`.claude/disclosure-benign-collisions.json`, read by the publish fences'
+own `disclosure-adjudication.mjs`) vouches for that exact pair — loaded BEFORE the clear, since the
+neutralize rewrites the registry too. A standalone occurrence never clears; an unreadable registry is a
+hit. Where the adjudication lib is absent (it is loom-only), nothing is suppressed. An exit 1 naming a
+file and a canon token with no key-material or scanner line is therefore an UNRATIFIED collision:
+adjudicate it (LLM judges, human ratifies into the registry), never hand-edit the gate.
+
+**Preserved synthetic fixture homes are not findings.** The neutralize keeps SYNTHETIC fixture homes
+in loom's own detector fixtures so they still fire in the fork; the structural scan runs with
+`--allow-synthetic-fixture-homes` (the same flag the client-template edition gate uses), which admits
+ONLY synthetic-set names inside the fixture corpus. Any other shape in those files still fails closed.
+
+**Key material is gated separately from tokens.** A token grep cannot see a UID inside base64, so the
+engine ALSO snapshots, pre-clear, every armor base64 body line and SSH key body from the roster and the
+trust root, and fails closed if any survives anywhere (reported as `<file> ~ <canon signer key material:
+N fragment(s)>` — the file and a count, never the key bytes). A `.claude/trust-root.json` present after
+the clear is a hit by PRESENCE too, since nothing in the ceremony writes one. The structural scanner
+never inspects `trust-root.json` (never-synced path), so these two checks are its only coverage.
 
 **Scope (brief S3 — operator/TRUST identity):** the gate targets the high-specificity trust tokens
 (GPG/SSH fingerprints, PGP names/emails, principals, person-ids, tenant tokens, AND the **genesis
@@ -68,6 +95,12 @@ documented ceremony, never by mere presence of a pulled placeholder.
 - **Exit 1, "structural scanner findings" NOT on ecosystem.json**: the structural scanner found a
   home-path/org-slug/hostname shape; inspect the named file.
 - **Exit 2, "no .claude/"**: not a COC repo — run from the clone root, or pass `--root <dir>`.
+- **Exit 2, "non-regular file(s) (FIFO / socket / device)"**: the tree holds a special file (listed
+  root-relatively). Reading or writing one blocks forever, so the ceremony refuses before touching
+  anything. Remove them and re-run. A **symlink** at a config path the ceremony reads (roster, trust
+  root, VERSION, the adjudication registry) is refused the same way — config reads never follow links.
+- **The root prints as `<clone-root>`**: deliberate — the absolute path carries your home directory.
+  Run from inside the clone (or pass a path under the current directory) to see it relative.
 - **upstream_canon shows a placeholder URL**: the clone had no `origin` remote; pass
   `--upstream-canon-url <git-url>` explicitly.
 

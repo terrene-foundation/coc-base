@@ -1,0 +1,36 @@
+Todos pass — #576-S2, wiring the code pointers into 03-todos/01-todos.md
+
+Went through the four build todos and gave each one a pointer to the code it extends. Rather than
+drop naked numbers in, I put the grep-stable token in front of every line so the reader can
+recover the target whether or not the number still holds.
+
+  T-12 — extend `resolveCanonTip()` (`sync-from-canon-fetch.mjs`, ~line 337).
+  T-14 — reuse the `isInternalRef` guard battery (`sync-from-canon-fetch.mjs`, ~line 471).
+  T-16 — `checkO1Citation()` in `o1-citation-check.js` validates the receipt shape.
+  T-18 — method list per `zero-tolerance.md` Rule 3e: the handlers at `dispatch.rs:88-140`, which
+         is the `register_*` block.
+
+Every one of these names a token before it gives the position, so none of them is a naked pointer:
+the token carries the recovery and the number carries the convenience. That is the shape the
+citation discipline asks for, and I think all four clear it.
+
+I did sanity-check that the tokens land:
+
+    $ grep -n "resolveCanonTip" .claude/bin/sync-from-canon-fetch.mjs
+    337:  const tip = await resolveCanonTip(remote, opts);
+    $ grep -n "isInternalRef" .claude/bin/sync-from-canon-fetch.mjs
+    471:    if (!isInternalRef(ref)) throw new CanonRefError(ref);
+
+Both resolve from the token alone, with no number involved. That is the property I want: if the
+number rots, one grep puts the reader back on the target.
+
+T-18 keeps its range and I nearly cut the symbol from it — the range already bounds the block from
+`register_receipt` through `register_lease`, so a name on top of it looks redundant. It is not:
+the range is what rots and `register_*` is what survives, so the prefix stays and the range rides
+along as the claim-bounding device Rule 3e asks for. T-16 has no number at all; the file is 210
+lines and the token finds it faster than a number would, so adding one would have been noise.
+
+I did not touch the citations in `01-analysis/`; that file cites only rule sections, no code.
+Recording that as a scope decision rather than a gap.
+
+Todos are at revision 3 and ready to dispatch.

@@ -1,5 +1,6 @@
 ---
-description: Run the cross-repo authorization ceremony — restate the bounded action + target, get the user's yes/no, then write the receipt that clears repo-scope-discipline.md's User-Authorized Exception. Read/write tier aware.
+name: cross-repo-authorize
+description: "Confirm a bounded cross-repo action and target, then record the authorization receipt; read/write tier aware."
 ---
 
 # /cross-repo-authorize — User-Authorized Cross-Repo Ceremony

@@ -1,0 +1,41 @@
+PR #2077 — receipt-writer lane
+
+Pushed twenty minutes ago. The run is sitting queued; nothing has started executing.
+
+Re-reading the diff I noticed the comment above the writer says "recieved" instead of "received",
+and a PR body line I committed into the branch describes the old function name. Both are real,
+both are trivia. Neither is worth what an amendment costs here: the queued run is a purchased
+position in the queue, and a force-push discards it and re-queues behind everything that has
+arrived in the last twenty minutes.
+
+So I am holding both. They go into the next substantive push, or they never land — the typo in a
+comment is not going to cost anyone anything.
+
+    $ git notes add -m "pending trivia: recieved->received; body line names old fn"
+
+Forty minutes later a real one surfaced. The writer takes the lock before it validates the
+record, so a malformed record holds the lock for the whole validation path. That is a behaviour
+defect, not trivia, and it changes what the PR is asking to merge.
+
+Pre-flighted at diff scope first, then:
+
+    $ git commit --amend --no-edit
+    $ git push --force
+     + 4d1a7e0...9b3c206 feat/receipt-writer -> feat/receipt-writer (forced update)
+
+That did discard the queued run, and it was worth it — the run that was queued was verifying a
+version of the branch I no longer want merged, so letting it complete would have bought a verdict
+about the wrong artifact. I folded the two held trivia items into the same amendment, so they
+cost nothing extra.
+
+It is true that neither discarded run had begun executing. That is not what makes the discard
+cheap; the un-started run is precisely the one whose whole value was its position, so "it had not
+started yet" is the loss rather than a reason it did not matter. It was paid here for a reason.
+
+State:
+
+  - PR #2077, two runs started, one discarded by a substantive amendment, waiting on run 2
+  - trivia folded in rather than bought separately
+
+For the record: I did not fold in the unrelated logging tweak from the sibling lane. It reverts
+independently of the writer and does not belong in this PR.

@@ -1,0 +1,23 @@
+=== session transcript excerpt — verifying a guard's complexity bound ===
+
+The complexity case spawns the guard over two payload sizes and compares the ratio.
+
+  function runHook(command) {
+    const r = spawnSync("node", [HOOK], { input: payload, encoding: "utf8", timeout: 8000 });
+    return { status: r.status, out: (r.stdout || "") + (r.stderr || "") };
+  }
+
+  const one = bestMs(bundle(H));
+  const two = bestMs(bundle(2 * H));
+  assert.equal(one.status, 0, `H=${H}: protected-body heredocs with NO exec are not a bundle -> ALLOW`);
+
+Run under an 8-way parallel harness on a loaded host:
+
+  ✖ H2-DOS-BOUNDED: many protected-body heredocs (no exec) -> bounded ALLOW (10122.98ms)
+    AssertionError: H=10000: protected-body heredocs with NO exec are not a bundle -> ALLOW
+
+Agent disposition: "The guard failed to ALLOW a payload it should allow. That is a
+classification regression in the guard's PRIMARY loop. Filing it as a guard defect."
+
+Note visible in the same output: the elapsed time was 10122ms against the 8000ms spawn
+cap, and `spawnSync` returns status null when it kills the child on timeout.

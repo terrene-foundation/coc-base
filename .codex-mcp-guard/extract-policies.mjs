@@ -25,7 +25,10 @@
  */
 
 import fs from "node:fs";
+import { realpathSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 
 // Symlink-safe read (O_RDONLY|O_NOFOLLOW, leaf-only guard). extract-policies is
 // reachable from the emit lane (emit.mjs:69 → validateMcpBijectionAgainstFixtures
@@ -130,7 +133,7 @@ function matchesShapeC(fn) {
 
 // Shape D: body returns { severity: "block", ... } and at least one caller
 // in the same file consumes the return through `instructAndWait(...)` (which
-// converts severity:"block" to exit code 2 + continue:false) or routes the
+// converts severity:"block" to exit code 2 + permissionDecision "deny") or routes the
 // returned `severity` field into a callee that exits.
 //
 // This is the canonical hook-output-discipline.md MUST-1 shape — every halting
@@ -311,7 +314,7 @@ function normalizeReasonTemplate(raw) {
 //   NotebookEdit   | apply_patch
 //   Read           | (out of scope — README "What's covered vs. not")
 //
-// A CC matcher is a `|`-joined SET of CC tools (e.g.
+// A plain PreToolUse matcher is a `|`- or comma-joined SET of CC tools (e.g.
 // "Edit|Write|NotebookEdit"); resolution splits the matcher
 // and unions each tool's Codex fan-out (matcherToCodexTools below). The
 // prior design keyed CC_TO_CODEX_TOOLS by the WHOLE matcher string and
@@ -346,7 +349,7 @@ const CC_TO_CODEX_TOOLS = Object.freeze({
 
 const CODEX_TOOLS = Object.freeze(["shell", "unified_exec", "apply_patch"]);
 
-// Resolve a `|`-joined CC matcher string to its unioned Codex tool set.
+// Resolve a plain PreToolUse tool list or wildcard to its Codex tool set.
 // Robust to tool-order permutations and to new edit-tool additions —
 // each CC tool maps independently via CC_TOOL_TO_CODEX. This is the
 // structural close of the DF-AC6-1 brittle-exact-match bug. A CC tool with
@@ -355,9 +358,12 @@ const CODEX_TOOLS = Object.freeze(["shell", "unified_exec", "apply_patch"]);
 // future CC tool needs a mapping (R1 reviewer LOW-3).
 function matcherToCodexTools(matcher) {
   const out = [];
-  for (const tool of String(matcher)
-    .split("|")
-    .map((s) => s.trim())) {
+  const text = String(matcher);
+  // This compatibility table maps literal CC names; native registration keeps
+  // regex evaluation in the engine. Preserve the existing pipe-list mapping.
+  const tools = text === "*" ? Object.keys(CC_TOOL_TO_CODEX)
+    : text.split(/[|,]/).map((s) => s.trim());
+  for (const tool of tools) {
     for (const ct of CC_TOOL_TO_CODEX[tool] || []) {
       if (!out.includes(ct)) out.push(ct);
     }
@@ -395,21 +401,142 @@ function matcherToCodexTools(matcher) {
 // gated set.
 const CODEX_APPLY_PATCH_GATE_MARKER = /^\s*\*\s*@coc-codex-edit-gate\b/m;
 
+// Typed refusal for an unbuildable matcher map. `code` is the REFUSAL
+// IDENTITY — callers and fixtures assert on it rather than on "something
+// threw", so a future unrelated exception cannot masquerade as this fence
+// firing (nor this fence as an unrelated crash).
+export class HookMatcherMapError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = "HookMatcherMapError";
+    this.code = code;
+  }
+}
+
 // Build hook-file → CC-matcher map by parsing the project's
 // settings.json. Only PreToolUse entries are policy candidates; we
 // preserve the matcher so each predicate inherits the correct
 // Codex-tool fan-out. A hook file may be registered under multiple
 // matchers (e.g. posture-gate.js fires on both Bash and Edit|Write);
 // the map values are arrays so the file-level fan-out is complete.
-function buildHookMatcherMap(settingsPath) {
-  const map = new Map(); // basename(file) → matcher[]
-  if (!fs.existsSync(settingsPath)) return map;
-  let settings;
+//
+// FAIL CLOSED (loom#S73-M5). This function previously degraded to an EMPTY
+// map on three separate conditions — settings.json absent, unreadable, or
+// unparseable — each returning silently with exit 0. That empty map is the
+// SOLE input to the file-level `policies` table, so the degradation
+// propagated a silently-empty policy table through `wireMcpPolicies()` into
+// the `policies.json` written for every distribution target. An empty policy
+// table is indistinguishable from a populated one at every surface between
+// here and the consumer, which is what made the failure silent.
+//
+// The read-failure arm is the ROOT of the class. `safeReadFileSync` opens
+// with O_NOFOLLOW precisely so that a symlink swapped in for settings.json
+// between resolution and read raises ELOOP instead of being followed (the
+// #569 emit-lane source-read class) — and the former `catch { return map; }`
+// swallowed that ELOOP into an empty table, defeating the guard it was paired
+// with. A read failure therefore ALWAYS refuses, `required` or not: the file
+// demonstrably EXISTS and could not be read, and no caller has a legitimate
+// reading of that as "nothing matched".
+//
+// `required: false` is the narrow, EXPLICIT opt-out for a caller that does not
+// consume the matcher map at all (the validator-13 shape fixtures, which read
+// only `predicates[].shape`). It relaxes ONLY the absent + zero-entry arms.
+// The default is `true` so a caller added later inherits the fence rather than
+// the degradation.
+const DISPATCH_COMMAND_RE = /^node "\$CLAUDE_PROJECT_DIR\/\.claude\/hooks\/dispatch\.js" ([A-Za-z]+)(?: --registry-sha256=[0-9a-f]{64})?$/;
+
+function expandDispatcherEntries(settings, settingsPath) {
+  const hooks = settings && settings.hooks;
+  if (!hooks || typeof hooks !== "object") return settings;
+  const dispatched = [];
+  for (const [event, groups] of Object.entries(hooks)) {
+    for (const g of Array.isArray(groups) ? groups : []) {
+      const hs = (g && g.hooks) || [];
+      const m = hs.length === 1 && typeof hs[0].command === "string" ? hs[0].command.match(DISPATCH_COMMAND_RE) : null;
+      if (m) dispatched.push(event);
+    }
+  }
+  if (dispatched.length === 0) return settings;
+  const registryPath = path.join(path.dirname(path.resolve(settingsPath)), "hooks", "dispatch-registry.json");
+  let reg;
   try {
-    settings = JSON.parse(safeReadFileSync(settingsPath, "utf8"));
-  } catch {
+    reg = JSON.parse(safeReadFileSync(registryPath, "utf8"));
+  } catch (e) {
+    throw new HookMatcherMapError(
+      "matcher-map-registry-unreadable",
+      `cannot build hook matcher map: ${settingsPath} dispatches ${dispatched.join(", ")} through dispatch.js but ` +
+        `${registryPath} could not be read/parsed (${e.code || e.message}) — refusing rather than returning a policy ` +
+        `table missing every dispatched guard`,
+    );
+  }
+  const out = { ...settings, hooks: {} };
+  for (const [event, groups] of Object.entries(hooks)) {
+    const next = [];
+    for (const g of Array.isArray(groups) ? groups : []) {
+      const hs = (g && g.hooks) || [];
+      const m = hs.length === 1 && typeof hs[0].command === "string" ? hs[0].command.match(DISPATCH_COMMAND_RE) : null;
+      if (m && m[1] === event) {
+        const spec = reg && reg.events && reg.events[event];
+        if (!spec || !Array.isArray(spec.groups)) {
+          throw new HookMatcherMapError(
+            "matcher-map-registry-unreadable",
+            `cannot build hook matcher map: ${registryPath} carries no groups for ${event}, which ${settingsPath} dispatches`,
+          );
+        }
+        next.push(...spec.groups);
+      } else next.push(g);
+    }
+    out.hooks[event] = next;
+  }
+  return out;
+}
+
+export function buildHookMatcherMap(settingsPath, { required = true } = {}) {
+  const map = new Map(); // basename(file) → matcher[]
+
+  if (!fs.existsSync(settingsPath)) {
+    if (required) {
+      throw new HookMatcherMapError(
+        "matcher-map-settings-missing",
+        `cannot build hook matcher map: no settings file at ${settingsPath} — ` +
+          `refusing rather than returning an empty policy table`,
+      );
+    }
     return map;
   }
+
+  let rawSettings;
+  try {
+    rawSettings = safeReadFileSync(settingsPath, "utf8");
+  } catch (e) {
+    throw new HookMatcherMapError(
+      "matcher-map-settings-unreadable",
+      `cannot build hook matcher map: ${settingsPath} exists but could not be read ` +
+        `(${e.code || e.message}) — refusing rather than returning an empty policy table`,
+    );
+  }
+
+  let settings;
+  try {
+    settings = JSON.parse(rawSettings);
+  } catch (e) {
+    throw new HookMatcherMapError(
+      "matcher-map-settings-unparseable",
+      `cannot build hook matcher map: ${settingsPath} is not valid JSON (${e.message}) — ` +
+        `refusing rather than returning an empty policy table`,
+    );
+  }
+
+  // A consolidated event registers ONE `dispatch.js <Event>` entry; the hooks
+  // behind it live in <settings dir>/hooks/dispatch-registry.json. Expand them back
+  // to the per-hook groups, or every PreToolUse guard would drop out of the Codex
+  // policy table (the map would hold only dispatch.js — or, beside a directly
+  // registered hook, silently hold only that one). Self-contained on purpose: the
+  // registry is READ (same O_NOFOLLOW read as settings.json) and parsed here, never
+  // require()d from the scanned tree. A dispatcher entry whose registry cannot be
+  // read and parsed REFUSES — never a quietly shrunken table.
+  settings = expandDispatcherEntries(settings, settingsPath);
+
   const pre = settings?.hooks?.PreToolUse || [];
   for (const block of pre) {
     const matcher = block.matcher;
@@ -426,6 +553,24 @@ function buildHookMatcherMap(settingsPath) {
       map.set(m[1], arr);
     }
   }
+
+  // Parsed cleanly but resolved NOTHING. Distinct from the arms above: the
+  // file was read and is valid JSON, yet no PreToolUse block yielded a single
+  // hook→matcher binding. For a caller that consumes this map to build an
+  // enforcement table, "parsed fine, zero entries" and "could not build" have
+  // the same downstream shape — an empty table — so it refuses here too.
+  // The per-block `continue`s above stay deliberately silent: a matcher with
+  // no Codex fan-out (e.g. Read, documented out of scope) is a BY-DESIGN skip,
+  // not a build failure. This checks the AGGREGATE outcome, which is the level
+  // at which the caller's "did it build?" question is actually answerable.
+  if (required && map.size === 0) {
+    throw new HookMatcherMapError(
+      "matcher-map-empty",
+      `cannot build hook matcher map: ${settingsPath} parsed successfully but yielded ` +
+        `ZERO hook→matcher entries — refusing rather than returning an empty policy table`,
+    );
+  }
+
   return map;
 }
 
@@ -448,7 +593,13 @@ export function extractPolicies(dir, opts = {}) {
   const settingsPath =
     opts.settingsPath ||
     path.resolve(dir, "..", "settings.json");
-  const matcherMap = buildHookMatcherMap(settingsPath);
+  // Fail closed by default (loom#S73-M5). `requireMatcherMap: false` is the
+  // explicit opt-out for a caller that reads only `predicates[].shape` and
+  // never consumes the matcher map — it MUST be stated at the call site, with
+  // a reason, so the relaxation is visible in review rather than inherited.
+  const matcherMap = buildHookMatcherMap(settingsPath, {
+    required: opts.requireMatcherMap !== false,
+  });
 
   // Per-file apply_patch eligibility (the @coc-codex-edit-gate marker).
   // Built once during the file scan; reused by both the predicate-level
@@ -609,7 +760,22 @@ function main() {
     else if (a === "--settings") settingsPath = args[++i];
   }
 
-  const out = extractPolicies(dir, settingsPath ? { settingsPath } : {});
+  // The CLI is the artifact-WRITING path (--write-policies feeds policies.json,
+  // which every distribution target consumes), so it takes the fail-closed
+  // default. A typed refusal is reported as a clean, named diagnostic + exit 2
+  // rather than an unhandled stack trace: the caller that matters here is
+  // validate-emit.mjs::checkCodexPoliciesFresh, which spawns this as a
+  // subprocess and correctly FAILs the freshness gate on non-zero exit.
+  let out;
+  try {
+    out = extractPolicies(dir, settingsPath ? { settingsPath } : {});
+  } catch (e) {
+    if (e instanceof HookMatcherMapError) {
+      process.stderr.write(`extract-policies: ${e.code}: ${e.message}\n`);
+      process.exit(2);
+    }
+    throw e;
+  }
 
   if (writePoliciesPath) {
     // Persist the per-tool policies table on its own. server.js
@@ -637,6 +803,79 @@ function main() {
 }
 
 // Only run main when invoked directly, not when imported as a module.
-if (import.meta.url === `file://${process.argv[1]}`) {
+//
+// BOTH operands go through the SAME resolver — resolveEntryPath() below is
+// applied to `process.argv[1]` and to this module's own path alike. That
+// symmetry is the whole point, because how much resolving Node has ALREADY
+// done differs between its two startup modes (both measured, via a symlinked
+// directory):
+//
+//   mode                        import.meta.url   process.argv[1]
+//   default                     realpath'd        NOT realpath'd
+//   --preserve-symlinks-main    NOT realpath'd    NOT realpath'd
+//
+// So resolving only ONE side is correct for exactly one of those modes and
+// silently wrong for the other, in the same direction each time:
+//   - Default + naive `import.meta.url === \`file://${process.argv[1]}\``:
+//     FALSE whenever this script is invoked through a SYMLINKED directory
+//     component — and at every multi-CLI delivery target (the only targets
+//     that receive this tree) `.claude/codex-mcp-guard` IS a symlink to
+//     `../.codex-mcp-guard` (`.claude/sync-manifest.yaml`, `symlinks:`).
+//   - --preserve-symlinks-main + resolving only argv[1]: argv[1] becomes the
+//     real path while import.meta.url stays the symlinked one, so the compare
+//     fails again. That flag is reachable from NODE_OPTIONS, i.e. with nothing
+//     on the command line to show for it.
+//
+// Getting this wrong is SILENT by construction, which is why it is worth the
+// symmetry: the documented regeneration command — `node
+// .claude/codex-mcp-guard/extract-policies.mjs …`, the exact string
+// checkCodexPoliciesFresh prints as its remediation — simply no-ops, with exit
+// 0, empty stdout, policies.json untouched, and the freshness gate still
+// reporting STALE with no reachable fix. validate-emit.mjs worked around this
+// for its OWN exec by calling realpathSync() first; the printed remediation had
+// no such workaround, so instrument and remedy disagreed.
+//
+// Comparing OS-native paths (fileURLToPath on the URL side) rather than URL
+// strings additionally sidesteps percent-encoding: `file://${...}` does not
+// encode spaces or non-ASCII, so the naive form also no-opped on any checkout
+// path containing a space.
+//
+// Precedent for the resolve-both-sides form: .claude/bin/cc-cost.mjs.
+
+// The one resolver, used on both operands. An unresolvable path falls back to
+// its raw form rather than throwing: this module is IMPORTED as well as run --
+// emit.mjs pulls it in dynamically (`await import(...)`, emit.mjs:187) and
+// test-extract-policies.mjs statically -- so a throw out here, at module top
+// level, would take the emit lane down at import time rather than merely
+// answering "was I run directly?". The fallback cannot yield a false positive:
+// a path that will not resolve cannot be THIS file, which is demonstrably
+// resolvable since it is currently executing.
+function resolveEntryPath(p) {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
+}
+
+function isDirectInvocation() {
+  // `node -e …`, `node --eval`, and the REPL leave argv[1] undefined. Absent an
+  // entry path the answer is simply "not invoked directly".
+  const entry = process.argv[1];
+  if (!entry) return false;
+  let self;
+  try {
+    self = fileURLToPath(import.meta.url);
+  } catch {
+    // Non-`file:` module URL (data:, http:) — not a direct CLI invocation.
+    return false;
+  }
+  // Do not collapse this back to the naive
+  // `import.meta.url === \`file://${process.argv[1]}\`` form, and do not drop
+  // either resolveEntryPath() call: each one covers a mode the other does not.
+  return resolveEntryPath(entry) === resolveEntryPath(self);
+}
+
+if (isDirectInvocation()) {
   main();
 }

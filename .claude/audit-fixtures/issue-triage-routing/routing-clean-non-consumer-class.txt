@@ -1,0 +1,8 @@
+# repoClass: coc-source
+# selfRepo: example-org/loom
+# upstreamRepo: example-org/atelier
+# expect:
+# BYTE-IDENTICAL COMMAND to the off-lane FLAG pole, differing ONLY in the
+# declared class. coc-source has no argv-visible disposition, so the hook is
+# silent — and that silence is the ABSENCE of an instrument, not an all-clear.
+gh issue create --repo example-org/loom --title "COC: rule pointer is stale" --body "Please fix in canon."

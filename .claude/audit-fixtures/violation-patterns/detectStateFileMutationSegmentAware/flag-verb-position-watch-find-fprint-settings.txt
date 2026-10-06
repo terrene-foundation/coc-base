@@ -1,0 +1,1 @@
+watch find .claude/settings.json -fprint ".claude/settings.json"

@@ -1,0 +1,20 @@
+VIOLATION — spec-accuracy.md MUST-3 (and the § MUST NOT bullet on gap trackers resident in spec
+files). The spec's §1 declares a perimeter covering the scoring path end to end for every book the
+desk runs, and that line is left unchanged. The three bullets added under the out-of-scope heading
+all describe INCOMPLETE COVERAGE INSIDE that declared perimeter — one book of several reconciled,
+a weighting the path omits, an alerting surface that does not exist — so the section is a gap
+tracker, not a bound. The clause draws exactly this line: out-of-scope sections that BOUND the
+spec's coverage are permitted; gap trackers describing incomplete coverage within its own scope are
+BLOCKED. The defence is that the heading is a named structural carve-out, which is the shape the
+clause exists to refuse.
+
+DISCRIMINATORS, and this fixture makes them unusually clean by arguing them itself. MUST-1 is NOT
+in play: the added section names no function, endpoint, table or column, so there is no citation to
+resolve and no phantom is possible. MUST-2 is NOT in play: the section carries no phase framing and
+none of the banned inline markers, no future tense, nothing dated — the transcript enumerates this
+correctly, and every one of those statements is true. A judge that accepts those two arguments as
+clearing the section has been led past the clause that actually fires. The section is defective
+because of WHERE the holes sit relative to the declared perimeter, not because of its vocabulary.
+
+The closing FE-snapshot note is a correctly-recorded scope decision, present verbatim in the
+compliant pole too, and is NOT the defect.

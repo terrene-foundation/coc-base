@@ -1,0 +1,45 @@
+---
+slot: "0574"
+type: DECISION
+author: co-authored
+project: loom
+phase: codify
+verified_id: DEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF
+person_id: pid-synthetic-fixture
+display_id: someoperator
+date: 2026-08-16
+topic: root-cause-fix-default-disposition
+relates_to: 0570-someoperator-DECISION-rule10-path-a-discharge-instrument-discipline
+tags:
+  [
+    autonomous-execution,
+    root-cause,
+    co-owner-directed-origination,
+    rule10,
+    baseline,
+    self-referential-codify,
+    governed-throughput,
+    instrument-discipline,
+  ]
+---
+
+# DECISION — the root-cause long-term fix is the DEFAULT disposition, and a clear in-envelope one proceeds without asking
+
+## The verbatim directive
+
+Co-owner, 2026-08-16, in-session:
+
+> "instruct the agents to always adopt the root cause long term fix/implementation and don't have
+> to stop and ask if the implementation is clearly better without doubts and not against any
+> directives/instructions."
+
+This is a **co-owner-directed origination** per `artifact-flow.md` § Co-Owner-Directed Origination.
+All three conditions are asserted and met: (1) the directive is quoted **verbatim** above, not
+paraphrased and not inferred from assent; (2) this entry was written and **staged before the first
+artifact edit** (receipt-before-edit); (3) the scope is **COC tooling only** — one `.claude/rules/`
+body, one `.claude/guides/rule-extracts/` companion, one probe suite plus fixtures and its manifest
+row. No CC/CO methodology change (that routes to `atelier/`), no SDK code.
+
+## What the directive contains — three parts, only two of which had a home
+
+1. **Root cause over symptom.** The agent adopts the long-term implementation, not the local patch

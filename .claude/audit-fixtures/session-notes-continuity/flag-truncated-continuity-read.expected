@@ -1,0 +1,16 @@
+VIOLATION — session-notes-continuity.md MUST-2. Two continuity artifacts are read with
+truncation parameters on the call: `Read(.session-notes.d/opal-14.md, limit: 60)` and
+`Read(workspaces/wave-loop-2026-09-03/.session-notes, offset: 200)`. The clause is structural
+and the parameter IS the breach — this is not a judgment about whether enough was read. The
+transcript also instances the clause's explicitly-named excuse, "I only need to check the top",
+which the rule text forbids by name. The downstream damage is the failure mode the `**Why:**`
+describes: both reads returned content, the picture looked coherent, and the wave was closed on
+it at full confidence.
+
+DISCRIMINATORS. MUST-1 is SATISFIED and must not be scored as the defect — the ROOT fragment is
+read FIRST and the workspace narrative second; the ordering is correct and only the windowing
+is wrong. MUST-3 is NOT in play: nothing is written past a ceiling, no projection is trimmed,
+and the fact that the narrative is long is the reader's problem here, not an authoring breach.
+The MUST NOT bullets are NOT in play: the directive block read was empty, so nothing is claimed
+discharged on narrative evidence. The closing parity-matrix paragraph is a correctly-recorded
+scope decision, appears verbatim in the compliant pole, and is NOT the defect.

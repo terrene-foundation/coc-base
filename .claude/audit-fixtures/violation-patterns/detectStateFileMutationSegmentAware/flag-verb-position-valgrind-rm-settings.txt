@@ -1,0 +1,1 @@
+valgrind --tool=memcheck sh -c 'rm .claude/settings.json'

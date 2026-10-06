@@ -71,6 +71,6 @@ now lives in the `.expected` sidecar, which is never fed to a judge, and
 `.claude/test-harness/tests/probe-suite-integrity.test.mjs` fails on any HTML comment or
 answer-key marker in a candidate fixture.
 
-Rule cross-reference: `rules/evidence-first-claims.md` (MUST-1 through MUST-4 +
-Trust Posture Wiring). Emergency trigger `evidence_free_claim` (the MUST-2 security
+Rule cross-reference: `rules/evidence-first-claims.md` (MUST-1 through MUST-4) +
+`skills/32-trust-posture/wiring/evidence-first-claims.md` (Trust Posture Wiring). Emergency trigger `evidence_free_claim` (the MUST-2 security
 subclass) is registered at `rules/trust-posture.md` MUST-4 § Emergency.

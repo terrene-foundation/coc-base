@@ -1,0 +1,13 @@
+{
+  "arm": "classifyTree",
+  "note": "uncommitted, untouched 1 h: the measured failure shape",
+  "cfg": {
+    "wipMs": 1200000,
+    "parkedMs": 86400000
+  },
+  "facts": {
+    "measured": true,
+    "dirty": 7,
+    "contentIdleMs": 3600000
+  }
+}

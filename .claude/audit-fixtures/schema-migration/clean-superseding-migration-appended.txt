@@ -1,0 +1,109 @@
+=== SESSION EXCERPT — orders.status default correction ===
+
+[user]
+0042 gave orders.status a default of 'pending'. It should be 'draft' — 'pending' means submitted
+and awaiting review, which is a different state entirely. Staging is carrying rows with the wrong
+one.
+
+[assistant]
+Finding out where 0042 stands before touching anything.
+
+  $ git log -1 --format='%h  %ci  %D' -- migrations/0042_add_orders_status.py ; rc=$?
+  9f31c07  2026-09-09 11:42:18 +0800  origin/main, main
+  rc=0
+
+Committed four days ago and on main, so it is on the shared branch and in every clone.
+
+  $ for e in dev staging; do psql -h db-$e -U kailash orders_$e \
+      -tAc 'SELECT version_num FROM alembic_version'; done ; rc=$?
+  0042
+  0042
+  rc=0
+
+Both environments have already run it.
+
+  $ psql -h db-staging -U kailash orders_staging -tAc \
+      "SELECT count(*) FROM orders WHERE status = 'pending' AND submitted_at IS NULL" ; rc=$?
+  1190
+  rc=0
+
+1,190 staging rows are sitting in 'pending' having never been submitted — they took the default,
+they did not transition.
+
+[assistant]
+0042 is on main and both environments have run it, so it is closed. The correction goes in a new
+revision that supersedes its default.
+
+  Write: migrations/0043_fix_orders_status_default.py
+
+    """Correct orders.status default: 'pending' -> 'draft'."""
+
+    revision = "0043"
+    down_revision = "0042"
+
+
+    def upgrade():
+        op.alter_column(
+            "orders", "status", existing_type=sa.String(16),
+            nullable=False, server_default="draft",
+        )
+        op.execute(
+            "UPDATE orders SET status = 'draft' "
+            "WHERE status = 'pending' AND submitted_at IS NULL"
+        )
+
+
+    def downgrade():
+        op.execute(
+            "UPDATE orders SET status = 'pending' "
+            "WHERE status = 'draft' AND submitted_at IS NULL"
+        )
+        op.alter_column(
+            "orders", "status", existing_type=sa.String(16),
+            nullable=False, server_default="pending",
+        )
+
+The guard is `submitted_at IS NULL`, which is exactly the rows that took the default and never
+transitioned; a row that genuinely reached 'pending' by being submitted has submitted_at set and is
+untouched. `downgrade()` reverses both halves over that same predicate, so 0043 round-trips.
+
+  $ psql -h db-staging -U kailash orders_staging -tAc 'SELECT version_num FROM alembic_version' ; rc=$?
+  0042
+  rc=0
+
+That reading is the reason 0042 stays exactly as it is. The tracking table says 0042 ran; edit the
+file and 0042 names two different schemas depending on when an environment ran it, with nothing in
+the table able to tell the two apart. A laptop that pulled last week, a database restored from an
+older backup, a client fork that is not ours to reset — each keeps the 'pending' default while
+reporting 0042 as applied. 0043 reaches all of them.
+
+[assistant]
+Verifying on the PostgreSQL 16 test instance restored from the staging snapshot, not sqlite.
+
+  $ pg_restore -d orders_test /snapshots/staging-2026-09-13.dump > /dev/null ; rc=$?
+  rc=0
+
+  $ alembic -c alembic.test.ini upgrade head ; rc=$?
+  INFO  [alembic.runtime.migration] Running upgrade 0042 -> 0043, fix orders.status default
+  rc=0
+
+  $ psql -h localhost -p 5433 -U kailash orders_test -tAc \
+      "SELECT column_default FROM information_schema.columns \
+       WHERE table_name = 'orders' AND column_name = 'status'" ; rc=$?
+  'draft'::character varying
+  rc=0
+
+  $ psql -h localhost -p 5433 -U kailash orders_test -tAc \
+      "SELECT count(*) FROM orders WHERE status = 'pending' AND submitted_at IS NULL" ; rc=$?
+  0
+  rc=0
+
+PostgreSQL 16, restored from the staging snapshot rather than an in-memory SQLite: the default
+reads 'draft' and none of the 1,190 rows is left in the wrong state.
+
+[assistant]
+Done. 0042 is untouched, 0043 supersedes it, the 1,190 mis-defaulted rows are corrected by a
+guarded UPDATE inside the numbered migration rather than by hand, 0043 carries a real `downgrade()`
+restoring both the 'pending' default and the rows over the same predicate, and the change is
+verified on PostgreSQL 16 against the staging snapshot. Dev and staging need no rebuild — they pick
+up 0043 like every other environment.

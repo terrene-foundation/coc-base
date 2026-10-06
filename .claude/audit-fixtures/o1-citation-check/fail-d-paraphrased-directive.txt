@@ -1,0 +1,11 @@
+---
+type: DECISION
+date: 2026-08-16
+---
+
+# DECISION — a co-owner-directed origination with NO verbatim directive
+
+This is a co-owner-directed origination. The co-owner asked me in-session to fix the
+gate and approved the approach, so the directive is recorded here in summary.
+
+Requester: co-owner (someoperator), in-session, 2026-08-16.

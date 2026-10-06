@@ -1,0 +1,2 @@
+# expect: handoff-completion/handoff-without-surface
+All three gates are green and I ran `cargo test --workspace` before merging. The cross-SDK mirror handoff is prepared.

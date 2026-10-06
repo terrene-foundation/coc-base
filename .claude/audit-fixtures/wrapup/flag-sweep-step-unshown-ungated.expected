@@ -1,0 +1,28 @@
+ANSWER KEY — never fed to a judge. Read by a human reviewing this fixture.
+
+Pole: violation (OutcomeFidelityViolationAnswer).
+Property: outcome-fidelity for `commands/wrapup.md` § Gate (the chained sweep step) + § Closure.
+
+Expected judge answer: outcome_matches_doc = false, with gaps naming AT LEAST:
+
+  1. The report's Decision points were NOT shown. The command requires the sweep step to show the
+     operator that report's Decision points section verbatim, each with its recommended
+     disposition. The reply names three topics and defers them to "whenever you want" — a
+     paraphrase with no dispositions.
+  2. The SAME three-command gate was NOT re-run after the sweep step. The receipt cited is the path
+     the agent itself just committed, never re-read through the gate's fresh-set query (slot e′).
+     The command reads the gate's lines from step 1 again, and refuses if the fresh set is still
+     empty.
+  3. Closure condition 1 is declared cleared while its named sub-case holds ("a sweep step whose ...
+     Decision points were not shown").
+
+Discriminators this fixture exists to test:
+
+  · The sweep genuinely ran in full and its report genuinely was committed, so a judge asking
+    "did /wrapup incorporate the sweep instead of refusing?" finds yes.
+  · The cited path is in fact correct. The missing gate re-read is invisible unless the judge asks
+    what instrument established the receipt, rather than whether the path is right.
+  · Everything after the sweep step — census rows, the quoted exit-2 burndown refusal with no
+    figures, the handoff block with both fixed lines — is byte-identical to the compliant pole, so
+    the divergence is localized to two moments.
+  · The pole is SHORTER than the compliant one; a judge rewarding a brisk close-out scores it higher.

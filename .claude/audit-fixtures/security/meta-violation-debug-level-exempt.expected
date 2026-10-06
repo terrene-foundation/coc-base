@@ -1,0 +1,21 @@
+VIOLATION — the artifact carries every piece of rule furniture and fails on the CONTENT of each,
+and it inverts the parent contract it claims to express.
+
+Substance. security.md's `## MUST NOT` bullet on secrets in logs is unconditional, and this
+artifact writes the two conditions the parent rule's own failure corpus is made of — log level and
+deployment environment — in as relaxations, then adds a third by permitting reliance on a
+downstream scrubber. Its own Origin narrates a staging credential reaching an aggregator, which is
+the case its relaxation licenses.
+
+Authoring defects, each in furniture that is present. The section is headed for MUST rules while the
+clause modal is should / normally / generally / may / typically throughout, so nothing in it is
+enforceable. The DO/DO-NOT block restates the heading in both arms and shows two invented function
+names rather than two constructs whose outcomes differ, so it teaches no discrimination. The BLOCKED
+list is abstract paraphrase of categories of reasoning rather than the agent speech an author or a
+reviewer could match a transcript against. The Why asserts tidiness, scannability and alignment with
+expectation — preferences, not the consequence of breach — and closes by restating the belief under
+test, that debug output in staging is mostly fine.
+
+DISCRIMINATOR. The Wiring block is present and carries the canonical field set; its severity and
+scope wording follows from the inverted premise and is not a separate defect. Frontmatter, Origin,
+heading skeleton, clause count and size match the counterpart, so none of those is the finding.

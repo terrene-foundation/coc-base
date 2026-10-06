@@ -1,0 +1,109 @@
+Session excerpt — loom, /sync-to-build rs, cycle 2.31.0, afternoon.
+
+Gate-2 distribution of the 2.31.0 corpus to the rs BUILD repo. Target and lane flags read
+from the manifest, not from last cycle's notes:
+
+    $ yq -r '.repos.rs.build' .claude/sync-manifest.yaml
+    kailash-rs
+    $ yq -r '.repos.rs | "mc=\(.build_multi_cli) ov=\(.build_variant_overlay) cv=\(.coc_validate)"' .claude/sync-manifest.yaml
+    mc=true ov=true cv=null
+
+One BUILD target, multi-CLI, rs variant overlay applied. `coc_validate` is unset on this
+target, so the distribution carries no `.github/workflows/coc-artifact-validate.yml` — the
+repo elected nothing under `.github/` and receives nothing there this cycle.
+
+    $ node .claude/bin/sync-gate2-worktree.mjs --lane build --target rs --stage-only --json
+    {"worktree":"<operator-home>/repos/.gate2-wt/kailash-rs-2.31.0","base_sha":"a10c7f41"}
+    $ wt=<operator-home>/repos/.gate2-wt/kailash-rs-2.31.0
+
+Two-phase, so the derived CLI trees are emitted into that worktree before finalize:
+
+    $ node .claude/bin/emit-cli-artifacts.mjs --target rs --out "$wt"      # .codex/** + .gemini/**
+    emitted 411 artifacts (.codex 206, .gemini 205)
+    $ node .claude/bin/emit-coc.mjs --lane build --target rs --out "$wt"   # .coc/**
+    emitted 188 artifacts
+    $ node .claude/bin/emit.mjs --all --lang rs --out "$wt"                # AGENTS.md + GEMINI.md
+    AGENTS.md 58214 B · GEMINI.md 57980 B · headroom codex/rs 14.21% gemini/rs 14.08% (floor 10)
+
+Second pass into a scratch dir, same three emitters, to confirm the first re-emit actually ran
+against current composition rather than leaving last cycle's trees in place:
+
+    $ node .claude/bin/emit-cli-artifacts.mjs --target rs --out /tmp/idem-rs > /dev/null 2>&1; rc=$?; echo $rc
+    0
+    $ node .claude/bin/emit-coc.mjs --lane build --target rs --out /tmp/idem-rs > /dev/null 2>&1; rc=$?; echo $rc
+    0
+    $ node .claude/bin/emit.mjs --all --lang rs --out /tmp/idem-rs > /dev/null 2>&1; rc=$?; echo $rc
+    0
+    $ diff -rq "$wt/.codex" /tmp/idem-rs/.codex && diff -rq "$wt/.coc" /tmp/idem-rs/.coc && \
+      diff -q "$wt/AGENTS.md" /tmp/idem-rs/AGENTS.md && diff -q "$wt/GEMINI.md" /tmp/idem-rs/GEMINI.md; rc=$?; echo $rc
+    0
+
+The external symlink half, enumerated from the manifest rather than from memory:
+
+    $ yq -r '.multi_cli_overlays[].symlinks[] | .path + " -> " + .target' .claude/sync-manifest.yaml | sort -u
+    .claude/codex-mcp-guard -> ../.codex-mcp-guard
+    $ rsync -a .codex-mcp-guard/ "$wt/.codex-mcp-guard/"
+    $ ln -sfn ../.codex-mcp-guard "$wt/.claude/codex-mcp-guard"
+    $ node "$wt/.claude/bin/extract-policies.mjs" --count
+    14 policies (was 14 last cycle; 2 rewritten this cycle)
+
+VERSION enrichment, canonical schema, stamped with the SHA this run distributed from:
+
+    $ jq -r '.upstream | "version=\(.version) loom_sha=\(.loom_sha) template_version=\(.template_version)"' "$wt/.claude/VERSION"
+    version=2.31.0 loom_sha=6e33d92 template_version=2.31.0
+    $ git rev-parse --short HEAD
+    6e33d92
+
+Read-only state assertion before finalize, including the swallowed-artifact gate:
+
+    $ node .claude/bin/sync-tier-aware.mjs --build rs --verify --assert-derived-trees --out "$wt" > verify.txt 2>&1; rc=$?
+    $ cat verify.txt
+    CONSISTENT — 0 MISSING, 0 DIFFERS, 0 OBSOLETED-PRESENT
+    derived trees present: 5/5 (.codex, .gemini, .coc, AGENTS.md, GEMINI.md)
+    swallowed-artifact gate: 0 of 1247 emitted .claude/** paths ignored at target
+    $ echo $rc
+    0
+
+    $ node .claude/bin/sync-gate2-worktree.mjs --lane build --target rs --finalize \
+        --worktree "$wt" --json > receipt.json 2> finalize-err.txt; rc=$?
+    $ cat finalize-err.txt
+    sync-gate2-worktree: provenance stamp names this run: .claude/VERSION=6e33d92
+    target verifiability [unverifiable] <owner>/kailash-rs@main — no-branch-protection
+    $ echo $rc
+    0
+
+Receipt recorded whole into the gate-op journal receipt and the coordination log, org/repo slug
+and absolute worktree path scrubbed before the embed:
+
+    {"gate":"2","lane":"build","target":"kailash-rs","branch":"sync/2026-09-13-loom-build-kailash-rs",
+     "loom_sha":"6e33d92","base_sha":"a10c7f41",
+     "manifest":{"added":31,"modified":204,"deleted":7},"changed_count":242,
+     "pr_url":"<scrubbed>/pull/338","merge_sha":null,
+     "target_verifiability":{"verdict":"unverifiable","reason":"no-branch-protection"},
+     "worktree":"<scrubbed>","timestamp":"2026-09-13T15:11:52Z"}
+
+    | target     | pre    | post   | loom_sha | synced_at            | hr% (codex/gemini) | ✓ |
+    | ---------- | ------ | ------ | -------- | -------------------- | ------------------ | - |
+    | kailash-rs | 2.30.1 | 2.31.0 | 6e33d92  | 2026-09-13T15:04:11Z | 14.21 / 14.08      | ✓ |
+
+    $ for t in $(yq -r '.repos.rs.build' .claude/sync-manifest.yaml); do
+        jq -r --arg t "$t" '$t + ": " + .upstream.version' "../$t/.claude/VERSION"; done
+    kailash-rs: 2.31.0
+    → notes line written from that output: "1/1 rs BUILD target at 2.31.0 (verified 2026-09-13)"
+
+PR #338 is open. No merge from here — the operator owns the merge on the BUILD lane, and
+nothing in this run passed `--merge`. Handover:
+
+    /sync-to-build rs complete. kailash-rs at 2.31.0, loom_sha 6e33d92, 242 files
+    (31 added / 204 modified / 7 deleted). Derived CLI trees re-emitted and idempotent on
+    the second pass, codex-mcp-guard external tree and symlink both current, VERSION on the
+    canonical schema, `--verify` CONSISTENT with 0 swallowed paths. PR #338 is open for
+    review.
+
+    Target verifiability: UNVERIFIABLE. <owner>/kailash-rs@main carries no branch
+    protection, so no required status check will run on #338 and none will run on any
+    later PR either. The corpus landed; the target is NOT CI-gated, and the "distributed
+    under CI" half of the Gate-2 assertion does not hold here. loom does not own that
+    repo's protection and will not write it. Remedy, for whoever owns kailash-rs:
+      gh api repos/<owner>/kailash-rs/branches/main/protection --method PUT --input <spec>
+    Until someone runs that, treat #338 as reviewed-by-human-only.

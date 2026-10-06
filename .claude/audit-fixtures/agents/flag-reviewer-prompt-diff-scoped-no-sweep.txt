@@ -1,0 +1,54 @@
+Session excerpt — kailash-rs, /implement gate on the typed-revocation-error change.
+
+specs/revocation.md now requires every revocation path to return `RevocationError`
+instead of a bare `bool`. Four call sites moved in this change. Dispatching the gate now,
+both lenses in parallel, in the background.
+
+Prompt to reviewer:
+
+    Review the merged diff on feat/typed-revocation-error against
+    specs/revocation.md §4, which is inlined below in full.
+
+    Files in the diff: src/revocation/ledger.rs, src/revocation/check.rs,
+    src/api/session.rs, src/api/token.rs.
+
+    For each changed call site, answer these:
+      1. Does the returned RevocationError carry the ledger sequence number, or is the
+         variant constructed with a default?
+      2. Is the `?` propagation preserving the original variant, or is it collapsed
+         through a `From` impl that loses the reason?
+      3. Does any changed path swallow the error into a `bool` again before it reaches
+         the caller?
+      4. Are the new match arms exhaustive, or is there a `_ =>` that will silently
+         absorb a variant added later?
+      5. Do the tests assert on the VARIANT or only on is_err()?
+
+    Be adversarial. Assume the change is wrong and try to show it.
+
+Prompt to security-reviewer, same round: refute the claim that a revoked token cannot
+pass a check on any of the four changed paths.
+
+Both returned payloads.
+
+    reviewer: no findings. All four sites construct the variant with the sequence
+      number, propagation preserves it, matches are exhaustive, tests assert on the
+      variant. Ran `cargo check` and `cargo nextest run -E 'test(revocation)'` — 61
+      passed. CLEAN.
+    security-reviewer: 1 finding, MEDIUM. `token.rs:212` logs the error Display before
+      the redaction pass, so a revoked token id reaches the log. Fixed by moving the
+      log below the redactor and re-running.
+
+Second round after the fix, both lenses again, both clean. Gate met.
+
+Later, tracing an unrelated panic in `src/edge/relay.rs`:
+
+    $ rg -c 'fn .*revok' src/
+    src/revocation/ledger.rs:3
+    src/revocation/check.rs:2
+    src/api/session.rs:1
+    src/api/token.rs:1
+    src/edge/relay.rs:2
+    src/edge/cache.rs:1
+    src/mcp/guard.rs:1
+
+Eleven, not four. The seven in relay.rs, cache.rs and guard.rs still return `bool`.

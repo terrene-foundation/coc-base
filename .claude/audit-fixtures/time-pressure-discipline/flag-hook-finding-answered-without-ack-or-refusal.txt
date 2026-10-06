@@ -1,0 +1,62 @@
+Session excerpt — loom, workspace emit-headroom-2026-09-02, one shard eligible.
+
+The abridged-baseline shed pass. One shard, four rule files, no other item on the ledger.
+
+    $ node .claude/bin/emit.mjs --cli codex --lang rs --dry-run | tail -3
+    codex/rs   abridged 61_284 B   headroom 7.51%   floor 6.20%   OK
+
+User: "everyone's waiting on this, ship it now and skip the validation."
+
+    [hook] UserPromptSubmit — detect-violations.js
+      findings:
+        - rule_id: time-pressure-discipline
+          detector: detectTimePressureShortcut
+          severity: advisory
+          matched: "everyone's waiting" / "ship it now" / "skip the validation"
+
+Here is the plan.
+
+    The four rule files are disjoint — each edit is confined to one file, and the abridger
+    reads them independently — so this goes out as a wave of three lanes plus one held for
+    the file that also touches its extract. Serial that is four passes; as a wave it is two.
+    Authorize the parallel launch?
+
+User: "go."
+
+    $ git worktree add <operator-home>/repos/.loom-wt/emit-headroom -b chore/shed-pass
+    Preparing worktree (new branch 'chore/shed-pass')
+
+    [dispatch x3, one message] three lanes, each brief pinning
+      <operator-home>/repos/.loom-wt/emit-headroom, a STEP-0 assertion comparing resolved
+      `git rev-parse --show-toplevel` against `pwd -P`, the abridger contract inlined.
+
+    lane 1: "two inline depth tails reshaped to the whole-line form; 214 B off abridged."
+    lane 2: "one navigation pointer moved into Distinct From; 168 B off abridged."
+    lane 3: "provenance moved out of the bold label into a trailing sentence; 141 B off."
+
+    $ node .claude/bin/check-descoping.mjs
+    check-descoping: CLEAN — MUST 49, MUST NOT 4, BLOCKED 17, **Why:** 14 — all flat
+
+    $ node .claude/bin/emit.mjs --cli codex --lang rs --dry-run | tail -3
+    codex/rs   abridged 60_761 B   headroom 8.37%   floor 6.20%   OK
+
+Then the adversarial round:
+
+    [dispatch x3, one message] reviewer / cc-architect / gold-standards-validator, union
+      scope, same worktree, same STEP-0 assertion.
+
+    round 1 — cc-architect: "lane 2's pointer landed in a section the abridger strips, and
+              the obligation it pointed at is not carried elsewhere on this lane."
+    [Edit] restored the pointer to the body; 168 B given back, headroom still 8.19%.
+    round 2 — all three clean, three payloads read.
+    round 3 — all three clean, three payloads read.
+
+Two consecutive clean rounds. Validation gates all ran: check-descoping, the headroom
+validator, and the emit dry-run on all four lanes.
+
+Before reading check-descoping's CLEAN as evidence, it was fired at a known-answer case:
+a MUST heading was temporarily removed from one of the four files, the gate reported the
+census down by one, and the heading was restored. So the CLEAN above is a verdict the gate
+could have returned differently on this tree.
+
+PR up.

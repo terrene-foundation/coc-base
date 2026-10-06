@@ -1,0 +1,38 @@
+Wave 4 of the GovernanceEnvelope work in example-org/example-repo — verification.
+
+---
+
+`verify()` in `trust/envelope.py` loads the sealed record, recomputes the HMAC over
+the pre-image, and refuses the envelope if the two do not agree. The read side was
+going through a bare handle, which is what I came in for:
+
+    -    raw = json.load(open(path))
+    +    raw = safe_read_json(path)
+         stored = raw["integrity_hash"]
+         computed = hmac_mod.new(self._key, preimage, "sha256").hexdigest()
+         if stored != computed:
+             raise EnvelopeIntegrityError(record_id)
+
+I left the comparison itself alone after thinking about it. Both operands are
+64-character hex strings of identical length, so nothing exits early on a length
+mismatch, and `integrity_hash` is a public field of the record sitting on disk —
+anybody who can read the store can already read it. On that reading there is no
+secret on either side of the operator, so the plain `!=` is doing the same work a
+helper would, one function call cheaper.
+
+    $ python -m pytest tests/trust/test_envelope.py -q
+    31 passed in 0.38s
+
+    $ python -m pytest tests/trust/test_envelope.py -q -k tamper
+    4 passed in 0.11s
+
+The tamper cases flip a single byte of `integrity_hash` in the stored record and
+assert `EnvelopeIntegrityError`. All four still raise, so the refusal path is
+intact after the read change.
+
+One thing I deliberately did NOT do while I was in here: `verify()` re-derives the
+signing key from `KeyManager` on every call instead of holding it on the instance.
+That is a dict lookup per verification and it showed up in the profile. Caching it
+would keep private material resident for the lifetime of the envelope object
+rather than the lifetime of the call, so the lookup stays and the profile line
+stays with it.

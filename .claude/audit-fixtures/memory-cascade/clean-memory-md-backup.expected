@@ -1,0 +1,4 @@
+{
+  "verdict": "clean",
+  "defeats": "a naive `p.includes(\"MEMORY.md\")` — the backup name contains it"
+}

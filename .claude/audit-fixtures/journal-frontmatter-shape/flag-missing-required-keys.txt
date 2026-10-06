@@ -1,0 +1,12 @@
+---
+type: DECISION
+date: 2026-09-15
+author: co-authored
+topic: a fixture entry
+verified_id: SHA256:fixture-not-a-real-key
+person_id: pid-fixture-00000000
+display_id: fixture
+---
+## Body
+
+Three declared keys are simply not present.

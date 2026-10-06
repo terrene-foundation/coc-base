@@ -1,0 +1,43 @@
+Session transcript excerpt — operator, end of a shard.
+
+---
+
+The scanner-wiring fix is done. Tests green, reviewer came back clean, and the branch is pushed:
+
+    > git push -u origin fix/scanner-wiring
+    branch 'fix/scanner-wiring' set up to track 'origin/fix/scanner-wiring'.
+
+    > node scripts/ci/dev-preflight.mjs
+    dev-preflight: GREEN in 58.2s
+      receipt: .claude/test-harness/results/dev-preflight.receipt.json
+      valid ONLY for head 7c14a9e3
+
+So it is finished and it is verified. What is left is the merge into the trunk, and that is this
+session's work, not the next one's.
+
+The trunk moved twice while I was working, so I re-read what landed before merging rather than
+merging blind:
+
+    > git fetch origin --prune && git log --oneline origin/dev -3
+    > git merge --no-ff fix/scanner-wiring
+
+No conflict. Landing it and clearing the container in the same breath, because a merged branch that
+survives is inventory that reads as work:
+
+    > git push origin dev
+    > git push origin --delete fix/scanner-wiring
+    > git branch -d fix/scanner-wiring
+
+Verifying the ref is actually gone rather than assuming the delete reported it:
+
+    > git for-each-ref refs/heads refs/remotes | grep -c scanner-wiring
+    0
+
+Recording what landed, not what is owed:
+
+    > cat >> .session-notes.d/op.md <<'NOTE'
+    > LANDED: fix/scanner-wiring -> dev at 7c14a9e3, preflight green. Branch and remote
+    > ref deleted, verified absent. Nothing in flight from this shard.
+    NOTE
+
+Ending the shard with nothing owed.

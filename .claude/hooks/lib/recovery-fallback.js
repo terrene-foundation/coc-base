@@ -46,6 +46,13 @@ const deriveN = require(path.join(__dirname, "derive-n.js"));
 // GitHub server semantics. Roster `github_login: "Alice"` vs record
 // `content.github_login: "alice"` must match for recovery resolution.
 const { loginsEqual } = require(path.join(__dirname, "github-login.js"));
+// S61 round-3 — the ONE provider→bind-field resolution, shared with
+// coordination-log.js::_collectVictimChainEntries and mirroring the dispatch
+// fold-rule-10/derive-n/fold-rule-reap already perform.
+const {
+  resolveBindIdentity,
+  namedIdentity,
+} = require(path.join(__dirname, "revocation-bind-identity.js"));
 
 /**
  * Pick the latest verifying revocation per-login from the folded log,
@@ -63,10 +70,45 @@ function _latestRevocationByLogin(foldedState) {
     if (!rec || typeof rec !== "object") continue;
     if (rec.type !== "collaborator-distinctness-revocation") continue;
     if (rec.rule10_contested === true) continue;
-    const login =
-      rec.content && typeof rec.content.github_login === "string"
-        ? rec.content.github_login
-        : null;
+    // S61 round-6 — COMMENT CORRECTED to describe what this code ACTUALLY
+    // does. Round 3 introduced the shared resolver here and claimed it stopped
+    // silently skipping azure-devops records. Round 5 then changed the
+    // resolver so an ABSENT roster expectation resolves to GITHUB (closing
+    // CRITICAL-3), and this call site passes NO opts — so an ADO record now
+    // resolves ok:false and is skipped AGAIN. MEASURED on HEAD:
+    //   resolveBindIdentity({provider:"azure-devops",principal:"v@x"}) -> ok:false
+    // Leaving the round-3 wording would be `zero-tolerance.md` Rule 3e — a
+    // claim about a surface not re-derived after the surface changed.
+    //
+    // DECISION: this site deliberately does NOT pass `expectedProvider`, and
+    // is NOT threaded a roster to do so. Reasons, in order:
+    //   (1) POLARITY IS FAIL-CLOSED, measured: an empty index means the
+    //       `Object.entries(latestRev)` loop in `eligibleForRecoveryFallback`
+    //       never runs, so NO login is marked settled-departed and NO recovery
+    //       fallback is granted. Skipping records can only WITHHOLD a
+    //       fallback, never grant one.
+    //   (2) NO PRODUCTION CALLER — no CODE consumer. The call-form grep for
+    //       `eligibleForRecoveryFallback(` returns 9 hits: 1 definition, 5 calls
+    //       in `tests/integration/recovery-and-clone-init.test.js`, and 3 PROSE
+    //       hits (`.claude/commands/whoami.md:138` plus its two emitted copies)
+    //       asserting "C2's §6.4 gate matrix consumes all three predicates".
+    //       The docs therefore CLAIM a consumer the code does not have; that
+    //       divergence is recorded here rather than rounded off to "none".
+    //   (3) Threading a roster through two functions with no production caller,
+    //       in dispatch code that has produced a defect in each of the last
+    //       four review rounds, buys no live behaviour and adds risk.
+    // WHEN THIS MUST CHANGE — WIDENED (S61 final round). An earlier wording
+    // said "in an ADO ecosystem", which does NOT cover the case that actually
+    // fires: a plain GITHUB roster carrying a record with ANY non-github
+    // provider string ("azure-devops", "gitlab", "constructor", …) is skipped
+    // here too. So: if `eligibleForRecoveryFallback` ever gains a PRODUCTION
+    // caller — on ANY provider, including github — revisit whether these index
+    // sites should thread `expectedProvider` from `genesis.provider`. The
+    // attestation twin's skip is separately made SAFE at the consumer, so this
+    // trigger is about index REACH, not about the grant polarity.
+    const bind = resolveBindIdentity(rec.content);
+    if (!bind.ok) continue;
+    const login = namedIdentity(rec.content, bind.bindField);
     if (!login) continue;
     if (typeof rec.seq !== "number") continue;
     if (!out[login] || rec.seq > out[login].seq) {
@@ -84,6 +126,7 @@ function _latestRevocationByLogin(foldedState) {
  */
 function _latestAttestationByLogin(foldedState) {
   const out = {};
+  let indeterminate = null;
   const records =
     foldedState && Array.isArray(foldedState.records)
       ? foldedState.records
@@ -91,17 +134,65 @@ function _latestAttestationByLogin(foldedState) {
   for (const rec of records) {
     if (!rec || typeof rec !== "object") continue;
     if (rec.type !== "collaborator-distinctness-attestation") continue;
-    const login =
-      rec.content && typeof rec.content.github_login === "string"
-        ? rec.content.github_login
-        : null;
-    if (!login) continue;
+    // S61 FINAL ROUND — POLARITY HERE IS **INVERTED** relative to the
+    // revocation twin above, and an earlier revision of this comment was a
+    // VERBATIM COPY of that block asserting fail-CLOSED. That copy was WRONG
+    // in the UNSAFE direction: it reasoned about `latestRev`, an index this
+    // function does not produce. Copying it re-committed the very
+    // `zero-tolerance.md` Rule 3e error the commit introducing it claimed to
+    // fix. (These two functions being verbatim twins is the hazard itself —
+    // edit them by function, never by shared text.)
+    //
+    // Dropping an ATTESTATION removes the R9-A-02 override, so settlement
+    // PROCEEDS. Skipping here GRANTS a recovery fallback; it does not withhold
+    // one. MEASURED, overriding re-attestation at seq 15 > revocation seq 10 on
+    // a github roster, with three agreeing controls so the comparison carries
+    // information:
+    //     baseline (no override)          eligible=true
+    //     override provider=github        eligible=false
+    //     override provider ABSENT        eligible=false
+    //     override provider=azure-devops  eligible=TRUE   <- the skip GRANTED it
+    //     override provider=gitlab        eligible=TRUE
+    //     override provider=constructor   eligible=TRUE
+    // A skipped record is behaviourally identical to a deleted one: deleting
+    // the override from the log entirely also yields eligible=true.
+    //
+    // The `constructor` arm is the sharpest case in this whole change. It is
+    // refused by the S61 `isUnsafeMapKey` prototype-pollution fence — a fence
+    // built to fail CLOSED — and at THIS call site that refusal converts into a
+    // GRANT. A fail-closed fence produces a fail-OPEN outcome wherever "could
+    // not resolve" is rendered as "does not exist".
+    //
+    // FIX: report the skip instead of swallowing it. An attestation we could
+    // not index is UNKNOWN, not ABSENT, and the consumer refuses on unknown
+    // (`instrument-discipline.md` MUST-1 — the shape
+    // `coordination-log.js::_collectVictimChainEntries` already uses). The
+    // refusal is deliberately COARSE, withholding for EVERY login: the reason
+    // the record is unresolvable is that we cannot tell which login it
+    // attested, so naming a subset would be a guess.
+    const bind = resolveBindIdentity(rec.content);
+    if (!bind.ok) {
+      indeterminate =
+        indeterminate ||
+        `an attestation record could not be resolved to a bound identity ` +
+          `(${bind.reason}) — a later re-attestation may exist that this index ` +
+          `cannot see, and an unseen override must not read as an absent one`;
+      continue;
+    }
+    const login = namedIdentity(rec.content, bind.bindField);
+    if (!login) {
+      indeterminate =
+        indeterminate ||
+        `an attestation record carried no ${bind.bindField}, so the override ` +
+          `it may represent cannot be attributed to a login`;
+      continue;
+    }
     if (typeof rec.seq !== "number") continue;
     if (!out[login] || rec.seq > out[login].seq) {
       out[login] = rec;
     }
   }
-  return out;
+  return { index: out, indeterminate };
 }
 
 /**
@@ -110,6 +201,15 @@ function _latestAttestationByLogin(foldedState) {
  * derive-n.js trustRoot input under the bounded-trust threat model.
  */
 function _trustRootFromRoster(roster) {
+  // S61 final round — THIRD un-dispatched `loginsEqual(person.github_login, …)`
+  // in this file, annotated so the set is complete rather than partial (the
+  // other two are the index site above and `:eligibleRemover` below). It
+  // compares the roster's `repo_owner` against `github_login` directly instead
+  // of routing through `revocation-bind-identity.js`, so on an ADO roster
+  // (persons bind via `principal`) nothing matches and this returns null.
+  // Polarity is FAIL-CLOSED: a null trust root yields no derived-N trust anchor
+  // rather than a permissive one. Same disposition and the same (now widened)
+  // revisit trigger as the other two.
   if (!roster || !roster.genesis || !roster.persons) return null;
   const repoOwner = roster.genesis.repo_owner;
   for (const [pid, person] of Object.entries(roster.persons)) {
@@ -173,7 +273,30 @@ function eligibleForRecoveryFallback(
   }
 
   const latestRev = _latestRevocationByLogin(foldedState);
-  const latestAtt = _latestAttestationByLogin(foldedState);
+  const attIndex = _latestAttestationByLogin(foldedState);
+  // S61 FINAL ROUND — REFUSE on an unresolvable attestation, BEFORE the
+  // override test below can read a missing entry as "no override exists".
+  // "Could not look" and "looked and found nothing" are opposite facts and
+  // must not share an outcome (`instrument-discipline.md` MUST-1).
+  //
+  // This also restores parity with `origin/main` on the three arms the S61
+  // shared-resolver refactor regressed. main read `content.github_login`
+  // unconditionally, so a non-github-provider attestation carrying a valid
+  // github_login was still indexed and its override still honoured; the
+  // refactor refused it and thereby GRANTED the fallback. Refusing on unknown
+  // returns eligible=false there — main's answer, reached fail-CLOSED rather
+  // than by widening the index back out. Chosen over threading
+  // `expectedProvider` into the index because widening only covers TODAY's
+  // known skips: any future skip (a new provider, a malformed record, another
+  // shape guard) would silently re-open the same grant. This fixes the
+  // polarity at the point where the decision is made.
+  if (attIndex.indeterminate) {
+    return {
+      eligible: false,
+      reason: `recovery-fallback: ${attIndex.indeterminate}`,
+    };
+  }
+  const latestAtt = attIndex.index;
 
   // For each login with a latest revocation that BEATS any latest
   // attestation by seq, check settlement.
@@ -256,6 +379,16 @@ function eligibleForRecoveryFallback(
   }
 
   // Resolve the sole remaining login → person_id (the eligible remover).
+  //
+  // S61 round-6 — UN-DISPATCHED, deliberately, and recorded rather than left
+  // silent. This compares `person.github_login` directly instead of routing
+  // through `revocation-bind-identity.js`, so on an ADO roster (persons bind
+  // via `principal`) nothing matches. Polarity is FAIL-CLOSED: no match leaves
+  // `eligibleRemover` null and the function returns `eligible: false` a few
+  // lines below, so the un-dispatched compare can only WITHHOLD a fallback.
+  // Same decision, and the same trigger to revisit, as the two indexing sites
+  // above: no production caller today; thread the provider here too if
+  // `eligibleForRecoveryFallback` ever gains one in an ADO ecosystem.
   const remainingLogin = remainingLive[0];
   let eligibleRemover = null;
   for (const [pid, person] of Object.entries(roster.persons)) {

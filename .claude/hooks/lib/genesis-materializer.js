@@ -51,6 +51,7 @@
 const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
+const { resolveGitBinary, gitEnvForArgs } = require("./git-subprocess-env.js");
 
 const { foldGenesisAnchor } = require("./fold-genesis-anchor.js");
 const { isUnenrolled } = require("./roster-schema-validate.js");
@@ -87,13 +88,27 @@ const DEFAULT_MAX_BYTES = 25 * 1024 * 1024; // 25 MiB
  * @param {{args: string[], repoDir: string, input?: string}} spec
  * @returns {{ok: boolean, stdout?: string, stderr?: string}}
  */
+// loom#1471 (s49). MIXED wrapper — `fetch` REACHES A REMOTE while `rev-parse`
+// and `cat-file` are local reads, so `gitEnvForArgs()` picks per call: the fetch
+// keeps the host's proxy/TLS/agent (without which materialization silently
+// fails on a corporate host) and the two local reads stay on the tighter
+// profile. Under an ambient `GIT_DIR` the `cat-file` that produces the GENESIS
+// LOG BLOB read from an attacker-named repository — the trust root itself was
+// steerable through the environment.
 function _defaultGit({ args, repoDir, input }) {
+  const gitBin = resolveGitBinary();
+  if (!gitBin) {
+    // INDETERMINATE — the existing `ok:false` shape. Never a clean read of the
+    // genesis blob.
+    return { ok: false, stderr: "genesis-materializer: no git binary resolved" };
+  }
   try {
-    const stdout = execFileSync("git", ["-C", repoDir, ...args], {
+    const stdout = execFileSync(gitBin, ["-C", repoDir, ...args], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
       input,
       maxBuffer: DEFAULT_MAX_BYTES + 1024 * 1024,
+      env: gitEnvForArgs(args),
     });
     return { ok: true, stdout: String(stdout) };
   } catch (err) {

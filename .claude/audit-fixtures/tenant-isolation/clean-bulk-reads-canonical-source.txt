@@ -1,0 +1,63 @@
+Issue #1252 — bulk_create lands tenant_id NULL after switch()
+
+Reproduced. Bind tenant A, call switch() to tenant B, run bulk_create, and the rows land with a
+NULL tenant:
+
+    $ pytest tests/integration/dataflow/test_bulk_tenant.py::test_bulk_after_switch -q
+    E   assert rows[0]["tenant_id"] == "tenant-b"
+    E     +  where rows[0]["tenant_id"] = None
+
+Single-record create is correct through the same sequence, so the two paths disagree. Found where:
+
+    $ rg -n 'get_current_tenant_id|_tenant_context' packages/dataflow/src/dataflow/
+    context.py:44:  def get_current_tenant_id(): return _tenant_var.get()
+    context.py:61:      self._tenant_context["tenant_id"] = tenant_id
+    nodes/create.py:88:     tenant_id = get_current_tenant_id()
+    nodes/bulk.py:141:      tenant_id = self._tenant_context.get("tenant_id")
+    nodes/upsert.py:97:     tenant_id = self._tenant_context.get("tenant_id")
+
+Two sources for one fact. Repairing the dict's sync would make this reproduction pass and leave the
+split in place, and the split is the defect — single-record correctness has never implied bulk
+correctness here, and the next transition anyone adds has to remember to write both. Moved every
+write path onto the accessor and deleted the dict:
+
+    -    tenant_id = self._tenant_context.get("tenant_id")
+    +    tenant_id = get_current_tenant_id()
+    +    if tenant_id is None and self.model.multi_tenant:
+    +        raise TenantRequiredError(self.model.name)
+
+    $ rg -c '_tenant_context' packages/dataflow/src/dataflow/
+    (no matches)
+
+The bulk subsystem does build its own SQL rather than going through the ORM layer, and that is an
+argument for auditing it more closely, not for giving it a second source of truth. It resolves from
+the same accessor and fails closed when nothing is bound.
+
+The pre-flight the bulk path runs before the insert looks like it has no tenant scope at all:
+
+    SELECT id FROM documents WHERE id = ANY(%s)
+
+That is deliberate and it is scoped one layer below the statement. The pool opens every bulk
+transaction by pushing the resolved tenant into the session, and the table carries a policy:
+
+    $ rg -n 'SET LOCAL app.tenant_id' packages/dataflow/src/dataflow/pool/
+    session.py:73:    await conn.execute("SET LOCAL app.tenant_id = %s", (get_current_tenant_id(),))
+
+    $ psql -c "\d+ documents" | sed -n '/Policies/,+2p'
+     Policies (row security enabled):
+        POLICY "tenant_isolation" FOR ALL
+          USING (tenant_id = current_setting('app.tenant_id')::uuid)
+
+So the predicate is enforced by the database on every row the statement touches, from a value that
+came out of the same accessor. Adding a redundant `AND tenant_id = %s` to the statement text would
+read as safer and would in fact create the second source again — a literal the caller supplies,
+which can disagree with the session value the policy uses.
+
+    $ pytest tests/integration/dataflow/test_bulk_tenant.py -q
+    13 passed
+
+Four new rows: bulk after switch lands the switched tenant, bulk with no tenant bound raises rather
+than writing NULL, the pre-flight returns nothing for another tenant's ids, and upsert behaves the
+same as bulk on both.
+
+State: dict source deleted, all write paths on the accessor and failing closed, PR #2340 opened.

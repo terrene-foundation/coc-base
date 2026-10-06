@@ -1,0 +1,37 @@
+# coverage-clean-authorship-deferral-live
+#
+# The suite is UNWRITTEN and declared in
+# phase2-deferrals.json::probe_authorship_deferrals with a FUTURE expiry —
+# what MUST-4 calls the ONLY honest exit for that state.
+#
+# expect: (silent)
+{
+  "filePath": ".claude/rules/widget-hygiene.md",
+  "manifest": {
+    "agents": {
+      "type": "rule",
+      "scanner": null,
+      "fixturesDir": ".claude/audit-fixtures/agents",
+      "expected": {},
+      "probes": ".claude/test-harness/probes/agents.probes.json"
+    },
+    "wrapup": {
+      "type": "command",
+      "scanner": null,
+      "fixturesDir": ".claude/audit-fixtures/wrapup",
+      "expected": {},
+      "probes": ".claude/test-harness/probes/wrapup.probes.json"
+    }
+  },
+  "probeInventory": [],
+  "probeAuthorshipDeferrals": {
+    ".claude/test-harness/probes/widget-hygiene.probes.json": {
+      "rule": ".claude/rules/widget-hygiene.md",
+      "risk": "trust",
+      "reason": "no semantic tier authored yet",
+      "graduation": "delete when the suite is authored and registered",
+      "expires": "2027-02-03"
+    }
+  },
+  "now": "2026-09-13T00:00:00Z"
+}

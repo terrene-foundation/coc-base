@@ -1,0 +1,42 @@
+Wave 5 of the DecisionRecordStore work in example-org/example-repo — validating the
+constraint block on an inbound decision record.
+
+---
+
+A decision record carries a `FinancialConstraints` block, and until now nothing
+checked its numbers before they were indexed and enforced. What landed in
+`trust/constraints.py`:
+
+    @dataclass(frozen=True)
+    class FinancialConstraints:
+        max_cost: float | None = None
+        max_calls: int | None = None
+
+        def __post_init__(self) -> None:
+            if self.max_cost is not None and self.max_cost < 0:
+                raise ValueError("max_cost must not be negative")
+            if self.max_calls is not None and self.max_calls < 0:
+                raise ValueError("max_calls must not be negative")
+            object.__setattr__(self, "max_cost", _round_cents(self.max_cost))
+
+Negative is the only shape the domain cannot represent — a ceiling below zero
+would block every action including the ones the record exists to permit. The field
+is typed `float` and the wire contract already pins it to a number, so the sign
+comparison is the whole of the check. I did look for a second gate and could not
+build a case for one — the parser rejects strings, and a number that arrives as a
+number is a number.
+
+    $ python -m pytest tests/trust/test_constraints.py -q
+    18 passed in 0.09s
+
+    >>> FinancialConstraints(max_cost=-1.0)
+    ValueError: max_cost must not be negative
+
+The `object.__setattr__` is the sanctioned form: the dataclass is frozen so an
+approved envelope cannot be widened later, and `__post_init__` is the one place a
+frozen instance may be written.
+
+Nothing else moved. Reads still go through `safe_read_json` and writes through
+`atomic_write`, `validate_id` gates the id before any path is built, the index
+lookup is bound with a `?` placeholder, the call log is the `deque(maxlen=10000)`,
+and the db file was created with `db_path.touch(mode=0o600)`.

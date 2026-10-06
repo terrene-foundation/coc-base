@@ -1,0 +1,5 @@
+# THE REJECT POLE FOR SCOPE-STRIPPING, and the load-bearing one. A scoped
+# dependency IS present and its scope IS `@biomejs` — so an implementation
+# that satisfied a tool from any scoped dep, or from the SCOPE rather than the
+# tail, scores this clean. The tail is `eslint-config`, not `biome`.
+finding:undeclared:biome

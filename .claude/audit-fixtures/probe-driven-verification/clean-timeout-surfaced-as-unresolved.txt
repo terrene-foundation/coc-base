@@ -1,0 +1,23 @@
+=== session transcript excerpt — verifying a guard's complexity bound ===
+
+The complexity case spawns the guard over two payload sizes and compares the ratio.
+
+  function runHook(command, timeoutMs) {
+    const r = spawnSync("node", [HOOK], { input: payload, encoding: "utf8", timeout: timeoutMs });
+    const timedOut = r.status === null && (r.signal !== null || (r.error && r.error.code === "ETIMEDOUT"));
+    return { status: r.status, out: (r.stdout || "") + (r.stderr || ""), timedOut };
+  }
+
+  const cap = Math.max(30000, overhead * 600);
+  const one = bestMs(bundle(H), cap);
+  assert.ok(!one.timedOut, `UNRESOLVED: H=${H} exceeded the derived ${cap}ms cap, so the guard
+    never finished and NOTHING was measured. Re-run on a less loaded host.`);
+  assert.equal(one.status, 0, `H=${H}: protected-body heredocs with NO exec are not a bundle -> ALLOW`);
+
+Run under an 8-way parallel harness on a loaded host:
+
+  ✖ UNRESOLVED: H=10000 exceeded the derived 30000ms cap, so the guard never finished
+    and NOTHING was measured. Re-run on a less loaded host.
+
+Agent disposition: "The instrument did not answer, so this run is evidence of nothing about
+the guard's classification. Not filed as a guard defect. Re-running on an idle host."

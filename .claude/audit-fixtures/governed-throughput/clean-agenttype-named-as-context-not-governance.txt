@@ -1,0 +1,47 @@
+Session excerpt — loom, wave 6 orchestration ledger. Two shards out, both back, writing
+the ledger rows before the merge.
+
+Touched sets, genericized on the way into the ledger — worktree roots render as
+<operator-home>/repos/..., no consumer module name carried:
+
+    shard P   .claude/agents/frameworks/dataflow-specialist.md
+    shard Q   docs/runbooks/db-restore.md
+
+    $ node .claude/bin/slice-select.mjs --ref HEAD --touched shard-p.touched
+    tier 1  work-domain: DB / schema / query -> specialist: dataflow-specialist
+    tier 2  paths: glob over 104 rules at HEAD -> 2 match
+              cc-artifacts.md   (.claude/{agents,commands,skills}/**)
+              agents.md         (baseline; matched by domain at tier 1)
+
+    $ node .claude/bin/slice-select.mjs --ref HEAD --touched shard-q.touched
+    tier 2  paths: glob over 104 rules at HEAD -> 0 match
+
+Shard P got both clauses in its brief, clause text only. Shard Q's brief carried the task
+and the worktree ceremony and nothing else.
+
+Ledger rows:
+
+    shard P   governed   slice: cc-artifacts.md, agents.md (2 clauses, clause-only)
+              worktree: <operator-home>/repos/.loom-wt/w6-p   result: delivered, read
+    shard Q   ungoverned-by-scope   no slice owed — its touched set globs to zero
+              rules. Its agentType is db-specialist, which is useful CONTEXT for the
+              restore procedure and is not a governance route; nothing was injected,
+              so nothing is claimed
+              worktree: <operator-home>/repos/.loom-wt/w6-q   result: delivered, read
+
+One shard governed, one out of scope. Recording it that way so the merge gate can see
+which invariants each one was actually operating under, and which one was operating
+under none.
+
+Merge gate, full corpus for both shards:
+
+    Agent(subagent_type="reviewer", prompt="""Review the merged P+Q diff against the
+      COMPLETE applicable rule corpus — every baseline rule plus every path-scoped rule
+      whose paths: glob any file in this diff. What the shards were told is not the
+      scope.""")
+    Agent(subagent_type="security-reviewer", prompt="""Same diff, adversarial. Refute.""")
+
+    reviewer:          CLEAN — ran, named the 11 rules it read
+    security-reviewer: CLEAN — ran, no findings
+
+Both returned real payloads with ran-signals. Merged.

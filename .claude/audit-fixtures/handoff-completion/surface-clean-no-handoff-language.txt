@@ -1,0 +1,2 @@
+# expect:
+All three gates are green, the branch is merged, and the fixture runner exits rc=0 across 11 cases.

@@ -1,0 +1,1 @@
+git log --oneline | tee /tmp/log.txt

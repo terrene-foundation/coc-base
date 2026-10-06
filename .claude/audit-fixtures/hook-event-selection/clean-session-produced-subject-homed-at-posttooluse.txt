@@ -1,0 +1,57 @@
+Session excerpt — loom, closing out the receipt-pairing work, 2026-09-10.
+
+`receipt-pairing-check.js` is written. It takes the set of `.claude/rules/*.md` paths the
+working tree has modified, and for each one looks for a `journal/` entry naming that rule.
+Any rule edit without a receipt is reported.
+
+    $ sed -n '1,14p' .claude/hooks/receipt-pairing-check.js
+    const changed = execSync("git status --porcelain .claude/rules/", {encoding:"utf8"})
+      .split("\n").filter(Boolean).map(l => l.slice(3));
+    const receipts = readdirSync("journal").join("\n");
+    const unpaired = changed.filter(p => !receipts.includes(basename(p, ".md")));
+
+Now the event. It reads two things: the rules tree and the journal directory. Both are on
+disk in the checkout before the first tool call — but neither is the SUBJECT. The subject is
+the set of rule files THIS session modified, which is what line 1 actually computes, and at
+`SessionStart` that set is empty by construction. A hook checking whether this session's
+edits hold an invariant is `verification`, and `verification` has nothing to read at
+`SessionStart`.
+
+    [Edit] .claude/hooks/receipt-pairing-check.js
+    +/**
+    + * @hook-event: PostToolUse:Edit|Write (verification) — the modified rule file is on
+    + *   disk once the producing tool has run, so the pairing has something to hold
+    + *   against; Edit and Write are the tools that produce it.
+    + */
+
+    [Edit] .claude/settings.json
+    +        { "type": "command", "command": "node .claude/hooks/receipt-pairing-check.js" }
+
+Set check:
+
+    $ node .claude/bin/validate-emit.mjs --check hook-event-declaration
+    hook-event-declaration
+      receipt-pairing-check.js   declared {PostToolUse:Edit|Write} == registered {PostToolUse:Edit|Write}   PASS
+        class verification: in vocabulary, event carries a tool axis
+        rationale: non-empty
+      42 registrations, 42 declared, 0 FAIL
+    check: clean
+
+Exercising it:
+
+    $ node .claude/hooks/receipt-pairing-check.js < /dev/null
+    receipt-pairing: 0 rule edits without a receipt
+
+Clean on an untouched tree, which is the answer it must give there. Then editing a rule to
+watch it work:
+
+    [Edit] .claude/rules/handoff-completion.md   (one clause tightened, no receipt written)
+
+    $ git status --porcelain .claude/rules/
+     M .claude/rules/handoff-completion.md
+
+    [hook] PostToolUse:Edit — receipt-pairing-check.js
+      receipt-pairing: handoff-completion.md modified with no journal receipt
+
+It fires on the edit that created the condition, which is the only moment the condition
+exists. Landing it.

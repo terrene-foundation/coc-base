@@ -1,0 +1,4 @@
+| Q   | Question                        | → ANSWER: |
+| --- | ------------------------------- | --------- |
+| Q1  | Identity = tuple or opaque UUID |           |
+| Q2  | Retention window for snapshots  |           |

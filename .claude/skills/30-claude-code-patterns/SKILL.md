@@ -133,7 +133,9 @@ Critical info at beginning/end of context. Middle gets less attention. Trim tool
 - **[User-Flow Validation Walk Discipline](user-flow-validation-walk-discipline.md)** — per-MUST DO/DO-NOT corpora + the full walk + scrub treatment + Origin for `rules/user-flow-validation.md` (the always-on rule carries only the walk/receipts/scrub tripwires)
 - **[Decision-Recording Discipline](decision-recording-discipline.md)** — decision-tree + ledger-signature-per-label + secrets fence + halt-and-report runbook for `rules/journal-author-discipline.md`
 - **[Redteam Dispatch Evidence Gate](redteam-dispatch-evidence-gate.md)** — errored/empty-is-zero-evidence + concurrency back-off for `rules/agents.md` § "Redteam Reviewer Dispatch"
+- **[Role-Conditioned Attackers](role-conditioned-attackers.md)** — attacker prompt frames + incentive-check register + coverage-table carry-forward + the roster-vs-derivation reconciliation for `rules/adversarial-coverage.md`, backing `commands/redteam.md` and `commands/vet.md`
 - **[Agent Result Delivery](agent-result-delivery.md)** — a NAMED agent carries no `toolUseId`, so its report has no return path and is lost while every surface reports success; measurement + transcript recovery for `rules/agents.md` § Agent-Result-Delivery
+- **[Deferral Acceptance Queue](deferral-acceptance-queue.md)** — what to do when you hit a residual and no human is reachable: the STALL/FABRICATE/FOLD/QUEUE decision, why FOLD is the one you will reach for, and the four fences that stop a queued request from ever reading as an acceptance (`completion-criterion.md` MUST-6)
 - **[`derives_from[]` PROV-Edge Emission](derives-from-emission.md)** — v0 record shape + emitter call + hygiene-invariant enforcement map + transport decision + v0→v1 protocol for `rules/specs-authority.md` Rule 11 (PRODUCER half only; consumer gated on kailash-rs #1951)
 
 ## When to Use This Skill

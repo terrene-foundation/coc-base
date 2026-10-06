@@ -73,26 +73,61 @@ The rubric composes a MECHANICAL signal + LLM judgment per dimension, with an ad
 2. **Completeness** — [LLM] edge cases handled, cross-references for handoff + [mechanical] orphan/parity grep (`orphan-detection.md` — no undeclared `variants/` file, no eager-import/`__all__` omission).
 3. **Effectiveness** — [LLM] output format specified, actually used + [ADVERSARIAL, in-scope only] subprocess A/B per `guides/deterministic-quality/01-rule-authoring-principles.md` PROVING the artifact changes agent behavior. In-scope by a MECHANICAL trigger (NOT author narration): (a) `priority:0` baseline rules, OR (b) any artifact this audit modifies whose diff touches a behavior-shaping line — instruction / `MUST` / `MUST NOT` / `BLOCKED` / decision-routing / signature-output-contract, OR any prose-line edit changing what the agent is licensed to do / what value-threshold it uses / what it treats as authoritative (a reworded instruction with no `MUST`, `TIMEOUT_MS=5000`→`500`, a flipped rationale polarity all qualify). An author cannot dodge by omitting a behavioral assertion (positive-trigger per `cc-artifacts.md` Rule 10); when instruction-vs-reference is AMBIGUOUS the trigger FIRES (`self-referential-codify.md` Rule 2 boundary). Every other artifact (UNAMBIGUOUSLY reference/example/typo-only) clears on LLM + Phase-0 probe-coverage (no A/B — cost discipline). Per `rules/probe-driven-verification.md` the A/B IS the probe — lexical checks are not.
 4. **Token Efficiency** — [mechanical ONLY] `emit.mjs` `headroom_pct` from Phase 0. NOT an LLM token estimate.
-5. **Trust Posture Wiring (rules only, ENFORCED)** — Per `rules/trust-posture.md` MUST 7 + MUST 8 + `commands/codify.md` Step 6b: every NEW rule file (post-trust-posture grandfather cutoff) MUST end with `## Trust Posture Wiring` containing all 8 canonical fields (per `trust-posture.md` MUST 8). Audit step:
+5. **Trust Posture Wiring (rules only, ENFORCED)** — Per `rules/trust-posture.md` MUST 7 + MUST 8 + `commands/codify.md` Step 6b: every NEW rule file (post-trust-posture grandfather cutoff) MUST end with `## Trust Posture Wiring` containing EVERY canonical field (per `trust-posture.md` MUST 8). **Do NOT hand-list the fields and do NOT state their COUNT** — both are recitations that rot silently, and both already have: this step carried "all 8 canonical fields" plus an eight-token loop after `**Invoker class:**` landed as the ninth, so the gate would have PASSED a rule missing it. Derive the set from the authority instead:
 
    ```bash
-   # Mechanical sweep — emit FAIL on any new rule lacking the section
-   for f in $(git diff --name-only origin/main -- '.claude/rules/*.md'); do
+   # Mechanical sweep — FAIL any rule THIS codify touched that lacks the section
+   # or any canonical field, and EXIT NON-ZERO so /codify halts mechanically
+   # rather than on a reviewer noticing an echoed line.
+   #
+   # The field set is DERIVED from check-descoping.mjs::CANONICAL_WIRING_FIELDS,
+   # the same list the de-scoping gate enforces, so this loop cannot drift from
+   # the template the way a retyped list does (specs-authority.md Rule 9).
+   # Portable read loop, NOT `mapfile`: macOS ships bash 3.2, which has none.
+   FIELDS=()
+   while IFS= read -r line; do
+     # DISCARD blanks. `[].join("\n")` still prints a newline, so an EMPTY
+     # authority yields ONE EMPTY element — a count of 1 that sails past any
+     # `-ge 1` guard and then greps every rule for the meaningless token
+     # `**:**`. MEASURED on a drop-everything mutant with its reach proven
+     # (0 fields loaded): without this line the loop reported `missing field `
+     # with a BLANK name on every rule instead of refusing.
+     [ -n "$line" ] && FIELDS+=("$line")
+   done < <(node -e 'import("./.claude/bin/check-descoping.mjs").then(m=>console.log(m.CANONICAL_WIRING_FIELDS.join("\n")))')
+   # Fail CLOSED: an empty derivation means the authority did not load, and an
+   # empty field loop would silently pass every rule.
+   [ "${#FIELDS[@]}" -ge 1 ] || { echo "FAIL: canonical field set did not derive"; exit 2; }
+
+   # BASE is the ref THIS codify branch forked from. `origin/main` is the
+   # FALLBACK, never the answer: on a dev-stacked branch it sits many commits
+   # back, so its range enumerates rules OTHER work changed. MEASURED on this
+   # tree — the origin/main range FAILed `.claude/rules/user-flow-validation.md`,
+   # a rule `trust-posture.md` MUST-8 explicitly grandfathers and this codify
+   # never touched, and the over-fire GROWS with every further dev commit.
+   # Supply the fork ref whenever the lease branch was cut from anything but the
+   # default branch. THREE dots per `evidence-first-claims.md` MUST-5 — a
+   # two-dot range on a branch behind BASE reads BASE's newer commits as
+   # reversions.
+   BASE="${CODIFY_BASE_REF:-origin/main}"
+   echo "sweep base: $BASE (override: CODIFY_BASE_REF=<the ref this branch forked from>)"
+
+   failed=0
+   for f in $(git diff --name-only "$BASE...HEAD" -- '.claude/rules/*.md'); do
      if ! grep -q '^## Trust Posture Wiring' "$f"; then
-       echo "FAIL: $f missing Trust Posture Wiring"
+       echo "FAIL: $f missing Trust Posture Wiring"; failed=1
      fi
-     # Verify all 8 canonical fields present per trust-posture.md MUST-8
-     for field in '\*\*Severity:' '\*\*Grace period:' '\*\*Cumulative posture impact:' \
-                   '\*\*Regression-within-grace:' '\*\*Receipt requirement:' \
-                   '\*\*Detection mechanism:' '\*\*Violation scope:' '\*\*Origin:'; do
-       grep -q "$field" "$f" || echo "FAIL: $f wiring missing field $field"
+     for field in "${FIELDS[@]}"; do
+       grep -qF -- "**${field}:**" "$f" || { echo "FAIL: $f wiring missing field $field"; failed=1; }
      done
    done
+   [ "$failed" -eq 0 ] || exit 2
    ```
 
-   Missing or incomplete → audit FAIL → /codify halts. Grandfathered rules (those pre-dating `rules/trust-posture.md`) are exempt — recognized by `git log --diff-filter=A` showing creation date before trust-posture commit SHA.
+   Missing or incomplete → audit FAIL → /codify halts, and now halts MECHANICALLY: the loop sets a failure flag and exits 2, so the halt no longer depends on the reading agent noticing an echo.
 
-6. **Canonical 8-Field Wiring Template Sweep (per `trust-posture.md` MUST 8)** — Every Trust-Posture-Wired rule landed AT or AFTER the SHA introducing `trust-posture.md` MUST 8 MUST carry the literal token `**Violation scope:**` after its detection-mechanism field. The token is the canonical-template grep anchor. Run the sweep across ALL rules in `.claude/rules/*.md`; flag any rule that has a `## Trust Posture Wiring` section but lacks `**Violation scope:**`. Grandfather cutoff is the SHA of the commit that introduced MUST 8 — rules landed before that SHA are exempt until their next `/codify`-touched edit; rules landed at or after MUST shift to canonical form.
+   **GRANDFATHER — what this predicate can and cannot express, stated rather than implied.** `trust-posture.md` MUST-8 exempts a pre-cutoff rule "until its next `/codify`-touched edit". NO git fact distinguishes a `/codify` edit from any other edit to the same file, so the creation-date predicate this step used to carry (`git log --diff-filter=A` before the trust-posture SHA) answered a DIFFERENT question — it exempted by AGE, while MUST-8 binds on whether THIS codify touched the rule, and it therefore could not express the 2026-09-18 ninth-field cutoff at all. What the sweep does INSTEAD: it takes membership in the `BASE...HEAD` range AS the bound set, which is exact when — and only when — BASE is this codify's own fork ref. A FAIL on a rule this codify did not touch is therefore a BASE error, not a finding: re-run with the correct `CODIFY_BASE_REF` before dispositioning it. Because the sweep now exits non-zero, a wrong BASE halts loudly instead of printing a FAIL nobody acts on. Bipolar poles for every arm above: `.claude/audit-fixtures/cc-architect-wiring-sweep/run.mjs`.
+
+6. **Canonical Wiring Template Sweep (per `trust-posture.md` MUST 8)** — Every Trust-Posture-Wired rule landed AT or AFTER the SHA introducing `trust-posture.md` MUST 8 MUST carry the literal token `**Violation scope:**` after its detection-mechanism field. The token is the canonical-template grep anchor. Run the sweep across ALL rules in `.claude/rules/*.md`; flag any rule that has a `## Trust Posture Wiring` section but lacks `**Violation scope:**`. Grandfather cutoff is the SHA of the commit that introduced MUST 8 — rules landed before that SHA are exempt until their next `/codify`-touched edit; rules landed at or after MUST shift to canonical form.
 
    ```bash
    # Mechanical sweep — flag Wiring-bearing rules missing the canonical-template marker

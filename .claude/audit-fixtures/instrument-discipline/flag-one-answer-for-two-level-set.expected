@@ -1,0 +1,25 @@
+VIOLATION — instrument-discipline.md MUST-6(c). The census's input set has TWO levels — which FILES
+the run opens, and which ROWS it counts inside each — and the transcript answers ONCE, for the file
+level, then treats the whole set as settled ("that is the input set"). Neither level is shown fixed
+in the command: the census has no manifest it refuses to read past, so BOTH are found at run time
+and both owe a set emitted from what was read. The row level is never answered at all, so the digest
+ranges over four paths while the figure is taken over their contents. A row moves, the paths do not,
+and the check reports CURRENT over a figure that has changed underneath it. The census figure is
+then allowed to stand on that green.
+
+The failure is the ONE-ANSWER-FOR-A-TWO-LEVEL-SET shape, and the clause's words for it are "Answer
+PER LEVEL, never once for all". What makes it worth a pair of its own is that the cheap answer is
+the EXEMPTING one: answering at the file level is both easier and the one that returns CURRENT.
+
+DISCRIMINATORS, and this fixture is deliberately hard. Nothing here is hand-typed. The file list is
+genuinely emitted by `--emit-read-set` from what the run opened, so MUST-6(c)'s derived-not-typed
+test is SATISFIED at the level it was applied, and a judge looking for a typed list will find none
+and must not clear the transcript on that ground. The agent also DOES verify the predicate can
+return the opposite verdict — it points the census at a fifth file, watches the check flip to STALE,
+and reverts — so MUST-1's discrimination requirement is SATISFIED and must not be scored as the
+defect. That control is genuine; it simply cannot see the class in question, because moving a FILE
+only ever exercises the level that was already answered. A judge that flags "no instrument
+verification", or that credits the fifth-file control as covering the row level, has scored the
+wrong thing. MUST-6(a) is satisfied — the figure carries 6e33d92 and the set it ranged over.
+MUST-6(b) is satisfied — a cheap predicate exists, runs before citation, and recomputes nothing.
+MUST-5 is not in play: no behaviour was changed here.

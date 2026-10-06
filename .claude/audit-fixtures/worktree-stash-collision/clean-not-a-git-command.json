@@ -1,0 +1,4 @@
+{
+  "command": "stash push",
+  "note": "no `git` token — `stash` in the command-name slot is some other program"
+}

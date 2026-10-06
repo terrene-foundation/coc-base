@@ -1,0 +1,15 @@
+{
+  "note": "Claim-2 regression lock. CI's REAL gate here is `node --test <suite>` (12 such steps on loom at authoring). The deriver reduces a command to `<program>[ <first operand>]`, and for a DISPATCHING program it once refused any operand that looked like a flag — so all twelve steps derived NOTHING and running verbatim what CI runs did not count as a parity run. The transcript below runs one suite (the diff-SCOPED subset git.md mandates), so this MUST be silent. Reverting the flag-operand admission reds this pole.",
+  "expect": {
+    "verdict": "silent",
+    "why": "parity-ran-this-session"
+  },
+  "input": {
+    "command": "git push origin feat/rate-limit",
+    "remoteBranchExists": true,
+    "workflows": [
+      "name: gate\non: [pull_request]\njobs:\n  g:\n    steps:\n      - name: suites\n        run: >\n          node --test\n          .claude/test-harness/tests/a.test.mjs\n          .claude/test-harness/tests/b.test.mjs\n      - run: node .claude/bin/validate-xref-integrity.mjs\n      - name: probe\n        run: node -e 'console.log(process.version)'\n"
+    ],
+    "transcriptText": "{\"type\":\"assistant\",\"uuid\":\"u0\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"tu0\",\"name\":\"Bash\",\"input\":{\"command\":\"git push origin feat/rate-limit\"}}]}}\n{\"type\":\"assistant\",\"uuid\":\"u1\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"tu1\",\"name\":\"Bash\",\"input\":{\"command\":\"git diff --name-only origin/main...HEAD\"}}]}}\n{\"type\":\"assistant\",\"uuid\":\"u2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"tu2\",\"name\":\"Bash\",\"input\":{\"command\":\"node --test .claude/test-harness/tests/a.test.mjs\"}}]}}"
+  }
+}

@@ -1,0 +1,41 @@
+Session excerpt — loom, merging the two-shard hook-guard wave. Both shards are back; this
+is the gate before the merge.
+
+Recap of what each shard was accountable for. Touched sets genericized on the way in —
+worktree roots render as <operator-home>/repos/..., no consumer path survives:
+
+    shard H1  .claude/hooks/lib/dispatch-contract.js
+              .claude/agents/quality/reviewer.md
+    shard H2  .claude/commands/redteam.md
+
+    $ node .claude/bin/slice-select.mjs --ref HEAD --touched shard-h1.touched
+    tier 1  work-domain: hook + agent authoring -> specialist: cc-architect
+    tier 2  paths: glob over 104 rules at HEAD -> 4 match
+              cc-artifacts.md            (.claude/{agents,commands,skills}/**)
+              hook-output-discipline.md  (.claude/hooks/**)
+              hook-event-selection.md    (.claude/hooks/**)
+              agents.md                  (baseline; matched by domain at tier 1)
+
+Both briefs carried those clauses as clause text only, no worked blocks and no Wiring.
+Both shards returned full diffs and were read.
+
+The gate. The four clauses were a deliberately minimal slice for generation, which is
+exactly why they are not the review scope: whatever the slice left out is what this gate
+exists to catch, and scoping the reviewer to the slice would leave that set unread by
+anyone. Full corpus against the merged diff.
+
+    Agent(subagent_type="reviewer", prompt="""Review the merged H1+H2 diff against the
+      COMPLETE applicable rule corpus: every baseline rule, plus every path-scoped rule
+      whose paths: glob any file in this diff. The four clauses the shards were given
+      were minimal by design and are NOT the scope — treat anything they omitted as
+      in-scope here. Report per rule you read.""")
+    Agent(subagent_type="security-reviewer", prompt="""Same diff, full corpus,
+      adversarial. Refute.""")
+
+    reviewer:          CLEAN — ran, named the 14 rules it read and the line ranges for
+                       each, including four the shards were never told about
+    security-reviewer: CLEAN — ran, attempted three refutations across the full corpus,
+                       none landed
+
+Both returned real payloads with ran-signals; neither was a lifecycle notification and
+neither announced work still to come. Merged.

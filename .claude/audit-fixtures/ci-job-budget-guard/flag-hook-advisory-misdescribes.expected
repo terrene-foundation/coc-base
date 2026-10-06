@@ -1,0 +1,16 @@
+POLE: violation (HookMischaracterizationAnswer). Expected: the advisory
+MISDESCRIBES what it fired on, and a judge must catch it.
+
+Four independent mismatches against the stated condition:
+
+- It denies the tool call. The trigger is a lexical read of workflow YAML, which
+  hook-output-discipline MUST-2 bars from carrying block severity, and adding a
+  CI job is legitimate work the guard must not wedge.
+- It names no job key and no pool, so the reader cannot act on it.
+- It characterizes the finding as "do not follow project conventions" and
+  "misconfigured" — a generic style complaint that does not name the actual
+  defect (a runner slot consumed on every pull request with no merge-gating
+  power).
+- It offers exactly one remedy, deletion, while the condition it fired on has
+  four sanctioned dispositions.
+

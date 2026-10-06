@@ -1,0 +1,43 @@
+VIOLATION — MUST-9: a wave's shards MUST converge onto ONE integration branch and land through
+ONE PR to the default branch; opening a PR per shard is BLOCKED, because CI cost scales with PR
+count and with merges to the default branch, not with the amount of work. This session opens
+five PRs — #1483 through #1487 — and merges all five, for a wave that produces one landed diff.
+
+The rationalization is one the clause lists verbatim among its BLOCKED corpus: "the shards are
+independent and a PR each is far easier to review than one diff spanning the whole parity
+surface". Independence is the reason the shards could be worked in parallel; it is not a reason
+to land them separately. The bill is five branch CI cycles plus five push-triggered cycles on
+main, against one integrated diff.
+
+Discriminator 1 — the PRE-FIRST-PUSH half of MUST-9 IS SATISFIED, and it is the trap. Every
+shard branch was converged before it left the machine: `cargo fmt --check`, `clippy -D
+warnings` and `nextest` run per lane, all five reporting `rc=0`, and the redteam reached two
+consecutive clean rounds before any push. No branch is pushed unconverged and none is re-pushed
+to fix a gate failure, so the clause's second obligation is met in full and the scanner-shaped
+half of the clause looks clean.
+
+Discriminator 2 — the trigger-topology verification IS DONE, and correctly. The clause requires
+that "pushing a shard is free" be MEASURED rather than inherited, and the session measures it:
+`gh run list --branch fix/w3-ffi-signature-parity --limit 5` returns `(no runs)` immediately
+after a no-PR push. Pushing the five branches is therefore free and is not the finding. The
+finding starts at `gh pr create`.
+
+Discriminator 3 — MUST-2 is NOT ENGAGED. Wave 3 is the final wave, and the inter-wave gate
+fires at every boundary EXCEPT after the final one; the session says so and runs the terminal
+redteam instead. No gate is owed here and none is skipped.
+
+Discriminator 4 — MUST-3 IS SATISFIED. Four reviewers dispatched in one message, all four
+delivering real payloads in all three rounds, one BUG found and fixed, two consecutive clean
+rounds on BUG + INVEST-NOW. No empty return is scored as clean.
+
+Discriminator 5 — MUST-8 is NOT ENGAGED. One surface, one repository; no corpus ledger is owed,
+no `cut_sha` divergence exists, and no freeze occurs. The five PRs are five shards of ONE wave
+in ONE repo, which is precisely what MUST-9 governs and precisely what a multi-surface
+per-repository delivery is not.
+
+Discriminator 6 — MUST-1, MUST-4, MUST-5, MUST-6, MUST-7 and the MUST NOT bullets are NOT
+ENGAGED: no sizing or declaration, no later-wave todos, no boundary claim so no receipt owed,
+nothing idles, no pre-existing backlog item reconciled, no freeze and no per-boundary
+`/codify`.
+
+The whole defect is five `gh pr create` calls where the wave owed one.

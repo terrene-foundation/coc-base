@@ -1,0 +1,4 @@
+{
+  "verdict": "clean",
+  "defeats": "a naive `p.includes(\"memory/\")` — \"team-memory/\" contains \"memory/\". MEASURED, not assumed: this path does NOT contain \"/memory/\" (the `-` sits where the leading slash would be), so a check written with the leading slash is NOT the one this case defeats. An earlier revision of this field claimed it was; corrected after a mutation run failed to red on it."
+}

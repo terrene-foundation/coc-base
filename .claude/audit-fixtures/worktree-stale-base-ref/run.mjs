@@ -40,6 +40,7 @@
  *
  * Exit 0 = every case matched. Exit 1 = >=1 mismatch.
  */
+import "../_lib/no-ambient-git.cjs";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
   mkdirSync,

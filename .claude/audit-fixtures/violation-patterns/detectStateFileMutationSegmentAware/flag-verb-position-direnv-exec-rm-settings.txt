@@ -1,0 +1,1 @@
+direnv exec . sh -c 'rm .claude/settings.json'

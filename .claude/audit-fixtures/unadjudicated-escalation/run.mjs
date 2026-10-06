@@ -26,6 +26,7 @@
  * wall clock is a fixture that reds on a Tuesday; `--today` is passed explicitly
  * in every case so disposition expiry is a property of the CASE.
  */
+import "../_lib/no-ambient-git.cjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -39,6 +40,56 @@ const TOOL =
   path.join(REPO_ROOT, ".claude", "bin", "unadjudicated-escalation.mjs");
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "unadj-fixtures-"));
+
+/**
+ * The SUBJECT of an `ERR_MODULE_NOT_FOUND`, when that is what failed.
+ *
+ * WHY THIS EXISTS (loom#2200). This fixture materialises a COPY of the tool and runs it
+ * from a scratch directory. When that copy's own import closure is not beside it, Node
+ * fails to LOAD the copy before the tool runs at all — and the case reported only
+ * `stderr=<first 160 chars>`, which named the FAILURE (`ERR_MODULE_NOT_FOUND`) and not
+ * the SUBJECT. In that output an unresolvable import from a copy this fixture built is
+ * indistinguishable from a genuinely missing file, when in fact it is a defect in HOW
+ * THE COPY IS MATERIALISED and says nothing about the tool the case is about.
+ */
+/**
+ * Copy every RELATIVE import reachable from `fromFile` into `intoDir`, preserving the
+ * relative layout, and return the specs copied.
+ *
+ * DERIVED FROM THE SOURCE, never hand-listed (loom#2200). A hardcoded "copy these two
+ * files" would go stale the moment the tool gains an import, and the failure it would
+ * reintroduce is the silent one: the copy stops LOADING, and the case measures a
+ * module-resolution failure while still reporting on the tool. Walking the imports means
+ * the closure grows with the subject.
+ *
+ * `intoDir` is the directory the COPY lives in; destinations are the specifier resolved
+ * relative to the ORIGINAL's directory, so `<bin>/lib/entry-point.mjs` lands at
+ * `<intoDir>/lib/entry-point.mjs` and the copy's own `./lib/...` still resolves.
+ */
+function copyRelativeClosure(fromFile, intoDir, seen = new Set()) {
+  const copied = [];
+  const src = fs.readFileSync(fromFile, "utf8");
+  const re = /from\s+"(\.[^"]+)"/g;
+  let m;
+  while ((m = re.exec(src))) {
+    const target = path.resolve(path.dirname(fromFile), m[1]);
+    if (seen.has(target)) continue;
+    seen.add(target);
+    const dest = path.join(intoDir, path.relative(path.dirname(fromFile), target));
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.copyFileSync(target, dest);
+    copied.push(m[1]);
+    copied.push(...copyRelativeClosure(target, intoDir, seen));
+  }
+  return copied;
+}
+
+function unresolvedModule(stderr) {
+  const m = /Cannot find (?:module|package) '([^']+)'(?: imported from '([^']+)')?/.exec(
+    stderr || "",
+  );
+  return m ? { specifier: m[1], importer: m[2] || null } : null;
+}
 
 let pass = 0;
 const failures = [];
@@ -291,10 +342,15 @@ check(
       '\n<!-- unadjudicated-disposition:v1 key="Sweep 5/manual-supplement-required" owner=someone until=2026-09-30 -->\n',
     );
     const r = run(root, TODAY);
+    // EXACT set, not `.includes()` — see the note on the `until` sibling below.
+    // `.includes()` is blind in the ADDITIVE direction: a build that appends a
+    // spurious field reports `["issue","owner"]` and still satisfies it, while
+    // telling the operator to add `owner`, which this sentinel already carries.
+    const missing = r.json?.malformed_dispositions?.[0]?.missing;
     return (
       (r.code === 1 &&
         r.json.malformed_dispositions.length === 1 &&
-        r.json.malformed_dispositions[0].missing.includes("issue")) ||
+        JSON.stringify(missing) === JSON.stringify(["issue"])) ||
       `code=${r.code} malformed=${JSON.stringify(r.json?.malformed_dispositions)}`
     );
   },
@@ -310,8 +366,29 @@ check(
       '\n<!-- unadjudicated-disposition:v1 key="Sweep 5/manual-supplement-required" issue=1722 owner=someone -->\n',
     );
     const r = run(root, TODAY);
+    // WHICH field is reported missing, not merely THAT one was — the same
+    // discriminating form the `disposition-missing-issue` sibling above already
+    // uses. Measured: mapping every missing attribute to the literal "issue" in
+    // unadjudicated-escalation.mjs changed this sentinel's report from
+    // `missing:["until"]` to `missing:["issue"]` and this fixture stayed 24/24
+    // GREEN. That is not cosmetic — the sentinel CARRIES `issue=1722`, so the
+    // mutant tells the operator to add a field that is already there while the
+    // genuinely absent `until` goes unnamed. The mutation was proven non-inert:
+    // the reported field changed, only the verdict did not.
+    // THE EXACT SET, not `.includes()`. `.includes("until")` is blind in the
+    // ADDITIVE direction, and that blindness was measured: appending a spurious
+    // field to the reported set moves it from `["until"]` to `["until","owner"]`
+    // and this fixture stayed 24/24 GREEN. Not cosmetic — this sentinel CARRIES
+    // `owner=someone`, so the mutant directs the operator to add a field that is
+    // already present, which is the same misreport-WHICH-field class the
+    // subtractive form (reporting "issue" for a missing "until") belongs to.
+    // The mutation was proven non-inert by reading the REPORTED FIELDS directly,
+    // never the verdict.
+    const missing = r.json?.malformed_dispositions?.[0]?.missing;
     return (
-      (r.code === 1 && r.json.malformed_dispositions.length === 1) ||
+      (r.code === 1 &&
+        r.json.malformed_dispositions.length === 1 &&
+        JSON.stringify(missing) === JSON.stringify(["until"])) ||
       `code=${r.code} malformed=${JSON.stringify(r.json?.malformed_dispositions)}`
     );
   },
@@ -468,12 +545,35 @@ check(
     const mutated = src.replace(target, 'const VERDICT_ALT = "zzz-no-such-verdict";');
     if (mutated === src) return `INERT MUTATION: anchor not found in ${TOOL}`;
 
-    const broken = path.join(TMP, "broken-tool.mjs");
+    // THE COPY'S IMPORT CLOSURE MUST BE BESIDE IT (loom#2200). Written FLAT into the
+    // scratch dir, the copy could not resolve its own `./lib/entry-point.mjs`, so Node
+    // failed to LOAD it and this case measured a module-resolution failure instead of
+    // the self-check it exists for.
+    //
+    // The layout MIRRORS `.claude/bin/` rather than sitting flat, because the tool also
+    // derives `DEFAULT_ROOT = resolve(HERE, "..", "..")` from its own location: under a
+    // mirrored path that still resolves to the scratch root, so the copy is
+    // location-faithful and not merely importable.
+    const brokenDir = path.join(TMP, ".claude", "bin");
+    const broken = path.join(brokenDir, "broken-tool.mjs");
+    fs.mkdirSync(brokenDir, { recursive: true });
+    const closure = copyRelativeClosure(TOOL, brokenDir);
+    if (closure.length === 0) {
+      return `INERT FIXTURE: ${TOOL} has no relative imports, so this case's closure is empty — re-derive what it loads before trusting a pass`;
+    }
     fs.writeFileSync(broken, mutated, "utf8");
     const r = spawnSync(process.execPath, [broken, "--root", withStreak(3), ...TODAY], { encoding: "utf8" });
+    const missing = unresolvedModule(r.stderr);
     return (
       (wired && r.status === 2 && /SELF-CHECK FAILED/.test(r.stderr)) ||
-      `wired=${wired} mutatedExit=${r.status} stderr=${r.stderr.slice(0, 160)}`
+      `wired=${wired} mutatedExit=${r.status}` +
+        (missing
+          ? ` — the mutated copy could not resolve ITS OWN IMPORT: ${JSON.stringify(missing.specifier)}` +
+            (missing.importer ? ` (imported from ${missing.importer})` : "") +
+            "; that is a defect in how this fixture MATERIALISES the copy, not a verdict " +
+            "from the tool" +
+            `\n        full stderr:\n${r.stderr.trim()}`
+          : ` stderr=${r.stderr.slice(0, 160)}`)
     );
   },
 );

@@ -12,6 +12,10 @@ owned_surfaces:
   - surface: .claude/**
     writer: sync-tier-aware.mjs (engine apply)
     opt_in: false
+  - surface: .agents/skills/**
+    writer: emit-cli-artifacts.mjs
+    opt_in: true
+    election: repos.<target>.codex_native_skills == true AND Codex elected
   - surface: .codex/**
     writer: emit-cli-artifacts.mjs
     opt_in: true
@@ -24,6 +28,10 @@ owned_surfaces:
     writer: emit-coc.mjs
     opt_in: true
     election: multi_cli_overlays key `multi-cli`
+  - surface: .codex-mcp-guard/**
+    writer: emit-cli-artifacts.mjs --guard-only
+    opt_in: true
+    election: repos.<lang>.templates[].clis contains `codex`
   - surface: AGENTS.md
     writer: emit.mjs --all
     opt_in: true

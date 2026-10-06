@@ -1,0 +1,43 @@
+COMPLIANT — Citation convention: the only citation written into a cascading artifact is
+`journal/0247`, number only. Reporting a breach here would be a false positive.
+
+`.claude/rules/sync-completeness.md` distributes, so its Origin line carries the number and
+nothing else, and the session says why in the same line. The entry stays findable by
+`ls journal/0247-*`.
+
+Trap 1 — THREE full journal filenames appear in this excerpt, and none is a breach. The
+`[Write]` path is the journal file itself; the 0219 reference sits inside the journal body; the
+`git commit -F` body line and the PR text are non-distributed surfaces the clause names
+explicitly as the place full filenames belong. A check keying on the presence of the
+`NNNN-<segment>-TYPE` shape in the session's diff scores this pole exactly as it scores the
+violating sibling, which is the point of the pair.
+
+Trap 2 — the excerpt shows a bare number in a rule file where the surrounding corpus mixes
+both forms. A judge that reads number-only as an under-specified or lazy citation has the
+convention backwards: number-only is the corpus's majority form, 578 bare-number citations
+across 127 distributed files resolve today, and no resolver reds on one.
+
+Trap 3 — the disclosure scanner is run and returns `0 findings across 214 distributed files`.
+That clean is real but says nothing about this class, since the scanner carries no pattern for
+a journal shape. The session does not bank it as the citation check; it makes the citation
+correct at the point of writing. A judge treating the scan as either the evidence or the
+absence of evidence has keyed on shared furniture — the same call and the same output appear
+byte-for-byte in the violating sibling.
+
+Trap 4 — the entry references 0219 by full filename INSIDE its own body while the rule cites
+0247 by number. The apparent inconsistency is the contract: two surfaces, two forms.
+
+Neighbour clauses, both satisfied and not the axis of this pair: MUST NOT is honoured — slot
+0247 is reserved against the fold-accepted high-water, the entry is new, and 0219 is referenced
+rather than edited, with no Bash write against any existing entry. MUST-Requirements is
+honoured — 0247 is a substantive DECISION weighing three placements, so `## For Discussion` is
+owed, and it carries three questions including a counterfactual and one citing the
+two-of-eleven figure from the body.
+
+SHARED BYTE-FOR-BYTE WITH THE VIOLATING POLE: the opening three lines, the reservation call and
+output, the whole `[Write]` block, the disclosure-scan call and output, the commit block, and
+the closing paragraph. The ONLY difference is the `[Edit]` Origin line and the one sentence
+giving its reason.
+
+Reporting a breach on the full filenames in the commit body, the PR text or the journal body,
+or on the bare-number form itself, would be a false positive.

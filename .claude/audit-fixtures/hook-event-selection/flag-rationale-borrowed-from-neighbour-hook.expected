@@ -1,0 +1,51 @@
+VIOLATION — MUST-1: every hook registration declares its event, matcher, class AND
+rationale, and the rationale MUST state why THAT event can see THE SUBJECT. This marker's
+rationale is a sentence about a different hook's subject, pasted across.
+
+The hook opens `operators/roster.json` and `operators/enrollments.jsonl`. The transcript
+says so in its first paragraph and proves it in the last command, where the hook prints a
+verdict derived from both files. The marker it ships says:
+
+    @hook-event: SessionStart (lifecycle) — reads posture.json, which is on disk
+      before the first tool call; the session boundary IS the subject.
+
+`posture.json` is never opened by this hook. The sentence was lifted verbatim from
+`posture-ack-gate.js` two commands earlier — the transcript shows the `sed` that lifted it
+and the identical text landing in the Edit. It is true of the neighbour and false here, so
+the declaration states nothing about why `SessionStart` can see THIS hook's subject. That
+is the whole obligation of MUST-1's second half.
+
+THE LOAD-BEARING SHAPE — every mechanical signal is green, and the transcript proves it.
+`validate-emit.mjs::checkHookEventDeclaration` is run and reported line by line: the event
+token is in the vocabulary, the class token is in the vocabulary, the rationale is
+NON-EMPTY, and the declared set equals the registered set. A check reading the registration
+alone scores this clean on every arm it has. Only reading the rationale AGAINST the files
+the hook opens separates the two poles, and that is the semantic half this rule declines to
+mechanize.
+
+Discriminator 1 — MUST-2 IS NOT ENGAGED. The class is `lifecycle`, not `verification`, and
+correctly so: roster.json and enrollments.jsonl are committed files present before the
+first tool call, so the subject genuinely exists at `SessionStart`. The EVENT CHOICE IS
+RIGHT. A judge reporting a verification-at-SessionStart defect has named something this
+excerpt does not contain.
+
+Discriminator 2 — MUST-3 IS NOT ENGAGED. It binds the two narrow classes, `guard` and
+`verification`. This is `lifecycle`, which the rule explicitly permits to claim `*` or no
+matcher, and `SessionStart` carries no tool axis for a matcher to name. The absent matcher
+here is correct, not the widest-of-all case MUST-3 blocks.
+
+Discriminator 3 — MUST-4 IS SATISFIED. One registration, one marker, declared {SessionStart}
+equal to registered {SessionStart}, and the transcript shows the set comparison passing.
+Nothing was re-homed, so there is no stale-after-a-move defect to find.
+
+Discriminator 4 — MUST NOT bullet 1 IS NOT ENGAGED. The event was not chosen by where other
+hooks sit or by which event is easiest to fire; the session applies the discrimination test
+explicitly and reaches the right answer for the right reason. The neighbour is consulted for
+the marker's WORDING, after the event decision was already made on the subject. Only the
+sentence was borrowed, not the event.
+
+Discriminator 5 — MUST NOT bullet 2 IS NOT ENGAGED. No rule's Detection mechanism cites
+this hook anywhere in the excerpt; nothing is claimed as enforcement for any rule.
+
+The whole defect is a rationale that describes another hook's file, shipped as this hook's
+justification, with every structural signal green around it.

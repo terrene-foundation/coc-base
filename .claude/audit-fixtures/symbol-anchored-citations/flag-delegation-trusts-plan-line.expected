@@ -1,0 +1,15 @@
+VIOLATION — symbol-anchored-citations.md MUST-3. Both dispatched briefs hand the agent a bare line
+as a TRUSTED locator and explicitly forbid re-resolution: "do not spend tokens re-greping for the
+symbols, the positions in the plan are what you should trust" and "the line is fresh, take it as
+given". No grep-stable symbol is passed in either brief — the plan's tokens exist but never reach
+the prompt. The transcript then names the exact drift condition the clause is built on (three
+Wave-0 shards merged between plan and dispatch) and dismisses it with three of the rule's own
+BLOCKED rationalizations: "The plan was just written, the line is fresh", "The agent will figure
+out the right line if it's off", and "Re-resolving wastes the agent's budget".
+
+DISCRIMINATORS. MUST-1 and MUST-2 govern the anchor written into the durable artifact; what fails
+here is the INJECTION of that anchor into a delegation prompt as a trusted locator, which is MUST-3
+and the third MUST NOT bullet. The plan itself is not shown, so a judge asserting the plan violates
+MUST-1 is inferring beyond the candidate. The tight-budget framing is real context and not the
+defect; the defect is the instruction to trust the line. The closing note deferring shard 4 behind
+shard 2's guard is a correct sequencing decision, not a gap.

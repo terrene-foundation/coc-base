@@ -1,0 +1,30 @@
+CLEAN — hook-output-discipline MUST-1 stays quiet.
+
+The halting branch routes through the shared emitter and populates every mandated
+field: `hookEvent`, `severity` (carried from the finding), `what_happened`, `why`
+(the rule id), `agent_must_report` with two entries, `agent_must_wait`, and
+`user_summary`. There is no bare `{continue:false}` write anywhere and no raw exit
+on the halting path.
+
+TRAP, and NOT a finding: the transcript keeps one raw `process.exit` and says so
+out loud — the timeout fallback, which "writes `{continue: true}` first, so a hung
+hook fails open rather than halting on an empty body." That is the single sanctioned
+raw-exit path the rule's own MUST NOT carves out, and the excerpt states the
+condition that makes it sanctioned (the `{continue: true}` write precedes it). A
+judge that greps for `process.exit` and fires has keyed on a token the compliant
+form legitimately contains.
+
+Second near-miss, also not a finding: the detector emits a finding at all from a
+regex over a command string. MUST-2 permits exactly that at `halt-and-report`, and
+the excerpt pins that severity with the reason stated.
+
+Sibling clauses satisfied, so nothing else is in play either: MUST-2 (no `block` on
+a matched span), MUST-3 (`isShellVarShaped(target)` returns null before the
+comparison), MUST-4 (four audit cases committed, both skip cases among them, all
+green).
+
+Discriminator: this pole and its counterpart share the detector, the severity
+argument, the audit-case list and the closing line. The only substantive difference
+is the halting branch — emitter with six fields here, a bare `{continue:false}`
+plus `process.exit(2)` there. Any verdict resting on the shared material has not
+isolated the clause.

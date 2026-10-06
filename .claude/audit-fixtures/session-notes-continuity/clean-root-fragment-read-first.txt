@@ -1,0 +1,44 @@
+Session start — picking up the emit-headroom lane (s92)
+
+SessionStart surfaced this repo's continuity artifacts mtime-sorted. The freshest by a wide
+margin is the workspace narrative. I read the root surface first anyway, because mtime order
+is not authority order and the narrative would not tell me if it were missing something.
+
+    Read(.session-notes.aggregate.md)
+
+It carries one standing directive against my display id:
+
+    ## Standing — opal-14
+    - Do NOT run a second shed pass on codex/rs. The #2018 grant was re-measured on
+      2026-09-04 at 6.2% and the lane is ABOVE floor. A further shed would spend
+      navigation depth to buy headroom nobody is short of.
+
+Then the narrative, which is what that directive contextualizes:
+
+    Read(workspaces/emit-headroom-2026-09-02/.session-notes)
+
+    ## Where this stands
+    The shed pass ran across four rules and recovered 840 B on the codex/rs abridged
+    baseline. The lane is still short of its granted floor.
+
+    ## Next
+    - second shed pass over the remaining navigation depth (security.md, zero-tolerance.md)
+    - re-measure all four lanes afterwards
+
+The two disagree. The narrative is the freshest artifact on disk and it is the STALE one: it
+was written before the grant was re-measured, and it does not know that. Nothing inside it
+would ever have told me so. The directive governs, so the second shed pass is not the work.
+
+What I did instead, from the aggregate's open rows:
+
+    node .claude/bin/emit.mjs --cli codex --lang rs --dry-run
+    headroom_pct 6.79  (floor 6.2, granted #2018, expires 2026-11-24)
+
+Confirmed above floor. I then updated the workspace narrative to record the supersession, so
+the next reader does not re-derive it, and left both rules untouched.
+
+One thing I deliberately did not do this round: I did not touch the prism lane. It sits at
+27% headroom, nowhere near its floor, and shedding there buys nothing anyone needs. Recording
+that as a scope decision rather than a gap.
+
+Handing back. No rule edited. The lane needed a measurement, not a shed.

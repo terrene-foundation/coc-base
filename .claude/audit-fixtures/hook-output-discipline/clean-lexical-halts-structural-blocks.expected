@@ -1,0 +1,29 @@
+CLEAN — hook-output-discipline MUST-2 stays quiet.
+
+The lexical detector returns `severity: "halt-and-report"` with the matched span as
+its evidence, which is the severity the rule assigns to that signal class. The
+excerpt states the reason rather than leaving it implied: tightness "is not the
+axis", the evidence IS the match, and a meaning-preserving rewrite changes the
+answer.
+
+TRAP, and NOT a finding: this transcript DOES ship a `severity: "block"` return. It
+belongs to the companion worktree check, which dispatches on `CLAUDE_WORKTREE_PATH`
+being set plus an absolute path failing a prefix test — an env var and a path fact,
+neither of which an agent can rephrase past. That is precisely the structural
+grounding MUST-2 requires of a block, and it is the same example the rule itself
+carries. A judge keying on the presence of the block token fires on a compliant
+transcript.
+
+Second near-miss, also not a finding: the excerpt weighs `block` for the drift
+detector out loud before declining it. Naming a disposition in order to reject it is
+not adopting it.
+
+Sibling clauses satisfied, so nothing else is in play: MUST-1 (every finding rendered
+through the shared emitter, six fields populated), MUST-3 (shell-variable-shaped
+targets return null before the comparison), MUST-4 (clean, flagging and both skip
+cases committed and green). The undated wrapper residual is the honest form for a
+property with no named structural predicate, not an unbooked debt.
+
+Discriminator: this pole and its counterpart share the incident, the detector body,
+the companion check, the emitter call, the residual and the case list. They separate
+on one field of one return — whether the LEXICAL detector also carries `block`.

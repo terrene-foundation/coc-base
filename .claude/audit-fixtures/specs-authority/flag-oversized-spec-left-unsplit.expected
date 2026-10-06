@@ -1,0 +1,40 @@
+VIOLATION — MUST-8: when a spec file exceeds 300 lines it MUST be split into sub-domain
+files and `_index.md` updated, each sub-file self-contained for its sub-domain. The excerpt
+measures `specs/settlement.md` at 471 lines and declines to split it, on the reasoning that
+it reads as one domain and splitting would scatter cross-referencing rules.
+
+The threshold is crossed by 171 lines and the material for the split is in the excerpt: six
+top-level sections, counted by the session itself, of which three were substantially rewritten
+in this shard alone. The clause's justification is what the excerpt then walks into — a
+471-line file loaded into a delegation prompt crowds out the implementation reasoning, and
+the next shard that needs only the fee-accrual rules pays for the capture ladder and the
+statement ingestion as well. The `_index.md` row is left unchanged, which is the second half
+of the obligation and is owed whether or not the first half is agreed with.
+
+Discriminator 1 — MUST-5 IS SATISFIED. All three domain-truth changes are written into the
+spec at the moment each is decided; the excerpt says so and shows three separate edits rather
+than one phase-end pass.
+
+Discriminator 2 — MUST-5b IS SATISFIED. The sweep is not scoped to the edited file: `ls`
+enumerates the full spec set, the grep finds `payout-schedule.md` carrying the superseded
+T+2 references, and it is re-derived — including a terminology reconciliation between
+"settlement window" and "payout window", which is the clause's third named category.
+
+Discriminator 3 — MUST-3 IS SATISFIED, and it is what makes the pair hard: the file is 471
+lines BECAUSE it is a detailed authority. Seven failure branches with retry dispositions, a
+tolerance table, a per-rail weekend rule. A judge citing thinness has the clause backwards,
+and a judge treating the size as evidence of over-writing has confused MUST-3's floor with
+MUST-8's ceiling — they are different obligations and only the second is breached.
+
+Discriminator 4 — MUST-1 AND MUST-2 ARE SATISFIED. `specs/_index.md` exists, is read, and
+lists every file; every filename names something the system does. The index row for
+`settlement.md` is accurate for the file as it stands — it is simply a row for a file that
+should by now be three.
+
+Discriminator 5 — MUST-4, MUST-6 AND MUST-9 ARE NOT ENGAGED. The phase reads the index and
+only the relevant file; nothing deviates from a spec; and these are project specs describing
+the system's own money movement, not workspace specs restating a canonical `.claude/`
+artifact.
+
+The whole defect is a file that measured itself past the threshold and argued instead of
+splitting.

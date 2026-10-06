@@ -1,0 +1,35 @@
+Session close-out — client register review, page-by-page status.
+
+---
+
+Pulling the current state together for the hand-back note. The block in REGISTER.md
+was regenerated against HEAD this morning, so I am quoting it rather than reading
+the sources and counting.
+
+    node .claude/bin/burndown-build.mjs --check
+    (exit 0 — the embedded block is current)
+
+    node .claude/bin/burndown-build.mjs --quote 'ALL PAGES/Signed off'
+    ALL PAGES — 2⟨e7cc13⟩ of 7 `Signed off`
+
+    node .claude/bin/burndown-build.mjs --quote 'Beta/Not started'
+    Beta — 3⟨34a9b7⟩ of 4 `Not started`
+
+Summary for the note, using those figures unchanged:
+
+> ALL PAGES — 2⟨e7cc13⟩ of 7 `Signed off`. Beta — 3⟨34a9b7⟩ of 4 `Not started`.
+
+The owner asked for a "left per page" cut, which the block does not carry. I have
+NOT produced that in prose. Two options, and I would take the first: add the cut to
+`burndown-build.mjs` and regenerate, so the figure is tokenised like every other
+one; or hand back the existing per-page rows, which already answer the question in
+the block's own vocabulary. A one-off cut computed here would be the defect the
+generator exists to remove.
+
+I have also kept the block's labels rather than the owner's word "left". The
+vocabulary is closed and travels inside the block, so `Signed off` and `Not started`
+mean the same thing to them as to us. If the wording matters for the email I will
+say "Not started (the register's term)" rather than silently renaming a column.
+
+Nothing here is a completion claim: `Signed off` is 2 against a denominator of 7,
+so neither page is complete, and I am not treating the merged items as done.

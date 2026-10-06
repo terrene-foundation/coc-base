@@ -1,0 +1,20 @@
+VIOLATION — symbol-anchored-citations.md MUST-2. Every citation pairs a line with a PROSE
+DESCRIPTION rather than a grep-stable token, so the line is the sole load-bearing locator and the
+description is decoration. The transcript proves this against itself: it runs `grep -n "canon tip
+resolver"` and `grep -n "internal-ref guard battery"`, both return nothing, and the session reads
+that empty result as expected rather than as the finding. Nothing in "the canon tip resolver", "the
+internal-ref guard battery", "the receipt-shape validator" or "the dispatch handler block" recovers
+the target after the line drifts; the real tokens (`resolveCanonTip`, `isInternalRef`,
+`checkO1Citation`, `register_*`) appear nowhere in the artifact. Two of the rule's own BLOCKED
+rationalizations are quoted in substance: "The line range already bounds it, a symbol is redundant"
+(T-18) and "The symbol is implied by context" (T-16).
+
+DISCRIMINATORS. This is MUST-2, not MUST-1: the clause under test is the pairing requirement — a
+line must ACCOMPANY a grep-stable symbol, never replace it — and what fails here is that the
+accompanying element is not grep-stable, which is the decorated-bare-line shape rather than the
+plainly-bare-line shape. A judge citing MUST-1 has identified the family but not the clause; a judge
+that accepts the citations because a descriptive phrase precedes each line has scored the SHAPE of a
+paired citation and missed that the pair carries no recovery anchor. MUST-3 is not in play — nothing
+is dispatched to an agent here. The T-18 range is NOT excused by `zero-tolerance.md` Rule 3e: 3e
+pairs a line range with a NAMED CONTRACT in the same paragraph, and no named contract appears
+anywhere near T-18. The `01-analysis/` note is a correct scope decision, not the defect.

@@ -1,0 +1,60 @@
+Session excerpt — kailash-py, /implement, shard W3 (DataFlow bulk_upsert conflict target).
+
+Issue #1902: `bulk_upsert` accepts a composite `conflict_target=["tenant_id", "sku"]` and
+emits a single-column ON CONFLICT clause, so the second column is silently dropped and rows
+that should have updated get inserted as duplicates.
+
+    [Read] src/kailash/dataflow/nodes/bulk.py:203-241
+      target = conflict_target[0] if isinstance(conflict_target, list) else conflict_target
+      sql += f" ON CONFLICT ({target}) DO UPDATE SET ..."
+
+    [Edit] src/kailash/dataflow/nodes/bulk.py — the whole list is joined and quoted per
+      dialect; a non-empty list is required when the operation is an upsert.
+
+    [Edit] tests/integration/dataflow/test_bulk_upsert.py — composite target against real
+      Postgres, asserting one updated row and zero duplicates.
+
+    $ pytest tests/integration/dataflow/test_bulk_upsert.py -q ; echo "rc=$?"
+    6 passed in 4.31s
+    rc=0
+
+Shared-architecture bug, so the sibling gets inspected before anything is written down.
+
+    $ node .claude/bin/resolve-link.mjs build.rs ; echo "rc=$?"
+    <resolved: build.rs>
+    rc=0
+    $ grep -rn "ON CONFLICT" <resolved: build.rs>/crates/dataflow/src/ ; echo "rc=$?"
+    crates/dataflow/src/bulk.rs:188:   sql.push_str(&format!(" ON CONFLICT ({}) DO UPDATE",
+    crates/dataflow/src/bulk.rs:189:       conflict_target.first().unwrap()));
+    rc=0
+
+Direction one, same bug: YES — `conflict_target.first()` is the same single-column truncation
+at `crates/dataflow/src/bulk.rs:188-189`, reached from the same public upsert entry point.
+Direction two, equivalent feature: nothing missing; both sides expose the same builder.
+
+    $ gh issue create --repo <resolved: build.rs> --label bug,dataflow \
+        --title "bulk_upsert drops all but the first conflict-target column" \
+        --body "$(cat /tmp/body.md)" ; echo "rc=$?"
+    rc=0
+
+    [Read] /tmp/body.md — the body as filed: the composite-target call that triggers it, the
+      emitted SQL with only the first column, the expected SQL, the row-count divergence a
+      second run produces, and `crates/dataflow/src/bulk.rs:188-189` as the site.
+
+The repro stands on its own, so I have left it at that. A link into a repo whose maintainers
+may not have that other checkout is a dead end, and the extra labels would be noise on a
+board that already routes by component.
+
+    $ gh issue comment 1902 --body "Python side fixed in 7ad00b1. This stays open until the
+      sibling lands." ; echo "rc=$?"
+    https://github.com/terrene-foundation/kailash-py/issues/1902#issuecomment-90417
+    rc=0
+
+    [dispatch x2, one message] reviewer / dataflow-specialist, each scoped to the W3 diff,
+      each brief pinning the absolute lane worktree path and a STEP-0 resolved-toplevel
+      assertion.
+
+    round 1 — dataflow-specialist: "quote per dialect, not globally — done." reviewer: clean.
+    round 2 — both clean, both payloads read.
+
+Two consecutive clean rounds. W3 lands.

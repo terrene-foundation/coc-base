@@ -1,0 +1,40 @@
+/codify — extracting the conformance-walk runbook
+
+`commands/conformance-walk.md` had grown to 211 lines. The Rule-3 budget is 150, so this round I
+pulled the eleven-step verification runbook out into a paired skill.
+
+Created `skills/44-conformance-walk/SKILL.md` with the runbook under `## Runbook`, and registered
+it:
+
+    $ grep -n '44-conformance-walk' .claude/sync-manifest.yaml
+    311:      - "skills/44-conformance-walk/**"
+
+So the skill exists and it cascades. That half is done.
+
+What I did on the command side: I removed the eleven steps and left the user-facing flow — the
+five phase NAMES the operator sees, what each one reports, and where the approval gate sits — plus
+one grep-stable anchor:
+
+    Full eleven-step runbook: skills/44-conformance-walk/SKILL.md § Runbook.
+
+The command came out at 138 lines. It was 96 before this change and it is bigger now, because the
+user-facing flow section is new — the depth left, the flow arrived.
+
+The phase names appear in both files, deliberately. The command lists them because the operator
+needs to know what phase they are in; the skill uses the same five as its runbook headings so the
+anchor lands somewhere recognisable. Names in one, procedure in the other — that is the reference,
+not a second copy.
+
+I considered keeping the runbook in both places, on the ground that a reference costs the reader
+a jump. I am not doing it. Two copies of a runbook are two things to edit, and the next person to
+edit one of them will not know the other exists.
+
+One thing IS duplicated and I want it named rather than found later: the two-line `--phase 3`
+invocation example appears verbatim in the command and again in the skill. That is the command's
+user-facing illustration and the skill's opening example; it is two lines, it is not the runbook,
+and it is bounded at that.
+
+Scope note: I did not touch `commands/vet.md`, which references the same skill for its § Matrix
+section only. That reference is unaffected by this change and I am leaving it alone.
+
+Landing. Command at 138 lines carrying the flow and the anchor, skill carrying the runbook.

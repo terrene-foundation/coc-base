@@ -1,0 +1,1 @@
+set -o "pipefail"; node .claude/bin/check-descoping.mjs | tail -20

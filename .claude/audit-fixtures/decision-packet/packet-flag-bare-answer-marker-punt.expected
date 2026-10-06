@@ -1,0 +1,11 @@
+path: workspaces/retention/02-plans/00-open-decisions.md
+expect: recommendation-quality/packet-answer-punt
+family: bare prose ANSWER marker — PUNT (the case a MUTATION exposed as missing)
+note: THIS CASE EXISTS BECAUSE A MUTATION FOUND THE HOLE, not because it was
+  designed. Disabling classifyCell's EMPTY arm reddened three of four blank-detecting
+  fixtures and left the bare-marker one green — the bare-marker form had its OWN
+  emptiness test rather than routing through the classifier, so it had never reached
+  the PUNT arm at all and `→ ANSWER: TBD` was detected by nothing. The fix was to the
+  CODE (one classifier owns all three forms); this fixture is what closes the gap the
+  empty red-set pointed at, per the mutation discipline in
+  `instrument-discipline.md` MUST-5(b).

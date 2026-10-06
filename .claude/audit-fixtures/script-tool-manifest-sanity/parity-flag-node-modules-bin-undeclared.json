@@ -1,0 +1,7 @@
+{
+  "name": "app",
+  "scripts": {
+    "lint": "./node_modules/.bin/stylelint \"src/**/*.css\""
+  },
+  "devDependencies": {}
+}

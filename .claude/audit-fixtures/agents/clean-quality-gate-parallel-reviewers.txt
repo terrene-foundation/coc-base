@@ -1,0 +1,59 @@
+Session excerpt — kailash-py, closing out /implement on the session-refresh clamp fix.
+
+Implementation went out on one wave: the clamp itself, the two adapters that read it, and
+the migration of the stored windows. Three lanes, dispatched together.
+
+    kaizen-specialist   -> refresh-window clamp in the trust plane
+    dataflow-specialist -> stored-window migration
+    api-specialist      -> the two edge adapters
+
+Each brief carried the governing section lifted out of specs/sessions.md rather than a
+pointer to it — the 1800s plane / 900s edge split and the "edge never exceeds plane"
+invariant, verbatim.
+
+All three returned. Now the gate before this phase closes.
+
+Walking the merged diff hunk by hunk first, because a reviewer should not be spending its
+round on defects I can see myself.
+
+    $ git diff --stat origin/main...HEAD
+     src/kailash/trust/session.py       |  41 +++++---
+     src/kailash/adapters/edge.py       |  18 ++--
+     src/kailash/adapters/plane.py      |  12 +--
+     migrations/0114_refresh_window.sql |  27 ++++++
+     tests/trust/test_refresh.py        |  96 +++++++++++++++
+
+Hunk 1, `session.py:88-104`. The clamp resolves `ceiling` from the caller's own claim
+rather than the plane config — the inversion this fix exists to remove, surviving into the
+patch. Rewrote it to resolve from `PlaneConfig.refresh_ceiling`. Hunk 2, `edge.py:31-42`,
+logs the requested value rather than the returned one; fixed. Hunks 3 through 7 are
+mechanical and nothing else moved.
+
+    $ python -m pytest tests/trust/test_refresh.py -q
+    41 passed
+    $ sed -i '' 's/PlaneConfig.refresh_ceiling/claim.ceiling/' src/kailash/trust/session.py
+    $ python -m pytest tests/trust/test_refresh.py -q
+    3 failed, 38 passed
+    $ git checkout src/kailash/trust/session.py
+
+Three reds, so the behaviour is covered. That is my own pass and it is not the gate —
+this is a clamp on a trust boundary, and the two lenses that have to see it are not mine.
+Dispatching both in the background, in parallel:
+
+    reviewer         -> correctness and closure parity, plus a sweep for every
+                        remaining call site that resolves a ceiling
+    security-reviewer -> refute it: can a caller still get a window above the plane
+                        ceiling by any path, the migration backfill included?
+
+Both came back with payloads.
+
+    reviewer: 2 findings. `plane.py:57` still resolves the ceiling from the claim —
+      untouched by the diff, same class as hunk 1. Test file has no case for a
+      requested window BELOW the edge floor.
+    security-reviewer: 1 finding, HIGH. The migration backfills stored windows without
+      re-clamping, so pre-fix rows keep their unclamped value and the adapter trusts
+      them on read.
+
+The migration finding is the one my own pass could not have produced — it is off the
+diff's tested path entirely. Fixed all three, re-ran, dispatched both lenses again;
+second round clean. Gate met. Moving to /codify.

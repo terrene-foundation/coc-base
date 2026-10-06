@@ -228,33 +228,34 @@ function inlineParse(manifestText) {
   );
 }
 
-// ── 8. composeRule full-file overlay regression (MED-2). Synthesizes a
-// minimal in-process test by reading a known prism full-file overlay and
-// confirming the composed output equals the overlay, not the global.
+// ── 8. composeRule full-file overlay REPLACEMENT branch (MED-2).
+//
+// COVERAGE RESTORED 2026-09-02 (loom#2087). This row used to read a real
+// in-repo full-file overlay and assert composeRule returned it verbatim. The
+// prism lane's six overlays were the LAST full-file replacements in the tree,
+// so retiring that lane left the branch as live code with no subject — and the
+// honest options were to lower the anti-vacuity floor (refused by the
+// registered may-only-rise ratchet, correctly) or to make the branch reachable.
+//
+// It is now reachable: `composeOverlayBody` is the branch, extracted out of
+// composeRule's inner `applyAxis` closure and exported. It is PURE — no
+// filesystem, no REPO constant — so the replacement branch can be exercised
+// against a synthesised overlay instead of depending on whichever overlay
+// happens to exist in-tree. That dependency was the actual defect; the missing
+// subject was only how it surfaced.
 {
-  // prism overlays for rules/* are full-file replacements per manifest
-  // declarations rules/{agents,observability,security,testing,zero-tolerance}.md.
-  // Pick zero-tolerance.md and verify composeRule(prism) returns overlay content.
-  const { composeRule } = await import("../../bin/emit.mjs");
-  const overlayPath = path.join(REPO, ".claude", "variants", "prism", "rules", "zero-tolerance.md");
-  if (fs.existsSync(overlayPath)) {
-    const overlay = fs.readFileSync(overlayPath, "utf8");
-    const isFullFile = !overlay.includes("<!-- slot:");
-    check(
-      "MED-2 precondition: prism zero-tolerance overlay is full-file (no slot markers)",
-      isFullFile,
-    );
-    if (isFullFile) {
-      const { composed } = composeRule("zero-tolerance.md", "codex", "prism");
-      check(
-        "MED-2: composeRule returns full-file overlay content (not global)",
-        composed === overlay,
-        `length composed=${composed.length} overlay=${overlay.length}`,
-      );
-    }
-  } else {
-    console.log("SKIP  MED-2 (no prism zero-tolerance overlay on disk to fixture against)");
-  }
+  const { composeOverlayBody } = await import("../../bin/emit.mjs");
+  const fullFile = "# variant body\n\nno slot markers here at all.\n";
+  check(
+    "MED-2 precondition: the synthesised overlay is full-file (no slot markers)",
+    !fullFile.includes("<!-- slot:"),
+  );
+  const { composed } = composeOverlayBody("# GLOBAL body that must be replaced\n", fullFile);
+  check(
+    "MED-2: full-file overlay REPLACES the composed body (composed === overlay)",
+    composed === fullFile,
+    `composed=${JSON.stringify(composed.slice(0, 40))} overlay=${JSON.stringify(fullFile.slice(0, 40))}`,
+  );
 }
 
 console.log(`\n${failures === 0 ? "ALL PASS" : `${failures} FAILURE(S)`}`);

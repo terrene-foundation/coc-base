@@ -1,0 +1,9 @@
+# Clarification packet — my recommendation per item
+
+**Q1 — what is the retention window?**
+→ ANSWER: 90 days hot, 13 months cold (`specs/retention.md:41-58`). Con: re-import
+from cold is manual today. RATIFY / OVERRIDE.
+
+**Q2 — who may re-run an export?**
+→ ANSWER: owner plus admin (`specs/access-control.md:110`). Con: there is no reassign
+screen yet. RATIFY / OVERRIDE.

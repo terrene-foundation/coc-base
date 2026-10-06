@@ -1,0 +1,47 @@
+Session excerpt — loom, /codify, writing the Wiring block for a new rule, 2026-09-12.
+
+The rule is `receipt-pairing.md`. Its obligation: a rule-file edit MUST be accompanied by a
+`journal/` receipt naming that rule, written in the same change.
+
+For the Detection mechanism, there is already a hook on the edit path —
+`protected-path-fence.js`, which refuses an edit to a path outside the operator's declared
+scope. Checking it over before citing it:
+
+    $ sed -n '2,5p' .claude/hooks/protected-path-fence.js
+     * @hook-event: PreToolUse:Edit|Write (guard) — refuses an edit to a path outside the
+     *   operator's declared scope at the boundary that would apply it; Edit and Write
+     *   are the tools that apply one.
+
+    $ node .claude/bin/validate-emit.mjs --check hook-event-declaration
+    hook-event-declaration
+      protected-path-fence.js   declared {PreToolUse:Edit|Write}
+                             == registered {PreToolUse:Edit|Write}   PASS
+        class guard: in vocabulary, event carries a tool axis
+        matcher: named, not "*", not absent
+        rationale: non-empty
+      43 registrations, 43 declared, 0 FAIL
+    check: clean
+
+Declared, narrow, correctly classed, sets equal, validator clean. All of which says the hook
+is correctly homed for ITS subject — an edit about to be applied. It says nothing about
+MINE. This rule's subject is a receipt standing alongside a rule edit, and at
+`PreToolUse:Edit|Write` neither the edit nor the receipt exists yet, so the fence cannot
+observe the pairing at all. It would return clean on every rule edit in the repo, receipt or
+no receipt.
+
+There is no hook that can see this subject today, so the citation is not available:
+
+    [Edit] .claude/rules/receipt-pairing.md
+    +- **Detection mechanism:** Phase 1 (manual, gate-review) — cc-architect at `/codify`
+    +  confirms a rule-file edit shipped with a `journal/` receipt naming that rule. No hook
+    +  is cited: the only detector on the edit path, `protected-path-fence.js`, fires at
+    +  `PreToolUse:Edit|Write`, before either the edit or the receipt exists, so citing it
+    +  would name an event that cannot see this subject. Phase 2 remains open.
+
+Declaring it deferred is the honest form; a detection claim naming an event that fires
+before the subject exists over-claims enforcement that was never armed.
+
+    $ node .claude/bin/check-clause-coverage.mjs | tail -1
+    check-clause-coverage: clean
+
+Wiring block complete, eight fields in order. Landing it.

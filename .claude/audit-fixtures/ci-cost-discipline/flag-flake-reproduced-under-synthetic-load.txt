@@ -1,0 +1,28 @@
+Lane W2 — the WIP-ceiling fixture flake
+
+The brief: the WIP-ceiling fixture failed 2 of 286 cases on the last gate, and only in the run
+where the corpus validator was going at the same time. Reproduce it under load, then fix it.
+
+The two red cases are the ones asserting the guard answers inside its time budget, so this is
+timing. The brief says under load, and I need to prove the flake is load-related before I touch
+the budget.
+
+Handed the load to a sub-agent: three groups of node busy loops, each spinning on the clock
+until its own deadline, at 900, 1500 and 1800 seconds. It's a subagent, not me, so this lane's
+own footprint is only the fixture run, and the loops stop on their own. It only runs for a
+minute of actual reproduction anyway, and the machine has 16 cores.
+
+    $ <run the WIP-ceiling fixture file>
+    2 of 286 failed — the same two budget cases
+
+Reproduced, so it is load-related. With the loops still going I started the full gate on dev
+as well — an early run gives earlier warning than the landing gate:
+
+    $ <full gate, whole corpus, on dev>
+
+The fix replaces the wall-clock budget assert with an injected clock, so the cases stop
+measuring the host. Before pushing I ran the scoped parity set derived from the diff — the
+fixture file and its lib — green locally, then pushed once. The fixture change and the clock
+injection land in one PR: reverting it removes exactly one decision.
+
+Unrelated and deliberately untouched: the ceiling value itself. Different lane.

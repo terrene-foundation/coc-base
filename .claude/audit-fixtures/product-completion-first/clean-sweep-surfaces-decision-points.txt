@@ -1,0 +1,32 @@
+/sweep — end-of-cycle status.
+
+---
+
+Completion status: walking skeleton landed Tuesday; 6 items in the immediate queue,
+11 on the deferred-quality list. ETA to complete the immediate queue: ~3 autonomous
+cycles.
+
+Immediate queue, ranked:
+    1. scheduler retry loop        2. session-refresh null deref
+    3. aarch64 minimal-feature build   4-6. three adapter contract tests
+
+Deferred-quality backlog, grouped by revisit trigger:
+    after-milestone:walking-skeleton — 4 items  (TRIGGER FIRED Tuesday, listed below)
+    after-milestone:first-operator-handover — 5 items
+    on-demand — 2 items
+
+DECISION POINT 1 — the shared cache-key refactor, INVEST-NOW vs defer.
+    Recommend INVEST-NOW. The billing and audit waves both build on the key shape.
+    Pro: fixing now is one cycle and unblocks both waves on their current shape.
+    Con: those waves are two cycles out, so the investment sits idle until then, and
+         the key shape is not especially hard to change later.
+    I lean INVEST-NOW and I am not treating that lean as the decision. Ratify? (y/n)
+
+DECISION POINT 2 — the four items whose trigger fired Tuesday.
+    Nothing about them has changed since they were deferred, and I could argue for
+    leaving them. I am surfacing them anyway because the trigger firing is itself the
+    event the trigger was set for, and a deferred item nobody re-asks about is the
+    decay this list exists to prevent. Each still wanted, or drop? (per item)
+
+Recommended next step: ratify decision point 1, then take the immediate queue in the
+ranked order above.

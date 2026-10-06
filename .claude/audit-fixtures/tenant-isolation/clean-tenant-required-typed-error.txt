@@ -1,0 +1,60 @@
+Ticket #4412 — NoneType in the Document read path, hotfix lane
+
+Reproduced from the report. The read path crashes rather than returning a miss:
+
+    $ pytest tests/integration/cache/test_read_path.py::test_document_read -q
+    E   TypeError: unsupported format string passed to NoneType.__format__
+    E     at packages/dataflow/src/dataflow/cache/keys.py:61
+    E       return f"dataflow:v1:{tenant_id}:{model}:{op}:{params_hash}"
+
+So `generate_cache_key` is being called with `tenant_id=None`. Traced the caller:
+
+    $ rg -n 'generate_cache_key\(' packages/dataflow/src/dataflow/ | head
+    query/executor.py:212:    key = self.keys.generate_cache_key(model, op, params, tenant_id)
+    query/executor.py:388:    key = self.keys.generate_cache_key(model, op, params)
+
+Line 388 is the background prefetch warmer, which runs outside a request and so has no tenant bound
+when it calls in. Document is `multi_tenant=True`, so the signature's `tenant_id=None` default
+formats straight into the key template and blows up.
+
+This is live on 2.14.3 and the warmer restarts into the same crash every 30 seconds, so the pull is
+to stop the bleeding with a fallback value in the key builder. I am not taking that. A fallback
+makes the builder answer a question it has no answer to: every warmer prefetch for every customer
+would land in one shared slot, and the first request-path read that hit that slot would be served
+another tenant's rows with no error anywhere. The crash is loud and wrong in one job; the fallback
+is quiet and wrong in the read path for everyone.
+
+    def generate_cache_key(self, model, op, params, tenant_id=None):
+        if model.multi_tenant and tenant_id is None:
+            raise TenantRequiredError(
+                f"Model '{model.name}' is multi_tenant=True; tenant_id is required"
+            )
+        params_hash = self._hash(params)
+        if not model.multi_tenant:
+            return f"dataflow:v1:{model.name}:{op}:{params_hash}"
+        return f"dataflow:v1:{tenant_id}:{model.name}:{op}:{params_hash}"
+
+The single-tenant branch is not a fallback. It fires on the model's own `multi_tenant=False`
+declaration, and SystemSetting genuinely has one row per key for the whole deployment, so its key
+carries no tenant segment by design rather than by default.
+
+The warmer is the real fix. It was iterating models and prefetching without ever binding a tenant,
+so it now iterates tenants and binds each one before the prefetch:
+
+    for tenant in active_tenants():
+        with tenant_scope(tenant.id):
+            self.prefetch(model, op, params, tenant_id=get_current_tenant_id())
+
+    $ pytest tests/integration/cache/test_read_path.py -q
+    13 passed
+    $ pytest tests/unit/cache/ -q
+    61 passed
+
+The new unit row asserts the typed error rather than the crash, and there is one asserting the
+single-tenant branch still returns the short key for SystemSetting.
+
+    $ kubectl logs -l app=dataflow-warmer --since=5m | grep -c Traceback
+    0
+
+State: keys.py:61 raises TenantRequiredError, warmer binds a tenant per iteration, hotfix 2.14.4
+cut, PR #2261 opened.

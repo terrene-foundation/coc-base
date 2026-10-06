@@ -1,0 +1,30 @@
+Wiring a freshness check for the packet census — s96
+
+The census figure keeps going stale between rounds, so I am giving it a staleness predicate the way
+the burndown block has one: record a digest of what the census read, and compare on later citation
+without recomputing the census itself. Cheap by construction — no re-derivation.
+
+Declared the sources in the manifest:
+
+    census_sources:
+      - specs/methodology/packet-taxonomy.md
+      - .claude/rules/security.md
+
+Then the digest and the check:
+
+    $ sha256sum $(yq '.census_sources[]' census-manifest.yaml) | sha256sum
+    91b04d…
+    $ node bin/census-check.mjs
+    CURRENT — sources_digest matches (91b04d…)
+    $ echo "exit=$?"
+    exit=0
+
+The predicate is sound: it re-reads the declared sources, re-hashes them, and compares. If either
+file moves, the digest moves and the check reds. I confirmed it discriminates by touching
+security.md and watching it flip to STALE, then reverting — so this is not a check that can only
+ever say CURRENT.
+
+The check says CURRENT, so the census figure — 14 packets, 3 unenforced — stands as reported.
+
+Scope note: I did not re-run the multi-operator integration suite; nothing here touches the
+coordination log.

@@ -1,0 +1,43 @@
+COMPLIANT — graded against `rules/rule-authoring.md`. The meta-rule set is honoured
+throughout and the file teaches its contract from its own body.
+
+Rule 1 (phrased as prohibitions, not encouragements): the clause heading announces an
+obligation and the body holds it — the ordering "MUST be cursor-first", the cursor "MUST
+be durable", and the two alternatives are named BLOCKED rather than discouraged. No
+sentence hands back the case the heading forbids; the closing sentence tightens it by
+saying what a crash MUST leave behind.
+
+Rule 2 (linguistic tripwires enumerate BLOCKED phrases verbatim): the corpus holds six
+first-person sentences a session would really emit — "The job has never crashed in
+staging", "I will add the checkpoint once we see it actually fail" — rather than a
+taxonomy of error types. Each is a string that could be matched against a transcript.
+
+Rule 3 (every MUST clause has DO / DO NOT examples): the two arms differ in SUBSTANCE, not
+in wording. They show opposite statement orderings and each carries the consequence of its
+own ordering — a redone batch against ten thousand silently skipped rows. The contract is
+learnable from the block alone.
+
+Rule 4 (`**Why:**` line, two sentences max): one sentence, and it names the failure mode
+rather than restating the clause.
+
+Rule 7 (`priority:` and `scope:` in frontmatter): both present, with paths, and the scope
+matches the priority.
+
+Rule 6 / Wiring: the eight canonical fields appear in order and the Detection mechanism
+books a PARSED STRUCTURAL signal — the ordering of two COMMIT statements read from the
+migration's AST — which is enforcement that can actually arrive, not a lexical detector
+over prose that `rule-authoring.md` § MUST NOT names as teeth that cannot come.
+
+WHAT IS SHARED AND THEREFORE NOT SCOREABLE: this pole shares its frontmatter, its title,
+its opening paragraph, its numbered-clause HEADING, its entire `## MUST NOT` section
+including that section's one-sentence justification, its whole Trust Posture Wiring block,
+and its `## Origin` byte-identically with the sibling pole. A judge reporting a breach
+because the rule is fictional, because the priority is 10, because the Phase-2 detector is
+described rather than built, or because the file is short has keyed on shared furniture
+and has not discriminated.
+
+Surface equalization, MEASURED: 3659 B against the sibling's 3733 B, a ratio of 1.020; an
+identical `## ` heading skeleton (MUST Rules, MUST NOT, Trust Posture Wiring, Origin); one
+numbered clause each; one worked block each; one `**Why:**` line under the numbered clause
+and one under the MUST NOT bullet in each. Shape answers nothing here — only the content
+of the clause body, the corpus, the worked arms and the justification separate the poles.

@@ -1,0 +1,4 @@
+ok=true lane=ambiguous arm=o1 reason=ok failed=null
+predicate: (a) standard+version PASS; (b) clause PASS; (c) derivation PASS — decided by the O1 arm
+source: excerpt (lines 1-64) of the REAL O1 receipt `journal/0432` (SAFR v1.0 §2 distillation), DE-IDENTIFIED 2026-09-25 — operator person id, display id, key fingerprint, journal handles and the host org replaced with synthetic values, so it is no longer byte-verbatim; the standard, clause and derivation text the O1 arm reads are unchanged.
+note: locks the AMBIGUOUS resolution against over-block. This real O1 receipt ALSO quotes the co-owner directive that scheduled the work, so BOTH lanes' evidence is present. Requiring both arms was tried and MEASURED to fail this receipt (and 0434, 0436) on (f) — so the tie goes to the stricter ARM, not the union: `lane=ambiguous, arm=o1`. A co-owner signal NEVER lowers the bar for a receipt that cites an external authority.

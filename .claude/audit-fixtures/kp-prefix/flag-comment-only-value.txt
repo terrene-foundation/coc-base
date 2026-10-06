@@ -1,0 +1,9 @@
+# Churn-risk scoring
+
+Domain truth about how churn risk is computed for a subscription account.
+The score is a probability in [0, 1]; a score above the escalation threshold
+opens a retention case.
+
+## Where the features live
+
+knowledge-product:    # unbound, pending the /distill registration

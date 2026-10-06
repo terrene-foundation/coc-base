@@ -1,0 +1,69 @@
+VIOLATION under rule-authoring.md — seven authoring properties breached, set out below in
+eight numbered items because items (1) and (2) are the two halves of MUST-1: the hedged modal,
+and the case handed back. Every breach is a defect in the CONTENT of
+furniture that is fully present, so a judge scoring on shape alone finds nothing: the file has
+frontmatter, an Origin, a Trust-Posture Wiring block, two numbered clauses, three justification
+lines, two worked blocks and two BLOCKED corpora, exactly as its sibling does.
+
+(1) MUST-1 (prohibitions, not encouragements) + MUST NOT § hedging. Both clause HEADINGS
+announce obligations — "The Intake MUST Be Closed Before The Acknowledgement Channel" and
+"A Committed Side Effect MUST Be Acked Rather Than Redelivered" — under a section still titled
+"MUST Rules", while both BODIES hedge: "should normally", "should ideally", "is often the more
+pragmatic choice". The word BLOCKED appears nowhere in either clause body.
+
+(2) MUST-1, second half — each clause HANDS BACK the exact case its heading forbids. Clause 1:
+"closing the connection directly in the signal handler is a reasonable call and the author is
+generally best placed to judge it" — which licenses precisely the SIGTERM connection close the
+Origin incident describes. Clause 2: "nacking at the deadline is a defensible trade-off",
+licensing the redelivery that charged thirty-one cards twice.
+
+(3) MUST-3 (every MUST clause has DO / DO NOT examples). Both worked blocks are present and
+both are inert: the two arms are the SAME LINE. In clause 1 both arms read
+"step 1: basic_cancel(tag); prefetch = 0", separated only by a trailing comment. In clause 2
+both arms read "capture(charge_id) -> committed = True;  on shutdown: ack(msg)". The prohibited
+construction — closing the connection first, nacking a committed message — is never shown, so
+neither contract is learnable from its block.
+
+(4) MUST-2 (BLOCKED phrases verbatim). Both corpora are present and both are third-person
+abstractions: "reliance on broker-side redelivery semantics as a correctness mechanism",
+"optimism regarding expected handler duration", "idempotency assumptions applied without
+verification", "deadline-driven default selection under uncertainty". No session emits those
+words, so the corpus is unrecognisable at the moment of the excuse and traps nothing.
+
+(5) MUST NOT § "Rationale paragraphs longer than 2 sentences" + MUST-4. Both clause
+justifications overrun and name no mechanism. Clause 1's appeals to what is "widely
+acknowledged" and to "accumulated operational experience"; clause 2's defers to "how the
+particular handler happens to be written" and to "the deduplication behaviour of whichever
+component happens to sit downstream at the time". Neither states what actually goes wrong —
+that an undeliverable ack reads at the broker as a dead consumer, and that redelivery restarts
+the handler at line one.
+
+(6) hook-output-discipline.md MUST-2 inversion in the Wiring severity. The row declares
+"`block` at the hook layer whenever a diff contains a line mentioning `nack` or
+`connection.close`" — `block` on a purely lexical trigger, the direction MUST-2 forbids — and
+demotes gate-review to `advisory`, inverting both halves. The trigger would also fire on every
+legitimate nack and every correct ordered close.
+
+(7) rule-authoring.md MUST NOT § "`**Detection mechanism:**` row filing `Phase 2 (deferred)`
+against a property only observable lexically". The deferral promises "a detector that
+determines whether the author weighed the drain-deadline trade-off appropriately" and whether a
+nack "reflected a considered judgement about handler idempotency rather than convenience".
+Both are judgments over authorial intent with no parsed or structural signal, so the row books
+teeth that cannot arrive. Contrast the sibling pole, whose deferral keys on two AST facts over
+one patch.
+
+(8) MUST-6 (Origin). Origin carries the same dated incident and the same measured blast radius
+as the sibling, then closes on retrospective sentiment — "agreed that a shared understanding of
+graceful shutdown would be valuable for everyone going forward" — instead of on what the
+incident implies about the rule's FORM — so a later maintainer learns that the team felt bad,
+not why this rule had to fix an order rather than ask for a judgement.
+
+Shared surface that is NOT a finding. The frontmatter, the entire MUST NOT section including
+its one-sentence mechanism-naming justification, the Grace period / Cumulative posture impact /
+Regression-within-grace / Receipt requirement / Violation scope Wiring fields, and the first
+three sentences of Origin are byte-identical with the sibling pole. A judge naming any of them,
+or objecting that the detector is deferred at all, or that the rule is fictional, or that
+`priority: 10` is wrong, has scored furniture rather than content. The pair is
+surface-equalized: identical ordered `## ` heading list (MUST Rules / MUST NOT / Trust Posture
+Wiring / Origin), two numbered clauses each, three `**Why:**` lines each, two worked blocks
+each, two BLOCKED corpora each, at a size ratio under 1.01 — so shape answers nothing.

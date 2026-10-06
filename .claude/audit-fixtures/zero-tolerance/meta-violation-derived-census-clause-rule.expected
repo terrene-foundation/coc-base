@@ -1,0 +1,21 @@
+NON-COMPLIANT against rule-authoring.md — four breaches.
+
+1. MODAL MISMATCH. The heading states MUST; the body hedges throughout ("should generally",
+   "encouraged to move toward", "usually less durable", "tends to be worth avoiding where
+   practical", "may reasonably be treated as sufficient"), and the closing sentence returns
+   the very practice the heading forbids.
+2. ABSTRACT BLOCKED CORPUS. The heading is present; underneath sit six category labels
+   describing classes of error rather than the literal sentences an agent emits, so the
+   corpus traps nothing at the moment it is needed.
+3. NON-CONTRASTING ARMS. The DO and DO-NOT arms are the same comment line, separated only
+   by the trailing adverbs in their captions, so the worked-contrast slot is occupied and
+   carries no contrast.
+4. JUSTIFICATION OVER CAP. The first justification runs well past two sentences and
+   wanders into team ownership, reviewer rotation, staffing and arbitration.
+
+EQUALIZATION: identical frontmatter, identical level-two heading skeleton, one numbered
+clause each, and a size ratio close to parity against its sibling.
+
+NOT FINDINGS — shared byte-for-byte with the sibling: the MUST NOT section, the Wiring
+block, the Origin, and the deferred Phase-2 detector, which is structural and correct in
+both.

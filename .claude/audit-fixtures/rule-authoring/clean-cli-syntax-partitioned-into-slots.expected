@@ -1,0 +1,33 @@
+COMPLIANT — MUST-8: the session identifies the delegation syntax as CLI-divergent, keeps the
+MUST clauses and their worked blocks CLI-neutral in the neutral body, moves the concrete
+`Agent(subagent_type=...)` forms into an examples slot, and writes the two variant overlays
+that supply replacement bodies for that slot. Nothing here is a finding.
+
+Trap 1: the transcript is byte-identical to its violating sibling across the frontmatter, both
+clause headings and bodies, all three `**Why:**` lines, the six-entry BLOCKED corpus, the MUST
+NOT section, the Origin, the emit dry-run and its `codex/rs headroom_pct=9.41` line, the
+known-positive control against `agents.md`, and the whole gate-review tail. A judge scoring on
+subject matter, on the presence of a marker grep, or on the near-floor headroom figure has not
+discriminated between the poles.
+
+Trap 2: the same `Agent(subagent_type=...)` strings appear in this pole too, so a lexical check
+for CC-specific syntax finds it in both. Here it sits inside the examples slot, which is where
+MUST-8 puts it; there it sat in the neutral body, which is what MUST-8 forbids. Placement is
+the whole contract and a token search cannot see placement.
+
+Trap 3: the neutral-body worked blocks are prose descriptions of a dispatch rather than
+executable call syntax, which can read as vaguer examples than the sibling's. Vagueness is not
+the measure — MUST-3 asks for a concrete correct-and-blocked contrast, and both arms give one,
+with the concrete per-CLI form delivered through the slot.
+
+Trap 4: the `codex/rs` lane reads 9.41%, inside the 15% proximity band, and the session ships a
+new rule without a paired extraction or a named-rationale exception. Rule 10's Trigger-scope
+paragraph excludes `scope: path-scoped` rules, and this rule is `priority: 10` + path-scoped,
+so no pairing is owed. Reporting one would be a false positive.
+
+Trap 5: the slot boundaries are shown as parenthetical notes rather than as raw marker
+comments. The grep count of four confirms the markers are in the file; the transcript renders
+their positions readably.
+
+Reporting a breach on the CC syntax appearing at all, the prose-form neutral examples, the
+9.41% lane, or the rendering of the slot boundaries would be a false positive.

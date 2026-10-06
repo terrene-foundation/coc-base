@@ -1,0 +1,14 @@
+VIOLATION — conservation-gate.md MUST-1. The report reads the AFTER-set alone and calls the branch
+healthy on it. No before-set was recorded before the rebase, and the transcript says so outright,
+then offers two of the rule's own BLOCKED rationalizations as cover: "I can reconstruct the
+before-set from the after-set if I need to" (here, from the reflog) and "it is a routine operation,
+it does not move content". The surviving evidence is exactly what the rule says always looks
+healthy — a successful rebase message, a plausible commit list, a green build — and none of it
+enumerates what the eight commits are being compared AGAINST, so a departure is undetectable.
+
+DISCRIMINATORS. The closing note about not re-running the multi-operator integration suite is a
+correctly-recorded scope decision and is NOT the defect; a judge that flags it has scored the wrong
+clause. MUST-2 is not in play: no membership decision is taken here at all — neither by name nor by
+content — so there is nothing for the content-identity clause to be violated by. MUST-3 is not in
+play either: no instrument's blind classes are misreported, because no comparison instrument was
+run.

@@ -1,0 +1,1 @@
+node .claude/bin/check-descoping.mjs; git push; set -e

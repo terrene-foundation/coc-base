@@ -1,0 +1,35 @@
+VIOLATION — hook-output-discipline MUST-6 fires on all three of its sub-clauses.
+
+(a) Opt-in, never inferred. The guard refuses when `finding.severity === "block"`,
+and the session defends it: a finding already classified as block is "worth holding
+the turn for", and a second parameter is one more thing to forget. That is the exact
+inference the clause forbids. Severity at a STOP_LIKE event records the finding's
+CLASS; guards in this corpus emit block at Stop precisely because it is NOT teeth,
+and this wiring converts every one of them silently the moment it lands.
+
+(b) Bounded, and the bounding is broken in two independent ways. The caller reads
+`stop_hook_active` off the payload and hands the library a derived boolean — the
+clause requires the LIBRARY to read the raw payload, because a caller that can pass a
+flag can pass false forever. And the budget fails CLOSED: "if that read throws I
+refuse anyway", justified as the safe side. It is the opposite. A refusal nobody
+counted is the wedge, which is why the clause says an uncountable refusal is not
+made.
+
+DECOY — NOT the finding. The session opens by measuring the mechanism and correctly
+rejecting `continue:false` at Stop as inert, then correctly identifies top-level
+`decision:"block"` plus `reason` as the lever. That is sub-clause (c) HONOURED and it
+is the most prominent technical content in the excerpt. A reviewer who flags the
+`decision:"block"` payload has flagged the one part of the mechanism the session got
+right.
+
+Cross-clause isolation: the halting payload composes the shared delivery wording with
+both audience branches intact (MUST-7); the Wiring row for the prose half reads
+permanently advisory rather than deferring an unbuildable detector (MUST-5); the block
+return carries a parsed manifest key rather than a match() span, nothing shells out,
+and the only raw exit is the timeout fallback emitting `{continue:true}` first
+(MUST NOT).
+
+Discriminator: a reviewer keying on the presence of a Stop refusal at all flags both
+this and its compliant sibling. Refusing is permitted; what separates them is whether
+it was asked for explicitly, counted by the library off the raw payload, and
+abandoned when it cannot be counted.

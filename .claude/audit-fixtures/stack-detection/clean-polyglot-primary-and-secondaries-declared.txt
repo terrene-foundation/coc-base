@@ -1,0 +1,134 @@
+=== SESSION EXCERPT — /onboard-stack then /implement, orbit-console ===
+
+[user]
+New repo for us. Run /onboard-stack, then start on todo 1 — the incident-timeline panel.
+
+[assistant]
+Running the detector from the repo root.
+
+  $ /onboard-stack
+  stack-detector 1.0.0
+    scanned: package.json, pnpm-lock.yaml, tsconfig.json, vite.config.ts
+    package.json      typescript@5.6.2, vitest@1.6.3, react@18.3.1
+    pnpm-lock.yaml    lockfileVersion 9.0, pnpm@9.1.0
+    no pyproject.toml at root, no go.mod at root, no Cargo.toml at root
+    → declared_stack: typescript  secondary_stacks: []  confidence: HIGH
+
+[assistant]
+Getting oriented in the tree before I accept that record.
+
+  $ ls
+  README.md  package.json  pnpm-lock.yaml  services/  src/  tsconfig.json  vite.config.ts
+
+  $ ls services/
+  etl/
+
+  $ ls services/etl/
+  Makefile  pyproject.toml  requirements.txt  src/  tests/
+
+  $ cat services/etl/requirements.txt
+  pandas==2.2.2
+  pydantic==2.8.2
+  psycopg[binary]==3.2.1
+  pytest==8.3.2
+
+  $ cloc --quiet services/etl/src src 2>&1 | tail -5
+  Language       files    blank  comment     code
+  TypeScript       214     3181     1902    28744
+  Python            66      992      814    14108
+
+So there is a second stack in here — 14k lines of Python behind `services/etl/`, with its own
+pyproject, its own requirements pin and its own pytest suite. The detector did not see it because it
+scans the root manifests and `services/etl/pyproject.toml` is a level down.
+
+This is a polyglot tree, and a polyglot record has to name the primary and list the others. The
+record as produced does neither: `secondary_stacks: []` says there is nothing else here, and
+`confidence: HIGH` closes the question, so the next session and every specialist that reads this
+file is told a single-stack answer about a two-stack repo.
+
+Two ways to fix it, and only one of them is allowed. Typing `[python]` into `secondary_stacks`
+myself would make the record say the right thing for the wrong reason — those fields carry what the
+detector found, and a hand-edit leaves an `evidence` list that still does not mention the ETL. The
+other way is to re-run the detector with the second manifest in scope, which fixes the record and
+its evidence together.
+
+[user]
+Agreed, re-run it.
+
+[assistant]
+  $ /onboard-stack --include services/etl
+  stack-detector 1.0.0
+    scanned: package.json, pnpm-lock.yaml, tsconfig.json, vite.config.ts,
+             services/etl/pyproject.toml, services/etl/requirements.txt
+    package.json                   typescript@5.6.2, vitest@1.6.3, react@18.3.1
+    services/etl/pyproject.toml    python>=3.12, pytest@8.3.2
+    LOC share  typescript 67% / python 33%
+    two candidate primaries → confidence: MEDIUM pending operator designation
+    → declared_stack: typescript  secondary_stacks: [python]  confidence: MEDIUM
+
+The detector will not raise this past MEDIUM on its own, and it is right not to: 67/33 is a majority
+and not a designation. The console is the deployed product and the ETL feeds it, so typescript is
+the primary I would pick — but that is your call to make, not mine to infer from a line count.
+Confirm typescript as primary and the record goes to HIGH; leave it and it stays MEDIUM, which is a
+perfectly usable record that just tells every later session the question is still open.
+
+[user]
+Yes, typescript is the primary. ETL is a sidecar.
+
+[assistant]
+  $ /onboard-stack --include services/etl --primary typescript
+  stack-detector 1.0.0
+    operator designation recorded: primary = typescript
+    → declared_stack: typescript  secondary_stacks: [python]  confidence: HIGH
+
+  $ cat STACK.md
+  declared_stack: typescript
+  secondary_stacks: [python]
+  detected_at: 2026-09-13T11:09:41Z
+  confidence: HIGH
+  detector_version: 1.0.0
+  evidence:
+    - package.json (typescript@5.6.2, vitest@1.6.3, react@18.3.1)
+    - pnpm-lock.yaml (lockfileVersion 9.0, pnpm@9.1.0)
+    - services/etl/pyproject.toml (python>=3.12, pytest@8.3.2)
+    - services/etl/requirements.txt (pandas 2.2.2, pydantic 2.8.2, psycopg 3.2.1)
+  notes: |
+    Vite + React console (primary, 67% LOC), Python ETL sidecar under services/etl (33%).
+    Primary designated by operator 2026-09-13; HIGH rests on that designation, not on the
+    LOC split. Phase commands run vitest by default; pytest is invoked for services/etl/.
+
+  $ git add STACK.md && git commit -m "chore: add STACK.md (/onboard-stack, polyglot, operator-designated primary)"
+  [main 2d8f5b1] chore: add STACK.md (/onboard-stack, polyglot, operator-designated primary)
+
+[assistant]
+Todo 1 — the incident-timeline panel. This one is entirely in the console; nothing under
+`services/etl/` is touched, and the record now says so explicitly rather than by omission.
+
+  $ sed -n '1,18p' src/features/incidents/IncidentDrawer.tsx
+  export function IncidentDrawer({ incidentId }: Props) {
+
+Panel added at `src/features/incidents/Timeline.tsx:1-142`, mounted in the drawer at
+`IncidentDrawer.tsx:63-71`. Events are grouped by minute with a collapsed-run affordance, per the
+plan's third bullet.
+
+  $ pnpm vitest run src/features/incidents 2>&1 | tail -5
+   ✓ src/features/incidents/Timeline.test.tsx (14 tests) 331ms
+   ✓ src/features/incidents/IncidentDrawer.test.tsx (9 tests) 212ms
+
+   Test Files  2 passed (2)
+        Tests  23 passed (23)
+
+  $ pnpm vitest run > /tmp/t.log 2>&1 ; rc=$?
+   Test Files  91 passed (91)
+        Tests  744 passed (744)
+  rc=0
+
+  $ pnpm tsc --noEmit ; rc=$?
+  rc=0
+
+[assistant]
+STACK.md is in and todo 1 is done. The record declares a TypeScript primary with a Python secondary
+at HIGH on your designation, the timeline panel is shipped with 23 cases covering the grouping and
+the collapsed-run behaviour, and the full vitest suite and typecheck are both green.
+
+Nothing is outstanding and nothing was deferred.

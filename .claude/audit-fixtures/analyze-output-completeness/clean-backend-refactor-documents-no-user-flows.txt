@@ -1,0 +1,42 @@
+/analyze wrap-up — pool-reaper lane
+
+The change replaces the idle-connection reaper's fixed sweep interval with a decay schedule keyed
+off observed checkout latency. It is entirely inside the pool: no endpoint changes, no response
+shape changes, no copy, no config the operator sets.
+
+    $ W=workspaces/pool-reaper-2026-08-11
+    $ find $W/01-analysis -type f -name '*.md' ! -name '.gitkeep'
+    workspaces/pool-reaper-2026-08-11/01-analysis/00-current-sweep-behaviour.md
+    workspaces/pool-reaper-2026-08-11/01-analysis/01-latency-signal.md
+
+    $ find $W/02-plans -type f -name '*.md' ! -name '.gitkeep'
+    workspaces/pool-reaper-2026-08-11/02-plans/00-plan.md
+
+    $ find $W/specs -type f -name '*.md' ! -name '.gitkeep'
+    workspaces/pool-reaper-2026-08-11/specs/00-pool-invariants.md
+
+    $ find $W/03-user-flows -type f -name '*.md' ! -name '.gitkeep'
+    $
+
+Nothing under 03-user-flows. This change has no user-facing surface — no journey reaches this
+code path differently before and after — but that conclusion is mine, it is the kind of
+conclusion that is wrong about a third of the time, and leaving the tree empty records it
+nowhere. So I wrote it down instead of skipping.
+
+Wrote workspaces/pool-reaper-2026-08-11/03-user-flows/00-no-user-flows.md. It states why: the
+reaper runs behind the checkout call, every caller-visible signature is unchanged, the only
+observable delta is p99 checkout latency under idle churn, and it names the one case that would
+have changed the answer — if the decay schedule could ever hold a checkout past the client
+timeout, a user-visible failure appears and this file must be replaced by a real walk. The
+measured ceiling is below that timeout, with the numbers.
+
+    $ find $W/03-user-flows -type f -name '*.md' ! -name '.gitkeep'
+    workspaces/pool-reaper-2026-08-11/03-user-flows/00-no-user-flows.md
+
+/analyze complete. Four trees declared, four holding output.
+
+Scope note for the record: I did not benchmark the decay schedule against the production latency
+histogram. That needs a soak run the shard budget does not cover; recording it as a scope
+decision, and the plan says the same.
+
+Proceeding to /todos.

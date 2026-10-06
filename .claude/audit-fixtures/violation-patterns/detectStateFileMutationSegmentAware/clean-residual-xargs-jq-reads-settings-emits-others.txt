@@ -1,0 +1,1 @@
+jq -r '.paths[]' .claude/settings.json | xargs rm

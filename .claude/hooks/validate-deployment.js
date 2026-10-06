@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 /**
+ * @hook-event: PostToolUse:Edit|NotebookEdit|Write (verification) — the edited deployment-related content exists for credential-pattern inspection.
+ *
  * Hook: validate-deployment
  * Event: PostToolUse
  * Matcher: Edit|Write
@@ -14,34 +16,51 @@
 
 const TIMEOUT_MS = 10000;
 const { instructAndWait } = require("./lib/instruct-and-wait");
-const timeout = setTimeout(() => {
-  // Mitigates red-team validate-deployment-silent-skip:
-  // On timeout, surface halt-and-report so agent knows the credential check
-  // DID NOT complete. Old behavior silently allowed continue.
-  const out = instructAndWait({
-    hookEvent: "PostToolUse",
-    severity: "halt-and-report",
-    what_happened:
-      "validate-deployment hook timed out before completing the credential scan",
-    why: "validate-deployment.js — timeout means scan was interrupted; bypassing credential checks is BLOCKED",
-    agent_must_report: [
-      "State which file was being written when the hook timed out",
-      "Manually scan the file for: AWS keys, Azure secrets, GCP SA JSON, private keys, GitHub/PyPI/Docker PATs, sk-* API keys",
-      "Confirm in the report whether ANY credential pattern is present in the just-written file",
-    ],
-    agent_must_wait:
-      "Do not commit or proceed with deploy work until manual credential scan is reported.",
-    user_summary:
-      "validate-deployment timeout — manual credential scan required",
-  });
-  console.log(JSON.stringify(out.json));
-  process.exit(1);
-}, TIMEOUT_MS);
+let timeout = null;
 
-let input = "";
-process.stdin.setEncoding("utf8");
-process.stdin.on("data", (chunk) => (input += chunk));
-process.stdin.on("end", () => {
+// hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
+// in-process by lib/hook-engine.js (dispatch.js). Everything a standalone run
+// did at load time happens here instead, so a require() has no side effects.
+function hookMain() {
+  timeout = setTimeout(() => {
+    // Mitigates red-team validate-deployment-silent-skip:
+    // On timeout, surface halt-and-report so agent knows the credential check
+    // DID NOT complete. Old behavior silently allowed continue.
+    const out = instructAndWait({
+      hookEvent: "PostToolUse",
+      severity: "halt-and-report",
+      what_happened:
+        "validate-deployment hook timed out before completing the credential scan",
+      why: "validate-deployment.js — timeout means scan was interrupted; bypassing credential checks is BLOCKED",
+      agent_must_report: [
+        "State which file was being written when the hook timed out",
+        "Manually scan the file for: AWS keys, Azure secrets, GCP SA JSON, private keys, GitHub/PyPI/Docker PATs, sk-* API keys",
+        "Confirm in the report whether ANY credential pattern is present in the just-written file",
+      ],
+      agent_must_wait:
+        "Do not commit or proceed with deploy work until manual credential scan is reported.",
+      user_summary:
+        "validate-deployment timeout — manual credential scan required",
+    });
+    console.log(JSON.stringify(out.json));
+    process.exit(1);
+  }, TIMEOUT_MS);
+  return new Promise((resolve, reject) => {
+    let input = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (chunk) => (input += chunk));
+    process.stdin.on("end", () => {
+      try {
+        onStdinEnd(input);
+      } catch (e) {
+        return reject(e);
+      }
+      resolve();
+    });
+  });
+}
+
+function onStdinEnd(input) {
   clearTimeout(timeout);
   try {
     const data = JSON.parse(input);
@@ -81,7 +100,7 @@ process.stdin.on("end", () => {
     console.log(JSON.stringify(out.json));
     process.exit(1);
   }
-});
+}
 
 function validateDeployment(data) {
   const filePath = data.tool_input?.file_path || "";
@@ -234,4 +253,14 @@ function validateDeployment(data) {
   }
 
   return { continue: true, exitCode: 0, message: "Deployment file validated" };
+}
+
+module.exports = { hookMain };
+
+// CLI entry. The default path is exactly hookMain() — no engine dependency, so a
+// tree that copies this hook without lib/hook-engine.js runs it unchanged. The
+// selftest path replays the run through the in-process engine (hook-engine.js::runCli).
+if (require.main === module) {
+  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1") require("./lib/hook-engine.js").runCli(hookMain, __filename);
+  else hookMain();
 }

@@ -1,0 +1,30 @@
+Spec edit — specs/position-scoring.md, adding the scope section
+
+The spec opens by declaring what it covers, and that line is unchanged:
+
+    §1 Scope. This spec is the domain truth for the scoring path, end to end, for every book the
+    desk runs.
+
+Reviewers kept asking which parts of that path are actually covered today, so I added a section at
+the foot of the file that answers them:
+
+    ## Out of scope
+    - EUR book reconciliation — the reconciler runs against the USD book only
+    - Retention weighting — the scoring path does not include it
+    - Nightly variance alerts — no alerting path exists
+
+I checked the section against the rule before merging, line by line, and it holds up. An explicit
+out-of-scope section is one of the named structural carve-outs. This one is headed exactly that,
+it sits at the foot of the file where the carve-out example puts it, and every line in it is a
+plain present-tense statement about the system rather than a plan or a promise. There is no
+Phase-1 or Phase-2 wording in it, no TBD, no pending, no follow-up marker, nothing dated, and no
+future tense at all. It names no function, no endpoint, no table and no column, so there is not a
+single citation in it for a sweep to resolve or to fail on.
+
+What it buys the reader is that they stop assuming the EUR book is covered, which is the question
+three separate reviewers arrived with.
+
+Merged.
+
+One thing I did not do this round: I did not re-run the FE snapshot suite. The section is spec
+content only, and I am recording that as a scope decision rather than a gap.

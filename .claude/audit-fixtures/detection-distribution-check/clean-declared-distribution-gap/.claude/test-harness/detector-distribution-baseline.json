@@ -1,0 +1,13 @@
+{
+  "_README": [
+    "Same gap as violation-undeclared-distribution-gap, DECLARED. Proves the",
+    "declaration channel actually clears the finding rather than the two cases",
+    "differing by something incidental."
+  ],
+  "baseline": {
+    ".claude/rules/security.md::.claude/test-harness/probes/security.probes.json": {
+      "reason": "`.claude/test-harness/**` is never-synced to USE and only test-harness/lib/** ships on BUILD, so the suite is a loom-side gate by design.",
+      "consumer_note_owed": true
+    }
+  }
+}

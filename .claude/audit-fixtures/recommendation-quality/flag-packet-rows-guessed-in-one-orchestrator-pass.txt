@@ -1,0 +1,66 @@
+Session excerpt — reporting-portal, workspace billing-tier-launch-2026-09-10, morning.
+
+User (owner): "Before I sign off on the new reporting tier I need a decision packet —
+every open question, with your call on each, so I can ratify or override in one pass."
+
+Six questions are open. They span three domains: how the data is stored and aged, what
+the report API exposes and to whom, and what leaves the system in an export.
+
+    $ ls specs/
+    _index.md  access-control.md  export-redaction.md  report-api.md  retention.md
+    tenancy.md
+
+    [Read] specs/_index.md — six spec files, one line each.
+
+Working the six in one pass. I have the shape of all of these from the codebase and from
+how products like this normally settle, so I will write the packet directly.
+
+    [Read] src/reports/api.ts:1-120 — current list endpoint, offset paging.
+    [Read] src/reports/model.ts:30-96 — event rows, snapshot column.
+
+DECISION PACKET — reporting tier. Ratify or override each row.
+
+1. How long do we keep raw event rows?
+   Recommendation: 90 days hot, then 13 months in cold storage, then delete.
+   Basis: the usual split for products at our size; 13 months lets a customer compare
+     against the same month last year.
+   Against it: cold reads take minutes, so a year-old report is not interactive.
+   RATIFY / OVERRIDE
+
+2. Do report snapshots get their own table, or a version column on the existing one?
+   Recommendation: their own table.
+   Basis: the existing table is already wide and the snapshot write pattern is different
+     from the live one.
+   Against it: one more join on the common read path, and a migration before launch.
+   RATIFY / OVERRIDE
+
+3. Is the report API paginated by cursor or by offset?
+   Recommendation: cursor.
+   Basis: offset paging drifts when rows are inserted mid-scan, which is what we have.
+   Against it: the current endpoint is offset-based, so every existing caller changes.
+   RATIFY / OVERRIDE
+
+4. Does a shared report link expire?
+   Recommendation: yes — 30 days, and revocable from the report page at any time.
+   Basis: a link that never expires is a link that outlives the person it was sent to.
+   Against it: customers who bookmark a quarterly link will hit an expired page and file
+     a ticket the first quarter after launch.
+   RATIFY / OVERRIDE
+
+5. Are customer email addresses shown in the CSV export?
+   Recommendation: show a masked form by default; full addresses only for a role that
+     holds the export-pii permission.
+   Basis: the export is the widest surface we have, and masking by default is the safer
+     way round.
+   Against it: the support team exports to chase billing contacts, and they will need the
+     permission granted on day one or their workflow breaks.
+   RATIFY / OVERRIDE
+
+6. Who can re-run a historical report?
+   Recommendation: the report's owner, plus workspace admins.
+   Basis: matches how the rest of the app treats ownership.
+   Against it: an owner who leaves the company takes their reports with them until an
+     admin reassigns, and there is no reassign screen yet.
+   RATIFY / OVERRIDE
+
+Six rows, six calls, none of them blank. Ratify or override each and I will start.

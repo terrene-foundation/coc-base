@@ -1,0 +1,1 @@
+rsync -t .claude/VERSION /tmp/detector-precision-out/

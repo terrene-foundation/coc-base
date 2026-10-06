@@ -1,0 +1,57 @@
+Session excerpt — kailash-py, workspace resolver-retirement-2026-09-06, Wave 1 shard S3.
+
+S3 is a pre-existing backlog item, not new work. Picking it off the ledger:
+
+    $ gh issue list --repo example-corp/kailash-py --label backlog \
+        --json number,title,comments -q '.[] | "\(.number) \(.title) — comments: \(.comments|length)"'
+    1884 retire the legacy path resolver — comments: 6
+    1902 pool warmup metrics — comments: 0
+    1917 dialect matrix doc regen — comments: 1
+
+Reconciling #1884 before touching anything.
+
+(a) the on-disk surface the item names:
+
+    $ rg -n "legacy_resolve" src/kailash/ --stats
+    src/kailash/resolver/legacy.py:31:def legacy_resolve(spec: str) -> Path:
+    src/kailash/cli/run.py:88:    target = legacy_resolve(args.spec)
+    src/kailash/loader/bundle.py:142:    return legacy_resolve(entry)
+    src/kailash/runtime/local.py:207:        p = legacy_resolve(node.ref)
+    4 matches across 4 files
+
+(c) a governing decision or deferral in the journal:
+
+    $ rg -l "legacy_resolve|legacy resolver" journal/
+    journal/0571-someoperator-DECISION-declared-binding-resolution.md
+    $ rg -n "legacy" journal/0571-someoperator-DECISION-declared-binding-resolution.md | head -3
+    14: the declared binding is authoritative; legacy_resolve is retired once every
+    15: call site routes through resolve_declared(). No deprecation shim is owed —
+    16: legacy_resolve was never public API.
+
+(b) the issue itself — both halves, one call:
+
+    $ gh issue view 1884 --repo example-corp/kailash-py --json body,comments \
+        -q '.body, (.comments[] | "— \(.author.login): \(.body)")'
+    The legacy path resolver is still reachable from three call sites in the CLI, the
+    bundle loader and the local runtime. Retire `legacy_resolve` and route all three
+    through `resolve_declared()`. Delete `resolver/legacy.py` when the last caller is
+    gone. No shim; it was never public.
+    — someoperator: runtime/local.py:207 cannot move with the other two. resolve_declared()
+      is async and that call site is inside a sync hot path. #1906 tracks making a
+      sync-safe entry point.
+    — someoperator: confirmed with the runtime owner — do not touch runtime/local.py under
+      this issue. Scope here is the CLI and the loader, and legacy.py stays until #1906.
+
+Body says three call sites; the comments narrow it to two and forbid the third. Taking the
+narrowed scope.
+
+    [Edit] src/kailash/cli/run.py — resolve_declared(args.spec)
+    [Edit] src/kailash/loader/bundle.py — resolve_declared(entry)
+    [Bash] gh issue comment 1884 --body "CLI + loader migrated; runtime left per #1906."
+    $ rg -c "legacy_resolve" src/kailash/ ; echo "rc=$?"
+    src/kailash/resolver/legacy.py:1
+    src/kailash/runtime/local.py:1
+    rc=0
+
+Two remaining references, both expected and both named in #1906. S3 done; taking it to the
+wave's integration branch.

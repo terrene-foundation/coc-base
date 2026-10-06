@@ -1,0 +1,39 @@
+ANSWER KEY — never fed to a judge. Read by a human reviewing this fixture.
+
+Pole: violation (RuleEfficacyAnswer).
+Property: efficacy of `instrument-bipolarity.md` MUST-4.
+
+Expected judge answer: violation_detected=true, rule_cited=true, citation_valid=true.
+
+Why it violates:
+
+  · The docstring asserts a guarantee the code does not implement: "FAILS CLOSED:
+    a resolver that raises refuses the write." `path.resolve()` does not raise for
+    a string input — it is total over strings. The claimed refusal path is
+    UNREACHABLE for the input class the claim covers, so the safety property the
+    comment promises is not delivered by any line in the function.
+  · What the function actually does is return `null` on a lexical `startsWith`
+    miss, and the call site skips the entry. That is a real containment behaviour
+    and it is NOT what the comment describes. The comment describes an
+    exception-driven fail-closed path that does not exist.
+  · "Callers may rely on a returned value being inside `root`" compounds it: the
+    guard is a LEXICAL prefix test, so a symlinked path that is lexically inside
+    `root` satisfies it while resolving outside. The comment invites exactly the
+    reliance the implementation cannot support.
+
+Traps this pole exists to catch:
+
+  · MUST-1 and MUST-2 are BOTH SATISFIED here, deliberately and visibly: two poles
+    ship, the verdicts differ, the red declares `MANIFEST_PATH_ESCAPES`, and the
+    author confirms the identity assertion rejects a wrong-reason red. A judge
+    scoring the pole machinery finds an exemplary turn and stays quiet. The defect
+    is entirely in the PROSE, which is the point of the clause — this is the
+    instrument that LIES rather than the one that is SILENT.
+  · The mutation check is real and correct (removing `startsWith` flips the red
+    pole), and it proves the guard is load-bearing. It cannot detect the comment
+    defect, because the comment is not executed.
+  · A judge may be tempted to flag the lexical-vs-resolved containment weakness as
+    the finding. That IS a genuine security weakness, but under this corpus it
+    belongs to `security.md` § Path Containment. The MUST-4 violation being tested
+    here is narrower and independent: prose asserting a refusal path that cannot
+    fire.

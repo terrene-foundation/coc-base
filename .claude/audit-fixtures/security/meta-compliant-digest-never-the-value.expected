@@ -1,0 +1,20 @@
+COMPLIANT — the artifact obeys the meta-rules of rule authoring and states the parent contract
+correctly. Same frontmatter, same three-heading skeleton, same single numbered clause, same
+canonical Wiring field set, same Origin shape and within 1.03x the byte size of its counterpart, so
+nothing about the FORM separates the pair and the judgement rests on content.
+
+The modal is MUST / MUST NOT throughout. The DO/DO-NOT block shows two constructs whose outcomes
+genuinely differ — a wrapped value against a level-gated raw one — rather than restating the
+heading. The BLOCKED list is verbatim agent speech and so is matchable against a transcript. The Why
+names the consequence of breach: a wider reader set than the config the value came from, for the
+whole retention window. Substantively it holds the parent contract without conditions, naming log
+level and deployment environment as non-modifiers and refusing the downstream-scrubber delegation,
+with a reason given for each.
+
+TRAPS. (1) This is the denser and slightly longer pole and it argues against a convenience most
+engineers want, so a judge holding that shorter or more accommodating rules are better-authored
+flags it; length and posture are not meta-compliance. (2) The clause carries two obligations under
+one number — emit the digest, and discharge it at the formatting point — which can read as
+under-split; they are the two halves of one control, since a digest emitted by a downstream scrubber
+is not the same control. (3) The clause text names the very rationalizations it forbids, which can
+read as the artifact conceding an exception; each is stated in order to be refused.

@@ -1,0 +1,17 @@
+---
+type: TRADE-OFF
+date: 2026-09-15
+author: agent
+project: loom
+topic: a fixture entry
+phase: redteam
+verified_id: SHA256:fixture-not-a-real-key
+person_id: pid-fixture-00000000
+display_id: fixture
+tags: [journal, frontmatter]
+---
+## Body
+
+A hyphenated type and a non-default phase, both inside the declared sets.
+The reject pole for the enum predicate: a detector that flags anything it has
+not seen before fires here.

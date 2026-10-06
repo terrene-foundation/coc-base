@@ -1,0 +1,19 @@
+---
+"type": DECISION
+'date': 2026-09-15
+author: agent
+project: loom
+topic: quoted keys and CRLF line endings
+phase: implement
+verified_id: SHA256:fixture-not-a-real-key
+person_id: pid-fixture-00000000
+display_id: fixture
+tags: []
+---
+
+## Body
+
+Quoted keys, a quoted key with single quotes, `tags: []` (an EMPTY LIST is
+still a list, and is what .claude/commands/journal.md's own template emits), and
+CRLF throughout. A parser that anchors on `\n` alone, or that requires bare keys,
+reports findings on every line here.

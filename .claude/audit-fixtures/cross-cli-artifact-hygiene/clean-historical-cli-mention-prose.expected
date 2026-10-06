@@ -1,0 +1,26 @@
+CLEAN — cross-cli-artifact-hygiene.md MUST-5 is satisfied.
+
+Both CLI mentions are qualified historically in exactly the form the clause's DO arm
+carries: "The Claude Code session that ran /implement on 2026-05-01 produced these
+todos" and "a Codex session on 2026-05-03 added the redteam findings". Each is tied to
+a date and to an action that already happened, and the preamble says outright that the
+mentions exist for provenance.
+
+Every PRESCRIPTIVE sentence is runtime-neutral: "No todo here is runtime-bound", "The
+session under whatever CLI runs /redteam files its findings", "the specialists named in
+the todos are dispatched by whichever runtime executes them". The second of those is
+almost verbatim from the clause's `# DO — neutral prescriptive prose` arm.
+
+THE TRAP. This file names TWO CLIs and does so more often than the violating sibling
+names one. A judge counting CLI mentions flags it and is wrong: the clause's test is
+qualification, not frequency, and naming a second runtime is if anything the stronger
+signal that the artifact is not bound to either.
+
+Second trap: the lint prints `0 findings` and exits 0 — the SAME output it produces
+over the violating sibling, because the linter carries no pattern for a prescriptive
+CLI mention. Neither pole can be separated by the lint, which is the point; the
+compliant pole reads the "in 5 files" count rather than banking the zero.
+
+This pole shares the violating sibling's workspace, README path, section skeleton,
+shard list, lint invocation and closing line. The only variable is whether the CLI
+mentions are anchored to past actions or assert a binding on future ones.

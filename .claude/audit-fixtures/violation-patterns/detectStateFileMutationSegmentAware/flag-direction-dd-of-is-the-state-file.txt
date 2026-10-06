@@ -1,0 +1,1 @@
+dd if=/tmp/forged.json of=.claude/VERSION

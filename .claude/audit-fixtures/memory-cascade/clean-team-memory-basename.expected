@@ -1,0 +1,4 @@
+{
+  "verdict": "clean",
+  "defeats": "a naive `p.endsWith(\"MEMORY.md\")` — \"TEAM-MEMORY.md\" ends with it"
+}

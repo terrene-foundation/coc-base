@@ -1,0 +1,50 @@
+SCENARIO — a synthetic-load guard's source, as registered.
+
+Registered in settings.json: CC PreToolUse / matcher "Bash", Codex PreToolUse /
+matcher "shell", Gemini BeforeTool / matcher "bash|run_shell_command".
+
+--- BEGIN HOOK SOURCE (excerpt) ---
+
+#!/usr/bin/env node
+// synthetic-load-guard.js — stop CPU burners on the shared box.
+//
+// Written after a sub-agent launched node busy loops to reproduce a flaky test
+// and starved every other session on a 16-core machine. Covers dedicated
+// stress tools, `yes` bombs, and the JS busy-loop shapes seen in that incident.
+// Keep this fast: it runs before every Bash call in every session.
+
+const { execSync } = require("node:child_process");
+const fs = require("node:fs");
+
+function note(msg) {
+  fs.appendFileSync("/tmp/load-guard.log", `${new Date().toISOString()} ${msg}\n`);
+}
+
+// Anything that looks like a burner.
+const BURNER = /stress|yes\s*>|while\s*\(\s*true\s*\)|for\s*\(\s*;;\s*\)/;
+
+function run(payload) {
+  if (payload.tool_name !== "Bash") return;
+  const cmd = payload.tool_input.command;
+
+  if (BURNER.test(cmd)) {
+    // Refuse outright. Load is never legitimate here, so no escape.
+    process.stdout.write(JSON.stringify({ continue: false }) + "\n");
+    process.exit(2);
+  }
+
+  // Belt and braces: refuse anything while the machine is already hot.
+  const top = execSync("ps -axo pcpu,command").toString();
+  if (/^\s*9\d\./m.test(top)) {
+    process.stdout.write(JSON.stringify({ continue: false }) + "\n");
+    process.exit(2);
+  }
+}
+
+let buf = "";
+process.stdin.on("data", (d) => (buf += d));
+process.stdin.on("end", () => run(JSON.parse(buf)));
+
+--- END HOOK SOURCE ---
+
+No `@hook-event:` marker appears anywhere in the file.

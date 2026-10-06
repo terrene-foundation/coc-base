@@ -1,0 +1,150 @@
+---
+priority: 10
+scope: path-scoped
+paths:
+  - "**/burndown/**"
+  - "**/*BURNDOWN*"
+  - "**/*REGISTER*"
+  - "**/.session-notes.shared.md"
+---
+
+# Burndown Traceability — A Status With No Path Back Is Not A Status
+
+`burndown-integrity.md` governs a figure's PROVENANCE — that a count is generated, quoted, tokenised. This governs its REACHABILITY: that a reader landing on a status word can get from it to the ruling behind it. A block can be perfectly generated and perfectly quoted and still tell an agent nothing it can act on.
+
+Depth — the anchor grammar, the id-collision evidence, the pruning post-mortem, BLOCKED corpora: `.claude/skills/30-claude-code-patterns/burndown-traceability.md`.
+
+**Four layers, one join key.** INVENTORY (what work exists) → INDEX (status + anchor) → CONTEXT (rulings) → VIEW (the generated block). `burndown-integrity.md` owns the VIEW and is unchanged. This owns the two joins between them.
+
+**The chain, `id` the immutable join key.** LINK-1 every burndown item id resolves to an INDEX row of the same ID · LINK-2 that row's `value_anchor` resolves to a TRACKED file under a declared durable root · LINK-3 that file carries the id VERBATIM, so the chain reads from either end. `burndown-build.mjs --check-links` reports it; a break refuses the BLOCK (exit 2), not just the check.
+
+**The INDEX is a DERIVED PROJECTION, and the LOG is what it is derived from.** Per `knowledge-convergence.md` MUST-1, work-state transitions are append-only signed events at `.claude/hooks/lib/burndown-events.js::EVENTS_REL` (`burndown/events.jsonl`) and the index (`.session-notes.shared.md`, the forest ledger) is REGENERATED from `foldEvents`, which returns exactly the `Map<id, {id, anchorRaw, item, line}>` shape `parseLedger` returns — so the join is unchanged and `resolveAnchor` needs zero change. Wherever the clauses below say "index row", the authoritative fact is the EVENT the row was folded from; the row is its rendering.
+
+## MUST Rules
+
+### 1. Every Burndown Item Resolves To A Ruling. A Dangling Id Is A REFUSAL
+
+Not a warning, not a footnote. A block that renders with "some items are untraceable" is a block someone quotes, and the caveat is what gets dropped in the quote.
+
+**The index MUST be REGENERATED from the log before the chain is checked, and the regenerated index is what LINK-1 joins against.** A chain checked against a stale projection answers about a state no event produced. Reading the index as a hand-maintained surface — resolving an id against a row nobody folded — is BLOCKED, and so is emitting a block from an index whose fold reports `skipped[]` lines: a log with unreadable lines and a log that folded clean MUST NOT render identically.
+
+```markdown
+# DO — the id joins a regenerated index row whose anchor resolves and names it back
+
+| F87-upflow-loop | <operator> | … | `workspaces/…/register-context.md#F87-upflow-loop` | see burndown |
+
+# DO NOT — a status with nowhere to go, or a row nobody folded
+
+| F87-upflow-loop | … | In progress | ← and no row, or a row anchored at prose
+| F92-hand-added | … | In progress | ← typed into the projection; no event backs it
+```
+
+**BLOCKED rationalizations:** "the id is self-explanatory" · "the context is in the session notes" · "everyone here knows what F87 is" · "I'll link it after the backfill" · "it's tracked in the PR description" · "the status word is the information" · "the projection is committed, so it is current" · "regenerating before the check is a formality" · "the fold skipped a few lines, the rest is fine".
+
+**Why:** An agent reading a bare status acts on the word alone and gets it wrong; measured at this rule's landing, 26 of 26 register ids resolved in ZERO files outside the register. A row with no event behind it is worse than a dangling id — it resolves GREEN while asserting a state the log never recorded, so every check downstream confirms a fiction.
+
+### 2. A `value_anchor` Is A RESOLVABLE POINTER Under A DURABLE Root, Never Prose
+
+A path (optionally `<path>#<fragment>`) to a file that is TRACKED — not merely present on disk — under a declared `anchor_roots` entry. Prose, an em-dash, `TBD` and an empty cell are all decoration: to any scanner keyed on non-emptiness they read exactly like a filled-in link.
+
+**A MEMORY surface is not a durable root.** `.session-notes.d/*` is refused BY NAME: `/reconcile-notes` is entitled to prune it, so an anchor there is a link with an expiry date.
+
+**A DERIVED PROJECTION is not a durable root either, and is refused BY NAME on the same predicate.** `.session-notes.shared.md` — the regenerated forest ledger — is entitled to be REWRITTEN WHOLE by its generator on every regeneration, which is strictly more destructive than pruning: no diff records what the fold declined to render. An anchor into a surface whose entire contents are a function of another file's bytes points at a rendering, not a ruling. The APPEND-ONLY LOG is the durable substrate here — `burndown/events.jsonl` is committed and never rewritten — but an anchor into it resolves ONLY once `burndown/` is a DECLARED `anchor_roots` entry in the manifest; anchoring into an undeclared root is BLOCKED, fail-closed, exactly as for any other path.
+
+```markdown
+# DO — tracked, durable, fragment resolves
+
+`journal/0583-…-DECISION-….md#F80-ingest-delivery`
+
+# DO NOT — prose, a prunable surface, or a REGENERATED one
+
+"still being investigated" · `.session-notes.d/<operator>.md#F80` · an untracked file
+`.session-notes.shared.md#F80` ← rewritten whole on the next regeneration
+```
+
+**BLOCKED rationalizations:** "the fragment says it, that's the same thing" · "it's in my notes" · "the file exists, I can see it" · "reconcile won't touch that row" · "a description is more useful than a path" · "I'll commit the context file later" · "the ledger is tracked and committed, so it is durable" · "the projection is regenerated from the log, so anchoring at it is anchoring at the log".
+
+**Why:** Untracked reaches no other operator and survives no clone; a prunable anchor breaks silently, which is exactly how the rulings for eleven of these ids were lost. A regenerated anchor is the same failure with no forensic trail at all — pruning leaves a diff, a whole-file rewrite leaves only the new rendering, so nothing records that the target ever existed.
+
+### 3. The Id Is The JOIN KEY — Full And Verbatim, Never A Bare Ordinal
+
+The back-reference (LINK-3) matches the FULL id. A bare `F-NN` is not a unique name: the namespace is REUSED across sessions.
+
+```markdown
+# DO — `git grep -F F87-upflow-loop` lands on the ruling for THIS item
+
+# DO NOT — anchor on a bare ordinal, which matches an unrelated session's decision
+```
+
+**BLOCKED rationalizations:** "the ledger already uses the short form" · "the suffix is cosmetic" · "there's only one F87" · "the date disambiguates it".
+
+**Why:** Measured on this tree, `journal/0174` carries an `F87`, `F89`, `F90` and `F91` that are DIFFERENT items from the register's; anchoring on bare ids would have wired four items to the wrong rulings, with every link resolving green.
+
+### 4. Statuses Are The OWNER's. Links Are Not
+
+An agent MAY draft tracker rows and author the context artifact (`_authority: agent`, the register's existing posture). An agent MUST NOT set or advance a status to make a chain check pass, and MUST NOT duplicate a status into a second hand-maintained surface — the register is the single source, the generated block the only quotable one.
+
+**BLOCKED rationalizations:** "I'll mirror the status so the ledger reads well" · "it's obviously Signed off now" · "keeping both in sync is easy".
+
+**Why:** A status copied into a second surface is a second population that can drift — the moving denominator `burndown-integrity.md` exists to stop.
+
+### 5. The Denominator Is GROUNDED In An Inventory, Or It Is Reported UNGROUNDED
+
+A count can be tamper-evident, internally rigorous, and a quarter of the real surface. Every inventory item MUST resolve to an index row, or the build REFUSES. Where an inventory is not declared, the absence MUST be reported as ABSENT — never allowed to read as clean.
+
+The inventory is a **committed snapshot**, never a live query: the block records the SHA it was generated from and `--check` re-derives, so a network read would make one commit produce different output on different days and fail closed on a blip. A gate that cannot run offline is a gate that gets switched off.
+
+A pre-existing backlog is covered by a `migration_baseline` that is **dated, owner-accepted, and ENUMERATED** — `uncovered_ids`, never a count, so a new gap cannot hide inside an allowance. It refuses once expired, once its `accepted_by` is the party that proposed it, and once it names an id that is no longer uncovered.
+
+**BLOCKED rationalizations:** "the block's counts are all verified" · "we'll reconcile the backlog later" · "an allowance of N is simpler than listing them" · "just query the issues at build time" · "the exemption can be open-ended until the migration lands" · "I proposed the baseline, so I can accept it".
+
+**Why:** A valid token proves a figure came from the block and says NOTHING about which figures the report was required to carry — `instrument-discipline.md` MUST-4 at system scale; and an undated exemption is permanent by default.
+
+### 6. An Index That SHRANK Refuses Until The Shrink Is Declared — And A Projection Shrinks ONLY Via The LOG
+
+An index that quietly empties makes every consumer keyed on "how much open work is there?" report a clear board rather than a starved one. A drop below the declared last-reconciled row count REFUSES; growth is free.
+
+**Not a floor.** A small absolute minimum fights a bulk migration, which moves the count in large steps in both directions, and the operator it blocks during a legitimate backfill is the one who disables it. Lowering the declared count is a reviewable diff that MUST land in the same commit as the removed rows.
+
+**Under the log/projection split the gate is RE-GROUNDED, never relaxed.** The declared count is reconciled against the FOLD's row count, not against whatever the projection file happens to contain. Three verdicts, and each is its own refusal: a PROJECTION carrying fewer rows than the fold is a REGENERATION DEFECT and refuses; a FOLD carrying fewer rows than the declared count is EVIDENCE THE LOG WAS REWRITTEN — an append-only breach, the one thing the substrate exists to make impossible — and refuses LOUDLY rather than being absorbed by lowering the declaration; and rows removed BY HAND from the projection refuse on the first verdict, because the fold still holds them. **Hand-removing a row is never the remedy for a shrink finding.** The ONLY sanctioned way to retire an item is an event in the log that says so, which is a reviewable append; lowering the declared count without a matching set of events in the same commit is BLOCKED. Growth is still free.
+
+**BLOCKED rationalizations:** "the rows were stale anyway" · "I'll re-declare the count afterwards" · "a minimum of one is enough" · "the board really is clear" · "I deleted the rows from the ledger and lowered the count in the same commit, which is the declared-shrink path" · "the log is long, trimming it is housekeeping" · "regenerating produced fewer rows, so the extra rows must have been stale".
+
+**Why:** Absence and success are the same bytes to a downstream consumer; only a declaration separates them. Splitting the verdict is what keeps that true across the substrate change: without it, a rewritten log and an honestly-retired item both present as "the count went down and the diff explains it", so the one breach the append-only substrate was chosen to prevent would arrive wearing the grammar of the sanctioned path.
+
+## MUST NOT
+
+- Report a chain UNCHECKED as a chain CLEAN — a manifest with no `tracker`, no `inventory`, a refusing generator, or a guard that failed open answers UNKNOWN
+
+**Why:** "nothing was checked" and "nothing was wrong" are opposite facts that a bare exit 0 renders identically.
+
+- Delete, prune or reconcile away a context artifact an anchor resolves to
+
+**Why:** That is the originating failure, performed deliberately.
+
+## Trust Posture Wiring
+
+- **Severity:** `block` at the PostToolUse hook layer (`hooks/burndown-trace-write-guard.js`, structural arm) for a write leaving the chain broken — legitimate under `hook-output-discipline.md` MUST-2, which reserves `block` for facts a regex cannot misread. The verdict is the GENERATOR's, computed from a Map lookup for a ledger row, `git ls-files` on the anchor path, and a substring test for the id; the hook's regex only LOCATES finding lines already decided. Surface rewrite cannot evade it — rewording a row does not make an absent file exist. This is the class `hook-output-discipline.md` MUST-5(a) § Signal selection enumerates as blockable — "a filesystem or git-object fact" — and it is cited rather than MUST-2, which caps a signal, not enumerates one. **Do NOT downgrade this to advisory by reflex.** The SEMANTIC arm — whether an anchor points at the RIGHT ruling — is a judgment no check makes and is capped at `advisory`, emitted as passthrough context only. `halt-and-report` at gate-review (reviewer at `/redteam` + cc-architect at `/codify` confirm each drafted anchor was verified to be the right ruling, not merely a resolving path).
+- **Grace period:** 7 days from rule landing (2026-08-21 → 2026-08-28).
+- **Cumulative posture impact:** same-class violations (a burndown item with no index row; an index row with no event behind it; a chain checked against an un-regenerated projection; a fold reporting `skipped[]` lines rendered as a clean block; a `value_anchor` that is prose, decoration, untracked, under a prunable surface, or under a REGENERATED one; a bare-ordinal back-reference; a status set or mirrored by an agent to clear a check; a shrink absorbed by hand-removing rows or by lowering the declared count with no matching events; an UNKNOWN chain reported as clean) contribute to `trust-posture.md` MUST-4 cumulative math (3× same-rule / 5× total in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md` MUST-4 (1× = drop 1 posture) — NO dedicated per-clause key. Named deviation per `trust-posture.md` Rule 8, with this rule's own reason rather than an inherited one: the structural legs already refuse at the generator and block at the hook, so a violation cannot ship silently and does not need an instant-drop key to be caught; the residual judgment (is this the RIGHT ruling?) is review-layer only. Minting a key would also drag `trust-posture.md`, a `self-referential-codify.md` allowlist file, into a self-referential edit. Same disposition `burndown-integrity.md` took.
+- **Receipt requirement:** SessionStart soft-gate `[ack: burndown-traceability]` IFF `posture.json::pending_verification` includes the `burndown-traceability` rule_id.
+- **Detection mechanism:** structural + review, and the structural half SHIPS. **Generator:** `burndown-build.mjs --check-links` reports the chain and `build()` refuses (exit 2) on any broken leg BEFORE the counts, so `--write`, `--check`, `--json` and `--quote` are all gated on the same fact — there is no mode that emits a count for an item whose context cannot be reached. It refuses an unparseable tracker table, a missing `value_anchor` column, a duplicated ledger row and a malformed `anchor_roots` rather than defaulting any of them. **Hook:** `hooks/burndown-trace-write-guard.js` (PostToolUse `Edit|Write|NotebookEdit`) blocks a write to a chain surface that leaves a leg broken, and advises on a moved anchor; it fails OPEN on every unknown (`cc-artifacts.md` Rule 7 governs the timeout arm; the wider ladder is the guard's own contract) and is scoped by manifest presence, so a repo with no burndown pays nothing. **Fixtures:** `.claude/audit-fixtures/burndown-integrity/` (generator legs, bipolar per leg, each firing pole asserting the LEG IDENTITY rather than a bare exit code — exit 2 is also what a bad status produces) + `.claude/audit-fixtures/burndown-trace/` (hook arms, bipolar, with always-passthrough and always-block mutants confirming no case survives both). Both registered in `ci-audit-fixtures.json` and therefore RUN. **Event layer (added 2026-08-23 with the log/projection split; extended 2026-08-24):** `.claude/hooks/lib/burndown-events.js::validateEvent` refuses an unrecognized `kind`, a `kind`/`weight` mismatch, and — the structural half of MUST-4's SELF-DECLARED-AGENT case, which was review-only before — a non-owner transition carrying anything outside the `todo:` namespace and `see burndown`. That clause is a POSITIVE ALLOWLIST rather than an `OWNER_STATUSES` denylist, and the difference is a defect fix: exact string equality let `"Signed off "` with a trailing space through, and a table cell renders it exactly as the real thing. Every status comparison in the module now normalizes (NFKC + whitespace-collapse + case-fold) through one shared `statusKey`. The `retraction` kind adds five refusals: a retraction not declaring `authority: "owner"`, one whose status is not the DERIVED terminal `retired`, that terminal status on any OTHER kind, a retraction with no `reason`, and a `reason` on a non-retraction. `foldEvents` additionally fences a retraction naming an item no earlier event holds, and refuses to let a NON-OWNER event take a retired item back out of retirement — un-retiring is the same owner adjudication retiring is, and `todo-tracker-guard.js` emits an agent transition on every `TodoWrite`. **The signer→role map is BUILT (2026-08-24), and the earlier "both are UNBUILT — an OPEN finding" disposition here is WITHDRAWN rather than softened.** `validateEvent` itself still passes an `authority: "owner"` event untouched, and that residue is true and load-bearing: it sees the CALLER HALF, which carries no `verified_id` at all. The binding lives where the signer is known — `verifyAuthorityClaim` resolves a role-bound authority against the signer's `role`/`host_role` in the COMMITTED roster (`git show HEAD:`, never the working tree, which is a trust root the adversary can write), delegating the R5-S-04 audit-only-host exclusion and the role floor to `eligibility.js::isEligibleSigner` under the `ledger-authority` signing context rather than inlining a fourth copy of that predicate. It is applied on the ONE write path by `appendEvent` and over the whole log by `verifyAuthorityBindings`, which `burndown-build.mjs::verifySignedLog` runs AFTER signature verification — a role resolved from an unverified `verified_id` would mean nothing. Read-side signature verification is likewise BUILT, not unbuilt. The `owner:` CELL is a SEPARATE field with a separate consumer and its binding stays UNBUILT, as `knowledge-convergence.md` MUST-1 records — reading the `authority` close as covering the cell would be the same over-claim this paragraph was rewritten to withdraw. Three states are kept distinct and all REFUSE: BACKED / UNBACKED / INDETERMINATE. **Two bounds are named rather than implied away.** The RENDER path is still unbound — `foldProjection`/`projectStatus` verify no signature and consult no roster, so a hand-written line is believed there, exactly as it was for `Signed off` before. And the roster is read at CURRENT `HEAD` with no as-of-record resolution, so an ordinary roster edit made after a record was signed (a person-id rename, a role change, a move to a CI host) produces the same finding as a bad record; every such refusal states that bound in its own text. `projectStatus` applies the same discipline at render time (an owner-vocabulary status projects only from an `authority: "owner"` event), which is a second producer-side fence, not a binding either. `foldEvents` refuses to let a `migration_baseline` event overwrite a `live` one for the same `item_id`, and records every unreadable line in `skipped[]` rather than dropping it, so MUST-1's clean-vs-unreadable distinction has a signal to read. **MUST-6's FOLD-BELOW-DECLARED verdict IS structurally enforced, and an earlier revision of this block said it was gate-review-only.** `burndown-build.mjs` binds `rows` to `foldLedgerEvents(text, trackerRel).rows` whenever `tracker.kind === "event-log"` (this repo's manifest declares exactly that), and when `rows.size < tracker.min_rows` it calls `refuse()` — an `Unrunnable` throw the top-level handler prints as `UNRUNNABLE — refusing because …` and exits **2**, with the message naming MUST-6's condition verbatim ("carries N row(s) but the manifest declares it was last reconciled at M") and, on the `event-log` arm, naming the two live causes (the log lost records, or the declaration was never true of this log). Every mode is gated: `--check`, `--check-links`, `--write`, `--json`, `--quote`. Measured on this tree, `--check-links` prints `ROW FLOOR: 267 folded item(s) against a declared floor of 267`, and the bipolar fixture pair `drop/a-ledger-that-SHRANK-below-its-declared-reconciled-count-REFUSES` / `drop/GROWTH-is-free-and-needs-no-re-declaration` both PASS in `.claude/audit-fixtures/burndown-integrity/run.mjs`, which is registered in `ci-audit-fixtures.json` and therefore RUNS. **What is NOT AUTOMATICALLY covered, stated rather than implied — and the earlier "no shipped detector" wording was too strong:** MUST-6's PROJECTION-BELOW-FOLD verdict has no HOOK-REGISTERED detector and no workflow runs one, but a shipped CLI mode IS the discriminator — `node .claude/bin/forest-ledger-project.mjs --check` re-derives the projection from the fold and returns `in_sync`, printing `IN SYNC` at exit 0 or `DRIFT — … is not the fold of the log` at exit 1; it refuses (exit 2) rather than answering `in_sync: true` over an over-ceiling projection. Because it fires only when someone runs it, that command is what reviewer at `/redteam` and cc-architect at `/codify` MUST run — not a claim that the divergence is unobservable. It reports THAT the projection is not the fold; it does not attribute the divergence to a hand-edit rather than a skipped regeneration, and that attribution stays a review judgment. `foldEvents` has no row-removal path at all — a RETRACTION retires an item IN PLACE, keeping its row in the fold, which is what preserves the monotonicity premise MUST-6's floor rests on. **Review:** reviewer at `/redteam` + cc-architect at `/codify` confirm MUSTs 1–4, and additionally confirm every index delta in the diff has a matching `burndown/events.jsonl` append in the same commit. **Probes: REGISTERED — `.claude/test-harness/probes/burndown-traceability.probes.json`**, 6 rows in 3 bipolar `pair_id` pairs: anchor-resolvability (MUST-1/2/3), status-authority-and-grounded-denominator (MUST-4/5), and meta-compliance — each carrying BOTH a violation and a compliant pole, with candidates at `.claude/audit-fixtures/burndown-traceability/`. Registered in `eval-manifest.json` as a probe-only entry (`scanner: null`) and pinned in `probe-suite-integrity.test.mjs::PINNED_SUITES`. **This suite was AUTHORED rather than deferred, and the earlier text here — which declared the semantic tier UNCOVERED and the deferral registration "owed FROM THE OWNER" — is SUPERSEDED.** The reasoning that produced it was sound and is worth keeping: naming an unwritten suite reds `detection-binding-check.mjs::dangling-probes-binding`, a `probe_authorship_deferrals` row hits `checkAcceptanceGate` which needs a `.claude/deferral-acceptance/` receipt with `requested_by != accepted_by`, and `completion-criterion.md` MUST-6 forbids self-acceptance — so there was no self-serviceable deferral path. What that reasoning MISSED is that OMITTING the path is equally a MUST-4 gap, and `detection-block-omits-probes` reds on it: both exits were closed, so the only open one was to write the suite. The owner ruled to author it. MUST-3's collision class and MUST-4's judgment half are semantic and live ONLY in this suite; registration buys DISPATCHABILITY, never automatic execution — no workflow invokes the dispatcher and the loom↔csq boundary keeps CI LLM-free, so a green CI run is NEVER evidence these probes passed. They execute when an orchestrator dispatches `/test-harness-probe --artifacts` at gate-review.
+- **Violation scope:** MUST-1 (dangling id; an index row no event produced; a chain checked against an un-regenerated projection; a `skipped[]`-bearing fold rendered clean) + MUST-2 (unresolvable, untracked, prose, prunable OR regenerated anchor; an anchor under an undeclared root) + MUST-3 (bare-ordinal join) + MUST-4 (agent-set or mirrored status) + MUST-5 (an inventory item with no index row; an ungrounded denominator reported as clean; a baseline that is undated, self-accepted, count-shaped or stale) + MUST-6 (an undeclared index shrink; a projection below its fold; a fold below its declared count; a shrink absorbed by hand-removal). Each `violations.jsonl` row names the item id and the leg or gate that failed, and for a MUST-6 row which of the three verdicts fired.
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-08-21 — operator-directed, `6ddf06b1`. The verbatim ask: "its critical that we link the burndown chart to tracker (index) to todos (original system) where todos capture all the context including rulings and research etc so that agents will not be mistaken. Currently, the system is broken into 3 parts."
+
+**It was worse than three disconnected parts — there were no links at all.** Measured with a firing control (the same `git grep -l -F` matcher returned hits for a known-present string on the same tree): all 26 `burndown/register.json` ids resolved in ZERO files outside the register, and the Forest Ledger's table — which already had a `value_anchor` column for exactly this purpose — had ZERO rows. `register.json::_id_convention` claimed ids were "kept verbatim so a row stays greppable across both surfaces"; that claim was FALSE on the tree that shipped it, and nothing detected it.
+
+**The context was PRUNED, not never-written.** `git show 904b3053^:.session-notes.d/<operator>.md` still carries the rulings for eleven of these ids; an ordinary `/reconcile-notes` pass (`f07281c6`) removed them, which is what a memory surface is FOR. The register survived, its context did not. That is the whole argument for `anchor_roots`: an anchor is only as durable as the surface it points into.
+
+**MUST-3 has its own evidence.** `journal/0174` uses `F87`/`F89`/`F90`/`F91` for different items than the session-42 register. Following `_id_convention` literally — bare `F-NN` — would have wired four items to another session's decisions, and every link would have resolved GREEN. A chain that resolves is not yet a chain that is right, which is why MUST-4's judgment half stays at gate-review.
+
+**MUST-1 / MUST-2 / MUST-6 amendment — 2026-08-23**, per the operator-ratified (loom-internal reference) § "Rule amendments this REQUIRES" (Tier-2 there, and MEASURED off the `self-referential-codify.md` allowlist: a grep for `burndown-traceability` in that file returns ZERO against a control that returned hits for `knowledge-convergence` and `wrapup.md` on the same tree). The index became a DERIVED PROJECTION of `burndown/events.jsonl`; no MUST was relaxed to accommodate it. MUST-1 gained the regenerate-before-check mandate and the no-row-without-an-event prohibition; MUST-2 gained the projection as a second refused-by-name surface on the same prunability predicate, plus the fail-closed declared-root requirement for anchoring into the log; MUST-6's single verdict became three, so that a rewritten log cannot arrive wearing the sanctioned declared-shrink grammar. `rule-authoring.md` Rule 10 does not fire — this rule is `scope: path-scoped`, and Rule 10 § "Trigger scope" binds `priority: 0` + `scope: baseline` only.
+
+**Scope.** Path-scoped over the surfaces where the chain is WRITTEN. Deliberately NOT `**/workspaces/**` or `journal/**`: those match the `workspace-note` budget profile, which sat 1,194 B under its ceiling at authoring, and the chain is not written on every journal entry. Measured, with a positive control: these globs charge 0 B to all eight profiles; widening them to `journal/**` + `**/workspaces/**` moved `workspace-note` 424,729 → 424,921 B and its fired count 22 → 23. A scope argument, not a budget dodge — but the control is recorded so the claim is falsifiable.
+
+**The consequence of that scope, acknowledged rather than left for a reader to find.** The MUST NOT against pruning a context artifact fires on `workspaces/**` and `journal/**`, which these globs deliberately EXCLUDE — so the rule text does not load at the moment someone reconciles a file an anchor points at. That is the same reachability class `issue-triage-routing.md` was authored to close, and it is NOT closed here. What covers it instead is structural and does not depend on the rule being loaded: pruning an anchored artifact breaks LINK-2 or LINK-3, which refuses the next build and blocks the write at the hook. The gap is in the WARNING, not the enforcement.

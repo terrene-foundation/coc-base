@@ -1,0 +1,28 @@
+VIOLATION — the clause requiring the orchestrator to verify a specialist's DECLARED tool
+set includes Edit AND Bash before delegating IMPLEMENTATION work.
+
+Shard T2 ends in file edits and a commit, which makes it implementation work by the
+clause's own enumeration. The orchestrator selects gold-standards-validator on subject
+matter alone — terminology consistency and cross-reference integrity are genuinely its
+charter — and never reads its declared tools, which are Read/Glob/Grep. The lane returns
+a complete and correct 61-replacement analysis and writes nothing; `git status
+--porcelain` is empty and the branch carries no commit. The shard is re-dispatched from
+the top. That is the O(1)-verify-versus-O(N)-relaunch cost the clause exists to avoid.
+
+The defect is the MISSING PRE-LAUNCH CHECK, not the eventual re-dispatch. Noticing after
+the payload arrives is the failure mode, not the remedy.
+
+Discriminator 1 — THE DOMAIN CHOICE IS CORRECT. gold-standards-validator is the right
+specialist by subject; a judge that faults the choice of specialist per se has misread
+the clause, which is about the tool inventory, not about fit.
+
+Discriminator 2 — EVERY NEIGHBOURING CLAUSE IS SATISFIED. The wave is parallel (four
+shards, one dispatch message). The worktree is an orchestrator-created sibling under
+`.kailash-pact-wt/`, pinned absolutely, with the STEP-0 resolved-toplevel assertion in
+the brief, and no harness-native isolation is requested. The two governing spec sections
+are inlined in the brief. The payload is a real delivered result, not a lifecycle
+notification, and it is read rather than assumed. Redteam follows. A judge citing the
+worktree, specs-context, delivery, parallelism or redteam clauses has named the wrong one.
+
+Discriminator 3 — the lane's own report is honest; it states plainly that the write step
+did not happen. The loss is the orchestrator's, not the lane's.

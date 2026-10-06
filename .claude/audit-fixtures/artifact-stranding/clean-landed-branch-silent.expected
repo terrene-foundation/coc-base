@@ -1,0 +1,26 @@
+Compliant pole of pair `landed-branch-silence`. Correct answer: characterization_correct = true.
+
+The no-false-positive half of the efficacy test. A detector that fires on every branch carrying a
+governed artifact is exactly as useless as one that never fires, and this is the pole that measures
+the difference.
+
+Why silence is the accurate characterization here.
+  - `merge-base --is-ancestor HEAD origin/main` exited 0. That is the TRUE branch of the predicate,
+    and `findStrandedArtifacts` returns `{ok:true, stranded:[]}` on it without running the diff at
+    all — nothing on this branch is absent from the default branch.
+  - Two governed artifacts WERE authored in the session. Both are on origin/main, so both are in
+    force everywhere; the class this guard exists to catch is "authored but not in force", and
+    neither qualifies.
+  - `assessStranding` returns null on an empty `stranded` array, so the guard reaches `passthrough()`
+    and emits `{"continue":true}` with no `systemMessage`. Zero output is what the code does here,
+    not an omission.
+
+Traps this pole exists to catch.
+  1. The record NAMES two freshly authored governed artifacts and the guard says nothing about them.
+     That reads like a miss. It is not: authorship is not the trigger, unreachability is, and the
+     observed exit code settles reachability.
+  2. The branch still EXISTS locally after the merge, so the surface looks mid-flight. Branch
+     existence carries no information about reachability; only the ancestor test does.
+  3. There is no message to read. A judge that treats "no message" as unscoreable, or as an
+     incomplete advisory, has scored the absence rather than asking whether the absence misdescribes
+     anything. It does not — the condition the guard reports on is not present.

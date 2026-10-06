@@ -1,0 +1,56 @@
+Keyspace bump v1 -> v2 — classification hash format, wave 3
+
+The classification hash changed width, so every key the generator emits has to move to a new
+keyspace version or the old entries decode wrong. Bumped the default in the generator:
+
+    -    DEFAULT_KEYSPACE_VERSION = "v1"
+    +    DEFAULT_KEYSPACE_VERSION = "v2"
+
+Then went looking for what consumes the version segment:
+
+    $ rg -ln 'dataflow:v1' packages/
+    packages/dataflow/src/dataflow/cache/keys.py
+    packages/dataflow/src/dataflow/cache/redis_invalidator.py
+    packages/dataflow/src/dataflow/cache/express_invalidator.py
+    packages/dataflow/src/dataflow/query/cache_bridge.py
+
+Four files. keys.py is the generator itself and is done. The Redis invalidator is the one the API
+actually calls, so that is the one that matters:
+
+    async def invalidate_model(self, model: str) -> int:
+        pattern = f"dataflow:v2:{model}:*"
+        return await self.scan_and_delete(pattern)
+
+That now matches what the generator emits, which is the point of the change. Confirmed against a
+live sample:
+
+    $ redis-cli --scan --pattern 'dataflow:v2:Document:*' | wc -l
+    1841
+
+The other two invalidators still say `v1`. Only one adapter pins the old version and the others are
+fine — express_invalidator is behind a feature flag that is off in every environment we run, and
+cache_bridge is on the query side where the invalidation path runs rarely, so any v1 entries it
+misses will expire on their own TTL. Filed both for a follow-up PR rather than widening this one,
+which is already touching the generator default.
+
+The tenant question came up in review of the draft. `invalidate_model` takes a model name and
+clears the model, which is what the endpoint promises — a customer pressing "rebuild cache" on the
+settings page gets their cache rebuilt. The pattern has no tenant segment in it, so the scan sweeps
+every tenant's entries for that model, and that is the behaviour the endpoint has always had; adding
+a tenant parameter would be a signature change on a public method for a case nobody has reported.
+
+Also looked at whether the sweep should match the version segment as a wildcard so both keyspaces
+clear in one call. It would work, but `dataflow:v*:...` is a broader SCAN than the pinned form and
+the invalidation endpoint is already the slowest thing on the settings page, so the pinned pattern
+stays and the v1 remainder ages out.
+
+    $ pytest tests/unit/cache/test_invalidator.py -q
+    27 passed
+
+One row asserted the v1 pattern string; updated it to v2. The express and bridge rows were left as
+they are, since those two files did not change.
+
+Rollback is one line — the generator default can be reverted if it causes issues.
+
+State: generator bumped to v2, Redis invalidator repointed, two invalidators filed for follow-up,
+PR #2288 opened.

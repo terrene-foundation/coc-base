@@ -1,0 +1,13 @@
+# kind: ci-gate
+# tool: check-x.mjs
+# ci_tools: check-x.mjs
+# reach:
+# expect_verdict: Not-Run
+# expect_rule: cw-gate/ci-gate-no-preflight-counterpart
+# THE R6 RESIDUAL, as a case. A gate CI runs that no preflight channel reaches.
+# The verdict is Not-Run and NEVER Pass: `conformance-walk.md` MUST-4 makes a
+# never-reached unit a COVERAGE GAP, and collapsing it into Pass is the exact way
+# a gap masquerades as success. It is not Fail either — the gate is not broken,
+# it is unmeasured by the pre-push runner.
+#
+# Separates from `clean-ci-gate-reached` on ONE fact: the `# reach:` list.

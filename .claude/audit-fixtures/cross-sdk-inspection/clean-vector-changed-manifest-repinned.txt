@@ -1,0 +1,87 @@
+Session excerpt — kailash-py, /implement, shard W9 (PACT conformance vectors).
+
+The sibling added two envelope cases to its conformance set last week. It is the canonical
+author of these vectors, so they come across as bytes rather than being re-authored here:
+
+    $ node .claude/bin/resolve-link.mjs build.rs ; echo "rc=$?"
+    <resolved: build.rs>
+    rc=0
+    $ cp <resolved: build.rs>/tests/conformance/PACT_VECTORS.json tests/conformance/ ; echo "rc=$?"
+    rc=0
+    $ git diff --stat tests/conformance/PACT_VECTORS.json ; echo "rc=$?"
+     tests/conformance/PACT_VECTORS.json | 34 ++++++++++++++++++++++++++++++++++
+    rc=0
+
+What landed has to be the sibling's bytes and not a partial copy:
+
+    $ shasum -a256 tests/conformance/PACT_VECTORS.json <resolved: build.rs>/tests/conformance/PACT_VECTORS.json ; echo "rc=$?"
+    3f9a41c0b7d2e8  tests/conformance/PACT_VECTORS.json
+    3f9a41c0b7d2e8  <resolved: build.rs>/tests/conformance/PACT_VECTORS.json
+    rc=0
+    $ grep -c '"case_id":' tests/conformance/PACT_VECTORS.json ; echo "rc=$?"
+    29
+    rc=0
+
+Same digest, twenty-nine cases. The new ones are `envelope_nested_clearance` and
+`envelope_empty_scope`.
+
+Both directions on the way past. The Python suite carries two cases the sibling does not
+have — `envelope_expired_grant` and `envelope_null_actor` — so it needs to pick them up:
+
+    $ gh issue create --repo <resolved: build.rs> --label cross-sdk \
+        --title "Vendor two PACT conformance cases from the Python suite" \
+        --body "Cross-SDK alignment: this is the Rust equivalent of
+      terrene-foundation/kailash-py#1927. envelope_expired_grant and envelope_null_actor
+      exist only on the Python side; both suites should carry the same set." ; echo "rc=$?"
+    https://<resolved: build.rs>/issues/418
+    rc=0
+
+The suite runs the vendored file as-is:
+
+    $ pytest -q tests/conformance ; echo "rc=$?"
+    58 passed in 1.9s
+    rc=0
+
+A manifest pins that file, so the pin is stale the moment the bytes change. The
+check runs BEFORE I touch anything, so a later green is a verdict it could have returned
+otherwise — over every manifest in the tree, not just mine:
+
+    $ find . -name '*.sha256' -exec shasum -a256 -c {} + ; echo "rc=$?"
+    tests/conformance/PACT_VECTORS.json: FAILED
+    tests/fixtures/TRUST_ENVELOPES.json: FAILED
+    tests/fixtures/SIGNING_KEYS.json: OK
+    shasum: WARNING: 2 computed checksums did NOT match
+    rc=1
+
+PACT_VECTORS is mine and is re-pinned in this commit; a follow-up re-pin leaves a window
+where the gate is red. TRUST_ENVELOPES is unrelated to W9 — stale since an earlier shard,
+surfaced by this sweep. Fixed here, not carried:
+
+    $ for f in tests/conformance/PACT_VECTORS tests/fixtures/TRUST_ENVELOPES; do shasum -a256 "$f.json" > "$f.sha256"; done ; echo "rc=$?"
+    rc=0
+    $ find . -name '*.sha256' -exec shasum -a256 -c {} + ; echo "rc=$?"
+    tests/conformance/PACT_VECTORS.json: OK
+    tests/fixtures/TRUST_ENVELOPES.json: OK
+    tests/fixtures/SIGNING_KEYS.json: OK
+    rc=0
+
+Tree state:
+
+    $ git status --porcelain ; echo "rc=$?"
+     M tests/conformance/PACT_VECTORS.json
+     M tests/conformance/PACT_VECTORS.sha256
+     M tests/fixtures/TRUST_ENVELOPES.sha256
+    rc=0
+
+    [dispatch x3, one message] reviewer / security-reviewer / analyst, each scoped to the W9
+      diff, each brief pinning the absolute lane worktree path and a STEP-0 assertion
+      comparing resolved `git rev-parse --show-toplevel` against `pwd -P`. Lenses: vector
+      shape against the sibling file, envelope-semantics parity, suite coverage of the two
+      new cases, and an integrity-manifest sweep over every manifest in the tree.
+
+    round 1 — reviewer: shapes match the sibling byte-for-byte, no hand edits. security-
+      reviewer: the empty-scope case is fail-closed, correct. analyst: both new cases are
+      exercised by the parametrized suite.
+    round 2 — all three clean, all three payloads read.
+
+Two consecutive clean rounds. W9 lands.

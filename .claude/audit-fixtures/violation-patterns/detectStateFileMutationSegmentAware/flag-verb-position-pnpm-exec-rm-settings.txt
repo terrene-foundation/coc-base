@@ -1,0 +1,1 @@
+pnpm exec sh -c 'rm .claude/settings.json'

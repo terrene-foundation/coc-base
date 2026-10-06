@@ -8,10 +8,10 @@ Detailed evidence and post-mortems backing the worktree rules in `rules/agents.m
 
 | Rule                              | Silent loss it converts into isolation-or-a-loud-refusal                                                      |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| 1 (isolate compiling agents)      | **lock serialization** — two cargo processes in one dir serialize completely, so "parallel" agents run serial |
+| 1 (isolate LANES; build dir per agent) | **lock serialization** — two cargo processes on one `target/` serialize completely, so "parallel" agents run serial; inside a lane the fix is a per-agent build dir, never a per-agent worktree |
 | 9 (isolate shared-source editors) | **phantom reads** — a reader sees an editor's mid-edit WIP and reports a defect that does not exist at HEAD   |
 | 2 (relative paths)                | **checkout drift** — absolute paths resolve to the main checkout, silently defeating isolation                |
-| 3 / 3b (commit per milestone)     | **auto-cleanup loss** — a zero-commit worktree is auto-cleaned and the work is gone                           |
+| 3 / 3b (commit per milestone)     | **uncommitted-work loss** — work no commit holds has no reflog; the retired flag auto-cleaned it, and a reused or removed tree still destroys it                           |
 | 4 / 4a (verify + recover)         | **truncated writes** — "Now let me write X…" with no write; the agent reports done with zero files on disk    |
 | 5 (one version owner)             | **version clobber** — two shards racing the same version anchor                                               |
 | 10 (binding-scoped shard PRs)     | **shard conflicts** — two concurrent shards editing the same sibling-package file, 3-way conflict at merge    |
@@ -20,9 +20,62 @@ Detailed evidence and post-mortems backing the worktree rules in `rules/agents.m
 
 The always-on trio in the rule body compresses three mechanisms stated fully here: concurrent readers read committed HEAD via `git show HEAD:<path>` (Rule 9); commit per milestone AND verify ≥1 commit exists before exit (Rule 3); take the `cp` backup BEFORE the edit and verify byte-identity after the restore (Rule 11).
 
+## The Unit Of Isolation Is The LANE — how these rules apply under `rules/wip-discipline.md` MUST-9
+
+**What changed (2026-09-12, `journal/0607` decision 5).** Every rule below used to read as one worktree per parallel AGENT, which charged each extra agent against the worktree ceiling — the coupling the co-owner rejected ("The ceilings explicitly bind worktrees and branches AND NOT AGENTS"). The unit is now the LANE: one worktree + one branch, the thing the WIP ceiling counts. A lane is a mini-orchestrator that dispatches as many agents as its item set supports, in parallel, INSIDE that one worktree. `rules/wip-discipline.md` MUST-9 owns the partition contract (disjoint writer file sets, one committer — the lane orchestrator — read-only agents unbounded, per-agent build/output directories); this section maps the worktree rules onto it.
+
+| Rule here               | Per LANE                                                  | Per AGENT inside the lane                                                         |
+| ----------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| 1 isolation + STEP 0    | the sibling worktree is created ONCE, by the orchestrator | every brief pins the lane's absolute path and carries STEP 0                      |
+| 2 path discipline       | —                                                         | every path resolves inside the lane's worktree AND inside the agent's own file set |
+| 3 incremental commits   | the ONE committer commits each file set as it lands       | writers hand back; they never commit                                              |
+| 5 / 10 ownership        | one PR per lane, scoped to its packages                   | the disjoint file set IS the ownership declaration                                |
+| 7 / 8 base + branch     | one base SHA, one branch name                             | every agent asserts the lane's branch; none gets its own                          |
+| 9 editors + readers     | no editor works in the main checkout                      | lane-mates are kept apart by file set; a reader of a set still in flight reads HEAD |
+| 11 `cp`-backup restore  | a multi-agent lane tree IS a shared tree — the default case | a mutator takes a `cp` backup                                                   |
+
+**Build contention is isolated per AGENT, never per worktree.** The cargo lock is on the TARGET DIRECTORY, not on the checkout, so the fix is an output directory per agent inside the lane's one tree:
+
+```bash
+# DO — one lane tree, a build/output directory per agent
+CARGO_TARGET_DIR="$SCRATCH/target-trace" cargo nextest run -E 'test(trace)'
+pytest --basetemp="$SCRATCH/tmp-trace" -o cache_dir="$SCRATCH/cache-trace" tests/unit/test_trace.py
+# dependency INSTALLS run ONCE, before fan-out, by the lane's committer
+
+# DO NOT — a second worktree so one agent inside the lane gets its own `target/`
+git worktree add -b feat/w3-trace "$WT_PARENT/w3-trace" feat/w3-telemetry
+```
+
+**Dispatching into a lane.** The worktree is made once (§ Retiring, below); each agent gets this brief with its own file set:
+
+```python
+wt = f"{WT_PARENT}/{lane}"                      # ONE tree per lane; every agent below shares it
+for agent, files in partition.items():          # disjoint writer file sets (MUST-9)
+    Agent(prompt=f"""
+Working directory: {wt}
+Branch: feat/{lane}
+
+STEP 0 — FIRST action, before reading or writing anything. cd, THEN assert:
+  [ -n "{wt}" ] || {{ echo "STOP: empty worktree path"; exit 1; }}
+  cd "{wt}" || {{ echo "STOP: cannot enter {wt}"; exit 1; }}
+  top=$(git rev-parse --show-toplevel) || {{ echo "STOP: not a git repo"; exit 1; }}
+  [ "$top" = "$(pwd -P)" ] || {{ echo "STOP: not a worktree ROOT (top=$top)"; exit 1; }}
+  main=$(cd "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")" && pwd -P)
+  [ "$top" != "$main" ] || {{ echo "STOP: this IS the main checkout"; exit 1; }}
+  [ "$(git rev-parse --abbrev-ref HEAD)" = "feat/{lane}" ] || {{ echo "STOP: wrong branch"; exit 1; }}
+
+You own ONLY: {files}. Build and test output go under {SCRATCH}/{agent}/.
+Hand your file set back when done; do NOT commit — the lane's committer does.
+""")
+```
+
+**BLOCKED rationalizations:** "each compiling agent needs its own worktree" (the lock is on `target/`, not on the checkout) / "a separate worktree keeps parallel writers from colliding" (disjoint file sets do; the extra tree is inventory against the ceiling plus a merge to reconcile) / "readers need their own tree so they never see WIP" (a reader of a set still in flight reads committed HEAD — Rule 9; readers are otherwise unbounded) / "one agent per lane is simpler" (a single serial worker while work is queued is an under-packed lane — `journal/0607` decision 1) / "every agent should commit its own progress so nothing is lost" (N committers race one index; the one committer commits each set as it lands, bounding loss to the sets still in flight) / "a worktree is just a directory, it costs nothing" (it is a worktree AND a branch the ceiling counts).
+
+**Why:** Per-agent worktrees made every added agent cost a ceiling slot, so orchestrators briefed lanes as single serial workers and queued work behind the limit; the hazards per-agent trees guarded — a shared `target/` lock, a writer's WIP seen or clobbered — close more cheaply inside one tree with a build directory and a file set.
+
 ## Retiring `isolation: "worktree"` — depth for `rules/worktree-isolation.md` Rule 1
 
-**What changed (2026-07-26, loom#1370).** Every worktree in this skill used to be created by the harness from a dispatch flag. It is now created by the ORCHESTRATOR, as a SIBLING outside the repo, and handed to the agent by absolute path. `isolation: "worktree"` and `EnterWorktree({name})` are BLOCKED. Nothing else about the protocol changes — Rules 2–11 are about what the agent DOES in its worktree, not who made it.
+**What changed (2026-07-26, loom#1370).** Every worktree in this skill used to be created by the harness from a dispatch flag. It is now created by the ORCHESTRATOR, as a SIBLING outside the repo, and handed to the agent by absolute path. `isolation: "worktree"` and `EnterWorktree({name})` are BLOCKED. Nothing else about the protocol changes — Rules 2–11 are about what the agent DOES in the lane worktree it is dispatched into, not who made it.
 
 ### The recipe (replaces the flag everywhere in this file)
 
@@ -31,18 +84,27 @@ The always-on trio in the rule body compresses three mechanisms stated fully her
 main_top=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
 slug=$(basename -s .git "$(git remote get-url origin)"); WT_PARENT="$(dirname "$main_top")/.${slug}-wt"
 mkdir -p "$WT_PARENT"
-# PER shard — explicit -b (Rule 8) + explicit base SHA (Rule 7), sibling path (Rule 1)
-git worktree add -b "feat/${shard}" "$WT_PARENT/${shard}" "$INTEGRATION_TIP"
+# PER LANE — explicit branch (Rule 8) + explicit base SHA (Rule 7), sibling path (Rule 1);
+# its agents share it. CREATED THROUGH THE ONE AFFORDANCE, which also LOCKS the tree and
+# RECORDS the creating session — see § Ownership below.
+node .claude/bin/worktree-reap.mjs --create "$WT_PARENT/${shard}" --branch "feat/${shard}" --base "$INTEGRATION_TIP"
 ```
 
+**A plain `git worktree add` is the exception path now.** It leaves the tree UNLOCKED and
+UNRECORDED, which is exactly the state the SessionEnd reaper refuses to touch — so an
+unrecorded tree is never reaped unattended and accumulates until an operator retires it by
+hand. Use `--create` for every lane; use `--create … --existing` when entering a branch that
+already exists.
+
 ```python
-# then dispatch with NO isolation flag: path pinned AND the STEP-0 assertion mandated
+# then dispatch EACH of the lane's agents with NO isolation flag: path pinned AND the STEP-0 assertion mandated
 wt = f"{WT_PARENT}/{shard}"
 Agent(prompt=f"""
 Working directory: {wt}
 Branch: feat/{shard}
 
 STEP 0 — FIRST action, before reading or writing anything. cd, THEN assert:
+  [ -n "{wt}" ] || {{ echo "STOP: empty worktree path"; exit 1; }}
   cd "{wt}" || {{ echo "STOP: cannot enter {wt}"; exit 1; }}
   top=$(git rev-parse --show-toplevel) || {{ echo "STOP: not a git repo"; exit 1; }}
   [ "$top" = "$(pwd -P)" ] || {{ echo "STOP: not a worktree ROOT (top=$top)"; exit 1; }}
@@ -52,13 +114,14 @@ STEP 0 — FIRST action, before reading or writing anything. cd, THEN assert:
 Compare RESOLVED paths (`pwd -P`), never the passed string. On any STOP, REFUSE to
 proceed and report "worktree isolation broken" — do NOT fall back to the main checkout.
 
-Every path you write MUST resolve inside {wt}. Commit after each file (Rule 3).
+Every path you write MUST resolve inside {wt} and inside your own file set. If you are the
+lane's committer, commit after each file set (Rule 3); otherwise hand it back and do NOT commit.
 """)
 ```
 
 ### Three candidate assertion forms; only one works (measured 2026-07-26)
 
-Probed on a synthetic two-root repo — a main checkout, a sibling worktree, a path inside main, and a nonexistent path:
+Probed on a synthetic two-root repo — a main checkout, a sibling worktree, a path inside main, and a nonexistent path. **Scope of the measurement, so the green is not generalized past what it observed:** each form was probed as a SINGLE command. The results below are TRUE and stand as measured; what they do NOT report on is a MULTI-LINE invocation, where the question is not "does this form reject a bad path?" (all three rows answer that) but "does anything protect the line BELOW it?" — which none of these three forms was probed for, and which the amended Rule 2a answers with a refusing `cd` (§ below).
 
 | form                                       | correct sibling           | path inside MAIN | missing path | establishes cwd? |
 | ------------------------------------------ | ------------------------- | ---------------- | ------------ | ---------------- |
@@ -74,13 +137,17 @@ A **bare** `rev-parse` as the FIRST action is the right question asked too early
 
 **Also reject the main checkout explicitly.** MAIN is itself a valid worktree root, so "am I at a root?" passes there — and MAIN is the one destination the whole rule exists to prevent. The `main=$(… --git-common-dir …); [ "$top" != "$main" ]` guard closes it.
 
-**This does not contradict Rule 2a, which mandates `git -C <worktree> …`.** The two uses are opposite by design: Rule 2a FORCES a later operation to run in the right place (apply a patch, run tests) after cwd may have reverted, where `-C` is exactly right; STEP 0 must ESTABLISH the location, which `-C` never does. Establish with `cd`; re-force later invocations with `-C`.
+**This does not contradict Rule 2a — but read the AMENDED Rule 2a (2026-09-15), which no longer names `git -C <worktree> …` as the general later-invocation form.** The two POSITIONS are still opposite by design, and that split is unchanged: STEP 0 must ESTABLISH the location, which `-C` never does; a LATER location-dependent operation (apply a patch, run tests, grep for the edit, reap a tree) must RE-establish it, because a `cd` does not survive the call that issued it. What the amendment narrows is the FORM the later invocation takes.
+
+**Neither `-C` nor `cd &&` is broken; neither GENERALIZES.** `git -C <wt> <op>` binds ONE git call and no non-git command at all. `cd <wt> && <op>` is SOUND for the chain it joins — a failed `cd` short-circuits and `<op>` never runs — and the table above measures exactly that. What neither form does is protect the NEXT LINE, which executes at whatever cwd the shell actually holds. So a MULTI-LINE location-dependent invocation MUST open with a REFUSING `cd` on its OWN line — `cd <wt> || exit 1`, which exits the shell rather than skipping one chain — and EVERY later invocation MUST repeat it. `-C` stays correct for a single git call and `cd <wt> && <op>` for a single command; the refusing `cd` is what a brief hands the agent for everything else.
+
+**Establish with a refusing `cd` at STEP 0; RE-establish with a refusing `cd` on every later invocation.** The obligation is per-LINE within an invocation and per-CALL across invocations: carrying the refusal once at a brief's STEP 0 and `&&`-chaining below it is BLOCKED, and so is omitting it from a brief's later steps because STEP 0 already carried it. The STEP-0 blocks in this file's prompt templates already use the refusing form; a brief that adds later bash steps MUST give each of them its own refusal rather than letting them inherit STEP 0's.
 
 ### Why the assertion is the REPLACEMENT, not an extra
 
 `isolation: "worktree"` did two things: it created the worktree, and it SET the agent's cwd. Retiring it gives up both. Part (a) of Rule 1 replaces the creation; **the STEP-0 assertion replaces the cwd guarantee**, and prompt text alone does not — a prompt is a request, not a mount point.
 
-Ship the retirement without it and the trade is a BOUNDED quota burn for an UNBOUNDED silent loss: work lands in the main checkout, the agent reports success, and its zero-commit worktree is auto-cleaned. That is not speculative — Rule 2 and Rule 3 below record it happening on 2026-04-19: **2 of 3 parallel shards wrote to MAIN; Shard A lost 300+ LOC** of sklearn Array-API work. Rules 2 (path discipline) and 3 (commit-per-milestone) are what caught and bounded that loss, and both are MORE load-bearing now, not less — they are the layers remaining once the harness stops pinning cwd.
+Ship the retirement without it and the trade is a BOUNDED quota burn for an UNBOUNDED silent loss: work lands in the main checkout, the agent reports success, and its worktree holds none of the work. That is not speculative — Rule 2 and Rule 3 below record it happening on 2026-04-19: **2 of 3 parallel shards wrote to MAIN; Shard A lost 300+ LOC** of sklearn Array-API work. Rules 2 (path discipline) and 3 (commit-per-milestone) are what caught and bounded that loss, and both are MORE load-bearing now, not less — they are the layers remaining once the harness stops pinning cwd.
 
 ### Why placement, not tidiness
 
@@ -104,32 +171,32 @@ It does not need to be reconciled to act, because the sibling form is correct un
 
 **BLOCKED rationalizations:** "`isolation: "worktree"` is the built-in primitive, so it must be the intended path" / "the flag does the worktree setup for free, pre-making it is overhead" / "loom measured that subagents inherit the parent corpus, so the flag is fine" (that measurement is contested by #1370 and the sibling is correct either way) / "it's gitignored, so nesting is harmless" (gitignore does not stop instruction discovery, nor a parent-repo `grep -r`) / "we'll switch when the harness ships a configurable base directory" (the guidance change cascades today; the harness fix is items 1–2 of #1370 and has no ETA) / "the prompt states the working directory, so the agent is in it" (a prompt is a request, not a mount point) / "STEP 0 is ceremony that burns a turn" (one git call, ~30 ms, against 300+ LOC of recorded loss) / "`git -C <wt> status` already checks it" (it never establishes cwd — see the form table above) / "the agent will `cd` there first" (an UN-ASSERTED `cd` is an unverified assumption, and cwd can revert mid-session per Rule 2a) / "just compare the toplevel to the path I passed" (spurious refusal on any symlinked prefix — measured) / "MAIN would obviously fail the root check" (it would not — MAIN is a valid worktree root; the `--git-common-dir` guard is what rejects it).
 
-## Lane-Delivery Verification — depth for `rules/worktree-isolation.md` Rule 3b
+## Agent-Delivery Verification — depth for `rules/worktree-isolation.md` Rule 3b
 
-**The mitigation defeated the check.** Skeleton-first briefing — "write your report file with its section headings before you begin" — was adopted so a lane that dies leaves something on disk instead of silence. It does that. It also guarantees the report file EXISTS before any work happens, which is precisely what Rule 3's mandated deliverable check (`ls` / `Read` the claimed path) tests. After skeleton-first, that check returns the same answer whether the lane delivered or died: a non-discriminating instrument in the sense of `instrument-discipline.md` MUST-1, manufactured by the mitigation itself. This is why the recurrence log reads "skeleton-first helps but does not fix it."
+**The mitigation defeated the check.** Skeleton-first briefing — "write your report file with its section headings before you begin" — was adopted so an agent that dies leaves something on disk instead of silence. It does that. It also guarantees the report file EXISTS before any work happens, which is precisely what Rule 3's mandated deliverable check (`ls` / `Read` the claimed path) tests. After skeleton-first, that check returns the same answer whether the agent delivered or died: a non-discriminating instrument in the sense of `instrument-discipline.md` MUST-1, manufactured by the mitigation itself. This is why the recurrence log reads "skeleton-first helps but does not fix it." It was even recorded as a settled mitigation in `S22-SWEEP-PCF.md` while three unfilled skeletons sat in that same directory.
 
 ### The substantiated occurrences (loom session 22, 2026-08-10)
 
-Four, all one mechanism. Three were re-derived by direct file inspection; the fourth was recorded contemporaneously by the orchestrator in the file the failed lane was supposed to write.
+Four, all one mechanism. Three were re-derived by direct file inspection; the fourth was recorded contemporaneously by the orchestrator in the file the failed agent was supposed to write.
 
-| # | lane | what reached disk | how it surfaced |
+| # | agent | what reached disk | how it surfaced |
 | --- | --- | --- | --- |
 | 1 | `S22-SWEEP-GH` | 538 B; five sections, every one `_(pending)_`; `Status: IN PROGRESS` | committed in that state; found by re-reading the file |
 | 2 | `S22-W5-STATEFILE` | 296 B; `## Edits` / `## Findings` / `## UNKNOWN` all empty; `Status: IN PROGRESS` | same |
 | 3 | `S22-W5-GUARDFIX` | 592 B; both jobs `_(pending)_`; instrument table header with zero rows | same |
 | 4 | `S22-FIX-V16V18` | 730 B skeleton, **zero edits, no verdict** | orchestrator noticed mid-session, executed the investigation itself, and recorded it in the report's § Lane note as the "third lane-output loss this session" |
 
-All four had exited. All four would pass `[ -s "$report" ]`. Occurrence 4 is the informative one: the orchestrator caught it only because it went looking for the lane's ANSWER, not for the lane's FILE.
+All four had exited. All four would pass `[ -s "$report" ]`. Occurrence 4 is the informative one: the orchestrator caught it only because it went looking for the agent's ANSWER, not for the agent's FILE.
 
-**A fifth candidate mechanism was tested and REFUTED, and is recorded so it is not re-proposed.** The session ledger carried a `NOREMOTE` row asserting that `worktree-agent-a2101844eeb8b6ec1` held "3 commits on no remote, incl. a 650-line doc absent from main" — i.e. a lane whose real output was durable but unreachable. It is not: `git cat-file -s` returns 34698 B for that document on BOTH `origin/main` and the branch, byte-identical, and a two-dot `git diff --numstat origin/main <branch>` shows every remaining file mixed insert/delete against a stale base with no branch-only content. That lane's output landed. The ledger row was stale, not wrong-at-the-time — worth knowing, because "the work is stranded in a worktree" is the intuitive diagnosis here and the evidence does not support it. The loss mechanism is non-delivery, not unreachability.
+**A fifth candidate mechanism was tested and REFUTED, and is recorded so it is not re-proposed.** The session ledger carried a `NOREMOTE` row asserting that `worktree-agent-a2101844eeb8b6ec1` held "3 commits on no remote, incl. a 650-line doc absent from main" — i.e. an agent whose real output was durable but unreachable. It is not: `git cat-file -s` returns 34698 B for that document on BOTH `origin/main` and the branch, byte-identical, and a two-dot `git diff --numstat origin/main <branch>` shows every remaining file mixed insert/delete against a stale base with no branch-only content. That agent's output landed. The ledger row was stale, not wrong-at-the-time — worth knowing, because "the work is stranded in a worktree" is the intuitive diagnosis here and the evidence does not support it. The loss mechanism is non-delivery, not unreachability.
 
 ### The extended BLOCKED corpus
 
-Beyond the rule body's list: "the lane is one of eight, the other seven covered it" (surfaces were disjoint by construction — that is why they were parallelized) / "re-dispatching costs another wave slot" (the surface is unexamined either way; the slot buys the answer) / "the skeleton documents what the lane WOULD have checked, which is most of the value" (a checklist nobody ran is not a finding set) / "mark it done and carry the surface to the next session's sweep" (it arrives with no evidence and no instrument log, so the next session re-derives from zero) / "the lane exited 0" (exit status reports the process, not the report) / "aggregate what we have and note coverage is partial" (correct ONLY if the partial coverage is stated per-surface, which is the compliant form, not a softening of it).
+Beyond the rule body's list: "the agent is one of eight, the other seven covered it" (surfaces were disjoint by construction — that is why they were parallelized) / "re-dispatching costs another wave slot" (the surface is unexamined either way; the slot buys the answer) / "the skeleton documents what the lane WOULD have checked, which is most of the value" (a checklist nobody ran is not a finding set) / "mark it done and carry the surface to the next session's sweep" (it arrives with no evidence and no instrument log, so the next session re-derives from zero) / "the lane exited 0" (exit status reports the process, not the report) / "aggregate what we have and note coverage is partial" (correct ONLY if the partial coverage is stated per-surface, which is the compliant form, not a softening of it).
 
 ### What this does NOT license
 
-Rule 3b does not retire skeleton-first. The skeleton still converts silence into a visible artifact, still gives the lane its section contract, and still makes a partial delivery legible. What Rule 3b removes is the inference from its output — the file's existence — to the lane's delivery. Keep the brief; change the check.
+Rule 3b does not retire skeleton-first. The skeleton still converts silence into a visible artifact, still gives the agent its section contract, and still makes a partial delivery legible. What Rule 3b removes is the inference from its output — the file's existence — to the lane's delivery. Keep the brief; change the check.
 
 ## Teardown — depth for `rules/worktree-isolation.md` Rule 8
 
@@ -139,7 +206,7 @@ Rule 3b does not retire skeleton-first. The skeleton still converts silence into
 
 The retired `isolation: "worktree"` flag did THREE things: it created the worktree, it set the agent's cwd, and it **auto-cleaned the worktree when the branch was unchanged**. Rule 1's rewrite re-homed creation onto the orchestrator and replaced the cwd guarantee with the mandated STEP-0 assertion. Nothing took over auto-clean. Creation ended up governed by five rules; teardown by none.
 
-The asymmetry is what kept it invisible. Every cleanup mention in this file was about protecting work **FROM** auto-cleanup — Rule 3's commit-per-milestone exists because "a zero-commit worktree is auto-cleaned and the work is gone." Read straight through, the discipline looks complete. It was one-sided by construction: it defended against reaping too eagerly and never once said to reap at all.
+The asymmetry is what kept it invisible. Every cleanup mention in this file was about protecting work **FROM** auto-cleanup — Rule 3's commit-per-milestone was introduced because a zero-commit worktree was auto-cleaned and the work was gone. Read straight through, the discipline looks complete. It was one-sided by construction: it defended against reaping too eagerly and never once said to reap at all.
 
 Measured before the fix: 20 worktrees / 1.0 GB under one operator's `.loom-wt/` at 83% volume capacity (~53 MB each), and a corpus grep for `worktree remove|worktree prune` across `.claude/rules/` that returned **zero** hits.
 
@@ -175,6 +242,34 @@ Read the rows against the two axes above: row 1 clears DURABILITY via the ref an
 
 They disagree, and the disagreement is informative. Measured on one real branch: `cherry` printed **5** `+` lines while `rev-list --not --remotes` counted **4** — because one commit was reachable from a different remote ref than the one `cherry` compared against. `cherry` is patch-id-based against ONE upstream; `rev-list --not --remotes` is reachability-based across ALL remotes. Use `--not --remotes` for "would removal lose commits" and `cherry` for "has this already landed under another name" (a branch whose patches are all `-` is reapable even though it reads as unmerged — 10 of 10 refs measured `-` on one forest).
 
+**Where the repo records landing provenance, the RECORD is asked before either instrument.** A landing script that writes a trailer per source commit (at loom, `<loom>/.claude/bin/land-lane.mjs` — loom-only, not distributed — emitting `Landed-From` / `Landed-Partial` / `Landed-Outstanding`) makes "has this landed?" a lookup, read through `.claude/hooks/lib/landed-map.js::landedVerdict` (`.claude/hooks/lib/landed-map.js:618-671`). A decided verdict is final and `cherry` does not run; `cherry` runs only on the fallback statuses (`predates`, `ancestry`, `no-config`); `unknown` and `no-map` (a config that exists but whose map could not be built) are UNMEASURED, never landed. `cherry` is patch-id based, so a conflict-fixed or reformatted landing reads `+` on work that DID land — exactly the misreport the record exists to remove (`rules/wip-discipline.md` MUST-4). A repo with no provenance config reads `no-config`, and the table above is unchanged for it.
+
+### Ownership — the third axis, and the one whose absence destroyed two live trees
+
+DURABILITY asks whether removal loses commits. OCCUPANCY asks whether anyone is in the tree
+now. Neither asks **whose tree it is** — and on 2026-10-01 that gap removed two review
+worktrees mid-round while every gate answered correctly: they were clean, pushed, idle, and
+belonged to another session.
+
+**Creation now leaves a record, and the unattended pass reads it.**
+
+- `--create` LOCKS every tree it makes and records the creating session. The lock reason
+  carries `coc-session=<id>`, and a `coc-owner.json` sits beside git's own per-worktree admin
+  files (`<per-worktree git dir>`), which is what makes ownership readable AFTER `unlock` —
+  and what lets the record die with the tree, since `git worktree remove` deletes that dir.
+- The SessionEnd pass runs `--apply --zero-loss-only --reap-owned-by <this session>`. It
+  removes ONLY trees whose recorded creator is that session, and REPORTS every other tree it
+  would otherwise have removed. A pass with **no** session identity REFUSES to run at all:
+  an absent id must never read as "every tree is mine".
+- **ABSENT MEANS NOT-YOURS.** A tree with no record and no session-bearing lock is refused,
+  not adopted. So landing this on an existing unlabelled forest reaps nothing until creation
+  starts labelling — the fail-closed direction, and the reason the change is safe to land.
+- **The 12h age floor is waived for a tree this session created**, and only for that tree
+  (an explicit `--min-age-hours` still outranks it; dirty, unpushed, locked, main and
+  own-worktree guards all still hold). The floor is a CLOCK PROXY for occupancy, and a
+  session's own delivered tree is ~0h old by construction — without the waiver the floor
+  would hold exactly the class the unattended pass exists to collect.
+
 ### The affordance
 
 `bin/worktree-reap.mjs` implements the tiering. **Report-only by default** — it changes nothing without `--apply`.
@@ -186,9 +281,13 @@ node .claude/bin/worktree-reap.mjs --json                # for /sweep Sweep 6
 node .claude/bin/worktree-reap.mjs --apply               # reap ZERO-LOSS + TAG-FIRST
 node .claude/bin/worktree-reap.mjs --apply --zero-loss-only
 node .claude/bin/worktree-reap.mjs --min-age-hours 0     # drop the idle floor
+node .claude/bin/worktree-reap.mjs --deliver <path>      # unlock + reap + re-lock if KEPT
+node .claude/bin/worktree-reap.mjs --reap-owned-by <id> --apply --zero-loss-only   # only your own
 ```
 
-Guards, each independently sufficient to hold a tree: the MAIN checkout, the invoking session's own worktree, a `locked` worktree, a dirty tree, unpushed commits on a named branch, and activity inside `--min-age-hours` (default 12, measured from the newest of the worktree root mtime and its per-worktree git `index` mtime — the index moves on any git operation, which a root-dir mtime alone misses). A tree whose directory is already gone routes to `git worktree prune`, not `remove`.
+Guards, each independently sufficient to hold a tree: the MAIN checkout, the invoking session's own worktree, a `locked` worktree, a dirty tree, unpushed commits on a named branch, activity inside `--min-age-hours` (default 12, measured from the newest of the worktree root mtime and its per-worktree git `index` mtime — the index moves on any git operation, which a root-dir mtime alone misses), and — under `--reap-owned-by` — not being a tree this session created.
+
+A tree whose directory is already gone is retired with `git worktree remove <path>`, which is measured to work on a directory-absent tree and touches ONE record. It is deliberately NOT `git worktree prune`: prune takes no path argument and de-registers EVERY prunable worktree in the repository, so a pass that pruned one refused tree's record would also have removed a sibling it never examined. (Prune honours a LOCK, which is why the collateral hid — an owned tree is locked, and an unowned tree is exactly the one with no lock to save it.)
 
 **`--force` is not implemented and never will be.** A bare `git worktree remove` REFUSES a dirty tree, and that refusal is the safety net working. Checking `git status` first and then forcing is the same check-then-clobber TOCTOU Rule 11 blocks for `git checkout --`: the state can change between the check and the removal, and an agent cannot evaluate the condition from outside. When git refuses, the reaper reports the refusal and exits 2 — it does not escalate.
 
@@ -198,18 +297,18 @@ Guards, each independently sufficient to hold a tree: the MAIN checkout, the inv
 
 Two triggers, different scopes, both MUST per Rule 8:
 
-- **Per-wave, by the creator** — at the terminal-lane transition, once each lane is committed and merged-or-pushed. This is where OWNERSHIP is: the orchestrator knows which trees it made and why.
+- **Per-wave, by the creator** — at the terminal-lane transition, once each lane is committed and merged-or-pushed (landed through the repo's provenance-recording landing script where one ships — `rules/wip-discipline.md` MUST-4). Deliver each lane's tree with `--deliver <path>`: unlock, reap on evidence, re-lock if KEPT. This is where OWNERSHIP is, and since 2026-10-01 it is also where ownership is RECORDED — the tree's creator is written down at `--create`, which is what lets the unattended pass tell this session's trees from anyone else's.
 - **`/sweep` Sweep 6, periodically** — the backstop, because the per-wave path fails silently exactly when an orchestrator dies mid-wave. Sweep 6 already ran `git worktree list`; it now classifies instead of merely listing.
 
-`/wrapup` was considered and rejected: a session cannot reap the worktree it is standing in, wrapup fires far more often than the leak accrues (nag fatigue on a destructive action), and a session ending is not evidence a tree is finished. A SessionEnd hook was rejected on two grounds — hooks are CC-only, so Codex/Gemini consumers would get no coverage, and a hook that performs destructive removals unattended is precisely what `hook-output-discipline.md` MUST-2 exists to prevent.
+`/wrapup` was considered and rejected: a session cannot reap the worktree it is standing in, wrapup fires far more often than the leak accrues (nag fatigue on a destructive action), and a session ending is not evidence a tree is finished. The original SessionEnd-hook rejection cited missing cross-CLI coverage and the risk of unattended destructive removal. The capability premise is historical: current Codex has SessionEnd hooks. That does not establish a delivered reaper registration or authorize destructive cleanup; inspect current registrations and the existing zero-loss cleanup contract before claiming coverage.
 
-## Rule 1 — Worktree Isolation For Compiling Agents
+## Rule 1 — Worktree Isolation Per LANE; Build Contention Isolated Per Agent
 
 **Rule:** `rules/agents.md` § "MUST: Worktree Orchestration" — which delegates Rules 1–11 to this file.
 
-**Why it exists:** Cargo uses an exclusive filesystem lock on `target/`. Two cargo processes in the same directory serialize completely, turning parallel agents into sequential execution. Worktrees give each agent its own `target/` directory.
+**Why it exists:** Cargo uses an exclusive filesystem lock on `target/`. Two cargo processes sharing one `target/` serialize completely, turning parallel agents into sequential execution. The lock is on the TARGET DIRECTORY, not on the checkout: inside a lane each agent gets its own `CARGO_TARGET_DIR`, and a LANE gets its own worktree so its branch and edits stay apart from other lanes' (§ The Unit Of Isolation Is The LANE). A worktree per agent inside a lane is BLOCKED (`rules/worktree-isolation.md` Rule 1(a)).
 
-**Cross-language applicability:** Rust (cargo `target/` lock) is the clearest case. Python does NOT have the same compiler lock, but worktree isolation still prevents agents from stepping on each other's file edits and produces cleanly-merge-able commit branches — both significant benefits. JavaScript/TypeScript also benefit because `node_modules/` can be contention-sensitive during install.
+**Cross-language applicability:** Rust (cargo `target/` lock) is the clearest case. Python does NOT have the same compiler lock, but lane isolation still keeps each lane's edits and branch cleanly merge-able, inside a lane the disjoint file sets keep agents off each other's edits, and per-agent `pytest --basetemp` / cache directories cover shared test output. JavaScript/TypeScript: `node_modules/` is contention-sensitive during INSTALL, so the lane's committer installs once before fan-out.
 
 **Full protocol:** an orchestrator-made sibling worktree (§ Retiring `isolation: "worktree"`) is necessary but not sufficient. Combine with:
 
@@ -217,9 +316,9 @@ Two triggers, different scopes, both MUST per Rule 8:
 1. Every prompt path resolving inside the worktree (Rule 2 below)
 2. Explicit commit-as-you-go discipline (Rule 3 below)
 3. Post-exit file existence verification (Rule 4 below)
-4. Cross-agent package ownership declared (Rule 5 below)
+4. The lane's partition — disjoint writer file sets (Rule 5's ownership declaration), one committer, per-agent build/output directories (`rules/wip-discipline.md` MUST-9)
 
-Without all 6 layers, agents drift back to the main checkout silently, lose work to auto-cleanup, or race on version-bump files. Layer 0 is the one that replaces what the retired flag used to guarantee; the rest were always the agent's own discipline.
+Without all 6 layers, agents drift back to the main checkout silently, lose uncommitted work with its tree, or race on version-bump files. Layer 0 is the one that replaces what the retired flag used to guarantee; the rest were always the agent's own discipline.
 
 ## Rule 2 — Worktree Prompts Use Relative Paths Only
 
@@ -233,7 +332,7 @@ Post-mortem: `workspaces/kailash-ml-gpu-stack/journal/0004-RISK-torch-lightning-
 
 ### Why path discipline is load-bearing
 
-The invariant, unchanged since 2026-04-19: **every path in the prompt resolves INSIDE the agent's worktree, and never into the orchestrator's checkout.**
+The invariant, unchanged since 2026-04-19: **every path in the prompt resolves INSIDE the worktree the agent was dispatched into — its lane's — and never into the orchestrator's checkout.** Inside a multi-agent lane it also resolves inside that agent's own file set.
 
 Under the retired `isolation: "worktree"` flag the HARNESS chose the worktree path (`.claude/worktrees/agent-XXXX/`) and set the agent's cwd there. The orchestrator could not name a path it did not know, so RELATIVE paths were the only safe form and any absolute path — necessarily copied from the orchestrator's own checkout — silently defeated isolation. That is the exact shape of the loss recorded above.
 
@@ -251,12 +350,20 @@ Agent(
 
     Working directory: {wt}
     STEP 0 — cd FIRST, then assert (never `git -C`; never a bare first rev-parse):
+      [ -n "{wt}" ] || {{ echo "STOP: empty worktree path"; exit 1; }}
       cd "{wt}" || {{ echo "STOP: cannot enter {wt}"; exit 1; }}
-      [ "$(git rev-parse --show-toplevel)" = "$(pwd -P)" ] || {{ echo "STOP: not a worktree root"; exit 1; }}
+      top=$(git rev-parse --show-toplevel) || {{ echo "STOP: not a git repo"; exit 1; }}
+      [ "$top" = "$(pwd -P)" ] || {{ echo "STOP: not a worktree ROOT (top=$top)"; exit 1; }}
+      main=$(cd "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")" && pwd -P)
+      [ "$top" != "$main" ] || {{ echo "STOP: this IS the main checkout"; exit 1; }}
     Compare RESOLVED paths, never the passed string. On STOP, REFUSE to proceed.
+    **All five assertions are load-bearing — do NOT shorten this to the root test alone.**
+    `cd ""` returns 0 in bash, zsh and sh (the shell does not move and does not refuse),
+    so an unset path sails past an unguarded `cd`; and MAIN is itself a worktree ROOT, so
+    the root test alone PASSES there — waving through the exact drift STEP 0 exists to catch.
 
-    Files you may edit (each MUST resolve inside {wt}; an absolute path rooted
-    anywhere else is BLOCKED):
+    Files you may edit — this agent's DISJOINT set in the lane (each MUST resolve
+    inside {wt}; an absolute path rooted anywhere else is BLOCKED):
     - {wt}/the ml package directory src/kailash_ml/foo.py
     - {wt}/the ml package directory tests/integration/test_foo.py
 
@@ -267,7 +374,7 @@ Agent(
 
 **BLOCKED rationalizations:** "Absolute paths are unambiguous" (only once the orchestrator MADE the worktree and knows its path — an absolute path from the orchestrator's own checkout never was) / "The agent should figure out its own cwd" / "relative is always safer" (it is not, once cwd can revert — Rule 2a) / "This worked the one time I tested it".
 
-## Rule 3 — Worktree Agents Commit Incremental Progress
+## Rule 3 — Lanes Commit Incremental Progress Through Their One Committer
 
 **Rule:** `rules/agents.md` § "MUST: Worktree Orchestration" — which delegates Rules 1–11 to this file.
 
@@ -283,7 +390,9 @@ Three of three parallel agents truncated at 250-370k tokens; two lost work to au
 
 ### Why incremental commits are load-bearing
 
-Worktree auto-cleanup silently deletes worktrees with zero commits on their branch. An agent that writes perfect code but truncates mid-message before committing loses 100% of its output. Post-hoc file-existence verification (Rule 4 below) catches orphan files in main but CANNOT recover files that were only in a cleaned-up worktree.
+Work no commit holds has no ref and no reflog. The retired `isolation: "worktree"` flag auto-cleaned a worktree whose branch had zero commits, which is how the evidence above lost it. The flag is gone and the SessionEnd reaper keeps any dirty tree (`rules/worktree-isolation.md` Rule 8), but the exposure is unchanged: uncommitted work survives only until its tree is reused, re-entered or removed (`rules/worktree-isolation.md` Rule 4a), so an agent that truncates mid-message before its work is committed still loses 100% of it. Post-hoc file-existence verification (Rule 4 below) catches orphan files in main but CANNOT recover files that were only in a lost worktree.
+
+**Under the lane unit, the COMMITTER commits.** In a multi-agent lane the writers hand back their file sets and the lane's one committer commits each set as it lands (`rules/wip-discipline.md` MUST-9) — N committers racing one index is its own loss mode. The template below is for that committer, or for a single-agent lane whose one agent IS the committer.
 
 ### Prompt template
 
@@ -293,10 +402,15 @@ Agent(
     ...
 
     **Commit discipline (MUST):**
-    - After each file is complete, run `git add <file> && git commit -m "wip(shard-X): <what>"`.
+    - After each file is complete, commit it. This is a LATER location-dependent
+      invocation, so it MUST open with its OWN refusal — it does NOT inherit STEP 0's,
+      because a `cd` does not survive the call that issued it (Rule 2a):
+        cd "<lane-worktree>" || exit 1
+        [ "$(git rev-parse --abbrev-ref HEAD)" = "<lane-branch>" ] || exit 1
+        git add <file> && git commit -m "wip(shard-X): <what>"
     - Do NOT hold all work in the worktree's index until the final report.
     - If you exit without committing (budget exhaustion / crash / interruption),
-      the worktree is auto-cleaned and ALL work is lost.
+      uncommitted work has no ref and no reflog — a reused or removed tree loses ALL of it.
     """,
 )
 ```
@@ -306,8 +420,8 @@ Agent(
 When a worktree agent dies mid-shard (server-side throttle, account session limit, swap, crash), Rule 3's commit-per-milestone discipline makes the relaunch LOSSLESS — if the orchestrator follows this recovery protocol instead of relaunching from scratch:
 
 1. **Inspect before relaunching:** `git -C <dead-worktree> log main..HEAD --oneline` (committed milestones) + `git -C <dead-worktree> status --porcelain` (dangling WIP).
-2. **Checkpoint the dangling WIP** as a commit in the dead worktree (`git add -A && git commit -m "wip: checkpoint from rate-limited agent"`) so the branch carries EVERYTHING — auto-clean only deletes zero-commit worktrees, and the branch survives even when the worktree is removed.
-3. **Launch the continuation agent** (fresh worktree) with an explicit recovery step: `git merge <dead-agent-branch>` as STEP 1, then "READ what it already built before writing anything — audit, fix, fill; do not rewrite working code."
+2. **Checkpoint the dangling WIP** as a commit in the lane's worktree, made by the lane's committer and staging the dead agent's DECLARED file set by explicit path (`git add -- <its files> && git commit -m "wip: checkpoint from rate-limited agent"`) — never `git add -A`, which in a shared lane tree sweeps lane-mates' in-flight work into the checkpoint. The branch survives even when the worktree is removed.
+3. **Launch the continuation agent INTO the surviving lane worktree** (`rules/worktree-isolation.md` Rule 4a(3)), never a fresh worktree of its own, with an explicit recovery step: "READ what the predecessor already built before writing anything — audit, fix, fill; do not rewrite working code." `git merge <dead-branch>` is the recovery step ONLY when that tree is already gone and a replacement lane is opened on a fresh worktree.
 4. **Tell the continuation agent what the predecessor claimed** (its last commit subjects) so the audit is targeted.
 
 Evidence: 2026-06-11 Wave-3 session — a rate-limited agent left 1 commit + uncommitted edits; checkpoint + merge-continuation recovered all of it, and the continuation agent completed the shard auditing rather than re-implementing (~1,400 LOC retained). Same protocol applied across the F16 W2 fix-wave (journal 0178 §FD: 3 of 4 agents died mid-run; resumption lossless).
@@ -324,21 +438,21 @@ The `ls` check is O(1) and converts silent no-op into loud retry.
 
 ### Combined protocol
 
-- Rule 3 (commit discipline) protects against worktree auto-cleanup
+- Rule 3 (commit discipline) protects against losing uncommitted work with its worktree
 - Rule 4 (post-exit verify) protects against the main checkout
 - Both are needed: Rule 3 alone misses truncated-in-main cases; Rule 4 alone misses truncated-worktree cases
-- Rule 4a (below) is the recovery path when Rule 3 was missed and the worktree is already cleaned
+- Rule 4a (below) is the recovery path when Rule 3 was missed and the worktree is already gone
 
 ## Rule 4a — Recover Orphan Writes From Zero-Commit Worktree Agents
 
 **Rule:** `rules/agents.md` § "MUST: Worktree Orchestration" — which delegates Rules 1–11 to this file.
 
-An agent that wrote via ABSOLUTE paths resolves those writes to the MAIN checkout cwd (not its worktree). When such an agent reports done but its branch has zero commits AND the worktree was auto-cleaned, the work is NOT lost — it is orphaned, uncommitted, and reachable in the main checkout.
+An agent that wrote via ABSOLUTE paths resolves those writes to the MAIN checkout cwd (not its worktree). When such an agent reports done but its branch has zero commits AND its worktree is gone (the retired flag auto-cleaned it), the work is NOT lost — it is orphaned, uncommitted, and reachable in the main checkout.
 
 ### 4-step recovery protocol
 
 ```bash
-git worktree list | grep <expected-branch>     # empty if cleaned
+git worktree list | grep <expected-branch>     # empty if removed
 git status --short                              # "??" entries surface the orphans
 git checkout -b recovery/<original-branch>      # rescue branch (greppable across history)
 git add -- "<orphan-path>" && git commit -m "recover(<branch>): orphaned worktree writes"
@@ -384,7 +498,7 @@ The post-merge fixup (adding cross-agent artifacts that neither agent owned) is 
 - Expanded CHANGELOG entries covering all 3 issues — agent 1 wrote the ONNX section; orchestrator added km.track + km.doctor sections
 - Cross-package version floor updates (sibling package bumps, lockstep coordination)
 
-Agents MUST NOT attempt integration work because they cannot see each other's worktrees until the merge lands.
+Agents MUST NOT attempt integration work: across LANES they cannot see each other's worktrees until the merge lands, and within a lane a writer owns only its disjoint file set. Integration belongs to the committer — the orchestrator across lanes, the lane orchestrator within one. The same ownership declaration made inside ONE lane IS the `rules/wip-discipline.md` MUST-9 disjoint-file-set partition.
 
 ## Reviewer Prompts — Mechanical AST/Grep Sweep
 
@@ -403,8 +517,24 @@ Gate reviewers are constrained by the diff they're shown. The orphan failure mod
 ### Reviewer prompt template (with sweeps)
 
 ```python
-Agent(subagent_type="reviewer", prompt="""
+Agent(subagent_type="reviewer", prompt=f"""
 ... diff context ...
+
+The sweeps below are LOCATION-DEPENDENT: every one of them resolves relative paths, so
+run in the wrong checkout each reports on code this PR did not change — a vacuous green
+(Rule 3a). Open the sweep invocation with its OWN refusal; do NOT rely on a `cd` from an
+earlier call, which does not survive it (Rule 2a):
+  [ -n "{tree_under_review}" ] || exit 1
+  cd "{tree_under_review}" || exit 1
+  [ "$(git rev-parse --show-toplevel)" = "$(pwd -P)" ] || exit 1
+Repeat those three lines at the top of EACH later sweep invocation.
+
+This is the ONE position in this file where the main-checkout exclusion is deliberately
+ABSENT, and that is not an oversight to "converge": a post-merge gate review legitimately
+runs IN main, so adding `[ "$top" != "$main" ]` here would refuse the correct case. The
+question at this position is "am I in the tree I was told to review", not "am I isolated
+from main". Every STEP-0 dispatch fence in this file asks the second question and MUST
+keep the exclusion.
 
 Mechanical sweeps (run BEFORE LLM judgment):
 1. `grep -c "return TrainingResult(" src/...trainable.py` — must equal
@@ -451,7 +581,7 @@ Origin: Session 2026-04-23 kailash-ml-audit M1 (6-agent burst 100% failure, 3+3 
 
 ## Rule 7 — Pre-Flight Merge-Base Check Before Launch
 
-**Rule:** Before launching parallel worktree agents that will eventually merge back to the same integration branch, the orchestrator MUST verify every worktree's branch is created FROM THE CURRENT TIP of the integration branch — not from an older ancestor. Branching from an older ancestor is silently valid until merge time, at which point the shards diverge from each other AND from intermediate reconciliation commits.
+**Rule:** Before opening parallel LANES that will eventually merge back to the same integration branch, the orchestrator MUST verify every lane worktree's branch is created FROM THE CURRENT TIP of the integration branch — not from an older ancestor. Branching from an older ancestor is silently valid until merge time, at which point the shards diverge from each other AND from intermediate reconciliation commits.
 
 ### Failure mode evidence
 
@@ -464,7 +594,7 @@ Session 2026-04-23 M10 wave: **5 of 6 worktree agents** branched their shard fro
 ### Prompt template (pre-flight)
 
 ```bash
-# DO — orchestrator computes the tip explicitly, passes it to each agent
+# DO — orchestrator computes the tip explicitly, passes it to each lane
 INTEGRATION_TIP=$(git rev-parse feat/kailash-ml-1.0.0-m1-foundations)
 for shard in shards; do
   git worktree add -b "feat/${shard}" "$WT_PARENT/${shard}" "${INTEGRATION_TIP}"   # sibling
@@ -544,7 +674,7 @@ Origin: Session 2026-04-23 M10 wave — 5/6 shards branched from older ancestor;
 
 ## Rule 8 — Explicit Branch Naming In Prompts
 
-**Rule:** Every worktree-isolation delegation MUST include an explicit `feat/<shard-name>` (or equivalent semantic prefix per `rules/git.md` conventional commits) in the prompt. Omitting the branch name is BLOCKED — the harness falls back to `worktree-agent-<hash>` which is neither greppable nor conventional-commit-compliant, breaking changelog tooling and release-trace auditability.
+**Rule:** Every delegation into a lane's worktree MUST include the lane's explicit `feat/<lane-name>` (or equivalent semantic prefix per `rules/git.md` conventional commits) in the prompt; agents sharing the lane assert that one branch, and none gets its own. Omitting the branch name is BLOCKED — the harness falls back to `worktree-agent-<hash>` which is neither greppable nor conventional-commit-compliant, breaking changelog tooling and release-trace auditability.
 
 ### Failure mode evidence
 
@@ -570,13 +700,23 @@ Agent(prompt=f"""
 Branch: feat/W33-km-wrappers
 Worktree: {WT_PARENT}/W33-km-wrappers
 
-STEP 0 — cd FIRST, then assert (Rule 1(b); full four-case form in § Retiring):
-  cd "{WT_PARENT}/W33-km-wrappers" || exit 1
-  [ "$(git rev-parse --show-toplevel)" = "$(pwd -P)" ] || exit 1
+STEP 0 — cd FIRST, then assert (Rule 1(b); the full form, not the root test alone):
+  [ -n "{WT_PARENT}" ] || exit 1            # guard the INTERPOLATED operand, not the
+  cd "{WT_PARENT}/W33-km-wrappers" || exit 1  # concatenation, which is never empty
+  top=$(git rev-parse --show-toplevel) || exit 1
+  [ "$top" = "$(pwd -P)" ] || exit 1                 # at A worktree root
+  main=$(cd "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")" && pwd -P)
+  [ "$top" != "$main" ] || exit 1                    # ...and NOT the main checkout
   [ "$(git rev-parse --abbrev-ref HEAD)" = "feat/W33-km-wrappers" ] || exit 1
 
 Implement W33 km.* public-API wrappers per specs/ml-engines-v2.md §15.9.
-Commit discipline: after each file, git commit -m "feat(W33): <what>"
+
+Commit discipline — this is a LATER location-dependent invocation, so it carries its OWN
+refusal (Rule 2a); it does NOT inherit STEP 0's, because a `cd` does not survive the call
+that issued it. After each file, run as ONE invocation opening with the refusal:
+  cd "{WT_PARENT}/W33-km-wrappers" || exit 1
+  [ "$(git rev-parse --abbrev-ref HEAD)" = "feat/W33-km-wrappers" ] || exit 1
+  git add <file> && git commit -m "feat(W33): <what>"
 """)
 
 # DO NOT — the retired flag, no branch, no pre-made worktree
@@ -590,28 +730,32 @@ Agent(isolation="worktree", prompt="Implement W33 km.* wrappers...")
 
 Origin: Session 2026-04-23 — W33 initial launch lost to `worktree-agent-<hash>`; re-launched with explicit `feat/W33-km-wrappers`.
 
-## Rule 9 — Worktree-Isolate Shared-Source Editors; Concurrent Readers Read Committed HEAD
+## Rule 9 — Partition Shared-Source Editors By Lane And File Set; Concurrent Readers Read Committed HEAD
 
-**Rule:** `rules/agents.md` § Worktree Orchestration — shared-source editor isolation. Rule 1's isolation mandate generalizes beyond compilation: ANY background/parallel agent that EDITS shared repo source (`sync-manifest.yaml`, rules, `bin/`, config) MUST be worktree-isolated, even if it never compiles. Any concurrent agent that READS that source MUST read the committed HEAD (`git show HEAD:<path>`), never the working tree.
+**Rule:** `rules/agents.md` § Worktree Orchestration — shared-source editor isolation. Rule 1's isolation mandate generalizes beyond compilation: ANY background/parallel agent that EDITS shared repo source (`sync-manifest.yaml`, rules, `bin/`, config) MUST be isolated even if it never compiles — from other LANES by working inside its lane's worktree, never the shared main checkout, and from its lane-mates by a DISJOINT file set (`rules/wip-discipline.md` MUST-9). A second worktree per editor is not the remedy. Any concurrent agent that READS source a live writer may be mid-edit on — another lane's work, or a lane-mate's set before hand-back — MUST read the committed HEAD (`git show HEAD:<path>`), never the working tree.
 
 ### Failure mode evidence (2026-05-16 post-mortem)
 
-Three agents ran against the SAME loom checkout: a background agent EDITING `sync-manifest.yaml` (issue #243), and two `/sync` catch-up agents READING loom source. The editor's mid-edit WIP left the manifest with a transient YAML syntax error; both readers flagged "the manifest is broken repo-wide" — correct for the working tree, false at committed HEAD. ~2 agents' analysis cycles were spent reconciling a phantom defect. Root cause: the isolation MUST was framed compiling-only, so the orchestrator launched the editor non-isolated precisely because "it doesn't compile."
+Three agents ran against the SAME loom checkout: a background agent EDITING `sync-manifest.yaml` (issue #243), and two `/sync` catch-up agents READING loom source. The editor's mid-edit WIP left the manifest with a transient YAML syntax error; both readers flagged "the manifest is broken repo-wide" — correct for the working tree, false at committed HEAD. ~2 agents' analysis cycles were spent reconciling a phantom defect. Root cause: the isolation MUST was framed compiling-only, so the orchestrator launched the editor into the shared main checkout precisely because "it doesn't compile."
 
 ### The two structural halves
 
-1. **Editor isolation** — any shared-source editor is worktree-isolated, compiling or not.
+1. **Editor isolation** — any shared-source editor works inside its lane's worktree, never the main checkout, and inside its own disjoint file set there, compiling or not.
 2. **Reader discipline** — concurrent readers read committed HEAD; this is the half that actually saved the cycle (once the catch-up agents were told to read `git show HEAD:<path>`, they produced correct plans despite the broken WIP in the shared tree).
 
 ### Prompt template
 
 ```python
-# DO — a background agent that EDITS shared source gets its own (sibling) worktree
+# DO — a background agent that EDITS shared source works in its LANE's (sibling) worktree, on its own file set
 # The path pin is necessary but NOT sufficient — STEP 0 is what makes it hold (Rule 1(b)).
 Agent(prompt=f"""Working directory: {WT_PARENT}/manifest-edit
-STEP 0: cd "{WT_PARENT}/manifest-edit" || exit 1
-        [ "$(git rev-parse --show-toplevel)" = "$(pwd -P)" ] || exit 1
-Edit sync-manifest.yaml: add consumer_overlays ...""")
+STEP 0: [ -n "{WT_PARENT}" ] || exit 1     # guard the INTERPOLATED operand, not the
+        cd "{WT_PARENT}/manifest-edit" || exit 1   # concatenation, which is never empty
+        top=$(git rev-parse --show-toplevel) || exit 1
+        [ "$top" = "$(pwd -P)" ] || exit 1              # at A worktree root
+        main=$(cd "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")" && pwd -P)
+        [ "$top" != "$main" ] || exit 1                 # ...and NOT the main checkout
+Edit ONLY sync-manifest.yaml (your file set in this lane): add consumer_overlays ...""")
 # DO — a concurrent agent that READS that source reads committed HEAD
 Agent(prompt="""Catch-up sync. Read loom source via `git show HEAD:.claude/bin/emit.mjs`
 (committed HEAD), NOT the working tree — a parallel agent may be mid-edit.""")
@@ -621,15 +765,15 @@ Agent(prompt="Edit sync-manifest.yaml ...")          # mid-edit WIP visible to a
 Agent(prompt="Catch-up: copy .claude/bin/emit.mjs")  # may copy broken mid-edit state
 ```
 
-**BLOCKED rationalizations:** "It's not a compiling agent, the worktree rule doesn't apply" / "The edit is quick, a collision is unlikely" / "Both agents are careful" / "I'll serialize them in my head".
+**BLOCKED rationalizations:** "It's not a compiling agent, the worktree rule doesn't apply" / "The edit is quick, a collision is unlikely" / "Both agents are careful" / "I'll serialize them in my head" / "each editor needs a worktree of its own" (its lane's tree plus a disjoint file set isolates it; a per-editor tree is inventory against the ceiling).
 
-**Why:** A non-isolated editor's mid-edit WIP is visible in the shared checkout; a reader copying the working tree mid-edit ships the broken state. Had the editor been isolated (or the readers HEAD-pinned from the start), zero reader cycles would have been spent on a phantom defect.
+**Why:** A non-isolated editor's mid-edit WIP is visible in the shared checkout; a reader copying the working tree mid-edit ships the broken state. Had the editor worked in its own lane's worktree (or the readers been HEAD-pinned from the start), zero reader cycles would have been spent on a phantom defect.
 
 Origin: 2026-05-16 loom session (issue #243 manifest editor vs py/rs catch-up readers); full post-mortem in `guides/rule-extracts/agents.md` § Post-mortem 2026-05-16.
 
 ## Rule 10 — Binding/Package-Scoped Shard PRs Touch Only Their Own Package
 
-**Rule:** `rules/agents.md` § Worktree Orchestration — binding-scope discipline. When ≥2 parallel worktree agents each ship a binding/package-scoped shard, each shard's PR MUST limit its diff to its OWN binding/package directory. Incidental fixes to sibling-package files (clippy lints, fmt drift, doc typos) discovered mid-shard ship as a separate PR or a dedicated cross-package cleanup shard — bundling is BLOCKED. This is the file-overlap variant of Rule 5: that clause forbids two agents editing the version anchor; this one forbids two agents editing the same sibling-package source.
+**Rule:** `rules/agents.md` § Worktree Orchestration — binding-scope discipline. When ≥2 parallel LANES each ship a binding/package-scoped shard, each lane's PR MUST limit its diff to its OWN binding/package directory. Incidental fixes to sibling-package files (clippy lints, fmt drift, doc typos) discovered mid-shard ship as a separate PR or a dedicated cross-package cleanup shard — bundling is BLOCKED. This is the file-overlap variant of Rule 5: that clause forbids two agents editing the version anchor; this one forbids two agents editing the same sibling-package source.
 
 ### Failure mode evidence
 
@@ -647,7 +791,7 @@ Origin: F9 Wave 3c (2026-05-22), PR #1084/#1085 conflict on a Ruby binding sourc
 
 ## Rule 11 — Shared-Worktree Mutation Agents Restore Via `cp` Backup, Never `git checkout --`
 
-**Rule:** `rules/agents.md` § Worktree Orchestration — shared-tree restore discipline. An agent asked to MUTATE-AND-RESTORE a file in a SHARED worktree (mutation testing, fault injection, "break it and confirm the test catches it") MUST take a `cp` backup before the edit and restore from that backup. `git checkout -- <file>` and `git restore <file>` are BLOCKED for this purpose.
+**Rule:** `rules/agents.md` § Worktree Orchestration — shared-tree restore discipline. An agent asked to MUTATE-AND-RESTORE a file in a SHARED worktree (mutation testing, fault injection, "break it and confirm the test catches it") MUST take a `cp` backup before the edit and restore from that backup. `git checkout -- <file>` and `git restore <file>` are BLOCKED for this purpose. Under `rules/wip-discipline.md` MUST-9 every multi-agent lane worktree IS a shared tree, so this is the default case, not an edge.
 
 ### Mechanism — why `checkout` is the wrong instrument
 
@@ -797,6 +941,7 @@ git stash list | wc -l                # run in main AND in the linked tree: SAME
 
 ## Related rules & skills
 
+- `rules/wip-discipline.md` MUST-9 — the partition contract inside one lane worktree (§ The Unit Of Isolation Is The LANE)
 - `rules/worktree-isolation.md` Rule 9 — the shared-`.git` stash contract this section carries the depth for
 - `rules/agents.md` § Worktree Orchestration — the load-bearing MUST cluster this skill carries the depth for (one structural assertion per clause in the rule; protocol, templates, BLOCKED corpora + post-mortems here)
 - `rules/orphan-detection.md` — §1 (facade call site) and §6 (`__all__` eager import) are what the mechanical sweep verifies

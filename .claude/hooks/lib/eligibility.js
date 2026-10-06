@@ -35,6 +35,21 @@ const CI_FOREVER_INELIGIBLE_CONTEXTS = [
   "gate-approval",
   "genesis",
   "migration",
+  // ── ledger-authority (2026-08-24) ────────────────────────────────────────
+  // The SIXTH context, and NOT one of R5-S-04's original five — recorded as an
+  // addition rather than folded in, so the spec citation above stays exact.
+  //
+  // It is the same CLASS: a `burndown/events.jsonl` record declaring
+  // `authority: "owner"` asserts an owner adjudication over the work ledger
+  // (a retraction retires an item out of live work; an owner status marks it
+  // signed off), so a deploy key that could assert it could sign off on its
+  // own work. Owner-only, CI forever ineligible.
+  //
+  // It lives HERE rather than inline in `burndown-events.js` because inlining
+  // `person.host_role === "ci"` at a fourth site is precisely the drift class
+  // MED-3 hardened and `audit-fixtures/coordination-log-fold/
+  // flag-eligibility-drift-host-role-ci.txt` exists to red on.
+  "ledger-authority",
 ];
 
 /**
@@ -60,6 +75,10 @@ const _REQUIRED_ROLES = {
   genesis: new Set(["owner"]),
   migration: new Set(["owner"]),
   "gate-approval": new Set(["owner", "senior"]),
+  // OWNER-ONLY, deliberately not reusing `gate-approval`'s {owner, senior} floor:
+  // an owner adjudication on the work ledger is the owner's, and widening it to
+  // senior here would widen it silently for every consumer of that context too.
+  "ledger-authority": new Set(["owner"]),
 };
 
 /**

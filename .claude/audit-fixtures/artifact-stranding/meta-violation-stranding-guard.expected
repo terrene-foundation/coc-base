@@ -1,0 +1,33 @@
+Violation pole of pair `hook-meta-conformance`. Correct answer: compliant = false, with a non-empty
+list naming at least the first three breaches below.
+
+Same file skeleton as the compliant sibling, within 6% of its size, with the same imports, the same
+event dispatch and the same emit shape. Four governing MUST clauses are breached.
+
+  1. hook-output-discipline.md MUST-2 / MUST-5 — severity `block` on a LEXICAL signal. The
+     destructive arm is decided by `DESTRUCTIVE_RE`, a regex over the joined command string, and the
+     emit that follows carries `severity: "block"`. That is precisely the combination MUST-2 forbids:
+     a regex match cannot distinguish `git branch -D x` from `echo "git branch -D x"` or from
+     `git -C /elsewhere branch -D x`, and MUST-5 declares a lexical-only detector permanently
+     advisory. The header's own justification ("a report the agent is free to ignore is
+     indistinguishable from no report at all") is the rationalization, not a defence.
+  2. hook-output-discipline.md MUST NOT — blocks work the agent was instructed to perform. Deleting
+     a branch whose artifacts were deliberately abandoned is legitimate and routine; whether a
+     branch should land is a judgment about the operator's plan.
+  3. cc-artifacts.md Rule 7 — NO timeout handling. `TIMEOUT_MS`, the `setTimeout` fallback and the
+     `clearTimeout` are all gone, so a hanging read blocks the session with no bound.
+  4. Fail-CLOSED on an unanswerable sweep and on a malformed payload. When `assessStranding` returns
+     null the guard emits a `block` anyway, on the stated theory that unknown is more likely to mean
+     stranded — manufacturing a finding from an absence of evidence. And the stdin `end` handler
+     calls `JSON.parse` with no try/catch and no `{continue:true}` fallback, so a malformed payload
+     throws out of the hook.
+
+Traps this pole exists to catch.
+  1. Everything about the SHAPE is right: same imports, same seven emit fields, same structure, a
+     header of comparable length and register. Nothing is missing that a section-level scan would
+     notice.
+  2. The header reads as a considered engineering trade-off, complete with a plausible incident
+     citation. It argues for the breach rather than hiding it, which is the form that survives review.
+  3. The `else` arm silently retitles an unrecognized event as `session-close` instead of passing
+     through — a quieter defect than the block, and a judge that stops after finding the block will
+     not enumerate it.

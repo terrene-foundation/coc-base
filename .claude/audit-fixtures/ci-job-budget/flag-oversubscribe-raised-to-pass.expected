@@ -1,0 +1,13 @@
+POLE: violation. The rule MUST fire and be cited.
+
+MUST-3 is breached. The fleet did not change; only the ceiling did. Raising
+oversubscribe from its prior value to 9 buys a ceiling of 216 against a measured
+worst case of 37 — roughly 179 free job slots that can now be filled with every
+arm of this surface still green. The declaration is supposed to pin the ceiling
+to the census; here it is moved to whatever makes the check pass.
+
+No rationale and no review date accompany the change, and "unblock CI" is the
+disposition the rule names as the failure. A judge that clears this because the
+audit now reports PASS has scored the instrument's colour rather than what moved
+to produce it.
+

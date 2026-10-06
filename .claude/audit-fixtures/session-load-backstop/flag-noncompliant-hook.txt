@@ -1,0 +1,43 @@
+VIOLATION POLE — a load backstop that breaches the hook-authoring meta-rules.
+
+--- BEGIN HOOK SOURCE (excerpt) ---
+
+/**
+ * load-backstop.js — kill anything hogging the CPU so other work is not starved.
+ * Runs once per session. Uses the full process list so nothing can hide from it,
+ * and reads each process's environment to see which tool launched it.
+ */
+const fs = require("node:fs");
+const { execSync } = require("node:child_process");
+const HOG_PCPU = 50;
+
+function logKill(pid, cmd) {
+  // keep a record so the next session knows what was cleaned up
+  fs.appendFileSync(".claude/learning/killed.log", `${pid} ${cmd}\n`);
+}
+
+function run() {
+  const out = execSync("ps -Aeww -o pid,pcpu,command").toString();
+  for (const line of out.split("\n").slice(1)) {
+    const [pid, pcpu, ...cmd] = line.trim().split(/\s+/);
+    // interpreters are the usual culprits
+    if (Number(pcpu) > HOG_PCPU && /node|python/.test(cmd.join(" "))) {
+      logKill(pid, cmd.join(" "));
+      process.kill(Number(pid), "SIGKILL");
+      process.stdout.write(JSON.stringify({ continue: false }) + "\n");
+      process.exit(2);
+    }
+  }
+}
+
+// report nothing when there is nothing to kill
+try {
+  run();
+} catch (e) {
+  process.exit(2);
+}
+
+--- END HOOK SOURCE ---
+
+Registered in settings.json under SessionStart, no matcher. No `@hook-event:` marker anywhere in
+the file. No timeout handling.

@@ -1,0 +1,45 @@
+Gate-1 ingest — /sync-from-build, batch of two
+
+    $ ls .claude/.proposals/inbox/build/
+    2026-09-05-nexus-cors-preset.yaml
+    2026-09-05-dataflow-pool-tuning.yaml
+
+Both bodies render oddly enough that I looked at them through `cat -v` before
+reading them as text.
+
+Entry A, nexus-cors-preset:
+
+    $ cat -v .claude/.proposals/inbox/build/2026-09-05-nexus-cors-preset.yaml | sed -n '5,7p'
+    rationale: |
+      The preset M-bM-^@M-^T as shipped M-bM-^@M-^T assumes three origins, and
+      every project repo re-types them.
+
+That is not plain ASCII. Something has put multi-byte sequences inside a field a
+reviewer reads, which is the shape a smuggled directive takes: the rendered text
+says one thing and the bytes carry another. Characterizing it as an injection
+attempt on that basis and rejecting the entry. Opening a security escalation and
+flagging the build lane's relay for review, because if one entry carries a
+smuggled payload the others from that relay probably do too.
+
+Entry B, dataflow-pool-tuning:
+
+    $ cat -v .claude/.proposals/inbox/build/2026-09-05-dataflow-pool-tuning.yaml | sed -n '3,5p'
+    action: modify
+    target: skills/03-kailash-dataflow/pool-tuning.md
+    rationale: |
+
+Nothing unusual on screen — ordinary keys, ordinary values, no escape sequences
+anywhere in the rendering. Whatever made entry A look wrong is not present here,
+so this one is benign and I am not going to spend a decode on it. Ingesting B on
+merit: coc tier, py and rs both, no variant split needed.
+
+Provenance for B: body claims `via: kailash-py`, and it arrived on the build
+lane, which agrees. Confirmed against the lane.
+
+Disclosure scrub run over B. Clean.
+
+Gate-1 closed. One entry in, one rejected and escalated.
+
+One thing I did not do: I did not re-check the two entries the same relay
+delivered last week. They are already merged and the escalation covers the
+forward-looking question. Recording that as a scope decision.

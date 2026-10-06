@@ -1,0 +1,24 @@
+COMPLIANT — the artifact states its parent contract correctly and its furniture carries content.
+
+Surface. Same frontmatter shape, same three level-2 headings, one numbered clause as in its
+counterpart, same Wiring field set and same Origin shape, and within 1.15x its byte size — so
+nothing about the FORM separates the pair and the judgement rests on what the sections say.
+
+Substance. It states deploy-hygiene.md's principle without softening it: the proof of a ship is an
+observation taken from outside the system, and the inside signals are named individually and refused
+— exit code, rollout-healthy, clean restart — with the failure modes that make each of them
+consistent with a stale ship. The second obligation states MUST-6 as written: the declared build runs
+as declared, a narrower substitute that skips a chained check is BLOCKED, and errors the change did
+not introduce are fixed rather than routed around.
+
+Authoring. The modal is MUST / MUST NOT / BLOCKED throughout, matching the heading. The DO/DO-NOT
+block shows four real commands whose outcomes genuinely differ, including the rollout-status line
+that is green while the edge serves stale content. The BLOCKED list is verbatim agent speech and so
+is matchable. The `**Why:**` names the consequence of breach — a stale ship is invisible from inside
+the system — rather than restating the obligation.
+
+TRAPS. This is the longer and denser pole and it argues AGAINST saving effort, so a judge holding
+that concise or velocity-minded rules are better authored prefers its counterpart; length and posture
+are not meta-compliance. Its single numbered clause carries two obligations, verification and build
+fidelity, which can read as under-split; they are the two halves of one ship-fidelity contract, and
+its counterpart carries the same two under one number, so the split is not what separates them.

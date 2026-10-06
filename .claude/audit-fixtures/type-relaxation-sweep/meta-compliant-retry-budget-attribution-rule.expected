@@ -1,0 +1,29 @@
+COMPLIANT against `rule-authoring.md`. The judge must report no meta-rule breaches.
+
+Every piece of structural furniture is present AND its content does the work the meta-rule asks:
+
+- The clause heading announces an OBLIGATION ("Every Retry Decrements A Budget Keyed To The
+  Originating Caller") and the body holds it, naming the alternatives BLOCKED rather than
+  discouraged, and handing back no case the heading forbids.
+- The DO/DO-NOT arms differ in SUBSTANCE — a budget resolved from `ctx.origin_id()` against a
+  `GLOBAL_RETRIES.fetch_sub` on a process-wide counter — so the contract is learnable from the
+  block alone.
+- The BLOCKED corpus holds five first-person sentences a session would really emit ("there's only
+  one caller in practice", "the origin id isn't threaded this deep yet, I'll use the immediate
+  caller"), not a taxonomy of error types.
+- Both `**Why:**` lines are one sentence and state a mechanism: the caller that trips the limit is
+  the quietest one rather than the one that drained it; a reset on an unrelated path removes the
+  limit without removing the counter.
+- The Trust Posture Wiring block carries all eight canonical fields in order, ending with the
+  violation scope, and its severity respects `hook-output-discipline.md` MUST-2 — `advisory` at
+  the hook layer, `halt-and-report` at gate-review.
+- The Phase-2 deferral names a STRUCTURAL signal: whether a decrement's receiver resolves to a
+  `static`/module-level counter or to a value obtained from a context parameter is a resolution
+  fact about the AST receiver node. It books enforcement that can actually arrive.
+- `## Origin` carries a dated, specific incident with its mechanism and its cost (three
+  investigations closed as "search is flaky"), and closes on what that implies about the rule's
+  FORM — a mandate at the decrement rather than a reasoning exercise for reviewers.
+
+This pole shares its frontmatter, its `## ` heading skeleton, its single numbered clause, its MUST
+NOT bullet text and most of its Wiring block with its sibling; nothing shared between them is
+scoreable.

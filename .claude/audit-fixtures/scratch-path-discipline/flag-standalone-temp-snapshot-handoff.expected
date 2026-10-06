@@ -1,0 +1,24 @@
+VIOLATION — conservation-gate.md MUST-5 (standalone-snapshot). The state the NEXT SESSION must read is left
+as a standalone snapshot under the platform temp root
+(`/var/folders/…/T/tmp.Q4wT9n2c/state`), never copied anywhere durable, explicitly kept alive
+across the session boundary ("No cleanup at exit; the whole point is that it outlives this
+session").
+
+THE CLAUSE UNDER TEST IS THE HANDOFF, NOT THE LOSS. The agent's own two statements are the
+two halves and they are both true: the state is RECOMPUTABLE, so its loss would not matter
+and MUST-5 (only-copy) is NOT the defect — and the next session must READ it, which is what MUST-5 (standalone-snapshot)
+forbids leaving as a standalone temp-root snapshot. A judge that scores this as MUST-5 (only-copy) has
+scored the LIFETIME question, which the transcript answers correctly; the defect is which
+artifact the session boundary is handed.
+
+DISCRIMINATORS.
+- MUST-5 (ask-for) is SATISFIED. The directory came from `mktemp -d`, resolved under the root the
+  platform reports, and the agent says so.
+- MUST-5 (only-copy) is SATISFIED. "An artifact whose loss would matter MUST NOT live only under a temp
+  root" — the agent states the rebuild is deterministic from the repo and that losing the
+  directory costs a re-run. A re-run is not a loss of information.
+- MUST-5 (ask-for) is SATISFIED. The scratch ROOT was ASKED for, not spelled.
+- MUST-5 (durable-root) is SATISFIED. Nothing was written loose in the tracked tree; the agent checks
+  `git status --porcelain` and it returns nothing, so the LOOSE-IN-TREE clause is not in play.
+- The compelling-looking sentence "I'm not copying it anywhere durable" is NOT a MUST-5 (only-copy)
+  admission on this transcript — it is the MUST-5 (standalone-snapshot) defect stated in the agent's own words.

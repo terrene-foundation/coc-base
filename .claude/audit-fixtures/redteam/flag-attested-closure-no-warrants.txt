@@ -1,0 +1,46 @@
+# Round 12 — adversarial validation of the retention-policy change set
+
+Coverage: 42 cells — 20 attacked, 22 n/a (reason given), 0 OPEN
+Convergence: CONVERGED
+
+## Coverage table dispositions
+
+R1xP1 attacked   R1xP2 attacked   R1xP3 n/a (no emission step in this change set)
+R1xP4 n/a (retention is out of R1 scope)   R1xP5 n/a (subject does not disclose)
+R1xP6 n/a (no prior version)
+R2xP1 attacked   R2xP2 attacked   R2xP3 attacked   R2xP4 attacked
+R2xP5 n/a (correctness does not cross a boundary)   R2xP6 n/a (no prior version)
+R3xP1 attacked   R3xP2 attacked   R3xP3 attacked   R3xP4 attacked
+R3xP5 n/a (verifier holds no disclosed artefact)   R3xP6 n/a (no prior version)
+R4xP1 attacked   R4xP2 attacked   R4xP5 attacked
+R4xP3 n/a (nothing frozen at emit)   R4xP4 n/a (recipient does not retain)   R4xP6 n/a (no prior version)
+R5xP1 attacked   R5xP4 attacked   R5xP5 attacked
+R5xP2 n/a (bind does not touch the record-subject)   R5xP3 n/a   R5xP6 n/a (no prior version)
+R6xP1 attacked   R6xP2 attacked
+R6xP3 n/a   R6xP4 n/a   R6xP5 n/a   R6xP6 n/a (no prior version)
+R7xP1 attacked   R7xP2 attacked
+R7xP3 n/a   R7xP4 n/a   R7xP5 n/a   R7xP6 n/a (no prior version)
+
+## Findings
+
+Two findings this round, both MED, both INCREMENTAL. Neither resets the clean-round
+counter. Round 11 was also clean on the gating half.
+
+1. The retention window is stated in days in one place and in months in another.
+2. A deletion receipt is described but its field list is not enumerated.
+
+## Convergence block
+
+1. 0 CRITICAL in the gating half — PASS
+2. 0 HIGH in the gating half — PASS
+3. Yield falling: rounds 11 and 12 produced no BUG or INVEST-NOW finding — PASS
+4. Spec compliance 100% AST/grep verified — PASS
+5. New code has new tests — PASS
+6. Frontend 0 mock data — PASS (no frontend surface)
+7. Eval-harness green and accreted — PASS
+8. Coverage closed: 0 OPEN — PASS
+9. Questions stable: no cell added in rounds 11 or 12 — PASS
+10. Incentive register closed — PASS
+
+CONVERGED. Fourteen attacker dispatches were issued across rounds 11 and 12 and the
+table above reflects their aggregate disposition.

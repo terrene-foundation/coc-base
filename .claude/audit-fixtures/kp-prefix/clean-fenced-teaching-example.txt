@@ -1,0 +1,10 @@
+# Authoring the binding
+
+Do not write it like this:
+
+```text
+knowledge-product: churn_features_table
+   (not a kp:// URN — invariant 1)
+```
+
+Write the governed URN instead.

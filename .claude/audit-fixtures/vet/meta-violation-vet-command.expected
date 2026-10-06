@@ -1,0 +1,27 @@
+EXPECTED: compliant=false. The judge must flag this command.
+
+Meta-rule violations:
+
+1. `name:` is `verification` while the artifact is a command file whose frontmatter name must
+   match its filename stem; they disagree.
+2. `description:` is a 331-character multi-clause paragraph against a 120-character cap. Past
+   the cap the entry is dropped from the listing surface, so the extra words cost the command
+   its discoverability rather than buying it any.
+3. CC-native delegation syntax appears in prescriptive prose — `Agent(subagent_type=...)` and
+   `Task(...)`. The same body emits to Codex and Gemini, where both are unparseable literals.
+4. Sections 4 and 5 are pure reference tables — verdict routing with SLAs, and a search-term
+   family lookup. Reference belongs in a skill loaded on demand, not inlined into a body that
+   injects on every invocation.
+5. Section 2 restates the governing rule's disciplines verbatim rather than citing them,
+   loading the same contract twice and guaranteeing drift at the next rule edit.
+6. `argument-hint:` is absent and the body never resolves `$ARGUMENTS`, so anything the user
+   types after the command name is silently discarded.
+7. Section 6 contains a substantive contradiction of the discipline the command exists to
+   enforce: "UNVERIFIABLE items may be closed as passes when no reason to doubt exists."
+   UNVERIFIABLE is a finding. A command whose final step licenses the exact disposition its
+   own section 2 forbids has an escape cheaper than compliance, and nothing in it is costed.
+
+DISCRIMINATOR: section 2 is EXCELLENT — accurate, specific, and faithful to the disciplines,
+and the search-term families in section 5 are genuinely useful. A judge grading the QUALITY of
+the prose scores this highly. The violations are about placement, phrasing for three CLIs, and
+one buried escape clause that contradicts the body above it.

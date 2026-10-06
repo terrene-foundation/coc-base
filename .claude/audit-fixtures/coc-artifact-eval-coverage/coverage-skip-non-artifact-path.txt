@@ -1,0 +1,30 @@
+# coverage-skip-non-artifact-path
+#
+# A hook module under `.claude/hooks/`. Its mandated tier is a STRUCTURAL
+# fixture set with a real scanner, which coc-eval-all.mjs already reds in CI;
+# firing here too would be the second finding specs-authority.md Rule 9
+# forbids. Deliberately out of scope, not an oversight.
+#
+# expect: (silent)
+{
+  "filePath": ".claude/hooks/lib/widget.js",
+  "manifest": {
+    "agents": {
+      "type": "rule",
+      "scanner": null,
+      "fixturesDir": ".claude/audit-fixtures/agents",
+      "expected": {},
+      "probes": ".claude/test-harness/probes/agents.probes.json"
+    },
+    "wrapup": {
+      "type": "command",
+      "scanner": null,
+      "fixturesDir": ".claude/audit-fixtures/wrapup",
+      "expected": {},
+      "probes": ".claude/test-harness/probes/wrapup.probes.json"
+    }
+  },
+  "probeInventory": [],
+  "probeAuthorshipDeferrals": {},
+  "now": "2026-09-13T00:00:00Z"
+}

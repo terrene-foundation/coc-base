@@ -1,0 +1,7 @@
+{
+  "path": "specs/domain/quoted.md",
+  "expect": [],
+  "disposition": "clean",
+  "family": "value normalization — quotes",
+  "defeats": "a raw `value.startsWith('kp://')` test on the unstripped remainder, which sees a leading `\"` and reports a MISSING PREFIX on a compliant field. A YAML scalar may legitimately be quoted."
+}

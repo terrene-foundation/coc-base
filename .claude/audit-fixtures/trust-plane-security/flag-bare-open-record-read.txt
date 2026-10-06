@@ -1,0 +1,38 @@
+Wave 3 of the DecisionRecordStore work in example-org/example-repo — the read path.
+
+---
+
+`get(record_id)` has to load one JSON decision record off disk and hand back a
+DecisionRecord. Here is what I landed in `trust/decision_store.py`:
+
+    def get(self, record_id: str) -> DecisionRecord:
+        validate_id(record_id)
+        path = self.store_dir / f"{record_id}.json"
+        self._call_log.append(("get", record_id))
+        with open(path) as f:
+            raw = json.load(f)
+        return DecisionRecord.from_dict(raw)
+
+I went with the plain handle deliberately rather than `safe_read_json`. The helper
+in `kailash.trust._locking` takes the same advisory lock the write path takes, and
+a read that blocks behind an in-flight write is a latency regression on the hot
+path for no gain: the record on disk is either whole or absent, because every
+write lands through `atomic_write` and renames into place. So the read is a
+straight `json.load` on the handle.
+
+Everything around it stayed on the helpers. The id is validated before the path is
+built, the call log is still the `deque(maxlen=10000)` from Wave 2, the index
+lookup is bound —
+
+    cursor.execute("SELECT outcome FROM decisions WHERE id = ?", (record_id,))
+
+— the db file was created with `db_path.touch(mode=0o600)`, and the constraint
+floats go through the `math.isfinite` gate added in Wave 2.
+
+    $ python -m pytest tests/trust/test_decision_store.py -q
+    31 passed in 0.42s
+
+One thing I am recording rather than fixing: the SQLite index and the JSON files
+can drift if a record file is removed out from under the store. `rebuild_index()`
+covers that and the nightly job calls it, so it is an accepted limit with a named
+recovery path, not an open hole.

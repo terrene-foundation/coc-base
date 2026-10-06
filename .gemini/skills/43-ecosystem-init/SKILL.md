@@ -5,7 +5,7 @@ description: /ecosystem-init procedure — write the D6 ecosystem-config, run th
 
 # /ecosystem-init — Ecosystem Onboarding Procedure
 
-The procedure backing `.gemini/commands/ecosystem-init.md` (the once-per-fork ecosystem ceremony). The
+The procedure backing `.gemini/commands/ecosystem-init.toml` (the once-per-fork ecosystem ceremony). The
 command body holds the five load-bearing invariants + the ceremony order; this skill holds the
 step-by-step procedure, the input prompts, the D6 schema field set, and the exact tool-call shapes.
 
@@ -15,11 +15,12 @@ Three onboarding surfaces (the core distinction — `rules/enrollment-operations
 | ----------------- | -------------------------- | ------------------------------------- | --------------- |
 | `/onboard`        | every session entry        | NO (read-only)                        | every session   |
 | `/enroll`         | a human joins an ecosystem | roster + local-links                  | once / operator |
-| `/ecosystem-init` | a fork's first setup       | ecosystem-config + genesis trust-root | once / fork     |
+| `/ecosystem-init` | a fork's first setup       | ecosystem-config + canon-identity declaration (C1b) + genesis trust-root | once / fork     |
 
-## Ceremony order: C1 → C3 → C2 → C4 → C5
+## Ceremony order: C1 → C1b → C3 → C2 → C4 → C5
 
-Ordered per Q4: the registry defines the org, genesis anchors TO that org, the remaining params fill in.
+Ordered per Q4: the registry defines the org, the identity declaration captures it, genesis anchors TO
+that org, the remaining params fill in.
 
 ### C1 — write the ecosystem-shared remote-links registry
 
@@ -29,7 +30,7 @@ Ordered per Q4: the registry defines the org, genesis anchors TO that org, the r
    `loom`, `atelier`, `downstream.<slug>`. Each binds to `{ "org": "<org>", "repo": "<repo>" }`.
 2. **Disclosure-scan BEFORE write (invariant 1).** The registry names real org slugs:
    ```bash
-   node .claude/bin/scan-synced-disclosure.mjs --root "$(git rev-parse --show-toplevel)"
+   node .claude/bin/scan-synced-disclosure.mjs --check --root "$(git rev-parse --show-toplevel)"
    ```
    Exit 0 → proceed. ANY finding (exit non-zero) → HALT; genericize/relocate the offending content and
    re-scan. NEVER write the config before a clean scan. (`ecosystem.json` is scanner-self-excluded when
@@ -42,6 +43,34 @@ Ordered per Q4: the registry defines the org, genesis anchors TO that org, the r
    at the CLIENT's org, never canon's. Automated placement is BLOCKED — a fork AUTHORS its own config.
 4. **Write** the `remote_links` block of `.claude/bin/ecosystem.json` (schema below). The reader is
    `ecosystem-config.mjs::getRemoteLink(key)`; the join is `loom-links.mjs::resolveRemote(key)`.
+
+### C1b — write THIS ecosystem's own canon-identity declaration (the private-slug guarantee)
+
+1. **Author** `.claude/canon-identity-values.json` FOR THIS FORK, from the SAME human-confirmed
+   answers C1 collected — never canon's values, never absent. The seed ships the SHAPE at
+   `.claude/canon-identity-values.example.json` (it travels with every client template): COPY it and
+   replace every placeholder:
+   `{ "private_org_slugs": ["<client-org>"], "retired_org_slugs": [], "public_org_slugs": ["<org the fork's templates live in>"] }`.
+   `retired_org_slugs` carries orgs this fork has moved AWAY from (a transfer/rename must not silently
+   shrink the set while the old slug sits in carriers).
+2. **Human-confirm** every private slug is the CLIENT's own org (invariant 2 extends here).
+3. **Validate BOTH ways** — the distribution assertion (count-only output) AND the
+   `--assert-fork-identity-derived` MANUAL SANITY CHECK (HIGH-1 relabel: deliberately NOT a gate,
+   called from no entrypoint; origin-trusted; it cannot detect a copied canon declaration):
+   ```bash
+   node .claude/bin/lib/strip-build-internal.mjs --assert-private-org-config
+   node .claude/bin/lib/strip-build-internal.mjs --assert-fork-identity-derived
+   ```
+   First: exit 0 with `private org config OK: N slug(s) resolved`. Second: exit 0 when the
+   declaration covers the org this clone's own git `origin` resolves to; a local-path or
+   unparseable origin is UNKNOWN (clear message, never a parsed org), and a missing origin or no
+   declared values refuses. AUTHOR the values from this fork's own confirmed answers (step 2) —
+   the check cannot tell a copied canon file from an authored one. What actually reds every
+   distribution entrypoint is the config contract (set present and non-empty), so a fork that
+   skips this step cannot silently distribute.
+4. **Verify the fences the seed ships for this file** are intact: `loom_only` in
+   `.claude/sync-manifest.yaml` AND a `CLIENT_TEMPLATE_REMOVE` projection entry — canon's file is
+   double-fenced for a reason; the fork's carries the same sensitivity.
 
 ### C3 — establish the genesis trust-root
 
@@ -117,7 +146,10 @@ tool, so it never trips the guard.
 The `validate-bash-command.js` state-file-write guard (`detectStateFileMutationSegmentAware`, Layer 3) BLOCKS any
 interpreter command (`node -e`/`-c`/`-m`, or any command LED by `node`/`python`/`ruby`/`perl`) whose
 **command string** contains a protected state-file path — `operators.roster.json`,
-`coordination-log.jsonl`, `posture.json`, `violations.jsonl`, `.initialized`. The documented inline
+`coordination-log.jsonl`, `posture.json`, `violations.jsonl`, `.initialized` (among others; the
+authoritative set is the `bash` surface of the protected-path registry at
+`.claude/hooks/lib/guard-path-scope.js`, from which `STATE_PATH_RX` is BUILT — grep it rather than
+treat these five as exhaustive). The documented inline
 `node -e '… operators.roster.json …'` form therefore CANNOT run; this is correct — only the canonical
 roster-write path may touch the roster. (`.claude/settings.json::permissions.deny`, where present, is a
 second lexical defense-in-depth layer matching the same paths.)

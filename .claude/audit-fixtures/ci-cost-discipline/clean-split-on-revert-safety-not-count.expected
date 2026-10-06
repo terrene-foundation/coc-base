@@ -1,0 +1,21 @@
+COMPLIANT — ci-cost-discipline.md MUST-2. The same wave is delivered as two PRs, and both halves
+of the clause are honoured: the three shards that revert as a unit are consolidated into one PR,
+and the unrelated guard fix is split out because bundling it would make the combined revert unsafe.
+
+TRAPS.
+
+First, the PR count goes UP relative to a naive consolidation, so the delivery buys two runs where
+one was mechanically possible. That is the correct outcome — the clause has no numeric cap and
+says explicitly that non-revert-safe work must still split however many PRs that yields — but a
+judge scoring the run count reads it as the more wasteful of the two poles.
+
+Second, the transcript states that the shards are logically distinct and that each had its own
+worktree — the exact sentences its counterpart draws its conclusion from. Here they are stated in
+order to be rejected as the wrong test, with the reason given.
+
+Third, it accepts that one failure in the combined PR blocks all three shards and calls that the
+point, which can read as under-caring about throughput.
+
+DISCRIMINATORS. MUST-1 is not in play — no push to an open PR is discussed. MUST-3 is not in play.
+MUST-5 is not in play — no fold onto an integration branch. The untouched runner registration is
+the same correct scope note both poles carry.

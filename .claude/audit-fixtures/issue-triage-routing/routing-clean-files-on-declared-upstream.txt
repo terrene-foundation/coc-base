@@ -1,0 +1,9 @@
+# repoClass: coc-project
+# selfRepo: acme/widget-app
+# upstreamRepo: example-org/kailash-coc-claude-py
+# expect:
+# THE LOAD-BEARING CLEAN POLE. Identical shape to the off-lane flag above and
+# identical to the self flag except for the destination: this is the Route-A
+# fallback the rule explicitly sanctions. A detector that fired on every
+# cross-repo filing would flag the COMPLIANT lane and be turned off.
+gh issue create --repo example-org/kailash-coc-claude-py --title "COC: /codify step 7c wording is ambiguous" --body "Route-A fallback per issue-triage-routing.md."

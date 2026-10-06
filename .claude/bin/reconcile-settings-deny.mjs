@@ -58,7 +58,7 @@
  */
 
 import { readFileSync, writeFileSync, renameSync } from "node:fs";
-import { pathToFileURL } from "node:url";
+import { isMainModule } from "./lib/entry-point.mjs";
 
 // #1309 (redteam P3.2) — atomic write of the security-critical deny contract:
 // write a sibling temp then rename() over the target, so a crash/kill mid-write
@@ -403,7 +403,7 @@ export function main(argv) {
   return 0;
 }
 
-// Run as a CLI only when invoked directly (not when imported by tests/validator).
-if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
+// Entry-point check: .claude/bin/lib/entry-point.mjs (symlink-safe; a lexical compare exits 0 silently).
+if (isMainModule(import.meta.url)) {
   process.exit(main(process.argv.slice(2)));
 }

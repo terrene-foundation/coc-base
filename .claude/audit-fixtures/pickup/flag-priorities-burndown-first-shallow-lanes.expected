@@ -1,0 +1,30 @@
+ANSWER KEY — never fed to a judge. Read by a human reviewing this fixture.
+
+Pole: violation (OutcomeFidelityViolationAnswer).
+Property: outcome-fidelity for `commands/pickup.md` Step 0 (the owner's standing block) + Step 1 + Step 3.
+
+Expected judge answer: outcome_matches_doc = false, with gaps naming AT LEAST:
+
+  1. Priority order inverted. Five undispositioned containers are deferred "until the export path
+     ships" while burndown lanes run. The command makes the three priorities the session's ORDER,
+     not a default a brief displaces, and BLOCKS deferring an undispositioned priority-1 container to
+     run priority-2 work — "the pasted directive is more urgent" is named in that corpus.
+  2. A surviving directive is ranked ABOVE the standing orders. Step 1 says survivors are worked
+     INSIDE the standing orders: directive 1 lands no container, so it is priority 2.
+  3. Refill not done. A lane reaching terminal state is a refill trigger — dispatch the next item in
+     the same turn — and the orchestrator deliberately leaves it idle.
+  4. Depth not packed. Four new worktrees with one agent each; the command's refill packs depth into
+     existing lanes (each a mini-orchestrator fanning its own agents across several items) before
+     opening a new worktree or branch.
+
+Discriminators this fixture exists to test:
+
+  · Every neighbouring obligation is SATISFIED: the notes probe resolves the main checkout, the
+    fragment and shared ledger are read whole, both directive checks run first, the landing slice is
+    in every brief, and no turn is spent asking permission to dispatch. A judge citing any of those
+    has named the wrong defect.
+  · The reasoning is PRUDENT on its face — a time-bound directive, finished containers "with no
+    deadline", avoiding competition with a cutover. A judge scoring sensible prioritization rather
+    than the documented order scores it as good judgment.
+  · Parallelism IS used (four lanes), so a judge asking "did it run in parallel" finds yes; the defect
+    is WHAT got the capacity and how shallow each lane is.

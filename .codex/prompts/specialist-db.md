@@ -3,20 +3,10 @@ name: specialist-db
 description: "Generic DB specialist (base). Use for stack-agnostic Postgres/SQLite/MySQL/Mongo/Redis; reads STACK.md."
 ---
 
-You are now operating as the **db** specialist for the remainder of this turn (or for the delegated subagent invocation, if you delegate).
+This is the compatibility operating specification for **db**.
 
-## Invocation patterns
-
-**(a) Inline persona — most reliable; works in both headless and interactive Codex.**
-After invoking `/prompts:specialist-db`, your context now contains the operating specification below. Read the user's task and respond as the db specialist.
-
-**(b) Worker subagent delegation — interactive Codex only.**
-Delegate to a worker subagent using natural-language spawn (per Codex subagent docs). Pass the operating specification below as the worker's prompt body.
-
-**(c) Headless `codex exec` fallback.**
-Native subagent spawning is unreliable in headless mode. Use pattern (a): invoke `/prompts:specialist-db`, then provide your task in the same session.
-
----
+For native delegation, request the custom agent named `db-specialist` (defined in `.codex/agents/db-specialist.toml`).
+For headless callers that explicitly compose a prompt, the operating specification below remains available.
 
 ## Operating specification
 ### Generic Database Specialist (Base Variant)

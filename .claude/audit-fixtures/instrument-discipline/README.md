@@ -13,11 +13,11 @@ does not reach this directory. What DOES enforce hygiene here is
 `candidate_fixture` to resolve, to carry no answer key, and to have an `.expected`
 sidecar — and which pins this suite in `PINNED_SUITES`.
 
-## Coverage — all six sub-clauses, both polarities each
+## Coverage — all seven sub-clauses, both polarities each
 
 `instrument-discipline.md` enumerates five sub-clauses in the MUST-1..3 block's
-`**Violation scope:**` and one more in the clause-scoped MUST-4 block. Every one
-carries a bipolar pair. For MUST-1..3 that was the condition the suite's
+`**Violation scope:**`, one more in the clause-scoped MUST-4 block, and one more
+in the clause-scoped MUST-5 block. Every one carries a bipolar pair. For MUST-1..3 that was the condition the suite's
 `_deferred_probes` graduation clause required before the declaration could be
 discharged (converting only the three originally-staged clauses was explicitly
 insufficient); MUST-4 shipped its pair in the same change that landed the clause,
@@ -31,6 +31,7 @@ per `coc-artifact-eval-coverage.md` MUST-1.
 | `MUST-3a-firing` | instrument shown to fire HERE | `flag-instrument-never-shown-to-fire` | `clean-positive-control-fired-here` |
 | `MUST-3b-firing` | read the hits, not the tally | `flag-tally-reported-not-hits` | `clean-hits-read-in-context` |
 | `MUST-4-firing` | instrument scoped to the question it was BUILT for | `flag-instrument-reused-for-second-question` | `clean-second-question-re-instrumented` |
+| `MUST-5-firing` | a behaviour change is not verified until a mutation of it REDS something | `flag-behaviour-change-unmutated` | `clean-behaviour-change-mutated-and-red` |
 | `meta-compliance` | rule-authoring conformance | `meta-violation-lexical-sufficiency` | `meta-compliant-discrimination-required` |
 
 ## The answer key lives in the `.expected` sidecar, never in the candidate
@@ -57,6 +58,12 @@ without understanding anything. Concretely:
 - The compliant MUST-3a pole's sweep is NOT empty — it returns seven hits.
 - The compliant MUST-3b pole reports MORE numbers than its counterpart, and
   messier ones.
+- The compliant MUST-5 pole prints the same `# pass 46 # fail 0` in the same
+  opening position, and its change-2 mutation returns the SAME empty red-set its
+  counterpart calls inert — the poles converge exactly at their most similar
+  point and separate only on the double mutation. It also adds no new test case,
+  so a judge expecting a compliant verification round to produce more tests than
+  a sloppy one scores it wrong. Measured byte ratio: 1.014.
 - The compliant MUST-4 pole still INVOKES and cites the same re-used simulator;
   it also quotes both unsound readings, in order to reject them, so a judge
   keying on their presence rather than their disposition scores it wrong. Its

@@ -1,0 +1,76 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - ".claude/audit-fixtures/**"
+---
+
+# Fixture Freshness — A Passing Fixture Measures Its Own Age, Not The Detector
+
+A committed audit fixture asserts what a detector caught on the day the fixture was written. A
+detector edit changes what the detector catches today. A fixture that still passes across that
+edit has demonstrated nothing about the new behaviour, because it was never able to observe it.
+
+## MUST Rules
+
+### 1. Re-Derive Every Fixture Whose Detector Changed, And Prove The Re-Derivation Reached It
+
+When a detector's matcher, anchor or severity changes, every fixture bound to that detector MUST
+be re-derived against the new behaviour before the suite's green is read as coverage. A fixture
+that still passes MUST NOT be treated as evidence the detector is covered: the fixture tests the
+behaviour that existed when it was written, so a green measures the fixture set's age and not the
+change.
+
+The re-derivation MUST be shown to have REACHED the changed arm. Mutate the new arm and confirm at
+least one fixture REDS before banking the set as covering it; an empty red-set resolves nothing on
+its own, because a sibling arm may be absorbing the mutation, and MUST be resolved by dropping
+both arms rather than by a vacuity verdict.
+
+```bash
+# DO — mutate the changed arm, prove a fixture reds, then read the green
+
+<widen the anchor>; node --test .claude/audit-fixtures/gate-depth/   # 4 pass, 0 fail
+<mutate the widened arm>; node --test .claude/audit-fixtures/gate-depth/  # 1 FAILS -> covered
+
+# DO NOT — read the unchanged green as coverage of the changed arm
+
+node --test .claude/audit-fixtures/gate-depth/   # "4 pass, same as before, fixtures are current"
+```
+
+**BLOCKED rationalizations:**
+
+- "Every fixture still passes, so the fixtures and the detector still agree"
+- "A fixture that still passes is still valid"
+- "The edit narrowed the matcher, it cannot have invalidated anything"
+- "Nothing in the suite flagged, so there is nothing to re-derive"
+- "I will re-derive it the next time one of them actually fails"
+
+**Why:** a fixture cannot fail on behaviour it was never written to observe, so an unchanged green
+across a detector edit is byte-identical whether the new arm is covered or entirely untested, and
+the set that looks most current is the one that has stopped measuring anything.
+
+## Trust Posture Wiring
+
+- **Severity:** `halt-and-report` at gate-review (reviewer confirms every fixture bound to a
+  changed detector was re-derived and the re-derivation shown to reach the changed arm);
+  `advisory` at the hook layer per `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3x same-rule in 30d -> drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1x = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: fixture-freshness]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms each fixture bound to
+  a changed detector was re-derived and a mutation of the changed arm reddened at least one case.
+  Phase 2 deferred.
+- **Violation scope:** MUST-1 (fixture not re-derived after its detector changed, or a green read
+  as coverage without a reddening mutation).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-08-19 — proposed after a widened detector anchor shipped with its fixture set fully green and
+unchanged, and the widened arm was found on a later pass to have had no case written against it at
+any point; the same shape had been read as a current fixture set across three prior detector edits.

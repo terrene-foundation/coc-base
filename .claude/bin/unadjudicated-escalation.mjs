@@ -135,9 +135,10 @@
  *   2 = bad arguments, or the self-check failed (the tool refuses to report).
  */
 
-import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isMainModule } from "./lib/entry-point.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_ROOT = resolve(HERE, "..", "..");
@@ -683,23 +684,7 @@ function main() {
   return failed ? 1 : 0;
 }
 
-// Entry-point guard. BOTH sides go through realpathSync, never the lexical
-// string: on macOS a temp dir is reached as `/var/folders/…` while
-// `import.meta.url` renders `/private/var/folders/…`, so a string comparison
-// makes the module silently DECLINE to run and exit 0 — a false green from a
-// tool that never executed (`security.md` § Path Containment, same class).
-function isEntryPoint() {
-  if (!process.argv[1]) return false;
-  const real = (p) => {
-    try {
-      return realpathSync(p);
-    } catch {
-      return resolve(p);
-    }
-  };
-  return real(process.argv[1]) === real(fileURLToPath(import.meta.url));
-}
-
-if (isEntryPoint()) {
+// Entry-point check: .claude/bin/lib/entry-point.mjs (symlink-safe; a lexical compare exits 0 silently).
+if (isMainModule(import.meta.url)) {
   process.exit(main());
 }

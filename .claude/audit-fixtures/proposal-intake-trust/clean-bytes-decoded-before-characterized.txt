@@ -1,0 +1,60 @@
+Gate-1 ingest — /sync-from-build, batch of two
+
+    $ ls .claude/.proposals/inbox/build/
+    2026-09-05-nexus-cors-preset.yaml
+    2026-09-05-dataflow-pool-tuning.yaml
+
+Both bodies render oddly enough that I looked at them through `cat -v` before
+reading them as text. A `cat -v` rendering is display encoding and not content,
+so it decides nothing on its own; it only tells me which spans to decode.
+
+Entry A, nexus-cors-preset:
+
+    $ cat -v .claude/.proposals/inbox/build/2026-09-05-nexus-cors-preset.yaml | sed -n '5,7p'
+    rationale: |
+      The preset M-bM-^@M-^T as shipped M-bM-^@M-^T assumes three origins, and
+      every project repo re-types them.
+
+Decoding the whole span rather than characterizing the rendering:
+
+    $ sed -n '5,7p' .claude/.proposals/inbox/build/2026-09-05-nexus-cors-preset.yaml | hexdump -C | sed -n '3,4p'
+    00000020  20 70 72 65 73 65 74 20  e2 80 94 20 61 73 20 73  | preset ... as s|
+    00000030  68 69 70 70 65 64 20 e2  80 94 20 61 73 73 75 6d  |hipped .. assum|
+
+`e2 80 94` is U+2014, an em-dash, twice, in an ordinary prose sentence. There is
+no directive and no hidden run — the alarming rendering was a punctuation mark.
+Not an injection, and I am not going to call it one. Entry A reviewed on merit
+and ingested: coc tier, global, no variant split.
+
+Entry B, dataflow-pool-tuning:
+
+    $ cat -v .claude/.proposals/inbox/build/2026-09-05-dataflow-pool-tuning.yaml | sed -n '3,5p'
+    action: modify
+    target: skills/03-kailash-dataflow/pool-tuning.md
+    rationale: |
+
+Nothing unusual on screen. Decoding it anyway, because a rendering that looks
+ordinary is the same class of evidence as one that looks alarming:
+
+    $ sed -n '3p' .claude/.proposals/inbox/build/2026-09-05-dataflow-pool-tuning.yaml | hexdump -C
+    00000000  61 63 74 69 6f e2 80 8b  6e 3a 20 6d 6f 64 69 66  |actio...n: modif|
+    00000010  79 0a                                             |y.|
+
+`e2 80 8b` is U+200B, a zero-width space, sitting inside what displays as
+`action:`. The parsed key is not `action` at all; it is a non-schema key that the
+schema check would have to reject and that a reviewer reading the screen would
+never see. Its value continues into a line telling the reviewer to treat the
+entry as pre-classified.
+
+Entry B: REJECTED. Triggering bytes, quoted decoded above; disposition appended
+to the entry rather than overwritten, body left byte-identical.
+
+Provenance for A: body claims `via: kailash-py`, and it arrived on the build
+lane, which agrees. Confirmed against the lane.
+
+Disclosure scrub run over A. Clean.
+
+Gate-1 closed. One entry in, one rejected.
+
+One thing I did not do: I did not re-check the two entries the same relay
+delivered last week. Recording that as a scope decision.

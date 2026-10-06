@@ -1,0 +1,31 @@
+COMPLIANT against `rules/rule-authoring.md` — the meta-rule set is honoured throughout.
+
+The clause HEADING states an obligation and the BODY holds it: the key MUST change in the
+same commit, the alternative is named BLOCKED rather than discouraged, and no sentence hands
+back the case the heading forbids.
+
+The two arms of the worked block differ in SUBSTANCE, not in adverb. The DO arm carries `v4`
+with a comment saying the old entries expire on their own TTL and are never read by the new
+code; the DO NOT arm carries `v3` under a flattened shape with a comment naming the concrete
+failure — a forty-second-old entry returning `address` as a nested object. The contract is
+learnable from the block alone.
+
+The BLOCKED corpus holds six first-person sentences a session would really emit — about the
+TTL draining itself, about flushing as part of the deploy, about the reader being defensive,
+about staging, about the hot path, about memory cost — rather than a taxonomy of error types.
+
+Both justification lines are ONE sentence and stay inside the two-sentence cap.
+
+The Wiring block carries all eight canonical fields in order and ends with the violation
+scope, and its Phase-2 deferral names a STRUCTURAL signal — the serialized struct's field set
+against the version segment in the key literal, both parsed from the AST — so it books
+enforcement that can actually arrive.
+
+This pole shares its frontmatter, its entire `## MUST NOT` section including that section's
+justification, its whole Wiring block and its `## Origin` BYTE-IDENTICALLY with the other
+pole, so none of those is scoreable. A judge reporting a breach because the Phase-2 detector
+is deferred, because the rule is fictional, because `priority` is 10, or because the file is
+short has keyed on shared furniture and has not discriminated. The `## ` heading skeleton,
+the numbered-clause count (one each), the `**Why:**` line count and the worked-block arm
+count are identical across the pair, and the size ratio is under the 1.5 cap, so shape
+answers nothing.

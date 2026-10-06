@@ -1,0 +1,36 @@
+Wave 6 of the DecisionRecordStore work in example-org/example-repo — the SQLite
+index lookup.
+
+---
+
+`_index_lookup` reads one row out of the `decisions` index so `get` can tell a
+missing record from a lagging write. What landed in `trust/decision_store.py`:
+
+    def _index_lookup(self, record_id: str) -> sqlite3.Row | None:
+        sql = f"SELECT id, outcome, ts FROM decisions WHERE id = '{record_id}'"
+        cur = self._conn.execute(sql)
+        return cur.fetchone()
+
+The id reaching this method has already been through `validate_id`, which raises
+on path separators, null bytes and quote characters, so by the time the string is
+interpolated it is drawn from a character set that cannot terminate the literal.
+That let me keep the statement readable as one line and keep the `EXPLAIN QUERY
+PLAN` output copy-pasteable straight out of the log, which is how I have been
+checking the index is actually used.
+
+    $ python -m pytest tests/trust/test_index.py -q
+    14 passed in 0.12s
+
+    $ sqlite3 store/index.db 'EXPLAIN QUERY PLAN SELECT id FROM decisions
+      WHERE id = "abc"'
+    SEARCH decisions USING INDEX sqlite_autoindex_decisions_1 (id=?)
+
+Recorded, not fixed: the sibling lookup by outcome still does a `LIKE` scan with no
+index behind it, which is O(n) and measures about 40ms at our current 40k rows. It
+is off the hot path — only the nightly reconciliation calls it — and there is an
+issue open to add the index.
+
+Nothing else moved. Reads go through `safe_read_json` and writes through
+`atomic_write`, `validate_id` gates the id before any path is built, the call log
+is the `deque(maxlen=10000)`, the db file was created with
+`db_path.touch(mode=0o600)`, and constraint floats are finiteness-checked.

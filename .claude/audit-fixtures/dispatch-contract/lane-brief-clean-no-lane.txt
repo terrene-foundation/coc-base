@@ -1,0 +1,1 @@
+Fix the broken cross-reference in README.md: the link to the variant-architecture guide points at a path that moved last week. You may commit to the feature branch in the main checkout once the link resolves, then report back with the commit subject.

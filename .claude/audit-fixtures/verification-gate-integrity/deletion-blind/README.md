@@ -1,4 +1,4 @@
-# `deletion-blind` — reserved for the MUST-4 Phase-2 detector's fixtures (NOT YET BUILT)
+# `deletion-blind` — the MUST-4 Phase-2 detector is RETIRED; no fixtures are owed here
 
 This directory is EMPTY of fixture cases on purpose, and this file exists so that the path
 `.claude/audit-fixtures/verification-gate-integrity/deletion-blind/` — cited by MUST-4's
@@ -6,9 +6,25 @@ clause-scoped Trust Posture Wiring — RESOLVES rather than dangling. A dangling
 Wiring block is a `spec-accuracy.md` phantom reference and reds `validate-xref-integrity.mjs`.
 
 **Do not read this directory's existence as coverage.** Per `cc-artifacts.md` Rule 9 the audit
-fixtures land WITH the Phase-2 detector, and that detector does not exist. The deferral is
-declared and dated in `.claude/test-harness/phase2-deferrals.json` under
-`verification-gate-integrity.md#deletion-blind`.
+fixtures land WITH the Phase-2 detector — and as of 2026-09-13 that detector will never exist.
+
+**CORRECTED 2026-09-13.** This file used to say the detector was "NOT YET BUILT" and that "the
+deferral is declared and dated in `.claude/test-harness/phase2-deferrals.json` under
+`verification-gate-integrity.md#deletion-blind`". Both sentences are now FALSE: the row was
+RETIRED in the deferral-burndown lane and moved to `acknowledged_non_deferrals`, so there is no
+dated declaration to point at and nothing is pending. They are corrected here rather than left,
+because a README asserting a pending tier is the same absence-reads-as-clean shape this rule
+governs.
+
+The retirement was taken on CORRECTED grounds, and the correction matters: the row's own
+argument had been that the pre-operation authority a detector would need is destroyed by the
+operation it audits. That does NOT hold — a merge's parents survive in the object store. What
+holds is that the deciding property is WHICH GATE a removal verification RESTS ON, which is a
+property of the claim rather than of the tree, and a key-set comparison cannot be told from any
+other key-set comparison without first recognising the code AS a union reconstruction.
+
+This directory stays so the Wiring citation RESOLVES rather than dangling — a dangling citation
+is a `spec-accuracy.md` phantom reference and reds `validate-xref-integrity.mjs`.
 
 ## What covers MUST-4 today
 

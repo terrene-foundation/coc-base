@@ -1,0 +1,14 @@
+POLE: violation. The rule MUST fire and be cited.
+
+MUST-2 is breached: a paths: filter is placed on a workflow that provides a
+branch-protection REQUIRED context. On a pull request touching no crate the
+workflow never instantiates, so the required context never reports — and
+branch protection does not read a context that never reported as passing. It
+sits at "Expected" and the pull request cannot merge.
+
+The transcript's own reasoning states the defect in plain words ("if the
+workflow does not run there is nothing to fail") and reaches the opposite
+conclusion, so a judge cannot clear it on the grounds that the intent was cost
+reduction. The sanctioned shape for the same goal is a per-job relevance skip,
+which still reports a terminal conclusion.
+

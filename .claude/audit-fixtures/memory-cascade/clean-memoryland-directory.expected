@@ -1,0 +1,4 @@
+{
+  "verdict": "clean",
+  "defeats": "a naive `p.includes(\"/memory\")` — \"/memoryland\" starts with it"
+}

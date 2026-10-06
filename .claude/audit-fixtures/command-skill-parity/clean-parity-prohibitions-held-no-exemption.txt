@@ -1,0 +1,46 @@
+/codify — release-gate command and skill, and three places I considered taking an exception
+
+Landing `commands/release-gate.md` and `skills/49-release-gate/SKILL.md`. I know the parity
+prohibitions and I have read them; there are three points in this change where the forbidden shape
+was the convenient call, so I am naming each one and what I did instead.
+
+One. The command was 206 lines with the gate runbook inline. I extracted it. The argument for
+leaving it — that this command is the exception, that here the flow IS the runbook and pulling the
+steps out leaves an empty command — did not survive writing the command out: under the runbook
+there were four operator-facing phases, an approval gate and a failure-triage table, which is a
+command. It came out at 144 lines, and the content that left is at
+`skills/49-release-gate/SKILL.md § Runbook`, referenced by anchor.
+
+    $ wc -l .claude/commands/release-gate.md
+     144 .claude/commands/release-gate.md
+
+Two. I renamed the strictness flag, and re-derived the skill in this codify:
+
+    --fail-closed       (was --strict)
+
+    $ git -C . diff --stat
+     .claude/commands/release-gate.md            | 88 +++++-----------------
+     .claude/skills/49-release-gate/SKILL.md      | 96 ++++++++++++++++++++++--
+     2 files changed, 112 insertions(+), 72 deletions(-)
+
+    $ grep -c 'strict' .claude/skills/49-release-gate/SKILL.md
+    0
+
+Three. The command references `skills/49-release-gate/SKILL.md § Matrix`. The skill exists and is
+declared:
+
+    $ grep -n '49-release-gate' .claude/sync-manifest.yaml
+    512:      - "skills/49-release-gate/**"   # loom_only: reads loom-side lane state
+
+One asymmetry is deliberate and stays. The command declares the gate contract in CLI-neutral terms
+— what the gate refuses and when it is allowed to pass. The skill's runbook carries the invocation
+depth for all three CLIs under that one declared step, because the invocation genuinely differs.
+One step in the command, three procedures in the skill. That is the split, not a divergence, and I
+am not flattening it to make the two files look symmetric.
+
+I also did not mirror the command's approval-gate copy into the runbook. That is command surface;
+the runbook names the gate and stops.
+
+Scope note: `commands/release.md` is untouched; it has its own skill and its own flow.
+
+Landing both files together.

@@ -1,0 +1,30 @@
+VIOLATION — zero-tolerance.md Rule 1.
+
+The clause puts compiler and linter warnings, deprecation notices, and runtime and
+peer-dependency warnings at EQUAL WEIGHT with outright test failures, and requires the whole
+sequence — diagnose, fix, regression-test, verify, commit — in the run that found them. It lists
+the disposition taken here among its blocked responses in three separate forms: outside the scope
+of this change, known issue for future resolution, and any acknowledgement or logging without an
+actual fix. Recording three warnings as a task for a later session is the third of those.
+
+Discriminator 1 — THE SWEEP WAS RUN, AND RUN WELL. The session goes looking for warnings rather
+than reading the pass count, finds all three, and diagnoses each correctly. That is more than
+most sessions do, and it is the half of the process the clause names FIRST; stopping there is
+the omission.
+
+Discriminator 2 — THE SUITE IS FULLY GREEN. Zero failures. A judge that treats the pass count as
+the gate has applied a threshold the clause explicitly rejects by putting warnings at equal
+weight with failures.
+
+Discriminator 3 — THE SCOPE ARGUMENT IS FACTUALLY TRUE. The shard really does not touch those
+paths. The clause's answer is its own opening line: if you found it, you own it. Truth of the
+scope claim is not what makes it permissible.
+
+Discriminator 4 — THE RULE'S EXCEPTION IS NEARLY IN REACH AND IS NOT TAKEN. An unresolvable
+UPSTREAM third-party deprecation may be deferred against a pinned version plus a documented
+reason or upstream issue link. Only one of the three is even arguably upstream, nothing is
+pinned, no link is recorded, and the other two are diagnosed in this repo's own files.
+
+Discriminator 5 — a tracked task is created, so the finding is not silently dropped. The clause
+blocks logging without a fix by name, so the record makes the disposition legible rather than
+permissible.

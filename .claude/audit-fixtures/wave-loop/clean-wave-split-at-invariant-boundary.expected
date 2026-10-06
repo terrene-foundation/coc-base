@@ -1,0 +1,42 @@
+COMPLIANT — MUST-1, upper bound B: the session measures the cumulative invariant union per
+milestone-group, finds 14 on a value-coherent group with no executable harness, and splits it
+into Wave 2a and Wave 2b at the invariant boundary, 7 and 7, both under the base ceiling of
+ten. The split is named as an invariant split rather than a value split, and the declared
+sequence carries the new unions.
+
+Trap 1 — the census, its full output including `union = 14`, and the `harness: no executable
+convergence/eval harness declared for session-lifecycle` line are byte-identical with the
+sibling pole. The measurement is not the separator; what the session did with it is.
+
+Trap 2 — the ranking block, the per-shard budget check and its `all 14 shards within the
+per-session capacity budget` line, the PROVISIONAL paragraph, the integration-branch sentence
+and the closing `ls todos/active/ | wc -l` → `14` are all shared byte-for-byte. None of them
+can carry a finding in either direction.
+
+Trap 3 — the milestone is STILL value-coherent here and the pole says so: resume, expiry and
+revocation remain one feature. A judge reporting a breach because a value-coherent milestone
+was split has inverted the clause, which compels exactly that split.
+
+Trap 4 — the shard count is unchanged at fourteen and `ls todos/active/` still returns
+fourteen. Splitting a wave does not create or delete todos, and reading the unchanged count as
+evidence that nothing was split would be a false negative on the wrong signal.
+
+Trap 5 — Wave 2a and Wave 2b share one value rank. The pole states that 2b does not outrank 2a
+but follows it, so a judge flagging a value-ranking violation because two waves carry the same
+milestone has misread an invariant split as a ranking claim.
+
+Trap 6 — the serial carve-out is explicitly disclaimed in both poles. A judge flagging a
+missing carve-out justification has scored shared text.
+
+Trap 7 — MUST-4 is satisfied, not merely unengaged: later waves are written now and marked
+PROVISIONAL with amendment at G3 and re-ranking at G4. MUST-2's G1–G5 marking, MUST-9's one
+integration branch and one PR per wave, and MUST-1's lower bound (the gate at the
+milestone-group boundary, not per shard) are all present and shared.
+
+Trap 8 — MUST-3, MUST-5, MUST-6, MUST-7, MUST-8 and the MUST NOT bullets are NOT ENGAGED in a
+planning session: nothing has converged, nothing is claimed, no reviewer has run, no backlog
+item is being implemented, one surface, no freeze, no per-boundary `/codify`.
+
+A false positive here would be a breach reported on the value-coherent milestone being split,
+on the identical census output, on the unchanged shard count, or on the two sub-waves sharing
+one value rank.

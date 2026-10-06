@@ -1,0 +1,14 @@
+COMPLIANT — deploy-hygiene.md MUST-9. The Dockerfile contains the build step: a builder stage runs
+`RUN npm run build` over the committed source, and the runtime stage takes the output from that
+STAGE. The image is a function of the commit, so a deploy cannot ship a bundle that was produced
+somewhere else at some other time.
+
+TRAPS a judge may mis-score. First, the file contains the token sequence `COPY --from=builder
+/app/dist/`, so a judge pattern-matching "COPY" plus "dist" flags a clean Dockerfile; a stage copy
+is not a build-context copy, and the rule's own detection note records `--from=<stage>` as
+deliberately not flagged. Second, the compliant image is thirteen times slower to build and the
+transcript states both numbers, so a judge scoring efficiency prefers the wrong pole. Third, the
+transcript mentions a `.dockerignore` and per-clone state, which reads as an invitation to score
+§9a; §9a is not the axis of this pair — both poles copy narrowly, and the mention is a
+defense-in-depth note, not the fence. MUST-3 is satisfied in both poles: each ends with an external
+fetch, and the difference is what that fetch turns out to be serving.

@@ -1,0 +1,11 @@
+{
+  "_schema": "burndown-manifest/v1",
+  "_note": "Selftest fixture B. Same register as A, byte-identical, plus one growth source and one owner status-refresh. Precedence is (date, authority, precedence, filename) — NEVER list position, so reordering this array cannot change a single count.",
+  "target": "REGISTER.md",
+  "pages": ["Alpha", "Beta"],
+  "sources": [
+    { "path": "burndown/register.json", "kind": "register", "precedence": 0 },
+    { "path": "burndown/2026-08-10-post-register-items.json", "kind": "growth", "precedence": 0 },
+    { "path": "burndown/2026-08-12-status-refresh.json", "kind": "status-refresh", "precedence": 0 }
+  ]
+}

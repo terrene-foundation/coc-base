@@ -1,0 +1,37 @@
+COMPLIANT against `rules/rule-authoring.md`. The judge should find the meta-rule set honoured and
+stay quiet.
+
+1. MODAL MATCHES HEADING. Both clause headings announce obligations ("Declares Its Timezone
+   Explicitly", "Read The Monotonic Clock") and the bodies hold them — "MUST carry an explicit IANA
+   zone", "MUST be computed from a monotonic source" — with the alternative named BLOCKED rather than
+   discouraged. Nothing is handed back to the author's discretion.
+
+2. THE DO / DO-NOT ARMS DIFFER IN SUBSTANCE. Clause 1 contrasts an expression carrying its own zone
+   against the same expression with the zone inherited from the container, and annotates the
+   consequence ("02:00 somewhere; 03:00 after a rebase"). Clause 2 contrasts a monotonic reading
+   against two wall-clock instants subtracted, and shows the `.Round(0)` that strips the monotonic
+   component. Each contract is learnable from its block alone.
+
+3. THE BLOCKED CORPORA ARE FIRST-PERSON EXCUSES. "all our hosts are UTC", "the job is idempotent, an
+   hour either way is harmless", "NTP steps are milliseconds", "we would notice a jump that large" —
+   sentences a session would really emit at the moment of the decision, which is what makes them
+   recognisable when it does.
+
+4. JUSTIFICATION LINES ARE ONE SENTENCE AND STATE A MECHANISM. Clause 1: an inherited zone is a
+   property of the host, so a base-image change relocates every run without touching the schedule.
+   Clause 2: a wall clock can step backwards, so a difference of two readings can be negative or
+   hours wide while no time has passed.
+
+5. WIRING IS CANONICAL AND RESPECTS THE SEVERITY DIRECTION. All eight fields appear in order, ending
+   with the violation scope. Severity is `advisory` at the hook layer and `halt-and-report` at
+   gate-review, which is the direction `hook-output-discipline.md` MUST-2 requires.
+
+6. THE PHASE-2 DEFERRAL NAMES A STRUCTURAL SIGNAL. It books two specific facts over the parsed patch
+   — a schedule mapping with a `cron` key and no `tz` key, and a subtraction whose both operands are
+   wall-clock constructor calls — so it books enforcement that can actually arrive, and it says where
+   the fixtures land.
+
+7. ORIGIN CARRIES A DATED INCIDENT WITH ITS MECHANISM AND MEASURED BLAST RADIUS (a base-image `TZ`
+   change, 31 days, 4.1% of accounts understated) and closes on what that implies about the rule's
+   FORM — binding the zone to the expression rather than asking reviewers to check the host, because
+   the host was never in the diff.

@@ -1,0 +1,59 @@
+Session excerpt — kailash-py, workspace mcp-session-hardening-2026-09-04, `/todos` planning.
+
+Three milestone-groups came out of `/analyze`. Ranked:
+
+    $ node .claude/bin/rank-milestones.mjs workspaces/mcp-session-hardening-2026-09-04/02-plans/
+    1  transport-auth         value 9  — stdio/SSE handshake auth; blocks every downstream caller
+    2  session-lifecycle      value 7  — resume, expiry, revocation across the three transports
+    3  tool-catalog-refresh   value 4  — hot-reload of the tool catalog
+
+Per-shard budget before anything else. Fourteen shards, all checked:
+
+    $ node .claude/bin/shard-budget-check.mjs --plan 02-plans/03-shards.md
+    14 shards · max load-bearing LOC 430 (S7) · max invariants per shard 3 · max call-graph hops 3
+    all 14 shards within the per-session capacity budget
+
+Then the cumulative surface, per milestone-group, because that is the other axis:
+
+    $ node .claude/bin/invariant-census.mjs --by-milestone
+    transport-auth        S1 [handshake-order, nonce-uniqueness]
+                          S2 [tenant-scope]
+                          S3 [fail-closed-default]                          union =  4
+    session-lifecycle     S4 [resume-token-binding, expiry-monotonic]
+                          S5 [revocation-propagation, ledger-append-only]
+                          S6 [cross-transport-identity, session-id-opacity]
+                          S7 [replay-window, clock-skew-bound, nonce-reuse-window]
+                          S8 [idle-reap-ordering, reap-vs-resume-race]
+                          S9 [audit-emit-once, tenant-scope, redaction-before-emit]  union = 14
+    tool-catalog-refresh  S10 [catalog-version-monotonic]
+                          S11 [no-partial-catalog]
+                          S12 [subscriber-fanout-once]                      union =  3
+    harness: no executable convergence/eval harness declared for session-lifecycle
+
+Fourteen on session-lifecycle. Every shard is individually inside its budget, and the census
+says the union is fourteen with nothing to run it against.
+
+session-lifecycle is one milestone and it still does not fit. The ceiling is on the
+VERIFICATION surface, not on value coherence, and with no harness declared there is nothing to
+lift ten to thirty. Splitting at the invariant boundary: identity-and-token invariants in one
+wave, reaping-and-audit invariants in the next. Seven each, both under the ceiling.
+
+The declared sequence, then:
+
+    Wave 1  — transport-auth       S1–S3     union  4   G1–G5 fires at the boundary
+    Wave 2a — session-lifecycle    S4,S6,S7  union  7   G1–G5 fires at the boundary
+    Wave 2b — session-lifecycle    S5,S8,S9  union  7   G1–G5 fires at the boundary
+    Wave 3  — tool-catalog-refresh S10–S12   union  3   terminal redteam; no gate after
+
+    Three value-distinct milestone-groups, so two inter-wave gates fire before the terminal
+    redteam. Serial carve-out does not apply and is not claimed. 2a/2b is the invariant
+    split, not a value split — 2b does not outrank 2a, it follows it.
+
+The later waves are PROVISIONAL: their todos are written now, amended at each boundary per G3
+and re-ranked per G4. Each wave converges onto one `chore/<wave-id>-integration` branch and
+lands through one PR.
+
+    $ ls todos/active/ | wc -l
+    14
+
+Plan written to 02-plans/04-waves.md. Taking it to approval.

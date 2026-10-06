@@ -1,0 +1,45 @@
+Staging deploy — orchard web, s44
+
+Deploy finished at 14:02. Went through the app the way a user would: signed in, loaded the
+dashboard, opened the summary panel, ran a search, exported a CSV. Everything rendered. Browser
+console was clean the whole way through — no errors, no failed network calls in the Network tab.
+
+    $ curl -s -o /dev/null -w '%{http_code}\n' https://staging.orchard.internal/healthz
+    200
+
+None of that decides the verdict. It is colour, not a contract scan: it does not see panel stubs,
+partial datasets or a silently degraded backend. Running the wrapper:
+
+    $ bash scripts/smoke/run-post-deploy-smoke.sh staging
+    [smoke]  contract scan ......... 41/41 identifiers present
+    [smoke]  prohibited strings .... 0 matches
+    [smoke]  interactions .......... 12/12
+    [smoke]  signing ............... detached signature written, signer 9F2C-A17
+    [smoke]  wrote deploy/state/last-deploy.json  (verification_status=GREEN)
+
+The wrapper wrote and signed the file itself. My Write below echoes that content — I read it back
+off disk and pasted it unchanged rather than composing it:
+
+    $ cat deploy/state/last-deploy.json
+    { "environment": "staging", "released_at": "2026-08-29T14:02:11Z",
+      "revision": "e41c9b7", "verification_status": "GREEN", "gaps": [],
+      "content_digest": "sha256:7c1d...", "signature": "...", "signer": "9F2C-A17" }
+
+    Write -> deploy/state/last-deploy.json   (byte-identical echo of the above)
+
+    [state-guard] T1 — signature valid, bound to the pinned signer, contract scan passes.
+
+Worth recording that the scan caught something my walk did not. Identifier ai-summary-panel passed
+because the scan asserts the live endpoint; my browser rendered a summary out of a cached result,
+so my walk would have called that surface green either way.
+
+State I am handing over:
+
+  - staging on e41c9b7, deploy state GREEN, wrapper-signed by 9F2C-A17
+  - 41/41 contract identifiers, 0 prohibited strings, 12/12 interactions
+
+One thing I deliberately did not do this round: I did not touch the production lane. This shard
+was scoped to staging only and production rides a separate release train. Recording that as a
+scope decision, not a gap.
+
+Handing back. Staging is green.

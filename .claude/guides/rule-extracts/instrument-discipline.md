@@ -62,6 +62,33 @@ printed — which is why it survives review: the evidence contradicting the repo
 visible in the same block. Observed twice in one session (2026-08-02), both times on a
 distribution gate, both times with the real `FAIL` rows on screen beneath the false `EXIT=0`.
 
+**This one now has teeth.** Recurring three more times on 2026-09-06 (two in a single lane) bought
+it a structural detector: `hooks/lib/violation-patterns.js::detectExitCodeLaundering`, fired from
+`detect-violations.js`'s **`PostToolUse`** Bash matcher, which parses the command into pipeline
+stages and flags a pipeline whose FIRST stage invokes a VERDICT command and whose LAST stage is
+status-opaque. An earlier revision of this paragraph said `PreToolUse`; that was FALSE when
+written and is corrected rather than left, because a reader checking the wrong event finds nothing
+and reads the silence as "no detector". MEASURED on `settings.json`: the only `PreToolUse`
+registration of that hook carries matcher `Read`, which never carries a Bash command; the Bash
+branch is `PostToolUse`, and the dispatch site says so in its own comment. Widened 2026-09-11 after
+the recogniser was measured SILENT on three of four instances from one day — `gh pr checks | head`,
+`pytest | tail`, `cargo test | head` all walked through a set scoped to this repo's own gate
+scripts. The verdict set is now a CLOSED table matched at argv position (repo gates, `node --test`,
+test runners, linters/typecheckers, `cargo`/`go`/`npm` subcommand paths, `gh pr checks`, and
+`git diff` only with `--exit-code`/`--quiet`), and the sink set is the status-opaque family
+(`head`/`tail`/`wc`/`cut`/`tee`/`sort`/`sed`/… ) rather than `head`/`tail` alone. `grep`, `jq`,
+`awk`, `diff` and `xargs` are deliberately EXCLUDED as sinks — each has a meaningful status of its
+own — and `make` is excluded as a verdict, because `make -n | head` is a dry-run listing nobody
+reads a status from and the parse cannot tell it from `make test`. It is `halt-and-report`, NOT
+`block`: the pipeline shape is structural and so
+`hook-output-discipline.md` MUST-2 leaves `block` available, but the shape is only NECESSARY —
+the violation completes when the laundered status is READ as a verdict, which is not observable at
+tool-call time, and blocking would refuse a legitimate `| head -50` issued merely to look at
+output. It stays silent on `pipefail`/`PIPESTATUS`, on a first stage that is not a gate, and on a
+last stage that propagates a real status. Bipolar fixtures:
+`.claude/audit-fixtures/violation-patterns/detectExitCodeLaundering/`; executing suite:
+`.claude/test-harness/tests/exit-code-laundering.test.mjs`.
+
 ## The fixture layer — a passing test is an instrument
 
 `probe-driven-verification.md` blocks the bag-of-words probe. One layer down sits the same defect wearing a lab coat: **the test itself**.
@@ -103,6 +130,160 @@ When a mutation does NOT red the test, exactly two hypotheses remain live:
 ```
 
 **Cheap execution markers, by ecosystem:** Rust `panic!("MUTATION REACHED")` / Python `raise AssertionError("MUTATION REACHED")` / JS `throw new Error("MUTATION REACHED")` / any language: `process::abort()`. If the marker does NOT fire, the mutation never ran and the experiment produced nothing — re-site the mutation; do not record a result.
+
+## The harness you built to test the instrument is itself an instrument
+
+When a check cannot be run against the real tree — because the tree is protected, because the
+change is not applied yet, because you need a mutated copy — the usual move is to construct a
+harness: a mirror directory, a symlink farm, a temp tree, a copy of one file. **That harness is an
+untested instrument, and MUST-3 applies to it before any result read through it is evidence.**
+
+The step, in order, every time:
+
+> **Run the UNMODIFIED baseline inside your constructed harness and confirm it reproduces a
+> verdict you ALREADY KNOW from the real tree. Only then read anything else the harness tells you.**
+
+If the baseline does not reproduce, you have measured your harness, not your change — and every
+subsequent result is uninterpretable. Stop and fix the harness.
+
+```bash
+# DO — the known-answer run comes first, and its verdict is compared to the real tree's
+cp -R "$REPO/.claude/bin" "$H/.claude/bin"
+node "$H/.claude/bin/<gate>.mjs" > /tmp/base.txt 2>&1; echo "harness_baseline=$?"   # must match the real-tree verdict
+<only now: apply the change / mutation and re-run>
+# DO NOT — construct the harness and read the first result as a finding
+<build mirror>; <run modified gate>   # 0 findings → "pre-existing defect"  ← measured the harness
+```
+
+**The recurring shape: a mirror that is structurally different from what the code inspects.** A
+symlinked directory entry is not a file, so a walker testing `isFile()` — `measureTree` is the
+local instance — silently reports an EMPTY surface for a symlink-mirrored tree. The whole `bin`
+surface reads as absent, exit 0, no error. Three separate agents hit this in one session
+(2026-09-06) and all three read it as a PRE-EXISTING defect in the code under test rather than as
+a property of the harness they had just built. The tell was available and cheap in every case: the
+unmodified baseline would have reported the same empty surface, which the real tree does not.
+
+**Two more instances from the session that authored this section**, both caught only by the
+known-answer step:
+
+- A mutant copy of a scanner was placed at the scratch root instead of at `<harness>/.claude/bin/`,
+  so its `REPO_ROOT` — derived from `import.meta.url` — resolved elsewhere and it scanned **zero
+  files**, exiting 0 with an empty result. Read naively that is "the mutation changed nothing,
+  therefore the mutation is inert" — an empty red-set banked as a vacuity verdict, the exact
+  MUST-5(b) failure two sections above. The mutated file's own reach marker never printed, which
+  is what exposed it.
+- A patched `violation-patterns.js` was copied to a bare directory without its sibling modules, so
+  `require` threw `MODULE_NOT_FOUND` before the detector was ever reached. That one is benign only
+  because it errors loudly; the previous one does not.
+
+**Cheap fidelity controls, in rough order of strength.** Prefer a verdict; fall back to a surface
+count; never settle for "the command ran".
+
+| Control | What it catches |
+| --- | --- |
+| Unmodified baseline reproduces the real tree's **verdict** | everything below, and semantics too |
+| Harness **surface count** equals the real tree's (`find … \| wc -l`, files scanned) | empty/partial mirrors, the `isFile()` symlink class |
+| The symbol under test is **absent** from the baseline and present after the patch | patched the wrong copy |
+| A **reach marker** at the mutated line prints | the mutation never executed |
+
+Use `cp -R`, not a symlink farm, whenever the code under test walks the tree — the copy costs
+seconds and removes the entire class.
+
+**BLOCKED rationalizations:** "the mirror is just a copy, it behaves the same" / "the gate ran and
+exited 0" / "0 findings means my change fixed it" / "this must be a pre-existing defect" / "the
+mutation didn't change anything, so it's inert" / "building a control for a directory copy is
+ceremony" / "symlinks are transparent to everything that matters".
+
+**Why:** a constructed harness fails SILENTLY and in the reassuring direction — an empty surface,
+a clean exit, zero findings — so its failure is byte-identical to the good news you were hoping
+for. The known-answer run is the only step that separates them, and it costs one command.
+
+## The subject test — a measurement describes an ARTIFACT, and it must be the one under test
+
+Every other clause in this file asks whether the instrument could have said something else, or said
+it about a different question. This one asks a smaller question that the others structurally miss:
+
+> **What artifact does this number describe? Name it — and show it is the one under test.**
+
+**The instrument WORKED.** It ran, it exited, it printed a plausible value — and the value
+described an artifact other than the subject. That is what makes the class hard: the same exit code,
+the same shape of number, often a magnitude that matches expectation, so **nothing in the output
+distinguishes the two cases**. Every form below was caught by a human or an agent asking what the
+number was actually ABOUT. Not one was caught by a tool.
+
+**Four axes, four clauses — do NOT fold them together.** MUST-4 governs the QUESTION (soundness for
+A read as a verdict for B); `evidence-first-claims.md` MUST-6 governs the CLASS (an instrument
+blind to the class under review); this rule's MUST-6 governs TIME (a figure that outlived its
+subject's state); **this section governs SUBJECT IDENTITY** — the right question, asked of the
+wrong artifact. The remedies differ, which is the practical reason to keep them apart:
+re-instrument · establish scope · re-derive · **pin the subject**.
+
+### The forms it has taken, measured
+
+- **The instrument materialised the wrong TREE.** `buildClientTemplateTree()` materializes from
+  `git archive HEAD`, so every projection residual reported in one session (431, 34, 51) described
+  the **COMMITTED tip** and was structurally blind to the uncommitted work that **was** the
+  deliverable. A figure was then hand-adjusted by subtracting four findings — arithmetic over a
+  number that was about something else. The remedy named there is the one here: materialize the
+  REAL tree, then re-derive. (The operator's session notes, 2026-09-30.)
+- **…and its second form, worse.** The first fix overlaid *modified tracked files* — still blind to
+  **(a) untracked new files, (b) deletions, (c) renames** — and so returned **a clean verdict about
+  a file it never opened**, the most dangerous output an instrument can produce
+  (`conservation-gate.md` MUST-3 requires naming the blind classes).
+- **A verification that passed its own class.** `c391e3ca2` moved a `slot:examples` body out of
+  `.claude/rules/agents.md` into its paired extract and deleted the CLOSER with the content; the
+  file read three openers to two closers and the repo's own instrument red (`check-xref-post-overlay.mjs`,
+  exit 3 INCOMPLETE). The author's check had diffed **obligation tokens** — every removed line really
+  was a cross-reference or a census line, **true as stated** — while the defect was in **slot
+  markers**, a class it could not see. The corpus had already learned this once (`9121b361c`). **A
+  check that passes its own class is not evidence about a different class.**
+- **A truncated enumeration read as a total.** A sweep reported **8** `COC_OPERATOR_KEY_PATH` sites
+  where there are **9**; the miss was the reporter's own `| head -8` cut, and the tally was published
+  as the census ((loom-internal reference)). The
+  instrument was sound and the number described a **prefix of the file**.
+- **The probe selected by its LABEL.** A contrast harness picked its probe file by
+  substring-matching its own **label** (the label said `gains`, the probe said `gained`) and so
+  printed **PASS for a pole that had actually FAILED** — a 1/3 contrast reported as 3/3.
+  *"A label is prose; the probe is the measurement."*
+- **The fixture that measured the caller's environment.** A fixture runner's env-key allowlist
+  omitted the session-id variables, so its spread of `process.env` **leaked the ambient session id
+  into the child**, and the suite's green depended on who ran it. Measured A/B, one host, one tree,
+  one commit, variable exported versus unset: **darwin 53p/1f WITH vs 54p/0f WITHOUT** (Linux
+  51p/1f vs 52p/0f). The suite was RED exactly where the guard runs. (`fd62c1283`.)
+- **A green suite over live bypasses.** A guard's suite read **71/0** while the guard's bypasses were
+  demonstrably live — three consecutive rounds of it — and the handover's instruction is explicit:
+  *"Do not land on the green; land on the reform."*
+- **An A/B whose arms shared the instrument.** Two arms run on the SAME host cannot separate
+  "pre-existing" from "host-sensitive": the same 12 failures were produced by one host that had
+  returned the same suite green earlier that day. And an A/B whose arms share the CODE under test
+  cannot separate code-caused from content-caused effects — a regression laundered into a baseline
+  by the instrument rather than by the analyst.
+
+```bash
+# DO — pin the subject, and print the pin INSIDE the run whose result you will cite
+node -e 'const c=require("crypto"),f=require("fs");/* hash every file the verdict READS */' <files>
+git hash-object <artifact>      # the same hash before AND after: mutant and subject are one object
+pwd -P                          # which TREE this ran in — the footer is not always there to say
+# DO NOT — cite a number whose subject was never named
+"the suite is green"            # green over a copy from HEAD, over a leaked env, over a truncated list
+"8 sites"                       # the number is real and describes the first 8 lines
+```
+
+**BLOCKED rationalizations:** "the tool ran and printed a number" / "the count is plausible for the
+artifact I meant" / "it's the same file name" / "the path is right, so the bytes are right" / "the
+mutant is a copy of the file under test, close enough" / "the same command worked last time" / "the
+label says what it measures" / "the harness is a copy, it behaves the same" / "the fixture is close
+enough" / "the environment doesn't matter for this assertion" / "I read the output and it looked
+right" / "the file is still there, so nothing was lost".
+
+**Why:** a measurement of the wrong artifact is INDISTINGUISHABLE at read time from a measurement of
+the right one — same exit code, same shape, often the expected magnitude — so no amount of care in
+reading the output can separate them, and only naming and pinning the subject can.
+
+**Binding.** This section is DEPTH for the rule above (no new clause is claimed, so no new
+per-clause Wiring block or probe pair is owed — the wiring file's own contract is that it restates
+clauses that live in the rule). The promotion gate — a clause is owed once the emission lanes are
+back above their floors — is recorded at `journal/0642`.
 
 ## BLOCKED corpus
 
@@ -241,6 +422,157 @@ the semantics; the reader's question does not.
 A second relayed entry, evaluated in the SAME pass, proposes that a gate's self-test pin THREE
 outcomes — holds, does not hold, and CANNOT-MEASURE — and that a gate depending on an external
 oracle prove that oracle's capability before scoring. Both entries claimed the same free MUST slot,
-which is the numbering collision the second names explicitly. Landing MUST-4 standalone here fixes
-the ordering deliberately: the sibling lands as **MUST-5**, unambiguously. It is NOT yet placed —
-see the Gate-1 placement PR for the lane-headroom measurement that deferred it.
+which is the numbering collision the second names explicitly. Landing MUST-4 standalone here fixed
+the ordering deliberately, and at the time this paragraph was written the sibling was expected to
+land as **MUST-5**. **That is no longer true and the sentence is corrected rather than left to
+mislead:** the MUST-5 slot was taken on 2026-09-01 by the mutate-the-behaviour-change clause. The
+relayed sibling is STILL NOT PLACED and takes the next free slot when it lands — see the Gate-1
+placement PR for the lane-headroom measurement that deferred it.
+
+
+## MUST-3 — the illustration enumeration, extracted
+
+MUST-3's `**Why:**` used to enumerate three ways a sound check is physically unable to emit its
+falsifying result HERE. The claim is the rule's; the examples are depth, and live here:
+
+- **An unimplemented regex dialect.** The pattern is valid PCRE and the local `grep`/`ugrep` build
+  never implements that construct, so it matches nothing and says nothing about why.
+- **A shell that will not word-split.** The loop is correct and the array never expands, so the
+  body runs zero times and exits 0.
+- **A case-insensitive filesystem.** `git ls-files --error-unmatch <WRONGCASE>` errors identically
+  to "untracked", and `ls` / `head` corroborate the wrong reading.
+
+## MUST-5 — depth
+
+### The parent evidence, measured
+
+Three separate behaviour changes on ONE branch each left their fixture suite fully green — 95/95,
+then 99/99, then 99/99 — until cases were written specifically for them. A fourth was surfaced by
+the final review round at 193/193. Every one of the four was caught by MUTATION. None was caught by
+reading the diff against the case list, and the case lists were read each time.
+
+The mechanism is not carelessness. A case is written against the behaviour that existed when it was
+written. New behaviour is therefore un-covered BY DEFAULT, and the suite is green for exactly that
+reason — the green measures the age of the case set, not the coverage of the change. That is why the
+green is not weak evidence but ZERO evidence, and why MUST-5 states the suite's green across a real
+behaviour change IS the finding rather than a reassurance to be weighed.
+
+### Why an OBLIGATION clause rather than an extension of MUST-2
+
+MUST-2 governs how a mutation is READ once you have run one. It carries no requirement to run one.
+The three green suites walked through exactly that gap: nothing in the corpus said "you must mutate
+this", so nothing was mutated, so MUST-2 never became reachable. MUST-5 is the obligation half;
+MUST-2(b) was shortened to delegate the resolution here rather than state it twice.
+
+### (a) The reach proof, and the failure it is written from
+
+One mutation in the parent session reported 3 reds before and 3 reds after. Read naively that is an
+inert mutation — a clean, plausible, WRONG reading. The replacement text still contained the token
+the cases matched, so the mutation had not changed what any case saw. Nothing about the result
+distinguished "this code is redundantly defended" from "I did not actually mutate anything", which
+is MUST-1's test applied to the mutation itself. Hence: show the mutation REACHED the code before
+reading its result, never after.
+
+### (b) The double mutation, and why an empty red-set is not a vacuity verdict
+
+Several mutations in the same session were genuinely inert: a defense-in-depth SIBLING absorbed
+them, so the observable behaviour never moved and no case could red. An empty red-set is therefore
+consistent with two live hypotheses at once — the cases are vacuous, OR the mutation was absorbed —
+and picking either is a guess wearing the grammar of a verdict.
+
+The resolution is a DOUBLE mutation: drop the sibling as well. If the pair reds, the sibling was the
+absorber and the cases were never vacuous. If the pair still does not red, the vacuity hypothesis
+survives its first real test. The runner headers on this branch record both shapes explicitly —
+`M-H2` reddened NOTHING and is annotated "NOT A VACUITY VERDICT", with `M-H2b` dropping both prose
+mentions and reddening case 140.
+
+### BLOCKED corpus — MUST-5
+
+- "the suite is green"
+- "it's a small change"
+- "the existing cases cover it"
+- "I'll add a test if it breaks"
+- "the change is obviously covered by what's already there"
+- "the mutation didn't red, so the test is vacuous"
+- "writing a case for it now is teaching to the test"
+- "the review round will catch it"
+- "I read the diff and the cases, they line up"
+- "the behaviour didn't really change, it was a refactor"
+- "mutating it would take longer than the change did"
+
+### Rule-10 budget disposition — measured, and PARTIAL
+
+Recorded here because a Rule-10 shortfall stated only in a lane report is a shortfall nobody
+inherits. At authoring time both BASE lanes sat at 11.82% headroom, inside the 15% proximity band,
+so Rule 10 fired. MUST-5's abridged emission cost is **826 B**. Paired extraction within the SAME
+rule recovered **532 B** across six edits — MUST-2(b) shortened to delegate the resolution here;
+MUST-2's heading corrected once its second half moved; MUST-2's `**Why:**` reduced to the claim that
+survives now that (b) is delegated; MUST-3's illustration enumeration extracted to the section
+above; and the H1 depth pointer rewritten into the whole-line form `abridgeV6` recognises and
+strips. Net **+294 B** on the rule's abridged emission (3418 B → 3712 B).
+
+**Lane effect, measured on both CLIs, both lanes.** BASE codex/gemini 11.82% → **11.37%** (floor
+10%). The `rs` lane is the binding one and it went 9.12% → **8.67%** against an **8.5%** floor that
+is itself a declared, EXPIRING exception (`sync-manifest.yaml`, issue #1355, expires 2026-10-31;
+on expiry the lane reverts to a 10% floor it ALREADY fails at 9.12%). **That waiver is SUPERSEDED**
+— #1355's 8.5% rs floor was replaced 2026-08-30 by the #2018 6.2% grant expiring 2026-11-24, and
+#1355's separate PER-RULE `security.md` ceiling was retired 2026-09-02. The measurement above is
+kept as the clause-landing history; the floor it is scored against is not current, so re-derive
+from `emit.mjs --cli codex --lang rs --dry-run` rather than quoting the 8.5%/2026-10-31 pair. An intermediate draft of this
+clause put that lane at 8.31% — a hard `headroom-floor BLOCK`, 123 B under — which is how the
+binding constraint was found; it was measured, not predicted, and the clause was cut to fit.
+
+The residual shortfall is the finding, not an accounting nuisance. This rule's emitted surface is
+now MUST clauses and `**Why:**` lines with no extractable depth left, so path (a) cannot be fully
+satisfied from inside it at any future addition either — and the `rs` lane is living on a waiver
+that expires. That pair is the cumulative-pattern signal `rule-authoring.md` Rule 11 exists to
+catch, and the disposition it names is corpus-level (demote a baseline rule to path-scoped, split,
+or change the per-CLI emission strategy), not addition-local.
+
+**The +294 B residual is covered by path (b), not left uncovered.** `check-baseline-delta.mjs` is
+the accounting half of Rule 10, and it scans THREE exception sources: commit bodies in the proposal
+range, lines ADDED to `journal/`, and `--pr-body`. The declaration therefore ships in this change's
+commit body as `Rule-10-exception: instrument-discipline.md` followed by all five mandatory
+sub-fields from `.claude/skills/skill-authoring/proximity-band-named-rationale-template.md`.
+
+An earlier revision of this section asserted that path (b) was unavailable because its named
+rationale "lives in a receipt journal the authoring lane did not own." **That was FALSE and is
+withdrawn**, not softened: the gate's own `--help` names commit bodies as the first source scanned,
+so the claim was refutable by reading the instrument that enforces it — which is this rule's own
+MUST-3(a) failure, committed inside the rule it was written into. It is recorded here rather than
+quietly deleted because the corpus treats a withdrawn claim as evidence, not as embarrassment.
+
+### AMENDED 2026-09-01 — re-measured on the merged branch
+
+The numbers above are the clause-LANDING measurement. They are kept as history and are NO LONGER
+current, because the branch that carried MUST-5 to `main` also carried a `git.md` clause, and the
+`rs` lane went RED at **7.54%** — 627 B under the 8.5% waiver floor THEN IN FORCE.
+**That floor is SUPERSEDED, and the RED verdict does not survive it:** the live rs floor is
+#2018's 6.2% (expires 2026-11-24), and 7.54% is ABOVE 6.2%, so the same measurement on
+today's floor is GREEN. The figure is kept because it was TRUE on its own tree — `git log -S`
+places it at a commit whose manifest still declared 8.5% — so this is the went-stale-at-merge
+class, NOT the false-when-written class corrected above. Do not size future headroom work
+against this breach: it did not occur under the current floor. What actually grew the emitted
+baseline on that branch, measured per rule through the emitter's own
+`stripRuleFrontmatter → abridgeV6 → stripSlotMarkers`, was **git.md +736 B** and
+**instrument-discipline +294 B** — the opposite of the source-byte reading, on which `git.md` is
+207 B SMALLER (10690 B → 10483 B). A source-size instrument re-read for the emission question is
+exactly the MUST-4 failure this rule names: the source figure is sound for "did the file shrink"
+and carries NO information about "did the emission shrink", and nothing in its output would have
+looked different had the emission grown.
+
+MUST-5 itself was then tightened in place — the (a) illustration moved to § "(a) The reach proof",
+the `**Why:**` shortened — taking its abridged cost **826 B → 689 B** and the rule's net over
+`origin/main` **+294 B → +98 B** (3358 B → 3456 B). That is the honest ceiling for this clause:
+what remains is the MUST sentence, (a), (b), the heading (cited verbatim by the `MUST-5-firing`
+probe `rule_ref`, so not re-wordable for bytes) and the `**Why:**`. It is 137 B, not 627 B, and no
+further byte comes out of MUST-5 without cutting obligation.
+
+The rest of the 627 B came from the branch's OTHER emitted growth, none of it by removing a
+governance obligation: a code fence in `git.md` that a source-tightening edit had shrunk from
+>200 B to ≤200 B and thereby flipped from DROPPED to PRESERVED by `abridgeV6`'s
+`isDoBlock && blockSize <= 200` rule (a 40 B source ADDITION bought 164 B of emission — the
+non-monotonicity in its purest form); two inline "…: guide." navigation tails reshaped into the
+whole-line `Depth — … lives in <the rule-extracts guide>.` form the abridger
+recognises and strips; and word-level tightening of four `**Why:**` lines. Final: 60592 B → 59867 B,
+`rs` 7.54% → **8.65%**, with BASE **12.04%**, py **11.35%**, prism **27.28%**.

@@ -1,0 +1,3 @@
+# expect: handoff-completion/handoff-without-surface
+- Gates: rc=0 on both.
+- Cross-SDK: the mirror is tracked on the sibling SDK.

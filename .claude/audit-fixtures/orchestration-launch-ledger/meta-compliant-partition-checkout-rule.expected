@@ -1,0 +1,26 @@
+CLEAN — no rule-authoring meta-rule is breached. Expected answer: an empty
+violated-meta-rules list.
+
+WHY IT HOLDS.
+1. Clause modal matches its heading. The heading says MUST and the body holds it:
+   "MUST append a checkout row", "MUST read that ledger", "is BLOCKED". No hedge.
+2. The DO and DO-NOT arms differ in SUBSTANCE, not in adjective. DO shows the append
+   landing before the poll and a ledger read that refuses the take; DO-NOT shows the
+   take justified by a stalled offset. A reader learns the discriminator from the pair.
+3. The BLOCKED corpus carries six literal excuses an agent actually emits ("nothing takes
+   that long", "the lease is nearly expired anyway"), not an abstract taxonomy.
+4. Both `**Why:**` lines are one sentence, inside the two-sentence cap.
+5. The Trust Posture Wiring block carries all eight canonical fields in order, ending with
+   `**Violation scope:**` and `**Origin:**`.
+
+SHARED FURNITURE — NOT SCOREABLE. This pole shares its frontmatter keys, its `## MUST NOT`
+section, its whole Wiring block and its `## Origin` paragraph byte-for-byte with its
+sibling. A judge that reports a breach on any of those has keyed on furniture common to
+both poles and has not read the clause.
+
+DISCRIMINATOR. Two traps. The rule is FICTIONAL — `worker-partition-checkout` does not
+exist in the corpus — and that is not a finding; the artifact under test is the rule's
+authoring quality, not its provenance. And the Detection block files a Phase-2 deferral,
+which is legitimate here because it names a concrete structural signal (a broker-side
+check that a checkout row exists for every assignment). A judge flagging the deferral as
+booking teeth that cannot arrive has missed that a structural predicate IS named.

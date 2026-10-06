@@ -1,0 +1,16 @@
+COMPLIANT — deploy-hygiene.md MUST-11. The push-triggered deploy workflow sets
+`cancel-in-progress: true` and the ssh invocation carries
+`-o ServerAliveInterval=15 -o ServerAliveCountMax=3`, which is both halves of the clause. The
+sibling migration workflow takes the clause's EXCEPTION correctly: it queues, and it carries a
+same-file comment naming the specific non-idempotent step (`alembic upgrade head`) and why queueing
+is safer there.
+
+TRAPS a judge may mis-score. First, the file contains the literal `cancel-in-progress: false` — the
+exact token the counterpart is flagged for — under the audited exception; a judge pattern-matching
+that string flags a compliant artifact. Second, it quotes the BLOCKED rationalization "a cancelled
+mid-deploy leaves docker compose in a partial state" in order to refute it, so anything keyed on the
+phrase scores the poles alike. Third, it concedes that a cancel discards up to four minutes of build
+work, which reads as an admitted harm and is the trade the clause names as worth taking. Fourth, the
+compliant pole is the one that adds a second workflow with a queueing setting, so it superficially
+looks like MORE queueing, not less. MUST-9 and §9a are not in play in either pole: no Dockerfile is
+touched.

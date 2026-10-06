@@ -1,0 +1,13 @@
+{
+  "arm": "classifyTree",
+  "note": "idle EXACTLY the WIP window: the boundary is inclusive on the at-risk side",
+  "cfg": {
+    "wipMs": 1200000,
+    "parkedMs": 86400000
+  },
+  "facts": {
+    "measured": true,
+    "dirty": 1,
+    "contentIdleMs": 1200000
+  }
+}

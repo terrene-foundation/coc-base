@@ -1,0 +1,18 @@
+{
+  "_case": "CLEAN pole — the expectation map the live .claude/hooks/auto-format.js is supposed to satisfy. Re-adding '.md' to the prettier extension list, deleting ANY of the eight dispatch lanes, dropping the PRETTIER_PIN declaration, or introducing a bare `npx prettier` call site each reds a NAMED check here rather than a count.",
+  "dispatch": {
+    "md": false,
+    "yaml": true,
+    "yml": true,
+    "json": true,
+    "js": true,
+    "jsx": true,
+    "ts": true,
+    "tsx": true,
+    "py": true
+  },
+  "pin_declared": true,
+  "bare_call_sites": 0,
+  "min_pinned_call_sites": 2,
+  "payload_corrupts_under_pin": true
+}

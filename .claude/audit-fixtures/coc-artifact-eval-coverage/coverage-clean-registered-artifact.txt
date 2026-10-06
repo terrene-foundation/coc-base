@@ -1,0 +1,29 @@
+# coverage-clean-registered-artifact
+#
+# The SAME edit shape against an artifact that IS registered. Byte-identical
+# to coverage-flag-new-rule-unregistered except the basename, so a detector
+# that ignored the manifest would score both poles the same way.
+#
+# expect: (silent)
+{
+  "filePath": ".claude/rules/agents.md",
+  "manifest": {
+    "agents": {
+      "type": "rule",
+      "scanner": null,
+      "fixturesDir": ".claude/audit-fixtures/agents",
+      "expected": {},
+      "probes": ".claude/test-harness/probes/agents.probes.json"
+    },
+    "wrapup": {
+      "type": "command",
+      "scanner": null,
+      "fixturesDir": ".claude/audit-fixtures/wrapup",
+      "expected": {},
+      "probes": ".claude/test-harness/probes/wrapup.probes.json"
+    }
+  },
+  "probeInventory": [],
+  "probeAuthorshipDeferrals": {},
+  "now": "2026-09-13T00:00:00Z"
+}

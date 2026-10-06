@@ -1,6 +1,7 @@
 ---
 id: "CLEAN-INSTANTIATE"
-description: Clean a freshly-cloned client repo of canon operator/trust identity BEFORE /ecosystem-init (clear-then-bootstrap). Destructive; dry-run by default; human-gated.
+name: clean-instantiate
+description: "Clear canon identity from a fresh clone before ecosystem init; destructive, dry-run by default, human-gated."
 ---
 
 # /clean-instantiate — Strip Canon Identity From A Client Clone (once, before /ecosystem-init)

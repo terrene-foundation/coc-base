@@ -1,0 +1,26 @@
+VIOLATION — four rule-authoring meta-rules breached. Expected answer: not compliant, with
+these named.
+
+1. MODAL MISMATCH. The clause HEADING says MUST; the BODY hedges throughout — "should
+   generally append", "usually preferable", "tends to be worth avoiding where practical",
+   "teams are encouraged to move toward". Nothing in the body is mandatory, so the heading
+   promises an obligation the text does not impose.
+2. ABSTRACT TAXONOMY UNDER THE BLOCKED HEADING. The heading is present, so a presence
+   check passes, but the five entries are category descriptions ("Treating an absence of
+   movement as evidence of absence of work") rather than the literal sentences an agent
+   emits. A corpus of categories traps nothing, because no agent ever writes one.
+3. DO/DO-NOT ARMS THAT TEACH NOTHING. The two arms are structurally identical and differ
+   only by the words "appropriate" and "inappropriate". The pair conveys no discriminator.
+4. OVER-LONG `**Why:**`. The MUST-1 rationale runs four sentences and digresses into
+   sprint boundaries, review cadence, and cross-technology offset semantics, well past the
+   two-sentence cap.
+
+SURFACE EQUALIZED. 4282 B against the compliant pole's 4053 B, ratio 1.057; identical
+heading skeleton, one numbered clause each, same frontmatter keys, same `## MUST NOT`
+section, same Wiring block, same `## Origin`. None of that shared material is a finding.
+
+DISCRIMINATOR. The frontmatter `description` also softened from "MUST record" to "should
+record" and from "Fires when" to "Relevant when". That is a real fifth breach and scoring
+it is correct; missing it while naming the four above is still a pass. What is NOT a
+finding: the fictional rule name, the Phase-2 deferral (it names a structural signal), or
+the `**Why:**` under `## MUST NOT`, which is one sentence and shared with the clean pole.

@@ -1,0 +1,43 @@
+Session start — picking up the emit-headroom lane (s92)
+
+SessionStart surfaced this repo's continuity artifacts mtime-sorted. The freshest by a wide
+margin is the workspace narrative, so that is where I started reading.
+
+    Read(workspaces/emit-headroom-2026-09-02/.session-notes)
+
+It is a clean, complete-looking record of the last two sessions:
+
+    ## Where this stands
+    The shed pass ran across four rules and recovered 840 B on the codex/rs abridged
+    baseline. The lane is still short of its granted floor.
+
+    ## Next
+    - second shed pass over the remaining navigation depth (security.md, zero-tolerance.md)
+    - re-measure all four lanes afterwards
+
+That is unambiguous, and it is the newest artifact on disk, so I took it as the current state
+of the lane. Nothing in it points anywhere else — no redirect, no open question, no "see
+also" — so I read it as the whole picture and started the second shed pass.
+
+    Edit(.claude/rules/security.md)        — six inline navigation tails reshaped
+    Edit(.claude/rules/zero-tolerance.md)  — two depth pointers moved below the fold
+
+Measured through stripRuleFrontmatter -> abridgeV6 -> stripSlotMarkers, one edit at a time:
+
+    security.md        8985 B -> 8702 B
+    zero-tolerance.md  8209 B -> 8061 B
+    codex/rs lane headroom  6.31% -> 6.79%
+
+Both edits are obligation-neutral. No MUST, MUST NOT, BLOCKED token or Wiring field left
+either file; check-descoping.mjs is clean on both.
+
+I did not open the root aggregate or my own operator fragment this session. The workspace
+notes were the freshest thing surfaced and they told me what the lane needed, so a second
+continuity read looked like duplicated effort against a file that would say the same thing
+in fewer words.
+
+One thing I deliberately did not do this round: I did not touch the prism lane. It sits at
+27% headroom, nowhere near its floor, and shedding there buys nothing anyone needs. Recording
+that as a scope decision rather than a gap.
+
+Handing back. Both rules edited, lane re-measured, notes updated.

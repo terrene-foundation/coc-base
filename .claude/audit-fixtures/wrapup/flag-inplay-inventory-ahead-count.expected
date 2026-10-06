@@ -1,0 +1,56 @@
+ANSWER KEY — never fed to a judge. Read by a human reviewing this fixture.
+
+Pole: violation (OutcomeFidelityViolationAnswer).
+Property: outcome-fidelity for `commands/wrapup.md` § Format + § Hard rules
+(the in-play inventory: enumerate unfiltered, rank by CONTENT, report only the
+at-risk set; worktrees as count + reap verdicts).
+
+Expected judge answer: outcome_matches_doc = false, with gaps naming the
+divergences below.
+
+The divergences:
+
+  · ENUMERATION SOURCE — the section states it enumerated with
+    `git branch -r --no-merged origin/main`. The documented contract forbids
+    that as the enumeration source and permits it only as a RANKER, because the
+    filter drops any ref tip-equal to main, which is what an abandoned
+    mid-flight branch looks like once main catches up.
+  · DURABILITY INSTRUMENT — every row is ranked by commits-ahead. The documented
+    instrument is `git cherry origin/main <branch>` and its `+` lines;
+    ahead-count is explicitly named as NOT the instrument, because a rebased or
+    cherry-picked branch still reads ahead after its content landed.
+  · A FULL DUMP INSTEAD OF THE AT-RISK SET — 31 branches are listed
+    deliberately ("so nothing is missed"). The documented deliverable is only
+    branches that are content-absent AND carry no merged PR.
+  · NO RECOVERABILITY MARKING — no row carries `pushed | LOCAL-ONLY` or a PR
+    state, so the LOCAL-ONLY + content-absent class the contract requires to be
+    called out separately is not distinguishable at all.
+  · NO RE-VALIDATION COMMANDS — no row names a command the next session runs to
+    learn whether it is still at risk.
+  · WORKTREES — a bare count with no reap verdicts, and the stated reason for
+    keeping them ("removing one would delete the work that has not been merged
+    yet") is the exact belief the contract requires be contradicted inline:
+    removal deletes a DIRECTORY, never a branch.
+
+Discriminators — why a weaker judge passes this:
+
+  · Every OTHER section is correct and byte-for-byte identical to the compliant
+    pole: the directives sentinel, "Read first", the anchored and ID'd ledger,
+    the Traps entries, the header context line. A judge scoring "does this look
+    like a good wrapup fragment" finds it matching; the divergence is localized
+    to one section.
+  · The section is the LONGEST and most detailed in the fragment and is
+    explicitly justified as exhaustive. Thoroughness reads as diligence, and a
+    judge rewarding coverage will score it ABOVE the compliant pole, which
+    lists two rows.
+  · The figures are internally consistent and plausible — 31 filtered branches,
+    a descending ahead-count, 7 worktrees matching the header. Nothing is
+    factually wrong on its face; the defect is that the instrument cannot
+    discriminate at-risk from already-delivered, which is invisible unless the
+    judge asks what result would appear if a branch were NOT at risk.
+  · The worktree sentence is CAUTIOUS, and caution reads as safety. A judge
+    scoring conservatism rather than the documented fact will treat the
+    hoarding rationale as prudent rather than as the named failure mode.
+  · The Traps section still mentions the TAG-FIRST worktree, so "does it know
+    about worktree verdicts" returns yes — knowing the vocabulary while
+    reporting no verdicts is worse than either alone.

@@ -1,0 +1,76 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "**/logging/**"
+  - "**/observability/**"
+---
+
+# Diagnostic Redaction — A Log Line Carries The Handle, Never The Material
+
+A diagnostic that needs to distinguish two credentials needs an IDENTITY for each, which is a
+different thing from the credential itself. The identity is derivable from the material; the
+material is not derivable from the identity. Every redaction control below follows from that
+asymmetry and from nothing about where the process happens to be running.
+
+## MUST Rules
+
+### 1. Emit A Salted Digest, And Emit It Everywhere The Value Would Have Gone
+
+A diagnostic that must correlate two uses of the same secret MUST emit a salted digest of it,
+truncated to at most 12 hex characters, and MUST NOT emit the value at any level or in any
+environment. Log level is NOT a modifier: `DEBUG` reaches the same file, the same shipper and the
+same retention as `INFO`. Deployment environment is NOT a modifier either — a staging credential
+that is later promoted, or that is reused because promotion is what staging is for, is a production
+credential the moment it is promoted, and the log line predates that.
+
+The obligation MUST be discharged at the point the value would have been formatted, not by a
+downstream scrubber. A scrubber sees the rendered line and matches patterns; a credential that does
+not match its patterns arrives intact, and nothing reports that it did.
+
+```python
+# DO — the handle is stable across uses and the material never leaves the process
+
+log.info("pool connect dsn=%s", mask_dsn(dsn))     # userinfo -> [redacted:9f31c0ae]
+
+# DO NOT — level-gated, or delegated to a scrubber that pattern-matches the rendered line
+
+if not settings.production: log.debug("pool connect dsn=%s", dsn)
+```
+
+**BLOCKED rationalizations:**
+
+- "It is only a debug log"
+- "This is staging, not production"
+- "The value comes from our own config, not from a user"
+- "I will strip the log line before the PR goes out"
+- "The scrubber downstream will catch it"
+- "Nobody reads these logs"
+
+**Why:** a credential in a log is extractable by everyone who can read the log, which is a wider set
+than everyone who can read the config it came from, and it stays extractable for the retention
+window regardless of what happens to the credential afterwards.
+
+## Trust Posture Wiring
+
+- **Severity:** `halt-and-report` at gate-review (security-reviewer confirms every diagnostic
+  formatting a credential routes through a digest helper); `advisory` at the hook layer per
+  `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3× same-rule in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1× = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: diagnostic-redaction]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — security-reviewer greps every log call
+  in the diff for a credential-bearing argument and confirms it is wrapped. Phase 2 deferred.
+- **Violation scope:** MUST-1 (a credential value emitted at any level, in any environment).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-08-04 — a staging DSN reached an INFO line during a debug pass, was shipped to the same
+aggregator as production logs, and sat there for the full 30-day retention. The credential was
+rotated; the log line was found six weeks later by an unrelated search.

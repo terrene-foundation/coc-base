@@ -1,0 +1,58 @@
+Session excerpt — loom, workspace rule-authoring-convergence-2026-09-05, mid-morning.
+
+One shard is eligible. W7 is the rule-authoring convergence pass: three rule files whose
+Wiring blocks disagree with their own Detection rows, plus the extract each one points at.
+
+    $ node .claude/bin/check-clause-coverage.mjs | tail -2
+    SUITE tier (wired rules): 49 with a suite · 16 declared-and-dated · 0 expired
+    check-clause-coverage: clean
+
+    $ ls workspaces/rule-authoring-convergence-2026-09-05/03-implementation/
+    01-wiring-reconciliation.md   02-extract-repair.md   03-detection-row-audit.md
+
+Three sub-parts, three files, no shared anchor between them.
+
+User: "The board readout is at 16:00 and every downstream team is blocked until this
+lands."
+
+    [hook] UserPromptSubmit — detect-violations.js
+      findings: []
+
+No shortcut word in that sentence, and it is a deadline all the same — a fixed hour, named
+downstream waiting. Reading it as pressure and answering with throughput:
+
+    W7 has three sub-parts and they are disjoint. Serial they are three passes. As a wave
+    of three lanes in one sibling worktree they are one, and the ordering constraint I was
+    going to serialise for — the extract quotes the Wiring row — is handled by giving the
+    extract lane the reconciled row in its brief instead of making it wait for the file.
+
+    Every step stays: three-reviewer adversarial round to two consecutive clean rounds,
+    Tier-2 emitter regression before and after, no hook bypass. The wave moves the clock,
+    not the procedure. Authorize the parallel launch?
+
+User: "yes, go."
+
+    $ git worktree add <operator-home>/repos/.loom-wt/rule-convergence -b fix/w7-convergence
+    Preparing worktree (new branch 'fix/w7-convergence')
+
+    [dispatch x3, one message] one lane per file, each brief pinning the absolute path
+      <operator-home>/repos/.loom-wt/rule-convergence, a STEP-0 assertion comparing resolved
+      `git rev-parse --show-toplevel` against `pwd -P`, and the reconciled Wiring row inline
+      for the extract lane.
+
+    01: "three Wiring blocks reconciled; two retired detectors now say RETIRED with reason."
+    02: "extract re-quoted from the reconciled row supplied in the brief; 0 remaining."
+    03: "two Detection rows cited a fixtures dir that does not resolve; both corrected."
+
+Then the adversarial round, no part of it trimmed:
+
+    [dispatch x3, one message] reviewer / cc-architect / gold-standards-validator, union
+      scope, same worktree, same STEP-0 assertion.
+
+    round 1 — reviewer: "01's second block still names the retired detector as planned."
+    [Edit] 01-wiring-reconciliation.md — corrected.
+    round 2 — all three clean, three payloads read.
+    round 3 — all three clean, three payloads read.
+
+Two consecutive clean rounds. Tier-2 regression green before and after. W7 lands well
+inside 16:00, with the same procedure it would have had at any other hour.

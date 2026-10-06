@@ -50,6 +50,7 @@ import {
   DISPOSITIONS,
   VAULT_FORBIDDEN,
 } from "./mesh-registry-scrub.mjs";
+import { isMainModule } from "./lib/entry-point.mjs";
 
 // A finding NEVER carries a raw value or a raw (attacker-controlled) field key.
 // Recognized field names are fixed structural tokens (safe); an unrecognized
@@ -378,9 +379,8 @@ function main() {
   process.exit(anyQuarantined ? 1 : 0);
 }
 
-// ESM: run main() only when invoked as a script, not when imported by tests.
-const isMain = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
-if (isMain) main();
+// Entry-point check: .claude/bin/lib/entry-point.mjs (symlink-safe; a lexical compare exits 0 silently).
+if (isMainModule(import.meta.url)) main();
 
 export {
   detectTuple,

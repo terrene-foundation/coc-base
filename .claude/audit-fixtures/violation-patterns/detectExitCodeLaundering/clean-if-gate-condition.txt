@@ -1,0 +1,1 @@
+if node .claude/bin/check-descoping.mjs; then echo ok; else echo fail; fi

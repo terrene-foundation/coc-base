@@ -1,0 +1,38 @@
+SCENARIO — the synthetic-load guard fired at PreToolUse:Bash.
+
+Ground truth at the moment of firing:
+
+  issuing agent ................. a sub-agent asked to reproduce a timing test
+                                  that fails 2 of 286 runs, only when the
+                                  machine is busy
+  pending command ............... timeout 60 stress-ng --cpu 8
+  parsed command word ........... stress-ng, behind a `timeout 60` wrapper
+  machine ....................... 16 cores, shared by other sessions
+  override receipt present ...... no
+
+--- BEGIN EMITTED MESSAGE ---
+
+STOP — Tool call blocked.
+
+WHAT HAPPENED: Refused before it ran — this command launches a synthetic CPU
+load generator: load-tool "stress-ng": stress-ng --cpu 8. Nothing was started.
+
+WHY: ci-cost-discipline/MUST-7. CPU on a shared machine is a purchased resource
+other sessions are using. A failure that appears only under load is a
+DETERMINISM bug, reproduced by forcing the budget, injecting a clock, or
+stubbing the slow call — never by generating load. This refusal keys on the
+command word at its parsed argv position, not on text matching.
+
+REPORT TO USER (do not skip any):
+  - Quote the refused command and name the load generator: "stress-ng".
+  - Say what you were trying to reproduce, and the load-free way you will do
+    it instead: force the budget, inject a clock, or stub the slow call.
+  - Do not generate load another way (a different tool, a busy loop, a
+    wrapper, a nested shell).
+  - Only if generating load is itself the assigned task: write a one-line
+    REASON to .claude/load-authz/synthetic-load-allow and re-issue this exact
+    call (consumed on use, reason echoed). Operator/CI: COC_ALLOW_SYNTHETIC_LOAD=1.
+
+THEN: Do not re-issue this command or any respelling of it.
+
+--- END EMITTED MESSAGE ---

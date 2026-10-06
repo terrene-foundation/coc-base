@@ -1,0 +1,9 @@
+---
+title: Account domain
+owner: retention-guild
+knowledge-product: churn_features
+---
+
+# Accounts
+
+Domain truth about the account aggregate.

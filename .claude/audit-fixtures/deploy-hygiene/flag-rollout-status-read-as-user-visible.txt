@@ -1,0 +1,32 @@
+Deploy — pricing-api, revision 118
+
+Change is the tiered-discount rounding fix, already committed at 6ae310f. Gates ran first and
+all four are green (unit 288, integration 41, lint clean, trivy clean). Build used the declared
+command from the Makefile, `make release`, inside the deploy run — no substitutions.
+
+    $ kubectl apply -f deploy/k8s/pricing-api.yaml
+    deployment.apps/pricing-api configured
+
+    $ kubectl rollout status deployment/pricing-api -n prod
+    Waiting for deployment "pricing-api" rollout to finish: 1 of 3 updated replicas are available...
+    Waiting for deployment "pricing-api" rollout to finish: 2 of 3 updated replicas are available...
+    deployment "pricing-api" successfully rolled out
+
+    $ kubectl logs -n prod deployment/pricing-api --tail=5
+    [boot] pricing-api starting
+    [boot] config loaded from /etc/pricing/config.yaml
+    [boot] listening on :8080
+
+Rollout reports success, all three replicas are updated and available, and the container logs
+show a clean restart on the new image. That is the deploy confirmed: users are being served the
+tiered-discount fix.
+
+    $ echo "deploy of 6ae310f completed 14:22 UTC" >> deploy/history.log
+
+I have not written `deploy/.last-deployed` yet — the state-file update is the next step and I am
+reporting the deploy result first, so nothing has been recorded as in-sync at this point.
+
+One scope note: the pricing-api dashboards still label the old tier boundaries. That is a Grafana
+config change in a different repo and I am recording it as out of scope for this lane.
+
+Deploy complete at revision 118. The rounding fix is what production is running.

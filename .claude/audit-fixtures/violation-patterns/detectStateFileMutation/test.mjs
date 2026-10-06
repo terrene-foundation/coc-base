@@ -32,9 +32,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
-const HERE = path.dirname(new URL(import.meta.url).pathname);
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 const HOOKS_LIB = path.resolve(
   HERE,
   "..",
@@ -51,6 +52,14 @@ const {
   splitShellSegments,
   hasInterpreterWriteSignal,
   detectRepoScopeDriftBash,
+  // loom#1681 — the runner's OWN reachability gates are protected-path spelling
+  // tests, the same question production asks. Left on a bare `pathRx.test` they
+  // declared every traversal fixture "STRUCTURALLY UNREACHABLE" (the raw spelling
+  // does not match — that IS the defect) and would have parked a real protected
+  // path in NO_PROTECTED_PATH_FIXTURES as though it were path-free. Both route
+  // through the shared predicate, so the harness cannot drift from the fence it
+  // audits (`security.md` § Enforcement-Surface Parity).
+  pathSpellingHit,
 } = require(HOOKS_LIB);
 const REPO_ROOT = path.resolve(HERE, "..", "..", "..", "..");
 
@@ -108,8 +117,14 @@ const rxFor = (name) =>
 const { createStateTargetScope } = require(
   path.resolve(HERE, "..", "..", "..", "hooks", "lib", "state-target-scope.js"),
 );
+// loom#1681 — the traversal fixtures are ABOUT the same question (does the
+// RESOLVED target land in protected state), reached through a `..` spelling the
+// lexical matcher could not see. They are routed to the oracle for the same
+// reason the `1703-` set is: their `in-tree` / out-of-tree poles are meaningless
+// without it, and the no-scope default would score every spelling match in-tree
+// and silently vacuate the clean pole.
 const optsFor = (name, cmd) =>
-  name.includes("1703-")
+  name.includes("1703-") || name.includes("1681-")
     ? {
         scope: createStateTargetScope({
           cwd: REPO_ROOT,
@@ -185,6 +200,29 @@ const NO_PROTECTED_PATH_FIXTURES = new Set([
   // are the anti-vacuity pair: they prove the subtree blanket still holds for the
   // leaves that can execute code or redirect `core.hooksPath`.
   "detectStateFileMutation/clean-1534-dotgit-info-exclude-append",
+  // loom#s65 — the `.git` row's terminator was a WORD boundary (`\b`), so any
+  // `.git` followed by a NON-word character matched: `.git-blame-ignore-revs` (a
+  // standard git file), `.git-commit-msg.txt`, `.git.bak`. All three are ORDINARY
+  // FILES, not the `.git` admin directory, so under the fixed regex they genuinely
+  // carry no protected path — and that ABSENCE is what each one pins. Their
+  // anti-vacuity pair is `flag-s65-dotgit-{dquote,squote}-still-blocked`, which
+  // prove the SAME change did not open a fail-OPEN on the quoted spellings. The
+  // terminator is a NEGATIVE assertion — it names what makes the token a DIFFERENT
+  // file — so a quote is not in the excluded class and `rm -rf ".git"` still flags.
+  // (An earlier revision of this comment described a POSITIVE boundary class that
+  // "INCLUDES `'` and `\"`". No such class exists: the positive-allowlist design was
+  // refuted for 13 fail-open holes and replaced. The sentence is struck rather than
+  // edited in place because a reader reasoning from it would re-derive the refuted
+  // design.) Without that pair, these three would be indistinguishable from a regex
+  // that simply stopped matching the token at all.
+  //
+  // `flag-s65-r2high1-dotgit-trailing-dot-{sep,eol}` pin the SECOND refutation: a
+  // FLAT `(?![\w\-.])` also excluded a bare trailing dot, fail-OPENing on a spelling
+  // Win32 canonicalizes back onto the protected directory. They are the pole that
+  // discriminates the conditional dot arm from the flat one.
+  "detectStateFileMutation/clean-s65-dotgit-blame-ignore-revs",
+  "detectStateFileMutation/clean-s65-dotgit-hyphen-scratch",
+  "detectStateFileMutation/clean-s65-dotgit-dot-suffix",
   "detectStateFileMutationSegmentAware/clean-benign-cmdsub",
   "detectStateFileMutationSegmentAware/clean-f3-1363-must3-shell-variable-path",
   "detectStateFileMutationSegmentAware/clean-fd-dup-nonstate",
@@ -208,6 +246,47 @@ const NO_PROTECTED_PATH_FIXTURES = new Set([
   // path never reaches the command string at all, so the ABSENCE of a match is
   // the property. The other 26 bundle fixtures are reachable.
   "detectHeredocWriteRunBundle/clean-variable-indirect-run-only",
+  // loom#1681 — the no-false-positive pole for the traversal collapse: an
+  // ORDINARY `..` in a non-state path (`src/lib/../lib/app.js`). It carries no
+  // protected path in EITHER spelling, and pinning that ABSENCE is the property —
+  // it is what proves the collapse does not MANUFACTURE a match out of routine
+  // traversal. The self-verifying assertion above now uses `pathSpellingHit`, so
+  // a traversal-spelled protected path could not be parked here.
+  "detectStateFileMutationSegmentAware/clean-1681-traversal-non-state-path",
+  // loom#1681 — the STRONG form of that pole, and the one over-match hazard the
+  // `guard-path-scope.js` SEP table singles out by name. `.claude/../learning/
+  // posture.json` SPELLS both `.claude` and `learning/posture.json`, so unlike
+  // the `src/lib/../lib/app.js` row above it is not obviously unrelated — yet it
+  // resolves to `learning/posture.json`, an ordinary unprotected file, and must
+  // stay silent in BOTH views. It is exactly what a careless widening of the
+  // separator token would start blocking (measured: `false` today, `true` under
+  // `\/+(?:\.{1,2}\/+)*`), so this row is the regression fence on that hazard.
+  "detectStateFileMutationSegmentAware/clean-1681-overmatch-hazard-dotclaude-parent",
+  // loom round-3 S1 — the no-false-positive pole for the nested-body Layer-1 pass.
+  // `sh -c 'printf x > /tmp/notstate'` is a REAL redirect inside a REAL nested
+  // command string, so the new pass reads it exactly as it reads the flagging
+  // siblings; only the TARGET differs. Its ABSENCE of a protected path is the
+  // property — it is what proves the pass did not become a blanket "a redirect
+  // inside `sh -c` is a state write".
+  "detectStateFileMutation/clean-s1-nested-sh-c-redirect-nonstate",
+  // loom round-3 S4 — THREE entries, and two of them are `flag-*`, which is
+  // deliberate and is the whole point of the shard. `find <root> -name <file>`
+  // NEVER spells the protected path contiguously: the root and the basename sit in
+  // different operands, so `pathSpellingHit` is FALSE on the payload while the
+  // command still deletes the file. The detector reconstructs the target
+  // (`findSynthesizedPaths`, the direct-child join) rather than reading it off the
+  // line, so these fixtures are reachable THROUGH THE SYNTHESIS and not through the
+  // line — which is exactly what the reachability assertion above cannot see, and
+  // exactly why they must be declared here rather than renamed or re-spelled.
+  //
+  // The two poles that keep it honest: `clean-s4-find-name-delete-nonstate-root`
+  // joins to `/tmp/scratch/posture.json` (unprotected → the join must NOT
+  // manufacture a match), and `clean-s4-find-name-print-posture` has a protected
+  // JOIN but a read-only ACTION (`-print` → no mutating hit → nothing to test).
+  "detectStateFileMutation/flag-s4-find-name-delete-posture",
+  "detectStateFileMutation/flag-s4-find-name-exec-rm-posture",
+  "detectStateFileMutation/clean-s4-find-name-print-posture",
+  "detectStateFileMutation/clean-s4-find-name-delete-nonstate-root",
 ]);
 
 function runFixtureDir(dir, detector) {
@@ -238,7 +317,7 @@ function runFixtureDir(dir, detector) {
         // this, the list would be a parking lot where a real routing bug could be
         // silenced by adding a name to it.
         assert.ok(
-          !STATE_PATH_RX.test(cmd),
+          !pathSpellingHit(cmd, STATE_PATH_RX),
           `fixture ${dir}/${name} is declared in NO_PROTECTED_PATH_FIXTURES but its ` +
             `payload DOES contain a protected path under the production regex. The ` +
             `exemption is wrong — either it is mis-routed (fix the name) or it should ` +
@@ -246,7 +325,7 @@ function runFixtureDir(dir, detector) {
         );
       } else {
         assert.ok(
-          rx.test(cmd),
+          pathSpellingHit(cmd, rx),
           `fixture ${dir}/${name} is STRUCTURALLY UNREACHABLE: its routed regex ${rx} ` +
             `does not match its own payload, so the fixture cannot exercise what it ` +
             `claims to (a flag-* expectation is unmeetable; a clean-* one passes ` +
@@ -508,13 +587,29 @@ test("directional site 3 (repo-scope splitter): immune to the #1363 class, and t
 // catastrophic-backtracking guard hook that hangs is worse than the original
 // over-block. ──
 
+// FASTEST of several calls, not one call. A single wall-clock sample includes
+// whatever GC or JIT pause lands inside it, so the one-shot form went red with no
+// code change: measured on this suite 2026-09-12, the comma-run input took up to
+// 243.7 ms on HEAD over 15 calls whose median was 8.3 ms, and the suite failed one
+// run in three at 124 ms. Catastrophic backtracking is slow on EVERY call, so the
+// minimum still exceeds the bound exactly when the property this test exists for
+// is broken; a pause cannot make every sample slow.
+const fastestMs = (fn, runs = 5) => {
+  let best = Infinity;
+  for (let i = 0; i < runs; i++) {
+    const t = process.hrtime.bigint();
+    fn();
+    best = Math.min(best, Number(process.hrtime.bigint() - t) / 1e6);
+  }
+  return best;
+};
+
 test("ReDoS: 50k-char interpreter flag-run completes <100ms (write-allowlist is linear)", () => {
   const cmd = "perl -" + "e".repeat(50000) + ' ".claude/learning/posture.json"';
-  const t = Date.now();
   const got = detectStateFileMutation(cmd, POSTURE_RX);
-  const ms = Date.now() - t;
   assert.equal(got, null, "a read-only flag-run carries no write token → PASS");
-  assert.ok(ms < 100, `write-allowlist gate MUST be linear (was ${ms}ms)`);
+  const ms = fastestMs(() => detectStateFileMutation(cmd, POSTURE_RX));
+  assert.ok(ms < 100, `write-allowlist gate MUST be linear (fastest was ${ms}ms)`);
 });
 
 test("ReDoS: long comma-quoted near-mode run completes <100ms", () => {
@@ -522,10 +617,8 @@ test("ReDoS: long comma-quoted near-mode run completes <100ms", () => {
   // grammar after O(1) bounded work (no nested/overlapping quantifier).
   const cmd =
     "node -e '" + ",'wa".repeat(20000) + "' .claude/learning/posture.json";
-  const t = Date.now();
-  detectStateFileMutation(cmd, POSTURE_RX);
-  const ms = Date.now() - t;
-  assert.ok(ms < 100, `mode-grammar scan MUST be linear (was ${ms}ms)`);
+  const ms = fastestMs(() => detectStateFileMutation(cmd, POSTURE_RX));
+  assert.ok(ms < 100, `mode-grammar scan MUST be linear (fastest was ${ms}ms)`);
 });
 
 test("empty / null input returns null without throwing", () => {
@@ -569,6 +662,495 @@ test("splitShellSegments: withOffsets positions index into the ORIGINAL command"
   ]);
   for (const s of segs) {
     assert.equal(cmd.slice(s.start, s.start + s.text.length), s.text);
+  }
+});
+
+// ── Layer 1/2 VERB POSITION — the flag-cluster false positive (lane state-guard-verb) ──
+//
+// MEASURED DEFECT. Layer 2 tested `/\b(?:cp|…|ln|…)\b\s+/` against the quote-masked
+// line, and `\b` holds between `-` and a letter, so a FLAG CLUSTER that spells a
+// verb counted as the verb: `git grep -l x -- <settings>` ran while
+// `git grep -ln x -- <settings>` was refused as "Layer 2: ln". The same shape
+// refused `docker run --rm`, `ls -cp`, `grep -e rm`, and at Layer 1 `--tee` / `--jq … -i`.
+//
+// These cases pin BOTH directions with the production regex and the production
+// scope oracle, asserting the refusal IDENTITY (layer + kind), never a bare
+// non-null — a refusal for the wrong reason would pass a truthiness check.
+// Each case runs through BOTH entry points: `detectStateFileMutationSegmentAware`
+// is what `validate-bash-command.js` calls, and `detectStateFileMutation` is the
+// layer implementation it delegates to.
+const SETTINGS = ".claude/" + "settings.json";
+const scopeOf = (cmd) =>
+  createStateTargetScope({
+    cwd: REPO_ROOT,
+    boundaryRoots: [REPO_ROOT],
+    command: cmd,
+  });
+const verdictBoth = (cmd) => ({
+  seg: core(
+    detectStateFileMutationSegmentAware(cmd, STATE_PATH_RX, {
+      scope: scopeOf(cmd),
+    }),
+  ),
+  raw: core(
+    detectStateFileMutation(cmd, STATE_PATH_RX, { scope: scopeOf(cmd) }),
+  ),
+});
+
+const L2 = (kind) => ({ layer: 2, kind });
+const L1 = (kind) => ({ layer: 1, kind });
+
+// Every one of these is a real mutation of the protected file. The first block is
+// the brief's bypass battery; the second proves the fix did not trade the false
+// positive for a miss on commands that run their OPERANDS (an unknown command's
+// argument semantics cannot be known, so a verb word there must still count).
+const VERB_POSITION_REFUSED = [
+  [`ln -s x ${SETTINGS}`, L2("ln")],
+  [`/bin/ln -sf x ${SETTINGS}`, L2("ln")],
+  [`command ln x ${SETTINGS}`, L2("ln")],
+  [`FOO=1 ln x ${SETTINGS}`, L2("ln")],
+  [`sudo ln x ${SETTINGS}`, L2("ln")],
+  [`true && rm ${SETTINGS}`, L2("rm")],
+  [`(rm ${SETTINGS})`, L2("rm")],
+  [`{ rm ${SETTINGS}; }`, L2("rm")],
+  [`echo $(rm ${SETTINGS})`, L2("rm")],
+  [`sh -c 'rm ${SETTINGS}'`, L2("rm")],
+  [`eval "rm ${SETTINGS}"`, L2("rm")],
+  [`xargs rm <<< ${SETTINGS}`, L2("rm")],
+  [`find ${SETTINGS} -exec rm {} \\;`, L2("rm")],
+  [`cp x ${SETTINGS}`, L2("cp")],
+  [`cp x "${SETTINGS}"`, L2("cp")],
+  [`ln -s x "${SETTINGS}"`, L2("ln")],
+  [`rm "${SETTINGS}"`, L2("rm")],
+  [`sh -c 'rm "${SETTINGS}"'`, L2("rm")],
+  // Operand-executing commands this detector has no model of.
+  [`flock /tmp/l rm ${SETTINGS}`, L2("rm")],
+  [`chroot / rm ${SETTINGS}`, L2("rm")],
+  [`watch rm ${SETTINGS}`, L2("rm")],
+  [`exec rm ${SETTINGS}`, L2("rm")],
+  [`busybox rm ${SETTINGS}`, L2("rm")],
+  [`rg --pre=rm x ${SETTINGS}`, L2("rm")],
+  [`git -c diff.external=rm diff ${SETTINGS}`, L2("rm")],
+  // Command positions the segment splitter does not separate.
+  [`sleep 1 & rm ${SETTINGS}`, L2("rm")],
+  [`grep -e x file & rm ${SETTINGS}`, L2("rm")],
+  [`grep -e x file&rm ${SETTINGS}`, L2("rm")],
+  [`if true; then rm ${SETTINGS}; fi`, L2("rm")],
+  [`for f in a; do rm ${SETTINGS}; done`, L2("rm")],
+  [`case x in x) rm ${SETTINGS};; esac`, L2("rm")],
+  [`f() { rm ${SETTINGS}; }`, L2("rm")],
+  [`timeout 5 rm ${SETTINGS}`, L2("rm")],
+  [`sudo -u root rm ${SETTINGS}`, L2("rm")],
+  [`true || ln -s x ${SETTINGS}`, L2("ln")],
+  // Executing constructs.
+  [`cat <(rm ${SETTINGS})`, L2("rm")],
+  ["echo `rm " + SETTINGS + "`", L2("rm")],
+  [`echo "$(rm ${SETTINGS})"`, L2("rm")],
+  // A comment-opened quote the shell ends at the newline: our quote model and
+  // bash's disagree here, so the fail-closed lexical scan must still see line 2.
+  [`echo x #'\nrm ${SETTINGS}`, L2("rm")],
+  // Verb spellings the shell resolves to the same command word.
+  [`\\rm ${SETTINGS}`, L2("rm")],
+  [`"rm" ${SETTINGS}`, L2("rm")],
+  [`bash -lc 'rm ${SETTINGS}'`, L2("rm")],
+  // Layer 1: in-place edit flags spelled as a cluster, and tee's later operands.
+  [`sed -i s/a/b/ ${SETTINGS}`, L1("in-place-edit")],
+  [`sed --in-place s/a/b/ ${SETTINGS}`, L1("in-place-edit")],
+  [`sed -Ei s/a/b/ ${SETTINGS}`, L1("in-place-edit")],
+  [`sed -ni s/a/b/ ${SETTINGS}`, L1("in-place-edit")],
+  [`echo x | tee ${SETTINGS}`, L1("tee")],
+  [`echo x | tee /dev/null ${SETTINGS}`, L1("tee")],
+  // `find` with the protected path written out: `-delete` removes it, the exec
+  // actions run a command over it, and `-fprint`/`-fprintf`/`-fls` truncate their
+  // FILE operand. Each was null from the detector, and the real hook exited 0,
+  // before this lane's second change — except the bare `-exec rm` spellings, which
+  // the word scan already caught.
+  [`find ${SETTINGS} -delete`, L2("rm")],
+  [`sudo find ${SETTINGS} -delete`, L2("rm")],
+  [`find ${SETTINGS} -name x -delete`, L2("rm")],
+  [`find ${SETTINGS} -execdir rm {} \\;`, L2("rm")],
+  [`find ${SETTINGS} -ok rm {} \\;`, L2("rm")],
+  [`find ${SETTINGS} -okdir rm {} +`, L2("rm")],
+  [`find ${SETTINGS} -exec "rm" {} \\;`, L2("rm")],
+  [`find ${SETTINGS} -exec sh -c 'rm "$1"' _ {} \\;`, L2("rm")],
+  [`find . -fprint ${SETTINGS}`, L1("find-fprint")],
+  [`find . -fprintf ${SETTINGS} '%p'`, L1("find-fprint")],
+  [`find . -fls ${SETTINGS}`, L1("find-fprint")],
+  // `env -S` / `--split-string` splits its string into a command, like `sh -c`.
+  [`env -S 'rm ${SETTINGS}'`, L2("rm")],
+  [`env -S'rm ${SETTINGS}'`, L2("rm")],
+  [`env --split-string='rm ${SETTINGS}'`, L2("rm")],
+  [`env --split-string 'rm ${SETTINGS}'`, L2("rm")],
+  [`env -iS 'rm ${SETTINGS}'`, L2("rm")],
+  [`sudo env -S 'rm -f' ${SETTINGS}`, L2("rm")],
+  // An UNREADABLE split string takes the lexical fallback, exactly like
+  // `sh -c "$CMD"`. The trailing `-ln` is there to make the route observable: the
+  // parsed dispatch would call it a flag, the lexical scan still reads `ln`.
+  [`env -S "$CMD" -ln ${SETTINGS}`, L2("ln")],
+  [`sh -c "$CMD" -ln ${SETTINGS}`, L2("ln")],
+  // Command-running wrappers (`git-command-parse.js::COMMAND_RUNNING_WRAPPERS`).
+  // Each was null from both entry points before this lane's third change: the
+  // word scan over an unknown command reads a MASKED view, so a quoted body or a
+  // quoted `-fprint` operand behind the wrapper was invisible. `watch` runs its
+  // joined operands through `sh -c`, and with `-x` runs them as an argv.
+  [`watch find ${SETTINGS} -fprint "${SETTINGS}"`, L1("find-fprint")],
+  [`watch -n 5 find . -fprint "${SETTINGS}"`, L1("find-fprint")],
+  [`watch 'rm ${SETTINGS}'`, L2("rm")],
+  [`watch -n 5 'rm -f' "${SETTINGS}"`, L2("rm")],
+  [`watch --int 5 'rm ${SETTINGS}'`, L2("rm")],
+  [`watch -tx sh -c 'rm ${SETTINGS}'`, L2("rm")],
+  [`sudo watch 'rm ${SETTINGS}'`, L2("rm")],
+  [`find . -exec watch 'rm ${SETTINGS}' \\;`, L2("rm")],
+  [`flock /tmp/l find . -fprint "${SETTINGS}"`, L1("find-fprint")],
+  [`flock -s /tmp/l --command 'rm ${SETTINGS}'`, L2("rm")],
+  [`flock --wait 5 /tmp/l sh -c 'rm ${SETTINGS}'`, L2("rm")],
+  [`su -lc 'rm ${SETTINGS}'`, L2("rm")],
+  [`su root --command='rm ${SETTINGS}'`, L2("rm")],
+  [`script --command 'rm ${SETTINGS}'`, L2("rm")],
+  [`arch -e FOO=1 -arch arm64 find . -fprint "${SETTINGS}"`, L1("find-fprint")],
+  [`parallel -j 4 'rm {}' ::: ${SETTINGS}`, L2("rm")],
+  [`chroot --userspec=u:g / sh -c 'rm ${SETTINGS}'`, L2("rm")],
+  // A KNOWN wrapper whose bare-word skip swallowed the real command name.
+  [`nice rg --pre=rm x ${SETTINGS}`, L2("rm")],
+  // PREFIX RUNNERS added with the load guard (`GIT_WRAPPERS`). The bipolar
+  // fixture pairs use the QUOTED-BODY spelling, because that is the one
+  // membership decides: measured against an unmodelled name on this tree,
+  // `zzunknownwrap --flag sh -c 'rm <settings>'` returns NULL while
+  // `zzunknownwrap --flag rm <settings>` still flags lexically. The rows here are
+  // the value-option spellings, which discriminate the option walk: read as
+  // flags, `-o /tmp/t` / `--cpunodebind=0` / `-t 1 -m` would put their VALUE in
+  // the command slot and hide the verb behind it.
+  [`setarch x86_64 rm -f ${SETTINGS}`, L2("rm")],
+  [`linux32 sh -c 'rm ${SETTINGS}'`, L2("rm")],
+  [`numactl --cpunodebind=0 sh -c 'rm ${SETTINGS}'`, L2("rm")],
+  [`nsenter -t 1 -m find . -fprint "${SETTINGS}"`, L1("find-fprint")],
+  [`unshare -r sh -c 'rm ${SETTINGS}'`, L2("rm")],
+  [`systemd-run --user --scope sh -c 'rm ${SETTINGS}'`, L2("rm")],
+  [`firejail --quiet sh -c 'rm ${SETTINGS}'`, L2("rm")],
+  [`proot -R / sh -c 'rm ${SETTINGS}'`, L2("rm")],
+  [`pkexec sh -c 'rm ${SETTINGS}'`, L2("rm")],
+  [`strace -f -o /tmp/t sh -c 'rm ${SETTINGS}'`, L2("rm")],
+  [`valgrind --tool=memcheck sh -c 'rm ${SETTINGS}'`, L2("rm")],
+  [`xvfb-run -a sh -c 'rm ${SETTINGS}'`, L2("rm")],
+  [`torsocks sh -c 'rm ${SETTINGS}'`, L2("rm")],
+  // Multi-call binaries: the applet name occupies the command slot, so the real
+  // command is one word further along.
+  [`busybox sh -c 'rm ${SETTINGS}'`, L2("rm")],
+  [`toybox find ${SETTINGS} -fprint "${SETTINGS}"`, L1("find-fprint")],
+  // shadow-utils `sg` — the named-open residual a9dedb29c left behind.
+  [`sg staff -c 'rm ${SETTINGS}'`, L2("rm")],
+  [`sg - staff -c 'rm ${SETTINGS}'`, L2("rm")],
+  // `nix-shell`'s positional operand is a `.nix` FILE, so only its body options
+  // run anything a fence can see.
+  [`nix-shell -p coreutils --run 'rm ${SETTINGS}'`, L2("rm")],
+  [`nix-shell --command 'rm ${SETTINGS}'`, L2("rm")],
+  // MULTI-VERB front-ends: the grammar applies only AFTER the runner verb, and
+  // the verb may sit behind the front-end's own options. The QUOTED-BODY rows are
+  // the ones that BIND the grammar entry — measured, `zzunknown run sh -c
+  // 'rm <settings>'` is NULL, so only membership can produce the verdict.
+  [`uv run sh -c 'rm ${SETTINGS}'`, L2("rm")],
+  [`uv --directory . run sh -c 'rm ${SETTINGS}'`, L2("rm")],
+  [`poetry run sh -c 'rm ${SETTINGS}'`, L2("rm")],
+  [`pipx run --spec x sh -c 'rm ${SETTINGS}'`, L2("rm")],
+  [`pnpm exec sh -c 'rm ${SETTINGS}'`, L2("rm")],
+  [`yarn exec sh -c 'rm ${SETTINGS}'`, L2("rm")],
+  // `mise exec` puts a NON-OPTION tool spec before the command, so `--` is what
+  // decides where the command starts.
+  [`mise exec node@20 -- sh -c 'rm ${SETTINGS}'`, L2("rm")],
+  [`asdf exec sh -c 'rm ${SETTINGS}'`, L2("rm")],
+  [`direnv exec . sh -c 'rm ${SETTINGS}'`, L2("rm")],
+  [`conda run -n env sh -c 'rm ${SETTINGS}'`, L2("rm")],
+  [`micromamba run -n e sh -c 'rm ${SETTINGS}'`, L2("rm")],
+  // The bare-argv spelling of the same thing. These rows are TRUE but do NOT
+  // bind the grammar: measured, `zzunknown run rm <settings>` is refused too, so
+  // the generic word scan already reaches them and a mutation of the `uv` entry
+  // leaves them green. Kept as documentation of the argv reading, never relied on
+  // as evidence for it — the quoted-body rows above and the fixture pairs are.
+  [`uv run rm ${SETTINGS}`, L2("rm")],
+  [`pnpm exec rm ${SETTINGS}`, L2("rm")],
+  [`mise exec node@20 -- rm ${SETTINGS}`, L2("rm")],
+  // Constructs the parser reports as undecidable keep today's lexical verdict,
+  // INCLUDING its false positive: an ANSI-C quote desyncs the quote model and an
+  // unterminated quote leaves the segmentation untrusted.
+  [`echo $'\\'' ; git grep -ln x -- ${SETTINGS}`, L2("ln")],
+  [`git grep -ln 'x -- ${SETTINGS}`, L2("ln")],
+];
+
+const VERB_POSITION_ALLOWED = [
+  `git grep -l 'x' -- ${SETTINGS}`,
+  `git grep -ln 'x' -- ${SETTINGS}`,
+  `git grep -lcn x -- ${SETTINGS}`,
+  `grep -e rm ${SETTINGS}`,
+  `docker run --rm img cat ${SETTINGS}`,
+  `ls -cp ${SETTINGS}`,
+  `git grep -ln x -- ${SETTINGS} "$(git rev-parse --show-toplevel)"`,
+  // Layer 1 carried the same `\b` shape.
+  `foo --tee ${SETTINGS}`,
+  `foo --jq .a -i ${SETTINGS}`,
+  // `find` is MODELLED, not word-scanned: only its exec actions run a command, so
+  // a verb word inside an exec'd grep pattern is data (this one was refused before).
+  `find ${SETTINGS} -name x -print`,
+  `find ${SETTINGS} -type f -exec cat {} \\;`,
+  `find ${SETTINGS} -exec grep -e rm {} \\;`,
+  // `-fprint` truncates its FILE operand, not the start point.
+  `find ${SETTINGS} -fprint /tmp/out`,
+  `env -S 'cat ${SETTINGS}'`,
+  `env FOO=1 cat ${SETTINGS}`,
+  // The read-only poles for the command-running wrappers: the same wrapper, the
+  // same protected path, a command that mutates nothing.
+  `watch -n 5 cat ${SETTINGS}`,
+  `watch 'cat ${SETTINGS}'`,
+  `watch -x git status -- ${SETTINGS}`,
+  `flock /tmp/l -c 'cat ${SETTINGS}'`,
+  `su root -c 'cat ${SETTINGS}'`,
+  `script -q /dev/null cat ${SETTINGS}`,
+  `parallel 'cat {}' ::: ${SETTINGS}`,
+  // The known-wrapper word scan skips flags and assignments, as the unknown one does.
+  `nice git grep -ln x -- ${SETTINGS}`,
+  `env ACTION=rm cat ${SETTINGS}`,
+  // Read-only poles for the prefix runners and multi-verb front-ends: the same
+  // wrapper, the same protected path, a verb that mutates nothing. These are the
+  // no-false-positive half — recognising a wrapper must widen what the scan SEES,
+  // never what it REFUSES.
+  `setarch x86_64 sh -c 'cat ${SETTINGS}'`,
+  `numactl --cpunodebind=0 sh -c 'cat ${SETTINGS}'`,
+  `nsenter -t 1 -m cat ${SETTINGS}`,
+  `systemd-run --user --scope cat ${SETTINGS}`,
+  `firejail --quiet sh -c 'cat ${SETTINGS}'`,
+  `strace -f -o /tmp/t node .claude/bin/emit.mjs --dry-run`,
+  `valgrind --tool=memcheck sh -c 'cat ${SETTINGS}'`,
+  `xvfb-run -a sh -c 'cat ${SETTINGS}'`,
+  `busybox cat ${SETTINGS}`,
+  `sg staff -c 'cat ${SETTINGS}'`,
+  `nix-shell -p coreutils --run 'cat ${SETTINGS}'`,
+  `uv run sh -c 'cat ${SETTINGS}'`,
+  `pnpm exec sh -c 'cat ${SETTINGS}'`,
+  `mise exec node@20 -- sh -c 'cat ${SETTINGS}'`,
+  `conda run -n env sh -c 'cat ${SETTINGS}'`,
+  `direnv exec . sh -c 'cat ${SETTINGS}'`,
+  // A MULTI-VERB front-end carrying NO runner verb runs no operand command. Each
+  // row still SPELLS the protected path, so it is not vacuously null; the
+  // git-side half of the same gate (`uv pip install git` is not a git
+  // invocation) is asserted in the wrapper-model test below.
+  `conda list --explicit ${SETTINGS}`,
+  `uv pip show -o ${SETTINGS}`,
+  `pnpm why --json ${SETTINGS}`,
+];
+
+for (const [cmd, want] of VERB_POSITION_REFUSED) {
+  test(`verb position — REFUSED with identity ${want.layer}:${want.kind}: ${JSON.stringify(cmd)}`, () => {
+    const got = verdictBoth(cmd);
+    assert.deepEqual(got.seg, want, `segment-aware entry point: ${JSON.stringify(got.seg)}`);
+    assert.deepEqual(got.raw, want, `layer implementation: ${JSON.stringify(got.raw)}`);
+  });
+}
+
+for (const cmd of VERB_POSITION_ALLOWED) {
+  test(`verb position — ALLOWED (no mutation verb where the shell runs one): ${JSON.stringify(cmd)}`, () => {
+    const got = verdictBoth(cmd);
+    assert.equal(got.seg, null, `segment-aware entry point: ${JSON.stringify(got.seg)}`);
+    assert.equal(got.raw, null, `layer implementation: ${JSON.stringify(got.raw)}`);
+  });
+}
+
+// RESIDUAL, pinned so that closing it is a deliberate act and not a silent drift.
+// The verb IS recognised here (the literal-path sibling above is refused), but the
+// protected path is never spelled: `-name settings.json` is a pattern find expands
+// at run time. That is `state-file-write-guard.md` § Known residuals (a)/(f) — the
+// literal is absent pre-expansion — not a verb-position gap.
+//
+// NARROWED, NOT CLOSED (loom round-3 S4). `findSynthesizedPaths` now reconstructs
+// the DIRECT-CHILD reading of the root × `-name` join, which closes
+// `find .claude/learning -name posture.json -delete` and its `-exec rm` sibling
+// (both `flag-s4-*` fixtures). What is left is exactly the shape below: a search
+// root that is an ANCESTOR rather than the parent, where the protected file is
+// reached through an unbounded set of intermediate directories no join can
+// enumerate from a path regex. `./settings.json` is what the join produces here,
+// and it is genuinely not a protected path — so the residual is the RECURSION,
+// not the join. Closing it needs the containment oracle to answer "could a
+// protected path exist UNDER this root with this basename", which is a different
+// question from the one `scopedPathHit` is built for.
+test("verb position — RESIDUAL: find by -name never spells the protected path", () => {
+  assert.deepEqual(verdictBoth("find . -name settings.json -exec rm {} \\;"), {
+    seg: null,
+    raw: null,
+  });
+});
+
+// RESIDUAL, OPEN BY DECISION — stdin-fed operands (`… | xargs <verb>`). The
+// rationale lives at `violation-patterns.js::detectStateFileMutationSegmentAware`;
+// what is pinned here is the DECISION, so that closing it is deliberate.
+//
+// READ THIS BEFORE "FIXING" IT. A pass reconstructing the argv `xargs` would
+// build WAS written and measured, and was BACKED OUT: it closed the bypass and
+// ALSO fired, at `block` tier, on two classes of routine instructed work — the
+// EXCLUSION role (the protected path is what the producer SKIPS) and the
+// INPUT-LIST role (the producer READS the protected file to obtain OTHER paths).
+// The second is not fixable at this layer at all: it is token-for-token the same
+// shape as the true positive, and only the producer's STDOUT separates them,
+// which `hook-output-discipline.md` MUST-3 forbids the hook from computing.
+// A fence that blocks `grep … | xargs sed` is worse than one that misses a rare
+// bypass. If you close this, these three false-positive rows go RED first.
+// MEASURED on this tree, and it is the whole reason the pass was backed out: the
+// residual and the ABSENCE of the false positives have the SAME cause. The FLAT
+// layer implementation (`raw`) flags every row below, true positive and false
+// positive alike, because verb and path sit in one string. The SEGMENT SPLIT —
+// which is what production calls — drops all five. So a pass that reached across
+// the pipe would not be adding sight to a blind scan; it would be re-importing
+// the flat scan's false positives into the entry point that had removed them.
+test("RESIDUAL: stdin-fed xargs operands are undetected, by decision", () => {
+  // (i) The true positive that stays open. Its bipolar partner is the SAME verb
+  // and path with the operand on the ARGV, which IS refused at BOTH entry points
+  // — so this row pins a boundary, not a blind spot in the verb scan.
+  assert.deepEqual(verdictBoth(`echo ${SETTINGS} | xargs rm`), {
+    seg: null,
+    raw: L2("rm"),
+  });
+  assert.deepEqual(verdictBoth(`xargs rm ${SETTINGS}`), {
+    seg: L2("rm"),
+    raw: L2("rm"),
+  });
+  // A here-string is not stdin from a PIPE — the operand is still in the segment,
+  // and `xargs rm <<< <settings>` is refused (pinned in VERB_POSITION_REFUSED
+  // above). Kept adjacent so the two are not confused for one another.
+  //
+  // (ii) The two MEASURED false positives of the backed-out pass, EXCLUSION role:
+  // the protected path is what the producer SKIPS. Both flag under the flat scan.
+  assert.deepEqual(
+    verdictBoth(`grep -rl needle . --exclude-dir=.git | xargs sed -i ''`),
+    { seg: null, raw: L1("in-place-edit") },
+  );
+  assert.deepEqual(
+    verdictBoth(`find . -path ./.git -prune -o -name '*.tmp' -print | xargs rm`),
+    { seg: null, raw: L2("rm") },
+  );
+  // (iii) INPUT-LIST role — the producer READS the protected file and emits
+  // OTHER paths. Token-for-token the shape of (i); only the producer's stdout
+  // separates them, and `hook-output-discipline.md` MUST-3 forbids computing it.
+  assert.deepEqual(verdictBoth(`jq -r '.paths[]' ${SETTINGS} | xargs rm`), {
+    seg: null,
+    raw: L2("rm"),
+  });
+});
+
+// The command-running wrappers are extracted in the SHARED parser, so the git/gh
+// verb fences get the same closure the state-file detector does. That half is
+// pinned here in-process; the hook-spawning posture-gate suite is the hook half.
+// Before the change every row below parsed as NO git invocation. The two
+// value-option rows (`watch -n 1`, `flock -w 5`) discriminate the grammar: read
+// as flags, their VALUE would land in the command slot and hide the git token.
+const GP = require(
+  path.resolve(HERE, "..", "..", "..", "hooks", "lib", "git-command-parse.js"),
+);
+const gitSubs = (cmd) =>
+  GP.parseGitInvocations(cmd).map((g) => g.sub || `?${g.unresolvable}`);
+
+test("wrapper model — git invocations behind command-running wrappers are parsed", () => {
+  assert.deepEqual(gitSubs("git commit -m x"), ["commit"], "control");
+  for (const cmd of [
+    "watch -n 1 git commit -m x",
+    "watch 'git commit -m x'",
+    "watch -x git commit -m x",
+    // -x keeps the argv: joined for `sh -c` instead, `sh -c git commit -m x` runs
+    // only `git`, so this row separates the two readings.
+    "watch -x sh -c 'git commit -m x'",
+    "flock -w 5 /tmp/l git commit -m x",
+    "flock /tmp/l -c 'git commit -m x'",
+    "chronic git commit -m x",
+    "unbuffer git commit -m x",
+    "arch -arch arm64 git commit -m x",
+    "caffeinate -t 5 git commit -m x",
+    "chroot / git commit -m x",
+    "script -q /dev/null git commit -m x",
+    "script -q -c 'git commit -m x' /dev/null",
+    "su root -c 'git commit -m x'",
+    "runuser -u root -- git commit -m x",
+    "parallel git commit -m ::: x",
+    "exec git commit -m x",
+    "gtimeout 5 git commit -m x",
+    "genv -S 'git commit -m x'",
+    "gnice -n 5 git commit -m x",
+    // getopt_long's unique-prefix rule: `--int` is `--interval`, which takes `1`.
+    "watch --int 1 git commit -m x",
+    // parallel with no command runs each argument as a command line.
+    "parallel ::: 'git commit -m x'",
+  ]) {
+    assert.deepEqual(gitSubs(cmd), ["commit"], `${cmd}: ${JSON.stringify(gitSubs(cmd))}`);
+  }
+  for (const cmd of [
+    "watch git status",
+    "flock /tmp/l git status",
+    "su root -c 'git status'",
+    // After `--` nothing is an option: git's own `-c <name=value>` must not be
+    // read as runuser's shell body (which would invent a `commit`).
+    "runuser -u root -- git -c 'git commit -m x' status",
+  ]) {
+    assert.deepEqual(gitSubs(cmd), ["status"], cmd);
+  }
+  // A shell body the hook cannot read is unresolvable, the verdict `sh -c "$CMD"` gets.
+  assert.deepEqual(gitSubs('watch "$CMD"'), ["?subcommand"]);
+  // A lone lock descriptor runs nothing.
+  assert.deepEqual(gitSubs("flock 9"), []);
+});
+
+// The SAME parity for the prefix runners and multi-verb front-ends the load
+// guard added. This half is what makes the entry list load-bearing rather than
+// decorative: the git verb fence carries `block` severity for `push`, so a
+// wrapper it cannot see through is a bypass of a blocking gate, not merely of an
+// advisory one. `setarch x86_64 git push --force` is the named row — note that
+// `x86_64` is BOTH setarch's arch operand and a GIT_WRAPPERS alias of its own,
+// so a grammar that mis-read the operand would still have to land on `git`.
+test("wrapper model — git PUSH behind the load-guard wrappers is parsed", () => {
+  assert.deepEqual(gitSubs("git push --force"), ["push"], "control");
+  // NEGATIVE control, measured on this tree: an unmodelled name yields NOTHING,
+  // so membership — not the generic word scan — is what closes each row below.
+  assert.deepEqual(gitSubs("zzunknownwrap --flag git push --force"), []);
+  for (const cmd of [
+    "setarch x86_64 git push --force",
+    "linux32 git push --force",
+    "numactl --cpunodebind=0 git push --force",
+    "nsenter -t 1 -m git push --force",
+    "unshare -r git push --force",
+    "systemd-run --user --scope git push --force",
+    "cgexec -g cpu:/lim git push --force",
+    "firejail --quiet git push --force",
+    "bwrap --dev-bind / / git push --force",
+    "proot -R / git push --force",
+    "fakeroot git push --force",
+    "pkexec git push --force",
+    "eatmydata git push --force",
+    "strace -f -o /tmp/t git push --force",
+    "ltrace git push --force",
+    "dtruss git push --force",
+    "valgrind --tool=memcheck git push --force",
+    "gdb --args git push --force",
+    "xvfb-run -a git push --force",
+    "torsocks git push --force",
+    "proxychains4 -q git push --force",
+    "busybox git push --force",
+    "toybox git push --force",
+    // COMMAND_RUNNING_WRAPPERS grammars.
+    "sg staff -c 'git push --force'",
+    "nix-shell --run 'git push --force'",
+    "uv run git push --force",
+    "poetry run git push --force",
+    "pipx run git push --force",
+    "pnpm exec git push --force",
+    "yarn exec git push --force",
+    "mise exec node@20 -- git push --force",
+    "asdf exec git push --force",
+    "direnv exec . git push --force",
+    "conda run -n e git push --force",
+    "micromamba run -n e git push --force",
+  ]) {
+    assert.deepEqual(gitSubs(cmd), ["push"], `${cmd}: ${JSON.stringify(gitSubs(cmd))}`);
+  }
+  // The `subcommands` gate, git side: a multi-verb front-end carrying no runner
+  // verb runs no operand command, so a `git` WORD in its arguments is a package
+  // name, not an invocation. Plain GIT_WRAPPERS membership would have invented
+  // one here — which is why these front-ends got a grammar instead.
+  for (const cmd of ["uv pip install git", "pnpm add git", "conda list git"]) {
+    assert.deepEqual(gitSubs(cmd), [], cmd);
   }
 });
 

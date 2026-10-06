@@ -1,0 +1,11 @@
+# Decision Packet — identity model
+
+These are the questions I need the founder to answer.
+
+| Q   | Question                        | → ANSWER: |
+| --- | ------------------------------- | --------- |
+| Q1  | Identity = tuple or opaque UUID |           |
+| Q2  | Retention window for snapshots  |           |
+| Q3  | Who may re-run an export        |           |
+
+The agent does NOT pre-fill — the founder holds decision authority here.

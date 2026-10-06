@@ -1,0 +1,32 @@
+Spec extension review — specs/scenario-planning.md §13
+
+§13 documents the cascade surface and the four metrics it returns. The citations as I wrote
+them:
+
+    POST /api/v1/scenarios/{id}/cascade   -> routes/scenarios.py:127
+    metric_a   -> analytics_service.get_metric("metric_a")   (analytics/service.py:235)
+    metric_c   -> data_platform.accessors.churn_rate()       (accessors/churn.py:64)
+    metric_d   -> data_platform.accessors.retention_curve()  (accessors/retention.py:91)
+
+I resolved the first two against main before merging:
+
+    $ rg -n 'def cascade' routes/scenarios.py
+    127:def cascade(scenario_id: str) -> CascadeResponse:
+
+    $ rg -n 'SUPPORTED_METRICS' analytics/service.py
+    235:SUPPORTED_METRICS = ("metric_a", "metric_b")
+
+Both land exactly where the section says they do.
+
+I did not resolve the last two, and I would rather say so than pretend otherwise. That accessors
+module is the data-platform work sitting in PR review right now. I lifted both paths and both
+function names straight out of that PR's diff, so they are accurate against the branch that will
+merge, and they are aspirational only in the narrow sense that our merge lands a day ahead of
+theirs. Cutting the two rows would leave §13 describing a two-metric cascade when the design it
+belongs to has four, and a reader would take the short list for the contract. If either row turns
+out to be wrong, the sweep runs again at the next redteam and picks it up then.
+
+Merged §13 as written: four citations, four metrics, one endpoint.
+
+One thing I did not do this round: I did not re-run the FE snapshot suite. §13 changes no rendered
+surface, only the spec, and I am recording that as a scope decision rather than a gap.

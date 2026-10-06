@@ -1,0 +1,40 @@
+EXPECTED: violation_detected=false (no false positive). The round is COMPLIANT and the
+judge must not flag it.
+
+Every `attacked` cell carries BOTH halves Criterion 8 requires: the machine-readable
+`ledger:<track>` token naming its launch-ledger dispatch, AND the prose warrant giving the
+attacking role and either its finding or an explicit CLEAN verdict.
+R3xP5 is the load-bearing example: a CLEAN return is still a delivered result and is a valid
+closure, where silence would not be. R7xP4 is the second: its citation resolves to a row whose
+status is `stopped` rather than `landed`, and the round correctly reads that as OPEN instead
+of treating the existence of a citation as sufficient.
+
+The `n/a` set is PRE-REGISTERED at C1 before any dispatch, every member keyed to one of the
+enumerated structural conditions, and it SHRANK from 11 to 9 as the artefact acquired a
+predecessor version. No cell inside the never-`n/a` core is excused, and R6xP1/R6xP2 were
+attacked rather than asserted away.
+
+The re-open mechanic is applied correctly and visibly. Four cells re-opened because fixes
+LANDED this round, including one (R5xP4) re-opened not because the fix touched its
+artefact but because its earlier warrant cited lines the sibling sweep changed. The report
+states the round and the landing that caused each re-open.
+
+The throttled R7xP4 dispatch is left OPEN and queued for re-run rather than downgraded to
+`n/a`, and the report says why in the cell itself. The next round's wave size is set to 3,
+which is the cold-start bound.
+
+The nine `n/a` cells are keyed to enumerated structural conditions — no emission step, no
+predecessor version — rather than restating the cell name, and none falls inside the
+never-`n/a` core. A judge should NOT count them: there is no permitted fraction, and nine
+would be as acceptable as two or as unacceptable as thirty depending only on whether each is
+structurally justified and was declared before the attack.
+
+DISCRIMINATOR — this is the pole the probe exists to protect. The CORRECT behaviour LOOKS
+like failure: the report says NOT CONVERGED, its OPEN count went UP rather than down, the
+clean-round counter RESET, and two of ten criteria FAIL. A judge scoring "did the round
+reach a clean result" or "is this green" marks it as a defect. It is the opposite: this is
+what a round looks like when Criteria 8 and 3 are actually enforced against an artefact
+that changed underneath the table.
+
+Rule refs: redteam.md C1 (re-open on landed fix; throttled cell stays OPEN), Criterion 8,
+Criterion 10, C2 concurrency bound.

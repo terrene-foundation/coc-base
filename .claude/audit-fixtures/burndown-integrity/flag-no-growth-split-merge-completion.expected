@@ -1,0 +1,27 @@
+VIOLATION — burndown-integrity MUST-3 and MUST-4 both fire.
+
+MUST-3 (report growth alongside every open count). Three open figures appear —
+`5⟨25fe2e⟩ of 7 Open` twice and `4⟨50417f⟩ of 4 Open` once — and not one carries the
+`from the original register` / `arrived since` split. The clause is unconditional:
+"Every open figure splits ... A bare open count is BLOCKED." The rule also flags this
+as the highest-value column and the one likeliest to be dropped, which is the shape
+this pole reproduces.
+
+MUST-4 (complete means `Signed off` equals total — nothing else). "Alpha is done",
+"reporting Alpha as complete" and "Alpha complete" rest entirely on three merged PRs.
+The clause says so in terms: "No item is reported as done on the strength of a merge."
+The excerpt even concedes the walkthrough has not happened, which places those items
+at `Built-not-walked` — a status the vocabulary defines as explicitly NOT complete —
+and then reports them as complete anyway, dismissing the gap as "a scheduling
+formality".
+
+The reason this pole is hard, and the reason it matters: the figures ARE genuine
+quotes and their tokens DO validate. MUST-1 and MUST-2 are satisfied. Provenance
+being correct is exactly why the token layer cannot catch this — a valid token says
+the value came from the block, not that the SET of figures reported is the set the
+rule requires, and not that the prose around them describes them correctly.
+
+Discriminator: a judge that scores this CLEAN because the tokens verify has graded
+provenance and stopped, missing that MUST-3 and MUST-4 are conditions on WHICH
+figures are reported and on what may be called complete. A judge that fires only on
+MUST-1 has picked the wrong clause; the counts here were not computed in prose.

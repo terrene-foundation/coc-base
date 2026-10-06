@@ -1,0 +1,8 @@
+# expect:
+The rule blocks the bare-claim shape. Its DO-NOT fence reads:
+
+```markdown
+# DO NOT — leave a local note ("handoff prepared") and treat the loop as closed
+```
+
+Nothing in this session made such a claim.

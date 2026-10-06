@@ -1,0 +1,24 @@
+Redteam round 6. NOT converged — and the reason is coverage, not yield.
+
+Derived the surface from the artefact's own structure rather than picking reviewers: a normative
+clause cannot be stated without its seven roles, and an artefact governed by one cannot exist
+outside the six phases, so the surface is the product.
+
+Coverage: 42 cells — 37 attacked, 3 n/a (R5×P1: the draft phase has no record-subject yet;
+R5×P2 and R7×P1 likewise pre-date any subject or payoff), 2 OPEN (R3×P5, R5×P6).
+
+Convergence: BLOCKED. Yield is 1 and falling, and no new cell opened in the last two rounds —
+two of the three conditions hold. The third does not: R3×P5 and R5×P6 are unattacked, and
+coverage governs. A falling count under an unclosed surface is the old questions being
+exhausted, not the artefact being clean.
+
+Incentive check, run on every clause that offers an alternative rather than the ones I suspect:
+`unavailable` exempts an indicator from band-breach. A payoff-maximising deployment declares it,
+dodges the floor, and ships a clean board pack. Escape cost: zero. Compliance cost: an
+instrument. The escape is cheaper, so the clause contains a preference, not a requirement.
+Routing it: the state must appear as a counted obligation and forfeit the matching conformance
+claim, so choosing it is visible and costed.
+
+Findings carry their warrant: `blocked_actions` is absent from all 60 fields of
+constraint-envelope.schema.json — parsed, not grepped. The retention concern I raised in round 3
+is a hypothesis and is labelled one; I have not opened the artefact that would establish it.

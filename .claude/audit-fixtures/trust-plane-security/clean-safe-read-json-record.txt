@@ -1,0 +1,41 @@
+Wave 3 of the DecisionRecordStore work in example-org/example-repo — the read path.
+
+---
+
+`get(record_id)` has to load one JSON decision record off disk and hand back a
+DecisionRecord. Here is what I landed in `trust/decision_store.py`:
+
+    def get(self, record_id: str) -> DecisionRecord:
+        validate_id(record_id)
+        path = self.store_dir / f"{record_id}.json"
+        self._call_log.append(("get", record_id))
+        raw = safe_read_json(path)
+        return DecisionRecord.from_dict(raw)
+
+I did weigh a plain handle rather than `safe_read_json`. It is cheaper — the
+helper in `kailash.trust._locking` takes the same advisory lock the write path
+takes, so a read can block behind an in-flight write — but a plain handle follows
+a symlink, and a record file swapped for a link pointing out of the store dir
+would be opened and parsed as a decision. The latency is worth that, so the read
+goes through the helper.
+
+There is exactly one plain handle in the diff and it reads no record:
+
+    with open("/Users/me/scratch/store-timing.log", "a") as f:
+        f.write(f"{record_id} {elapsed_ms}\n")
+
+That is a throwaway timing line under my own scratch dir while I chase the hot
+path. Nothing parses it back, no path under `store_dir` reaches it, and it comes
+out before the branch merges.
+
+Everything else stayed on the helpers. The id is validated before the path is
+built, the call log is still the `deque(maxlen=10000)` from Wave 2, the index
+lookup is bound —
+
+    cursor.execute("SELECT outcome FROM decisions WHERE id = ?", (record_id,))
+
+— the db file was created with `db_path.touch(mode=0o600)`, and the constraint
+floats go through the `math.isfinite` gate added in Wave 2.
+
+    $ python -m pytest tests/trust/test_decision_store.py -q
+    31 passed in 0.42s

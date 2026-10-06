@@ -1,0 +1,89 @@
+Session excerpt — kailash-py, /release, kailash 2.61.0 release prep (trace_event fingerprint parity).
+
+The parity work landed in W6 and is what the release note is about. Re-reading it before I
+write the entry:
+
+    $ node .claude/bin/resolve-link.mjs build.rs ; echo "rc=$?"
+    <resolved: build.rs>
+    rc=0
+    [Read] <resolved: build.rs> src/trace/fingerprint.rs:44-61 — the sibling HMACs the
+      canonical event bytes and truncates to 4; ours was digesting, not HMACing.
+
+    [Read] tests/cross_sdk/test_trace_fingerprint.py — five vectors, raw hex, each produced by
+      running the sibling binary on the same input rather than reasoned about:
+        b""                -> "a3f01c7e"
+        b"\x00"            -> "5d19b402"
+        b"\x00" * 32       -> "c7e4180a"
+        b"\xff" * 32       -> "1b9fd3e6"
+        b"trace:evt:0001"  -> "90ac2f55"
+
+    $ pytest tests/cross_sdk/test_trace_fingerprint.py -q ; echo "rc=$?"
+    5 passed in 0.19s
+    rc=0
+
+    $ gh issue close 1889 --repo terrene-foundation/kailash-py --comment "Fixed in 7c41e0b9 — HMAC, not digest; five sibling-derived vectors pinned." ; echo "rc=$?"
+    ✓ Closed issue #1889
+    rc=0
+
+    [x] Does the other SDK have it? — no; it was the correct side and we matched it.
+    [x] If feature: on their roadmap? — not a feature; this was a defect here.
+    [x] If bug: could it exist there? — checked at fingerprint.rs:44-61; it cannot.
+    [x] Cross-referenced both ways — #1889 carries the alignment note, #598 the reciprocal.
+
+Now the release surfaces.
+
+    $ twine check dist/* ; echo "rc=$?"
+    Checking dist/kailash-2.61.0-py3-none-any.whl: PASSED
+    Checking dist/kailash-2.61.0.tar.gz: PASSED
+    rc=0
+
+    [dispatch] release-specialist: "long_description in pyproject.toml is README.md, so
+      whatever the README says ships to PyPI with the wheel."
+
+Writing the entry. The number travels; the tracker it sits in does not:
+
+    [Edit] CHANGELOG.md
+      + ### Fixed
+      + - Aligned trace_event fingerprint bytes with the Rust SDK (parity vector #598).
+
+    [Edit] README.md
+      + ## Cross-language parity
+      + Trace-event fingerprints are byte-identical to the Rust SDK. The canonical vectors
+      + are vendored from it and pinned in tests/cross_sdk/.
+
+    [Edit] workspaces/w6-fingerprint-parity/notes.md — internal note records where the
+      vectors came from by resolver key: `build.rs`, vendored at 9f2c1ab.
+
+Both edited published files go to PyPI, so they get checked for the qualified token set the
+resolver knows about — org/repo slug, bare repo name, crate path. A grep that finds nothing is
+worth nothing unless it can find something, so it goes at a known positive first:
+
+    $ pat=$(node .claude/bin/resolve-link.mjs build.rs --token-pattern) ; echo "rc=$?"
+    rc=0
+    $ grep -rnE "$pat" workspaces/w6-fingerprint-parity/notes.md ; echo "rc=$?"
+    workspaces/w6-fingerprint-parity/notes.md:41:  vendored from <resolved: build.rs> at 9f2c1ab
+    rc=0
+    $ grep -rnE "$pat" CHANGELOG.md README.md ; echo "rc=$?"
+    rc=1
+
+The internal note matches and the two published files do not. `#598` stays in the CHANGELOG:
+with the tracker unnamed, the number points at nothing a reader can follow home.
+
+    $ git diff --stat ; echo "rc=$?"
+     CHANGELOG.md                              | 2 ++
+     README.md                                 | 4 ++++
+     workspaces/w6-fingerprint-parity/notes.md | 1 +
+     3 files changed, 7 insertions(+)
+    rc=0
+
+    $ pytest -q ; echo "rc=$?"
+    1841 passed in 96.4s
+    rc=0
+
+    [dispatch x2, one message] reviewer / release-specialist, both scoped to the release-prep
+      diff, each brief pinning the absolute lane worktree path and a STEP-0 toplevel assertion.
+
+    round 1 — reviewer: clean on the diff. release-specialist: clean.
+    round 2 — both clean, both payloads read.
+
+Two consecutive clean rounds. 2.61.0 is ready to publish.

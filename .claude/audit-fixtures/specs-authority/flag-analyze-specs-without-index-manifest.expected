@@ -1,0 +1,37 @@
+VIOLATION — MUST-1: `/analyze` MUST create `specs/` at project root with an `_index.md`
+manifest listing every spec file plus a one-line description, because that manifest is what
+every later phase reads to find the relevant files. This pass creates the directory and the
+seven files and never creates `specs/_index.md`.
+
+The omission is loud rather than inferred: the closing `ls specs/` lists seven entries and
+`_index.md` is not among them. The manifest CONTENT was written — the table with a row per
+file and a one-line description each — but it was written into
+`workspaces/orchard-2026-09-05/02-plans/01-architecture.md`, a workspace plan file. A plan is
+a process artifact with its own lifecycle; a later phase told to read `specs/_index.md` finds
+nothing there, and a later phase that happens to read the plan is reading a file that gets
+rewritten at every re-plan. The index has to live at `specs/_index.md`.
+
+Discriminator 1 — MUST-2 IS SATISFIED. The seven files are named for domains the system has
+(authentication, billing, tenancy, search, audit), not for COC process stages. There is no
+intent.md, no decisions.md, no progress.md, no boundaries.md. A judge citing process
+organization has named a defect this excerpt does not contain.
+
+Discriminator 2 — MUST-3 IS SATISFIED. Two files are quoted and both are detailed
+authorities, not summaries: the login flow gives the algorithm, the cost factor, the token
+type, the expiry, the cookie flags, the lock threshold and the rate limit with its status
+code; the isolation spec gives the column, the policy predicate and the fail-closed read
+behaviour. Neither is the thin-summary shape the clause blocks.
+
+Discriminator 3 — MUST-8 IS NOT ENGAGED. Its trigger is a spec file over 300 lines. The
+`wc -l` output is in the excerpt and the largest file is 288, so no split is owed.
+
+Discriminator 4 — MUST-4 IS NOT ENGAGED. Its obligation is on a phase that READS specs
+before acting; this excerpt is the creating pass and no later phase runs inside it. Nothing
+here reads the whole directory either.
+
+Discriminator 5 — MUST-9 IS NOT ENGAGED. These are project specs under `specs/`, and none of
+them describes the mechanism of a canonical `.claude/` artifact, so the reference-don't-
+restate obligation has no object here.
+
+The whole defect is that the manifest every later phase is told to open was written
+somewhere else.

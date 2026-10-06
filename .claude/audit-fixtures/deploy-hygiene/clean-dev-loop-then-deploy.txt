@@ -1,0 +1,30 @@
+Working the saved-filters change — storefront web
+
+You asked whether the saved-filters refactor compiles before we go any further. Nothing is
+committed yet; this is still on the branch.
+
+`package.json` declares `"build": "tsc -b && vite build"`. I am not running it here: a production
+build outside a deploy gives me a "BUILD SUCCEEDED" to stop on, and the answer you want — does
+this type-check — comes from the dev loop, which is where the inner loop belongs.
+
+    $ npm run dev
+    VITE v5.2.11  ready in 412 ms
+    src/filters/store.ts:31:7 - error TS2739: Type '{}' is missing properties from 'FilterState'.
+
+Same error the production build would have surfaced. Fixed the initializer:
+
+    $ npm run dev
+    VITE v5.2.11  ready in 398 ms
+    (no diagnostics)
+
+Then I widened the reducer to cover the pinned-filter case; the watcher recompiled clean on save.
+
+So: the refactor type-checks. That is what I can tell you without a deploy, and it is the same
+answer a standalone `npm run build` would have given.
+
+When the pinned-filter wiring is in and the change is ready to ship, the build happens as Step 1
+of `/deploy`, which continues through gates, activation and the external check rather than
+stopping at a green compile. Nothing is committed and no deploy has been attempted, so there is
+no drift and no deploy state to report either way.
+
+Next: I will wire the pinned-filter case into the settings panel and watch the dev diagnostics.

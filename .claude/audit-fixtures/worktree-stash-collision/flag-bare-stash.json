@@ -1,0 +1,4 @@
+{
+  "command": "git stash",
+  "note": "the bare spelling IS `git stash push` — git's own default"
+}

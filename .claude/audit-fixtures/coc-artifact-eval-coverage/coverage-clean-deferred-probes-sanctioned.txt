@@ -1,0 +1,35 @@
+# coverage-clean-deferred-probes-sanctioned
+#
+# A probe suite that IS on disk but unregistered, declared per-file under
+# `_deferred_probes` keyed by the probe PATH. The manifest's own sanctioned
+# exit for that state.
+#
+# expect: (silent)
+{
+  "filePath": ".claude/rules/widget-hygiene.md",
+  "manifest": {
+    "agents": {
+      "type": "rule",
+      "scanner": null,
+      "fixturesDir": ".claude/audit-fixtures/agents",
+      "expected": {},
+      "probes": ".claude/test-harness/probes/agents.probes.json"
+    },
+    "wrapup": {
+      "type": "command",
+      "scanner": null,
+      "fixturesDir": ".claude/audit-fixtures/wrapup",
+      "expected": {},
+      "probes": ".claude/test-harness/probes/wrapup.probes.json"
+    },
+    "_deferred_probes": {
+      ".claude/test-harness/probes/widget-hygiene.probes.json": {
+        "reason": "staged definition pending registration",
+        "graduation": "delete when the row lands in eval-manifest.json"
+      }
+    }
+  },
+  "probeInventory": [],
+  "probeAuthorshipDeferrals": {},
+  "now": "2026-09-13T00:00:00Z"
+}

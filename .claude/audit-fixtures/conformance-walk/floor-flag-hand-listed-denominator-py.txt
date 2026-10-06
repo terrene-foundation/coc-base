@@ -1,0 +1,9 @@
+# @fixture-path: tools/conformance/coverage_report.py
+# @expect: conformance-walk/hand-listed-denominator
+
+TOTAL_CASES = 38
+
+
+def coverage(results):
+    measured = len([r for r in results if r.verdict != "Not-Run"])
+    return measured / TOTAL_CASES

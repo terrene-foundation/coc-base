@@ -1,0 +1,4 @@
+# The TOML families are inside the rule's `paths:` and outside this checker.
+# They are RECOGNISED and announced rather than skipped, so a reader can never
+# mistake 'never looked' for 'checked and clean'.
+notice:script-tool-manifest-sanity/unsupported-manifest-kind

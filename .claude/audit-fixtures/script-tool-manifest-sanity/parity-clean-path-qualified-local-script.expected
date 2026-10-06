@@ -1,0 +1,4 @@
+# A path is resolved by the FILESYSTEM, not by a dependency lookup, so it is
+# not a package-name claim. `bash` is ambient. Flagging `./scripts/pre-commit.sh`
+# as an undeclared package is the noise that gets an advisory turned off.
+(silent)

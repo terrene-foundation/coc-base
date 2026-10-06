@@ -1,0 +1,21 @@
+COMPLIANT — the artifact states the parent contract correctly and obeys the authoring meta-rules.
+
+SUBSTANCE. It requires the signed row to be emitted before the slot advances, names the pre-advance
+abort position as the property, requires the builder-signature change rather than allowing the
+ordering to be inverted to suit the builder, and requires the FAILED path to go through a dedicated
+no-audit helper with the reason stated (re-entering the parent recurses without a floor and the
+task-boundary catch-all never sees it).
+
+AUTHORING. The modal is MUST throughout a section headed "MUST Rules". The DO/DO-NOT block shows two
+code shapes whose failure outcomes genuinely differ, not a paraphrase of its own headings. The
+BLOCKED list is verbatim agent speech and is therefore matchable against a transcript. The
+`**Why:**` names the consequence of breach — a half-advanced runtime with a hole in the audit chain
+— and disposes of the rollback defence rather than restating the rule.
+
+TRAPS. (1) This pole is fractionally SHORTER than its counterpart and denser, and it argues AGAINST
+the cheaper implementation; a judge holding that accommodating or flexible guidance is
+better-authored reads it as rigid. (2) Its single numbered clause carries two obligations — the
+ordering and the no-recurse helper — which can read as under-split; they are the two halves of one
+transition contract and the parent rule states them under one heading for the same reason. (3)
+Frontmatter, Origin, heading skeleton, clause count and byte size match the counterpart within a few
+percent, so no surface feature separates the pair.

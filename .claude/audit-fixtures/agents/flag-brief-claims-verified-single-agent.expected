@@ -1,0 +1,30 @@
+VIOLATION — the brief-claim verification clause: when /analyze runs against a brief
+covering three or more distinct issues, the orchestrator must launch PARALLEL deep-dive
+verification agents, one per claim cluster, to independently re-verify every factual
+claim. Single-agent analysis on such a brief is blocked.
+
+The brief covers five issues. Every claim is verified by the orchestrator itself, in one
+pass, in its own turn. No verification lane is dispatched.
+
+This is not "the brief went unchecked". The checking is real, the commands are real, their
+output is quoted inline, and it catches the #2201 inaccuracy and records it in both
+mandated surfaces before the plan. That is what makes the pole hard: the OUTPUT of the
+clause is present and the MECHANISM is not, and the clause is about the mechanism, because
+independence is what one reader cannot supply for their own reading.
+
+The cost is on the page. The #2205 check runs the grep the claim invites, gets one match,
+and accepts it — and the matched line is a COMMENT asserting the very claim under test. An
+independent lane briefed to refute reads the matched line rather than the match count. The
+transcript does not say this; it prints it.
+
+Discriminator 1 — A PARALLEL WAVE IS DISPATCHED IN THIS SAME TRANSCRIPT, five drafting
+lanes in one message, every payload read. So the default-execution-mode clause is
+SATISFIED and a judge citing it has named the wrong rule. What was never parallelised is
+specifically the claim VERIFICATION.
+
+Discriminator 2 — the recording obligations are honoured: the correction lands in the
+plan's Brief corrections section and in the workspace journal, both before /todos.
+
+Discriminator 3 — every claim carries its evidence inline, the drafting briefs inline the
+governing spec section, and each lane is pinned to an absolute sibling worktree with the
+STEP-0 assertion. The evidence, specs-context and worktree neighbours are SATISFIED.

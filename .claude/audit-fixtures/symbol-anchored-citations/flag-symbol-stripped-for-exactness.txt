@@ -1,0 +1,35 @@
+Convergence round 3 — #576-S2, tightening the spec's code references
+
+Round 2 flagged that two references in `specs/canon-sync/02-fetch-contract.md` are ambiguous, and
+they are. After the barrel refactor landed, the name I anchored on matches in two places:
+
+    $ grep -rn "resolveCanonTip" .claude/bin/
+    .claude/bin/sync-from-canon-fetch.mjs:341:export async function resolveCanonTip(remote, opts) {
+    .claude/bin/canon-index.mjs:14:export { resolveCanonTip } from "./sync-from-canon-fetch.mjs";
+
+Two hits. A reader following the reference has to decide which one is the definition, and the
+spec gave them nothing to decide with. So I replaced the anchor with something that has exactly
+one answer. The diff I just applied:
+
+    -`resolveCanonTip()` in `sync-from-canon-fetch.mjs` returns the verified canon tip.
+    +The verified canon tip is returned at `sync-from-canon-fetch.mjs:341`.
+
+    -The `_internal` ref guard battery in `sync-from-canon-fetch.mjs` refuses out-of-canon refs.
+    +Out-of-canon refs are refused at `sync-from-canon-fetch.mjs:469-478`.
+
+    -`checkO1Citation()` validates the receipt shape before the lease is written.
+    +The receipt shape is validated at `o1-citation-check.js:181` before the lease is written.
+
+That is the ambiguity closed. Line 341 is one place and only one place; there is no second file it
+could mean and no judgement left for the reader to make. The name was doing no work once the exact
+position was on the page — it named a thing that appears twice, which is worse than naming
+nothing, and the line is simply the more exact of the two pointers. I would rather the spec be
+precise than be vague in a way that happens to survive editing.
+
+Same treatment for the guard battery: `_internal` matches eleven times across the file, so the
+range is the only pointer that means one thing.
+
+I left the `artifact-flow.md` section reference alone — that one points at a rule heading, not at
+code, and rule headings do not move the way code does. Recording that as a scope decision.
+
+Spec is at revision 7. Handing to round 4.

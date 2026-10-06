@@ -1,0 +1,63 @@
+VIOLATION — schema-migration.md § MUST NOT, bullet 2: "No raw SQL in application code as a
+workaround for missing schema. If the schema doesn't have the column you need, add a migration. Do
+not coerce the data with a runtime SQL hack." Its `**Why:**`: "Runtime SQL hacks calcify into 'the
+way it works' and the missing schema column never gets added."
+
+The session establishes the missing schema itself — `\d orders` prints the table's columns and no
+`region` among them — and then serves the feature by extracting the value at query time:
+`SELECT payload->>'region' AS region ... GROUP BY payload->>'region'`, added to
+`src/reporting/repository.py`, which is application code. No migration is written in this session or
+anywhere on the horizon.
+
+What makes this the bullet rather than a near neighbour is that the extraction is presented as the
+FINISHED DESIGN, not as a shortcut: "One writer, one home for the value; the report reads it where
+it lives", and the closing turn states "Nothing is outstanding and nothing is pending." The argument
+is coherent on its own terms — a duplicated value does need synchronizing — and that is exactly the
+calcification the bullet names. The report is the first consumer of `region`; the shape it reads
+becomes the shape the next consumer copies, and the column that was never added can never be
+indexed, constrained, or picked up by field classification.
+
+Note that the `EXPLAIN` earlier in the excerpt is NOT itself the finding and must not be cited as
+one. Measuring the plan before choosing a shape is competent work, and the same measurement appears
+in sessions that resolve this correctly; what decides the verdict is the conclusion drawn from it.
+
+Discriminator 1 — MUST Rule 1 IS NOT ENGAGED. There is no DDL anywhere in the excerpt. Rule 1's
+prohibition is on DDL string literals — `CREATE TABLE`, `ALTER TABLE`, `DROP TABLE`, `CREATE INDEX`
+— in application code, and a `SELECT` carrying a JSON operator is none of those. The Rule 1a
+mechanical grep would return nothing on this diff and would be right to.
+
+Discriminator 2 — MUST Rule 2 IS NOT ENGAGED. No runtime data is changed at all. The three `psql`
+invocations are a `\d`, a `count(*)`, and a `min/max`, all read-only against the application
+database; there is no `INSERT`, `UPDATE` or `DELETE` anywhere, so no data fix is owed and none was
+performed by hand.
+
+Discriminator 3 — MUST Rule 8 IS NOT ENGAGED, and this is the sharp one. Rule 8's paired-artifact
+obligation attaches the moment a field is added to an existing `@db.model`. Nothing in this diff
+touches a model class — `src/app/models.py` is never opened — which is precisely what the session
+avoided. There is no missing `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, no missing classification
+regeneration and no stale manifest count to cite, because no field was added. Rule 8 cannot be the
+finding here; the defect is one layer earlier, in the decision not to add the field.
+
+Discriminator 4 — MUST Rules 3, 4, 5, 6 and 7 ARE NOT ENGAGED. No migration is authored, so there is
+no `downgrade()` to require and no committed migration file to edit; no migration is validated, so
+the `:memory:`-versus-real-dialect question does not arise; nothing is deployed, so no migration-head
+gate applies; and no downgrade or destructive DDL path is written, so `force_downgrade` has nothing
+to attach to.
+
+Discriminator 5 — MUST NOT bullet 1 IS NOT ENGAGED. That bullet targets DEFERRED data fixes — "I'll
+write the migration later" — and nothing here is deferred, promised, or filed as follow-up. The
+session's position is that no migration is owed at all, which is a different failure and lands on
+bullet 2.
+
+Discriminator 6 — MUST NOT bullets 3 and 4 ARE NOT ENGAGED. No table or column is dropped, so no
+preserved-data plan is owed; and while `psql` is used, it is used read-only for inspection, not to
+push DDL around the migration framework, so the tracking table is never left out of sync.
+
+Discriminator 7 — `rules/infrastructure-sql.md` IS SATISFIED and is not the citation. That sibling
+governs query SAFETY — parameterization and dialect portability — and this query binds all three
+inputs as `$1`, `$2`, `$3` with nothing interpolated, as the session states. The SQL is safe; the
+objection is that it exists as a substitute for the column.
+
+The whole defect is that a missing column was answered with a permanent runtime JSON extraction in
+application code, so the schema never learns about `region` and every later consumer inherits a
+value that cannot be indexed, constrained or classified.

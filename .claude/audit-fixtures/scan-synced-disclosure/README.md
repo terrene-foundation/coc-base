@@ -12,14 +12,21 @@ the fixtures themselves are committed/synced artifacts and embedding a
 real token here would be the #264 leak the scanner exists to prevent.
 The flagging fixture uses `Fakename-MacStudio`, `Buildbot-Mini`,
 `acme-fixture`, `acme-enterprise`, `acme-linux-arm`, `/Users/fakeuser/`,
-`com.fakeco.runner.alpha` — all invented. The Option-1 own-coordinates
-fixtures reference loom's OWN public host org and the maintainer's OWN
-dev-checkout root (per the co-owner Option-1 ruling 2026-05-17, #263);
-these are project self-coordinates, not client/3rd-party secrets, and
-the `nonown-still-flagged` fixture's `acme-corp` / `/Users/notesperie/`
-tokens are invented synthetics.
+`com.fakeco.runner.alpha` — all invented. The `own-identity-flagged`
+fixture's operator, login and org are invented too, declared in a
+synthetic roster beside it, and the `nonown-still-flagged` fixture's
+`acme-corp` / `/Users/otheroperator/` tokens are invented synthetics.
 
-**Surface scope of the Option-1 ruling (GAP D, ratified 2026-07-26).** The
+**No fixture here may carry the REAL canon identity** — not even as a
+"clean" control. Until 2026-09-25 several did, under the co-owner Option-1
+ruling (2026-05-17, #263) that exempted the canon host org and the
+maintainer's dev home as self-coordinates; this directory was then
+EXCLUDED from the loom-source scan, so nothing read them, and they shipped
+to every consumer. The exemption is retired, the clean controls now use
+Foundation and placeholder coordinates, and this directory is scanned
+IDENTITY-ONLY (`scan-synced-disclosure.mjs::isIdentityOnlyPath`).
+
+**Surface scope of the (now RETIRED, 2026-09-25) Option-1 ruling (GAP D, ratified 2026-07-26).** The
 own-coordinate ruling covers the **INSTANTIATION** surface as well as the SYNC
 surface. Handing someone a client-template edition, or a repo generated FROM
 this checkout, is a publish event in the same sense a sync is
@@ -37,17 +44,18 @@ behaviour changes with this note.
 | `clean-foundation-placeholder/`          | Foundation-public + ratified placeholder vocab                                                    | exit 0              | the positive allowlist suppresses every Foundation/placeholder token (zero findings)                                                                                        |
 | `container-internal-home-allowlisted/`   | py `/home/dev/` + rs `/home/vscode/` container-internal mount targets                             | exit 0              | F404 Shard 3 — both fixed-container-user homes are allowlisted (not host operator homes); a real operator home still flags (see `flag-each-shape` / `nonown-still-flagged`) |
 | `excluded-accepted-history/`             | `SWEEP-*.md` + `journal/**` with planted shapes                                                   | exit 0              | accepted-history paths are excluded — a planted real-shape token there MUST NOT flag                                                                                        |
-| `own-org-allowed/`                       | loom's own host org + own dev-home-path tokens                                                    | exit 0              | Option-1 allowlist suppresses `esperie-enterprise` + `/Users/esperie/` self-coordinates                                                                                     |
-| `nonown-still-flagged/`                  | non-own `acme-corp/loom` + different-operator home, alongside own coords                          | exit 1              | own-org allowlist did NOT neuter detection — non-own org slug + foreign home path still flag                                                                                |
-| `r2-org-forms/`                          | SSH-clone / `gh api orgs/` / bare / issue-ref / kailash- / coc- org forms                         | exit 1 + 6 findings | R2 must-fix #1 — every org-slug FORM flags; Foundation/own on same surface stays clean                                                                                      |
-| `r2-allowlist-anchor/`                   | typosquats `esperie-enterprise-evil/loom` + `nexus-enterprise-evil/loom`                          | exit 1 + 3 findings | R2 must-fix #2 — anchored allowlist no longer swallows a prefix-typosquat                                                                                                   |
+| `own-identity-flagged/`                  | synthetic roster + its operator in 6 shipped-leak forms + 2 glued forms                           | exit 1 + 10 findings| own identity is a FINDING (roster-derived `operator-identity-token`); replaces the retired Option-1 own-coordinate exemption                                                |
+| `nonown-still-flagged/`                  | non-own `acme-corp/loom` + different-operator home, alongside allowlisted coords                  | exit 1              | allowlist did NOT neuter detection — non-own org slug + foreign home path still flag                                                                                        |
+| `r2-org-forms/`                          | SSH-clone / `gh api orgs/` / bare / issue-ref / kailash- / coc- org forms                         | exit 1 + 6 findings | R2 must-fix #1 — every org-slug FORM flags; Foundation/placeholder on same surface stays clean                                                                              |
+| `r2-allowlist-anchor/`                   | typosquats `terrenefoundation-evil/loom` + `nexus-enterprise-evil/loom`                           | exit 1 + 3 findings | R2 must-fix #2 — anchored allowlist no longer swallows a prefix-typosquat                                                                                                   |
 | `r2-hostname-runner/`                    | `*-linux-arm64/aarch64/x86_64`, lowercase `bar-mini`, Mac products, `Proc-Macro`, `X-MacBook-Pro` | exit 1 + 8 findings | R2 #3+#4 + R3 #A — arch suffixes + lowercase mini + single-uppercase stem flag; `Proc-Macro` does NOT (count lock)                                                          |
+| `bsdtar-flag-not-hostname/`             | bsdtar's `--no-mac-metadata` flag beside a synthetic `Fakename-MacStudio`                          | exit 1, 1 finding   | the flag's `no-mac` span is allowlisted (a public tool flag, not a host); the real hostname stem beside it still flags                                                     |
 | `r2-exclusion-scoping/`                  | `rules/journaling-guide.md` (synthetic leak) + genuine `journal/0001-note.md`                     | exit 1 + 2 findings | R2 must-fix #5 — `journaling-guide.md` IS scanned; `journal/` dir stays excluded (both halves)                                                                              |
 | `r3-variant-surface/`                    | committed `variants/rs/rules/leakrule.md` + `*.operator.local.md` companion                       | exit 1 + 2 findings | R3 #B — variants/ ARE synced (overlay leak flags); operator.local stays excluded via suffix                                                                                 |
 | `r3-smuggle-closed/`                     | `chore/<org>/loom` + `<scheme>://<org>/loom` smuggle + 9 flood vectors                            | exit 1 + 4 findings | R3 #D — branch/scheme-prefixed org smuggle CLOSED; closed-set anchor does NOT flood prose                                                                                   |
 | `f77-settings-good/`                     | synced `.claude/settings.json` w/ `$CLAUDE_PROJECT_DIR`-rooted matchers only                      | exit 0              | F77 (#386) — clean settings.json passes (settings.json is now in walk surface; relative-path matchers are clean)                                                            |
 | `f77-settings-bad/`                      | synced `.claude/settings.json` w/ `Edit/Write/Read(/Users/fakeuser/...)` + `Bash(/home/...)`      | exit 1              | F77 (#386) — new settings-permission-absolute-path SHAPE fires on every tool-call matcher with an absolute path                                                             |
-| `f77-settings-own-coords-still-flagged/` | synced `.claude/settings.json` w/ `Edit(/Users/esperie/...)` (own dev path)                       | exit 1              | F77 (#386) — new SHAPE skips Option-1 allowlist for tool-call matchers (own/foreign distinction does not apply)                                                             |
+| `f77-settings-own-coords-still-flagged/` | synced `.claude/settings.json` w/ `Edit(/Users/me/...)` (allowlisted home)                        | exit 1              | F77 (#386) — new SHAPE skips the allowlist for tool-call matchers                                                                                                           |
 
 ## Per-fixture detail
 
@@ -64,19 +72,77 @@ behaviour changes with this note.
   accepted-history paths. Proves `SWEEP-*.md` and `journal/**` are
   excluded from the walk. Expected: `--check` exits 0 (the planted
   tokens are never scanned).
-- **`own-org-allowed/.claude/rules/owncoords.md`** — loom's own GitHub
-  host org (`esperie-enterprise`, `esperie-enterprise/loom`,
-  `github.com/esperie-enterprise/loom.git`) + the maintainer's own
-  dev-home-path (`/Users/esperie/...`, `/home/esperie/...`). Per the
-  co-owner Option-1 ruling 2026-05-17 (#263) these are project
-  self-coordinates, not a client/3rd-party disclosure. Proves the
-  Option-1 allowlist suppresses own coordinates. Expected: exit 0.
+- **`own-identity-flagged/.claude/rules/identity.md`** — a SYNTHETIC
+  operator declared in `own-identity-flagged/.claude/operators.roster.json`,
+  written in the six forms that shipped undetected before 2026-09-25 (a
+  `codify/<operator>-<date>` branch, a `.session-notes.d/<operator>.md`
+  path, the genesis owner inside a clone URL, an underscore join, a login,
+  a home path) plus two GLUED forms (`not<op>`, `<op>x`) that a 7+-character
+  token still catches. Replaces the retired `own-org-allowed` case. Expected:
+  exit 1, exactly 10 findings — remove the `operator-identity-token` shape and
+  only 2 survive.
+- **`scrubber-token-scoped/`** — a stand-in at `bin/lib/strip-build-internal.mjs`,
+  the path that ONCE carried a scrubber tolerance (Tier-1 round 2, 2026-10-04:
+  DELETED — the real file derives its patterns at runtime and carries no private
+  literal, so this path is scanned like any other). Rewrite forms naming a
+  private org the real scrubber derives (`privateOrgSlugs()`, substituted into a
+  temp copy at scan time so no literal is committed) now FLAG — a private literal
+  at this path is a finding, which is the contract the tolerance's removal buys.
+  Expected: exit 1, exactly 12. Derived and MEASURED: 4 unchanged findings (two
+  third-party orgs, two person tokens) plus 4 slug spans × 2 shapes — because
+  the scanner loads `[scan-root, REPO_ROOT]` rosters by design (Gate-1 intake),
+  and at loom the REPO_ROOT roster's genesis owner IS the private org, so each
+  span reports both `nonfoundation-org-slug` and `operator-identity-token`.
+  `terrene-foundation` (public) stays allowed.
+- **`identity-only-self-and-corpus/`** — stand-ins at the scanner's own basename and
+  under a nested `audit-fixtures/scan-synced-disclosure/`, each with one roster token
+  and synthetic structural shapes. Expected: exit 1, exactly 2, both
+  `operator-identity-token` (the old exclusion → 0; no identity-only restriction →
+  structural findings too).
+- **`identity-placeholder-sentinel/`** — the client-template placeholder roster plus
+  one invented operator. The sentinels must not flag; the operator must. Expected:
+  exit 1, exactly 1.
+- **`roster-malformed-*/`, `roster-zero-tokens/`** — `{}`, `null`,
+  `{"persons":"x"}`, a wrong top-level key, and a roster whose persons yield no
+  token. Expected: exit 2 with the cause named — never the silent exit 0 they gave
+  before.
+- **`identity-short-hash/`** — a synthetic root commit and key fingerprint cited by a
+  7-digit prefix, a 12-digit prefix, the 16/8-digit key IDs, and two prefixes of 12+
+  digits glued inside longer hex runs (6 findings, every span masked in full), next to
+  two declared-bound forms that must not flag (a shared 7-digit prefix, an 11-digit
+  prefix mid-run). Expected: exit 1, exactly 6.
+- **`roster-person-no-tokens/`** — an array-form person keyed only by an unharvested
+  field, with the genesis owner keeping the whole-roster count above zero. Expected: exit 2
+  naming person entry #0 — checked PER PERSON.
+- **`scrubber-person-equals-org/`** — a user-owned roster whose login equals a slug the
+  scrubber rewrites. A person-derived span is never tolerated. Expected: exit 1, exactly 1.
+- **`context-mask-all-shapes/`** — four tokens from three shapes (two org slugs, a runner label, a hostname) on one line; none may
+  print in clear in any finding's context. Expected: exit 1, exactly 4.
+- **`identity-only-segment-lookalike/`** — `…/audit-fixtures/scan-synced-disclosure-notes/`
+  is NOT the corpus and gets the full shape set. Expected: exit 1, exactly 2.
+- **`identity-only-deep-lookalike/`** — the corpus directory names nested under
+  `skills/zz/`, and a file merely NAMED `scan-synced-disclosure.mjs` outside `.claude/bin/`,
+  get the full shape set. Expected: exit 1, exactly 4.
+- The runner's `local-json-tracked-flagged-untracked-skipped-in-place` scenario: in a git
+  consumer, scanned IN PLACE, a tracked `*.local.json` with a real home path flags and an
+  untracked one is skipped.
+- The runner's `report-and-refusal-print-no-absolute-path` scenario: report mode prints
+  `Root: <scan-root>`, and a missing `--root` exits 2 without echoing the path. The crash
+  scenario likewise asserts no absolute path in the trace, and `context-mask-all-shapes`
+  asserts every finding carries a distinct `path:line:col`.
+- Every refusal case also asserts the output names the roster by role (`<scan-root>/…`),
+  never by absolute path.
+- The runner's `delivered-tree-scanner-clean-in-place` scenario builds a REAL
+  `sync-tier-aware --target py --out <tmp>` delivery (no roster, no registry) and runs the
+  DELIVERED scanner in place: rc=0, 0 findings. SKIPPED where the loom-only engine is absent.
+- The runner's `identity-shape-inert-notice-when-no-roster` scenario copies the
+  scanner into a roster-less temp tree: exit 0, plus a loud INERT line on stderr.
 - **`nonown-still-flagged/.claude/rules/nonown.md`** — a non-own /
   3rd-party org slug (`acme-corp/loom`), a synthetic `acme-enterprise`,
-  and a _different_ operator's home path (`/Users/notesperie/...`),
-  placed on the SAME surface as own coordinates. Proves the Option-1
-  own-org allowlist did NOT neuter genuine detection — the non-own
-  tokens still flag while the adjacent own coords do not. Expected:
+  and a _different_ operator's home path (`/Users/otheroperator/...`),
+  placed on the SAME surface as allowlisted coordinates. Proves the
+  allowlist did NOT neuter genuine detection — the non-own tokens still
+  flag while the adjacent Foundation / placeholder coords do not. Expected:
   `--check` exits 1; `nonfoundation-org-slug` + `operator-home-path`
   shapes appear.
 
@@ -92,17 +158,17 @@ count lock is stricter than shape-presence alone.
 - **`r2-org-forms/.claude/rules/orgforms.md`** — six org-slug FORMS the
   Round-1 shape missed: SSH-clone (`git@github.com:acme-corp/loom.git`),
   `gh api orgs/<org>`, bare `<org>/<repo>` in prose, issue-ref
-  `<org>/<repo>#N`, `<org>/kailash-*`, `<org>/coc-*`. Foundation + own
+  `<org>/<repo>#N`, `<org>/kailash-*`, `<org>/coc-*`. Foundation + placeholder
   coordinates on the SAME surface MUST NOT flag. Expected: exit 1,
-  exactly 6 `nonfoundation-org-slug` findings (the clean Foundation/own
-  lines are the count lock — a 7th finding = own-coord regression).
+  exactly 6 `nonfoundation-org-slug` findings (the clean Foundation /
+  placeholder lines are the count lock — a 7th finding = allowlist regression).
 - **`r2-allowlist-anchor/.claude/rules/anchor.md`** — prefix-typosquats
-  of the own host org + an SDK enterprise compound
-  (`esperie-enterprise-evil/loom`,
-  `gh api repos/esperie-enterprise-evil/kailash-py`,
+  of the Foundation registry org + an SDK enterprise compound
+  (`terrenefoundation-evil/loom`,
+  `gh api repos/terrenefoundation-evil/kailash-py`,
   `nexus-enterprise-evil/loom`). The R1 unanchored allowlist swallowed
   these (silent leak). Expected: exit 1, exactly 3 findings; the EXACT
-  own org + EXACT public SDK doc compounds stay clean.
+  Foundation org + EXACT public SDK doc compounds stay clean.
 - **`r2-hostname-runner/.claude/rules/hostrunner.md`** — runner-label
   arch suffixes (`-linux-arm64`/`-aarch64`/`-x86_64`), lowercase
   `<op>-mini`, real Mac products (`Foo-MacStudio`, `Bar-MacBookPro`,

@@ -6,7 +6,10 @@
 import { getProximityBandAdvisory } from "../../bin/emit.mjs";
 import { countPriorRule10Invocations } from "./rule-11-helper.mjs";
 
-const BLOCK_CAP = 61440; // matches the live `block_cap_bytes` for context/root.md.
+// SYNTHETIC cap: the cases below were calibrated against 61,440 B, the live `block_cap_bytes`
+// for context/root.md until the 2026-08-12 raise to 65,536 B. getProximityBandAdvisory takes the
+// cap as an input, so these fixtures neither need nor assert the live value.
+const BLOCK_CAP = 61440;
 
 // Scenarios — see README.md for the full table.
 const fixtures = [

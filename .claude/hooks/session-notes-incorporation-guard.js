@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 /**
+ * @hook-event: PostToolUse:Bash (verification) — after an incorporation command, current HEAD can be compared with the existing notes reconciliation stamp.
+ *
  * session-notes-incorporation-guard.js — PostToolUse(Bash) advisory that fires
  * when an INCORPORATION command (git merge / pull / rebase / checkout|switch to
  * main) has advanced HEAD past the point the operator's OWN session-notes
@@ -39,6 +41,9 @@
 
 const path = require("path");
 const { spawnSync } = require("child_process");
+const { resolveGitBinary, gitEnv } = require(
+  path.join(__dirname, "lib", "git-subprocess-env.js"),
+);
 const { fragmentPathFor, readNotesFileGuarded } = require(
   path.join(__dirname, "lib", "session-notes-layout.js"),
 );
@@ -46,7 +51,7 @@ const { fragmentPathFor, readNotesFileGuarded } = require(
 // cc-artifacts.md Rule 7 — timeout fallback that never hangs the session. Exit
 // code 1 (NOT 0) marks a timeout-FIRED passthrough distinguishable in exit-code
 // logs from a normal exit-0 passthrough (matches wrapup-after-landing.js). The
-// timer is armed ONLY inside `_main()` (the CLI path), so a `require()` of this
+// timer is armed ONLY inside `hookMain()` (the CLI/engine entry), so a `require()` of this
 // module for testing has ZERO side effects (no stray self-exiting timer).
 const TIMEOUT_MS = 5000;
 let _timeout = null;
@@ -85,7 +90,16 @@ function isIncorporationCommand(cmd) {
 // slips through (or an over-fire on an arg that merely names the verb) resolves
 // to a count 0 → suppress, and can only ever surface a TRUE lag of baseDir's
 // own notes (the checked HEAD is always baseDir's, never a `-C` target's).
-const _OPT_PREFIX = "(?:(?:-[cC]\\s+\\S+|--?[\\w-]+(?:=\\S+)?)\\s+){0,6}";
+// A `-c`/`-C` value may be QUOTED and contain spaces (`git -C "/path with
+// space" merge` is ordinary on macOS). An `\S+`-only value class cannot match
+// it, so the whole prefix fails and the guard MISSES the command — a false
+// NEGATIVE, and a MISS here means unincorporated session notes are silently
+// lost. Quoted alternatives come first so the `\S+` fallback cannot claim
+// a leading quote. Deliberately NOT the nested `(?:…|[^\s"']+)+` form: that
+// backtracks catastrophically on a trailing unterminated quote (measured
+// >120s vs <1ms), so an embedded mid-token quote stays a known miss.
+const _OPT_VALUE = `(?:"[^"]*"|'[^']*'|\\S+)`;
+const _OPT_PREFIX = `(?:(?:-[cC]\\s+${_OPT_VALUE}|--?[\\w-]+(?:=${_OPT_VALUE})?)\\s+){0,6}`;
 const _RE_MERGE_PULL_REBASE = new RegExp(
   `(^\\s*|[\\n;&|]\\s*)git\\s+${_OPT_PREFIX}(?:merge|pull|rebase)\\b(?![^\\n;&|]*\\s(?:--abort|--quit|--help|-h)(?:\\s|$))`,
 );
@@ -150,12 +164,27 @@ function parseLastReconciledSha(body) {
  * `count` the parsed integer (NaN when unparseable). Never throws.
  */
 function _revListCount(baseDir, sha) {
+  // loom#1471 (s49). LOCAL profile — `rev-list --count` against a repository
+  // already on disk. `-C baseDir` chose a DIRECTORY, so an ambient `GIT_DIR`
+  // decided which repository's commit count answered "how far have the notes
+  // drifted?"; a decoy repo returning 0 makes stale notes read as coherent.
+  const gitBin = resolveGitBinary();
+  if (!gitBin) {
+    // The existing "could not answer" shape — status null, count NaN — which the
+    // caller already suppresses rather than reading as a clean zero.
+    return { status: null, count: NaN, error: "no git binary resolved" };
+  }
   const r = spawnSync(
-    "git",
+    gitBin,
     ["-C", baseDir, "rev-list", "--count", `${sha}..HEAD`],
-    // `timeout` bounds the child directly (defense-in-depth beneath the _main()
+    // `timeout` bounds the child directly (defense-in-depth beneath the hookMain()
     // Rule-7 timer); a hung git returns status null → suppress via the branch below.
-    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 4000 },
+    {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 4000,
+      env: gitEnv(),
+    },
   );
   if (r.error) return { status: null, count: NaN, error: r.error.message };
   return {
@@ -274,64 +303,73 @@ function decideIncorporationAdvisory(opts) {
   };
 }
 
-// ---- CLI entry (only when invoked directly, never on require) --------------
-function _main() {
+// hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
+// in-process by lib/hook-engine.js (dispatch.js). It does exactly what the old
+// _main() did: arm the fallback timer, then read stdin and decide on "end".
+function hookMain() {
   _timeout = setTimeout(() => {
     process.stdout.write(JSON.stringify({ continue: true }) + "\n");
     process.exit(1);
   }, TIMEOUT_MS);
   _timeout.unref?.();
 
-  let input = "";
-  process.stdin.on("error", passthrough);
-  process.stdin.on("data", (d) => (input += d));
-  process.stdin.on("end", () => {
-    clearTimeout(_timeout);
-    try {
-      const payload = JSON.parse(input || "{}");
-      const command =
-        (payload && payload.tool_input && payload.tool_input.command) || "";
-      // Cheap short-circuit before any identity resolution / git spawn.
-      if (!isIncorporationCommand(command)) return passthrough();
-
-      const baseDir = process.env.CLAUDE_PROJECT_DIR || process.cwd();
-      const { resolveIdentity } = require(
-        path.join(__dirname, "lib", "operator-id.js"),
-      );
-      const identity = resolveIdentity(baseDir, {});
-      const decision = decideIncorporationAdvisory({
-        baseDir,
-        identity,
-        command,
-      });
-      if (!decision.fire) return passthrough();
-
-      const { emit } = require(
-        path.join(__dirname, "lib", "instruct-and-wait.js"),
-      );
-      const n = decision.ahead;
-      emit({
-        hookEvent: "PostToolUse",
-        severity: "halt-and-report",
-        what_happened: `An incorporation command advanced HEAD; your session-notes fragment trails HEAD by ${n} commit(s) since its last_reconciled_sha.`,
-        why: "session-notes-coherence/C3 (#743): your .session-notes.d fragment's last_reconciled_sha is behind HEAD, so your notes may not reflect the just-incorporated work — the exact stale-ledger failure mode #743 exists to surface.",
-        agent_must_report: [
-          `State that your session-notes fragment lags HEAD by ${n} commit(s) since its last_reconciled_sha.`,
-          "Reconcile your own fragment (.session-notes.d/<display_id>.md) against the incorporated work — prune landed in-flight items, refresh read-first pointers, move merged-closed ledger rows.",
-          "Re-stamp last_reconciled_sha to the current HEAD after reconciling (/reconcile-notes does this for you).",
-        ],
-        agent_must_wait:
-          "Advisory — you may proceed; reconcile your fragment when convenient (or via /reconcile-notes).",
-        user_summary: `session-notes fragment lags HEAD by ${n} commit(s) — reconcile advisory (#743).`,
-      });
-    } catch {
-      return passthrough();
-    }
+  return new Promise((resolve, reject) => {
+    let input = "";
+    process.stdin.on("error", passthrough);
+    process.stdin.on("data", (d) => (input += d));
+    process.stdin.on("end", () => {
+      try {
+        onStdinEnd(input);
+      } catch (e) {
+        return reject(e);
+      }
+      resolve();
+    });
   });
 }
 
-if (require.main === module) {
-  _main();
+function onStdinEnd(input) {
+  clearTimeout(_timeout);
+  try {
+    const payload = JSON.parse(input || "{}");
+    const command =
+      (payload && payload.tool_input && payload.tool_input.command) || "";
+    // Cheap short-circuit before any identity resolution / git spawn.
+    if (!isIncorporationCommand(command)) return passthrough();
+
+    const baseDir = process.env.CLAUDE_PROJECT_DIR || process.cwd();
+    const { resolveIdentity } = require(
+      path.join(__dirname, "lib", "operator-id.js"),
+    );
+    const identity = resolveIdentity(baseDir, {});
+    const decision = decideIncorporationAdvisory({
+      baseDir,
+      identity,
+      command,
+    });
+    if (!decision.fire) return passthrough();
+
+    const { emit } = require(
+      path.join(__dirname, "lib", "instruct-and-wait.js"),
+    );
+    const n = decision.ahead;
+    emit({
+      hookEvent: "PostToolUse",
+      severity: "halt-and-report",
+      what_happened: `An incorporation command advanced HEAD; your session-notes fragment trails HEAD by ${n} commit(s) since its last_reconciled_sha.`,
+      why: "session-notes-coherence/C3 (#743): your .session-notes.d fragment's last_reconciled_sha is behind HEAD, so your notes may not reflect the just-incorporated work — the exact stale-ledger failure mode #743 exists to surface.",
+      agent_must_report: [
+        `State that your session-notes fragment lags HEAD by ${n} commit(s) since its last_reconciled_sha.`,
+        "Reconcile your own fragment (.session-notes.d/<display_id>.md) against the incorporated work — prune landed in-flight items, refresh read-first pointers, move merged-closed ledger rows.",
+        "Re-stamp last_reconciled_sha to the current HEAD after reconciling (/reconcile-notes does this for you).",
+      ],
+      agent_must_wait:
+        "Advisory — you may proceed; reconcile your fragment when convenient (or via /reconcile-notes).",
+      user_summary: `session-notes fragment lags HEAD by ${n} commit(s) — reconcile advisory (#743).`,
+    });
+  } catch {
+    return passthrough();
+  }
 }
 
 module.exports = {
@@ -339,4 +377,13 @@ module.exports = {
   parseLastReconciledSha,
   decideIncorporationAdvisory,
   _revListCount,
+  hookMain,
 };
+
+// CLI entry. The default path is exactly hookMain() — no engine dependency, so a
+// tree that copies this hook without lib/hook-engine.js runs it unchanged. The
+// selftest path replays the run through the in-process engine (hook-engine.js::runCli).
+if (require.main === module) {
+  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1") require("./lib/hook-engine.js").runCli(hookMain, __filename);
+  else hookMain();
+}

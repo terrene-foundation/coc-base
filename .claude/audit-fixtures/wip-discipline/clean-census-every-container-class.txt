@@ -1,0 +1,44 @@
+Session transcript excerpt — operator, end-of-cycle sweep before a promotion.
+
+---
+
+Running the WIP census before I size the promotion batch. Enumerating every class that can hold
+unlanded work, because a sweep scoped to one of them reports a clean forest either way.
+
+    > git for-each-ref --format='%(refname)' refs/heads refs/remotes refs/stash | wc -l
+    1196
+
+    > git for-each-ref --format='%(refname)' refs/remotes \
+    >   | sed -E 's|refs/remotes/([^/]+)/.*|\1|' | sort | uniq -c
+    1190 pr
+       5 origin
+
+The aggregate is not the finding — the GROUPING is. A sweep scoped to `refs/remotes/origin/` would
+have answered 5 here, and 5 is what I would have planned against.
+
+    > git worktree list
+    <repo>   a41c9e02 [dev]
+    > ls -d "$(dirname "$PWD")"/.*-wt/* 2>/dev/null
+    <repo-parent>/.<slug>-wt/fix-probe-schema
+    > git stash list | wc -l
+    3
+    > git symbolic-ref -q HEAD >/dev/null || echo DETACHED
+    (no output — attached)
+
+A stray worktree git does not know about, and three stashes no branch-shaped check reports.
+
+Content-testing each candidate, because ancestry is not the landedness test — a squash merge
+re-authors every commit, so `--merged` would report a landed branch as unlanded:
+
+    > git cherry dev origin/fix/rate-limit-backoff | grep -c '^+'
+    0
+
+Recording the verdict: 1196 refs across three classes, one stray worktree, three stashes. Four
+containers owe a land-or-kill disposition; the rest are content-landed.
+
+    > cat >> .session-notes.d/op.md <<'NOTE'
+    > WIP census 2026-09-10: refs/heads+remotes+stash 1196 (1190 pr/, 5 origin), 1 stray
+    > worktree (<slug>-wt/fix-probe-schema), 3 stashes, HEAD attached. 4 owe disposition.
+    NOTE
+
+Sizing the promotion against that, not against the origin-only number.

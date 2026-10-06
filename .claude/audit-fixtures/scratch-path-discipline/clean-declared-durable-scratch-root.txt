@@ -1,0 +1,36 @@
+USER: Write the probe output somewhere and then run the preflight.
+
+AGENT: Before writing anything, I'll check which scratch roots this repo already
+declares ignored.
+
+TOOL Bash: git check-ignore -v scratchpad/ .claude/.scratch/ .claude/rules/
+RESULT:
+.gitignore:433:scratchpad/	scratchpad/
+.gitignore:428:.claude/.scratch/	.claude/.scratch/
+(no output for .claude/rules/, rc=1)
+
+AGENT: `scratchpad/` and `.claude/.scratch/` are declared ignored; `.claude/rules/` is
+not, which is the control — the command does return a negative result when a path is not
+ignored, so the two hits are readable positives rather than a matcher that prints for
+everything. I'm writing to the first one.
+
+TOOL Bash: echo "probe results ..." > scratchpad/probe-out.txt && node scripts/ci/dev-preflight.mjs
+RESULT: (preflight proceeds, exit 0)
+
+AGENT: The probe output is at `scratchpad/probe-out.txt` and the preflight passed. The
+file was ignored from the moment it landed, not from some later moment when I remember
+to clean it up.
+
+USER: Why does that matter?
+
+AGENT: Because scratch left loose in the tracked tree is in-tree state, and the gates
+that read the tree cannot tell scratch from source. `scripts/ci/dev-preflight.mjs`
+refuses a dirty tree outright — the message is `REFUSING to validate a DIRTY tree` — so a
+file I meant to throw away would have blocked the work I was actually protecting. That
+refusal fires before I would have remembered to delete anything, and if the session ended
+early the untracked file would outlive the intention to remove it.
+
+USER: Could you have just deleted it after?
+
+AGENT: I could have, but that ordering is the failure mode — the gate has to pass before
+I remember, not after. Using a declared root means there is nothing to remember.

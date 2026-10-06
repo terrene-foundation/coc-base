@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 /**
+ * @hook-event: UserPromptSubmit (telemetry) — the submitted human prompt exists for recording its hash commitment without storing raw text.
+ *
  * provenance-capture-prompt.js — F101-2 (loom#411 governance-as-DNA, loom lane).
  *
  * Event: UserPromptSubmit (*)
@@ -28,17 +30,13 @@
 "use strict";
 
 const TIMEOUT_MS = 5000;
-const fallback = setTimeout(() => {
-  try {
-    process.stdout.write(JSON.stringify({ continue: true }) + "\n");
-  } catch {}
-  process.exit(1);
-}, TIMEOUT_MS);
+// Armed by hookMain (FIRST, before the stdin read — the same point relative to the
+// work it had as a load-time statement); reset per run because the engine requires
+// this module once per worker.
+let fallback = null;
 
 const crypto = require("crypto");
 const path = require("path");
-
-const PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 
 const { readStdinBounded } = require("./lib/read-stdin-bounded.js");
 
@@ -77,7 +75,13 @@ function resolveIdentitySafely(repoDir) {
   }
 }
 
-(async function main() {
+async function main() {
+  // Resolved per run, not at load: the engine requires this module once per worker.
+  const PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
+  // Engine residual (hook-engine.js header): in-process, an exit reached inside this
+  // `try` (via passthrough) throws a sentinel, so the outer `catch` runs — it only
+  // calls passthrough (clearTimeout + output + exit), the allowed set. The inner
+  // try/catch around captureProvenance encloses no exit path.
   try {
     const payload = await readStdinBounded();
     const prompt = typeof payload.prompt === "string" ? payload.prompt : "";
@@ -128,4 +132,27 @@ function resolveIdentitySafely(repoDir) {
     // Never block, never re-throw.
     passthrough();
   }
-})();
+}
+
+// hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
+// in-process by lib/hook-engine.js. All load-time work lives here so `require()`
+// of this file has no side effect.
+function hookMain() {
+  fallback = setTimeout(() => {
+    try {
+      process.stdout.write(JSON.stringify({ continue: true }) + "\n");
+    } catch {}
+    process.exit(1);
+  }, TIMEOUT_MS);
+  return main();
+}
+
+module.exports = { hookMain };
+
+// CLI entry. The default path is exactly hookMain() — no engine dependency, so a
+// tree that copies this hook without lib/hook-engine.js runs it unchanged. The
+// selftest path replays the run through the in-process engine (hook-engine.js::runCli).
+if (require.main === module) {
+  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1") require("./lib/hook-engine.js").runCli(hookMain, __filename);
+  else hookMain();
+}

@@ -1,0 +1,42 @@
+VIOLATION — MUST-4: a helper claiming byte-shape parity with a sibling SDK MUST pin at least
+three byte-vector test cases empirically derived from the sibling's ACTUAL output, as raw hex,
+plus sentinels (empty, all-zero, all-one, single-byte); abstract assertions like "same length"
+or "starts with the prefix" are BLOCKED. This session pins none. `test_parity_shape` asserts
+`len(fp) == 12`, `fp.startswith("fp:")`, hex-digit membership and call stability — four
+properties of the FORM, over locally chosen inputs. No value is ever obtained from the
+sibling, and its binary is never run.
+
+The bytes already diverge, and the excerpt proves it by accident. Its own `git show` prints
+the sibling hashing `secret` and tagging the digest afterwards, while the Edit two blocks
+later hashes `b"fp:" + raw` — the tag is inside this side's digest and outside theirs, so
+every input yields a different fingerprint. All four assertions hold on both sides regardless,
+which is why the suite is green: the test cannot fail while the bytes are wrong, and
+cross-SDK forensic correlation on this token is broken from the first commit.
+
+Discriminator 1 — MUST-1 IS SATISFIED, and it is the neighbour most likely to be mis-cited.
+The sibling inspection ran, in both directions, and is quoted: the resolver call, the `git
+show` of the sibling body, and an issue search returning empty. MUST-1's filing obligation is
+conditional — file IF something relevant is found — and nothing was. The reason nothing was
+found is precisely that no byte comparison was made, which is this clause's own subject; the
+missing filing is downstream of the missing vectors, not a second breach.
+
+Discriminator 2 — MUST-4b IS NOT ENGAGED. Nothing is being SWITCHED. This is a helper at the
+moment of AUTHORSHIP, with no prior encoder and no existing on-disk output to diverge from;
+4b governs a MIGRATION of an encoder that already feeds a signing or hash pre-image, and asks
+for a byte-diff of old against new. There is no "old" here to diff.
+
+Discriminator 3 — MUST-4c AND MUST-4a ARE NOT ENGAGED. No `*.sha256` is touched, so no re-pin
+is owed; and the sibling authors no fixture FILE here — the vectors that were owed are inline
+test constants, not a canonical file to vendor.
+
+Discriminator 4 — MUST-4d AND MUST-4e ARE NOT ENGAGED. No signed model, no new optional
+field, no serializer and no fold field appear anywhere in the shard.
+
+Discriminator 5 — MUST-3 IS SATISFIED. The API shapes match: one bytes-like argument in, one
+tagged string out. D6 permits the implementations to differ, and these do not diverge in
+semantics — they diverge in emitted bytes, which is what MUST-4 exists to pin.
+
+Discriminator 6 — MUST-5 IS NOT ENGAGED. No issue is closed, so the checklist has no trigger.
+
+The whole defect is a parity claim tested against its own shape instead of against the
+sibling's bytes.

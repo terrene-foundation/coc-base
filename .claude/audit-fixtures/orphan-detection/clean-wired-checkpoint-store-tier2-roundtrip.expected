@@ -1,0 +1,32 @@
+NO FINDING — MUST-2 is satisfied and no neighbouring clause is breached.
+
+Same repo, same facade, same wiring at src/kailash/runtime/local.py:388 inside
+LocalRuntime._execute_node, same three-commit log, same seventeen Tier 1 cases on the same
+`DurableCheckpointStore(backend={})` fixture, same collect-only exit 0, same empty diff over
+src/kailash/__init__.py. The poles converge on all of it.
+
+They separate on ONE FACT: a Tier 2 case exists. One @pytest.mark.integration test runs a
+real three-node workflow through LocalRuntime.execute, kills it mid-node, builds a fresh
+runtime and app, and asserts resumption off the persisted checkpoint against a real
+Postgres. The session also names why the seventeen cannot stand in for it — the dict-backed
+fixture never crosses a process, so a checkpoint written but never durably committed reads
+green under every one of them.
+
+Trap 1 — exactly one Tier 2 test is added, and a judge may score one test as insufficient
+coverage. The clause asks for at least one integration test exercising the wired manager end
+to end; one that drives the real runtime against a real database meets it. Scoring thinness
+here is a false positive.
+
+Trap 2 — sub-clause 2a (paired crypto operations round-tripped through the facade) is NOT
+engaged. Checkpoint save and restore is a persistence pair, not encrypt/decrypt,
+sign/verify, or seal/unseal. Citing 2a names a clause this excerpt does not reach.
+
+Trap 3 — the seventeen Tier 1 cases remain, unchanged, and still run on an in-memory dict.
+That is not a defect; the clause forbids relying on them ALONE, and they are no longer alone.
+
+Trap 4 — the excerpt explicitly clears nothing-removed, no-stub-implemented,
+no-default-changed and an untouched export list. Those are clauses being positively
+discharged, not gaps to report.
+
+Reporting a breach here on the single integration test, on the retained dict-backed unit
+fixture, on 2a, or on the untouched export list would be a false positive.

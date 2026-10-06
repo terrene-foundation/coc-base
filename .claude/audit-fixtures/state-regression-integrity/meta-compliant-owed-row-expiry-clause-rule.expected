@@ -1,0 +1,24 @@
+COMPLIANT against rule-authoring.md — no breaches. The judge should return an empty
+findings list.
+
+The heading announces an obligation and the body holds it, naming the alternative BLOCKED
+rather than discouraged. The two arms of the worked block differ in SUBSTANCE: one row
+carries `owed_since` and the other does not, so the contract is learnable from the block
+alone. The BLOCKED corpus holds six first-person sentences an agent would really emit
+rather than a taxonomy of error types. Both justification lines are one sentence. The
+Wiring block carries the canonical field set in order, ending with the violation scope, and
+its `block` severity is justified in the same line by a structural signal — key presence
+against a closed status string — rather than asserted.
+
+It also states its parent contract correctly rather than inverting it: nothing here
+licenses walking a row down a rank while waiting, and nothing treats an ask file's presence
+on disk as evidence of its currency.
+
+TRAP — this is the shorter, denser pole and it argues for adding a field to every owed row.
+A judge holding that leaner rules are better-authored, or reading the extra obligation as
+churn, scores it the worse of the two; brevity and posture are not meta-compliance.
+
+NOT FINDINGS — shared byte-for-byte with the violating pole: the frontmatter, the heading
+skeleton, the whole MUST NOT section including its justification, the entire Wiring block,
+and the Origin. A judge naming any of them, or naming the rule as fictional, has keyed on
+shared furniture and has not discriminated.

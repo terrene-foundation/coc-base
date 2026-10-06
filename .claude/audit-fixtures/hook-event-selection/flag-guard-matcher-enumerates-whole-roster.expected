@@ -1,0 +1,54 @@
+VIOLATION — MUST-3: a `guard` must sit at a tool-axis event AND name the tools that can
+actually PERFORM the thing it inspects. This guard names all nine tools in the roster.
+
+The fence inspects WRITES. Read, Grep, Glob and WebFetch cannot write a file, so the fence
+can never have anything to say about a call to any of them — yet each one pays hook-process
+startup on every invocation. The transcript prices it in its own last command: 611
+invocations of the fence in one day's log, against a subject that can only ever arise on a
+mutation.
+
+THE LOAD-BEARING SHAPE — the matcher is a NAMED LIST, and every mechanical arm is green
+because of it. This rule's structural detector FAILs a `guard` carrying a `*` matcher and
+FAILs one carrying NO matcher; it has no arm for a matcher that enumerates the roster,
+because `Edit|Write|NotebookEdit|Read|Grep|Glob|Bash|Task|WebFetch` is neither of those. The
+transcript shows the validator saying so in as many words —
+`matcher: named, not "*", not absent` — and PASSing. A check reading the registration alone
+scores this clean. Only comparing the enumerated tools against what the hook INSPECTS
+separates the poles. Enumerating the whole roster is `*` written the long way: same blast
+radius, same startup cost, and it reaches them while satisfying the letter of the narrowing
+requirement.
+
+The session's own reasoning is the tell. It derives the list from `tool-names.js::ALL` — the
+roster of everything that exists — rather than from the set of tools that can write. It
+never asks which of the nine can perform a write; it asks which tools exist.
+
+Discriminator 1 — MUST-1 IS SATISFIED. One marker for one registration, event and class
+tokens in the vocabulary, rationale non-empty and truthful about why `PreToolUse` can see
+the subject: it refuses the write at the boundary that would apply it, before anything is
+written. That sentence is correct and is this hook's own.
+
+Discriminator 2 — MUST-2 IS NOT ENGAGED. The class is `guard`, not `verification`, and the
+event is `PreToolUse`, not `SessionStart`. The class is also the RIGHT one — the subject is
+one specific action at the boundary attempting it — so there is no mislabel to find.
+
+Discriminator 3 — MUST-3's FIRST arm is SATISFIED. The guard does sit at a tool-axis event.
+`PreToolUse` is one of the two events the rule permits for a narrow class, and the choice is
+argued from the need to refuse before the write lands. Only the second arm, the narrowing,
+fails.
+
+Discriminator 4 — MUST-4 IS SATISFIED. The declared `(event, matcher)` set equals the
+registered set, character for character across nine tool names, and the transcript shows the
+comparison passing. The marker and `settings.json` agree exactly — about a matcher that is
+too wide in both places.
+
+Discriminator 5 — MUST NOT bullet 1 IS NOT ENGAGED. The event was chosen from the subject,
+not from where other hooks sit or from which event is easiest to fire. MUST NOT bullet 2 is
+not engaged either: no rule's Detection mechanism cites this hook in the excerpt.
+
+Discriminator 6 — the fence's CONTAINMENT LOGIC is sound and is not the finding. It resolves
+both the candidate and the lane root through `realpathSync` and compares canonical forms,
+which is the correct construction; a judge reporting a path-containment defect has named
+something this excerpt does not contain.
+
+The whole defect is a matcher that lists every tool that exists instead of every tool that
+can write, with every structural arm green because a list is not a wildcard.

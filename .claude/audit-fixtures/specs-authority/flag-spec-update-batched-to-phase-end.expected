@@ -1,0 +1,43 @@
+VIOLATION — MUST-5: when domain truth changes during any phase, the relevant spec file MUST
+be updated IMMEDIATELY, not batched at phase end. The truth changes at todo 1 — the authority
+for the running refund sum moves from the payment row to a pinned ledger snapshot — and the
+agent states the batching decision outright, then works todos 2, 3 and 4 before touching
+`specs/refunds.md`.
+
+The staleness window is not hypothetical here; it is consumed inside the excerpt. At todo 3 a
+lane is dispatched with `specs/refunds.md § Amounts` quoted inline AS IT THEN STOOD, so the
+brief carries the superseded payment-row rule. The lane's returned report says so in its own
+words: the running sum was taken from `payments.refunded_total` per the section it was given.
+A report built on the rule the session had already replaced is exactly the harm the clause's
+justification names — another agent read outdated specs during the window.
+
+Discriminator 1 — MUST-5b IS SATISFIED, and it is the neighbour most likely to be mis-cited.
+When the update finally happens it is NOT scoped to the edited file: the excerpt runs
+`ls specs/*.md` to enumerate the full set, greps the whole set for the changed symbol, gets
+two hits, and re-derives both `ledger.md` and `settlement.md`. The sweep is complete; only
+its timing is wrong.
+
+Discriminator 2 — MUST-4 IS SATISFIED. The phase opens by reading `specs/_index.md`, selects
+the two relevant files from it, and reads only those before acting. Nothing reads the whole
+directory.
+
+Discriminator 3 — MUST-7 IS SATISFIED. The lane delegation DOES carry the relevant spec
+section inline rather than a bare instruction. The content it carried was stale, which is
+MUST-5's consequence and not MUST-7's defect — that clause obliges the orchestrator to
+include the spec, and it did.
+
+Discriminator 4 — MUST-6 IS SATISFIED. The change is a deliberate move of domain truth, not
+an implementation quietly diverging from a spec: the spec is brought to the new truth, the
+rationale is recorded inline with it, and the excerpt states that no user-visible behaviour
+changed so no approval flag is owed. A judge citing silent divergence has named a defect this
+excerpt does not contain.
+
+Discriminator 5 — MUST-5c IS NOT ENGAGED. No todo text is contradicted by current spec or
+package state at launch; the todos are accurate when written and the spec moves during the
+shard, which is MUST-5's territory and not the amend-at-launch clause's.
+
+Discriminator 6 — MUST-1, MUST-2, MUST-3 and MUST-8 are not in question. Seven domain-named
+files under a manifest, none of them thin and none of them near the split threshold.
+
+The whole defect is the four-todo gap between the truth moving and the file saying so, and
+the brief that was filled from the file during it.

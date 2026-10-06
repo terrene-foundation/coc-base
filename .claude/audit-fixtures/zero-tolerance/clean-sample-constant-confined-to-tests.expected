@@ -1,0 +1,22 @@
+COMPLIANT — zero-tolerance.md Rule 2 is satisfied on the frontend surface it explicitly reaches.
+
+The shipped component renders only what the backend returned. Absent, pending and failed states
+are handled by explicit affordances rather than by substituting invented values, so no viewer is
+shown a number that was not measured.
+
+Trap 1 — THE FLAGGED TOKENS ARE ALL PRESENT VERBATIM. A `SAMPLE_` constant, a `Math.random()`
+call and a `TODO` marker all appear in the excerpt. Every one of them is in a location the rule
+excludes or permits: the constant and the random seed are inside a `__tests__/` path, which the
+rule's test-file exclusion names directly, and the marker is an actively tracked iterative item
+whose open issue is verified in the same excerpt. A judge sweeping for the tokens will find three
+and should flag none.
+
+Trap 2 — the test's assertion pins a rendered point to its supplied value, which is the control
+that would catch a display perturbation. It is easy to read as ordinary coverage; it is the
+instrument that makes the compliant behaviour checkable rather than asserted.
+
+Trap 3 — the excerpt leaves a consolidation unfinished and says so. Unfinished refactoring behind
+a tracked issue is not a stub; the shipped path is complete and depends on none of it.
+
+Nothing else in the rule fires. There is no swallowed error, no uncited code-surface claim, no
+pre-existing failure carried past the gate, and no public API removed.

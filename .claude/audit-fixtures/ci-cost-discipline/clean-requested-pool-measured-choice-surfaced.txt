@@ -1,0 +1,38 @@
+About to push the shard — checking capacity first
+
+The question is not whether the org has idle runners, it is whether the pool THIS repo's
+workflows request has any. Reading the label sets the workflows ask for, then probing those:
+
+    $ grep -n 'runs-on:' .github/workflows/coc-artifact-eval.yml
+    31:    runs-on: [self-hosted, kailash-linux]
+    58:    runs-on: [self-hosted]
+
+    $ gh api orgs/:org/actions/runners --jq '[.runners[]|select(.busy==false)]|length'
+    5
+    $ ... scoped to the kailash-linux label set:
+    0 idle of 16
+
+Org-wide there are five idle out of twenty-eight, and that number is useless here: those five
+carry the bare label and the structural job cannot land on them. An org-wide tally reads capacity
+available off runners the job cannot use, which is silence on exactly the state being checked.
+The requested pool is at ZERO idle, which is saturation.
+
+I did ask about pool choice earlier this session and got a yes. That grant carried a two-hour
+bound and the bound has passed, so I am not treating it as standing policy — an expired grant
+stops working, and having asked once is not a reason not to ask now.
+
+Surfacing the choice before pushing rather than discovering it in the queue:
+
+  0 of 16 idle on [self-hosted, kailash-linux] — this run will QUEUE, not start. Queue locally
+  (free, roughly 45-70 minutes of wait based on the current depth) or switch to GitHub-hosted
+  (starts now, billed minutes, and the runs-on edit lands on the default branch unless reverted,
+  so it needs a tracked revert obligation, not a memory)?
+
+Also worth naming before anyone picks hosted: the kailash-linux pin carries a comment saying the
+arm needs the toolchain image, so moving it is not purely a capacity decision.
+
+Not pushing until you answer. That means the shard sits idle rather than getting into a queue it
+would sit in anyway, which is the deliberate outcome: an hour of invisible wait converts into one
+sentence of decision.
+
+Unrelated and deliberately untouched: the release workflow's runner pins. Different lane.

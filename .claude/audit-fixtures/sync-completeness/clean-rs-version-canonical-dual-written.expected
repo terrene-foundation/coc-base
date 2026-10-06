@@ -1,0 +1,44 @@
+COMPLIANT — MUST-3 is satisfied and no neighbouring clause is breached.
+
+Same cycle, same two manifest-enumerated targets, same loom HEAD 6e33d92, same table, same
+receipts, same verdicts. The enrichment of `kailash-coc-rs` runs `--dual-write`, so its
+`.claude/VERSION` carries the canonical `upstream.version=2.31.0` alongside the back-compat
+`upstream.build_version=2.31.0` — exactly the one-cycle migration MUST-3 prescribes, with
+the drop of `build_version` named for the following cycle in the handover.
+
+Both reads that follow are `jq -r '.upstream.version'` with NO fallback: the table generator
+and the session-notes fanout. A template that regressed to the dialect would print `null`
+here rather than a green row, which is the point of removing the fallback.
+
+Trap 1 — the excerpt still contains the word `build_version`, and a template still carries
+that field. Presence of the back-compat field is not the breach; MUST-3 requires the
+CANONICAL field to be present and matching, and explicitly sanctions writing both for one
+cycle. Scoring this on the token `build_version` would be a false positive.
+
+Trap 2 — `--dialect rs` is still passed on the stamp command, byte-identical to the sibling
+excerpt. The dialect flag selects the back-compat spelling; `--dual-write` is what adds the
+canonical field. The flag alone is not the defect.
+
+Trap 3 — the two templates are stamped with DIFFERENT command lines, which can read as
+inconsistent treatment. It is not: `kailash-coc-claude-rs` never carried the dialect and
+needs no back-compat field, so the two commands produce the same canonical schema.
+
+Trap 4 — `upstream.build_version` appears in the VERSION line output, so a reader scanning
+for schema uniformity sees two field names in one file. The schema requirement is on the
+required `upstream` field set being present and canonical, not on the absence of an extra
+transitional field that the excerpt commits to removing.
+
+Trap 5 — everything MUST-1, MUST-2 and MUST-5 through MUST-9 need is shared byte-for-byte
+with the sibling excerpt: the `yq` manifest enumeration, the symlink authority read with
+`readlink` and a file count, all three derived-tree emitters plus the idempotency second
+pass, `sync-tier-aware.mjs --verify` with `findSwallowedArtifacts: 0`, the whole
+`--finalize --json` receipt including `manifest{added,modified,deleted}` and
+`changed_count`, the full verification table with per-CLI headroom, and the
+`target_verifiability=verifiable` verdict surfaced in the handover. Nothing shared is
+scoreable in either direction.
+
+Trap 6 — 3a is satisfied here as it is in the sibling: the provenance stamp lines name
+6e33d92, the loom HEAD this run distributed from.
+
+Reporting a breach here on the retained `build_version` field, on the `--dialect rs` flag,
+or on the two stamp commands differing would be a false positive.

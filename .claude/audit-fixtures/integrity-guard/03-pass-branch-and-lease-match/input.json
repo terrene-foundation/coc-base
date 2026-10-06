@@ -5,5 +5,5 @@
     "file_path": "<repo>/.claude/learning/coordination-log.jsonl"
   },
   "cwd": "<repo>",
-  "_setup_note": "active branch is 'codify/self-2026-05-21'; coordination log has a signed codify-lease record with content.branch='codify/self-2026-05-21' and content.scope_files including '.claude/learning/coordination-log.jsonl'"
+  "_setup_note": "active branch is 'codify/self-2026-05-21'; coordination log has a signed codify-lease record with content.lease_id='lease_1747800000000_abcdef' (with NO matching codify-lease-release record anywhere in the log), content.acquired_at set to a timestamp LESS THAN the 12h LEASE_TTL_MS before the hook runs, content.branch='codify/self-2026-05-21' and content.scope_files including '.claude/learning/coordination-log.jsonl'. lease_id + acquired_at are LOAD-BEARING as of the 2026-08-21 expiry/release fix: findCoveringLease now also requires the lease to be STILL A GRANT (un-released, within TTL). A record lacking lease_id folds to reason 'unpairable' and a record lacking acquired_at folds to 'indeterminate-age' — both DENY — so a setup that omits them produces a BLOCK, not the passthrough this case pins."
 }

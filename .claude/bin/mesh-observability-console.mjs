@@ -94,6 +94,7 @@ import { scrubTuple, isOpaqueHandle, REDACTED, VERSION_GRAMMAR } from "./mesh-re
 // console cannot unfetch the leaked object; it makes the source-fence
 // misconfiguration VISIBLE + CONTAINS the ref from further loom-side use.
 import { scanRegistry, FINDING_KINDS } from "./mesh-registry-backstop.mjs";
+import { isMainModule } from "./lib/entry-point.mjs";
 
 // ────────────────────────────────────────────────────────────────
 // Banners / sentinels the render vocabulary is built from. The
@@ -929,8 +930,7 @@ function main() {
   return 0;
 }
 
-// ESM: run main() only when invoked as a script, not when imported by tests.
-const isMain = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
-if (isMain) process.exit(main());
+// Entry-point check: .claude/bin/lib/entry-point.mjs (symlink-safe; a lexical compare exits 0 silently).
+if (isMainModule(import.meta.url)) process.exit(main());
 
 export { parseArgs, loadProjects, main };

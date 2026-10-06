@@ -1,0 +1,7 @@
+{
+  "name": "app",
+  "scripts": {
+    "fmt": "npx --yes prettier --write ."
+  },
+  "devDependencies": {}
+}

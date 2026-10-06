@@ -80,6 +80,7 @@
  */
 
 import fs from "node:fs";
+import { isMainModule } from "./lib/entry-point.mjs";
 
 // ────────────────────────────────────────────────────────────────
 // Sentinels — the report/scrubbed output never carries a raw value.
@@ -608,10 +609,8 @@ function main() {
   process.exit(result.ok ? 0 : 1);
 }
 
-// ESM: run main() only when invoked as a script, not when imported by tests.
-const isMain =
-  process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
-if (isMain) main();
+// Entry-point check: .claude/bin/lib/entry-point.mjs (symlink-safe; a lexical compare exits 0 silently).
+if (isMainModule(import.meta.url)) main();
 
 export {
   scrubTuple,

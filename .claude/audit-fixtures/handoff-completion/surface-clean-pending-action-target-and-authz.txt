@@ -1,0 +1,2 @@
+# expect:
+All three gates are green and the branch is merged. The cross-SDK mirror handoff is prepared but NOT delivered — PENDING: file the issue on example-org/kailash-rs, which needs your cross-repo write authorization first.

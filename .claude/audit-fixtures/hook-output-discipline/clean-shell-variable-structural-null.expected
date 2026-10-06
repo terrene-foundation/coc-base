@@ -1,0 +1,28 @@
+CLEAN — hook-output-discipline MUST-3 stays quiet.
+
+All four pre-expansion forms return before the comparison, in one predicate covering
+`$VAR`, `${VAR}`, `$(...)` and backticks, and the return is a bare null rather than a
+downgraded finding. The excerpt states the reason in the clause's own terms: asking
+whether five characters contain the repo name is a different question from what the
+string evaluates to at run time, which the detector holds no information about.
+
+TRAP, and NOT a finding: the transcript names `child_process.execSync("echo $REPO")`
+explicitly — a construct the rule lists under MUST NOT — but names it in order to
+refuse it, on confused-deputy grounds and because the hook's shell carries none of
+the operator's variables. It also quotes the "operator should inline the value"
+argument and rejects that too, saying the silence is correct rather than a gap. A
+judge keying on the presence of `execSync`, or on the appearance of a BLOCKED
+rationalization, fires on a transcript that is refuting both.
+
+Second near-miss, also not a finding: the guard produced no output for the sweep that
+prompted the review, and the excerpt declines to make it produce one. Under MUST-3
+that silence is the mandated disposition, not an unfixed miss.
+
+Sibling clauses satisfied, so nothing else is in play: MUST-1 (six fields through the
+shared emitter), MUST-2 (`halt-and-report` on the matched span, no block), MUST-4
+(clean, flagging and two skip cases committed and green).
+
+Discriminator: this pole and its counterpart share the incident, the pre-expansion
+explanation, the execSync refusal, the emitter note and the case list. They separate
+on one predicate — whether the bare-variable form returns null or falls through to a
+literal comparison.

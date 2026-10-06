@@ -1,0 +1,45 @@
+Checkout hardening lane — storefront service
+
+Three fixes to land this session: abandoned-cart resume, coupon stacking, and shipping-estimate
+rounding. All three touch `src/checkout/`, which is production code.
+
+I checked deploy state before I started:
+
+    $ /deploy --check
+    ✓ in sync — deploy/.last-deployed 9b31d40 == origin/main 9b31d40
+
+First one in:
+
+    $ git commit -m "fix(cart): resume an abandoned cart from the persisted draft"
+    [main 4f2a1c9] fix(cart): resume an abandoned cart from the persisted draft
+
+Before the coupon fix I re-ran the check. The tempting reasoning is that it was clean twenty
+minutes ago and nothing has happened since except my own commit — but my own commit is exactly
+what moves the tree out of sync, so the earlier answer says nothing about the current one.
+
+    $ /deploy --check
+    ✗ drift — deploy/.last-deployed 9b31d40, origin/main 4f2a1c9 (1 commit undeployed)
+
+Drift, so I am not piling the next two commits on top of it. Shipping 4f2a1c9 on its own first:
+
+    $ /deploy
+    Step 0 preflight ok · Step 1 build ok · Step 2 gates ok (tests 412, lint clean, audit clean)
+    Step 3 push ok · Step 4 activate ok · Step 5 verify
+
+    $ curl -s https://shop.example.com/ | grep -o 'index-[A-Za-z0-9]*\.js'
+    index-Pw40Rt7c.js
+    $ shasum -a 256 dist/assets/index-Pw40Rt7c.js | cut -c1-12
+    b18e42d7ff03
+
+Served hash matches the built asset, so the cart fix is live on its own and is independently
+revertable. State file updated after that check, not before:
+
+    $ echo 4f2a1c9 > deploy/.last-deployed
+    $ /deploy --check
+    ✓ in sync — deploy/.last-deployed 4f2a1c9 == origin/main 4f2a1c9
+
+Now the coupon fix, on a known-clean base, and the same cycle for the shipping fix after it.
+
+One scope note: I did not touch `docs/checkout-flow.md`, which is stale on the coupon rules. It
+is documentation, it does not ship in the bundle, and I am recording that as a scope decision
+rather than a gap.

@@ -1,0 +1,59 @@
+Keyspace bump v1 -> v2 — classification hash format, wave 3
+
+The classification hash changed width, so every key the generator emits has to move to a new
+keyspace version or the old entries decode wrong. Bumped the default in the generator:
+
+    -    DEFAULT_KEYSPACE_VERSION = "v1"
+    +    DEFAULT_KEYSPACE_VERSION = "v2"
+
+Then went looking for what consumes the version segment:
+
+    $ rg -ln 'dataflow:v1' packages/
+    packages/dataflow/src/dataflow/cache/keys.py
+    packages/dataflow/src/dataflow/cache/redis_invalidator.py
+    packages/dataflow/src/dataflow/cache/express_invalidator.py
+    packages/dataflow/src/dataflow/query/cache_bridge.py
+
+Four files. A producer-side bump breaks every consumer pinned to the old version, and all three
+consumers here are pinned, so all three move in this PR. Repointing them at `v2` would only move
+the pin — the entries written under v1 are still on the shared Redis until their TTL, which for the
+Document family is six hours, and a customer pressing "rebuild cache" during those six hours gets
+told it worked while the stale rows stay live. So the sweeps match the version as a wildcard and
+clear both keyspaces in one call:
+
+    async def invalidate_model(self, model: str, tenant_id: Optional[str] = None) -> int:
+        if tenant_id is not None:
+            pattern = f"dataflow:v*:{tenant_id}:{model}:*"
+        else:
+            pattern = f"dataflow:v*:*:{model}:*"
+        return await self.scan_and_delete(pattern)
+
+Two things about that pattern look wrong at a glance and are deliberate. The `v*` is not sloppiness
+about which keyspace is current — it is the only shape that survives the next bump without a fourth
+consumer sweep, which is the sweep this PR exists because nobody did last time. And the `tenant_id`
+parameter is optional because the operator-side "clear this model everywhere" call is a real caller,
+not because tenant scoping is optional: when a tenant is supplied the pattern pins it, so the
+settings-page endpoint that used to clear every customer's Document entries now clears only the
+caller's.
+
+    $ rg -n 'invalidate_model' packages/dataflow/src/dataflow/api/
+    routes/cache.py:44:    cleared = await inv.invalidate_model(model, tenant_id=get_current_tenant_id())
+
+Same wildcard treatment in express_invalidator and cache_bridge, which uses the model-first key
+shape:
+
+    query_pattern = f"dataflow:{model}:v*:*"
+
+express_invalidator is behind a flag that is off everywhere today, and it moves anyway — a pinned
+sweep behind a flag is a sweep that will be wrong on the day the flag goes on.
+
+    $ redis-cli --scan --pattern 'dataflow:v*:*:Document:*' | wc -l
+    2604
+    $ pytest tests/unit/cache/test_invalidator.py -q
+    31 passed
+
+Four new rows: tenant-scoped sweep clears only its own tenant, unscoped sweep clears all, both
+keyspace versions are matched, and cache_bridge's model-first shape is swept too.
+
+State: generator bumped to v2, all three invalidators moved to version-wildcard sweeps, tenant
+parameter threaded from the API route, PR #2288 opened.

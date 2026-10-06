@@ -1,0 +1,110 @@
+=== SESSION EXCERPT — users.signup_source attribution gap ===
+
+[user]
+The signup handler stopped forwarding the referrer header between 2026-06-02 and 2026-07-14, so
+`users.signup_source` is NULL for everyone who signed up in that window and attribution reporting
+is wrong for the whole quarter. `signup_events` still has the raw payload. Fix the data.
+
+[assistant]
+Measuring the gap before touching anything.
+
+  $ python -m app.dbq --env prod "SELECT count(*) FROM users WHERE signup_source IS NULL" ; rc=$?
+  41208
+  rc=0
+
+  $ python -m app.dbq --env prod "SELECT min(created_at)::date, max(created_at)::date FROM users
+      WHERE signup_source IS NULL" ; rc=$?
+  2026-06-02 | 2026-07-14
+  rc=0
+
+The window matches the brief exactly, so the NULLs are all from the dropped header and none are
+pre-existing. Deriving the value from the retained payload:
+
+  Write: /tmp/derive.sql
+
+    SELECT u.id,
+           CASE WHEN e.payload->>'utm_source' IS NOT NULL THEN 'campaign'
+                WHEN coalesce(e.payload->>'referrer', '') = '' THEN 'direct'
+                WHEN e.payload->>'referrer' ~ '^https?://([a-z]+\.)?(google|bing)\.' THEN 'organic'
+                ELSE 'referral' END AS derived_source
+      FROM users u JOIN signup_events e ON e.user_id = u.id WHERE u.signup_source IS NULL
+
+  $ python -m app.dbq --env prod \
+      "SELECT derived_source, count(*) FROM ($(cat /tmp/derive.sql)) d GROUP BY 1 ORDER BY 2 DESC" ; rc=$?
+  organic   | 21874
+  direct    | 11902
+  campaign  |  5431
+  referral  |  1961
+  rc=0
+
+  $ python -m app.dbq --env prod "SELECT count(*) FROM users u WHERE u.signup_source IS NULL
+      AND NOT EXISTS (SELECT 1 FROM signup_events e WHERE e.user_id = u.id)" ; rc=$?
+  40
+  rc=0
+
+41,168 of the 41,208 are derivable. The other 40 have no `signup_events` row at all; they keep
+their NULL, because a fabricated source is worse for attribution than an absent one.
+
+[assistant]
+This goes into the numbered sequence. A correction to runtime data carries the same review and
+rollback obligation as a schema change: the tracking table is the only record of what has been
+applied where, and a script under `scripts/` is invisible to it — a database restored from a
+pre-June snapshot would carry the NULLs again. It also needs an inverse, and 41,168 previous
+values are about to be overwritten.
+
+  Write: migrations/0058_backfill_user_signup_source.py
+
+    revision = "0058"
+    down_revision = "0057"
+    async def upgrade(conn):
+        await conn.execute("CREATE TABLE IF NOT EXISTS backfill_0058_signup_source ("
+                           "  user_id BIGINT PRIMARY KEY, previous_value TEXT)")
+        await conn.execute("INSERT INTO backfill_0058_signup_source (user_id, previous_value) "
+                           f"SELECT d.id, u.signup_source FROM ({DERIVATION_SQL}) d "
+                           "JOIN users u ON u.id = d.id")
+        await conn.execute("UPDATE users SET signup_source = d.derived_source "
+                           f"FROM ({DERIVATION_SQL}) d "
+                           "WHERE users.id = d.id AND users.signup_source IS NULL")
+
+    async def downgrade(conn):
+        await conn.execute("UPDATE users SET signup_source = b.previous_value "
+                           "FROM backfill_0058_signup_source b WHERE users.id = b.user_id")
+        await conn.execute("DROP TABLE backfill_0058_signup_source")
+
+  $ python -m app.migrate up --env test-pg ; rc=$?
+  0058_backfill_user_signup_source  applied  41168 rows  6.1s
+  rc=0
+  $ python -m app.migrate down --env test-pg --steps 1 ; rc=$?
+  DowngradeRefusedError: 0058 down_sql is destructive (DROP TABLE); pass force_downgrade=True
+  rc=1
+
+  $ python -m app.migrate down --env test-pg --steps 1 --force-downgrade ; rc=$?
+  0058 reverted; 41168 rows restored from backfill_0058_signup_source; parking table dropped
+  rc=0
+
+  $ python -m app.dbq --env test-pg "SELECT count(*) FROM users WHERE signup_source IS NULL" ; rc=$?
+  41208
+  rc=0
+
+Back to 41,208 exactly: the inverse restores every row it touched and no others. The round trip
+ran against the PostgreSQL 16 test instance, not SQLite: `UPDATE ... FROM` and `->>` are dialect-specific.
+
+  $ python -m app.migrate up --env test-pg && python -m app.migrate up --env prod ; rc=$?
+  0058_backfill_user_signup_source  applied  41168 rows  6.1s
+  0058_backfill_user_signup_source  applied  41168 rows  8.7s
+  rc=0
+
+[assistant]
+  $ python -m app.dbq --env prod "SELECT count(*) FROM users WHERE signup_source IS NULL" ; rc=$?
+  40
+  rc=0
+
+[assistant]
+Attribution is repaired for the whole window.
+
+41,208 `users` rows carried a NULL `signup_source` between 2026-06-02 and 2026-07-14 because the
+signup handler stopped forwarding the referrer header. `signup_events` retained the payload for all
+but 40, so the value is derived, not guessed: 21,874 organic, 11,902 direct, 5,431 campaign, 1,961
+referral. The 40 with no event row keep their NULL.
+
+Nothing is outstanding and nothing was deferred.

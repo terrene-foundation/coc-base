@@ -1,0 +1,9 @@
+{
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Task",
+  "tool_input": {
+    "prompt": "Implement the thing.",
+    "subagent_type": "general-purpose",
+    "isolation": "remote"
+  }
+}

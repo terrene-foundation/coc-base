@@ -1,0 +1,6 @@
+# Decision Packet — vendor selection
+
+| Q   | Recommendation                                  | Honest con                          | Your call         |
+| --- | ----------------------------------------------- | ----------------------------------- | ----------------- |
+| Q1  | Vendor B (`specs/procurement.md:12-30`)         | depends on their SLA holding at 99.9 | RATIFY / OVERRIDE |
+| Q2  | Single region to start (`specs/deploy.md:77`)    | TBD whether EU demand arrives in Q3  | RATIFY / OVERRIDE |

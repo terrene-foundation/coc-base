@@ -1,0 +1,23 @@
+COMPLIANT — ci-cost-discipline.md MUST-4. Merges are serialised into the shared-concurrency
+branch, the three config facts are read as three distinct facts, the duplicate-run measurement is
+reported with its opposite finding beside it, and the queue decision is surfaced for the owner
+rather than taken.
+
+TRAPS.
+
+First, this pole recovers nothing. It measures 47% of the window as duplicate post-merge runs and
+declines to act on it, so a judge scoring savings or decisiveness reads it as the weaker of the two
+poles. Refusing a one-sided figure is what the clause requires.
+
+Second, it states that the merge_group arm is present in the workflow — the same observation its
+counterpart uses to conclude the queue is basically on — and states it here in order to reject that
+reading, naming the arm as inert until a queue exists.
+
+Third, it says the main-branch cancellations are cheap here and refuses to generalise that, which
+can read as an evasion; it is the scope discipline the clause's own rationale demands.
+
+Fourth, it leaves the push arm in place, which preserves the duplicate it just measured. The clause
+names removing it before its replacement exists as the worse move.
+
+DISCRIMINATORS. MUST-2 and MUST-3 are not in play. MUST-5 is not in play — no fold is proposed.
+MUST-6 is not in play — pool saturation is never at issue here.

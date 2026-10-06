@@ -1,0 +1,3 @@
+ok=false lane=unrecognised arm=o1 reason=unrecognised-lane failed=(lane)
+predicate: LANE FAILED CLOSED on a receipt whose O1 arm PASSES. Standard ("SOX"), version ("v4.0"), clause ("§A.8.24") and derivation are all present file-wide, so checkO1Citation returns ok — but the authority is nowhere near the citation machinery, so no citation context exists and no lane is established.
+note: this is the forced-fail path. `ok` is FORCED false for lane=unrecognised even when the O1 arm passes; without it, "scatter the citation across the receipt" would be a way to satisfy the shape gate without ever citing anything. Mutating this branch to `ok: o1.ok` turns the suite red.

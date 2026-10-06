@@ -1,0 +1,16 @@
+{
+  "_README": "SYNTHETIC fixture roster (scrubber-token-scoped). Every value is invented.",
+  "genesis": {
+    "repo_owner": "fixturecanon-enterprise",
+    "repo_owner_kind": "org"
+  },
+  "persons": {
+    "pid-canonop-0000abcd": {
+      "display_id": "canonop",
+      "role": "owner",
+      "github_login": "canonop-gh",
+      "host_role": "maintainer",
+      "keys": []
+    }
+  }
+}

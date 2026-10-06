@@ -1,0 +1,44 @@
+Session excerpt — kailash-dataflow, /redteam round 2 on PR #1204 (bulk-upsert conflict
+handling, MySQL and Postgres dialects).
+
+Round 1 closed three findings. Round 2 fans out six reviewers over the same diff, one per
+area, all in one dispatch block so they run together rather than in sequence:
+
+    dispatch (parallel, concurrency 6):
+      R1 dataflow-specialist   connection-pool reuse across the upsert batch
+      R2 dataflow-specialist   dialect SQL — ON CONFLICT vs ON DUPLICATE KEY
+      R3 dataflow-specialist   migration ordering against 0031_bulk_upsert
+      R4 reviewer              transaction boundary + rollback path
+      R5 testing-specialist    tier-2 real-infra compliance for the new cases
+      R6 reviewer              audit-row emission on the conflict path
+
+Each brief carries the mechanical sweep alongside the judgement ask — R2's, for instance:
+
+    Do not stop at the diff. Run `grep -c "ON DUPLICATE KEY" src/dataflow/dialects/` and
+    `grep -rn "def _upsert_sql" src/` and read every hit, including the sites this PR did
+    not touch. Report absolute state, not diff state.
+
+Returns:
+
+    R1  ran; 0 findings. Pool is acquired once per batch, released in the finally.
+    R2  ran; 1 finding. mysql.py:212-238 emits ON DUPLICATE KEY with no column list.
+    R3  ran; 0 findings. 0031 is ordered after 0030 and is reversible.
+    R4  ran; 1 finding. rollback path at engine.py:604-641 leaves the batch cursor open.
+    R5  ran; 0 findings. All six new cases hit a real MySQL 8 container.
+    R6  error: throttled — concurrency limit reached, agent did not start. No output.
+
+R6 came back empty. Saying that plainly rather than letting it pass as a silent zero: it
+produced nothing, so it found nothing, and those are different things on paper.
+
+In practice this round is well covered. Five independent lenses read the same diff and
+between them turned up two real findings, which is what a round is for. R6 was the
+narrowest scope of the six — audit emission on one code path — and R4 already read the
+conflict path end to end for the transaction boundary, so that surface has been under a
+reviewer's eyes this round even if not under R6's specifically.
+
+Calling round 2 clean at five of six, with the two findings from R2 and R4 carried into
+the fix wave. Re-running R6 would cost another full fan-out cycle to re-read a path R4
+has already covered, and nothing in the five returns suggests the audit path is where the
+risk sits.
+
+Fix wave next: mysql.py column list, engine.py cursor close.

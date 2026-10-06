@@ -1,0 +1,48 @@
+Wave 3, shard C — adding the tenant-scope fence to the export path.
+
+The fence is in. `assertTenantScope(req, rows)` rejects any row whose `tenant_id`
+does not match the caller's session tenant, and it is wired into the export
+handler ahead of serialisation.
+
+I registered it as a required check so a regression cannot merge:
+
+    # .github/workflows/pr-gate.yml
+    - name: tenant-scope fence
+      run: node tools/check-tenant-scope.mjs --strict
+
+Both poles ship with it. Extending the seed helper to emit a cross-tenant row
+cost about twenty lines and is what makes the red pole possible:
+
+    // poles/tenant-scope.poles.mjs
+    export const poles = [
+      { name: "green/same-tenant",  rows: seed({ tenant: "acme" }),
+        expect: { exit: 0 } },
+      { name: "red/cross-tenant",   rows: seed({ tenant: "acme", inject: "globex" }),
+        expect: { exit: 1, finding: "tenant-scope-violation" } },
+    ];
+
+    test("poles disagree", async () => {
+      const g = await run(poles[0].rows);
+      const r = await run(poles[1].rows);
+      assert.notDeepEqual(g.verdict, r.verdict);   // vacuous pair fails here
+      assert.equal(r.finding, "tenant-scope-violation");
+    });
+
+Measured: green exits 0, red exits 1 with `finding: tenant-scope-violation`. The
+two verdicts differ, and the red arrives under the identity the pole declares
+rather than merely as a non-zero status.
+
+The suite is green, 412 pass / 0 fail, and the new test is in the run (grepped
+the reporter output for "poles disagree"; it is there, so it is not skipped).
+
+I also confirmed the fence is reached rather than dead code — a temporary
+`console.error` inside `assertTenantScope` printed during the export test, then
+removed.
+
+One thing I did not do: I have not extended the poles to the CSV export path,
+which has its own serialiser. That path is not covered by this check and I am not
+claiming it is; the check's name and its workflow step both scope to the JSON
+export. Filed for shard D.
+
+Net: fence wired, both poles executable, verdicts compared, red identity pinned.
+Shard C done.

@@ -99,12 +99,15 @@
  */
 
 const crypto = require("crypto");
-const fs = require("fs");
 const path = require("path");
 
 // The ONE hardened append primitive (loom#1349) — six defenses, symlink/hardlink/FIFO refusal,
-// 0o600. A direct `fs.appendFileSync` here would be a second, un-hardened sink.
-const { appendSinkLine } = require("./append-sink.js");
+// 0o600 — and its READ counterpart (loom#1762), which applies the same containment plus a byte
+// bound enforced by the read itself. A direct `fs.appendFileSync` here would be a second,
+// un-hardened sink; a direct `fs.readFileSync` was a second, un-hardened SOURCE, which is exactly
+// the asymmetry CRITICAL 1 and CRITICAL 2 were. There is deliberately NO bare `fs` binding in this
+// module's scope any more, so reaching for either takes an added import rather than a free hand.
+const { appendSinkLine, readSinkFile } = require("./append-sink.js");
 
 /**
  * Stream version. Independent of `activation_schema_version` and deliberately NOT pinned to 0:
@@ -137,7 +140,18 @@ const DELEGATION_TOOLS = Object.freeze(["Task", "Agent"]);
 /** The teammate-messaging tool. THE delivery signal — a lane that never calls it delivered nothing. */
 const DELIVERY_TOOLS = Object.freeze(["SendMessage"]);
 
-/** Hard cap on a ledger read. A runaway sink must not turn a shutdown hook into an OOM. */
+/**
+ * Hard cap on a ledger read. A runaway sink must not turn a shutdown hook into an OOM.
+ *
+ * THE CAP WAS DECORATIVE UNTIL loom#1762 CRITICAL 2, and the correction is recorded rather than
+ * smoothed over. `readLedger` used to `statSync` and then `readFileSync`, so the cap gated only
+ * the STAT: a stat reporting 4,194,000 bytes (under the cap) gated a read that MEASURED
+ * 71,302,864 bytes consumed. Direct control — `statSync` faked to report `size:100` against a
+ * 4 MB file — still returned all 200,000 rows, proving the read ignored the stat entirely and ran
+ * to EOF. The cap is now enforced BY THE READ (`append-sink.js::readSinkFile` fills a
+ * `maxBytes + 1` buffer), so the bytes consumed cannot exceed it regardless of what a concurrent
+ * writer does between any stat and any read.
+ */
 const MAX_LEDGER_BYTES = 4 * 1024 * 1024;
 /** Hard cap on how many undelivered lanes an advisory names, so one line cannot flood a transcript. */
 const MAX_REPORTED_LANES = 12;
@@ -146,18 +160,189 @@ function _isNonEmptyString(v) {
   return typeof v === "string" && v.length > 0;
 }
 
+// ── session identity — ONE derivation, five call sites ────────────────────────
+//
+// ## The defect this closes (loom, 2026-09-01), MEASURED
+//
+// `appendRecord` keys the sink FILE on the row's own `session_id`, so two sessions can only pool
+// into one file when BOTH resolve to the SAME id. Before this change the no-session fallback was
+// the SHARED CONSTANT `"unknown-session"`, restated at FIVE independent sites — the producer
+// (`emit-dispatch-ledger.js`), the consumer (`delegation-default-guard.js`), the ledger path
+// mapper (`_sinkPath`), the record builder (`_base`) and the dedupe path mapper
+// (`delegation-default.js::markerPath`). A shared constant where a UNIQUE value is required is a
+// name collision BY DESIGN: every id-less session landed in ONE file, and inside it every row AND
+// the reader carried that same literal, so `assessSessionVolume`'s fence predicate
+// (`r.session_id !== sessionId`) could NEVER be true. No field inside a pooled file can separate
+// rows that are byte-identical in the only field that identifies them, which is why the fence
+// could not work in principle rather than merely in practice.
+//
+// Measured with a control: session A ran 12 serial prompts while session B (also id-less) opened
+// one lane mid-run. Pooled, the arm reported `QUIET, run 6` — SILENT. With the ids made
+// distinguishable it reported `ADVISE, run 12` — the true finding, suppressed by a foreign lane.
+//
+// The fallback needs NO attacker: `read-stdin-bounded.js` resolves `{}` on TTY stdin, empty
+// stdin, a JSON parse error, an over-ceiling payload, or a 2 s timeout.
+//
+// ## The derivation, and WHY each rung
+//
+// Ordered most- to least-authoritative, and every site calls `resolveSessionId` so the five
+// cannot drift (`rules/security.md` § Multi-Site Kwarg Plumbing — a second copy IS the drift
+// class this corpus keeps finding):
+//
+//   1. the caller's explicit `session_id` — the host's own id, unchanged behaviour.
+//   2. `CLAUDE_CODE_SESSION_ID` / `CLAUDE_SESSION_ID` from the environment. MEASURED, not
+//      assumed: a Claude-Code-spawned child process on this host carries
+//      `CLAUDE_CODE_SESSION_ID=<uuid>` and `CLAUDE_PID=<host pid>` in its environment. Note the
+//      variable is `CLAUDE_CODE_SESSION_ID`; `validate-bash-command.js` reads the shorter
+//      `CLAUDE_SESSION_ID`, which is why its own fallback goes straight to a pid. Both names are
+//      tried here so neither host spelling is missed.
+//   3. a DERIVED anonymous identity, `unknown-<hostPid>-<8 hex>`, where `<hostPid>` is
+//      `CLAUDE_PID` when the host exports it and `process.ppid` otherwise, and the hex is a
+//      sha256 over `<hostPid>|<host process start time>`.
+//
+// WHY THE HOST PID AND NOT `process.pid`. The producer and the consumer are DIFFERENT OS
+// processes — one hook fires at `PreToolUse`, the other at `Stop` — so a `process.pid`-derived id
+// would put the consumer on a file the producer never wrote. What they share is the process that
+// SPAWNED them. `CLAUDE_PID` names it directly and survives a shell in between; `process.ppid`
+// is the documented stand-in and is what `validate-bash-command.js` already uses for the same
+// purpose (loom#1715 (d)), with the residual that it names an intermediate shell rather than the
+// host if one is interposed — which is exactly why `CLAUDE_PID` is preferred over it.
+//
+// WHY A START-TIME COMPONENT. A pid alone is NOT unique over time: the OS reuses pids, so a later
+// session could inherit a dead predecessor's identity and read its history. It IS sufficient
+// against the failure that matters — two CONCURRENT sessions cannot hold the same live pid, so
+// concurrent pooling is closed by the pid alone — and the start-time hash closes the weaker
+// sequential-reuse case on top of it. `ps -o lstart=` is 1-second granular, which is finer than
+// pid reuse can be: the reused pid's process starts strictly later than the dead one.
+//
+// COST AND FAIL-SOFT. `ps` is spawned at most ONCE per process (memoized) and ONLY on rung 3,
+// which rungs 1 and 2 make rare — measured on this checkout, 45 of 45 live sinks carry a real
+// session UUID. Where `ps` is unavailable (Windows) the token degrades to the literal `nostart`,
+// which loses ONLY the sequential-reuse guarantee and keeps the concurrent-pooling closure. The
+// degradation is deterministic per host, so a producer and a consumer on one host cannot land on
+// different rungs.
+
+/**
+ * The SHARED-CONSTANT fallback this stream shipped with, retained as an exported NAME so a
+ * reader, a migration or a fixture can address the legacy POOLED sink without restating the
+ * literal. NOTHING resolves to it any more; see `legacyAnonSinkPath` for its disposition.
+ */
+const LEGACY_ANON_SESSION_ID = "unknown-session";
+
+/** Prefix of a DERIVED anonymous identity — greppable, and never the shape of a host UUID. */
+const ANON_SESSION_PREFIX = "unknown";
+
+/**
+ * Memo for the AMBIENT derivation only. Two calls in one process MUST agree (`_sinkPath` and
+ * `_base` both resolve on a single append), and without the memo they would spawn `ps` twice and
+ * could straddle a second boundary — producing two different ids inside one write.
+ */
+let _anonSessionMemo = null;
+
+/** The host process's start time, as an opaque token. `null` when it cannot be obtained. */
+function _hostStartToken(hostPid) {
+  try {
+    const { execFileSync } = require("child_process");
+    const out = execFileSync("ps", ["-o", "lstart=", "-p", String(hostPid)], {
+      encoding: "utf8",
+      timeout: 1000,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    const t = String(out).trim();
+    return t.length > 0 ? t : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The derived per-host-process identity. STABLE within a process and across every process the
+ * same host spawned; DISTINCT across hosts.
+ *
+ * `opts` exists for fixtures: supplying `env`, `hostPid` or `startToken` bypasses the memo so both
+ * poles can be driven on one tree without a subprocess. The ambient (production) call takes no
+ * arguments and is memoized.
+ */
+function anonymousSessionId(opts) {
+  const o = opts || {};
+  const ambient =
+    o.env === undefined && o.hostPid === undefined && o.startToken === undefined && o.fresh !== true;
+  if (ambient && _anonSessionMemo !== null) return _anonSessionMemo;
+  const env = o.env || process.env;
+  const declared = o.hostPid !== undefined ? o.hostPid : env.CLAUDE_PID;
+  const hostPid = /^[0-9]{1,10}$/.test(String(declared == null ? "" : declared))
+    ? String(declared)
+    : String(process.ppid);
+  const start = o.startToken !== undefined ? o.startToken : _hostStartToken(hostPid);
+  const basis = `${hostPid}|${_isNonEmptyString(start) ? start : "nostart"}`;
+  const id = `${ANON_SESSION_PREFIX}-${hostPid}-${crypto
+    .createHash("sha256")
+    .update(basis, "utf8")
+    .digest("hex")
+    .slice(0, 8)}`;
+  if (ambient) _anonSessionMemo = id;
+  return id;
+}
+
+/** Drop the memo. Fixtures only — production never needs it, and calling it mid-session would
+ *  re-derive an identity that is supposed to be constant. */
+function _resetAnonSessionMemo() {
+  _anonSessionMemo = null;
+}
+
+/**
+ * THE single session-identity resolution for this stream. Every producer, consumer and path
+ * mapper routes through it, so the id a row is written under and the id a reader looks for cannot
+ * disagree. A whitespace-only id resolves the SAME way here as it does in `_sinkPath` — before
+ * this function they disagreed, and a `"  "` id was written into a file keyed on
+ * `"unknown-session"`.
+ */
+function resolveSessionId(explicit, opts) {
+  if (_isNonEmptyString(explicit) && explicit.trim().length > 0) return explicit;
+  const env = (opts && opts.env) || process.env;
+  const fromEnv = env.CLAUDE_CODE_SESSION_ID || env.CLAUDE_SESSION_ID;
+  if (_isNonEmptyString(fromEnv) && fromEnv.trim().length > 0) return fromEnv;
+  return anonymousSessionId(opts);
+}
+
+/**
+ * BACKWARD COMPATIBILITY — the disposition of the pre-fix pooled sinks, STATED rather than left
+ * to be discovered. One exists on this machine
+ * (`kailash-coc-py/.claude/learning/dispatch-reconcile/unknown-session-86a371a9.jsonl`), so this
+ * is a real case, not a hypothetical.
+ *
+ *   READABLE: the filename mapping is UNCHANGED, so this path still resolves to exactly the file
+ *   the old code wrote, and `readLedger({ repoDir, sessionId: LEGACY_ANON_SESSION_ID })` still
+ *   reads it. Nothing is deleted, moved or rewritten.
+ *
+ *   NOT ADOPTED, deliberately: no derived identity resolves to it. Its rows are a POOL of one or
+ *   more sessions that are indistinguishable BY CONSTRUCTION — that is the defect — so handing
+ *   them to whichever session happens to run next would import another session's history, which
+ *   is the same defect wearing a new name. A session cannot "ignore its own history" here,
+ *   because no session can be shown to own these rows.
+ *
+ *   NOT SILENT: `delegation-default-guard.js` emits a one-line stderr breadcrumb naming this file
+ *   when it exists AND the current session is on the derived-anonymous rung, once per session.
+ */
+function legacyAnonSinkPath(repoDir) {
+  return _sinkPath(repoDir, LEGACY_ANON_SESSION_ID);
+}
+
 /**
  * Per-session sink file. Injective `session_id` → filename mapping (sanitized token + 8-char
  * sha256 of the RAW id), identical to `artifact-activation-ledger.js::_sinkPath`: two raw ids that
  * sanitize to the same token still land on distinct files, and the charclass strips every path
  * separator so a crafted session id cannot traverse out of the sink dir.
  *
- * ONE fallback for the no-session case, applied here and nowhere else — the two-doors defect that
- * bit loom#1500-L3 (a read through one door and a write through the other silently missing each
- * other) is avoided by never normalizing an absent session anywhere but this function.
+ * The no-session case is resolved by `resolveSessionId` and NOWHERE else — the two-doors defect
+ * that bit loom#1500-L3 (a read through one door and a write through the other silently missing
+ * each other) is avoided by never normalizing an absent session outside that one function. This
+ * docblock previously claimed the normalization lived HERE "and nowhere else", which was FALSE
+ * when written: `_base` below, both hooks and `delegation-default.js::markerPath` each carried
+ * their own copy of the same literal.
  */
 function _sinkPath(repoDir, session) {
-  const raw = _isNonEmptyString(session) && session.trim().length > 0 ? session : "unknown-session";
+  const raw = resolveSessionId(session);
   const safe = raw.replace(/[^A-Za-z0-9._-]/g, "_");
   const suffix = crypto.createHash("sha256").update(raw, "utf8").digest("hex").slice(0, 8);
   return path.join(repoDir, ".claude", "learning", "dispatch-reconcile", `${safe}-${suffix}.jsonl`);
@@ -278,6 +463,175 @@ function countDeclaredSubparts(text) {
   return Math.max(ordered, bullets);
 }
 
+// ── dispatch LOCATION — which worktree and branch a dispatch was issued from ──
+//
+// ## The defect this closes (journal/0607 decision 3, journal/0608 item 6), MEASURED
+//
+// A launch row recorded WHO launched WHAT and never WHERE. `delegation-default.js::
+// attributeLaunchesToLanes` joins a launch row to a lane only through its `lane`/`branch` (by name)
+// or `worktree`/`cwd` (by path) value, and `wip-lanes.js::LANE_ATTRIBUTION_KEYS` names exactly those
+// four keys — so with none written, EVERY dispatch was unidentified: `laneDepth` reported
+// `agents: null` for every lane and `detectUnderPackedLane` reported every session that dispatched
+// anything as UNATTRIBUTED. An audit found a 4-item serial lane reading PACKED for the same reason.
+//
+// ## STRUCTURAL, never from the brief's prose
+//
+// The location is the dispatching session's working directory — a fact the harness REPORTS on the
+// hook payload (`payload.cwd`; see `repo-dir-override.js::unoverriddenSeed`) — resolved through git:
+// `worktree` is `git rev-parse --show-toplevel`, `branch` is `git symbolic-ref --quiet --short HEAD`.
+// Nothing is read from the dispatch prompt (`rules/probe-driven-verification.md` MUST-6).
+//
+// WHY `symbolic-ref` AND NOT `rev-parse --abbrev-ref HEAD`. Measured in a temp repo: on a DETACHED
+// HEAD `rev-parse --abbrev-ref HEAD` exits 0 printing the literal `HEAD` — a string that would be
+// recorded as a branch NAMED "HEAD" — and on an UNBORN branch it exits 128. `symbolic-ref --quiet`
+// exits 1 with no output on a detached HEAD (a distinct, nameable state) and answers the branch name
+// on an unborn branch. It is the instrument that can return the other answer.
+//
+// ## Tri-state per key, never an omitted key and never a guess
+//
+// Every launch row carries `cwd`, `cwd_source`, `worktree`, `branch` and `location_reason`, ALWAYS.
+// A value git could not produce is `null`, and `location_reason` says why; a row is never dropped
+// because its location did not resolve. A `null` attributes nothing: the consumer reads it as an
+// unidentified row (UNATTRIBUTED), never as a dispatch for some lane.
+//
+// ## Bounded
+//
+// Two git spawns, each capped at `LOCATION_GIT_TIMEOUT_MS` and further capped at half the budget the
+// caller passes (`budgetMs` — the hook passes what is left of its own timeout). Below
+// `LOCATION_MIN_TIMEOUT_MS` per call no spawn is attempted and the reason says so.
+//
+// ## Stated limit — correct behaviour, not a bug
+//
+// A session whose working directory is a MAIN checkout, but which edits a lane worktree by absolute
+// paths, records MAIN's worktree and branch, so its dispatches do NOT attribute to that lane. The
+// record says where the session RAN; a lane session runs inside its lane's worktree
+// (`rules/agents.md` § Worktree Orchestration), so this is the honest reading, not a miss.
+
+/** The location keys every launch row carries. A superset of the path/name keys a consumer joins. */
+const LOCATION_KEYS = Object.freeze(["cwd", "cwd_source", "worktree", "branch", "location_reason"]);
+
+/** Per-spawn cap. Two spawns, so the worst case is twice this, inside the hook's own 4 s timeout. */
+const LOCATION_GIT_TIMEOUT_MS = 1000;
+/** Below this per call there is no honest attempt to make. */
+const LOCATION_MIN_TIMEOUT_MS = 50;
+
+/** The reason a launch row carries when its caller supplied no location at all. */
+const NO_LOCATION_REASON =
+  "no dispatch location was supplied to buildLaunchRecord, so the worktree and branch were not resolved";
+
+/** First line of a git stderr, bounded — a reason, never a dump. */
+function _firstLine(s) {
+  const line = String(s || "").split("\n").find((l) => l.trim().length > 0) || "";
+  return line.trim().slice(0, 160);
+}
+
+/**
+ * Run ONE read-only git command in `cwd`. Returns a result object; NEVER throws.
+ *
+ * Routed through `git-subprocess-env.js` — the resolved binary and the scrubbed environment — so an
+ * inherited `GIT_DIR` / `GIT_WORK_TREE` cannot steer which repository answers; the answer is the
+ * repository `cwd` is actually inside.
+ *
+ * @returns {{ok:true, stdout:string} | {ok:false, status:number|null, reason:string}}
+ */
+function _runGitForLocation(cwd, args, timeoutMs) {
+  try {
+    const { spawnSync } = require("child_process");
+    const { resolveGitBinary, gitEnv } = require("./git-subprocess-env.js");
+    const bin = resolveGitBinary();
+    if (!bin) return { ok: false, status: null, reason: "no git binary could be resolved" };
+    const r = spawnSync(bin, ["--no-optional-locks", ...args], {
+      cwd,
+      encoding: "utf8",
+      timeout: timeoutMs,
+      killSignal: "SIGKILL",
+      stdio: ["ignore", "pipe", "pipe"],
+      env: gitEnv(),
+      windowsHide: true,
+    });
+    if (r.error) {
+      return {
+        ok: false,
+        status: null,
+        reason:
+          r.error.code === "ETIMEDOUT"
+            ? `git ${args[0]} timed out after ${timeoutMs} ms`
+            : `git ${args[0]} could not be spawned (${r.error.code || r.error.message})`,
+      };
+    }
+    if (r.status !== 0) {
+      const tail = _firstLine(r.stderr);
+      return {
+        ok: false,
+        status: r.status,
+        reason: `git ${args[0]} exited ${r.status === null ? `on ${r.signal}` : r.status}${tail ? `: ${tail}` : ""}`,
+      };
+    }
+    return { ok: true, stdout: String(r.stdout || "").trim() };
+  } catch (e) {
+    return { ok: false, status: null, reason: `git could not be run: ${e && e.message ? e.message : String(e)}` };
+  }
+}
+
+/**
+ * Resolve WHERE a dispatch was issued from. NEVER throws; every key is always present.
+ *
+ * @param {{cwd?:string, cwdSource?:string, budgetMs?:number,
+ *          runGit?:(cwd:string, args:string[], timeoutMs:number)=>object}} a
+ *   `runGit` is a fixture seam (a timed-out or failing git without a slow or broken binary).
+ * @returns {{cwd:string|null, cwd_source:string|null, worktree:string|null, branch:string|null,
+ *           location_reason:string|null}}  `location_reason` is null ONLY when all three resolved.
+ */
+function resolveDispatchLocation(a) {
+  const o = a && typeof a === "object" ? a : {};
+  const out = {
+    cwd: _isNonEmptyString(o.cwd) ? o.cwd : null,
+    cwd_source: _isNonEmptyString(o.cwdSource) ? o.cwdSource : null,
+    worktree: null,
+    branch: null,
+    location_reason: null,
+  };
+  if (out.cwd === null) {
+    out.location_reason =
+      "no working directory was received for the dispatching session, so no worktree or branch was resolved";
+    return out;
+  }
+  // A RELATIVE cwd would resolve against the HOOK's process directory, which is not where the
+  // session ran — resolving it would be a guess dressed as a measurement.
+  if (!path.isAbsolute(out.cwd)) {
+    out.location_reason = "the received working directory is not an absolute path, so no worktree or branch was resolved";
+    return out;
+  }
+  const budget = Number.isFinite(o.budgetMs) ? o.budgetMs : 2 * LOCATION_GIT_TIMEOUT_MS;
+  const timeoutMs = Math.min(LOCATION_GIT_TIMEOUT_MS, Math.floor(budget / 2));
+  if (!(timeoutMs >= LOCATION_MIN_TIMEOUT_MS)) {
+    out.location_reason = `no-budget: ${Math.max(0, Math.floor(budget))} ms left, below the ${2 * LOCATION_MIN_TIMEOUT_MS} ms needed to ask git — worktree and branch NOT resolved`;
+    return out;
+  }
+  const run = typeof o.runGit === "function" ? o.runGit : _runGitForLocation;
+
+  const top = run(out.cwd, ["rev-parse", "--show-toplevel"], timeoutMs);
+  if (!top || top.ok !== true) {
+    out.location_reason = `worktree and branch NOT resolved — ${(top && top.reason) || "git returned no result"}`;
+    return out;
+  }
+  if (!_isNonEmptyString(top.stdout) || !path.isAbsolute(top.stdout)) {
+    out.location_reason = "worktree and branch NOT resolved — git rev-parse --show-toplevel returned no absolute path";
+    return out;
+  }
+  out.worktree = top.stdout;
+
+  const b = run(out.cwd, ["symbolic-ref", "--quiet", "--short", "HEAD"], timeoutMs);
+  if (b && b.ok === true && _isNonEmptyString(b.stdout)) {
+    out.branch = b.stdout;
+  } else if (b && b.ok === false && b.status === 1) {
+    out.location_reason = "branch is null: HEAD is detached in this worktree, so it has no branch to name";
+  } else {
+    out.location_reason = `branch NOT resolved — ${(b && b.reason) || "git symbolic-ref returned no branch name"}`;
+  }
+  return out;
+}
+
 // ── record builders ───────────────────────────────────────────────────────────
 // Pure, time-source-agnostic (the caller supplies `nowIso`) so every shape is testable without a
 // clock or a repo on disk.
@@ -286,7 +640,10 @@ function _base(kind, sessionId, generation, nowIso) {
   return {
     v: LEDGER_SCHEMA_VERSION,
     kind,
-    session_id: _isNonEmptyString(sessionId) ? sessionId : "unknown-session",
+    // Routed through the SHARED derivation, not a local fallback. This site and `_sinkPath` are
+    // read on the SAME append (`appendRecord` keys the file on the row's own `session_id`), so a
+    // second copy here is not a style problem — it is a guaranteed write/read split.
+    session_id: resolveSessionId(sessionId),
     generation: _isNonEmptyString(generation) ? generation : MAIN_GENERATION,
     ts: _isNonEmptyString(nowIso) ? nowIso : new Date().toISOString(),
   };
@@ -298,6 +655,15 @@ function buildLaunchRecord(a) {
   r.launch_id = _isNonEmptyString(a.launchId) ? a.launchId : newLaunchId();
   r.dispatch_name = _isNonEmptyString(a.dispatchName) ? a.dispatchName : null;
   r.subagent_type = _isNonEmptyString(a.subagentType) ? a.subagentType : null;
+  // WHERE the dispatch was issued from — ALWAYS present, never omitted (§ dispatch LOCATION).
+  // COPIED from the caller's `resolveDispatchLocation` result, never resolved here: this builder
+  // stays pure (no IO, no clock). A non-string or empty value is recorded null, never coerced.
+  const loc = a.location && typeof a.location === "object" ? a.location : null;
+  for (const k of ["cwd", "cwd_source", "worktree", "branch"]) r[k] = loc && _isNonEmptyString(loc[k]) ? loc[k] : null;
+  if (loc === null) r.location_reason = NO_LOCATION_REASON;
+  else if (_isNonEmptyString(loc.location_reason)) r.location_reason = loc.location_reason;
+  else if (r.cwd !== null && r.worktree !== null && r.branch !== null) r.location_reason = null;
+  else r.location_reason = "the supplied dispatch location left a key null without a reason";
   return r;
 }
 
@@ -353,9 +719,12 @@ function appendRecord(a) {
  * array — an empty array is indistinguishable from "every lane delivered", which is the
  * non-discriminating instrument this whole module exists to avoid. A malformed LINE is skipped and
  * counted (a torn final row from a short write is not a reason to discard the rest of the file),
- * but a malformed FILE never masquerades as a clean one.
+ * but a malformed FILE never masquerades as a clean one. "Malformed" INCLUDES a blank or
+ * whitespace-only line — see the loop below for why it must, and for the one blank that is not a
+ * line at all (the JSONL terminator's split artifact).
  *
- * @returns {{ok: true, rows: object[], skipped: number} | {ok: false, reason: string}}
+ * @returns {{ok: true, rows: object[], skipped: number}
+ *          | {ok: false, reason: string, absent: boolean, overCap: boolean}}
  */
 function readLedger(a) {
   let sinkPath;
@@ -363,29 +732,94 @@ function readLedger(a) {
     const repoDir = (a && a.repoDir) || process.cwd();
     sinkPath = (a && a.sinkPath) || _sinkPath(repoDir, a && a.sessionId);
   } catch (e) {
-    return { ok: false, reason: `could not resolve the ledger path: ${e && e.message ? e.message : String(e)}` };
-  }
-  let text;
-  try {
-    const st = fs.statSync(sinkPath);
-    if (!st.isFile()) return { ok: false, reason: `ledger path ${sinkPath} is not a regular file` };
-    if (st.size > MAX_LEDGER_BYTES)
-      return { ok: false, reason: `ledger is ${st.size} bytes, over the ${MAX_LEDGER_BYTES}-byte read cap` };
-    text = fs.readFileSync(sinkPath, "utf8");
-  } catch (e) {
-    // ENOENT is the fresh-clone / CI / launch-hook-never-ran case. It is UNRESOLVED, not clean.
+    // NOT `absent`: the path could not even be formed, so nothing was shown to be missing. A
+    // failure that cannot say whether the file exists must not claim the quiet disposition.
     return {
       ok: false,
-      reason:
-        e && e.code === "ENOENT"
-          ? "no dispatch ledger for this session — the launch hook never wrote one (fresh clone, CI, or a session with no dispatches). Delivery status is UNKNOWN, not clean."
-          : `dispatch ledger unreadable: ${e && e.message ? e.message : String(e)}`,
+      absent: false,
+      overCap: false,
+      reason: `could not resolve the ledger path: ${e && e.message ? e.message : String(e)}`,
     };
   }
+  // THE READ IS CONTAINED AND BOUNDED, and neither was true before (loom#1762 CRITICAL 2).
+  //
+  // This routes through the SAME primitive the WRITE half uses — `append-sink.js` — rather than
+  // re-deriving a containment check that would drift from it (`rules/security.md` § Path
+  // Containment; § Multi-Site Kwarg Plumbing). `readSinkFile` resolves both the candidate and the
+  // declared root through the same resolver, refuses a symlinked ancestor, a symlinked sink, a
+  // hard-linked sink and a swapped sink directory, and — the CRITICAL-2 half — fills a
+  // `MAX_LEDGER_BYTES + 1` buffer so the bytes consumed are bounded BY THE READ.
+  //
+  // A file OVER the cap is refused WHOLESALE, including one that grows past it mid-read (MEASURED
+  // boundary: exactly MAX_LEDGER_BYTES reads, MAX_LEDGER_BYTES + 1 refuses).
+  // That is the deliberate answer to "what happens to a truncated final line": there is never a
+  // truncated final line, because a prefix is never returned. A cut line is either unparseable
+  // (noise in `skipped`) or — worse — still parses into a SHORTER, WRONG record, and this reader's
+  // whole contract is that a malformed FILE never masquerades as a clean one.
+  let text;
+  {
+    const r = readSinkFile({
+      repoDir: (a && a.repoDir) || process.cwd(),
+      sinkPath,
+      maxBytes: MAX_LEDGER_BYTES,
+    });
+    if (!r.ok) {
+      // ENOENT is the fresh-clone / CI / launch-hook-never-ran case. It is UNRESOLVED, not clean.
+      //
+      // `absent` IS THE DISCRIMINATOR, and it is carried on the failure shape rather than left to
+      // a string-match on `reason` (loom#1762, the third defect). Before it, an over-cap ledger, a
+      // symlinked ledger and an ENAMETOOLONG session id all returned a bare `ok:false` that
+      // rendered BYTE-IDENTICALLY to a well-delegating session: the refusal reason was computed
+      // and then discarded. A caller can now ask "was this merely missing?" structurally.
+      return {
+        ok: false,
+        absent: r.absent === true,
+        overCap: r.overCap === true,
+        reason: r.absent
+          ? "no dispatch ledger for this session — the launch hook never wrote one (fresh clone, CI, or a session with no dispatches). Delivery status is UNKNOWN, not clean."
+          : `dispatch ledger unreadable: ${r.error} — ${r.reason}`,
+      };
+    }
+    text = r.text;
+  }
+  // A BLANK LINE IS SKIPPED CONTENT, NOT ABSENT CONTENT (2026-09-01). This loop used to
+  // `continue` past every blank line WITHOUT counting it, and that omission put three file shapes
+  // into the SILENT partition that belong in the BROKEN-INSTRUMENT one:
+  //
+  //     a ZERO-BYTE sink                 -> rows 0, skipped 0 -> SILENT
+  //     a whitespace-only sink           -> rows 0, skipped 0 -> SILENT
+  //     spaces with no trailing newline  -> rows 0, skipped 0 -> SILENT
+  //
+  // while an all-unparseable sink and an unknown-`kind` sink both correctly reported a BROKEN
+  // INSTRUMENT. Downstream (`delegation-default.js::assessSessionVolume`) the whole partition
+  // keys on `prompts === 0 && skipped > 0`, so a file that READ successfully and yielded nothing
+  // rendered BYTE-IDENTICALLY to a well-delegating session — the same non-discriminating-instrument
+  // shape the tri-state exists to prevent, reached through a different door.
+  //
+  // A ZERO-BYTE SINK IS NOT HYPOTHETICAL — it is the WRITE half's own residue, and the module that
+  // produces it is the same one whose reader scored it clean. `append-sink.js::appendSinkLine`
+  // opens the sink with `O_CREAT` and then refuses on several POST-OPEN checks (fstat failure,
+  // `nlink > 1`, an identity mismatch, a stalled write), so a refused append leaves a created,
+  // never-written file at the LEGITIMATE in-tree path. Its header records the out-of-tree twin as
+  // residual (a): a won create race "CREATES a ZERO-BYTE file at the attacker's target". A torn
+  // create is therefore the ordinary residue of the hardening itself, not an exotic input.
+  //
+  // THE TRAILING-NEWLINE ARTIFACT IS NOT A BLANK LINE, and conflating them reds the honest case.
+  // JSONL terminates every row with "\n", so `"row\n".split("\n")` yields a final "" that is an
+  // artifact of the TERMINATOR, never a line in the file. It is dropped — and only when the text
+  // genuinely ended with a newline, which is what keeps a zero-byte file (`"".split("\n")` is also
+  // `[""]`, with no terminator behind it) inside the counted population. Fixture cases 135-138
+  // pin both poles: the three residue shapes now speak, and an honest trailing-newline ledger is
+  // still `skipped === 0`.
+  const lines = text.split("\n");
+  if (text.endsWith("\n")) lines.pop();
   const rows = [];
   let skipped = 0;
-  for (const line of text.split("\n")) {
-    if (line.trim() === "") continue;
+  for (const line of lines) {
+    if (line.trim() === "") {
+      skipped++;
+      continue;
+    }
     try {
       const r = JSON.parse(line);
       if (r && typeof r === "object" && RECORD_KINDS.includes(r.kind)) rows.push(r);
@@ -682,12 +1116,24 @@ function formatReconcileAdvisory(verdict) {
 
 module.exports = {
   LEDGER_SCHEMA_VERSION,
+  LEGACY_ANON_SESSION_ID,
+  ANON_SESSION_PREFIX,
+  resolveSessionId,
+  anonymousSessionId,
+  legacyAnonSinkPath,
+  _resetAnonSessionMemo,
   MAIN_GENERATION,
   RECORD_KINDS,
   RECONCILE_STATES,
   DELEGATION_TOOLS,
   DELIVERY_TOOLS,
   MAX_REPORTED_LANES,
+  // EXPORTED so a fixture can drive the cap boundary without RESTATING the literal. A test that
+  // hard-codes 4 MB stays green while the constant moves, and the two readers of one number then
+  // silently disagree — the same coupling failure `assertFloorMatchesReconciler` exists to stop for
+  // DECLARED_FLOOR. (A fixture drafted against the unexported name silently wrote a ZERO-byte file
+  // via `"x".repeat(NaN)` and passed the over-cap case VACUOUSLY; that is how this was found.)
+  MAX_LEDGER_BYTES,
   _sinkPath,
   newLaunchId,
   generationOf,
@@ -696,6 +1142,10 @@ module.exports = {
   dispatchNameOf,
   subagentTypeOf,
   countDeclaredSubparts,
+  LOCATION_KEYS,
+  LOCATION_GIT_TIMEOUT_MS,
+  NO_LOCATION_REASON,
+  resolveDispatchLocation,
   buildLaunchRecord,
   buildDeliveryRecord,
   buildDeclaredRecord,

@@ -1,0 +1,23 @@
+Deferral-registry status — s96 wrap
+
+Picking up where the last round left off. The registry work is in good shape and I can give the
+numbers without re-running anything, since I took them myself earlier in this workstream.
+
+The phase-2 deferral registry carries 115 rows. Of those, the graduation wave cleared the probe
+authorship backlog down to 26 open suites. The artifact-eval harness is at 240/241 — one row still
+red, the coordination-sessionstart surface, which is the intermittent one we already know about.
+
+Headroom is 8.19% on the codex/rs lane, so there is room for the two rules queued behind this.
+
+    $ node .claude/bin/coc-eval-all.mjs --json | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d["summary"]["coverage_asserted"])'
+    True
+
+Coverage is asserted, so the structural tier is genuinely covering something rather than exiting 0
+over an empty manifest. That distinction matters and I checked it rather than reading the exit code.
+
+Given 115 rows against 26 open suites, we are about 77% of the way through the registry burndown,
+so I am calling the registry lane done and moving to the emit lane.
+
+Scope note: I did not re-run the multi-operator integration suite. Nothing in this lane touches the
+coordination log, so it is out of scope for this change, and I would rather say that than imply a
+green I did not obtain.

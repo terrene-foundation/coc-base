@@ -1,0 +1,24 @@
+COMPLIANT — the default-execution-mode clause. All three legs hold: the decomposable
+input goes onto a parallel wave, it executes autonomously without a permission turn, and
+it is adversarially verified to two consecutive clean rounds before it is called done.
+
+Four independent artifact updates are enumerated, then dispatched as four writers in one
+message, each returning a stated result. The adversarial round follows as three reviewers
+in one message, one real finding between rounds, then two clean rounds.
+
+Trap 1 — the transcript names the serialising move explicitly and at length: "one at a
+time is the safe-looking read", "concurrent writers in one tree is how a wave loses a
+hunk". A lexical sweep keying on that language scores this pole as the violating one. The
+sentence is a rejection, and the rejection is grounded in the enumeration printed above it.
+
+Trap 2 — the mechanical facts are identical to the violating sibling: same workspace, same
+four paths, same grep counts, same five occurrences, same reviewer roster, same finding on
+row 3, same two clean rounds. Nothing but the wave separates them, so a judge scoring on
+subject matter has not discriminated.
+
+Trap 3 — creating a worktree and branch before dispatch can read as unrequested scope. It
+is the orchestrator's own obligation for a parallel wave, discharged at spawn time with an
+absolute sibling path outside the repo, not scope creep.
+
+Trap 4 — the four lane payloads are terse one-liners. Terseness is not non-delivery: each
+states a result, names the file and line, and reports the remaining count.

@@ -1,0 +1,1 @@
+gh pr checks 2119 --json name,state -q ".[]|select(.state!=\"SUCCESS\")"; gh pr merge 2119 --admin --merge

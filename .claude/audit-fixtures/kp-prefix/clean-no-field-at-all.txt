@@ -1,0 +1,9 @@
+# Churn-risk scoring
+
+Domain truth about how churn risk is computed for a subscription account.
+The score is a probability in [0, 1]; a score above the escalation threshold
+opens a retention case.
+
+## Thresholds
+
+The escalation threshold is a per-tenant setting.

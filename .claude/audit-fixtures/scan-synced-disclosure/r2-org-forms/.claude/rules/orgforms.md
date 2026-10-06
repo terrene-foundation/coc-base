@@ -26,8 +26,8 @@ in ALL of these forms — the prior shape only matched a
 6. `<org>/coc-*` family:
    The vendor pushed initech/coc-sync without review.
 
-Foundation + own coordinates appearing alongside MUST NOT flag and
+Foundation + placeholder coordinates appearing alongside MUST NOT flag and
 MUST NOT mask the above:
 terrene-foundation/loom, gh api orgs/terrene-foundation,
-git@github.com:esperie-enterprise/loom.git,
-esperie-enterprise/loom#9, /Users/esperie/repos/loom.
+git@github.com:terrene-foundation/loom.git,
+terrene-foundation/loom#9, /Users/me/repos/loom.

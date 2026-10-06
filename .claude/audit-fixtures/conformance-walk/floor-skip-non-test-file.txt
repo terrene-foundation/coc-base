@@ -1,0 +1,16 @@
+// @fixture-path: src/server/routes.js
+// @expect: none
+
+const total = 14;
+
+function health(req, res) {
+  res.status(200).json({ ok: true });
+}
+
+function guard(res) {
+  if (res.status < 500) return true;
+  assert(true);
+  return false;
+}
+
+module.exports = { health, guard, total };

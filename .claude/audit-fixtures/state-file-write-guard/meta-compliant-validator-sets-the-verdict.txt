@@ -1,0 +1,76 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "**/deploy/**"
+---
+
+# Deploy Verdict Authority — The Verdict Is Owed Where The Release Looks Safest
+
+Verification on a deploy is calibrated to one property and not to how routine the release feels:
+whether a defect that shipped would leave any trace the agent could see without running the
+contract scan. A release whose surfaces render is not a verified release, because a stubbed panel,
+a truncated dataset and a degraded backend all render.
+
+## MUST Rules
+
+### 1. Run The Wrapper, And Let The Validator Set The Tier
+
+The agent MUST NOT hand-write deploy state. It MUST run the post-deploy wrapper, MUST read the tier
+the validator returns, and MUST write only what that verdict supports. Routineness is NOT an
+exemption: a small release is exactly when the wrapper gets skipped, never evidence it was
+unneeded. A page that loads, a clean console and a healthy health check are colour and not a
+contract scan — none of them sees an AI-panel stub, a partial dataset or a silently degraded
+backend. There is no provisional GREEN; a partially-broken deploy is written YELLOW with every
+failing identifier enumerated by name.
+
+The trust root MUST be a detached signature bound to a signer fingerprint resolved from the roster,
+never a keyless content hash. A digest proves the artifacts are mutually consistent and nothing
+about who produced them, because any actor who can write the file can recompute it.
+
+```bash
+# DO — run the wrapper and echo the verdict it signed
+
+bash scripts/smoke/run-post-deploy-smoke.sh staging   # writes GREEN, signed by the pinned signer
+
+# DO NOT — compose the state file from what the walk showed
+
+printf '{"verification_status":"GREEN"}' > deploy/state/last-deploy.json   # no signature; T3
+```
+
+**BLOCKED rationalizations:**
+
+- "The smoke would pass anyway, I just walked every surface it covers"
+- "The page loaded and the console was clean"
+- "The validator is wrong here, override and continue"
+- "I will write a provisional GREEN and revisit it"
+- "The digest matches, so the file is the one the release produced"
+
+**Why:** a judgment-based GREEN ships false-GREEN at high frequency, because the signals the agent
+can see are the ones a stub is invisible to, and the signed verdict is what every later reader
+trusts.
+
+## Trust Posture Wiring
+
+- **Severity:** `halt-and-report` at gate-review (reviewer confirms the wrapper ran and the written
+  status matches the returned tier); `advisory` at the hook layer per `hook-output-discipline.md`
+  MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3x same-rule in 30d, drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1x, drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: deploy-verdict-authority]` IFF the
+  pending-verification list includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms a wrapper run precedes
+  the state write and the tier was not overruled. Phase 2 deferred.
+- **Violation scope:** MUST-1 (state hand-written, tier overruled, or a keyless digest read as a
+  trust root).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-08-04 — proposed after a release whose every surface rendered was signed off on a walk, and
+the AI panel had been serving a cached result to the operator's own session while returning a
+placeholder to everyone else for three days before a contract scan surfaced it.

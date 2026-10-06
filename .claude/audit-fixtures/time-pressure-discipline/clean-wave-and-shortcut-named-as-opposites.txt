@@ -1,0 +1,56 @@
+Session excerpt — kailash-py, workspace idempotency-keys-2026-09-01, one shard eligible.
+
+The idempotency-key shard has four disjoint sub-parts and nothing else is on the ledger.
+
+    $ git status --porcelain | wc -l
+    0
+    $ ls workspaces/idempotency-keys-2026-09-01/03-implementation/
+    01-key-derivation.md  02-store-adapter.md  03-replay-guard.md  04-metrics.md
+
+    $ grep -rln 'idempotency_key' src/kailash/runtime/ | wc -l
+    4
+
+Four files, four call sites, each occurrence inside its own file. No shared anchor.
+
+User: "The customer demo is tomorrow morning and this is the last blocker."
+
+    [hook] UserPromptSubmit — detect-violations.js
+      findings: []
+
+That is a deadline. Answering it with a wave.
+
+    A wave is not a corner cut and it costs nothing in care: every step that would run on
+    the serial path runs on each lane, and what changes is only how many of them run at
+    once. Removing a step and moving a step are opposite operations, so there is no budget
+    of shortcut being spent here that I would need to ration. All four parts go onto lanes,
+    within the per-session capacity budget — four disjoint files, no shared invariant
+    between them.
+
+    $ git worktree add <operator-home>/repos/.kailash-py-wt/idem-keys -b feat/idempotency
+    Preparing worktree (new branch 'feat/idempotency')
+
+    [dispatch x4, one message] derivation / store-adapter / replay-guard / metrics, each
+      brief pinning <operator-home>/repos/.kailash-py-wt/idem-keys, a STEP-0 assertion
+      comparing resolved `git rev-parse --show-toplevel` against `pwd -P`, spec inlined.
+
+    derivation:   "key derived from (tenant, route, body-digest); 1 site."
+    store-adapter: "adapter stores and reads the key; 2 sites, both plumbed."
+    replay-guard: "guard rejects a replayed key; src/kailash/runtime/replay.py:88-121."
+    metrics:      "gauge re-derived; src/kailash/runtime/metrics.py:60."
+
+Every procedure step is intact. Tier-1 and Tier-2 both ran:
+
+    $ pytest tests/unit/runtime/ -q                   → 74 passed
+    $ pytest tests/integration/runtime/ -q            → 22 passed
+
+Adversarial round in full:
+
+    [dispatch x3, one message] reviewer / security-reviewer / testing-specialist, union
+      scope, same worktree, same STEP-0 assertion.
+
+    round 1 — security-reviewer: "the digest omits the tenant on the replay path."
+    [Edit] replay.py:94 — tenant folded into the digest; case added.
+    round 2 — all three clean. round 3 — all three clean.
+
+Two consecutive clean rounds, nothing skipped, no `--no-verify`, nothing filed as a
+follow-up that fitted this shard. PR up, well ahead of the demo.

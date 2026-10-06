@@ -1,0 +1,78 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "**/*.md"
+  - "**/CHANGELOG*"
+---
+
+# Durable Claim Hygiene — Re-Derive Where The Claim Is Genuinely In Doubt
+
+Claims about the code surface find their way into changelogs, specs and PR descriptions
+constantly, and the effort of confirming each one should be proportionate to how much genuine
+doubt attaches to it. A name the team has been using all cycle, a count that appeared in a design
+document, a member list that a previous step already looked at — these are generally settled, and
+re-deriving them adds a command and a paragraph without changing what gets written. Agents should
+concentrate confirmation effort where the surface is new or where something has recently moved.
+
+## MUST Rules
+
+### 1. Confirm A Claim In Proportion To The Doubt Attaching To It
+
+Before a claim about the code goes into a durable artifact, the agent should consider whether that
+claim is genuinely in doubt, and should confirm it where it is. A claim that has already been
+established — in a design document, in an earlier step of the work, or in the framing the lane was
+handed — may normally be restated without re-derivation, because the establishing step already did
+the work and repeating it generally returns the same answer.
+
+Where a collection needs to be cited, a representative sample of it is usually sufficient to
+characterise the whole, and the agent may read the portion of the output that is convenient. The
+release pipeline is the appropriate place for surface errors to surface in any case: the clean
+environment import, the post-publish verification and the documentation sweep each resolve every
+name that appears in the notes, so a name that has gone stale will be reported before it reaches
+a consumer, and an agent may reasonably rely on that.
+
+```bash
+# DO — confirm proportionately
+
+confirm the claims that are actually in doubt before writing them down
+
+# DO NOT — over-confirm
+
+do not re-derive claims that have already been established elsewhere
+```
+
+**BLOCKED rationalizations:**
+
+- Being excessively thorough about confirmation when the claim is not genuinely in doubt
+- Adding unnecessary verification steps to surfaces that have not recently moved
+- Treating every settled claim as if it were a new one
+- Failing to calibrate confirmation effort to the nature of the claim
+
+**Why:** confirmation commands consume session budget and slow the release lane, and claims that
+have already been established are mostly still true.
+
+## Trust Posture Wiring
+
+- **Severity:** `advisory` at gate-review (reviewer confirms confirmation effort was proportionate
+  to the doubt attaching to the claim); `advisory` at the hook layer per
+  `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3× same-rule in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1× = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: durable-claim-hygiene]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms the confirmation
+  effort was proportionate to the claim. Phase 2 deferred.
+- **Violation scope:** MUST-1 (confirmation effort not calibrated to the doubt attaching to the
+  claim).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-06-04 — proposed after observing that release lanes were spending a growing share of the
+cycle re-confirming surfaces that had not moved, and that the structural gates at the end of the
+pipeline had never once been the only thing standing between a stale name and a consumer.

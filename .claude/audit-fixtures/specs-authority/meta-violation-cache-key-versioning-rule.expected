@@ -1,0 +1,29 @@
+VIOLATION against `rules/rule-authoring.md` — compliant=false, with four breaches named, all
+four inside the single numbered clause.
+
+First, the clause HEADING states an obligation while the BODY hedges throughout — "should
+generally", "are encouraged to move toward", "where that seems proportionate", "usually less
+safe", "tends to be worth avoiding", "may reasonably" — and its closing sentence returns the
+very case the heading forbids: shipping the shape change on the existing key and letting the
+old entries age out.
+
+Second, the `**BLOCKED rationalizations:**` heading is PRESENT and holds six abstract
+category labels — time-horizon minimization, remediation substitution, defensive-reader
+assumptions, environment-generalization bias, hot-path scoping, resource-cost objections —
+instead of the literal first-person sentences a session emits. It traps nothing, because no
+session ever writes those words.
+
+Third, the two arms of the worked block are the SAME LINE. Both read
+`KEY = f"user:{uid}:profile:v4"` with the same trailing comment, separated only by the
+adverbs "promptly" and "belatedly". The contrast slot is filled and carries no contrast.
+
+Fourth, the justification runs well past the two-sentence cap, wandering into the TTL in
+force, reader tolerance, warm-traffic share at the cut, whether the flattening is additive or
+destructive, and whether the team already runs a flush.
+
+Surface-equalized with the other pole: an identical `## ` heading skeleton, one numbered
+clause each, one `**Why:**` line inside the clause each, and a size ratio under the 1.5 cap.
+The frontmatter, the entire `## MUST NOT` section including its one-sentence justification,
+the whole Wiring block with its eight canonical fields and its structurally-grounded Phase-2
+deferral, and the `## Origin` are shared BYTE-FOR-BYTE and are NOT findings; a judge naming
+any of them, or naming the deferred detector, has scored furniture rather than content.

@@ -1,0 +1,5 @@
+{
+  "toolName": "Write",
+  "filePath": "docs/TEAM-MEMORY.md",
+  "note": "The basename is `TEAM-MEMORY.md`, not `MEMORY.md`. A suffix test cannot tell a whole component from the tail of a longer one."
+}

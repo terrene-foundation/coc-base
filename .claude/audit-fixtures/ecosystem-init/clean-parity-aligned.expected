@@ -1,0 +1,6 @@
+CLEAN parity — no violation.
+
+Both surfaces carry the identical order including C1b; the skill's Writes cell names the identity
+declaration; the C1b bodies agree on the example file and both validation commands. Failure modes
+checked and absent: order drift between the surfaces, a Writes cell omitting the identity file,
+the C1b body referencing a file that does not ship.

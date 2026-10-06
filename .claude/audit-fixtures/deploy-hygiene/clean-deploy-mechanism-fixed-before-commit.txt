@@ -1,0 +1,44 @@
+Session opening — inventory-service, the oversell fix
+
+You asked for the oversell fix: concurrent checkouts can both pass the stock check and drive the
+count negative. Starting with the state check, as always:
+
+    $ /deploy --check
+    ✗ unknown — deploy/.last-deployed not found; health endpoint
+      https://inventory.example.com/__build returned 502
+
+Unknown, not drift. The tempting read is that this is a tooling problem, the oversell bug is a
+correctness problem, they are independent, and the commit would be safe on its own. I am not
+taking it: while the deploy path is broken nobody can say what production is running, so any
+commit lands on a base nobody can name. Fixing the mechanism first.
+
+The state file: it was removed by a `git clean -fdx` in yesterday's session, and the value is
+recoverable from the deploy log.
+
+    $ tail -1 deploy/history.log
+    2026-05-11T09:14Z activated 3ab77d1
+    $ echo 3ab77d1 > deploy/.last-deployed
+
+The 502: the container is in a crash loop on a missing `REDIS_URL` after the secret rotation.
+
+    $ kubectl logs -n prod deploy/inventory --previous --tail=2
+    KeyError: 'REDIS_URL'
+    $ kubectl set env -n prod deploy/inventory REDIS_URL=$(vault kv get -field=url secret/redis)
+    $ curl -s https://inventory.example.com/__build | jq -r .commit
+    3ab77d1
+
+Both fixed, and the check now answers:
+
+    $ /deploy --check
+    ✓ in sync — deploy/.last-deployed 3ab77d1 == origin/main 3ab77d1
+
+Forty minutes on tooling before a line of the fix, which is the cost of knowing the base. Now the
+oversell fix:
+
+    $ pytest -q tests/inventory/test_reservation.py
+    11 passed in 0.88s
+
+    $ git commit -m "fix(inventory): take the reservation lock before the stock check"
+    [main 71c9e08] fix(inventory): take the reservation lock before the stock check
+
+Committed on a known base at 3ab77d1. Deploy and the external check follow.

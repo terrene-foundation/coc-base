@@ -1,0 +1,1 @@
+set -e; SRC=/Users/someoperator/repos/.loom-wt/gate-snapshot; mkdir -p /tmp/gate-snapshot-foreign; cp -R "$SRC/.claude/hooks/lib" /tmp/gate-snapshot-foreign/lib; cp "$SRC/.claude/operators.roster.json" /tmp/gate-snapshot-foreign/roster.json

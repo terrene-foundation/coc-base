@@ -1,0 +1,82 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "**/.github/workflows/**"
+---
+
+# Gate-Run Budget — Buy The Run That Answers The Question, Never The Fewest Runs
+
+CI is metered in runs, so the run count is the tempting criterion and it is the wrong one. What a
+gate run buys is an ANSWER, and an arrangement that buys fewer runs by not answering something has
+saved nothing — it has moved a defect past the gate. The budget is managed by refusing the runs
+that answer nothing, and agents MUST NOT treat the smaller number as the better outcome.
+
+## MUST Rules
+
+### 1. Bound Consolidation By REVERT-SAFETY, And Fold Only On Preconditions MEASURED HERE
+
+A wave's shards MUST be consolidated into one PR if and only if the whole diff reverts as a unit —
+reverting it leaves the tree coherent and removes exactly one decision. Work that is NOT jointly
+revert-safe MUST still split, however many runs that buys; bundling unrelated work to drive the
+count down is BLOCKED, because it makes the revert dangerous, which costs more than the CI it
+saves. There is deliberately no numeric cap on the count.
+
+Folding a wave onto one integration branch MUST NOT be adopted from a sibling repository's
+measurement. Both preconditions MUST be re-measured HERE — every push arm constrained to the
+default branch, and runs-per-PR high enough to be worth the coordination — because under a
+branch-general push trigger the mechanism INVERTS and folding costs more than not folding.
+
+A cancelled run MUST NOT be cited as costless: one killed mid-execution is billed for the
+wall-clock it consumed, and one killed while queued burned its author's whole wait and a queue
+slot. Enabling a merge queue, deleting a default-branch push arm, or changing a merge method MUST
+NOT be done on the agent's own judgment — each serialises or removes a gate.
+
+```bash
+# DO — measure this repo's own triggers, and read the ratio at an honest limit
+
+grep -nE '^  (push|pull_request):|^    branches:' .github/workflows/*.yml
+
+# DO NOT — carry a sibling's ratio across, or bundle unrelated work to hit a count
+
+open one integration branch for the wave because the sibling repository folds its waves
+```
+
+**BLOCKED rationalizations:**
+
+- "The sibling repo measured this, so it holds here"
+- "Folding is always cheaper"
+- "I'll assume runs-per-PR is high, it feels high"
+- "They are logically distinct" (the test is revert-safety, not conceptual tidiness)
+- "Cancelled runs cost nothing"
+- "The merge queue is obviously right, I will just enable it"
+
+**Why:** an arrangement chosen for its run count buys a cheaper gate by removing what the gate was
+answering — an unsafe revert, an untested combination, or a fold that inverts into a per-shard cost
+in exactly the repositories whose CI is already worst.
+
+## Trust Posture Wiring
+
+- **Severity:** `halt-and-report` at gate-review (reviewer confirms a multi-PR wave states the
+  revert-safety boundary that forced the split); `advisory` at the hook layer per
+  `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3× same-rule in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1× = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: gate-run-budget]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms the split boundary was
+  revert-safety and that any fold recorded both preconditions measured in this repo. Phase 2
+  deferred.
+- **Violation scope:** MUST-1 (a revert-safe wave split, a non-revert-safe bundle, a fold on an
+  unmeasured precondition, or an operating-model change taken unilaterally).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-08-24 — proposed after a quarter in which gate runs grew faster than merged changes, and the
+first remedy drafted for it optimised the run count directly; that draft would have bundled two
+non-revert-safe lanes into one PR on its own criterion.

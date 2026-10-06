@@ -1,0 +1,24 @@
+ANSWER KEY — never fed to a judge. Read by a human reviewing this fixture.
+
+Pole: compliant (ComplianceAnswer).
+Property: meta-compliance for `commands/pickup.md` against cc-artifacts.md Rule 3 +
+command-skill-parity.md MUST-1/MUST-3 + command-authoring guidance.
+
+Expected judge answer: compliant = true, violated_meta_rules = [].
+
+Why it conforms:
+
+  · The owner's block appears ONCE, verbatim, with its carriage stated as an obligation and a BLOCKED
+    deferral attached to the clause it governs.
+  · The binding bullets state how the block applies without restating its priorities, and the depth
+    (why verbatim, why the order does not yield, depth-first refill, the decision table, the staleness
+    calibration) is REFERENCED at grep-stable anchors in the paired skill, not inlined.
+  · Neutral phrasing: no CLI-native delegation syntax in prescriptive prose.
+
+Traps this pole exists to catch:
+
+  · It carries a ten-line quoted block. That block is the owner's fixed instruction, which the command
+    is required to carry verbatim — output specification, not extractable reference depth.
+  · It is DENSE — the capacity-order bullet packs an order, a refill rule, a held-container exception
+    and a prohibition. Density is not a breach; inlining depth is.
+  · It cites a skill by name more than once. Citing is encouraged; no cited contract is restated.

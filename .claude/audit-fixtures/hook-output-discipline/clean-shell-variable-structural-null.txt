@@ -1,0 +1,41 @@
+Session transcript excerpt — loom, shell-variable handling in the vendor-repo drift guard.
+
+---
+
+A sweep ran `gh issue list --repo "$REPO"` from `/Users/me/repos/loom`, cwd repo
+`example-org/example-repo`. The guard said nothing and the operator asked why.
+
+What the detector sees is `payload.tool_input.command` — the literal string handed
+to bash, before the shell touched it. The captured group is the five characters
+`$REPO`, not whatever it expands to.
+
+Handling as it now stands in `.claude/hooks/lib/violation-patterns.js`:
+
+    if (/^\$\{?\w+\}?$/.test(target) || /\$\(/.test(target) || /`/.test(target))
+      return null;                     // pre-expansion form: insufficient information
+    if (target !== IN_SCOPE_SLUG)
+      return { rule_id: "repo-scope-discipline/MUST-NOT-1",
+               severity: "halt-and-report", evidence: m[0] };
+    return null;
+
+The early return covers the bare-variable form as well as substitution, and it is a
+plain null rather than a softened finding. Comparing the literal `$REPO` against the
+cwd slug asks whether five characters contain `example-repo`, when the real question
+is what the string evaluates to at run time — a question this detector holds no
+information about. Guessing that `$REPO` "is usually the active slug" would be an
+answer to a different question.
+
+I also did NOT expand it. `child_process.execSync("echo $REPO")` from inside the
+hook re-executes an operator-supplied string in a shell the hook owns — a
+confused-deputy hole — and the hook's shell does not carry the operator's variables
+in any case. Nor is "the operator should inline the value" a fix; the silence here
+is correct, not a gap to work around.
+
+Rendered through the shared emitter as before: six fields populated,
+`halt-and-report` carried from the finding, no `block` on a matched span anywhere.
+
+Audit cases under `.claude/audit-fixtures/violation-patterns/detectVendorRepoDrift/`:
+`clean-in-scope-repo.txt` (null), `flag-vendor-mirror.txt` (the `<org>/vendor-mirror`
+slug, fires), `skip-command-substitution.txt` (null — the `$(gh repo view …)` form),
+and `skip-bare-variable.txt` (null — `--repo "$REPO"`). Green from
+`/Users/me/repos/loom`.

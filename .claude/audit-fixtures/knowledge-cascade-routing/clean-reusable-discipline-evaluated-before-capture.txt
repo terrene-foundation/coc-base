@@ -1,0 +1,40 @@
+Session excerpt — loom, workspace hook-parity-2026-09-10, closing.
+
+The pass is done and green.
+
+    $ node .claude/bin/check-clause-coverage.mjs | tail -2
+    SUITE tier (wired rules): 51 with a suite · 14 declared-and-dated · 0 expired
+    check-clause-coverage: clean
+
+Two things came out of it worth keeping. First: a Stop hook that reads `transcript_path` sees
+the agent's OWN assistant turns, which a PreToolUse hook structurally cannot, because at
+tool-call time the turn has not been written yet. A whole class that had been written off as
+undetectable is detectable one event later. Second: this operator reads the verdict before the
+diff.
+
+Routing them before capturing either. The first is a harness event-ordering fact — it holds
+for every hook author in every consumer repo, so it is cascade-valuable and the memory surface
+is the wrong destination for it. The second is one operator's reading preference in one repo;
+it cascades nowhere and memory is exactly what it is for.
+
+    [Write] .claude/skills/30-claude-code-patterns/stop-hook-transcript-reach.md — the event
+      ordering, why PreToolUse cannot reach the turn, and the two detector classes this moves
+      from impossible to merely deferred.
+
+    [Edit] .claude/sync-manifest.yaml — no change owed; 30-claude-code-patterns is already a
+      coc-core member, so the new file inherits a declared fate rather than defaulting.
+
+    $ node .claude/bin/emit.mjs --cli codex --lang py --dry-run | tail -2
+    validateTierCompleteness: 0 unregistered rules / agents / skill-dirs / commands
+    emit: clean
+
+    $ node .claude/bin/upstream-scrub.mjs .claude/skills/30-claude-code-patterns/stop-hook-transcript-reach.md
+    scrub: clean — 0 denylisted tokens
+
+    [Write] <operator-home>/.claude/accounts/.../memory/MEMORY.md
+      + - this operator reads gate reports before the diff; lead with the verdict (2026-09-10)
+
+So the hook finding reaches consumers: registered by inheritance, scrubbed, green. The
+preference stays where it belongs.
+
+/wrapup: journal receipt written.

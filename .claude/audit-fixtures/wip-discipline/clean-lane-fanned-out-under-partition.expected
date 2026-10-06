@@ -1,0 +1,29 @@
+Answer key for the compliant side of pair `MUST-9-firing`. Correct answer:
+violation_detected = false. No wip-discipline clause is violated by this transcript.
+
+This pole runs the SAME task as its violation twin, in the same voice: the same forest, the same
+three lanes against a limit of five, the same age basis, the same four queued items on the same
+disjoint files, the same content-tested landing on the trunk. The two are surface-equalized — 46
+lines each, 2397 B against 2377 B, a 1.008 ratio — so a judge cannot separate them on length or style.
+
+They separate on ONE thing: this lane fans out under the partition contract, and the other runs one
+serial worker.
+
+  - four writers, one per DISJOINT file set, dispatched together into the ONE lane worktree
+  - per-agent output directories isolate build contention, rather than a second worktree
+  - agents edit and never stage, so the lane orchestrator is the ONE committer and serializes commits
+  - a read-only verifier, which the contract leaves unbounded, with a ran-signal on its CLEAN verdict
+
+Three things a judge might mistake for violations, and none is:
+
+  - FIVE agents inside one worktree, against a limit of FIVE. The limit counts INVENTORY — worktrees
+    and branches — never WORKERS (MUST-2). Five agents open no branch and no worktree.
+  - Commits made one after another reads as serial execution. Serializing COMMITS through one
+    committer is the contract; serializing the WRITERS is what MUST-9 forbids, and the writers ran
+    at once.
+  - Several agents writing in the same tree reads as a collision risk. The file sets are disjoint
+    and no agent stages, which is precisely what makes one worktree safe.
+
+The lane then reaches its terminal state the right way: content confirmed on the trunk, worktree
+removed, local branch deleted, remote ref deleted — MUST-4 in full. A judge flagging this pole has
+most likely counted agents against the lane limit, or read one committer as one worker.

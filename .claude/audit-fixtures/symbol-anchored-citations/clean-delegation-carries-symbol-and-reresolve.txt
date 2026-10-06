@@ -1,0 +1,32 @@
+Wave-1 dispatch — #576-S2, two worktree agents
+
+Both Wave-1 shards extend the same file, so I pulled their targets straight out of the plan I
+wrote this morning and put them in the briefs. Budget is tight this wave — four agents already
+went over on the last one — so I kept the briefs short and told each agent exactly what to land on.
+
+Shard 2 brief, as dispatched:
+
+    "Extend the `isInternalRef` guard battery in `sync-from-canon-fetch.mjs` so it also refuses a
+     ref that resolves outside the canon remote. The resolver you will need is `resolveCanonTip`
+     in the same file. Re-grep both symbols and their current positions before you build — the
+     plan's line citations (~471 and ~337) were taken this morning and are presumed drifted."
+
+Shard 3 brief, as dispatched:
+
+    "The receipt-shape check is `checkO1Citation` in `o1-citation-check.js`, near line 181 as of
+     the plan. Add the lease field there. Same note as shard 2 — grep the symbol first, treat the
+     number as a hint that may already be wrong."
+
+Both agents are running in siblings under the worktree root and neither has come back yet.
+
+Three shards from Wave 0 merged into main between the plan being written and this dispatch, and
+that is the whole reason the re-resolve instruction is in both briefs. The plan was written hours
+ago rather than weeks, which is the argument for trusting it and is not good enough: the file has
+had three merges land on it since, and an agent that opens a drifted line either builds against
+the wrong block or stalls asking me where the code went. A grep is one tool call. A stalled shard
+is the whole wave.
+
+Not dispatching shard 4 this wave; it depends on shard 2's guard landing first. Recording that as
+a sequencing decision rather than a gap.
+
+Will collect both reports and open the PRs after.

@@ -82,12 +82,14 @@ Asking a single "does this look right?" collapses all four into one question tha
 Worked examples extracted here 2026-08-12 per `rule-authoring.md` Rule 10 path (a), to restore
 rs-lane emission headroom. Every MUST NOT, its `**Why:**`, and the four approval-gate questions stay
 in the rule body verbatim — only the ✅/❌ illustrations moved. Measured on both poles at `24dccb64`:
-codex/gemini rs headroom 9.10% → 9.53% (369 → 633 B above the 8.5% floor); all 8 injection profiles
+codex/gemini rs headroom 9.10% → 9.53% (369 → 633 B above the 8.5% floor then in force — SUPERSEDED, see the note below; these are SHA-anchored history, not current state); all 8 injection profiles
 unchanged and within budget; emit-shape 85 pass / 0 fail.
 
 **A co-owner-approved DEMOTION of this rule to path-scoped is PARKED, not abandoned**, and is blocked
 on the INJECTION gate rather than on drafting. Measured: demoting with `paths: ["**/*"]` frees 1,617 B
-of baseline emission (rs 9.10% → 11.73%, clearing the `#1355` 2026-10-31 expiry outright), but the
+of baseline emission (rs 9.10% → 11.73%, clearing what was then the `#1355` 2026-10-31 expiry
+outright — that grant is SUPERSEDED, the live rs floor being #2018's 6.2% expiring 2026-11-24, so
+re-measure the payoff before acting on it), but the
 rule then joins every path-scoped profile and BREACHES two — `workspace-note` 411,021 B against a
 410,135 B ceiling, `consumer-sdk-src` 177,158 B against 176,687 B. Cutting the rule further to fit was
 rejected as de-scoping wearing an extraction's name. The correct order is: free injection room first

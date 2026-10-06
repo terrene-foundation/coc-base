@@ -1,0 +1,17 @@
+# Decision Packet — ecosystem operating model
+
+These are the genuinely human-gated decisions.
+
+### DECISION-1 — client ecosystem definition
+
+- **Recommendation:**
+- **Spec basis:** D3 verbatim; `specs/01 §1`.
+- **Honest con:** requires modeling two distinct "downstream" concepts.
+- **→ RATIFY / OVERRIDE: \*\***\_\_**\*\***
+
+### DECISION-2 — origination lane
+
+- **Recommendation:**
+- **Spec basis:** D4; `specs/01 §4.1`.
+- **Honest con:** more machinery.
+- **→ RATIFY / OVERRIDE: \*\***\_\_**\*\***

@@ -6,7 +6,7 @@ validator-13 hook-predicate extractor that emits `policies.json`
 tool). These fixtures lock the **FF-AC6-1** scope-restriction
 predicates added when Codex `apply_patch` (file-edit) gating landed.
 
-## Predicates under test (5)
+## Predicates under test (11)
 
 | ID  | Predicate                             | Asserts                                                                         |
 | --- | ------------------------------------- | ------------------------------------------------------------------------------- |
@@ -15,6 +15,17 @@ predicates added when Codex `apply_patch` (file-edit) gating landed.
 | 03  | edit matcher, **no** marker           | unmarked coordination guard → **excluded** from apply_patch (AC#2)              |
 | 04  | multi-tool matcher resolution         | `Edit\|Write\|MultiEdit\|NotebookEdit` resolves — **DF-AC6-1 regression guard** |
 | 05  | dual registration + marker            | Bash + edit + marker → all three tools; marker gates ONLY the apply_patch half  |
+| 06  | settings.json **absent**              | RED — typed refusal `matcher-map-settings-missing`                              |
+| 07  | settings.json **unparseable**         | RED — typed refusal `matcher-map-settings-unparseable`                          |
+| 08  | settings.json parses, **zero** entries | RED — typed refusal `matcher-map-empty`                                        |
+| 09  | settings.json is a **symlink**        | RED — typed refusal `matcher-map-settings-unreadable` (O_NOFOLLOW → ELOOP)      |
+| 10  | well-formed settings.json             | GREEN — still builds a **populated** table; fence spares the happy path         |
+| 11  | explicit `requireMatcherMap: false`   | GREEN — the narrow opt-out validator-13 depends on still returns cleanly        |
+
+Cases 06–11 are the **bipolar pole pair** for the matcher-map fail-closed
+fence (loom#S73-M5). The RED poles assert the **refusal identity** — the
+typed `HookMatcherMapError` and its `code` — never merely that something
+threw, so an unrelated `TypeError` cannot score as the fence firing.
 
 ## Why these predicates matter
 
@@ -31,6 +42,17 @@ predicates added when Codex `apply_patch` (file-edit) gating landed.
   key and the entire edit lane silently dropped. If the per-tool
   splitter (`matcherToCodexTools`) regresses, apply_patch goes empty
   and case 04 fails.
+- **Cases 06–09 guard the fail-closed fence**: `buildHookMatcherMap`
+  previously degraded to an EMPTY `Map` when settings.json was absent,
+  unreadable, or unparseable. That map is the sole input to the
+  file-level `policies` table, so the degradation propagated a
+  silently-empty policy table through `wireMcpPolicies()` into the
+  `policies.json` written for every distribution target — and an empty
+  table is indistinguishable from a populated one at every surface in
+  between. Case 09 is the sharpest: `safeReadFileSync` opens
+  `O_NOFOLLOW` specifically so a swapped symlink raises `ELOOP`, and the
+  former `catch { return map; }` swallowed that ELOOP into an empty
+  table, defeating the guard it was paired with.
 
 ## Invocation
 

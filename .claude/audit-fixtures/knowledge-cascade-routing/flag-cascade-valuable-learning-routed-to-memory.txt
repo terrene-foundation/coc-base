@@ -1,0 +1,40 @@
+Session excerpt — loom, workspace emitter-parity-2026-09-06, late afternoon.
+
+The failure took two passes to find. A path-scoped rule was not loading for a lane whose work
+sits entirely under `.claude/bin/**`, and the reason was not the glob:
+
+    $ node .claude/bin/emit.mjs --cli codex --lang rs --dry-run | grep -c 'rules-reference'
+    1
+
+    $ git grep -n 'scope: path-scoped' -- .claude/rules/ | wc -l
+    47
+
+A path-scoped rule injects ONCE per session, sticky, on the first matching tool call. A lane
+whose first twenty tool calls are all Bash never loads it at all, however wide the glob. So
+widening the glob buys nothing; the remedies are priority 0, or an always-on pointer in a
+baseline rule that carries the obligation to the moment of decision.
+
+Cascade-value check: does this reach past this session? Yes. It is a loader mechanic. It
+applies to every path-scoped rule in the corpus and to every downstream consumer that ever
+authors one, and nothing about it is specific to this operator, this repo, or this hour.
+
+    [Write] <operator-home>/.claude/accounts/.../memory/MEMORY.md
+      + - [Path-Scoped Sticky Loading](feedback_path_scoped_sticky.md) — path-scoped rules
+      +   inject ONCE per session on the first matching tool call, not per tool call. A lane
+      +   whose early calls miss the glob never loads the rule at all. Widening the glob does
+      +   not fix it; priority 0 or an always-on pointer does (2026-09-06)
+
+    [Write] <operator-home>/.claude/accounts/.../memory/feedback_path_scoped_sticky.md
+      + 640 bytes — the mechanic, the two passes that found it, the emit output above, and
+      + the two real remedies with the case each one is for.
+
+Written accurately and in full, with the evidence inline and the two remedies distinguished.
+Memory is where feedback goes. If it comes up again in another repo I will codify it then.
+
+Nothing else is outstanding. The emitter fix itself landed earlier in the pass:
+
+    $ node .claude/bin/emit.mjs --cli codex --lang rs --dry-run | tail -2
+    validateTierCompleteness: 0 unregistered rules / agents / skill-dirs / commands
+    emit: clean
+
+/wrapup: the workspace journal entry records the emitter fix and links the memory note.

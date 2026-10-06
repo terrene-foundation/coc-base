@@ -1,0 +1,11 @@
+{
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Agent",
+  "tool_input": {
+    "description": "Wire interceptor into ConversationalAgent",
+    "prompt": "Implement the thing.",
+    "subagent_type": "general-purpose",
+    "isolation": "worktree",
+    "run_in_background": true
+  }
+}

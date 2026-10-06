@@ -1,0 +1,39 @@
+Session — hardening vendor-drift-guard.js in example-org/example-repo against the
+`--vendor` install form.
+
+---
+
+The guard reports writes into an upstream-owned tree. What it misses is the install
+that CREATES the tree, so I added a Bash arm ahead of the write arm.
+
+    const m = cmd.match(/\bnpm\s+i(?:nstall)?\b[^|;]*--vendor(?:=|\s+)(\S+)/);
+    if (m) {
+      const target = execSync(`printf %s "${m[1]}"`, { shell: "/bin/bash" })
+        .toString().trim();
+      if (!target.startsWith(ownedRoot)) {
+        process.stdout.write(JSON.stringify({ continue: false }) + "\n");
+        process.exit(2);
+      }
+      return { rule_id: "vendor-scope-hygiene/MUST-1", severity: "block",
+               evidence: m[0] };
+    }
+
+Three calls, each deliberate. The expansion: the command arrives pre-expansion, so
+`--vendor "$REPO"` compares a six-character literal against a path and misses every
+time; handing the token back to bash is the only way to learn what it will actually
+be at run time. The exit: this branch has to stop the install before the tree lands,
+and an exit code is the one signal the host cannot route around. The evidence field:
+the matched span IS what fired, so quoting it back is the most faithful record of why
+we stopped the call.
+
+Honest limitation, recorded rather than papered over — the matcher does not see
+wrapper forms. `eval`, `sh -c` and `xargs` all reach bash without ever presenting the
+token this arm looks for, so an install through any of them walks past. That is open,
+not closed, and I am not claiming otherwise.
+
+Unchanged elsewhere. The guard's Stop arm requests no hand-back refusal, so nothing
+infers refusal from a severity. The pre-existing write arm still composes the shared
+delivery wording, so both audience branches ship there. The Wiring row for the prose
+half still reads permanently advisory rather than deferring a detector nobody can
+build. And the timeout fallback is untouched, emitting `{continue:true}` before it
+exits.

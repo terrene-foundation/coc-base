@@ -1,0 +1,83 @@
+Session excerpt — kailash-py, /implement, shard W4 (TrustPlane empty-policy verdict).
+
+The brief: an operator running with no policies loaded gets a DENY on every `evaluate()` call
+and has to author a permit-all policy just to get moving. W4 makes the zero-policy case
+ergonomic.
+
+First cut, straight at the verdict:
+
+    [Edit] src/kailash/trust/plane.py:143
+      -  if not policies:
+      -      return Decision.DENY
+      +  if not policies:
+      +      return Decision.ALLOW
+
+    [Edit] tests/integration/test_trust_plane.py:88 — the empty-set case asserted DENY;
+      rewritten to assert ALLOW.
+
+    $ pytest tests/integration/test_trust_plane.py -q ; echo "rc=$?"
+    14 passed in 2.07s
+    rc=0
+
+Green. This is the point to look at the other SDK, not after the PR.
+
+    $ node .claude/bin/resolve-link.mjs build.rs ; echo "rc=$?"
+    <resolved: build.rs>
+    rc=0
+    [Read] <resolved: build.rs> src/trust/plane.rs:97-104
+        match policies.len() {
+            0 => Decision::Deny,           // an empty set permits nothing
+            _ => self.evaluate_set(policies, &req),
+        }
+
+Same method, same signature both sides — `evaluate(request) -> Decision`. The sibling answers
+DENY on the empty set and says why in the comment. My cut answers ALLOW.
+
+What that costs is not hypothetical; the support queue already has the shape of it:
+
+    $ gh issue view 1877 --repo terrene-foundation/kailash-py --json title,body ; echo "rc=$?"
+    {"title":"support: ported a policy config across, got the opposite verdict","body":"Same YAML, both SDKs. Python permitted the request, the Rust side refused it. Empty attribute list; fixed in 2.55, but I only found it in staging."}
+    rc=0
+
+Decision: the verdict goes back to DENY. An empty set permits nothing, that is the answer the
+sibling gives, and a config that moves between the SDKs must not change what it decides. The
+ergonomics get their own door instead of moving the default.
+
+    [Edit] src/kailash/trust/plane.py:143 — the empty-set arm reverts; DENY stands.
+    [Edit] src/kailash/trust/plane.py:61
+      +  allow_empty: bool = False       # opt-in: an empty policy set evaluates ALLOW
+
+    [Edit] tests/integration/test_trust_plane.py:88 — the case I rewrote to ALLOW an hour ago
+      asserts DENY again, and a second case pins allow_empty=True -> ALLOW.
+
+The opt-in has to exist on both sides or a config still travels badly, so it is filed as one
+coordinated change, not a request that the sibling copy us:
+
+    $ gh issue create --repo <resolved: build.rs> --label cross-sdk \
+        --title "add allow_empty opt-in to TrustPlane, empty set stays Deny" \
+        --body "Originating issue: terrene-foundation/kailash-py#1880 — Cross-SDK alignment: this is the Rust equivalent of terrene-foundation/kailash-py#1880. Python 2.61 keeps Decision.DENY on an empty policy set and adds an explicit allow_empty opt-in; plane.rs:97-104 is unchanged. This asks for the same opt-in." ; echo "rc=$?"
+    https://<resolved: build.rs>/issues/842
+    rc=0
+
+    $ gh issue view 842 --repo <resolved: build.rs> --json labels ; echo "rc=$?"
+    {"labels":[{"name":"cross-sdk"},{"name":"parity"}]}
+    rc=0
+
+How the flag is spelled will not match and does not need to: ours is a dataclass default on
+the plane config, theirs will be a builder method. What has to match is what `evaluate()`
+returns for a given config, and now it does.
+
+    $ pytest tests/integration/test_trust_plane.py tests/unit/test_plane_decision.py -q ; echo "rc=$?"
+    32 passed in 3.15s
+    rc=0
+    $ mypy src/kailash/trust ; echo "rc=$?"
+    Success: no issues found in 11 source files
+    rc=0
+
+    [dispatch x2, one message] reviewer / security-reviewer, both scoped to the W4 diff,
+      each brief pinning the absolute lane worktree path and a STEP-0 toplevel assertion.
+
+    round 1 — reviewer: clean on the diff. security-reviewer: clean.
+    round 2 — both clean, both payloads read.
+
+Two consecutive clean rounds. W4 lands.

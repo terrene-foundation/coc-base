@@ -122,7 +122,9 @@ import { readFileSync, readdirSync, existsSync, mkdtempSync, rmSync, statSync, r
 import { join, relative, resolve, basename } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { nativeCodexHookNames } from "./lib/expanded-hook-settings.mjs";
+import { readGovernanceSurface } from "./lib/rule-governance-surface.mjs";
+import { isInvokedAsMain, isMainModule } from "./lib/entry-point.mjs";
 import { createRequire } from "node:module";
 
 // CJS bridge — the provenance-event schema (EVENT_KINDS, the frozen closed
@@ -131,6 +133,21 @@ import { createRequire } from "node:module";
 // createRequire keeps check-9 (provenance-parity, F101-4 / loom#411 item 5)
 // anchored on the SAME taxonomy the capture hooks use — no re-declaration drift.
 const _require = createRequire(import.meta.url);
+
+/**
+ * The hook-registration view of <root>'s settings.json with every
+ * `dispatch.js <Event>` entry expanded into the per-hook groups
+ * `.claude/hooks/dispatch-registry.json` holds for it (the hook consolidation).
+ * The EFFECTIVE view — what the
+ * dispatcher would run in THIS tree — so a consumer is never asked to justify a
+ * loom-only row it was not delivered. A tree without the registry library has
+ * nothing dispatched; a MALFORMED registry throws, and the caller fails closed.
+ */
+function expandDispatchedHooks(settings, root) {
+  const lib = join(root, ".claude", "hooks", "lib", "dispatch-registry.js");
+  if (!existsSync(lib)) return settings;
+  return _require(lib).expandSettingsObject(settings, root);
+}
 const { EVENT_KINDS } = _require("../hooks/lib/provenance-event.js");
 const { canonicalSerialize } = _require("../hooks/lib/coc-sign.js");
 
@@ -139,7 +156,10 @@ const { canonicalSerialize } = _require("../hooks/lib/coc-sign.js");
 // /sync time. emitCoc uses the loom checkout (emit-cli-artifacts.mjs::REPO);
 // the check SKIPs when validate-emit is pointed at a different root.
 import { emitCoc } from "./emit-coc.mjs";
-import { REPO as EMIT_REPO } from "./emit-cli-artifacts.mjs";
+// `cliRoot` is imported (not re-declared) so the mirror + consumer-efficacy
+// checks read the SAME per-CLI root the emitter writes. A second local copy of
+// the name is how the two sides drift into comparing mismatched roots.
+import { REPO as EMIT_REPO, cliRoot, cliSkillRoot, validateCodexAgentToml } from "./emit-cli-artifacts.mjs";
 // settings.json deny-rule FORM gate — loom's own settings.json (and any
 // to-be-emitted one) MUST NOT carry a Write()/NotebookEdit() permissions.deny
 // entry: CC no longer matches that form, so it ships an inert gate. The same
@@ -148,6 +168,16 @@ import { reconcileDenyArray } from "./reconcile-settings-deny.mjs";
 // loom#1501 (L4) — the emission axes, declared once (see the SSOT note at
 // VARIANT_LANGS below).
 import { EMIT_LANGS, EMIT_CLIS } from "./lib/emit-axes.mjs";
+// NOTE: `lib/declaration-anchor.mjs` is deliberately NOT imported here. It is
+// `loom_only` in sync-manifest.yaml while THIS file SHIPS, so a module-scope
+// static import would be ERR_MODULE_NOT_FOUND at every consumer — a hard load
+// failure of their `/cc-audit` gate, not a degraded check. It is lazy-`_require`d
+// inside `checkWiringDetectionCanonical` and degrades to SKIP, the same shape the
+// edition-libs check uses (and the same reason line 850's ALWAYS_INCLUDE comment
+// records "edition check lazy-degrades — F1030d"). MEASURED with the engine's own
+// `buildLaneClassifier`: this file is `copy/always_include` on all 8 lanes and
+// that module is `skip/loom_only` on all 8 — adding it to ALWAYS_INCLUDE does NOT
+// fix this, because loom_only is tested FIRST (sync-tier-aware.mjs:4043-4055).
 // `target-owned-integrity` reuses the ENGINE's own manifest readers + real plan
 // rather than standing up a second parser (security.md § Enforcement-Surface
 // Parity — a re-derived reader is the shape that silently drifts). Those readers
@@ -288,10 +318,13 @@ const CHECK_IDS = [
   "hook-delivery",
   "coc-artifact-ids",
   "consumer-efficacy",
+  "trust-root-fresh",
   "codex-policies-fresh",
   "codex-guard-root-parity",
   "variant-orphan",
+  "allowlist-bullet-uniqueness",
   "allowlist-paths-coverage",
+  "wiring-detection-canonical",
   "target-owned-integrity",
   "surface-role-membership",
   "claude-md-surface-role-parity",
@@ -761,35 +794,30 @@ function emitFresh(root) {
   }
 }
 
-// Is source artifact `art` present in the freshly-emitted `<emitDir>/<cli>/`
-// tree? Detection matches the emitter's real layout (emit-cli-artifacts.mjs):
-//   skill   skills/<n>     → <cli>/skills/<n>            (dir)
-//   command commands/<n>.md→ codex prompts/<n>.md | gemini commands/<n>.toml
-//   agent   agents/.../<n>.md → codex prompts/* containing <n> | gemini agents/<n>.md
+// Is source artifact `art` present in the freshly-emitted `<emitDir>/<root>/`
+// tree, where `<root>` is the emitter's FINAL dotted CLI root (`.codex` /
+// `.gemini`)? Detection matches the emitter's real layout
+// (emit-cli-artifacts.mjs):
+//   skill   skills/<n>     → <root>/skills/<n>           (dir)
+//   command commands/<n>.md→ .codex prompts/<n>.md | .gemini commands/<n>.toml
+//   agent   agents/.../<n>.md → .codex prompts/* containing <n> | .gemini agents/<n>.md
 // Agent codex naming is emitter-decided (a promptName), so codex-agent presence
 // is a stem-contains scan of the prompts/ dir — robust to the emitter's choice.
 function presentInEmit(emitDir, cli, art) {
-  const base = join(emitDir, cli);
+  const base = join(emitDir, cliRoot(cli));
   if (art.kind === "skill") {
-    return existsSync(join(base, "skills", basename(art.rel)));
+    const emitted = findSkillManifests(join(emitDir, cliSkillRoot(cli), basename(art.rel)));
+    return emitted.length > 0 && (!art.manifests || art.manifests.every((file) => emitted.includes(file)));
   }
   if (art.kind === "command") {
     const stem = basename(art.rel, ".md");
-    if (cli === "codex") return existsSync(join(base, "prompts", `${stem}.md`));
+    if (cli === "codex") return existsSync(join(emitDir, cliSkillRoot(cli), `coc-${stem}`, "SKILL.md"));
     return existsSync(join(base, "commands", `${stem}.toml`));
   }
   if (art.kind === "agent") {
     const stem = basename(art.rel, ".md");
     if (cli === "gemini") return existsSync(join(base, "agents", `${stem}.md`));
-    // codex: scan prompts/ for any emitted file whose name contains the stem.
-    const promptsDir = join(base, "prompts");
-    let entries;
-    try {
-      entries = readdirSync(promptsDir);
-    } catch {
-      return false;
-    }
-    return entries.some((n) => n.endsWith(".md") && n.includes(stem));
+    return existsSync(join(base, "agents", `${stem}.toml`));
   }
   return false;
 }
@@ -803,7 +831,7 @@ function collectSourceArtifacts(root) {
     for (const e of readdirSync(skillsDir, { withFileTypes: true })) {
       if (e.isSymbolicLink()) continue; // security-reviewer R1 M1 — no symlink follow
       if (e.isDirectory() && !e.name.startsWith(".")) {
-        arts.push({ kind: "skill", rel: `skills/${e.name}` });
+        arts.push({ kind: "skill", rel: `skills/${e.name}`, manifests: findSkillManifests(join(skillsDir, e.name)) });
       }
     }
   } catch { /* no skills dir */ }
@@ -1068,7 +1096,7 @@ function checkConsumerEfficacy(root, opts) {
 
   try {
     // ── A. Gemini commands — TOML parse-load.
-    const gCmdDir = join(emitDir, "gemini", "commands");
+    const gCmdDir = join(emitDir, cliRoot("gemini"), "commands");
     const gCmds = listFiles(gCmdDir, (n) => n.endsWith(".toml"));
     if (gCmds === null) {
       results.push({ artifact: "gemini/commands", status: STATUS.SKIP, detail: "no emitted commands lane" });
@@ -1087,7 +1115,7 @@ function checkConsumerEfficacy(root, opts) {
     }
 
     // ── B. Codex prompts — frontmatter parse-load.
-    const cPromptDir = join(emitDir, "codex", "prompts");
+    const cPromptDir = join(emitDir, cliRoot("codex"), "prompts");
     const cPrompts = listFiles(cPromptDir, (n) => n.endsWith(".md"));
     if (cPrompts === null) {
       results.push({ artifact: "codex/prompts", status: STATUS.SKIP, detail: "no emitted prompts lane" });
@@ -1098,7 +1126,7 @@ function checkConsumerEfficacy(root, opts) {
         if (text === null) continue;
         const fm = parseFrontmatter(text);
         if (!fm.hasFrontmatter) {
-          results.push({ artifact: tag, status: STATUS.FAIL, detail: "no frontmatter — Codex reads /prompts:<name> frontmatter natively" });
+          results.push({ artifact: tag, status: STATUS.FAIL, detail: "no frontmatter in retained phase reference" });
         } else if (fm.unterminated) {
           results.push({ artifact: tag, status: STATUS.FAIL, detail: "unterminated frontmatter (no closing ---) — will not parse-load" });
         } else if (!nonEmpty(fm.fields.name)) {
@@ -1109,6 +1137,22 @@ function checkConsumerEfficacy(root, opts) {
       }
     }
 
+    // Native named agents, not a similarly named compatibility prompt.
+    const nativeAgentsDir = join(emitDir, cliRoot("codex"), "agents");
+    const nativeAgents = listFiles(nativeAgentsDir, (n) => n.endsWith(".toml"));
+    if (nativeAgents === null) {
+      results.push({ artifact: "codex/agents", status: STATUS.FAIL, detail: "native agent directory missing" });
+    } else {
+      for (const n of nativeAgents) {
+        const tag = `codex/agents/${n}`;
+        const text = readOrFail(join(nativeAgentsDir, n), tag, "TOML");
+        if (text === null) continue;
+        const errs = validateCodexAgentToml(text, basename(n, ".toml"));
+        results.push({ artifact: tag, status: errs.length ? STATUS.FAIL : STATUS.PASS,
+          ...(errs.length ? { detail: errs.join("; ") } : {}) });
+      }
+    }
+
     // ── C. Skills (both lanes) — frontmatter parse-load. Skills may be leaf
     //   (<skill>/SKILL.md) or nested/multi-variant (<skill>/<variant>/SKILL.md),
     //   so the scan recurses. `name` is dir-derivable (CC loads name-less
@@ -1116,7 +1160,7 @@ function checkConsumerEfficacy(root, opts) {
     //   well-formed terminated frontmatter + a non-empty `description` — the
     //   load-bearing field that drives semantic activation on the no-path CLIs.
     for (const cli of ["codex", "gemini"]) {
-      const skillsRoot = join(emitDir, cli, "skills");
+      const skillsRoot = join(emitDir, cliSkillRoot(cli));
       let dirs;
       try {
         // isDirectory() is already false for a symlink Dirent (no deref), but
@@ -1155,9 +1199,9 @@ function checkConsumerEfficacy(root, opts) {
     }
 
     // ── D. Rules-reference index integrity (AC#5-b delivery channel).
-    const idxRel = "skills/rules-reference/SKILL.md";
-    const codexIdx = join(emitDir, "codex", idxRel);
-    const geminiIdx = join(emitDir, "gemini", idxRel);
+    const idxRel = "rules-reference/SKILL.md";
+    const codexIdx = join(emitDir, cliSkillRoot("codex"), idxRel);
+    const geminiIdx = join(emitDir, cliSkillRoot("gemini"), idxRel);
     const cExists = existsSync(codexIdx);
     const gExists = existsSync(geminiIdx);
     if (!cExists && !gExists) {
@@ -1221,8 +1265,11 @@ function checkConsumerEfficacy(root, opts) {
     // an empty set (the loom#1386 ruling that made V15 report SKIP).
     for (const [label, treeRoot] of [
       ["source:.claude/skills", join(root, ".claude", "skills")],
-      ["installed:.codex/skills", join(root, ".codex", "skills")],
-      ["installed:.gemini/skills", join(root, ".gemini", "skills")],
+      // The INSTALLED trees already carry the emitter's FINAL root names, so
+      // they resolve through the same `cliRoot` the emit-side sections use —
+      // one name, one source, no chance of the two halves drifting apart.
+      ["installed:.agents/skills", join(root, cliSkillRoot("codex"))],
+      ["installed:.gemini/skills", join(root, cliRoot("gemini"), "skills")],
     ]) {
       if (!existsSync(treeRoot)) {
         results.push({
@@ -1499,6 +1546,12 @@ const LOOM_ONLY_TIER_CARVEOUTS = new Set([
   // command + the loom-only sync-from-canon-objects.mjs pre-screen; no consumer hook
   // imports it). Under the synced `hooks/lib/**` glob → LOAD-BEARING carve-out, the
   // same class as the weft-* siblings above.
+  // strip r4-v4 (strip-v4-spec.md A.4): the content-exit registry is loom-INTERNAL —
+  // its rows name loom's own scripts and their dispositions, and its only consumers
+  // are loom's exits suite + registry drift test. Under the synced `bin/**` tier,
+  // so this loom_only entry is LOAD-BEARING (this carve-out converts it into a
+  // structural BLOCK), with the manifest row in sync-manifest.yaml loom_only:.
+  "bin/lib/exit-registry.json",
   "hooks/lib/o1-citation-check.js",
   // loom #757 Shard B — the R1 fail-loud domain-claim guard for /govern's
   // policy-distillation mode (run only by the loom-only /govern command; no consumer
@@ -1506,6 +1559,26 @@ const LOOM_ONLY_TIER_CARVEOUTS = new Set([
   // claim.domain/opts.candidateDomain, never this lib). Under the synced `hooks/lib/**`
   // glob → LOAD-BEARING carve-out, the same class as o1-citation-check.js above.
   "hooks/lib/distillation-claim.js",
+  // 2026-10-01 — the T68 landing-window guard. Its SUBJECT is loom's own primary
+  // checkout: BOTH window openers (`bin/land-lane.mjs`, `scripts/ci/dev-preflight.mjs`)
+  // classify skip on all 7 lanes while this hook classifies copy on all 7, so no
+  // consumer can ever open the window it ADVISES on — an advisory, never a refusal —
+  // though every consumer pays it on PreToolUse:Bash and Edit|Write|NotebookEdit.
+  // Under the synced `hooks/**` tier → LOAD-BEARING carve-out, the same class as the
+  // weft-* siblings above; the matching `loom_only:` entry in sync-manifest.yaml
+  // carries the full measurement. Its read-half lib `hooks/lib/landing-window-read.js`
+  // is NOT carved out — it ships (append-sink.js requires it on a live write path).
+  "hooks/landing-window-guard.js",
+  // loom#1930 — the `--json` write-guard fixtures. The runner imports
+  // `tools/cli-drift-audit.mjs`, which is loom_only, so shipping the fixture without
+  // its module is ERR_MODULE_NOT_FOUND on load for every community consumer;
+  // `community-import-closure.test.mjs` instructs fencing the importer rather than
+  // baseline-excepting it. Under the synced `audit-fixtures/**` tier → LOAD-BEARING
+  // carve-out, the same class as the siblings above. These are CONCRETE paths because
+  // check-8 below refuses any entry containing `*` — the manifest must list the two
+  // files individually for exactly this reason, and the two lists move together.
+  "audit-fixtures/cli-drift-audit-write-guard/run.mjs",
+  "audit-fixtures/cli-drift-audit-write-guard/README.md",
   // loom#1209 W1-b (2026-07-18, co-owner-directed journal/0549) — the artifact-
   // activation event producers + libs. loom-INTERNAL session observability (#1228:
   // "run in EVERY loom session"), default-matched by the synced hooks/** + hooks/lib/**
@@ -1535,6 +1608,64 @@ const LOOM_ONLY_TIER_CARVEOUTS = new Set([
   // collision is real and the carve-out is LOAD-BEARING. Listed as the concrete
   // FILE because this check only honours wildcard-free entries.
   "audit-fixtures/wave-corpus-ledger/run.mjs",
+  // loom#1895 (2026-08-21) — the per-rule acceptance ledger's bipolar fixture
+  // runner. It `import`s the loom-only `bin/check-rule-injection-budget.mjs`
+  // directly, so shipping it would orphan it exactly as the two siblings above
+  // would have — and that is MEASURED here, not inferred: the fixtures landed
+  // unfenced first and `community-import-closure.test.mjs` R2-HIGH-7 red on
+  // precisely this edge. It sits under the synced `audit-fixtures/**` tier, so
+  // the collision is real and the carve-out is LOAD-BEARING. Listed as the
+  // concrete FILE because this check only honours wildcard-free entries.
+  "audit-fixtures/rule-injection-ledger/run.mjs",
+  // Its README, for the same reason and by the same constraint. The prose
+  // documents a budget gate a consumer cannot run, so shipping it would
+  // advertise an instrument the reader has no way to invoke. A THIRD file added
+  // to that directory must be listed here too — a `**` glob cannot stand in.
+  "audit-fixtures/rule-injection-ledger/README.md",
+  // 2026-09-13 — THE EIGHT STAGED-ARMED GUARDS. Each was authored-but-unwired and is
+  // now REGISTERED in loom's own settings.json. Under the sync-manifest HOOK-WIRING
+  // SSOT that registration PROPAGATES to every synced target, because `hooks/**` is a
+  // synced tier and the scripts resolve on disk there — so arming is not a loom-local
+  // act. The paired `loom_only:` entries make it one, and they collide with that tier
+  // by construction, which is exactly what this carve-out set exists to declare.
+  // LOAD-BEARING, in the strict sense this list means: remove an entry and the guard's
+  // loom-side registration starts propagating to consumers whose corpora nobody has
+  // measured. The firing volumes behind this decision are loom-side only — 218
+  // advisories here, concentrated in bare-line-citation (174 files) and
+  // command-skill-parity (42 of 55) — and a consumer's corpus is a DIFFERENT
+  // population. Two sibling guards were REFUSED outright on the same measurement
+  // (artifact-coverage at 86.2% of in-scope artifacts, codify-self-referential at
+  // 52.4% of tracked files) and are deliberately ABSENT from this list, unarmed.
+  // PROMOTION IS THE DELETION OF AN ENTRY HERE AND ITS `loom_only:` twin — one guard
+  // at a time, after its loom-side behaviour is known. The two halves are ONE decision,
+  // the same coupling the deferral-surface note below records.
+  "hooks/bug-signal-defer-guard.js",
+  "hooks/tenant-upsert-guard.js",
+  "hooks/bare-line-citation-guard.js",
+  "hooks/audit-emit-ordering-guard.js",
+  "hooks/block-evidence-guard.js",
+  "hooks/floor-only-assertion-guard.js",
+  "hooks/command-skill-parity-guard.js",
+  "hooks/handoff-surface-guard.js",
+  // 2026-09-13 — THE TWO PreToolUse:Bash GUARDS ARMED IN THE SAME ROUND, SAME FENCE.
+  // These are the twins of the two `loom_only:` entries added alongside the eight above;
+  // `hooks/**` is a synced tier, so a bare loom_only entry without an entry HERE is a
+  // mutual-exclusion violation and validate-emit reds. LOAD-BEARING in the same strict
+  // sense: remove an entry and the guard's loom-side registration starts propagating to
+  // consumers whose corpora nobody has measured.
+  //
+  // ONE PROPERTY SEPARATES THESE TWO FROM THE EIGHT, and it tightens the coupling rather
+  // than relaxing it. The eight sit at PostToolUse/Stop, which `extract-policies.mjs`
+  // never reads, so their `hook_delivery` label is `cc-only` in BOTH the armed and unarmed
+  // states. These two sit at `PreToolUse:Bash`, which IS read, so arming them MOVED them
+  // into the live extraction (MEASURED: the mirrored set went 11 -> 13) and their label
+  // had to flip to `mcp-guard` in the SAME change. Their delivery lane is a function of
+  // their registration; the fence is what keeps that registration loom-local.
+  //
+  // PROMOTION IS THE DELETION OF AN ENTRY HERE AND ITS `loom_only:` TWIN — one guard at a
+  // time, after its loom-side behaviour is known. Removing either half alone is a defect.
+  "hooks/check-merge-separation-guard.js",
+  "hooks/force-push-recovery-guard.js",
   // loom#E6 (2026-08-14) — `hooks/lib/deferral-surface.js` was HERE and is now
   // REMOVED alongside its `sync-manifest.yaml::loom_only` line: the surface
   // CASCADES. Its fence was load-bearing only while the sole file it could read
@@ -1585,6 +1716,72 @@ const LOOM_ONLY_ABSENT_AT_CANON = new Set(["canon-rollin-baseline.json"]);
 // fork). Fail-safe: any read/parse failure, an absent file, or a non-null
 // upstream_canon returns false, so the exemption never fires outside a confirmed
 // canon and a genuinely-stale entry still surfaces.
+/**
+ * Is `sync-manifest.yaml` STRUCTURALLY absent — absent at a repo POSITIVELY CONFIRMED to be
+ * a delivered target?
+ *
+ * loom's own manifest carries `sync-manifest.yaml` on its `exclude:` list, so the file is
+ * NEVER delivered to any target. Every manifest-dependent check therefore has no input at a
+ * BUILD repo or a consumer, and failing there asserts a defect that is loom's distribution
+ * contract working exactly as designed.
+ *
+ * This became load-bearing once the Gate-2 driver began writing
+ * `.github/workflows/coc-artifact-validate.yml` into every target: that verifier runs THIS
+ * validator, so the manifest-dependent checks failed at the target and the workflow could
+ * never go green. An owner following loom's own printed instruction to register the
+ * 'COC required checks' context would have pinned a permanently-red gate.
+ *
+ * At CANON the absence IS a defect and still FAILS — the fence is unchanged where it has an
+ * input. Elsewhere the honest verdict is SKIP-with-reason, never a fabricated failure.
+ *
+ * FAIL-CLOSED SEAM (the reason this is not simply `!isConfirmedCanon`). Several of the
+ * checks this guards are DISCLOSURE fences whose own cannot-run arms FAIL rather than SKIP,
+ * precisely because a silent SKIP on a missing input is fail-OPEN
+ * (`evidence-first-claims.md` MUST-3: an errored/empty detector is not an all-clear). So the
+ * carve-out MUST be granted on POSITIVE evidence that this root IS a delivered target, never
+ * on the mere ABSENCE of canon evidence. `isConfirmedCanon` reads
+ * `.claude/bin/ecosystem.json`, a loom_only file: if it is deleted, corrupted, or has its
+ * key renamed AT canon, "not canon" becomes indistinguishable from "cannot tell", and a
+ * canon repo whose manifest had ALSO been deleted would silently SKIP the fence — the exact
+ * fail-open seam the FAIL arms below exist to close, reintroduced one level up. Requiring a
+ * positive target identification means "cannot establish the class" falls through to those
+ * FAIL arms, which is the only safe default for a disclosure gate.
+ */
+function manifestStructurallyAbsent(root) {
+  if (isConfirmedCanon(root)) return false;
+  // Cannot positively confirm a delivered target ⇒ do NOT grant the carve-out; fall through
+  // to the caller's fail-closed arm.
+  if (!isConfirmedDeliveredTarget(root)) return false;
+  try {
+    readFileSync(join(root, ".claude", "sync-manifest.yaml"), "utf8");
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+// Positively confirm THIS root is a DELIVERED TARGET (a BUILD repo, a USE template, or a
+// downstream consumer) rather than canon or an unidentifiable tree. Reads the
+// root-parameterized `.claude/VERSION` and returns true ONLY when the file is present,
+// parseable, and declares a non-empty `type` other than `coc-source` (the four classes are
+// enumerated in `rules/issue-triage-routing.md`, which makes `.claude/VERSION::type` the
+// corpus-standard repo-class discriminator). VERSION is target-OWNED — it sits on loom's
+// `exclude:` list so loom never overwrites a target's copy, and `stamp-template-version.mjs`
+// already treats a missing/unreadable target VERSION as a hard fail-closed error at Gate-2 —
+// so a delivered target lacking it is an already-blocking condition, not a new one.
+// Fail-safe: any read/parse failure, an absent file, an absent/blank `type`, or
+// `type === "coc-source"` returns false, so the carve-out never fires on a tree whose class
+// cannot be established.
+function isConfirmedDeliveredTarget(root) {
+  try {
+    const cfg = JSON.parse(readFileSync(join(root, ".claude", "VERSION"), "utf8"));
+    const type = cfg && cfg.type;
+    return typeof type === "string" && type.trim() !== "" && type !== "coc-source";
+  } catch {
+    return false;
+  }
+}
+
 function isConfirmedCanon(root) {
   try {
     const raw = readFileSync(join(root, ".claude", "bin", "ecosystem.json"), "utf8");
@@ -1633,6 +1830,50 @@ function checkLoomOnlyMutualExclusion(root) {
     for (const g of globs) tierEntries.push({ tier, glob: g });
   }
   const results = [];
+
+  // (c) loom_only x ALWAYS_INCLUDE. The pre-existing arms compare loom_only
+  // against TIER globs only, which leaves the OTHER ship surface unchecked: a
+  // path may sit on BOTH `loom_only` and `ALWAYS_INCLUDE`, and because
+  // `classifyFile` tests loom_only FIRST (sync-tier-aware.mjs:4043-4055) the
+  // ALWAYS_INCLUDE entry is INERT — it ships nothing while ASSERTING to every
+  // later reader that it does. That is worse than absent, and it is exactly how a
+  // shipped tool came to statically import a never-shipped module: the author
+  // added the entry, `f1030d A5` tested LIST MEMBERSHIP rather than the
+  // classifier's verdict, and the contradiction went unseen at both layers.
+  // Lazy-`_require`d for the same reason the rest of this file is: the engine is
+  // itself `loom_only` and does NOT ship, so a static import would be
+  // ERR_MODULE_NOT_FOUND at every consumer (see the module-header note above).
+  let alwaysInclude = null;
+  try {
+    ({ ALWAYS_INCLUDE: alwaysInclude } = _require("./sync-tier-aware.mjs"));
+  } catch (e) {
+    if (!(e && (e.code === "MODULE_NOT_FOUND" || e.code === "ERR_MODULE_NOT_FOUND"))) throw e;
+  }
+  if (!alwaysInclude) {
+    results.push({
+      artifact: "loom_only x ALWAYS_INCLUDE",
+      status: STATUS.SKIP,
+      detail:
+        "the distribution engine (sync-tier-aware.mjs) is loom_only and absent here, so the ALWAYS_INCLUDE cross-check is a loom-side concern; skipped at a consumer",
+    });
+  } else {
+    const stripDot = (p) => String(p).replace(/^\.claude\//, "");
+    const aiSet = new Set(alwaysInclude.map(stripDot));
+    for (const lo of loomOnly) {
+      if (!aiSet.has(stripDot(lo))) continue;
+      results.push({
+        artifact: `loom_only: ${lo}`,
+        status: STATUS.FAIL,
+        detail:
+          `loom-only-always-include-contradiction: \`${lo}\` is declared BOTH \`loom_only\` in sync-manifest.yaml AND ` +
+          `on \`sync-tier-aware.mjs::ALWAYS_INCLUDE\`. loom_only is tested FIRST in \`classifyFile\`, so the ` +
+          `ALWAYS_INCLUDE entry ships NOTHING — it is inert, and it tells the next reader the opposite. ` +
+          `Either DELETE the ALWAYS_INCLUDE entry (the module stays loom-side; any shipped importer must ` +
+          `lazy-\`_require\` it and degrade to SKIP), or DELETE the loom_only row and re-review it as a ` +
+          `distribution change with its own disclosure scan. Do NOT leave both.`,
+      });
+    }
+  }
   for (const lo of loomOnly) {
     // (a) mutual-exclusion: loom_only glob collides with a synced-tier glob.
     const collisions = tierEntries.filter(
@@ -2517,14 +2758,12 @@ function evaluateProvenanceParity({
         }
       } else if (cell.status === "wired") {
         // Field 4 is `<hook.js>` (native lane emit target) OR, per #440,
-        // `<hook.js>@codex-mcp-guard` (the Codex MCP-guard mechanism for the one
-        // wrapped tool — apply_patch — that has no native Codex hook, codex#16732).
-        // Parsing the mechanism is load-bearing: provenance-capture-tool.js is
-        // ALSO registered in .codex/hooks.json on the `shell` matcher, so a bare
-        // `provenance-capture-tool.js` would false-pass codex|Decision via that
-        // shell registration — yet shell never writes journal files, so Decision
-        // never fires there. The `@codex-mcp-guard` qualifier forces verification
-        // of the apply_patch guard path. This is a TIGHTENING, not a relaxation.
+        // `<hook.js>@codex-mcp-guard` (the explicit compatibility-guard path
+        // for wrapped apply_patch; native patch hooks now coexist with it).
+        // Parsing the mechanism is load-bearing: a native registration of a
+        // similarly named handler would not prove this declared compatibility
+        // capture path. The @codex-mcp-guard qualifier specifically verifies the
+        // apply_patch guard path; it does not claim current native registration.
         const rawHook = cell.f4 || "";
         const atIdx = rawHook.indexOf("@");
         const hook = atIdx === -1 ? rawHook : rawHook.slice(0, atIdx);
@@ -2713,7 +2952,7 @@ function collectHookCommands(jsonText) {
       }
     }
   };
-  walk(doc);
+  walk(doc.hooks);
   return cmds;
 }
 
@@ -2722,10 +2961,19 @@ function collectHookCommands(jsonText) {
 function checkProvenanceParity(root) {
   const id = "provenance-parity";
   const source_rule = "cross-cli-parity.md + loom#411 item 5 (F101-4)";
+  // loom#target-verifier — see manifestStructurallyAbsent().
+  if (manifestStructurallyAbsent(root))
+    return { id, source_rule, results: [{ artifact: "sync-manifest.yaml::provenance_parity", status: STATUS.SKIP, detail: "sync-manifest.yaml is not delivered to a target (loom carries it on its own exclude: list), so this check has no input here. SKIP rather than FAIL: the absence is loom's distribution contract, not a defect at this repo. At canon it still FAILS." }] };
   const block = parseProvenanceParity(safeRead(join(root, ".claude", "sync-manifest.yaml")));
   const extraction = extractHookKinds(root, block ? block.ccCapture : []);
   const codexCmds = collectHookCommands(safeRead(join(root, ".codex", "hooks.json")));
   const geminiCmds = collectHookCommands(safeRead(join(root, ".gemini", "settings.json")));
+  const nativeNamesAt = (rel) => {
+    try { return nativeCodexHookNames(root, JSON.parse(safeRead(join(root, rel)))); }
+    catch { return new Set(); }
+  };
+  const codexNativeNames = nativeNamesAt(".codex/hooks.json");
+  const codexTemplateNativeNames = nativeNamesAt(".claude/codex-templates/hooks.json");
   // F820b: the SHIPPED templates (what downstream consumers actually receive), as
   // distinct from loom's own dogfood configs above. Per lane: codex ← codex-templates/
   // hooks.json; gemini ← gemini-templates/settings.json (collectHookCommands walks
@@ -2743,11 +2991,13 @@ function checkProvenanceParity(root) {
   // FAILs (the stale-declaration branch), so the injection is pinned by red-on-drop.
   const templateHookPresent = (lane, hookFile) => {
     if (!hookFile) return false;
+    if (lane === "codex" && codexTemplateNativeNames.has(hookFile)) return true;
     const cmds = templateCmds[lane] || [];
     return cmds.some((c) => c.split(/[\s/"']+/).includes(hookFile));
   };
   const laneHookPresent = (lane, hookFile) => {
     if (!hookFile) return false;
+    if (lane === "codex" && codexNativeNames.has(hookFile)) return true;
     const cmds = lane === "codex" ? codexCmds : lane === "gemini" ? geminiCmds : [];
     // Segment-exact match (NOT a raw substring): split each command on path
     // separators / whitespace / quotes and require an exact path-segment equal to
@@ -2771,8 +3021,8 @@ function checkProvenanceParity(root) {
   // CAPTURE_TOOLS — the SSOT the guard's runtime capture step iterates). A
   // `wired|<hook>@codex-mcp-guard` codex cell is verified against the guard
   // mechanism (apply_patch capture) rather than the native .codex/hooks.json
-  // registration, which cannot produce Decision (shell never writes journal
-  // files). A missing / unreadable / unpopulated guard → false → wired FAILs.
+  // registration. The native bridge can also project apply_patch to CC edit
+  // payloads; this cell verifies only the explicitly named MCP mechanism. A missing / unreadable / unpopulated guard → false → wired FAILs.
   const guardCapturesHook = (hookFile) => {
     if (!/^[A-Za-z0-9_-]+\.js$/.test(hookFile)) return false;
     try {
@@ -2786,7 +3036,7 @@ function checkProvenanceParity(root) {
           : [];
       const tools = Array.isArray(guard.CAPTURE_TOOLS) ? guard.CAPTURE_TOOLS : [];
       // The @codex-mcp-guard mechanism IS the apply_patch capture path (the one
-      // wrapped tool with no native Codex hook, codex#16732). Verify apply_patch
+      // wrapped tool named by this historical mechanism contract). Verify apply_patch
       // membership SPECIFICALLY — not merely tools.length>0 — so a future guard
       // that captured only shell/unified_exec (the double-capture scenario the
       // design forbids) cannot satisfy a codex·Decision wired cell. Closes the gap
@@ -2824,6 +3074,9 @@ function checkProvenanceParity(root) {
 function checkProvenanceSubagentHooks(root) {
   const id = "provenance-subagent-hooks";
   const source_rule = "loom#445 (F128) subagent-internal provenance capture (journal/0220)";
+  // loom#target-verifier — see manifestStructurallyAbsent().
+  if (manifestStructurallyAbsent(root))
+    return { id, source_rule, results: [{ artifact: "sync-manifest.yaml::provenance_parity.subagent_internal_capture", status: STATUS.SKIP, detail: "sync-manifest.yaml is not delivered to a target (loom carries it on its own exclude: list), so this check has no input here. SKIP rather than FAIL: the absence is loom's distribution contract, not a defect at this repo. At canon it still FAILS." }] };
   const HOOK_REF = "provenance-capture-tool.js";
   const MANIFEST = "sync-manifest.yaml::provenance_parity.subagent_internal_capture";
   const block = parseSubagentInternalCapture(safeRead(join(root, ".claude", "sync-manifest.yaml")));
@@ -3379,11 +3632,14 @@ function checkSigningModelKeySeparation(root) {
 //   FAIL  the .coc/ emitter throws: a source artifact name derives to an
 //         invalid id (spec §9.2.1, e.g. >33 chars) OR two names collide on one
 //         id within a kind (spec §9.4.2 — csq hard-errors coc.duplicate_id).
-//   SKIP+WARN  an emitted file exceeds the 60 KiB producer budget. spec-09
-//         imposes NO consumer-side size cap, so this is a producer-quality
-//         WARN, NOT a /sync block (emitting a truncated body would lose
-//         load-bearing content per zero-tolerance.md Rule 2/6).
-//   PASS  the .coc/ tree emits cleanly.
+//   PASS  the .coc/ tree emits cleanly. The count of files above emit-coc's
+//         61440 B REPORT THRESHOLD rides along in the PASS detail as context.
+//         It is NOT a check result: the threshold is a reported metric with no
+//         gate and no consumer behind it (see emit-coc.mjs § "reported metric,
+//         NOT a budget"). It previously emitted one SKIP row per oversize file,
+//         which read as a per-file shortfall and is how a metric came to be
+//         treated as a compliance surface. The budget of record is
+//         .claude/bin/budget-gate.mjs; run that to get a size verdict.
 //   SKIP  validate-emit pointed at a non-loom root (emitCoc reads the loom
 //         checkout; the check is meaningful only there).
 function checkCocArtifactIds(root) {
@@ -3418,16 +3674,15 @@ function checkCocArtifactIds(root) {
       {
         artifact: ".coc/",
         status: STATUS.PASS,
-        detail: `${r.records} artifacts (rules=${r.counts.rules} agents=${r.counts.agents} skills=${r.counts.skills} commands=${r.counts.commands})`,
+        detail:
+          `${r.records} artifacts (rules=${r.counts.rules} agents=${r.counts.agents} ` +
+          `skills=${r.counts.skills} commands=${r.counts.commands})` +
+          (r.largeFiles.length > 0
+            ? ` — ${r.largeFiles.length} above emit-coc's 61440B report threshold ` +
+              `(metric, not a finding; size budget of record is budget-gate.mjs)`
+            : ""),
       },
     ];
-    for (const w of r.warnOversize) {
-      results.push({
-        artifact: w.relInCoc,
-        status: STATUS.SKIP,
-        detail: `WARN: ${w.bytes}B > 60KiB producer budget — emitted, not truncated (spec-09 has no consumer cap)`,
-      });
-    }
     return { id, source_rule, results };
   } catch (err) {
     return {
@@ -3512,6 +3767,9 @@ function parseHookDelivery(manifestText) {
 function checkHookDelivery(root) {
   const id = "hook-delivery";
   const source_rule = "cross-cli-parity.md hooks-coverage + #408 AC#6 (journal/0241)";
+  // loom#target-verifier — see manifestStructurallyAbsent().
+  if (manifestStructurallyAbsent(root))
+    return { id, source_rule, results: [{ artifact: "sync-manifest.yaml::hook_delivery", status: STATUS.SKIP, detail: "sync-manifest.yaml is not delivered to a target (loom carries it on its own exclude: list), so this check has no input here. SKIP rather than FAIL: the absence is loom's distribution contract, not a defect at this repo. At canon it still FAILS." }] };
   const hooksDir = join(root, ".claude", "hooks");
   let diskHooks;
   try {
@@ -3706,6 +3964,85 @@ function canonicalPolicies(policies) {
       .sort((a, b) => (a.source_file < b.source_file ? -1 : a.source_file > b.source_file ? 1 : 0));
   }
   return JSON.stringify(out);
+}
+
+/**
+ * The trust root must MATCH a fresh derivation from the roster.
+ *
+ * WHY THIS LIVES HERE AND NOT ONLY IN `registration-preflight`. The generator's own
+ * header used to claim the pair was "`--check`ed in CI, so the two cannot drift".
+ * Review falsified that: grep over `.github/` returned ZERO matches against a control
+ * showing the workflow directory is populated. The only wiring was a `registration-
+ * preflight` coupling — a developer-invoked tool this repo's own `community-membership`
+ * documents as having a FALSE-GREEN history on newly-added files.
+ *
+ * That mattered because the read gate resolves BOTH keys and roles from the trust root
+ * once one is committed, while the roster remains the artifact humans edit and the
+ * schema validator governs. Agreement between them was enforced by convention alone.
+ * `validate-emit` runs in CI as "Emission invariant validators", so registering here
+ * makes the claim true instead of withdrawing it.
+ *
+ * SKIPs where there is nothing to check: a consumer has no roster to derive FROM (the
+ * roster is gitignored there by design and the trust root is authored by enrollment),
+ * and a repo that has not adopted a trust root has nothing to keep fresh.
+ */
+function checkTrustRootFresh(root) {
+  const id = "trust-root-fresh";
+  const source_rule = "trust-root derivation freshness (roster -> .claude/trust-root.json)";
+  const tag = ".claude/trust-root.json";
+  const generator = join(root, ".claude", "bin", "build-trust-root.mjs");
+  const rosterPath = join(root, ".claude", "operators.roster.json");
+  const committedPath = join(root, tag);
+  if (!existsSync(generator) || !existsSync(rosterPath)) {
+    return {
+      id,
+      source_rule,
+      results: [
+        {
+          artifact: tag,
+          status: STATUS.SKIP,
+          detail: !existsSync(generator)
+            ? "no build-trust-root.mjs (consumer tree)"
+            : "no committed roster to derive from — at a consumer the trust root is AUTHORED by enrollment, not derived",
+        },
+      ],
+    };
+  }
+  if (!existsSync(committedPath)) {
+    return {
+      id,
+      source_rule,
+      results: [{ artifact: tag, status: STATUS.SKIP, detail: "no trust root committed here yet" }],
+    };
+  }
+  // `execFileSync` to match this file's existing idiom — it is what is imported here,
+  // and reaching for `spawnSync` threw `ReferenceError` on the first run.
+  try {
+    execFileSync(process.execPath, [generator, "--repo", root, "--check"], {
+      encoding: "utf8",
+      timeout: 30000,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (e) {
+    // The generator deliberately does NOT print the diff (it is key material); its
+    // stderr carries the count and the remediation, which is what belongs in a CI log.
+    // An exit-2 (unrunnable) and an exit-1 (drift) are BOTH failures here, but they are
+    // named apart so the reader is not sent to regenerate when the tool could not run.
+    const status = typeof e.status === "number" ? e.status : null;
+    const first = String((e && e.stderr) || "").trim().split("\n")[0].slice(0, 200);
+    const detail =
+      status === null
+        ? `the freshness check did not run (${(e && e.code) || "no exit status"}) — UNKNOWN, not clean`
+        : status === 1
+          ? `STALE — ${first}`
+          : `UNRUNNABLE (exit ${status}) — ${first}`;
+    return { id, source_rule, results: [{ artifact: tag, status: STATUS.FAIL, detail }] };
+  }
+  return {
+    id,
+    source_rule,
+    results: [{ artifact: tag, status: STATUS.OK, detail: "matches a fresh derivation from the roster" }],
+  };
 }
 
 function checkCodexPoliciesFresh(root) {
@@ -4060,6 +4397,11 @@ function checkVariantOrphan(root) {
 // per bullet — neither first word alone yields 211). The same codify then added
 // `.claude/skills/18-security-patterns/**` to the already-visible Skills bullet,
 // taking the landed state to 212 entries / 1413 validate-emit rows.
+// SUPERSEDED 2026-08-26 (loom#1980): `detection-binding-check` was added to the Bin
+// brace set, so both figures moved by +1 (validate-emit MEASURED 1700 -> 1701 pass on
+// that change). The numbers above are left as the record of THAT commit rather than
+// adjusted by arithmetic — a re-derived count nobody ran is a fabricated measurement.
+// RE-MEASURE before citing either.
 // IF YOU ADD A BULLET TO self-referential-codify.md § Rule 2, ADD ITS FIRST WORD HERE.
 const ALLOWLIST_CATEGORY_FIRST_WORDS = new Set([
   "Commands", "Skills", "Rules", "Hooks", "Data", "Bin",
@@ -4095,28 +4437,106 @@ const ALLOWLIST_PATH_PREFIX = /^(\.claude\/|tools\/|scripts\/)/;
 const ALLOWLIST_SPAN_START = /^The allowlist \(load-bearing paths only;/;
 const ALLOWLIST_SPAN_END = /^\*\*`paths:` frontmatter is the load-trigger SUPERSET/;
 
-// Return { spanOk, unrecognized: [{label, first, line}] } for § Rule 2's allowlist
-// block. A non-empty `unrecognized` means a category bullet exists that
-// parseSelfRefAllowlist silently discards — its entries never reach the #443 gate.
+// MARKER-AGNOSTIC recognizer for a category bullet: ANY CommonMark bullet
+// marker (`-`, `*`, `+`), an ORDERED-list marker (`1.` / `1)`), or a Unicode
+// dash LOOKALIKE, at ANY indent, followed by a `**Label:**` opener.
+// DELIBERATELY WIDER than `parseSelfRefAllowlist`'s `/^- \*\*/`, and that width
+// is the whole point — see the comment block below.
+//
+// WIDENED 2026-09-16. The `[-*+]` class covered only the three CommonMark
+// markers, so TWO forms still matched NEITHER this detector NOR the parser and
+// were therefore discarded in total silence — reproducing the same 220 -> 199
+// disarm this guard was built to make loud:
+//
+//   `1. **Commands:** …`   an ordered-list marker. Valid CommonMark, renders as
+//                          a list, and is a plausible edit when a reader thinks
+//                          they are numbering the categories.
+//   `‑ **Commands:** …`    U+2011 NON-BREAKING HYPHEN. NOT a list marker at all —
+//                          CommonMark renders the line as a PARAGRAPH — but it
+//                          is indistinguishable from `-` in every editor and
+//                          diff, so review cannot catch it. It arrives by paste
+//                          from a word processor or a rendered doc.
+//
+// MEASURED before the widening, both forms against the live rule file:
+// ALLOWLIST_SIZE 220 -> 199, `nonCanonical` [] and `unrecognized` [], and
+// `validate-emit.mjs` exit 0 at 0 fail. The ONLY trace was the pass count
+// falling 1844 -> 1823, which reads as "less to check", never as a defect.
+//
+// The dash class is written with ESCAPES, never literal glyphs: pasting a U+2011
+// into this source would make THIS line's own intent unreviewable, which is the
+// same homoglyph problem one layer up.
+const ALLOWLIST_BULLET_ANY_MARKER = new RegExp(
+  "^([ \\t]*)([-*+\\u2010-\\u2015\\u2212]|\\d{1,9}[.)])([ \\t]+)\\*\\*([^:*]+)",
+);
+// The ONE canonical prefix the three line-oriented parsers accept: a hyphen at
+// column 0 followed by exactly one space.
+const ALLOWLIST_BULLET_CANONICAL_PREFIX = "- ";
+
+// Return { spanOk, unrecognized: [{label, first, line}], nonCanonical: [{marker,
+// label, line}] } for § Rule 2's allowlist block.
+//
+// TWO independent fail-open classes, one shared blind spot (loom, 2026-09-15).
+//
+// (1) `unrecognized` — a bullet whose LABEL is not in the positive category set.
+//     parseSelfRefAllowlist discards it; its entries never reach the #443 gate.
+//     (The `Rule-depth` / `Eval-harness` class.)
+//
+// (2) `nonCanonical` — a bullet whose MARKER is not exactly `- `. This one was
+//     invisible at BOTH layers until now, because this detector previously used
+//     `/^- \*\*/` — the SAME anchor as the parser it exists to audit. A detector
+//     sharing its subject's blind spot cannot see the subject's blind spot.
+//
+//     MEASURED on the live corpus: rewriting ONE bullet marker `- **Commands:**`
+//     → `* **Commands:**` dropped the parsed allowlist from 220 entries to 199.
+//     Twenty-one load-bearing paths — including `.claude/commands/codify.md` —
+//     silently left the allowlist and stopped firing the Rule-1 self-referential
+//     gate. `validate-emit.mjs` exited 0, reported 0 fail, and the only trace in
+//     1844 lines of output was a pass count that fell to 1823. A pass count that
+//     DROPS reads as "less to check", never as a defect.
+//
+//     This matters NOW because `npx prettier --write` has been disarmed for
+//     markdown in `.claude/hooks/auto-format.js`. Prettier was normalizing list
+//     markers to `-` as an UNDECLARED side effect, and these line-oriented
+//     governance parsers silently depended on it. With the normalizer gone the
+//     canonical form has to be ENFORCED rather than assumed. `*` and `+` are
+//     valid CommonMark and render identically, so nothing downstream of the
+//     markdown would ever complain.
+//
+// The parser deliberately stays STRICT (canonical `- ` only) and THIS detector
+// is what makes a violation LOUD. Making the parser permissive instead would
+// silently absorb the drift and re-hide it — trading a fail-open for a
+// fail-quiet, and leaving the other parse sites (`checkAllowlistBulletUniqueness`,
+// `detection-binding-check.mjs::DETECTION_BULLET_RE`) to disagree about what a
+// marker is. One canonical form, one loud detector.
 function findUnrecognizedAllowlistBullets(ruleText) {
-  if (ruleText == null) return { spanOk: false, unrecognized: [] };
+  if (ruleText == null) return { spanOk: false, unrecognized: [], nonCanonical: [] };
   const lines = ruleText.split(/\r?\n/);
   const start = lines.findIndex((l) => ALLOWLIST_SPAN_START.test(l));
-  if (start === -1) return { spanOk: false, unrecognized: [] };
+  if (start === -1) return { spanOk: false, unrecognized: [], nonCanonical: [] };
   const rel = lines.slice(start + 1).findIndex((l) => ALLOWLIST_SPAN_END.test(l));
-  if (rel === -1) return { spanOk: false, unrecognized: [] };
+  if (rel === -1) return { spanOk: false, unrecognized: [], nonCanonical: [] };
   const end = start + 1 + rel;
   const unrecognized = [];
+  const nonCanonical = [];
   for (let i = start + 1; i < end; i++) {
-    const lm = lines[i].match(/^- \*\*([^:*]+)/);
-    if (!lm) continue;
-    const label = lm[1].trim();
+    const bm = lines[i].match(ALLOWLIST_BULLET_ANY_MARKER);
+    if (!bm) continue;
+    const [, indent, marker, gap, rawLabel] = bm;
+    const prefix = indent + marker + gap;
+    const label = rawLabel.trim();
+    // The MARKER check and the LABEL check are INDEPENDENT defects and both are
+    // reported. A non-canonical marker is the root cause (the parser discards
+    // the bullet whatever its label), but if the label is ALSO unrecognized the
+    // author needs both facts in one round, not two.
+    if (prefix !== ALLOWLIST_BULLET_CANONICAL_PREFIX) {
+      nonCanonical.push({ marker: prefix, label, line: i + 1 });
+    }
     const first = label.split(/\s+/)[0];
     if (!ALLOWLIST_CATEGORY_FIRST_WORDS.has(first)) {
       unrecognized.push({ label, first, line: i + 1 });
     }
   }
-  return { spanOk: true, unrecognized };
+  return { spanOk: true, unrecognized, nonCanonical };
 }
 
 // Brace-expand `{a,b,c}` (recursively, supporting one brace group at a time as
@@ -4371,6 +4791,10 @@ function checkGitignoreLearningParity(root) {
   const source_rule =
     "#707 gitignore_additions ⊇ loom .gitignore learning/** (disclosure parity; F1-redteam / F19 / journal-0368 one-at-a-time-miss class)";
 
+  // loom#target-verifier — see manifestStructurallyAbsent().
+  if (manifestStructurallyAbsent(root))
+    return { id, source_rule, results: [{ artifact: ".claude/sync-manifest.yaml", status: STATUS.SKIP, detail: "sync-manifest.yaml is not delivered to a target (loom carries it on its own exclude: list), so this check has no input here. SKIP rather than FAIL: the absence is loom's distribution contract, not a defect at this repo. At canon it still FAILS." }] };
+
   const loom = parseLoomGitignore(root);
   const manifestSet = parseManifestGitignoreLearning(root);
   // FAIL-CLOSED on detector-cannot-run. This is a DISCLOSURE-parity gate: an
@@ -4505,6 +4929,10 @@ function checkTargetOwnedIntegrity(root, opts = {}) {
   const source_rule =
     "sync-manifest.yaml target_owned (2026-08-03) — loom NEVER deletes a target-owned path; publish: local_only MUST reach the managed gitignore block on both lanes";
 
+  // loom#target-verifier — see manifestStructurallyAbsent().
+  if (manifestStructurallyAbsent(root))
+    return { id, source_rule, results: [{ artifact: "sync-manifest.yaml::target_owned", status: STATUS.SKIP, detail: "sync-manifest.yaml is not delivered to a target (loom carries it on its own exclude: list), so this check has no input here. SKIP rather than FAIL: the absence is loom's distribution contract, not a defect at this repo. At canon it still FAILS." }] };
+
   // Lazy-load the ENGINE's own manifest readers (see the import-site note).
   // `sync-tier-aware.mjs` is `loom_only`, so it is SUBTRACTED from the community
   // edition while this tool ships — a static import would ERR_MODULE_NOT_FOUND the
@@ -4615,7 +5043,7 @@ function checkTargetOwnedIntegrity(root, opts = {}) {
   // and the ordering is the whole point of it.
   //
   // `buildPlan` runs the SAME `rejectUnsafeTargetOwned` gate and answers a defect
-  // with `fail(1, …)` → `process.exit(1)` (sync-tier-aware.mjs:2530-2539). That is
+  // with `fail(1, …)` → `process.exit(1)` (sync-tier-aware.mjs:3787-3793). That is
   // right for the DISTRIBUTOR — refuse to apply a declaration it cannot read — and
   // fatal for this VALIDATOR: `process.exit` is not an exception, so the `try`
   // below never catches it, `laneError` is never set, and the process dies mid-run.
@@ -4749,6 +5177,395 @@ function checkTargetOwnedIntegrity(root, opts = {}) {
   return { id, source_rule, results };
 }
 
+/**
+ * Each Rule-2 allowlist category bullet appears EXACTLY ONCE.
+ *
+ * THE DEFECT THIS CLOSES. A PR added `conservation-gate` to the Rules allowlist
+ * by DUPLICATING the whole `- **Rules (codify-discipline):**` bullet instead of
+ * editing it, leaving two lines byte-identical except that one ended
+ * `…,verification-gate-integrity,conservation-gate}.md` and the other ended
+ * `…,verification-gate-integrity}.md`. Measured: main carried 1 such bullet, the
+ * branch carried 2, and the diff against main was a single insertion.
+ *
+ * WHAT THIS IS AND IS NOT. `parseSelfRefAllowlist` collects into a Set, so a
+ * duplicate DEDUPS and the allowlist SEMANTICS were never wrong — this is not a
+ * retro-fix for a breached gate, and claiming otherwise would overstate it. It
+ * is a DRIFT fence. Two copies of one ~1500-char line diverge the moment an
+ * editor updates one and misses the other, which is precisely how the duplicate
+ * came to exist: the bullet is long enough that appending a fresh line is easier
+ * than matching the old one exactly. Left alone, the stale copy is the one a
+ * later reader greps and believes.
+ *
+ * Deliberately keyed on the bullet LABEL, not on line equality: two bullets that
+ * differ (as these did) are the dangerous case, so comparing whole lines would
+ * miss exactly the instance that motivated the check.
+ */
+function checkAllowlistBulletUniqueness(root) {
+  const id = "allowlist-bullet-uniqueness";
+  const source_rule =
+    "self-referential-codify.md Rule 2 § one bullet per category (drift fence)";
+  const artifact = "rules/self-referential-codify.md";
+  const rulePath = join(root, ".claude", "rules", "self-referential-codify.md");
+  const ruleText = safeRead(rulePath);
+  if (ruleText === null) {
+    return {
+      id,
+      source_rule,
+      results: [{ artifact, status: STATUS.SKIP, detail: "rule unreadable or absent" }],
+    };
+  }
+  // Same recognizer `parseSelfRefAllowlist` uses, so the two cannot disagree
+  // about what counts as a category bullet (security.md § Enforcement-Surface
+  // Parity — one shared vocabulary, never a second private copy).
+  const seen = new Map();
+  const lines = ruleText.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const lm = lines[i].match(/^- \*\*([^:*]+)/);
+    if (!lm) continue;
+    const first = lm[1].trim().split(/\s+/)[0];
+    if (!ALLOWLIST_CATEGORY_FIRST_WORDS.has(first)) continue;
+    if (!seen.has(first)) seen.set(first, []);
+    seen.get(first).push(i + 1);
+  }
+  if (seen.size === 0) {
+    // Recognising NOTHING is not a pass — it is the same silence a broken
+    // matcher produces, and this check exists because silence read as clean.
+    return {
+      id,
+      source_rule,
+      results: [{
+        artifact,
+        status: STATUS.FAIL,
+        detail:
+          "no allowlist category bullet was recognised at all — the matcher is not firing here, which is INDETERMINATE, not clean",
+      }],
+    };
+  }
+  const dupes = [...seen.entries()].filter(([, at]) => at.length > 1);
+  if (dupes.length) {
+    return {
+      id,
+      source_rule,
+      results: dupes.map(([label, at]) => ({
+        artifact,
+        status: STATUS.FAIL,
+        detail:
+          `category bullet "${label}" appears ${at.length}× (lines ${at.join(", ")}) — exactly one is expected. ` +
+          "Two copies of one allowlist bullet drift: the next edit updates one and misses the other, and the stale copy is what a later reader greps. Merge them into a single bullet.",
+      })),
+    };
+  }
+  return {
+    id,
+    source_rule,
+    results: [{
+      artifact,
+      status: STATUS.PASS,
+      detail: `${seen.size} category bullet(s), each appearing exactly once`,
+    }],
+  };
+}
+
+// ── wiring-detection-canonical ────────────────────────────────────────────────
+//
+// `trust-posture.md` MUST-8 mandates a canonical Wiring template and
+// names the literal field tokens. NOTHING enforced the field NAMES, so variant
+// labels accumulated (`- **Detection:**`, `- **Detection (hook layer):**`) and
+// every tool keying on the canonical name silently missed those blocks. Measured
+// at landing: `declaration-anchor` could not address two rules for exactly this
+// reason, and the anchor's own refusal path notes that a variant-labelled bullet
+// "one edit away from firing silently" is the dangerous case.
+//
+// THE CONTRACT. Every Trust-Posture-Wiring block resolves to EXACTLY ONE
+// canonical `- **Detection mechanism:**` field. Variant-labelled siblings are
+// PERMITTED alongside it — they carry per-layer detail a roll-up cannot — but
+// they never SUBSTITUTE for it. Two failure identities, deliberately distinct:
+//   wiring-detection-missing    0 canonical fields (the anchor cannot address it)
+//   wiring-detection-ambiguous  >1 canonical fields (locateByAnchor refuses)
+//
+// WHAT COUNTS AS A WIRING BLOCK. A section carrying >=2 canonical field bullets.
+// Keying on the FIELDS rather than the TITLE is deliberate and load-bearing: the
+// corpus titles these blocks inconsistently (`## Trust Posture Wiring`,
+// `### Rule 6 — …`, `**Trust Posture Wiring (Intake Disclosure Scrub):**`), and
+// the OLDEST blocks — precisely the population at issue — often predate
+// `**Violation scope:**`, so keying on MUST-8's own grep token would MISS exactly
+// the blocks that motivated the check.
+//
+// NO GRANDFATHER SET, and that is a measurement rather than an omission. The
+// corpus census at landing returned 0 non-conforming blocks (the instances that
+// existed — four RULES, six BLOCKS — were fixed in the same change). The unit is
+// stated both ways deliberately: THIS check's unit is the BLOCK (it iterates
+// blocks and counts `blocksSeen`), so a bare "four" read against the producer's
+// own unit would be wrong by `instrument-discipline.md` MUST-4. So there is
+// nothing to exempt and
+// no snapshot file to go stale or be appended to. If a future census ever needs
+// one, it must fail CLOSED on a missing or malformed file the way
+// `hook-event-grandfather.json` does — an empty exempt set, never a full one.
+// The canonical field set, in template order. This list IDENTIFIES a Wiring
+// block (>=2 of these bullets); it does NOT assert that every one is present —
+// see the contract note above, whose only two failure identities are
+// `wiring-detection-missing` and `wiring-detection-ambiguous`.
+//
+// `Invoker class` was added 2026-09-18 as the ninth field (`trust-posture.md`
+// MUST-8). Widening this array is SAFE precisely because of the sentence above:
+// a ninth entry adds a block-identification token and asserts no new presence
+// requirement, so no pre-existing block reds on contact. MEASURED before the
+// edit rather than assumed — had this array been a required-set, the check would
+// carry a per-field presence assertion, and it carries none.
+//
+// PARITY (`security.md` § Enforcement-Surface Parity): `check-descoping.mjs`
+// holds the SECOND copy of this list as `CANONICAL_WIRING_FIELDS`, where it
+// drives de-scoping detection (a field REMOVED from a rule). Both copies were
+// enumerated and both learned `Invoker class` in the SAME change. Those two are
+// the whole population as measured at that landing — the sweep was for any file
+// carrying >=3 of these field literals across `.claude/bin`, `.claude/hooks` and
+// `.claude/test-harness`, and it returned exactly these two. Re-run that sweep
+// before adding a tenth; a third copy appearing later is a parity defect, not a
+// convenience.
+const WIRING_CANONICAL_FIELDS = [
+  "Severity",
+  "Grace period",
+  "Cumulative posture impact",
+  "Regression-within-grace",
+  "Receipt requirement",
+  "Detection mechanism",
+  "Invoker class",
+  "Violation scope",
+  "Origin",
+];
+
+const wiringFieldRe = (f) =>
+  new RegExp(`^\\s*[-*]\\s+\\*\\*${f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:?\\*\\*`);
+
+// Any `- **Detection…:**` bullet, canonical or variant-labelled. Mirrors
+// `declaration-anchor.mjs::deriveAnchor`'s VARIANT_LABELLED probe.
+//
+// THE MARKER TOLERANCE HERE IS DELIBERATE AND IS NOW DECLARED (2026-09-16).
+// This regex, `wiringFieldRe` above, and BOTH of `declaration-anchor.mjs`'s
+// probes (`bulletRe`, `VARIANT_LABELLED`) accept `-` OR `*` at ANY indent.
+// `detection-binding-check.mjs::DETECTION_BULLET_RE` is the LONE strict parser
+// in the set — column-0 hyphen only.
+//
+// That disagreement was UNDECLARED, and it was a live fail-open: a Detection
+// bullet written `* **Detection mechanism:**` is addressable by the anchor and
+// counts as canonical HERE, so this check stays green, while the strict parser
+// returns zero spans and the rule silently leaves the MUST-4 gap population.
+// MEASURED: one such edit to `conservation-gate.md` moved it from
+// `wired-and-resolving` (2 bindings) to `wired-no-detection-block` (0), and BOTH
+// tools exited 0 — this file at 1844 pass / 0 fail, byte-identical to baseline.
+//
+// THE FIX IS NOT TO TIGHTEN THIS ONE, and that is a deliberate call rather than
+// an omission. Tightening here would make a block that IS addressable report as
+// `wiring-detection-missing`, which is a false identity — the block is present
+// and the anchor can reach it. The enforcing instrument is
+// `detection-binding-check.mjs::non-canonical-detection-marker`, a CRITICAL
+// check that reds on any marker ITS OWN parser discards, deriving the verdict
+// from that parser so the two cannot drift.
+//
+// Nor is the fix to make the strict parser tolerant. Tolerance does not remove
+// the silent-discard class, it RELOCATES the boundary: `^\s*[-*]\s+` still drops
+// `+`, `1.` and a U+2011 lookalike, now with no detector watching. Every
+// tolerance level has an edge, and the edge is silent unless something checks
+// it. Only the loud detector removes the class.
+const WIRING_ANY_DETECTION_RE = /^\s*[-*]\s+\*\*Detection\b[^*]*:\*\*/;
+
+export function wiringBlocksIn(text, deps) {
+  const { computeFenceMap, sectionTitles } = deps;
+  const lines = text.split(/\r?\n/);
+  const fence = computeFenceMap(lines);
+  const titles = sectionTitles(lines, fence);
+  // A file whose fences do not balance leaves `computeFenceMap` reporting every
+  // line after the stray delimiter as fenced, which silently hides every Wiring
+  // block below it. That is a fail-OPEN, so it is reported rather than absorbed
+  // (M-4). Live exposure is zero today — all rule files have even fence counts —
+  // but "zero today" is not a fence.
+  let openChar = null;
+  for (const l of lines) {
+    const f = /^\s*(```|~~~)/.exec(l);
+    if (!f) continue;
+    if (openChar === null) openChar = f[1];
+    else if (openChar === f[1]) openChar = null;
+  }
+  const blocks = [];
+  blocks.unbalancedFence = openChar !== null;
+  // `locateByAnchor` refuses for TWO reasons, and gating only the field count
+  // closes one of them. The other is a DUPLICATE BLOCK TITLE: the anchor is
+  // (file, block_title, field), so two sections sharing a title make every
+  // anchor into either one AMBIGUOUS and unaddressable, however correct its
+  // fields are. That half was being held BY HAND — `bbbc2c17e` fixed exactly
+  // this in deployment.md, which carried three identical `**Trust Posture
+  // Wiring:**` titles, and nothing gated it afterwards.
+  const titleCounts = new Map();
+  for (const t of titles) titleCounts.set(t.text, (titleCounts.get(t.text) || 0) + 1);
+  for (let i = 0; i < titles.length; i++) {
+    const start = titles[i].line;
+    const end = i + 1 < titles.length ? titles[i + 1].line : lines.length;
+    const body = lines.slice(start, end).filter((_, k) => !fence[start + k]);
+    const present = WIRING_CANONICAL_FIELDS.filter((f) => body.some((l) => wiringFieldRe(f).test(l)));
+    const canonical = body.filter((l) => wiringFieldRe("Detection mechanism").test(l)).length;
+    const anyDetection = body.filter((l) => WIRING_ANY_DETECTION_RE.test(l)).length;
+    // A block qualifies on EITHER >=2 canonical fields, OR >=1 canonical field
+    // alongside any Detection bullet at all. The second arm closes M-3: a >=2
+    // threshold alone lets a block carrying ONE canonical field (say `Severity`)
+    // plus N variant-labelled Detection bullets fall out of classification
+    // entirely and pass in silence — which is precisely the shape this check
+    // exists to catch, so the thresholding must not be the way out of it.
+    if (present.length < 2 && !(present.length >= 1 && anyDetection > 0)) continue;
+    blocks.push({
+      title: titles[i].text,
+      line: start + 1,
+      fields: present.length,
+      canonical,
+      variant: anyDetection - canonical,
+      titleOccurrences: titleCounts.get(titles[i].text) || 1,
+    });
+  }
+  return blocks;
+}
+
+function checkWiringDetectionCanonical(root) {
+  const id = "wiring-detection-canonical";
+  const source_rule = "trust-posture.md MUST-8 § canonical Wiring template";
+  // LAZY, never module-scope: `lib/declaration-anchor.mjs` is `loom_only` while
+  // THIS file SHIPS, so a static import is ERR_MODULE_NOT_FOUND at every consumer.
+  // Same shape as the edition-libs check above; MODULE_NOT_FOUND -> SKIP, anything
+  // else re-throws so a present-but-broken module at loom is never silently skipped.
+  let deps;
+  try {
+    deps = _require("./lib/declaration-anchor.mjs");
+  } catch (e) {
+    if (e && (e.code === "MODULE_NOT_FOUND" || e.code === "ERR_MODULE_NOT_FOUND")) {
+      return {
+        id,
+        source_rule,
+        results: [
+          {
+            artifact: "lib/declaration-anchor.mjs",
+            status: STATUS.SKIP,
+            detail:
+              "the positional-free anchor library is loom_only and absent here — the canonical-Wiring-field check is a loom-authoring-side concern; skipped at a consumer (F1030d fail-closed bin allowlist)",
+          },
+        ],
+      };
+    }
+    throw e;
+  }
+
+  // BOTH rule surfaces. `.claude/rules/*.md` is canon; `.claude/variants/*/rules/*.md`
+  // is what actually lands at a py/rs consumer, and a variant block that drops the
+  // canonical field would pass a canon-only gate here and hard-fail the CONSUMER's
+  // own validate-emit (M-5). Scanning only canon made loom's gate weaker than the
+  // surface it governs.
+  const surfaces = [{ label: "rules", dir: join(root, ".claude", "rules") }];
+  let variantRoots = [];
+  try {
+    variantRoots = readdirSync(join(root, ".claude", "variants"));
+  } catch { /* no variants tree — canon-only checkout */ }
+  for (const v of variantRoots) {
+    const d = join(root, ".claude", "variants", v, "rules");
+    try {
+      if (statSync(d).isDirectory()) surfaces.push({ label: `variants/${v}/rules`, dir: d });
+    } catch { /* this variant declares no rules overlay */ }
+  }
+
+  const results = [];
+  let blocksSeen = 0;
+  let filesSeen = 0;
+  for (const surface of surfaces) {
+   let files;
+   try {
+     files = readdirSync(surface.dir).filter((f) => f.endsWith(".md")).sort();
+   } catch {
+     if (surface.label === "rules") {
+       return {
+         id,
+         source_rule,
+         results: [{ artifact: ".claude/rules/", status: STATUS.SKIP, detail: "rules directory unreadable or absent" }],
+       };
+     }
+     continue;
+   }
+   filesSeen += files.length;
+   for (const f of files) {
+    // The governance surface is the rule file UNION its wiring sibling. The
+    // enumeration above is `readdirSync(surface.dir)` — NON-recursive — so a
+    // sibling under `wiring/` is structurally invisible here and a split rule
+    // would contribute ZERO Wiring blocks while this check stayed green, which
+    // is the same vacuous-pass shape this file's own header already names for
+    // the marker-tolerance case (`instrument-discipline.md` MUST-3(a)).
+    const text = readGovernanceSurface(join(surface.dir, f)).text;
+    if (text === null) {
+      results.push({ artifact: `${surface.label}/${f}`, status: STATUS.SKIP, detail: "unreadable" });
+      continue;
+    }
+    const blocks = wiringBlocksIn(text, deps);
+    // An unbalanced fence blinds the scan below it. Report it rather than let a
+    // partially-scanned file read as clean (M-4).
+    if (blocks.unbalancedFence) {
+      results.push({
+        artifact: `${surface.label}/${f}`,
+        status: STATUS.FAIL,
+        detail:
+          "unbalanced-code-fence: this file has an odd number of fence delimiters, so every line after the stray one is treated as fenced and any Wiring block below it is INVISIBLE to this check. That is a fail-OPEN, not a clean file. Balance the fence.",
+      });
+    }
+    for (const b of blocks) {
+      blocksSeen++;
+      const where = `${surface.label}/${f}:${b.line} § "${b.title.slice(0, 60)}"`;
+      // The SECOND refusal cause, independent of the field count: a duplicated
+      // block title makes the anchor ambiguous even when the fields are perfect.
+      // Reported separately so the remedy is unambiguous — rename the title, do
+      // NOT touch the fields.
+      if (b.titleOccurrences > 1) {
+        results.push({
+          artifact: where,
+          status: STATUS.FAIL,
+          detail:
+            `wiring-title-ambiguous: this block's title appears ${b.titleOccurrences} times in the file, so the ` +
+            `(file, block_title, field) anchor resolves to NONE of them — \`declaration-anchor.mjs::locateByAnchor\` ` +
+            `refuses with "AMBIGUOUS" and every tool keying on that anchor silently skips all ${b.titleOccurrences}. ` +
+            `Its FIELDS may be perfectly canonical and it is still unaddressable. FIX: give each block a DISTINCT title ` +
+            `(e.g. \`**Trust Posture Wiring (<clause>):**\`) — do not touch the fields.`,
+        });
+      }
+      if (b.canonical === 1) continue;
+      if (b.canonical === 0) {
+        results.push({
+          artifact: where,
+          status: STATUS.FAIL,
+          detail:
+            `wiring-detection-missing: this Trust-Posture-Wiring block carries ${b.fields} canonical field(s) but NO ` +
+            `\`- **Detection mechanism:**\` field` +
+            (b.variant > 0
+              ? ` — it has ${b.variant} variant-labelled Detection bullet(s) instead (e.g. \`- **Detection:**\` / \`- **Detection (hook layer):**\`). ` +
+                `A variant label does NOT satisfy MUST-8 and is unaddressable by \`declaration-anchor.mjs\`, so every tool keying on the canonical ` +
+                `name silently skips this block. FIX: keep the variant bullets VERBATIM and ADD a canonical roll-up field that names itself as the ` +
+                `roll-up and carries the block's citations. Do NOT strip the variant labels — they carry per-layer scoping the roll-up cannot.`
+              : `. FIX: add a \`- **Detection mechanism:**\` field naming the scanner/fixtures/probes binding.`),
+        });
+      } else {
+        results.push({
+          artifact: where,
+          status: STATUS.FAIL,
+          detail:
+            `wiring-detection-ambiguous: ${b.canonical} canonical \`- **Detection mechanism:**\` fields in ONE Wiring block. ` +
+            `\`declaration-anchor.mjs::locateByAnchor\` REFUSES this ("cannot disambiguate"), so the block is unaddressable. ` +
+            `FIX: merge them into one canonical field, or re-label all but one as variant-scoped siblings.`,
+        });
+      }
+    }
+   }
+  }
+  if (results.length === 0) {
+    results.push({
+      artifact: `.claude/rules/ + .claude/variants/*/rules/ (${filesSeen} rule file(s), ${blocksSeen} Wiring block(s))`,
+      status: STATUS.PASS,
+      detail: `every Wiring block resolves to exactly one canonical \`- **Detection mechanism:**\` field`,
+    });
+  }
+  return { id, source_rule, results };
+}
+
 function checkAllowlistPathsCoverage(root) {
   const id = "allowlist-paths-coverage";
   const source_rule =
@@ -4782,7 +5599,7 @@ function checkAllowlistPathsCoverage(root) {
   // returns a SKIP, which is NON-blocking — so with the guard behind it, MAXIMAL
   // breakage would have been the QUIETEST outcome, and the guard whose entire purpose
   // is loudness on unrecognized bullets would be the one thing that never ran.
-  const { spanOk, unrecognized } = findUnrecognizedAllowlistBullets(ruleText);
+  const { spanOk, unrecognized, nonCanonical } = findUnrecognizedAllowlistBullets(ruleText);
   if (!spanOk) {
     results.push({
       artifact: "rules/self-referential-codify.md § Rule 2 allowlist span",
@@ -4791,6 +5608,20 @@ function checkAllowlistPathsCoverage(root) {
         `unrecognized-allowlist-bullet check could not locate the § Rule 2 allowlist span ` +
         `(start anchor "The allowlist (load-bearing paths only;" / end anchor "**\`paths:\` frontmatter is the load-trigger SUPERSET"). ` +
         `The span-scoped guard is therefore NOT running and a new category bullet would be discarded silently. Restore the anchors or update them in validate-emit.mjs.`,
+    });
+  }
+  // LOUD on a non-canonical bullet MARKER (2026-09-15, formatter-disarm lane).
+  // Reported BEFORE the label rows: a non-canonical marker discards the bullet
+  // whatever its label, so it is the root cause an operator should read first.
+  for (const n of nonCanonical) {
+    results.push({
+      artifact: `rules/self-referential-codify.md:${n.line} — bullet "${n.label}"`,
+      status: STATUS.FAIL,
+      detail:
+        `non-canonical-allowlist-bullet-marker: this bullet opens with ${JSON.stringify(n.marker)}, not the canonical "- ". ` +
+        `parseSelfRefAllowlist, checkAllowlistBulletUniqueness and the #443 superset gate are all line-oriented on /^- \\*\\*/, so they DISCARD this bullet ENTIRELY — every path it declares silently leaves the allowlist and its files stop firing the Rule-1 self-referential gate, with no error and no warning. ` +
+        `MEASURED: one such marker on the Commands bullet took the parsed allowlist from 220 entries to 199 while validate-emit still exited 0. ` +
+        `\`*\` and \`+\` are valid CommonMark and render identically, and prettier is no longer normalizing them, so nothing else will catch this. Restore the marker to "- " at column 0 with exactly one space.`,
     });
   }
   for (const u of unrecognized) {
@@ -5092,8 +5923,14 @@ function checkSettingsRegistration(root) {
       ],
     };
   }
-  // Registered = any *.js basename referenced by ANY settings.json command string.
-  const registered = new Set(settingsText.match(/[a-zA-Z0-9._-]+\.js/g) || []);
+  // Registered = any *.js basename referenced by ANY settings.json command string,
+  // or by a command the dispatch registry holds for a `dispatch.js <Event>`
+  // entry (the groups moved there verbatim; a hook listed there IS registered).
+  const registryText = safeRead(join(hooksDir, "dispatch-registry.json")) || "";
+  const registered = new Set([
+    ...(settingsText.match(/[a-zA-Z0-9._-]+\.js/g) || []),
+    ...(registryText.match(/[a-zA-Z0-9._-]+\.js/g) || []),
+  ]);
   const MARKER = /@settings-registration:/;
   const results = [];
   for (const h of diskHooks) {
@@ -5431,6 +6268,21 @@ function checkHookEventDeclaration(root, opts = {}) {
   // command genuinely register" is exactly the drift `security.md`
   // § Enforcement-Surface Parity forbids — and the one this check would be most
   // tempted to write, since it only needs the basename.
+  try {
+    settings = expandDispatchedHooks(settings, root);
+  } catch (e) {
+    return {
+      id,
+      source_rule,
+      results: [
+        {
+          artifact: ".claude/hooks/dispatch-registry.json",
+          status: STATUS.FAIL,
+          detail: `dispatch registry unreadable — registrations behind dispatch.js cannot be checked: ${String(e.message || "").split("\n")[0].slice(0, 120)}`,
+        },
+      ],
+    };
+  }
   const registeredByHook = new Map();
   for (const r of enumerateRegistrations(settings)) {
     if (!r.rel) continue; // non-canonical / inline shell — settings-hook-registration owns it
@@ -5611,7 +6463,10 @@ function checkHookEventDeclaration(root, opts = {}) {
 // `../.codex-mcp-guard`, so the two paths are the SAME file and the byte-compare
 // passes by construction; SKIP only when the root dir is absent (a pure-CC
 // consumer with no codex-mcp-guard at all).
-const CODEX_GUARD_PARITY_FILES = ["server.js", "extract-policies.mjs", "README.md", "policies.json"];
+const CODEX_GUARD_PARITY_FILES = [
+  "server.js", "extract-policies.mjs", "README.md", "policies.json",
+  "package.json", "package-lock.json", "test-server.mjs", "test-extract-policies.mjs",
+];
 function checkCodexGuardRootParity(root) {
   const id = "codex-guard-root-parity";
   const source_rule = "codex-mcp-guard root/.claude runtime parity (F-CGUARD / journal/0534)";
@@ -5769,10 +6624,13 @@ const CHECK_FNS = {
   "hook-delivery": checkHookDelivery,
   "coc-artifact-ids": checkCocArtifactIds,
   "consumer-efficacy": checkConsumerEfficacy,
+  "trust-root-fresh": checkTrustRootFresh,
   "codex-policies-fresh": checkCodexPoliciesFresh,
   "codex-guard-root-parity": checkCodexGuardRootParity,
   "variant-orphan": checkVariantOrphan,
+  "allowlist-bullet-uniqueness": checkAllowlistBulletUniqueness,
   "allowlist-paths-coverage": checkAllowlistPathsCoverage,
+  "wiring-detection-canonical": checkWiringDetectionCanonical,
   "target-owned-integrity": checkTargetOwnedIntegrity,
   "surface-role-membership": checkSurfaceRoleMembership,
   "claude-md-surface-role-parity": checkClaudeMdSurfaceRoleParity,
@@ -5941,29 +6799,9 @@ function main() {
 }
 
 // Export internals for the audit-fixture harness.
-const __filename = fileURLToPath(import.meta.url);
-
-// Symlink-robust "was this module invoked directly?" test. `filename` (from
-// import.meta.url) is already realpath-resolved by the module loader, while
-// `argv1` is the path exactly as the user invoked it — which may traverse a
-// symlink (e.g. macOS `/tmp` → `/private/tmp`, or a symlinked checkout prefix).
-// A plain resolve() does NOT dereference symlinks, so the two can differ for the
-// same file, making main-detection silently false → main() never runs → the
-// validator no-ops and reports a false-clean (an audit-integrity defect).
-// realpathSync canonicalizes BOTH sides so the comparison holds through symlinks.
-function isInvokedAsMain(argv1, filename) {
-  if (!argv1) return false;
-  try {
-    return realpathSync(argv1) === realpathSync(filename);
-  } catch {
-    // realpathSync throws when argv1 does not resolve on disk (e.g. a virtual
-    // entrypoint). Fall back to the resolve()-comparison — the non-symlink path,
-    // correct whenever no symlink is in play (the only case reachable here).
-    return resolve(argv1) === resolve(filename);
-  }
-}
-
-const isMain = isInvokedAsMain(process.argv[1], __filename);
+// Entry-point check: .claude/bin/lib/entry-point.mjs (symlink-safe; a lexical compare exits 0 silently).
+// isInvokedAsMain is re-exported below for the existing symlink test.
+const isMain = isMainModule(import.meta.url);
 
 export {
   parseFrontmatter,
@@ -6018,6 +6856,7 @@ export {
   classifyVariantFile,
   listTrackedVariants,
   checkAllowlistPathsCoverage,
+  checkWiringDetectionCanonical,
   checkTargetOwnedIntegrity,
   checkSurfaceRoleMembership,
   parseSurfaceRoles,

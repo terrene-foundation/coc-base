@@ -1,2 +1,5 @@
 FAIL forest-ledger: .claude/audit-fixtures/forest-ledger/fixture-23-fence-type-pairing.session-notes
+  [L1] line outside the ledger grammar — a code fence (it hides the lines inside it from the ledger); move it out of the section: ```
+  [L1] line outside the ledger grammar — a code fence (it hides the lines inside it from the ledger); move it out of the section: ~~~ literal not a closer
+  [L1] line outside the ledger grammar — a code fence (it hides the lines inside it from the ledger); move it out of the section: ```
   [L2] ledger row "F1" has no value-anchor (value-prioritization.md MUST-1+2)

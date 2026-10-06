@@ -1,0 +1,5 @@
+# `npx` is a WRAPPER: the real claim is its payload. npx would silently FETCH
+# prettier rather than fail, which is weaker than the transitive-lockfile case
+# the rule's `**Why:**` already refuses — a resolution accident, not a
+# declaration. `--yes` is a flag and must not be mistaken for the payload.
+finding:undeclared:prettier

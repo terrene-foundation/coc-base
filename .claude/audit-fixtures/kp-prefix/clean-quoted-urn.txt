@@ -1,0 +1,6 @@
+---
+title: Quoted binding
+knowledge-product: "kp://use/9f2c7a13d8/churn-features@3"
+---
+
+# Quoted binding

@@ -1,0 +1,1 @@
+xvfb-run -a sh -c 'cat .claude/settings.json'

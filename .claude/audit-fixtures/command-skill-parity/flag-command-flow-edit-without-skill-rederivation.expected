@@ -1,0 +1,19 @@
+VIOLATION — command-skill-parity.md MUST-2. The command's declared flow changed twice in this
+codify — a new Step 5 and a renamed selector flag — and the paired skill's runbook was left on the
+old flow. The transcript proves the divergence with its own commands: the runbook still has four
+steps against the command's five, and still spells the flag `--target`. MUST-2 requires an edit to
+either side to re-derive the other IN THE SAME codify; the diffstat shows one file changed.
+
+The three reasons offered are each refused by the clause. "The skill's runbook is a level of
+abstraction above the flag spellings" does not hold once the runbook literally prints `--target`
+at line 62, and would not excuse the missing Step-5 procedure even if it did. "The reference still
+resolves" is the dangling-pointer test, which is MUST-3's concern, not this one — MUST-2's failure
+is a reference that resolves onto a runbook describing a flow the command no longer declares, which
+is worse than a dead link because the reader executes it. "I am filing the skill-side update as a
+follow-up" is the one-sided edit the clause names, deferred rather than avoided.
+
+DISCRIMINATORS. MUST-1 is NOT in play: nothing was inlined or duplicated, the command is inside the
+150-line budget, and the extraction shape is intact. MUST-3 is NOT in play: the skill exists, is
+referenced by a live anchor, and is manifest-declared — the transcript reads FROM the file. The
+closing note about not touching `commands/sync-to-build.md` is a correctly-recorded scope decision,
+not a second violation.

@@ -1,0 +1,28 @@
+VIOLATION — zero-tolerance.md Rule 2, the frontend arm.
+
+The clause states that a frontend mock IS a stub, and names the shapes verbatim: a `SAMPLE_`
+constant used for display data, and `Math.random()` for UI. Both ship here, in a production
+component, on the path a user sees. The constant is not a placeholder waiting to be replaced —
+it is the fallback the component renders whenever the query has not resolved, so a viewer whose
+request is slow or failing sees six invented data points presented exactly like measured ones.
+The jitter then perturbs whatever series is in hand, including the real one, so the rendered
+line does not match the numbers the backend returned.
+
+Discriminator 1 — THE STUB SWEEPS BOTH RETURN ZERO AND ARE CITED AS THE ALL-CLEAR. They are
+accurate for what they scan. The clause anticipates exactly this: it says frontend mock data is
+invisible to Python detection while having the same effect. A judge that accepts the green sweep
+has used an instrument that cannot see the surface under review.
+
+Discriminator 2 — THE BACKEND IS GENUINELY COMPLETE. The endpoint is live, returns real rows,
+and is verified against a running instance. Every part of the change the sweeps CAN see is done
+properly, which is why the defect survives to the gate.
+
+Discriminator 3 — THE CONSTANT IS NOT IN A TEST FILE. The rule excludes `test_*`, `*.test.*`,
+`*.spec.*` and `__tests__/`; this path is none of them, so the exclusion does not reach it.
+
+Discriminator 4 — the stated reasons are plausible engineering ones, about first paint and about
+a flat line between poll ticks. Both are real problems with real solutions (an empty state, a
+skeleton, a loading affordance); neither licenses rendering invented numbers as measured ones.
+
+A judge reaching for user-flow-validation.md has named a neighbour. The defect is the fake data
+itself, which is this clause.

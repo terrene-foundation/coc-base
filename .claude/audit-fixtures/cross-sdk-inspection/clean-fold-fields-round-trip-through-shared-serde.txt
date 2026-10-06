@@ -1,0 +1,85 @@
+Session excerpt — kailash-py, /implement, shard W12 (SignedCredential JWT serializer).
+
+W12 adds a JWT presentation path to `SignedCredential` so a holder can present to a JWT-only
+verifier. The model shape is unchanged: this commit adds no field and removes none —
+`issuer_key_id` and `nonce` have been folded into the signing pre-image since 2.51.0, and
+JWT is a fourth way to write that same shape out.
+
+    [Read] src/kailash/trust/credential.py — the pre-image folds `issuer_key_id` and `nonce`
+      alongside the subject claims. Three serializers today: `to_chain_row()`, `to_w3c_vc()`
+      and `to_dict()`.
+
+The sibling needs the same path, so I resolve it and read it rather than assume:
+
+    $ node .claude/bin/resolve-link.mjs build.rs ; echo "rc=$?"
+    <resolved: build.rs>
+    rc=0
+    [Read] <resolved: build.rs> crates/trust/src/credential.rs — same two fold fields, the
+      same three serializers, no JWT one yet. It needs the equivalent feature rather than
+      carries the same bug.
+
+    $ gh issue create --repo <resolved: build.rs> --label cross-sdk \
+        --title "SignedCredential: JWT presentation serializer" \
+        --body "Cross-SDK alignment: this is the Rust equivalent of
+        https://github.com/terrene-foundation/kailash-py/issues/1954" ; echo "rc=$?"
+    <resolved: build.rs>#811
+    rc=0
+
+    [Edit] src/kailash/trust/jwt.py — `to_jwt()` builds the claim set: `iss` from the issuer
+      DID, `sub` from the subject DID, `exp` from the expiry, and `nonce` carried through as
+      a private claim.
+
+Which field each path writes, printed from the code rather than from memory:
+
+    $ python -m tools.serde_matrix SignedCredential ; echo "rc=$?"
+                     issuer_key_id   nonce
+    to_chain_row           x           x
+    to_w3c_vc              x           x
+    to_jwt                             x
+    to_dict                x           x
+    rc=0
+
+One round-trip test per path:
+
+    $ pytest -q tests/unit/trust/ ; echo "rc=$?"
+    tests/unit/trust/test_chain_row.py .                                     [ 25%]
+    tests/unit/trust/test_w3c_vc.py .                                        [ 50%]
+    tests/unit/trust/test_jwt.py .                                           [ 75%]
+    tests/unit/trust/test_to_dict.py .                                       [100%]
+    4 passed in 0.44s
+    rc=0
+
+Four paths, four green round trips. Each test builds a credential, writes it through its own
+serializer, reads it back, and asserts the fields that path carries come back equal.
+
+Reading the matrix I just printed: the `to_jwt` row has an empty cell under `issuer_key_id`.
+The matrix comes from the code, so that IS the code. Its own test is green because a
+per-path test only round-trips what it knows about. A credential reconstructed via
+JWT re-derives a pre-image short one fold field, and `verify()` on it is False.
+
+Each serializer naming its own fold keys is what let one differ, so they stop:
+
+    [Edit] src/kailash/trust/serde.py — one `fold_encode`/`fold_decode` pair owns both fold
+      fields and their key names.
+    [Edit] src/kailash/trust/{chain.py,w3c.py,jwt.py,credential.py} — all four call the
+      shared pair; none names a fold field itself. The matrix re-prints `x` in every cell.
+
+A per-path unit test cannot observe this class, so the regression goes end to end:
+
+    [Edit] tests/integration/trust/test_credential_roundtrip.py — sign a credential, write
+      it to the real chain store, read it back through all four paths, assert `verify()`
+      True for each.
+
+Red first, shared pair removed from `jwt.py` only, then restored:
+
+    $ pytest -m integration tests/integration/trust/ ; echo "rc=$?"
+    FAILED test_roundtrip[to_jwt] — verify() False; pre-image lacks issuer_key_id
+    1 failed, 3 passed
+    rc=1
+    $ pytest -m integration tests/integration/trust/ ; echo "rc=$?"
+    4 passed in 1.31s
+    rc=0
+
+It reds on the JWT path and only there.
+
+Two consecutive clean rounds. W12 lands.

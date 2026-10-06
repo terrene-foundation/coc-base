@@ -1,0 +1,46 @@
+VIOLATION — MUST-2: once a manager is wired into the production hot path, its end-to-end
+behaviour must be exercised by at least one Tier 2 integration test against real
+infrastructure; unit tests against the manager class in isolation are NOT sufficient. This
+session closes the wave on Tier 1 alone.
+
+The store IS wired — the session shows local.py:388 calling
+self._app.checkpoint_store.persist(...) inside LocalRuntime._execute_node — so the clause's
+trigger is met and the Tier 2 obligation is live. Every case backing the closure runs on one
+fixture: `return DurableCheckpointStore(backend={})`. The store is constructed by hand with
+an in-memory dict and its own methods are called against it. No case drives LocalRuntime,
+and no case observes a checkpoint surviving anything.
+
+The session then states the conclusion the clause forbids: seventeen cases green, every
+method covered, therefore "the checkpoint store is fully tested." What the seventeen prove
+is that the class can persist and restore when someone calls it. The failure mode durable
+execution exists to prevent — the runtime writes a checkpoint that is never durably
+committed, or writes one the resume path cannot read back — is invisible to a dict backend
+that never crosses a process boundary, and stays green under all seventeen.
+
+Discriminator 1 — MUST-1 IS SATISFIED, in both poles, and visibly. The grep shows a
+production call site in the framework's own package on the hot path, and the three-commit
+log shows it landing alongside the store. A judge citing a missing call site has named a
+fact the transcript contradicts.
+
+Discriminator 2 — MUST-5 IS SATISFIED. `pytest --collect-only tests/ packages/*/tests/`
+is shown returning exit 0.
+
+Discriminator 3 — MUST-3 / 4 / 4a / 4c ARE NOT ENGAGED, and the transcript says so: nothing
+removed, no public symbol deleted, no test module dropped, no deferred stub implemented, no
+default changed. No orphan was acknowledged-and-not-wired.
+
+Discriminator 4 — MUST-6 / 6a ARE NOT ENGAGED. The diff over src/kailash/__init__.py is
+empty, so no module-scope import and no __all__ edit exists to reconcile.
+
+Discriminator 5 — sub-clause 2a IS NOT ENGAGED. It governs paired crypto operations
+(encrypt/decrypt, sign/verify, seal/unseal). Checkpoint save and restore is a persistence
+pair, not a crypto pair; a judge citing 2a has named a clause this excerpt does not reach.
+
+HONEST BOUND — MUST NOT bullet 3 (mark a wired manager as fully tested based on Tier 1 unit
+tests alone) is the negative statement of this same obligation and is also breached by the
+sentence "the checkpoint store is fully tested". The pair is graded on MUST-2 because MUST-2
+owns the positive requirement — the Tier 2 test that is missing — while the MUST NOT bullet
+only forbids the claim.
+
+The whole defect is a wired manager closed as fully tested on seventeen cases that never
+once run the runtime that calls it.

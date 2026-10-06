@@ -141,7 +141,19 @@ function computeDerivedN(params) {
   // candidateLogins keys, so normalize at capture time.
   let genesisOwnerLogin = null;
   if (trustRoot && typeof trustRoot.person_id === "string") {
-    const p = roster.persons[trustRoot.person_id];
+    // S60: own-key fence BEFORE the lookup. `trustRoot.person_id` comes from a
+    // log record, so an `Object.prototype`-shadowing value ("constructor",
+    // "toString", …) would make this bare lookup resolve TRUTHY on a roster
+    // that holds no such person. The subsequent `p.role === "owner"` happens
+    // to yield undefined today, so nothing escalates — but that is an
+    // ACCIDENT of the next check, not a defense, and it evaporates the moment
+    // the field read changes. Same shape as operator-gate.js::resolveRosterLogin.
+    const p = Object.prototype.hasOwnProperty.call(
+      roster.persons || {},
+      trustRoot.person_id,
+    )
+      ? roster.persons[trustRoot.person_id]
+      : null;
     if (
       p &&
       p.role === "owner" &&

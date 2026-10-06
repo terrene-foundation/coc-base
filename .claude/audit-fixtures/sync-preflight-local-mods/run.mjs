@@ -16,6 +16,7 @@
  *   node .claude/audit-fixtures/sync-preflight-local-mods/run.mjs
  */
 
+import "../_lib/no-ambient-git.cjs";
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -229,6 +230,68 @@ add("13-scanned-count-is-the-discriminating-line", () => {
     pass: r.code === 0 && /^Scanned: [1-9]\d* files/m.test(r.out),
     got: `${r.code} :: ${r.out.trim()}`,
     want: "0 with a non-zero 'Scanned: N files' line",
+  };
+});
+
+// ── VERIFY-MODE COUNTER — the figure must name the population it COMPARED ────
+//
+// Bipolar pair. Both poles run --snapshot then --verify and both exit 0 with
+// "0 violations"; they separate ONLY on how many consumer-owned files existed
+// before the sync, which is exactly the quantity the summary figure claims to
+// report. Before the fix these two poles printed a BYTE-IDENTICAL line
+// ("1 checked, 0 violations"), because the figure counted receipt KEYS while
+// `verifyConsumerOwned` skips every `present:false` entry — so the line was
+// constant across the proposition its own label asserted. These cases exist so
+// that regression reddens instead of reading as a clean preservation result.
+
+/** A non-git scratch root; --snapshot/--verify never shell out to git for the roster. */
+function bareRoot() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), "syncpreflight-verify-"));
+}
+
+add("14-verify-with-ZERO-consumer-owned-files-is-not-reported-as-checked", () => {
+  // No .claude/deferrals.json exists ⇒ verifyConsumerOwned compares NOTHING.
+  const root = bareRoot();
+  const receipt = path.join(root, "receipt.json");
+  const snap = runTool(["--root", root, "--snapshot", receipt]);
+  const v = runTool(["--root", root, "--verify", receipt]);
+  return {
+    pass:
+      snap.code === 0 &&
+      v.code === 0 &&
+      /\b0 of \d+ recorded path\(s\) compared\b/.test(v.out) &&
+      /VACUOUS/.test(v.out),
+    got: `${v.code} :: ${v.out.trim()}`,
+    want: "0, and a line reporting '0 of N recorded path(s) compared' marked VACUOUS",
+  };
+});
+
+add("15-verify-figure-moves-with-the-COMPARED-count-not-the-receipt-key-count", () => {
+  // Same tool, same flags, two roots that differ ONLY in whether the
+  // consumer-owned file exists. The figure MUST differ between them; if it does
+  // not, it is not reporting what it is labelled as reporting.
+  const empty = bareRoot();
+  const populated = bareRoot();
+  fs.mkdirSync(path.join(populated, ".claude"), { recursive: true });
+  fs.writeFileSync(path.join(populated, ".claude", "deferrals.json"), '{"rows":{}}\n');
+
+  const rEmpty = path.join(empty, "receipt.json");
+  const rPop = path.join(populated, "receipt.json");
+  runTool(["--root", empty, "--snapshot", rEmpty]);
+  runTool(["--root", populated, "--snapshot", rPop]);
+  const a = runTool(["--root", empty, "--verify", rEmpty]);
+  const b = runTool(["--root", populated, "--verify", rPop]);
+
+  const fig = (s) => (s.match(/verify: (\d+) of (\d+) recorded/) || [])[1];
+  return {
+    pass:
+      a.code === 0 &&
+      b.code === 0 &&
+      fig(a.out) === "0" &&
+      fig(b.out) === "1" &&
+      a.out !== b.out,
+    got: `empty=${fig(a.out)} populated=${fig(b.out)} identical=${a.out === b.out}`,
+    want: "empty=0 populated=1 identical=false — the figure discriminates",
   };
 });
 

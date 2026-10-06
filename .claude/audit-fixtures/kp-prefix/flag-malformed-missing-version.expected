@@ -1,0 +1,12 @@
+{
+  "path": "specs/domain/churn-v2.md",
+  "expect": [
+    "specs-authority/rule-10-malformed-kp-urn"
+  ],
+  "disposition": "firing",
+  "family": "declared grammar — no @version",
+  "defeats": "a bare `startsWith('kp://')` prefix test, which is exactly what the graduated deferral describes and which passes this line. The rule declares `kp://<owning_level>/<domain>/<name>@<version>`; an unversioned URN names no resolvable revision.",
+  "quotes_verbatim": [
+    "kp://use/9f2c7a13d8/churn-features"
+  ]
+}
