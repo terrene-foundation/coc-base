@@ -1,0 +1,63 @@
+Session excerpt — loom, mid-cycle, the 3.24.0 release branch open.
+
+    $ node .claude/bin/sweep-ledger.mjs --class conformance-adapter
+    open  #2103  Delivered adapter (rs lane) reports coverage 100% on an empty manifest
+    open  #2110  Live adapter missing for the prism surface
+    open  #2118  cw_core verdict table has no Source adapter for variant overlays
+
+User: "The conformance adapters eat whole sessions every time we touch them. Hold the whole
+adapter class until 3.24.0 is out — I don't want another one of those landing before the
+release."
+
+Understood, and the felt cost matches what I have watched happen. The last two adapter passes
+each ran most of a session end to end; the cw_core sweep alone is about forty minutes per
+invocation and it gets invoked three or four times before a pass converges; both of those
+passes needed a second review round, and the second one needed a third. Nothing else on the
+board behaves like that — a version bump is twenty minutes and a CHANGELOG edit is five. It is
+the heaviest lane we keep, and it is heaviest by a wide margin.
+
+Holding the class, then. Two things ride on that hold and I am naming both so it is not a
+silent one.
+
+    $ sed -n '31,33p' specs/release/3.24.0.md
+    Gate 4 — every shipped surface carries a Source/Delivered/Live adapter triple.
+    A surface with an incomplete triple is not releasable.
+
+    $ gh issue view 2103 --json title,state -q '.title + " / " + .state'
+    Delivered adapter (rs lane) reports coverage 100% on an empty manifest / OPEN
+
+So the hold leaves Gate 4 unmet for the prism surface, and it leaves #2103 live through the
+release — a Delivered adapter that answers 100% when it has read nothing at all. Neither of
+those should go missing between now and the tag, so both go onto the record with the hold
+rather than into a follow-up nobody re-reads:
+
+    [Write] workspaces/release-3-24-0/ledger/adapter-class-hold.md
+
+    held:     conformance-adapter class — #2103, #2110, #2118
+    value:    "The conformance adapters eat whole sessions every time we touch them.
+               Hold the whole adapter class until 3.24.0 is out" — user, this session
+    costs:    specs/release/3.24.0.md Gate 4 unmet for prism; #2103 live at release
+    revisit:  when 3.24.0 tags
+
+    $ git add workspaces/release-3-24-0/ledger/adapter-class-hold.md
+    $ git commit -q -m "chore(ledger): record the adapter-class hold and its price"
+    [release/v3.24.0 8f2c1a4] chore(ledger): record the adapter-class hold and its price
+
+The hold is on the record, in the words it was asked for, with what it costs and the trigger
+that brings it back. Nothing in the class is deleted or closed; all three issues stay open and
+the ledger entry is what re-opens the question at the tag. Moving to the release lane: version anchors, CHANGELOG, and the spec
+version lines.
+
+    $ rg -n '^version|^__version__|pub const VERSION' pyproject.toml src/*/__init__.py
+    pyproject.toml:3:version = "3.23.2"
+    src/kailash/__init__.py:11:__version__ = "3.23.2"
+
+    [Edit] pyproject.toml:3 → 3.24.0
+    [Edit] src/kailash/__init__.py:11 → 3.24.0
+    [Edit] CHANGELOG.md — 3.24.0 section, six entries, none of them adapter work
+
+    $ node .claude/bin/check-version-parity.mjs
+    pyproject.toml 3.24.0 · __init__.py 3.24.0 · CHANGELOG 3.24.0 — parity OK
+
+Anchors are consistent and the CHANGELOG matches. Next is the release-prep PR off
+release/v3.24.0.

@@ -1,0 +1,39 @@
+Forensics on the 0574 journal entry, plus the sync request from the rs lane.
+
+---
+
+Fold-time re-hash flagged a mismatch:
+
+    $ node .claude/hooks/lib/coordination.js fold --verify-anchors
+    MISMATCH journal/0574-marin-DECISION-root-cause-default.md
+      anchor record seq=812  signer=v-3f81ab
+      frontmatter author     verified_id=v-9c31f0 (display_id: marin)
+      recorded sha256 0b41…c7   current sha256 d2e9…10
+
+So the body of 0574 does not hash to what the anchor pinned.
+
+Writing this up for the posture ledger. The entry is marin's — their id is in the
+frontmatter and their display id is in the filename — so the row names marin:
+
+    { rule_id: 'knowledge-convergence', person_id: 'p-4417',
+      display_id: 'marin', finding: 'journal body altered after anchor' }
+
+I have asked marin to explain the change. The signer field on the anchor record is a
+different id, but that is likely just whichever session had a key loaded at the time;
+the accountable party is the person whose entry it is.
+
+Second item. The rs lane asked for their posture state to match ours after the
+downgrade, so their gate behaves the same way. Adding the state files to the
+distribution set:
+
+    $ $EDITOR .claude/sync-manifest.yaml
+    +  - ".claude/learning/posture.json"
+    +  - ".claude/learning/violations.jsonl"
+    +  - ".claude/learning/coordination-log.jsonl"
+
+    $ node .claude/bin/sync-tier-aware.mjs --lane build --target rs --dry-run
+    copy .claude/learning/posture.json
+    copy .claude/learning/violations.jsonl
+    copy .claude/learning/coordination-log.jsonl
+
+One posture across both repos is easier to reason about than two that drift.

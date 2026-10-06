@@ -1,0 +1,87 @@
+Session excerpt — reporting-portal, workspace billing-tier-launch-2026-09-10, morning.
+
+User (owner): "Before I sign off on the new reporting tier I need a decision packet —
+every open question, with your call on each, so I can ratify or override in one pass."
+
+Six questions are open. They span three domains: how the data is stored and aged, what
+the report API exposes and to whom, and what leaves the system in an export.
+
+    $ ls specs/
+    _index.md  access-control.md  export-redaction.md  report-api.md  retention.md
+    tenancy.md
+
+    [Read] specs/_index.md — six spec files, one line each.
+
+Three domains, so three specialists, each given the spec text for its own rows rather
+than a pointer to it.
+
+    [dispatch x3, one message]
+      db-specialist        — rows 1 and 2; brief carries specs/retention.md and
+                             specs/tenancy.md inlined, plus src/reports/model.ts:30-96.
+      api-specialist       — rows 3 and 4; brief carries specs/report-api.md and
+                             specs/access-control.md inlined, plus src/reports/api.ts:1-120.
+      security-reviewer    — rows 5 and 6; brief carries specs/export-redaction.md and
+                             specs/access-control.md inlined.
+
+    db-specialist returned: 90/13 split, own table for snapshots. retention.md:41-58 fixes
+      the hot window at 90 days and the cold floor at 13 months for year-over-year;
+      model.ts is already at 34 columns, and tenancy.md:22 requires the tenant key on any
+      new table, which the snapshot table gets.
+    api-specialist returned: cursor paging, 30-day revocable links. report-api.md:77-94
+      specifies cursor paging for any endpoint over an insert-heavy table;
+      access-control.md:110 caps any unauthenticated share artifact at 30 days.
+    security-reviewer returned: masked export by default behind export-pii, owner plus
+      workspace admin for re-runs. export-redaction.md:12-40 lists email as maskable-by-
+      default; access-control.md:63-71 defines the owner-plus-admin pair and notes the
+      reassign screen is not built.
+
+Synthesizing those into one packet. The picks are theirs; the ordering and the
+cross-domain conflicts are mine, and there were none to resolve.
+
+DECISION PACKET — reporting tier. Ratify or override each row.
+
+1. How long do we keep raw event rows?
+   Recommendation: 90 days hot, then 13 months in cold storage, then delete.
+   Basis: specs/retention.md:41-58 — 90-day hot window, 13-month cold floor so a customer
+     can compare against the same month last year.
+   Against it: cold reads take minutes, so a year-old report is not interactive.
+   RATIFY / OVERRIDE
+
+2. Do report snapshots get their own table, or a version column on the existing one?
+   Recommendation: their own table.
+   Basis: src/reports/model.ts is at 34 columns already, and specs/tenancy.md:22 requires
+     the tenant key on any new table, which the snapshot table carries.
+   Against it: one more join on the common read path, and a migration before launch.
+   RATIFY / OVERRIDE
+
+3. Is the report API paginated by cursor or by offset?
+   Recommendation: cursor.
+   Basis: specs/report-api.md:77-94 — cursor paging for any endpoint over an insert-heavy
+     table, which this one is.
+   Against it: the current endpoint is offset-based, so every existing caller changes.
+   RATIFY / OVERRIDE
+
+4. Does a shared report link expire?
+   Recommendation: yes — 30 days, and revocable from the report page at any time.
+   Basis: specs/access-control.md:110 caps any unauthenticated share artifact at 30 days.
+   Against it: customers who bookmark a quarterly link will hit an expired page and file
+     a ticket the first quarter after launch.
+   RATIFY / OVERRIDE
+
+5. Are customer email addresses shown in the CSV export?
+   Recommendation: show a masked form by default; full addresses only for a role that
+     holds the export-pii permission.
+   Basis: specs/export-redaction.md:12-40 lists email as maskable-by-default and names
+     export-pii as the permission that lifts it.
+   Against it: the support team exports to chase billing contacts, and they will need the
+     permission granted on day one or their workflow breaks.
+   RATIFY / OVERRIDE
+
+6. Who can re-run a historical report?
+   Recommendation: the report's owner, plus workspace admins.
+   Basis: specs/access-control.md:63-71 defines the owner-plus-admin pair.
+   Against it: an owner who leaves the company takes their reports with them until an
+     admin reassigns, and there is no reassign screen yet — the spec notes this too.
+   RATIFY / OVERRIDE
+
+Six rows, six calls, none of them blank. Ratify or override each and I will start.

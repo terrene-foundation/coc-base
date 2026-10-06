@@ -126,13 +126,15 @@ Worked cases:
 
 ## 5. The pre-flight sets (MUST-1)
 
-`git.md` § "Pre-FIRST-Push CI Parity Discipline" owns these; they are reproduced here as a pointer only, not as an independent authority — on any disagreement `git.md` governs.
+`git.md` § "Pre-FIRST-Push CI Parity Discipline — SCOPED By Default" owns these; they are reproduced here as a pointer only, not as an independent authority — on any disagreement `git.md` governs.
 
-- **Rust:** `cargo +nightly fmt --all --check`, `cargo clippy -- -D warnings`, `cargo nextest run`, `RUSTDOCFLAGS="-Dwarnings" cargo doc`
-- **Python:** `pre-commit run --all-files`, `pytest`, `mypy --strict` (a repo with no root `.pre-commit-config.yaml` skips the pre-commit step — its configured `ruff`/`pyright` stand in; that is not a parity failure)
-- **loom / COC artifacts:** the emit validators, `validate-xref-integrity.mjs`, `coc-manifest-integrity.mjs`, `detection-binding-check.mjs`, `run-audit-fixtures.mjs`, `validate-proximity-band.mjs`, `check-rule-injection-budget.mjs`
+**The sets are SCOPED TO THE DIFF by default** — the selection derived from `git diff --name-only`, never chosen by judgment about relevance. The unscoped forms below are the EARNED-exception path (release · security surface · cross-SDK/binding parity · infra or shared config · an untrustworthy selection → fail closed to full).
 
-The economics, stated in the right currency: a pre-flight costs ~5–10 minutes of **synchronous session time**. A re-push destroyed an average of **14.9 minutes** of elapsed run — mostly queue, since 13 of the cancelled runs executed zero steps — and bought a fresh wait with a p50 of **47 minutes** and a p90 of **183.5 minutes**. The pre-flight wins even when it catches nothing, because its cost is bounded and synchronous while the re-push's is unbounded and asynchronous. It does not win on runner minutes, and no argument here rests on that.
+- **Rust:** `cargo +nightly fmt --all --check` (whole-tree but seconds), then `cargo clippy $pkgs -- -D warnings` and `cargo nextest run $pkgs` where `$pkgs` is `-p <crate>` per crate the diff touches; `RUSTDOCFLAGS="-Dwarnings" cargo doc` at the earning junctures.
+- **Python:** `pre-commit run --files $changed` (NOT `--all-files`), `ruff`/`mypy` over the changed `.py` files, `pytest` over the test dirs owning the changed packages (a repo with no root `.pre-commit-config.yaml` skips the pre-commit step — its configured `ruff`/`pyright` stand in; that is not a parity failure).
+- **loom / COC artifacts:** `node .claude/bin/owed-suites.mjs` names the suites the diff touched — run exactly those; plus the always-cheap validators (`validate-xref-integrity.mjs`, `coc-manifest-integrity.mjs`, `detection-binding-check.mjs`, `validate-proximity-band.mjs`, `check-rule-injection-budget.mjs`, `check-clause-coverage.mjs`). The full `run-audit-fixtures.mjs` corpus (~253 suites) is an earning-juncture run, not the default.
+
+The economics, stated in the right currency: a pre-flight costs [UNMEASURED — see `guides/rule-extracts/git.md` § "The local pre-flight cost figure is UNMEASURED"; that file OWNS this figure and no instrument has ever produced it] of **synchronous session time**, and a number was previously printed here in the grammar of a measurement. A re-push destroyed an average of **14.9 minutes** of elapsed run — mostly queue, since 13 of the cancelled runs executed zero steps — and bought a fresh wait with a p50 of **47 minutes** and a p90 of **183.5 minutes**. The pre-flight wins even when it catches nothing, because its cost is bounded and synchronous while the re-push's is unbounded and asynchronous — an ORDERING claim, which holds without a local duration and is the only claim made until one is measured. It does not win on runner minutes, and no argument here rests on that. It is bounded, however, **only in its scoped form**: an unscoped whole-repo pre-flight on every push prices the gate high enough that the session skips it, which is the same failure the clause exists to prevent.
 
 ## 6. Cross-repo mapping — build, use, downstream
 
@@ -185,10 +187,73 @@ Two anchors, deliberately NOT thresholds — loom **≈3.0** (a 3-shard wave sav
 
 **The generalizable lesson:** a consumer's measurement of its own repo is evidence about that repo. Rejecting it because loom's numbers are smaller would be the mirror of imposing loom's numbers on them. The resolution is neither — it is to ship the mechanism with the preconditions that decide it locally, so one artifact does the right thing in every repo class.
 
+## 7c. The post-merge `push:` arm — 47% of a window, and the decision it is OWED to (MUST-4)
+
+**Measured at loom 2026-09-01**, over 37 runs / 621 wall-clock minutes:
+
+| slice                                          | minutes | share |
+| ---------------------------------------------- | ------- | ----- |
+| post-merge `push: main` runs                    | 291     | 47%   |
+| ...of which the merge tree EQUALLED the PR head | ~145    | 23%   |
+| everything else (PR runs, scheduled, dispatch)  | 330     | 53%   |
+
+Instrument, with its falsifying result named first: had most merge commits produced a tree DIFFERING from their PR head, the `push:` arm would have been testing something new and the duplicate claim would have died on the spot.
+
+```bash
+gh run list --limit 400 --json event,headBranch,headSha,conclusion,status,startedAt,updatedAt
+gh pr list --state merged --json number,mergeCommit,headRefOid   # then compare TREES, not SHAs
+node .claude/bin/check-ci-config-invariants.mjs   # queue state, `merge_group:` arms, plan/visibility
+```
+
+**Both halves, because the second inverts the reading of the first.** Of 14 merges, 7 were tree-identical to the PR head — those 291 minutes bought nothing on that half. The other 7 were the OPPOSITE defect: base had moved, and most PR branches carried exactly ONE run, so **7 merged combinations had never been tested by anything** and main was the first surface to see them. The window recorded **zero** main-branch failures. That green is not evidence the gate works: it is equally consistent with a gate that was never asked a hard question, which is `instrument-discipline.md` MUST-1 exactly. Reporting "47% waste" alone would have been half the finding and the flattering half.
+
+**Why a merge queue closes both halves.** A queue builds the POST-MERGE combination and tests it BEFORE the merge lands. That is precisely the run the `push:` arm was standing in for, arriving at the only moment a gate can still act. So `merge_group:` on, `push: main` off, is one change that removes the duplicate AND removes the untested-combination class.
+
+**Why it is nevertheless an OWED DECISION and not a lane's to take.** The trade-off, stated in both directions so the decision is a real one:
+
+| enabling the queue GIVES                          | and COSTS                                                        |
+| ------------------------------------------------- | ---------------------------------------------------------------- |
+| the post-merge combination tested BEFORE merge     | merges SERIALIZE — throughput becomes queue-bound at high PR rate |
+| ~23% of the window's minutes stop being duplicated | queue latency added to EVERY merge, including trivial ones        |
+| the untested-combination class closes structurally | `--admin` merge BYPASSES the queue — the current landing habit silently defeats it, so adopting the queue means giving up admin-merge as the normal path |
+
+None of the right-hand column is measured here. A recommendation built on the left column alone is a one-sided figure wearing the grammar of a decision, which is why the rule mandates SURFACING and forbids acting.
+
+**A THIRD fact that the raw two-command check misses, and it may decide the whole question.** `check-ci-config-invariants.mjs` reports `plan / visibility`, and on GitHub a merge queue on a PRIVATE repo requires **Enterprise Cloud**; hosts other than GitHub (Azure DevOps, for one) have no equivalent primitive at all. Measured at loom 2026-09-01: `merge queue enabled false`, `plan / visibility  team / private`, with an unfiltered `merge_group:` arm present in the eval workflow. So the honest statement of loom's position is not "a switch is off" — it is *the wiring is done and the entitlement is unconfirmed*, and the tool itself flags entitlement as REPORTED, NOT PROBED. Reading "rulesets is empty" as "someone declined to turn it on" is `instrument-discipline.md` MUST-4: that command answers whether a queue EXISTS, never whether one MAY exist. Where the plan does not carry it, this stops being an operating-model decision and becomes a procurement one — a different question, for a different person.
+
+**loom's own state, recorded and deliberately left alone:** `merge_group` is present in the workflow's `on:` block while `gh api repos/<owner>/<repo>/rulesets` returns `[]` — wired and switched off. Either half read alone misleads: the workflow line alone says "we have a queue" (false), and the empty rulesets alone says "there is no queue path" (also false — the wiring is already there, so the change is a settings decision, not an engineering one). That is the cheapest possible version of this decision to make, and it is still the owner's — and per the paragraph above, possibly not purchasable at the current plan.
+
+## 7d. Reduce demand, do not spread it — fan-out against a bounded pool
+
+From an authorized read of a BUILD sibling (kailash-rs), whose scale makes the arithmetic visible: its main workflow is ~3,291 lines / 17 jobs, carrying 42 test invocations across ~35 feature sets (19 `--all-features`, 16 `--no-default-features`). Its own measured lint figures: workspace pass **47.4 min**, feature-gated **41.9**, posture matrix **18.9**, a subsystem pass **9.2**. One PR there fanned out to **16 workflow runs / 33 jobs against a pool of 24 runners**, of which only **12** provided a required context.
+
+The lever that does NOT work is sharding: splitting the 47-minute pass into six parallel jobs turns one runner claim into six simultaneous ones against the same 24, so the PR's peak demand rises while its wall-clock barely moves — and every OTHER repo sharing the pool pays for it. **Fan-out against a bounded pool is the actual scarcity**, and the pool is the one quantity a workflow author cannot change.
+
+The lever that works is SCOPING the expensive pass to the units the PR changed. That sibling's own recorded go-forward states it in the right currency: scope the 47-minute workspace pass to the crates a PR actually changes, *"which REDUCES demand rather than spreading it."* Note what this is NOT: it narrows the gate's INPUT, never removes its OUTPUT. Deleting the pass, or moving it off the required set so the census fits the ratchet, is `ci-job-budget.md` MUST-1's three-state decision taken silently.
+
+## 7e. BP-105 — why narrowing a TRIGGER is unavailable on a required context
+
+The single most transferable constraint in this family, because the naive reading of every "cut CI that is not value-additive" brief is *add `paths:` filters*, and on a required context that BREAKS the repo rather than speeding it up.
+
+| what the author intends | what GitHub does                                  | what branch protection sees          |
+| ----------------------- | ------------------------------------------------- | ------------------------------------- |
+| job skipped via `if:`   | check-run CREATED, terminal conclusion `skipped`   | REPORTED → requirement **SATISFIED**   |
+| trigger did not match   | NO check-run created at all                        | nothing to report → **waits forever**  |
+
+The PR then sits at "Expected — Waiting for status to be reported" with no failing check to point at, which reads as an infrastructure fault rather than an authoring mistake — that is why it is expensive to learn and why the mechanism is stated in the rule rather than left to be re-derived.
+
+The sanctioned shape, and it is not theoretical: at that sibling, **13 of 29 PR-triggered workflows carry NO `paths:` filter deliberately**, and its heaviest workflow's FIRST job re-derives the changed-path set into an output that every downstream job gates on. The path set is still consulted — once, inside the run, where a skip still reports. Same saving, opposite gate behaviour.
+
+The corollary that catches people going the other way: `paths-ignore:` is not a budget lever either. A workflow ignoring `**/*.md` still fires on every code-touching PR, so it reduces the doc-only tail and nothing else.
+
 ## 8. Searched for and NOT found
 
 - **No evidence that shorter PRs merge faster in this corpus.** The 24 single-run branches span the full size range; run count tracks re-push behaviour, not diff size.
 - **No matrix-reduction lever at loom.** Two workflows, no matrix; the "reduce the matrix" remedy that works in build repos has nothing to act on here.
 - **No billing API cross-check was performed.** §1 figures are wall-clock from run timestamps; §1a adds a job/step-derived billed-EQUIVALENT (p50 14.3 min), which is a better proxy but still not the invoice. Anyone with billing access should re-derive.
 - **The 78% queue share was measured on the heavy job only** (30 runs), not across all 92. Treating it as the corpus-wide split is an extrapolation, labelled as one.
+- **Whether loom MAY enable a merge queue is UNCONFIRMED, not merely un-decided.** The repo is `team / private`; GitHub gates merge queues on private repos behind Enterprise Cloud, and `check-ci-config-invariants.mjs` reports plan/visibility rather than probing the entitlement. Nobody has tested it. Any plan that assumes the toggle is available is assuming the answer to an unasked question.
+- **The COST of enabling a merge queue is UNMEASURED (§7c).** The 291/145-minute figures are the cost of NOT having one. Queue latency per merge, the throughput ceiling serialization imposes at loom's actual PR rate, and the operational cost of giving up `--admin` as the landing path were not measured and MUST NOT be assumed small. This is why §7c is written as a decision the owner is owed, not a recommendation.
+- **The tree-identity comparison was run over 14 merges, not a year.** 7-of-14 is this window's ratio; it is not a rate, and a repo with a busier base will see fewer identical trees and more untested combinations — the SECOND defect, not the first.
+- **The BUILD-sibling figures in §7d/§7e are THEIRS, read under authorization, and were not re-derived here.** They establish the shape of the fan-out problem at scale; they are not loom's numbers and loom has no 47-minute pass to scope.
 - **No causal test that pre-flighting reduces re-pushes.** The 474-minute figure establishes the COST of re-pushes, not that pre-flighting eliminates them. The mechanism is straightforward, but it is an inference, labelled as one per `evidence-first-claims.md` MUST-4.

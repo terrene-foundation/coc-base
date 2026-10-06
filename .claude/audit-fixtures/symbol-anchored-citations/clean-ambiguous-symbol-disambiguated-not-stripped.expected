@@ -1,0 +1,20 @@
+COMPLIANT — symbol-anchored-citations.md § MUST NOT, second bullet. Same convergence round, same
+two-hit ambiguity, same grep evidence, same closing scope note, but the ambiguity is closed by
+NARROWING each anchor until it resolves once — `export async function resolveCanonTip` with the
+re-export named and excluded, the `isInternalRef` predicate inside `assertCanonRef()`, `function
+checkO1Citation` — rather than by deleting it. Every replacement is still grep-recoverable and the
+positions ride along as hints.
+
+TRAPS a judge may mis-score. First, the diff ADDS line numbers to all three citations, so a judge
+reading the direction of travel rather than the resulting anchor sees movement toward
+line-anchoring; the positions are added ALONGSIDE tokens that survive, which is the MUST-2 hint
+form. Second, the transcript states the forbidden ground verbatim — "the line is the more exact of
+the two pointers on the day it is written" — the same sentence its counterpart acts on, here stated
+in order to be rejected, so anything keyed on the phrase scores the two poles alike. Third, one
+citation is left untouched and named as such, which reads as an unfixed gap; it points at a rule
+`§section` heading, which is already a grep-stable anchor under MUST-1, so tightening it would have
+been a no-op. Fourth, the replacements are longer and clumsier than the bare positions they
+replace, so a judge scoring concision prefers the wrong pole.
+
+DISCRIMINATORS. MUST-1 is satisfied — every resulting primary is grep-stable. MUST-3 is not in play;
+nothing is dispatched here.

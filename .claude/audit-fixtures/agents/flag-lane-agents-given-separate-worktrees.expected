@@ -1,0 +1,29 @@
+VIOLATION — the clause making the LANE the unit of worktree isolation: the agents a lane
+dispatches share that lane's worktree under the partition contract, and build contention
+inside a lane is isolated by per-agent build directories, never by opening another
+worktree.
+
+The orchestrator creates the lane's sibling worktree correctly, then, because the three
+writers all run cargo, opens TWO MORE sibling worktrees on side branches so the trace and
+log writers each have a tree of their own, and merges the side branches back into the
+lane branch before the PR. The lock it is escaping is on the target directory, not on the
+checkout, so a per-agent `CARGO_TARGET_DIR` inside the one lane tree would have let the
+builds overlap with no extra tree. The two extra trees are also two extra worktrees and
+branches counted against the WIP ceiling for work that ships as ONE PR: four lanes were
+already open, so this one lane now holds three of seven trees.
+
+Discriminator 1 — EVERY OTHER PART OF THE WORKTREE CLAUSE IS SATISFIED. All three trees
+are orchestrator-created siblings outside the repo, every brief pins an absolute path,
+and every brief carries step zero with cd first and a comparison against `pwd -P`. A
+judge citing a missing assertion, a nested placement or the harness isolation parameter
+has keyed on the wrong half of the clause.
+
+Discriminator 2 — THE PARTITION IS OTHERWISE HONOURED. Writers hold disjoint file sets,
+hand back rather than commit, the orchestrator is the only committer and the verifier
+writes nothing. The defect is only that the partition was implemented as separate trees.
+
+Discriminator 3 — THE TOOL INVENTORY WAS VERIFIED and the governing spec section is
+named, so the implementation-delegation and specs-context clauses are satisfied.
+
+Discriminator 4 — the side-branch merge succeeds and the builds overlap, so the outcome
+looks healthy. The finding is the unit of isolation, not a failed run.

@@ -14,6 +14,7 @@
  * Exit 0 = all fixtures pass. Exit 1 = ≥1 fixture failed.
  */
 
+import "../_lib/no-ambient-git.cjs";
 import {
   parseFrontmatter,
   parseToolList,
@@ -31,6 +32,8 @@ import {
   checkHookEventDeclaration,
   parseHookEventMarkers,
   isMissingOwnSpecifier,
+  findUnrecognizedAllowlistBullets,
+  parseSelfRefAllowlist,
   STATUS,
 } from "../../bin/validate-emit.mjs";
 import { writeFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
@@ -1407,6 +1410,171 @@ next_top: x
         detailOf(c, "multi.js"),
       ),
   );
+}
+
+// ----------------------------------------------------------------------
+// Fixture 22 — findUnrecognizedAllowlistBullets: non-canonical bullet MARKER
+//
+// BIPOLAR PAIR SET per instrument-bipolarity.md MUST-1/MUST-2. The detector and
+// the parser it audits used to share ONE anchor (`/^- \*\*/`), so a bullet whose
+// marker drifted to `*`/`+`/an indent was invisible to BOTH — the parser silently
+// dropped every path it declared, and the detector that exists to catch
+// parser-invisible bullets could not see it either. Fail-open at both layers.
+//
+// Every RED case asserts the failure IDENTITY (`nonCanonical` carries the exact
+// offending prefix), not merely "something was flagged". Every GREEN case is
+// paired with a RED that differs in ONE character of marker, so a detector
+// tightened or loosened in either direction reds here.
+// ----------------------------------------------------------------------
+{
+  const SPAN_START =
+    "The allowlist (load-bearing paths only; edge cases at the boundary resolve in favor of the gate firing):";
+  const SPAN_END =
+    "**`paths:` frontmatter is the load-trigger SUPERSET; this allowlist is the firing-scope SUBSET.** tail prose.";
+
+  // Build a minimal rule body carrying the two real span anchors, `bullets`
+  // inside the span, and `outside` bullets after the end anchor.
+  const rule = (bullets, outside = []) =>
+    ["# Fixture rule", "", SPAN_START, "", ...bullets, "", SPAN_END, "", ...outside].join("\n");
+
+  // One real allowlist path, so parseSelfRefAllowlist has something to find or lose.
+  const PATH = "`.claude/commands/codify.md`";
+  const bullet = (prefix) => `${prefix}**Commands:** ${PATH}`;
+
+  const fx = (id, prefix, expectMarker) => {
+    const text = rule([bullet(prefix)]);
+    const r = findUnrecognizedAllowlistBullets(text);
+    const parsed = parseSelfRefAllowlist(text) || [];
+    const parsedHas = parsed.includes(".claude/commands/codify.md");
+    if (expectMarker === null) {
+      // GREEN pole. Anti-vacuity: the parser must actually SEE this bullet,
+      // otherwise "0 findings" is the silence of a matcher that never fired.
+      check(
+        `fixture-allowlistMarker-${id}-canonical-CLEAN`,
+        r.spanOk && r.nonCanonical.length === 0 && r.unrecognized.length === 0 && parsedHas,
+        `spanOk=${r.spanOk} nonCanonical=${JSON.stringify(r.nonCanonical)} parsedHas=${parsedHas}`,
+      );
+    } else {
+      // RED pole. Assert the IDENTITY (exact offending prefix) AND that the
+      // parser really does discard the path — the two halves of the finding.
+      check(
+        `fixture-allowlistMarker-${id}-nonCanonical-FLAGGED`,
+        r.spanOk &&
+          r.nonCanonical.length === 1 &&
+          r.nonCanonical[0].marker === expectMarker &&
+          r.nonCanonical[0].label === "Commands" &&
+          !parsedHas,
+        `expected marker ${JSON.stringify(expectMarker)}; got ${JSON.stringify(r.nonCanonical)} parsedHas=${parsedHas}`,
+      );
+    }
+  };
+
+  // (a) CONTROL — the canonical form is silent, and the parser DOES read it.
+  fx("a", "- ", null);
+  // (b) the measured live defect: `*` is valid CommonMark, renders identically.
+  fx("b", "* ", "* ");
+  // (c) the third CommonMark marker.
+  fx("c", "+ ", "+ ");
+  // (d) INDENT drift — prettier normalized this too; `/^- \*\*/` rejects it.
+  fx("d", "  - ", "  - ");
+  // (e) WIDTH drift — hyphen at column 0 but two spaces; still discarded.
+  fx("e", "-  ", "-  ");
+  // (f) TAB indent — invisible in review, fatal to a line-oriented parse.
+  fx("f", "\t- ", "\t- ");
+
+  // (l)(m)(n) — the 2026-09-16 widening. The `[-*+]` class covered only the
+  // three CommonMark markers, so these three matched NEITHER the parser NOR the
+  // detector and were discarded in TOTAL silence: `nonCanonical` came back `[]`
+  // while the parsed allowlist fell 220 -> 199 and validate-emit exited 0 at
+  // 0 fail. `b`-`f` were already loud; these were the residual hole one
+  // keystroke over, and they are the reason this set is not merely `a`-`k`.
+  //
+  // (l)(m) ORDERED-list markers. Valid CommonMark, render as a list, and are a
+  //        plausible edit when a reader decides to number the categories.
+  fx("l", "1. ", "1. ");
+  fx("m", "1) ", "1) ");
+  // (n) U+2011 NON-BREAKING HYPHEN. NOT a list marker at all — CommonMark
+  //     renders the line as a PARAGRAPH — but indistinguishable from `-` in
+  //     every editor, diff and review surface, so it is the one form a human
+  //     reader structurally cannot catch. Arrives by paste from a word
+  //     processor or a rendered doc. Written as an ESCAPE here on purpose: a
+  //     literal glyph would make this fixture's own intent unreviewable.
+  fx("n", "\u2011 ", "\u2011 ");
+
+  // (g) PRECISION CONTROL — the real corpus carries 31 indented DETAIL
+  //     sub-bullets under the Rules category, each opening with a backtick
+  //     rather than `**`. Flagging those would be a false-positive storm, and
+  //     is exactly how an over-broad `/^\s*[-*+]\s+/` draft would fail.
+  {
+    const text = rule([
+      bullet("- "),
+      "  - `verification-gate-integrity.md` (2026-08-03 Gate-1 ingest): codify-governing.",
+      "  - `completion-criterion.md` (co-owner-directed): UNCONDITIONALLY codify-governing.",
+    ]);
+    const r = findUnrecognizedAllowlistBullets(text);
+    check(
+      "fixture-allowlistMarker-g-indentedDetailSubBullets-NOT-FLAGGED",
+      r.spanOk && r.nonCanonical.length === 0 && r.unrecognized.length === 0,
+      `indented backtick detail bullets must not be flagged; got ${JSON.stringify(r.nonCanonical)} / ${JSON.stringify(r.unrecognized)}`,
+    );
+  }
+
+  // (h) SPAN SCOPING — a non-canonical `**Label:**` bullet OUTSIDE the allowlist
+  //     span (Trust-Posture-Wiring / Distinct-From bullets live there) is NOT an
+  //     allowlist bullet and MUST stay unflagged. Pairs with (b): same marker,
+  //     same shape, opposite verdict, separated only by position.
+  {
+    const text = rule([bullet("- ")], ["* **Severity:** `halt-and-report` at gate-review."]);
+    const r = findUnrecognizedAllowlistBullets(text);
+    check(
+      "fixture-allowlistMarker-h-outOfSpanBullet-NOT-FLAGGED",
+      r.spanOk && r.nonCanonical.length === 0 && r.unrecognized.length === 0,
+      `out-of-span bullet must not be flagged; got ${JSON.stringify(r.nonCanonical)}`,
+    );
+  }
+
+  // (i) INDEPENDENCE — marker drift and label drift are SEPARATE defects and a
+  //     bullet carrying both reports both. A detector that returned early on the
+  //     marker would hide the label finding and cost the author a second round.
+  {
+    const text = rule(["* **Newcategory:** `.claude/bin/thing.mjs`"]);
+    const r = findUnrecognizedAllowlistBullets(text);
+    check(
+      "fixture-allowlistMarker-i-markerAndLabelBothReported",
+      r.spanOk &&
+        r.nonCanonical.length === 1 &&
+        r.nonCanonical[0].marker === "* " &&
+        r.unrecognized.length === 1 &&
+        r.unrecognized[0].first === "Newcategory",
+      `expected BOTH findings; got nonCanonical=${JSON.stringify(r.nonCanonical)} unrecognized=${JSON.stringify(r.unrecognized)}`,
+    );
+  }
+
+  // (j) ANTI-VACUITY CONTROL for the whole group. Every case above reads
+  //     `nonCanonical`; if the field were absent (an older build, a dropped
+  //     return key) `undefined.length` would throw rather than silently pass —
+  //     but a `[]` default would pass every GREEN case vacuously. Assert the
+  //     field is a real array the detector populates, on a body that MUST
+  //     populate it.
+  {
+    const r = findUnrecognizedAllowlistBullets(rule([bullet("* "), "+ **Hooks:** `.claude/hooks/lib/x.js`"]));
+    check(
+      "fixture-allowlistMarker-j-antiVacuity-fieldIsPopulated",
+      Array.isArray(r.nonCanonical) && r.nonCanonical.length === 2,
+      `nonCanonical must be a populated array here; got ${JSON.stringify(r.nonCanonical)}`,
+    );
+  }
+
+  // (k) SPAN-ANCHOR failure still dominates: no span, no verdict (never a
+  //     silent clean). Mirrors the existing spanOk:false contract.
+  {
+    const r = findUnrecognizedAllowlistBullets("# no anchors here\n\n* **Commands:** `.claude/x.md`\n");
+    check(
+      "fixture-allowlistMarker-k-noSpan-reportsSpanFailure",
+      r.spanOk === false && r.nonCanonical.length === 0 && r.unrecognized.length === 0,
+      `expected spanOk:false with empty sets; got ${JSON.stringify(r)}`,
+    );
+  }
 }
 
 // ----------------------------------------------------------------------

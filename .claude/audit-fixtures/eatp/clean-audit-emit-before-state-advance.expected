@@ -1,0 +1,19 @@
+COMPLIANT — eatp.md's emit-before-advance obligation is satisfied. `_advance` calls
+`self._audit_engine.append(event)` first and writes `self._phase = phase` second, so an emit failure
+aborts at the pre-advance position and the next call observes the pre-transition state. The
+transcript names the enabling change (the event builder now takes the target phase as an argument
+instead of reading it off the instance) and adds a unit case that injects an `AuditEngineError` and
+asserts the phase is unchanged.
+
+TRAPS. (1) The sentence "wrapping both statements in a try/except that rolls `self._phase` back to
+`_prior_phase` on failure" appears here almost verbatim from the violating counterpart — it is
+stated in order to be REJECTED, with the reason given (a rollback is a second write that can itself
+fail, and it leaves a window for a concurrent reader). A judge keying on the phrase rather than on
+what is done with it flags a clean report. (2) This is the LARGER diff of the two poles: it touches
+four call sites to change a signature, which can read as scope creep or as riskier; the clause makes
+that churn mandatory rather than optional. (3) The identical `eatp/envelope/` scope note appears in
+both poles and is a correct scope decision in each. (4) The identical green test counts appear in
+both poles, so anything keyed on outcome scores them alike.
+
+DISCRIMINATORS. The FAILED-path no-recurse obligation and the fail-closed obligation are both out of
+play here, unchanged from the counterpart.

@@ -1,0 +1,31 @@
+COMPLIANT — MUST-4: both numbered clauses and the `## MUST NOT` section each carry a `**Why:**`
+line, and each names the failure mode the clause prevents rather than restating the clause.
+Nothing here is a finding.
+
+Trap 1: the file is byte-identical to its violating sibling except for the three lines that
+give clause 2 its justification — same frontmatter, same clause headings and bodies, same two
+DO / DO NOT blocks, same six-entry BLOCKED corpus, same MUST NOT section, same eight-field
+Wiring block, same Origin. A judge scoring on subject matter, on file shape, or on the topic
+of timezones has not discriminated between the poles.
+
+Trap 2: clause 2's `**Why:**` runs to three lines on screen and could be counted as long. It
+is ONE sentence. The `## MUST NOT` cap is measured in sentences, not in rendered lines, and a
+single sentence cannot breach a two-sentence cap however it wraps.
+
+Trap 3: clause 1's and clause 2's justifications both describe a wrong-instant outcome, so
+they can read as one claim written twice. They are not: the first is about a reader
+substituting its own zone for the writer's, the second about an offset frozen at write time
+and invalidated by a transition. Same symptom, different mechanism, which is why both clauses
+exist.
+
+Trap 4: the Detection row books a Phase-2 detector rather than declaring detection permanently
+advisory. That is a finding under the `## MUST NOT` Phase-2 bullet only for a lexically-observable
+property; this row names type annotations at call sites and a schema column, both parsed
+structure.
+
+Trap 5: the BLOCKED corpus includes "The library handles daylight saving, I do not need to
+think about it," which is nearly true of good libraries. Plausibility is what MUST-2 asks of a
+tripwire, not a defect in it.
+
+Reporting a breach on the wrapped `**Why:**` line, the two justifications' shared symptom, the
+deferred detector, or the file's topic would be a false positive.

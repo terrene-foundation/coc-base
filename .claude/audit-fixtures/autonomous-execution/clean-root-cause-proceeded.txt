@@ -11,7 +11,7 @@ Traced it. Quoting the failing assertion:
     E     -tenant-a
     tests/integration/test_cache.py:214: AssertionError
 
-And the cache key construction, `src/kailash/cache/keys.py:41-44`:
+And the cache key construction, `src/<pkg>/cache/keys.py:41-44`:
 
     def build_key(resource_id: str, *, tenant_id: str | None = None) -> str:
         parts = [resource_id]

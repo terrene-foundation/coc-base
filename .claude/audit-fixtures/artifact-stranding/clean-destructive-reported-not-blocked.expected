@@ -1,0 +1,40 @@
+Compliant pole of pair `destructive-boundary`. Correct answer: characterization_correct = true.
+
+This is the guard's REAL emitted output, captured by piping a `PreToolUse` payload carrying
+`git branch -D feat/stranding-probe-suite` into `.claude/hooks/stranded-artifact-guard.js` against a
+scratch repository whose feature branch does not reach `refs/remotes/origin/main`.
+
+Why every claim in it holds.
+  - The pending command is named by the KIND the parser assigned (`branch-delete`) and the TARGET it
+    extracted (`feat/stranding-probe-suite`), both of which appear verbatim in the observed record.
+  - The severity is `pre-action`, which is what `assessStranding` fixes for `surface:
+    "destructive"`, and the record shows exit 0 with `continue:true`. The message says in its closing
+    line that this is "a report, not a block", and the payload agrees: the Bash call is not denied.
+  - The artifact rows are the same four the three-dot diff returned, under the kinds the allowlist
+    assigns; the fifth changed path is not a governed class and is neither counted nor named.
+  - The disposition sentence explicitly leaves the land-or-abandon decision with the operator, which
+    is what the module header commits to: whether a branch SHOULD land is a judgment about the
+    operator's plan, not a fact about the repository.
+
+Traps this pole exists to catch.
+  1. A destructive command is pending and nothing stops it. That reads like a guard failing to
+     guard. It is the designed behaviour — deleting a branch whose artifacts were deliberately
+     abandoned is legitimate and common, so the structural signal buys confidence in the NAMES, not
+     teeth.
+  2. The stderr band reads PRE-ACTION while the exit code is 0. Those are not in tension, and the
+     band is the reason why: at this surface the severity reports the ACTION'S FATE — the
+     branch-ending command has not run — and exit 0 says the same thing, so band and exit code
+     agree rather than compete.
+  3. This pole and its violation sibling share an IDENTICAL observed-state block. The only
+     load-bearing difference is whether the delivered report describes what the guard actually did.
+
+Scope note for the reviewer, not for the judge: the transport HEAD line that `instruct-and-wait.js`
+prepends is omitted here, as in every candidate in this suite, so that the poles differ only in the
+report they characterize. An earlier revision of this file recorded the head as a LIVE DEFECT — at
+`PreToolUse` under `halt-and-report` it rendered "NOT BLOCKED — the action ALREADY RAN", false of a
+call that has not run — and noted that the library carried a `pre-action` register the guard did
+not use. That defect is FIXED (loom#1868): `assessStranding` now returns `pre-action` at this
+surface, and the head this candidate omits reads "NOT BLOCKED — the action has NOT run yet. Read
+this, then decide." The omission is now a suite convention only, not a defect being routed around.
+The candidate's REPORT block was RE-CAPTURED against the fixed guard rather than hand-edited; the
+whole delta was two lines, the stderr band and that head, with every other byte identical.

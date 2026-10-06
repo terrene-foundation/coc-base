@@ -3,7 +3,7 @@
   "files": [
     {
       "path": "COC.md",
-      "sha256": "c44978442306fe76b79f62899ba82f2cb719340c8d98457c3677a0062b7b4d0e"
+      "sha256": "d2ecab8cbebd1f07381ee90218cd2cfb3f0224653e2a011c9ffab5c804133517"
     },
     {
       "path": "agents/AI-SPECIALIST.md",
@@ -23,7 +23,7 @@
     },
     {
       "path": "agents/CC-ARCHITECT.md",
-      "sha256": "2b7421317db3aeac847c71733d449d1afafd986f674c51eb4edab2d5d427677f"
+      "sha256": "fdb1ed44ec11e0b70916a758b2a695a4df62d4af42a41f088be8591f7aaba598"
     },
     {
       "path": "agents/COC-ONBOARDING-SPECIALIST.md",
@@ -31,7 +31,7 @@
     },
     {
       "path": "agents/CODEX-ARCHITECT.md",
-      "sha256": "7164de7f5952032eb041759a647c52ac20a2c6b2b2e1efe39512f410ba45e867"
+      "sha256": "bed6aaa1cc3030c8eacc9e9bc7c13ed4b5f52ae5798e34583559be0936c43ab5"
     },
     {
       "path": "agents/DB-SPECIALIST.md",
@@ -47,7 +47,7 @@
     },
     {
       "path": "agents/GOLD-STANDARDS-VALIDATOR.md",
-      "sha256": "b9e87cf3ac641da17208d02904728a9354d7616cf6c8d6ce70b87c7e1fb0315a"
+      "sha256": "96f7a20b7fb3cff83c48ed7598188f608e6c1f95f77b7454f3c317a6a9beae5b"
     },
     {
       "path": "agents/IDIOM-ADVISOR.md",
@@ -95,43 +95,43 @@
     },
     {
       "path": "commands/AUTONOMIZE.md",
-      "sha256": "0c97d06d0586b33bf5874f9828cd5beb39a4099146e23d3aee770a55ba9e89df"
+      "sha256": "fdc9a44da365f7077415518feb75562a9d87404c01caab7fdce4cc2ba0c4fe1d"
     },
     {
       "path": "commands/CC-AUDIT.md",
-      "sha256": "d62c735e3a4e9e36f101d629c00b3a7611ae246a60ddee77d308450007687b1a"
+      "sha256": "50b9807e0a2afc814a35184cf03cd956a16f62a2203f8bc41c22e5374dd70357"
     },
     {
       "path": "commands/CERTIFY.md",
-      "sha256": "f7685be851d92293dffa5b6d14183cf6f37708400ce89d1b441bc3adb41a530c"
+      "sha256": "121947cc3babfe89280834998f06b78203f0dea49166c4193fb15dfcfc1d5d77"
     },
     {
       "path": "commands/CLAIM.md",
-      "sha256": "7cf4a5746f1ab2e0d1d6e89a7deb5e6526812747f993e408db901b2fa5a2634e"
+      "sha256": "c1b674e161a2ad623e060a5ef7028666eb4fa389e05da6af9f83ff2388f7e6ae"
     },
     {
       "path": "commands/CLAIMS.md",
-      "sha256": "9346b4a4e5312fd5e9b1e1f1aa7d2d3b60cc71ba6afcf987abfeb1720cd635bc"
+      "sha256": "12163f4df8422ea368c379cb67ffc8d7c60b10a963c047016065bf1ea87aa288"
     },
     {
       "path": "commands/CLEAN-INSTANTIATE.md",
-      "sha256": "aaff58e4c9f2619e8a261434e7234dc79fdcd7f50707a046f782bc56ea691f21"
+      "sha256": "badf6177bfe58fd2cad04a7c0ea1a566f4be9cbcd8cbb605c2f56573980b6378"
     },
     {
       "path": "commands/CODIFY.md",
-      "sha256": "5c4573b57d84e9d1191f6ce9116b9fbf922f09491d9604da528c61d4715c9f75"
+      "sha256": "6914aebaf2523ddb0bc618279355315689a187672a8a1c96281fe7594ebc3edd"
     },
     {
       "path": "commands/CONFORMANCE-WALK.md",
-      "sha256": "af7baa98d4655c64fa76985cffe59cbbebfbab3836fb9b75310ffd31c5a29a4f"
+      "sha256": "011b4c2f31b3c133fb6cb2daf59d6f5bb02b1ca31469c9dafdd9235875a3287f"
     },
     {
       "path": "commands/COST-AUDIT.md",
-      "sha256": "5500550e50d8e2f87bfc38fee2fc2476c360dfeee1940aa19644140a8423562b"
+      "sha256": "a2c30a3996e68b1a89b35faaa63b45c837f0f9395e766bad2dc1fe015cf679cb"
     },
     {
       "path": "commands/CROSS-REPO-AUTHORIZE.md",
-      "sha256": "6703288b4fe92504790de24493ecea54a54974737279747ea06ea01d2c603a63"
+      "sha256": "00efe93ce5d58b891452a5dac1ecc6d88edab6e61eff269a3ae830e30b79cd7b"
     },
     {
       "path": "commands/DEPLOY.md",
@@ -143,15 +143,15 @@
     },
     {
       "path": "commands/DOCTOR.md",
-      "sha256": "ef9416c3d7772399bc24342d2dde9fc66292aea5aec826ae86468c520bc6c48d"
+      "sha256": "a58f2382b558f60eab67e96e4671d6af5c361248f12051ca1caf08c97d6820d0"
     },
     {
       "path": "commands/ECOSYSTEM-INIT.md",
-      "sha256": "9878e5b45d991da69111f1c633442fdd33b38cbca13b6fb6972939bdeef85064"
+      "sha256": "2de4174f07306db9bb1e5c37e0346e6745c5547f1b657eb46767e11bbcce2ef5"
     },
     {
       "path": "commands/ENROLL.md",
-      "sha256": "051cb668276d7de518e51028936c8f127ea5b42ea980826d5f5179de4590c7e8"
+      "sha256": "12edad436c0c9af63a48f7b83ddbda2d1f3dcbe0e485bd0ed828e377acd5e9c3"
     },
     {
       "path": "commands/I-AUDIT.md",
@@ -167,11 +167,11 @@
     },
     {
       "path": "commands/IMPLEMENT.md",
-      "sha256": "981b3ce72c1086e5238bb1ce6a7f4884a4b4097e604a2f01b26b960257ce9566"
+      "sha256": "16cb45555e59355c76455ef51bd6ff97f42926432a538199cfb2bb5d13b24280"
     },
     {
       "path": "commands/JOURNAL.md",
-      "sha256": "869fa97d9ceb1859d9cf7cf5ea249edfe03d8dac6a6d4d42d42eb362d22c75b3"
+      "sha256": "d341278a9baee6771e84672406fe591aac0adda554320856394055d0170162a1"
     },
     {
       "path": "commands/LEARN.md",
@@ -179,7 +179,7 @@
     },
     {
       "path": "commands/MIGRATE.md",
-      "sha256": "6e0e00f36e4fd30fee612313c8f7df4ee601afcd168100be483b284f7e1c3b6c"
+      "sha256": "1129535517b7e623b56f0396d81f53a26945d56f3c30e876900d91838769aeee"
     },
     {
       "path": "commands/ONBOARD-STACK.md",
@@ -187,23 +187,27 @@
     },
     {
       "path": "commands/ONBOARD.md",
-      "sha256": "3abc2dc34a056231308deae221731a18ea095131ace11c256e3778f7ed713da8"
+      "sha256": "ac52940988d9384f504eee46937153a9d003204189156ee776c58495ac7ab0c5"
+    },
+    {
+      "path": "commands/PICKUP.md",
+      "sha256": "84001222ee93e90afe723b937d18e3c2f359a2e5afd3bb107955e00debfc684a"
     },
     {
       "path": "commands/POSTURE.md",
-      "sha256": "e1ce06d02e85ce914f04301c04261c4808bcdb8ac7d7310ed2c0b331622482f2"
+      "sha256": "7c1420b10831c0cada9470201ec7b89e1f9ea79fc7f61d277bcea0b0d7c885db"
     },
     {
       "path": "commands/RECONCILE-NOTES.md",
-      "sha256": "31f6fa3ddd1972d4d9a1233e9f44e311871eaa34fd86b62f3c7509b06ba29857"
+      "sha256": "875d5d331cb05fc542a87ab5a1bffea07f9cc915b65b816ffc656f0a20afad3c"
     },
     {
       "path": "commands/REDTEAM.md",
-      "sha256": "c3ee5ed57b996e88f774c74c0a58fbc1594bc5953a655d88a8766cd66d722914"
+      "sha256": "9a2b9a747b9bb6d4f9f9b0e8512a44a1bf2709a3f431be0d590772eca7489242"
     },
     {
       "path": "commands/RELEASE-CLAIM.md",
-      "sha256": "1233ef4ea7e2d26f27a8fdd5aa6f0f66fc22c39d8f5f2348759c7e9c99c034b3"
+      "sha256": "1339d5fe024a796d7bb6b5dbe25867cbf79ab6123d6374c330ef8384052d3282"
     },
     {
       "path": "commands/RELEASE.md",
@@ -215,15 +219,15 @@
     },
     {
       "path": "commands/SWEEP.md",
-      "sha256": "d9aaa1a3793a0739901af2e8466ef88c3ff8bfc0c2bd4d4ff17eef33d48f01f1"
+      "sha256": "44bb6fa83b5a7ae1c61c67568c73f486f4463325622b2f20a406a6f0f6e00e7c"
     },
     {
       "path": "commands/SYNC-FROM-DOWNSTREAM.md",
-      "sha256": "17e30d4ee52cf64dcd90cbbf520df80de111c30cbdacbee206fed17750bdcfe7"
+      "sha256": "f61aab1b76f3785db9eacff8a3112ac60e56e9c913087b204bc09d654f44cd89"
     },
     {
       "path": "commands/SYNC-FROM-TEMPLATE.md",
-      "sha256": "51b719dbf188dfef5084eb9e25e895e1aac18ef313083c533ec5f8646175520f"
+      "sha256": "70396c5ae15338b1cd7068e8ec57b23f134cbeefd920f62d2e23176b9cbc649f"
     },
     {
       "path": "commands/TEST.md",
@@ -231,27 +235,35 @@
     },
     {
       "path": "commands/TODOS.md",
-      "sha256": "941499ec6c62a7cb60fa656d7d2c10363b1983acab492459b47322435f901666"
+      "sha256": "7de70c43853be2e05cc7d6c84b15b2147ca833beed1b55ea4b929bd672efda46"
     },
     {
       "path": "commands/VALIDATE.md",
       "sha256": "314c0f98d462503b6e8bbc693b8608bbf4820c97b2ad3815c7ab7e210c1947a4"
     },
     {
+      "path": "commands/VET.md",
+      "sha256": "15eaeb4d4697e762a464336a2f2bc94ae883205ae519740e4d0b5bb2b47d05af"
+    },
+    {
       "path": "commands/WHOAMI.md",
-      "sha256": "c4bdfb0409058c1a204374f3963fe8da74f822e03d1e4db52c0c7e0a2865baa4"
+      "sha256": "4087b302c79b2f9a11b57f3b78b2282b7d1133a862c1dfddffb73ae29c5ed968"
     },
     {
       "path": "commands/WORKTREE.md",
-      "sha256": "632579e17048cece20c1dfffef58a7acfb8efc54f33d2b3058c6d286f37515db"
+      "sha256": "149b5b3cf9374d4d675b0521091b6012f2dad896e7da8b9f5b321b48f0b99a13"
     },
     {
       "path": "commands/WRAPUP.md",
-      "sha256": "b585949bc64a7bd86990c844975591dd69bfd82afbd558949053f269648b89c1"
+      "sha256": "42a67d376d275e544ce7c9d52117fa59e2498c419444be66a5606f936f48cad1"
     },
     {
       "path": "commands/WS.md",
       "sha256": "9966f6bf2076385342058fd30fe9135274229549420799b19a59ade2bb09b111"
+    },
+    {
+      "path": "rules/ADVERSARIAL-COVERAGE.md",
+      "sha256": "6e0d747e091297a541168273c4607f6ac728ddd786262433593161d3ca645bbd"
     },
     {
       "path": "rules/AGENT-REASONING.md",
@@ -259,59 +271,79 @@
     },
     {
       "path": "rules/AGENTS.md",
-      "sha256": "c0c9f1c8ef828173e2131c68c661c41cb004a871a71ef51fc4f2ba307690eedb"
+      "sha256": "88eda356324601d0be88f248506c6354d86e7209cd7eea5649cb50ff548be8aa"
     },
     {
       "path": "rules/ANALYZE-OUTPUT-COMPLETENESS.md",
-      "sha256": "dc935cb274b95c08224717f2bd13b95528c9db329ff01303bd24ec2f355ba99e"
+      "sha256": "7481eebcf0022bbf9d8fe61471a0aef6eea09a33d1ae4a393613682f30a6eb3b"
     },
     {
       "path": "rules/ARTIFACT-FLOW.md",
-      "sha256": "934cf223e110941ca0436ca9d6d6b9a924660a4e7aa8a0e5091f2ac93f42df4f"
+      "sha256": "386dbf145a107147744ad1aca90c3ed9341f068a8082e31ec37143ec0b6c7269"
+    },
+    {
+      "path": "rules/ARTIFACT-STRANDING.md",
+      "sha256": "cb044aaa339825e38c3132c90f65777d392f5b58917d216e2c34d75364bdf6fd"
     },
     {
       "path": "rules/AUTONOMOUS-EXECUTION.md",
-      "sha256": "98ca8772fa454dd612780a6c69e049dd65559777973efe293c0190a949c332a6"
+      "sha256": "e160e9da9c2cec14e0e2282875c4fcf08599116e9384cdedd9bd037d56698ef0"
     },
     {
       "path": "rules/BURN-DOWN-REPORTING.md",
-      "sha256": "a4ed76fccd924e6d94c2f37a60929be6d686496ac41692e6cde1fc125ec6be67"
+      "sha256": "a0ce6c2c3969bc542153658df210c4579d903dc479f90931138842b7112610bd"
+    },
+    {
+      "path": "rules/BURNDOWN-INTEGRITY.md",
+      "sha256": "45e3d8cf78c8908f0aa7ac1a45f4052b6a9ccfc2e59b73ad74efda3d765a89c5"
+    },
+    {
+      "path": "rules/BURNDOWN-TRACEABILITY.md",
+      "sha256": "8f2c4b653139cfc60ce7d75c923b4faf03f846de0e4ecd07ca86cb4b1668a72a"
     },
     {
       "path": "rules/CC-ARTIFACTS.md",
-      "sha256": "765dde9244735462bf4700613a08a97d1f0d0b72107afa7733e1da767f95f7a5"
+      "sha256": "d9fc714516d8d6fce44fbfd47ae9d85da35897bbd7414d8d03bf6fcd9a2482cf"
     },
     {
       "path": "rules/CI-COST-DISCIPLINE.md",
-      "sha256": "813dba98642de2d57f04e18c4dff4e11ba067bb2ac90104a2124f63617c5e6ba"
+      "sha256": "3fe75d9eb48aea001a2998ff5f80c84c9687d3b46462950f162f0cad52e48c2e"
+    },
+    {
+      "path": "rules/CI-JOB-BUDGET.md",
+      "sha256": "490ad7a1e215aa3c11e9597f5ffc51fba0b33690687eecaed687152191309377"
     },
     {
       "path": "rules/CI-RUNNERS.md",
-      "sha256": "0604197774931aaa7c394d9bb16cccd3645ec8f6fc002a698675b589476830ac"
+      "sha256": "6e674b1b1d764ac5a5be1514defe93df3c2ca278b1007fb4900874f684e05719"
     },
     {
       "path": "rules/COMMAND-SKILL-PARITY.md",
-      "sha256": "ab00e269548a4bed99acf460226a561b7ec1a5572cf152be350039d55408b74c"
+      "sha256": "a0b8e536035a570c96dd81cc4fd74935865538476b41dd966676bb19d5dc11d6"
     },
     {
       "path": "rules/COMMUNICATION.md",
-      "sha256": "50fb9ef6f2078520a49a9b11e7b079d7d6d57cb620b2b8b4e25917ea1d4c913d"
+      "sha256": "96dd687d3f422d53e11762baedb5472efc9199ee7510ec7b18c7a463f2ee3f78"
     },
     {
       "path": "rules/COMPLETION-CRITERION.md",
-      "sha256": "ed72cc4e678d9aa71843c17227ec250d3102090cccfabfe274f2cbee59c38c4b"
+      "sha256": "9b2c3157904512122f831922c870a4b0d70ae1a46f88fe66163169cba0e4bdb2"
     },
     {
       "path": "rules/CONFORMANCE-WALK.md",
-      "sha256": "666120809016e1d1625086a0195c610b08fc760e731a9eeb337bfbaebc07fc93"
+      "sha256": "47745020c971594c59c626cd56f975f53ab1a43506eb6cfc116e6bccd15b6407"
+    },
+    {
+      "path": "rules/CONSERVATION-GATE.md",
+      "sha256": "6a2bff4524330f95b33669e18786ab357bf48d8ed2e980098cc1ebe876ec982f"
     },
     {
       "path": "rules/CROSS-CLI-ARTIFACT-HYGIENE.md",
-      "sha256": "d219542b09bd0983275af8ce81fe3ab385b8cff57ab5281bcc2a7aa305b50237"
+      "sha256": "4438bf9ca560fca366551165e972f786cd72f9682d016c508bc5b6ab003661ce"
     },
     {
       "path": "rules/DEFERRAL-REGISTRY-LOCALITY.md",
-      "sha256": "4a8058d6b0af13dc32aa2c0ba72ccc4dbbcb6267108dd0b015b3c6e32e9ffe52"
+      "sha256": "4a6adb8c347fafda98b5fe962dded0b6ae9897dc28eb173b2af5b05a857a554e"
     },
     {
       "path": "rules/DEPENDENCIES.md",
@@ -319,11 +351,11 @@
     },
     {
       "path": "rules/DEPLOY-HYGIENE.md",
-      "sha256": "2704f985afba2cc21e3c1018ce81d90d9a220a584b0d2251473df973329867ff"
+      "sha256": "d9f397aa674106e4bbeb58b1499aa583f8baab1d02eabead40ba21eeb0130eba"
     },
     {
       "path": "rules/DEPLOYMENT.md",
-      "sha256": "b4d58d08ee88f8e3013ae5c0cf0eeef2de758de59a9d3c5ef7c7c647a004f91d"
+      "sha256": "821421d888a59ed8d827f94b63e71c92b1fbb1e469cd82e4e8d0204879f1d45e"
     },
     {
       "path": "rules/E2E-GOD-MODE.md",
@@ -331,7 +363,7 @@
     },
     {
       "path": "rules/ENROLLMENT-OPERATIONS.md",
-      "sha256": "9e4f7dfe562ac4de3ff3c3ea376705813bc8dc0187c7888c6ba7b0d253b00e1e"
+      "sha256": "4c2c95b7ee30576bec77d36a5715256b8ad7e2ae221ae14c774d9c5eee56a2f8"
     },
     {
       "path": "rules/ENV-MODELS.md",
@@ -339,87 +371,91 @@
     },
     {
       "path": "rules/EVIDENCE-FIRST-CLAIMS.md",
-      "sha256": "9b33041c3ebff9dcf5c44f94554233975076fb7bfeb31114ac53c48ae1daeaeb"
+      "sha256": "edd982fd60b90d91287a85587688680e48ada92104dad3c2255c3e24420160eb"
     },
     {
       "path": "rules/FACADE-MANAGER-DETECTION.md",
-      "sha256": "02a6faeb8a189fc30c33542c031ecb6f8a3b6d2066df09c12d9ffedb6d576bf1"
+      "sha256": "11c88bad12a3684506a2917408fad8c0ce9921f2957faf3c5ea5a0a157adb423"
     },
     {
       "path": "rules/GIT.md",
-      "sha256": "adf978441744d3c3267dd3ec6d3327daab07e8d0cc9c19d067d00ef2a4519021"
+      "sha256": "b5e0fbe281795977879dccf425b9e52941230491608cd478d5351a0db99014dc"
     },
     {
       "path": "rules/GOVERNED-THROUGHPUT.md",
-      "sha256": "944b3046b1c9b112dd292f378d66e5ef6536079e0a0dee3cd5569751c11ae99c"
+      "sha256": "0f0ba7fee4b3f85d93a4a96c3ef76d690338a9ee98182bddb750a35d61e83aeb"
     },
     {
       "path": "rules/HANDOFF-COMPLETION.md",
-      "sha256": "66ef73ca5fb1241084d5c44a58f2d8b12123248890616c934d0746730b9554ca"
+      "sha256": "0dd6dd54c3485579ee2e93dc9ff34d0febe0e57cd39cc9222c9a8005a36168ad"
     },
     {
       "path": "rules/HOOK-EVENT-SELECTION.md",
-      "sha256": "7a26c2df90ce5eb2be596d04480973e2cc77df8c89fd48ccfd82c03349c5cdc1"
+      "sha256": "2bfbacaa45480ee639a1b2bf2437b15b3ecba31a8e8bffdc4500fbdbc1f4c384"
     },
     {
       "path": "rules/HOOK-OUTPUT-DISCIPLINE.md",
-      "sha256": "09b30a2f20b7e3cf4d9577f6938c0266ce8838576a405b7b1c63ffcfcb91e57a"
+      "sha256": "e2c94dc2fafeb8c1587cb85b0ccad67664ddd8c7dd8f2cdac86583ea1d831bbb"
+    },
+    {
+      "path": "rules/INSTRUMENT-BIPOLARITY.md",
+      "sha256": "89d779410f56ee4848a6d1b2118d9b37a8893500a7468230e2f8403282852954"
     },
     {
       "path": "rules/INSTRUMENT-DISCIPLINE.md",
-      "sha256": "3c9c4b61fea502bd1f6c1c701b4841e62a53b848f1de9bd5a42c3731a1329779"
+      "sha256": "366de9025e23417092b7981b8e332735e1c761e25827961b89f4622a1b2937a4"
     },
     {
       "path": "rules/ISSUE-TRIAGE-ROUTING.md",
-      "sha256": "357b00080180b0e95794013bf2d8d1048d6723395a15cb97943a7b42829bffcf"
+      "sha256": "ed7e72ebe99943f15e3284e7cfec169301356531e9e2c0a3c7dda06f1fe0be56"
     },
     {
       "path": "rules/JOURNAL-AUTHOR-DISCIPLINE.md",
-      "sha256": "8cb413f825b0f48017b09de2884514ce824fb66703015ac12755fbc222c71120"
+      "sha256": "1978f2b6cee7b2699b9f9fc7cf40fbd26356d1ebed61ce7ca9e93a94d488fc39"
     },
     {
       "path": "rules/JOURNAL.md",
-      "sha256": "0628a3d80af9c131260d0943c51f0aec37c93ab5bd4d18cf4372b4725cba2736"
+      "sha256": "bc2929beb2d6f2af4086ee959ed5094212958881b25bcd24c60e3d6dcc98c39d"
     },
     {
       "path": "rules/KNOWLEDGE-CASCADE-ROUTING.md",
-      "sha256": "1192d751de4060886e88306da1154e25a3c68b48a9bfeeffc897c742e84f0026"
+      "sha256": "9db1beb41ac412ab28f43ac3c3371e83c8a8acd1a726a75447007759353fda8f"
     },
     {
       "path": "rules/KNOWLEDGE-CONVERGENCE.md",
-      "sha256": "b1f97b71c16198352342dd0eb724e566e2cc63c4a326541d0f3b20d9eb07a740"
+      "sha256": "98d2ccf76c7ad2beb62c9cc59156259abff3d12ac332b85bc683ef2b9966319b"
     },
     {
       "path": "rules/MULTI-OPERATOR-COORDINATION.md",
-      "sha256": "56514d1b081afb46ee32e47aef031031823eb2e4223f41555f5da30e5f408616"
+      "sha256": "ce409d34d34838f3ccb2037dca691df844e6432c0fafc8112460e9545327d43d"
     },
     {
       "path": "rules/OBSERVABILITY.md",
-      "sha256": "4e41e439849ef9a9c05d2ab88aef84fd4be6f06b37a51afad5ae5bb5457f32f3"
+      "sha256": "08fa900d906838a9d573e972bdacff826e07392383c50d25742021bc6d19c3e5"
     },
     {
       "path": "rules/ORCHESTRATION-LAUNCH-LEDGER.md",
-      "sha256": "ca83f1b867f491fc5237c3a346a32da5508713dd94ffbb798af7ed3aa802aa90"
+      "sha256": "9732ffc28552640eca86052e7f7e196306509deebb9fdc528119476b48c1a189"
     },
     {
       "path": "rules/ORCHESTRATOR-CONTEXT-ECONOMY.md",
-      "sha256": "aea9b15e76d8383735ff576cfb606b02c39d8404521b115ebcc29788534575e1"
+      "sha256": "a1608709a0ce8c85cd72d6af79cb9007a4f7dd0e3ab43083b6b93bc86ac9e4bf"
     },
     {
       "path": "rules/ORPHAN-DETECTION.md",
-      "sha256": "bede2fbd3acbb76fba245f4b9a525606dcb4c9ccdb4195666fbfa61543f17237"
+      "sha256": "a677cd8faa47a168f949df1122f9fef8640c8d4c6d10b328e7636b5abf6457c2"
     },
     {
       "path": "rules/PROBE-DRIVEN-VERIFICATION.md",
-      "sha256": "5bc0a345e4be1157af6e8719e26fd0ccb56abc68855631481c540ba71e6b2f77"
+      "sha256": "e6770bc415ce7885596c3bec05a90f7b162552955648410fcf26730ba2e8cded"
     },
     {
       "path": "rules/PRODUCT-COMPLETION-FIRST.md",
-      "sha256": "5839e4ae374a222e3d50a376de85c63bf29e17a242169604acc017d988d93c12"
+      "sha256": "82f51ff08b755a85b75c9a41f83b635c60086bbe21d5c2e2d7c4c325e5414b15"
     },
     {
       "path": "rules/PROPOSAL-INTAKE-TRUST.md",
-      "sha256": "d78faa0cfed1dbca09280ef2f63b431e81261b5216c708cdc3b7f9781cdac07d"
+      "sha256": "589c39217e7a2ccfc8bc64ae0ce0656317203621365bf2334e115c224b69ca2e"
     },
     {
       "path": "rules/PYTHON-ENVIRONMENT.md",
@@ -427,7 +463,7 @@
     },
     {
       "path": "rules/RECOMMENDATION-QUALITY.md",
-      "sha256": "814f499c3eedee9ccfb2ebc7a61f58712ec08e4c91d2704fbb500c2a9cb6b430"
+      "sha256": "de5a738fefc01e0501017aa75eac9e76b7d0641e4176ad7c002b0e83688e571c"
     },
     {
       "path": "rules/REFACTOR-INVARIANTS.md",
@@ -435,47 +471,51 @@
     },
     {
       "path": "rules/REPO-SCOPE-DISCIPLINE.md",
-      "sha256": "6125cb1173ad6dd937d4db14db8da7c04dce8cb794027db5fe755d85b87bc504"
+      "sha256": "c3b152762d47bafc14bd08c4ca95b306990e5745df1e1449b7886fb22dd17fbc"
     },
     {
       "path": "rules/RULE-AUTHORING.md",
-      "sha256": "9da6b80914680a6037c1c5dae71597803f4432c3bdd5c18b62e06b6c8f20c8d2"
+      "sha256": "d4c6d4c206919f73be99d577c36e0ba89e8aca2d5ac3dada7fc27e420532955c"
     },
     {
       "path": "rules/SCHEMA-MIGRATION.md",
-      "sha256": "e0c0eadfd4f234cca9a9613dc30e66ce020490fe2d642464b4627d7e68c9f07e"
+      "sha256": "4e446bac4e2073594c7001be4f5828599fa21f9874951ca88163cdee40617164"
     },
     {
       "path": "rules/SCRIPT-TOOL-MANIFEST-SANITY.md",
-      "sha256": "92163be834f3db8b7b6521931e0b81321a790fe6d78b7b76e6b3c461e01529f8"
+      "sha256": "728ec9f8da99b60be19d68e6886d9b2e94df503ace8d5f623d3596988ccbb0de"
     },
     {
       "path": "rules/SECURITY.md",
-      "sha256": "ffa2aa00b3bea8d367ab0b3e2d9a82641f0f2d5d318afccf432dea38f4a18e53"
+      "sha256": "1facd2c75848d53ca707112ebb75d584302d9eea2336e96dc50c8fa6bd861ff5"
     },
     {
       "path": "rules/SELF-REFERENTIAL-CODIFY.md",
-      "sha256": "9b2bfbff212561db23287acffcca58745181b54c8f700bcbef60377dee4981c0"
+      "sha256": "0b236f33099c9283bf79a130e4e4005942cced73f9554833cad95b8c67501c39"
     },
     {
       "path": "rules/SESSION-NOTES-CONTINUITY.md",
-      "sha256": "6f0c2927ac7ce3b569718b460754766bedd41ad4be770449dbad51cb1bcd20c8"
+      "sha256": "5d14a15d0f954aa43056c2f4d98c7c111881c792b3289f1c8f127d92a47dad59"
     },
     {
       "path": "rules/SPEC-ACCURACY.md",
-      "sha256": "caa3a4639750f26027654025e9037825f71ee2eef85ed407b1c6901521498558"
+      "sha256": "95c0e6aa835b6319d7775e9eb4112d519f2a89557d1711920641375b60be7b79"
     },
     {
       "path": "rules/SPECS-AUTHORITY.md",
-      "sha256": "23efb184d9342673a5315bb65af6f69f6b7ec7592dbb43cd5d392b3f566e29df"
+      "sha256": "cd583c2309335414ec119e9f8b1328bf082b2db16490f12d295c4f46ac1344ec"
     },
     {
       "path": "rules/STACK-DETECTION.md",
-      "sha256": "182779bd4b844dadea61c625d9e4d9420d8075f5d94fe33b1f752c14c1bc0060"
+      "sha256": "53049efb690b91bfab7ba1398580fee7be5478ec068e2544c014930d615a0949"
     },
     {
       "path": "rules/STATE-FILE-WRITE-GUARD.md",
-      "sha256": "ebc42037b2e5c707d3e9f8c8463620f4d723e90f16235d998355786dfcc033ed"
+      "sha256": "00822acbfbabf2aea4528ce0bff87e6d71f045590370c1e508c009e5168da306"
+    },
+    {
+      "path": "rules/STATE-REGRESSION-INTEGRITY.md",
+      "sha256": "faec25adf736831eac9cc40a29eae894f446c90c77e9140badc779bef754fda0"
     },
     {
       "path": "rules/SWEEP-COMPLETENESS.md",
@@ -483,23 +523,23 @@
     },
     {
       "path": "rules/SYMBOL-ANCHORED-CITATIONS.md",
-      "sha256": "6d1882f9c0c59f3e7e6ddba9d87d21bcbb3c593c3020b8536388c9bb6fa3b098"
+      "sha256": "8a6a00ece818a5a270076858b0729364bdd1f2f5864c4302cbcc0d4d8f1042b2"
     },
     {
       "path": "rules/TESTING.md",
-      "sha256": "972f4873668ec3b70f9555ed46e0ae569b9f5f70357daeae9ae0b352543026e4"
+      "sha256": "91826ae026cfbc4a7ae74e670626d60e9b7e01cc579f9c0f3bc12c7814981c36"
     },
     {
       "path": "rules/TIME-PRESSURE-DISCIPLINE.md",
-      "sha256": "c24ff4c6a4a19563b65d135339566b08f45322821d6d5460d0063e361fb317bd"
+      "sha256": "e8f8d8108f7471dcc164b202cd509e388ee53e144792b40c311f46fcb32083ed"
     },
     {
       "path": "rules/TRUST-POSTURE.md",
-      "sha256": "ea191fc871eff7705b5a6d5d7b81b1be14985ef0fe67faf5e6f76607b3f1c020"
+      "sha256": "dbe0d892e6851d671f0262517773c93de3e4f1a74bb5adeabe9a38f16f6cafa1"
     },
     {
       "path": "rules/TYPE-RELAXATION-SWEEP.md",
-      "sha256": "a2c3dd1c048db7fce228a324866d5f1aa2fcef14991b481867bddfbb90b95e14"
+      "sha256": "3d65758e10dbb09ff4147ba1d684d7b519ad763cc8ba7cedef4ec0fd439c6e39"
     },
     {
       "path": "rules/UI-BACKEND-DEFENSE.md",
@@ -507,23 +547,23 @@
     },
     {
       "path": "rules/UPSTREAM-ISSUE-HYGIENE.md",
-      "sha256": "ff02f3c8370b23d33252276993f63feb961ee4e2ccfd36d444de7523358caaf8"
+      "sha256": "8685f7914352a9bdbc2f65026894339000f4db41d9ab0b0c8b969f7f587c3e37"
     },
     {
       "path": "rules/USER-FLOW-VALIDATION.md",
-      "sha256": "e381175813ad75a54fbb9fcb98a7a3d319cbc6683cc9028329a4b9e8104006e3"
+      "sha256": "2b613d83596a0fee1cb0b13e2d4773e10191c298b15b6a8b038415249551f739"
     },
     {
       "path": "rules/VALUE-PRIORITIZATION.md",
-      "sha256": "eeac6100bb54de8f012028f9c611ebd39bbcecafcf39c414fa2e1911bc67a246"
+      "sha256": "c736f6e97a6f78c754e7dcd46d0e74f69d6f93c6d3c7fac6625bb5ec9df46d1f"
     },
     {
       "path": "rules/VERIFICATION-GATE-INTEGRITY.md",
-      "sha256": "ff913b55ad3e01e81dd47a3d862ab452c032bb529959a282de6b8550618eb84e"
+      "sha256": "72ea8190da222351efe73831fc6fd28f85a7b729442dbe38fbe81b4091bc44da"
     },
     {
       "path": "rules/VERIFY-CLAIMS-BEFORE-WRITE.md",
-      "sha256": "9dfff0bbe7886c8efae54c875c8b1d2d4a1f675e634b1c510ec4839446301f49"
+      "sha256": "a54b9f640b730b8dd4ea71738dd604b5586fced65e6e978e93189a65cf51cecd"
     },
     {
       "path": "rules/VERIFY-RESOURCE-EXISTENCE.md",
@@ -531,23 +571,35 @@
     },
     {
       "path": "rules/WAVE-LOOP.md",
-      "sha256": "da4128ab335154e43e58a3afd2bb41fff9d9a49264f1defd380d551bc4148c7f"
+      "sha256": "f95f9d026faa9fab9d3577d8eda531451cd7f39619a60dc42e6bac183a278ee0"
+    },
+    {
+      "path": "rules/WIP-DISCIPLINE.md",
+      "sha256": "4948649f28f9756f1ecd0c79afe36722ec0418f069d5ac9e74fb3fbd38bb6b70"
     },
     {
       "path": "rules/WORKTREE-ISOLATION.md",
-      "sha256": "6a62f0e315521a17502739cad39a23515fd20e5b451befcc21580767d05e663e"
+      "sha256": "3397ef4379b0399b96e0ad1a0ac362d0c6aa0cf763ba1c48d211188d851aa9dc"
     },
     {
       "path": "rules/ZERO-TOLERANCE.md",
-      "sha256": "a9ce0404f598068a0a05af4e83ad25caba3fc9251cf01db46182ad6f9813a0e9"
+      "sha256": "aed07f53d5059660c7d653e9c620bf5f33736061499eaa7233a892aca25f09aa"
+    },
+    {
+      "path": "skills/CI-GATE-SELECTION.md",
+      "sha256": "251b96bae3870e18bfe5774a6d094c319b2ba7d8a670f78af0e2483215fa4241"
     },
     {
       "path": "skills/CO-REFERENCE.md",
       "sha256": "af88ceaa28db419d744dac8e0088ea7db1e4b7a76dc5333e7b3153c33966fc21"
     },
     {
+      "path": "skills/CODEX-COORDINATION.md",
+      "sha256": "27684a2e86e96ceef7d009de9b37ceb705cf10e0292b0e326d80629a7b0d91f2"
+    },
+    {
       "path": "skills/COMMAND-AUTHORING.md",
-      "sha256": "81069d17da990fd321238c45c91cbb869851e5f832419feb09ab7afbe940b6fd"
+      "sha256": "5890fd30918790a585954a7b7ec25f28f0fb023a4fcb5dadcc285848831b73af"
     },
     {
       "path": "skills/CONFORMANCE-WALK.md",
@@ -555,11 +607,19 @@
     },
     {
       "path": "skills/HOOK-AUTHORING.md",
-      "sha256": "59610f67499b177ebbe66a78cd7543d7d800df97c36757d66bad0ee618c97e9e"
+      "sha256": "c286d6c2251573e00c58a662af2ef40be32b34e5dc8db9c7f1764297d7e67642"
     },
     {
       "path": "skills/ISSUE-TRIAGE-ROUTING.md",
-      "sha256": "d4d10338200a5bcd6d9f164b9a0e94aba02cae6cb5bb6fcdf1523410509ab09f"
+      "sha256": "9dfbad53da0bab56067a412fc2cae880e8127bac4360fd24cf95ebc48e2ee0ab"
+    },
+    {
+      "path": "skills/LANE-PLANNING.md",
+      "sha256": "1e70b3bfba4bef5983a7038b2143024da8421d118ff5153646ab742810cb68e5"
+    },
+    {
+      "path": "skills/PICKUP.md",
+      "sha256": "eba16941e3d4531d213e8e3aac572591892714edba553dd21a16025e639eee57"
     },
     {
       "path": "skills/S10-DEPLOYMENT-GIT.md",
@@ -567,7 +627,7 @@
     },
     {
       "path": "skills/S12-TESTING-STRATEGIES.md",
-      "sha256": "de0d2ac64b3b4bef2b624d942ea6a7b310156a9d8d704d63cf557522670c4aab"
+      "sha256": "4e9c1545ae74facf2612ee66e51894ed4f320bed9e6e92868360aa4a45db11bb"
     },
     {
       "path": "skills/S16-VALIDATION-PATTERNS.md",
@@ -599,7 +659,7 @@
     },
     {
       "path": "skills/S30-CLAUDE-CODE-PATTERNS.md",
-      "sha256": "74f4830d2c8c5c747f6fc6e94b8d5a1323afe7cb1b5b5c483493d9bdc4327d44"
+      "sha256": "2705f49e8325284dfc8194777a1ed337623eca00b8514c3dca32703db470fcf2"
     },
     {
       "path": "skills/S32-TRUST-POSTURE.md",
@@ -615,11 +675,11 @@
     },
     {
       "path": "skills/S40-STACK-ONBOARDING-PYTHON.md",
-      "sha256": "4a6186334f83737eb491d66f94b4097788f98e189c128985b134345d2d83b354"
+      "sha256": "e55342f93b68227f5dc8ce781c600fe2ee80a3fa8bacb2b7399cf17a64b6eb86"
     },
     {
       "path": "skills/S40-STACK-ONBOARDING-RUST.md",
-      "sha256": "13e60734f1f059044669046a498e11fc643e2a9bc1d01e5bb9fcd726b33c2a55"
+      "sha256": "da2b09aa9e1200add0b1ec120205f76d7b12dd3644eac664ebdf6a2fa7a362e5"
     },
     {
       "path": "skills/S40-STACK-ONBOARDING-TYPESCRIPT.md",
@@ -627,7 +687,7 @@
     },
     {
       "path": "skills/S41-ONBOARD.md",
-      "sha256": "745eb3596268c596a621c45fcfe3b2bad62c1892ed9527a35a4b1e13befa144c"
+      "sha256": "0c9d76df5de11015b9fa535800817a9aa9ad239a1d07648736a9f163447dfe3c"
     },
     {
       "path": "skills/S42-CERTIFY.md",
@@ -635,11 +695,11 @@
     },
     {
       "path": "skills/S43-ECOSYSTEM-INIT.md",
-      "sha256": "07036f8dd23f92c2b08e00e3ef58f2cf697cfd55b610fb38d5fa0ed0d925fe3b"
+      "sha256": "5e884436d9f88336480dbb00df4cdb611d4a33c03a247ea9d204abee617b6ee0"
     },
     {
       "path": "skills/S44-ENROLL.md",
-      "sha256": "376c1df66cdd14ec16cdf1ac5e45d78a7a15efebd88ac6a9b7c8bac9a90021a2"
+      "sha256": "5332796644b0737db9d514de81f1bc8c785031d45fb434c957ebf0c3d98fbe98"
     },
     {
       "path": "skills/S45-GENESIS-BOOTSTRAP.md",
@@ -647,15 +707,15 @@
     },
     {
       "path": "skills/S46-CLEAN-INSTANTIATE.md",
-      "sha256": "5b8e96e4ee8581fc183f7c66c57631653dfbc92de773bcc8df6e725ac03af1d2"
+      "sha256": "f06435102d211cc9573d908aa15f7b63a697185963f118b35a742dc1cd05e77f"
     },
     {
       "path": "skills/S47-LOOM-DOCTOR.md",
-      "sha256": "02e1b89e4d758ca22fba18330d49b8ee0a36f4c6fbd5c03feef9b30d876f7b63"
+      "sha256": "3ce6c1db926a53e4cbe863dbfa4efc9477257bac74766900c20129470b75d56e"
     },
     {
       "path": "skills/SKILL-AUTHORING.md",
-      "sha256": "6cfdbaa1ab4746034094d2fa55c448b6861b026021caa21778ffe4ac1ead140b"
+      "sha256": "fde218737600a31776a42826b46714261d328015fe18a60af0600e2c39f72f2e"
     },
     {
       "path": "skills/SPEC-COMPLIANCE.md",
@@ -663,15 +723,15 @@
     },
     {
       "path": "skills/SWEEP.md",
-      "sha256": "26bd973c01ec48399074a6e39dc7cc8777956d9f4e53493f30d61b244902a8dd"
+      "sha256": "d9ca7f423e3ed3f01da2e24eed32c5f6f7074456822201ff57593db3a823b0a7"
     },
     {
       "path": "skills/TEST-SKIP-DISCIPLINE.md",
-      "sha256": "c4c368a2a8ea2a40bbe09ef04699b35318e3afc83c3d64b4760cdbd7b57871b1"
+      "sha256": "9d24148ce5dc0ea860707ede4a10cb6044b3daf31dde6cbf31cee83b3ccf1b6c"
     },
     {
       "path": "skills/WRAPUP.md",
-      "sha256": "744bdf9d3d15b6922975463dc5790d2304447050c91d42989720a511f63802db"
+      "sha256": "0b0cb0dabd7375a9b2a6ab5fe88f65397aef19f77cbeb6b10cff368a1189cfb6"
     }
   ]
 }

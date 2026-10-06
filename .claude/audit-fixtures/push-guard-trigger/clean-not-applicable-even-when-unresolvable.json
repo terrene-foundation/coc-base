@@ -1,0 +1,13 @@
+{
+  "_doc": "ORDERING assertion: applicability is decided BEFORE resolution. A consumer clone with a broken git resolution is still n/a, not unknown -- reporting UNKNOWN there would owe a reader an investigation into a question that does not apply to their repo.",
+  "state": {
+    "delegatePresent": false,
+    "trackedTriggerPresent": false,
+    "hooksDir": null,
+    "resolveError": "`git rev-parse --git-common-dir` returned nothing",
+    "readError": null,
+    "triggerPresent": false,
+    "triggerExecutable": false,
+    "triggerDelegates": false
+  }
+}

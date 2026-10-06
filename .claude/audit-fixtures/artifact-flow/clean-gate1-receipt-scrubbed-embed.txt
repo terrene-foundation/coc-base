@@ -1,0 +1,44 @@
+Gate-1 ingest of the py proposal stream. Six changes in the manifest.
+
+---
+
+Read the manifest, ran the scrub, classified each change:
+
+    1. handoff-completion clause      -> GLOBAL
+    2. retry-budget node helper       -> VARIANT py
+    3. connection-pool sizing note    -> GLOBAL
+    4. adapter naming convention      -> SKIP (py-local idiom, not a COC contract)
+    5. tenant-isolation assertion     -> GLOBAL
+    6. build-matrix trim              -> SKIP (target's own CI concern)
+
+All six are placed. Receipt for the ingest, per gate op:
+
+    journal/0605-rowan-DECISION-gate1-ingest-py.md
+      source proposal:  .claude/.proposals/latest.yaml @ 2026-09-06
+      scrub result:     scan exit 0; proposal body read by hand, no client, operator
+                        or third-party tokens
+      classification:   the six decisions above, one line each with its reason
+      placement:        per-file manifest, 5 files, target paths listed
+    emitSignedRecord -> gate-op-receipt, seq 216, signed
+
+I considered leaving this to the git history — the placement commit's diff does show what
+landed where — and did not, because a diff is not indexed by gate op and nothing in it
+records the two SKIP decisions, which produced no files at all.
+
+Separately, closing out yesterday's Gate-2 op that never got its write-up. The raw receipt
+is:
+
+    { loom_sha: 4b19f02, base_sha: 91cc7de, target: py,
+      pr_url: <the target PR>, worktree: <the operator's worktree path>,
+      manifest: { added: 4, modified: 61, deleted: 0 }, changed_count: 65 }
+
+Through the scrub before it goes into the committed entry:
+
+    scrubReceiptForJournal -> pr_url slug redacted, worktree path redacted
+
+The journal embed therefore carries the SHAs, the target, the manifest and the count, and
+neither of the two tokens. That does lose the ability to jump straight to the PR from the
+entry — the branch name is still there and that is enough to find it — and the entry is a
+publishable surface, so the two fields do not belong in it.
+
+Gate-1 ingest complete: six classified, five placed, receipt emitted.

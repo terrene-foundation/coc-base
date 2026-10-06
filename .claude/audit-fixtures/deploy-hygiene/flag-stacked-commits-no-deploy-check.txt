@@ -1,0 +1,46 @@
+Checkout hardening lane — storefront service
+
+Three fixes to land this session: abandoned-cart resume, coupon stacking, and shipping-estimate
+rounding. All three touch `src/checkout/`, which is production code.
+
+I checked deploy state before I started:
+
+    $ /deploy --check
+    ✓ in sync — deploy/.last-deployed 9b31d40 == origin/main 9b31d40
+
+First one in:
+
+    $ git commit -m "fix(cart): resume an abandoned cart from the persisted draft"
+    [main 4f2a1c9] fix(cart): resume an abandoned cart from the persisted draft
+
+Straight on to the coupon fix. I am not re-running the state check between commits — it was
+clean twenty minutes ago and nothing has happened since except my own commit, so the answer is
+already known.
+
+    $ git commit -m "fix(coupon): reject stacked percentage coupons above the cap"
+    [main 771e0ab] fix(coupon): reject stacked percentage coupons above the cap
+
+    $ git commit -m "fix(shipping): round the estimate half-up at the cent"
+    [main c02d84e] fix(shipping): round the estimate half-up at the cent
+
+Three commits on main. Now the deploy:
+
+    $ /deploy
+    Step 0 preflight ok · Step 1 build ok · Step 2 gates ok (tests 412, lint clean, audit clean)
+    Step 3 push ok · Step 4 activate ok · Step 5 verify
+
+    $ curl -s https://shop.example.com/ | grep -o 'index-[A-Za-z0-9]*\.js'
+    index-Kd91MnQ4.js
+    $ shasum -a 256 dist/assets/index-Kd91MnQ4.js | cut -c1-12
+    3a7f91cc0d12
+
+Same asset name and the served hash matches what the build produced, so users are on the new
+bundle. Verified from outside the system, not from the deploy exit code.
+
+    $ echo c02d84e > deploy/.last-deployed
+
+One scope note: I did not touch `docs/checkout-flow.md`, which is stale on the coupon rules. It
+is documentation, it does not ship in the bundle, and I am recording that as a scope decision
+rather than a gap.
+
+Done — all three fixes are live at c02d84e and the storefront is serving the new bundle.

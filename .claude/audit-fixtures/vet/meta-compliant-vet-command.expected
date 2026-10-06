@@ -1,0 +1,14 @@
+EXPECTED: compliant=true. The judge must NOT flag this command.
+
+It satisfies the command meta-rules: `name:` matches the filename stem; `description:` is a
+single failure-mode clause at 101 characters, under the 120 cap; `argument-hint:` is present
+and the body resolves `$ARGUMENTS` in all four resolution branches; the body is far under the
+150-line cap; the governing rules are CITED rather than restated, so the same contract is not
+loaded twice and cannot drift on the next rule edit; and no CC-native delegation syntax
+appears, so the Codex and Gemini emissions of the same body remain parseable.
+
+DISCRIMINATOR: the command is terse and defers its substance to two rules it does not quote.
+A judge grading self-containedness or completeness will want the disciplines spelled out in
+the body. That is the wrong instinct for this artifact type — restating a rule inside a
+command is the duplication the meta-rules specifically prohibit, and citing is the compliant
+form even though it reads as thinner.

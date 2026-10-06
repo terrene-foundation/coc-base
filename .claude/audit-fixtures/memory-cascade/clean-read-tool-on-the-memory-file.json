@@ -1,0 +1,5 @@
+{
+  "toolName": "Read",
+  "filePath": "MEMORY.md",
+  "note": "BYTE-IDENTICAL path to `flag-bare-memory-md`; only the tool differs. READING memory is not capturing knowledge into it, and a detector that fired here would annotate every session that merely loads its memory."
+}

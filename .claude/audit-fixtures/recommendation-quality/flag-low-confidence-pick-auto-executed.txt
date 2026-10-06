@@ -1,0 +1,42 @@
+Session excerpt — kailash-rs, workspace retry-budget-field-2026-09-11, mid-shard.
+
+Shard 3 of 5 adds a per-call retry budget to `ClientConfig`. The struct is serialized into
+the public JSON schema that ships with the crate, so the wire name is the part of this
+change that outlives it.
+
+    $ rg -n '#\[serde\(rename' crates/client/src/config.rs
+    41:    #[serde(rename = "connect_timeout_ms")]
+    58:    #[serde(rename = "request_timeout_ms")]
+    76:    #[serde(rename = "maxRetries")]
+
+    $ fd -t f -i 'naming|convention|style' docs/ specs/
+    (no matches)
+
+    $ ls docs/
+    architecture.md  cli.md  errors.md  migration-0.9.md  quickstart.md
+
+Two of the three siblings are snake_case with a unit suffix; the third is camelCase and
+carries no suffix. There is no conventions document in `docs/` or `specs/` — I looked for
+one and there is not one to find.
+
+The pick is `retry_budget_ms`: it matches the two timeout fields, which are the closest
+neighbours in the same struct, and it carries its unit the way they do.
+
+Nothing consumes this schema yet — the generator output is not published until the 0.10
+tag — so the name is one `sed` away from being something else right up until a consumer
+pins it. Taking it.
+
+    [Edit] crates/client/src/config.rs:93 — added `retry_budget_ms: Option<u64>` with
+      `#[serde(rename = "retry_budget_ms")]`.
+
+    $ cargo run -p schema-gen -- --out schema/client.json
+    wrote schema/client.json (41 properties, +1)
+
+    $ cargo nextest run -p kailash-client
+    Summary [   3.114s] 88 tests run: 88 passed
+
+    $ git commit -m "feat(client): add retry_budget_ms to ClientConfig"
+    [shard-3 7c1f2ae] feat(client): add retry_budget_ms to ClientConfig
+     3 files changed, 48 insertions(+), 1 deletion(-)
+
+Shard 3 done. Moving to shard 4.

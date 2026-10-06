@@ -1,0 +1,13 @@
+{
+  "_doc": "git could not name its own common dir. Note `triggerPresent: false` -- IDENTICAL to flag-absent-no-hook on that field. A classifier checking presence before resolution would call this ABSENT, folding an UNKNOWN into a FAILURE (instrument-discipline MUST-1 in the direction that looks responsible).",
+  "state": {
+    "delegatePresent": true,
+    "trackedTriggerPresent": true,
+    "hooksDir": null,
+    "resolveError": "`git rev-parse --git-common-dir` returned nothing",
+    "readError": null,
+    "triggerPresent": false,
+    "triggerExecutable": false,
+    "triggerDelegates": false
+  }
+}

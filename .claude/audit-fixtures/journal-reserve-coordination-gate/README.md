@@ -14,8 +14,23 @@ not a live gate. Stated plainly rather than described as "blocking".
 ## The predicate under test
 
 ```js
-isCoordinationEnabled(resolveMainCheckout(repoDir) || repoDir);
+isGovernanceEnabled(requireMainCheckout(repoDir).repoDir);
 ```
+
+**Re-keyed COORDINATION → GOVERNANCE on 2026-09-12 (W5a).** The gate used to be
+`isCoordinationEnabled`. The loom#1890 solo floor turns that OFF for an enrolled
+roster binding one human (canon loom's own shape: `coordinationMode` →
+`implicit-solo-single-operator`, `governanceMode` → `enrolled-solo`), so every
+reservation returned `{ok:true, record:null}`. With no record, only the disk scan
+of the reserving tree knew the slot, and slot 0606 was issued twice within an
+hour. The coordination log's newest `journal-slot-reservation` is dated
+2026-08-20, one day before the floor landed on 2026-08-21. The `governance-on-solo/*` cases below
+reproduce that in a fixture. Before the fix, reserving from a worktree and then
+from main returned slot `"0001"` twice, `record_present:false`, with 0 log lines.
+After the fix they return `"0001"` then `"0002"`, and both records are in
+`resolveLogPath(main)`. The rows below that were written for the coordination
+key still hold, because governance is ON wherever coordination is. A
+record-less `ok:true` now always carries a typed `degraded`.
 
 Both halves are load-bearing, and each has already failed once:
 
@@ -37,7 +52,7 @@ never mutated.
 | Mutation                                                                                                         | Cases redded                                                                                                                                                                                               |
 | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | replace `isCoordinationEnabled(resolveMainCheckout(repoDir) \|\| repoDir)` with `isCoordinationEnabled(repoDir)` | exactly 1 — `coordination-on/worktree/resolves-main-not-worktree`                                                                                                                                          |
-| `requireSigningIdentity: false` (drop the gate open)                                                             | 2 — both `coordination-on/*` cases                                                                                                                                                                         |
+| `requireSigningIdentity: false` (drop the gate open)                                                             | 2 — `coordination-on/main/unsigned-identity-refused` + `coordination-on/worktree/resolves-main-not-worktree`                                                                                                                                                                         |
 | `requireSigningIdentity: true` (revert the #76 fix)                                                              | exactly 1 — `coordination-off/main/unsigned-identity-accepted`                                                                                                                                             |
 | `_foldHighWater` — drop the `/^[0-9]{1,9}$/` slot shape check, restore `Number.isFinite`                         | exactly 1 — `slot-shape/poisoned-high-water-cannot-escape-4-digits`                                                                                                                                        |
 | `_foldHighWater` — restore the bare `catch { roster = null; }` (revert the #84 fix)                              | exactly 1 — `roster/corrupt-roster-refuses-rather-than-restarting-high-water`                                                                                                                              |
@@ -47,6 +62,12 @@ never mutated.
 | `_foldHighWater` — widen the rejection filter to ANY rule (drop `entry.rule !== "rule-1"`)                       | exactly 1 — `roster/ordinary-chain-continuation-does-not-deny-the-receipt`                                                                                                                                 |
 | `_foldHighWater` — resolve the roster with `path.join(repoDir, …)` instead of `resolveMainCheckout(repoDir)`     | exactly 1 — `roster/worktree-reads-the-main-checkout-roster-not-its-own`                                                                                                                                   |
 | `_foldHighWater` — scope the rejection filter back to `rule-1` alone, dropping the `rule-4` arm                  | exactly 1 — `roster/persons-key-rename-loses-the-reservation-and-refuses`                                                                                                                                  |
+| M1: gate the record on `isCoordinationEnabled` again (the pre-W5a predicate)                                     | 2 — `governance-on-solo/record-lands-where-the-high-water-reads-and-main-does-not-reissue-the-worktree-slot` + `governance-on-solo/emit-failure-is-typed-degraded-and-never-ok`                            |
+| M2: return the governance-off result bare (no `degraded`, bypassing `_successResult`)                            | exactly 1 — `governance-off/record-less-reservation-carries-a-typed-degraded`                                                                                                                              |
+| M3: drop `degraded` from the emit-failure return                                                                 | exactly 1 — `governance-on-solo/emit-failure-is-typed-degraded-and-never-ok`                                                                                                                               |
+| M4: open `_successResult` alone (`return result` unconditionally)                                                | **0, and that is an inert mutation, not a vacuous test.** No live path returns `ok:true` without either a record or `degraded`, so there is nothing for the check to catch. See the double mutation below. |
+| M5: drop `degraded` from the governance-off return, keeping the `_successResult` call                            | 8. The invariant turns every governance-off success into `step:"result-invariant"`: `coordination-off/main/unsigned-identity-accepted`, `slot-shape/poisoned-high-water-cannot-escape-4-digits`, `slot-shape/high-water-does-not-collapse-past-9999`, `slot-shape/disk-scan-sees-five-digit-journal-files`, `roster/absent-roster-proceeds`, `roster/valid-roster-proceeds`, `roster/ordinary-chain-continuation-does-not-deny-the-receipt`, `governance-off/record-less-reservation-carries-a-typed-degraded` |
+| M5 + M4 (the double mutation)                                                                                    | exactly 1 — `governance-off/…`, with 0 `result-invariant` hits. The drop from 8 reds to 1 shows `_successResult` executes and is what absorbed M4                                                        |
 
 **The stale `{1,4}` citation above was wrong for several revisions** — the shipped
 check is `/^[0-9]{1,9}$/` (`journal-reserve.js:517`). The sibling mutation string
@@ -60,7 +81,7 @@ the guard reds the erasure cases, widening it reds the availability case. Neithe
 alone constrains the filter — the widening shipped precisely because only the
 erasure polarity existed. Row 10 pins the tree the roster is read from.
 
-**Coverage — DERIVED, not counted by hand.** 17 cases: 13 declared with a literal
+**Coverage — DERIVED, not counted by hand.** 20 cases: 16 declared with a literal
 `name:`, plus 4 generated by the roster-shape loop. All 13 literal names appear
 verbatim in a row above; the 4 loop-generated ones are named as a set in the
 disable-the-guard row.

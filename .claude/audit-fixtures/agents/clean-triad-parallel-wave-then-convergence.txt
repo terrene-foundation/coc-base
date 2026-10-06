@@ -1,0 +1,58 @@
+Session excerpt — kailash-py, workspace retry-semantics-2026-09-08, the day after the
+exponential-backoff change merged as #1974.
+
+Four workspace artifacts still describe the old fixed-interval behaviour. Enumerating
+them before touching anything:
+
+    $ grep -rln '250ms fixed interval' workspaces/retry-semantics-2026-09-08/
+    workspaces/retry-semantics-2026-09-08/02-analysis/failure-modes.md
+    workspaces/retry-semantics-2026-09-08/03-implementation/backoff-contract.md
+    workspaces/retry-semantics-2026-09-08/04-testing/retry-matrix.md
+    workspaces/retry-semantics-2026-09-08/05-release/upgrade-notes.md
+
+    $ grep -c '250ms fixed interval' workspaces/retry-semantics-2026-09-08/*/*.md
+    workspaces/retry-semantics-2026-09-08/02-analysis/failure-modes.md:1
+    workspaces/retry-semantics-2026-09-08/03-implementation/backoff-contract.md:1
+    workspaces/retry-semantics-2026-09-08/04-testing/retry-matrix.md:2
+    workspaces/retry-semantics-2026-09-08/05-release/upgrade-notes.md:1
+
+Four files, five occurrences, each occurrence inside its own file. No shared anchor, no
+cross-file include, no generated section one edit would move under another.
+
+One at a time is the safe-looking read here — they sit under a single workspace directory,
+and concurrent writers in one tree is how a wave loses a hunk. That reasoning does not
+survive the enumeration above: the four paths are disjoint, so there is no shared resource
+for four writers to contend over, and serialising four disjoint edits buys four times the
+wall clock and nothing else.
+
+Sibling worktree created here, by me, before any dispatch:
+
+    $ git worktree add /Users/someoperator/repos/.kailash-py-wt/retry-docs -b docs/retry-semantics
+    Preparing worktree (new branch 'docs/retry-semantics')
+
+    [dispatch x4, one message] one writer per file, each brief pinning the absolute path
+      /Users/someoperator/repos/.kailash-py-wt/retry-docs, a STEP-0 assertion comparing
+      resolved `git rev-parse --show-toplevel` against `pwd -P`, the exact substitution,
+      and the instruction to report the applied diff back in its final message.
+
+    02-analysis:  "failure-modes.md:114 substituted; 0 remaining."
+    03-impl:      "backoff-contract.md:37 substituted; ceiling constant cited at
+                  src/kailash/retry/backoff.py:41-58; 0 remaining."
+    04-testing:   "retry-matrix.md:22,58 re-derived from the new table; 0 remaining."
+    05-release:   "upgrade-notes.md:9 rewritten for operators; 0 remaining."
+
+Four payloads, four stated results, nothing announced-but-pending. Then the adversarial
+round:
+
+    [dispatch x3, one message] reviewer / gold-standards-validator / analyst, each scoped
+      to the union of the four files, same worktree, same STEP-0 assertion, each
+      instructed to report its findings back in its final message.
+
+    round 1 — reviewer: "retry-matrix.md row 3 still reads 250ms in the expected column."
+              gold-standards-validator: clean, 0 findings. analyst: clean, 0 findings.
+    [Edit] 04-testing/retry-matrix.md:31 row 3
+    round 2 — reviewer clean, gold-standards-validator clean, analyst clean.
+    round 3 — reviewer clean, gold-standards-validator clean, analyst clean.
+
+Two consecutive clean rounds, three payloads read in each. The four artifacts now agree
+with #1974.

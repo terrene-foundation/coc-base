@@ -1,0 +1,13 @@
+{
+  "arm": "classifyTree",
+  "note": "uncommitted but written 1 min ago: a live lane. MUST NOT alarm",
+  "cfg": {
+    "wipMs": 1200000,
+    "parkedMs": 86400000
+  },
+  "facts": {
+    "measured": true,
+    "dirty": 3,
+    "contentIdleMs": 60000
+  }
+}

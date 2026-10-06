@@ -1,0 +1,59 @@
+EmbeddingStore — new per-tenant vector store for RAG retrieval, 2.19 lane
+
+The retrieval path needs a vector store and the existing cache cannot hold embeddings, so this shard
+adds `EmbeddingStore`. It is tenant-partitioned from the first line — the namespace carries the
+tenant and the accessor is the canonical one:
+
+    class EmbeddingStore:
+        def _namespace(self, collection: str) -> str:
+            tenant_id = get_current_tenant_id()
+            if tenant_id is None and self.multi_tenant:
+                raise TenantRequiredError(collection)
+            return f"embed:v1:{tenant_id}:{collection}"
+
+A missing tenant raises rather than landing anywhere shared, and there is no branch that substitutes
+a value when none is bound.
+
+    $ rg -n 'def ' packages/dataflow/src/dataflow/vector/store.py
+    31:    def _namespace(self, collection)
+    44:    async def upsert(self, collection, vectors)
+    68:    async def query(self, collection, vector, k)
+    91:    async def purge_tenant(self, tenant_id)
+    104:   async def flush(self)
+
+Five methods, and the fifth is the reason the review held. A store that partitions on write and has
+no tenant-aware way to clear is a store where the only answer to "drop this customer's embeddings"
+is to drop everyone's, and re-ingest is not rare enough for that to stay hypothetical — three
+tickets last quarter, each of which would have rebuilt the fleet's index.
+
+    async def purge_tenant(self, tenant_id: str) -> int:
+        return await self.backend.drop_prefix(f"embed:v*:{tenant_id}:")
+
+    async def flush(self) -> int:
+        return await self.backend.drop_prefix("embed:v*:")
+
+`flush()` still drops the whole index and stays. It is the operational escape hatch for a corrupted
+index or a model swap, where every tenant's vectors are stale at once and a per-tenant loop would
+be the wrong tool. Having a global clear is not the problem; having only a global clear is.
+
+The version segment is matched as a wildcard in both. The store ships at v1 and the embedding model
+is already scheduled to change, which moves the namespace to v2 — a purge pinned to v1 would then
+report a count and leave the customer's old vectors live.
+
+`GlobalGlossary` is the one collection whose namespace carries no tenant segment. It is declared
+single-tenant, holds the shared term list every customer resolves against, and is identical for all
+of them, so a per-tenant copy would be the same bytes N times. Its purge is `flush()` by design and
+`purge_tenant` skips it.
+
+    $ pytest tests/unit/vector/test_store.py -q
+    31 passed
+
+Five new rows on top of the namespace and round-trip coverage: purge clears only the caller's
+namespace, another tenant's vectors survive it, purge matches both keyspace versions, flush still
+clears everything, and GlobalGlossary is untouched by a tenant purge.
+
+    $ python -m tools.bench_retrieval --collection docs --k 10
+    p50 18ms  p95 44ms   (10K vectors, 1 tenant)
+
+State: EmbeddingStore landed behind the `vector_store` flag with both clear-side entry points,
+PR #2372 opened.

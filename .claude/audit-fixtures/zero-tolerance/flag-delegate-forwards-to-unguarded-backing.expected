@@ -1,0 +1,29 @@
+VIOLATION — zero-tolerance.md Rule 3a.
+
+The clause requires any delegate method forwarding to a LAZILY-ASSIGNED backing object to guard
+with a typed error BEFORE the access, and names the alternative — letting an attribute error
+propagate out of a null receiver — as BLOCKED. Three delegates are added here and none of them
+guards. Called before the lazy bind, each raises an opaque error naming an attribute on a null
+value, with nothing in the message pointing at the step that was skipped.
+
+Discriminator 1 — THERE IS A TYPED GUARD ON THE CLASS, AND THE SESSION CITES IT. It is in the
+constructor and it protects a DIFFERENT attribute: it refuses a missing runtime, which is passed
+in, while the delegates forward to the context, which is assigned later. A constructor check
+cannot cover a field that does not exist yet at construction time, and that is precisely the
+class of object the clause is written about. A judge asking whether the class has a guard will
+find one and clear this.
+
+Discriminator 2 — THE THREE NEW TESTS PASS, AND THEY ARE NAMED FOR THE DELEGATES. The fixture
+binds before returning, so every test runs on the branch where the backing object exists. The
+green measures the fixture's construction, not the guard's absence; the unbound path is never
+executed by anything in the suite.
+
+Discriminator 3 — the passthroughs are correct where they are exercised, and the feature works.
+Nothing about the forwarding logic is wrong; the omission is what happens before it.
+
+Discriminator 4 — the lazy assignment is deliberate and reasonable design, stated up front. The
+clause does not object to lazy binding; it objects to delegating across it unguarded.
+
+The remedy the clause names is a typed error raised before the access, whose message names the
+missing initialization step, so one failure yields one actionable instruction instead of an opaque
+attribute error repeated across every dependent test.

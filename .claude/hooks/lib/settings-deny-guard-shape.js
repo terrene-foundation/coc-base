@@ -221,8 +221,14 @@ const DANGEROUS_ENV_EXACT = new Set([
   // $XDG_CONFIG_HOME/git/config only when $HOME/.gitconfig is ABSENT (measured both branches)
   "CLAUDE_WORKTREE_PATH", // detectWorktreeDrift returns null when a path is "contained", so
   // "/" contains every absolute path and disables a severity:"block" detector
-  "CLAUDE_SESSION_ID", // stamped into the record prefix that is then SIGNED (lib/coc-append.js)
-  // → forged, non-repudiable audit rows; also the ack-failure dedupe key (detect-violations.js)
+  "CLAUDE_CODE_SESSION_ID", // THE session id every violation row is stamped with —
+  // `state-io.js::resolveViolationSessionId` reads it FIRST, for both appenders (the signed
+  // prefix in lib/coc-append.js and state-io's unsigned row) AND the ack-failure dedupe key
+  // (detect-violations.js). A settings-env value would forge non-repudiable audit rows.
+  // EXACT entry, never a `CLAUDE_CODE_` prefix: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` and
+  // its siblings are legitimate operator keys.
+  "CLAUDE_SESSION_ID", // the helper's SECOND rung, read when the host variable is absent
+  // → the same forged-row / dedupe-key lever on any runtime that does not export the first
   "CLAUDE_CURRENT_POSTURE", // stamped as posture_at_time into every violation row
   "LOOM_LINKS_CONFIG", // Bash/command lane ONLY (zero reads in .claude/hooks/; all in
   // .claude/bin/) — absolute-path precedence over loom-links.local.json, and repo-scope-discipline
@@ -238,6 +244,20 @@ const DANGEROUS_ENV_EXACT = new Set([
   "NODE_EXTRA_CA_CERTS", // adds an attacker CA to every Node subprocess's trust store
   "NODE_TLS_REJECT_UNAUTHORIZED", // "0" disables certificate verification outright.
   // Named individually, NOT via a `NODE_` prefix — `NODE_ENV` is a legitimate operator key
+
+  // ── round-7 SEC LOW-3 (hook dispatcher): the pinned-registry SNAPSHOT directory ──
+  // lib/dispatch-registry.js::snapshotDirChoice keeps the hash-verified copy of the
+  // registry a session pinned under $XDG_RUNTIME_DIR, else os.tmpdir() — which node
+  // derives from $TMPDIR (POSIX) or $TMP / $TEMP (Windows). That copy is what keeps
+  // loom's detectors running when dispatch-registry.json is deleted or edited
+  // mid-session; a settings-env value pointing these at an unusable or foreign
+  // directory costs the session that fallback (and relocates every other temp-file
+  // consumer in the hook subprocess). EXACT entries — `TEMPLATE_*`, `TMP_DIR`,
+  // `XDG_RUNTIME` stay benign.
+  "XDG_RUNTIME_DIR",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
 ]);
 const DANGEROUS_ENV_PREFIX = [
   "DYLD_", // dynamic-linker injection (macOS)

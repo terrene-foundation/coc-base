@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 /**
+ * @hook-event: PreToolUse:Skill (guard) — the requested phase advance and existing analysis output directories can be checked before the Skill runs.
+ *
  * analyze-completeness-guard.js — PreToolUse(Skill) phase-boundary gate.
  *
  * Enforces `rules/analyze-output-completeness.md` (origin: loom#675). `/analyze`
@@ -57,10 +59,7 @@ const TIMEOUT_MS = 5000;
 
 // cc-artifacts.md Rule 7 fail-open safety net. Hook-internal hang MUST NOT block
 // the agent forever; {continue:true} surfaces no halt.
-const fallback = setTimeout(() => {
-  process.stdout.write(JSON.stringify({ continue: true }) + "\n");
-  process.exit(1);
-}, TIMEOUT_MS);
+let fallback = null;
 
 const fs = require("fs");
 const path = require("path");
@@ -71,6 +70,9 @@ const { detectActiveWorkspace } = require(
 );
 const { requireMainCheckout } = require(
   path.join(__dirname, "lib", "state-resolver.js"),
+);
+const { resolveRepoDirBound } = require(
+  path.join(__dirname, "lib", "repo-dir-override.js"),
 );
 
 // Skills that advance PAST the analysis phase — gating these enforces the
@@ -190,12 +192,13 @@ function decideAnalyzeGate({ repoDir, toolName, skillName, args }) {
 const { readStdinBounded } = require("./lib/read-stdin-bounded.js");
 
 function resolveRepoDir(payload) {
-  const envDir = process.env.COC_OPERATOR_REPO_DIR;
-  if (envDir && fs.existsSync(envDir)) return envDir;
-  if (payload && typeof payload.cwd === "string" && payload.cwd.length > 0) {
-    return payload.cwd;
-  }
-  return process.cwd();
+  // loom#1871 HIGH-1 — the override is now bound to the SESSION REPOSITORY.
+  // It was honoured on the sole evidence that the directory EXISTED, so a
+  // `settings.json` env: line plus a `git init` moved this guard to an
+  // unrelated repo and it passed everything through. See lib/repo-dir-override.js
+  // for the 8-of-8 two-pole measurement, the three arms, and why
+  // `provenCheckoutRoot` does not close it.
+  return resolveRepoDirBound(payload, { hookName: "analyze-completeness-guard" }).repoDir;
 }
 
 // Deliberate no-payload ALLOW shape: a bare {continue:true} is the canonical
@@ -333,17 +336,31 @@ async function main() {
   }
 }
 
+// hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
+// in-process by lib/hook-engine.js (dispatch.js).
+function hookMain() {
+  fallback = setTimeout(() => {
+    process.stdout.write(JSON.stringify({ continue: true }) + "\n");
+    process.exit(1);
+  }, TIMEOUT_MS);
+  return main();
+}
+
+// Library surface for the fixture runner / unit tests (and hookMain for the engine).
+module.exports = {
+  decideAnalyzeGate,
+  hasNonGitkeepMd,
+  skillNameOf,
+  resolveWorkspace,
+  ADVANCING_SKILLS,
+  WS_TREES,
+  hookMain,
+};
+
+// CLI entry. The default path is exactly hookMain() — no engine dependency, so a
+// tree that copies this hook without lib/hook-engine.js runs it unchanged. The
+// selftest path replays the run through the in-process engine (hook-engine.js::runCli).
 if (require.main === module) {
-  main();
-} else {
-  // Library surface for the fixture runner / unit tests.
-  clearTimeout(fallback);
-  module.exports = {
-    decideAnalyzeGate,
-    hasNonGitkeepMd,
-    skillNameOf,
-    resolveWorkspace,
-    ADVANCING_SKILLS,
-    WS_TREES,
-  };
+  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1") require("./lib/hook-engine.js").runCli(hookMain, __filename);
+  else hookMain();
 }

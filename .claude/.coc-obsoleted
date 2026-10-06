@@ -23,6 +23,16 @@
 .gemini/commands/settings.toml
 .claude/agents/cli-orchestrator.md
 .claude/guides/model-optimization/02-ecosystem-inventory.md
+.claude/guides/deterministic-quality/01-rule-authoring-principles.md
+.claude/guides/deterministic-quality/02-session-architecture.md
+.claude/guides/deterministic-quality/03-enforcement-ladder.md
+.claude/guides/deterministic-quality/04-type-system-enforcement.md
+.claude/guides/deterministic-quality/05-runtime-safety-defaults.md
+.claude/guides/deterministic-quality/06-observability-primitives.md
+.claude/guides/deterministic-quality/07-destructive-operation-gates.md
+.claude/guides/deterministic-quality/08-cross-sdk-parity.md
+.claude/guides/deterministic-quality/09-parallel-agent-bundles.md
+.claude/guides/deterministic-quality/README.md
 .codex/prompts/test-harness-probe.md
 .gemini/commands/test-harness-probe.toml
 scripts/resolve-template.js
@@ -95,10 +105,11 @@ scripts/resolve-template.js
 .claude/bin/repin-targets.local.example.json
 .claude/audit-fixtures/scan-synced-disclosure/operator-local-md-destination-flip/.claude/variants/rs/rules/ci-runners.operator.local.md
 .claude/audit-fixtures/scan-synced-disclosure/r3-variant-surface/.claude/variants/rs/rules/ci-runners.operator.local.md
+.claude/audit-fixtures/scan-synced-disclosure/own-org-allowed/
+.codex/skills/18-security-patterns/docker-disclosure-scrub.md
 .claude/rules/documentation.md
 .claude/skills/30-claude-code-patterns/sdk-upstream-donation.md
 .claude/guides/co-setup/
-.claude/guides/deterministic-quality/
 .claude/guides/automated-maintenance.md
 .claude/guides/rule-extracts/git.md
 .claude/guides/rule-extracts/independence-rs.md
@@ -109,3 +120,4 @@ scripts/resolve-template.js
 .claude/variants/base/rules/independence.md
 .claude/variants/prism/rules/independence.md
 .claude/variants/prism/rules/terrene-naming.md
+.claude/sync-manifest.yaml

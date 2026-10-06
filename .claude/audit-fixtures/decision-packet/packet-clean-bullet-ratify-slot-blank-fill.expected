@@ -1,0 +1,9 @@
+path: workspaces/ecosystem-operating-model/decisions/00-decision-packet.md
+expect:
+family: the bullet-form ratify slot is SUPPOSED to be blank (naive FALSE POSITIVE)
+note: ADVERSARIAL, and the highest-value clean pole in the set. Both `→ RATIFY /
+  OVERRIDE:` lines end in the escaped-underscore blank-fill idiom, byte-identical to
+  the live packet. A check keying on "a bolded field label followed by a blank" fires
+  on both of them. The detector reads `**Recommendation:**` and never the ratify
+  label, so it is silent. MEASURED: the live file carries 8 such slots and 8 filled
+  recommendations, and the predicate returns (silent) on it.

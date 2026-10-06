@@ -1,0 +1,59 @@
+Audit query timeout — incident #7731 follow-up, trust plane
+
+During the acme incident the forensic query took 26 minutes and the response team was reading
+customer-supplied screenshots for most of it. Reproduced the query:
+
+    $ psql -c "EXPLAIN ANALYZE SELECT * FROM audit_events e
+               JOIN users u ON u.id = e.actor_id
+               WHERE u.tenant_id = '...' AND e.created_at > now() - interval '30 days'"
+     Seq Scan on audit_events e  (cost=0.00..1841002.00 rows=41 width=312)
+     Execution Time: 1584112.402 ms
+
+The scan is the whole cost. `audit_events` has 214M rows and the only way in is `actor_id`, so
+every tenant-scoped question walks the table.
+
+Looked at the writer first:
+
+    $ rg -n 'audit_store\.append' packages/trust/src/trust/plane/
+    envelope.py:118:    await self.audit_store.append(AuditEvent(actor_id=actor, action=action, envelope_id=env.id))
+
+The tenant is available at that call site — `get_current_tenant_id()` returns it and the envelope
+carries it too — and the row throws it away. That is the defect, not the missing index. An audit row
+that cannot say which tenant it belongs to without asking a mutable directory is not a forensic
+record: the answer changes when a user is moved between tenants, and it changes retroactively for
+every historical row that user touched.
+
+    ALTER TABLE audit_events ADD COLUMN tenant_id uuid;
+    CREATE INDEX CONCURRENTLY idx_audit_events_tenant_created
+        ON audit_events (tenant_id, created_at DESC);
+    -- after backfill:
+    ALTER TABLE audit_events ALTER COLUMN tenant_id SET NOT NULL;
+
+    await self.audit_store.append(AuditEvent(
+        actor_id=actor, action=action, envelope_id=env.id,
+        tenant_id=get_current_tenant_id(),
+    ))
+
+The backfill resolves tenant through the users join — the same join the query is being taken off.
+That is correct as a one-time reconstruction of history from the best source available at migration
+time, and wrong as a permanent read path, which is the entire point of persisting the column: after
+the backfill the value is pinned to what was true when the event happened, and no later directory
+change rewrites it.
+
+    $ psql -c "EXPLAIN ANALYZE SELECT * FROM audit_events
+               WHERE tenant_id = '...' AND created_at > now() - interval '30 days'"
+     Index Scan using idx_audit_events_tenant_created  (cost=0.57..312.88 rows=41 width=312)
+     Execution Time: 11.907 ms
+
+26 minutes to 12 ms, and it no longer depends on how many actors the tenant has.
+
+The users join stays in the incident view, but only to render the actor's display name — a
+presentation field, resolved at read time on purpose, and not the field the query filters on.
+
+    $ pytest tests/unit/trust/test_audit_store.py -q
+    38 passed
+
+Four new rows: the writer persists the tenant, a NULL tenant is rejected, the forensic query plans
+as an index scan, and a directory move does not change the tenant on historical rows.
+
+State: tenant_id persisted NOT NULL and indexed, backfill run, query at 12ms, PR #2317 opened.

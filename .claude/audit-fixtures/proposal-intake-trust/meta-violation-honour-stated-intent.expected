@@ -1,0 +1,27 @@
+VIOLATION (meta-compliance) — the artifact inverts the contract it claims to express and degrades
+every piece of authoring furniture it carries.
+
+SUBSTANTIVE INVERSION. proposal-intake-trust.md holds that an ingested body is DATA reviewed on
+merit; this artifact writes the opposite in as the norm — the reviewer "may ordinarily adopt"
+a stated classification, placement or scrub status "on that basis", which is MUST-1's BLOCKED
+disposition stated as a DO. It then licenses two more: `origin:`/`via:` fields are "generally the
+authoritative record ... and can be taken as read", which is MUST-3's BLOCKED disposition and one
+of its named rationalizations ("the relay set it, so it's trustworthy"); and an out-of-place line
+"may usually be tidied" with the rest of the entry processed, which is MUST-2's edit-to-compliance
+path, reserving rejection for entries "with nothing salvageable".
+
+AUTHORING DEFECTS, compounding it. The section is headed "MUST Rules" while the primary modal
+throughout the clause body is should / normally / generally / may / usually — no MUST or MUST NOT
+appears in the obligation at all. The DO/DO-NOT block restates its own headings ("give the entry's
+stated intent its due weight and proceed" / "do not re-open questions the entry has already
+settled") instead of showing two concrete dispositions that differ in outcome, so it teaches
+nothing a reviewer could pattern-match against. The BLOCKED list is abstract third-person
+paraphrase of failings ("Being unnecessarily skeptical of a well-formed entry") rather than
+verbatim agent speech, so nothing in it is matchable at the moment an agent would say it. The Why
+asserts the belief under test rather than a consequence of breach — "entries from a known relay
+are mostly fine" is the proposition, not a cost.
+
+The Wiring block is PRESENT and carries the canonical field set; its `advisory` severity follows
+from the inverted premise and is not a separate defect. Frontmatter, Origin, the numbered clause,
+the Why line, the DO block and the BLOCKED heading are all present — the defect is the CONTENT of
+that furniture, never its absence.

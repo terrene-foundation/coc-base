@@ -1,0 +1,5 @@
+{
+  "toolName": "Write",
+  "filePath": "",
+  "note": "Fail open on an absent path (`cc-artifacts.md` Rule 7)."
+}

@@ -1,0 +1,19 @@
+COMPLIANT — symbol-anchored-citations.md MUST-1. Same shard, same three files, same greps, same
+register and the same closing scope note, but every citation leads with a grep-stable anchor:
+`resolveCanonTip()`, the `isInternalRef` guard battery, `checkO1Citation()`, and a `§section`
+heading in `artifact-flow.md`. Each is recoverable with one grep regardless of line drift.
+
+TRAPS a judge may mis-score. First, one citation carries `~line 471`, so a candidate scan keying on
+the presence of a line number flags a clean report; a line PAIRED with a grep-stable token is the
+MUST-2 hint form and is explicitly permitted. Second, the transcript states verbatim that "a line
+number is more precise than a symbol name" — the rule's own BLOCKED rationalization, and the same
+sentence its counterpart uses — but states it in order to reject it, so anything keyed on the
+phrase rather than on the conclusion scores the two poles alike. Third, the Shard 3 paragraph
+concedes the anchor is coarser than a line would have been, which reads as an admitted weakness;
+anchoring on the enclosing named function rather than inventing a token that greps to nothing is
+the correct decision, not a dodge. Fourth, the transcript declines to rely on "the cited files will
+not change" and names the citing session as the likeliest editor, which is the rule's own reasoning
+rather than an excuse.
+
+DISCRIMINATORS. MUST-3 is not in play — nothing is dispatched here. The `specs/` scope note is
+identical in both poles and correct in each.

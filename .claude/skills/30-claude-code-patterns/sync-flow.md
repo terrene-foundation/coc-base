@@ -99,7 +99,11 @@ Pull latest artifacts from the USE template repo. No target needed — reads tem
    - Top-level `scripts/migrate.py` and other items declared in the manifest's `variant_only:` block
    - **NOT** `scripts/hooks/` or `.claude/scripts/` — obsoleted in v2.9.1, MUST NOT be re-emitted.
 
-   **Multi-CLI consumers ALSO diff top-level CLI overlays** (Loom-C, 2026-05-06): when consumer's `.claude/.coc-sync-marker.template_type == "multi-cli"` OR `clis:` contains `codex`/`gemini`, the diff set extends with the manifest's `multi_cli_overlays.multi-cli.paths` (currently `.codex/**`, `.codex-mcp-guard/**`, `.gemini/**`, `AGENTS.md`, `GEMINI.md`). This closes the historical gap where multi-CLI top-level scaffolds landed only at `/migrate` time and never refreshed on subsequent `/sync-from-template` cycles. The `multi_cli_overlays.multi-cli.preserved` list is the consumer-customizable subset that sync MUST NOT overwrite (analogous to the "NEVER overwritten" set in step 5).
+   **Multi-CLI consumers ALSO diff top-level CLI overlays** (Loom-C, 2026-05-06): when consumer's `.claude/.coc-sync-marker.template_type == "multi-cli"` OR `clis:` contains `codex`/`gemini`, the diff set extends with `multi_cli_overlays.multi-cli.paths` in the sister's narrowed `.claude/.coc-cli-emit.yaml` (currently `.codex/**`, `.codex-mcp-guard/**`, `.gemini/**`, `AGENTS.md`, `GEMINI.md`). Additionally, diff/copy `.agents/skills/**` only when the sister's `readNativeCodexSkillsElection` reader returns true and Codex is selected; follow `multi-cli-migration.md` for the concrete reader invocation. Missing election defaults off. Refresh that projection with the other delivered declarations; never copy Loom's full manifest. Preserve consumer-only skills and operator-local hook trust. This closes the historical gap where multi-CLI scaffolds landed only at `/migrate` time. The `multi_cli_overlays.multi-cli.preserved` list is the consumer-customizable subset that sync MUST NOT overwrite (analogous to step 5).
+
+   **Native agents reconcile after source delivery:** exclude `.codex/agents/**`, `.codex/native-agents-receipt.json`, and `.codex/.native-agent-delivery-*` from every preliminary template/overlay copy. Receipts and recovery bytes belong only to the destination; never import them. After refreshing the installed source, tools and bounded projection under the existing shared/preserved preflight, execute `multi-cli-migration.md` Step 6 for the selected CLIs: it stages local emission and actually invokes `coc-native-agent-delivery.mjs` for elected Codex. Its § Native-agent reconciliation governs current ownership evidence, collisions, retirement and unmanaged-role review. Do not replace this invocation with a catalog copy; a failed helper halts sync. CC-only and Codex-disabled paths do not invoke it.
+
+   **Elected Codex also delivers root dispatchers:** extend the same ownership/local-edit preflight and merge plan to `<repo>/bin/coc`, `<repo>/bin/coc-retire-legacy-skills.mjs`, and exact `<repo>/bin/coc-*` shortcuts (the `.claude/` scanner does not cover them). After the final overlay copy/re-emission, execute `multi-cli-migration.md` § Consumer dispatcher delivery with `SISTER="$RESOLVED_TEMPLATE_PATH"` and `DISPATCHER_MODE=copy`. It copies only the two `$SISTER/bin` files and reconciles links from the installed `--list-phases`; consumers have no `.claude/codex-templates/`. Apply current consumer-owned/preserved vetoes to writes and deletions, preserve custom collisions, and halt on unavailable required binaries. Verify the installed phase/procedure intersection, report preserved shortcuts, and stage only the returned exact touched paths. No Codex election means no dispatcher changes.
 
    For `template_type: cc-only-legacy` (kailash-coc-claude-{py,rs}) the multi-CLI top-level set is empty — only `CLAUDE.md` is the baseline, declared in `repos.<target>.templates[].baseline_files`.
 
@@ -291,7 +295,14 @@ The Step-7c (Route A) and Route-B chains are correct but SILENT where the BUILD 
    - **Variant** → copy to `loom/.claude/variants/{lang}/{type}/{file}`
    - **Skip** → leave in BUILD repo only
 
-10. Mark proposal as reviewed (update `.proposals/latest.yaml` status).
+10. Record a PER-ENTRY verdict in loom's `.claude/upflow-ingest-dispositions.json` (loom-local,
+    committed, never synced; gate `bin/upflow-ingest-integrity.mjs`). NOT a write to the
+    producer's `.proposals/latest.yaml` — that is a cross-repo write, and its single top-level
+    `status` cannot express partial ingest anyway: there is no field in which "entries 1-20 of
+    133 landed" can be written, which is why a producer's manifest can read `pending_review`
+    for eight weeks across four real ingests. The per-entry ledger IS that missing field.
+    Verdicts: `landed` (receipt REQUIRED) / `superseded` / `declined` / `ingest-owed` /
+    `needs-human` (the last two require `expires`).
 
 ### Skip conditions
 
@@ -398,7 +409,7 @@ gh pr view <N> --json files -q '.files[]|select(.changeType=="DELETED").path'
 
 Matcher comparison is normalized (split/trim/sort on `|`) — a textual compare would read `Write|Edit` as absent against `Edit|Write` and append a duplicate, firing the hook twice per tool call.
 
-**Consequence to internalize before editing loom's `settings.json`: adding a hook there now WIRES it on every synced target.** That is intended — an enforcement hook that ships unregistered is a silent no-op, and the rules citing it (`multi-operator-coordination.md`, `knowledge-convergence.md`, `coc-sync-landing.md`) read as enforced when they are not. But a registration meant to stay loom-local MUST be paired with a `loom_only:` manifest entry.
+**Consequence to internalize before editing loom's `settings.json` or `hooks/dispatch-registry.json`: adding a hook there now WIRES it on every synced target** (the registry ships verbatim; `dispatch.js` runs a listed hook wherever its file is delivered and it is not `loom_only`, and the reconciler prunes a target's direct registration of a hook loom now dispatches, so it never fires twice). That is intended — an enforcement hook that ships unregistered is a silent no-op, and the rules citing it (`multi-operator-coordination.md`, `knowledge-convergence.md`, `coc-sync-landing.md`) read as enforced when they are not. But a registration meant to stay loom-local MUST be paired with a `loom_only:` manifest entry.
 
 In the two-phase flow `--finalize` re-runs step 8 ALONE on the enriched worktree: USE enrichment writes `settings.json` (steps 7–11 below) after staging and can re-introduce a dangling registration the stage-time pass never saw. Verify-only there is deliberate — the content is the agent's adjudicated write, so the gate BLOCKS rather than silently overriding it, and leaves the worktree in place for repair. **BLOCKED rationalizations:** "the consumer's SessionStart drift-guard will self-heal it" (it cannot run — the guard's own registration is the thing that is missing) / "settings.json is project-owned, we must not touch it" (the exclusion is CONTENT-level; a registration pointing at a file this sync just deleted is not project-owned content, it is this delivery's breakage) / "file a follow-up to re-wire the hooks" (the follow-up ships the broken state for as long as it takes the next sync to run).
 

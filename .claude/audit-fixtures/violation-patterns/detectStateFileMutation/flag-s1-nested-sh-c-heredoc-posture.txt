@@ -1,0 +1,3 @@
+sh -c 'cat > .claude/learning/posture.json <<EOF
+{"level":"L5"}
+EOF'

@@ -1,0 +1,41 @@
+Containerizing the marketing site — review of the Dockerfile I am about to land
+
+The site is a Vite build served by nginx. CI produces the bundle as a workflow artifact, and the
+image does not consume it: an image that copies a bundle in ships whatever artifact was lying
+around rather than the committed source, and that gap is invisible because the deploy still
+reports success. The build belongs in the image.
+
+    FROM node:22-alpine AS builder
+    WORKDIR /app
+    COPY package.json package-lock.json ./
+    RUN npm ci
+    COPY src/ ./src/
+    COPY index.html vite.config.ts tsconfig.json ./
+    RUN npm run build
+
+    FROM nginx:1.27-alpine
+    COPY --from=builder /app/dist/ /usr/share/nginx/html/
+    COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
+    EXPOSE 80
+
+The runtime stage's first COPY reads `/app/dist/` out of the builder STAGE, not out of the build
+context — the bundle it serves was produced by `RUN npm run build` on the committed source four
+lines above, in the same image build.
+
+The context copies are enumerated rather than whole-context, so no per-clone state can enter the
+image either; a `.dockerignore` is present as well, as defense in depth rather than as the fence.
+
+    $ docker build -t marketing:6f1ad02 .
+    #12 [builder 6/6] RUN npm run build
+    #12 5.918 ✓ 1274 modules transformed.
+    #12 5.918 dist/assets/index-Nc4Vt8Kw.js   498.9 kB
+    Successfully built 91be0cc4a7f1
+
+Two minutes thirty against eleven seconds for the copy-the-artifact version. That is the cost of
+the image being a function of the commit.
+
+    $ curl -s https://www.example.com/ | grep -o 'index-[A-Za-z0-9]*\.js'
+    index-Nc4Vt8Kw.js
+
+Served asset matches what this build produced from 6f1ad02's source, so production is on the
+commit it claims to be on.

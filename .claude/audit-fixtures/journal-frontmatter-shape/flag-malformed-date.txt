@@ -1,0 +1,15 @@
+---
+type: DECISION
+date: 15/09/2026
+author: co-authored
+project: loom
+topic: a fixture entry
+phase: codify
+verified_id: SHA256:fixture-not-a-real-key
+person_id: pid-fixture-00000000
+display_id: fixture
+tags: [journal, frontmatter]
+---
+## Body
+
+A real date in the wrong form. The contract declares `YYYY-MM-DD`.

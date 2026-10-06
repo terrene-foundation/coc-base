@@ -17,6 +17,30 @@ Extended Origin evidence and example detail for `.claude/rules/autonomous-execut
   update all 14 call sites, add integration tests, migrate legacy callers
 ```
 
+## Rule 1 — A Shard Is One AGENT's Pass, Not One Worktree's (2026-09-12)
+
+Until 2026-09-12 Rule 1 defined a shard as "(one session, one worktree, one implementation pass)".
+`rules/wip-discipline.md` MUST-9 (`journal/0607`) then made the LANE — one worktree + one branch —
+the unit the WIP ceiling counts, and a lane dispatches as many agents as its item set supports inside
+that ONE worktree. Read literally, "one worktree" sized a whole lane as a single shard, which is the
+single-serial-worker lane the directive rejects. The definition now reads "(one agent, one
+implementation pass)": a lane packs several shards, one per agent, kept apart by MUST-9's partition
+contract (disjoint writer file sets, one committer, per-agent build directories).
+
+**Definitional, not an obligation change — and why.** The thresholds, the MUST binding them, and
+what they bound are untouched. The budget measures what ONE model context holds in attention —
+invariants, call-graph hops, relevant surface — and the rule's own **Why** already says so ("the
+model stops tracking cross-file invariants"). Under the retired one-worktree-per-agent model a
+worktree carried exactly one agent, so "one worktree" and "one agent" named the same unit; the word
+that stopped coinciding was replaced by the unit it stood for. "One session" went for the same
+reason: a lane orchestrator's session dispatches many shards. How many shards a worktree may carry
+is governed by MUST-9, which carries its own Trust Posture Wiring. Because no obligation moved, this
+edit does NOT end § Per-Session Capacity Budget's `trust-posture.md` MUST-8 grandfather exemption.
+
+**Emission.** The lane context lives here rather than in the baseline body. Abridged size of the rule
+(`stripRuleFrontmatter → abridgeV6 → stripSlotMarkers`, 2026-09-12 lane working tree): 7,057 B →
+7,041 B (−16 B); MUST / MUST NOT / BLOCKED / `**Why:**` counts unchanged (31 / 5 / 8 / 10).
+
 ## Rule 2 — Size By Complexity: Full Example
 
 ```markdown
@@ -90,3 +114,13 @@ Extracted from the rule body 2026-07-29 in the same Rule-10 path (a) paired extr
 **Bounded by the category (`rules/product-completion-first.md` MUST-3).** The fix-now mandate applies to a same-class within-budget gap classified BUG or INVEST-NOW; an INCREMENTAL one (off-path polish) MAY route to the deferred-quality list with a value-anchor. The category verdict — NOT convenience, NOT severity — gates the lane: relabelling a warm BUG/INVEST-NOW gap "incremental" to defer it is BLOCKED.
 
 **Bounded by the shard budget.** This rule does NOT override MUST Rule 1 (shard threshold). If the surfaced gap exceeds ≤500 LOC load-bearing / ≤5–10 invariants / ≤3–4 call-graph hops, filing the follow-up issue IS the correct disposition — the gap is a new shard, not a continuation of the current one.
+
+## Concurrent-Operator Capacity
+
+The per-session budget in `rules/autonomous-execution.md` § Per-Session Capacity Budget sizes ONE
+operator's shard. When several verified operators work the same corpus concurrently, the budget is
+carried per `verified_id`, parallelization is restricted to NON-SAME-adjacency lanes, and every lane
+is opened with a `/claim` record. That contract — the per-`verified_id` budgets, the adjacency
+classes, and the `/claim`-record discipline — lives in `rules/multi-operator-coordination.md` §8,
+which is the authority; this pointer exists because the single-operator budget above is the first
+place a reader looks for it.

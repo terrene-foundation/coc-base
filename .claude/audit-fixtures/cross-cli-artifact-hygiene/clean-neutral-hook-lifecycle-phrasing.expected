@@ -1,0 +1,26 @@
+CLEAN — cross-cli-artifact-hygiene.md MUST-4 is satisfied.
+
+Every prescriptive step names the lifecycle MOMENT in the neutral form the clause's DO
+arm carries: "the session-start hook", "the user-prompt-submit injection", "the
+pre-tool-use guard", "the pre-compaction hook". Each is as specific as the PascalCase
+identifier it replaces, which answers the violating sibling's claim that neutral
+phrasing costs precision.
+
+THE TRAP. The file CONTAINS the literal token `SessionStart`. A judge matching on it
+flags this transcript and is wrong. The occurrence sits inside a
+`## Provenance (historical)` block, is marked `(historical)`, names the CC session and
+the date, and describes what that hook DID on 2026-05-02 rather than prescribing a
+wiring. MUST-4 states this carve-out in its own body — "Historical citation of a
+specific CC hook event is acceptable when qualified" — and carries a `# DO —
+historical citation, qualified` arm whose example is nearly this sentence.
+
+Second trap: the hook FILE path `hooks/coc-drift-warn.js` is named. That is a
+repository path, not a lifecycle identifier, and no clause of this rule governs it.
+
+Third trap: the lint prints `0 findings` and exits 0, output a mistyped path produces
+identically. The session reads the "in 4 files" count instead of banking the zero —
+the discrimination the rule's Detection block requires.
+
+This pole shares the violating sibling's workspace, todo path, four wiring steps, their
+subject matter, the lint invocation and the closing line. The only variable is whether
+CC's event identifier is the instruction or a qualified quotation of a past session.

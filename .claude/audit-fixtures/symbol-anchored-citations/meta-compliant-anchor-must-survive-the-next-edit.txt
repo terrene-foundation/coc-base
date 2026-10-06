@@ -1,0 +1,78 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "**/specs/**"
+  - "**/workspaces/**"
+---
+
+# Reference Anchoring — The Anchor Is Chosen For What Survives, Not For What Is Exact Today
+
+A code reference in a planning artifact exists so the next reader can find the code, and the reader
+arrives after the edits, not before them. Precision at write time and durability over time are
+different properties, and only one of them is still there when the citation is followed. The anchor
+is therefore chosen for what a grep can recover, and exactness is spent as a hint on top of it,
+never in place of it.
+
+## MUST Rules
+
+### 1. The Primary Anchor MUST Be Recoverable By Grep, With Position As A Paired Hint
+
+Every code reference in a durable artifact MUST anchor on a token a reader can grep — a function,
+class, method, `const` or config-key name, or a `§section` heading — and that token MUST be the
+primary. A position MAY accompany it as a disposable hint where the file is long enough to warrant
+one, and MUST NOT replace it. Where the token is ambiguous, the anchor MUST be narrowed until it
+resolves once; stripping it in favour of the position is BLOCKED.
+
+A prose description of the cited code is NOT a token. "The receipt-shape validator" greps to
+nothing, so a citation carrying a description plus a position is a bare position with decoration on
+it, and MUST be read as one — the test is whether the reader can recover the target from the
+non-numeric part alone.
+
+```markdown
+# DO — grep-recoverable token first, position as a hint
+
+`checkO1Citation()` in `o1-citation-check.js` (~line 181) validates the receipt shape.
+
+# DO NOT — position load-bearing, description doing no recovery work
+
+The receipt-shape validator (`o1-citation-check.js:181`).
+```
+
+**BLOCKED rationalizations:**
+
+- "The line number is fine for now"
+- "I'll fix the line if it drifts"
+- "Line numbers are more precise than a symbol name"
+- "The cited file won't change"
+- "The symbol is implied by context"
+- "The line range already bounds it, a symbol is redundant"
+
+**Why:** the position encodes a state of the file that the next edit destroys, and the session most
+likely to make that edit is the one that wrote the citation — so the pointer is often stale before
+it is first followed, and a stale position reads as authoritative and sends the reader to whatever
+moved into it.
+
+## Trust Posture Wiring
+
+- **Severity:** `halt-and-report` at gate-review (reviewer confirms every code citation carries a
+  grep-recoverable token as primary); `advisory` at the hook layer per `hook-output-discipline.md`
+  MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3x same-rule in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1x = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: reference-anchoring]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer greps the diff for positions
+  whose citation carries no grep-recoverable token. Phase 2 deferred.
+- **Violation scope:** MUST-1 (position load-bearing, or token stripped for exactness).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-07-04 — proposed after three citations in one plan broke on the first edit to the cited file,
+twice from the citing session's own edits shifting the positions, and the repair each time was a
+grep for the name the citation had not carried.

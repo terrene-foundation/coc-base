@@ -1,0 +1,76 @@
+Session excerpt — project `orchard`, /implement, shard W19 (outbound webhooks).
+
+    [Read] specs/_index.md
+      → eight rows: audit-trail, authentication, billing, data-model, notifications,
+        search-indexing, tenant-isolation, api-surface. No row covers webhooks; this is a
+        new domain for the project.
+
+The module ships in this shard:
+
+    [Write] src/orchard/webhooks/dispatcher.py      (114 lines)
+    [Write] src/orchard/webhooks/signing.py          (61 lines)
+    [Write] src/orchard/webhooks/retry.py            (48 lines)
+    [Write] tests/unit/test_webhooks_dispatch.py
+    [Write] tests/unit/test_webhooks_signing.py
+
+The rules it implements: endpoints are registered per tenant with a shared secret; every
+delivery carries an `X-Orchard-Signature` header that is an HMAC-SHA256 over the raw body
+with a 5-minute timestamp window; a non-2xx response retries at 30s, 5m, 30m and 4h, then
+parks the endpoint as SUSPENDED after 20 consecutive failures; a SUSPENDED endpoint is
+reactivated only by the tenant admin, never automatically.
+
+A new domain gets a spec file. The argument for skipping it is that the code is the spec for
+three small files and the plan already carries the ladder — and the plan is a process
+artifact that gets rewritten at the next re-plan, while the reactivation decision is one no
+reader recovers from `retry.py`, because code shows what was chosen and never that the
+alternative was rejected.
+
+    [Write] specs/webhooks.md
+
+      # Outbound webhooks
+
+      ## Registration
+      An endpoint is registered per tenant with a shared secret, generated server-side at
+      registration and shown once. Rotation creates a second live secret for 24h so a
+      consumer can cut over without dropped deliveries.
+
+      ## Signing
+      Every delivery carries `X-Orchard-Signature: t=<unix>,v1=<hex>`, where `v1` is
+      HMAC-SHA256 over `"{t}.{raw_body}"` using the endpoint secret. The signature is
+      computed over the RAW body before any parse, and compared in constant time. A
+      delivery whose `t` is more than 5 minutes from server time is rejected by the
+      consumer contract; we do not retry a rejection on that ground.
+
+      ## Retry and suspension
+      Non-2xx retries at 30s, 5m, 30m, 4h. The consecutive-failure counter resets on any
+      2xx. At 20 consecutive failures the endpoint moves to SUSPENDED and stops receiving.
+      A SUSPENDED endpoint is reactivated ONLY by the tenant admin — never automatically,
+      never on a timer. An endpoint that has been down for a day is usually gone, and
+      silently resuming deliveries to a re-issued hostname is a delivery to a stranger.
+
+    [Edit] specs/_index.md — one row added, nine rows now
+
+      | webhooks.md | Webhooks | Registration, signing, retry ladder, suspension |
+
+Gates:
+
+    $ pytest tests/unit/test_webhooks_dispatch.py tests/unit/test_webhooks_signing.py -q
+    17 passed in 0.74s
+    $ ruff check src/orchard/webhooks ; echo "rc=$?"
+    All checks passed!
+    rc=0
+    $ mypy src/orchard/webhooks ; echo "rc=$?"
+    Success: no issues found in 3 source files
+    rc=0
+
+    [dispatch x2, one message] reviewer / security-reviewer, each scoped to the W19 diff,
+      each brief pinning the absolute sibling worktree path and a STEP-0 assertion
+      comparing resolved `git rev-parse --show-toplevel` against `pwd -P`.
+
+    round 1 — security-reviewer: "signature is computed over the raw body before JSON
+              parsing, and compared with a constant-time function. Good."
+              reviewer: "the 20-failure counter resets on any 2xx, confirm intended." → yes,
+              stated in the spec's § Retry and suspension.
+    round 2 — both clean, both payloads read.
+
+Two consecutive clean rounds. W19 lands.

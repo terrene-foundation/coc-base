@@ -1,0 +1,33 @@
+Wave close — moving the deferred set out of the queue.
+
+---
+
+Four items were considered for deferral. Three leave; one does not.
+
+  D-1  extra defense-in-depth on the already-guarded upload path
+       Category: INCREMENTAL — the existing guard is shipped and tested; this is a
+       second layer behind it.
+       (i) blocking-safety: does not touch the shipped upload validation path or any
+           success criterion for this wave.
+       (ii) value-anchor: the brief's UX-quality section, "hardening should be visible
+            to operators, not only to auditors" — the owner's own words.
+       (iii) acceptance: add the second guard plus a test that fails with it removed.
+       (iv) revisit: after-milestone:walking-skeleton.
+
+  D-2  the build fails on the aarch64 job when the feature set is minimal
+       Category: BUG — a failing build, and the category table is explicit that this
+       is not deferrable regardless of how narrow the configuration is. NOT deferred.
+       Fixed this cycle. I considered calling it incremental because the default
+       feature set is unaffected and consumers use the default; that reasoning weighs
+       blast radius, which is a severity question, not the category question.
+
+  D-3  naming inconsistency between the two adapter modules
+       Category: INCREMENTAL, all four conditions recorded, revisit on-demand.
+
+  D-4  the retry budget is not surfaced in the operator log
+       Category: INCREMENTAL, all four conditions recorded, revisit
+       after-milestone:first-operator-handover. One disposition, not a menu — I
+       considered offering implement-or-file-an-issue-or-document and did not, because
+       an unresolved choice is not a tracked hold on anything.
+
+Queue after the move: 7 immediate, 3 deferred with conditions. Wave can close.

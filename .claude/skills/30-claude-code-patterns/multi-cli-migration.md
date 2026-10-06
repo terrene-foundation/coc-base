@@ -42,7 +42,7 @@ The **multi-CLI axis** the co-owner named ("coc- and coc-claude") is NOT a third
 | Full migration | `cc-only-legacy` lineage                    | 0–12                                                                                                                                                                                                           | `chore(coc): migrate to multi-CLI template (claude+codex+gemini)`  |
 | `--adopt`      | No `.claude/` tree (scenario A)             | A-pre (clean-tree guard), A0 (family detect), A1 (target select), A-branch (branch + collision snapshot), A2 (STACK.md for base), A3 (fresh-install), then 2 (VERSION), 6 (emit), 8 (fresh marker), 10, 11, 12 | `chore(coc): adopt COC (<family>, <cli-axis>)`                     |
 | `--dry-run`    | Any lineage                                 | 0 detection only; print all planned actions (adopt OR update); apply nothing                                                                                                                                   | (no commit)                                                        |
-| `--refresh`    | `multi-cli` lineage                         | 0.1 lineage check, 3 (overlay re-pull), 6 (re-emit), 8 (timestamp+stats), 10 (verify)                                                                                                                          | `chore(coc): refresh multi-CLI overlays`                           |
+| `--refresh`    | `multi-cli` lineage                         | 0.1 lineage check, 1 snapshot (retain current branch), 3 (overlay re-pull), 6 (re-emit), 8 (timestamp+stats), 10 (verify)                                                                                                                          | `chore(coc): refresh multi-CLI overlays`                           |
 | `--emit-only`  | Non-COC lineage (e.g. `claude-squad-local`) | 0.1 (non-COC accept), 1, 4a (scaffold), 6, 8 (emit-only marker), 10, 11, 12                                                                                                                                    | `chore(coc): emit multi-CLI artifacts from project's own .claude/` |
 | `--rollback`   | Migration branch active                     | Inline porcelain guard, `git reset --keep main`, restore `.pre-migrate.bak`                                                                                                                                    | (no commit; branch deleted)                                        |
 
@@ -52,7 +52,7 @@ The migration is safe-by-construction because project artifacts are CLI-neutral 
 
 | Artifact path                      | Owned by   | All 3 CLIs read it?                                                    |
 | ---------------------------------- | ---------- | ---------------------------------------------------------------------- |
-| `workspaces/<workstream>/`         | project    | yes (CC commands, Codex prompts, Gemini commands all target this path) |
+| `workspaces/<workstream>/`         | project    | yes (CC commands, Codex phase skills, Gemini commands all target this path) |
 | `workspaces/<workstream>/journal/` | project    | yes                                                                    |
 | `workspaces/<workstream>/briefs/`  | project    | yes                                                                    |
 | `workspaces/<workstream>/todos/`   | project    | yes                                                                    |
@@ -66,9 +66,10 @@ What IS per-CLI:
 | Path                | Owned by               | Purpose                                                          |
 | ------------------- | ---------------------- | ---------------------------------------------------------------- |
 | `.claude/`          | template               | Claude Code config tree (commands, skills, agents, hooks, bin/)  |
-| `.codex/`           | template               | Codex config tree (prompts, skills, hooks.json, config.toml)     |
+| `.codex/`           | template               | Codex config tree (native agents, compatibility prompts, hooks.json, config.toml)     |
+| `.agents/skills/` | template + preserved project additions | Elected native Codex expertise/phase catalog |
 | `.gemini/`          | template               | Gemini config tree (commands, skills, agents, settings.json)     |
-| `.codex-mcp-guard/` | template               | MCP guard server (consumed by Codex AND Gemini)                  |
+| `.codex-mcp-guard/` | template               | Compatibility policy library; native Codex bridge uses it without auto-registering an MCP server                  |
 | `CLAUDE.md` (root)  | project (post-migrate) | CC baseline at session start                                     |
 | `AGENTS.md` (root)  | template               | Codex baseline (emitted by `.claude/bin/emit.mjs --cli codex`)   |
 | `GEMINI.md` (root)  | template               | Gemini baseline (emitted by `.claude/bin/emit.mjs --cli gemini`) |
@@ -80,10 +81,10 @@ Migration touches ONLY the per-CLI rows. The project-artifact rows are untouched
 | Source                                      | Emitted to                                                              | Emitter                                                      |
 | ------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------ |
 | `.claude/rules/*.md` (CRIT baseline)        | `AGENTS.md`, `GEMINI.md`                                                | `node .claude/bin/emit.mjs --cli {codex,gemini}`             |
-| `.claude/commands/<name>.md`                | `.codex/prompts/<name>.md`, `.gemini/commands/<name>.toml`              | `node .claude/bin/emit-cli-artifacts.mjs --target <variant>` |
-| `.claude/skills/<nn-name>/SKILL.md`         | `.codex/skills/<nn-name>/SKILL.md`, `.gemini/skills/<nn-name>/SKILL.md` | same                                                         |
-| `.claude/agents/**/<name>.md` (specialists) | `.gemini/agents/<name>.md`                                              | same                                                         |
-| `.claude/hooks/**/*.js`                     | (consumed in-place by all three CLIs)                                   | (no emission — env-var portability handles dispatch)         |
+| `.claude/commands/<name>.md`                | `.agents/skills/coc-<name>/SKILL.md`, compatibility `.codex/prompts/<name>.md`, `.gemini/commands/<name>.toml`              | `node .claude/bin/emit-cli-artifacts.mjs` |
+| `.claude/skills/<nn-name>/SKILL.md`         | `.agents/skills/<nn-name>/SKILL.md`, `.gemini/skills/<nn-name>/SKILL.md` | same                                                         |
+| `.claude/agents/**/<name>.md` (specialists) | `.codex/agents/<name>.toml`, `.gemini/agents/<name>.md`                                              | same                                                         |
+| `.claude/hooks/**/*.js`                     | (consumed in-place by all three CLIs)                                   | (native bridge/registered hooks provide runtime adaptation)         |
 
 Body content is byte-identical across CLI emissions modulo delegation-syntax slot overrides — verified by `cli-audit` cross-CLI drift sweep. Every path the body references resolves the same way under any CLI.
 
@@ -109,6 +110,30 @@ multi_cli_overlays:
 ```
 
 `/migrate` reads `paths:` for overlay copies (Steps 3 + `--refresh`); honors `preserved:` so consumer customizations survive.
+
+Native skill delivery is elected by `repos.<target>.codex_native_skills`, default
+false. Loom derives the effective value (target election AND template Codex selection)
+into `multi_cli_overlays.multi-cli.codex_native_skills` in the sister's narrowed
+`.claude/.coc-cli-emit.yaml`. No target registry or full manifest ships to consumers.
+Resolve `CODEX_ENABLED=true|false` and `GEMINI_ENABLED=true|false` from the sister's declared CLI selection. Read the
+native election from that sister before copying (never infer it from directory existence):
+
+```bash
+CODEX_NATIVE_SKILLS=$(node --input-type=module - "$SISTER" <<'NODE'
+import { pathToFileURL } from 'node:url';
+import path from 'node:path';
+const root = path.resolve(process.argv[2]);
+const { readNativeCodexSkillsElection } = await import(pathToFileURL(path.join(root, '.claude/bin/lib/manifest-source.mjs')));
+console.log(readNativeCodexSkillsElection(root));
+NODE
+) || exit 1
+```
+
+An old projection without the field defaults off; malformed fields halt. The ordinary
+`paths:` list deliberately excludes `.agents/skills`; its conditional copy requires
+both booleans true. `.codex/agents` follows Codex delivery. These describe file reach;
+role presentation still follows source exclusions and surfacing declarations.
+Operator-local configuration, credentials, plugins, and hook-trust state stay local.
 
 ## Migration Protocol
 
@@ -156,8 +181,16 @@ multi_cli_overlays:
 
 ### Step 1 — Branch + snapshot
 
+Use `MIGRATE_MODE=refresh` for the refresh branch of this protocol; full migration
+uses its new branch. Resolve `CODEX_ENABLED` and `CODEX_NATIVE_SKILLS` from the
+selected delivery declaration before the copy snippets below; missing or malformed
+values halt rather than silently disabling a selected catalog.
+
 ```bash
-git checkout -b "$BRANCH"
+# Full migration creates its branch; --refresh keeps the current authorized branch.
+# Both modes snapshot before any overlay copy.
+if [ "${MIGRATE_MODE:-full}" != refresh ]; then git checkout -b "$BRANCH"; fi
+[ -L .agents ] && { echo ".agents is a symlink — resolve before migration"; exit 1; }
 mkdir -p .pre-migrate.bak
 cp .claude/.coc-sync-marker .pre-migrate.bak/.coc-sync-marker
 [ -f CLAUDE.md ]       && cp CLAUDE.md       .pre-migrate.bak/CLAUDE.md
@@ -173,6 +206,10 @@ cp .claude/.coc-sync-marker .pre-migrate.bak/.coc-sync-marker
 V=.claude/VERSION
 [ -f "$V" ] && cp "$V" .pre-migrate.bak/VERSION
 [ -d .codex ]          && cp -R .codex       .pre-migrate.bak/.codex 2>/dev/null  # if a partial migration ran
+if [ -d .agents/skills ]; then
+  mkdir -p .pre-migrate.bak/.agents
+  cp -R .agents/skills .pre-migrate.bak/.agents/skills
+fi
 [ -d .gemini ]         && cp -R .gemini      .pre-migrate.bak/.gemini 2>/dev/null
 echo "$BRANCH" > .pre-migrate.bak/.branch
 ```
@@ -199,11 +236,77 @@ Copy paths declared in `multi_cli_overlays.multi-cli.paths` from sister → proj
 
 ```bash
 node .claude/bin/scan-synced-disclosure.mjs --check --root "$SISTER" || { echo "disclosure finding in resolved template — HALT"; exit 1; }
-cp -R "$SISTER/.codex"           ./.codex
-cp -R "$SISTER/.codex-mcp-guard" ./.codex-mcp-guard
-cp -R "$SISTER/.gemini"          ./.gemini
-cp    "$SISTER/AGENTS.md"        ./AGENTS.md
-cp    "$SISTER/GEMINI.md"        ./GEMINI.md
+# BEGIN native-overlay-copy: preflight every elected copy before any write.
+node --input-type=module - "$SISTER" . "$CODEX_ENABLED" "$GEMINI_ENABLED" "$CODEX_NATIVE_SKILLS" <<'NODE' || exit 1
+import fs from "node:fs";
+import path from "node:path";
+const roots = process.argv.slice(2, 4).map(value => path.resolve(value));
+const [codex, gemini, skills] = process.argv.slice(4).map(value => value === "true");
+function inspect(root, relative = "", required = false) {
+  let cursor = root;
+  for (const part of ["", ...relative.split("/").filter(Boolean)]) {
+    cursor = path.join(cursor, part);
+    let stat;
+    try { stat = fs.lstatSync(cursor); } catch (error) {
+      if (error.code === "ENOENT" && !required) return null;
+      throw error;
+    }
+    if (stat.isSymbolicLink() || (!stat.isDirectory() && cursor !== path.join(root, relative))) throw new Error(`unsafe copy path: ${cursor}`);
+    if (cursor === path.join(root, relative)) return stat;
+  }
+}
+for (const root of roots) if (!inspect(root, "", true).isDirectory()) throw new Error("copy root is not a directory");
+function check(sourceRel, targetRel) {
+  const source = inspect(roots[0], sourceRel, true);
+  const target = inspect(roots[1], targetRel);
+  if (!source.isFile() && !source.isDirectory()) throw new Error(`unsupported source: ${sourceRel}`);
+  if (target && (source.isDirectory() ? !target.isDirectory() : !target.isFile())) throw new Error(`copy type collision: ${targetRel}`);
+  if (source.isDirectory()) for (const name of fs.readdirSync(path.join(roots[0], sourceRel))) check(`${sourceRel}/${name}`, `${targetRel}/${name}`);
+}
+if (codex) {
+if (!inspect(roots[0], ".codex", true).isDirectory()) throw new Error("source .codex is not a directory");
+const installed = inspect(roots[1], ".codex");
+if (installed && !installed.isDirectory()) throw new Error("destination .codex is not a directory");
+for (const name of fs.readdirSync(path.join(roots[0], ".codex"))) {
+  if (name === "agents" || name === "native-agents-receipt.json" || name.startsWith(".native-agent-delivery-")) continue;
+  check(`.codex/${name}`, `.codex/${name}`);
+}
+if (skills) { if (!inspect(roots[0], ".agents/skills", true).isDirectory()) throw new Error("native skills are not a directory"); check(".agents/skills", ".agents/skills"); }
+if (!inspect(roots[0], ".codex-mcp-guard", true).isDirectory() || !inspect(roots[0], "AGENTS.md", true).isFile()) throw new Error("invalid Codex overlay source type");
+check(".codex-mcp-guard", ".codex-mcp-guard");
+check("AGENTS.md", "AGENTS.md");
+}
+if (gemini) {
+  if (!inspect(roots[0], ".gemini", true).isDirectory() || !inspect(roots[0], "GEMINI.md", true).isFile()) throw new Error("invalid Gemini overlay source type");
+  check(".gemini", ".gemini"); check("GEMINI.md", "GEMINI.md");
+}
+NODE
+if [ "$CODEX_ENABLED" = true ]; then
+  mkdir -p .codex || exit 1
+  # Keep this repository's native agents and ownership receipt for Step 6.
+  # An upstream receipt is never evidence that this destination owns a file.
+  for entry in "$SISTER"/.codex/* "$SISTER"/.codex/.[!.]* "$SISTER"/.codex/..?*; do
+    [ -e "$entry" ] || [ -L "$entry" ] || continue
+    case "${entry##*/}" in
+      agents|native-agents-receipt.json|.native-agent-delivery-*) continue ;;
+    esac
+    cp -R "$entry" .codex/ || exit 1
+  done
+  if [ "$CODEX_NATIVE_SKILLS" = true ]; then
+    [ -d "$SISTER/.agents/skills" ] || { echo "elected native skill catalog missing — HALT"; exit 1; }
+    mkdir -p .agents/skills || exit 1
+    cp -R "$SISTER/.agents/skills/." .agents/skills/ || exit 1
+  fi
+  mkdir -p .codex-mcp-guard || exit 1
+  cp -R "$SISTER/.codex-mcp-guard/." .codex-mcp-guard/ || exit 1
+  cp "$SISTER/AGENTS.md" ./AGENTS.md || exit 1
+fi
+if [ "$GEMINI_ENABLED" = true ]; then
+  mkdir -p .gemini || exit 1
+  cp -R "$SISTER/.gemini/." .gemini/ || exit 1
+  cp "$SISTER/GEMINI.md" ./GEMINI.md || exit 1
+fi
+# END native-overlay-copy
 [ -f .coc-sync-marker ] && rm .coc-sync-marker  # legacy root sentinel; canonical is .claude/.coc-sync-marker
 ```
 
@@ -255,37 +358,266 @@ CLAUDE.md is template-owned at the CC-only template; the multi-CLI variant diffe
 Closes variant-overlay-drift (the gap PR #52 left open). Sister installed `.claude/bin/emit.mjs` + `emit-cli-artifacts.mjs` at Step 4; now run them so the project's `.claude/rules/`, `.claude/commands/`, `.claude/skills/`, `.claude/agents/` propagate to the per-CLI surfaces with variant overlays applied:
 
 ```bash
-# emit-cli-artifacts.mjs writes to <out>/codex/ and <out>/gemini/ (NO
-# leading dot). Use a tmp dir then move into dotted target paths —
-# invoking with `--out .` directly produces stray `codex/` and
-# `gemini/` directories at repo root alongside the dotted ones from
-# Step 3. Variant-aware per-CLI artifacts overlay the sister's Step 3
-# copy.
+# Emit final dotted roots (.codex, elected .agents/skills, .gemini) into an
+# out-of-tree scratch directory; the emitter rejects a working-tree destination.
+# Step 1/A-branch snapshots precede copying into the live repo.
+# Variant-aware per-CLI artifacts overlay the sister's Step 3 copy.
 EMIT_TMP="$(mktemp -d -t coc-migrate-emit-XXXXXX)"
-node .claude/bin/emit-cli-artifacts.mjs --target ${VARIANT} --out "$EMIT_TMP"
+# No --target: this consumer has composed sources and no owner target registry.
+node .claude/bin/emit-cli-artifacts.mjs --out "$EMIT_TMP" || exit 1
 
-mkdir -p .codex/prompts .codex/skills .gemini/commands .gemini/skills .gemini/agents
-cp -R "$EMIT_TMP/codex/prompts/." .codex/prompts/
-cp -R "$EMIT_TMP/codex/skills/."  .codex/skills/
-cp -R "$EMIT_TMP/gemini/commands/." .gemini/commands/
-cp -R "$EMIT_TMP/gemini/skills/."   .gemini/skills/
-cp -R "$EMIT_TMP/gemini/agents/."   .gemini/agents/
+# BEGIN emitted-overlay-copy: all selected destinations checked before reconciliation/copy.
+node --input-type=module - "$EMIT_TMP" . "$CODEX_ENABLED" "$GEMINI_ENABLED" "$CODEX_NATIVE_SKILLS" <<'NODE' || exit 1
+import fs from "node:fs";
+import path from "node:path";
+const roots = process.argv.slice(2, 4).map(value => path.resolve(value));
+const [codex, gemini, skills] = process.argv.slice(4).map(value => value === "true");
+function inspect(root, relative = "", required = false) {
+  let cursor = root;
+  for (const part of ["", ...relative.split("/").filter(Boolean)]) {
+    cursor = path.join(cursor, part);
+    let stat;
+    try { stat = fs.lstatSync(cursor); } catch (error) {
+      if (error.code === "ENOENT" && !required) return null;
+      throw error;
+    }
+    if (stat.isSymbolicLink() || (!stat.isDirectory() && cursor !== path.join(root, relative))) throw new Error(`unsafe copy path: ${cursor}`);
+    if (cursor === path.join(root, relative)) return stat;
+  }
+}
+for (const root of roots) if (!inspect(root, "", true).isDirectory()) throw new Error("copy root is not a directory");
+function check(sourceRel, targetRel) {
+  const source = inspect(roots[0], sourceRel, true);
+  const target = inspect(roots[1], targetRel);
+  if (!source.isFile() && !source.isDirectory()) throw new Error(`unsupported source: ${sourceRel}`);
+  if (target && (source.isDirectory() ? !target.isDirectory() : !target.isFile())) throw new Error(`copy type collision: ${targetRel}`);
+  if (source.isDirectory()) for (const name of fs.readdirSync(path.join(roots[0], sourceRel))) check(`${sourceRel}/${name}`, `${targetRel}/${name}`);
+}
+function directory(relative, sourceRoot = roots[0]) {
+  if (!inspect(sourceRoot, relative, true).isDirectory()) throw new Error(`copy source is not a directory: ${relative}`);
+}
+function inspectTree(root, relative) {
+  const stat = inspect(root, relative);
+  if (stat?.isDirectory()) for (const name of fs.readdirSync(path.join(root, relative))) inspectTree(root, `${relative}/${name}`);
+}
+if (codex) {
+  directory(".codex/agents"); inspectTree(roots[0], ".codex/agents");
+  const catalog = inspect(roots[1], ".codex/agents");
+  if (catalog && !catalog.isDirectory()) throw new Error("installed agent catalog is not a directory");
+  inspectTree(roots[1], ".codex/agents"); inspect(roots[1], ".codex/native-agents-receipt.json");
+  inspect(roots[1], "AGENTS.md");
+  directory(".codex/prompts"); check(".codex/prompts", ".codex/prompts");
+  if (skills) { directory(".agents/skills"); check(".agents/skills", ".agents/skills"); }
+}
+if (gemini) inspect(roots[1], "GEMINI.md");
+if (gemini) for (const name of ["commands", "skills", "agents"]) {
+  directory(`.gemini/${name}`); check(`.gemini/${name}`, `.gemini/${name}`);
+}
+NODE
+if [ "$CODEX_ENABLED" = true ]; then
+  # Installed helper and current delivery lock are required, including emit-only.
+  SOURCE_COMMIT=$(git rev-parse HEAD) || exit 1
+  node .claude/bin/coc-native-agent-delivery.mjs --source "$EMIT_TMP" \
+    --target . --source-commit "$SOURCE_COMMIT" || exit 1
+  mkdir -p .codex/prompts || exit 1
+  cp -R "$EMIT_TMP/.codex/prompts/." .codex/prompts/ || exit 1
+  if [ "$CODEX_NATIVE_SKILLS" = true ]; then
+    [ -d "$EMIT_TMP/.agents/skills" ] || { echo "elected native skill emission missing — HALT"; exit 1; }
+    mkdir -p .agents/skills || exit 1
+    cp -R "$EMIT_TMP/.agents/skills/." .agents/skills/ || exit 1
+  fi
+fi
+if [ "$GEMINI_ENABLED" = true ]; then
+  mkdir -p .gemini/commands .gemini/skills .gemini/agents || exit 1
+  cp -R "$EMIT_TMP/.gemini/commands/." .gemini/commands/ || exit 1
+  cp -R "$EMIT_TMP/.gemini/skills/." .gemini/skills/ || exit 1
+  cp -R "$EMIT_TMP/.gemini/agents/." .gemini/agents/ || exit 1
+fi
+# END emitted-overlay-copy
 rm -rf "$EMIT_TMP"
 
 # Per-CLI baselines — emitted from project's own .claude/rules/ (CRIT-tier rules)
-node .claude/bin/emit.mjs --cli codex   # → AGENTS.md
-node .claude/bin/emit.mjs --cli gemini  # → GEMINI.md
+if [ "$CODEX_ENABLED" = true ]; then node .claude/bin/emit.mjs --cli codex || exit 1; fi
+if [ "$GEMINI_ENABLED" = true ]; then node .claude/bin/emit.mjs --cli gemini || exit 1; fi
 
 # Unified .coc/ derivative (#392) — writes the dotted target directly via an
 # internal atomic tmp-dir swap; invoke with `--out .` (NOT a tmp dir + move).
 # `--lane use`: a migrating repo CONSUMES the artifact set, so the USE lane's
-# distribution-fate lists apply. Not inferable from --target (loom#1699).
-node .claude/bin/emit-coc.mjs --target ${VARIANT} --lane use --out .   # → COC.md + COC.lock + subtrees
+# distribution-fate lists apply. Delivered sources already encode the target.
+node .claude/bin/emit-coc.mjs --lane use --out .   # → COC.md + COC.lock + subtrees
 ```
 
-**Post-Step-6 self-check:** verify no stray non-dotted `codex/` or `gemini/` exist at repo root: `[ ! -d codex ] && [ ! -d gemini ] || { echo "stray non-dotted emit dirs"; exit 1; }` AND the `.coc/` derivative landed: `[ -f .coc/COC.lock ] || { echo ".coc/ emit missing"; exit 1; }`. If stray non-dotted dirs exist, the agent invoked `emit-cli-artifacts.mjs --out .` instead of the tmp+move pattern above; clean up before proceeding.
+**Post-Step-6 self-check:** verify no stray non-dotted `codex/` or `gemini/` exist at repo root: `[ ! -d codex ] && [ ! -d gemini ] || { echo "stray non-dotted emit dirs"; exit 1; }` AND the `.coc/` derivative landed: `[ -f .coc/COC.lock ] || { echo ".coc/ emit missing"; exit 1; }`. `emit-cli-artifacts.mjs` can no longer produce them — it writes the FINAL dotted roots — so a stray dir now means an `emit.mjs --all --out .` invocation, whose per-CLI staging dirs (`codex/AGENTS.md`, `gemini/GEMINI.md`) hold ROOT-destined baselines and are not per-CLI trees. Clean up before proceeding.
 
-`.codex-mcp-guard/policies.json` population: if missing/empty, Loom-B's emission path runs `node .codex-mcp-guard/extract-policies.mjs` to populate from `.claude/hooks/`. Sister-side emission writes `policies.json` metadata; the live `POLICIES_POPULATED=true` flip stays deferred until predicate runtime ships (per `.claude/bin/emit-cli-artifacts.mjs` deferred-section). Currently fail-closed by design (`rules/zero-tolerance.md` Rule 2).
+After verifying the replacement native catalog, retire only tracked legacy
+`.codex/skills` files positively identified as template-generated. Review the exact
+path list against source/emission ownership, then use `git rm -- <each-owned-path>`;
+without `-f`, Git refuses modified tracked files. Preserve unknown, project-authored,
+and untracked skills. Do not recursively delete the skill directory. Record the
+replacement and retirement paths in the verification result. The pre-copy snapshot
+remains the recovery source for overwritten untracked content.
+
+Policy execution is implemented: the delivered library evaluates registered hook
+subprocesses using extracted `policies.json` metadata. Re-run the existing emission /
+freshness checks and the delivered `server.js --self-check` instead of flipping a
+constant. Codex's native bridge consumes this machinery; current config does not
+automatically register an independent MCP wrapper. `/hooks` review is needed for new
+or changed non-managed definitions. Passing a policy self-check does not prove hook
+trust or a live deny/allow path. See the current [Codex guide](../../guides/codex/README.md).
+
+### Native-agent reconciliation
+
+Step 6 uses the installed `.claude/bin/coc-native-agent-delivery.mjs` in full
+migration, adopt, refresh, downstream sync and emit-only. Preliminary overlay
+copies omit `.codex/agents/`, `.codex/native-agents-receipt.json` and recovery
+directories; otherwise a bulk copy can overwrite custom files or import another
+repository's ownership claim before the helper runs. Emit-only uses local emitted
+sources and local HEAD, without reading a sister or a full owning manifest.
+
+The caller completes the existing shared/preserved-path copy preflight and
+snapshot first. Current `.claude/.coc-delivery.lock` supplies the consumer-owned
+**deletion veto**, not copy permission. Missing/malformed ownership evidence or a
+local preservation carrier needing review halts before agent mutation. A consumer
+repairs delivery evidence through its authorized sync, not by copying Loom's full
+manifest or inventing an empty ownership set.
+
+The helper creates `.codex/native-agents-receipt.json` after successful delivery:
+
+```json
+{
+  "schema_version": 1,
+  "generator": "coc-native-agent-delivery.mjs",
+  "source_commit": "<actual 40-hex source checkout HEAD>",
+  "files": { ".codex/agents/<name>.toml": "<sha256 of installed bytes>" }
+}
+```
+
+The source SHA anchors checkout history; it does not attest a clean working tree.
+The helper hashes actual bytes. Absent targets can be installed and recorded.
+Existing unknown equal files remain unchanged and **unowned**; differing collisions
+halt. Custom extras remain untouched and appear in `unmanaged`. Do not create or
+edit a receipt to infer ownership from filenames or matching bytes. A previously
+native consumer without a receipt requires explicit ownership review before
+certifying stale-role retirement; new installation does not resolve that history.
+
+Only previously recorded, hash-equal, clean tracked stale agents can retire.
+A current ownership veto, local edit, staged change or untracked stale file halts
+rather than reporting successful exclusion while the role remains callable.
+Review the helper's JSON `installed`, `retired` and `unmanaged` lists before the
+verification report. Empty emitted catalogs are explicit directories; missing
+catalogs halt instead of being treated as empty. Source/destination catalog,
+agent and receipt symlinks are refused.
+
+All mutations are preflighted, bytes are staged, and the receipt is replaced last.
+An unexpected IO failure during apply can leave a partial update; original bytes
+are retained under the reported `.codex/.native-agent-delivery-*` recovery path
+and failures before the final receipt replacement do not advance the receipt. A cleanup failure after that replacement leaves a completed delivery with residual recovery data; inspect the receipt and installed hashes. Stop and inspect that recovery state; do not
+claim whole-tree rollback, blindly rerun, or remove recovery data before restoring
+and verifying the intended state. Retired files are ordinary working-tree deletions;
+stage them with the existing explicit-path commit procedure.
+
+### Consumer dispatcher delivery (after Step 6)
+
+Full migration, `--adopt`, `--refresh`, and `/sync-from-template` use this same
+consumer contract after the final Codex catalog is installed/re-emitted. Set
+`DISPATCHER_MODE=copy` and reuse the disclosure-scanned `$SISTER` (sync uses
+`SISTER="$RESOLVED_TEMPLATE_PATH"`). Copy the two **root** `bin/` files below;
+`.claude/codex-templates/` is source-only and is absent in consumers. Codex election
+is `CODEX_ENABLED`, independent of the native-skill election. CC-only delivery
+makes no dispatcher changes.
+
+Here `<repo>` is the consumer checkout root. Extend the existing preflight/merge plan to `<repo>/bin/coc`,
+`<repo>/bin/coc-retire-legacy-skills.mjs`, and individual `<repo>/bin/coc-*` shortcuts. The
+`.claude/` local-modification scanner does not cover these paths. Apply the same
+current consumer-owned and preserved-path veto (including parent directories,
+marker declarations, delivery-lock `consumer_owned`, and both preserve files)
+before writes **or deletions**. Missing optional carriers add no declarations;
+unreadable/malformed present carriers halt. An absent unreserved destination is
+an ordinary additive write, with no new approval gate. An existing file needs
+proven template ownership and the existing at-risk-local-edit adjudication;
+unknown/custom collisions are preserved, not classified by their names. Snapshot
+the exact existing paths the plan will change under `.pre-migrate.bak/bin/`
+(`cp -P` preserves shortcuts; sync uses its own preflight backup), never all `bin/`.
+
+Carry that plan into two ephemeral newline-separated shell variables:
+`DISPATCHER_WRITE_PATHS` contains exact authorized copy/create destinations;
+`DISPATCHER_REMOVE_PATHS` contains exact authorized obsolete managed shortcuts.
+These are execution inputs, not a new ownership registry. Omitted paths remain
+untouched. Before planning or invoking a dispatcher, refuse symlinked source or
+destination `bin` directories and mandatory binaries; require regular source files.
+For shortcut planning, after emission query the scanned sister's
+`bin/coc --list-phases` with `PROJECT_ROOT="$PWD"`; the installed copy is queried
+again below. Exclude custom collisions from both sets. A collision at either
+required binary halts completion; shortcut collisions can use `bin/coc <phase>`
+and are reported individually. Reconcile against the **installed** schema/procedure
+intersection, not schema filenames alone.
+
+For `--emit-only`, set `DISPATCHER_MODE=installed`: verify the two local dispatcher
+dependencies in Step 4a, use local `bin/coc --list-phases` for the same shortcut
+preflight, and run only local reconciliation below after emission. There are no
+sister reads or binary copies in that mode.
+
+```bash
+# BEGIN CONSUMER CODEX DISPATCHER (executed verbatim by regression fixture)
+DISPATCHER_TOUCHED_PATHS=""
+if [ "$CODEX_ENABLED" = true ]; then
+  case "$DISPATCHER_MODE" in copy|installed) ;; *) echo "invalid dispatcher mode" >&2; exit 1 ;; esac
+  [ ! -L bin ] && { [ ! -e bin ] || [ -d bin ]; } || { echo "unsafe destination bin" >&2; exit 1; }
+  dispatcher_allowed() { printf '%s\n' "$1" | grep -Fxq -- "$2"; }
+  dispatcher_touched() { DISPATCHER_TOUCHED_PATHS="${DISPATCHER_TOUCHED_PATHS}${1}
+"; }
+  if [ "$DISPATCHER_MODE" = copy ]; then
+    [ ! -L "$SISTER/bin" ] && [ -d "$SISTER/bin" ] || { echo "unsafe source bin" >&2; exit 1; }
+    # Validate BOTH files and their preflight decisions before either copy.
+    for name in coc coc-retire-legacy-skills.mjs; do
+      [ ! -L "$SISTER/bin/$name" ] && [ -f "$SISTER/bin/$name" ] || { echo "missing/unsafe source bin/$name" >&2; exit 1; }
+      [ ! -L "bin/$name" ] && { [ ! -e "bin/$name" ] || [ -f "bin/$name" ]; } || { echo "unsafe destination bin/$name" >&2; exit 1; }
+      dispatcher_allowed "${DISPATCHER_WRITE_PATHS:-}" "bin/$name" || { echo "preserved required dispatcher collision: bin/$name; HALT" >&2; exit 1; }
+    done
+    mkdir -p bin || exit 1
+    for name in coc coc-retire-legacy-skills.mjs; do
+      cp "$SISTER/bin/$name" "bin/$name" && chmod +x "bin/$name" || exit 1
+      dispatcher_touched "bin/$name"
+    done
+  fi
+  [ ! -L bin/coc ] && [ -f bin/coc ] && [ -x bin/coc ] &&
+    [ ! -L bin/coc-retire-legacy-skills.mjs ] && [ -f bin/coc-retire-legacy-skills.mjs ] || { echo "missing installed dispatcher dependency; HALT" >&2; exit 1; }
+  supported_phases=$(PROJECT_ROOT="$PWD" bin/coc --list-phases) || exit 1
+  for shim in bin/coc-*; do
+    [ -L "$shim" ] && [ "$(readlink "$shim")" = coc ] || continue
+    phase="${shim#bin/coc-}"
+    if ! printf '%s\n' "$supported_phases" | grep -Fxq -- "$phase"; then
+      if dispatcher_allowed "${DISPATCHER_REMOVE_PATHS:-}" "$shim"; then
+        rm -- "$shim" || exit 1
+        dispatcher_touched "$shim"
+      else
+        echo "preserved obsolete dispatcher path: $shim" >&2
+      fi
+    fi
+  done
+  while IFS= read -r phase; do
+    [ -n "$phase" ] || continue
+    case "$phase" in *[!a-z0-9-]*) echo "invalid installed phase: $phase" >&2; exit 1 ;; esac
+    shim="bin/coc-$phase"
+    if [ -e "$shim" ] || [ -L "$shim" ]; then
+      if [ ! -L "$shim" ] || [ "$(readlink "$shim")" != coc ]; then
+        echo "preserved custom dispatcher path: $shim (use bin/coc $phase)" >&2
+      fi
+    elif dispatcher_allowed "${DISPATCHER_WRITE_PATHS:-}" "$shim"; then
+      ln -s coc "$shim" || exit 1
+      dispatcher_touched "$shim"
+    else
+      echo "preserved reserved dispatcher path: $shim (use bin/coc $phase)" >&2
+    fi
+  done <<< "$supported_phases"
+fi
+# END CONSUMER CODEX DISPATCHER
+```
+
+Verify `PROJECT_ROOT="$PWD" bin/coc --list-phases` matches installed procedures;
+no schema-only phase is advertised. Report preserved shortcut collisions and any
+obsolete preserved links separately. Stage only the exact paths in
+`DISPATCHER_TOUCHED_PATHS`, including authorized deletions, not `bin/` or a glob.
 
 ### Step 7 — Refresh `.github/`
 
@@ -351,6 +683,11 @@ Per `rules/sync-completeness.md` Rule 2, MUST emit a per-template-axis verificat
 | 19 | .gemini/settings.json present                                  | ✓/✗    | overlay copy completeness      |
 | 20 | tools/lint-workspaces.js advisory findings (count surfaced)    | (n)    | Step 9 advisory                |
 | 21 | .coc/COC.lock present (unified .coc/ derivative #392)          | ✓/✗    | emitted at Step 6              |
+| 22 | .agents/skills inventory/explicit phase policy matches emission | ✓/✗/N/A | only if Codex + native-skill election |
+| 23 | managed .codex/agents reconcile; preserved unmanaged roles reviewed | ✓/✗/N/A | Codex delivery; receipt + helper JSON, not file counts |
+| 24 | legacy skill retirement preserves local additions | ✓/✗/N/A | exact owned tracked path list |
+| 25 | hook definitions inspected; trust/live coverage reported separately | ✓/✗ | no inferred enforcement |
+| 26 | root dispatcher + retirement helper installed; phase list matches procedures | ✓/✗/N/A | Codex selected; report preserved shortcut collisions |
 ```
 
 Single-row "✓ migrated" claims are BLOCKED per `rules/sync-completeness.md` Rule 2.
@@ -359,13 +696,13 @@ Single-row "✓ migrated" claims are BLOCKED per `rules/sync-completeness.md` Ru
 
 Emit banner to user:
 
-> Trust posture is per-CLI today. `posture show` on Claude Code reads `.claude/learning/posture.json` per `rules/trust-posture.md` MUST Rule 1. Codex and Gemini have no posture surface yet — their sessions run at default trust until cross-CLI posture sync ships. Plan accordingly when running mutating commands from Codex/Gemini.
+> COC posture is repository state; CLI support does not create a separate default-trust authorization. Current Codex SessionStart invokes the shared posture-reading startup hook, and the native pre-tool bridge selects delivered checks. Verify that the relevant registrations are trusted and execute in this consumer; unverified runtime parity remains a reported coverage gap. Preserve operator-local state and follow `rules/trust-posture.md`.
 
 This is informational; no action required.
 
 ### Step 12 — Commit + PR
 
-Commit message MUST cite source/target template + version, files added (`.codex/`, `.codex-mcp-guard/`, `.gemini/`, `.coc/`, `AGENTS.md`, `GEMINI.md`), files replaced (`CLAUDE.md` per Step 5), files updated (`.claude/.coc-sync-marker`, `.claude/VERSION`, `.github/workflows/{auto-merge,validate}.yml`, `.github/coc-sdk-refs-allowlist.txt`), files re-emitted (Step 6 per-CLI artifacts), files preserved (`workspaces/`, project source, SDK pins, `.claude/.proposals/`, `.claude/learning/`, `.claude/settings.local.json`), AND verification-table summary (`20/20 ✓`).
+Commit message MUST cite source/target template + version, files added (`.codex/`, elected `.agents/skills/`, `.codex-mcp-guard/`, `.gemini/`, `.coc/`, `AGENTS.md`, `GEMINI.md`), files replaced (`CLAUDE.md` per Step 5), files updated (`.claude/.coc-sync-marker`, `.claude/VERSION`, `.github/workflows/{auto-merge,validate}.yml`, `.github/coc-sdk-refs-allowlist.txt`), files re-emitted (Step 6 per-CLI artifacts), files preserved (`workspaces/`, project source, SDK pins, `.claude/.proposals/`, `.claude/learning/`, `.claude/settings.local.json`), AND the measured verification-table summary (count applicable rows; report N/A separately).
 
 Stage explicit paths only (per `rules/coc-sync-landing.md` Rule 2 — `git add -A` BLOCKED on COC-shaped PRs). **Namespace tmp files per repo** via `mktemp` to prevent concurrent `/migrate` sessions overwriting each other's commit messages (verified failure mode 2026-05-13 — two consumer migrations running in parallel: one consumer's commit shipped with the other's message body). Shared `/tmp/migrate-msg.txt` paths are BLOCKED.
 
@@ -375,9 +712,16 @@ MSGFILE="$(mktemp -t coc-migrate-msg-XXXXXX)"
 PRBODY="$(mktemp -t coc-migrate-prbody-XXXXXX)"
 # ... write commit message to "$MSGFILE", PR body to "$PRBODY" ...
 
+# Stage the elected skill surface explicitly; never stage the entire .agents tree.
+if [ "$CODEX_ENABLED" = true ] && [ "$CODEX_NATIVE_SKILLS" = true ]; then
+  git add .agents/skills/
+fi
 git add .claude/ .codex/ .codex-mcp-guard/ .gemini/ .coc/ AGENTS.md GEMINI.md CLAUDE.md \
         .github/workflows/auto-merge.yml .github/workflows/validate.yml \
         .github/coc-sdk-refs-allowlist.txt
+while IFS= read -r dispatcher_path; do
+  [ -n "$dispatcher_path" ] && git add -- "$dispatcher_path"
+done <<< "${DISPATCHER_TOUCHED_PATHS:-}"
 git commit -F "$MSGFILE"
 gh pr create --title "chore(coc): migrate to multi-CLI" --body-file "$PRBODY"
 rm -f "$MSGFILE" "$PRBODY"
@@ -393,10 +737,10 @@ A full migration ADDS the `.coc/` derivative (#392), so the commit body MUST car
 Triggered when `template_type: multi-cli`. Refreshes top-level overlays per `multi_cli_overlays.multi-cli.paths` (NOT a full migration; project is already multi-CLI):
 
 1. Step 0: lineage check (must be `multi-cli`); inline porcelain guard.
-2. Step 3: copy paths from `multi_cli_overlays.multi-cli.paths`, respecting `multi_cli_overlays.multi-cli.preserved`.
+2. Steps 1 + 3: snapshot, then copy paths from `multi_cli_overlays.multi-cli.paths`, respecting `multi_cli_overlays.multi-cli.preserved`. Include the bounded dispatcher preflight/snapshot; run § Consumer dispatcher delivery after Step 6.
 3. Step 6: re-emit per-CLI artifacts + baselines.
 4. Step 8: update marker `timestamp`, `loom_sha`, `loom_version`, `stats.baselines_emitted`, `stats.cli_artifacts`. Do NOT touch `template_type`, `migrated_from`, `migrated_at`, `clis`.
-5. Step 10: verification table (rows 1–9, 17–19 — schema fields already canonical).
+5. Step 10: verification table (rows 1–9, 17–19, and applicable 22–26 — schema fields already canonical).
 6. Step 12: commit `chore(coc): refresh multi-CLI overlays`.
 
 Skipped: Steps 2 (VERSION upstream pointer already correct), 4 (downstream-sync handles `.claude/` refresh on next `/sync-from-template` — `--refresh` is overlay-only), 5 (CLAUDE.md project-owned post-migration), 7 (workflows already aligned), 11 (posture caveat already known to multi-CLI users).
@@ -459,17 +803,18 @@ echo "$BRANCH" > .pre-migrate.bak/.branch
 # The install's ROOT write-set. STACK.md is base-family only (written by A2 /onboard-stack);
 # it is harmless on kailash (the `[ -e ]` test skips it). CC-only target writes CLAUDE.md + .claude/.
 # Snapshot each path that ALREADY exists — a hand-authored CLAUDE.md/STACK.md is the common collision.
+[ -L .agents ] && { echo ".agents is a symlink — resolve before adopt"; exit 1; }
 COLLISIONS=""
-for p in CLAUDE.md AGENTS.md GEMINI.md STACK.md .codex .codex-mcp-guard .gemini .coc .claude; do
+for p in CLAUDE.md AGENTS.md GEMINI.md STACK.md .codex .agents/skills .codex-mcp-guard .gemini .coc .claude; do
   # Reject a symlinked install-target root: `cp -R` on a symlinked dir is platform-divergent
   # (BSD vs GNU) and the install would write THROUGH the link outside the repo.
   [ -L "$p" ] && { echo "install-target $p is a symlink — refusing (adopt writes real trees; resolve the symlink first)"; git checkout main; git branch -D "$BRANCH"; rm -rf .pre-migrate.bak; exit 1; }
-  [ -e "$p" ] && { cp -R "$p" ".pre-migrate.bak/$p"; COLLISIONS="$COLLISIONS $p"; }
+  [ -e "$p" ] && { mkdir -p ".pre-migrate.bak/$(dirname "$p")"; cp -R "$p" ".pre-migrate.bak/$p"; COLLISIONS="$COLLISIONS $p"; }
 done
 [ -n "$COLLISIONS" ] && echo "PRE-EXISTING paths snapshotted (will be overwritten; restore via --rollback):$COLLISIONS"
 ```
 
-Surface `$COLLISIONS` to the user: a repo with a hand-authored `CLAUDE.md`/`STACK.md` (no `.claude/`) DOES collide — the file is snapshotted and overwritten, and `--rollback` restores it. The Step-0 / A0 routing gates only on `.claude/` + marker absence to DECIDE adopt-vs-migrate; the ROOT-write-set collision check lives HERE (A-branch), covering the whole set — `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `STACK.md`, `.codex`, `.codex-mcp-guard`, `.gemini`, `.coc`, `.claude` — not `.claude/` alone. This is the CRIT the "everything is an ADD, nothing collides" premise missed.
+Surface `$COLLISIONS` to the user: a repo with a hand-authored `CLAUDE.md`/`STACK.md` (no `.claude/`) DOES collide — the file is snapshotted and overwritten, and `--rollback` restores it. The Step-0 / A0 routing gates only on `.claude/` + marker absence to DECIDE adopt-vs-migrate; the ROOT-write-set collision check lives HERE (A-branch), covering the whole set — `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `STACK.md`, `.codex`, `.agents/skills`, `.codex-mcp-guard`, `.gemini`, `.coc`, `.claude` — not `.claude/` alone. This is the CRIT the "everything is an ADD, nothing collides" premise missed.
 
 ### Step A2 — Base family: scaffold STACK.md (after snapshot, before install)
 
@@ -484,16 +829,16 @@ For the **base** family only, run `/onboard-stack` AFTER Step A-branch and befor
 Then copy the template into the repo as a FRESH INSTALL, reusing `/sync-from-template`'s downstream-sync copy semantics with every template-owned path treated as an ADD (no prior tree, so no obsoletion/preserve arbitration):
 
 - `.claude/` (the full COC config tree: commands, skills, agents, hooks, rules, `bin/`).
-- Multi-CLI target only: also `.codex/`, `.codex-mcp-guard/`, `.gemini/`, plus the external symlink targets per `sync-completeness.md` Rule 5 (`.claude/codex-mcp-guard` → `../.codex-mcp-guard`).
+- Multi-CLI target only: also `.codex/` using the Step-3 loop (exclude `agents/`, `native-agents-receipt.json` and `.native-agent-delivery-*` until Step A4 reconciles local emission), `.codex-mcp-guard/`, `.gemini/`, plus the external symlink targets per `sync-completeness.md` Rule 5 (`.claude/codex-mcp-guard` → `../.codex-mcp-guard`).
 - Project-owned paths (`src/`, `tests/`, `docs/`, `.env`, `pyproject.toml`/`Cargo.toml`, `workspaces/`) are the repo's own and untouched by construction. The TEMPLATE-owned ROOT files (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`) are NOT project-owned — if the repo hand-authored one, Step A-branch already snapshotted it and the install overwrites it (restore via `--rollback`).
 
 ### Step A4 — Marker + VERSION + emit + verify + commit
 
 - **VERSION (Step 2 shape):** write a fresh `.claude/VERSION` with `type: coc-project`, `upstream.template` = `<sister>`, `upstream.template_repo` = `terrene-foundation/<sister>`, `upstream.template_version` from the sister, `upstream.synced_at` = now.
-- **Per-CLI emit (Step 6), multi-CLI target only:** `emit.mjs --cli codex` / `--cli gemini` (→ `AGENTS.md` / `GEMINI.md`) + `emit-cli-artifacts.mjs --target <variant>` (→ `.codex/` + `.gemini/` bodies), same tmp-dir-then-move pattern as full-migration Step 6. Then the unified `.coc/` derivative (`emit-coc.mjs --target <variant> --lane use --out .`). CC-only target: only `CLAUDE.md` is the baseline (no `AGENTS.md`/`GEMINI.md`).
+- **Per-CLI emit (Step 6), multi-CLI target only:** `emit.mjs --cli codex` / `--cli gemini` (→ `AGENTS.md` / `GEMINI.md`) + `emit-cli-artifacts.mjs` (→ `.codex/`, elected `.agents/skills/`, and `.gemini/` bodies), same staged emission and native-agent reconciliation as full-migration Step 6. Then the unified `.coc/` derivative (`emit-coc.mjs --lane use --out .`). Then run § Consumer dispatcher delivery for elected Codex. CC-only target: only `CLAUDE.md` is the baseline (no `AGENTS.md`/`GEMINI.md` or dispatcher).
 - **Fresh marker (Step 8 shape):** write `.claude/.coc-sync-marker` with `template_type` = `multi-cli` (or, for `--cc-only`, `cc-only-legacy` — the value is the DETECTION-ROUTING KEY that lets a later `/migrate` recognize this repo as a CC-only lineage eligible for multi-CLI upgrade, NOT a claim the fresh adoption is old), `template` = `<sister>`, `clis`, `variant`, `adopted_at` = now, `loom_version`, `loom_sha`, and the `stats` block. Use `adopted_at` (NOT `migrated_from`/`migrated_at` — there was no prior COC lineage to migrate FROM).
 - **Verify (Step 10):** emit the verification table (file presence + emit dry-run exit 0 + marker/VERSION schema; for multi-CLI targets include the `.coc/COC.lock present` row). Rows that assume a prior tree (project-content-diff-empty) do not apply — surface "N/N adopt rows ✓".
-- **Posture banner (Step 11), multi-CLI target:** emit the same per-CLI trust-posture caveat as full-migration Step 11 (`posture show` works on Claude Code; Codex/Gemini posture is session-local until cross-CLI sync ships). Informational; the caveat is relevant to a fresh multi-CLI adoption whose operator will run mutating commands from Codex/Gemini.
+- **Posture banner (Step 11), multi-CLI target:** emit the same per-CLI trust-posture caveat as full-migration Step 11 (`posture show` works on Claude Code; consumer posture-check execution is verified separately from runtime capability). Informational; the caveat is relevant to a fresh multi-CLI adoption whose operator will run mutating commands from Codex/Gemini.
 - **Commit + PR (Step 12):** stage explicit paths (multi-CLI: include `.coc/`; carry the `coc-shape:` marker per `rules/loom-csq-boundary.md` Rule 5 since adopt ADDS `.coc/`); commit `chore(coc): adopt COC (<family>, <cli-axis>)`; PR body embeds the verification table + the detected family + confidence.
 
 ### When `--adopt` is the right disposition
@@ -517,8 +862,8 @@ The mode runs only the EMIT phase. Sister-template-dependent steps (3, 4, 5, 7) 
 
 1. **Step 0.1 — non-COC accept**: `--emit-only` bypasses the default "unrecognized lineage" rejection. The recognized non-COC types are `claude-squad-local` plus any project lineage that has a `.claude/` directory AND declares its type explicitly in `.claude/VERSION.type`. The flag MUST be set explicitly — `/migrate` without `--emit-only` on a non-COC type still rejects per the original Step 0 contract (no silent acceptance).
 2. **Step 1 — branch + snapshot**: same as full migration. Branch name: `chore/coc-multi-cli-emit-<YYYYMMDD>` (different prefix from `chore/coc-multi-cli-migrate-` to distinguish in `git log`).
-3. **Step 4a — scaffold the emitter dependencies**: same as full migration. Create `.claude/codex-mcp-guard → ../.codex-mcp-guard` symlink and copy `$LOOM_PATH/.claude/sync-manifest.yaml` into `.claude/`. The symlink + manifest are scaffold artifacts the emitters require; they do NOT come from a sister.
-4. **Step 6 — emit from project's own `.claude/`**: invoke `emit.mjs --cli codex` and `--cli gemini` against the project's existing `.claude/rules/`, plus `emit-cli-artifacts.mjs --target <project-variant>` against the project's `.claude/commands/`, `.claude/skills/`, `.claude/agents/`. **Crucially**: no `--target` filtering by tier-subscription (the project is non-COC, doesn't subscribe to any tier); emit EVERY artifact present in the project's own `.claude/` tree (modulo any `cli_emit_exclusions.{codex,gemini}` in the manifest). Same `mktemp + cp into dotted` pattern as full-migration Step 6. **`.coc/` is DELIBERATELY excluded from `--emit-only`** (unlike full-migration Step 6 and `--adopt` A4, which emit it): `--emit-only` scaffolds the per-CLI SESSION surfaces (`.codex/`/`.gemini/`/`AGENTS.md`/`GEMINI.md`) a non-COC fork needs so Codex/Gemini sessions load; the unified `.coc/` derivative (#392) is a distinct downstream-consumer artifact whose producer stays loom-owned per `rules/loom-csq-boundary.md` (csq consumes loom's `.coc/`, it does not self-emit one from `--emit-only`). A fork that genuinely needs a self-generated `.coc/` runs `emit-coc.mjs` directly — out of scope for this scaffold mode.
+3. **Step 4a — verify local emitter dependencies**: use the project’s installed emitter/runtime files and its bounded `.claude/.coc-cli-emit.yaml` if present; never copy Loom’s full manifest or target registry. Verify the compatibility guard target before creating its `.claude/codex-mcp-guard → ../.codex-mcp-guard` link. Missing tools halt with the named dependency. The manifest-source reader requires a recognized repository class: preserve lineage separately and resolve/repair `.claude/VERSION.type` before emission if the old non-COC label is unrecognized; do not create a manifest to bypass that check. Set the chosen CLI booleans explicitly and read `CODEX_NATIVE_SKILLS` with `readNativeCodexSkillsElection` against this project (not `$SISTER`); absent projection/field defaults off. Preserve project-owned declarations and local skills. If Codex is selected, require installed `.claude/bin/coc-native-agent-delivery.mjs` with its shipped dependencies and a valid current `.claude/.coc-delivery.lock` (missing evidence halts; never fabricate an empty ownership list), plus regular installed `<repo>/bin/coc` (executable, supporting `--list-phases`) and `<repo>/bin/coc-retire-legacy-skills.mjs`; missing dependencies halt without a sister read.
+4. **Step 6 — emit from project's own `.claude/`**: invoke `emit.mjs --cli codex` and `--cli gemini` against the project's existing `.claude/rules/`, plus `emit-cli-artifacts.mjs --out <scratch-dir>` against the project's `.claude/commands/`, `.claude/skills/`, `.claude/agents/`. **Crucially**: no `--target` filtering by tier-subscription (the project is non-COC, doesn't subscribe to any tier); emit EVERY artifact present in the project's own `.claude/` tree (modulo any `cli_emit_exclusions.{codex,gemini}` in the project’s bounded projection). Execute full-migration Step 6 with local staging and its native-agent helper invocation; never bulk-copy the agent catalog or an ownership receipt. **`.coc/` is DELIBERATELY excluded from `--emit-only`** (unlike full-migration Step 6 and `--adopt` A4, which emit it): `--emit-only` scaffolds the per-CLI SESSION surfaces (`.codex/`, elected `.agents/skills/`, `.gemini/`, `AGENTS.md`, `GEMINI.md`) a non-COC fork needs so Codex/Gemini sessions load; the unified `.coc/` derivative (#392) is a distinct downstream-consumer artifact whose producer stays loom-owned per `rules/loom-csq-boundary.md` (csq consumes loom's `.coc/`, it does not self-emit one from `--emit-only`). A fork that genuinely needs a self-generated `.coc/` runs `emit-coc.mjs` directly — out of scope for this scaffold mode. Run § Consumer dispatcher delivery with `DISPATCHER_MODE=installed` after emission.
 5. **Step 8 — emit-only marker schema**: write `.claude/.coc-sync-marker` with the emit-only schema (different shape from full-migration marker — no `migrated_from`, no `template`/`template_version` change, instead records `last_emit_at` and `loom_sha`):
    ```yaml
    template_type: <existing type — claude-squad-local, etc.> # preserved, NOT rewritten
@@ -532,7 +877,7 @@ The mode runs only the EMIT phase. Sister-template-dependent steps (3, 4, 5, 7) 
      mcp_guard: { policies_populated: <bool> }
    ```
    The original `template`, `template_version`, `variant`, `migrated_from`, `migrated_at` fields are NOT modified. The marker becomes a hybrid: project-lineage metadata preserved + emit telemetry added.
-6. **Step 10 — verification**: rows 1–9 (file presence) + rows 17–19 (settings/config) apply. Rows 10–16 (full-migration marker schema, VERSION upstream, project-content diff) do NOT apply — the emit-only marker schema differs. Surface this in the report: "Step 10 verification: 12/12 emit-only rows ✓".
+6. **Step 10 — verification**: rows 1–9 (file presence), 17–19 (settings/config), and the applicable native-surface/trust/dispatcher rows 22–26 apply. Rows 10–16 (full-migration marker schema, VERSION upstream, project-content diff) do NOT apply — the emit-only marker schema differs. Surface this in the report: "Step 10 verification: <passed>/<applicable> emit-only rows; <N> N/A".
 7. **Step 11 — posture banner**: same as full migration (per-CLI posture caveat).
 8. **Step 12 — commit + PR**: same staging pattern (explicit paths, mktemp commit message). Commit: `chore(coc): emit multi-CLI artifacts from project's own .claude/`.
 
@@ -572,7 +917,7 @@ git reset --keep main
 # Restore snapshot — generic over whatever was snapshotted (full migration:
 # .coc-sync-marker + CLAUDE.md + VERSION [+ .codex/.gemini on partial re-run];
 # --adopt: every pre-existing install-target path Step A-branch snapshotted —
-# CLAUDE.md, AGENTS.md, GEMINI.md, .codex, .codex-mcp-guard, .gemini, .coc, .claude).
+# CLAUDE.md, AGENTS.md, GEMINI.md, .codex, .agents/skills, .codex-mcp-guard, .gemini, .coc, .claude).
 # The snapshot is the ONLY restore path for a pre-existing UNTRACKED file
 # adopt overwrote (git reset --keep main cannot restore what main never had).
 [ -d .pre-migrate.bak ] && {
@@ -583,8 +928,17 @@ git reset --keep main
   # hard-blocks. Same licensed-writer idiom as the `$p` loop directly below.
   V=.claude/VERSION
   [ -e .pre-migrate.bak/VERSION ]          && cp -R .pre-migrate.bak/VERSION          "$V"
-  for p in CLAUDE.md AGENTS.md GEMINI.md STACK.md .codex .codex-mcp-guard .gemini .coc .claude; do
+  for p in CLAUDE.md AGENTS.md GEMINI.md STACK.md .codex .agents/skills .codex-mcp-guard .gemini .coc .claude; do
     [ -e ".pre-migrate.bak/$p" ] && { rm -rf "./$p"; cp -R ".pre-migrate.bak/$p" "./$p"; }
+  done
+  # Only exact dispatcher paths saved by the preflight plan; never replace bin/.
+  for p in .pre-migrate.bak/bin/coc .pre-migrate.bak/bin/coc-*; do
+    [ -e "$p" ] || [ -L "$p" ] || continue
+    [ ! -L bin ] && { [ ! -e bin ] || [ -d bin ]; } || exit 1
+    mkdir -p bin || exit 1
+    target="bin/${p##*/}"
+    [ ! -d "$target" ] || exit 1
+    rm -f -- "$target" && cp -P "$p" "$target" || exit 1
   done
 }
 
@@ -635,15 +989,20 @@ stats:
       skills: <count> # required
       agents: <count> # required
   mcp_guard:
-    policies_populated: <bool> # required (false until Loom-B ships)
+    policies_populated: <bool> # measured from the delivered policy self-check
 sdk_pins: <map> # optional but recommended
 ```
 
 ## Hook Env-Var Portability
 
-Hooks MUST accept three env vars (`$CLAUDE_PROJECT_DIR` set by CC, `$CODEX_PROJECT_DIR` set by Codex per hooks.json contract, `$GEMINI_PROJECT_DIR` set by Gemini per `.gemini/settings.json` hooks block). Resolution: `PROJECT_DIR="${CLAUDE_PROJECT_DIR:-${CODEX_PROJECT_DIR:-${GEMINI_PROJECT_DIR:-$PWD}}}"`. Sister-template hooks already conformant; pre-migration project-local hooks MAY need rewriting (Step 9 lint surfaces fragile env-var references).
+Shared hooks resolve project context through `lib/runtime.js::parseHook()` and the
+runtime adapter. CC/Gemini project environment variables and native payload cwd are
+runtime-specific inputs; Codex does not supply `CODEX_PROJECT_DIR`. Its delivered
+registration locates the native bridge from the Git root and the bridge establishes
+`COC_RUNTIME=codex` plus COC project context. Step 9 reviews project-local hooks for
+compatibility rather than assuming they already follow this contract.
 
-Every command authored at loom lives at `.claude/commands/<name>.md`; at Gate 2 sync time AND Step 6 of `/migrate`, the SAME body is replicated to `.codex/prompts/<name>.md` and `.gemini/commands/<name>.toml`. Body content is byte-identical modulo delegation-syntax slot overrides. Cross-CLI drift audit (`commands/cli-audit.md`) verifies. Switching CLIs does not invalidate any prior workspace — that is the structural reason `/migrate` does not rewrite project content.
+Every command authored at loom lives at `.claude/commands/<name>.md`; at Gate 2 sync time AND Step 6 of `/migrate`, the adapted body becomes an elected `.agents/skills/coc-<name>/SKILL.md`, compatibility `.codex/prompts/<name>.md`, and `.gemini/commands/<name>.toml`. Body content is byte-identical modulo delegation-syntax slot overrides. Cross-CLI drift audit (`commands/cli-audit.md`) verifies. Switching CLIs does not invalidate any prior workspace — that is the structural reason `/migrate` does not rewrite project content.
 
 ## Trust Posture Wiring
 

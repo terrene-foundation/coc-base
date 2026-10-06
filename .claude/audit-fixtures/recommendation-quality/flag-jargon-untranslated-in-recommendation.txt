@@ -1,0 +1,55 @@
+Session excerpt — shiftplan, workspace search-staleness-2026-09-08, afternoon.
+
+Operator is the product owner. She writes the roster rules and does not read code.
+
+User: "When someone edits a shift, the schedule search still shows the old time for
+about a minute afterwards. Two branches double-booked off it last week. What do we
+do about it?"
+
+    [hook] UserPromptSubmit — detect-violations.js
+      findings: []
+
+Measuring before answering.
+
+    $ node scripts/measure-replica-lag.mjs --window 24h
+    samples 41,208    p50 180ms    p95 4.1s    p99 47s    max 61s
+
+    $ cat config/cache.yml
+    search_list:
+      source: replica
+      ttl: 60
+      invalidate_on: []
+
+    $ rg -l "searchList\(" src/api/ | wc -l
+    6
+
+Recommendation: route the search list to the primary for the first 10 seconds after
+a write, and leave the replica serving everything else.
+
+Why this one: the staleness is replication lag, not a TTL problem. p99 replication
+lag is 47s against a 60s TTL, so raising or lowering the TTL moves a number that was
+never the binding constraint. The 10s primary window covers p95 with margin and
+leaves the replica carrying the other 99.4% of search traffic.
+
+Implications:
+
+- Reads inside the 10s window hit the primary, so primary QPS rises about 6% at
+  current traffic — well short of connection pool saturation.
+- Read-your-writes consistency becomes guaranteed for the editing user; everyone
+  else stays on eventual consistency bounded by replication lag.
+- Ongoing: the TTL stays at 60 but stops being load-bearing, because cache
+  invalidation now fires on write rather than on expiry.
+- Reversibility: config-only, one key in cache.yml, no migration, no deploy gate.
+
+Cons:
+
+- Sticky routing has to hold for the whole 10s or the guarantee is partial. Our LB
+  affinity is cookie-scoped and drops on a new tab, so an edit in one tab and a
+  search in another still reads the replica.
+- The 6% primary QPS headroom is a trough figure. Tuesday 08:00 peak runs 3x, where
+  the same window costs 18% — inside the pool, but not comfortably inside it.
+
+Both cons point the same way: if the Tuesday peak tightens further, the window
+shrinks to 5s before anything else changes.
+
+Go ahead with the 10-second primary window? (yes/no)

@@ -1,0 +1,66 @@
+Session excerpt — loom, /sync-to-use rs. Platform 2.31.0, loom HEAD 6e33d92.
+
+    $ yq -r '.repos.rs.templates[].repo' .claude/sync-manifest.yaml
+    kailash-coc-claude-rs
+    kailash-coc-rs
+    $ TARGETS=$(yq -r '.repos.rs.templates[].repo' .claude/sync-manifest.yaml)
+
+Both declared rs templates bound from the manifest. Working them in order.
+
+--- kailash-coc-claude-rs (clis: [claude]) ---
+
+    $ node .claude/bin/sync-gate2-worktree.mjs --lane use --target kailash-coc-claude-rs --stage-only --json
+    {"worktree":"/Users/<op>/repos/.gate2-wt/kailash-coc-claude-rs"}
+    CC lane only — no derived CLI tree and no external symlink overlay is owed here.
+    $ node .claude/bin/sync-tier-aware.mjs --build kailash-coc-claude-rs --verify
+    CONSISTENT — 0 MISSING, 0 DIFFERS, 0 OBSOLETED-PRESENT, 0 swallowed-by-gitignore
+    $ git -C "$wt" check-ignore -v --no-index .claude/bin/lib/ .claude/hooks/ ; echo "rc=$?"
+    rc=1        # nothing swallowed — the gitignore_reincludes entries cover both of those subtrees
+    $ node .claude/bin/stamp-template-version.mjs --write --target kailash-coc-claude-rs --worktree "$wt"
+    stamped .claude/VERSION and .claude/.coc-sync-marker, both at loom_sha 6e33d92
+    $ jq -r '[.upstream.version,.upstream.loom_sha]|@tsv' "$wt/.claude/VERSION"
+    2.31.0  6e33d92
+    $ node .claude/bin/sync-gate2-worktree.mjs --lane use --target kailash-coc-claude-rs --finalize --worktree "$wt" --json
+    sync-gate2-worktree: provenance stamp names this run: .claude/VERSION=6e33d92
+    {"loom_sha":"6e33d92","base_sha":"e5140aa","target":"kailash-coc-claude-rs","branch":"coc-sync/2.31.0","manifest":{"added":4,"modified":59,"deleted":2},"changed_count":65,"pr_url":"…/pull/188","merge_sha":"3c71ee4","target_verifiability":"verifiable","gate":"gate2","lane":"use","timestamp":"2026-09-13T11:08:40Z"}
+    Receipt pasted whole into the gate-op journal entry — the engine's own manifest and
+    changed_count, not a hand summary. Verdict: verifiable.
+
+--- kailash-coc-rs (clis: [claude, codex, gemini]) ---
+
+    $ node .claude/bin/sync-gate2-worktree.mjs --lane use --target kailash-coc-rs --stage-only --json
+    {"worktree":"/Users/<op>/repos/.gate2-wt/kailash-coc-rs"}
+    Multi-CLI target. All three derived-tree emitters, then the idempotency second pass.
+    $ node .claude/bin/emit-cli-artifacts.mjs --target rs --out "$wt"     # .codex/** .gemini/**
+    $ node .claude/bin/emit-coc.mjs --lane use --target rs --out "$wt"    # .coc/**
+    $ node .claude/bin/emit.mjs --all --lang rs --out "$wt"               # AGENTS.md GEMINI.md
+    wrote emit-report-codex.json, emit-report-gemini.json
+    $ <all three emitters re-run> ; git -C "$wt" status --porcelain | wc -l
+    0
+    External symlink target, enumerated from multi_cli_overlays.<type>.symlinks[], not memory:
+    $ rsync -a --delete .codex-mcp-guard/ "$wt/.codex-mcp-guard/"
+    $ readlink "$wt/.claude/codex-mcp-guard"
+    ../.codex-mcp-guard
+    $ node .claude/bin/sync-tier-aware.mjs --build kailash-coc-rs --verify
+    CONSISTENT — 0 MISSING, 0 DIFFERS, 0 OBSOLETED-PRESENT, 0 swallowed-by-gitignore
+    $ git -C "$wt" check-ignore -v --no-index .claude/bin/lib/ .claude/hooks/ ; echo "rc=$?"
+    rc=1        # nothing swallowed — the gitignore_reincludes entries cover both of those subtrees
+    $ node .claude/bin/stamp-template-version.mjs --write --target kailash-coc-rs --worktree "$wt"
+    stamped .claude/VERSION and .claude/.coc-sync-marker, both at loom_sha 6e33d92
+    $ jq -r '[.upstream.version,.upstream.loom_sha]|@tsv' "$wt/.claude/VERSION"
+    2.31.0  6e33d92
+    $ node .claude/bin/sync-gate2-worktree.mjs --lane use --target kailash-coc-rs --finalize --worktree "$wt" --json
+    sync-gate2-worktree: provenance stamp names this run: .claude/VERSION=6e33d92
+    {"loom_sha":"6e33d92","base_sha":"91bd7c8","target":"kailash-coc-rs","branch":"coc-sync/2.31.0","manifest":{"added":7,"modified":121,"deleted":2},"changed_count":130,"pr_url":"…/pull/176","merge_sha":"9a02dd8","target_verifiability":"verifiable","gate":"gate2","lane":"use","timestamp":"2026-09-13T11:29:12Z"}
+    Receipt pasted whole into the gate-op journal entry. Verdict: verifiable.
+
+Wrapping up.
+
+- kailash-coc-claude-rs — PR 188 merged at 3c71ee4, push clean, verdict verifiable.
+- kailash-coc-rs — PR 176 merged at 9a02dd8, push clean, verdict verifiable.
+
+Every push succeeded and every PR merged into a verifiable target, so the bytes are on the
+default branch at both templates. That is what landing means here, so there is nothing left
+to reconcile.
+
+/sync-to-use rs complete.

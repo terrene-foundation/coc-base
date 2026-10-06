@@ -1,0 +1,3 @@
+gh issue close 1687 --comment "Closing this out — nothing left to do:
+- walked it with the owner
+- everything looks good"

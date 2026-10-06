@@ -34,6 +34,36 @@ predicate-space):
 4. **ledger absent/unreadable/no session** (`undetermined`): the live ledger
    cannot answer the question. Fixture 04 — halt-and-report.
 
+## Why every payload here carries a CONTRACT-CONFORMANT frontmatter block
+
+Each `input.json` above carries the full canonical frontmatter block
+(`rules/journal.md` § Naming & Format: `type`, `date`, `author`, `project`,
+`topic`, `phase`, `verified_id`, `person_id`, `display_id`, `tags`) and carries
+**no** `session_id:` key. Neither is decoration, and neither may be trimmed back
+to "just enough to carry `author:`".
+
+`journal-write-guard.js` runs a SECOND, independent obligation over the same
+bytes — `lib/journal-frontmatter-shape.js`, rule_id `journal/frontmatter-shape`,
+severity `advisory`. The earlier payloads here predate it and violated it: six
+required keys absent and `session_id:` RETIRED. That made every row a COMPOUND
+assertion about BOTH layers instead of the author-backing layer each one names —
+visibly so on `01` and `03`, whose declared `stderr_tag: (none)` became
+`[ADVISORY]`, and invisibly on `02` and `04`, where the advisory rode along
+inside a `[HALT-AND-REPORT]` emit that nothing here asserts the contents of.
+
+The corpus is bipolar on ONE axis: the author claim and the ledger state. Had
+only the two passthrough fixtures been made conformant, the passthrough and
+halting poles would differ on author/ledger **and** on shape, which is the same
+compound-assertion defect displaced from inside a case to across the corpus. So
+all four carry the conformant block and the poles differ on the author axis
+alone.
+
+The guard reads only `author:` out of this block (`parseFrontmatterAuthor`);
+`verified_id` / `person_id` / `display_id` are self-evidently fixture values and
+no verdict turns on their content. End-to-end assertion that the shape layer
+FIRES is not duplicated here — it lives in `../journal-write-guard/run.mjs` C13,
+which is the suite that owns end-to-end behaviour for this hook.
+
 ## Severity discipline (hook-output-discipline.md MUST-2)
 
 The `unbacked` and `undetermined` dispositions are **`halt-and-report`, NEVER

@@ -1,0 +1,44 @@
+Wave 11 in example-org/example-repo — canonical serialisation for the envelope seal.
+
+---
+
+`to_canonical_json()` in `trust/envelope.py` builds the byte string that gets HMAC'd
+into `integrity_hash`. It now reads:
+
+    def to_canonical_json(self) -> str:
+        return json.dumps(self._hashable_dict(), sort_keys=True,
+                          default=str, allow_nan=False, ensure_ascii=True)
+
+Sealing a record with a non-finite value in the free-form `metadata` dict now stops
+at seal time:
+
+    >>> env = GovernanceEnvelope(record_id="r-8814",
+    ...                          metadata={"drift_ratio": float("nan")})
+    >>> env.seal(key_mgr)
+    ValueError: Out of range float values are not JSON compliant
+
+Before the change it sealed and re-verified True, which is what sent me looking.
+That green means less than it looks: the same permissive writer made the bytes and
+the same permissive reader consumed them, so it agrees with itself whatever it
+emitted. The party that refuses is the sibling implementation, which parses those
+bytes strictly and rejects a bare NaN literal on the way in.
+
+Then the whole package, not the one function — a per-function pass finds the
+serialiser you already suspected and no others:
+
+    $ python tools/sweep_signing_preimages.py --module trust
+    11 serialisation sites under 7 modules
+      7 signing/hash roots -> 7 carry allow_nan=False
+      4 excluded (documented): forensic_dump.render, forensic_dump.tail,
+        cache._memo_key, cache._memo_key_legacy
+
+The four exclusions are deliberate, not misses: the forensic writers must render
+whatever was actually in the record, non-finite values included, or the dump stops
+being a record of what happened, and the two memo keys never leave the process.
+Six of the seven roots were already right; this change is the seventh.
+
+    $ python -m pytest tests/trust/test_envelope.py -q
+    33 passed in 0.41s
+
+The budget side is separately guarded, unchanged by this: a cost arriving as NaN is
+refused before it reaches any comparison.

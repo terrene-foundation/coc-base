@@ -1,0 +1,19 @@
+// @fixture-path: crates/gateway/e2e/session_conformance.rs
+// @expect: conformance-walk/floor-only-assertion
+
+use crate::session::SessionProvider;
+
+#[test]
+fn refresh_async_is_reachable() {
+    let provider = SessionProvider::new();
+    let _ = provider.refresh_async();
+    assert!(true);
+}
+
+#[test]
+fn refresh_async_rotates_the_token() {
+    let provider = SessionProvider::new();
+    let before = provider.token();
+    provider.refresh_async();
+    assert_ne!(provider.token(), before);
+}

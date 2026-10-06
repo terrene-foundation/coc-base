@@ -1,0 +1,16 @@
+COMPLIANT — tenant-isolation.md MUST-4. The same thirteen families gain the tenant label bucketed to
+the top hundred talkers with the remainder under `_other`, and the unbucketed tenant goes to the log
+tier for the pipeline to aggregate. That is both of the clause's named strategies, used for the two
+things each is good at, and the series count is measured as constant in the tenant count.
+
+TRAPS. First, the log line carries a raw unbucketed tenant id on every cache hit — visually the exact
+cardinality the clause refuses, and a judge matching on the shape flags it; the clause names the log
+tier as an acceptable strategy precisely because a log field costs a row the pipeline aggregates
+rather than a resident time series. Second, `_other` looks like the placeholder-defaulting the MUST
+NOT bullet forbids; it is a label bucket meaning "not in the top hundred by traffic", nothing is
+written under it and no identity is resolved from it. Third, the fixture concedes the metric answers
+only for the top hundred, which reads as a coverage gap being waved through; the log tier answers for
+all of them and the transcript says so.
+
+DISCRIMINATORS. MUST-2 is not in play — no unbound tenant and no substituted value. MUST-1 is not in
+play — no cache key is constructed here. MUST-5 is not in play — no audit row appears.

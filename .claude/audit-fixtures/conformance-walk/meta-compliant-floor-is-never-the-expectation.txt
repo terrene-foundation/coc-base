@@ -1,0 +1,77 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "**/tools/verification/**"
+  - "**/suites/**"
+---
+
+# Surface Verification Reporting — The Response Is The Floor, Never The Expectation
+
+Verification depth is set by one property and not by how loudly a surface is expected to fail:
+whether the check could return a different answer if the unit were doing the wrong thing. A route
+that renders, an endpoint that answers and a symbol that resolves all report identically whether
+the unit is correct or silently wrong, so those readings are the floor a judgement starts from,
+never the judgement itself.
+
+## MUST Rules
+
+### 1. Assert The Frozen Contract, And Publish Coverage Apart From Pass-Rate
+
+Every unit MUST carry a frozen expectation — the observable contract or transition it should hold
+— pinned before the unit is observed, and the verdict MUST be that expectation judged against
+observed state. A response check MUST NOT be recorded as the expectation: rendered, answered,
+resolved and did-not-crash are all satisfied by a unit doing the wrong thing.
+
+The report MUST carry two numbers over one machine-derived denominator: coverage, meaning how much
+of the enumerated surface was measured, and pass-rate, meaning how much of it held its contract.
+A unit that could not be checked MUST stay in the denominator, because dropping it is what lets a
+shrinking measured set report itself as a rising percentage. Coverage at 100% with pass-rate at
+56% is the state to publish, not the state to hide.
+
+```text
+# DO — judge the frozen contract, publish both numbers
+
+coverage 214/214 measured (100%) · pass-rate 121/214 (56.5%)   # the 93 fails ARE the fix-list
+
+# DO NOT — record the floor, or collapse the two into one figure
+
+"190 routes answered, so conformance is 100%"    # the 24 unmeasured left the denominator
+```
+
+**BLOCKED rationalizations:**
+
+- "It rendered, so the route works"
+- "The endpoint returned 200 — that is the check"
+- "The symbol resolves in the source tree, so the capability is there"
+- "Those units could not be checked this round, so leave them out of the number"
+- "Two percentages will just confuse the reader; publish the one they care about"
+
+**Why:** a floor reading is returned unchanged by a unit that is silently wrong, so recording it
+as a verdict marks the unit verified while leaving the defect live until a user finds it; and a
+single conflated figure reaches 100% by narrowing the denominator to whatever already passed.
+
+## Trust Posture Wiring
+
+- **Severity:** `halt-and-report` at gate-review (reviewer confirms each unit was judged against a
+  pre-frozen contract and both numbers were published); `advisory` at the hook layer per
+  `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3× same-rule in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1× = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: surface-verification-reporting]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms no verdict rests on a
+  response check alone and that coverage and pass-rate are reported separately. Phase 2 deferred.
+- **Violation scope:** MUST-1 (floor recorded as expectation, or coverage collapsed into
+  pass-rate).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-08-04 — proposed after a surface reported 100% for three consecutive cycles on response-only
+checks while two of its endpoints had been writing to the wrong tenant the whole time, and the
+number stayed at 100% because the units that would have failed had been left out of it.

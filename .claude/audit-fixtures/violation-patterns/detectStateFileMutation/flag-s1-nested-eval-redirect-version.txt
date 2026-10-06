@@ -1,0 +1,1 @@
+eval "printf 1.0.0 > .claude/VERSION"

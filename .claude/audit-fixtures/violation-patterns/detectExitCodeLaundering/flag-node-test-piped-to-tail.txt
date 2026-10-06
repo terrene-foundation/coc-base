@@ -1,0 +1,1 @@
+node --test .claude/test-harness/tests/emit-shape.test.mjs | tail -5

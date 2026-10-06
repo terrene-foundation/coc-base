@@ -1,0 +1,41 @@
+VIOLATION — MUST-3: every MUST or MUST NOT clause MUST include a concrete example showing BOTH
+the correct and the blocked pattern. Clause 2 of this file shows only the correct one.
+
+Clause 1 is complete: its block carries a `# DO` arm with both bounds declared and a `# DO NOT`
+arm showing the attempt-ceiling-only call with the backoff arithmetic that makes it wrong.
+Clause 2's block carries a `# DO` arm alone — the keyed re-send — and stops. The pattern the
+clause BLOCKS, an unkeyed re-send of an undetermined write, is described in prose in the
+clause body and is never SHOWN. The unambiguous anchor MUST-3 exists to supply is therefore
+absent for that clause, and an agent reading the block by itself learns what to do and not
+what it is being stopped from doing.
+
+The defect is a missing ARM, not a missing block. The fence is present, the language is
+right, the example compiles; one half of the required contrast is simply not there.
+
+Discriminator 1 — MUST-1 IS SATISFIED. Every load-bearing sentence in both clauses uses MUST
+or MUST NOT and names the alternative BLOCKED. No "should," "prefer," "consider" or "try to"
+appears as a clause modal anywhere in the file.
+
+Discriminator 2 — MUST-2 IS SATISFIED. The `**BLOCKED rationalizations:**` corpus holds six
+literal first-person sentences a session would really emit ("A timeout almost always means the
+request never landed"), not abstract category labels. A judge citing MUST-2 has named a defect
+this file does not contain.
+
+Discriminator 3 — MUST-4 IS SATISFIED, and this is the closest neighbour. Clause 2 DOES carry
+its `**Why:**` line, one sentence, naming the failure mode. The clause is not unexplained; it
+is unexemplified. A judge that reads the truncated block and reaches for the missing-Why
+clause has named the wrong one.
+
+Discriminator 4 — MUST-5, MUST-6 and MUST-7 ARE SATISFIED. Frontmatter declares `priority: 10`
+with `scope: path-scoped` and a matching `paths:` list; Origin cites
+`journal/0431-INCIDENT-duplicate-order-storm.md` § 1 with the measured duplicate count.
+
+Discriminator 5 — MUST-8 IS NOT ENGAGED (no CLI-divergent content), MUST-9 IS NOT ENGAGED (no
+empirical-validation fixtures ship), and MUST-10 / MUST-11 ARE NOT ENGAGED (`priority: 10` +
+`scope: path-scoped`, excluded by Rule 10's own Trigger-scope paragraph).
+
+Discriminator 6 — THE `## MUST NOT` BULLETS ARE SATISFIED. Every `**Why:**` is one sentence; no
+hedging phrase sits inside a MUST clause; the Detection row names AST call nodes, keyword
+presence and header-dict membership, all parsed structure; the file is well under 200 lines.
+
+The whole defect is the `# DO NOT` arm that clause 2 never shows.

@@ -1,5 +1,19 @@
 continue: true
 derived-N=2 (two human owners). gateEligibleForSelfSignedCheckpointOrRotation
 returns eligible:true (N>=2 short-circuits). findOwnerCosigner finds p-bob.
-compaction-checkpoint emitted with co_signers=[{p-bob...}].
+NO compaction-checkpoint is emitted. A `checkpoint-skipped` record is appended
+with content.reason="cosigner-coordination-required" and
+content.cosigner_person_id="p-bob", and the skip is surfaced on stderr.
 exit_code: 0
+
+note: CORRECTED 2026-08-30, on this directory's FIRST EVER execution (loom#2044
+  Group A). The prior text pinned "compaction-checkpoint emitted with
+  co_signers=[{p-bob...}]" — the PLACEHOLDER cosig emission that M5 iter-6
+  REMOVED (Sec-MED-A1 / R7). A one-sided SessionEnd hook cannot produce a real
+  2-of-N cosig: the cosigner's private key is on another machine, so a
+  placeholder is either rule-5-rejected at fold or, worse, reads as cosigned
+  when it is not. The shipped hook therefore skips emission and records the skip
+  (R8-LOW-1: a SILENT skip is indistinguishable from the hook never running).
+  The fixture drifted from the hook and NOTHING RED, because this directory held
+  data and no run.mjs and so sat outside run-audit-fixtures.mjs's closure — the
+  exact F51 condition the runner now closes.

@@ -1,0 +1,1 @@
+cp /tmp/p.json .claude/learning/posture.json

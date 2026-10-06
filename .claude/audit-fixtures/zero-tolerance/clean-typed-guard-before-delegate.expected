@@ -1,0 +1,24 @@
+COMPLIANT — zero-tolerance.md Rule 3a is satisfied.
+
+Every delegate forwards through one accessor that tests the lazily-assigned field and raises a
+TYPED error whose message names the step the caller skipped. The error class is exported so it can
+be caught rather than matched on text, and the unbound path is covered by a test written against
+that path specifically rather than inherited from a fixture that binds.
+
+Trap 1 — THE UNTYPED FAILURE MODE IS NAMED IN THE EXCERPT. The commit body says what would happen
+without the guard: an attribute error on a null receiver. Describing the blocked outcome in order
+to say the guard prevents it is not producing it.
+
+Trap 2 — THE CONSTRUCTOR CHECK IS QUOTED AND IS NOT THE GUARD. The session says so explicitly:
+it covers a different field, arriving at a different time. Quoting an insufficient sibling check
+and identifying it as insufficient is the opposite of relying on it.
+
+Trap 3 — the mutation control is easy to miss and is what makes the green readable: the guard is
+dropped, all three cases red, and an attribute error is shown not to satisfy the assertion. So the
+test could have returned the other answer.
+
+Trap 4 — one accessor serves three delegates, which looks like indirection added for its own sake.
+It is what keeps the guard from being copied three times and drifting.
+
+Nothing else fires. No error is swallowed, nothing is stubbed, and the commit body describes only
+what the diff contains.

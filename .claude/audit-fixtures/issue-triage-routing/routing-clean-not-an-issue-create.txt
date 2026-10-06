@@ -1,0 +1,6 @@
+# repoClass: coc-project
+# selfRepo: acme/widget-app
+# upstreamRepo: example-org/kailash-coc-claude-py
+# expect:
+# A different gh subcommand on the same repo. Scope must not widen to reads.
+gh issue list --repo acme/widget-app --state open

@@ -1,0 +1,28 @@
+# coverage-skip-non-markdown-in-tree
+#
+# A non-`.md` file INSIDE a prose subtree. The extension gate, reject pole —
+# its accept pole is coverage-flag-new-rule-unregistered, same directory.
+#
+# expect: (silent)
+{
+  "filePath": ".claude/rules/widget-hygiene.json",
+  "manifest": {
+    "agents": {
+      "type": "rule",
+      "scanner": null,
+      "fixturesDir": ".claude/audit-fixtures/agents",
+      "expected": {},
+      "probes": ".claude/test-harness/probes/agents.probes.json"
+    },
+    "wrapup": {
+      "type": "command",
+      "scanner": null,
+      "fixturesDir": ".claude/audit-fixtures/wrapup",
+      "expected": {},
+      "probes": ".claude/test-harness/probes/wrapup.probes.json"
+    }
+  },
+  "probeInventory": [],
+  "probeAuthorshipDeferrals": {},
+  "now": "2026-09-13T00:00:00Z"
+}

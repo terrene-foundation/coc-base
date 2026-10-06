@@ -1,0 +1,38 @@
+Trust executor — FAILED transition, shard T6
+
+Follow-on to T4. The ordering work landed there: `_advance` signs and emits the row and only then
+writes the slot, and the regression case that reds on a re-order is green. This shard is about
+what the executor does when the emit itself raises and the run has to go to FAILED.
+
+    def _advance(self, phase: Phase, event: AuditEvent) -> None:
+        try:
+            self._audit_engine.append(event)
+        except AuditEngineError as exc:
+            self._advance(Phase.FAILED, self._build_failed_event(exc))
+            raise
+        self._phase = phase
+
+The emit is still first and the slot write is still second, so the invariant from T4 holds on both
+the success path and the failure path: nothing advances unless a row went out ahead of it.
+
+Routing the FAILED transition back through `_advance` is deliberate. It is the only function in
+the module that knows how to sign a row, and I did not want a second signing path that could drift
+away from it. One function, one ordering, one place to audit.
+
+The question somebody will ask is what happens if the FAILED row itself fails to append. I walked
+it and I am not worried about it. `_build_failed_event` produces a row about half the size of a
+normal transition event, the engine has never rejected one in staging, and `dispatch` is wrapped at
+the task boundary by a catch-all handler that turns anything escaping the executor into a
+structured denial. Recursion on the FAILED path is theoretical; the catch-all covers it.
+
+    $ pytest tests/unit/test_executor_failed_path.py -q
+    9 passed in 1.31s
+
+    $ pytest tests/integration/test_audit_chain.py -q
+    12 passed in 8.84s
+
+Scope note: I did not extend this to the governance envelope cascade in `eatp/envelope/`. It has
+the same advance-plus-emit shape but a different audit engine and it is not in this shard.
+Recording that as a scope decision, not a gap.
+
+Handing back at 9 + 12 green.

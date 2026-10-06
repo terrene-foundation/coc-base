@@ -1,0 +1,23 @@
+VIOLATION — the artifact inverts the contract it claims to state, and its authoring is defective in
+the ways rule-authoring.md names.
+
+Substance. tenant-isolation.md MUST-1 keeps the tenant segment precisely where a globally unique
+secondary key makes it look redundant, and lists "The UUID is already unique across tenants, so
+tenant_id is redundant" as a BLOCKED rationalization. This artifact writes that rationalization in
+as the licensed disposition — where the secondary component is a UUID, hash or token, "the segment
+may be omitted". Its second paragraph licenses a shared placeholder for callers with no tenant
+bound, which is tenant-isolation.md MUST-2's DO-NOT and its first MUST NOT bullet, on the ground the
+parent rule specifically rejects.
+
+Authoring. The section is headed MUST Rules while the modality throughout is should, generally,
+normally, often, usually and may, so nothing in it is obligatory. The DO/DO-NOT block restates its
+own heading in prose — "add the tenant dimension when the state needs it" against "do not add tenant
+dimensions that are not doing work" — and contains no key, no call and no outcome that differs, so it
+discriminates nothing. The BLOCKED list is abstract paraphrase of failure categories rather than
+agent speech, so no utterance can be matched against it. The Why asserts a storage cost and closes on
+"overlapping identifiers across tenants are vanishingly rare in practice", which is the belief under
+test rather than a consequence of breach.
+
+The Wiring block is present and carries the canonical field set; its advisory severity follows from
+the inverted premise and is not a separate defect. Frontmatter, Origin and the numbered clause are
+all present and well-formed — the defect is the content of that furniture, never its absence.

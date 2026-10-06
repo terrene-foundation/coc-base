@@ -75,7 +75,7 @@ The emitter at `/sync` distribute time renames `allowed-tools:` to `tools:` for 
 
 ### Tool Names Are Identifiers, Not Verbs
 
-Tool entries are identifiers the emitter maps to each CLI's native primitives at `/sync` distribute time: the **Gemini** lane translates them (`Read`→`read_file`, `Grep`→`grep_search`, `Glob`→`glob`, …) and the **Codex** lane strips the `tools:` block entirely (Codex prompts/skills carry no per-artifact tool restriction, mirroring how agent prompts emit). The translation table is `CC_TO_GEMINI_TOOLS` in `.claude/bin/emit-cli-artifacts.mjs` (the same table the agents lane uses); skills are translated by `translateSkillFrontmatterTools` there. Skill frontmatter is the contract: list every tool the SKILL.md body or its sub-files actually invoke.
+Tool entries are identifiers the emitter maps to each CLI's native primitives at `/sync` distribute time: the **Gemini** lane translates them (`Read`→`read_file`, `Grep`→`grep_search`, `Glob`→`glob`, …) and the **Codex** lane strips the `tools:` block entirely (Codex skill frontmatter is not a tool permission boundary; native agent TOML can separately configure sandbox and tools). The translation table is `CC_TO_GEMINI_TOOLS` in `.claude/bin/emit-cli-artifacts.mjs` (the same table the agents lane uses); skills are translated by `translateSkillFrontmatterTools` there. Skill frontmatter is the contract: list every tool the SKILL.md body or its sub-files actually invoke.
 
 ```yaml
 # DO — minimal, accurate list
@@ -152,6 +152,16 @@ The rule body is referenced from SKILL.md so its content reaches the model only 
 - Rule needs hook-layer detection (skill-embedded scope has no hook surface)
 - Rule is load-bearing for safety / compliance (those MUST be baseline or path-scoped)
 
+## Codex Discovery and Invocation
+
+Verified 2026-09-28: Codex's current repository catalog is `.agents/skills`, discovered
+from cwd through repository ancestors; user skills use `~/.agents/skills`. Loom emits
+one current catalog, avoiding duplicate `.codex/skills` copies. `$name` and `/skills`
+provide explicit invocation. Optional `<skill>/agents/openai.yaml` (inside a skill directory) controls appearance,
+dependencies, and invocation policy; COC phase skills set implicit invocation off.
+Native agent TOML is a separate surface from a skill. See
+[Build skills](https://learn.chatgpt.com/docs/build-skills).
+
 ## Cross-CLI Variant Overlays
 
 A skill authored at `.claude/skills/<name>/SKILL.md` is the canonical source. CLI-specific deltas live at `variants/<cli>/skills/<name>/SKILL.md` (or sub-files) and overlay only the diverging slot. See `rules/cross-cli-parity.md` and `guides/co-setup/05-variant-architecture.md` for the full overlay semantics.
@@ -195,7 +205,7 @@ SKILL.md that's just a sub-file index forces the model to expand 3–5 sub-files
 
 ### 3. Tools List Mismatch
 
-SKILL.md body references `Bash` or `Write` but frontmatter only lists `Read`. The runtime grants permissions based on frontmatter; the body will trigger permission prompts the author didn't expect. Fix: scan SKILL.md + every sub-file for tool invocations; mirror the union in frontmatter.
+SKILL.md body references `Bash` or `Write` but frontmatter only lists `Read`. Frontmatter tool semantics are host-specific; the Codex emitter strips that list, so it must not be relied on as a native permission boundary. Fix: scan SKILL.md + every sub-file for tool invocations; mirror the union in frontmatter.
 
 ### 4. CC-Native Delegation Syntax In Skill Body
 

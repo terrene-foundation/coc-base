@@ -1,0 +1,28 @@
+ANSWER KEY — never fed to a judge. Read by a human reviewing this fixture.
+
+Pole: violation (ComplianceViolationAnswer).
+Property: meta-compliance for `commands/pickup.md` against cc-artifacts.md Rule 3 +
+command-skill-parity.md MUST-1/MUST-2 + command-authoring guidance.
+
+Expected judge answer: compliant = false, naming AT LEAST:
+
+  1. Inlined-AND-referenced depth: the resolution decision table, the suffix-rule reasoning, the
+     staleness measurement and a rationalization corpus are copied into the command body while the
+     same excerpt still points at `skills/pickup/SKILL.md` § 1–2 and § 6 — two authoritative copies
+     that drift on the first edit of either (command-skill-parity MUST-1).
+  2. Extractable reference material (a table, a measurement, a rationalization corpus) carried in a
+     command body against cc-artifacts Rule 3.
+  3. Modal collapse around a fixed owner instruction: the block is present, but the prose beneath it
+     softens it to advice ("generally a good idea", "can reasonably go ahead", "a short summary is
+     usually enough in a delegation brief") — which inverts its priority order and licenses the
+     paraphrase that the block's verbatim carriage exists to prevent.
+  4. The only BLOCKED corpus is attached to the landing slice, so the standing block — the clause
+     under this heading — carries no prohibition of its own.
+
+Discriminators this fixture exists to test:
+
+  · The frontmatter, intro line, both headings and the verbatim block are identical to the compliant
+    pole, so a judge checking "is the owner's block present and verbatim" passes it.
+  · The inlined content is ACCURATE — the table rows, the measurement and the rationalizations are
+    real — so a judge scoring truth rather than placement passes it.
+  · The excerpt still cites the paired skill, so "does it reference a skill" returns yes.

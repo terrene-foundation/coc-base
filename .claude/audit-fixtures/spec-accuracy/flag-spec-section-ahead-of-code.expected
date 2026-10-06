@@ -1,0 +1,19 @@
+VIOLATION — spec-accuracy.md § MUST NOT, the bullet forbidding a spec section for behaviour not yet
+implemented, compounded by the bullet forbidding "honest about what's missing" as a virtue for spec
+content. A full §9 describing end-to-end reconciliation behaviour is merged while the transcript
+concedes no branch carries the implementation. The section is written in flat present tense, so a
+reader cannot tell it from the settled sections around it. The defence is the honesty bullet stated
+almost in the rule's own words — that the surface should be honest about where the system is
+heading — which the rule answers directly: honesty about gaps is right for journals and PRs, and in
+spec content it converts a truth surface into a roadmap surface.
+
+DISCRIMINATORS. MUST-1 is genuinely NOT in play, and the transcript is right about why: the section
+names no endpoint, module, function, table or column, so there is no citation for a sweep to
+resolve or fail on. A judge scoring phantom citations here has scored a clause with nothing to bite
+on — and, worse, has accepted the fixture's own argument that symbol-free prose is therefore safe.
+MUST-2 is NOT in play: no phase framing, no Promised/Current pairing, and none of the banned inline
+markers appears in §9 — the section does not annotate the gap, it simply asserts the behaviour.
+MUST-3 is NOT in play: no out-of-scope section is added or touched.
+
+The closing FE-snapshot note is a correctly-recorded scope decision, present verbatim in the
+compliant pole too, and is NOT the defect.

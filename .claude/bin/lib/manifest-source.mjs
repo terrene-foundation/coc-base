@@ -46,9 +46,24 @@
  * `.claude/VERSION::type`: the owner-class absence throw, `isManifestOwnerClass`
  * (which gates Validator 15 entirely and Validator 17's half B), and — via
  * emit.mjs — Validator 16's presence classifier. That file is therefore a single
- * root of trust for the distribution engine, and it is NOT currently on the
- * state-file deny floor (`reconcile-settings-deny.mjs::CANONICAL_STATE_DENY`) nor
- * matched by `validate-bash-command.js::STATE_PATH_RX`.
+ * root of trust for the distribution engine, and its fencing is ASYMMETRIC BY
+ * DECISION rather than by oversight. The Bash lane DOES match it: the registry
+ * row at `.claude/hooks/lib/guard-path-scope.js:1304-1309` carries
+ * `surfaces: { bash: true, layer3: true }`, and `:1751` builds `STATE_PATH_RX`
+ * from exactly that `bash` surface set (`validate-bash-command.js:139-142`
+ * imports it from there rather than defining its own). The file-tool deny floor
+ * (`reconcile-settings-deny.mjs::CANONICAL_STATE_DENY`) DECLINES it, and the
+ * decline is recorded with its reason at `reconcile-settings-deny.mjs:101-112`:
+ * `.claude/VERSION` has two Edit/Write-TOOL writers on documented happy paths
+ * plus one on a HALT/error-recovery path, none with a ceremony script to route
+ * through, so a blanket deny would break three shipped flows.
+ *
+ * An earlier revision of this paragraph asserted `.claude/VERSION` was matched by
+ * NEITHER fence. The `STATE_PATH_RX` half was FALSE — #1399's Bash half LANDED,
+ * as `reconcile-settings-deny.mjs:104` states in terms — and it is corrected here
+ * rather than quietly overwritten, because a comment reporting a trust anchor as
+ * unfenced when it IS fenced is exactly the `zero-tolerance.md` Rule 3e class
+ * this module's own gates exist to catch.
  *
  * Framed honestly: against an attacker who can already WRITE `.claude/VERSION`
  * this is a CONCENTRATION of trust, not a new privilege — such an attacker could
@@ -116,27 +131,25 @@
  *        · defaults TIGHTER  — headroom + per-rule-budget exceptions. Both WIDEN
  *          a gate when present, so empty is strictly the strictest answer: a
  *          consumer can never inherit a waiver loom granted itself.
- *        · defaults at PARITY, EXCEPT block_cap_bytes since 2026-08-12 —
- *          tolerance (±30%), block threshold (+30%), floor 10 still equal what
- *          the manifest declares. `block_cap_bytes` no longer does: loom raised
- *          codex+gemini to 65536 (plan §3.2 option b, expires 2027-02-12) while
- *          the hardcoded fallback stays 61440. That divergence is in the SAFE
- *          direction — a manifest-less consumer keeps the STRICTER 61440 cap and
- *          can never inherit loom's raise — so it needs no tripwire, and the
- *          fallback is deliberately NOT tracked to the grant.
- *          The original hazard is unchanged and still has no tripwire: if loom
- *          ever tightens `block_cap_bytes` below the fallback, or raises
- *          `headroom_floor_pct` above 10, a manifest-less consumer silently
- *          keeps the LOOSER gate. Only the raise direction is safe.
- *        · NO GATE TO ASSERT — per-rule budgets. An empty Map is not a tighter
- *          default; it REMOVES a per-entry gate. Every rule takes emitBaseline's
- *          `else` branch (emit.mjs:1363-1367) and gets an advisory WARN, and
- *          since `budgetBlockViolations` is populated only inside the
- *          `budgets.has(rule)` branch (emit.mjs:1307) it never reaches the
- *          `overallPass = false` at emit.mjs:2937. It is correctly D2 on the
- *          V15 "no proposition" argument — a consumer has no per-rule budgets of
- *          its own, and its rules were already gated at loom on emission — NOT
- *          on a tighter-default argument.
+ *        · defaults at PARITY — tolerance (±30%), block threshold (+30%) and the
+ *          per-CLI caps (warn 32768, block 65536, floor 10) equal what the
+ *          manifest declares; emit-class-blind-manifest-reads.test.mjs::F1394-C
+ *          asserts each, so a parity break in EITHER direction reds it. Its caps half
+ *          is PER CLI: it first proves an edit to one CLI's stanza moves only that
+ *          CLI's value (F1394-C-b does it through loadCliCaps() on a manifest file),
+ *          so caps read from another CLI's stanza — as gemini's were read from
+ *          codex's until 2026-09-12 — red instead of passing on equal values. The
+ *          block fallback (emitBaseline's fallback object) followed the 2026-08-12
+ *          raise to 65536 (plan §3.2 option b, expires 2027-02-12). CORRECTED
+ *          2026-09-12: this said it stayed 61440 with no tripwire; both were false.
+ *          The tripwire fires when the test runs — not on the expiry date, and never
+ *          in a consumer running no loom tests. A PRESENT unparseable stanza throws.
+ *        · NO GATE TO ASSERT — per-rule budgets. An empty Map REMOVES a per-entry
+ *          gate rather than tightening one: every rule takes the `else` arm of
+ *          emitBaseline's `budgets.has(rule)` test (an advisory WARN), and a budget
+ *          BLOCK is recorded only in the other arm, so main() never fails on one. It
+ *          is D2 on the V15 "no proposition" argument — a consumer has no per-rule
+ *          budgets of its own and loom already gated its rules — NOT a tighter default.
  *
  *      That last one is why `assertNotTruncated` is a GATE-PRESERVATION fix and
  *      not hygiene: a present-but-truncated manifest AT LOOM yields no
@@ -206,6 +219,34 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(__dirname, "..", "..", "..");
 
 export const MANIFEST_REL = path.join(".claude", "sync-manifest.yaml");
+
+// F95 — the CLI-emit projection. loom writes it at a target elected by
+// `multi_cli_overlays.<template_type>.manifest_distribute`
+// (`sync-tier-aware.mjs::emitCliEmitProjection`). It carries ONLY
+// `cli_variants` / `cli_emit_exclusions` / `multi_cli_overlays`, so it is NOT a
+// sync-manifest and is NOT the forbidden path above — a repo holding it declares
+// nothing about tiers, loom_only, surface_roles or repos.*, and Validator 16's
+// MUST-NOT-EXIST assertion is untouched.
+export const CLI_EMIT_PROJECTION_REL = path.join(
+  ".claude",
+  ".coc-cli-emit.yaml",
+);
+
+// The stanzas the projection carries, in EMISSION ORDER — the ONE declaration,
+// shared by the producer (`sync-tier-aware.mjs::buildCliEmitProjection`, which
+// slices exactly these) and by the reader's truncation floor below.
+//
+// It lives HERE, in the reader lib, rather than in the producer, because the
+// producer is `loom_only` and the reader SHIPS: a consumer that must decide
+// whether its projection is complete cannot import a declaration that never
+// reached it. The producer imports this list; a stanza added to the projection
+// therefore joins the floor in the same edit, and the two cannot drift into a
+// floor that admits a file the producer would never have written.
+export const CLI_EMIT_PROJECTION_STANZAS = Object.freeze([
+  "cli_variants",
+  "cli_emit_exclusions",
+  "multi_cli_overlays",
+]);
 
 // The repo CLASS vocabulary. `.claude/VERSION::type` is the declaration; see
 // `.claude/hooks/lib/version-utils.js` for the canonical four. Positive
@@ -417,6 +458,61 @@ function assertNotTruncated(text, manifestPath) {
   throw err;
 }
 
+/**
+ * The minimum-viability floor for the F95 CLI-emit PROJECTION.
+ *
+ * Sibling of `assertNotTruncated`, keyed on the projection's own declared
+ * stanzas (`CLI_EMIT_PROJECTION_STANZAS`) instead of on `tiers:`, which the
+ * projection deliberately does not carry. Because the producer slices those
+ * same stanzas from that same constant, a stanza added to the projection joins
+ * this floor in the same edit.
+ *
+ * SCOPE, stated honestly rather than over-claimed — the same discipline the
+ * `assertNotTruncated` header keeps, and for the same reason (a header claiming
+ * more than the code delivers IS the defect). This catches:
+ *
+ *   - the zero-byte / whitespace-only file;
+ *   - a cut ANYWHERE before the last stanza header, because all three declared
+ *     headers are required and `multi_cli_overlays:` is emitted LAST — so the
+ *     mid-`cli_emit_exclusions` cut that motivated this floor is caught.
+ *
+ * It does NOT catch a cut INSIDE the final stanza's body: the headers are all
+ * present, and a short trailing list is structurally indistinguishable from a
+ * genuinely short one without a length or digest the projection does not carry.
+ * That residual is the same one `assertNotTruncated` names for the manifest, and
+ * it is bounded to `multi_cli_overlays` — NOT to `cli_emit_exclusions`, whose
+ * over-emission failure is what this floor exists to stop.
+ */
+function assertProjectionNotTruncated(text, projPath) {
+  const missing =
+    typeof text === "string" && text.trim() !== ""
+      ? CLI_EMIT_PROJECTION_STANZAS.filter(
+          (key) => !new RegExp(`^${key}:\\s*$`, "m").test(text),
+        )
+      : null;
+  if (missing !== null && missing.length === 0) return text;
+  const why =
+    missing === null
+      ? "it is EMPTY (zero-byte or whitespace-only)"
+      : `it is missing the top-level ${missing
+          .map((k) => `\`${k}:\``)
+          .join(", ")} stanza${missing.length > 1 ? "s" : ""}, so it is ` +
+        `truncated or is not a CLI-emit projection at all`;
+  const err = new Error(
+    `[manifest-source] ${CLI_EMIT_PROJECTION_REL} is PRESENT and readable at ` +
+      `${projPath} but ${why} — refusing to compose an emission from a ` +
+      `TRUNCATED projection. The per-CLI declarations would read as EMPTY or ` +
+      `SHORT, and this repo's own emitter would ship to \`.codex/**\` and ` +
+      `\`.gemini/**\` the very artifacts loom declared withheld — silently, in ` +
+      `a way nothing downstream detects. Re-run /sync-to-use from loom to ` +
+      `refresh the projection.`,
+  );
+  // Typed so readCliEmitProjection's catch re-raises it verbatim instead of
+  // re-classifying a truncation as a read error.
+  err.code = "ERR_CLI_EMIT_PROJECTION_TRUNCATED";
+  throw err;
+}
+
 // Shared prose for the two LOUD absence throws, so the owner-class and
 // unresolved-class messages cannot drift apart.
 function absentAtOwnerError(manifestPath, classLabel, why, remediation) {
@@ -503,6 +599,65 @@ export function readManifestSource(repoRoot = REPO) {
 }
 
 /**
+ * F95 — read the CLI-emit projection, or `null` when it is not present.
+ *
+ * The projection is ELECTED, not universal: only a template whose
+ * `multi_cli_overlays.<template_type>.manifest_distribute` is true receives one,
+ * so ABSENCE is a legitimate state on every class and is NEVER an error here.
+ * The caller decides what absence means for the stanza it wants.
+ *
+ * PRESENT-but-unreadable throws, on the same grounds `readManifestSource`
+ * throws: degrading an unreadable declaration into an empty one is the exact
+ * over-emission this file exists to prevent (zero-tolerance.md Rule 3). The
+ * O_NOFOLLOW symlink tripwire (#569) is carried for the same reason.
+ *
+ * A TRUNCATION FLOOR IS applied, by `assertProjectionNotTruncated`. It could not
+ * be `assertNotTruncated`, which keys on a `tiers:` stanza the projection
+ * deliberately does not carry — reusing that one would reject every valid
+ * projection. The floor here keys on the projection's OWN declared stanzas
+ * instead. Previously NO floor ran, and the gap was not hypothetical: the
+ * projection's whole job is to carry `cli_emit_exclusions` to a consumer that
+ * runs the per-CLI emitter FOR ITSELF, so a file cut mid-stanza read as a SHORT
+ * LIST — indistinguishable from a genuinely shorter declaration — and every
+ * artifact past the cut was over-emitted to `.codex/**` and `.gemini/**`. That
+ * is the same one-file-state-over failure the ABSENT guard blocks, and it is
+ * exactly the class `readManifestSource` refuses for the manifest proper.
+ *
+ * @param {string} [repoRoot]
+ * @returns {string|null} the projection text, or `null` when absent.
+ * @throws when the projection is present but empty or missing a declared stanza.
+ */
+export function readCliEmitProjection(repoRoot = REPO) {
+  const projPath = path.join(repoRoot, CLI_EMIT_PROJECTION_REL);
+  try {
+    return assertProjectionNotTruncated(
+      safeReadFileSync(projPath, "utf8"),
+      projPath,
+    );
+  } catch (e) {
+    // A truncation throw is already fully-formed — re-raise rather than
+    // re-classifying it as a read error below (the shape readManifestSource
+    // uses for ERR_MANIFEST_TRUNCATED).
+    if (e && e.code === "ERR_CLI_EMIT_PROJECTION_TRUNCATED") throw e;
+    if (e && e.code === "ENOENT") return null;
+    const symlinkTripwire = e.code === "ELOOP" || e.code === "EMLINK";
+    throw new Error(
+      `[manifest-source] ${CLI_EMIT_PROJECTION_REL} is PRESENT but UNREADABLE ` +
+        `at ${projPath} (${e.code || e.message}) — refusing to degrade an ` +
+        `unreadable per-CLI emission declaration into an empty one, which would ` +
+        `silently over-emit every artifact loom declared withheld from Codex ` +
+        `and Gemini. ` +
+        (symlinkTripwire
+          ? `${e.code} means the path is a SYMLINK: the emit lane opens ` +
+            `O_NOFOLLOW on purpose (#569), so this is a tripwire, not a ` +
+            `config choice. `
+          : "") +
+        `Fix the file's readability before emit.`,
+    );
+  }
+}
+
+/**
  * D3 — REFUSE. Read the manifest for a TARGET-RESOLUTION lookup, where "the repo
  * has no manifest" can never be answered with a value.
  *
@@ -563,4 +718,182 @@ export function requireManifestSource(what, repoRoot = REPO) {
     );
   }
   return src;
+}
+
+// ────────────────────────────────────────────────────────────────
+// Path-scoped stanza reading — pure text, no file access
+// ────────────────────────────────────────────────────────────────
+//
+// Key NAMES repeat at different depths of sync-manifest.yaml: `codex:` and
+// `gemini:` each open a stanza under `cli_emit_exclusions` AND under
+// `cli_variants."context/root.md"`, and `codex:` opens more under other
+// `cli_variants` entries. A reader that finds `<name>:` with an unanchored regex
+// gets whichever occurrence comes FIRST in the file, not the one at the path it
+// means — the defect that had Gemini's caps read out of Codex's stanza. These
+// helpers resolve a key by its full PATH, so a value can only come from the
+// stanza that declares it.
+//
+// SCOPE, so this is not mistaken for a YAML parser: block mappings keyed by
+// indentation. A block's children are the key lines at the indent of its first
+// content line; blank and comment-only lines are skipped; list items (`- …`) are
+// never keys; a block scalar's content sits deeper than its key and so is never
+// read as a sibling. Flow collections, anchors/aliases and multi-line plain
+// scalars are NOT resolved — structural validity stays Validator 16's strict
+// parse (`emit.mjs::validateManifestYaml`). Two ambiguities THROW instead of
+// resolving silently: a key repeated at one level (YAML forbids it; pyyaml keeps
+// the LAST, a scanning reader keeps the FIRST), and a TAB in structural
+// indentation (YAML forbids it; counting it as zero columns would silently end
+// every enclosing block).
+
+const YAML_NON_CONTENT_RX = /^\s*(?:#.*)?$/;
+// Groups: 1 double-quoted key · 2 single-quoted key · 3 plain key · 4 value text.
+// A plain key may not open with `- ` (a list item) or `#` (a comment).
+const YAML_KEY_RX =
+  /^ *(?:"((?:[^"\\]|\\.)*)"|'([^']*)'|((?!-(?:\s|$))[^\s"'#][^:#]*?))\s*:(?:\s+(.*))?$/;
+
+function yamlLineIndent(text) {
+  const m = /^( *)(\t?)/.exec(text);
+  return { indent: m[1].length, tab: m[2] === "\t" };
+}
+
+function yamlTabError(lineIndex, label) {
+  return new Error(
+    `[manifest-source] line ${lineIndex + 1}: TAB in the indentation of ${label} — ` +
+      `YAML forbids tabs there, and counting one as zero columns would silently end ` +
+      `the enclosing block. Re-indent with spaces.`,
+  );
+}
+
+// A key line's value text: unquoted, inline comment removed. `|` / `>` come back
+// verbatim (a block scalar's content is not assembled).
+function yamlScalarText(rest) {
+  const t = String(rest ?? "").trim();
+  const dq = /^"((?:[^"\\]|\\.)*)"\s*(?:#.*)?$/.exec(t);
+  if (dq) return dq[1];
+  const sq = /^'([^']*)'\s*(?:#.*)?$/.exec(t);
+  if (sq) return sq[1];
+  if (t.startsWith("#")) return "";
+  return t.replace(/\s+#.*$/, "");
+}
+
+// The key lines of lines[from, to) at the indent of that range's first content
+// line — i.e. the direct children of whatever block the range is the body of.
+function yamlKeysIn(lines, from, to, label) {
+  const keys = [];
+  let childIndent = null;
+  for (let i = from; i < to; i++) {
+    const text = lines[i];
+    if (YAML_NON_CONTENT_RX.test(text)) continue;
+    const { indent, tab } = yamlLineIndent(text);
+    if (tab && (childIndent === null || indent <= childIndent)) {
+      throw yamlTabError(i, label);
+    }
+    if (childIndent === null) childIndent = indent;
+    if (indent !== childIndent) continue;
+    const m = YAML_KEY_RX.exec(text);
+    if (!m) continue;
+    keys.push({ key: m[1] ?? m[2] ?? m[3], index: i, indent, rest: m[4] ?? "" });
+  }
+  return keys;
+}
+
+// Exclusive end of the block opened by the key at `keyIndex`: the first later
+// content line indented no deeper than the key itself.
+function yamlBlockEnd(lines, keyIndex, keyIndent, to, label) {
+  let end = keyIndex + 1;
+  for (; end < to; end++) {
+    const text = lines[end];
+    if (YAML_NON_CONTENT_RX.test(text)) continue;
+    const { indent, tab } = yamlLineIndent(text);
+    if (tab && indent <= keyIndent) throw yamlTabError(end, label);
+    if (indent <= keyIndent) break;
+  }
+  return end;
+}
+
+/**
+ * Resolve the block of the key at `keyPath`, walking one mapping level per
+ * segment from the document root.
+ *
+ * @param {string} src      manifest SOURCE TEXT (not a path)
+ * @param {string[]} keyPath e.g. ["cli_variants", "context/root.md", "gemini"]
+ * @returns {null | {
+ *   line: number,    // 1-based line of the final segment's key
+ *   indent: number,  // that key's column
+ *   value: string,   // its inline value text (see yamlScalarText); "" when none
+ *   children: Array<{ key: string, line: number, value: string }>,
+ *   body: Array<{ line: number, text: string }>, // every line inside the block
+ * }}  null when any segment is absent at its level.
+ * @throws on a key repeated at one level — a path segment, or a child of the
+ *   resolved block — and on a TAB in structural indentation.
+ */
+export function readYamlBlock(src, keyPath) {
+  if (!Array.isArray(keyPath) || keyPath.length === 0) {
+    throw new TypeError("[manifest-source] readYamlBlock: keyPath must be a non-empty array");
+  }
+  const lines = String(src ?? "").split("\n");
+  const labelOf = (n) => keyPath.slice(0, n).map((k) => JSON.stringify(k)).join(".");
+  let from = 0;
+  let to = lines.length;
+  let hit = null;
+  for (let depth = 0; depth < keyPath.length; depth++) {
+    const label = labelOf(depth + 1);
+    const matches = yamlKeysIn(lines, from, to, label).filter((k) => k.key === keyPath[depth]);
+    if (matches.length === 0) return null;
+    if (matches.length > 1) {
+      throw new Error(
+        `[manifest-source] ${label} is declared ${matches.length} times at one level ` +
+          `(lines ${matches.map((k) => k.index + 1).join(", ")}) — YAML forbids a ` +
+          `repeated mapping key, and any reader would have to pick one silently. ` +
+          `Remove the duplicate.`,
+      );
+    }
+    hit = matches[0];
+    from = hit.index + 1;
+    to = yamlBlockEnd(lines, hit.index, hit.indent, to, label);
+  }
+  const label = labelOf(keyPath.length);
+  const children = [];
+  const seen = new Map();
+  for (const k of yamlKeysIn(lines, from, to, `the children of ${label}`)) {
+    if (seen.has(k.key)) {
+      throw new Error(
+        `[manifest-source] ${label} declares child "${k.key}" twice (lines ` +
+          `${seen.get(k.key)}, ${k.index + 1}) — YAML forbids a repeated mapping key, ` +
+          `and any reader would have to pick one silently. Remove the duplicate.`,
+      );
+    }
+    seen.set(k.key, k.index + 1);
+    children.push({ key: k.key, line: k.index + 1, value: yamlScalarText(k.rest) });
+  }
+  const body = [];
+  for (let i = from; i < to; i++) body.push({ line: i + 1, text: lines[i] });
+  return {
+    line: hit.index + 1,
+    indent: hit.indent,
+    value: yamlScalarText(hit.rest),
+    children,
+    body,
+  };
+}
+
+/**
+ * The inline value of the key at `keyPath`, or null when the key is absent.
+ * Same resolution and same throws as `readYamlBlock`.
+ */
+export function readYamlScalar(src, keyPath) {
+  const block = readYamlBlock(src, keyPath);
+  return block === null ? null : block.value;
+}
+
+/** Effective destination election, carried without the owner's target registry.
+ * Missing/old projections stay default-off; malformed present values fail loud.
+ */
+export function readNativeCodexSkillsElection(repoRoot = REPO) {
+  const text = readCliEmitProjection(repoRoot);
+  if (text === null) return false;
+  const value = readYamlScalar(text, ["multi_cli_overlays", "multi-cli", "codex_native_skills"]);
+  if (value === null || value === "false") return false;
+  if (value === "true") return true;
+  throw new Error("CLI projection codex_native_skills must be true or false");
 }

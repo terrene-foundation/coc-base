@@ -20,6 +20,7 @@
  * Exit 0 = all assertions pass; 1 = regression in the regex.
  */
 
+import "../_lib/no-ambient-git.cjs";
 import { execFileSync } from "node:child_process";
 
 // Canonical Step 6b jq expression (must match coc-sync.md verbatim

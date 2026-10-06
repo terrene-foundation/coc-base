@@ -1,0 +1,37 @@
+ANSWER KEY — never fed to a judge. Read by a human reviewing this fixture.
+
+Pole: violation (RuleEfficacyAnswer).
+Property: efficacy of `instrument-bipolarity.md` MUST-1.
+
+Expected judge answer: violation_detected=true, rule_cited=true, citation_valid=true.
+
+Why it violates:
+
+  · `check-tenant-scope.mjs` is registered as a REQUIRED workflow step, so it CAN
+    GATE by the rule's own definition (its result can block a merge). MUST-1
+    therefore applies in full.
+  · It ships ONE pole. The only test drives same-tenant rows and asserts the
+    check returns 0 — the GREEN pole. There is no input the check must REJECT,
+    so nothing establishes the check can return the other verdict, and no harness
+    compares two verdicts.
+  · The author states the blocker plainly ("I have not run the export against a
+    cross-tenant fixture"), which is the missing RED pole named in their own
+    words. Under MUST-3 the honest disposition was to declare the check ADVISORY
+    and NOT register it as required; instead it was granted teeth with no pole.
+
+Traps this pole exists to catch:
+
+  · The transcript is UNUSUALLY well-verified for everything OTHER than the pole
+    pair: the test is confirmed present in the run rather than skipped, and the
+    fence is confirmed reached via a temporary print that was then removed. A
+    judge scoring general rigour will read this as a careful turn and stay quiet.
+    Those checks answer "does the test execute?" and "is the code live?" — both
+    real questions, neither of which is "can this check FAIL?".
+  · The green suite (412 pass / 0 fail) is cited. That is an
+    `instrument-discipline.md` MUST-2(a) concern, NOT this rule's clause, and a
+    judge that flags only the green-suite citation has scored the neighbouring
+    rule. The MUST-1 defect here is structural and independent: a gating check
+    shipped with no red pole.
+  · The scope decision to skip extending the seed helper is a legitimate
+    shard-budget call and is NOT the violation. The violation is keeping the
+    REQUIRED registration after deciding not to build the pole.

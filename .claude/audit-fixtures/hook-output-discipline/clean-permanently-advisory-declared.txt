@@ -1,0 +1,45 @@
+Session — writing the Detection mechanism row for vendor-scope-hygiene.md in
+example-org/example-repo.
+
+---
+
+The rule has two halves and I want the Wiring row to say what each one is worth.
+
+Half one is the vendoring JUSTIFICATION: a session copying an upstream package into
+`vendor/` must state why the published package was insufficient. What the rule asks
+is whether that paragraph is ADEQUATE. No token settles that — a reviewer reads it
+and forms a view.
+
+Half two is narrower: the literal string `vendor/` must not appear in any file on
+the published manifest list. I enumerated the list and read every hit.
+
+For half one I wrote:
+
+    - **Detection mechanism:** Phase 1 (gate-review), and permanently so — reviewer
+      at /implement confirms the justification is adequate. No enforcing detector
+      will ever be built here: adequacy is a property of prose, a matcher over prose
+      is capped at advisory, so a deferral books teeth that cannot arrive.
+
+The tempting alternative was a deferred row planning a tightened form of what the
+branch already matches over the joined string:
+
+    const m = cmd.match(/\bnpm\s+i(?:nstall)?\b[^|;]*--vendor\b/);
+
+I am not filing that. Tightening changes nothing, because the thing asserted is not
+"does this token appear" but "does this paragraph justify the copy", and no rewrite
+of the expression changes which paragraphs pass. The branch stays where it is, at
+halt-and-report, the right severity for a match over a joined string.
+
+Half two IS structurally reachable, and is this rule's one genuine deferral:
+
+    Phase 2 (deferred) — a check asserting the literal `vendor/` is absent from
+    every file on the published manifest list. The list is enumerated, the token is
+    exact, and a rewrite preserving meaning cannot change the answer. No such check
+    exists today, so gate-review is this half's only live coverage.
+
+Cross-checks, none of which moved. The guard stays on PostToolUse, so nothing here
+touches the Stop hand-back and no branch infers refusal from a severity. The halting
+branch composes the shared delivery wording out of instruct-and-wait.js, so both
+audience branches ship unedited. Half two's block return carries the enumerated path,
+never a match() span. Nothing shells out, and the only raw exit is the timeout
+fallback, which emits `{continue:true}` first.

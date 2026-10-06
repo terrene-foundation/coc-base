@@ -1,0 +1,15 @@
+{
+  "note": "Predicate (b) withdrawing. A push that CREATES the remote branch cannot be re-firing CI on an open PR — no PR exists for a ref the remote has never seen. git.md governs the first push; MUST-1 governs the rest.",
+  "expect": {
+    "verdict": "silent",
+    "why": "first-push-no-remote-branch"
+  },
+  "input": {
+    "command": "git push -u origin feat/brand-new",
+    "remoteBranchExists": false,
+    "workflows": [
+      "name: gate\non: [pull_request]\njobs:\n  g:\n    runs-on: [self-hosted]\n    steps:\n      - run: |\n          echo \"starting the gate\"\n          node .claude/bin/validate-xref-integrity.mjs\n          git status --porcelain\n      - run: pre-commit run --all-files\n"
+    ],
+    "transcriptText": "{\"type\":\"assistant\",\"uuid\":\"u0\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"t0\",\"name\":\"Bash\",\"input\":{\"command\":\"git status\"}}]}}\n{\"type\":\"assistant\",\"uuid\":\"u1\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"Bash\",\"input\":{\"command\":\"git commit -m 'feat: start'\"}}]}}"
+  }
+}

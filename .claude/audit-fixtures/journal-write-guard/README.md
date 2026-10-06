@@ -38,6 +38,31 @@ Rule 9 + architecture v11 §2.3 + §4.3):
    registry-class signal. Fixtures 02 (no record), 03 (self-record),
    and 04 (sibling-record) cover the three branches.
 
+## Mode gate (re-keyed 2026-09-12)
+
+The registry branch (fixtures 02–04) is gated on `isGovernanceEnabled`, the
+predicate `journal-reserve.js::reserveJournalSlotSigned` emits the reservation
+record under — not `isCoordinationEnabled`, which stood it down on every
+enrolled single-human repo. Signature verification inside the fold still follows
+coordination (`skipSignatureVerify` when it is OFF, matching
+`journal-reserve.js::_foldHighWater`). `run.mjs` pins the three modes:
+
+- **C5** unenrolled (governance OFF) ⇒ unreserved write passes; existing file still BLOCKs.
+- **C6** enrolled-solo (coordination OFF, governance ON) ⇒ unreserved REFUSED; self-reserved passes.
+- **C7** enrolled-solo, end to end ⇒ the slot the real reserve returns is writable; the next is refused.
+- **C8** a non-verifying signature ⇒ passes with coordination OFF (membership-only fold), refused with coordination ON.
+
+## Whole-chain acceptance and the hook budget (2026-09-12)
+
+- **C9** a 2000-record chained log: a mid-chain reservation passes, an unreserved slot and an
+  off-chain reservation are refused UNRESERVED — each equal to the full fold's verdict. A fold of
+  reservation records ONLY rejects every reservation past seq 0 on rule-2, so this row reds on a
+  record-type pre-filter; C1–C8 (one record at seq 0) cannot.
+- **C10** `COC_JOURNAL_GUARD_BUDGET_MS=1` (tighten-only, clamped to the 4000ms default, applied only
+  once a journal slot is identified) ⇒ HALT-AND-REPORT "reservation check did not complete within
+  the hook budget — slot unverified", never a bare `{continue:true}`; the same budget passes a
+  non-journal Write and an unenrolled repo untouched.
+
 Live behavioral coverage with real ssh-keygen + real coc-sign lives
 at `tests/integration/integrity-guards.test.js`. These fixtures are
 the static regression locks for the scope-restriction predicates.

@@ -195,23 +195,32 @@ def test_file_processing(mock_open):  # WRONG
 
 ## Test Execution Commands
 
+**Every invocation below is PARALLEL by default.** `--dist loadfile -n 8` is a measured ~5x
+(`tests/unit` 324.10s serial -> 65.23s on a 16-CPU host, collection clean at both) and costs one
+flag. Take it before reaching for diff-scoping, which is second-order. Do NOT write `-n auto` — it
+measured SLOWER than `-n 8` (39s/45s vs 33s/40s). `8` is a measurement on a 16-CPU box, not a law:
+pin a count and measure it. Depth: `gate-runner-economics.md`.
+
 ```bash
 # Unit tests only (fast feedback)
-pytest tests/unit/ --timeout=1 --tb=short
+pytest tests/unit/ --dist loadfile -n 8 --timeout=1 --tb=short
 
 # Integration tests (requires Docker)
 # Start test infrastructure (Docker containers)
-pytest tests/integration/ --timeout=5 -v
+pytest tests/integration/ --dist loadfile -n 8 --timeout=5 -v
 
 # E2E tests
-pytest tests/e2e/ --timeout=10 -v
+pytest tests/e2e/ --dist loadfile -n 8 --timeout=10 -v
 
 # Full test suite
-pytest tests/ --timeout=10 --tb=short
+pytest tests/ --dist loadfile -n 8 --timeout=10 --tb=short
 
-# With coverage
-pytest tests/unit/ --cov=src/kailash --cov-report=term-missing
+# With coverage — only ~1.48x under -n 8 (31s of a 96s run); dropping it is not the win it looks like
+pytest tests/unit/ --dist loadfile -n 8 --cov=src/kailash --cov-report=term-missing
 ```
+
+`--dist loadfile` keeps a file's tests on one worker (module-scoped fixtures need this). It does NOT
+serialize across FILES, so the env-var lock in `rules/testing.md` is still required.
 
 ## Docker Infrastructure
 

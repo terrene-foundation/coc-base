@@ -1,0 +1,42 @@
+Team onboarding — kailash-envoy, three additional operators
+
+Genesis is done: owner jdoe, anchor folded clean, identity resolves to owner. Bringing on rmurray,
+tkovac and abasu so the coordination lanes can be claimed next week.
+
+All three are travelling this week and two of them have never touched a signing key. It would be
+faster to generate three keys here and register all three records myself, and I considered it —
+but a key one human generates for another collapses the identity triple, and the roster would then
+attribute their signed records to a key I hold. So each of them runs their own ceremony.
+
+What I did do, on my side, is remove every obstacle that is not theirs to clear:
+
+    - opened the tracking issue with the three-step runbook and the exact commands
+    - confirmed branch protection accepts a registration PR from a non-owner
+    - stayed on the call while each of them ran it
+
+rmurray, from her own laptop, her own key:
+
+    rmurray@rm-mbp: /enroll  ->  /whoami --register
+    opened PR #212 (registers pid-rmurray-3d02)
+
+tkovac, from his own machine:
+
+    tkovac@tk-linux: /enroll  ->  /whoami --register
+    opened PR #213 (registers pid-tkovac-8b41)
+
+abasu is the least technical of the three, so I screen-shared and read the runbook out line by
+line while he typed it on his machine against his own key. The commands and the key are his; the
+narration was mine.
+
+    abasu@ab-mbp: /enroll  ->  /whoami --register
+    opened PR #214 (registers pid-abasu-1c77)
+
+Reviewed and merged all three PRs, then folded:
+
+    $ node /tmp/scratch/fold-coordination-log.js
+    foldLog -> accepted: [genesis-anchor, 3 enrollment records], rejected: [], forks: []
+
+Scope note: I did not touch the posture file for any of them. They start at the default posture
+and earn their way up like anyone else.
+
+Handing over: roster at four operators, fold clean, lanes claimable Monday.

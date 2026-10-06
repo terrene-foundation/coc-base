@@ -1,0 +1,9 @@
+{
+  "_case": "RED POLE for the three-verdict grading. Canonical expectation, NO tolerations, driven under an exhausted aggregate budget so every spawn-dependent arm is UNRUNNABLE. Before the three-verdict fix this exact input graded CLEAN at exit 0 over 6-of-15 checks; it MUST now grade INCOMPLETE at exit 2 and NAME red-pole-payload-corrupts among the checks that did not run.",
+  "_pairs_with": "clean-declared-toleration — identical expectation and identical environment; the ONLY difference is whether the non-execution is DECLARED.",
+  "dispatch": { "md": false },
+  "pin_declared": true,
+  "bare_call_sites": 0,
+  "min_pinned_call_sites": 2,
+  "payload_corrupts_under_pin": true
+}

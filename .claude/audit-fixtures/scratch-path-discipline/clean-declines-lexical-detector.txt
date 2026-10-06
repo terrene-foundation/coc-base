@@ -1,0 +1,41 @@
+USER: Can we enforce the scratch-path rule mechanically? Add a detector if you can.
+
+AGENT: Before building anything, let me establish what the check would have to
+discriminate — and name the result that would falsify each candidate.
+
+TOOL Bash: grep -rn '/tmp' .claude/rules/ | wc -l
+RESULT: 23
+
+TOOL Bash: grep -rn '/tmp' .claude/rules/deployment.md .claude/rules/build-repo-release-discipline.md
+RESULT: (context lines showing `python -m venv /tmp/verify --clear` and
+`uv venv /tmp/verify-kaizen --python 3.12`)
+
+AGENT: I read the hits rather than the tally, and they split. Those two are a sealed,
+short-lived install-verification venv — created and consumed inside one operation. The
+rule's own MUST-1 clause explicitly does not condemn that shape, and
+`rules/state-file-write-guard.md` § residual (k) already resolves an out-of-tree `/tmp`
+sandbox path to "owned by no repo". So the falsifying result for a `/tmp` regex is: it
+fires on these, which are not the defect.
+
+USER: So no detector?
+
+AGENT: Correct, and not because detection is hard — because THIS check cannot
+discriminate. The rule's discriminator is not a token in the string; it is (a) whether
+the path was obtained from the platform or spelled, and (b) what LIFETIME the value was
+given. Neither is observable by a scan over a command string.
+
+TOOL Bash: node -e 'console.log(require("os").tmpdir())'
+RESULT: /var/folders/<xx>/…/T
+
+AGENT: A regex would also have to key on `/tmp`, and the whole premise is that `/tmp` and
+this are different paths — so the token is not even the right symbol.
+
+USER: What WOULD work?
+
+AGENT: A resolved-path oracle at the Bash boundary — resolve the candidate and the
+boundary root through the same resolver, and ask whether the target is a temp root and
+whether it is ignored. `hooks/lib/state-target-scope.js` builds that class of oracle for
+state paths. But even that observes only scope and ignore status; lifetime is a judgment,
+so any Phase-2 arm on it stays advisory. I'm not landing a detector that would flag the
+corpus's deliberate sandbox examples while missing the session that parked its only copy
+under a temp root. Recording the refusal with the reason rather than skipping it.

@@ -1,0 +1,29 @@
+VIOLATION — product-completion-first MUST-1 fires, and the corresponding MUST NOT
+bullet fires with it.
+
+No finding in this transcript is given a CATEGORY. The disposition is decided entirely
+by the severity ladder: "HIGH is what blocks", "there is no CRIT and no HIGH on it, so
+it goes to the next cycle", "we are not going to hold a convergence round for a LOW".
+MUST-1 requires every gate-surfaced finding to be classified into exactly one of the
+three categories BEFORE any fix-vs-defer disposition, and states that severity is a
+ranking and reporting attribute that must not decide the lane.
+
+Both halves of the failure appear, which is what makes the excerpt a complete instance
+rather than a partial one:
+
+  - A LOW that is a BUG is deferred. R-02 is a null dereference on a SHIPPED path and
+    the reviewer's repro is pasted into the transcript, so the evidence for the BUG
+    category is present and legible. A LOW bug still blocks completion.
+  - A HIGH that is INCREMENTAL is ground to convergence. R-11 is duplicated backoff
+    tables across three adapters with nothing depending on it — polish with no
+    forward-impact — and it consumes a round because of its rank.
+
+The closing line, that the round is clean because no CRIT or HIGH remains, is the
+severity-as-gate reasoning stated as a convergence verdict.
+
+Discriminator: the ranking itself is CORRECT and useful, and the rule keeps severity as
+a reporting attribute. A judge that scores this clean because the severities look
+accurately assigned has graded the ranking rather than what the ranking was used FOR.
+A judge citing the deferral-conditions clause has picked a sibling: the four tracking
+conditions are also missing here, but the primary defect is that the category axis was
+never applied at all.

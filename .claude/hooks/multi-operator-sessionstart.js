@@ -69,17 +69,18 @@
 
 const TIMEOUT_MS = 10000;
 
-// setTimeout fallback per cc-artifacts.md Rule 7 — fail-open
-const fallback = setTimeout(() => {
-  try {
-    process.stdout.write(JSON.stringify({ continue: true }) + "\n");
-  } catch {}
-  process.exit(1);
-}, TIMEOUT_MS);
+// setTimeout fallback per cc-artifacts.md Rule 7 — fail-open. Armed as the FIRST
+// statement of hookMain() (never at load), so require() of this file schedules
+// nothing; the engine requires it once per worker and hookMain re-arms it per run.
+let fallback = null;
 
 const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
+// THE shared git-subprocess allowlist (loom#1462 F1) — see lib/git-subprocess-env.js.
+// Never a second copy: two copies of an env allowlist is the shape that leaves
+// one of them a variable behind.
+const { resolveGitBinary, gitEnv } = require("./lib/git-subprocess-env.js");
 // loom#1422 — the own-WIP attribution predicate over `.claude/learning/*.jsonl`
 // is a protected-path decision, so it is derived from the shared registry
 // rather than re-spelled as an inline regex here.
@@ -101,6 +102,15 @@ const IS_WORKER = process.argv.includes("--coord-worker");
 // session (see runCacheRebuild). Distinct from --coord-worker (which is the
 // hard-BOUNDED, in-budget child the parent waits on).
 const IS_CACHE_REBUILD = process.argv.includes("--coord-cache-rebuild");
+// Both flags are read from argv AT LOAD, deliberately, and stay here rather than
+// inside hookMain(). A load-time argv read is pure (no side effect). And the
+// in-process engine sets process.argv = [execPath, <this file>] BEFORE it calls
+// hookMain — so under COC_HOOK_ENGINE_SELFTEST=1 (inherited by the worker and
+// rebuild children this file spawns) a read inside hookMain would lose the flag
+// and send a --coord-worker / --coord-cache-rebuild child down the PARENT path,
+// which spawns another worker and another detached rebuild. Read at load, the
+// child's real argv decides; inside the dispatcher the module is required under
+// the engine's argv, so both are false there, which is the parent path it needs.
 
 // SessionStart hard bound (parent): the worker gets this long to build the
 // full fold-dependent banner before it is SIGTERM'd (via spawnSync's `timeout`,
@@ -128,7 +138,12 @@ const IS_CACHE_REBUILD = process.argv.includes("--coord-cache-rebuild");
 // visibility surfaces are advisory (enforcement is in the PreToolUse hooks), so a
 // stale/absent cache degrades to the lightweight fallback — a UX degradation,
 // never a correctness/safety loss. The PRODUCTION default stays 500 (do NOT revert
-// toward 3.5s — the coord-hook-budget min-of-3 <2000ms tripwire catches it).
+// toward 3.5s — coord-hook-budget's "#857 sessionstart parent" test asserts this
+// constant against a 1000ms ceiling and REDs on the revert). That gate reads the
+// declaration below directly; the min-of-3 <2000ms LATENCY tripwire it replaced was
+// removed by loom#1352 after being measured BLIND to this exact revert whenever the
+// #866 banner cache was warm (the fast path never spawns the bounded worker, so no
+// parent latency carries information about this constant).
 // COC_TEST_WORKER_BUDGET_MS is a TEST-ONLY override (default unchanged at 500 for
 // any unset/blank/non-numeric/non-positive value): tests that spawn this hook and
 // assert fold-dependent surfaces (contested-revocation / unverified-register /
@@ -144,12 +159,33 @@ const WORKER_BUDGET_MS =
     ? _testWorkerBudgetMs
     : 500;
 
+// loom#1474 F8, sibling surface. This already used an argv array (no shell), but
+// resolved a bare `git` through the ambient PATH and passed no `env:`. Its one
+// call site reads `git status --porcelain -- .claude/ scripts/hooks/` to decide
+// what the operator is told about their own working-tree drift, and `cwd:`
+// selects a DIRECTORY, not a REPOSITORY. Measured on this hook:
+//
+//   clean env                     -> "Working-tree drift: 1 own-WIP"
+//   GIT_DIR=<evil>/.git           -> "Working-tree drift: 1 own-WIP"  (no effect
+//                                     alone — the control that shows the probe
+//                                     discriminates)
+//   GIT_DIR + GIT_WORK_TREE=<evil> -> the drift line is GONE
+//
+// so real uncommitted work silently stopped being reported. Routed through the
+// same shared allowlist state-resolver.js, coordination-mode.js and
+// guard-path-scope.js use (rules/security.md § Enforcement-Surface Parity — one
+// shared function, every surface, so they cannot drift). `cmd` is retained in the
+// signature for call-site readability but is no longer how the binary is found:
+// an unresolvable git returns null exactly as any other git failure already did.
 function safeExec(cmd, args) {
+  const bin = cmd === "git" ? resolveGitBinary() : cmd;
+  if (!bin) return null;
   try {
-    return execFileSync(cmd, args, {
+    return execFileSync(bin, args, {
       cwd: PROJECT_DIR,
       stdio: ["ignore", "pipe", "ignore"],
       encoding: "utf8",
+      env: cmd === "git" ? gitEnv() : undefined, // NOTHING inherited for git
     });
   } catch {
     return null;
@@ -184,8 +220,16 @@ function resolveOwnIdentity(repoDir) {
     let display_id = null;
     let role = null;
     let host_role = null;
-    if (roster && roster.persons && roster.persons[testPid]) {
-      const person = roster.persons[testPid];
+    // S60: own-key fence BEFORE the lookup — `testPid` is env-supplied, so an
+    // `Object.prototype`-shadowing value ("constructor", "__proto__", …) would
+    // resolve TRUTHY on a roster holding no such person and enter this branch
+    // with a non-person object. An inherited member is never a rostered person.
+    if (
+      roster &&
+      roster.persons &&
+      Object.prototype.hasOwnProperty.call(roster.persons, testPid)
+    ) {
+      const person = roster.persons[testPid] || {};
       display_id = person.display_id || null;
       role = person.role || null;
       host_role = person.host_role || null;
@@ -209,48 +253,169 @@ function resolveOwnIdentity(repoDir) {
   }
 }
 
-function readPosture(repoDir) {
-  // F42 (2026-05-26): route through the SSOT reader in lib/state-io.js so
-  // v1-on-disk inputs auto-migrate to v2 shape AND multi-operator consumers
-  // (computeOperativePosture below) get the schema_version: 2 + repo_floor +
-  // operators surface they require. Pre-F42 this function returned the raw
-  // v1 file shape, which silently dropped through computeOperativePosture's
-  // null-guard into the L5_DELEGATED default for every operator — the
-  // "looks correct, structurally inert" trap the F42 brief flags.
+// loom#1461 — the LOWEST rung. An unresolvable posture ranks here, never at
+// L5: this banner is the first thing a session reads and it shapes the whole
+// plan before any tool call fires, so "we could not tell" must not read as
+// "you have maximum autonomy".
+const UNRESOLVABLE_POSTURE = "L1_PSEUDO_AGENT";
+
+/**
+ * Read the posture STATE and carry WHY it is what it is.
+ *
+ * F42 (2026-05-26): route through the SSOT reader in lib/state-io.js so
+ * v1-on-disk inputs auto-migrate to v2 shape AND multi-operator consumers
+ * (computeOperativePosture below) get the schema_version: 2 + repo_floor +
+ * operators surface they require. Pre-F42 this function returned the raw
+ * v1 file shape, which silently dropped through computeOperativePosture's
+ * null-guard into the L5_DELEGATED default for every operator — the
+ * "looks correct, structurally inert" trap the F42 brief flags.
+ *
+ * loom#1461 — it returned a BARE `null` for three unrelated facts: a genuinely
+ * fresh repo, a fail-CLOSED L1 verdict, and "the reader threw". All three then
+ * landed on the same `L5_DELEGATED (source=default)` banner, so a state-io
+ * refusal was rendered as maximum trust and was indistinguishable from a real
+ * one (rules/instrument-discipline.md MUST-1: a result consistent with both
+ * branches of the hypothesis is evidence for neither). The `kind` discriminator
+ * is what lets the surface below rank each of them differently.
+ *
+ * The WORKTREE half of #1461 is NOT fixed here and needs no fix: state-io's
+ * `readPosture` resolves through `resolveStateDirDetailed`, which folds a linked
+ * worktree onto `<main-checkout>/.claude/learning` via `--git-common-dir`. What
+ * remained was this function collapsing that reader's verdicts.
+ */
+function readPostureState(repoDir) {
   try {
     const { readPosture: ssotRead } = require(
       path.join(__dirname, "lib", "state-io.js"),
     );
     const posture = ssotRead(repoDir);
-    // The SSOT reader always returns an object (fresh-repo or fail-closed
-    // facets included). The pre-F42 contract returned `null` on missing
-    // file; preserve that contract for the _fresh case so downstream
-    // computePostureSurface still defaults to L5_DELEGATED via the null
-    // branch when no posture has ever been written.
-    if (posture && posture._fresh === true) return null;
-    return posture;
-  } catch {
-    return null;
+    if (!posture || typeof posture !== "object") {
+      return {
+        posture: null,
+        kind: "unreadable",
+        reason: "reader returned no posture object",
+      };
+    }
+    if (posture._fail_closed === true) return { posture, kind: "fail-closed" };
+    if (posture._fresh === true) return { posture, kind: "fresh-repo" };
+    return { posture, kind: "state" };
+  } catch (err) {
+    return {
+      posture: null,
+      kind: "unreadable",
+      reason: err && err.message ? err.message : String(err),
+    };
   }
 }
 
-function computePostureSurface(posture, identity) {
-  if (!posture || !identity || !identity.person_id) {
-    return { posture: "L5_DELEGATED", source: "default" };
+/**
+ * Rank the operative posture for the banner, and NAME which fact produced it.
+ *
+ * Every `source` value is distinguishable, which is loom#1461's third acceptance
+ * criterion: a reader must be able to tell a real L5 from an unresolved one.
+ *   operator | floor | min          — a genuine computation over posture.json
+ *   fresh-repo                      — trust-posture.md MUST-2: no state, no init
+ *                                     marker ⇒ L5. The ONLY surviving L5-default.
+ *   fail-closed                     — state-io already ranked it L1.
+ *   floor-unidentified-operator     — state EXISTS, this operator does not
+ *                                     resolve to a person_id.
+ *   unresolvable                    — the read or the computation failed.
+ *
+ * WHY THE UNIDENTIFIED-OPERATOR ARM IS NOT L5. It used to be: `!identity.person_id`
+ * returned `L5_DELEGATED (source=default)` and threw away a repo_floor sitting
+ * right there in the object it had just read. An un-rostered operator in an L3
+ * repo was therefore shown MORE autonomy than any rostered one, i.e. the control
+ * was weakest exactly where identity was weakest.
+ *
+ * WHY IT IS NOT A HARDCODED min(floor, L2_SUPERVISED) EITHER, which is the
+ * obvious move and is wrong. `computeOperativePosture` applies L2_SUPERVISED as
+ * the default for a person with no entry in `posture.operators` — a sound default
+ * for an unknown ROSTERED operator, and exactly the forced-L2 nag MO-OPT W1-d
+ * removed for a SOLO repo, where there is no roster to have an entry in. Hardcoding
+ * it here would reinstate that disruption for every solo repo that has ever written
+ * a posture.json.
+ *
+ * So the ceiling is taken from the RESOLVER'S OWN disposition instead of invented
+ * here: `operator-id.js` populates `identity.posture` (L2_SUPERVISED) precisely on
+ * the degraded branches — un-rostered key, no key configured — and deliberately
+ * OMITS it on the synthetic solo identity so the gate layer applies the repo's own
+ * default. Reading that field gives min(floor, L2) where the resolver asked for
+ * supervision and the bare floor where it did not, in ONE rule with no
+ * special-casing. Both are strictly tighter than the L5 this replaced.
+ */
+function computePostureSurface(read, identity) {
+  if (!read || typeof read !== "object" || read.kind === "unreadable") {
+    return { posture: UNRESOLVABLE_POSTURE, source: "unresolvable" };
+  }
+  if (read.kind === "fail-closed") {
+    const p =
+      read.posture && typeof read.posture.posture === "string"
+        ? read.posture.posture
+        : UNRESOLVABLE_POSTURE;
+    return { posture: p, source: "fail-closed" };
+  }
+  if (read.kind === "fresh-repo") {
+    return { posture: "L5_DELEGATED", source: "fresh-repo" };
   }
   try {
-    const { computeOperativePosture } = require(
+    const { computeOperativePosture, minPosture, POSTURE_LADDER } = require(
       path.join(__dirname, "lib", "posture-v2.js"),
     );
-    return computeOperativePosture(posture, identity.person_id);
+    if (identity && identity.person_id) {
+      return computeOperativePosture(read.posture, identity.person_id);
+    }
+    const floor =
+      read.posture &&
+      read.posture.repo_floor &&
+      typeof read.posture.repo_floor.posture === "string"
+        ? read.posture.repo_floor.posture
+        : null;
+    if (!floor || !POSTURE_LADDER.includes(floor)) {
+      // State present but its floor is absent or not a ladder rung — that is
+      // corrupt state, not a fresh repo. Rank it with the other things we could
+      // not determine rather than letting an unknown string reach minPosture,
+      // which throws on one.
+      return { posture: UNRESOLVABLE_POSTURE, source: "unresolvable" };
+    }
+    // The resolver's OWN ceiling when it set one (degraded identity ⇒
+    // L2_SUPERVISED); the bare floor when it deliberately did not (solo).
+    const ceiling =
+      identity &&
+      typeof identity.posture === "string" &&
+      POSTURE_LADDER.includes(identity.posture)
+        ? identity.posture
+        : null;
+    return {
+      posture: ceiling ? minPosture(floor, ceiling) : floor,
+      source: "floor-unidentified-operator",
+    };
   } catch {
-    return { posture: "L5_DELEGATED", source: "default" };
+    return { posture: UNRESOLVABLE_POSTURE, source: "unresolvable" };
   }
 }
 
 function readFoldedLog(repoDir) {
-  // Best-effort fold. If transport or fold engine fail, return empty
-  // accepted-array so downstream surfaces just render as "no sibling activity".
+  // S61 — a fold that THREW is NOT an empty log, and this function used to
+  // report the two identically: `catch { return { accepted: [], ... } }`, so
+  // `projectActiveSiblingClaims` rendered "no sibling activity" on evidence
+  // supporting only "the fold died" (rules/instrument-discipline.md MUST-1 —
+  // an instrument whose output is constant across the hypothesis carries zero
+  // information). A sibling operator may hold an active claim that the fold
+  // which would have shown it could not compute.
+  //
+  // The fix follows the shape already in this corpus — adjacency-leasecheck.js
+  // (`readIndeterminate` → halt-and-report), integrity-guard.js and
+  // journal-write-guard.js (`readIndeterminate` → block): set the reason in the
+  // catch, and GUARD ON IT at the consumer BEFORE any empty array can be read.
+  // `indeterminate` is `null` on every success path, so an existing caller that
+  // ignores it is unchanged in behaviour — but the discriminating fact now
+  // EXISTS to be read, where before it was destroyed at the catch.
+  //
+  // Severity here is advisory/report, NOT block: this is a SessionStart
+  // INFORMATIONAL surface, not a mutation fence. The two mutation fences on
+  // this same predicate (integrity-guard, journal-write-guard) take `block`
+  // because their off-branch lets an unauthorized write land; this one's does
+  // not — the same proportionality adjacency-leasecheck.js records.
   try {
     const { foldLog } = require(
       path.join(__dirname, "lib", "coordination-log.js"),
@@ -263,7 +428,14 @@ function readFoldedLog(repoDir) {
     // hook-top-level. We mirror the transport's readAllRecords contract.
     const logPath = transport._logPath;
     if (!fs.existsSync(logPath)) {
-      return { accepted: [], contestedRevocations: [], foldState: null };
+      // A genuinely ABSENT log is determinate: there are no sibling claims.
+      // This is the one empty-return that is NOT indeterminate.
+      return {
+        accepted: [],
+        contestedRevocations: [],
+        foldState: null,
+        indeterminate: null,
+      };
     }
     const raw = fs.readFileSync(logPath, "utf8");
     const records = [];
@@ -278,9 +450,19 @@ function readFoldedLog(repoDir) {
       accepted: result.accepted || [],
       contestedRevocations: result.contestedRevocations || [],
       foldState: result.foldState || null,
+      indeterminate: null,
     };
-  } catch {
-    return { accepted: [], contestedRevocations: [], foldState: null };
+  } catch (err) {
+    // The empty arrays are RETAINED so no caller crashes on shape, but they are
+    // now accompanied by the fact that discriminates them from a real empty log.
+    // Any consumer reporting on sibling activity MUST guard on `indeterminate`
+    // FIRST — see the call site in main(), which does.
+    return {
+      accepted: [],
+      contestedRevocations: [],
+      foldState: null,
+      indeterminate: err && err.message ? err.message : String(err),
+    };
   }
 }
 
@@ -627,12 +809,16 @@ function buildLightweightBanner(identity, operativeRes) {
   } else {
     lines.push("Operator: (unrostered or no signing key — L2_SUPERVISED)");
   }
+  // loom#1461 — a MISSING operativeRes is not a maximally-trusted one. The old
+  // fallback was `L5_DELEGATED (source=default)`, which is the exact string the
+  // issue reported reading in a worktree, and it fired precisely when the surface
+  // above had failed to produce a verdict. Rank it with the other unknowns.
   const posture =
     operativeRes && operativeRes.posture
       ? operativeRes.posture
-      : "L5_DELEGATED";
+      : UNRESOLVABLE_POSTURE;
   const source =
-    operativeRes && operativeRes.source ? operativeRes.source : "default";
+    operativeRes && operativeRes.source ? operativeRes.source : "unresolvable";
   lines.push(`Operative posture: ${posture} (source=${source})`);
   lines.push(
     `Coordination state check skipped (startup budget ${WORKER_BUDGET_MS}ms exceeded) — sibling-claim/partition surfaces unavailable this session.`,
@@ -650,8 +836,8 @@ function buildLightweightBanner(identity, operativeRes) {
 function buildFullBanner() {
   const identity = resolveOwnIdentity(PROJECT_DIR);
   const roster = loadRoster(PROJECT_DIR);
-  const posture = readPosture(PROJECT_DIR);
-  const operativeRes = computePostureSurface(posture, identity || {});
+  const postureRead = readPostureState(PROJECT_DIR);
+  const operativeRes = computePostureSurface(postureRead, identity || {});
 
   const folded = readFoldedLog(PROJECT_DIR);
   const activeSiblingClaims = projectActiveSiblingClaims(
@@ -706,11 +892,21 @@ function buildFullBanner() {
   }
 
   // 3. Operative posture (always surface; partition cap below)
+  //
+  // S61 MEDIUM-1 — the partition CAP is fold-derived. `detectPartition` defaults
+  // `localGenesisGeneration` to 0 when `foldState` is null, so on a DEAD fold it
+  // returns `{partitioned:false}` and `applyPartitionCap` does not cap: the
+  // banner then positively asserts "no partition" on evidence supporting only
+  // "the fold died", silently skipping a posture downgrade. Say UNKNOWN instead.
+  // (Bounded honestly: this line is banner TEXT, not an enforcement decision —
+  // a misleading surface, not an authz bypass.)
   lines.push(
     `Operative posture: ${cappedPosture}` +
-      (partition && partition.partitioned
-        ? ` (capped from ${operativeRes.posture} — partition detected: ${partition.reason || "local-genesis-gen below peer-high-water"})`
-        : ` (source=${operativeRes.source})`),
+      (folded.indeterminate
+        ? " (partition status UNKNOWN — the coordination log could not be folded, so any partition cap could NOT be evaluated)"
+        : partition && partition.partitioned
+          ? ` (capped from ${operativeRes.posture} — partition detected: ${partition.reason || "local-genesis-gen below peer-high-water"})`
+          : ` (source=${operativeRes.source})`),
   );
 
   // Coordination-mode tamper/ambiguity surface (MO-OPT W1 G1 R2). When a
@@ -740,7 +936,24 @@ function buildFullBanner() {
   }
 
   // 2. Sibling active claims
-  if (activeSiblingClaims.length > 0) {
+  // S61 — GUARD ON `indeterminate` BEFORE reading the (possibly empty-because-
+  // dead) accepted array. A fold that threw cannot distinguish "no sibling
+  // claims" from "the instrument that would have shown them failed", and the
+  // `else` branch below states the former as fact. Reporting UNKNOWN is the
+  // fail-closed reading (rules/instrument-discipline.md MUST-1); this mirrors
+  // adjacency-leasecheck.js's `readIndeterminate` disposition, at the advisory
+  // severity proportionate to an informational SessionStart surface.
+  if (folded.indeterminate) {
+    lines.push(
+      `⚠️  Sibling active claims: UNKNOWN — the coordination log could not be folded (${folded.indeterminate}).`,
+    );
+    lines.push(
+      "    This is NOT 'no claims': a sibling operator may hold an active claim on a path you are about to edit.",
+    );
+    lines.push(
+      "    Remediation: ensure .claude/learning/coordination-log.jsonl is readable and well-formed, then restart the session.",
+    );
+  } else if (activeSiblingClaims.length > 0) {
     const grouped = new Map();
     for (const c of activeSiblingClaims) {
       const k = c.display_id || c.person_id || c.verified_id || "(unknown)";
@@ -756,6 +969,27 @@ function buildFullBanner() {
   }
   if (overrideCount > 0) {
     lines.push(`Lease-overrides against you (30d): ${overrideCount}`);
+  }
+
+  // S61 MEDIUM-1 — ONE consolidated notice for every REMAINING fold-derived
+  // surface in this banner. Each of these renders a dead fold and a clean log
+  // identically, asserting "none" by ABSENCE — the exact defect this change
+  // names. `activeSiblingClaims` and the posture line are handled at their own
+  // call sites above; these four have no natural "none" line to amend, so the
+  // honest surface is to state plainly that they were never computed.
+  if (folded.indeterminate) {
+    lines.push(
+      "⚠️  Also UNKNOWN (not 'none') because the fold failed: lease-overrides, " +
+        "owner-action audit, unverified self-claims, pending gate-approvals, " +
+        "rule-10 revocation contests, and claimed-WIP drift attribution.",
+    );
+    lines.push(
+      "    Each is derived from the same dead fold; their absence below is not evidence of absence.",
+    );
+    lines.push(
+      "    Note: the rule-10 contest alarm is the surface that would flag a hostile revocation — " +
+        "it printed nothing here because it could not run, NOT because nothing was found.",
+    );
   }
 
   // 7. Rule-10 revocation contests
@@ -780,12 +1014,26 @@ function buildFullBanner() {
   }
 
   // 9. Drift attribution (own-WIP vs claimed-WIP) — F13 closure
+  //
+  // S61 ROUND-3 — CORRECTION to the round-2 note, which claimed `ownWip`
+  // "comes from the working tree" and is therefore unaffected. Its PATH LIST
+  // does; its MEMBERSHIP does not. `detectDrift` pushes to `ownWip` precisely
+  // when a path matches NO sibling claim, and `activeSiblingClaims` is
+  // fold-derived — so on a dead fold it is `[]`, the inner loop never runs, and
+  // EVERY drifted path is attributed own-WIP, including ones a sibling holds.
+  // `ownWip` is therefore an UPPER BOUND, not a count, and is labelled as one.
+  // Banner text, not enforcement.
   if (
     driftAttribution.ownWip.length > 0 ||
     driftAttribution.claimedWip.length > 0
   ) {
     lines.push(
-      `Working-tree drift: ${driftAttribution.ownWip.length} own-WIP, ${driftAttribution.claimedWip.length} claimed-WIP`,
+      (folded.indeterminate
+        ? `Working-tree drift: ${driftAttribution.ownWip.length} drifted path(s), ` +
+          "attribution UNKNOWN (fold failed — every path defaulted to own-WIP " +
+          "because sibling claims could not be read; some may be sibling-claimed)"
+        : `Working-tree drift: ${driftAttribution.ownWip.length} own-WIP, ` +
+          `${driftAttribution.claimedWip.length} claimed-WIP`),
     );
     if (driftAttribution.claimedWip.length > 0) {
       lines.push("  ⚠️  Claimed-WIP (cross-operator drift):");
@@ -967,8 +1215,8 @@ function runParent() {
   try {
     // Cheap surfaces (no GPG): identity + operative posture.
     const identity = resolveOwnIdentity(PROJECT_DIR);
-    const posture = readPosture(PROJECT_DIR);
-    const operativeRes = computePostureSurface(posture, identity || {});
+    const postureRead = readPostureState(PROJECT_DIR);
+    const operativeRes = computePostureSurface(postureRead, identity || {});
 
     // #857 security MED-2: run the "always pull at start" coordination action
     // (runStartRefresh — a git working-tree merge) HERE in the parent, ONCE per
@@ -1003,6 +1251,42 @@ function runParent() {
     if (cached.ok) {
       base = cached.banner;
     } else {
+      // TEST-ONLY structural observable (#866): record that the parent took the
+      // MISS branch, i.e. did NOT skip the bounded fold worker. The property
+      // under test is exactly which branch ran, so the branch is where it is
+      // recorded. It exists because that property has no sound TIMING proxy:
+      // WORKER_BUDGET_MS is a spawnSync `timeout:`, a CAP rather than a cost,
+      // so the miss pole pays the fold's ACTUAL duration — on a fast idle host
+      // that finishes well inside the cap and the poles converge, while on a
+      // loaded host the worker is killed at the cap and they diverge. A latency
+      // assertion therefore reports on the machine, not on the fast path.
+      //
+      // The flag is a BOOLEAN and the destination is DERIVED from PROJECT_DIR,
+      // never named by the caller: an env-var-supplied path would be an
+      // arbitrary-write primitive in a hook that runs in every consumer
+      // session, and resolving it would not close the class — the final
+      // component stays a symlink sink unless the write itself refuses to
+      // follow. `wx` (O_CREAT|O_EXCL) is that refusal, and 0600 keeps the
+      // marker unreadable to other users; this mirrors the same guarantee
+      // runBoundedWorker's own banner file documents and relies on.
+      // Fail-open per cc-artifacts.md Rule 7 — a trace failure never changes
+      // what the hook does, and in production the flag is unset.
+      if (process.env.COC_TEST_WORKER_SPAWN_TRACE === "1") {
+        try {
+          fs.writeFileSync(
+            path.join(
+              PROJECT_DIR,
+              ".claude",
+              "learning",
+              ".worker-spawn.trace",
+            ),
+            "spawn\n",
+            { flag: "wx", mode: 0o600 },
+          );
+        } catch (_) {
+          // observability only — never blocks or alters session start
+        }
+      }
       const r = coordBg.runBoundedWorker(__filename, WORKER_BUDGET_MS);
       base = r.ok ? r.stdout : buildLightweightBanner(identity, operativeRes);
     }
@@ -1079,10 +1363,36 @@ function runCacheRebuild() {
   }
 }
 
-if (IS_WORKER) {
-  runWorker();
-} else if (IS_CACHE_REBUILD) {
-  runCacheRebuild();
-} else {
-  runParent();
+// hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
+// in-process by lib/hook-engine.js (dispatch.js). Everything a standalone run
+// did at load time happens here instead, so a require() has no side effects.
+//
+// Engine residual (hook-engine.js § process.exit): three catches enclose an
+// exit — runWorker's and runCacheRebuild's (process.exit only) and runParent's
+// (emitSessionStart: clearTimeout / stdout / exit). Each does output, exit or
+// clearTimeout ONLY; every write, spawn and start-refresh runs BEFORE the exit.
+function hookMain() {
+  fallback = setTimeout(() => {
+    try {
+      process.stdout.write(JSON.stringify({ continue: true }) + "\n");
+    } catch {}
+    process.exit(1);
+  }, TIMEOUT_MS);
+  if (IS_WORKER) {
+    runWorker();
+  } else if (IS_CACHE_REBUILD) {
+    runCacheRebuild();
+  } else {
+    runParent();
+  }
+}
+
+module.exports = { hookMain };
+
+// CLI entry. The default path is exactly hookMain() — no engine dependency, so a
+// tree that copies this hook without lib/hook-engine.js runs it unchanged. The
+// selftest path replays the run through the in-process engine (hook-engine.js::runCli).
+if (require.main === module) {
+  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1") require("./lib/hook-engine.js").runCli(hookMain, __filename);
+  else hookMain();
 }

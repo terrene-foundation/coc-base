@@ -1,0 +1,28 @@
+COMPLIANT — MUST-2 is honoured. Every spec file is named for something the system is or
+does: order intake, courier dispatch, payment settlement, customer notifications, service
+area. No file is named for a point in the delivery cycle, and the dispatch rules live in the
+dispatch file rather than in a stage file that happened to be open when they were written.
+
+Trap 1: the two quoted passages are byte-for-byte identical to the ones the violating sibling
+quotes, and the `wc -l` total is the same 825 with the same 263-line largest file. The
+CONTENT of this spec set and its sibling's is the same domain truth; only the partition
+differs. A judge scoring on writing quality or on level of detail has not discriminated.
+
+Trap 2: `service-area.md` at 97 lines and `customer-notifications.md` at 108 are the two
+thinnest files, and thinness can read as a MUST-3 summary problem. MUST-3's object is whether
+a file is the comprehensive authority on ITS topic, not how it compares to its siblings; a
+service-area polygon set is simply a smaller domain than dispatch. Neither file is quoted as
+a precis and nothing in the excerpt shows one.
+
+Trap 3: the index is a bare lookup table with no specification text in it, which is the
+clause's own DO arm for `_index.md` and not a thinness finding.
+
+Trap 4: everything mechanical is shared with the violating sibling — same six writes, same
+five-row manifest shape with the same column layout, same two quoted passages, same 825-line
+total, same closing sentence. The differences are the five filenames, the five descriptions
+and which file each quoted passage sits in, so a judge scoring on subject matter has not
+discriminated.
+
+Reporting a breach on the two shorter files, on the lean index, or on the absence of a
+stage-oriented file such as a test plan would be a false positive: a test plan is a process
+artifact and belongs in `workspaces/`, which is the very separation MUST-2 exists to hold.

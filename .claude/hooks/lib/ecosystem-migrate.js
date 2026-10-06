@@ -71,6 +71,17 @@ function assertNoCanonStateCarryover(opts) {
 
 // ── inv 4 — disclosure scrub of the moved surface ──────────────────────────────
 // scanFn contract: ({ root }) => { exitCode, findings:[] }. exitCode 0 + 0 findings = clean.
+//
+// `scan-synced-disclosure.mjs`'s exit vocabulary, mirrored here because this module
+// spawns it and must not collapse the codes. Authority is that script's own header
+// block (`.claude/bin/scan-synced-disclosure.mjs:36-55`), which enumerates all four
+// and states the MUST-NOT-collapse rule these constants exist to honour:
+//   0 = ran to completion, reportable   1 = ran to completion, >=1 finding
+//   2 = did NOT start (bad arg/root/denylist)
+//   3 = STARTED and did NOT complete (uncaught exception mid-scan)
+const SCAN_EXIT_CLEAN = 0;
+const SCAN_EXIT_FINDINGS = 1;
+const SCAN_EXIT_CRASHED = 3;
 function scrubMigratedSurface(opts) {
   const o = opts || {};
   const scanFn = o.scanFn || defaultScanFn;
@@ -83,7 +94,26 @@ function scrubMigratedSurface(opts) {
   // both HALT, but the message must not assert a leak the detector never reported. (Injected
   // scanFns that omit `ran` keep the prior behavior: with findings present they hit the
   // disclosure-finding branch; clean ones fall through to scrubbed-clean.)
-  if (findings.length > 0) {
+  // A `findings` list is EVIDENCE of a leak only when the scan RAN TO COMPLETION.
+  // `defaultScanFn` below harvests finding lines from the scanner's STDERR, and a
+  // CRASHED scan writes a fatal diagnostic there instead — so before the exit
+  // vocabulary distinguished them, a crash was reported as "canon identity carried
+  // over", ASSERTING a leak the detector never found, on the surface where a false
+  // positive is most expensive. That is `evidence-first-claims.md` MUST-3 (an errored
+  // detector is neither a finding nor an all-clear) at the branch that decides which
+  // of the two it is.
+  //
+  // The predicate is an ALLOWLIST of completion codes, not a denylist of the crash
+  // code, so a future exit code the scanner mints falls to the UNVERIFIED branch
+  // (fail-closed) rather than silently becoming a fresh source of asserted leaks.
+  // `undefined` is included because the scanFn contract documents that an injected
+  // test scanFn may omit `exitCode`.
+  const ranToCompletion =
+    !!scan &&
+    (scan.exitCode === undefined ||
+      scan.exitCode === SCAN_EXIT_CLEAN ||
+      scan.exitCode === SCAN_EXIT_FINDINGS);
+  if (findings.length > 0 && ranToCompletion) {
     return {
       ok: false,
       status: "disclosure-finding",
@@ -91,12 +121,27 @@ function scrubMigratedSurface(opts) {
       findings,
     };
   }
+  // No `findings.length > 0` term is needed here, and adding one would be dead
+  // code dressed as a safety net. MEASURED over every exit-code shape (undefined,
+  // 0, 1, 2, 3, 4, 99, -1, null, "0", NaN): the case it would guard — findings
+  // present, scan NOT complete, yet reaching `scrubbed-clean` — is UNREACHABLE in
+  // zero of them, because `exitCode === 0` implies `ranToCompletion`, so findings
+  // at a clean exit always fire the branch above. Any non-completion code fails
+  // `exitCode !== 0` and is caught here regardless of findings.
+  // IF the allowlist above ever gains a code, RE-DERIVE this: the implication is
+  // what makes the term unnecessary, and widening the allowlist can break it.
   if (!scan || scan.ran === false || scan.exitCode !== 0) {
     const didNotRun = !scan || scan.ran === false;
+    const crashed = !!scan && scan.exitCode === SCAN_EXIT_CRASHED;
+    const why = didNotRun
+      ? "scanner did not run; spawn/timeout failure"
+      : crashed
+        ? `scanner CRASHED mid-scan (exit ${SCAN_EXIT_CRASHED}); the surface was only PARTIALLY examined and its output is a fatal diagnostic, NOT finding evidence`
+        : "non-zero exit with no parseable findings";
     return {
       ok: false,
       status: "scan-unverified",
-      error: `moved-surface disclosure scrub UNVERIFIED — scan-synced-disclosure produced no clean verdict (${didNotRun ? "scanner did not run; spawn/timeout failure" : "non-zero exit with no parseable findings"}); threat status UNKNOWN. HALT; the move cannot finalize until the scrub is proven clean.`,
+      error: `moved-surface disclosure scrub UNVERIFIED — scan-synced-disclosure produced no clean verdict (${why}); threat status UNKNOWN. HALT; the move cannot finalize until the scrub is proven clean.`,
       findings,
     };
   }

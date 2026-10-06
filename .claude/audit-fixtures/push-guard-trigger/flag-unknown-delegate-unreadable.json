@@ -1,0 +1,14 @@
+{
+  "_doc": "F1(a) from the 2026-09-20 adversarial security review, and the DANGEROUS pole of this whole check. SAME BYTES as clean-not-applicable-consumer except `delegateReadError` is set: the delegate is on disk but could NOT BE READ (EACCES, a directory at that path, a symlink loop). Before the fix, `defaultReadFile` had a bare catch folding every errno into null, so this state arrived as `delegatePresent: false` and arm (0) returned `n/a` -- the single most REASSURING verdict available (`the question does not apply here`) -- on the repo whose own comment calls this hook the only gate that exists. n/a is a POSITIVE claim that the delegate is ABSENT FROM DISK; a read that failed establishes no such thing. instrument-discipline.md MUST-1: the check could not look, and that is not a finding about the subject.",
+  "state": {
+    "delegatePresent": false,
+    "delegateReadError": "EACCES: permission denied, open '/Users/someoperator/repos/loom/scripts/ci/dev-push-guard.mjs'",
+    "trackedTriggerPresent": true,
+    "hooksDir": "/Users/someoperator/repos/loom/.git/hooks",
+    "resolveError": null,
+    "readError": null,
+    "triggerPresent": false,
+    "triggerExecutable": false,
+    "triggerDelegates": false
+  }
+}

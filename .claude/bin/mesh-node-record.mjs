@@ -50,6 +50,7 @@
  */
 
 import fs from "node:fs";
+import { isMainModule } from "./lib/entry-point.mjs";
 
 import { isOpaqueHandle } from "./mesh-registry-scrub.mjs";
 
@@ -193,5 +194,6 @@ function main() {
   return 2;
 }
 
-const isMain = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
+// Entry-point check: .claude/bin/lib/entry-point.mjs (symlink-safe; a lexical compare exits 0 silently).
+const isMain = isMainModule(import.meta.url);
 if (isMain) process.exit(main());

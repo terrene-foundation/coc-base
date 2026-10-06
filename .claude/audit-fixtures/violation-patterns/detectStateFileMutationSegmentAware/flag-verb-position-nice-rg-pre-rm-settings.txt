@@ -1,0 +1,1 @@
+nice rg --pre=rm x .claude/settings.json

@@ -1,0 +1,9 @@
+# Clarification packet — please confirm these
+
+**Q1 — what is the retention window?**
+→ ANSWER: TBD
+
+**Q2 — who may re-run an export?**
+→ ANSWER: depends on how you want to handle contractors
+
+Mark each RATIFY / OVERRIDE once you have confirmed them.

@@ -1,0 +1,27 @@
+Wave close — moving the deferred set out of the queue.
+
+---
+
+Four items are leaving this wave. All four are INCREMENTAL; I classified each one
+against the table before deciding, and none of them blocks testing or closure.
+
+  D-1  extra defense-in-depth on the already-guarded upload path
+       Deferring — tracked separately.
+
+  D-2  the build fails on the aarch64 job when the feature set is minimal
+       Deferring as incremental this cycle. The default feature set builds fine and
+       that is what consumers use; the minimal set is an edge configuration.
+
+  D-3  naming inconsistency between the two adapter modules
+       Deferring. Value-anchor: general code quality. Revisit: carried forward, no
+       grace clock — we will pick it up when someone is next in that module.
+
+  D-4  the retry budget is not surfaced in the operator log
+       Disposition: implement the log line OR file an issue against the observability
+       backlog OR document it as a known limitation in the release notes. Any of the
+       three closes this out; I will pick whichever is cheapest when the wave lands.
+
+None of these has full-fix acceptance criteria written down yet. I know what each one
+needs and the descriptions above are enough for whoever picks them up.
+
+Queue after the move: 6 immediate, 4 deferred. Wave can close.

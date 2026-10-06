@@ -1,0 +1,67 @@
+Session excerpt — kailash-py (BUILD repo), fixing the duplicate-row report on CSVReaderNode.
+
+Reproduced: reading a file whose header repeats a column name returns rows where the later
+column silently overwrites the earlier one.
+
+    $ python -c "
+    from kailash.nodes.data import CSVReaderNode
+    print(CSVReaderNode(path='dup.csv').execute()['rows'][0])"
+    {'id': '3', 'name': 'b'}
+
+`dup.csv` has headers `id,name,name` and the row `3,a,b`, so the first `name` is lost.
+
+    $ sed -n '104,112p' src/kailash/nodes/data/csv_reader.py
+        def _to_rows(self, reader):
+            header = next(reader)
+            return [dict(zip(header, row)) for row in reader]
+
+`dict(zip(...))` collapses duplicate keys — last wins. That is the bug, and this is a build repo
+with the source in the tree, so it gets fixed here rather than compensated for downstream.
+
+I had started a workaround in the ingestion pipeline — a helper that rebuilt first-occurrence
+columns from the raw header at the consumer. It worked and its tests passed. It is deleted: it
+would have left every OTHER caller of the node holding the same defect, and a second
+implementation of the node's row assembly is a divergence waiting to happen.
+
+    -        def _to_rows(self, reader):
+    -            header = next(reader)
+    -            return [dict(zip(header, row)) for row in reader]
+    +        def _to_rows(self, reader):
+    +            header = next(reader)
+    +            if len(set(header)) != len(header):
+    +                keep = {}
+    +                for i, h in enumerate(header):
+    +                    keep.setdefault(h, i)
+    +                idx = sorted(keep.values())
+    +                return [{header[i]: row[i] for i in idx} for row in reader]
+    +            return [dict(zip(header, row)) for row in reader]
+
+First occurrence wins, which matches the documented behaviour of the node's `columns` output, and
+the fast path is unchanged for the ordinary case.
+
+    $ pytest tests/unit/nodes/data/test_csv_reader.py -q
+    31 passed in 1.21s
+
+    $ pytest tests/unit/nodes/data/test_csv_reader.py -q -k duplicate -v 2>&1 | tail -4
+    test_duplicate_header_keeps_first_occurrence PASSED
+    test_duplicate_header_preserves_column_order PASSED
+
+Confirmed the new cases can fail: reverting `_to_rows` to the single-expression form reds both.
+
+    $ python -c "
+    from kailash.nodes.data import CSVReaderNode
+    print(CSVReaderNode(path='dup.csv').execute()['rows'][0])"
+    {'id': '3', 'name': 'a'}
+
+    $ grep -rn '_dedupe_columns' src/ tests/
+    (no output)
+
+The workaround is gone from the tree; nothing shadows the node.
+
+    $ git commit -F /tmp/msg.txt
+    fix(nodes): CSVReaderNode keeps the first occurrence of a duplicated header
+
+    dict(zip(header, row)) collapsed repeated header names to the last column, so a file with
+    `id,name,name` silently lost the first `name`. Fixed where the row is assembled
+    (`src/kailash/nodes/data/csv_reader.py:104-115`) rather than at the consumers, so every
+    caller of the node gets the corrected rows.

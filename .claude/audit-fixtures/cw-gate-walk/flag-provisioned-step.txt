@@ -1,0 +1,18 @@
+# kind: provisioned-step
+# requires: LOOM_TEMPLATE_PUBLISH_TOKEN, CLIENT_TEMPLATE_URL
+# expect_verdict: Blocked
+# expect_rule: cw-gate/step-unprovisioned
+# THE PUBLISH NO-OP, as a case. A step that is registered and reachable and still
+# does nothing, because it is gated on a credential nobody provisioned — the
+# workflow says so in its own words: "the publish STEP no-ops (loud ::warning::)
+# until the owner provisions the workflow-scoped token secret + target-URL
+# variable".
+#
+# THIS PREDICATE HAS NO CLEAN POLE, and its absence is the finding rather than an
+# omission in this fixture set. Whether a secret is provisioned is not derivable
+# from any file in the tree, so a `Pass` pole would require this gate to assert
+# something it cannot observe. `Blocked` is the honest discrete verdict for a
+# precondition outside the instrument's reach, and MUST-4 forbids collapsing it
+# into Pass. Reading this as advisory noise is the error — the step's EFFECT is
+# genuinely UNKNOWN, and the run that would tell us costs a live `gh api` call
+# whose answer flips with ambient credentials, which MUST-2 forbids as a gate.

@@ -1,0 +1,28 @@
+NON-COMPLIANT under the meta-rules — `compliant` is false, with four breaches to name.
+
+1. MODAL MISMATCH. The clause HEADING says MUST; the BODY hedges throughout — "should
+   generally write", "it is usually preferable", "tends to be worth avoiding where
+   practical", "teams are encouraged to move toward". The frontmatter `description`
+   hedges the same way. A clause whose body never states an obligation cannot be
+   enforced at the heading's strength.
+
+2. THE DO/DO-NOT ARMS TEACH NOTHING. Both arms are the same sentence, separated only by
+   "appropriate" and "inappropriate". Neither names a surface, a command or a file, so
+   a reader cannot recover which write is which. The paired candidate's arms name a
+   fragment path and a projector invocation on one side and a hand edit of the rendered
+   page on the other.
+
+3. THE BLOCKED CORPUS IS AN ABSTRACT TAXONOMY. Six category labels — "Treating expedience
+   as a substitute for correct surface selection", "Under-valuing the durability
+   properties" — rather than the literal sentences an agent emits. A corpus of category
+   names traps nothing, because no agent writes in that register.
+
+4. THE MUST-1 `**Why:**` RUNS PAST THE TWO-SENTENCE CAP. It is four sentences and
+   digresses into projection cadence and rotation planning, ending by pointing at a
+   different guide. The MUST NOT clause's `**Why:**` is within the cap and is not a
+   finding.
+
+Surface-equalized with its pair at close to a 1.0 size ratio, with an identical heading
+skeleton and one numbered clause each. The frontmatter block, the `## MUST NOT` bullet
+and its rationale, the whole Trust Posture Wiring block and the `## Origin` paragraph are
+byte-identical to the paired candidate and are NOT findings.

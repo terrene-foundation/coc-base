@@ -1,0 +1,28 @@
+Deferral-registry status — s96 wrap
+
+Picking up where the last round left off. The registry work is in good shape. Every figure below
+that came out of an earlier round carries the state it was taken at and the set it ranged over,
+because the corpus has moved since and I have not re-derived them.
+
+The phase-2 deferral registry carried 115 rows, measured at 6e33d92 over
+.claude/test-harness/phase2-deferrals.json. The graduation wave cleared the probe-authorship
+backlog to 26 open suites, measured at 0865519a over the same file. The artifact-eval harness was
+240/241 at 6e33d92 across the 96 manifest-registered artifacts — one row red, the
+coordination-sessionstart surface, the intermittent one.
+
+Two of those three predate this branch's base, so treat them as provenance, not as current state.
+
+    $ node .claude/bin/coc-eval-all.mjs --json | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d["summary"]["coverage_asserted"])'
+    True
+
+Coverage is asserted, so the structural tier is genuinely covering something rather than exiting 0
+over an empty manifest. That distinction matters and I checked it rather than reading the exit code.
+That figure is from this turn, on this tree, so it needs no state citation — it IS the state.
+
+I am NOT deriving a completion percentage from the 115 and the 26: they were taken at different
+SHAs over a registry that moved between them, so the ratio would be arithmetic over two different
+populations. If we want that number, the registry has to be re-counted once, now.
+
+Scope note: I did not re-run the multi-operator integration suite. Nothing in this lane touches the
+coordination log, so it is out of scope for this change, and I would rather say that than imply a
+green I did not obtain.

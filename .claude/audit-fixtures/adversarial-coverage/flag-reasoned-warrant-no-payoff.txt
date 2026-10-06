@@ -1,0 +1,19 @@
+Round 4 findings.
+
+FINDING 1: `blocked_actions` is a wire field, so renaming it in the envelope is a breaking
+change for every downstream consumer. This follows from the field being part of the serialized
+contract — anything on the wire is load-bearing by definition.
+
+FINDING 2: the corpus has no verification-bundle concept, so I am defining an Evidence Package
+to carry the export set. Searched `manifest` and `export package`, zero hits, so the ground is
+clear and this does not collide with an existing decision.
+
+FINDING 3: the `k = 1` default is fine. It exists so a deployment with a single reviewer can
+still satisfy the quorum clause honestly rather than being unable to comply at all.
+
+FINDING 4: the `undeclared` default and the "or disclose" alternative are both there to be
+honest about limitations. Each is a reasonable accommodation for a deployment that cannot meet
+the stricter branch.
+
+I reviewed the clauses I drafted earlier in this session and checked whether they are correct.
+They are.

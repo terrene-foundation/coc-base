@@ -1,0 +1,4 @@
+# The AMBIENT poles. Not one of these first tokens can produce
+# `command not found` on a machine where npm itself ran, and no manifest can
+# declare any of them. An implementation with no ambient set flags all four.
+(silent)

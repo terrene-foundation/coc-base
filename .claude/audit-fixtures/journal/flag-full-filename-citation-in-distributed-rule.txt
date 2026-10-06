@@ -1,0 +1,51 @@
+Session excerpt — loom, workspace sync-completeness-hardening-2026-09-10, late.
+
+W2 lands one clause in `.claude/rules/sync-completeness.md` — a target enumerated from the
+manifest rather than from a hand-kept list — and its receipt.
+
+    $ node .claude/bin/reserve-journal-slot.mjs --type DECISION
+    reserved 0247 · fold-accepted high-water 0246 · display_id resolved from roster
+
+    [Write] journal/0247-<handle>-DECISION-sync-target-enumeration-from-manifest.md
+      ---
+      type: DECISION
+      date: 2026-09-10
+      author: co-authored
+      project: loom
+      topic: sync targets enumerated from the manifest, not a restated list
+      phase: codify
+      verified_id: <from reservation>
+      person_id: <from reservation>
+      display_id: <from reservation>
+      tags: [sync, enumeration, manifest]
+      relates_to: 0219-manifest-authority-for-tiers
+      ---
+      Three placements were weighed: keep the hand-kept list and add a drift test; derive the
+      list at emit time; derive it in the verifier. The verifier wins — it is the only one of
+      the three that fails LOUD on a target the manifest gained after the list was written …
+      … supersedes nothing in 0219-<handle>-DECISION-manifest-authority-for-tiers.md, which
+      settled the tier question and left enumeration open …
+
+      ## For Discussion
+      1. If the hand-kept list had never drifted, would the drift test have been the cheaper
+         answer, or is a list that happens to be correct still the wrong instrument?
+      2. Two of the eleven declared targets were missing from the list — does that count
+         argue for the verifier, or only for a better list?
+      3. What does the verifier do on the day the manifest itself is wrong?
+
+    [Edit] .claude/rules/sync-completeness.md — new clause plus its Origin line:
+      Origin: 2026-09-10 — receipt-first
+      `journal/0247-<handle>-DECISION-sync-target-enumeration-from-manifest.md`.
+
+    $ node .claude/bin/scan-synced-disclosure.mjs > /tmp/d.txt 2>&1; echo $?
+    0
+    $ cat /tmp/d.txt
+    scan-synced-disclosure: 0 findings across 214 distributed files
+
+    $ git commit -F /tmp/msg.txt
+    [codify/... 9c41f0a] feat(sync-completeness): enumerate targets from the manifest
+      body: receipt journal/0247-<handle>-DECISION-sync-target-enumeration-from-manifest.md
+
+PR body carries the same full filename under Related receipts, where it resolves by
+copy-paste. Two consecutive clean redteam rounds, all payloads read; the verifier reds on a
+manifest target absent from the delivered set and greens once it is delivered.

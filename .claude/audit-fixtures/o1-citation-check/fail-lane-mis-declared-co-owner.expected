@@ -1,0 +1,3 @@
+ok=false lane=ambiguous arm=o1 reason=no-clause-identifier failed=(b)
+predicate: (b) FAILED under the O1 arm — the ANTI-GAMING pole. This receipt DECLARES `origination: co-owner-directed` in frontmatter and carries a quoted directive with requester and date, but it also cites "ISO/IEC 27001:2022" in citation context, so the O1 arm applies and the bare-name loophole is still caught.
+note: the lane is derived from CONTENT, never from a declaration. The frontmatter key is read by nothing (measured: 0 of 540 journal entries on `main` carry an `origination:`/`lane:` key, so no such convention exists to read); a caller-declared lane could be mis-declared to route around the stricter arm, which is exactly what this fixture attempts and fails to do.

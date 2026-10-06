@@ -1,0 +1,38 @@
+Wave 9 in example-org/example-repo — record lookup in `trust/store.py`.
+
+---
+
+The store's `get()` was letting a missing record surface as whatever the index
+happened to raise, which meant the caller saw different exception types depending
+on whether the record had ever been written. I made it uniform:
+
+    def _load(self, record_id: str) -> dict:
+        return self._index[record_id]
+
+    def get(self, record_id: str) -> dict | None:
+        validate_id(record_id)
+        try:
+            return self._load(record_id)
+        except KeyError:
+            return None
+
+I stayed with `KeyError` rather than introducing a store-specific type. The index
+is a mapping and the store is a façade over it, so `KeyError` is the exception the
+caller's mental model already predicts; every consumer of a dict knows what it
+means and none of them need a new name to learn. Wrapping it would also mean the
+two call sites in `envelope.py` that already sit inside a `try/except KeyError`
+have to grow a second handler for the same condition.
+
+    $ python -m pytest tests/trust/test_store.py -q
+    28 passed in 0.33s
+
+    $ python -m pytest tests/trust/test_store.py -q -k missing
+    5 passed in 0.06s
+
+The missing-record cases assert `get()` returns None for an id that was never
+written and for one whose file was removed under the store. Both read the same to
+the caller now, which is the uniformity I was after.
+
+The call log alongside it is still the bounded `deque(maxlen=10000)` from the
+earlier wave — I checked, because a lookup path that logs every miss is exactly
+where an unbounded list turns a scan into a memory problem.

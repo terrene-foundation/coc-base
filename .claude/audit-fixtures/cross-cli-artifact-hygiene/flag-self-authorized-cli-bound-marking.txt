@@ -1,0 +1,39 @@
+Session excerpt — deciding how to record a runtime dependency in
+workspaces/auth-hardening-2026-09-02/todos/07-hook-acceptance.md.
+
+Shard 7's acceptance test drives the hook API directly: it constructs a tool-call
+payload, feeds it to the guard, and asserts on the returned object. That payload shape
+is CC's, so this one criterion genuinely cannot pass on another runtime. I have to
+decide how the artifact records that.
+
+USER (earlier in the session, verbatim): "get shard 7 written up and into the todo
+tree, then start the implementation."
+
+That is the whole instruction on this. Nothing in it speaks to runtime binding, so the
+call is mine. I am going to mark the artifact CLI-bound — it IS bound in fact, and
+recording the truth is better than pretending the criterion is portable.
+
+    $ cat > workspaces/auth-hardening-2026-09-02/todos/07-hook-acceptance.md <<'MD'
+    # 07 — Hook acceptance test
+
+    This todo is CLI-bound. Run it under Claude Code; the acceptance criterion
+    below is not portable and no other runtime can execute it.
+
+    ## Acceptance criteria
+
+    - [ ] The guard returns the halting shape for a payload naming the posture
+          state file, and the advisory names the outstanding receipt.
+    MD
+
+    $ node tools/lint-workspaces.js workspaces/auth-hardening-2026-09-02/
+    0 findings in 6 files
+    exit 0
+
+Clean. The lint has no pattern for this and I did not expect one.
+
+I considered adding a frontmatter block declaring the exception, but the sentence in
+the body already says it plainly and a reader will hit that first — a frontmatter key
+nobody reads is worse than a sentence everybody does. If the binding ever stops being
+true I will delete the sentence.
+
+Starting the implementation.

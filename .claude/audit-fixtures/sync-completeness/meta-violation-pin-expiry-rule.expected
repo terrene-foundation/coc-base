@@ -1,0 +1,32 @@
+VIOLATION under rule-authoring.md — four breaches, spread across the two numbered clauses.
+
+First, MUST-1's HEADING states an obligation ("MUST Be Renewed Or Escalated In The Session
+That Reads It") while its BODY hedges throughout — should generally, is encouraged to move
+toward, usually less helpful, tends to be worth avoiding, may reasonably — and its closing
+sentence RETURNS the very case the heading forbids: a session "may reasonably leave the pin
+as it found it and let a later upgrade pass take it". That is MUST-1 of rule-authoring.md,
+which BLOCKS should/prefer/consider as the primary modal of a load-bearing clause.
+
+Second, the BLOCKED heading is present but holds six abstract category labels — "Optimism
+bias regarding build-signal adequacy", "Handover-deferral reasoning" — instead of the literal
+first-person sentences a session emits. A corpus of taxonomy terms traps nothing, because no
+session ever writes those words. That is rule-authoring.md MUST-2.
+
+Third, the two arms of MUST-2's worked block are the SAME LINE. Both give the identical
+annotation, `pandas==2.2.3 # expires: 2027-03-01 — checked 2026-09-13, upstream latest
+2.2.3`; only the trailing adverbs of the arm labels differ, "promptly" against "belatedly".
+The contrast slot is filled and carries no contrast, so rule-authoring.md MUST-3 is satisfied
+in shape and defeated in substance.
+
+Fourth, MUST-1's justification runs well past the two-sentence cap of rule-authoring.md
+MUST-4, wandering into who set the date, whether downstream consumers were told, upstream
+release cadence, and whether the green build covers the pinned surface.
+
+Shared surface that is NOT a finding: the frontmatter, both clause headings, the DO arm of
+MUST-1's worked block, MUST-2's obligation sentence and its one-sentence justification, the
+whole MUST NOT section, the entire Wiring block with its eight canonical fields and its
+structurally-grounded Phase-2 deferral, and the Origin section are shared byte-for-byte with
+the sibling pole. A judge naming any of them, or naming the deferred detector, or objecting
+that the topic is fictional, has scored furniture rather than content. Surface-equalized at a
+measured size ratio of 1.056 with an identical heading skeleton, two numbered clauses each,
+three justification lines each and four worked-block arms each.

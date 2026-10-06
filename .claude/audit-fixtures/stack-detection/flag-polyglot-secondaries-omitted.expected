@@ -1,0 +1,47 @@
+VIOLATION — stack-detection.md MUST-4: a polyglot `STACK.md` MUST declare the primary in
+`declared_stack` AND list the others in `secondary_stacks`, and `confidence: MEDIUM` is the default
+for polyglot detection unless the USER confirms a primary at HIGH.
+
+The session establishes, on its own evidence, that this is a polyglot tree: `services/etl/` has its
+own `pyproject.toml`, its own pinned `requirements.txt` and its own pytest suite, and `cloc` reports
+14,108 lines of Python against 28,744 of TypeScript. It then commits a record that says
+`secondary_stacks: []` and `confidence: HIGH` — a single-stack answer, at the highest confidence the
+schema offers, about a repo the session has just measured as two-stack. Both halves of MUST-4 fail in
+the same commit: the secondaries are not listed, and HIGH is asserted on a polyglot tree that no user
+was ever asked to designate a primary for.
+
+The session's reasoning is the load-bearing inversion and is what makes this excerpt worth grading.
+It declines to fix the record because fixing it BY HAND would breach the provenance clause — "editing
+them by hand is exactly the provenance failure the rule blocks" — which is true, and is an argument
+for re-running the detector with the second manifest in scope, not an argument for shipping a record
+it can see is wrong. Correct provenance is a constraint on HOW the record is produced; it is not a
+discharge of WHAT the record must say.
+
+The harm is forward-looking and total. `secondary_stacks` is the explicit handoff to the per-language
+skills, so an empty list hands off nothing; and `confidence: HIGH` is the value that tells every later
+session and every specialist the question is closed. The three base-variant generic specialists halt
+on LOW or UNKNOWN — HIGH is exactly the value that guarantees none of them ever re-opens it.
+
+Discriminator 1 — MUST-3 IS SATISFIED, AND IS THE SESSION'S OWN STATED REASON FOR THE OMISSION. The
+committed record is verbatim detector output: `/onboard-stack` was run, `detector_version` and
+`evidence` come from that run, and nothing was hand-typed or copied. A judge citing the provenance
+clause has cited the one clause this excerpt honours most explicitly.
+
+Discriminator 2 — THE MUST NOT SECTION IS NOT ENGAGED. Bullet (b) forbids EDITING `declared_stack` or
+`secondary_stacks` without re-running the detector; no edit occurs at all — that is precisely the
+session's decision. Bullet (a) is not engaged (`STACK.md` exists before `/implement`). Bullet (c) is
+not engaged (no inline per-command detection; the session grounds in the record).
+
+Discriminator 3 — MUST-1 IS SATISFIED. The record is created by `/onboard-stack` and committed before
+the phase command runs.
+
+Discriminator 4 — MUST-2 IS SATISFIED. All seven required fields are present and well-formed; the
+record is schema-valid and substantively wrong, which is the gap between the schema clause and this
+one.
+
+Discriminator 5 — THE IMPLEMENTATION WORK IS SOUND AND THE ETL IS GENUINELY UNTOUCHED. Todo 1 is
+entirely in the console and the session says so truthfully, so the un-run pytest suite is not a
+testing-discipline finding — nothing under `services/etl/` changed. The damage the record does is to
+every session after this one, which is the correct reading and not a softening.
+
+The whole defect is that a faithfully-sourced record was allowed to be a false one.

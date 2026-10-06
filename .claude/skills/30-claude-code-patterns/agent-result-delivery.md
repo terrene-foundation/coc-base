@@ -241,7 +241,7 @@ and as the brief for anyone extending it:
   LEXICALLY over prompt prose, and `hook-output-discipline.md` MUST-2 bars
   **`block`** on lexical evidence and NOTHING MORE. It does NOT mandate
   `advisory`: in-corpus precedent for `halt-and-report` on a lexical predicate,
-  reconciled with MUST-2 explicitly, is `repo-scope-discipline.md`
+  reconciled with MUST-2 explicitly, is `skills/32-trust-posture/wiring/repo-scope-discipline.md`
   § Trust Posture Wiring. An earlier revision of this file read the ceiling as
   "`advisory`, permanently"; that was WRONG and is withdrawn, because a future
   lane reconciling the hook against this file would have found a documented

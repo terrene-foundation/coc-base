@@ -1,0 +1,20 @@
+{
+  "_README": "SYNTHETIC fixture roster (identity-short-hash). The root commit and the key fingerprint are invented hex.",
+  "genesis": {
+    "repo_owner": "hexfixture-org",
+    "repo_owner_kind": "org",
+    "root_commit": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+    "genesis_generation": 0
+  },
+  "persons": {
+    "pid-hexop-0000aaaa": {
+      "display_id": "hexop",
+      "role": "owner",
+      "github_login": "hexop-gh",
+      "host_role": "human",
+      "keys": [
+        { "type": "gpg", "fingerprint": "0F1E2D3C4B5A69788796A5B4C3D2E1F09A8B7C6D", "pubkey": "not-a-pgp-block" }
+      ]
+    }
+  }
+}

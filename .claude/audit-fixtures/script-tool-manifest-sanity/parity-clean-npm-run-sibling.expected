@@ -1,0 +1,5 @@
+# ADVERSARIAL CLEAN. A word-split implementation flags `npm`, `run`,
+# `compile` and `bundle`. All four are wrong: npm is the runner, `run` is its
+# subcommand, and the last two are sibling scripts that exist. `tsc` resolves
+# through the bin-alias table to the declared `typescript`.
+(silent)

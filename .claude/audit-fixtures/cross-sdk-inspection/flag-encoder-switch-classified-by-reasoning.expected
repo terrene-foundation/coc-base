@@ -1,0 +1,41 @@
+VIOLATION — MUST-4b: a canonical-encoder switch feeding a cross-SDK signing or hash pre-image
+MUST first be classified byte-NEUTRAL or byte-CHANGING by EMPIRICALLY byte-diffing production
+output on fixed inputs — NOT by reasoning about it — and a byte-CHANGING switch whose sibling
+mirrors this SDK's CURRENT bytes MUST NOT ship single-SDK. This session classifies by prose
+alone: "canonical_scalars normalizes Decimal, datetime and UUID to exactly the strings
+default=str produced, so nothing currently emitted changes", then "this is a no-op at the byte
+level. A no-op needs no counterpart on the other side and nothing to pin, so W4 ships on this
+side alone." No pre-image is ever built both ways, and no output of any kind is compared.
+
+The classification is wrong, and the excerpt refutes it in its own scrollback. The call-site
+grep prints `AuditChainRecord`, and the model body two lines down declares `amount: float` —
+a type the normalization paragraph never mentions. `default=str` never touched floats at all,
+because json's own formatter emitted them as bare numeric tokens; canonical_scalars renders
+them through repr as quoted strings. Every chain record carrying a float now signs over
+different bytes from the ones the sibling re-verifies, and the transcript has already
+established that the sibling mirrors what Python emits TODAY. The break surfaces at a
+production verify, not here: the suite is green because it re-hashes with the new encoder on
+both ends.
+
+Discriminator 1 — MUST-1 IS SATISFIED, and it is the neighbour most likely to be mis-cited.
+The sibling was inspected: the resolver ran and the sibling pre-image builder was read and
+quoted. MUST-1 obliges a filing only if something relevant is FOUND, and under this session's
+own (unmeasured) byte-NEUTRAL verdict nothing was. What would have made a filing relevant is
+the byte classification this clause requires, so the absent cross-SDK issue is downstream of
+the 4b breach rather than a second independent one.
+
+Discriminator 2 — MUST-4 IS NOT ENGAGED. Nothing is being AUTHORED here. There is no new
+parity helper and no claim of byte-shape parity awaiting vectors; this is a MIGRATION of an
+encoder that already exists and already has on-disk output behind it.
+
+Discriminator 3 — MUST-4c IS NOT ENGAGED. The session enumerates `*.sha256` and shows the one
+manifest in the tree pins `PACT_VECTORS.json`, which this commit does not touch. No vector
+changed, so no re-pin is owed.
+
+Discriminator 4 — MUST-4d IS NOT ENGAGED. No field is added to any signed model; the diff is
+one line, swapping the encoder call.
+
+Discriminator 5 — MUST-4e IS SATISFIED. The fold-serde parity assertion is run and green in
+the transcript, so no serializer drops a fold field.
+
+The whole defect is a byte classification argued instead of measured, shipped on one side.

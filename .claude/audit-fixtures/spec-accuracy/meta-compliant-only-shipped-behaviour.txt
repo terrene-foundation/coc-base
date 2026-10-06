@@ -1,0 +1,73 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "**/specs/**"
+---
+
+# Spec Content — The File Describes What Runs Today, And Nothing Else
+
+A spec is the surface a reader treats as true without checking, which is the whole reason it is
+worth maintaining. A section that mixes what runs with what is intended costs the reader that
+property, because from inside the file the two are indistinguishable and the reader has no way to
+tell which half they are building against.
+
+## MUST Rules
+
+### 1. Spec Content Describes Shipped Behaviour, And Gaps Live Outside The File
+
+Spec content MUST describe behaviour that is merged on the trunk. A section describing designed
+but unmerged behaviour is BLOCKED, and so is a marker that annotates the gap in place — a column
+pairing what is intended against what is served, an inline note that an accessor is still to be
+wired, a bracketed note that backend work is following. The gap MUST move to a plan, a todo or an
+issue, and the spec MUST simply not carry the section until the code lands.
+
+An out-of-scope section that BOUNDS the spec's perimeter is permitted; a list of holes inside that
+perimeter is the same gap annotation wearing a heading.
+
+```markdown
+# DO — one column, describing what the reader can run today
+
+| metric_a | analytics_service | SUPPORTED_METRICS |
+
+# DO NOT — the intended column beside the served one
+
+| metric_c | data-platform accessor | constant(0.85) |
+```
+
+**BLOCKED rationalizations:**
+
+- "The accessor lands next sprint"
+- "The current column IS what ships, so the spec is accurate"
+- "The split-state column documents the migration"
+- "Honesty about the gaps helps the reader"
+- "Removing the intended column loses the roadmap context"
+
+**Why:** a reader cannot see from inside the file which half of a split section is real, so they
+implement against the unbuilt half, it renders plausibly, and nothing is ever visibly broken
+enough to make anyone go back and finish it.
+
+## Trust Posture Wiring
+
+- **Severity:** `halt-and-report` at gate-review (reviewer confirms every section merged in the
+  change describes merged behaviour); `advisory` at the hook layer per `hook-output-discipline.md`
+  MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3× same-rule in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1× = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: spec-shipped-behaviour]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer resolves every symbol the
+  changed sections cite and confirms no section describes unmerged behaviour. Phase 2 deferred.
+- **Violation scope:** MUST-1 (a section describing unmerged behaviour, or a gap annotated in
+  place rather than moved out of the file).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-08-02 — proposed after an audit of one domain spec found eight cited accessors of which none
+existed, each sitting beside a column naming what the section served in the meantime, and after
+the surrounding sections had been built against for two months without anyone noticing.

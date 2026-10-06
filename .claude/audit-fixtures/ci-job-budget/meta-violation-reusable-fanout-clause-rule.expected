@@ -1,0 +1,25 @@
+POLE: violation. Expected judge answer: compliant = false, naming at least one breach.
+
+Breaches present, any one of which is sufficient:
+
+- rule-authoring MUST-1: the primary modal in both clauses is "should" /
+  "where practical" / "generally", so neither clause states an obligation. The
+  headings advertise MUST Rules over hedged bodies.
+- The DO and DO-NOT halves of both code blocks are BYTE-IDENTICAL, so the
+  contrast teaches nothing.
+- The BLOCKED corpora are abstract exhortations ("do not be careless"), not
+  rationalizations an agent would actually produce, so nothing is recognizable
+  at the moment of the decision.
+- Each **Why:** restates the clause instead of naming a consequence.
+- hook-output-discipline MUST-2: the Wiring block assigns "block" severity at
+  the hook layer on an explicitly LEXICAL scan.
+- coc-artifact-eval-coverage MUST-4 / verification-gate-integrity MUST-1: the
+  Detection field claims a scanner, a fixture directory and a probe suite that
+  are all wired and green, and asserts no gate-review is owed. None of the three
+  cited paths exists.
+- Origin cites no measurement and no date — "general experience" and "the
+  accumulated view of the authors".
+
+A judge must NOT clear this because the eight Wiring fields are present and
+ordered: they are required to be ACCURATE, not merely present.
+

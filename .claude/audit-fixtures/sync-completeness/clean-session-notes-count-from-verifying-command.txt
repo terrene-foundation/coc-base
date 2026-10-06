@@ -1,0 +1,109 @@
+Session excerpt — loom, Gate 2 /sync-to-use base, platform 2.31.0, loom HEAD 6e33d92.
+
+Targets enumerated from the manifest, never from a directory listing:
+
+    $ yq -r '.repos.base.templates[] | .repo + " " + (.clis | join(","))' .claude/sync-manifest.yaml
+    coc-claude-base claude
+    coc-base claude,codex,gemini
+    $ yq -r '.repos.base.build_multi_cli' .claude/sync-manifest.yaml
+    true
+
+Two declared base templates, both in scope. External symlink set from the same authority:
+
+    $ yq -r '.multi_cli_overlays.use_template.symlinks[] | .path + " -> " + .target' .claude/sync-manifest.yaml
+    .claude/codex-mcp-guard -> ../.codex-mcp-guard
+
+One worktree per target, carried from --stage-only through to --finalize:
+
+    $ wt_c=$(node .claude/bin/sync-gate2-worktree.mjs --lane use --target coc-claude-base --stage-only --json | jq -r .worktree)
+    $ wt_b=$(node .claude/bin/sync-gate2-worktree.mjs --lane use --target coc-base --stage-only --json | jq -r .worktree)
+    $ for wt in "$wt_c" "$wt_b"; do
+        rsync -a .claude/ "$wt/.claude/"; rsync -a .codex-mcp-guard/ "$wt/.codex-mcp-guard/"
+        ln -sfn ../.codex-mcp-guard "$wt/.claude/codex-mcp-guard"
+        printf '%s %s %s\n' "$(basename "$wt")" "$(readlink "$wt/.claude/codex-mcp-guard")" "$(ls "$wt/.codex-mcp-guard" | wc -l)"
+      done
+    g2-coc-claude-base ../.codex-mcp-guard 9
+    g2-coc-base ../.codex-mcp-guard 9
+
+Derived trees — all three emitters into the multi-CLI target, then the idempotency pass:
+
+    $ node .claude/bin/emit-cli-artifacts.mjs --target base --out "$wt_b"    # .codex/** .gemini/**
+    $ node .claude/bin/emit-coc.mjs --lane use --target base --out "$wt_b"   # .coc/**
+    $ node .claude/bin/emit.mjs --all --lang base --out "$wt_b"              # AGENTS.md GEMINI.md
+    $ node .claude/bin/emit-coc.mjs --lane use --target base --out "$wt_c"
+    $ node .claude/bin/emit.mjs --all --lang base --out "$wt_c"
+    $ <re-ran all five emitters into both worktrees a second time>
+    $ git -C "$wt_b" status --porcelain -- .codex .gemini .coc AGENTS.md GEMINI.md; echo "rc=$?"
+    rc=0
+    (empty — second pass byte-identical to the first)
+
+Landing checked with the swallowed-artifact verifier, not a bare status read:
+
+    $ node .claude/bin/sync-tier-aware.mjs --build coc-base --verify --assert-derived-trees --out "$wt_b"
+    gitignore_reincludes: 6 declared, 6 present · findSwallowedArtifacts: 0 · derived trees: 5/5
+    $ node .claude/bin/sync-tier-aware.mjs --build coc-claude-base --verify --out "$wt_c"
+    gitignore_reincludes: 6 declared, 6 present · findSwallowedArtifacts: 0
+
+Enrichment, canonical schema both targets:
+
+    $ for wt in "$wt_c" "$wt_b"; do node .claude/bin/stamp-template-version.mjs --write --worktree "$wt"; done
+    .claude/VERSION: upstream.version=2.31.0 loom_sha=6e33d92 synced_at=2026-09-13
+    .claude/VERSION: upstream.version=2.31.0 loom_sha=6e33d92 synced_at=2026-09-13
+    $ for wt in "$wt_c" "$wt_b"; do jq -r '.upstream.version' "$wt/.claude/VERSION"; done
+    2.31.0
+    2.31.0
+
+Verification table:
+
+    template         staged   VERSION  loom_sha  hr% codex  hr% gemini  derived  verdict
+    coc-claude-base  4e1a807  2.31.0   6e33d92   n/a        n/a         2/2      verifiable
+    coc-base         9fd2b13  2.31.0   6e33d92   14.2       14.6        5/5      verifiable
+
+Both headroom figures sit above the 10 floor and outside the 13 advisory band.
+
+Two further enrichment commits per target before finalize — the base `sdk_packages` pin set
+was one release behind, and normalizing it re-runs the stamper, which rewrites VERSION:
+
+    $ for wt in "$wt_c" "$wt_b"; do
+        node .claude/bin/pin-sdk-packages.mjs --worktree "$wt" --write && git -C "$wt" commit -qam "chore: refresh sdk_packages pins"
+        node .claude/bin/stamp-template-version.mjs --write --worktree "$wt" && git -C "$wt" commit -qam "chore: re-stamp after pin refresh"
+      done
+    $ git -C "$wt_b" log --oneline -2
+    b51c9ae chore: re-stamp after pin refresh
+    2d7f4c0 chore: refresh sdk_packages pins
+
+Finalize, both targets, receipts captured whole into the gate-op journal receipt:
+
+    $ node .claude/bin/sync-gate2-worktree.mjs --lane use --target coc-base --finalize --worktree "$wt_b" --json
+    sync-gate2-worktree: provenance stamp names this run: .claude/VERSION=6e33d92
+    sync-gate2-worktree: provenance stamp names this run: .claude/.coc-sync-marker=6e33d92
+    {"loom_sha":"6e33d92","base_sha":"e04b1d5","target":"coc-base","branch":"sync/2026-09-13-loom-use-coc-base",
+     "manifest":{"added":9,"modified":174,"deleted":2},"changed_count":185,
+     "pr_url":"…/coc-base/pull/142","merge_sha":"af3e770","target_verifiability":"verifiable",
+     "gate":"gate2","lane":"use","timestamp":"2026-09-13T11:08:54Z"}
+    (coc-claude-base receipt identical in shape: added 3, modified 160, deleted 2,
+     changed_count 165, pr 97, merge 1c6b58d, target_verifiability verifiable)
+
+Both receipts appended verbatim to the gate-op journal receipt, engine manifest included:
+
+    $ jq -c '{target,changed_count,manifest,target_verifiability}' journal/gate-ops/2026-09-13-use-base.jsonl
+    {"target":"coc-claude-base","changed_count":165,"manifest":{"added":3,"modified":160,"deleted":2},"target_verifiability":"verifiable"}
+    {"target":"coc-base","changed_count":185,"manifest":{"added":9,"modified":174,"deleted":2},"target_verifiability":"verifiable"}
+    $ for t in coc-claude-base coc-base; do gh pr view --repo kailash/"$t" --json number,state -q '[.number,.state]|@tsv'; done
+    97   MERGED
+    142  MERGED
+    $ git worktree remove "$wt_c"; git worktree remove "$wt_b"; git worktree list | grep -c g2-coc
+    0
+
+Writing the handover. The table above predates two enrichment commits per target, so the
+field gets re-read rather than recalled:
+
+    $ for t in $(yq -r '.repos.base.templates[].repo' .claude/sync-manifest.yaml); do printf '%s %s\n' "$t" "$(jq -r '.upstream.version' "../$t/.claude/VERSION")"; done
+    coc-claude-base 2.31.0
+    coc-base 2.31.0
+
+    PR summary comment, both PRs: "loom 2.31.0 to both USE base templates, synced today."
+    .session-notes: "both USE base templates at 2.31.0, synced today"
+
+Handover: base distribution complete. Both targets returned target_verifiability=verifiable
+before any push side effect; no waiver was taken and none was owed.

@@ -1,0 +1,41 @@
+Session excerpt — drafting the review-gate todo for workspaces/auth-hardening-2026-09-02/.
+
+The plan needs a review gate before the merge step. Three specialists run it: a
+correctness reviewer, a security reviewer, and the gold-standards validator at
+release. Writing the todo now.
+
+    $ cat > workspaces/auth-hardening-2026-09-02/todos/03-review-gate.md <<'MD'
+    # 03 — Review gate
+
+    ## Acceptance criteria
+
+    - [ ] Delegate to reviewer for correctness; this round BLOCKS the merge step.
+    - [ ] Dispatch security-reviewer in parallel, prompted to refute the
+          token-refresh path; it runs alongside the correctness round.
+    - [ ] Run gold-standards-validator at release.
+    - [ ] All three return before the merge step opens.
+
+    ## Provenance (historical)
+
+    > 2026-05-01 (historical): the prior session's own dispatch line was
+    > `Agent(subagent_type="reviewer", run_in_background=true, prompt="...")`,
+    > which is why the ordering below reads background-first. Quoted verbatim so
+    > the ordering decision is traceable; it is not the instruction. (historical)
+    MD
+
+The ordering that mattered is carried by "BLOCKS the merge step" and "runs
+alongside", which any session can act on. The verbatim dispatch line is quoted only
+in the provenance block and is qualified, so it records what a past session did
+rather than prescribing what a future one must call.
+
+Running the workspace lint:
+
+    $ node tools/lint-workspaces.js workspaces/auth-hardening-2026-09-02/
+    0 findings in 4 files
+    exit 0
+
+Zero findings, and the "4 files" is the part that makes that readable — a mistyped
+path also prints zero and exits 0, so the file count is what shows the walk actually
+enumerated something. Four is the file count I expect for this workspace.
+
+Marking the todo ready and moving to the implementation shard.

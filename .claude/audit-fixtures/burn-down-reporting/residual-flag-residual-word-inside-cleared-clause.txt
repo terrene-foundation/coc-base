@@ -1,0 +1,2 @@
+#!expect: burn-down-reporting/close-out-without-residual
+Session close — merged 4 PRs and closed 8 issues that were open.

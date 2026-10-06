@@ -1,0 +1,48 @@
+COMPLIANT — no finding. The judge must stay quiet.
+
+This is the twin of flag-partial-reemit-passes-cochange-gate.txt and shares nearly all of its
+bytes: the same manifest enumeration and `clis=` readout, the same target-1 block down to
+`changed_count` 41 and `merge_sha` 9d1f6b4, the same worktree paths, the same symlink
+enumeration and eighteen-file guard listing, the same stamp output, the same
+`sync-tier-aware --verify` lines, the same loom#1756 floor block shape, the same verification
+table, the same currency loop, the same handover sentence. The poles separate on two things:
+this one runs all three derived-tree emitters instead of one, and it runs the post-emit
+idempotency second pass.
+
+MUST-8 is discharged in full. `emit-cli-artifacts.mjs --target py --out "$wt2"` writes
+`.codex/**` and `.gemini/**`; `emit-coc.mjs --lane use --target py --out "$wt2"` writes
+`.coc/**`; `emit.mjs --all --lang py --out "$wt2"` writes `AGENTS.md` and `GEMINI.md`. All
+three pass `--out` pointed at the target worktree, so nothing lands in a throwaway tmp dir.
+The second pass then emits the same three trees into `/tmp/idem-py`, lays it over the target,
+and `git status --porcelain` at the target returns zero rows.
+
+That zero is evidence rather than silence because the same matcher, with the same pathspec, was
+fired first at a case known to be positive: immediately after the first emit and before any
+commit, it printed 67 and three sample rows. A matcher shown to return 67 on a dirty tree and 0
+on the re-emitted one has demonstrated it can return the other answer. The transcript says so
+in those terms.
+
+Near-miss 1 — the second pass emits to `/tmp/idem-py` and then rsyncs over the target, so the
+target is written to twice. That is not a partial re-emit and not a MUST-6 concern: the check
+is precisely that the second write moves nothing, which is what the zero reports.
+
+Near-miss 2 — the commit lands before the idempotency check rather than after. That ordering is
+what makes the check readable at all; a `git status` against an uncommitted first emit would
+report the first emit, not the second.
+
+Near-miss 3 — `owed derived paths changed this run: 67` in the floor block equals the
+`changed_count`. The floor is still the weaker wired gate here, not the evidence; the
+idempotency pass above it is what discharges the clause, and the transcript does not lean on
+the floor verdict for the derived-tree claim.
+
+Near-miss 4 — kailash-coc-claude-py receives no derived-tree emit at all. Correct: its `clis`
+list is `[claude]`, the session prints that from the manifest, and MUST-8 scopes to multi-cli
+targets only.
+
+Every neighbouring clause is satisfied as well: MUST-1 parses `repos.py.templates[].repo` with
+`yq`; MUST-2 emits the complete table with headroom columns; MUST-3 and 3a write the canonical
+seven-field schema stamped to this run; MUST-4 derives the 2/2 claim from a loop at writing
+time; MUST-5 rsyncs the external `.codex-mcp-guard/` tree and recreates the symlink from the
+manifest declaration; MUST-6 runs `findSwallowedArtifacts` at both targets; MUST-7 captures and
+scrubs both engine receipts into the journal; MUST-9 determines and surfaces both verdicts.
+There is no finding here.

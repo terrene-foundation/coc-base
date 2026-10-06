@@ -1,0 +1,1 @@
+head=$(gh pr view 2119 --json headRefOid -q .headRefOid); echo "head=${head}"; gh pr merge 2119 --admin --merge

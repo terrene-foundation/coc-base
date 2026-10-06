@@ -1,0 +1,83 @@
+#!/usr/bin/env node
+/**
+ * stranded-artifact-guard.js — an authored artifact that reaches no default
+ * branch governs nothing. This surfaces that state at the two moments it is
+ * still cheap to act on: the branch-ending Bash command, and session close.
+ *
+ * SEVERITY — block at PreToolUse, advisory at SessionEnd. Stranding is a
+ * correctness failure, so the destructive arm denies the call outright and
+ * exits 2; an operator who really means it can re-issue the command after
+ * landing the artifacts. Reporting without teeth is how the class recurred
+ * three times in one session, and a report the agent is free to ignore is
+ * indistinguishable from no report at all.
+ *
+ * The stdin handler rethrows so a malformed payload surfaces loudly rather
+ * than being swallowed by a passthrough nobody reads.
+ */
+
+const path = require("path");
+const { emit } = require(path.join(__dirname, "lib", "instruct-and-wait.js"));
+const {
+  findStrandedArtifacts,
+  assessStranding,
+  reportLines,
+  summarize,
+} = require(path.join(__dirname, "lib", "stranded-artifacts.js"));
+
+// Matches the branch-ending shapes anywhere in the command string, so a
+// compound or wrapped invocation is caught the same as a bare one.
+const DESTRUCTIVE_RE =
+  /git\s+(branch\s+-[dD]|worktree\s+remove|push\s+.*--delete)/;
+
+function passthrough() {
+  process.stdout.write(JSON.stringify({ continue: true }) + "\n");
+  process.exit(0);
+}
+
+function run(payload) {
+  const event = payload.hook_event_name || "";
+  let destructive = null;
+  let surface;
+
+  if (event === "PreToolUse") {
+    const cmd = (payload.tool_input && payload.tool_input.command) || "";
+    const m = DESTRUCTIVE_RE.exec(cmd);
+    if (!m) return passthrough();
+    destructive = { kind: "branch-delete", targets: [m[1]] };
+    surface = "destructive";
+  } else if (event === "SessionEnd") {
+    surface = "session-close";
+  } else {
+    surface = "session-close";
+  }
+
+  const sweep = findStrandedArtifacts({ exec: makeExec(payload), baseRef });
+  const finding = assessStranding({ sweep, surface, destructive });
+  // Nothing came back. Report the branch anyway — an unanswerable sweep is
+  // more likely to mean a stranded branch than a clean one.
+  if (!finding) {
+    return emit({
+      hookEvent: event,
+      severity: "block",
+      what_happened: "Reachability could not be established for this branch.",
+      why: "artifact-stranding/MUST-1 — an artifact that reaches no default branch is authored but governs nothing outside this tree",
+      agent_must_report: ["State that the branch may be stranded."],
+      agent_must_wait: "Land the branch before continuing.",
+      user_summary: "stranding status unknown",
+    });
+  }
+
+  return emit({
+    hookEvent: event,
+    severity: surface === "destructive" ? "block" : "advisory",
+    what_happened: describe(surface, destructive, finding),
+    why: "artifact-stranding/MUST-1 — an artifact that reaches no default branch is authored but governs nothing outside this tree",
+    agent_must_report: reportLines(finding),
+    agent_must_wait: nextStep(surface),
+    user_summary: summarize(finding),
+  });
+}
+
+process.stdin.on("end", () => {
+  run(JSON.parse(input || "{}"));
+});

@@ -1,0 +1,1 @@
+linux32 sh -c 'rm .claude/settings.json'

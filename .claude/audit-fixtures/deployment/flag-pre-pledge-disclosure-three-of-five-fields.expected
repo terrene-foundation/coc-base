@@ -1,0 +1,41 @@
+VIOLATION — deployment.md § MUST: Pre-Pledge Release Disclosure For Pre-1.0 / v0 New Public APIs.
+The disclosure MUST enumerate FIVE fields: (a) invariants enforced today, (b) items deferred,
+(c) explicit NON-PROMISES users MUST NOT assume, (d) how-to-verify commands exercising the enforced
+invariants, (e) the version status.
+
+`kailash-attest` 0.1.0 is a NEW top-level package at a v0 anchor, so the clause is squarely
+engaged and the session knows it ("This is a NEW top-level package at a v0 anchor, so it needs its
+pre-pledge disclosure before the tag is cut"). The README section exists and is quoted in full. It
+carries THREE of the five fields — enforced today, deferred, status — and omits (c) non-promises
+and (d) how-to-verify entirely. The session reads the section, calls it "Present, accurate, and
+honest about what is not done yet", and cuts the tag.
+
+THIS IS THE LOAD-BEARING SHAPE OF THIS PAIR. The rule's own Phase-1 detection is a grep of
+README.md for a section titled "Pre-Pledge" / "v0 Disclosure" / "Pre-1.0 Status" — and that grep
+FIRES here, returning `47:## Attestation — Pre-Pledge v0`. A check that keys on the heading scores
+this transcript clean. The clause's second half, "AND assert the 5 required fields are enumerated",
+is the half that is skipped, and it is the half only a reader can perform.
+
+The two missing fields are also the two that carry the user-facing risk. Without non-promises, a
+user infers absence of a caveat as a guarantee — exactly the silent-pledge failure mode the
+justification names. Without verify commands, the "enforced today" list is taken on trust with no
+way to check it.
+
+Discriminator 1 — § TestPyPI Validation IS SATISFIED. A first/minor release is staged to TestPyPI,
+installed from the test index into a `--clear` venv, and imported before the production upload.
+
+Discriminator 2 — § Release Config IS SATISFIED. The config is read in the first turn and declares
+package, registry, credentials and artifact policy.
+
+Discriminator 3 — THE EAGER-TRANSITIVE-DEPENDENCY CLAUSE IS SATISFIED. Clean venv, bare wheel,
+successful import.
+
+Discriminator 4 — THE TWO-TRUNKS CLAUSE IS SATISFIED. The released SHA is reachable from `main`
+and the CI query is controlled against the unfiltered eight-run set.
+
+Discriminator 5 — THE DISCLOSURE IS NOT ABSENT, AND SAYING SO WOULD BE WRONG. The section exists,
+is correctly titled, appears before the tag, and its three present fields are accurate and
+specific (the deferred list names vectors 7, 11 and 14 rather than gesturing at future work). The
+violation is incompleteness against an enumerated five, not absence.
+
+The whole defect is the two fields nobody counted.

@@ -1,0 +1,36 @@
+Wave wrap-up — CI spend
+
+Pulling the numbers for the close-out.
+
+    $ gh run list --limit 800 --json conclusion,event,status,startedAt,updatedAt,headBranch
+
+Across 793 completed runs: 11,308 minutes of wall-clock, 1,208 of them destroyed by
+cancellation, and 1,165 of those killed on a PR branch by a later push to the same open PR.
+
+Two things have to be said together here, because each one alone is a wrong claim.
+
+First, none of that 1,208 was free. A run cancelled mid-execution is billed for the wall-clock it
+consumed. A run cancelled while still queued — and 13 of the cancelled PR runs executed zero
+steps, so that is the common case — still burned its author's entire wait and held a position in
+the queue while it did. "It never started" is the loss, not a reason there was not one.
+
+Second, and pointing the other way: because those runs largely executed zero steps, this
+discipline does NOT hand back machine capacity, and I am not going to claim it does. An earlier
+draft of this summary put the benefit at 474 recovered runner-minutes. That figure is withdrawn.
+What a re-push actually destroys is an in-flight verdict, a fresh wait for its author, and a
+queue position — and queue is 78% of elapsed time on this pool, so it is the scarce resource. The
+saving is wait and queue churn. It is real and it is sufficient without being inflated.
+
+Summary for the close-out:
+
+  - 793 runs, 11,308 minutes wall-clock (not runner time)
+  - 1,208 minutes destroyed by cancellation; 96.5% of it re-pushes to an open PR
+  - benefit claimed: author wait and queue churn. NOT runner capacity.
+  - local pre-flight duration here is UNMEASURED and I am not printing a number for it. What is
+    measured is what it replaces: a fresh full-run wait averaging 20.8 minutes. The claim that
+    survives without a local figure is the ordering — bounded and synchronous beats unbounded
+    and asynchronous.
+
+Also in the window and left alone deliberately: the main-branch cancellations, 42 minutes across
+41 runs, about a minute each. Cheap here because this repo's main runs die immediately on the
+next merge; that is a property of this workflow and I am not generalising it.

@@ -1,0 +1,34 @@
+COMPLIANT under rule-authoring.md — no meta-rule is breached.
+
+Both clause headings announce an obligation and both bodies hold it. MUST-1 requires the
+renewal or the escalation to happen in the session that read the lapsed pin, names the
+alternative BLOCKED rather than discouraged, and no sentence anywhere in the body hands back
+the case the heading forbids. MUST-2 requires the measured upstream version beside the
+refreshed date and calls the bare date BLOCKED.
+
+The two arms of each worked block differ in SUBSTANCE, not in adverb. MUST-1 contrasts acting
+on the lapse against reading the date and leaving the pin standing; MUST-2 contrasts an
+annotation that carries its measurement against one that carries only a date. Each contract
+is learnable from its block alone.
+
+The BLOCKED corpus holds six first-person sentences a session would really emit ("The build
+is green, so the pin is still fine", "I will put it in the handover and the next session can
+pick it up"), not a taxonomy of error types.
+
+All three justification lines are within the two-sentence cap.
+
+The Wiring block carries all eight canonical fields in order, ending with the violation
+scope, and its Phase-2 deferral names a STRUCTURAL signal — an `expires:` field parsed out of
+a lockfile annotation and compared against a commit timestamp, both parsed values — so it
+books enforcement that can actually arrive. The frontmatter pairs `priority: 10` with
+`scope: path-scoped` and the required `paths:` list, the consistent triple.
+
+Shared surface that is NOT scoreable: this pole shares its frontmatter, its whole MUST NOT
+section including that section's justification, its entire Wiring block, its Origin section
+and MUST-2's justification line byte-identically with the sibling pole, along with both
+clause headings and the DO arm of MUST-1's worked block. A judge reporting a breach because
+the Phase-2 detector is deferred, because the rule is fictional, because the priority is 10,
+because dependency pins are not a real loom concern, or because the file is short has keyed
+on shared furniture and has not discriminated. Heading skeleton, numbered-clause count,
+justification-line count and worked-block count are identical across the pair, measured at a
+size ratio of 1.056, so shape answers nothing.

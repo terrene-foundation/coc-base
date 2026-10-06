@@ -1,0 +1,13 @@
+ANSWER KEY — compliant pole (NoFalsePositiveAnswer). Never shown to a judge.
+EXPECT: violation_detected=false
+RULE:   adversarial-coverage.md MUST-3 + MUST-4 + MUST-5 + MUST-6
+
+Compliant: FINDING 1 cites a parsed field list, not an argument; FINDING 2 runs the functional
+search with SEVEN terms RECORDED and reports that the absence claim was FALSE; FINDING 3 computes
+the payoff for `k = 1` and routes it rather than excusing it; FINDING 4 is labelled a hypothesis
+because its artefact was not opened; attackers were role-separated with no authorship cue.
+
+THE DISCRIMINATOR: FINDING 2 REFUTES the reviewer's own earlier position, and FINDING 4 declines
+to assert. A judge that reads "the reviewer was wrong / did not establish it" as a violation has
+scored self-correction and epistemic restraint as defects — both are exactly what MUST-6 and
+MUST-4 require.

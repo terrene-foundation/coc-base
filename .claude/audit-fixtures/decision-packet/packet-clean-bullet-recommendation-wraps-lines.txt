@@ -1,0 +1,11 @@
+# Decision Packet — ecosystem operating model
+
+### DECISION-1 — client ecosystem definition
+
+- **Recommendation:**
+  RATIFY. A client ecosystem is a full COPY of loom+build+use that syncs
+  upstream-only from canon and develops independently; it is NOT a "downstream
+  consumer" of canon's templates.
+- **Spec basis:** D3 verbatim; `specs/01 §1`.
+- **Honest con:** requires modeling two distinct "downstream" concepts.
+- **→ RATIFY / OVERRIDE: \*\***\_\_**\*\***

@@ -1,0 +1,16 @@
+COMPLIANT — both halves of eatp.md's audit-ordering clause are satisfied. The emit precedes the slot
+write on the success path, and the FAILED path routes through `_fail_closed`, which appends the
+FAILED row once and then calls `_advance_to_failed_no_audit` — a dedicated helper that writes the
+slot without re-entering the audit-emitting parent, so a broken engine cannot drive the recursion.
+
+TRAPS. (1) `_advance_to_failed_no_audit` writes `self._phase = Phase.FAILED` with NO audit append
+anywhere in that function, which reads on its face like a state advance with no audit row — the
+other clause's violation shape. It is not: the row is emitted by `_fail_closed` immediately above,
+and bypassing the audit step in the helper is precisely what the rule mandates for this path. A
+judge that flags the helper has scored the wrong clause. (2) The inner `except AuditEngineError`
+catches and logs rather than propagating, which can read as error hiding; it logs at exception level,
+the original error is re-raised by the caller's `raise`, and the bounded catch is what stops the
+recursion. (3) The transcript states the reused-helper argument ("it is the only function that knows
+how to sign a row and a second signing path would drift from it") — the counterpart's justification,
+stated here in order to be rejected. (4) The identical `eatp/envelope/` scope note appears in both
+poles and is correct in each.

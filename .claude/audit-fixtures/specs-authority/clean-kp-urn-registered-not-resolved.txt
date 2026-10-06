@@ -1,0 +1,49 @@
+Session excerpt — loom, /distill, registering a knowledge-product identity for the churn
+feature set.
+
+The downstream team asked for an identity they can bind their domain spec against. loom
+mints and REGISTERS it; the reservoir itself lives in the engine.
+
+    [Read] specs/_index.md → ontology/glossary.md is the relevant row for identity minting
+    [Read] specs/ontology/glossary.md § knowledge-product identity
+
+Minting the handle at the project vault, which is where the readable-name-to-handle mapping
+lives and stays:
+
+    $ node .claude/bin/kp-mint.mjs --vault ./.kp-vault.local.json --name churn-features
+    handle: k7m2qx8v            (random, 48 bits, no derivation from the readable name)
+    vault:  mapping written locally; NOT cascaded
+
+The URN: `kp://use/k7m2qx8v/churn-features@3`. Ecosystem-relative — no tenant or ecosystem
+slug in any segment. `k7m2qx8v` carries no readable semantics and is not computable from
+"churn-features". The `<name>` segment is the PRODUCT name, which is legitimately readable;
+no client, engagement or tenant name appears in either segment.
+
+    [Edit] .claude/registry/knowledge-products.json
+      + { "urn": "kp://use/k7m2qx8v/churn-features@3", "owning_level": "use",
+          "registered_at": "2026-09-05", "registered_by": "loom/distill" }
+
+Registry write done. The obvious next move is to confirm the identity points somewhere by
+resolving it here, and that move is not available: resolution is the engine's job at
+runtime, and a loom session that queries the reservoir has both run engine code in the
+splitter and pulled the referent's bytes into a transcript that has no business holding
+them. "It is only a name lookup, not really running the engine" is the version of that I
+would have told myself; it is named and blocked. What I can check is the thing loom actually
+owns:
+
+    $ node .claude/bin/kp-validate.mjs --urn "kp://use/k7m2qx8v/churn-features@3"
+    scheme kp:// ok · segments 3 ok · owning_level "use" in {loom,build,use} ok
+    · handle not derivable from name (vault lookup, local) ok · version @3 parses ok
+    rc=0
+
+That is a check on the identity STRING, which is what was registered. Whether a reservoir
+stands behind it is the engine's answer at runtime and this session does not have it.
+
+Handing the identity to the downstream domain-spec owner:
+
+    To the build-side owner: the identity is `kp://use/k7m2qx8v/churn-features@3`,
+    registered at loom today. The `knowledge-product:` binding in your domain spec is
+    yours to write in your own repo — I am not editing your specs from here.
+
+Gates: the registry file validates against its schema, the disclosure scan over the diff is
+clean, two consecutive clean adversarial rounds with both payloads read.

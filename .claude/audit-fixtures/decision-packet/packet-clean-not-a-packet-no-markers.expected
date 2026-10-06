@@ -1,0 +1,9 @@
+path: workspaces/audit/04-validate/r3-findings.md
+expect:
+family: whole-file SCOPE gate (reject pole)
+note: An ordinary audit table with a literal "Recommendation" column, one of whose
+  cells is EMPTY — so the inner classifier would flag it if it were ever reached. It
+  is not reached: the file declares no ratify gate and no ANSWER marker, so it never
+  identifies itself as a decision packet and the scope gate returns before any table
+  is walked. This is the pole that keeps the detector off the thousands of ordinary
+  documents the corpus sweep covered.

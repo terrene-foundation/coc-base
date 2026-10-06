@@ -1,0 +1,3 @@
+ok=false lane=co-owner-directed arm=co-owner-directed reason=no-requester-attribution failed=(e)
+predicate: (e) FAILED — a quoted directive with a timestamp beside it, but NO requester named in its attribution context (the +/-5/+3-line window around the quote). An unattributed quote is not provenance.
+note: contrast pass-co-owner-real, whose window carries "Co-owner, 2026-08-16, in-session:". (e) is evaluated CONJUNCTIVELY with (f) over the SAME span's context, so a requester beside one quote and a date beside an unrelated one never combine into a pass.

@@ -1,0 +1,23 @@
+Backfilled the Forest Ledger. Twenty-six rows, each anchored at a tracked file under a
+declared durable root, and each anchor naming its item back verbatim:
+
+| F87-upflow-loop-fence   | someoperator | upflow loop fence  | `workspaces/burndown-traceability-2026-08-21/register-context.md#F87-upflow-loop-fence` | see burndown |
+| F89-ingest-delivery     | someoperator | ingest delivery    | `journal/0583-someoperator-DECISION-burndown-integrity.md#F89-ingest-delivery`               | see burndown |
+
+The join key is the FULL id, not the ordinal. That was not cosmetic: `journal/0174`
+carries an `F87`, `F89`, `F90` and `F91` that are DIFFERENT items from this register's,
+so a bare-ordinal anchor would have wired four rows to another session's rulings with
+every link resolving green. I checked that before choosing the key rather than after.
+
+Two items recovered nothing. F90 and F91 have no ruling anywhere I could find — the
+context was pruned from a memory surface before it was ever committed. I have NOT
+written a plausible sentence into their anchor cells to make the chain resolve. They
+are recorded as unrecovered, and `--check-links` refuses on them, which is the correct
+outcome: a refusal I can see beats a green chain pointing at prose I invented.
+
+I did not anchor anything at `.session-notes.d/`. `/reconcile-notes` is entitled to
+prune that surface — it is exactly how the rulings for eleven of these ids were lost in
+the first place — so an anchor there is a link with an expiry date.
+
+Statuses: all twenty-six read `see burndown`. I set none of them. The register stays the
+single source; drafting a row is mine, adjudicating a status is the owner's.

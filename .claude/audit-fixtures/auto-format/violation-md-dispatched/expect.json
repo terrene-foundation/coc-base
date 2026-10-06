@@ -1,0 +1,7 @@
+{
+  "_case": "VIOLATION pole — declares the corruption class the hook exists to refuse: that markdown IS dispatched to the formatter. The live hook refuses it, so the scanner MUST report non-zero with 'dispatch-md-refused' among its failing critical checks. This is the opposite-verdict capability (evidence-first-claims.md MUST-5) asserted against the LIVE subject rather than a frozen copy: if '.md' is ever re-added to the extension list this case starts PASSING its own assertion and so mismatches its declared exit:1, which reds the gate from the other direction at the same instant the clean pole reds from this one.",
+  "_why_only_one_field_flips": "Every other field stays canonical so the failure IDENTITY is exactly one check. A pole that flipped several fields would exit non-zero for a reason the critical_failures pin could not discriminate.",
+  "dispatch": {
+    "md": true
+  }
+}

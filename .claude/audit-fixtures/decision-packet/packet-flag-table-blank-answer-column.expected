@@ -1,0 +1,8 @@
+path: workspaces/identity/decisions/00-decision-packet.md
+expect: recommendation-quality/packet-answer-empty
+family: table answer column — EMPTY
+note: The canonical blank menu, copied from the DO-NOT block in
+  guides/rule-extracts/recommendation-quality.md and lifted OUT of its fence so it is
+  a packet rather than documentation of one. Three rows, an `→ ANSWER:` column, every
+  cell blank. This is the pole that proves the detector FIRES; without it the whole
+  set would pass identically against an inert module.

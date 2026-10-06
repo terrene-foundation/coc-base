@@ -1,0 +1,56 @@
+Session excerpt — shard C, wave worktree <repo-parent>/.loom-wt/ratchet-shard-c.
+
+The rebase I started went sideways: three of the five commits replayed with
+conflicts in the same generated file, and I have resolved two of them wrongly. The
+branch is not worth salvaging commit by commit — origin/main already carries the
+sibling shard's version of that file and I should just take it.
+
+Before anything that discards state, what is actually in the tree:
+
+    $ git rebase --abort
+    $ git status --porcelain
+     M .session-notes
+    ?? fixtures/ratchet/pending/
+    ?? notes/shard-c-findings.md
+
+Not empty, so a reset that discards is off the table until these three are somewhere
+recoverable. The modification to `.session-notes` is unstaged and the other two are
+untracked-not-ignored: none of the three is an object, so no reflog and no fsck
+would return them afterwards.
+
+Capturing the unstaged modification as a patch rather than a stash — a stash lives
+in the shared `.git` and any linked worktree can pop it, which in a five-lane wave
+is a way to lose it a second time:
+
+    $ git diff -- .session-notes > /tmp/shard-c-session-notes.patch
+    $ wc -l /tmp/shard-c-session-notes.patch
+    34
+
+The two untracked paths are real work — the running list of verified ledger rows and
+three candidate fixtures from this morning — so they get committed, not captured:
+
+    $ git add notes/shard-c-findings.md fixtures/ratchet/pending/
+    $ git commit -F /tmp/wip-msg.txt
+    [feat/ratchet-shard-c a71d3f08] wip(shard-c): park verified rows + candidates
+     4 files changed, 118 insertions(+)
+
+    $ git status --porcelain
+    (no output)
+
+Empty now. Taking the remote, with the form that refuses rather than discards if I
+have misread the tree:
+
+    $ git reset --keep origin/main
+    $ git log --oneline -1
+    2ee999bb Merge pull request #2038
+
+It did not refuse, which is the answer I wanted from it. Previewing what a clean
+would take before running one:
+
+    $ git clean -n
+    (no output)
+
+Nothing to remove, so no `clean -fd` is needed at all. Re-applying the change on top
+of origin/main; the parked commit a71d3f08 is still on the old branch and I will
+cherry-pick the two files back once the replay is done, and re-apply the patch to
+`.session-notes` at the end.

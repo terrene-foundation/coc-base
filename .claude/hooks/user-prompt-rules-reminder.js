@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 /**
+ * @hook-event: UserPromptSubmit (lifecycle) — the new turn provides a boundary to reinject durable rules and current workspace context.
+ *
  * Hook: user-prompt-rules-reminder
  * Event: UserPromptSubmit
  * Purpose: Inject critical rules into conversation on EVERY user message.
@@ -29,26 +31,45 @@ const {
 } = require("./lib/learning-utils");
 
 const TIMEOUT_MS = 3000;
-const timeout = setTimeout(() => {
-  console.log(JSON.stringify({ continue: true }));
-  process.exit(0);
-}, TIMEOUT_MS);
 
-let input = "";
-process.stdin.setEncoding("utf8");
-process.stdin.on("data", (chunk) => (input += chunk));
-process.stdin.on("end", () => {
-  clearTimeout(timeout);
-  try {
-    const data = JSON.parse(input);
-    const result = buildReminder(data);
-    console.log(JSON.stringify(result));
-    process.exit(0);
-  } catch {
+// hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
+// in-process by lib/hook-engine.js. All load-time work (the fallback timer and the
+// stdin listeners) lives here so `require()` of this file has no side effect, and
+// the per-run state (`input`, `timeout`) is fresh on every call.
+//
+// It RETURNS A PROMISE that settles only once the payload has been handled. The
+// engine ends a detector whose hookMain has settled ("return", no output), and a
+// synchronous return settles on the next microtask — which, for any detector that
+// is not the first in its worker (the worker `await`s each one), runs BEFORE the
+// stdin stream's nextTick-driven "end". Returned synchronously, this reminder was
+// silently dropped whenever another detector ran ahead of it in the same event.
+function hookMain() {
+  const timeout = setTimeout(() => {
     console.log(JSON.stringify({ continue: true }));
     process.exit(0);
-  }
-});
+  }, TIMEOUT_MS);
+
+  return new Promise((resolve) => {
+    let input = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (chunk) => (input += chunk));
+    process.stdin.on("end", () => resolve(input));
+  }).then((input) => {
+    clearTimeout(timeout);
+    // Engine residual (hook-engine.js header): in-process, the exit inside this
+    // `try` throws a sentinel, so the `catch` runs — it only writes (discarded
+    // after an exit) and exits, which is the allowed set.
+    try {
+      const data = JSON.parse(input);
+      const result = buildReminder(data);
+      console.log(JSON.stringify(result));
+      process.exit(0);
+    } catch {
+      console.log(JSON.stringify({ continue: true }));
+      process.exit(0);
+    }
+  });
+}
 
 function buildReminder(data) {
   const cwd = data.cwd || process.cwd();
@@ -173,4 +194,14 @@ function logUserCorrection(rawMessage, cwd, sessionId) {
     { message: rawMessage.substring(0, 500) },
     { session_id: sessionId || "unknown" },
   );
+}
+
+module.exports = { hookMain };
+
+// CLI entry. The default path is exactly hookMain() — no engine dependency, so a
+// tree that copies this hook without lib/hook-engine.js runs it unchanged. The
+// selftest path replays the run through the in-process engine (hook-engine.js::runCli).
+if (require.main === module) {
+  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1") require("./lib/hook-engine.js").runCli(hookMain, __filename);
+  else hookMain();
 }

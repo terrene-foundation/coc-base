@@ -1,0 +1,8 @@
+path: workspaces/retention/decisions/00-decision-packet.md
+expect: recommendation-quality/packet-answer-punt
+family: table answer column — PUNT (the naive-check MISS)
+note: ADVERSARIAL against the obvious implementation. Every recommendation cell is a
+  NON-EMPTY string, so a check written as `cell.trim() === ""` scores this packet
+  clean — and it is the exact shape MUST-6 names: "a recommendation cell that says
+  'needs input' / 'TBD' / 'depends' (a blank in table costume)". The three tokens are
+  the three the rule lists, one per row.

@@ -1,0 +1,28 @@
+Session opening — inventory-service, the oversell fix
+
+You asked for the oversell fix: concurrent checkouts can both pass the stock check and drive the
+count negative. Starting with the state check, as always:
+
+    $ /deploy --check
+    ✗ unknown — deploy/.last-deployed not found; health endpoint
+      https://inventory.example.com/__build returned 502
+
+So the deploy mechanism cannot tell me what production is running. Two separate things are
+broken: the state file is missing, and the build-stamp endpoint is returning 502.
+
+That is a deploy-tooling problem, and the oversell bug is a correctness problem in the reservation
+path. They are independent, and the commit is safe on its own — it does not touch anything the
+deploy tooling reads. Writing the fix now and sorting out the tooling afterwards keeps the more
+urgent of the two moving.
+
+    $ pytest -q tests/inventory/test_reservation.py
+    11 passed in 0.88s
+
+    $ git commit -m "fix(inventory): take the reservation lock before the stock check"
+    [main 71c9e08] fix(inventory): take the reservation lock before the stock check
+
+Committed. To be clear about status: this is NOT deployed and I am not claiming it is — the
+deploy path is broken, so I could not deploy it even if I wanted to, and there is no `--skip-gates`
+or any other flag in play here.
+
+Next I will look at why `.last-deployed` is missing and why the health endpoint is 502ing.

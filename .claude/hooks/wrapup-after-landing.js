@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 /**
+ * @hook-event: PostToolUse:Bash (guard) — the completed merge command is available to trigger a wrapup reminder; the agent still judges notes freshness.
+ *
  * wrapup-after-landing.js — PostToolUse(Bash) backstop for the wrapup-on-landing
  * discipline (co-owner-directed, 2026-06-19).
  *
@@ -32,36 +34,95 @@ const path = require("path");
 // (matches the Rule-7 snippet + the sibling fold-amendment-paired-with-helper.js).
 // .unref() so the pending timer never holds the event loop open on its own.
 const TIMEOUT_MS = 5000;
-const _timeout = setTimeout(() => {
-  process.stdout.write(JSON.stringify({ continue: true }) + "\n");
-  process.exit(1);
-}, TIMEOUT_MS);
-_timeout.unref?.();
+let _timeout = null;
 
 function passthrough() {
   process.stdout.write(JSON.stringify({ continue: true }) + "\n");
   process.exit(0);
 }
 
-// A `gh pr merge` at command start or after a shell separator (`;`, `&&`, `|`)
-// is the landing signal. The negative lookahead excludes `gh pr merge --help`/
-// `-h` (the common non-landing invocation). The anchor is SEGMENT-based, not a
-// shell parser, so it cannot see quoting — a `;`/`|`-preceded `gh pr merge`
-// LITERAL inside a quoted string (e.g. `echo 'a; gh pr merge'`) over-fires. That
-// residual is ACCEPTED: the hook is advisory + fail-open, so an over-fire costs
-// only one nudge the agent acknowledges (the false-positive carve-out of
-// hook-output-discipline.md MUST-4) — never a block. A space-preceded substring
-// (`echo 'run gh pr merge later'`) is correctly excluded by the separator anchor.
+// A `gh pr merge` that is a COMMAND — not the same text quoted, heredoc'd or
+// commented — is the landing signal.
+//
+// WHY THIS IS NOW PARSED RATHER THAN MATCHED. Until 2026-09-13 this was a raw
+// regex anchored on a shell separator, and the comment here ACCEPTED its
+// over-fire on a `;`/`|`-preceded literal inside a quoted string, reasoning that
+// an advisory over-fire costs "only one nudge". Measured, that reasoning did not
+// hold: the hook fired FOUR times in one session on commands that merged nothing
+// — twice inside a `node -e` argument carrying `gh pr checks 42 && gh pr merge 42`
+// as TEST DATA, and twice on a commit-message heredoc quoting the same text in
+// its verification notes. Each fire demanded a `.session-notes` refresh for a
+// landing that never happened, and the correct response to each was to explain
+// why the hook was wrong. An advisory that must be argued with on ordinary work
+// is not a cheap nudge; it is training to skim past the channel, and it shares
+// that channel with every other advisory.
+//
+// The separator anchor is also the thing that made it fire: quoted prose reaches
+// it exactly when a `;` or `&&` precedes the token, which is what a QUOTED SHELL
+// EXAMPLE looks like — so the anchor selected FOR the false-positive shape.
+//
+// ONE LINEAGE, not a second dialect. `dispatchSurface` strips heredoc bodies and
+// shell comments, then `parseGhInvocations` splits quote-aware and tokenizes, so
+// a `gh pr merge` inside quotes is DATA and never a command word. This is the
+// same machinery `hooks/lib/check-merge-separation.js` already uses for the same
+// token — it classified every one of these four cases correctly while this hook
+// fired, which is the measurement that decided the fix. Two matchers for one
+// token drift; the sibling was already right.
+//
+// Fails OPEN and stays advisory: if the parser cannot be loaded or throws, the
+// old anchor answers, because a missed wrapup nudge is cheaper than a crash in a
+// PostToolUse hook.
 function isLandingCommand(cmd) {
-  return /(^|[\n;&|]\s*)gh\s+pr\s+merge\b(?!\s+(?:--help|-h)\b)/.test(
-    String(cmd),
-  );
+  const raw = String(cmd == null ? "" : cmd);
+  try {
+    // `parseGhInvocations` NORMALIZES THROUGH `dispatchSurface` ITSELF — heredoc
+    // bodies and shell comments are stripped inside it, and the quote-aware split
+    // happens there too. It takes the RAW command, exactly as the sibling calls
+    // it. An earlier revision of this fix destructured `dispatchSurface` and
+    // pre-applied it; that helper is not exported, so the call threw and the
+    // catch below silently answered with the very regex this change replaces —
+    // the fix looked applied and never executed once.
+    const { parseGhInvocations } = require("./lib/git-command-parse.js");
+    const invs = parseGhInvocations(raw);
+    return (invs || []).some(
+      (inv) =>
+        inv &&
+        inv.group === "pr" &&
+        inv.sub === "merge" &&
+        !(Array.isArray(inv.argv)
+          ? inv.argv.some((t) => t === "--help" || t === "-h")
+          : false),
+    );
+  } catch {
+    return /(^|[\n;&|]\s*)gh\s+pr\s+merge\b(?!\s+(?:--help|-h)\b)/.test(raw);
+  }
 }
 
-let input = "";
-process.stdin.on("error", passthrough); // stdin read error → immediate fail-open (not 5s timeout-delayed)
-process.stdin.on("data", (d) => (input += d));
-process.stdin.on("end", () => {
+// hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
+// in-process by lib/hook-engine.js (dispatch.js). Everything a standalone run
+// did at load time happens here instead, so a require() has no side effects.
+function hookMain() {
+  _timeout = setTimeout(() => {
+    process.stdout.write(JSON.stringify({ continue: true }) + "\n");
+    process.exit(1);
+  }, TIMEOUT_MS);
+  _timeout.unref?.();
+  return new Promise((resolve, reject) => {
+    let input = "";
+    process.stdin.on("error", passthrough); // stdin read error → immediate fail-open (not 5s timeout-delayed)
+    process.stdin.on("data", (d) => (input += d));
+    process.stdin.on("end", () => {
+      try {
+        onStdinEnd(input);
+      } catch (e) {
+        return reject(e);
+      }
+      resolve();
+    });
+  });
+}
+
+function onStdinEnd(input) {
   clearTimeout(_timeout);
   try {
     const payload = JSON.parse(input || "{}");
@@ -92,4 +153,14 @@ process.stdin.on("end", () => {
   } catch {
     return passthrough();
   }
-});
+}
+
+module.exports = { hookMain };
+
+// CLI entry. The default path is exactly hookMain() — no engine dependency, so a
+// tree that copies this hook without lib/hook-engine.js runs it unchanged. The
+// selftest path replays the run through the in-process engine (hook-engine.js::runCli).
+if (require.main === module) {
+  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1") require("./lib/hook-engine.js").runCli(hookMain, __filename);
+  else hookMain();
+}

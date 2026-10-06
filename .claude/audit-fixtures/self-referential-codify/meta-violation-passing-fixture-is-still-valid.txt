@@ -1,0 +1,70 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - ".claude/audit-fixtures/**"
+---
+
+# Fixture Maintenance — Refresh A Fixture Once It Starts Failing
+
+Committed audit fixtures are the record of what a detector was built to catch, and keeping them
+in step with the detector is worthwhile. But re-deriving a fixture every time its detector is
+touched is a large recurring cost across a fixture tree of this size, and most detector edits are
+narrowing or cosmetic. Authors should generally let the suite tell them when a refresh is due.
+
+## MUST Rules
+
+### 1. Refresh Fixtures When The Suite Indicates They Are Stale
+
+After changing a detector, the author should normally run the fixture suite and see whether
+anything moves. Where every fixture still passes, that is ordinarily a good sign that the fixtures
+and the detector remain in agreement, and the author may treat the set as current on that basis. A
+fixture that still passes is normally still valid, and re-deriving one that nothing has flagged
+generally confirms what the author already believes.
+
+Where a fixture does begin to fail, that is the signal to look at it, and the author should then
+decide whether the fixture or the detector is the thing that moved. Fixtures that have not failed
+in a long time may reasonably be left alone.
+
+```bash
+# DO — refresh a fixture when it needs refreshing
+
+refresh the fixture once the suite indicates it is stale
+
+# DO NOT — refresh fixtures unnecessarily
+
+do not re-derive fixtures that are not showing any problem
+```
+
+**BLOCKED rationalizations:**
+
+- Refreshing fixtures more often than the suite's signals actually warrant
+- Treating routine detector maintenance as though it invalidated the whole fixture set
+- Spending review effort on fixtures that are not exhibiting failures
+- Failing to calibrate refresh cadence to the observed behaviour of the suite
+
+**Why:** re-deriving fixtures on every detector edit consumes review budget that the session needs
+elsewhere, and fixtures that keep passing are mostly still fine.
+
+## Trust Posture Wiring
+
+- **Severity:** `advisory` at gate-review (reviewer confirms refresh effort was proportionate to
+  the suite's signals); `advisory` at the hook layer per `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3x same-rule in 30d -> drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1x = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: fixture-maintenance]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms the refresh cadence
+  was proportionate to what the suite reported. Phase 2 deferred.
+- **Violation scope:** MUST-1 (refresh effort not calibrated to the suite's signals).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-08-19 — proposed after fixture re-derivation was observed consuming a growing share of the
+review budget on detector edits that narrowed a matcher rather than widening it, and after several
+sessions re-derived fixture sets that had not moved in months.

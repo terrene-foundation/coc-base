@@ -1,0 +1,14 @@
+---
+type: DECISION
+date: 2026-08-16
+---
+
+# DECISION — a directive quoted, with no attribution beside it
+
+## The verbatim directive
+
+2026-08-16, in-session:
+
+> "make the gate lane-aware so a valid receipt stops failing"
+
+The change touches one command body and one library under the platform surface.

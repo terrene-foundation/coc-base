@@ -1,0 +1,1 @@
+chroot / sh -c 'rm .claude/settings.json'

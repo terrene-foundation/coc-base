@@ -1,0 +1,49 @@
+VIOLATION — MUST-1, upper bound B: a wave's CUMULATIVE load-bearing-invariant surface, the
+union of its shards' tracked invariants, must be ≤10 base, or ≤30–50 with a live executable
+convergence/eval harness. A milestone-group whose shard-union exceeds this MUST split into ≥2
+waves at the invariant boundary — even when value-coherent. Wave 2 here unions 14 with no
+harness, and is declared whole.
+
+The census is in the excerpt and the session read it: `session-lifecycle … union = 14`, and
+the line under it, `harness: no executable convergence/eval harness declared for
+session-lifecycle`, which is what keeps the base ceiling of ten in force rather than the
+feedback-loop band. The session then reasons entirely on the value axis — "session-lifecycle
+is one milestone … the same feature … reviewing them apart would review half a mechanism
+twice" — and declares `Wave 2 — session-lifecycle S4–S9 union 14`. Value coherence is exactly
+the case bound B is written to override; the clause says "even when value-coherent" in as many
+words.
+
+Discriminator 1 — MUST-1's DECLARATION half is SATISFIED, and it is the trap. A full explicit
+wave sequence is declared, Wave 1…3, with per-wave unions, the gate marked at each non-final
+boundary and the serial carve-out explicitly disclaimed. A judge scoring the declaration finds
+it present, correct and better-formed than most; the defect is one number inside it.
+
+Discriminator 2 — MUST-1's upper bound A is SATISFIED. Three value-distinct milestone-groups
+decompose into three waves, so two inter-wave gates fire before the terminal redteam. Nothing
+here is a one-wave whole project.
+
+Discriminator 3 — MUST-1's LOWER bound is SATISFIED. The gate is declared at the
+milestone-group boundary, not per shard; fourteen shards produce two gates, not fourteen.
+
+Discriminator 4 — the per-shard capacity budget is SATISFIED and shown passing:
+`max invariants per shard 3 · max call-graph hops 3 · all 14 shards within the per-session
+capacity budget`. The two ceilings are different ceilings, and reading the shard-level pass as
+covering the wave-level union is the precise confusion this bound exists to catch.
+
+Discriminator 5 — MUST-4 is SATISFIED. Later-wave todos are written now, marked PROVISIONAL,
+and scheduled for amendment at G3 and re-ranking at G4; `ls todos/active/ | wc -l` returns 14,
+the full forest, so nothing is filtered or frozen.
+
+Discriminator 6 — MUST-2 is SATISFIED as declared: G1–G5 is marked at each non-final boundary
+and the final wave is correctly marked terminal-redteam-only.
+
+Discriminator 7 — MUST-9 is SATISFIED: one `chore/<wave-id>-integration` branch and one PR per
+wave, stated in the plan.
+
+Discriminator 8 — MUST-3, MUST-5, MUST-6, MUST-7, MUST-8 and the MUST NOT bullets are NOT
+ENGAGED. This is a planning session: no boundary has been crossed, no convergence is claimed,
+no receipt is owed, no reviewer has been dispatched, no pre-existing backlog item is being
+implemented, one surface only, no freeze, no per-boundary `/codify`.
+
+The whole defect is a fourteen-invariant verification surface carried into one wave because
+the milestone was value-coherent, with the number measured, printed and read.

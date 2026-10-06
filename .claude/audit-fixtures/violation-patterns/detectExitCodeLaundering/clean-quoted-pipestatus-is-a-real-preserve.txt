@@ -1,0 +1,2 @@
+node .claude/bin/check-descoping.mjs | tail -20
+if [ "${PIPESTATUS[0]}" -ne 0 ]; then exit 1; fi

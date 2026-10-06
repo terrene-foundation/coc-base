@@ -1,0 +1,77 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "**/journal/**"
+---
+
+# Journal Attribution — The Field Is The Claim, The Ledger Is The Proof
+
+An entry's `author:` field is a CLAIM about who originated the decision, and a claim is not its own
+evidence. The agent that writes the entry is the same party the claim is about, so its recollection
+of how collaborative the session felt cannot settle the question. The per-session provenance ledger
+records a `HumanInput` event for each genuine human turn, and that record — not the field, not the
+notes, not memory — is what makes a human attribution checkable by anyone but its author.
+
+## MUST Rules
+
+### 1. Verify The Claim Against The Live Ledger, And Halt When It Cannot Be Read
+
+An entry declaring `author: human` or `author: co-authored` MUST be backed by at least one
+`HumanInput` event in the LIVE per-session ledger, resolved through the ledger-path helper and read
+at wrapup time. The agent MUST NOT substitute the frontmatter's own assertion, `.session-notes`,
+auto-memory or any other proxy for that read: a proxy describes what the agent INTENDED to record,
+never what the session actually captured. An entry declaring `author: agent` makes no human claim,
+so it MUST render `n/a — agent-surfaced` and MUST NOT be labelled human-backed on the strength of
+unrelated human turns elsewhere in the session.
+
+Where the ledger is absent or unreadable the status is `undetermined` and the disposition is
+halt-and-report. The agent MUST NOT proceed on the assumption that it would have been backed.
+Degraded capture and a false claim are indistinguishable from the outside, and only the user can
+say which one occurred.
+
+```text
+# DO — resolve and read the live ledger; absent ledger halts
+
+checkAuthorBacking({repoDir, session, frontmatterAuthor})   # → backed | unbacked | undetermined
+
+# DO NOT — read a proxy, or convert an unreadable ledger into a pass
+
+grep -n 'user directed' .session-notes    # a narrative the agent wrote about itself
+```
+
+**BLOCKED rationalizations:**
+
+- "The frontmatter says human, that's the source of truth"
+- "No ledger found, assume backed and proceed"
+- "The session obviously involved the user, so the check would only confirm it"
+- "Capture is best-effort; a missing file is not a finding"
+- "The count is a capture artifact, not a statement about who decided"
+
+**Why:** an unverified human attribution lets an agent-originated decision masquerade as
+human-anchored, corrupting every later judgment that weights a record by its provenance.
+
+## Trust Posture Wiring
+
+- **Severity:** `halt-and-report` at gate-review (reviewer confirms every human or co-authored
+  claim was read against the live ledger); `halt-and-report` at the hook layer, REGISTRY-class per
+  `hook-output-discipline.md` MUST-2 — never `block`.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3× same-rule in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1× = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: journal-attribution]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms each human or
+  co-authored claim cites a live-ledger read with its event count. Phase 2 deferred.
+- **Violation scope:** MUST-1 (unbacked claim shipped, proxy substituted for the ledger, agent
+  entry labelled human-backed, or a missing ledger passed silently).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-06-04 — proposed after a wrapup shipped a co-authored receipt whose session ledger carried
+zero human turns, and the entry was accepted on the strength of the field that made the claim;
+the same shape had passed three prior wrapups because nothing but the claimant was ever consulted.

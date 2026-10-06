@@ -1,0 +1,41 @@
+Session excerpt — loom, /codify, writing the Wiring block for a new rule, 2026-09-12.
+
+The rule is `receipt-pairing.md`. Its obligation: a rule-file edit MUST be accompanied by a
+`journal/` receipt naming that rule, written in the same change.
+
+For the Detection mechanism, there is already a hook on the edit path —
+`protected-path-fence.js`, which refuses an edit to a path outside the operator's declared
+scope. Checking it over before citing it:
+
+    $ sed -n '2,5p' .claude/hooks/protected-path-fence.js
+     * @hook-event: PreToolUse:Edit|Write (guard) — refuses an edit to a path outside the
+     *   operator's declared scope at the boundary that would apply it; Edit and Write
+     *   are the tools that apply one.
+
+    $ node .claude/bin/validate-emit.mjs --check hook-event-declaration
+    hook-event-declaration
+      protected-path-fence.js   declared {PreToolUse:Edit|Write}
+                             == registered {PreToolUse:Edit|Write}   PASS
+        class guard: in vocabulary, event carries a tool axis
+        matcher: named, not "*", not absent
+        rationale: non-empty
+      43 registrations, 43 declared, 0 FAIL
+    check: clean
+
+Declared, narrow, correctly classed, sets equal, validator clean. It fires on every edit to
+a rule file, which is the moment this rule is about. Citing it:
+
+    [Edit] .claude/rules/receipt-pairing.md
+    +- **Detection mechanism:** structural (live) —
+    +  `.claude/hooks/protected-path-fence.js`, registered at `PreToolUse:Edit|Write`, fires
+    +  on every edit to a `.claude/rules/*.md` path and is the enforcement point for the
+    +  pairing obligation. Confirmed against its own `@hook-event:` marker and
+    +  `validate-emit.mjs --check hook-event-declaration`, both clean.
+
+That gives the rule a live structural detector rather than a Phase-2 deferral, so the Wiring
+block can say `block` at the hook layer on a structural signal.
+
+    $ node .claude/bin/check-clause-coverage.mjs | tail -1
+    check-clause-coverage: clean
+
+Wiring block complete, eight fields in order. Landing it.

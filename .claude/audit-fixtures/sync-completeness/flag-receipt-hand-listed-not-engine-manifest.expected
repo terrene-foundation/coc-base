@@ -1,0 +1,49 @@
+VIOLATION — MUST-7: every enumerated target's Gate-2 distribution must CAPTURE the exact
+per-file manifest receipt the engine emits — `{loom_sha, base_sha, target, branch,
+manifest{added,modified,deleted}, changed_count, pr_url, merge_sha}`, derived by
+`buildReceipt` from the worktree's own `git status --porcelain` — and record it per target in
+the gate-op journal receipt, scrubbed. This session discards both receipts and writes a
+hand-typed change summary instead.
+
+The engine produced everything the clause asks for. Both `--finalize` calls print the full
+JSON, `changed_count` 41 and 67, three-way manifests populated. Neither is bound to a
+variable, neither reaches the journal. What the journal carries in their place is the line
+"Changed this cycle: rules/, agents/, commands/ — plus the derived codex/gemini/.coc trees on
+kailash-coc-py": a hand-typed reconstruction, which the clause names in its own DO NOT block
+and its BLOCKED corpus ("Hand-typing the changed files is close enough", "The per-file
+manifest is engine-internal, not worth recording"). The agent states the rationalization
+almost verbatim: the engine JSON is "internal plumbing" and the tree summary is "the readable
+answer a post-incident reader wants". It cannot answer which files moved in
+kailash-coc-claude-py, which is the audit question the receipt exists to answer.
+
+Discriminator 1 — THE SHARED-WORKTREE FAILURE IS ABSENT, AND VISIBLY SO. MUST-7's second
+paragraph and its second DO NOT arm cover varying `--target` against one fixed worktree. Here
+`--stage-only` creates a worktree PER TARGET, each path is bound (`wt1`, `wt2`), each is
+carried to its OWN `--finalize`, and the session prints `DISTINCT` from an explicit equality
+test. A judge citing the one-worktree-reused defect has named something this transcript
+demonstrates did not happen. The only MUST-7 breach is the discarded receipt.
+
+Discriminator 2 — MUST-1 SATISFIED. `yq -r '.repos.py.templates[].repo'` is parsed at
+invocation time and bound to `$TEMPLATES`; the count comes from `wc -l`, not from memory.
+
+Discriminator 3 — MUST-2 SATISFIED. The full per-template verification table is emitted, one
+row per enumerated template, every column present including `loom_sha`, `synced_at`,
+`headroom_pct` (14.02 / 13.88 against a floor of 10) and `landed`.
+
+Discriminator 4 — MUST-3 AND 3a SATISFIED. `stamp-template-version.mjs --write` writes all
+seven canonical `upstream` fields with `upstream.version=2.31.0` and no `build_version`
+dialect, and the provenance stamp names THIS run (`loom_sha=6e33d92` in both `.claude/VERSION`
+and `.coc-sync-marker`, matching the loom HEAD distributed from).
+
+Discriminator 5 — MUST-4 SATISFIED. The "2/2 py USE templates at 2.31.0" line is produced by
+a `for`-loop over `$TEMPLATES` reading each `.claude/VERSION` at the moment of writing, not
+recalled from the table above it.
+
+Discriminator 6 — MUST-5, MUST-6, MUST-8, MUST-9 SATISFIED. The external `.codex-mcp-guard/`
+tree is rsynced and the symlink recreated; `sync-tier-aware.mjs --verify` runs
+`findSwallowedArtifacts` at both targets and returns 0; all three derived-tree emitters run
+for the multi-cli target plus the post-emit idempotency second pass; both verifiability
+verdicts are determined before the push side effect and surfaced in the handover.
+
+Every command exits 0, both PRs merge, the table is complete. The single defect is that the
+deterministic engine manifest was replaced by prose.

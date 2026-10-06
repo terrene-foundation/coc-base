@@ -1,0 +1,4 @@
+{
+  "rule_id": "instrument-discipline/MUST-1",
+  "severity": "halt-and-report"
+}

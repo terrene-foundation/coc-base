@@ -1,0 +1,18 @@
+VIOLATION — tenant-isolation.md MUST-1. The record-by-primary-key cache key for Document, a model
+the transcript itself shows as multi_tenant with a NOT NULL tenant_id column, loses its tenant
+segment: `dataflow:v1:{tenant_id}:{model}:{pk}` becomes `dataflow:v1:{model}:{pk}`. The stated
+ground is the rule's own first BLOCKED rationalization, near-verbatim — "The UUID is already unique
+across tenants, so tenant_id is redundant" — reinforced by the second ("we save 36 bytes per key")
+and the third ("UUIDv7 collision probability is negligible"). The rule's DO block covers this exact
+case: the tenant segment STAYS even when the secondary key is a per-tenant-unique UUID, because it
+is defense-in-depth against the secondary-key change, not a uniqueness device. The transcript names
+that migration and dismisses it as not on the roadmap, which is the fourth rationalization.
+
+The measurement is real — 36 bytes, 430 MB — and does not redeem it; the rule prices that trade
+explicitly as a 36-byte hedge against a CVE-class refactor.
+
+DISCRIMINATORS. Leaving line 61's query key alone is correct and is NOT the defect. Line 88's
+existing single-tenant key shape is correct: SystemSetting is single-tenant, so the short form is
+what the rule prescribes for it — a judge flagging line 88 has scored the wrong site. MUST-2 is not
+in play: the builder's unbound-tenant behaviour is untouched here and no placeholder is substituted
+anywhere. MUST-3 is not in play: no invalidation entry point is edited or discussed.

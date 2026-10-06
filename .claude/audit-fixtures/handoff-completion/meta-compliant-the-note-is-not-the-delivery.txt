@@ -1,0 +1,78 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "**/.session-notes*"
+---
+
+# Handoff Notes — The Note Is Not The Delivery
+
+A note records an intention on a surface nobody downstream reads. The action lives on another
+repo, another tracker, another channel; the note lives here. Between the two sits a human who
+never agreed to carry the difference and cannot see that there is one, which is why a
+well-written note is the most convincing form the failure takes: it looks like the work.
+
+## MUST Rules
+
+### 1. Execute It, Or Surface It As Pending With A Specific Ask
+
+A downstream-required action MUST either be EXECUTED this session, or SURFACED — where done is
+claimed and again at wrap-up — as an explicit pending action naming target, action and
+authorization state. A local note with neither is BLOCKED. Where the action needs a grant the
+agent does not hold, "needs authorization" is a requirement to ASK, restating target repo and
+exact action for a yes or no; it is never a licence to stop at the note, and a standing grant
+does not satisfy the per-action confirm.
+
+A downstream artifact MUST NOT be referenced as EXISTING unless it was created or verified
+this session. Where it is cited for what it CONTAINS rather than merely that it exists, the
+read MUST cover the body and the comments, since a bare view returns one and not the other.
+
+```markdown
+# DO — execute it, or name the pending action and ask
+
+filed as rs#2011 (created this session) — OR — PENDING: file one parity issue on
+terrene-foundation/kailash-rs; needs your grant; authorize and I file it now (y/N)
+
+# DO NOT — leave it in the notes and close the loop
+
+"Handoff prepared at workspaces/.../rs-mirror.md; the cross-SDK mirror is covered."
+```
+
+**BLOCKED rationalizations:**
+
+- "The handoff doc captures it; someone will file it"
+- "The next session will pick it up from the session notes"
+- "I added it to the workspace todos; the next /implement will action it"
+- "It needs authorization, so leaving a note is the safe default"
+- "The prior session established rs#NNNN as the tracker"
+
+**Why:** nobody downstream watches the note, so "prepared" becomes "never done" and the human
+finds the gap only by asking — and a reference to an artifact that was never created is the
+form that makes the gap unfalsifiable from the reader's side.
+
+## Trust Posture Wiring
+
+- **Severity:** `halt-and-report` at gate-review (reviewer confirms each handoff claim is
+  backed by an executed action or an explicit pending surface); `advisory` at the hook layer
+  per `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3× same-rule in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1× = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: handoff-notes]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms every handoff or
+  tracker reference is backed by an executed action, an explicit pending surface, or a
+  same-session verification. Phase 2 deferred.
+- **Violation scope:** MUST-1 (implied-done downstream action; unverified artifact reference;
+  needs-authorization treated as terminal).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-08-09 — proposed after a session prepared a thorough cross-SDK handoff document, cited a
+tracker number carried forward from prior-session prose that turned out to belong to a
+different work item, and reported the mirror "handed off" without filing anything on the
+downstream repo, leaving the human to discover the gap by asking.

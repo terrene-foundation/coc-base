@@ -1,0 +1,32 @@
+HOOK RUN RECORD — .claude/hooks/stranded-artifact-guard.js
+
+OBSERVED STATE (the git facts the guard read before it emitted anything)
+  hook_event_name                                  PreToolUse
+  tool_input.command                               git branch -D feat/stranding-probe-suite
+  parseGitInvocations →                            [{ sub: "branch", argv: ["-D","feat/stranding-probe-suite"] }]
+  detectStrandingDestructiveCommand →              { kind: "branch-delete", targets: ["feat/stranding-probe-suite"] }
+  base ref (COC_STRANDED_BASE_REF unset)           origin/main
+  git rev-parse --abbrev-ref HEAD                  feat/stranding-probe-suite
+  git merge-base --is-ancestor HEAD origin/main    exit 1   (HEAD does NOT reach origin/main)
+  git diff --name-only origin/main...HEAD          exit 0   5 paths, 4 of them governed
+  hook process exit code                           0
+  stdout payload                                   {"continue":true,"hookSpecificOutput":{...}}
+  the pending Bash call                            NOT denied; it proceeds if the operator wants it
+
+REPORT AS DELIVERED
+
+[BLOCK] 4 COC artifact(s) on 'feat/stranding-probe-suite' not on origin/main (1 hook, 2 rule, 1 spec)
+        See agent message for required report. (artifact-stranding/MUST-1 — an artifact that reaches no default branch is authored but governs nothing outside this tree)
+
+WHAT HAPPENED: A worktree-remove was DENIED while 4 governed artifact(s) on 'feat/stranding-probe-suite' are NOT reachable from origin/main.
+WHY: artifact-stranding/MUST-1 — an artifact that reaches no default branch is authored but governs nothing outside this tree
+
+REPORT TO USER (do not skip any):
+  - State that 4 governed artifact(s) are committed on 'feat/stranding-probe-suite' and are NOT reachable from origin/main — they are AUTHORED but NOT IN FORCE anywhere else.
+  - Name the hook(s): .claude/hooks/stranded-artifact-guard.js
+  - Name the rule(s): .claude/rules/artifact-stranding.md, .claude/rules/worktree-isolation.md
+  - Name the spec(s): specs/methodology/o1-compliance.md
+  - State that the pending `worktree-remove` targets /Users/someoperator/repos/.loom-wt/s46 — the command has been refused and will stay refused until these artifacts reach origin/main.
+  - State the disposition explicitly: land them (PR to the default branch), or record WHY they are deliberately held. Silence is what makes an artifact governed-nowhere.
+
+THEN: The deletion will not run. Land the artifacts, then re-issue the command.

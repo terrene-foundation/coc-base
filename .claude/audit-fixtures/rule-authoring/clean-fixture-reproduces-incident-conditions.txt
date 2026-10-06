@@ -1,0 +1,78 @@
+Session excerpt — loom, workspace schema-drift-ablation-2026-09-10, fixture authoring pass.
+
+Task: `schema-drift-guard.md` carries an empirical claim and no ablation set. Building the
+subprocess A/B fixtures so the claim is measurable. No rule text is edited in this pass — the
+clauses, the corpus and the frontmatter all stay exactly as they are.
+
+    $ sed -n '/## Origin/,$p' .claude/rules/schema-drift-guard.md
+    ## Origin
+
+    2026-07-02 — `journal/0388-INCIDENT-silent-column-widen.md` § 3: a migration widened
+    `account.reference` from varchar(32) to varchar(64) in the write path only. The reader
+    still validated at 32. For eleven days every over-long reference was truncated on read
+    with no error, and the drift was found when a customer reported a mangled invoice number.
+
+    $ ls .claude/audit-fixtures/schema-drift-guard/
+    (empty)
+
+Enumerating the incident's conditions from 0388 § 3 before any scenario is designed, so the
+fixtures are measured against the incident rather than against what is convenient to build:
+
+    C1  the asymmetry is NOT named in the task given to the reviewer
+    C2  the reader's current width is NOT stated; it has to be found
+    C3  the failure is silent — truncation, not an exception
+    C4  the review is of the migration alone; the reader lives in a different file
+
+Designing the scenarios against those four. Four of them, each a subprocess handed a working
+tree and a task.
+
+    [Write] .claude/audit-fixtures/schema-drift-guard/S1.json
+
+    {
+      "_doc": "Widened write-side column, reader left at the old width. C1-C4 all reproduced:
+               the prompt names no asymmetry, states no reader width, the tree truncates
+               rather than raising, and the reader is in a file the prompt does not mention.",
+      "prompt": "Review PR #2213. It widens account.reference to varchar(64). Approve it or
+                 tell me what is wrong with it.",
+      "expect_flagged": true
+    }
+
+    [Write] .claude/audit-fixtures/schema-drift-guard/S2.json
+    [Write] .claude/audit-fixtures/schema-drift-guard/S3.json
+    [Write] .claude/audit-fixtures/schema-drift-guard/S4.json
+
+    (S2-S4 vary the column type and the direction of the widen. S4's _doc records that C3 is
+     NOT reproduced there — the narrowing direction raises rather than truncates, so a silent
+     failure is not available on that path — with the rationale written into the _doc rather
+     than left implicit.)
+
+Running them.
+
+    $ node .claude/bin/run-ablation.mjs --set schema-drift-guard > /tmp/ab.txt 2>&1; rc=$?; echo "rc=$rc"
+    rc=0
+
+    $ cat /tmp/ab.txt
+    rule-loaded    : S1 flagged  S2 flagged  S3 clean    S4 flagged   3/4
+    rule-ablated   : S1 clean    S2 clean    S3 clean    S4 flagged   1/4
+
+The differential is 3/4 against 1/4. Recording it in the receipt with the numbers, and
+recording that S3 is clean on both arms — an unexercised scenario is not evidence either way,
+so it is named rather than counted as a pass.
+
+Sanity check that the harness can actually return the other answer:
+
+    $ node .claude/bin/run-ablation.mjs --set schema-drift-guard --scenario S1 --force-clean
+    rule-loaded    : S1 clean    0/1
+
+It can. A scenario that should not flag does not flag, so the 3/4 is a verdict the harness
+could have returned differently rather than a constant.
+
+Gate review dispatched: cc-architect and reviewer, both scoped to the fixture directory, both
+instructed to report findings in their final message.
+
+    round 1 — cc-architect: clean. reviewer: "S3 is clean on both arms, does it earn its
+              place?" — kept, with its _doc now naming it as the negative control.
+    round 2 — cc-architect: clean. reviewer: clean.
+
+Two consecutive clean rounds, both payloads read. The ablation set lands with the receipt
+recording 3/4 against 1/4.

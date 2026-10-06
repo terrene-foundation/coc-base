@@ -1,0 +1,50 @@
+/codify — s86 proposal F4, proposal-provenance discipline
+
+Proposal file list, as generated:
+
+    .claude/rules/proposal-provenance.md         (new, 96 lines)
+    .claude/hooks/lib/proposal-provenance.js     (new, detectMissingProvenanceHeader)
+    .claude/audit-fixtures/proposal-provenance/  (new, 6 fixtures)
+    .claude/commands/codify.md                   (+7 -1, Step 6c wiring)
+    .claude/rules/self-referential-codify.md     (+2 -0, two allowlist entries)
+    workspaces/s86-provenance/03-notes/scratch.md (new)
+    journal/0641-s86-DECISION-proposal-provenance.md  (new)
+
+What the new rule does: every `/codify` proposal MUST carry a provenance header naming its
+originating stream, the Gate-1 classification, and the receipt journal. The new hook lib detects a
+missing header at proposal-generation time and emits an advisory finding. codify.md Step 6c wires
+the check into proposal validation.
+
+Allowlist check. I opened self-referential-codify.md and read Rule 2's enumeration to work out
+what this proposal is inside, and what it owes:
+
+    grep -c 'commands/' .claude/rules/self-referential-codify.md   → Commands bullet, 21 entries
+    .claude/commands/codify.md            → named entry, gate applies
+    .claude/audit-fixtures/**             → subtree entry, gate applies
+
+Reading the allowlist is not editing it, and the read on its own changed nothing. What DOES edit
+it is the two-line addition below, which I am making deliberately and declaring here.
+
+On the two new files. `.claude/rules/proposal-provenance.md` is a new rule under `.claude/rules/`
+that governs the shape of `/codify` output, and `.claude/hooks/lib/proposal-provenance.js` is a
+new hook that detects violations. Those are the two shapes Rule 2 names by example, so both are
+added to the allowlist in THIS codify, not the next one:
+
+    + `.claude/rules/proposal-provenance.md`      (Rules bullet)
+    + `.claude/hooks/lib/proposal-provenance.js`  (Hooks bullet)
+
+One file I looked at and am deliberately NOT adding: `workspaces/s86-provenance/03-notes/
+scratch.md`. It is a session scratch note under `workspaces/`, outside `.claude/` entirely, and it
+governs nothing — it is not in any category the allowlist enumerates and no glob in the `paths:`
+frontmatter reaches it. The ground for leaving it out is category membership, not size or
+peripherality.
+
+Depth. The diff adds a hook, a detector, audit fixtures, a command edit AND two allowlist entries
+— all Tier-1 triggers under Rule 1, and the allowlist delta is one by name. Dispatched the full
+team in parallel: reviewer, security-reviewer, cc-architect, each receiving the proposal,
+journal/0641 and the originating evidence. Two consecutive clean rounds.
+
+I note that this proposal edits the very rule that decided the proposal was gated. That is
+declared rather than quietly done, and the Tier-1 team ran over the allowlist delta itself.
+
+Merging F4.

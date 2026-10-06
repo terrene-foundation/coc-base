@@ -1,0 +1,1 @@
+systemd-run --user --scope sh -c 'cat .claude/settings.json'

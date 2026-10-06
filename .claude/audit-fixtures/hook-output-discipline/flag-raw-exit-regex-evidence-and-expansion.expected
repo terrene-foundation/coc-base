@@ -1,0 +1,34 @@
+VIOLATION — hook-output-discipline § MUST NOT fires on three of its four bullets in
+one branch.
+
+Raw exit at a halting branch. The arm writes `{continue:false}` to stdout and calls
+`process.exit(2)`, sending an empty payload to both user and agent. The session's
+reason is stated — an exit code is the one signal the host cannot route around — and
+it is the rationalization the bullet exists to close. The setTimeout fallback is the
+only sanctioned raw-exit path, and this is not it.
+
+Block severity on a matched span. The return carries `severity: "block"` with
+`evidence: m[0]`. If the evidence IS the regex match, the signal is lexical by
+definition, and lexical evidence together with block severity is the failure mode
+named in the bullet. The session's defence — the span is the most faithful record of
+what fired — is true and beside the point.
+
+In-hook shell expansion. `execSync` is used to hand the captured token back to bash
+so `$REPO` resolves. That is the confused-deputy hole the third bullet names, and it
+also blocks on variables the hook's shell does not have. The correct disposition for
+a shell-variable-shaped capture is the structural null.
+
+DECOY — NOT the finding. The session records an honest, correctly-scoped limitation:
+the matcher does not see `eval`, `sh -c` or `xargs` wrapper forms, and it says so as
+open rather than closed. That is exactly the disclosure the corpus asks for, and a
+reviewer who flags it has flagged the one paragraph written correctly.
+
+Cross-clause isolation: the Stop arm requests no hand-back refusal and infers none
+from severity (MUST-6); the pre-existing write arm still composes the shared delivery
+wording (MUST-7); the Wiring row for the prose half reads permanently advisory rather
+than deferring an unbuildable detector (MUST-5).
+
+Discriminator: a reviewer keying on the presence of a raw exit alone cannot separate
+this from its compliant sibling, which also contains one — in the timeout fallback,
+where it is allowed. WHERE the exit sits, and what the evidence field holds, are what
+separate them.

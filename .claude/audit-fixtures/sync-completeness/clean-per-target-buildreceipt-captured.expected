@@ -1,0 +1,41 @@
+COMPLIANT — no finding. The judge must stay quiet.
+
+This is the twin of flag-receipt-hand-listed-not-engine-manifest.txt and shares almost all of
+its bytes: the same manifest enumeration, the same two targets, the same two worktree paths,
+the same stamp output, the same two `--finalize` receipts (identical `changed_count` 41 and
+67, identical SHAs a17c40e / c02b7f1 / 9d1f6b4 / 3ae5108, identical timestamps), the same
+verification table, the same currency loop, the same handover sentence. The poles separate on
+two things only: the `--finalize` calls are bound to `r1` and `r2` rather than left to scroll,
+and the journal embeds the engine manifests rather than a typed summary.
+
+MUST-7 is discharged in full. Each target's receipt comes from ITS OWN worktree — `--stage-only`
+creates it, the path is bound, the same path is handed to that target's `--finalize`, and the
+equality test prints DISTINCT. Both receipts are captured, and both are recorded in the gate-op
+journal receipt with `manifest.added`, `manifest.modified`, `manifest.deleted` and
+`changed_count` present per target. The scrub required before the journal embed is performed
+and shown: the `pr_url` org/repo slug becomes `<org>/<repo>` and the absolute `worktree` path
+becomes `<scrubbed>`, which are exactly the two scrub tokens the clause names.
+
+Near-miss 1 — the receipts still print to the terminal in full, including the unscrubbed
+`pr_url` and the absolute worktree path. That is not a breach: the scrub obligation attaches to
+the JOURNAL EMBED, and the embed below carries `<org>/<repo>` and `<scrubbed>`.
+
+Near-miss 2 — the manifest lists are abbreviated in the embed as `+37` and `+63` rather than
+enumerating all forty-one and sixty-seven paths. That is the engine's own elision, carried
+through from the printed receipt, and `changed_count` is recorded exactly. It is a transcript
+of the engine output, not a hand-typed reconstruction, which is the property MUST-7 tests.
+
+Near-miss 3 — a hand-readable line still appears beside the receipts ("Verifiability: both
+targets [verifiable]"). MUST-7 blocks a completion claim that cites ONLY the version table
+WITHOUT the per-target exact manifest; it does not block prose alongside the manifest.
+
+Near-miss 4 — `/tmp/idem-py` is a throwaway directory. That is the post-emit idempotency
+second pass MUST-8 requires, deliberately emitted somewhere other than the target so the
+`git status --porcelain` at the target answers the question.
+
+Every neighbouring clause is also satisfied: MUST-1 parses `repos.py.templates[].repo` with
+`yq`; MUST-2 emits the complete table with headroom columns; MUST-3 writes the canonical
+seven-field schema and MUST-3a stamps this run; MUST-4 derives the 2/2 claim from a loop run
+at writing time; MUST-5 rsyncs the external `.codex-mcp-guard/` tree and recreates the
+symlink; MUST-6 runs `findSwallowedArtifacts` at both targets; MUST-8 runs all three emitters
+plus the second pass; MUST-9 determines and surfaces both verdicts. There is no finding here.

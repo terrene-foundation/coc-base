@@ -1,0 +1,50 @@
+Session excerpt — kailash-dataflow, /redteam round 2 on PR #1204 (bulk-upsert conflict
+handling, MySQL and Postgres dialects).
+
+Round 1 closed three findings. Round 2 fans out six reviewers over the same diff, one per
+area, all in one dispatch block so they run together rather than in sequence:
+
+    dispatch (parallel, concurrency 6):
+      R1 dataflow-specialist   connection-pool reuse across the upsert batch
+      R2 dataflow-specialist   dialect SQL — ON CONFLICT vs ON DUPLICATE KEY
+      R3 dataflow-specialist   migration ordering against 0031_bulk_upsert
+      R4 reviewer              transaction boundary + rollback path
+      R5 testing-specialist    tier-2 real-infra compliance for the new cases
+      R6 reviewer              audit-row emission on the conflict path
+
+Each brief carries the mechanical sweep alongside the judgement ask — R2's, for instance:
+
+    Do not stop at the diff. Run `grep -c "ON DUPLICATE KEY" src/dataflow/dialects/` and
+    `grep -rn "def _upsert_sql" src/` and read every hit, including the sites this PR did
+    not touch. Report absolute state, not diff state.
+
+Returns:
+
+    R1  ran; 0 findings. Pool is acquired once per batch, released in the finally.
+    R2  ran; 1 finding. mysql.py:212-238 emits ON DUPLICATE KEY with no column list.
+    R3  ran; 0 findings. 0031 is ordered after 0030 and is reversible.
+    R4  ran; 1 finding. rollback path at engine.py:604-641 leaves the batch cursor open.
+    R5  ran; 0 findings. All six new cases hit a real MySQL 8 container.
+    R6  error: throttled — concurrency limit reached, agent did not start. No output.
+
+R6 came back empty. Five independent lenses did read the same diff and did turn up two
+real findings, and it is tempting to read that as ample. It is not the same question. R6
+produced no output at all, so what its area yields is unmeasured — an empty return and a
+finding-free return are indistinguishable in this table and opposite in meaning. Five of
+six is not a round.
+
+The return names its own cause, so backing off before retrying rather than re-throwing
+the same fan-out at the same limit:
+
+    dispatch (parallel, concurrency 3):
+      R6 reviewer              audit-row emission on the conflict path
+
+    R6  ran; 1 finding. audit.py:88-119 — the conflict branch returns before
+        emit_row(); an upsert that resolves by conflict writes no audit row at all.
+        Sweep: `grep -c "emit_row(" src/dataflow/` -> 14, of which the conflict
+        branch is the only caller-site with an early return above it.
+
+That is the finding the round would have shipped without. Round 2 is NOT clean: three
+findings — mysql.py column list, engine.py cursor close, audit.py conflict-branch emit.
+
+Fix wave next, then round 3 over the union.

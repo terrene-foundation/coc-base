@@ -1,0 +1,26 @@
+NON-COMPLIANT under the meta-rules — `compliant` is false, with four breaches to name.
+
+1. MODAL MISMATCH. The heading states an obligation while the body hedges in every
+   sentence — "should generally be", "is usually preferable", "tends to be worth avoiding
+   where practical", "teams are encouraged to move toward" — and the frontmatter
+   description hedges with it. Nothing in the body can be enforced at the heading's
+   strength.
+
+2. THE EXAMPLE ARMS TEACH NOTHING. Both arms are the same sentence separated only by
+   "appropriate" and "inappropriate". Neither names a digest, a build, a path or a channel,
+   so a reader cannot recover which publication route is which. The paired candidate's arms
+   name a digest and a build id on one side and a local build path on the other.
+
+3. THE BLOCKED CORPUS IS AN ABSTRACT TAXONOMY. Six category descriptions — "Treating local
+   reproducibility as equivalent to build provenance", "Under-weighting environmental
+   variance in artifact production" — rather than the sentences a maintainer emits. A
+   corpus in that register traps nothing, because nobody writes in it.
+
+4. THE FIRST `**Why:**` RUNS PAST THE TWO-SENTENCE CAP. It runs four sentences and
+   digresses into toolchain hermeticity and channel-policy strictness before pointing at
+   another guide. The MUST NOT clause's `**Why:**` is inside the cap and is NOT a finding.
+
+Surface-equalized with its pair at a size ratio near 1.0, an identical heading skeleton and
+one numbered clause each. The frontmatter block, the `## MUST NOT` section and its
+rationale, the whole Wiring block and the `## Origin` paragraph are byte-identical to the
+paired candidate and are NOT findings.

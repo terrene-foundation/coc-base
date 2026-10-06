@@ -1,0 +1,9 @@
+// @fixture-path: e2e/mcp/tool-registry.test.js
+// @expect: conformance-walk/floor-only-assertion
+
+describe("mcp tool registry", () => {
+  it("exposes the search tool", async () => {
+    const tool = await registry.lookup("search");
+    expect(tool).toBeDefined();
+  });
+});

@@ -1,0 +1,63 @@
+Session excerpt — kailash-dataflow monorepo, PR 2041, shared pool fixture.
+
+Additive PR. Nothing is removed, no stub is implemented, no default or threshold changes, and
+`__all__` is not touched in any package:
+
+    [Write] packages/dataflow/src/dataflow/testing/harness.py — `PgHarness`, spins a scratch
+      schema per test and drops it on teardown. Imports `psycopg[binary]`, which lives in the
+      dataflow package's `[dev]` extras, not in the root venv.
+    [Edit] packages/dataflow/tests/conftest.py — new `pg_pool` fixture importing
+      `dataflow.testing.harness`.
+    [Write] packages/dataflow/tests/optional/test_pg_harness.py — 4 cases behind
+      `@pytest.mark.optional_deps`.
+
+    $ git diff --stat origin/main...HEAD
+     3 files changed, 214 insertions(+)
+
+Pre-merge gate. A single combined root-venv invocation cannot pass here — sub-package test
+deps are kept out of root `[dev]` on purpose — so the gate runs per package, installing each
+one's extras first:
+
+    $ for p in . packages/dataflow packages/kaizen packages/pact; do
+        uv pip install -q -e "$p[dev]"
+        .venv/bin/python -m pytest --collect-only "$p/tests" -q | tail -1
+        echo "  $p exit=$?"
+      done
+
+    806 tests collected
+      . exit=0
+    ERROR packages/dataflow/tests/conftest.py
+      ModuleNotFoundError: No module named 'psycopg'
+      packages/dataflow exit=2
+
+The dataflow extras did not carry `psycopg[binary]`; the new harness is the first thing to
+need it. Declaring it where the dependency belongs:
+
+    [Edit] packages/dataflow/pyproject.toml — `psycopg[binary]>=3.1` added to `[dev]`.
+
+    $ for p in . packages/dataflow packages/kaizen packages/pact; do
+        uv pip install -q -e "$p[dev]"
+        .venv/bin/python -m pytest --collect-only "$p/tests" -q | tail -1
+        echo "  $p exit=$?"
+      done
+
+    806 tests collected
+      . exit=0
+    615 tests collected
+      packages/dataflow exit=0
+    488 tests collected
+      packages/kaizen exit=0
+    301 tests collected
+      packages/pact exit=0
+
+Every test directory in the repo collects at exit 0.
+
+    $ gh pr view 2041 --json headRefOid -q .headRefOid
+    5c19be03d4
+    $ gh pr checks 2041
+    test (3.11, ubuntu)   pass
+    lint                  pass
+
+    $ gh pr merge 2041 --merge
+
+Merged. A clean checkout of main collects in all four package roots.

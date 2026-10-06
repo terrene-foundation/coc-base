@@ -1,0 +1,8 @@
+# kind: preflight-check
+# check_id: emission-validators
+# tools: validate-emit.mjs
+# ci_tools: validate-emit.mjs, check-x.mjs
+# expect_verdict: Pass
+# expect_rule:
+# The accept pole for the parity check's PREFLIGHT side: a pre-push check whose
+# tool CI also runs, so the two gate runners agree about it.

@@ -1,0 +1,46 @@
+VIOLATION — MUST-6: every new rule MUST include a one-line `Origin:` reference pointing to the
+journal entry or discovery that motivated it. This file's `## Origin` section points at
+neither, and says so.
+
+The section reads: "Standard practice across the fleet. No specific incident prompted this
+rule; it codifies what experienced operators already do when rotating credentials, and it was
+written up because the practice had never been written down anywhere." It names no journal
+entry, no discovery, no incident, no date, no author. It explicitly disclaims the existence of
+a motivating event. A future agent asking the question MUST-6 exists to answer — is the
+failure mode this rule froze a response to still live? — has nothing to read. The rule cannot
+be retired, because there is no record of what it was for.
+
+The defect is not a MISSING section. The `## Origin` heading is present, the Wiring block's
+`- **Origin:** See § Origin.` pointer resolves to it, and the section is three lines of real
+prose. What is absent is the provenance the section exists to carry.
+
+Discriminator 1 — MUST-1 IS SATISFIED. Both clauses use MUST and MUST NOT as their primary
+modal and name the alternative BLOCKED; no "should," "prefer," "consider" or "try to" appears
+as a clause modal.
+
+Discriminator 2 — MUST-2 IS SATISFIED. The BLOCKED corpus holds six literal first-person
+sentences a session would really emit ("We rotated this key last quarter the same way and
+nothing happened"), not abstract category labels.
+
+Discriminator 3 — MUST-3 AND MUST-4 ARE SATISFIED. Both clauses carry a two-armed DO / DO NOT
+block whose arms differ in substance — both keys accepted against a single-step cutover, a
+counter-gated retirement against a date-gated one — and each clause plus the `## MUST NOT`
+section carries a one-sentence `**Why:**`.
+
+Discriminator 4 — MUST-5 AND MUST-7 ARE SATISFIED. Frontmatter declares `priority: 10` with
+`scope: path-scoped` and a matching two-entry `paths:` list; the pair is one Rule 7 sanctions
+and `paths:` is present as Rule 5 requires of a path-scoped rule.
+
+Discriminator 5 — MUST-8 IS NOT ENGAGED (no CLI-divergent content), MUST-9 IS NOT ENGAGED (no
+empirical-validation fixtures ship with this rule, so there is nothing whose conditions could
+fail to reproduce an incident — note that MUST-9's trigger REQUIRES an Origin naming an
+incident, which is exactly what this file lacks, so the two clauses cannot both fire here),
+and MUST-10 / MUST-11 ARE NOT ENGAGED (`priority: 10` + `scope: path-scoped`, excluded by
+Rule 10's own Trigger-scope paragraph).
+
+Discriminator 6 — THE `## MUST NOT` BULLETS ARE SATISFIED. Every `**Why:**` is one sentence; no
+hedging phrase sits inside a MUST clause; the Detection row names a parsed record field and a
+dominance relation, both structural, rather than booking a lexical detector; the file is well
+under 200 lines.
+
+The whole defect is an Origin section that says there is no origin.

@@ -54,6 +54,11 @@ const { canonicalSerialize, verify: cocVerify } = require("./coc-sign.js");
 // spelled out the same check inline; drift across rule 5 / 9b / 9c was
 // unbounded.
 const { isEligibleSigner } = require("./eligibility.js");
+// Shared with coordination-log.js + fold-rule-9c.js — one notion of "distinct".
+const {
+  createDistinctSignerSet,
+  describeCollision,
+} = require("./signer-distinctness.js");
 // F51: live archive-ref tip verification. `verifyArchiveTipPin` compares
 // the embedded archive_genN_tip_pin against the observed `refs/coc/
 // archive-genN` tip on disk; `readArchiveRefTip` is the live-API
@@ -72,7 +77,18 @@ const {
 function _resolveRosterPerson(roster, verifiedId) {
   if (!roster || !roster.persons) return null;
   for (const [pid, person] of Object.entries(roster.persons)) {
-    const keys = (person && person.keys) || [];
+    // S61 — shape-guard the key list: a non-array `keys` SKIPS this person
+    // (refuse), never THROWS. Same root cause + rationale as the byte-identical
+    // copy in coordination-log.js::_resolveRosterPerson, which carries the full
+    // comment. A throw here escapes this predicate; the fold engine converts it
+    // into a dispatch REJECTION today (fail-closed), but the refusal must not
+    // depend on a caller's catch remaining fail-closed.
+    // SKIP IS SAFE HERE ONLY BECAUSE non-resolution is wired to REFUSE.
+    // Where non-resolution PERMITS, this shape inverts and becomes the bug —
+    // see the condition + the two recorded exceptions (add-key-ceremony.js
+    // ::findKeyHolder@:402, identity-scrub.mjs::deriveDynamicTokens) in the
+    // canonical comment on coordination-log.js::_resolveRosterPerson.
+    const keys = Array.isArray(person && person.keys) ? person.keys : [];
     for (const k of keys) {
       if (k && k.fingerprint === verifiedId) {
         return { person_id: pid, person };
@@ -133,9 +149,14 @@ function _verifyCoSigner(coSigner, record, roster) {
       reason: `co_signer ${coSigner.verified_id} ineligible: ${elig.reason}`,
     };
   }
-  const matchingKey = (resolved.person.keys || []).find(
-    (k) => k.fingerprint === coSigner.verified_id,
-  );
+  // S61 defense-in-depth; REDS NO POLE today — a person returned by
+  // `_resolveRosterPerson` provably has an ARRAY `keys`, because the resolver
+  // only returns after iterating that value and matching a `.fingerprint`
+  // inside it, which no non-array JSON value can do. Kept for a future caller
+  // that resolves a person some other way; NOT claimed as covered.
+  const matchingKey = (
+    Array.isArray(resolved.person.keys) ? resolved.person.keys : []
+  ).find((k) => k && k.fingerprint === coSigner.verified_id);
   if (!matchingKey) {
     return {
       ok: false,
@@ -166,7 +187,10 @@ function _verifyCoSigner(coSigner, record, roster) {
       reason: `co_signer signature did not verify: ${r.reason || "invalid"}`,
     };
   }
-  return { ok: true };
+  // Return the RESOLVED person: the caller keys distinctness on the principal,
+  // not the fingerprint, and re-resolving there would be a second lookup free to
+  // drift from this one.
+  return { ok: true, resolved };
 }
 
 /**
@@ -360,7 +384,18 @@ function foldGenerationRotation(record, ctx) {
         "rule 9b: 2-of-N owner co-signature required; co_signers missing or empty (single-signer rejected)",
     };
   }
-  const distinctSigners = new Set([record.verified_id]);
+  // Per-PRINCIPAL distinctness (lib/signer-distinctness.js): a fingerprint set
+  // cannot see that one human enrolled two keys under one person_id.
+  const distinctSigners = createDistinctSignerSet();
+  const primary9b = _resolveRosterPerson(roster, record.verified_id);
+  if (!primary9b) {
+    return {
+      accepted: false,
+      foldState: state,
+      reason: `rule 9b: primary signer ${record.verified_id} not in roster`,
+    };
+  }
+  distinctSigners.add(primary9b.person_id, primary9b.person);
   for (const co of c.co_signers) {
     const v = _verifyCoSigner(co, record, roster);
     if (!v.ok) {
@@ -370,20 +405,20 @@ function foldGenerationRotation(record, ctx) {
         reason: `rule 9b: co-sign verification failed: ${v.reason}`,
       };
     }
-    if (distinctSigners.has(co.verified_id)) {
+    const dist9b = distinctSigners.add(v.resolved.person_id, v.resolved.person);
+    if (!dist9b.ok) {
       return {
         accepted: false,
         foldState: state,
-        reason: `rule 9b: co_signer verified_id ${co.verified_id} not distinct from prior signer (2-of-N requires distinct signers)`,
+        reason: `rule 9b: co_signer ${co.verified_id} ${describeCollision(dist9b.collidingKey)}`,
       };
     }
-    distinctSigners.add(co.verified_id);
   }
-  if (distinctSigners.size < 2) {
+  if (distinctSigners.size() < 2) {
     return {
       accepted: false,
       foldState: state,
-      reason: `rule 9b: 2-of-N owner co-signature required; only ${distinctSigners.size} distinct signer(s)`,
+      reason: `rule 9b: 2-of-N owner co-signature required; only ${distinctSigners.size()} distinct principal(s)`,
     };
   }
 

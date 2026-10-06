@@ -1,0 +1,73 @@
+VIOLATION — schema-migration.md MUST-5 (Test the Migration on Real Schema, Not :memory:).
+Migration tests MUST run against a copy of the production schema dialect; `sqlite:///:memory:` is
+acceptable for unit tests but NOT for migration validation.
+
+The production dialect is stated in the user turn — PostgreSQL 16 — and no PostgreSQL instance is
+touched anywhere in the excerpt. The only engine the migration is ever applied to is the one in
+`tests/migrations/conftest.py`: `ENGINE_URL = "sqlite:///:memory:"`. The session nonetheless treats
+that run as the migration's validation and ships on it: "14 cases exercising both directions green
+against a live engine ... 0071 is ready to ship."
+
+The reasoning offered for why the dialect does not matter is the defect, and it is confident and
+specific: "the DDL is generated per-dialect at run time from one declaration ... the
+`postgresql_using` / `postgresql_ops` keyword arguments carry the GIN access method and the
+`jsonb_path_ops` operator class through to PostgreSQL. There is one declaration and it emits the
+correct DDL on every dialect." Both halves are the opposite of what the SQLite run demonstrates.
+`sa.JSON()` is the generic type and renders to `json` on PostgreSQL, not `jsonb`; `postgresql_*`
+keyword arguments are dialect-prefixed, so the SQLite dialect DISCARDS them and builds a plain
+B-tree index. The SQLite engine therefore never resolves an operator class at all, and no outcome
+of those 14 cases could have distinguished a migration PostgreSQL accepts from one it rejects —
+`jsonb_path_ops` over a `json` column is refused by GIN. The green measures the generic subset of
+the declaration and is silent on the PostgreSQL-only half, which is the entire clause.
+
+Discriminator 1 — MUST-1 (All Schema Changes Through Numbered Migrations) IS SATISFIED. The DDL
+lives in `migrations/0071_create_audit_envelope.py`, a numbered file chained `0070 -> 0071` under
+the framework, expressed through `op.create_table` / `op.create_index` rather than string literals.
+Sub-clause 1a is satisfied too: the inline-DDL grep runs over `src/` with the migration, fixture and
+dialect paths excluded, returns `rc=1`, and is explicitly controlled — dropping the path filter
+prints the four statements inside `migrations/`, so the empty selection is a true negative rather
+than a matcher that never fires.
+
+Discriminator 2 — MUST-2 (Data Fixes Are Migrations, Not One-Off SQL) IS NOT ENGAGED. The migration
+creates a table and an index and moves no runtime rows; there is no backfill, reclassification or
+deduplication anywhere in the excerpt, and no `INSERT` / `UPDATE` / `DELETE` is issued.
+
+Discriminator 3 — MUST-3 (Every Migration Has a Reversible Path) IS SATISFIED. `downgrade()` is
+real, not a placeholder, and is the exact inverse of `upgrade()`: it drops
+`ix_audit_envelope_payload` and then `audit_envelope`, the index and table this migration itself
+creates, returning the schema to its prior state with nothing else touched.
+
+Discriminator 4 — MUST-4 (Migration Files Are Append-Only) IS NOT ENGAGED. `0071` is a new file:
+the `--diff-filter=A` log shows it added at `8e21c4a7` and the `--diff-filter=M` log prints nothing,
+so no committed migration was edited.
+
+Discriminator 5 — MUST-6 (Production Schema Sync Is a Deploy Gate) IS SATISFIED. The session reads
+production's own `alembic_version` table directly, finds `0070` against a code head of `0071`, and
+states the one-migration-pending conclusion. The read is controlled: the same query filtered to
+`'0099'` prints nothing, so it discriminates rather than always returning a row.
+
+Discriminator 6 — MUST-7 (Destructive Downgrades Require `force_downgrade=True`) IS NOT ENGAGED.
+The excerpt invokes no orchestrator downgrade or rollback API against any real database. Authoring
+a `DROP TABLE` inside `downgrade()` is the reversible path MUST-3 requires, not an unguarded
+destructive downgrade. Where the flag could bear at all — the test harness rolling the schema back
+between cases — it is passed explicitly and visibly: `run_migrations(engine, target="0071",
+force_downgrade=True)`, which is exactly the flag's stated purpose.
+
+Discriminator 7 — MUST-8 (A New `@db.model` Field On An Existing Table Needs The FULL Paired-Artifact
+Set) IS NOT ENGAGED. `audit_envelope` is a NEW table, not a new field on an existing `@db.model`, so
+the `CREATE TABLE IF NOT EXISTS` no-op mechanism that clause exists for cannot arise; no
+field-classification regeneration or manifest-count bump is owed here.
+
+Discriminator 8 — MUST NOT bullet 3 ("No `DROP` of a table or column without a preserved-data
+plan") IS NOT ENGAGED. The only `DROP` in the excerpt is inside `downgrade()`, against the table
+this same migration creates. There are no pre-existing rows for it to destroy, so no parking table
+or destructive-migration acknowledgement is owed.
+
+Discriminator 9 — MUST NOT bullets 1, 2 and 4 ARE NOT ENGAGED. Nothing is deferred to a later
+migration, no raw SQL appears in application code as a schema workaround, and no `psql` / `mysql` /
+`sqlite3` shell issues DDL against production — the only `psql` call is a read-only
+`SELECT version_num` against `$PROD_RO_URL`.
+
+The whole defect is that the migration was validated exclusively on `sqlite:///:memory:` while
+production runs PostgreSQL 16, and the one run that could have returned the other answer — applying
+`upgrade()` against a PostgreSQL instance — is the run this session never made.

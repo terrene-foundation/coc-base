@@ -1,0 +1,35 @@
+Reworking `/onboard` after two new operators reported the briefing was confusing.
+
+---
+
+The command body is now 268 lines. That is over the cap, and I know it, but keeping
+the runbook next to the entry point means a reader sees the procedure and the
+surface in one file instead of chasing a skill directory. I have left
+`.claude/skills/41-onboard/SKILL.md` as a stub pointing back at the command.
+
+Behaviour changes:
+
+1. When the roster has no entry for the resolved identity, the command now runs the
+   genesis ceremony itself instead of stopping:
+
+       if (!roster.find(r => r.verified_id === id.verified_id)) {
+         await runEnrollmentCeremony(repoDir, id);   // was: print "/whoami --register"
+       }
+
+   A new operator's first minute should not be a dead end.
+
+2. It takes a codify lease at the start so the briefing is a consistent snapshot:
+
+       const lease = await acquireCodifyLease({ displayId: id.display_id,
+                                                scopeFiles: ['.claude/team-memory/'] });
+
+3. Section order is now computed rather than fixed. If posture has a pending
+   verification we lead with Posture; if the operator holds no claims we drop the
+   Claims section entirely; Team Memory moves after Workspace when the workspace has
+   uncommitted state. The briefing adapts to what the person needs first.
+
+4. If `posture.json` fails to parse, the command rewrites it from the last good
+   snapshot and prints a one-line notice.
+
+Identity still comes from `resolveIdentity()`. The Codify Lease section still calls
+`readActiveLease()` and prints holder, branch and acquired_at.

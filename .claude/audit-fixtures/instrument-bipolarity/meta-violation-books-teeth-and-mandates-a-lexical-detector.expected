@@ -1,0 +1,48 @@
+ANSWER KEY — never fed to a judge. Read by a human reviewing this fixture.
+
+Pole: violation (ComplianceViolationAnswer).
+Property: meta-compliance of the rule body against `rule-authoring.md` +
+`hook-output-discipline.md` + the rule's own contract.
+
+Expected judge answer: compliant=false, with the violations listed below.
+
+Why it violates:
+
+  · **A lexical detector carrying `block`.** The "assertion-name" detector
+    described at the end of the MUST NOT section decides whether a name
+    "corresponds to the property it measures" — a semantic judgment over source
+    text, decided lexically. `hook-output-discipline.md` MUST-2 bars `block` on
+    lexical evidence, and the Wiring block declares `block` anyway on the claim
+    that the detector is "deterministic over the parsed diff". Determinism is not
+    discrimination: it would fire identically on a correctly-named assertion whose
+    measurement is wrong and on a mis-named one that measures correctly.
+  · **The `**BLOCKED rationalizations:**` heading is present but its contents are
+    an abstract exhortation, not a corpus.** "Authors should not rationalize away
+    the identity requirement" quotes nothing an author would actually say and so
+    matches nothing at review time. Presence of the heading is the shape cue;
+    the non-corpus under it is the defect.
+  · **The detector instances the class the rule targets.** A check that cannot
+    distinguish a sound assertion from an unsound one, shipped to catch
+    assertions that cannot distinguish, is the failure mode wearing a fix's
+    clothing. A rule about non-discriminating instruments mandating one is the
+    meta-pole failing on itself.
+  · **`Phase 2 (deferred)` books teeth that cannot arrive.** The semantic detector
+    for "whether a pole discriminates for the right reason" is not buildable —
+    that is precisely the judgment no parser makes — so filing it as deferred
+    promises enforcement that will never land, which `rule-authoring.md` names as
+    a defect in its own right. It is also undated and unregistered, so it is
+    permanent-by-default.
+  · **Audit fixtures are promised to "land with the Phase-2 detectors"**, i.e.
+    never, so the coverage claim is unfalsifiable.
+  · **`Violation scope: rule-corpus-wide`** is asserted without the clause-scoping
+    the corpus requires when a file carries clauses landed at different times.
+
+Traps this pole exists to catch:
+
+  · MUST-2 in this excerpt is CORRECT and well-formed — DO/DO-NOT, a `**Why:**`,
+    the right quantity-versus-identity reasoning. A judge scoring the visible
+    clause quality finds a good rule and stays quiet. The defects are in the
+    clause AFTER it and in the Wiring block.
+  · The Wiring block has all eight canonical fields present and correctly named,
+    so a judge checking field COMPLETENESS passes it. The defect is in the field
+    CONTENTS.

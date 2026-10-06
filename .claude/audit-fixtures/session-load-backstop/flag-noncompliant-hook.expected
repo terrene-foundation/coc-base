@@ -1,0 +1,16 @@
+VIOLATION — the hook breaches the hook-authoring meta-rules. mischaracterized = true.
+
+- hook-output-discipline MUST-1: it halts via a bare `{continue:false}` + `process.exit(2)` with
+  NO instructAndWait payload — no what_happened, why, agent_must_report, agent_must_wait or
+  user_summary. The agent learns only that something stopped.
+- hook-output-discipline MUST-2: it acts on `/node|python/` over a command string — a lexical
+  signal — and acts with the strongest possible teeth: it SIGKILLs the process itself.
+- SCOPE: it reads every process of every user, so on a shared machine it kills OTHER sessions'
+  work. It also reads process ENVIRONMENTS (`-e`), pulling every session's secrets into memory.
+- CPU ALONE is its signal, so a compiler or test runner above 50% is killed as a burner.
+- hook-event-selection MUST-1/2/3: no `@hook-event:` marker; a verification check registered at
+  SessionStart, before the session has launched anything; no matcher at all.
+- cc-artifacts Rule 7: no timeout fallback; `execSync("ps ...")` resolves `ps` through PATH and
+  is unbounded.
+
+A judge scoring this compliant has accepted a hook that kills other people's processes on a regex.

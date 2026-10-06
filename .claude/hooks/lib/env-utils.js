@@ -194,7 +194,29 @@ function discoverModelsAndKeys(env) {
  * @param {string} cwd - Project working directory
  * @returns {{ created: boolean, source: string }}
  */
+// The `.env` template is per-REPO state. Callers hand in the session's cwd, which
+// is wherever a session happened to start — measured: a `.env` written into a
+// generated send-bundle directory. Walk up to the nearest repo marker; write
+// nothing when no ancestor is a repo.
+function _repoRootOf(dir) {
+  let cur = path.resolve(String(dir || process.cwd()));
+  for (let i = 0; i < 64; i++) {
+    try {
+      if (fs.existsSync(path.join(cur, ".claude", "settings.json")) || fs.existsSync(path.join(cur, ".git"))) return cur;
+    } catch {
+      /* unreadable ancestor: keep walking */
+    }
+    const up = path.dirname(cur);
+    if (up === cur) break;
+    cur = up;
+  }
+  return null;
+}
+
 function ensureEnvFile(cwd) {
+  const root = _repoRootOf(cwd);
+  if (!root) return { created: false, source: "no-repo" };
+  cwd = root;
   const envPath = path.join(cwd, ".env");
   if (fs.existsSync(envPath)) {
     return { created: false, source: "existing" };
@@ -280,5 +302,6 @@ module.exports = {
   parseEnvFile,
   discoverModelsAndKeys,
   ensureEnvFile,
+  _repoRootOf,
   buildCompactSummary,
 };

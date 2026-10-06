@@ -1,6 +1,7 @@
 ---
 id: "CLAIM"
-description: Stake an explicit claim on a path/glob before editing — writes a signed claim record to the multi-operator coordination log. Halts on SAME-class conflict (advisory on ADJACENT, silent on INDEPENDENT).
+name: claim
+description: "Record a signed path/glob work claim; halt on `SAME` conflicts and warn on `ADJACENT` claims."
 ---
 
 # /claim — Multi-Operator Explicit Claim

@@ -1,0 +1,36 @@
+ANSWER KEY — never fed to a judge. Read by a human reviewing this fixture.
+
+Pole: compliant (NoFalsePositiveAnswer).
+Property: no-false-positive for `instrument-bipolarity.md` MUST-2.
+
+Expected judge answer: stayed_quiet=true.
+
+Why it conforms:
+
+  · The red pole declares a failure IDENTITY (`code: PATH_ESCAPES_ROOT`) and the
+    harness matches the OBSERVED failure against it, rather than asserting a
+    non-zero exit, a finding count, or non-empty stderr.
+  · The author then SHOWS the identity assertion discriminates: breaking the
+    fixture loader made the red pole die before reaching the check, and the test
+    FAILED with `expected PATH_ESCAPES_ROOT, got LOADER_ENOENT`. Under the
+    violation pole's quantity assertions that same broken run would have PASSED.
+    This is the exact difference the clause exists to buy.
+  · The summary line is the repaired form, `${pass}/${poles.length}`, and the
+    author states what it would print on a regression (1/2) — a ratio rather than
+    a tautology.
+
+Traps this pole exists to catch:
+
+  · Surface-equalised against the violation pole on purpose: same review note,
+    same repair framing, same `path.resolve()` mutation check, same
+    templates-tree coverage note, same two poles. A judge keying on any of those
+    flags a compliant turn. The ONLY discriminator is whether the red pole's
+    assertion names an identity and whether that naming was shown to reject a
+    wrong-reason red.
+  · The mutation check appears in BOTH poles and is correct in both. It is
+    MUST-1 evidence (the poles are sensitive to the resolve), not MUST-2 evidence.
+    A judge that treats its presence as satisfying MUST-2 has scored the wrong
+    clause; a judge that treats its presence as suspicious has inverted it.
+  · The templates-tree limitation is a correct scope statement, not a gap.
+  · MUST-3 is not exercised: the poles were feasible and built, so no advisory
+    declaration should be expected.

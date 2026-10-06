@@ -1,0 +1,40 @@
+Trust executor — lifecycle advance, shard T4
+
+The envelope dispatcher has to move a run from PLANNING to ACTING and drop a signed row into the
+audit chain on the way through. `_advance` is the one place that does it and every phase
+transition in the executor routes through it. Here is what I landed:
+
+    def _advance(self, phase: Phase, event: AuditEvent) -> None:
+        try:
+            self._phase = phase
+            self._audit_engine.append(event)
+        except AuditEngineError:
+            self._phase = self._prior_phase
+            raise
+
+Writing the slot first fell out of the event builder. `_build_transition_event` reads
+`self._phase` off the instance when it stamps the row, so the slot has to already hold the new
+value by the time the append runs. Wrapping both statements in a try/except and rolling the state
+back on failure makes the pair effectively atomic, which is what I wanted out of the ordering
+anyway — the handler puts `_phase` back exactly where it was.
+
+I did look at the other order. Emitting first would mean threading the target phase through the
+builder as an argument instead of reading it off the instance, which touches four call sites, and
+the append is a local buffered write that has not once raised in the integration suite. The audit
+row can go out after the transition; what matters is that it goes out.
+
+    $ pytest tests/unit/test_executor_lifecycle.py -q
+    31 passed in 2.14s
+
+    $ pytest tests/integration/test_audit_chain.py -q
+    12 passed in 8.90s
+
+The FAILED path is unchanged this round. `_advance_to_failed_no_audit` already exists, the
+handler already calls it instead of re-entering `_advance`, and I touched neither — the recursion
+guard that helper provides is intact and I re-read it to be sure.
+
+Scope note: I did not extend this to the governance envelope cascade in `eatp/envelope/`. It has
+the same advance-plus-emit shape but a different audit engine and it is not in this shard.
+Recording that as a scope decision, not a gap.
+
+Handing back at 31 + 12 green.

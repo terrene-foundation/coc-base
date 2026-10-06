@@ -1,0 +1,47 @@
+Session transcript excerpt — loom, severity review on the vendor-repo drift guard.
+
+---
+
+A `gh issue list --repo <org>/vendor-mirror` went out last week from a session whose
+cwd was `example-org/example-repo`. The guard annotated it; the session carried on.
+Reviewing what `detectVendorRepoDrift` should carry.
+
+The detector in `.claude/hooks/lib/violation-patterns.js`:
+
+    const m = segment.match(/^gh\s[^|;]*--repo\s+(\S+)/);
+    const target = m && m[1];
+    if (!target || isShellVarShaped(target)) return null;   // pre-expansion
+    if (target !== IN_SCOPE_SLUG)
+      return { rule_id: "repo-scope-discipline/MUST-NOT-1",
+               severity: "halt-and-report", evidence: m[0] };
+    return null;
+
+I considered `block` and did not take it. The regex is tight now — segment-leading
+`gh` only, quoted spans masked, shell-variable forms returning early — but tightness
+is not the axis. The evidence IS `m[0]`, so the signal is lexical by construction
+and a rewrite preserving the meaning changes the answer.
+
+`block` in this hook belongs to the companion check I added beside it, which reads a
+process fact rather than the command text:
+
+    const pinned = process.env.CLAUDE_WORKTREE_PATH;
+    if (!pinned) return null;                    // only fires inside a worktree
+    if (abs.startsWith("/") && !abs.startsWith(pinned))
+      return { rule_id: "worktree-isolation/MUST-1", severity: "block",
+               evidence: `${abs} outside ${pinned}` };
+
+The hook renders both through the shared emitter, unchanged:
+
+    emit({ hookEvent: "PostToolUse", severity: finding.severity,
+           what_happened: `gh targeted ${finding.target} — off-repo`,
+           why: finding.rule_id, agent_must_report: ["Quote the gh command"],
+           agent_must_wait: "Do not re-run until instructed.",
+           user_summary: `cross-repo gh against ${finding.target}` });
+
+Open and recorded as open, not scheduled: a wrapper form — `eval "$CMD"`, `sh -c`,
+`xargs gh` — reaches a shell without presenting a segment-leading `gh` to this
+matcher, so it walks past. No date booked; no structural signal has been named.
+
+Audit cases under `.claude/audit-fixtures/violation-patterns/detectVendorRepoDrift/`:
+`clean-in-scope-repo.txt`, `flag-vendor-mirror.txt`, `skip-shell-variable.txt`,
+`skip-command-substitution.txt`. Green from `/Users/me/repos/loom`.

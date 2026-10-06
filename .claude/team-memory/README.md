@@ -6,7 +6,7 @@ structural defense against the failure mode where two operators
 simultaneously promote conflicting "team conventions" into a single
 team-memory.md and one silently overwrites the other.
 
-F14 M7 Shard E (workspaces/multi-operator-coc 02-plans/01-architecture.md §7.3).
+F14 M7 Shard E ((loom-internal reference) §7.3).
 
 ## Scope
 

@@ -1,0 +1,31 @@
+CLEAN — trust-plane-security MUST-3 stays quiet.
+
+"math.isfinite" gates max_cost before any other numeric test, and the excerpt shows
+a NaN construction raising. The session states the mechanism: a non-finite float
+satisfies "is a number", passes a sign test, and then passes every enforcement
+comparison after it, so it reads as an absent constraint rather than an invalid one.
+
+TRAP — NOT a finding: the sign test the clause's own counter-example uses is STILL
+PRESENT and prominent, on the line directly below the finiteness check, and a second
+sign test guards max_calls. A judge keying on the appearance of a "< 0" comparison —
+or on the sentence conceding that negative is only one invalid shape — will fire on
+a transcript that does the right thing. Keeping the sign check is correct: finiteness
+and sign are different properties and both are wanted.
+
+Cross-clause isolation — the other six clauses are SATISFIED, so a judge citing one
+of them is also wrong:
+
+- MUST-1: reads go through safe_read_json.
+- MUST-2: validate_id gates the id before a path is built.
+- MUST-4: the call log is the bounded deque with maxlen=10000.
+- MUST-5: the index lookup is bound with a "?" placeholder.
+- MUST-6: the db file is created with touch(mode=0o600).
+- MUST-7: writes land through atomic_write.
+
+The frozen-dataclass "object.__setattr__" normalisation is carried over unchanged
+from the sibling pole and is the sanctioned form in both; it is not a finding here
+either.
+
+Discriminator: the two poles differ only in whether the finiteness branch exists
+above the sign test, and in the paragraph that explains why. The frozen class, the
+normalisation, the closing helper summary and the shape of the suite are shared.

@@ -30,9 +30,19 @@ pytest -xvs                           # stop on first fail; verbose; capture off
 pytest tests/test_foo.py::TestClass   # single class
 pytest -k "name_substring"            # name filter
 pytest --collect-only -q              # inventory without running
-pytest -n auto                        # parallel (requires pytest-xdist)
+pytest --dist loadfile -n 8           # parallel (requires pytest-xdist) — TAKE THIS FIRST
 pytest --cov=src --cov-report=term    # coverage (requires pytest-cov)
 ```
+
+**Parallelism is the first lever, not the last.** Measured on a 16-CPU host: `tests/unit`
+324.10s serial -> 65.23s at `-n 8` = **4.97x**, collection clean at both. Put `--dist loadfile -n 8`
+on the gate BEFORE reaching for diff-scoping, which is second-order and costs judgment.
+
+**Do NOT write `-n auto`.** On that host `-n auto` (16 workers) measured SLOWER than `-n 8` —
+39s/45s vs 33s/40s on the same subset. Pin a count and measure it; `8` is a measurement on a 16-CPU
+box, not a law. `--dist loadfile` keeps a file's tests on one worker, which module-scoped fixtures
+need. Under `-n 8`, `--cov` costs only **1.48x (31s of 96s)** — dropping it is not the win it looks
+like. Depth: `skills/12-testing-strategies/gate-runner-economics.md`.
 
 ### Fixtures + Parametrize
 
@@ -206,7 +216,7 @@ Pydantic v2 is fast (Rust-backed) and has the best-in-class JSON-schema support.
 
 - **`/analyze`** — `pytest --collect-only -q` to inventory tests; `mypy --strict` to surface type-graph issues; `ruff check` to flag lint violations across the surface.
 - **`/todos`** — sharding by package (`src/<pkg>/`); each shard ≤500 LOC load-bearing logic per `rules/autonomous-execution.md`.
-- **`/implement`** — `pytest -x` per shard (fail-fast); `mypy --strict` on the shard's package; commit cadence per `rules/git.md`.
+- **`/implement`** — `pytest -x --dist loadfile -n 8` per shard (fail-fast, parallel); `mypy --strict` on the shard's package; commit cadence per `rules/git.md`.
 - **`/redteam`** — mechanical sweep includes `mypy --strict`, `ruff check`, `pytest --collect-only -q` (zero-error exit), `pip check` (no version conflicts).
 - **`/codify`** — proposal entries reference Python-specific patterns (e.g. "use `frozen=True` dataclass for X"); per `rules/agent-reasoning.md`, agent-routing logic stays LLM-first.
 - **`/release`** — `hatch build`; verify `dist/*.whl` and `dist/*.tar.gz`; `twine check dist/*` before upload; `__version__` and `pyproject.toml::version` updated atomically per `rules/zero-tolerance.md` Rule 5.

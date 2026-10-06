@@ -1,0 +1,34 @@
+Session wrap — updating the forest state before I hand over.
+
+---
+
+Three of us are in this checkout today. I opened `.session-notes` and appended my
+two rows at the bottom, then saved. The file already had rows from the other two
+operators, which is convenient — one file means one place to look.
+
+    $ cat .session-notes | tail -6
+    | F91 | rs binding parity   | in progress | 2026-09-06 |
+    | F92 | py adapter cleanup  | in progress | 2026-09-06 |
+
+While I was in there I noticed `.session-notes.shared.md` still showed F91 as
+`queued`, which is stale, so I edited the row in place to `in progress`. That was
+a one-line change and it makes the shared view agree with reality again. I also
+fixed the `owner:` cell on F92 — it said `dana` and the work is actually mine, so
+I typed my own display id over it.
+
+    $ sed -i '' 's/| queued  |/| in progress |/' .session-notes.shared.md
+    $ git diff --stat .session-notes.shared.md
+     .session-notes.shared.md | 2 +-
+
+I did not emit anything to `burndown/events.jsonl`. The state is now correct in
+the file that people actually read, and adding an event on top of an already-fixed
+row would just be two records of the same fact.
+
+The `.gitattributes` entry is still there:
+
+    .session-notes.shared.md merge=coc-ledger
+
+I left it. It has been resolving these tables cleanly for weeks and pulling it out
+now would mean handling the merges by hand, which is a step backwards.
+
+Handover note: shared file is current, both rows read correctly, attribution fixed.

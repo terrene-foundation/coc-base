@@ -47,6 +47,7 @@ Exit 0 = all fixtures pass. Exit 1 = ≥1 fixture failed.
 | 19  | check 15 — parseVariantOnlyAll              | `variant_only:` → flat path set across langs (the 2nd union lane); next top-level block not swept in                                                |
 | 20  | check 15 — classifyVariantFile              | one CLEAN per allowlist arm (overlay/variant_only/convention-rule+ternary+wrapper/null-ack/README+.example) + ORPHAN + unknown-axis-not-mis-flagged |
 | 21  | check 15 — checkVariantOrphan e2e           | git-tracked enumeration over a synthetic tree: planted orphan → FAIL, declared → PASS, untracked operator-local companion → invisible               |
+| 22  | findUnrecognizedAllowlistBullets — MARKER   | `fixture-allowlistMarker-a`–`n`; non-canonical bullet marker is LOUD, indented detail sub-bullets and out-of-span bullets stay silent (see below)    |
 
 Note: check 13 (`consumer-efficacy`, #408 AC#7) is predicate-tested here via its
 exported pure helpers (fixtures 15–16); the check-level wrapper + fault-injection
@@ -178,6 +179,99 @@ rows are the bipolar pair in table form:** removing the near-miss detector reds
 recall, over-broadening it reds precision, and only a corpus carrying BOTH poles
 reds in both directions. A detector tightened in either direction alone stays green
 on one half — which is exactly how the over-broad draft reached review.
+
+## `fixture-allowlistMarker-*` — non-canonical allowlist bullet MARKER (2026-09-15)
+
+14 cases — `a`–`k` (2026-09-15) plus `l`–`n` (2026-09-16) — over
+`findUnrecognizedAllowlistBullets` + `parseSelfRefAllowlist`.
+
+**The defect these pin was fail-open at TWO layers through ONE shared blind spot.**
+`parseSelfRefAllowlist` recognizes a category bullet with `/^- \*\*/` — the literal
+`- ` is load-bearing. `findUnrecognizedAllowlistBullets`, the detector whose entire
+purpose is catching bullets the parser silently discards, used the **same anchor**.
+So a bullet whose marker drifted to `*`, `+`, or an indent was invisible to both.
+
+**Measured on the live corpus before the fix.** Rewriting one marker,
+`- **Commands:**` → `* **Commands:**`, took the parsed allowlist from **220 entries
+to 199**. Twenty-one load-bearing paths — `.claude/commands/codify.md` among them —
+left the allowlist and stopped firing the Rule-1 self-referential redteam gate.
+`validate-emit.mjs` **exited 0**, reported **0 fail**, and the only trace anywhere
+in its output was a pass count that fell from 1844 to 1823. A pass count that DROPS
+reads as "less to check", never as a defect. This is the `Rule-depth` precedent
+("209 with this bullet present, 209 with its `paths:` line removed") in a second
+dimension: there the LABEL was unrecognized, here the MARKER is.
+
+**Why it matters now:** `npx prettier --write` has been disarmed for markdown in
+`.claude/hooks/auto-format.js`. Prettier was normalizing list markers to `-` as an
+**undeclared** side effect, and these line-oriented governance parsers silently
+depended on it. `*` and `+` are valid CommonMark and render identically, so no
+markdown tooling downstream would ever complain.
+
+**The parser stays STRICT; the detector is what makes a violation LOUD.** Making
+the parser marker-permissive instead would have absorbed the drift silently —
+trading a fail-open for a fail-quiet — and left the other line-oriented sites
+(`checkAllowlistBulletUniqueness`, `detection-binding-check.mjs::DETECTION_BULLET_RE`)
+each deciding independently what a marker is. One canonical form, one loud detector.
+
+| Case | Predicate                                                    | Expect  |
+| ---- | ------------------------------------------------------------ | ------- |
+| `a`  | CONTROL — canonical `- `, and the parser DOES read the path  | CLEAN   |
+| `b`  | the measured live defect — `* `                               | FLAGGED |
+| `c`  | `+ ` (third CommonMark marker)                                | FLAGGED |
+| `d`  | INDENT drift — `  - `                                         | FLAGGED |
+| `e`  | WIDTH drift — `-  ` (two spaces)                              | FLAGGED |
+| `f`  | TAB indent — invisible in review, fatal to a line parse       | FLAGGED |
+| `g`  | PRECISION CONTROL — indented backtick detail sub-bullets      | SILENT  |
+| `h`  | SPAN SCOPING — non-canonical bullet OUTSIDE the span          | SILENT  |
+| `i`  | marker drift and label drift are INDEPENDENT; both reported   | BOTH    |
+| `j`  | ANTI-VACUITY — `nonCanonical` is a real populated array       | 2 rows  |
+| `k`  | no span anchors ⇒ `spanOk:false`, never a silent clean        | SPAN-X  |
+| `l`  | ORDERED-list marker — `1. `                                   | FLAGGED |
+| `m`  | ORDERED-list marker — `1) `                                   | FLAGGED |
+| `n`  | U+2011 NON-BREAKING HYPHEN lookalike                          | FLAGGED |
+
+**`l`–`n` were the residual hole one keystroke wide (2026-09-16).** The `a`–`k`
+fix widened the detector from `/^- \*\*/` to the marker class `[-*+]` — the three
+CommonMark bullets. Three forms still matched **neither** the parser **nor** the
+detector, so they were discarded in TOTAL silence, reproducing the very 220 → 199
+disarm the `a`–`k` set was built to make loud. Measured against the live rule
+file, each form independently: parsed allowlist **220 → 199**, `nonCanonical`
+**`[]`**, `unrecognized` **`[]`**, `validate-emit.mjs` **exit 0 at 0 fail**.
+
+`l`/`m` are ordinary CommonMark — a plausible edit when a reader decides to
+number the categories. `n` is the one that matters most and is not a list marker
+at all: CommonMark renders a U+2011-led line as a **paragraph**, so it silently
+destroys the list, yet it is **indistinguishable from `-` in every editor, diff
+and review surface**. It arrives by paste from a word processor or a rendered
+doc, and it is the single form a human reviewer structurally cannot catch. Both
+this fixture and the regex build it from its code point rather than pasting the
+glyph — a literal U+2011 in either source would be unreviewable in exactly the
+way the defect is.
+
+**`g` is the load-bearing control.** The live corpus carries 31 indented detail
+sub-bullets under the Rules category, each opening with a backtick rather than
+`**`. A blanket `/^\s*[-*+]\s+/` draft would flag all 31 — a false-positive storm
+that is exactly how an over-broad detector reaches review looking correct.
+
+**Discrimination table.** Each mutation applied to `validate-emit.mjs` one at a
+time (restored from a `cp` backup between runs), suite re-run. Clean baseline:
+**69 passed, 0 failed, exit 0** (was 66 before `l`–`n` landed).
+
+| Mutation applied to `ALLOWLIST_BULLET_ANY_MARKER`            | Reds                    | Controls stay green |
+| ------------------------------------------------------------ | ----------------------- | ------------------- |
+| reverted to the old blind `/^- \*\*/` shape                   | `b` `c` `d` `e` `f` `i` `j` | `a` `g` `h` `k`     |
+| over-broadened — `\*\*` made optional                         | `g`                     | `a`–`f` `h`–`k`     |
+| marker class narrowed back to `[-*+]` (the pre-`l`–`n` shape) | `l` `m` `n`             | `a`–`k`             |
+
+The third row is the one to read twice: that mutation restores a detector which
+**passes `a`–`k` in full** — every pole the previous round called sufficient —
+and is still blind to three live forms. A fixture set is only ever evidence about
+the forms it enumerates.
+
+The two rows are the bipolar pair in table form: tightening the detector reds
+recall (six markers go unseen again), loosening it reds precision (the 31 detail
+sub-bullets flood). Only a corpus carrying **both** poles reds in both directions —
+a detector tightened or loosened in either direction alone stays green on one half.
 
 ## Why structural probes
 

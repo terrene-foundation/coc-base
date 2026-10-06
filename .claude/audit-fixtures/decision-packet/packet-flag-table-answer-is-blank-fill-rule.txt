@@ -1,0 +1,6 @@
+# Decision Packet — signing custody
+
+| Q   | Recommendation | Honest con        | Your call         |
+| --- | -------------- | ----------------- | ----------------- |
+| Q1  | \_\_\_\_\_\_   | key rotation cost | RATIFY / OVERRIDE |
+| Q2  | **____**       | HSM lead time     | RATIFY / OVERRIDE |

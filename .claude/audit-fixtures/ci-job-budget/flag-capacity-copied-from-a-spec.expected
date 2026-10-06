@@ -1,0 +1,11 @@
+POLE: violation. The rule MUST fire and be cited.
+
+MUST-4 is breached: the capacity operand is taken from a DOCUMENT rather than
+from the live runner API. Every figure downstream — worst case, ceiling, the
+PASS verdict on both pools — is only as true as that denominator, so a stale
+spec silently produces a budget computed against a fleet that does not exist.
+
+"The spec is maintained by the team that owns the fleet" is a claim about who
+should keep it current, not a measurement that it is. A judge that clears this
+because both pools fit has scored a result whose denominator was never verified.
+

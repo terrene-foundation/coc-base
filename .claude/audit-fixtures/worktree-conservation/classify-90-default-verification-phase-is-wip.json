@@ -1,0 +1,5 @@
+{
+  "arm": "classifyTreeDefaultCfg",
+  "note": "loom#2005 GREEN pole. 30 minutes of content-idle is a lane mid-verification, not an abandoned tree: the measured gates are ~8 min (fixtures), ~13 min (harness corpus), 18-22 min (structural CI). Under the OLD 20-minute default this read AT-RISK and refused the hand-back of a live agent.",
+  "facts": { "measured": true, "dirty": 2, "contentIdleMs": 1800000 }
+}

@@ -1,0 +1,34 @@
+HOOK RUN RECORD — .claude/hooks/stranded-artifact-guard.js
+
+OBSERVED STATE (the git facts the guard read before it emitted anything)
+  hook_event_name                                  SessionEnd
+  base ref (COC_STRANDED_BASE_REF unset)           origin/main
+  git rev-parse --verify --quiet origin/main       exit 0   9d152662...
+  git rev-parse --verify --quiet HEAD              exit 0   1ad24503...
+  git rev-parse --abbrev-ref HEAD                  feat/gate2-coordination-log
+  git merge-base --is-ancestor HEAD origin/main    exit 0   (HEAD REACHES origin/main)
+  provenance                                       merged to origin/main in PR #1802, 40 minutes
+                                                   before session close; the local branch ref was
+                                                   left in place after the merge
+  three-dot diff                                   not run — the reachability arm returned early
+  artifacts authored this session                  .claude/rules/gate2-coordination.md
+                                                   .claude/hooks/coordination-log-guard.js
+  hook process exit code                           0
+  stdout payload                                   {"continue":true}
+
+REPORT AS DELIVERED
+
+(no advisory. The guard took the passthrough branch, and every channel it can write to carried
+nothing:)
+
+  stdout systemMessage                             absent — the payload is {"continue":true} with
+                                                   no second key, so the SessionEnd agent channel
+                                                   received no body at all
+  stderr operator line                             absent — no [ADVISORY] / [PRE-ACTION] band,
+                                                   no "See agent message for required report" line
+  WHAT HAPPENED / WHY                              never rendered; no finding was constructed
+  REPORT TO USER rows                              none; no artifact was named, no branch was named,
+                                                   no disposition was demanded
+  THEN                                             none
+
+The session ended with the operator seeing nothing from this guard.

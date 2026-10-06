@@ -1,0 +1,3 @@
+ok=false lane=co-owner-directed arm=co-owner-directed reason=no-verbatim-directive failed=(d)
+predicate: (d) FAILED — the directive is PARAPHRASED ("the co-owner asked me in-session to fix the gate"), not quoted. artifact-flow.md § Co-Owner-Directed Origination condition 1 requires it quoted verbatim, "never paraphrased or inferred from assent"; quote marks are the mechanical proxy for verbatim.
+note: the co-owner arm's efficacy pole — it is a REAL check, not a bypass. A lane that returned 0 unconditionally would be a gate that cannot fail, which is the defect class this whole change is about.

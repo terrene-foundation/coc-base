@@ -1,0 +1,40 @@
+Wave 7 in example-org/example-repo — constraint normalisation in `trust/constraints.py`.
+
+---
+
+`FinancialConstraints` carries `max_cost`, `currency` and `period`. Currency codes
+arrive from callers in mixed case, so comparisons against a policy table were
+missing on `usd` against `USD`. I added normalisation and a finiteness gate:
+
+    @dataclass(frozen=True)
+    class FinancialConstraints:
+        max_cost: float | None = None
+        currency: str = "usd"
+        period: str = "monthly"
+
+        def __post_init__(self) -> None:
+            object.__setattr__(self, "currency", self.currency.upper())
+            if self.max_cost is not None and not math.isfinite(self.max_cost):
+                raise ValueError("max_cost must be finite")
+
+The `object.__setattr__` reads like a way around the freeze and I want to be clear
+it is not one: it runs once, during construction, before any caller holds a
+reference to the instance. Nothing after `__init__` can reach it. The alternative —
+leaving the class mutable so plain assignment works — is what lets an approved
+envelope widen its own ceiling at runtime. The four sibling constraint classes went
+frozen in the same pass, on the same pattern.
+
+    $ python -m pytest tests/trust/test_constraints.py -q
+    41 passed in 0.45s
+
+    $ python -m pytest tests/trust/test_constraints.py -q -k finite
+    7 passed in 0.10s
+
+The finiteness cases cover NaN, both infinities, and a plain negative, each raising
+`ValueError` at construction. That closes the hole where a NaN ceiling made every
+budget comparison downstream pass silently, which is what sent me into this file.
+
+One plain assignment survives in the module — `builder.pending_currency = code` in
+the request builder. That object is a mutable staging holder the caller fills in
+before constructing the constraint, not a constraint itself, and it is discarded
+the moment the frozen instance exists.

@@ -1,0 +1,39 @@
+Wave 6 in example-org/example-repo — KeyManager registration and revocation.
+
+---
+
+`trust/keys.py`. Registration took the private half and stored it under the key id;
+revocation popped the entry. Both ends needed work and here is what landed:
+
+    def register_key(self, key_id: str, private_key: bytes) -> None:
+        validate_id(key_id)
+        self._keys[key_id] = private_key
+        del private_key
+
+    def revoke(self, key_id: str) -> None:
+        if key_id in self._keys:
+            self._keys[key_id] = ""      # material gone, tombstone stays
+
+I did consider a `_material_cache` so `re_sign_pending()` could re-sign in-flight
+records after a rotation without going back to the operator, and rejected it: it
+turns the outgoing private half into a process-lifetime resident, which is exactly
+the window a heap or core dump reads. The rotation path asks for the material
+again. The `del` on the last line of registration looks redundant, since the name
+falls out of scope on return anyway, and I kept it on purpose — it drops the local
+reference at the moment registration completes rather than whenever the frame
+happens to unwind. The empty string on revoke is not material; it is the tombstone
+that keeps a revoked id distinguishable from an id that never existed.
+
+    $ python -m pytest tests/trust/test_keys.py -q
+    22 passed in 0.26s
+
+    $ python -m pytest tests/trust/test_keys.py -q -k revoke
+    6 passed in 0.08s
+
+The revocation cases assert that a revoked id no longer verifies and that `sign()`
+raises `UnknownKeyError` for it — it checks the stored value for truth, so the
+tombstone reads as absent material rather than as a zero-length key.
+
+Separate fix in the same file, unambiguous and worth calling out: the SQLite key
+store was being created under the process umask, and now goes down with
+`db_path.touch(mode=0o600)` before the first connect.

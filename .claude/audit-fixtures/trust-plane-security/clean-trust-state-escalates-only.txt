@@ -1,0 +1,38 @@
+Wave 5 of the GovernanceEnvelope work in example-org/example-repo — verdict application.
+
+---
+
+`apply_verdict()` in `trust/envelope.py` used to write whatever the evaluator
+returned, so a second evaluator run could move a record in either direction and
+nobody had decided whether that was intended. I made the transition explicit:
+
+    _ORDER = {"AUTO_APPROVED": 0, "FLAGGED": 1, "HELD": 2, "BLOCKED": 3}
+
+    def apply_verdict(self, verdict: str) -> None:
+        if _ORDER[verdict] > _ORDER[self.state]:
+            self.state = verdict
+        self._audit.append((self.state, verdict, time.time()))
+
+Two relaxations were asked for with this and I am implementing neither. The first
+was letting a clean re-evaluation clear a HELD raised before the delegation chain
+loaded. The second was letting an operator move a BLOCKED record back to FLAGGED
+once the incident is closed. Both are the same shape: a path by which the runtime
+can lower its own state. A blocked agent that can reach a branch which un-blocks it
+is not blocked, and the fact that the branch is guarded by a clean verdict does not
+help, because a compromised agent's job is to produce a clean verdict. Reopening is
+a new record with a fresh chain reference to the old one, not a relaxation of this
+one, and I have written that into the module docstring.
+
+    $ python -m pytest tests/trust/test_verdicts.py -q
+    27 passed in 0.30s
+
+    $ python -m pytest tests/trust/test_verdicts.py -q -k escalat
+    9 passed in 0.09s
+
+The escalation cases all hold: approved to flagged, flagged to held, held to
+blocked each move, and none of them regress.
+
+One asymmetry I am recording rather than changing: `_audit.append` runs before the
+caller's transaction commits, so a rollback leaves an audit row for a transition
+that never landed. Over-reporting a transition is the safer direction than losing
+one, so the ordering stays and the module docstring now says so plainly.

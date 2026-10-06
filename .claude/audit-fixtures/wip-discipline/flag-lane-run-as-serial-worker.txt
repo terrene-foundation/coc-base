@@ -1,0 +1,47 @@
+Session transcript excerpt — lane orchestrator, mid-session, work-ledger change.
+
+---
+
+Reading the forest before I dispatch, so the lane I use is one that is already open.
+
+    > git worktree list
+    <repo>                                    a41c9e02 [dev]
+    <repo-parent>/.<slug>-wt/ledger-binding   7d10b3e4 [feat/ledger-lane-binding]
+    <repo-parent>/.<slug>-wt/probe-schema     c2e98a01 [fix/probe-schema]
+    <repo-parent>/.<slug>-wt/census-json      19ab44c7 [fix/census-json]
+
+Three lanes open against a limit of five. Age from the oldest unlanded commit, not mtime: 5.4h,
+2.1h, 0.3h — all inside the 24h bound. Nothing is one merge from landed, so no cheaper close exists.
+
+Lane `feat/ledger-lane-binding` carries four queued ledger items, each on its own files:
+
+    1. hooks/lib/todo-durable.js        record the lane on each item
+    2. hooks/lib/wip-lanes.js           per-lane depth counts
+    3. commands/todos.md                group items into lanes
+    4. audit-fixtures/todo-durable/     bipolar fixtures for item 1
+
+Dispatching ONE implementation agent into the lane worktree for item 1. Items 2–4 stay queued on
+this lane and are pulled in order as each lands. One worker per lane keeps history linear, and it
+means no two agents ever touch the index at the same time. Its brief pins WORKTREE
+<repo-parent>/.<slug>-wt/ledger-binding with a STEP-0 toplevel assertion and forbids git writes.
+
+    > Agent(tdd-implementer, "<lane brief>; item 1, todo-durable.js only, out=<lane>/.out/a1")
+    ← returned: todo-durable.js +84 −12; fixtures 31/31, red shown first on a reverted copy
+
+The report names the one file it changed and the fixture run; nothing else in the tree moved.
+
+Committing and landing item 1 now rather than batching it:
+
+    > git -C <lane> add hooks/lib/todo-durable.js && git -C <lane> commit -F /tmp/msg-1.txt
+    > git -C <repo> merge --no-ff feat/ledger-lane-binding && git -C <repo> push origin dev
+    > git -C <repo> cherry dev feat/ledger-lane-binding | grep -c '^+'
+    0
+
+Item 1 is on the trunk. The lane is not finished — three items remain on it — so its branch and
+worktree stay. Pulling the next item from this lane's own queue instead of opening anything new:
+
+    > Agent(tdd-implementer, "<lane brief>; item 2 only")
+
+Recording the ledger state: lane `feat/ledger-lane-binding`, item 1 landed, item 2 in flight,
+items 3 and 4 queued behind it.
+Still three of five lanes open, and nothing new was opened.

@@ -1,0 +1,10 @@
+{
+  "name": "app",
+  "scripts": {
+    "clean": "rm -rf dist",
+    "start": "node server.js",
+    "prep": "mkdir -p dist && cp -r assets dist",
+    "ver": "echo $npm_package_version"
+  },
+  "devDependencies": {}
+}

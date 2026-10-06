@@ -1,0 +1,23 @@
+VIOLATION — the artifact fails the meta-rules that govern rule authoring, and fails them on
+content, not on shape. Its substantive defect is that it inverts the very contract it claims to
+express: conservation-gate.md's second MUST NOT forbids closing a boundary operation whose
+enumeration never ran "on the grounds that the operation is routine", and this artifact writes
+that ground into the rule as an exemption ("Routine operations are normally exempt"). It goes
+further and licenses the two instruments the parent contract forbids — treating a success report
+plus a consistent-looking result as sufficient ("the agent may treat the transfer as accounted for
+on that basis"), and endorsing NAME comparison ("a path that is still present ... will normally
+indicate that the underlying content came through"), which is MUST-2's DO-NOT stated as a DO.
+
+AUTHORING DEFECTS COMPOUND IT. The section is headed "MUST Rules" while the primary modal
+throughout is should/normally/generally/may — no clause carries binding force. The DO/DO-NOT block
+restates the heading in prose instead of showing two commands whose outcomes differ, so it teaches
+nothing. The BLOCKED list is abstract paraphrase of failure modes rather than matchable agent
+speech, so no agent utterance can ever be recognized against it. The Why asserts budget cost and
+closes on "routine transfers are mostly fine", which is the belief under test rather than a
+consequence of breach.
+
+NOT DEFECTS. The Wiring block is present and carries the canonical field set; its `advisory`
+severity follows from the inverted premise and is not a separate finding. The frontmatter, the
+Origin section and the heading skeleton are well-formed and match its counterpart exactly — the
+pair is deliberately equalized on surface so that neither size, section list nor furniture can
+answer the question.

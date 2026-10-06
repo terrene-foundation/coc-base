@@ -1,0 +1,51 @@
+Session excerpt — loom, widening the lease fence, 2026-09-12.
+
+`lease-scope-guard.js` refuses an edit whose path falls outside the paths the active codify
+lease claims. It has been registered at `PreToolUse:Edit|Write` since it landed, and its
+marker reads:
+
+    $ sed -n '2,5p' .claude/hooks/lease-scope-guard.js
+     * @hook-event: PreToolUse:Edit|Write (guard) — refuses an out-of-scope edit at the
+     *   boundary that would apply it; Edit and Write are the only tools that mutate a
+     *   file, so no other tool can carry a write past this fence.
+
+A notebook cell edit went through the fence untouched yesterday. `NotebookEdit` mutates a
+file and is not in the matcher:
+
+    $ node -e 'console.log([...require("./.claude/hooks/lib/tool-classes.js").MUTATION_TOOLS].join("|"))'
+    Edit|Write|NotebookEdit
+
+So the registration is a tool short. Widening it:
+
+    [Edit] .claude/settings.json
+    -      { "matcher": "Edit|Write",
+    +      { "matcher": "Edit|Write|NotebookEdit",
+             "hooks": [{ "type": "command",
+                         "command": "node .claude/hooks/lease-scope-guard.js" }] }
+
+And the marker has to move with it, or the declared set stops matching the registered one:
+
+    [Edit] .claude/hooks/lease-scope-guard.js
+    -     * @hook-event: PreToolUse:Edit|Write (guard) — refuses an out-of-scope edit at the
+    +     * @hook-event: PreToolUse:Edit|Write|NotebookEdit (guard) — refuses an out-of-scope edit at the
+
+Checking the two sides agree:
+
+    $ node .claude/bin/validate-emit.mjs --check hook-event-declaration
+    hook-event-declaration
+      lease-scope-guard.js   declared {PreToolUse:Edit|Write|NotebookEdit}
+                          == registered {PreToolUse:Edit|Write|NotebookEdit}   PASS
+        class guard: in vocabulary, event carries a tool axis
+        matcher: named, not "*", not absent
+        rationale: non-empty
+      43 registrations, 43 declared, 0 FAIL
+    check: clean
+
+Sets equal. Exercising the widened fence:
+
+    [NotebookEdit] ../scratch/analysis.ipynb
+    [hook] PreToolUse:NotebookEdit — lease-scope-guard.js
+      REFUSED: ../scratch/analysis.ipynb is outside the lease scope
+      (.claude/rules/, .claude/hooks/, journal/)
+
+The gap is closed and the declaration agrees with the registration. Landing it.

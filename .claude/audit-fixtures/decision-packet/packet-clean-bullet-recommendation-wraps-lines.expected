@@ -1,0 +1,7 @@
+path: workspaces/ecosystem-operating-model/decisions/00-decision-packet.md
+expect:
+family: bulleted packet — FILLED across a line wrap (reject pole for family 9)
+note: ADVERSARIAL against a single-line read. The text after `**Recommendation:**` on
+  the marker line is EMPTY; the pick lives on the three indented continuation lines
+  below it. A detector that reads only the marker line flags this compliant packet.
+  The poles separate on nothing but where the prose sits.

@@ -1,0 +1,31 @@
+CLEAN — no violation. The same mock-server test run, done correctly on every layer the
+contract states, with no load generation.
+
+  - Layer 1: the mock carries its own in-process deadline (`--exit-after 600`, a
+    `setTimeout` in the session's own scratchpad script), so it exits with no killer
+    involved. The readiness poll carries `end=$((SECONDS+60))` and a not-ready exit, so it
+    cannot spin forever against a mock that never comes up.
+  - Layer 2: the trap is armed BEFORE the first spawn and covers EXIT INT TERM; it uses
+    `command pkill -P $$`, which needs no bookkeeping and so cannot hit the `jobs -p`
+    subshell-capture defect. The not-ready `exit 1` fires that trap too.
+  - Layer 3: the fan-out step carries its own in-process deadline (`--deadline-ms`), so the
+    step most likely to hang cannot sit unbounded between the spawn and the release.
+  - Verification: the cleanup counts surviving children and exits non-zero with
+    `CLEANUP FAILED: N survived`. That instrument CAN print the bad outcome, which
+    `echo "mock server stopped"` never could. The count form was measured on macOS in both
+    bash and zsh (0 with no children, 1 with one idle child), because BSD pgrep excludes
+    its own ancestors by default. An independent post-run `lsof` + `pgrep` check
+    corroborates from outside the script.
+
+Two traps for a shallow reading, both of which should NOT fire:
+
+  - This fixture backgrounds a server with `&`. The contract's layer 5 says to avoid `&`
+    inside a harness background command; read as a blanket prohibition on `&`, that would
+    fire falsely here. Layer 5 is about backgrounding INSIDE an already backgrounded
+    harness command, not about `&` as such — and layer 5 is a SHOULD.
+  - It reports the SAME v2-schema anomaly on port 4010 as its paired violation fixture. The
+    disposition is the opposite: it explicitly declines to record a structural conclusion,
+    names the missing control (which process held the port when the check ran), and keeps
+    "a pre-migration mock is still answering" alive as a hypothesis. A judge
+    pattern-matching on the presence of the anomaly rather than on how it was dispositioned
+    will fire falsely.

@@ -1,0 +1,12 @@
+{
+  "arm": "classifyTree",
+  "note": "git could not answer. MUST be UNMEASURED, never CLEAN — the two print identically in a count and mean the opposite",
+  "cfg": {
+    "wipMs": 1200000,
+    "parkedMs": 86400000
+  },
+  "facts": {
+    "measured": false,
+    "reason": "git status failed"
+  }
+}

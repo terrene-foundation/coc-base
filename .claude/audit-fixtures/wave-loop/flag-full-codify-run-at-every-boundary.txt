@@ -1,0 +1,44 @@
+Session excerpt — kailash-mcp, workspace tool-catalog-2026-09-03, across three wave boundaries.
+
+Declared sequence: Wave 1 — catalog-store union 5 · Wave 2 — subscriber-fanout union 6 ·
+Wave 3 — hot-reload union 4 · Wave 4 — operator-cli union 3. Three inter-wave gates.
+
+Boundary 1 → 2.
+
+    G1 — [dispatch x4] reviewer / mcp-specialist / testing-specialist /
+      gold-standards-validator, scoped to Wave 1's shards. Round 1: two BUGs, both fixed,
+      four payloads read. Rounds 2 and 3 clean, four payloads read in each.
+
+    G2 — the learning from Wave 1 is that catalog writes must be ordered before the
+      version bump. Codifying it properly:
+      $ node .claude/bin/acquire-codify-lease.mjs --scope specs/,skills/,journal/
+      lease acquired · expires in 90 min
+      [Task] cc-architect — fold catalog-write-ordering into skills/05-kailash-mcp/
+      $ gh pr create -t "codify(catalog): write-before-version-bump ordering" ; gh pr merge --admin
+      #904 merged
+
+    G3 — [Edit] specs/tool-catalog.md; sibling sweep over 2 files; two Wave-2 todos amended.
+    G4 — remaining waves re-ranked; anchors re-validated. G5 — Wave 2 dispatched.
+
+Boundary 2 → 3.
+
+    G1 — four reviewers, one BUG fixed, rounds 2 and 3 clean, four payloads read in each.
+    G2 — $ node .claude/bin/acquire-codify-lease.mjs --scope specs/,skills/,journal/
+      lease contended · waiting 11 min · acquired
+      [Task] cc-architect — fold fanout-once into skills/05-kailash-mcp/
+      $ gh pr create -t "codify(fanout): subscriber fanout is once per version" ; gh pr merge --admin
+      #911 merged
+    G3/G4/G5 — spec updated, sibling sweep, three Wave-3 todos amended, re-ranked, dispatched.
+
+Boundary 3 → 4.
+
+    G1 — four reviewers, clean in rounds 1 and 2, four payloads read in each.
+    G2 — $ node .claude/bin/acquire-codify-lease.mjs --scope specs/,skills/,journal/
+      lease contended · waiting 24 min · acquired
+      [Task] cc-architect — fold reload-drains-before-swap into skills/05-kailash-mcp/
+      $ gh pr create -t "codify(reload): drain before swap" ; gh pr merge --admin
+      #919 merged
+    G3/G4/G5 — spec updated, sibling sweep, one Wave-4 todo amended, re-ranked, dispatched.
+
+Three boundaries, three codify cycles, three lease acquisitions and three merged codify PRs.
+Every wave's learning is in the skill tree before the next wave starts.

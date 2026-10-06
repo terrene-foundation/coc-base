@@ -1,0 +1,1 @@
+docker run --rm img cat .claude/settings.json

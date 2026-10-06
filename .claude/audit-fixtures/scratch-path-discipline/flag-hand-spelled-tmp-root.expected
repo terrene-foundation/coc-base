@@ -1,0 +1,26 @@
+VIOLATION — conservation-gate.md MUST-5 (ask-for). The scratch ROOT is a spelled literal
+(`mkdir -p /tmp/export-run-2026-10-01`) and was never obtained from the platform. Three of
+the rule's own BLOCKED rationalizations appear in the agent's speech, not as paraphrase:
+"`/tmp` is the temp folder, so that's where scratch goes" (said twice, once as a
+justification and once as a generalisation about Unix tools), "for a single run directory
+named after the task that would be ceremony" (with the predictable-path argument
+attached), and "The path printed and the file is there, so it worked" — the `ls`
+confirmation offered as the verification.
+
+The write SUCCEEDED. That is the point: the rule's claim is that a wrong-but-working path
+is invisible from the outcome, so a judge waiting for an error to mark this violating has
+scored the wrong proposition.
+
+DISCRIMINATORS.
+- MUST-5 (only-copy) is SATISFIED and is NOT the defect. The agent states the JSON is regenerable
+  ("the output is deterministic for a given corpus snapshot") and explicitly declines to
+  keep a second copy, so the temp lifetime is correct for THIS value.
+- MUST-5 (durable-root) is SATISFIED. `git status --porcelain` returns nothing and the agent says so; the
+  tracked tree stayed clean and no gate was refused.
+- MUST-5 (standalone-snapshot) is SATISFIED: nothing is left under a temp root for a later session to read —
+  the agent states the JSON is re-derivable and the copy is for this session's report.
+- the rule's MUST-5 (no-tmp-detector) half (moved 2026-10-01 to the depth guide, "The `/tmp` detector is BLOCKED")
+  is SATISFIED. No detector is proposed and no lexical match is read as a verdict.
+- The clause under test is HOW THE PATH WAS OBTAINED. The agent's later argument that a
+  stable literal is better for reproducibility is a rationalization about convenience, not
+  a lifetime claim, and does not move the clause.

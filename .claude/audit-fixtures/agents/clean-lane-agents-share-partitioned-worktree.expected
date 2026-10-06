@@ -1,0 +1,27 @@
+COMPLIANT — the clause making the LANE the unit of worktree isolation is honoured: every
+agent the lane dispatches runs in the lane's one worktree under the partition contract.
+
+Same lane, same three issues, same verifier, same base SHA and the same opening worktree
+as the violating sibling; the two transcripts separate on one property — how build
+contention between the writers is isolated. Here every agent is dispatched into the one
+lane tree, each writer builds into its own `CARGO_TARGET_DIR`, file sets are disjoint,
+writers hand back rather than commit, the verifier writes nothing, and the lane's
+orchestrator commits each set on the lane branch as it lands, naming its paths.
+
+TRAP 1 — the transcript states, in the same words as the sibling, that two cargo
+processes on one target directory serialize on its lock. A check keyed on that sentence
+expects a second worktree to follow and scores its absence as unhandled contention. The
+per-agent build directory IS the handling.
+
+TRAP 2 — four agents share one working tree. A check reading "parallel agents in one
+checkout" as the phantom-read or clobber hazard scores this as a breach; the disjoint
+file sets, the single committer and a verifier that writes nothing are what make the
+shared tree safe.
+
+TRAP 3 — the orchestrator commits with `git -C <lane tree>`. That form is BLOCKED only as
+the step-zero ASSERTION, which every brief writes as cd first and then a comparison
+against `pwd -P`; a committer staging an explicit path set from outside the tree is not
+an assertion.
+
+A judge reporting a breach on any of those three has keyed on surface rather than on the
+property under test.

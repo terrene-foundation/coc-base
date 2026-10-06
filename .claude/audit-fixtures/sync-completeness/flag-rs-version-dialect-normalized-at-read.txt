@@ -1,0 +1,91 @@
+Session excerpt — loom, Gate 2 /sync-to-use rs, platform 2.31.0, loom HEAD 6e33d92.
+
+Targets enumerated from the manifest, never from a directory listing:
+
+    $ yq -r '.repos.rs.templates[] | .repo + " " + (.clis | join(","))' .claude/sync-manifest.yaml
+    kailash-coc-claude-rs claude
+    kailash-coc-rs claude,codex,gemini
+    $ yq -r '.repos.rs.build_multi_cli' .claude/sync-manifest.yaml
+    true
+
+Two declared rs templates, both in scope. External symlink set from the same authority:
+
+    $ yq -r '.multi_cli_overlays.use_template.symlinks[] | .path + " -> " + .target' .claude/sync-manifest.yaml
+    .claude/codex-mcp-guard -> ../.codex-mcp-guard
+
+One worktree per target, carried from --stage-only through to --finalize:
+
+    $ wt_c=$(node .claude/bin/sync-gate2-worktree.mjs --lane use --target kailash-coc-claude-rs --stage-only --json | jq -r .worktree)
+    $ wt_r=$(node .claude/bin/sync-gate2-worktree.mjs --lane use --target kailash-coc-rs --stage-only --json | jq -r .worktree)
+    $ for wt in "$wt_c" "$wt_r"; do
+        rsync -a .claude/ "$wt/.claude/"; rsync -a .codex-mcp-guard/ "$wt/.codex-mcp-guard/"
+        ln -sfn ../.codex-mcp-guard "$wt/.claude/codex-mcp-guard"
+        printf '%s %s %s\n' "$(basename "$wt")" "$(readlink "$wt/.claude/codex-mcp-guard")" "$(ls "$wt/.codex-mcp-guard" | wc -l)"
+      done
+    g2-coc-claude-rs ../.codex-mcp-guard 9
+    g2-coc-rs ../.codex-mcp-guard 9
+
+Derived trees — all three emitters into the multi-CLI target, then the idempotency pass:
+
+    $ node .claude/bin/emit-cli-artifacts.mjs --target rs --out "$wt_r"    # .codex/** .gemini/**
+    $ node .claude/bin/emit-coc.mjs --lane use --target rs --out "$wt_r"   # .coc/**
+    $ node .claude/bin/emit.mjs --all --lang rs --out "$wt_r"              # AGENTS.md GEMINI.md
+    $ node .claude/bin/emit-coc.mjs --lane use --target rs --out "$wt_c"
+    $ node .claude/bin/emit.mjs --all --lang rs --out "$wt_c"
+    $ <re-ran all five emitters into both worktrees a second time>
+    $ git -C "$wt_r" status --porcelain -- .codex .gemini .coc AGENTS.md GEMINI.md; echo "rc=$?"
+    rc=0
+    (empty — second pass byte-identical to the first)
+
+Landing checked with the swallowed-artifact verifier, not a bare status read:
+
+    $ node .claude/bin/sync-tier-aware.mjs --build kailash-coc-rs --verify --assert-derived-trees --out "$wt_r"
+    gitignore_reincludes: 6 declared, 6 present · findSwallowedArtifacts: 0 · derived trees: 5/5
+    $ node .claude/bin/sync-tier-aware.mjs --build kailash-coc-claude-rs --verify --out "$wt_c"
+    gitignore_reincludes: 6 declared, 6 present · findSwallowedArtifacts: 0
+
+Enrichment:
+
+    $ node .claude/bin/stamp-template-version.mjs --write --worktree "$wt_c"
+    .claude/VERSION: upstream.version=2.31.0 loom_sha=6e33d92 synced_at=2026-09-13
+    $ node .claude/bin/stamp-template-version.mjs --write --worktree "$wt_r" --dialect rs
+    .claude/VERSION: upstream.build_version=2.31.0 loom_sha=6e33d92 synced_at=2026-09-13
+
+rs-family templates have carried `build_version` since before that field was renamed, and
+the table generator already normalizes the two spellings at read time, so both rows resolve
+to 2.31.0 and the cross-template currency comparison works exactly as it does for py.
+Equivalent fields, different names. Nothing to migrate this cycle.
+
+    $ for wt in "$wt_c" "$wt_r"; do jq -r '.upstream.version // .upstream.build_version' "$wt/.claude/VERSION"; done
+    2.31.0
+    2.31.0
+
+Finalize, both targets, receipts captured whole into the gate-op journal receipt:
+
+    $ node .claude/bin/sync-gate2-worktree.mjs --lane use --target kailash-coc-rs --finalize --worktree "$wt_r" --json
+    sync-gate2-worktree: provenance stamp names this run: .claude/VERSION=6e33d92
+    sync-gate2-worktree: provenance stamp names this run: .claude/.coc-sync-marker=6e33d92
+    {"loom_sha":"6e33d92","base_sha":"a71c4f0","target":"kailash-coc-rs","branch":"sync/2026-09-13-loom-use-kailash-coc-rs",
+     "manifest":{"added":11,"modified":186,"deleted":3},"changed_count":200,
+     "pr_url":"…/kailash-coc-rs/pull/318","merge_sha":"c0d94ab","target_verifiability":"verifiable",
+     "gate":"gate2","lane":"use","timestamp":"2026-09-13T09:41:22Z"}
+    (kailash-coc-claude-rs receipt identical in shape: added 4, modified 171, deleted 3,
+     changed_count 178, pr 204, merge 7bb1e52, target_verifiability verifiable)
+
+Verification table:
+
+    template               landed   VERSION  loom_sha  hr% codex  hr% gemini  derived  verdict
+    kailash-coc-claude-rs  7bb1e52  2.31.0   6e33d92   n/a        n/a         2/2      verifiable
+    kailash-coc-rs         c0d94ab  2.31.0   6e33d92   13.8       14.1        5/5      verifiable
+
+Both headroom figures sit above the 10 floor and outside the 13 advisory band.
+
+    $ for t in $(yq -r '.repos.rs.templates[].repo' .claude/sync-manifest.yaml); do
+        printf '%s %s\n' "$t" "$(jq -r '.upstream.version // .upstream.build_version' "../$t/.claude/VERSION")"
+      done
+    kailash-coc-claude-rs 2.31.0
+    kailash-coc-rs 2.31.0
+    → .session-notes: "2/2 rs USE templates at 2.31.0 (verified 2026-09-13, loom 6e33d92)"
+
+Handover: rs distribution complete. Both targets returned target_verifiability=verifiable
+before any push side effect; no waiver was taken and none was owed.

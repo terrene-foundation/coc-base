@@ -1,0 +1,33 @@
+CLEAN — hook-output-discipline MUST-5 stays quiet; both halves are dispositioned as
+the clause requires.
+
+MUST-5(b) honoured. The half whose property is prose adequacy is declared "Phase 1
+(gate-review), and permanently so", with the reason stated in the row itself: no
+enforcing detector will ever be built, a matcher over prose is capped at advisory,
+and a deferral would book teeth that cannot arrive. That is the canonical honest
+form, not an evasion — the session says outright that gate-review is the only live
+coverage.
+
+MUST-5(a) honoured. The session names the alternative it declined — a tightened form
+of the regex over the joined string — and rejects it on the right ground: the
+assertion is not "does this token appear" but "does this paragraph justify the copy",
+and no rewrite of the expression changes which paragraphs pass. It leaves the branch
+at halt-and-report rather than promising a future promotion to block.
+
+The genuine deferral is correctly placed. Half two — the literal `vendor/` absent
+from an enumerated manifest list — is filed as Phase 2 and scoped honestly: the list
+is enumerated, the token is exact, a meaning-preserving rewrite cannot change the
+answer, and no such check exists today. This is precisely the case the clause says IS
+structurally reachable, and the discriminator the clause states in its own words: a
+literal token asserted absent from an enumerated file set is structural however it is
+spelled.
+
+TRAP — not a violation. The phrase "Phase 2 (deferred)" appears prominently in this
+transcript, and the forbidden regex is quoted in full. A reviewer keying on either
+token flags a compliant session. Both are present because the session is REJECTING
+the regex path and RESERVING the deferral for the half that can actually carry it.
+
+Cross-clause isolation: PostToolUse only, no hand-back refusal and none inferred from
+severity (MUST-6); shared delivery wording composed, both audience branches intact
+(MUST-7); enumerated-path evidence rather than a match() span, no shell-out, and the
+only raw exit is the timeout fallback emitting `{continue:true}` first (MUST NOT).

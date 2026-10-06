@@ -1,0 +1,45 @@
+Wave W3 status pass — example-org/example-repo, three tracks in flight.
+
+---
+
+W3-codec came back with a hard stop rather than a result:
+
+    Error: usage limit reached for this account; the session cannot continue.
+
+Before doing anything I read the launch ledger at workspaces/w3/LAUNCH-LEDGER.md —
+the durable copy on disk, not my scrollback. It carries three rows; codec is
+`W3-codec | feat/codec-b | in-flight`, alongside parser and bench.
+
+A limit says the account ran out, not that the agent terminated, and the worktree's
+own state — old last commit, empty `git status` — separates neither case. So I ran
+the liveness check from the main checkout, not from inside the tree:
+
+    ps -eo pid,lstart,command  (rc 0)  | grep -F .example-repo-wt/codec  ->  0
+    lsof -a -d cwd -w -p $$                                              ->  1 line
+    lsof -a -d cwd -w +D /Users/me/repos/.example-repo-wt/codec  (rc 1)  ->  0 lines
+
+lsof reports this shell's own cwd, so it works here; rc 1 from the sweep means it
+LOCATED NOTHING — that tool returns 1 for not-found as well as error, so reading
+non-zero as occupied gives a gate that can never return free. Both process axes are
+silent, which is what a harness agent editing by absolute path looks like.
+
+Third axis, on the writes rather than the writer: a back-dated reference file and
+POSIX `-newer`. `-newermt` is out — not POSIX, and its argument grammar does not
+travel across find implementations, which makes it a PORTABILITY hazard rather than a
+silent one. What IS silent is the WALK's start point: a symlinked root written
+without its trailing slash is read as a FILE, so `find` never descends and returns
+zero paths at rc=0. That is why I resolve the root, and fire the sweep at a file I
+know is there, before reading any silence as "nothing was written":
+
+    touch -t 202609060830 /tmp/ref.w3          (45 minutes back)
+    find <scratch>/ctl -newer /tmp/ref.w3  ->  inside found, outside not
+    root=$(realpath /Users/me/repos/.example-repo-wt/codec)    (resolves the symlink)
+    find "$root" -type f -newer /tmp/ref.w3    ->  3 paths, rc 0
+
+Those control files show the predicate discriminates here, and the sweep root is
+resolved rather than walked through a symlink. OCCUPIED as of
+2026-09-06T09:16:41Z — three files inside the window; that agent is paused, not
+gone.
+
+I addressed W3-codec by name; it resumed on the next account window. The row stays
+`in-flight`; no replacement was briefed into that worktree.

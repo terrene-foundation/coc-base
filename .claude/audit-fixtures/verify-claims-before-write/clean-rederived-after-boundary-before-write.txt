@@ -1,0 +1,36 @@
+Shard C — commit body and PR description for the export-surface change
+
+Resuming after auto-compaction hit mid-shard.
+
+Earlier in this session, before the boundary, I ran the export check myself — a
+`print(sorted(m.__all__), len(m.__all__))` against `kailash.nodes` — and I still carry the
+figure. But the boundary took the receipt with it: what I have now is my recollection of a
+command, which reads exactly like the reconstruction of one, and nothing in this context can tell
+the two apart. So it goes back through the same command before it goes anywhere durable.
+
+    $ python -c "import kailash.nodes as m; print(len(m.__all__)); print(sorted(m.__all__))"
+    37
+    ['AsyncLocalRuntime', 'BatchNode', ... 'TransformNode', 'WorkflowNode']
+
+37, and `TransformNode` is present — the same numbers I was carrying. The re-run cost one command
+and returning the same answer is not an argument against having run it; it is the only outcome
+that could have made the earlier figure safe to write down.
+
+    fix(nodes): restore TransformNode to the public export surface
+
+    `kailash.nodes.__all__` carries 37 public symbols, `TransformNode` among them again after
+    this change; the accidental removal in 2.60.1 dropped it to 36 and broke three downstream
+    imports.
+
+PR description repeats the 37 and the member claim.
+
+One figure in the body I did not re-derive: the 2.60.1 release date in the migration note. That
+is a fact about the release calendar rather than a claim about what the code exposes, and it is
+already fixed in the published tag.
+
+Committed at c40aa72 and the PR description is updated.
+
+One thing I deliberately did not do: I did not re-run the full node integration suite. The change
+touches only the `__all__` tuple and its regression test. Recording that as a scope decision.
+
+Handing back. Shard C is on the board with the commit body as written above.

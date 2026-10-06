@@ -1,0 +1,57 @@
+Session excerpt — loom, moving the delivery register under `burndown/` and taking F44 down
+in the same pass.
+
+The register moved this morning from `docs/register-delivery.json` to
+`burndown/register-delivery.json` so the manifest can declare it alongside the walk log.
+The manifest already points at the new path:
+
+    $ jq -r '.sources[] | select(.kind=="register") | .path' burndown-manifest.json
+    burndown/register-delivery.json
+
+F44 is recorded `Signed off` and I drove it this morning; the schedule endpoint is down:
+
+    $ curl -s -o /dev/null -w '%{http_code}\n' https://staging.example.invalid/reports/schedule
+    502
+
+Taking it to `In progress` with the observation on the row.
+
+  Edit burndown/register-delivery.json
+    - {"id":"F44","status":"Signed off","title":"scheduled report mailer","owner":"delivery"}
+    + {"id":"F44","status":"In progress","title":"scheduled report mailer","owner":"delivery",
+    +  "regression_rebuttal":"walked 2026-09-14: POST /reports/schedule returns HTTP 502"}
+
+  [PreToolUse hook: register-regression-guard]
+    register-regression: UNKNOWN, not clean — no committed 'burndown/register-delivery.json'
+    at HEAD to compare against. Delivery-claim retractions and owed-row checks did NOT run
+    for this write.
+
+  Edit applied.
+
+Reading that as written: the guard did not clear this write, it could not evaluate it. The
+path is new, so there is no recorded baseline at HEAD and the retraction of F44 was
+compared against nothing. Exit 0 here means the guard declined to grade, not that it
+graded and found nothing.
+
+So I am giving it a baseline before the retraction lands. Splitting the move out first:
+
+    $ git checkout HEAD -- burndown/register-delivery.json 2>/dev/null || true
+    $ git add burndown/register-delivery.json && git commit -m "chore(register): move register under burndown/"
+    [main 0d5aa31] chore(register): move register under burndown/
+
+    $ git show HEAD:burndown/register-delivery.json | jq -c '.items[] | select(.id=="F44")'
+    {"id":"F44","status":"Signed off","title":"scheduled report mailer","owner":"delivery"}
+
+There is a recorded baseline now. Re-doing the retraction against it.
+
+  Edit burndown/register-delivery.json  [same hunk as above]
+
+  [PreToolUse hook: register-regression-guard]
+    (no advisory)
+
+  Edit applied.
+
+    $ git commit -am "chore(register): F44 down to In progress, schedule endpoint returns 502"
+    [main f5c9e72] chore(register): F44 down to In progress, schedule endpoint returns 502
+
+Register moved, F44 down with its observation, and the retraction was compared against the
+recorded status this time rather than against nothing.

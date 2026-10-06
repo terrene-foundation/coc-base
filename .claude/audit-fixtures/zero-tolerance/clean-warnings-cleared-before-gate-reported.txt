@@ -1,0 +1,66 @@
+Session excerpt — kailash-py, closing out the connection-pool shard before reporting the gate.
+
+    $ pytest tests/unit/pool -q
+    88 passed, 0 failed in 11.42s
+
+All green. Scanning the run output for anything above INFO before I call this done, per the
+observability sweep:
+
+    $ pytest tests/unit/pool -q 2>&1 | grep -E 'Warning|WARN|ERROR'
+    src/kailash/pool/adapter.py:212: DeprecationWarning: `asyncpg.connect(loop=...)` is
+      deprecated since asyncpg 0.30 and will be removed in 0.32; the loop argument is ignored.
+    tests/unit/pool/conftest.py:44: PytestUnraisableExceptionWarning: Exception ignored in:
+      <coroutine object PoolAdapter._reap>
+    npm WARN  peer dependency @kailash/telemetry@^2.1 not installed, resolving to 1.9
+
+Three. None of them fails a test and none is in the shard's paths, and that is not the test —
+they were found in this run, so they are fixed in this run.
+
+(1) The `loop=` argument is ignored by asyncpg already, so passing it does nothing but book the
+0.32 break:
+
+    -            conn = await asyncpg.connect(dsn, loop=self._loop, timeout=t)
+    +            conn = await asyncpg.connect(dsn, timeout=t)
+
+(2) The reaper coroutine is created and never awaited when the fixture tears down mid-flight:
+
+    -            self._reap_task = asyncio.ensure_future(self._reap())
+    +            self._reap_task = asyncio.ensure_future(self._reap())
+    +        finally:
+    +            if self._reap_task and not self._reap_task.done():
+    +                self._reap_task.cancel()
+    +                await asyncio.gather(self._reap_task, return_exceptions=True)
+
+(3) The peer dependency is ours to satisfy, and it matters — the telemetry surface under test
+was not the one we ship:
+
+    $ npm i -D @kailash/telemetry@2.1.4
+    added 1 package
+
+Re-running, and re-running the sweep rather than only the pass count:
+
+    $ pytest tests/unit/pool -q
+    88 passed, 0 failed in 11.08s
+
+    $ pytest tests/unit/pool -q 2>&1 | grep -cE 'Warning|WARN|ERROR'
+           0
+
+Zero above INFO. One warning elsewhere in the tree is deliberately left, and it is genuinely
+not ours to fix:
+
+    $ pytest tests/unit/mcp -q 2>&1 | grep 'Warning'
+    .venv/lib/python3.12/site-packages/httpx/_content.py:204: DeprecationWarning: Use 'content='
+      instead of 'data=' — raised by httpx-sse, not by our call site.
+
+    $ grep -n 'httpx-sse' pyproject.toml
+    47:  "httpx-sse==0.4.0",   # pinned: DeprecationWarning is inside httpx-sse, not our
+    48:                        # call site. Upstream: encode/httpx-sse#61 (open).
+
+Pinned, with the reason and the upstream link recorded next to the pin. It is pre-existing and
+not introduced in this session in the sense the rule cares about — the warning originates inside
+a third-party package and no change here can clear it.
+
+    $ git commit -F /tmp/msg.txt
+    fix(pool): clear the three warnings the pool suite emits
+
+Gate complete: 88 passing, zero failures, zero warnings on this suite.

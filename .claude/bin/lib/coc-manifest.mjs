@@ -12,13 +12,13 @@
  * (same behavior, byte-identical emit) — only the file location + the
  * sibling import paths (`./lib/X` → `./X`) and REPO's depth changed.
  *
- * Symbols (21): REPO, safeWriteFileSync, ensureTrailingNewline,
+ * Symbols (24): REPO, safeWriteFileSync, ensureTrailingNewline,
  *   writeTextArtifactSync, safeReadFileSync, globToRegex,
  *   matchesAnyGlob, loadExclusions, loadLoomOnly, loadFlatList,
- *   loadLaneExclusions, loadTiers,
+ *   loadUniversalExclude, loadLaneExclusions, loadVariantOnly, loadTiers,
  *   loadTargetTierSubscriptions, loadTargetVariant, buildTierFilter,
  *   composeArtifactBody, rewriteClaudePathsForCli, walkFiles,
- *   loadSurfaceRoles, loadTargetRole, surfaceRolesAllow.
+ *   loadSurfaceRoles, loadTargetRole, surfaceRolesAllow, deliveryVerdict.
  *
  * The count is produced STRUCTURALLY — `Object.keys(await import(...)).length`,
  * imported in place so the `./slot-parser.mjs` sibling resolves. A grep or a
@@ -45,6 +45,7 @@ import { stripBuildInternalReferences } from "./strip-build-internal.mjs";
 // disposition contract each call site below cites.
 import {
   readManifestSource,
+  readCliEmitProjection,
   requireManifestSource,
   requireManifestSourceForTarget,
 } from "./manifest-source.mjs";
@@ -168,26 +169,54 @@ function safeReadFileSync(filePath, encoding) {
 //   agents/cc-architect.md              → exact match
 //   commands/cc-audit.md                → exact match
 //   guides/claude-code/**               → prefix match
+// BRACES AND A LEADING `./` (2026-09-25). Claude Code's path matcher expands
+// `{a,b}` sets and reads `./x` as `x`. This matcher used to ESCAPE `{}`, so a
+// brace glob matched NOTHING: a 20,000 B rule declaring
+// `**/*.{md,mjs,js,json,yaml,py,rs,ts}` loaded in practically every session and
+// was charged to none, and never entered the ledger. Sets expand innermost-first
+// (nesting works); a group with no top-level comma (`{x}`) stays literal, as in a
+// shell. Kept byte-identical between coc-manifest.mjs and
+// check-rule-injection-budget.mjs, and pinned by that tool's mirror-parity test.
+function expandBraces(glob) {
+  const m = /\{([^{}]*,[^{}]*)\}/.exec(glob);
+  if (!m) return [glob];
+  const head = glob.slice(0, m.index);
+  const tail = glob.slice(m.index + m[0].length);
+  return m[1].split(",").flatMap((alt) => expandBraces(head + alt + tail));
+}
+
+// `?` is ONE non-`/` character (2026-09-25), as in Claude Code's matcher. It
+// was escaped to a literal, so `**/?*` matched no real path and a rule using it
+// charged nothing. Measured: no emitted-artifact or manifest glob changes
+// verdict (emit-cli-artifacts --out diffs clean against the parent).
+function globBody(glob) {
+  const escaped = glob.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  return escaped
+    .replace(/\?/g, "__ONECHAR__")
+    .replace(/(^|\/)\*\*\//g, "$1__ANYSEGS__")
+    .replace(/\*\*/g, "__DOUBLESTAR__")
+    .replace(/\*/g, "[^/]*")
+    .replace(/__DOUBLESTAR__/g, ".*")
+    .replace(/__ANYSEGS__/g, "(?:.*/)?")
+    .replace(/__ONECHAR__/g, "[^/]");
+}
+
+function globSource(glob) {
+  const bodies = expandBraces(glob.replace(/^\.\//, "")).map(globBody);
+  return bodies.length === 1 ? `^${bodies[0]}$` : `^(?:${bodies.join("|")})$`;
+}
+
 function globToRegex(glob) {
-  // Escape regex metacharacters, then re-expand glob tokens. `?` is escaped to
-  // a literal (not left as a regex 0-or-1 quantifier) — the manifest globs are
-  // exact-path / prefix patterns, never POSIX single-char wildcards.
-  const escaped = glob.replace(/[.+^${}()|[\]\\?]/g, "\\$&");
+  // Escape regex metacharacters, then re-expand glob tokens. `?` is one non-`/`
+  // character (never a regex 0-or-1 quantifier) — see globBody().
   // A `**/` at the START of the pattern OR immediately after a `/` matches ZERO
   // or more path segments, so it compiles to `(?:.*/)?` — which keeps the `/`
   // boundary (a bare `.*` would substring-match `yx` for `**/x`). Measured
   // against Claude Code 2.1.226: the LEADING case 2/2 (loom#1597), the INTERIOR
   // case 2/2 on three glob shapes (S21-GLOB-INTERIOR.md). Both positions are
   // zero-or-more in CC; treating the interior as >=1 silently defeated 12 corpus
-  // globs' stated intent.
-  // Escaping never rewrites `*` or `/`, so a `**/` still reads as `**/` here.
-  const withStars = escaped
-    .replace(/(^|\/)\*\*\//g, "$1__ANYSEGS__")
-    .replace(/\*\*/g, "__DOUBLESTAR__")
-    .replace(/\*/g, "[^/]*")
-    .replace(/__DOUBLESTAR__/g, ".*")
-    .replace(/__ANYSEGS__/g, "(?:.*/)?");
-  return new RegExp(`^${withStars}$`);
+  // globs' stated intent. Brace sets and a leading `./`: see expandBraces().
+  return new RegExp(globSource(glob));
 }
 
 function matchesAnyGlob(relPath, globs) {
@@ -207,13 +236,33 @@ function matchesAnyGlob(relPath, globs) {
 // the wrong thing (exclusions absent → emit everything → caller sees
 // unexpected files and investigates).
 function loadExclusions() {
-  // D1 DISTRIBUTION-DECLARATION (loom#1386). `cli_emit_exclusions` names paths
-  // loom withholds from a per-CLI emission. A repo whose class FORBIDS the
-  // manifest distributes NOTHING, so "no CLI exclusions" is the TRUE answer
-  // there, not a degraded one — the same value the existing stanza-absent path
-  // below already returns.
-  const src = readManifestSource(REPO);
-  if (src === null) return { codex: [], gemini: [] };
+  // F95 — the loom#1386 D1 disposition for THIS stanza was WRONG, and the
+  // correction is measured, not argued. D1 reasoned "a repo whose class FORBIDS
+  // the manifest distributes NOTHING, so no-exclusions is the TRUE answer".
+  // That holds for `loom_only` (a fan-out list) and for `surface_roles` (whose
+  // consumer short-circuits), but NOT here: a multi-CLI USE template runs the
+  // project-local `emit-cli-artifacts.mjs` FOR ITSELF at /migrate time, so an
+  // empty exclusion list does not mean "withhold nothing from nobody" — it means
+  // EMIT EVERYTHING to `.codex/**` and `.gemini/**`, including the artifacts
+  // loom explicitly declared withheld.
+  //
+  // Measured on a fixture built from `sync-tier-aware.mjs --dry-run --json`'s own
+  // delivered file set for `kailash-coc-py` (2695 files, VERSION::type
+  // coc-use-template): the delivered emitter produced 406 artifacts with the
+  // declarations readable and 473 without — 67 one-directional over-emissions
+  // (`skills/co-reference/**`, `skills/30-claude-code-patterns/**`, `cost-audit`,
+  // `.gemini/agents/cc-architect.md`). Control first: injecting
+  // `agents/analysis/analyst.md` into both exclusion lists moved exactly the two
+  // expected paths, so the empty-diff verdict was available and this instrument
+  // discriminates here.
+  //
+  // So the read order is manifest FIRST (loom itself, and any owner-class repo),
+  // then the F95 PROJECTION (`.claude/.coc-cli-emit.yaml`) that loom writes to an
+  // elected multi-CLI template. Empty stays the answer ONLY when neither exists —
+  // a template that was never elected runs no per-CLI emitter, so it has nothing
+  // to over-emit.
+  const src = readManifestSource(REPO) ?? readCliEmitProjection(REPO);
+  if (src == null) return { codex: [], gemini: [] };
   const lines = src.split("\n");
 
   const result = { codex: [], gemini: [] };
@@ -273,6 +322,25 @@ function loadLoomOnly() {
   // list because it fans nothing out; the empty set is exact, and it is what the
   // stanza-absent path below already returns.
   return loadFlatList("loom_only");
+}
+
+// ────────────────────────────────────────────────────────────────
+// sync-manifest.yaml → exclude (top-level FLAT glob list, UNIVERSAL)
+// ────────────────────────────────────────────────────────────────
+// The lane-AGNOSTIC never-distribute fence `sync-tier-aware.mjs::classifyFile`
+// applies at step 3, BEFORE always-include and before the class-exclude at step
+// 4. Distinct from `loadExclusions()` (which reads `cli_emit_exclusions`, the
+// PER-CLI axis) — the names are close and the axes are not: this one is CLI-
+// blind and feeds `deliveryVerdict`; that one is applied inside each emitter's
+// per-CLI branch.
+//
+// Entries are `.claude/`-RELATIVE globs (`commands/repos.md`, `learning/**`),
+// the same space the emitters build their `manifestRel` in, so they are used as
+// declared. `normalizeFateEntry` is deliberately NOT applied: it exists to
+// reconcile the repo-ROOT-relative purge lists, and no `exclude:` entry uses
+// that convention.
+function loadUniversalExclude() {
+  return loadFlatList("exclude");
 }
 
 // Read a top-level FLAT list stanza (`<key>:` followed by `  - <entry>` lines).
@@ -368,6 +436,62 @@ function loadLaneExclusions(lane) {
 }
 
 // ────────────────────────────────────────────────────────────────
+// sync-manifest.yaml → variant_only.<axis> (ADDITION lane: axis → entry list)
+// ────────────────────────────────────────────────────────────────
+// Structurally identical to `tiers:` (top-level key → sub-keys → list-of-string),
+// so the parsing below is loadTiers' verbatim shape.
+//
+// D1 DECLARED-EMPTY, not D3. The D1-vs-D3 test in lib/manifest-source.mjs is what
+// the EMPTY value DOES downstream, and here it is BENIGN: `variant_only` is the
+// ADDITION half of the variant lane, and on a manifest-forbidden class the
+// additions have ALREADY been resolved to their `dest` by Gate-2 — a consumer has
+// no `variants/` tree left to add from, so "no additions" is literally true there
+// rather than a fallback. Contrast `tiers` (D3), whose empty value matches NOTHING
+// and would silently compose an emission that drops every artifact.
+//
+// Returns { <axis>: [entry, ...] } with entries as declared — `.claude/`-relative
+// paths like `variants/rs/rules/build-speed.md`.
+function loadVariantOnly() {
+  const src = readManifestSource(REPO);
+  if (src === null) return {};
+  const lines = src.split("\n");
+
+  const result = {};
+  let inStanza = false;
+  let currentAxis = null;
+
+  for (const line of lines) {
+    if (/^variant_only:\s*$/.test(line)) {
+      inStanza = true;
+      continue;
+    }
+    if (!inStanza) continue;
+
+    // End of stanza: a new top-level key (column 0, ends with :)
+    if (/^[a-zA-Z_][^:]*:\s*$/.test(line) && !line.startsWith(" ")) {
+      break;
+    }
+
+    // Axis key (2-space indent)
+    const axisMatch = line.match(/^ {2}([a-zA-Z_][\w-]*):\s*$/);
+    if (axisMatch) {
+      currentAxis = axisMatch[1];
+      result[currentAxis] = [];
+      continue;
+    }
+
+    // List entry (4-space indent, leading dash). Skip comments.
+    const entryMatch = line.match(/^ {4}-\s*(.+?)\s*$/);
+    if (entryMatch && currentAxis) {
+      const val = entryMatch[1].replace(/^["']|["']$/g, "");
+      const cleaned = val.replace(/\s+#.*$/, "").trim();
+      if (cleaned) result[currentAxis].push(cleaned);
+    }
+  }
+
+  return result;
+}
+
 // sync-manifest.yaml → tiers.* (top-level tier → glob list)
 // ────────────────────────────────────────────────────────────────
 // Mirrors loadExclusions: line-oriented parsing, no YAML library. The
@@ -593,38 +717,138 @@ function loadSurfaceRoles() {
   // D3 sibling `loadTargetRole` refuses before any role can be resolved). So the
   // empty map is never the thing that decides surfacing — it is the
   // default-surfaced state the stanza-absent path already returns.
-  const src = readManifestSource(REPO);
-  if (src === null) return {};
+  return parseSurfaceRolesStanza(readManifestSource(REPO)).entries;
+}
+
+// The same read, with the UNREAD lines returned instead of discarded. A caller
+// that must not score a corpus against a partially-read authority (the
+// role-blind checkers) reads THIS; `loadSurfaceRoles` above keeps the map-only
+// signature the emitters use.
+function loadSurfaceRolesDiagnostics() {
+  return parseSurfaceRolesStanza(readManifestSource(REPO));
+}
+
+// ── the stanza parser, PURE over its source text ────────────────────────────
+//
+// Split out of `loadSurfaceRoles` so it can be exercised against a synthetic
+// manifest. The loaders resolve `REPO` from their own file location and take no
+// override, so while the parse lived inline the ONLY way to test a malformed
+// stanza was to mutate the live manifest or re-type the function into a
+// replica — and a re-typed replica is a second claim about the world, not a
+// measurement of this one (`instrument-discipline.md` MUST-6(c)).
+//
+// TWO CHANGES OF SUBSTANCE, and the second is the load-bearing one:
+//
+//   (1) It now READS two forms the inline-flow-only matcher silently dropped —
+//       a trailing `# comment` after the list, and the BLOCK-SEQUENCE form a
+//       YAML formatter emits. The comment case was a pure ASYMMETRY inside this
+//       file: the sibling `loadFlatList` above has carried
+//       `val.replace(/\s+#.*$/, "")` all along, and this parser did not, so the
+//       same comment that is handled one stanza over deleted an entry here.
+//
+//   (2) Every line inside the stanza that is NOT blank, NOT a comment, and NOT
+//       consumed by a recognised form is RETURNED in `unparsed` with its line
+//       NUMBER and its TEXT. It is not silently skipped.
+//
+// Why (2) is a consumed-line RECONCILIATION rather than the obvious
+// entry-count compare: a count is defeated by compensating errors — one entry
+// dropped while one stray line is miscounted as an entry nets to zero and
+// reports agreement. Tracking which lines the parser actually CONSUMED cannot
+// net out, and it yields the offending LINE, which is what an author can act
+// on. A refusal that says only "expected 19, got 18" sends the reader to diff
+// two lists by hand, and a refusal an author cannot act on gets disabled.
+//
+// The parser does NOT guess at the forms it cannot read. A bare scalar
+// (`key: build`), a 4-space-indented entry, an anchor/alias, and a nested
+// mapping are each REPORTED, never coerced: inferring a one-element list from
+// `key: build` would be this function deciding what the operator meant, and the
+// whole failure being fixed here is a parser quietly deciding something.
+function parseSurfaceRolesStanza(src) {
+  if (src === null || src === undefined) return { entries: {}, unparsed: [] };
   const lines = src.split("\n");
 
-  const result = {};
-  let inStanza = false;
+  const entries = {};
+  const unparsed = [];
+  const unquote = (s) => s.replace(/^["']|["']$/g, "");
 
-  for (const line of lines) {
-    if (/^surface_roles:\s*$/.test(line)) {
-      inStanza = true;
+  let inStanza = false;
+  // A key that opened a block sequence and is still collecting its `- role`
+  // items. Held across iterations, flushed when anything else arrives.
+  let pending = null;
+
+  const flushPending = () => {
+    if (!pending) return;
+    if (pending.roles.length > 0) entries[pending.key] = pending.roles;
+    else
+      unparsed.push({
+        lineNo: pending.lineNo,
+        line: pending.line,
+        reason: "opens a block but no `    - <role>` items follow it",
+      });
+    pending = null;
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const lineNo = i + 1;
+
+    if (!inStanza) {
+      if (/^surface_roles:\s*$/.test(line)) inStanza = true;
       continue;
     }
-    if (!inStanza) continue;
 
     // End of stanza: a new top-level key (column 0, ends with `:`).
     if (/^[a-zA-Z_][^:]*:\s*$/.test(line) && !line.startsWith(" ")) {
+      flushPending();
       break;
     }
 
-    // Entry (2-space indent): `path/to/artifact.md: [role, role]`.
-    const entryMatch = line.match(/^ {2}(\S+):\s*\[(.*?)\]\s*$/);
-    if (entryMatch) {
-      const key = entryMatch[1].replace(/^["']|["']$/g, "");
-      const roles = entryMatch[2]
-        .split(",")
-        .map((r) => r.trim().replace(/^["']|["']$/g, ""))
-        .filter(Boolean);
-      if (key) result[key] = roles;
+    if (/^\s*$/.test(line)) continue; // blank
+    if (/^\s*#/.test(line)) continue; // whole-line comment
+
+    // Block-sequence item, but ONLY while a key is open to receive it. A
+    // dangling `- x` under no key falls through to `unparsed` below.
+    const seq = line.match(/^ {3,}-\s*(.+?)\s*$/);
+    if (seq && pending) {
+      const v = unquote(seq[1].replace(/\s+#.*$/, "").trim());
+      if (v) pending.roles.push(v);
+      continue;
     }
+
+    flushPending();
+
+    // Inline flow entry: `  path: [role, role]`, trailing comment tolerated.
+    const inline = line.match(/^ {2}(\S+):\s*\[(.*?)\]\s*(?:#.*)?$/);
+    if (inline) {
+      const key = unquote(inline[1]);
+      const roles = inline[2]
+        .split(",")
+        .map((r) => unquote(r.trim()))
+        .filter(Boolean);
+      if (key) entries[key] = roles;
+      else unparsed.push({ lineNo, line, reason: "entry has an empty key" });
+      continue;
+    }
+
+    // Key opening a block sequence: `  path:` and nothing but a comment after.
+    const blockHead = line.match(/^ {2}(\S+):\s*(?:#.*)?$/);
+    if (blockHead) {
+      pending = { key: unquote(blockHead[1]), roles: [], lineNo, line };
+      continue;
+    }
+
+    unparsed.push({
+      lineNo,
+      line,
+      reason:
+        "not a recognised entry — expected `  <path>: [role, role]` or " +
+        "`  <path>:` followed by `    - <role>` items",
+    });
   }
 
-  return result;
+  flushPending(); // stanza ran to EOF with a block still open
+
+  return { entries, unparsed };
 }
 
 // surfaceRolesAllow — TRUE if an artifact at `manifestRel` surfaces for
@@ -637,6 +861,181 @@ function surfaceRolesAllow(surfaceRoles, manifestRel, targetRole) {
   const declared = surfaceRoles && surfaceRoles[manifestRel];
   if (!declared) return true; // default-surfaced (no restriction)
   return declared.includes(targetRole);
+}
+
+// ────────────────────────────────────────────────────────────────
+// deliveryVerdict — the CLI-BLIND delivery PREFIX for CLI-tree emission (F92).
+//
+// NOT "the delivery oracle": it is the prefix of the chain that every CLI
+// shares, and it is deliberately PARTIAL. Per-CLI `cli_emit_exclusions` and the
+// per-emitter structural exclusion sets (CODEX_AGENT_STRUCTURAL_EXCLUSIONS /
+// GEMINI_AGENT_STRUCTURAL_EXCLUSIONS) are applied by each emitter AFTER this
+// predicate returns `delivered: true`, so a `delivered` verdict means "not
+// fenced by any CLI-BLIND axis", NEVER "this file will be written". A caller
+// reading it as total will over-report the delivered surface. The earlier
+// "THE delivery oracle" framing asserted a totality the code does not deliver
+// (`instrument-bipolarity.md` MUST-4); the symbol name is kept — it is accurate
+// for what the function returns given its inputs, and the over-claim lived in
+// this prose, not in the identifier.
+//
+// ONE predicate answering "does `manifestRel` reach THIS target?", so the
+// per-emitter copies stop drifting. Before F92 `emit-cli-artifacts.mjs` held
+// FIVE independent copies of this chain (emitCommands, emitSkills,
+// buildRulesReferenceIndex, emitCodexAgentPrompts, emitGeminiAgents) and only
+// ONE of them — the rules-reference index, fixed by F93 — honoured the
+// per-lane distribution fate. Measured divergence at F92 landing:
+//
+//   * BUILD lane, target rs/py: `commands/{deploy,sync-from-downstream,
+//     sync-from-template}.md` measure `skip/build_exclude` in the authoritative
+//     `sync-tier-aware.mjs --build rs --dry-run --json` plan, yet the four
+//     lane-blind emitters wrote all three into `.codex/prompts/` AND
+//     `.gemini/commands/` — 6 artifacts delivered to a `build_multi_cli: true`
+//     target that the CC lane deliberately withholds.
+//   * loom's OWN self-emit (no `--target`): F93's unconditional laneExclude in
+//     the index DROPPED `rules/{cross-repo,cross-sdk-inspection,
+//     loom-csq-boundary,documentation}.md` — four rules loom itself is governed
+//     by — from the one channel Codex/Gemini have. Fixing one copy had created
+//     a NEW disagreement, which is the F92 argument in miniature.
+//
+// ORDER IS LOAD-BEARING and mirrors `sync-tier-aware.mjs::classifyFile`, the
+// authoritative plan-action producer (`rules/artifact-flow.md` § MUST NOT):
+// `loom_only` is tested at classifyFile step 2b BEFORE tier inclusion at step
+// 5, with the universal `exclude` fence (step 3) and the class-exclude fence
+// (step 4) between them, in that order. Any reordering that tests tier before
+// the fences OVER-REPORTS the delivered surface.
+//
+// The CLI-BLIND axes this predicate implements are classifyFile steps 2b, 3, 4
+// and 5. It does NOT implement steps 2 (`loom_local`), 2a (`reserved_local`) or
+// 2c (BUILD-lane always-include): the emitters walk only `.claude/{commands,
+// skills,agents,rules}`, whose members those three steps never match. That is
+// the exact scope of the "mirrors classifyFile" claim — it is a mirror of the
+// steps reachable from this walk set, not of the whole function.
+//
+//   1. loom_only    — positive never-sync, total, wins over everything.
+//   2. exclude      — the UNIVERSAL fence (classifyFile step 3). Lane-AGNOSTIC
+//                     and, unlike lane fate below, NOT gated on `hasTarget`:
+//                     `exclude:` is loom's declaration that a path leaves the
+//                     `.claude/` tree for no derived tree at all, loom's own
+//                     `.codex/`/`.gemini/` included — which is why the eleven
+//                     `exclude:`'d command/agent paths are ALSO `loom_only`
+//                     today and why loom's own codex tree already carries
+//                     neither `/repos` nor `/inspect`. That redundancy is what
+//                     masked this fence's ABSENCE before F92-b: an
+//                     `exclude:`-only entry (measured: `commands/certify.md`
+//                     declared under `exclude:` alone) was written to BOTH
+//                     `.codex/prompts/certify.md` and
+//                     `.gemini/commands/certify.toml`. The redundancy is now
+//                     pinned by `delivery-oracle.test.mjs` so it cannot lapse
+//                     silently.
+//   3. lane fate    — `use_exclude`/`build_exclude` ∪ obsoleted. Gated on
+//                     `hasTarget`: lane fate is a property of a DELIVERY TO a
+//                     target, and loom's own `.codex/`/`.gemini/` trees are not
+//                     a delivery. classifyFile has no such gate because it is
+//                     ONLY ever invoked for a target — there is no no-target
+//                     mode to guard. This is the gate F93 lacked.
+//   4. surface_roles— per-artifact role restriction (inert when targetRole is
+//                     null, which is exactly the no-target case).
+//   5. tier         — subscription inclusion. `tierExempt` carries the declared
+//                     `variant_only` ADDITION carve-out: such a rule has no
+//                     global path to test, so testing it against the tier globs
+//                     asks the wrong question and drops it.
+//
+// Per-CLI `cli_emit_exclusions` are deliberately NOT folded in: they are a
+// per-CLI axis each emitter applies inside its own CLI branch (codex/gemini
+// can diverge for the same artifact), and two of the five compose additional
+// structural exclusions. This predicate is the CLI-BLIND prefix all five share.
+//
+// Returns `{ delivered, reason }`. When withheld, `reason` is one of
+// "loom_only", "exclude", "lane_exclude", "surface_role" or "no_tier_match";
+// otherwise "delivered". Those six are the function's own return sites,
+// immediately below (coc-manifest.mjs:884-910).
+//
+// That is NOT classifyFile's reason vocabulary. An earlier revision of this
+// paragraph claimed it was — "the same vocabulary classifyFile reports, so a
+// divergence between the two surfaces is greppable rather than inferred" —
+// and that was measured FALSE and is withdrawn. The two sets INTERSECT in
+// exactly three strings ("loom_only", "exclude", "no_tier_match"); the other
+// three emitted here appear NOWHERE as a reason in classifyFile
+// (sync-tier-aware.mjs:4017):
+//   - "lane_exclude" COLLAPSES a distinction the distributor KEEPS. classifyFile
+//     is invoked per-lane and reports "use_exclude" or "build_exclude" off the
+//     `mode` ternary at sync-tier-aware.mjs:4122; this predicate is
+//     lane-BLIND and only tests the caller-supplied `laneExclude` list, so it
+//     cannot name which lane withheld the file.
+//   - "surface_role" and "delivered" have no classifyFile counterpart at all.
+//     Conversely classifyFile carries reasons this predicate never emits: its
+//     copy-side labels ("always_include", "build_only_always_include",
+//     "tier_match") and two never-sync skips this predicate does not model
+//     ("loom_local", "reserved_local").
+// So a divergence between the two surfaces is NOT greppable by reason string —
+// it has to be established fence-by-fence.
+//
+// Both sets were read (not tallied) at 938b7624 over exactly this file pair,
+// and NOTHING recomputes them — treat the membership above as STALE until
+// re-derived. Cheap re-derivation, self-locating so it survives line drift:
+//   grep -n 'reason:' .claude/bin/lib/coc-manifest.mjs
+//   awk '/^function classifyFile\(/,/^}/' .claude/bin/sync-tier-aware.mjs \
+//     | grep -n 'reason:'
+// READ the hits, do not tally them. Two traps make the tallies lie in OPPOSITE
+// directions: the first grep also matches THESE documentation lines, and one
+// classifyFile site is a `mode` ternary emitting TWO strings from ONE line.
+// Control, so a zero from that matcher reads as a true negative rather than a
+// dead grep: `grep -c no_tier_match .claude/bin/sync-tier-aware.mjs` is
+// non-zero (17 at 938b7624), while `grep -c lane_exclude` on the same file is
+// 0 — the same matcher, one token present and one absent.
+// ────────────────────────────────────────────────────────────────
+function deliveryVerdict({
+  manifestRel,
+  loomOnly,
+  universalExclude,
+  laneExclude,
+  surfaceRoles,
+  targetRole,
+  tierFilter,
+  hasTarget,
+  tierExempt = false,
+}) {
+  // A caller that supplies lane fate but no `hasTarget` would silently
+  // OVER-deliver (fall through the gate and emit what the lane withholds) —
+  // the exact failure class this oracle exists to close. Refuse loudly rather
+  // than default (zero-tolerance.md Rule 3: no silent fallback). Callers with
+  // no lane axis at all (unit tests exercising one fence) pass neither and are
+  // unaffected.
+  if (laneExclude && laneExclude.length && typeof hasTarget !== "boolean") {
+    throw new TypeError(
+      "deliveryVerdict: `laneExclude` supplied without a boolean `hasTarget` — " +
+        "lane fate is a property of a DELIVERY TO a target and cannot be " +
+        "evaluated without knowing whether one exists.",
+    );
+  }
+  if (loomOnly && loomOnly.length && matchesAnyGlob(manifestRel, loomOnly)) {
+    return { delivered: false, reason: "loom_only" };
+  }
+  // classifyFile step 3 — the UNIVERSAL `exclude:` fence. No `hasTarget` gate
+  // (see the ORDER block above): lane fate is a property of a delivery TO a
+  // target, `exclude:` is a property of the path itself.
+  if (
+    universalExclude &&
+    universalExclude.length &&
+    matchesAnyGlob(manifestRel, universalExclude)
+  ) {
+    return { delivered: false, reason: "exclude" };
+  }
+  if (
+    hasTarget &&
+    laneExclude &&
+    laneExclude.length &&
+    matchesAnyGlob(manifestRel, laneExclude)
+  ) {
+    return { delivered: false, reason: "lane_exclude" };
+  }
+  if (!surfaceRolesAllow(surfaceRoles, manifestRel, targetRole)) {
+    return { delivered: false, reason: "surface_role" };
+  }
+  if (!tierExempt && tierFilter && !matchesAnyGlob(manifestRel, tierFilter)) {
+    return { delivered: false, reason: "no_tier_match" };
+  }
+  return { delivered: true, reason: "delivered" };
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -675,7 +1074,7 @@ function surfaceRolesAllow(surfaceRoles, manifestRel, targetRole) {
 //   - manifest-explicit + file missing → halt (manifest defect)
 //   - manifest-null                    → skip overlay for this axis
 //   - manifest-explicit / path-mirror  → apply if file exists
-function composeArtifactBody(category, relPath, cli, lang) {
+function composeArtifactBody(category, relPath, cli, lang, { rewritePaths = true } = {}) {
   const globalPath = path.join(REPO, ".claude", category, relPath);
   if (!fs.existsSync(globalPath)) return null;
   let composed = safeReadFileSync(globalPath, "utf8");
@@ -726,39 +1125,66 @@ function composeArtifactBody(category, relPath, cli, lang) {
   // CLI-aware path rewrite: at loom the source body references
   // .claude/{skills,commands,agents}/ because that IS where CC stores
   // them. For codex / gemini emissions the consumer's CLI looks under
-  // .codex/{skills,prompts,agents}/ or .gemini/{skills,commands,agents}/.
+  // .agents/skills/ and .codex/{prompts,agents}/ or .gemini/{skills,commands,agents}/.
   // Without this rewrite, a Codex consumer reading the emitted prompt
   // sees `.claude/skills/04-kaizen/SKILL.md` and looks for it where
   // their CLI does not — surfaced as drift in a downstream consumer (#205).
   // Shared-runtime paths (hooks, learning, VERSION, bin, sync markers,
   // rules, guides, codex-mcp-guard) stay `.claude/` since they're
   // consumed identically across all three CLIs.
-  const rewritten = rewriteClaudePathsForCli(stripped, cli);
+  const rewritten = rewritePaths ? rewriteClaudePathsForCli(stripped, cli, { sourcePath: relPath }) : stripped;
   return { body: rewritten, destRelPath };
 }
 
 // CLI-aware path rewrite — see composeArtifactBody for rationale.
-// codex: .claude/skills → .codex/skills; .claude/commands → .codex/prompts; .claude/agents → .codex/agents
+// codex: .claude/skills → .agents/skills; .claude/commands → .codex/prompts; .claude/agents → .codex/agents
 // gemini: .claude/skills → .gemini/skills; .claude/commands → .gemini/commands; .claude/agents → .gemini/agents
 // cc / null: no rewrite.
 //
-// Regex contract: path-aware via negative-character-class lookbehind
-// `(^|[^a-zA-Z0-9._/-])` — rejects substrings like `mock-.claude/skills/`
-// or `x.claude/skills/`. NOT markdown-fence-aware: rewrites apply
-// uniformly to prose AND fenced code blocks. This is intentional for
-// command/skill emission (the consumer's runtime paths are CLI-specific
-// regardless of where the reference appears). If a future source command
-// needs to document the loom-side authoring path verbatim (e.g., "loom
-// authors land skills at .claude/skills/"), wrap the literal in a
-// `<!-- noemit -->` slot or substitute with `&period;claude` so the
-// regex no longer matches.
-function rewriteClaudePathsForCli(body, cli) {
+// Source-authoring documents describe the canonical tree on every CLI. Other
+// documents can mix source citations with runtime links; preserve source clauses,
+// CC ownership-table rows and fenced examples rather than rewriting their authority.
+// Shared clause traversal keeps relocation and path rewriting on the same
+// authority boundary. A shorter nested fence never closes an outer example.
+function mapArtifactMarkdownClauses(body, transform, { sourceAuthority = false, sourcePath = "" } = {}) {
+  sourceAuthority ||= /(?:^|\/)[^/]*authoring(?:\/|\.md$)/.test(sourcePath);
+  let fence = null;
+  return body.split(/(\r?\n)/).map((line) => {
+    const marker = line.match(/^\s*(?:>[ \t]*)*(?:(?:[-+*]|\d+[.)])[ \t]+)?(`{3,}|~{3,})(.*)$/);
+    if (fence) {
+      if (marker && marker[1][0] === fence.char && marker[1].length >= fence.length && !marker[2].trim()) fence = null;
+      return line;
+    }
+    if (marker) {
+      fence = { char: marker[1][0], length: marker[1].length };
+      return line;
+    }
+    const rowAuthority = /^\s*\|\s*(?:CC|Claude(?: Code)?)\s*\|/i.test(line);
+    return line.split(/(;[ \t]*|[.!?][ \t]+)/).map((clause) => transform(clause, {
+      sourceAuthority: sourceAuthority || rowAuthority || /\b(?:source|canonical|authoritative|author(?:ing|ed|s)?|ownership)\b/i.test(clause),
+    })).join("");
+  }).join("");
+}
+
+function rewriteClaudePathsForCli(body, cli, options = {}) {
   if (cli !== "codex" && cli !== "gemini") return body;
+  return mapArtifactMarkdownClauses(body, (clause, { sourceAuthority }) =>
+    sourceAuthority ? clause : rewriteRuntimePaths(clause, cli, options.canMap || (() => true)), options);
+}
+
+function rewriteRuntimePaths(body, cli, canMap) {
   // commands path differs: codex calls them "prompts", gemini calls them "commands".
   const commandsTarget = cli === "codex" ? "prompts" : "commands";
+  const exclusions = /\.claude\/(?:skills|agents)\//.test(body) ? loadExclusions()[cli] : [];
+  const mapped = (whole, prefix, destination) => canMap(whole.slice(prefix.length), destination) ? `${prefix}${destination}` : whole;
   return body
-    // .claude/skills/ → .{codex,gemini}/skills/
-    .replace(/(^|[^a-zA-Z0-9._/-])\.claude\/skills\//g, `$1.${cli}/skills/`)
+    // Keep source references for expertise withheld from the native CLI catalog.
+    // The source material still ships under .claude; rewriting it would invent a
+    // file in a destination the same exclusion oracle deliberately never emits.
+    .replace(/(^|[^a-zA-Z0-9._/-])\.claude\/skills\/([A-Za-z0-9._/-]*)/g,
+      (whole, prefix, rest) => rest && matchesAnyGlob(`skills/${rest.split("/")[0]}/SKILL.md`, exclusions)
+        ? whole
+        : mapped(whole, prefix, `.${cli === "codex" ? "agents" : "gemini"}/skills/${rest}`))
     // .claude/commands/<name>.md → .codex/prompts/<name>.md  (Codex keeps .md)
     //                            → .gemini/commands/<name>.toml (Gemini emits TOML)
     // PY-3-A3: the directory was rewritten but the EXTENSION was not, so every
@@ -774,44 +1200,21 @@ function rewriteClaudePathsForCli(body, cli) {
     // boundary — commands are flat under `.claude/commands/`.
     .replace(
       /(^|[^a-zA-Z0-9._/-])\.claude\/commands\/([A-Za-z0-9._-]+)\.md\b/g,
-      `$1.${cli}/${commandsTarget}/$2.${cli === "gemini" ? "toml" : "md"}`,
+      (whole, prefix, name) => mapped(whole, prefix, `.${cli}/${commandsTarget}/${name}.${cli === "gemini" ? "toml" : "md"}`),
     )
     // Bare-directory form (a citation naming the dir, not a specific command).
-    .replace(/(^|[^a-zA-Z0-9._/-])\.claude\/commands\//g, `$1.${cli}/${commandsTarget}/`)
-    // PY-3-A2: `.claude/agents/<group>/<name>.md` does NOT map onto
-    // `.{cli}/agents/<group>/<name>.md` on EITHER lane — the old rewrite
-    // produced a path shape neither emitter ever writes:
-    //   codex  — has NO `agents/` namespace at all. emitCodexAgentPrompts writes
-    //            `.codex/prompts/specialist-<short>.md`, where <short> drops a
-    //            trailing "-specialist" (dataflow-specialist → specialist-dataflow).
-    //   gemini — emitGeminiAgents writes `.gemini/agents/<name>.md`, FLAT: the
-    //            `<group>/` segment is dropped entirely.
-    // MEASURED on a full emit before this fix: `.codex/agents/**` resolved 0 /
-    // dangled 31 and `.gemini/agents/**` resolved 0 / dangled 31, while the SAME
-    // probe over the same trees resolved 84 skills + 11 command citations — so
-    // the zero is a true negative, not a probe that could not fire.
-    // Name derivation mirrors both emitters, which key off `frontmatter.name ||
-    // basename(relPath)`. A sweep over all 40 source agents found
-    // basename === frontmatter.name for EVERY one, so basename is a sound proxy
-    // HERE. If an agent ever sets a `name:` that differs from its filename, this
-    // rewrite and the emitters diverge — keep the three in lockstep.
-    // Runs BEFORE the bare-directory form below, which would otherwise consume
-    // the prefix and strand the rest of the path.
+    .replace(/(^|[^a-zA-Z0-9._/-])\.claude\/commands\/(?![A-Za-z0-9._-])/g,
+      (whole, prefix) => mapped(whole, prefix, `.${cli}/${commandsTarget}/`))
+    // Native agents are flat on both lanes; Codex now registers TOML definitions.
+    // Source filenames and frontmatter names must agree with the emitted identity.
     .replace(
-      /(^|[^a-zA-Z0-9._/-])\.claude\/agents\/(?:[A-Za-z0-9._-]+\/)*([A-Za-z0-9._-]+)\.md\b/g,
-      (_m, pre, name) =>
-        cli === "gemini"
-          ? `${pre}.gemini/agents/${name}.md`
-          : `${pre}.codex/prompts/specialist-${name.replace(/-specialist$/, "")}.md`,
-    )
-    // Bare-directory form (a citation naming the dir, not a specific agent).
-    // Gemini's `.gemini/agents/` IS a real namespace, so this is correct there.
-    // On codex it is NOT — codex has no agents dir — but the only occurrences are
-    // the consumer-owned `.claude/agents/project/` paths in sync-from-template.md,
-    // whose correct codex target depends on whether Codex supports consumer-owned
-    // project agents at all. That is UNRESOLVED, so this is left as-is rather than
-    // guessed; see the S22-W4-EXEC lane report.
-    .replace(/(^|[^a-zA-Z0-9._/-])\.claude\/agents\//g, `$1.${cli}/agents/`);
+      /(^|[^a-zA-Z0-9._/-])\.claude\/agents\/(?:((?:[A-Za-z0-9._-]+\/)*)([A-Za-z0-9._-]+)\.md\b)?/g,
+      (whole, pre, group, name) => {
+        if (!name) return mapped(whole, pre, `.${cli}/agents/`);
+        if (matchesAnyGlob(`agents/${group}${name}.md`, exclusions)) return whole;
+        return mapped(whole, pre, `.${cli}/agents/${name}.${cli === "codex" ? "toml" : "md"}`);
+      },
+    );
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -882,15 +1285,21 @@ export {
   loadExclusions,
   loadLoomOnly,
   loadFlatList,
+  loadUniversalExclude,
   loadLaneExclusions,
+  loadVariantOnly,
   loadTiers,
   loadTargetTierSubscriptions,
   loadTargetVariant,
   loadTargetRole,
   loadSurfaceRoles,
+  loadSurfaceRolesDiagnostics,
+  parseSurfaceRolesStanza,
   surfaceRolesAllow,
+  deliveryVerdict,
   buildTierFilter,
   composeArtifactBody,
   rewriteClaudePathsForCli,
+  mapArtifactMarkdownClauses,
   walkFiles,
 };

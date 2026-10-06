@@ -1,0 +1,2 @@
+// @fixture-path: e2e/api/orders.test.js
+// @expect: none

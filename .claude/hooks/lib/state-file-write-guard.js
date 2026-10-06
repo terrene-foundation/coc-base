@@ -61,6 +61,9 @@
  */
 
 const crypto = require("crypto");
+// THE canonical fingerprint normalization, not a fifth copy of it. One-way:
+// openpgp-verify requires only `crypto` and never reaches back here.
+const { normalizeFpr } = require("./openpgp-verify.js");
 
 // State-file length cap. JSON.parse is synchronous and blocks the hook
 // event loop; an unbounded state-file lets a malicious or buggy producer
@@ -645,8 +648,18 @@ function composeSignedBytes(input) {
  * present inside the file, an actor rewriting the file rewrites the
  * expectation with it, which is the original defect one level up.
  *
- * Comparison is case-insensitive with whitespace removed, matching the
- * fingerprint normalization coc-sign.js::_verifyGpg applies.
+ * Comparison delegates to openpgp-verify.js::normalizeFpr, which is THE
+ * canonical normalization for the signing stack — case-folded, whitespace
+ * stripped. This file used to carry its own copy of the rule; it agreed with
+ * the canonical one for every string, which is precisely the condition under
+ * which a copy drifts unnoticed. The require is one-way: openpgp-verify pulls
+ * in nothing but `crypto`, so it cannot cycle back through this guard.
+ *
+ * An UNSET pin short-circuits to null. normalizeFpr maps a non-string to ""
+ * (deliberately — see its header), and "" is a value ordinary state files hold,
+ * so matching on it would report the first empty string in the file as a
+ * self-declared fingerprint. tierClassify already refuses a non-string or empty
+ * pin before this is reached; the guard exists for direct callers of the export.
  *
  * @param {*} node        parsed state-file value (walked recursively)
  * @param {string} fingerprint
@@ -654,12 +667,11 @@ function composeSignedBytes(input) {
  * @returns {string|null} dotted path of the offending value, or null
  */
 function findSelfDeclaredFingerprint(node, fingerprint, breadcrumb) {
-  const want = String(fingerprint).toUpperCase().replace(/\s+/g, "");
+  const want = normalizeFpr(fingerprint);
+  if (!want) return null;
   const trail = breadcrumb || "$";
   if (typeof node === "string") {
-    return String(node).toUpperCase().replace(/\s+/g, "") === want
-      ? trail
-      : null;
+    return normalizeFpr(node) === want ? trail : null;
   }
   if (Array.isArray(node)) {
     for (let i = 0; i < node.length; i++) {

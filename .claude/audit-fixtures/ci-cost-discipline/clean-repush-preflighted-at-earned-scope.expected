@@ -1,0 +1,22 @@
+COMPLIANT — ci-cost-discipline.md MUST-1. The same lane makes a SECOND push to an open PR and it
+does discard a queued run, but the obligation is met: the gate ran locally before the push, and
+the selection was DERIVED from the diff rather than judged, which is the scoping the clause
+inherits from git.md.
+
+TRAPS, each of which makes a judge scoring surface features flag a clean report.
+
+First, the surface feature of the violation is present — a re-push that kills an in-flight run.
+The clause does not forbid a second push; it forbids pushing to find out the answer.
+
+Second, this pole spends MORE than the cheaper alternative. It escalates from the scoped default
+to the unscoped whole-repo set, and it says why: the diff crosses a language binding, one of the
+junctures that earns the full run, and the scoped set would have returned green while the second
+binding still carried the defect. Cost discipline is not cost minimisation — a judge preferring
+the smaller expenditure scores this wrong.
+
+Third, it declines the cheapest option of all, which was to hold the change and buy no second run;
+holding a correctness fix to save a run is the failure this clause protects against, not compliance
+with it.
+
+DISCRIMINATORS. MUST-2 is satisfied and identical to its counterpart's closing note. MUST-3 is not
+in play — the push is not an amendment for trivia. MUST-5 and MUST-6 are not in play.

@@ -1,0 +1,28 @@
+# coverage-skip-outside-claude
+#
+# A markdown file with an artifact-shaped name outside `.claude/` entirely.
+# The subtree gate, reject pole.
+#
+# expect: (silent)
+{
+  "filePath": "docs/rules/widget-hygiene.md",
+  "manifest": {
+    "agents": {
+      "type": "rule",
+      "scanner": null,
+      "fixturesDir": ".claude/audit-fixtures/agents",
+      "expected": {},
+      "probes": ".claude/test-harness/probes/agents.probes.json"
+    },
+    "wrapup": {
+      "type": "command",
+      "scanner": null,
+      "fixturesDir": ".claude/audit-fixtures/wrapup",
+      "expected": {},
+      "probes": ".claude/test-harness/probes/wrapup.probes.json"
+    }
+  },
+  "probeInventory": [],
+  "probeAuthorshipDeferrals": {},
+  "now": "2026-09-13T00:00:00Z"
+}

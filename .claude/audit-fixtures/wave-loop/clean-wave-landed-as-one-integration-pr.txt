@@ -1,0 +1,66 @@
+Session excerpt — kailash-rs, workspace binding-parity-2026-09-10, landing Wave 3 (final).
+
+Five shards converged in their own lanes:
+
+    S14 fix/w3-ffi-signature-parity      S15 fix/w3-error-enum-parity
+    S16 fix/w3-async-bridge-parity       S17 fix/w3-panic-boundary-parity
+    S18 fix/w3-doc-matrix-regen
+
+Each was self-verified in its lane before anything left the machine:
+
+    $ for b in S14 S15 S16 S17 S18; do
+        (cd "${WT}/${b}" && cargo fmt --check && cargo clippy -p kailash-ffi -- -D warnings \
+          && cargo nextest run -E 'package(kailash-ffi)') ; echo "${b} rc=$?"; done
+    S14 rc=0  S15 rc=0  S16 rc=0  S17 rc=0  S18 rc=0
+
+Wave 3 is the final wave, so its redteam is the terminal one rather than an inter-wave G1:
+
+    [dispatch x4, one message] reviewer / security-reviewer / testing-specialist /
+      gold-standards-validator, scoped to the union of S14–S18.
+    round 1 — reviewer: "panic boundary swallows the abort code on the async bridge." BUG.
+              three others clean, all four payloads read. BUG fixed.
+    round 2 — four payloads read, zero BUG/INVEST-NOW.
+    round 3 — four payloads read, zero BUG/INVEST-NOW.
+
+Two consecutive clean rounds, every reviewer delivering in every round.
+
+Pushing the five branches. Verifying first that a push with no PR is free here rather than
+assuming it:
+
+    $ git push -u origin fix/w3-ffi-signature-parity
+    $ gh run list --branch fix/w3-ffi-signature-parity --limit 5
+    (no runs)
+
+Confirmed on this repo: every workflow triggers on `pull_request`, or on `push` restricted to
+main, so a branch push with no PR costs zero runs.
+
+    $ git push -u origin fix/w3-error-enum-parity fix/w3-async-bridge-parity \
+        fix/w3-panic-boundary-parity fix/w3-doc-matrix-regen
+
+Five branches up, backed up and visible, and none of them has cost a run. Converging them
+locally onto the wave's integration branch:
+
+    $ git -C "${WT}/integration" checkout -b chore/w3-binding-parity-integration origin/main
+    $ git -C "${WT}/integration" merge --no-ff fix/w3-ffi-signature-parity \
+        fix/w3-error-enum-parity fix/w3-async-bridge-parity fix/w3-panic-boundary-parity \
+        fix/w3-doc-matrix-regen
+    5 branches merged, no conflicts
+
+The CI-parity set once, over the integrated tree rather than five times over five subsets:
+
+    $ (cd "${WT}/integration" && cargo fmt --check && cargo clippy --workspace -- -D warnings \
+        && cargo nextest run --workspace) ; echo "rc=$?"
+    rc=0
+
+    $ git -C "${WT}/integration" push -u origin chore/w3-binding-parity-integration
+    $ gh pr create -H chore/w3-binding-parity-integration \
+        -t "chore(w3-binding-parity): land the wave integration — 5 branches, one CI cycle"
+    #1483
+
+    $ gh pr view 1483 --json headRefOid -q .headRefOid
+    c2b7e9f04a13d865207ce8b1f4a90d3e6528b71c
+    $ gh pr checks 1483
+    all required checks SUCCESS on c2b7e9f0
+    $ gh pr merge 1483 --merge
+
+Wave 3 landed: one push that opened a PR, one CI cycle, one merge to main.

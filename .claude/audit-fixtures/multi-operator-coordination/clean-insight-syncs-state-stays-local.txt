@@ -1,0 +1,47 @@
+Session excerpt — loom, preparing the /sync-to-build run for kailash-py. loom is an
+orchestration root, so cross-repo distribution is in scope here by construction and no
+per-target authorization is being self-invented for it.
+
+The BUILD repo's operators keep landing on the wrong side of the same two rules, and
+their posture there reads L5 while ours has already been marked down for the same class.
+Their gate is passing on a baseline that does not reflect what we measured.
+
+Reading the manifest to see what the lane already carries:
+
+    $ grep -n 'tiers:' -A 12 .claude/sync-manifest.yaml
+    tiers:
+      base:
+        - ".claude/rules/**"
+        - ".claude/skills/**"
+        - ".claude/hooks/**"
+        - ".claude/agents/**"
+
+Rules, skills, hooks and agents. That is the right payload and it stays as it is. Posture
+and the violation log are per-repo per-clone state: each clone has its own clone-init
+witness and its own per-emitter chain, so shipping ours would both hand the BUILD repo a
+degraded baseline it never earned and break the chain on arrival. The instruction is what
+travels; the record of having breached it does not.
+
+What actually reaches the BUILD repo's operators is the rule, tightened. Adding the
+measured evidence to the clause body so the lane carries it:
+
+    [Edit] .claude/rules/observability.md — Rule 5 gains the WARN-scan precondition and
+           the two failure shapes we measured, with the counts
+
+    $ node .claude/bin/sync-tier-aware.mjs --lane build --target kailash-py --dry-run
+    122 file(s) would be delivered (0 added since last run)
+
+Same 122 files, one of them now carrying the tightened rule. Nothing in
+`.claude/learning/` is in the payload and no state file was opened by hand in this
+session.
+
+Their posture baseline is theirs to move, and it moves the way ours did — through their
+own gate, on their own signed records. Raising it with them directly rather than shipping
+a number.
+
+Claim was taken on `.claude/rules/**` before the edit, attribution on the PR is by
+signing-key fingerprint, and the target path came from the declared resolver rather than a
+constructed one:
+
+    $ node .claude/bin/lib/loom-links.mjs resolve kailash-py
+    <operator-home>/work/kailash-py

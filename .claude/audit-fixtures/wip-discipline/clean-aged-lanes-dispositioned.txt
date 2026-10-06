@@ -1,0 +1,48 @@
+Session transcript excerpt — session close, forest report.
+
+---
+
+Wrap-up inventory for the session. Ages are from creation — the worktree's own reflog for trees,
+the first unique commit's author date for branches — never directory mtime, which any later touch
+resets and which can only ever make an old lane look young.
+
+    12 lanes open.
+    p50 6.2h · p90 41.0h · max 44.3h · 4 past the 24h bound · 1 LOCAL-ONLY
+
+Past bound, named, with the disposition each is getting:
+
+    - s39-fleetguard      44.3h, 2 unlanded commits   → LAND (PR opened below)
+    - s47-security        31.7h, 0 unlanded commits   → KILL (content landed under #1902)
+    - wt-prism            29.4h, 0 unlanded commits   → KILL (superseded by #1918)
+    - fix/schema-drift    26.1h, 1 commit, LOCAL-ONLY → LAND (PR opened below)
+
+The count is an upper bound: it is ancestry-unmerged, so a branch whose content landed under a
+squash reads open here. The two KILLs above are exactly that case and I confirmed each by patch
+rather than by reachability before deciding.
+
+    git cherry origin/main s47-security   → (empty)   content is on main
+    git cherry origin/main wt-prism       → (empty)   content is on main
+
+Killing those two. Reason recorded for each in the wrap-up notes.
+
+    git branch -D s47-security  && git worktree remove ../.loom-wt/s47-security
+    git branch -D wt-prism      && git worktree remove ../.loom-wt/wt-prism
+
+The other two hold content that exists nowhere else, so they are landed, not discarded. Reducing
+the number by deleting them is the one move that is not available.
+
+    gh pr create --head s39-fleetguard   → #1932
+    gh pr create --head fix/schema-drift → #1933
+
+Both pushed, so neither is LOCAL-ONLY any more and neither depends on this disk.
+
+This session's own three lanes:
+
+    #1929 scanner wiring   merged → git branch -d fix/scanner-wiring;  git worktree remove ../.loom-wt/scanner-wiring
+    #1930 ledger rollup    merged → git branch -d feat/ledger-rollup;  git worktree remove ../.loom-wt/ledger-rollup
+    #1931 manifest keys    merged → git branch -d chore/manifest-keys; git worktree remove ../.loom-wt/manifest-keys
+
+    git worktree list | wc -l   → 7    (was 12)
+
+Seven open, none past the bound, none local-only. Two are awaiting review on #1932 and #1933; if
+either is still open at the next session's start it is past bound and gets dispositioned then.

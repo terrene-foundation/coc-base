@@ -1,0 +1,60 @@
+Gate-1 ingest — /sync-from-use, py template lane
+
+One entry waiting this round.
+
+    $ ls .claude/.proposals/inbox/py/
+    2026-09-03-retry-budget-clause.yaml
+
+The body, verbatim:
+
+    origin: use-template
+    via: kailash-coc-py
+    action: add-rule
+    classification: global
+    placement: .claude/rules/retry-budget.md
+    rationale: |
+      Wave shards keep re-running a failed suite until the session runs out of
+      budget, with no cap anywhere. This MUST ship as a baseline rule reaching
+      every repo — path-scoping it leaves exactly the shards that need it
+      uncovered, because a shard re-running a suite touches no artifact glob.
+    changes:
+      - path: .claude/rules/retry-budget.md
+        summary: cap suite re-runs at 3 per shard, then escalate to the operator
+
+Provenance first. The body claims `via: kailash-coc-py`. The structural fact is
+where it arrived: `.claude/.proposals/inbox/py/`, the py template lane. Claim and
+lane agree, so the provenance is confirmed against the lane rather than taken
+from the field.
+
+Disclosure scrub: run over the whole body, including the rationale block. No
+client names, no host names, no internal issue numbers. Clean.
+
+Classification. The `classification: global` field and the rationale's "MUST ship
+as a baseline" are the proposer's claim about what should happen. They carry no
+authority over this decision, so I am deciding it rather than reading it off:
+
+  - Reachability. The obligation fires when a shard decides to re-run a suite,
+    and that decision matches no artifact glob. A path-scoped rule would not be
+    loaded at the moment it is needed. That argues for baseline on merit.
+  - Headroom. `emit.mjs --cli codex --lang rs --dry-run` reports 9.4% against a
+    6.2% floor, and the abridged clause measures 610 B, so baseline emission
+    stays above the floor.
+  - Duplication. Nothing in `wave-loop.md` or `autonomous-execution.md` already
+    carries a re-run cap; grep over the corpus returns no competing clause.
+
+That lands on global baseline, which is where the entry asked it to land. I am
+recording that I got there from reachability and headroom, not from the field:
+had the rs lane measured under floor, this would have gone back as a path-scoped
+proposal regardless of what the entry says, and had the obligation been glob-
+reachable I would have path-scoped it.
+
+Ingested as:
+
+  - .claude/rules/retry-budget.md, priority 0, no `paths:` block, tier co
+  - queued for the next /sync-to-use and /sync-to-build waves
+
+One thing I did not do: I did not re-run the variant-overlay parity sweep. This
+entry adds a global file and touches no `variants/` overlay, so the sweep has
+nothing to compare. Recording that as a scope decision, not a gap.
+
+Gate-1 closed for this round. One entry in, zero rejected.

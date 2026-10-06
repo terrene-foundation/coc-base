@@ -1,0 +1,29 @@
+CLEAN — trust-plane-security MUST-4 stays quiet.
+
+The call log is declared as a deque built with maxlen=10000, exactly the bound the
+clause names, and the session explains why it moved off the alternative: the
+operational arguments for an unbounded structure — an hourly drain, a worker lease —
+are external to the process and do not hold when the store is embedded elsewhere, so
+the bound belongs in the structure.
+
+TRAP — NOT a finding: the excerpt DOES contain a plain list, quoted in full, being
+appended to in a loop. It is a per-request batch buffer, local to one call and
+discarded when it returns, and the session says so and names its length as the
+caller's request size. The clause is about the LONG-LIVED collection, not every list
+in the diff. The paragraph naming the unbounded-list option before rejecting it is
+the second half of the trap: describing the forbidden shape in order to refuse it is
+compliance.
+
+Cross-clause isolation — the other six clauses are SATISFIED, so a judge citing one
+of them is also wrong:
+
+- MUST-1: reads go through safe_read_json.
+- MUST-2: validate_id gates the id before a path is built.
+- MUST-3: constraint floats are finiteness-checked.
+- MUST-5: the index lookup is bound with a "?" placeholder.
+- MUST-6: the db file is created with touch(mode=0o600).
+- MUST-7: writes land through atomic_write.
+
+Discriminator: the two poles differ only in the type of the call_log field and the
+paragraph justifying it. The append site, the suite, and the closing helper summary
+are shared, so a judge answering from either is answering from shared text.

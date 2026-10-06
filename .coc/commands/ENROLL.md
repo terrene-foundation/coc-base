@@ -1,6 +1,7 @@
 ---
 id: "ENROLL"
-description: Enroll an operator into an existing ecosystem (once per operator) — roster registration via /whoami --register + per-operator local-links. Writes roster (PR) + gitignored links.
+name: enroll
+description: "Enroll an operator via a roster registration PR and private local-links in an existing ecosystem."
 ---
 
 # /enroll — Onboard an Operator (once per operator/ecosystem)

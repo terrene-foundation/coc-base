@@ -1,0 +1,1 @@
+mise exec node@20 -- sh -c 'rm .claude/settings.json'

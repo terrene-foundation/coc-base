@@ -1,0 +1,103 @@
+=== SESSION EXCERPT — /analyze on issue #3318, "column config rejects computed column ids" ===
+
+[user]
+`ColumnConfig<T>` types `id` as `string & keyof T`, so computed columns that aren't real model
+fields can't be configured. Relax it to `string` and make the computed columns work.
+
+[assistant]
+Reading the type and its consumers before proposing anything.
+
+  Read: src/table/types.ts:41-58
+
+    export interface ColumnConfig<T> {
+      id: string & keyof T;
+      header: string;
+      width?: number;
+      sortable?: boolean;
+    }
+
+The proposed relaxation is `id: string & keyof T` → `id: string`. That constraint is
+load-bearing: today `row[config.id]` type-checks only because `id` is provably a key of `T`.
+Widening it means `row[config.id]` can be `undefined` at runtime with no compiler objection.
+
+So the question is which sites are reachable under the PROPOSED type, not the current one.
+Inventorying now, at analysis time, before any edit.
+
+  $ npx ts-morph-query 'PropertyAccess[expression.name="id"]' --project tsconfig.json --json \
+      > /tmp/sites.json ; rc=$?
+  rc=0
+
+  $ jq -r '.[] | "\(.file):\(.line)  \(.text)"' /tmp/sites.json
+  src/table/Body.tsx:88         row[config.id]
+  src/table/Body.tsx:94         row[config.id]
+  src/table/HeaderCell.tsx:31   config.id
+  src/table/useSort.ts:52       a[config.id]
+  src/table/useSort.ts:53       b[config.id]
+  src/table/export/csv.ts:120   row[config.id]
+  src/table/export/csv.ts:141   row[config.id]
+  src/table/filterModel.ts:77   row[config.id]
+  src/table/columnState.ts:29   config.id
+  src/table/columnState.ts:64   config.id
+
+Ten sites. Before I trust that list I fired the same query at a file I already know contains a
+`config.id` access — `src/table/Body.tsx` — with the rest of the project excluded, and it printed
+two rows. The matcher fires on this tree, so the ten above are a real inventory rather than a
+query that silently matched nothing.
+
+[assistant]
+Splitting the ten into TWO inventories, because a guard at the point a value is RENDERED says
+nothing about whether the EXTRACTION expression is guarded. They are two different safety
+properties and only one of them is visible in the output.
+
+  INVENTORY A — EXTRACTION sites (the expression `row[config.id]` itself evaluates under the
+  relaxed type):
+    src/table/Body.tsx:88         row[config.id]
+    src/table/Body.tsx:94         row[config.id]
+    src/table/useSort.ts:52       a[config.id]
+    src/table/useSort.ts:53       b[config.id]
+    src/table/export/csv.ts:120   row[config.id]
+    src/table/export/csv.ts:141   row[config.id]
+    src/table/filterModel.ts:77   row[config.id]
+
+  INVENTORY B — RENDER sites (a value already extracted elsewhere is displayed or keyed):
+    src/table/HeaderCell.tsx:31   config.id as a React key
+    src/table/columnState.ts:29   config.id as a map key
+    src/table/columnState.ts:64   config.id as a map key
+
+Inventory B is not evidence about Inventory A, so I walk A on its own terms: is the EXTRACTION
+itself guarded, independently of what happens to its result?
+
+  Body.tsx:88, 94      `row[config.id] ?? ""` — the coalesce is on the RESULT. The extraction is
+                       an index into `row` with an unconstrained string. Under the current type
+                       the safety came from the constraint, not from a check, so there is no guard
+                       here to notice missing. UNGUARDED.
+  useSort.ts:52-53     same shape, and worse: `localeCompare` on `undefined` throws before the
+                       downstream clamp is ever reached. UNGUARDED.
+  export/csv.ts:120,141  `String(row[config.id] ?? "")` — result coalesced, extraction
+                       unconstrained. UNGUARDED.
+  filterModel.ts:77    `String(row[config.id]).includes(term)` — tolerates `undefined` by
+                       stringifying it to `"undefined"`, which is not a throw but is a silent
+                       wrong match. UNGUARDED.
+
+Seven of seven extraction sites are unguarded against the proposed type. Not one of them has a
+missing guard a reviewer could notice, because the constraint was doing the work ambiently — which
+is exactly why a single merged pass reads them all as already-safe.
+
+[assistant]
+Plan for #3318:
+
+1. `src/table/types.ts` — relax `ColumnConfig<T>.id` from `string & keyof T` to `string`.
+2. Add a single extraction helper `readCell(row, id)` returning `unknown | undefined`, and route
+   all seven Inventory-A sites through it so the guard lives at the extraction, not the render.
+3. `src/table/useSort.ts` — the comparator needs an explicit absent-value ordering, since
+   `localeCompare` throws rather than coalescing.
+4. `src/table/filterModel.ts` — an absent cell must not match `"undefined"`.
+5. `src/table/columnState.ts` — allow a computed column to register without a matching model key.
+6. Tests: one case per unguarded extraction site, plus a sort case over a computed column and a
+   filter case asserting an absent cell does not match the literal term "undefined".
+
+Risk: MEDIUM, and the size is the finding. The two-file change this looked like from a single pass
+is a seven-site sweep, because the render-side coalesces that made it look safe were guarding a
+different property from the one the relaxation breaks.
+
+Ready for `/todos` on your approval.

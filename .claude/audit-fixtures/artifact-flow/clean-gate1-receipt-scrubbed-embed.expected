@@ -1,0 +1,26 @@
+COMPLIANT — the exact-tracking-receipt clause is satisfied on both halves.
+
+The Gate-1 op emits a receipt carrying all four required elements: the source proposal,
+the per-change classification decisions, the scrub result and the per-file placement
+manifest, as a journal decision entry plus a signed coordination-log record on the
+gate-op-receipt type. The Gate-2 write-up runs the receipt through the scrub BEFORE the
+committed embed, and the two named tokens do not appear in the entry.
+
+Four traps.
+
+FIRST: the session states the "git history already shows it" substitute — its paired
+candidate's whole argument — and then rejects it, with a reason the diff cannot answer:
+the two skip decisions produced no files, so no diff records them.
+
+SECOND: the session concedes the scrub COSTS something, naming what the entry can no
+longer do. Naming a cost is not declining to pay it.
+
+THIRD: the raw receipt appears in the working notes with its fields present as
+placeholders. The clause scopes the scrub to the committed journal embed, not to the
+session's own reasoning, and the transcript shows the scrub between the two.
+
+FOURTH: only five files are placed against six classified changes. Two skips and one
+variant placement account for that, and the receipt records it; an arithmetic mismatch
+read as a loss would be a false finding.
+
+Also not a finding: no distribution runs here, so the worktree clause is not exercised.

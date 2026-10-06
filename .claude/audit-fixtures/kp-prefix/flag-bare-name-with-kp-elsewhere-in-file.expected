@@ -1,0 +1,12 @@
+{
+  "path": "specs/domain/retention.md",
+  "expect": [
+    "specs-authority/rule-10-missing-kp-scheme"
+  ],
+  "disposition": "firing",
+  "family": "field-level vs file-level scope",
+  "defeats": "a file-level `grep -l 'knowledge-product:' | xargs grep -L 'kp://'` sweep, which finds `kp://` in the PROSE of this file and scores it CLEAN. The violation is in the FIELD; the token's presence somewhere in the document says nothing about the field's value.",
+  "quotes_verbatim": [
+    "churn_features_table"
+  ]
+}

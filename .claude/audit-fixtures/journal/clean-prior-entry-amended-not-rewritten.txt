@@ -1,0 +1,63 @@
+Session excerpt — loom, workspace detector-placement-2026-09-09, afternoon.
+
+The redteam round on W4 found that journal/0231 records a disposition that did not hold. It
+says the frontmatter-shape advisory detector lands with the next hook wave; the wave shipped
+without it and the placement analysis says it will never carry one. The record has to say
+what is true.
+
+    $ node .claude/bin/reserve-journal-slot.mjs --type AMENDMENT
+    reserved 0244 · fold-accepted high-water 0243 · display_id resolved from roster
+
+    $ python3 - <<'PY'
+    import pathlib
+    p = sorted(pathlib.Path("journal").glob("0231-*.md"))[0]
+    src = p.read_text()
+    i = src.index("lands with the next hook wave")
+    print(p.name); print(src[i-96:i+104])
+    PY
+    0231-<handle>-DECISION-382-journal-contract-reconciliation.md
+    ... the frontmatter-shape advisory detector lands with the next hook wave, at which point
+    the Phase-2 row is deleted rather than renewed ...
+
+0231 is immutable, so the correction goes into a new entry that quotes what it supersedes and
+points back at it. 0231 keeps saying what the session that wrote it believed:
+
+    $ git status --porcelain journal/
+    ?? journal/0244-<handle>-AMENDMENT-frontmatter-detector-retired.md
+
+Then the amendment itself:
+
+    [Write] journal/0244-<handle>-AMENDMENT-frontmatter-detector-retired.md
+      ---
+      type: AMENDMENT
+      date: 2026-09-09
+      author: co-authored
+      project: loom
+      topic: frontmatter-shape detector retired, not deferred
+      phase: redteam
+      verified_id: <from reservation>
+      person_id: <from reservation>
+      display_id: <from reservation>
+      tags: [journal, detection, phase-2]
+      relates_to: 0231-382-journal-contract-reconciliation
+      ---
+      SUPERSEDES the sentence in 0231 quoted verbatim here — "lands with the next hook wave,
+      at which point the Phase-2 row is deleted rather than renewed" — which is now false.
+      … the placement analysis, the three surfaces a shape check could sit on, why none of
+      them yields a signal the hook layer can read, and what gate-review carries instead …
+
+      ## For Discussion
+      1. If a shape check had been affordable at PreToolUse, would the Phase-2 row still
+         have been the right instrument, or was the row always standing in for a decision?
+      2. The wave shipped 11 detectors and this is the only one withdrawn — what separates it?
+      3. What would have to become observable for the retirement to be reopened?
+
+    [Edit] .claude/rules/journal.md — Detection row now says RETIRED with its reason,
+      receipt-first `journal/0244`.
+
+    $ node .claude/bin/phase2-deferral-integrity.mjs > /tmp/g.txt 2>&1; echo $?
+    0
+
+Two consecutive clean redteam rounds, both payloads read. A reader landing on 0231 from an
+old citation reaches the correction through `relates_to`, and both halves of how the position
+moved survive.

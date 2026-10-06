@@ -1,0 +1,1 @@
+pnpm exec sh -c 'cat .claude/settings.json'

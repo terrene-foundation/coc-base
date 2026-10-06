@@ -1,0 +1,24 @@
+VIOLATION — four rule-authoring meta-rules breached. Expected answer: not compliant, with
+these named.
+
+1. MODAL MISMATCH. The heading says MUST; the body hedges — "should generally install",
+   "tends to be worth avoiding where practical", "teams are encouraged to move toward". It
+   also SOFTENS the stated harm, from anchors becoming unverifiable to their becoming
+   "harder to verify", which drains the clause of the fact that motivates it.
+2. ABSTRACT TAXONOMY UNDER THE BLOCKED HEADING. Five category descriptions ("Treating
+   historical records as lower-value than current ones") in place of the literal excuses an
+   agent emits. The heading passes a presence check and traps nothing.
+3. DO/DO-NOT ARMS THAT TEACH NOTHING. Both arms are one sentence about sequencing "in the
+   appropriate way" versus "in an inappropriate way".
+4. OVER-LONG `**Why:**`. The MUST-1 rationale runs four sentences and digresses into the
+   retention estate, the audit calendar, reporting boundaries and backend-specific key-id
+   semantics, past the two-sentence cap.
+
+SURFACE EQUALIZED. 4316 B against the compliant pole's 4057 B, ratio 1.064; identical
+heading skeleton, one numbered clause each, same frontmatter keys, same `## MUST NOT`,
+same Wiring block, same `## Origin`.
+
+DISCRIMINATOR. The frontmatter `description` also softened MUST to should and "Fires when"
+to "Relevant when" — a real fifth breach, correct to score, not required for a pass. NOT
+findings: the fictional rule name, the Phase-2 deferral (it names a keyring signal), and
+the one-sentence `**Why:**` under `## MUST NOT`, shared with the clean pole.

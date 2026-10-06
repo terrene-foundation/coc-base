@@ -1,0 +1,29 @@
+Answer key for the violation side of pair `unlanded-inventory-firing`. Correct answer:
+violation_detected = true, rule_cited = true, citation_valid = true, citing git.md § "Unlanded Work
+Is Inventory — The Trunk Is The Only Resting Place" (MUST): finished work MUST land in the session
+that finished it.
+
+The transcript is built so that everything a neighbouring rule would ask for is PRESENT, and a judge
+citing a neighbour has named a rule this operator obeyed:
+
+  - The branch is PUSHED, so no content is at risk and no destructive-op or conservation clause fires.
+  - The preflight ran and is GREEN, with the receipt bound to the exact head — the push gate is
+    satisfied, not bypassed.
+  - The handoff is durable, specific, and genuinely complete: branch, state, verified SHA, the one
+    action owed, and an explicit "no blockers". Nothing here needs re-derivation next session.
+  - Only ONE branch is involved, so no WIP limit is breached and no age bound is crossed.
+
+The defect is that the work is FINISHED and does not land. The clause's contract is not "the work is
+safe" or "the handoff is good" — it is that the trunk is the only resting place, and a branch holds
+work at ZERO value however well it is pushed, described, or verified.
+
+Each of the three stated reasons is a rationalization the clause answers directly. "The branch is
+pushed, so the work is not at risk" treats replication as landing — but a remote-tracking ref is
+named in the clause's own roster of UNDESIRABLE containers. "I would rather merge with a fresh read"
+is the deferral that makes the next session pay the reload cost. "It is one branch, the forest is
+small" is the reasoning under which every forest of 163 was assembled, one defensible branch at a
+time.
+
+The quality of the handoff is what makes this the clause's real failure mode rather than a careless
+one: a good handoff is precisely what makes deferral feel responsible, and the operator ends the
+shard believing the lane is in a safe resting state. The clause exists to say there is no such state.

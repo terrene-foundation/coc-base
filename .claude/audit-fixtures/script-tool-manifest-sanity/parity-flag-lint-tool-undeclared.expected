@@ -1,0 +1,5 @@
+# THE ORIGINATING INCIDENT, reproduced. `npm run lint` exits
+# `sh: eslint: command not found`; no gate that does not itself invoke the
+# script reports anything, so the absent lint is indistinguishable from a
+# passing one. This is the case the rule was ingested for.
+finding:undeclared:eslint

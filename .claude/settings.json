@@ -25,111 +25,11 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/validate-bash-command.js\"",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/posture-gate.js\"",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/genesis-anchor-guard.js\"",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/signing-mutation-guard.js\"",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/operator-gate.js\"",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/worktree-forest-guard.js\"",
-            "timeout": 15
-          }
-        ]
-      },
-      {
         "matcher": "Edit|Write|NotebookEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/gitignored-claude-warn.js\"",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/posture-gate.js\"",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/integrity-guard.js\"",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/adjacency-leasecheck.js\"",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/signing-mutation-guard.js\"",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/journal-write-guard.js\"",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/operator-gate.js\"",
-            "timeout": 5
-          },
-          {
-            "type": "command",
             "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/settings-deny-edit-guard.js\"",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/cross-ecosystem-disclosure-guard.js\"",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Read",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/detect-violations.js\"",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-notes-guard.js\"",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Read|Grep|Glob|WebFetch",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/probe-phase-guard.js\"",
             "timeout": 5
           }
         ]
@@ -139,110 +39,13 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/adjacency-heartbeat.js\"",
-            "timeout": 5
-          },
-          {
-            "type": "command",
             "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/provenance-capture-tool.js\"",
             "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Skill",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/analyze-completeness-guard.js\"",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Task|Agent|SendMessage",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/emit-dispatch-ledger.js\"",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Task|Agent",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-contract-guard.js\"",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/detect-violations.js\"",
-            "timeout": 5
           },
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/fold-amendment-paired-with-helper.js\"",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/wrapup-after-landing.js\"",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-notes-incorporation-guard.js\"",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Edit|Write|NotebookEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/validate-workflow.js\"",
-            "timeout": 15
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/validate-deployment.js\"",
-            "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/integration-hygiene.js\"",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/auto-format.js\"",
-            "timeout": 30
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/enforce-framework-first.js\"",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/detect-violations.js\"",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-notes-guard.js\"",
-            "timeout": 5
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch.js\" PreToolUse --registry-sha256=e3750fb66ed120c978fde304ec6275a9278ef1fd8573a24efaafbf657719fd4f",
+            "timeout": 270
           }
         ]
       }
@@ -252,27 +55,25 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-start.js\""
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/posture-gate.js\"",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/multi-operator-sessionstart.js\"",
-            "timeout": 10
-          },
-          {
-            "type": "command",
             "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/settings-deny-drift-guard.js\"",
             "timeout": 5
           },
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/orphan-forest-guard.js\"",
-            "timeout": 15
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch.js\" SessionStart --registry-sha256=e3750fb66ed120c978fde304ec6275a9278ef1fd8573a24efaafbf657719fd4f",
+            "timeout": 132
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|Edit|Write|NotebookEdit|TodoWrite",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch.js\" PostToolUse --registry-sha256=e3750fb66ed120c978fde304ec6275a9278ef1fd8573a24efaafbf657719fd4f",
+            "timeout": 235
           }
         ]
       }
@@ -282,22 +83,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-end.js\""
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/multi-operator-sessionend.js\"",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/worktree-forest-guard.js\"",
-            "timeout": 15
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/orphan-forest-guard.js\"",
-            "timeout": 30
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch.js\" SessionEnd --registry-sha256=e3750fb66ed120c978fde304ec6275a9278ef1fd8573a24efaafbf657719fd4f",
+            "timeout": 60
           }
         ]
       }
@@ -307,7 +94,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre-compact.js\""
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch.js\" PreCompact --registry-sha256=e3750fb66ed120c978fde304ec6275a9278ef1fd8573a24efaafbf657719fd4f",
+            "timeout": 66
           }
         ]
       }
@@ -317,59 +105,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/user-prompt-rules-reminder.js\"",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/detect-violations.js\"",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/provenance-capture-prompt.js\"",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/emit-dispatch-ledger.js\"",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/stop.js\"",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/log-triage-gate.js\"",
-            "timeout": 7
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/adjacency-heartbeat.js\"",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/multi-operator-sessionend.js\"",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/detect-violations.js\"",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/delegation-default-guard.js\"",
-            "timeout": 5
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch.js\" UserPromptSubmit --registry-sha256=e3750fb66ed120c978fde304ec6275a9278ef1fd8573a24efaafbf657719fd4f",
+            "timeout": 29
           }
         ]
       }
@@ -379,8 +116,19 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/reconcile-dispatch-delivery.js\"",
-            "timeout": 5
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch.js\" SubagentStop --registry-sha256=e3750fb66ed120c978fde304ec6275a9278ef1fd8573a24efaafbf657719fd4f",
+            "timeout": 11
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch.js\" Stop --registry-sha256=e3750fb66ed120c978fde304ec6275a9278ef1fd8573a24efaafbf657719fd4f",
+            "timeout": 96
           }
         ]
       }

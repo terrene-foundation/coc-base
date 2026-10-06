@@ -1,0 +1,44 @@
+Session excerpt — kailash-rs, workspace pool-recycle-2026-09-11, late in the session.
+
+Three lanes, all landed:
+
+    $ git log --oneline origin/main -3
+    a41c7e2 fix(pool): recycle on broken-pipe instead of returning the dead handle
+    7b0d194 test(pool): recycle path under a killed backend, tier-2
+    3e8f5aa docs(pool): recycle semantics in the connection guide
+
+    $ gh pr view 1184 --json state,mergedAt -q '.state + " " + .mergedAt'
+    MERGED 2026-09-11T21:14:03Z
+
+    [dispatch x3, one message] reviewer / security-reviewer / gold-standards-validator,
+      scoped to the union of the three lanes, each returning its findings in its own
+      final message.
+    round 1 — reviewer: "the recycle counter increments before the handle is dropped."
+    [Edit] src/pool/recycle.rs — counter moved after the drop.
+    round 2 — all three clean, three payloads read.
+    round 3 — all three clean, three payloads read.
+
+    $ node .claude/bin/lane-ledger.mjs --status
+    lanes: 3 landed · 0 in-flight · 0 fragment
+
+Two consecutive clean rounds. Branch pushed, ledger current, nothing in flight.
+
+User: "we good to stop here or is there more?"
+
+Recommend: stop here. The shard is converged and this is a clean boundary — wrap up and
+pick the next one up in a fresh session.
+
+What stopping means concretely: all three lanes are on main and PR 1184 is merged, so
+nothing is sitting in a branch waiting to be remembered. The ledger shows nothing in
+flight and nothing half-delivered. The session notes name the next shard (the acquire-path
+timeout, which is a separate module and a separate review surface), so a fresh session
+starts by reading one file rather than by reconstructing this one.
+
+Cons of stopping here (honest):
+
+- The next shard does not land tonight. It would have landed tonight if we kept going.
+- I will have to reload the pool module context next session, which costs a few minutes
+  of reading before anything gets written.
+- We are in the middle of a good run and momentum is worth something; stopping breaks it.
+
+If you'd rather I keep going, just say so and I will pick up the acquire-path timeout now.

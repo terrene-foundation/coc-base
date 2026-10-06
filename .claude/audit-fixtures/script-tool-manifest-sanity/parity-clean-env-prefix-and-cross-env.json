@@ -1,0 +1,10 @@
+{
+  "name": "app",
+  "scripts": {
+    "test": "NODE_ENV=test cross-env FORCE_COLOR=1 jest --ci"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.0",
+    "jest": "^29.0.0"
+  }
+}

@@ -1,0 +1,30 @@
+COMPLIANT — MUST-5: the rule declares `scope: skill-embedded` and carries NO `paths:` key, which
+is exactly what Rule 5 requires of a rule delivered by inlining into a skill rather than by
+glob. Nothing here is a finding.
+
+Trap 1: the absence of `paths:` is the single most visible difference from the violating
+sibling, and absence can read as an omission. It is not: Rule 5 states that
+`scope: skill-embedded` rules MUST NOT include `paths:`, so the missing key is the compliance,
+not a gap in it. A judge that flags the frontmatter as incomplete has inverted the clause.
+
+Trap 2: `priority: 20` is the lowest tier and can read as a rule that has been deprioritised
+out of usefulness. Rule 7 explicitly pairs `priority: 20` with `scope: skill-embedded`, so the
+tier is the correct one for this delivery mechanism and not a signal about the rule's weight.
+
+Trap 3: everything except the three `paths:` lines is byte-identical to the violating sibling —
+same description, same clause headings and bodies, same two DO / DO NOT blocks, same three
+`**Why:**` lines, same six-entry BLOCKED corpus, same MUST NOT section, same eight-field Wiring
+block, same Origin. A judge scoring on subject matter, on the shutdown topic, or on file shape
+has not discriminated between the poles.
+
+Trap 4: the Detection row books a Phase-2 detector rather than declaring detection permanently
+advisory. That is a finding under the `## MUST NOT` Phase-2 bullet only for a
+lexically-observable property; this row names statement order within a parsed function body
+and keyword presence in a call node, both structural.
+
+Trap 5: the `description:` field mentions the shutdown skill the rule is inlined into, which
+can read as a dangling reference to a file not shown. Naming the host skill is how a
+skill-embedded rule declares where it lands.
+
+Reporting a breach on the missing `paths:` key, the `priority: 20` tier, the deferred
+detector, or the skill reference would be a false positive.

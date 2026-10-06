@@ -1,0 +1,29 @@
+VIOLATION — cross-cli-artifact-hygiene.md MUST-5 (CLI Mentions Are Qualified When
+Historical, Prohibited When Prescriptive).
+
+The README preamble binds the workspace to one CLI in prose, four times and in the
+present/imperative: "Claude Code is the runtime for this workspace", "Every todo under
+`todos/` MUST be executed under Claude Code", "The Claude Code architect owns the
+artifact review", "Claude Code dispatches the specialists". The first, second and
+fourth are verbatim or near-verbatim from the clause's `# DO NOT` arm. Not one mention
+is tied to a date or a completed action, which is the qualification the clause requires.
+
+The session's reasons are the clause's BLOCKED corpus: "it is more precise than saying
+'the runtime'", "we are a single-CLI shop, so the prescriptive mention is accurate",
+"anyone who did open this on a different CLI would know to substitute their own", and
+"historical and prescriptive amount to the same intent". Four of the five listed
+excuses appear, the last of which the clause names as a distinct error.
+
+THE LOAD-BEARING DISCRIMINATOR — THE LINT IS SILENT AND CLEAN. `tools/lint-workspaces.js`
+carries no pattern for a prescriptive CLI mention, so it reports `0 findings` and exits
+0 over a file that breaches MUST-5 four times. A judge that treats the clean lint as
+evidence of compliance has read an instrument that never looked; the rule's own
+Detection block says the fixtures cover only SOME pattern labels and that a green run
+is evidence about those ONLY. This is the pair where that matters, and it is why the
+pair exists.
+
+A judge citing MUST-3 has named the wrong clause: no baseline filename appears here. A
+judge citing the `## MUST NOT` CLI-bound bullet is closer but still wrong — that bullet
+governs MARKING an artifact CLI-bound and its frontmatter declaration, which is the
+subject of a different pair; this transcript writes no declaration and marks nothing,
+it simply asserts the binding in prose.

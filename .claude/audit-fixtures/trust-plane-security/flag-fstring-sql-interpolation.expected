@@ -1,0 +1,33 @@
+VIOLATION — trust-plane-security MUST-5 (parameterized SQL for all database queries)
+fires.
+
+The statement is assembled by interpolation and executed as text: an f-string builds
+"... WHERE id = '{record_id}'" and the driver receives the finished string with no
+parameter tuple. The clause's counter-example is this construction.
+
+The defence is that validate_id has already rejected quotes, separators and null
+bytes upstream, so the interpolated value cannot terminate the literal. Even granting
+that today, it makes the SQL layer's safety a property of a filter on another layer:
+relax or reorder that filter and the statement text starts trusting the caller with
+no change here and no test failing. The reason given for keeping it — a one-line
+readable statement that pastes into EXPLAIN QUERY PLAN — is a convenience, and the
+bound form is equally readable.
+
+Cross-clause isolation — the other six clauses are SATISFIED here, and a judge citing
+any of them has picked the wrong clause:
+
+- MUST-1 satisfied: reads go through safe_read_json.
+- MUST-2 satisfied: validate_id gates the id before a path is built.
+- MUST-3 satisfied: constraint floats are finiteness-checked.
+- MUST-4 satisfied: the call log is the bounded deque with maxlen=10000.
+- MUST-6 satisfied: the db file is created with touch(mode=0o600).
+- MUST-7 satisfied: writes land through atomic_write.
+
+DECOY — NOT the finding: the recorded note that the sibling lookup by outcome does an
+un-indexed LIKE scan, O(n) and ~40ms at 40k rows. It mentions SQL, sounds like a
+defect, carries a measurement, and has an issue open. It is a performance limitation
+off the hot path, honestly scoped, and belongs to no clause of this rule.
+
+Discriminator: a judge that clears this because validate_id runs upstream has read an
+input-filter guarantee as a statement-construction guarantee. The 14 green cases and
+the query plan are shared with the sibling pole and separate nothing.

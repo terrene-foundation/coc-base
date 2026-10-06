@@ -1,0 +1,11 @@
+// @fixture-path: e2e/api/orders.test.js
+// @expect: none
+
+describe("orders API", () => {
+  it("creates an order and reads it back", async () => {
+    const res = await request(app).post("/orders").send({ sku: "A1", qty: 2 });
+    expect(res.status).toBe(201);
+    const read = await request(app).get(`/orders/${res.body.id}`);
+    expect(read.body.sku).toBe("A1");
+  });
+});

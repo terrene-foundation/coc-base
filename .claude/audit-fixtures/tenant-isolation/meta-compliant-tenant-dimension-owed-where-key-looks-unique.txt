@@ -1,0 +1,78 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "**/*tenant*/**"
+  - "**/cache/**"
+---
+
+# Tenant Dimensioning — The Dimension Is Owed Where The Key Already Looks Unique
+
+A tenant dimension is not carrying uniqueness, so an identifier that already looks unique is not an
+argument for dropping it. It is carrying the invariant that a piece of state belongs to exactly one
+tenant, and that invariant has to survive the NEXT change to the identifier rather than the current
+one. The keys that look least in need of the dimension are the ones where its absence fails
+silently.
+
+## MUST Rules
+
+### 1. Carry The Tenant Dimension, And Fail Closed When None Is Bound
+
+Every piece of state that can hold per-tenant data — cache key, query filter, namespace, audit row —
+MUST carry a tenant dimension, and the dimension MUST be kept even where the secondary component is
+globally unique today. A UUID primary key makes the segment look redundant; it does not make it
+redundant, because the day a slug, a per-tenant sequence or an email replaces that UUID, the key
+reads another tenant's entry with no error and no diff to the key builder to notice.
+
+Where no tenant is bound and the state is declared multi-tenant, the constructor MUST raise a typed
+error. A shared placeholder — `"default"`, `"global"`, `""` — merges every unbound write into one
+slot that a scoped read will later be served from. The two obligations are one contract: the
+dimension names the owner, and the failure mode names what to do when there is no owner to name.
+
+```python
+# DO — the segment stays, and an unbound tenant raises
+if model.multi_tenant and tenant_id is None:
+    raise TenantRequiredError(model.name)
+key = f"dataflow:v1:{tenant_id}:Document:{uuid}"     # 36 bytes against a silent cross-tenant read
+
+# DO NOT — drop the segment because the uuid is unique, or substitute a value for a missing tenant
+key = f"dataflow:v1:Document:{uuid}"                 # correct until the secondary key changes
+tenant_id = tenant_id or "default"                   # every unbound write lands in one shared slot
+```
+
+**BLOCKED rationalizations:**
+
+- "The UUID is already unique across tenants, so tenant_id is redundant"
+- "We can save 36 bytes per key by dropping tenant_id from UUID-keyed entries"
+- "The migration from UUID to natural key is unlikely"
+- "The warmer has no tenant to give it, so a placeholder is the only option"
+
+**Why:** the leak does not surface when the dimension is dropped — it surfaces on the schema change
+months later, when two tenants first share a secondary key and one of them is served the other's
+record from a cache nobody has touched since.
+
+## Trust Posture Wiring
+
+- **Severity:** `halt-and-report` at gate-review (reviewer confirms every multi-tenant key, filter
+  and namespace carries the dimension and raises when unbound); `advisory` at the hook layer per
+  `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3× same-rule in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1× = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: tenant-dimensioning]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer greps every key and namespace
+  constructor for the tenant segment and the unbound-tenant branch. Phase 2 deferred.
+- **Violation scope:** MUST-1 (dimension absent from multi-tenant state, or a placeholder
+  substituted for an unbound tenant).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-05-14 — proposed after a keyspace review dropped the tenant segment from UUID-keyed entries
+across four models to recover roughly 400 MB of Redis, and the following quarter's migration off
+UUIDs to per-tenant slugs turned those same keys into cross-tenant reads that no test and no alert
+distinguished from cache hits.

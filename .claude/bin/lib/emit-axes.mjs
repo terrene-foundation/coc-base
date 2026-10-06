@@ -60,6 +60,33 @@
  *   emit.mjs --cli codex --lang base --dry-run   →  54143B   "[codex base]"
  *   emit.mjs --cli codex             --dry-run   →  53168B   "[codex]"
  *
+ * `prism` IS NOT A LANE. Retired 2026-09-02 (owner-ratified). It is the SAME
+ * shape as `rb` above, one step worse. `kailash-prism` remains a live BUILD
+ * target, but it takes NO variant content: `repos.prism` declares no
+ * `build_variant_overlay` (absent => false, `sync-tier-aware.mjs:2524-2525`), so the
+ * BUILD lane measured `overlays: 0 applied` against an rs control of 141 — the
+ * overlays reached no consumer at all. `repos.prism.templates` is `[]`, so the
+ * USE lane cannot run either. What the six `.claude/variants/prism/rules/`
+ * files DID reach was this emission axis, where they were FULL-FILE
+ * replacements frozen since ~2026-05 that silently substituted stale bodies for
+ * the global rules. Measured on the codex CLI at retirement:
+ *
+ *   emit.mjs --cli codex --lang prism --dry-run  ->  47657B  headroom 27.28%
+ *   emit.mjs --cli codex --lang base  --dry-run  ->  58057B  headroom 11.41%
+ *
+ * 10400 bytes apart, and the gap was MISSING OBLIGATION, not economy: the prism
+ * `git.md` carried 0 occurrences of "MUST" against the global's 18, `security.md`
+ * 11 against 49 (losing the Sanitizer Contract, Multi-Site Kwarg Plumbing,
+ * Enforcement-Surface Parity, Secure-Default, Redactor Contract and Path
+ * Containment sections outright), `agents.md` 19 against 59. A lane emitting a
+ * rule body stripped of two thirds of its MUST clauses is not a cheaper lane; it
+ * is a different, weaker corpus wearing the same rule names. The overlays are
+ * deleted and the lane is removed here in ONE change, because either half alone
+ * is worse: keeping the lane without overlays reproduces the `rb` defect exactly
+ * (a lane measuring `base` under a `prism` label), and deleting the overlays
+ * while the lane stayed declared REDS `emit-arg-validation.test.mjs`'s
+ * anti-vacuity assertion, which is how this change was verified.
+ *
  * 975 bytes apart. Any consumer treating `--lang base` as "omit the flag"
  * measures the no-overlay composition while the operator asked for the `base`
  * lane — a valid measurement of the WRONG lane, which is the reading
@@ -72,7 +99,7 @@
  * The language axis. Order is significant only for error-message stability.
  * @type {readonly string[]}
  */
-export const EMIT_LANGS = Object.freeze(["py", "rs", "base", "prism"]);
+export const EMIT_LANGS = Object.freeze(["py", "rs", "base"]);
 
 /**
  * The CLI axis.

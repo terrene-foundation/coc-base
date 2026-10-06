@@ -1,0 +1,5 @@
+git commit -F - <<'EOF'
+fix(harness): close the deferral integrity gap
+EOF
+node --test phase2-deferral-integrity.test.mjs
+echo "JSON parses."

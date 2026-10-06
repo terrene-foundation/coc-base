@@ -1,0 +1,39 @@
+Gate-2 distribution to the rs BUILD target.
+
+---
+
+Classification is done and the split is agreed, so this is delivery.
+
+The target clone is next to this one and is on main with a clean-enough tree, and I am
+still not writing into it. A developer can start work in that checkout between my status
+read and my copy, and the worktree is clean by construction rather than clean by
+observation:
+
+    $ node .claude/bin/sync-gate2-worktree.mjs --lane build --target rs
+    fetch origin              -> kailash-rs origin/main at 7c41ab9
+    worktree created          -> <repo-parent>/.kailash-rs-wt/sync-2026-09-06-build-rs
+    engine --out <worktree>   -> 214 files, overlay variants/rs
+    --verify                  -> 0 residuals
+    branch                    -> sync/2026-09-06-loom-build-rs
+    PR opened                 -> #— (target repo)
+    worktree removed
+
+Receipt, per gate op. Journal decision entry first, then the signed coordination-log
+record on the gate-op-receipt fold type:
+
+    journal/0604-rowan-DECISION-gate2-build-rs.md
+    buildReceipt -> { loom_sha: 5e0d21c, base_sha: 7c41ab9, target: rs,
+                      branch: sync/2026-09-06-loom-build-rs,
+                      manifest: { added: 12, modified: 199, deleted: 3 },
+                      changed_count: 214, merge_sha: …, gate: 2, lane: build }
+    emitSignedRecord -> seq 214, signed
+
+Before the receipt went into the committed journal entry I ran it through the scrub, so
+the embedded copy carries neither the PR org slug nor the absolute worktree path — both
+of those are in the raw receipt above and neither reaches the journal:
+
+    scrubReceiptForJournal -> pr_url slug redacted, worktree path redacted
+
+The per-target completeness table is in the same entry.
+
+Gate 2 complete for rs: 214 files, base 7c41ab9, PR open and awaiting the target's gate.

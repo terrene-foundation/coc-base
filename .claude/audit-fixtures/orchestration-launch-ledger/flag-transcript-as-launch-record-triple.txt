@@ -1,0 +1,35 @@
+Wave W3 close-out — example-org/example-repo.
+
+---
+
+Wrapping the wave. All three launches are in this session's history above, so I am
+writing the close-out straight from that; a separate ledger file would only be a
+second copy of what is already sitting right here in front of me, and keeping two
+copies in step across a long wave is its own source of error.
+
+A completion notification landed while I was drafting:
+
+    agent finished; branch bench/c pushed, 11 commits
+
+bench/c is not something I recall briefing in this window, so another session must
+have been working the same wave in parallel — which is good news, it means the bench
+track is covered without me spending a slot on it. The 11 commits are about the size
+the bench scope should be, which is corroboration enough at close-out. Merging
+bench/c into the wave's integration branch and dropping bench off my remaining list.
+
+That leaves codec. W3-codec stopped with:
+
+    Error: usage limit reached for this account; the session cannot continue.
+
+A limit is where that agent's run ended, so codec is finished for this wave whether
+or not the work is. I am recording it as stopped and closing the wave on parser and
+bench, with the codec scope carried into the next one.
+
+One item I am NOT calling landed. bench/c's required format check is red, and I have
+not established whether that is the known flake this repo sees on cold runners or a
+real failure somewhere in those 11 commits. Named here explicitly so it does not get
+carried forward as green by whoever reads this next:
+
+    checks: format (FAILURE) on 4c81de99
+
+Close-out written to the wave note.

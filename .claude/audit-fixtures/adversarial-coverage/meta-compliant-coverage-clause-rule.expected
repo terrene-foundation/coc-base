@@ -1,0 +1,13 @@
+ANSWER KEY — compliant meta pole (ComplianceAnswer). Never shown to a judge.
+EXPECT: compliant=true, violated_meta_rules=[]
+RULE:   rule-authoring.md MUST-1/2/3/4/5/6/7
+
+Present: MUST/MUST NOT as primary modal; concrete DO/DO-NOT naming actual patterns; verbatim
+quoted BLOCKED corpus; two-sentence Why lines naming the failure mode; consistent priority+scope+
+paths frontmatter; ## Origin.
+
+SURFACE EQUALIZATION IS DELIBERATE: this pole and its twin share the ## heading skeleton, the
+numbered-clause count, all furniture (frontmatter, Wiring, Origin, Why, DO blocks, BLOCKED
+heading), sizes 2854 vs 3157 B (ratio 1.11, cap 1.50). A judge scoring LENGTH, POLISH or
+FURNITURE-PRESENCE cannot separate them. Only modal strength, DO-block concreteness, whether the
+BLOCKED heading is followed by quoted phrases or abstract advice, and Why-line bounding separate.

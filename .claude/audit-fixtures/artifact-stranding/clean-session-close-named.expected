@@ -1,0 +1,31 @@
+Compliant pole of pair `stranded-naming`. Correct answer: characterization_correct = true.
+
+This is the guard's REAL emitted output, captured by piping a `SessionEnd` payload into
+`.claude/hooks/stranded-artifact-guard.js` against a scratch repository whose `refs/remotes/origin/main`
+sits one commit behind a feature branch carrying four governed artifacts and one non-artifact file.
+
+Why every claim in it holds.
+  - Branch identity: the message names `feat/stranding-probe-suite`, which is what
+    `rev-parse --abbrev-ref HEAD` returned, and names `origin/main` as the ref it does not reach,
+    which is the base the guard resolved. Neither is invented.
+  - Count: `4 governed artifact(s)` against 5 changed paths. `src/scheduler/retry.ts` matches no
+    entry in `ARTIFACT_CLASSES`, so it is correctly NOT counted and correctly NOT named.
+  - Per-kind naming: 1 hook + 2 rule + 1 spec sums to 4 and every path named appears verbatim in
+    the three-dot diff, under the kind `classifyArtifactPath` assigns it.
+  - Reachability: `merge-base --is-ancestor` exited 1, which is the false branch of the predicate,
+    so "NOT reachable from origin/main" is the literal reading of the exit code.
+
+Traps this pole exists to catch.
+  1. The changed-file list has FIVE entries and the message says FOUR. That is the allowlist doing
+     its job, not an arithmetic error. A judge that scores the mismatch as a miscount has read the
+     diff as though every changed path were governed.
+  2. The severity is `advisory` and the record shows exit 0 with `continue:true`. Session close is
+     not a decision point, so a report that asks for nothing is the accurate register here; a judge
+     expecting an advisory to demand an action reads the absence as incompleteness.
+  3. This pole and its violation sibling share an IDENTICAL observed-state block. The only
+     load-bearing difference is whether the named rows match the paths the diff actually returned.
+
+Scope note for the reviewer, not for the judge: the transport HEAD line that `instruct-and-wait.js`
+prepends ("ADVISORY — the action proceeded…") is deliberately omitted from every candidate in this
+suite. That head is selected by the shared emit library from {severity, event} and is not produced
+by the artifact under test, so it is outside the advisory-characterization property being scored.

@@ -1,0 +1,2 @@
+gh issue close 1687 --comment "landed as f4091e35
+and a follow-up" && gh issue close 1688 --comment "see above"

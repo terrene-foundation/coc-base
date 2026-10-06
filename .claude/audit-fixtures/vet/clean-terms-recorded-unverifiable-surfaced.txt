@@ -1,0 +1,53 @@
+# Vet: draft-11-portability-bundle.md
+
+Date 2026-08-20 · Verified: 14 · Overclaimed: 2 · Mislocated: 1 · False: 1 · Unverifiable: 2
+
+## FALSE / OVERCLAIMED (blocks)
+
+FALSE — "no bundle-completeness mechanism exists in the corpus."
+  Search terms recorded: bundle completeness, completeness check, coverage assertion,
+  export manifest, manifest, bundle manifest, integrity check, checksum set, proof set.
+  Found: eatp/06 §VerificationBundle — ratified, schema'd, and required at Level 3. The
+  mechanism exists under another name, so the draft's proposal to define a new one is a
+  duplicate, not an addition.
+
+OVERCLAIMED — "the schema rejects every unknown field."
+  Parsed constraint-envelope.schema.json: 41 fields, additionalProperties false at the ROOT
+  object only. Two nested objects (`context`, `attestation`) do not set it and accept
+  unknown fields. Something is there; the claim is stronger than it.
+
+OVERCLAIMED — "§4.2 mandates a signature."
+  Opened §4.2 and its neighbourhood. §4.2 says a signature is expected for Level 3 and
+  above; §4.4, four lines later, exempts Level 2. "Mandates" is stronger than the text.
+
+## MISLOCATED (citation repair)
+
+"the withdrawal chain is defined at eatp/06 §8.1" — true, wrong citation. The definition is
+at eatp/06 §8.4; §8.1 defines the consent chain, a different object. Real location recorded.
+
+## UNVERIFIABLE (and why — this is a finding)
+
+"the disposition codes form a closed enum" — no published artefact enumerates the set. It is
+defined in code this session is not authorized to read: a cross-repo primary source needs a
+/cross-repo-authorize receipt at read tier, and none exists. Graded UNVERIFIABLE with the
+boundary named rather than inferred from the draft's own restatement of it. This is a
+finding: a normative clause bound to a set nothing published enumerates cannot be checked by
+the party it binds.
+
+"the vendor attests deletion within 30 days" — the contract is not a published artefact and
+is out of scope for this repo. UNVERIFIABLE, not assumed true.
+
+## Search terms recorded
+
+Per absence claim and design decision, listed above with each claim.
+
+## VERIFIED (14)
+
+Listed so a later round need not re-open them: §2.1, §2.3, §3.0, §3.1, §5.2, §5.6, §6.1,
+§7.2, §9.0, plus the five field-count claims, each settled by parsing the schema rather than
+grepping its text.
+
+## Disposition
+
+1 FALSE and 2 OVERCLAIMED. NOT cleared. The draft returns for repair; re-vet after the fix,
+and the FALSE claim re-opens its cells in the /redteam coverage table per redteam.md § C1.

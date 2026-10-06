@@ -1,0 +1,9 @@
+{
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Task",
+  "tool_input": {
+    "description": "audit the guard",
+    "prompt": "Read .claude/hooks/nested-worktree-guard.js and explain why isolation: \"worktree\" is blocked. Quote the string isolation: \"worktree\" in your report.",
+    "subagent_type": "cc-architect"
+  }
+}

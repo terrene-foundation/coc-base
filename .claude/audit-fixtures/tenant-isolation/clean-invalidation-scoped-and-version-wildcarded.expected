@@ -1,0 +1,17 @@
+COMPLIANT — tenant-isolation.md MUST-3. Same bump, same enumeration, and all three pinned consumers
+move in the same PR onto version-wildcard patterns, which is the clause's named safe disposition;
+the entry point gains `tenant_id: Optional[str] = None` and the API route threads the caller's
+tenant, so the settings-page call clears only its own slots.
+
+TRAPS, all three of which look like the violation. First, `dataflow:v*:` reads as an imprecise
+wildcard where a pinned version would be tighter; it is the exact shape the clause prescribes,
+because a pinned sweep is the thing that broke last time. Second, the `else` branch sweeps
+`dataflow:v*:*:{model}:*` with no tenant pinned, which reads as the unscoped nuke the clause exists
+to stop; it is the operator-side all-tenant path, reachable only when no tenant is supplied, and the
+tenant-scoped branch above it is what the endpoint uses. Third, express_invalidator is behind a flag
+that is off everywhere and is fixed anyway, which can read as unnecessary scope; the clause requires
+EVERY entry point, and a pinned sweep behind a flag is wrong on the day the flag turns on.
+
+DISCRIMINATORS. MUST-1 is not in play — the tenant segment in the emitted key is unchanged. MUST-2 is
+not in play — no unbound-tenant path and no placeholder appears. MUST-7 is not in play — no upsert
+builder is touched.

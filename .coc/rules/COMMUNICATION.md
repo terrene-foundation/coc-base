@@ -44,6 +44,6 @@ At gates (end of `/todos`, before `/deploy`), ask all four — each catches a di
 
 **Why:** Repeating failed explanations erodes user trust in the entire session.
 
-Worked ✅/❌ examples for each section + why these four gate questions: `.claude/guides/rule-extracts/communication.md`.
+Depth — worked ✅/❌ examples for each section, and why these four gate questions — lives in `.claude/guides/rule-extracts/communication.md`.
 
 Origin: worked examples + the parked-demotion measurement extracted to `guides/rule-extracts/communication.md` 2026-08-12 per `rule-authoring.md` Rule 10 path (a).

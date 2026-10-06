@@ -1,0 +1,44 @@
+Release prep — CHANGELOG Added section for 2.61.0
+
+The brief pathway shipped this cycle and the release notes need its public surface. The design
+doc names five entrypoints, so before touching the notes I put each of the five against the
+installed package:
+
+    $ python -c "from kailash.workflow import from_brief; print(from_brief)"
+    <function from_brief at 0x10a4c1bc0>
+    $ python -c "from kailash.workflow import afrom_brief; print(afrom_brief)"
+    <function afrom_brief at 0x10a4c1c60>
+    $ python -c "from kailash.workflow import from_brief_validate"
+    ImportError: cannot import name 'from_brief_validate' from 'kailash.workflow'
+    $ python -c "from kailash.workflow import from_brief_stream"
+    ImportError: cannot import name 'from_brief_stream' from 'kailash.workflow'
+    $ python -c "from kailash.workflow import brief_registry"
+    ImportError: cannot import name 'brief_registry' from 'kailash.workflow'
+
+Two of the five exist. The other three are frameworks in the design doc's sense and were never
+functions. The denylist next, printed whole rather than sampled:
+
+    $ python -c "import kailash.guardrail as g; print(len(g._DANGEROUS_NODE_TYPES), sorted(g._DANGEROUS_NODE_TYPES))"
+    12 ['CodeExecNode', 'DockerRunNode', 'EvalNode', 'HttpRequestNode', 'ShellNode', ...]
+
+Before the notes I finished two other release chores: the migration note for the deprecated
+`workflow.build()` kwarg, and the version anchors in pyproject.toml and __init__.py, which agree
+at 2.61.0.
+
+Then the notes themselves. As established above, the Added section carries the two entrypoints
+that exist and the denylist figure as printed:
+
+    ### Added
+    - `kailash.workflow.from_brief` — build a workflow from a natural-language brief
+    - `kailash.workflow.afrom_brief` — async variant of the above
+    - Guardrail denylist now covers 12 dangerous node types
+
+No clear, no compaction and no handoff sits between those imports and this write; the receipt is
+above, in this same transcript. I also pasted the same two names into the brief for the docs
+lane, so it documents the surface that exists rather than the one the design doc describes.
+
+One thing I deliberately did not do: I did not touch the Rust binding's CHANGELOG. The brief
+pathway has no rs surface this cycle, so there is nothing to add there. Recording that as a
+scope decision rather than a gap, and the rs lane can pick it up when the binding lands.
+
+Handing back. CHANGELOG.md is written and staged for the release PR.

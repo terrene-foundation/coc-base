@@ -369,3 +369,76 @@ That gate is itself row 5 of the table above.
 `rules/probe-driven-verification.md` (2026-05-06). User directive that regex/keyword NLP in test harnesses MUST be eradicated; harnesses MUST be probe-driven. This runbook is the operational counterpart.
 
 § "Canonical instruments" added 2026-07-28 per `journal/0568` — co-owner directive after five improvised status checks and two PreToolUse guard blocks in one session: _"The corrections are lines of defense and we should not be triggering them all the time, as that would mean that our normal path is bugged. Please resolve it at the root."_ `journal/0568`'s own root-cause reading (that a governing rule failed to load) was subsequently **REFUTED** — both governing rules were already loaded — and is corrected by the AMENDMENT entry that `relates_to` it. The surviving finding, and the reason this section exists, is instrument SELECTION; the fix shape is a callable specced by these tables, not a rule-reachability change. Read the AMENDMENT alongside 0568.
+
+
+## Relocated 2026-09-06 — depth extracted to fund MUST-7 (Rule 10 path (a))
+
+Moved VERBATIM from `.claude/rules/probe-driven-verification.md` to hold the path-scoped
+injection budget while MUST-7 landed. ZERO de-scoping: every MUST, MUST NOT, BLOCKED entry,
+DO/DO-NOT block and `**Why:**` line stayed in the rule, and each Wiring block kept all eight
+canonical field labels with a normative statement. What moved is REASONING, not obligation.
+
+### MUST-6 Wiring — detection depth
+
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer at `/implement` + cc-architect at `/codify` confirm (a) the value is emitted structurally at the source under a closed allowlist, (b) the consumer reads ONE canonical position, (c) absence reports UNKNOWN. Scanner: none (semantic). **The shipped `detectRegexForSemanticAssertion` hook does NOT cover this clause** — its path filter excludes production surfaces by construction, so a reader MUST NOT infer it fires on MUST-6. Fixtures `.claude/audit-fixtures/probe-driven-verification/`; probes `.claude/test-harness/probes/probe-driven-verification.probes.json`. Phase 2 (deferred per `trust-posture.md` § Two-Phase Rollout) — an advisory detector flagging a regex/keyword match applied to a `.md`-sourced string in a non-test path; audit fixtures land WITH it per `cc-artifacts.md` Rule 9, and the deferral is registered in `.claude/test-harness/phase2-deferrals.json`. Reachability residual and why the globs are NOT widened: extract.
+
+### Rule-wide Wiring — hook-layer detection depth
+
+- **Detection (hook layer — IMPLEMENTED 2026-05-06):** `.claude/hooks/lib/violation-patterns.js::detectRegexForSemanticAssertion` runs in (a) Stop-event findings against the assistant's final report, and (b) PostToolUse(Edit|Write) findings when file path matches `(\.test|tests?\/|test-harness|suites|audit-fixture)`. Pattern: regex/grep API call (`re.search`, `re.match`, `re.findall`, `str.contains`, `grep -E`, `.test()`, `.match()`) inside a function whose name matches `(verify|score|assert|check|probe)_*(recommend|refus|complian|respons|intent|semantic|quality|outcome|narrative|reasoning)`. 4 audit fixtures committed at `.claude/audit-fixtures/violation-patterns/detectRegexForSemanticAssertion/`. Severity: advisory. **The orchestration status-check class has NO detector at either layer and is NOT governed by this rule** — the `(\.test|tests?\/|test-harness|suites|audit-fixture)` path filter does not match orchestration surfaces, this rule's `paths:` deliberately exclude them, and an improvised status check is a shell invocation, not a named function the pattern can see. The paired skill's canonical-instrument table is a lookup reference only; a reader MUST NOT infer any detector fires on a `workspaces/**` or `journal/**` edit.
+
+### MUST-7 clause depth
+
+### 7. UNRUNNABLE Is Not A Verdict — And Its Caller Must Not Collapse It
+
+MUST-6 governs a semantic value read out of prose. This governs a check's own VERDICT SPACE.
+Any check, gate, probe, fixture or test helper whose result another party consumes MUST keep
+**"could not run"** structurally distinct from every substantive verdict, on BOTH sides: the
+PRODUCER emits a discriminable not-answered signal, the CONSUMER MUST NOT map it onto a
+substantive value. Coercing an absent, errored, timed-out, killed or truncated result into a
+legitimate answer — `0`, empty, `false`, a short list, an early return, a default status — is
+BLOCKED. The bar is DISCRIMINABILITY, not an encoding: a sentinel, a separate field, a distinct
+exit code or a typed throw all satisfy it; what fails is any representation a correct run could
+also produce.
+
+```javascript
+// DO — not-answered is its own outcome, and the caller refuses to score it
+if (m) return Number(m[1]);
+if (/budget \d+ms exceeded/.test(out)) return UNKNOWN;   // the producer already said so
+// DO NOT — absence coerced into a value the caller then compares
+return m ? Number(m[1]) : 0;                 // "found none" and "never looked" are one number
+if (r.status !== 0) fail("the guard misclassified it");   // status is null: it never finished
+```
+
+**BLOCKED rationalizations:** "no match means none" / "it returns 0 either way" / "the timeout is
+generous, it will not fire" / "a null status is close enough to a failure" / "the caller can tell
+from the logs" / "a sentinel complicates the signature" / "it has never timed out in practice" /
+"the ratio is the real check, so the spawn cap does not matter".
+
+**Why:** a check's value is that its output is a fact about the SUBJECT; once not-having-run is
+spelled the same as a substantive answer, part of its output is a fact about the INSTRUMENT wearing
+the subject's grammar — silent by construction, because the value returned is one the consumer
+already expected. Worse than a missing check, which is visibly missing. Depth, and the five measured
+instances: `skills/12-testing-strategies/probe-driven-verification.md` § MUST-7.
+
+
+
+### MUST-7 Wiring depth
+
+## Trust Posture Wiring — MUST-7 (unrunnable is not a verdict)
+
+Applies to **MUST-7** ONLY (2026-09-06, co-owner-directed); canonical-8-field per `trust-posture.md` MUST-8. MUST-1..6 stay on their own wiring. Per-field reasoning: the skill § MUST-7 Wiring.
+
+- **Severity:** `halt-and-report` at gate-review (reviewer at `/implement` + cc-architect at `/codify` confirm a relied-on check keeps not-answered distinct, and that no caller collapsed it); `advisory` at the hook layer per `hook-output-discipline.md` MUST-2 — whether a value is a measurement or a coerced absence is judgment over the check's contract, with no tool-call-time signal.
+- **Grace period:** 7 days from clause landing (2026-09-06 → 2026-09-13).
+- **Cumulative posture impact:** same-class violations (an absent match coerced to a count; a killed or timed-out subprocess read as a substantive status; a gate short-circuiting on a deferred entry reporting the same green as one that checked) contribute to `trust-posture.md` MUST-4 cumulative math (3× same-rule / 5× total in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` per `trust-posture.md` MUST-4 (1× = drop 1) — NO dedicated key; named deviation per Rule 8 on this clause's own ground (coerced-vs-measured is resolvable only by reading producer against consumer, a review-layer judgment) and minting one would drag `trust-posture.md`, a `self-referential-codify.md` allowlist file, into a self-referential edit.
+- **Receipt requirement:** SessionStart soft-gate `[ack: probe-driven-verification]` IFF `posture.json::pending_verification` includes the rule_id (shared; one ack covers MUST-1..7).
+- **Detection mechanism:** Phase 1 (gate-review) — confirm the producer emits a not-answered signal a correct run could not also produce, and no caller collapsed it. The shipped `detectRegexForSemanticAssertion` hook does NOT cover this clause (test-shaped path filter, different pattern) — stated so no coverage is inferred from an adjacent detector. **Phase 2 RETIRED, not deferred, and no `phase2-deferrals.json` row is minted:** deciding whether a returned `0` is a measurement or a coerced absence needs the producer's contract read against the consumer's expectation, which no argv token, AST node or git-object fact carries at tool-call time, and a lexical matcher over `? x : 0` would flag every legitimate default in the corpus. Booking teeth that cannot arrive is what `hook-output-discipline.md` MUST-5(b) forbids. Gate-review IS the permanent enforcement layer. **Probes: REGISTERED** — a `MUST-7-firing` bipolar pair in `.claude/test-harness/probes/probe-driven-verification.probes.json`, candidates + answer keys at `.claude/audit-fixtures/probe-driven-verification/`; both poles run the IDENTICAL check and separate only on whether not-answered is its own outcome. Registration buys DISPATCHABILITY, never execution — no workflow invokes the dispatcher, so a green CI run is NEVER evidence these passed.
+- **Violation scope:** MUST-7 ONLY — a producer with no discriminable not-answered signal, and a consumer that collapses one. Each row names the check, the not-answered condition, and the value it was spelled as.
+- **Origin:** `journal/0590`; see § Origin.
+
+
+
+### MUST-7 Origin depth
+
+**MUST-7** — 2026-09-06, co-owner-directed origination; receipt-first `journal/0590`, carrying the verbatim directive and the five measured instances. Authored HERE, not as a new rule and not in `instrument-discipline.md`: the corpus is at its declared ceiling (104/104, and adding one requires RETIRING one — the co-owner's call), and that file is `priority: 0` baseline against a `codex/rs` lane measured at 8.19% headroom over an expiring 6.2% floor, inside the proximity band, with no extractable depth left. This rule is path-scoped, so Rule 10's gate does not fire; and MUST-6 already ends with the nearest principle, which MUST-7 generalises from a value read out of prose to a check's verdict space. Distinct from `evidence-first-claims.md` MUST-3 (governs the READER of a failed check), `conservation-gate.md` MUST-4 (boundary-scoped) and `instrument-discipline.md` MUST-3 (whether an instrument fires) — all checked, not assumed. Rule 10 disposition + the funding ledger: the skill § MUST-7.

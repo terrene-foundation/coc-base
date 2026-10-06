@@ -128,6 +128,12 @@ const WIDEN_STEP_BUDGET = 8192;
 const MAX_PATH_COMPONENTS = 128;
 /** Max protected-path matches examined in one text. */
 const MAX_TOKEN_MATCHES = 256;
+/*
+ * There is deliberately NO word budget for `collapsePathTraversal` — the three
+ * counters above all fail CLOSED on exhaustion, a word counter there could not,
+ * and it is not needed because that pass is O(text.length) by construction. The
+ * measured fail-open the removed counter caused is recorded at the function.
+ */
 
 /**
  * Widen LEFT from `s` to the start of the shell word, absorbing any expansion
@@ -410,6 +416,146 @@ function createStateTargetScope(input) {
 }
 
 /**
+ * collapseOneToken — `path.posix.normalize` one shell word, or leave it alone.
+ *
+ * NO SUBSTITUTION CARVE-OUT HERE, deliberately, and the reason is measured
+ * rather than assumed. `(`, `)` and the backtick are all in
+ * `PATH_TOKEN_BREAK_RX`, so `$(pwd)/a/b/../c` is never ONE word — the walker has
+ * already split it and this function only ever sees `/a/b/../c`. A guard on
+ * `$(`/backtick would therefore be unreachable code whose comment claimed an
+ * enforcement it does not perform. A guard on a bare `$` would be reachable and
+ * WRONG: it would refuse to collapse `${HOME}/.claude/learning/../learning/
+ * posture.json`, which then matches in NEITHER view and passes — reopening the
+ * bypass for every `$VAR`-prefixed spelling.
+ *
+ * `hook-output-discipline.md` MUST-3 is enforced where it belongs, in
+ * `classify`: a token carrying `$(`/backtick is refused → "unresolved" → the
+ * caller blocks. Measured end-to-end on this tree, all three BLOCK:
+ *
+ *   > $(pwd)/.claude/learning/../learning/posture.json   {layer:1, scope:"unresolved"}
+ *   > `pwd`/.claude/learning/../learning/posture.json    {layer:1, scope:"unresolved"}
+ *   > ${HOME}/.claude/learning/../learning/posture.json  {layer:1, scope:"in-tree"}
+ *
+ * The invariant that makes this safe in general: the collapsed string is only
+ * ever an ADDITIONAL view, and callers take the STRONGEST verdict over
+ * {raw, collapsed}, so a collapse can only ever ADD a block — never remove one.
+ */
+function collapseOneToken(tok) {
+  if (tok.indexOf("..") === -1 || tok.indexOf("/") === -1) return tok;
+  let n;
+  try {
+    n = path.posix.normalize(tok);
+  } catch {
+    return tok;
+  }
+  return typeof n === "string" && n.length > 0 ? n : tok;
+}
+
+/**
+ * collapsePathTraversal — the SPELLING half of `security.md` § Path Containment
+ * (loom#1681).
+ *
+ * THE DEFECT THIS CLOSES. On the Bash lane the containment ORACLE above is
+ * consulted only AFTER an unanchored LEXICAL spelling match has already fired.
+ * That matcher joins a registry row's literal segments with `SEP`
+ * (`guard-path-scope.js`), which tolerates `//` and `/./` — both no-ops — but by
+ * construction cannot tolerate `..`, because a `..` round-trip REPEATS a segment
+ * (`.claude/learning/../learning/posture.json` carries `learning` twice) and no
+ * separator token can cancel a segment. So the spelling never matched, the
+ * oracle was never asked, and the guard passed a live write to protected state.
+ * Measured before this function existed, driving the whole hook with crafted
+ * PreToolUse payloads (the command was never executed):
+ *
+ *   BLOCK  node g.js > .claude/learning/posture.json              <- CONTROL
+ *   PASS   node g.js > .claude/learning/../learning/posture.json  <- the defect
+ *   PASS   node g.js > src/app.js                                 <- ANTI-VACUITY
+ *
+ * The other path-shaped lanes were never exposed: `matchIntegrityWatchedRel`,
+ * `matchJournalEntryRel` and `classifyGovernedArtifactRel` all run their input
+ * through `normalizeRel` (`path.posix.normalize`) BEFORE the regex, and
+ * `_candidates` realpaths the absolute branch. The Bash lane is the one that
+ * applies the matcher to RAW command text, so it is the one with no upstream
+ * normalization — which is exactly what this restores.
+ *
+ * CAN ONLY TIGHTEN. The collapsed string is an ADDITIONAL view, never a
+ * replacement: callers test the RAW text first and take the STRONGEST verdict
+ * over both, so no pre-existing verdict can change and a collapse can only ever
+ * ADD a block. That is what makes it safe to collapse text the hook does not
+ * fully model (a `$VAR` prefix, a word split out of a `$( … )` span) — see
+ * `collapseOneToken` for why no substitution carve-out belongs here.
+ *
+ * WHY WORD-WISE, NOT WHOLE-STRING. Normalizing the command as one string would
+ * join text across shell breaks and resurrect the prose false positives #1390
+ * spent a round removing. This walks the SAME token grammar
+ * (`PATH_TOKEN_BREAK_RX`) the widener already uses, normalizes each word in
+ * isolation, and re-emits every break character verbatim — so word boundaries,
+ * segment splitting and verb position are all preserved, and the result is the
+ * same command with redundant traversal removed.
+ *
+ * SCOPED HONESTLY. `path.posix.normalize` collapses `a/b/../c` to `a/c`
+ * LEXICALLY, while open(2) resolves `a/b` (following symlinks) and only then
+ * applies `..` — so on a symlinked `a/b` the two disagree. This is the same
+ * lexical collapse `classify` already performs via `path.resolve`, it is not
+ * introduced here, and callers treat the collapsed view as an ADDITIONAL
+ * spelling to test rather than a replacement: the raw text is always tested
+ * first, so no pre-existing verdict changes and the disagreement can only ever
+ * ADD a block.
+ *
+ * BOUNDED BY THE INPUT, AND CARRYING NO WORD COUNTER — deliberately, because
+ * the counter this function first shipped with was a live FAIL-OPEN and is the
+ * one bound in this module that could not have one (loom#1681, caught by an
+ * adversarial security review of the fix itself).
+ *
+ * A `MAX_COLLAPSE_TOKENS` counter decremented on EVERY word, and on exhaustion
+ * emitted the remaining words UNCOLLAPSED. "Uncollapsed" is not a fail-closed
+ * value — it is the pre-fix blind reading, i.e. the defect. Break characters
+ * include `,` `=` `(` `)` quotes and whitespace, so one shell token of filler
+ * buys hundreds of walker-words and pushes the real target past the bound.
+ * MEASURED against the counter, with short controls proving the probe
+ * discriminates in both directions:
+ *
+ *   BLOCK  rm -f .claude/learning/../learning/posture.json         <- CONTROL
+ *   PASS   echo x > src/app.js                                     <- ANTI-VACUITY
+ *   PASS   rm -f a,a,…(511)…,a .claude/learning/../…/posture.json  <- Layer-2 BYPASS
+ *   PASS   echo a,a,…,a ; node -e "…writeFileSync('…/../…')"       <- severity DOWNGRADE
+ *
+ * The second of those is the exact advisory downgrade this fix was written to
+ * close: the detector scans PER SEGMENT (fresh budget, still flags) while the
+ * severity router scans the WHOLE command (budget exhausted, so a real Layer-3
+ * finding fell to the non-blocking tail and the write would have run).
+ *
+ * NO COUNTER IS NEEDED, so removing it costs nothing. The loop is one pass over
+ * `text` with `i` strictly increasing and bounded by `text.length`; the only
+ * work per word is one `path.posix.normalize`, which is linear in that word; the
+ * words partition the input, so total work is O(text.length) — the character
+ * loop already caps everything the word counter purported to cap. Termination is
+ * therefore structural, not counter-enforced. A future edit that adds a nested
+ * loop or a superlinear per-word step MUST re-derive this argument, and needs a
+ * bound whose exhaustion reaches the CALLER as unresolvable (the `"$"` sentinel
+ * `protectedPathTokens` uses), never one that silently returns raw text.
+ */
+function collapsePathTraversal(text) {
+  if (typeof text !== "string" || text.length === 0) return text;
+  if (text.indexOf("..") === -1) return text; // free for the overwhelming case
+  let out = "";
+  let word = "";
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (PATH_TOKEN_BREAK_RX.test(ch)) {
+      if (word.length) {
+        out += collapseOneToken(word);
+        word = "";
+      }
+      out += ch;
+    } else {
+      word += ch;
+    }
+  }
+  if (word.length) out += collapseOneToken(word);
+  return out;
+}
+
+/**
  * protectedPathTokens — every path TOKEN in `text` that contains a `pathRx`
  * match, widened from the match to its enclosing shell word.
  *
@@ -460,6 +606,7 @@ module.exports = {
   SCOPE,
   createStateTargetScope,
   protectedPathTokens,
+  collapsePathTraversal,
   // Exported for targeted regression tests.
   canonicalizeAllowingMissing,
   ownerRootOf,

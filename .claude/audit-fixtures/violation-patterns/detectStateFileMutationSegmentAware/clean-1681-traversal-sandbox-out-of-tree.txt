@@ -1,0 +1,1 @@
+echo '{}' > /tmp/loom-1681-sandbox/.claude/learning/../learning/posture.json

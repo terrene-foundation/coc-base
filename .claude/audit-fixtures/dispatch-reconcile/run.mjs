@@ -20,6 +20,7 @@
  *  10  the bound on how much one advisory prints
  *  11  the closed record-kind vocabulary at the sink
  *  12  the sink-path traversal fence
+ *  13  the dispatch LOCATION keys — always present, copied verbatim, null-with-reason on failure
  *
  * BIPOLAR by construction: every predicate carries BOTH an accept pole and a reject pole. A fixture
  * set that only ever asserts acceptance passes identically against a detector that accepts
@@ -477,6 +478,61 @@ const CASES = [
     reds_under: "_sinkPath(): drop the sha256 suffix, keeping only the sanitized token",
     run: () => L._sinkPath("/r", "a/b") !== L._sinkPath("/r", "a:b"),
     expectDeep: true,
+  },
+
+  // ── 13. the dispatch LOCATION keys (journal/0607 decision 3, 0608 item 6) ──────
+  // Pure: `resolveDispatchLocation` is driven through its `runGit` seam, so no git runs here. The
+  // real-git poles (sibling worktree, main checkout, detached HEAD, non-repo) live in
+  // `dispatch-reconcile.test.mjs`, which builds temp repositories.
+  {
+    predicate: "location-keys-never-omitted",
+    name: "location REJECT pole — a launch row with NO location still carries every location key, null, with a reason",
+    reds_under: "buildLaunchRecord(): write the location keys only when a location was supplied",
+    run: () => {
+      const r = launch(MAIN, "X", "l1");
+      return { keys: L.LOCATION_KEYS.every((k) => Object.prototype.hasOwnProperty.call(r, k)), values: L.LOCATION_KEYS.map((k) => r[k]) };
+    },
+    expect: { keys: true, values: [null, null, null, null, L.NO_LOCATION_REASON] },
+  },
+  {
+    predicate: "location-copied-verbatim",
+    name: "location ACCEPT pole — a resolved location is recorded verbatim; a non-string value is null, never coerced",
+    reds_under: "buildLaunchRecord(): drop the branch copy, or String()-coerce a location value",
+    run: () => {
+      const base = { sessionId: S, generation: MAIN, dispatchName: "X", launchId: "l1", nowIso: ts() };
+      const ok = L.buildLaunchRecord({ ...base, location: { cwd: "/w/sub", cwd_source: "payload.cwd", worktree: "/w", branch: "lane/x", location_reason: null } });
+      const junk = L.buildLaunchRecord({ ...base, location: { cwd: 7, worktree: "", branch: {}, location_reason: null } });
+      return [[ok.cwd, ok.worktree, ok.branch, ok.location_reason], [junk.cwd, junk.worktree, junk.branch, typeof junk.location_reason]];
+    },
+    expectDeep: [["/w/sub", "/w", "lane/x", null], [null, null, null, "string"]],
+  },
+  {
+    predicate: "location-git-failure-is-null-with-reason",
+    name: "location REJECT pole — a timed-out git records worktree AND branch null with the reason, and asks nothing further",
+    reds_under: "resolveDispatchLocation(): guess the worktree from cwd, or keep asking git after the toplevel failed",
+    run: () => {
+      const asked = [];
+      const loc = L.resolveDispatchLocation({
+        cwd: "/w/sub",
+        runGit: (_c, args, t) => (asked.push(args[0]), { ok: false, status: null, reason: `git ${args[0]} timed out after ${t} ms` }),
+      });
+      return { worktree: loc.worktree, branch: loc.branch, timedOut: /timed out/.test(loc.location_reason || ""), asked };
+    },
+    expect: { worktree: null, branch: null, timedOut: true, asked: ["rev-parse"] },
+  },
+  {
+    predicate: "location-detached-is-null-not-HEAD",
+    name: "location boundary — a DETACHED HEAD (exit 1) is branch null naming detachment; a git ERROR (128) names the error",
+    reds_under: "resolveDispatchLocation(): record the literal `HEAD`, or read every non-zero exit as detachment",
+    run: () =>
+      [1, 128].map((status) => {
+        const loc = L.resolveDispatchLocation({
+          cwd: "/w",
+          runGit: (_c, args) => (args[0] === "rev-parse" ? { ok: true, stdout: "/w" } : { ok: false, status, reason: `git symbolic-ref exited ${status}` }),
+        });
+        return [loc.worktree, loc.branch, /detached/.test(loc.location_reason || ""), /branch NOT resolved/.test(loc.location_reason || "")];
+      }),
+    expectDeep: [["/w", null, true, false], ["/w", null, false, true]],
   },
 ];
 

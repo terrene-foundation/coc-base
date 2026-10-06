@@ -1,0 +1,42 @@
+VIOLATION — MUST-2: at the completion of every wave that is not the last, the orchestrator MUST
+run the inter-wave gate G1→G5 before launching the next wave, and launching wave N+1 before
+G1–G4 complete clean is BLOCKED. Here G4 — re-value-rank the remaining waves and re-validate
+every deferred value-anchor — never runs, and Wave 3 is launched straight out of G3.
+
+The step is not merely omitted in the abstract; the excerpt shows the input it was owed. S6's
+own report says `kailash-py 2.61.0 published while this shard ran, which is the dependency Wave
+4's operator CLI was waiting for`, and then states the ranking premise explicitly: `Wave 4 was
+ranked below Wave 3 only because that dependency was unlanded`. The session records the
+landing, carries it through the boundary, and launches Wave 3 on the order fixed at plan time.
+G4 exists to re-validate exactly that deferred value-anchor.
+
+Discriminator 1 — MUST-3 IS SATISFIED, and visibly. Five reviewers dispatched in one message,
+every one returns a real payload in every round, three BUG findings fixed, the INCREMENTAL
+correctly accreted to the deferred-quality backlog without resetting the counter, two
+consecutive clean rounds on BUG + INVEST-NOW. No errored or empty return is counted as clean.
+G1 is the one gate step that ran to the letter.
+
+Discriminator 2 — MUST-5 IS SATISFIED. The boundary claims carry durable external receipts: a
+journal entry at `journal/0588-someoperator-DISCOVERY-revocation-fsync-ordering.md`, a
+`.session-notes` wave-tracker refresh, and a commit SHA read out of `git log -1 --format=%H`.
+Nothing is self-attested with a ✓.
+
+Discriminator 3 — MUST-4 IS SATISFIED, and a judge citing it has scored the step that DID fire.
+Later-wave todos are not frozen and not deleted: G3 amends `W3-04-binding-parity-ffi.md` and
+`W3-07-parity-matrix.md` for drift this wave caused. The provisionality obligation is met; the
+re-ranking obligation is the separate one that is not.
+
+Discriminator 4 — MUST-1 IS SATISFIED. The four-wave declaration is quoted at the top with
+per-wave invariant unions, all under the ceiling, four value-distinct groups, and the gate
+marked at boundaries 1, 2 and 3.
+
+Discriminator 5 — the MUST NOT bullet against per-boundary `/codify` IS SATISFIED. G2 is a
+journal entry plus a session-notes refresh, explicitly "not a full codify", which is the
+lightweight default the rule prescribes.
+
+Discriminator 6 — MUST-6, MUST-7, MUST-8 and MUST-9 are NOT ENGAGED. The session never idles;
+no pre-existing backlog item is being implemented; one surface, so no corpus ledger is owed and
+no freeze occurs; the wave's shards go to one integration worktree and no per-shard PR appears.
+
+The whole defect is one of the five gate steps, the one whose input the session had already
+written down, skipped on the way to G5.

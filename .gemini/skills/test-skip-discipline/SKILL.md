@@ -15,7 +15,7 @@ Downstream STP's Playwright spec `tests/e2e/stp-chatbot-scope.spec.ts` contained
 
 This is not Bedrock-specific. Any test that skips on the system-under-test's runtime behaviour silently absorbs every non-functional AI path — OpenAI auth failures, Anthropic rate-limits, Google SSL handshakes, local Ollama not running, any upstream degradation. In a multi-downstream template ecosystem, every USE repo that copies the pattern inherits the masking.
 
-Origin: `workspaces/use-feedback-triage/journal/0003-GAP-test-skip-masks-ai-failures.md`.
+Origin: (loom-internal reference).
 
 ## Acceptable Skip Patterns
 

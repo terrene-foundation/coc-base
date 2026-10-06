@@ -149,6 +149,8 @@ jobs:
 
 Every binding-channel CI workflow (`python.yml`, `nodejs.yml`, `ruby.yml`, `wasm.yml`, etc.) MUST have a `paths:` filter that covers the transitive dependency graph of the core language, not just the binding directory. Narrow enumerations of specific packages or crates silently stop matching whenever a new transitive dependency is added.
 
+**PRECONDITION — this clause and 6a apply ONLY to a workflow that provides NO required context.** A `paths:` or `paths-ignore:` filter on a workflow whose job IS a branch-protection required context is BLOCKED by `ci-job-budget.md` MUST-2, and the reason is not stylistic: a SKIPPED job still creates its check-run and reports `skipped`, which SATISFIES branch protection, while a workflow whose TRIGGER did not match creates NO check-run at all — and a check-run that was never created can never report, so the PR wedges forever at "Expected — Waiting for status to be reported". Check FIRST which of this workflow's jobs are required; where one is, keep the trigger UNCONDITIONAL and move the same path set into a per-JOB `if:` — a first job that re-derives the changed-path set into an output, and downstream jobs gated on it. The saving is identical; only the reporting differs, and the reporting is the gate.
+
 ```yaml
 # DO — broad filter matches the core-language CI's pattern
 on:

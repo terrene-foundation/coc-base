@@ -1,0 +1,36 @@
+COMPLIANT — the meta-rule set in `rules/rule-authoring.md` is honoured throughout, and the
+judge should return compliant with no breaches named.
+
+The clause heading announces an obligation and the body HOLDS it: the alternative is named
+BLOCKED rather than discouraged, and no sentence in the clause hands back the case the heading
+forbids. The scope is stated positively (head sampling, tail sampling, per-key limiting, an
+adaptive rate) so a reader can tell whether their branch is in it.
+
+The two arms of the worked block differ in SUBSTANCE, not in adverb: the DO arm builds the
+record with the denominator computed at the drop decision, and the DO NOT arm emits the same
+event without it and names what the reader is left doing — multiplying by a guess. The contract
+is learnable from the block alone, without the prose above it.
+
+The BLOCKED corpus holds six FIRST-PERSON sentences a session would really emit — "it is
+1-in-100 everywhere, it has been for a year", "adding a field to every record costs us ingest
+volume" — rather than a taxonomy of error types. Each is a reason someone would actually give,
+which is what makes the corpus a trap rather than a glossary.
+
+Both justification lines are ONE sentence and each names a failure mode rather than restating
+the clause: the clause's `**Why:**` names the moving denominator, and the MUST NOT section's
+names the commit-time-versus-pickup-time gap.
+
+The Trust-Posture Wiring block carries all eight canonical fields in order, ending with the
+violation scope and the Origin pointer, and its Phase-2 deferral names a STRUCTURAL signal — an
+AST walk from the sampling predicate to the emit call it guards — so it books enforcement that
+can actually arrive, and it books the fixtures to land WITH the detector rather than before it.
+
+SHARED FURNITURE — none of it is scoreable. This pole shares its frontmatter, its entire
+`## MUST NOT` section including that section's justification, its whole Wiring block, and its
+`## Origin` byte-for-byte with the sibling pole. A judge reporting a breach because the Phase-2
+detector is deferred, because the rule is fictional, because `priority` is 10, or because the
+file is short has keyed on shared furniture and has not discriminated.
+
+SURFACE EQUALIZATION: identical `## ` heading skeleton, one numbered clause each, one `# DO`
+block each, two `**Why:**` lines each, a `**BLOCKED rationalizations:**` heading on both, and a
+byte-size ratio inside the 1.5x cap. Shape answers nothing here; only content does.

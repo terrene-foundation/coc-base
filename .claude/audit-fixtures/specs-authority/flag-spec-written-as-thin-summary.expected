@@ -1,0 +1,38 @@
+VIOLATION — MUST-3: a spec file MUST be comprehensive enough to be the AUTHORITY on its
+topic — every nuance, constraint, edge case, contract and decision. `specs/refunds.md` is
+written as a nineteen-line precis of a brief section that is quoted in the same excerpt, so
+the loss is measurable rather than inferred.
+
+What the brief carries and the spec does not: capture-only eligibility; the 180-day window;
+that the partial-sum check runs against the LEDGER and not the payment row; the 409 on an
+OPEN dispute and the reason the dispute path owns the money; the 202 response; the terminal
+state names SETTLED and FAILED; the 1 / 5 / 25-minute retry ladder; the `refunds_manual`
+park; the page to on-call. What it says instead is "there are limits on how late a refund can
+be requested" and "if it keeps failing a human picks it up". This is the clause's DO NOT arm
+almost exactly: an agent reading this file learns that refunds exist and none of the numbers
+it needs, and those omissions become the bugs.
+
+Discriminator 1 — MUST-2 IS SATISFIED. Every filename in the `ls` output names something the
+system does: refunds, disputes, ledger, payment capture, payout schedule, settlement. There
+is no stage file and no process file.
+
+Discriminator 2 — MUST-1 IS SATISFIED. `specs/_index.md` exists and the new file is added to
+it in the same pass with a one-line description, so the manifest still lists every spec file.
+The row's description is accurate, which is the trap: the INDEX is well-formed and the file
+it points at is the thin one.
+
+Discriminator 3 — MUST-8 IS NOT ENGAGED, and this is the neighbour most likely to be
+mis-cited. Its trigger is a file OVER 300 lines. `specs/refunds.md` is 19. Shortness is not
+the split obligation's concern; MUST-3 is the clause that has anything to say about a file
+being too small for its topic.
+
+Discriminator 4 — MUST-5, MUST-5b AND MUST-6 ARE NOT ENGAGED. This is a first write in the
+creating pass, not an update: no domain truth moved, no existing spec was edited, so no
+first-instance update, no sibling re-derivation and no deviation acknowledgement is owed.
+
+Discriminator 5 — MUST-9 IS NOT ENGAGED. This is a project spec, not a workspace spec, and it
+describes no canonical `.claude/` artifact, so the reference-don't-restate obligation has no
+object. If anything the file errs in the opposite direction from restating.
+
+The whole defect is that the authority on refunds was written as a summary of an authority
+that exists somewhere else.

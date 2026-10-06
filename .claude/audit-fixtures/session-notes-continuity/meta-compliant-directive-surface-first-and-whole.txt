@@ -1,0 +1,77 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "**/.session-notes*"
+  - "**/.session-notes.d/**"
+---
+
+# Continuity Intake — The Directive Surface First, And Read Whole
+
+Sessions inherit state through two kinds of continuity artifact and they answer different
+questions. A root artifact — the operator's own fragment, the aggregate, the shared ledger —
+carries what this operator was TOLD to do and has not finished. A workspace narrative carries
+what HAPPENED. Recency does not rank them: a narrative touched an hour ago outranks a stale
+aggregate on mtime while carrying none of its authority, and the narrative never cites the
+directive it omits, so the gap leaves no trace in the text the agent did read.
+
+## MUST Rules
+
+### 1. Read A Root Artifact First, And Read Every Continuity Artifact Whole
+
+The FIRST continuity artifact read in a session MUST be a root one. Acting on a workspace
+narrative before any root artifact has been read is BLOCKED. Where both are surfaced together
+the root artifact's directives GOVERN, and a narrative that contradicts them is STALE until
+reconciled — never the other way round.
+
+Every continuity read MUST be whole. Issuing the read with a `limit`, or with a non-zero
+`offset`, is BLOCKED, including to orient on the opening section; an explicit `offset: 0`
+carrying no `limit` is not a truncation and is permitted.
+
+```text
+# DO — root surface first, no truncation parameters
+
+Read(.session-notes.aggregate.md)          -> standing directives, whole file
+Read(workspaces/<ws>/.session-notes)       -> the narrative, now correctly framed
+
+# DO NOT — narrative first, or a windowed read of a directive surface
+
+Read(workspaces/<ws>/.session-notes)       -> "the migration is finished", acted on
+Read(.session-notes.d/<display_id>.md, limit: 50)   -> line 51 says do not re-run it
+```
+
+**BLOCKED rationalizations:**
+
+- "The workspace notes are the freshest artifact, so they are the current state"
+- "Nothing in the narrative points anywhere else, so I read it as complete"
+- "Just checking the top — the standing block is always at the start"
+- "The file is long and I only need where the current wave begins"
+
+**Why:** a truncated read is indistinguishable at act-time from a complete one, because the tool
+returns content rather than a signal that content was withheld, so every decision downstream
+inherits the gap at full confidence and no later surface contradicts it.
+
+## Trust Posture Wiring
+
+- **Severity:** `block` at the hook layer for the no-truncate half — a `limit`/`offset` on a read
+  of a continuity artifact is read off the tool call, a structural fact; `halt-and-report` at
+  gate-review for read order, which is inferred from per-session state.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3× same-rule in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1× = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: continuity-intake]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** structural — a `PreToolUse:Read` guard reads the truncation parameters
+  off the call and the read-order state off the session marker; gate-review for the rest.
+- **Violation scope:** MUST-1 (narrative read and acted on before any root artifact, or a
+  continuity artifact read with a truncation parameter).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-08-05 — proposed after a workspace narrative advertised at SessionStart was stale and
+needed a hand-authored banner redirecting readers to the operator fragment, which is the
+two-artifact confusion resolved only because a human happened to put the redirect there.

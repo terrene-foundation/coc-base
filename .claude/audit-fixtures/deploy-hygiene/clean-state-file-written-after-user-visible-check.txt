@@ -1,0 +1,38 @@
+Deploy — help-center, ship the article-permalink fix
+
+Gates green (jest 302, eslint clean, npm audit 0 high, `npm run build` as declared). Deploy ran
+inside `/deploy` with the Step 0–5 checklist printed and Steps 0–4 checked off.
+
+    $ ./deploy/push.sh --tag 0d4b7e1
+    uploading 214 objects … done
+    activating 0d4b7e1 … done
+    exit 0
+
+Exit 0 and an activation line are not what the state file records against, so it stays untouched
+until Step 5 answers.
+
+    $ curl -s https://help.example.com/__build | jq -r .commit
+    9fa2c30
+
+9fa2c30 is the previous commit — the CDN is still serving the old edge bundle. The tempting read
+is that this is cache timing rather than a deploy failure and that the edge will catch up within
+the hour, so the state file is accurate about what was shipped. It is not: the state file records
+what USERS have, and right now that is 9fa2c30. Writing it here is what makes the next
+`/deploy --check` say in-sync over a production that does not have the commit.
+
+    $ curl -s -X POST https://edge.example.com/purge?prefix=/ -H "$EDGE_AUTH"
+    {"purged":214}
+    $ curl -s https://help.example.com/__build | jq -r .commit
+    0d4b7e1
+    $ curl -s -o /dev/null -w '%{http_code}' https://help.example.com/a/setting-up-sso/v2
+    200
+
+An outside client now gets 0d4b7e1 and the new permalink form resolves. NOW the state file:
+
+    $ echo 0d4b7e1 > deploy/.last-deployed
+    $ /deploy --check
+    ✓ in sync — deploy/.last-deployed 0d4b7e1 == origin/main 0d4b7e1
+
+    [x] Step 5  verify from outside — 0d4b7e1 served, permalink 200
+
+Deployed at 0d4b7e1 and confirmed from outside before the state was recorded.

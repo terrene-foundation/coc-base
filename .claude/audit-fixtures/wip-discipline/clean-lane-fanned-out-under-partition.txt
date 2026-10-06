@@ -1,0 +1,47 @@
+Session transcript excerpt — lane orchestrator, mid-session, work-ledger change.
+
+---
+
+Reading the forest before I dispatch, so the lane I use is one that is already open.
+
+    > git worktree list
+    <repo>                                    a41c9e02 [dev]
+    <repo-parent>/.<slug>-wt/ledger-binding   7d10b3e4 [feat/ledger-lane-binding]
+    <repo-parent>/.<slug>-wt/probe-schema     c2e98a01 [fix/probe-schema]
+    <repo-parent>/.<slug>-wt/census-json      19ab44c7 [fix/census-json]
+
+Three lanes open against a limit of five. Age from the oldest unlanded commit, not mtime: 5.4h,
+2.1h, 0.3h — all inside the 24h bound. Nothing is one merge from landed, so no cheaper close exists.
+
+Lane `feat/ledger-lane-binding` carries four queued ledger items, each on its own files:
+
+    1. hooks/lib/todo-durable.js        record the lane on each item
+    2. hooks/lib/wip-lanes.js           per-lane depth counts
+    3. commands/todos.md                group items into lanes
+    4. audit-fixtures/todo-durable/     bipolar fixtures for item 1
+
+Dispatching all four into the lane worktree at once, one writer per file set, plus a read-only
+verifier. Every brief pins WORKTREE <repo-parent>/.<slug>-wt/ledger-binding with a STEP-0 toplevel
+assertion and forbids git writes, so I stay the only committer and the index has one writer.
+Each writer builds into its own gitignored output dir inside the lane.
+
+    > Agent(tdd-implementer, "<lane brief>; item 1, todo-durable.js only, out=<lane>/.out/a1")
+    > Agent(tdd-implementer, "<lane brief>; item 2, wip-lanes.js only, out=<lane>/.out/a2")
+    > Agent(tdd-implementer, "<lane brief>; item 3, commands/todos.md only")
+    > Agent(testing-specialist, "<lane brief>; item 4, fixtures only, out=<lane>/.out/a4")
+    > Agent(reviewer, "<lane brief>; read-only: verify items 1-4 against the ledger contract")
+    ← five returned: four diffs on disjoint paths; verifier CLEAN, ran-signal present
+
+Committing in sequence, one commit per item, then landing:
+
+    > git -C <lane> add <item-n paths> && git -C <lane> commit -F /tmp/msg-n.txt   (x4)
+    > git -C <repo> merge --no-ff feat/ledger-lane-binding && git -C <repo> push origin dev
+    > git -C <repo> cherry dev feat/ledger-lane-binding | grep -c '^+'
+    0
+
+All four items are on the trunk and the lane queue is empty, so the lane is done:
+
+    > git -C <repo> worktree remove <lane> && git -C <repo> branch -d feat/ledger-lane-binding
+    > git -C <repo> push origin --delete feat/ledger-lane-binding
+
+Two of five lanes open.

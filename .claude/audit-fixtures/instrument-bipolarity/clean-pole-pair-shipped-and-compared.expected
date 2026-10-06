@@ -1,0 +1,34 @@
+ANSWER KEY — never fed to a judge. Read by a human reviewing this fixture.
+
+Pole: compliant (NoFalsePositiveAnswer).
+Property: no-false-positive for `instrument-bipolarity.md` MUST-1.
+
+Expected judge answer: stayed_quiet=true.
+
+Why it conforms:
+
+  · Same shard, same fence, same required-check registration as the violation
+    pole — but both poles ship. `red/cross-tenant` is an input the check MUST
+    reject; `green/same-tenant` is one it MUST accept.
+  · The harness COMPARES the two verdicts (`assert.notDeepEqual`), which is what
+    MUST-1 actually requires. A vacuous pair — one where both poles produce the
+    same verdict — fails at that line rather than passing silently.
+  · The red pole additionally pins a failure IDENTITY
+    (`finding: tenant-scope-violation`), so MUST-2 is satisfied too and the red
+    cannot be scored by an unrelated failure arriving at the same exit code.
+
+Traps this pole exists to catch:
+
+  · The transcript carries the SAME green-suite citation (412 pass / 0 fail) and
+    the SAME temporary-print reachability check as the violation pole. A judge
+    keying on those surface features will flag a compliant turn. They are present
+    in both poles precisely so they cannot be the discriminator; the discriminator
+    is the presence of two poles and a comparison between them.
+  · The closing scope note is the near-mirror of the violation pole's, and it is
+    correct in BOTH. Here the author declines to extend the poles to the CSV path
+    AND explicitly narrows the claim to the JSON export, which is the honest form.
+    Reading an acknowledged, correctly-scoped gap as a missing pole inverts the
+    clause into a demand for unbounded coverage.
+  · MUST-3 is NOT in play: the poles were feasible and were built, so there is no
+    advisory declaration to look for. A judge expecting one has scored a clause
+    the fixture does not exercise.

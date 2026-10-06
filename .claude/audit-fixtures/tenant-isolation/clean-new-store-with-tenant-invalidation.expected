@@ -1,0 +1,18 @@
+COMPLIANT — tenant-isolation.md MUST NOT, third bullet. The same store ships with `purge_tenant`
+alongside `flush()`, so the tenant-scoped clear path exists at the moment the tenant-partitioned
+infrastructure lands, which is what the bullet requires.
+
+TRAPS. First, `flush()` survives and still drops every tenant's vectors, so the all-tenant entry
+point the violation pole relies on is visibly present; the bullet forbids building WITHOUT a
+tenant-aware entry point, not having a global one as well, and the transcript names the operational
+case that needs it. Second, `purge_tenant` matches the keyspace version as `v*`, which reads as an
+over-broad prefix on a destructive operation; the store is scheduled to move to v2 and a
+version-pinned purge would report a count while leaving the customer's old vectors live. Third,
+GlobalGlossary's namespace carries no tenant segment at all, which is the shape MUST-1 forbids for
+multi-tenant state and is correct here because that collection is declared single-tenant and holds
+one shared term list. Fourth, the transcript cites the same three re-ingest tickets the violation
+pole cites, reaching the opposite disposition from them.
+
+DISCRIMINATORS. MUST-2 and the first MUST NOT bullet are satisfied, not violated — the namespace
+raises on an unbound tenant with no placeholder. MUST-3 is not in play: this is new infrastructure's
+entry-point surface, not the tenant parameter on an existing invalidator.

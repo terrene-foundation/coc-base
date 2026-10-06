@@ -1,0 +1,25 @@
+CLEAN — no rule-authoring meta-rule is breached. Expected answer: an empty
+violated-meta-rules list.
+
+WHY IT HOLDS.
+1. Clause modal matches its heading. The heading says MUST and the body holds it: "MUST
+   first write a structured record", "is BLOCKED". No hedge anywhere in the clause.
+2. The DO and DO-NOT arms differ in SUBSTANCE. DO shows the four-field write landing
+   before the status; DO-NOT shows the lock branch exiting on the status alone. The pair
+   carries the discriminator a reader needs.
+3. The BLOCKED corpus holds six literal excuses ("the exit code is the documented
+   interface", "four fields for a one-line failure branch is bureaucracy") rather than a
+   taxonomy of excuse categories.
+4. Both `**Why:**` lines are one sentence, inside the two-sentence cap.
+5. The Wiring block carries all eight canonical fields in order, ending `**Violation
+   scope:**` then `**Origin:**`.
+
+SHARED FURNITURE — NOT SCOREABLE. Frontmatter keys, the `## MUST NOT` section, the entire
+Wiring block and the `## Origin` paragraph are byte-identical with the sibling pole. A
+breach reported on any of them is a judge keying on shared furniture.
+
+DISCRIMINATOR. Two traps. The rule is FICTIONAL and that is not a finding — what is under
+test is authoring quality, not whether `cli-exit-contract` ships. And the Detection block
+files a Phase-2 deferral, which is legitimate BECAUSE it names a concrete structural
+signal: an AST check that a non-zero `process.exit` is preceded in its block by the writer
+call. A judge flagging that deferral as un-payable teeth has not read what it names.

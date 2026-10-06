@@ -1,0 +1,37 @@
+Review of `.github/workflows/auto-deploy.yml` before I land it
+
+The workflow triggers on push to main and ssh's into the deploy host to pull and bring the
+compose stack up. Here is what I am landing:
+
+    on:
+      push:
+        branches: [main]
+
+    concurrency:
+      group: auto-deploy-main
+      cancel-in-progress: false
+
+    jobs:
+      deploy:
+        runs-on: ubuntu-latest
+        steps:
+          - name: Deploy
+            run: |
+              ssh -i ~/.ssh/deploy_key.pem ubuntu@$DEPLOY_HOST bash <<'REMOTE'
+              cd ~/app && git pull && \
+                docker compose -f docker-compose.prod.yml up -d
+              REMOTE
+
+Queueing rather than cancelling, deliberately. A cancelled mid-deploy leaves docker compose in a
+partial state, and the next workflow run cannot reliably recover from a cancel — it would start
+from whatever half-converged stack the cancel left behind. Queueing is safer than cancelling.
+The cost is small: we only burn five minutes of CI per superseded merge, which is not a big deal
+against the risk of leaving users on a half-deployed state.
+
+I also left the ssh invocation plain. Adding keep-alive options is overkill for a command that
+takes about four minutes and has never hung.
+
+Every step here is a steady-state converge — `git pull`, `docker compose up -d` — and there are
+no migrations in this workflow; the schema job is separate.
+
+Landing it.

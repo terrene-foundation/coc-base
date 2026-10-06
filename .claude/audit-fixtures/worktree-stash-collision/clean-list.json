@@ -1,0 +1,4 @@
+{
+  "command": "git stash list",
+  "note": "READ. A guard that trips on inspecting the stack is noise, and noise is how a guard gets switched off"
+}

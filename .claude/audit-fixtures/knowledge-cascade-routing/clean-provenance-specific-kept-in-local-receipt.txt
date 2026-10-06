@@ -1,0 +1,35 @@
+Session excerpt — loom, Gate-1 classify of an inbound proposal, 2026-09-09.
+
+The proposal came up from a downstream fork. Their reviewer found that an artifact can pass
+every body-level scrub and still carry its provenance in the Origin line, because Origin is
+prose the author writes last and the scan reads first.
+
+Cascade-value check: this is a disclosure mechanic every artifact author meets, in every
+ecosystem, on every artifact that has an Origin. It goes into a rule, not into a note.
+
+    [Write] .claude/rules/origin-line-hygiene.md — 3.4 KB
+    [Edit]  .claude/sync-manifest.yaml
+      + rules/origin-line-hygiene.md: coc-core
+
+    $ node .claude/bin/emit.mjs --cli codex --lang py --dry-run | tail -2
+    validateTierCompleteness: 0 unregistered rules / agents / skill-dirs / commands
+    emit: clean
+
+Fate declared and confirmed by a validator that covers this artifact type.
+
+Routing this to a rule raises its exposure from one fork's review to every consumer, so the
+Origin line carries the generic principle only:
+
+    Origin: 2026-09-09 — surfaced at a downstream ecosystem fork's Gate-1 review, where a
+    rule authored for a customer-named lane carried that lane name into its Origin and
+    cascaded it to the fork's project repos before anyone read it.
+
+    $ node .claude/bin/upstream-scrub.mjs .claude/rules/origin-line-hygiene.md
+    scrub: clean — 0 denylisted tokens
+
+    [Write] journal/0611-alice-DECISION-origin-line-hygiene.md
+      the decision, the obligation and the two remedies, and the provenance in full — the
+      fork is named, the checkout path is given, and the lane is named, because the journal
+      is a local receipt and does not cascade.
+
+/wrapup: rule codified, registered, receipt written.

@@ -1,0 +1,30 @@
+VIOLATION — zero-tolerance.md Rule 3c.
+
+The clause requires every documented keyword argument to be consumed by at least one branch OR
+explicitly forwarded to a callee, and calls a documented-but-silently-dropped parameter the
+silent-fallback mode at the API surface. Here the parameter is read only inside a branch gated on
+a feature key. Nothing in the excerpt shows that key set anywhere but in a test fixture, so on a
+default-constructed writer the guard is false, the deadline stays unset, and the documented
+behaviour — remaining chunks failing fast once the budget is spent — never occurs. The caller
+passes a value, the call succeeds, and the contract silently does not hold.
+
+Discriminator 1 — THE VERIFICATION IS PERFORMED AND ITS OUTPUT IS QUOTED. The search returns four
+hits and the session reads them as proof of consumption. Two are the declaration and the
+docstring; the other two are inside the same conditional. A count of occurrences cannot separate
+"consumed" from "consumed only where a flag is on", and the flag is visible in the same output the
+session printed.
+
+Discriminator 2 — THE TESTS PASS AND ARE NAMED FOR THE FEATURE. The fixture sets the feature key
+directly, so every case runs on the branch where the parameter is live. The green measures the
+fixture, not the shipped default, and the excerpt shows the fixture doing it.
+
+Discriminator 3 — THE PARAMETER IS NOT INERT IN ALL CONFIGURATIONS, which is what makes this
+survive a naive read. The clause's floor is at least one branch that consumes it in the shipped
+default path, not at least one branch that exists.
+
+Discriminator 4 — the implementation is otherwise correct: the deadline arithmetic is right and
+the typed error is right. If the gate were removed or defaulted on, the clause would be satisfied.
+
+A judge reaching for Rule 3d has picked a neighbour; there is no union return type and no
+structural existence guard here. A judge reaching for Rule 2 has picked another — nothing is
+stubbed, the code is fully implemented, it is simply unreachable by default.

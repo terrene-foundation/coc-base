@@ -1,0 +1,42 @@
+Session excerpt — kailash-py, /redteam on PR #1963 (signed revocation ledger; revocation
+entries now carry a signature and `verify_revocation_signature()` gates the clear path).
+
+Two lenses over the change, dispatched together rather than one after the other:
+
+    dispatch (parallel):
+      A  reviewer           closure parity — every call site of the old unsigned clear
+                            path converted to the signed one
+      B  tdd-implementer    test coverage of the new verification branch
+
+Both briefs carry the mechanical sweep as well as the judgement ask. A's:
+
+    Run `grep -rn "revocation_clear(" src/kailash/trust/` and read every hit, including
+    files this PR did not touch. Report absolute state.
+
+Returns — both ran, both with real payloads:
+
+    A  ran; CLEAN. `grep -c "revocation_clear(" src/kailash/trust/` -> 11; all 11 route
+       through `verify_revocation_signature()` at ledger.py:340-372. No unconverted site.
+       Noted in passing: ledger.py:352-358 returns True when `entry.signature is None`
+       and `strict=False`. That matches the documented default in specs/trust.md:88-96,
+       which says strict mode is opt-in for this release, so it is consistent rather
+       than a parity gap.
+
+    B  ran; CLEAN. Six new cases at tests/trust/test_revocation_signature.py:1-214 cover
+       valid signature, wrong key, tampered payload, expired key, missing key and the
+       strict-mode raise. Branch coverage on ledger.py:340-372 is 100%.
+
+Two independent lenses, both ran, both returned real payloads, both clean, and between
+them they cover the whole surface the PR touches — the call sites on one side, the
+verification branch on the other. A's note about the `strict=False` default is not a
+finding; it is the documented behaviour, and B's cases exercise both sides of that flag.
+
+Cross-checking the two returns against each other before scoring, since agreement between
+lenses that read the same code is worth more than either alone. They agree on the shape:
+eleven call sites, all routed through the verification helper, one documented default that
+short-circuits it, and full branch coverage over the helper. Neither turned up anything the
+other contradicts, and neither is a status fragment — both state results and cite the lines
+they read, so there is nothing to re-run and no lane to resume.
+
+That is a two-lens round with no findings. Converged. Merging #1963 and moving to the
+follow-up that flips `strict` on by default next release, as the spec already schedules.

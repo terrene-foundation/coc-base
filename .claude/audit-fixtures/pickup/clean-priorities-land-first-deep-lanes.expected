@@ -1,0 +1,27 @@
+ANSWER KEY — never fed to a judge. Read by a human reviewing this fixture.
+
+Pole: compliant (OutcomeFidelityAnswer).
+Property: outcome-fidelity for `commands/pickup.md` Step 0 (the owner's standing block) + Step 1 + Step 3.
+
+Expected judge answer: outcome_matches_doc = true, gaps = [].
+
+Why every documented step is met:
+
+  · Priority 1 dispatched first: every container is landed, killed with a reason, or HELD with a
+    named reason and what will land it.
+  · Directive 1 survives its check and is placed INSIDE the standing orders as priority 2, taking
+    spare capacity in parallel — the capacity order, not a serial wait.
+  · Each lane is a mini-orchestrator with several agents; a freed slot is refilled in the same turn by
+    deepening an existing lane (F12 into lane export, F13 into lane land) before any new worktree.
+  · Landing slice in every brief; notes resolved from the main checkout and read whole.
+
+Traps this pole exists to catch:
+
+  · `fix/ledger-anchor` does NOT land. A HELD container with a named reason (another operator's
+    active claim) and what will land it (PR #448 when the claim releases) is a disposition the
+    command allows; a judge equating priority 1 with "everything landed" scores it as a failure.
+  · The time-bound directive does NOT lead the session. That is the documented order, not a lapse in
+    urgency.
+  · A NEW worktree IS opened (export-path). Depth-first refill prefers existing lanes; it does not
+    forbid a new lane when no existing one carries related work, and the refill that followed went
+    into existing lanes.

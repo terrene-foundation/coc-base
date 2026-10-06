@@ -1,0 +1,1 @@
+node .claude/bin/check-descoping.mjs | head -20 # TODO: add set -o pipefail

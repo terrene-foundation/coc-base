@@ -1,0 +1,3 @@
+# The accept pole: the one alias the table carries. `typescript` publishes
+# `tsc`, and the names differ, which is why the table exists at all.
+(silent)

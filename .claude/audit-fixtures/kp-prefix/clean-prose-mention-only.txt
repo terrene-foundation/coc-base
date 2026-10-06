@@ -1,0 +1,7 @@
+# Glossary excerpt
+
+A knowledge product is named by a governed field. The downstream domain-spec
+owner binds the `knowledge-product:` link in its OWN repo, never loom — loom
+REGISTERS the identity and stops there.
+
+See `specs-authority.md` Rule 10 invariant 5.

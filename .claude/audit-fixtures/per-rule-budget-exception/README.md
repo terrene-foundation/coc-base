@@ -15,7 +15,9 @@ The flat remedies were both wrong:
 - **raise the budget** → relaxes `base`/`py` too, permanently and with no expiry, to fix an `rs`-only overrun;
 - **trim the overlay** → `abridgeV6` has already reduced it from 4,010 B raw to 1,770 B emitted, so the code fences and Origin lines are gone; 185 B can only come out of a MUST clause or its `**Why:**`.
 
-Leaving it red was not an option either — a permanently-red gate is the ratchet `zero-tolerance.md` Rule 1 forbids, and it BLOCKS `/sync-to-use rs`. So the overrun is **accepted and ENCODED**, lane-scoped and expiring, in `sync-manifest.yaml::cli_variants."context/root.md".per_rule_budget_exceptions`.
+Leaving it red was not an option either — a permanently-red gate is the ratchet `zero-tolerance.md` Rule 1 forbids, and it BLOCKS `/sync-to-use rs`. So the overrun **was accepted and ENCODED**, lane-scoped and expiring, in `sync-manifest.yaml::cli_variants."context/root.md".per_rule_budget_exceptions`.
+
+**That grant was RETIRED on 2026-09-02 and NO per-rule exception is declared today.** The rule shrank below the flat ceiling (rs `security.md` emits 8,985 B against a flat 9,360 B ceiling), which left the grant inert — it raised a bar the rule no longer reached. The retirement record, including why re-anchoring was unsatisfiable rather than merely unattractive, is in `sync-manifest.yaml` § "Per-lane, per-rule BUDGET exceptions … RETIRED". **The mechanism these fixtures pin is unaffected and still live**: it is reachable the moment anyone declares a grant again, which is exactly why this fixture corpus is hermetic (below) and did not retire with the declaration.
 
 ## The three properties these fixtures pin
 
@@ -63,7 +65,7 @@ Split from the parser because the parser is pure over manifest text and does not
 
 | Fixture                                          | Predicate exercised                                                                   | Expected  |
 | ------------------------------------------------ | ------------------------------------------------------------------------------------- | --------- |
-| `fixture-21-live-shaped-grant-is-within-bounds`  | The live declaration's shape is admissible                                            | no throw  |
+| `fixture-21-realistically-shaped-grant-is-within-bounds` | A realistically-shaped grant is admissible (mirrors the ORIGINAL 2026-07-26 rs grant) | no throw  |
 | `fixture-22-unbudgeted-rule-throws`              | A typo'd rule name covers nothing while READING as coverage → reject                  | throws    |
 | `fixture-23-grant-above-2x-budget-throws`        | Past 2× the budget itself is wrong; re-measure per spec v6 §A.2, don't waive           | throws    |
 | `fixture-24-grant-exactly-at-2x-budget-…`        | Boundary is inclusive                                                                 | no throw  |
@@ -78,7 +80,9 @@ Covered: well-formed parse (27); absent stanza → no exceptions (28); dedent bo
 
 ## Hermetic by construction
 
-No fixture reads the live `sync-manifest.yaml`. The live declaration's shape is inlined as `RS_SECURITY` / `WELL_FORMED`, so a manifest edit changes the live gate but never silently rewrites what these predicates are asserted to do. The live declaration is separately pinned by the `#1355` tests in `.claude/test-harness/tests/emit-shape.test.mjs`.
+No fixture reads the live `sync-manifest.yaml`. A representative declaration shape is inlined as `RS_SECURITY` / `WELL_FORMED`, so a manifest edit changes the live gate but never silently rewrites what these predicates are asserted to do.
+
+That hermeticity is why this corpus survived the 2026-09-02 retirement of the last live grant intact, while the three `#1355` tests in `.claude/test-harness/tests/emit-shape.test.mjs` that DID read the live declaration all had to change: one was DELETED (the anchoring test, with a closure-by-deletion record) and two were re-authored in place onto synthetic declarations. `RS_SECURITY` is now a historical shape — and specifically it mirrors the **original 2026-07-26 grant**, whose ceiling was 9600 B, NOT the 9475 B the entry had been tightened to by retirement — rather than a copy of anything currently declared — which changes nothing about what it exercises, since these predicates were always asserted against the fixture, never against the manifest.
 
 ## Running
 

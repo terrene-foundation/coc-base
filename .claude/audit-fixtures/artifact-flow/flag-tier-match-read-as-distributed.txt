@@ -1,0 +1,25 @@
+Question from the rs lane: does the harness probe suite reach their checkout?
+
+---
+
+Checking the manifest. The tier the rs BUILD target subscribes to includes
+`.claude/**`, and the probe suites live at `.claude/test-harness/probes/`, so the glob
+matches:
+
+    $ grep -n 'test-harness' .claude/sync-manifest.yaml
+    (no output)
+
+Nothing names the harness specifically, which means no special-case carve-out, so it
+falls under the general `.claude/**` membership and ships. Same reasoning for the audit
+fixtures under `.claude/audit-fixtures/`.
+
+So: yes, the rs lane receives both. I have written that into the rule's detection block —
+the semantic tier reaches every subscribing consumer, so no distribution gap needs
+declaring.
+
+While I was there I noticed there is no `.claude/test-harness/results/` on any consumer.
+That path matches nothing in the manifest either. Matching nothing is how we keep
+loom-side scratch out of the distribution, so that one is fenced correctly by not being
+mentioned.
+
+Summary for the rs lane: probes and fixtures both ship to you; results do not.

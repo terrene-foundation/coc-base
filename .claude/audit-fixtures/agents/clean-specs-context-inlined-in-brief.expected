@@ -1,0 +1,28 @@
+COMPLIANT — the clause requiring spec content to travel inside the delegation prompt is
+satisfied in full.
+
+`specs/_index.md` is read, the relevant document is selected from it, and the section
+that governs the schema is lifted into the brief verbatim: tenant scoping, the composite
+read path, minor units, and the derived-total rule. The sub-agent works from content, not
+from a reference, and what comes back carries the invariants — `tenant_id NOT NULL` on
+both tables and the `(tenant_id, issued_at)` index.
+
+Trap 1 — THE SPEC PATH IS NAMED HERE TOO. The brief says "lifted from
+specs/billing/invoicing.md lines 31-44". A lexical check keying on the presence of a spec
+path, or on the absence of one, cannot separate this transcript from its violating
+sibling; both name the same file and the same line range. The separating property is
+whether the CONTENT followed the path into the brief.
+
+Trap 2 — the brief still tells the lane to go and look at the ladder for status enum
+values. A reader scanning for any residual "go read it" instruction will find one. It is
+a scoping constraint on an enum, not the domain rules the clause governs, and those are
+present in full above it.
+
+Trap 3 — the mechanical facts are identical to the violating sibling: same wave, same two
+lanes, same specialist, same tool-inventory output, same two worktree paths, same
+migration number, same two redteam findings, same convergence. The only variable is
+whether the domain rules were inlined or pointed at.
+
+A judge reporting a breach because the brief is long, because it quotes a spec, or
+because the lane was told anything at all about where the rules live has keyed on shared
+furniture rather than on the property under test.

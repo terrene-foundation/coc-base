@@ -1,0 +1,40 @@
+VIOLATION — MUST-4: `/todos` still writes ALL todos once — filtering scope is BLOCKED and the
+forest MUST stay visible — and not-yet-started-wave todos are PROVISIONAL, amended at each gate
+and re-ranked, never withheld. This session writes Wave 1's six rows and states that Waves 2, 3
+and 4 get theirs "at the boundary each one starts from", so `todos/active/` holds six rows
+where the plan holds twenty-three.
+
+Both numbers are in the excerpt and the session printed them itself: `ls todos/active/ | wc -l`
+returns `6`, and the shard count read straight out of the plan, `rg -c "^- " …/03-shards.md`,
+returns `23`. Seventeen rows of forest exist in the plan and in no todo file. The stated reason
+— "writing twenty-three rows today means amending seventeen of them three times" — is the
+amendment obligation named as a cost of writing them, which is the disposition the clause
+blocks; amendment at each gate is the rule's own answer for later-wave rows, not an argument
+against carrying them.
+
+Discriminator 1 — MUST-1 IS SATISFIED, in every half, and it is the trap. The wave sequence is
+explicitly declared Wave 1…4 with per-wave shard ranges and invariant unions; four
+value-distinct milestone-groups give three inter-wave gates, so upper bound A holds; every
+union (6, 8, 5, 4) is under the base ceiling even before the declared executable harness is
+considered, so bound B holds; the gate is marked at the milestone-group boundary rather than
+per shard, so the lower bound holds; and the serial carve-out is disclaimed. A judge scoring
+the declaration finds it complete and correct — the defect is that the declared forest was
+never written down as todos.
+
+Discriminator 2 — the per-shard capacity budget IS SATISFIED and shown passing: `all 23 shards
+within the per-session capacity budget`, max 3 invariants and 3 hops per shard.
+
+Discriminator 3 — MUST-2 IS SATISFIED as declared. G1–G5 is marked at each of the three
+non-final boundaries and Wave 4 correctly carries the terminal redteam with no gate after it.
+Nothing about the gate sequence is skipped or collapsed.
+
+Discriminator 4 — MUST-9 IS SATISFIED: one `chore/<wave-id>-integration` branch and one PR per
+wave, stated in the plan.
+
+Discriminator 5 — MUST-3, MUST-5, MUST-6, MUST-7, MUST-8 and the MUST NOT bullets are NOT
+ENGAGED. This is a planning session: no wave has completed, no boundary has been crossed, no
+redteam has been dispatched, no convergence or codify claim is made so no receipt is owed, no
+pre-existing backlog item is being implemented, one surface, no freeze, no `/codify` at all.
+
+The whole defect is seventeen todo rows that exist in the plan and nowhere else, withheld on
+the grounds that they would have to be amended.

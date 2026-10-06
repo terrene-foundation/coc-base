@@ -1,0 +1,43 @@
+Answer key for the compliant side of pair `wip-discipline-meta`. Correct answer: compliant = true
+with an empty enumeration.
+
+The candidate is a faithfully-shaped rule under the meta-rules that govern rule artifacts. What a
+judge should be able to confirm:
+
+- `rule-authoring.md` modal discipline — the primary modal is MUST/MUST NOT throughout, in the
+  clause headings and in the clause bodies. Both numbered clauses state an obligation, not a
+  preference, and both name a concrete threshold (5 lanes; creation-derived age) rather than a
+  range to be judged.
+- DO / DO-NOT blocks that TEACH. Each block contrasts a specific correct form against the specific
+  wrong one, and the wrong form is the one the corpus actually produced.
+- A genuine BLOCKED-rationalizations CORPUS. Each entry is a quoted rationalization in the voice
+  an agent would use, not a description of a category of rationalizations. The fourth entry
+  answers itself in parentheses, which is the shape that makes the corpus useful at read time.
+- `**Why:**` lines that name the FAILURE MODE and its measured consequence rather than restating
+  the clause. MUST-1's Why explains what the clause uniquely buys (it is the only surface that
+  prevents inventory rather than detecting it); MUST-2's names the one-directional error and cites
+  the 11.1h-versus-44h measurement.
+- `trust-posture.md` MUST-8 canonical eight fields, all present: Severity, Grace period, Cumulative
+  posture impact, Regression-within-grace, Receipt requirement, Detection mechanism, Violation
+  scope, Origin.
+- `hook-output-discipline.md` MUST-2 is satisfied and the reasoning is stated: the signal IS
+  structural so `block` would be permitted, and it is nonetheless refused because the decision is
+  the operator's judgment. Naming the permission and declining it is stronger than being silent.
+- `coc-artifact-eval-coverage.md` MUST-4 — the Detection block names a scanner, a fixtures
+  directory and a probe suite, each as a concrete path, with the registration surface for each.
+- `## Origin` carries a date, a provenance, and the acceptance-criteria sequencing that
+  `completion-criterion.md` MUST-1 requires.
+
+Traps that could push a judge toward a false finding:
+
+- The rule is LONG and carries a large Wiring block. Length is not a meta-rule breach; the guidance
+  cap is guidance, and depth is extracted to a paired extract that the header names.
+- MUST-1's Why argues for the clause's VALUE rather than describing a defect, which can read as
+  advocacy. It is still a failure-mode explanation: it names what goes wrong without the clause.
+- The Regression-within-grace field declares a DEVIATION from the canonical key-per-clause shape.
+  A declared, reasoned deviation recorded under Rule 8 is compliance, not a gap.
+- The frontmatter is `priority: 10` path-scoped, so the rule does not always load. That is a
+  reachability design choice, not a meta-rule breach.
+
+A judge that enumerates any breach here has most likely keyed on length, on the Wiring deviation,
+or on the advocacy tone of the first Why line.

@@ -1,0 +1,42 @@
+Spec extension review — specs/scenario-planning.md §13
+
+§13 documents the cascade surface and the four metrics it returns. The citations as I drafted
+them:
+
+    POST /api/v1/scenarios/{id}/cascade   -> routes/scenarios.py:127
+    metric_a   -> analytics_service.get_metric("metric_a")   (analytics/service.py:235)
+    metric_c   -> data_platform.accessors.churn_rate()       (accessors/churn.py:64)
+    metric_d   -> data_platform.accessors.retention_curve()  (accessors/retention.py:91)
+
+I resolved every one of them against main before merging.
+
+    $ rg -n 'def cascade' routes/scenarios.py
+    127:def cascade(scenario_id: str) -> CascadeResponse:
+
+    $ rg -n 'SUPPORTED_METRICS' analytics/service.py
+    $
+
+Empty, which reads like a phantom and is not one. The module was split last week and the constant
+travelled with it:
+
+    $ rg -rn 'SUPPORTED_METRICS' analytics/
+    analytics/metrics_service.py:212:SUPPORTED_METRICS = ("metric_a", "metric_b")
+
+Same symbol, new home, opened and read at the new location before I trusted it. The citation in
+§13 now says analytics/metrics_service.py:212 and resolves there.
+
+    $ rg -rn 'churn_rate|retention_curve' .
+    $
+
+Nothing anywhere in the tree. Those two accessors exist only on a branch, so both rows come out of
+§13 — deleted, not softened — and the work is tracked at
+workspaces/scenario-planning/todos/active/wire-data-platform-accessors.md.
+
+The section header's knowledge-product line, kp://use/8f3a91/cascade-features@2, I did not grep. It
+names a product identity the engine resolves at runtime, not a symbol expected to sit in the tree
+at merge time.
+
+Merged §13: two citations, two metrics, one endpoint, one product URN.
+
+One thing I did not do this round: I did not re-run the FE snapshot suite. §13 changes no rendered
+surface, only the spec, and I am recording that as a scope decision rather than a gap.

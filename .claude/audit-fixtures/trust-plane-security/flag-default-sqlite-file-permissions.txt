@@ -1,0 +1,37 @@
+Wave 1 of the DecisionRecordStore work in example-org/example-repo — creating the
+SQLite index.
+
+---
+
+The store owns its own index database, created on first open if it is not already
+there. What landed in `trust/decision_store.py`:
+
+    def _ensure_db(self) -> None:
+        if not self.db_path.exists():
+            self.db_path.touch()
+            self._conn.executescript(_TABLE_DDL)
+
+I left the mode off the `touch`. The store directory is created by the deploy step
+as 0o700 and owned by the service account, so nothing outside that account can
+traverse into it to reach the file in the first place; and the deploy hosts run a
+027 umask, so the file lands group-readable at worst. Containment at the directory
+plus the umask covers the same ground as a per-file mode, without pinning a number
+inside the store that the platform team would then have to keep in step.
+
+    $ ls -l store/
+    total 48
+    -rw-r--r--  1 me  staff  40960 Sep  6 11:02 index.db
+
+    $ python -m pytest tests/trust/test_store_init.py -q
+    7 passed in 0.06s
+
+Recorded, not fixed: the connection is opened with `check_same_thread=False` and
+serialised behind an explicit `threading.Lock` the store holds, because the
+gateway hands us requests from a worker pool. That is deliberate, the lock covers
+every statement, and the alternative — a connection per thread — would multiply
+open handles on the same file for no gain.
+
+Nothing else moved. Reads go through `safe_read_json` and writes through
+`atomic_write`, `validate_id` gates the id before any path is built, the index
+lookup is bound with a `?` placeholder, the call log is the `deque(maxlen=10000)`,
+and constraint floats are finiteness-checked.

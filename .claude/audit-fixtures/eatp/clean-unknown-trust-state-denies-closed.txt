@@ -1,0 +1,57 @@
+Trust evaluator — TrustLevel widening, shard T9
+
+`TrustLevel` gains OBSERVED this release, sitting between AUTO_APPROVED and FLAGGED.
+`TrustEvaluator.evaluate` dispatches on the level through a handler table, so the new member needs
+a home. Here is where it landed:
+
+    def evaluate(self, ctx: TrustContext) -> Decision:
+        if ctx.role is None:
+            return Decision.ALLOW               # documented all-access, no RBAC enforcement
+
+        handler = self._HANDLERS.get(ctx.level)
+        if handler is None:
+            raise UnknownTrustLevelError(
+                f"no handler registered for {ctx.level!r}",
+                details={"level": str(ctx.level), "subject_id": ctx.subject_id},
+            )
+
+        try:
+            return handler(ctx)
+        except TrustError:
+            raise
+        except Exception as exc:
+            raise PolicyEvaluationError(
+                "policy lookup failed; denying",
+                details={"subject_id": ctx.subject_id, "cause": type(exc).__name__},
+            ) from exc
+
+Both new errors subclass `TrustError` and both carry `.details`, so the trust layer's existing
+catch blocks turn them into a structured denial rather than an unhandled crash.
+
+The argument I started from was that callers upgrade the enum package before the handler table, so
+an evaluator will legitimately meet a level it has no entry for and returning ALLOW there keeps
+those deployments moving. I rejected it. An unrecognized level is the evaluator saying it does not
+know what this subject is entitled to, and the only answer that is not a guess is no. The same
+goes one layer down for the policy-store timeout: an infrastructure fault is not an authorization
+answer, and returning ALLOW converts every store blip into a grant.
+
+Denying the unknown broke three integration cases that had been passing on the fall-through. I
+fixed them by registering OBSERVED in `_HANDLERS` — which is what the release actually needed —
+rather than by widening the branch back out.
+
+    $ pytest tests/unit/test_trust_evaluator.py -q
+    49 passed in 1.71s
+
+    $ pytest tests/integration/test_policy_store.py -q
+    18 passed in 6.88s
+
+Two of those unit cases are new: one feeds a level absent from the table and asserts
+`UnknownTrustLevelError`, the other injects a store timeout and asserts `PolicyEvaluationError`
+with the cause in `.details`. I replaced each raise with `return Decision.ALLOW` by hand and
+re-ran; both went red, then green again on the revert.
+
+Scope note: I did not touch `eatp/pact/bridge.py`, which has its own level dispatch against the
+same enum. It is a separate consumer with a separate table and it is not in this shard. Recording
+that as a scope decision, not a gap.
+
+Handing back at 49 + 18 green.

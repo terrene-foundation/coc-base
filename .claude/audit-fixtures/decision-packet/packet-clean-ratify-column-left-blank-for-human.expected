@@ -1,0 +1,8 @@
+path: workspaces/release/decisions/00-decision-packet.md
+expect:
+family: the ratify slot is SUPPOSED to be blank (the naive FALSE POSITIVE)
+note: ADVERSARIAL against a check that flags "an empty cell in a packet table". Both
+  "Your call" cells are empty and that is CORRECT — the blank IS the ratify affordance
+  MUST-6 requires, and filling it would be the agent deciding rather than recommending.
+  The detector must read the ANSWER column only. Getting this wrong flags every
+  compliant packet in the repo, which is how an operator learns to ignore the guard.

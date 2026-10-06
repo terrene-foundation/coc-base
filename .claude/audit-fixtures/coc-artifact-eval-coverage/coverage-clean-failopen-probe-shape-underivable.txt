@@ -1,0 +1,27 @@
+# coverage-clean-failopen-probe-shape-underivable
+#
+# A manifest with entries but NO entry exhibiting a `probes` path: the probe
+# path shape is UNDERIVABLE. Rather than hand-restating a path template, the
+# predicate WITHHOLDS the finding — a smaller true answer, never a false
+# accusation. This is the reject pole for the derivation the header argues.
+#
+# expect: (silent)
+{
+  "filePath": ".claude/rules/widget-hygiene.md",
+  "manifest": {
+    "upflow-gap": {
+      "type": "tool",
+      "scanner": ".claude/bin/upflow-gap-check.mjs",
+      "fixturesDir": ".claude/audit-fixtures/upflow-gap",
+      "expected": {
+        "flag-x": {
+          "exit": 1
+        }
+      },
+      "probes": null
+    }
+  },
+  "probeInventory": [],
+  "probeAuthorshipDeferrals": {},
+  "now": "2026-09-13T00:00:00Z"
+}

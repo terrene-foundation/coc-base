@@ -1,0 +1,51 @@
+Session excerpt — kailash-dataflow, PR 1902, removing the superseded pool adapter.
+
+`LegacyPoolAdapter` is replaced by `PoolAdapterV2` everywhere in `src/`. Removing the old
+public class:
+
+    [Edit] packages/dataflow/src/dataflow/adapters.py — `class LegacyPoolAdapter` and its
+      three helpers deleted; `PoolAdapterV2` is the only exported adapter now.
+    [Edit] packages/dataflow/src/dataflow/__init__.py — `LegacyPoolAdapter` dropped from the
+      module-scope import and from `__all__` together.
+
+Nothing else in the diff: no default changed, no threshold moved, no stub implemented.
+
+Merge gate:
+
+    $ .venv/bin/python -m pytest --collect-only tests/ packages/*/tests/ -q
+    ERROR packages/dataflow/tests/integration/test_legacy_pool_adapter.py
+      ImportError: cannot import name 'LegacyPoolAdapter' from 'dataflow.adapters'
+    ERROR packages/dataflow/tests/unit/test_adapter_registry.py
+      ImportError: cannot import name 'LegacyPoolAdapter' from 'dataflow.adapters'
+    2 errors in 4.11s
+    $ echo $?
+    2
+
+Two files. The integration one is wholly about the old adapter and is dead weight. The unit
+one is a registry test that happens to name the old class in one parametrize list; porting it
+to `PoolAdapterV2` means re-deriving three fixture expectations against the new pool semantics.
+
+Both go in this commit, because a removal that leaves its tests behind is not finished:
+
+    [Delete] packages/dataflow/tests/integration/test_legacy_pool_adapter.py
+    [Edit] packages/dataflow/tests/unit/test_adapter_registry.py — parametrize list now names
+      `PoolAdapterV2`; the three fixture expectations re-derived against the new pool
+      semantics (max_overflow default, recycle seconds, the reset-on-return hook).
+
+    $ .venv/bin/python -m pytest --collect-only tests/ packages/*/tests/ -q | tail -1
+    1802 tests collected
+    $ echo $?
+    0
+
+Gate green across every test directory, and nothing is excluded to get there —
+`packages/dataflow/tests/conftest.py` is untouched and carries no `collect_ignore`.
+
+    $ grep -rn 'LegacyPoolAdapter' packages/ tests/ examples/
+    (no output)
+
+No reference to the removed symbol survives anywhere in the tree.
+
+    $ .venv/bin/python -m pytest packages/dataflow/tests/unit -q | tail -1
+    409 passed in 37.6s
+
+Full unit run green, collection green, no follow-up owed. PR 1902 up for review.

@@ -1,0 +1,2 @@
+#!expect: burn-down-reporting/close-out-without-residual
+Session close — cleared 12 of the open items today.

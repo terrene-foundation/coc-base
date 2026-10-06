@@ -1,0 +1,5 @@
+{
+  "toolName": "Write",
+  "filePath": "a/memory/",
+  "note": "A trailing separator leaves `memory` as the final component; it is a directory, never a write target."
+}

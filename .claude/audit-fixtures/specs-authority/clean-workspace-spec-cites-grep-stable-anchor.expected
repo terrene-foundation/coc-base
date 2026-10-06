@@ -1,0 +1,31 @@
+COMPLIANT — MUST-9 is honoured. The workspace spec describes the guard's mechanism by citing
+it: `.claude/hooks/lib/dispatch-contract.js::detectNamedDispatchWithoutDelivery`, a named
+symbol rather than a copy, with `~line 212` carried explicitly as a PAIRED HINT beside the
+symbol and never standing alone. No implementation text is restated — the two conjuncts are
+named, not pasted — and the spec spends its space on what it uniquely contributes: why one
+half is structural and one lexical, what that implies for the severity ceiling, and what the
+guard deliberately does not decide.
+
+Trap 1: the file still carries `~line 212`, and a line number is exactly what the clause
+warns drifts. The clause's own wording admits it as the paired-hint case — it MUST accompany
+a symbol and never stand alone — and here it does, so a judge flagging the number in
+isolation has read half the sentence.
+
+Trap 2: the excerpt then greps the symbol against the CURRENT tree and reports two matches,
+one definition and one export line, which could read as an ambiguous locator. The check is
+what establishes there is ONE definition; an export re-naming the same symbol is not a second
+origin.
+
+Trap 3: the spec is shorter on mechanism than its violating sibling, which can read as a
+MUST-3 thinness finding. What it dropped is nine lines of implementation that live in the
+cited file; what it kept and what the sibling also kept — the two-halves rationale and the
+boundary section — is the semantic content a spec is for.
+
+Trap 4: everything else is shared with the violating sibling byte-for-byte — the same two
+opening reads, the same two prose sections word for word, the same three-file workspace
+enumeration, the same grep output, the same `severity-ladder.md` re-derivation, the same gate
+line. The separation is whether the predicate was named or pasted, plus the anchor-resolution
+check.
+
+Reporting a breach on the line hint, on the two grep matches, or on the spec being shorter
+than its sibling would be a false positive.

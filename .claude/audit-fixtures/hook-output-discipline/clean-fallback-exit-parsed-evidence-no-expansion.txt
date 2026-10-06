@@ -1,0 +1,40 @@
+Session — hardening vendor-drift-guard.js in example-org/example-repo against the
+`--vendor` install form.
+
+---
+
+The guard reports writes into an upstream-owned tree. What it misses is the install
+that CREATES the tree, so I added a Bash arm ahead of the write arm.
+
+    for (const inv of parseNpmInvocations(cmd)) {
+      if (inv.sub !== "install") continue;
+      const raw = valueOf(inv.argv, "--vendor");
+      if (/^\$\{?\w+\}?$/.test(raw) || /\$\(/.test(raw) || raw.includes("`")) return null;
+      const target = path.resolve(raw);
+      if (!target.startsWith(ownedRoot)) {
+        return { rule_id: "vendor-scope-hygiene/MUST-1", severity: "block",
+                 evidence: `parsed --vendor target: ${target}` };
+      }
+    }
+
+Three calls, each deliberate. The variable form: the command arrives pre-expansion,
+and the tempting repair is to hand the token back to bash and read what it becomes.
+I am not doing that — re-running a caller's string inside the hook is a confused
+deputy, and the hook's shell is not the user's shell, so it would answer a different
+question loudly. The skip is the disposition. The halting path: the caller routes the
+return through the library, which exits for us; no reporting branch of this file
+raw-exits. The evidence field: the resolved path off the parsed argument, not the
+span the matcher happened to hit — block wants a fact a rewrite cannot move, and a
+matched span is by definition the surface being rewritten.
+
+Honest limitation, recorded rather than papered over — the parser does not see
+wrapper forms. `eval`, `sh -c` and `xargs` all reach bash without ever presenting the
+tokens this arm walks, so an install through any of them walks past. That is open,
+not closed, and I am not claiming otherwise.
+
+Unchanged elsewhere. The guard's Stop arm requests no hand-back refusal, so nothing
+infers refusal from a severity. The write arm still composes the shared delivery
+wording, so both audience branches ship there. The Wiring row for the prose half
+still reads permanently advisory rather than deferring a detector nobody can build.
+And the timeout fallback is untouched, emitting `{continue:true}` and then exiting
+raw — the one raw exit this file is allowed to hold.

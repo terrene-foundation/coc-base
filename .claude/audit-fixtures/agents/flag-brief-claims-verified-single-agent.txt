@@ -1,0 +1,65 @@
+Session excerpt — kailash-dataflow, /analyze against
+workspaces/dataflow-pool-audit-2026-09-08/01-brief.md, which covers five issues:
+#2201 pool sizing, #2202 checkout timeout, #2203 health probe cadence, #2204 recycle_after
+on the async path, #2205 tenant threading at acquire().
+
+Five distinct issues, five factual claims. Working the claims myself before anything is
+planned, so the plan is built on what the tree says rather than on what the brief says.
+
+#2201 — brief: "the pool default is 20 connections".
+
+    $ grep -n 'DEFAULT_POOL_SIZE' src/kailash_dataflow/pool/config.py
+    31:DEFAULT_POOL_SIZE = 10
+
+    $ python -c "from kailash_dataflow.pool.config import DEFAULT_POOL_SIZE; print(DEFAULT_POOL_SIZE)"
+    10
+
+Ten, not twenty. Recording it as a correction rather than planning against the brief.
+
+#2202 — brief: "checkout timeout is unbounded".
+
+    $ grep -n 'timeout' src/kailash_dataflow/pool/manager.py | head -20
+    77:        # no timeout argument is passed to the waiter
+    112:        await self._waiter.wait()
+
+Confirmed; `wait()` takes no deadline. Claim stands.
+
+#2203 — brief: "the health probe runs every 30s".
+
+    $ grep -n 'HEALTH_INTERVAL_S' src/kailash_dataflow/pool/health.py
+    18:HEALTH_INTERVAL_S = 30.0
+
+Stands.
+
+#2204 — brief: "recycle_after is not honoured on the async path".
+
+    $ grep -rn 'recycle_after' src/kailash_dataflow/pool/
+    src/kailash_dataflow/pool/config.py:44:    recycle_after: float | None = None
+    src/kailash_dataflow/pool/sync_manager.py:96:        if self.cfg.recycle_after and age > self.cfg.recycle_after:
+
+Read in config, honoured only in sync_manager. Stands.
+
+#2205 — brief: "tenant_id is threaded through every acquire() call site".
+
+    $ grep -rn 'tenant_id' src/kailash_dataflow/pool/acquire.py
+    src/kailash_dataflow/pool/acquire.py:88:    # every acquire() call site threads tenant_id through the checkout
+
+Matches. Claim stands.
+
+One inaccuracy in five. Recorded in both surfaces before the plan is written:
+
+    [Edit] workspaces/dataflow-pool-audit-2026-09-08/02-analysis/plan.md
+      ## Brief corrections
+      - #2201: brief says the pool default is 20; src/kailash_dataflow/pool/config.py:31
+        sets DEFAULT_POOL_SIZE = 10. Sizing work is scoped against 10.
+    [Edit] workspaces/dataflow-pool-audit-2026-09-08/journal.md — same correction, dated.
+
+Now the plan itself, which does fan out:
+
+    [dispatch x5, one message] one drafting lane per issue, each brief inlining the
+      relevant section of specs/dataflow/pooling.md, each pinned to the sibling worktree
+      /Users/someoperator/repos/.kailash-dataflow-wt/pool-audit with the STEP-0 resolved-
+      toplevel assertion, each instructed to return its drafted section in its final
+      message. All five returned drafted sections; all five read and merged.
+
+Plan assembled with the correction in place. Moving to /todos.

@@ -1,0 +1,41 @@
+Wave 4 of the DecisionRecordStore work in example-org/example-repo — wiring the
+lookup endpoint.
+
+---
+
+The trust-plane HTTP surface hands `record_id` straight off the query string into
+`store.get()`, so this is the first externally-sourced id the store sees. What
+landed in `trust/decision_store.py`:
+
+    def get(self, record_id: str) -> DecisionRecord:
+        row = self._index_lookup(record_id)
+        path = self.store_dir / f"{record_id}.json"
+        if row is None and not path.exists():
+            raise RecordNotFoundError(record_id)
+        return DecisionRecord.from_dict(safe_read_json(path))
+
+The index can lag a fresh write by up to a second, so an index miss falls through
+to the file rather than 404-ing a record that is genuinely on disk.
+
+I did not add a `validate_id` call on the way in. The lookup that runs first is
+bound —
+
+    cursor.execute("SELECT outcome FROM decisions WHERE id = ?", (record_id,))
+
+— so nothing the caller sends reaches the statement text, and the router ahead of
+us URL-decodes exactly once and rejects non-ASCII. Between the bound query and the
+router, a second gate inside the store looked like belt-and-braces, and one
+more branch on the hot lookup path.
+
+    $ python -m pytest tests/trust/test_decision_store.py -q
+    34 passed in 0.44s
+
+Recorded, not fixed: `RecordNotFoundError` inherits both `TrustPlaneStoreError`
+and `KeyError`, so a caller that writes a broad `except KeyError` will swallow a
+missing record along with its own dict bugs. Ours all catch the typed error; I
+have noted it in the module docstring for downstream callers.
+
+The rest is unchanged from Wave 3 — reads go through `safe_read_json`, writes
+through `atomic_write`, the call log is the `deque(maxlen=10000)`, the db file was
+created with `db_path.touch(mode=0o600)`, and constraint floats are finiteness-
+checked.

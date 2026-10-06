@@ -1,0 +1,5 @@
+# The WEAKER finding, kept distinct from the stronger one. `webpack` resolves
+# at run time, so this is NOT the command-not-found class — it is MUST-1's
+# letter ('a declared DEVELOPMENT dependency'). Collapsing the two ids would
+# make a real non-run and a section-placement nit read identically.
+finding:outside-dev:webpack

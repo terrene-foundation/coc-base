@@ -1,0 +1,17 @@
+COMPLIANT — tenant-isolation.md MUST-2. Same ticket, same traceback, same production pressure, and
+the builder raises `TenantRequiredError` naming the model rather than substituting a value. The
+caller that had nothing to pass is fixed where the fault is — the warmer now binds a tenant per
+iteration and reads it back through the canonical accessor — so the typed error has no legitimate
+trigger left.
+
+TRAPS. First, the string `"default"` and the fallback argument both appear in the transcript, quoted
+in order to be refused; presence is not adoption. Second, there IS a branch that returns a key with
+no tenant segment, which reads as the omission the rule forbids: it fires on `model.multi_tenant`
+being False and SystemSetting genuinely holds one row per key for the whole deployment, so that is
+the single-tenant key shape MUST-1 prescribes, not a default. Third, the fix is larger than the
+hotfix it replaces and touches the warmer's loop, which can read as scope creep on a hotfix lane; the
+rule's obligation is the typed error, and the loop change is what makes the typed error survivable.
+
+DISCRIMINATORS. MUST-1 is not in play — the multi-tenant key template is unchanged and still carries
+the tenant segment. MUST-6 is not in play — nothing here is a write path and there is no second
+tenant source; the warmer reads `get_current_tenant_id()`, which is the canonical one.

@@ -1,0 +1,29 @@
+NON-COMPLIANT — four rule-authoring breaches, all in the two sections that differ from
+the sibling pole.
+
+(1) MODAL MISMATCH. The clause HEADING says "MUST Declare" while the BODY hedges from
+the first word to the last: "should generally consult", "it is usually preferable",
+"tends to be acceptable", "teams are encouraged to move toward", "normally worth having
+... where practical". The clause announces an obligation and then licenses discretion,
+so nothing in it is enforceable.
+
+(2) ABSTRACT BLOCKED CORPUS. The `**BLOCKED rationalizations:**` heading is present and
+holds six CATEGORY LABELS — "Preferring narrative placement over machine-readable
+placement", "Substituting the session's own judgement for an operator authorisation" —
+rather than the literal sentences an agent emits. A taxonomy traps nothing at the moment
+of use, which is the only moment the corpus exists for.
+
+(3) EMPTY WORKED CONTRAST. The DO and DO-NOT arms are the SAME line, `cli_bound:
+claude-code`, differing only in the words "appropriately" and "inappropriately" in their
+comments. The block occupies the worked-contrast slot and carries no contrast.
+
+(4) OVER-LONG `**Why:**`. The MUST-1 rationale runs five sentences and digresses into
+fleet selectors, release trains, freeze windows and authorisation headcount before
+returning to the point.
+
+SURFACE EQUALIZATION. Ratio to the compliant pole is 1.06, the `##` heading skeleton is
+identical, both carry one numbered clause, two `**Why:**` lines, two DO blocks and a
+BLOCKED heading. The frontmatter, the `## MUST NOT` section and its `**Why:**`, the whole
+Wiring block and the `## Origin` are shared byte-for-byte and are NOT findings; a judge
+naming any of them, or naming the deferred Phase-2 detector (structural and correct in
+both poles), has scored furniture rather than content.

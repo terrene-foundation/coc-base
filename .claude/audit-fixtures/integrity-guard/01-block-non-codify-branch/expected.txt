@@ -1,6 +1,6 @@
 severity: block
 exit_code: 2
-continue: false
+continue: true
 stderr_tag: [BLOCK]
 predicate: resolveActiveBranch() != "codify/<display_id>-<YYYY-MM-DD>" (structural)
 why: multi-operator-coc/integrity-guard §2.3 — integrity-critical edits only via /codify

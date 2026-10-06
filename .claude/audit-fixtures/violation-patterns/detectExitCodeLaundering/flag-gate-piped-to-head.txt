@@ -1,0 +1,1 @@
+node .claude/bin/registration-preflight.mjs | head -40

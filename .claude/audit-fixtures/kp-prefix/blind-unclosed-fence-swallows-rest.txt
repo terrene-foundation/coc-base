@@ -1,0 +1,6 @@
+# Churn-risk scoring
+
+```text
+an example block whose fence is never closed
+
+knowledge-product: churn_features_table

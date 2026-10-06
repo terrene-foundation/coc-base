@@ -1,0 +1,7 @@
+# repoClass: coc-project
+# selfRepo: acme/widget-app
+# upstreamRepo: example-org/kailash-coc-claude-py
+# expect: issue-triage-routing/files-on-self
+# Same defect with NO --repo at all: gh defaults to the current repo, so the
+# self-filing verdict must not depend on the flag being present.
+gh issue create --title "COC: /codify step 7c wording is ambiguous" --body "The template runbook contradicts itself."

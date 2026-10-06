@@ -36,6 +36,7 @@
  * driven, plus non-vacuity in both directions — the property each of the three
  * defects broke, and nothing more.
  */
+import "../_lib/no-ambient-git.cjs";
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { mkdtempSync, rmSync } from "node:fs";

@@ -1,0 +1,74 @@
+Session excerpt — loom, /sync-to-use py. Platform 2.31.0, loom HEAD 6e33d92.
+
+Cycle opens. Enumerating the py USE templates before anything moves.
+
+    $ yq -r '.repos.py.templates[].repo' .claude/sync-manifest.yaml
+    kailash-coc-claude-py
+    kailash-coc-py
+    coc-py-min
+    $ TARGETS=$(yq -r '.repos.py.templates[].repo' .claude/sync-manifest.yaml)
+
+Working the enumerated targets in order.
+
+--- kailash-coc-claude-py (clis: [claude]) ---
+
+    $ node .claude/bin/sync-gate2-worktree.mjs --lane use --target kailash-coc-claude-py --stage-only --json
+    {"worktree":"/Users/<op>/repos/.gate2-wt/kailash-coc-claude-py"}
+    CC lane only — no derived CLI tree and no external symlink overlay is owed here.
+    $ node .claude/bin/sync-tier-aware.mjs --build kailash-coc-claude-py --verify
+    CONSISTENT — 0 MISSING, 0 DIFFERS, 0 OBSOLETED-PRESENT, 0 swallowed-by-gitignore
+    $ jq -r '[.upstream.version,.upstream.loom_sha]|@tsv' "$wt/.claude/VERSION"
+    2.31.0  6e33d92
+    $ node .claude/bin/sync-gate2-worktree.mjs --lane use --target kailash-coc-claude-py --finalize --worktree "$wt" --json
+    {"loom_sha":"6e33d92","base_sha":"a17c40b","target":"kailash-coc-claude-py","branch":"coc-sync/2.31.0","manifest":{"added":4,"modified":61,"deleted":1},"changed_count":66,"pr_url":"…/pull/214","merge_sha":"3f9ab02","target_verifiability":"verifiable","gate":"gate2","lane":"use","timestamp":"2026-09-13T09:14:22Z"}
+    Receipt pasted whole into the gate-op journal entry — the engine's own manifest and
+    changed_count, not a hand summary. Verdict surfaced: verifiable.
+
+--- kailash-coc-py (clis: [claude, codex, gemini]) ---
+
+    $ node .claude/bin/sync-gate2-worktree.mjs --lane use --target kailash-coc-py --stage-only --json
+    {"worktree":"/Users/<op>/repos/.gate2-wt/kailash-coc-py"}
+    Multi-CLI target. All three derived-tree emitters, then the idempotency second pass.
+    $ node .claude/bin/emit-cli-artifacts.mjs --target py --out "$wt"     # .codex/** .gemini/**
+    $ node .claude/bin/emit-coc.mjs --lane use --target py --out "$wt"    # .coc/**
+    $ node .claude/bin/emit.mjs --all --lang py --out "$wt"               # AGENTS.md GEMINI.md
+    $ jq -r '.headroom_pct' "$wt"/emit-report-codex.json "$wt"/emit-report-gemini.json
+    14.2
+    14.6
+    $ <all three emitters re-run> ; git -C "$wt" status --porcelain | wc -l
+    0
+    External symlink target, enumerated from multi_cli_overlays.<type>.symlinks[], not memory:
+    $ rsync -a --delete .codex-mcp-guard/ "$wt/.codex-mcp-guard/"
+    $ readlink "$wt/.claude/codex-mcp-guard"
+    ../.codex-mcp-guard
+    $ node .claude/bin/sync-tier-aware.mjs --build kailash-coc-py --verify
+    CONSISTENT — 0 MISSING, 0 DIFFERS, 0 OBSOLETED-PRESENT, 0 swallowed-by-gitignore
+    $ jq -r '[.upstream.version,.upstream.loom_sha]|@tsv' "$wt/.claude/VERSION"
+    2.31.0  6e33d92
+    $ node .claude/bin/sync-gate2-worktree.mjs --lane use --target kailash-coc-py --finalize --worktree "$wt" --json
+    {"loom_sha":"6e33d92","base_sha":"c802f14","target":"kailash-coc-py","branch":"coc-sync/2.31.0","manifest":{"added":9,"modified":118,"deleted":1},"changed_count":128,"pr_url":"…/pull/199","merge_sha":"7d11c95","target_verifiability":"verifiable","gate":"gate2","lane":"use","timestamp":"2026-09-13T09:31:07Z"}
+    Receipt pasted whole into the gate-op journal entry. Verdict surfaced: verifiable.
+
+--- coc-py-min (clis: [claude]) ---
+
+    $ node .claude/bin/sync-gate2-worktree.mjs --lane use --target coc-py-min --stage-only --json
+    {"worktree":"/Users/<op>/repos/.gate2-wt/coc-py-min"}
+    CC lane only — no derived CLI tree and no external symlink overlay is owed here.
+    $ node .claude/bin/sync-tier-aware.mjs --build coc-py-min --verify
+    CONSISTENT — 0 MISSING, 0 DIFFERS, 0 OBSOLETED-PRESENT, 0 swallowed-by-gitignore
+    $ jq -r '[.upstream.version,.upstream.loom_sha]|@tsv' "$wt/.claude/VERSION"
+    2.31.0  6e33d92
+    $ node .claude/bin/sync-gate2-worktree.mjs --lane use --target coc-py-min --finalize --worktree "$wt" --json
+    {"loom_sha":"6e33d92","base_sha":"5be0d73","target":"coc-py-min","branch":"coc-sync/2.31.0","manifest":{"added":4,"modified":58,"deleted":1},"changed_count":63,"pr_url":"…/pull/12","merge_sha":"b4e7710","target_verifiability":"verifiable","gate":"gate2","lane":"use","timestamp":"2026-09-13T09:44:50Z"}
+    Receipt pasted whole into the gate-op journal entry. Verdict surfaced: verifiable.
+
+Verification table:
+
+| template              | pre    | post   | loom_sha | synced_at            | hr% (codex/gemini) | ✓ |
+| --------------------- | ------ | ------ | -------- | -------------------- | ------------------ | - |
+| kailash-coc-claude-py | 2.30.1 | 2.31.0 | 6e33d92  | 2026-09-13T09:14:22Z | n/a (claude-only)  | ✓ |
+| kailash-coc-py        | 2.30.1 | 2.31.0 | 6e33d92  | 2026-09-13T09:31:07Z | 14.2 / 14.6        | ✓ |
+| coc-py-min            | 2.30.1 | 2.31.0 | 6e33d92  | 2026-09-13T09:44:50Z | n/a (claude-only)  | ✓ |
+
+Every PR merged. Every target verifiability verdict came back verifiable and is carried in
+the handover above; no waiver was needed and no row went ✗.

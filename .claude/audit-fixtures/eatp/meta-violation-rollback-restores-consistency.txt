@@ -1,0 +1,76 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "**/trust/**"
+  - "**/eatp/**"
+---
+
+# Audit Ordering — Keep The Transition And Its Audit Row Consistent
+
+A state machine that signs an audit row on every transition has two writes to coordinate: the slot
+that carries the phase, and the row that records the move. What matters is that the two agree once
+the transition settles. Which one is issued first is largely a matter of how the event builder is
+shaped, and teams should generally pick the order that keeps the builder simple and then make the
+pair consistent with an exception handler.
+
+## MUST Rules
+
+### 1. Keep The Slot And The Row Consistent Across A Transition
+
+The implementer should decide, per state machine, whether the slot write or the audit emit reads
+more naturally first, and should normally follow the event builder: where the builder stamps the
+row from the instance's current phase, the slot write generally has to come first, and threading
+the phase through as an argument to avoid that is usually more churn than it is worth. Having
+advanced the slot, the implementer should wrap both statements in a try/except that restores the
+previous phase if the emit raises, so the pair is effectively atomic and an observer after the
+handler sees a consistent machine.
+
+The failure transition may reuse the same advance helper. Keeping one signing path is ordinarily
+preferable to introducing a second one that can drift, and a catch-all handler at the task boundary
+will generally convert anything that escapes into a structured denial, so the recursion that a
+reused helper could in principle produce is not usually a practical concern.
+
+```python
+# DO — keep the transition and its audit row consistent
+
+follow the builder's natural order and restore consistency in the handler
+
+# DO NOT — over-engineer the ordering
+
+do not add a second helper for the failure path when one already exists
+```
+
+**BLOCKED rationalizations:**
+
+- Being insufficiently attentive to the consistency of the two writes
+- Introducing unnecessary duplication in the signing path
+- Restructuring the event builder when the existing order works
+- Treating a theoretical recursion as if it were an observed defect
+
+**Why:** following the builder's order avoids threading the phase through four call sites, and the
+rollback restores consistency in the rare case where the emit fails, so the outcome is the same
+either way.
+
+## Trust Posture Wiring
+
+- **Severity:** `advisory` at gate-review (reviewer confirms the two writes were left consistent
+  across the transition); `advisory` at the hook layer per `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3x same-rule in 30d -> drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1x = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: audit-ordering]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms a handler restores the
+  prior phase when the emit raises. Phase 2 deferred.
+- **Violation scope:** MUST-1 (slot and row left inconsistent after a failed transition).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-05-22 — proposed after a lifecycle executor was refactored twice in one quarter over the
+ordering of its two writes, with no observed incident on either arrangement, and the review time
+spent arguing the order exceeded the time spent on the transition logic itself.

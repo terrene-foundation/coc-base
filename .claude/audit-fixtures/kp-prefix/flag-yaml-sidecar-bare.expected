@@ -1,0 +1,12 @@
+{
+  "path": "specs/domain/churn.yaml",
+  "expect": [
+    "specs-authority/rule-10-missing-kp-scheme"
+  ],
+  "disposition": "firing",
+  "family": "surface coverage — YAML sidecar",
+  "defeats": "a markdown-only extension gate. The same key in a spec sidecar is the same contract with the same grammar.",
+  "quotes_verbatim": [
+    "churn_features_table"
+  ]
+}

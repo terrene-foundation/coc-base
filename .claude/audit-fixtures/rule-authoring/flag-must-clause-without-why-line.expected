@@ -1,0 +1,46 @@
+VIOLATION — MUST-4: every MUST and MUST NOT clause MUST be followed by a `**Why:**` line of at
+most two sentences explaining the failure mode the rule prevents. Clause 2 of this file has no
+`**Why:**` line at all.
+
+Clause 1 carries one. The `## MUST NOT` section carries one. Clause 2 — the wall-clock
+recurrence clause — runs from its heading through its body and its two-armed DO / DO NOT block
+straight into the `**BLOCKED rationalizations:**` heading, with no justification line in
+between. An agent that meets a case the clause never anticipated has nothing to reason from:
+the clause states what to do and is silent on what it is defending against, which is precisely
+the rote-rule-without-a-principle failure MUST-4's own justification names.
+
+The defect is an ABSENT line, and the discriminator below turns on that.
+
+Discriminator 1 — THE `## MUST NOT` OVER-LENGTH BULLET IS SATISFIED, and this is the sharpest
+separation in the pair. That bullet blocks rationale paragraphs longer than two sentences per
+`**Why:**` line. Both of the `**Why:**` lines this file DOES carry are exactly one sentence.
+Nothing here is over-long; something is missing. A judge scoring this as the over-length
+bullet has named the opposite defect.
+
+Discriminator 2 — MUST-3 IS SATISFIED, and it is the other close neighbour. Clause 2 DOES carry
+a complete two-armed DO / DO NOT block, and the arms differ in substance: local-time-plus-zone
+against a UTC collapse, with the transition month named. The clause is exemplified; it is
+unexplained. A judge that notices something short under clause 2 and reaches for the
+missing-examples clause has named the wrong one.
+
+Discriminator 3 — MUST-1 IS SATISFIED. Both clauses use MUST and MUST NOT as their primary
+modal and name the alternative BLOCKED. No "should," "prefer," "consider" or "try to" appears
+as a clause modal.
+
+Discriminator 4 — MUST-2 IS SATISFIED. The BLOCKED corpus holds six literal first-person
+sentences a session would really emit ("A one-hour drift twice a year is not worth the schema
+change"), not abstract category labels.
+
+Discriminator 5 — MUST-5, MUST-6 and MUST-7 ARE SATISFIED. Frontmatter declares `priority: 10`
+with `scope: path-scoped` and a matching `paths:` list, a consistent pair; Origin cites
+`journal/0444-INCIDENT-daylight-saving-reminder-drift.md` § 2 with the measured drift.
+
+Discriminator 6 — MUST-8 IS NOT ENGAGED (no CLI-divergent content), MUST-9 IS NOT ENGAGED (no
+empirical-validation fixtures ship), MUST-10 / MUST-11 ARE NOT ENGAGED (`priority: 10` +
+`scope: path-scoped`, excluded by Rule 10's Trigger-scope paragraph).
+
+Discriminator 7 — THE REMAINING `## MUST NOT` BULLETS ARE SATISFIED. No hedging phrase sits
+inside a MUST clause; the Detection row names type annotations and a schema column, both
+parsed structure, rather than booking a lexical detector; the file is well under 200 lines.
+
+The whole defect is one missing line under clause 2.

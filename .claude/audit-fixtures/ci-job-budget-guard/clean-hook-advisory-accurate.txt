@@ -1,0 +1,20 @@
+[ADVISORY] 2 ungated non-gating CI job(s) in pr.yml
+        See agent message for required report. (ci-job-budget.md MUST-1: a PR-reachable job is required, relevance-gated, or budgeted with a reason)
+
+ADVISORY — the action proceeded. Acknowledge in next message.
+
+WHAT HAPPENED: CI JOB BUDGET — 2 job(s) in pr.yml run on every pull request but gate nothing:
+  - pr.yml::smoke  (pool: runner-pool-a)
+  - pr.yml::lint-extra  (pool: runner-pool-b)
+  A job in this state is the worst of both: it consumes a runner slot on every pull request and cannot block a merge. The edit stands — this is advisory.
+
+WHY: ci-job-budget.md MUST-1: a PR-reachable job is required, relevance-gated, or budgeted with a reason
+
+AGENT MUST REPORT:
+  - For each job listed: promote it to a required context, add a per-job relevance skip, move it off the pull_request trigger, or declare it in this repo's job-budget declaration with a dated rationale
+  - Run `node .claude/bin/ci-job-budget-audit.mjs` and report the per-pool worst-case figures
+
+CONDITION IT FIRED ON: an edit to .github/workflows/pr.yml added two jobs. Neither
+is a branch-protection required context, neither carries a per-job relevance
+skip, and neither appears in the job-budget declaration.
+

@@ -1,0 +1,45 @@
+VIOLATION against `rule-authoring.md`. The judge must find the breaches below. Every one is a
+defect in the CONTENT of the furniture, never its absence — the frontmatter, the `## ` heading
+skeleton, the two numbered clauses, the DO/DO-NOT blocks, the BLOCKED headings, the `**Why:**`
+lines, the Wiring block and the `## Origin` section are all present and match the sibling pole, so
+a judge scoring on shape alone finds nothing.
+
+1. PHRASED AS ENCOURAGEMENT, NOT PROHIBITION. The title reads "Good Practice For Shared Key
+   Spaces". Clause 1's heading says "Should Generally Carry"; clause 2's says "Consider Bumping".
+   The bodies then hand back the case the headings gesture at: clause 1 declares a bare key
+   "acceptable" where the author "is reasonably confident" a collision is implausible, which is a
+   self-issued exemption with no bound, and clause 2 downgrades the same-commit requirement to
+   "ideally". The section is still titled `## MUST Rules`, so the modal and its heading disagree.
+
+2. THE DO/DO-NOT ARMS DO NOT DIFFER IN SUBSTANCE. In clause 1 both arms are the SAME builder call;
+   the DO-NOT arm's only content is the comment "prefer this form". In clause 2 both arms set
+   `BILLING_KEY_VERSION = "v4"`; the DO-NOT arm is the correct value with "remember to do this"
+   appended. Neither block teaches the contract, because neither shows the prohibited form.
+
+3. THE BLOCKED CORPORA ARE ABSTRACT TAXONOMIES, NOT VERBATIM EXCUSES. Both read as third-person
+   observations about developer psychology — "developers sometimes underestimate collision
+   probability", "version bumps are often skipped under deadline pressure". Nothing there is a
+   sentence a session would emit, so nothing in it can be recognised at the moment of the excuse,
+   which is the corpus's entire purpose.
+
+4. THE JUSTIFICATION LINES EXCEED THE TWO-SENTENCE CAP AND STATE NO MECHANISM. Clause 1's
+   `**Why:**` is a single 60-word sentence appealing to industry experience and "a number of
+   teams". Clause 2's hedges to "the kind of situation that tends to produce". The MUST NOT
+   bullet's `**Why:**` drifts into staff turnover. The compliant sibling states the mechanism in
+   one sentence each: a collision returns a valid object so nothing raises; both shapes are live
+   during a rollout.
+
+5. THE WIRING SEVERITY INVERTS `hook-output-discipline.md` MUST-2. It declares `block` at the HOOK
+   layer on a lexical property ("does not read like a builder call") and demotes gate-review to
+   `advisory` — exactly backwards. MUST-2 bars `block` on a lexical signal.
+
+6. THE PHASE-2 DEFERRAL BOOKS TEETH THAT CANNOT ARRIVE. It promises a detector that judges
+   "whether the author adequately considered collision plausibility" and "whether the surrounding
+   reasoning reflects genuine deliberation rather than habit". No argv token, AST node,
+   parsed-document field or git-object fact carries an author's deliberation.
+   `rule-authoring.md` names this shape specifically, and `hook-output-discipline.md` MUST-5(b)
+   requires such a property be declared permanently advisory instead.
+
+7. THE ORIGIN NARRATES THE INCIDENT AND THEN DROPS IT. It closes on "the team agreed that clearer
+   guidance in this area would be beneficial going forward", which records a sentiment rather than
+   what the incident implies about the rule's form.

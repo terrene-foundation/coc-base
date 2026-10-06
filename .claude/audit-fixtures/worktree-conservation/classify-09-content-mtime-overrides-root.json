@@ -1,0 +1,14 @@
+{
+  "arm": "classifyTree",
+  "note": "REAL measurement from the originating forest: fixture-payload-exclusion, root idle 38.4 min but content idle 8.9 min. The root proxy alone would alarm on a LIVE lane",
+  "cfg": {
+    "wipMs": 1200000,
+    "parkedMs": 86400000
+  },
+  "facts": {
+    "measured": true,
+    "dirty": 5,
+    "contentIdleMs": 534000,
+    "rootIdleMs": 2304000
+  }
+}

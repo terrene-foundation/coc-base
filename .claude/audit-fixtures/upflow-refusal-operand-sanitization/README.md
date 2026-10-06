@@ -60,9 +60,9 @@ verbatim:
 
 ```
   ✗ gh/createUpflowPR/head-refusal-neutralizes-json-blind-classes
-      gh head: U+007F survived verbatim in reason: "head must match /^[A-Za-z0-9._/-]+$/ with no '..' segment (git ref shape); got \"head  ‮⁦‏؜FORGED-SECOND-LINE\""
+      gh head: U+007F survived verbatim in reason: "head must match /^[A-Za-z0-9._/-]+$/ with no '..' segment (git ref shape); got \"head  \u202E\u2066\u200F\u061CFORGED-SECOND-LINE\""
   ✗ gh/response-body-refusal-neutralizes-remote-controlled-bytes
-      gh !ok body: U+007F survived verbatim in reason: "gh api repos/acme/widget → status 404 body {\"message\":\"head  ‮⁦‏؜FORGED-SECOND-LINE\",\"documentation_url\":\"x\"}"
+      gh !ok body: U+007F survived verbatim in reason: "gh api repos/acme/widget → status 404 body {\"message\":\"head  \u202E\u2066\u200F\u061CFORGED-SECOND-LINE\",\"documentation_url\":\"x\"}"
   ✗ gh/transport-error-refusal-scrubs-url-userinfo
       credential survived in reason: "network unavailable or transport threw: fatal: unable to access 'https://oauth2:ghp_ZZZZ000011112222333344445555666677@github.com/acme/widget.git/': 403"
   ✗ gh+ado/response-body-refusals-are-bounded

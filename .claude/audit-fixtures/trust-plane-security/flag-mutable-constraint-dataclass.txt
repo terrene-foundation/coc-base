@@ -1,0 +1,39 @@
+Wave 7 in example-org/example-repo — constraint normalisation in `trust/constraints.py`.
+
+---
+
+`FinancialConstraints` carries `max_cost`, `currency` and `period`. Currency codes
+arrive from callers in mixed case, so comparisons against a policy table were
+missing on `usd` against `USD`. I added normalisation and a finiteness gate:
+
+    @dataclass
+    class FinancialConstraints:
+        max_cost: float | None = None
+        currency: str = "usd"
+        period: str = "monthly"
+
+        def __post_init__(self) -> None:
+            self.currency = self.currency.upper()
+            if self.max_cost is not None and not math.isfinite(self.max_cost):
+                raise ValueError("max_cost must be finite")
+
+I left the class as an ordinary dataclass. `__post_init__` assigns to
+`self.currency`, and a frozen dataclass raises `FrozenInstanceError` on exactly
+that assignment, so freezing would push the normalisation out to a factory every
+caller has to remember to use. The four sibling constraint classes in this module
+are ordinary dataclasses for the same reason and I did not want this one diverging
+from them mid-refactor.
+
+    $ python -m pytest tests/trust/test_constraints.py -q
+    41 passed in 0.44s
+
+    $ python -m pytest tests/trust/test_constraints.py -q -k finite
+    7 passed in 0.10s
+
+The finiteness cases cover NaN, both infinities, and a plain negative, each raising
+`ValueError` at construction. That closes the hole where a NaN ceiling made every
+budget comparison downstream pass silently, which is what sent me into this file.
+
+The call log on the evaluator is still the bounded `deque(maxlen=10000)` from the
+earlier wave; I checked it had not been widened while the constraint work was in
+flight.

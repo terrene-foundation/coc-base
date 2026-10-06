@@ -1,0 +1,10 @@
+---
+type: DECISION
+date: 2026-08-16
+---
+
+# DECISION — an origination that establishes NEITHER lane
+
+This entry authorises a change to the command surface because it is the right thing
+to do and matches how the team already works. No external authority is named and
+nothing anyone said is quoted.

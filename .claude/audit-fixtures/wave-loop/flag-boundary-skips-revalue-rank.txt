@@ -1,0 +1,50 @@
+Session excerpt — kailash-rs, workspace revocation-ledger-2026-08-27, Wave 2 of 4 complete.
+
+From the approved plan, quoted so the boundary is measured against what was declared:
+
+    Wave 1 — ledger-append      union 5   Wave 2 — revocation-propagation  union 8
+    Wave 3 — binding-parity     union 6   Wave 4 — operator-cli            union 4
+    Four value-distinct groups; G1–G5 fires at boundaries 1, 2 and 3.
+
+Wave 2's shards reported. One thing came out of S6 that is not about this wave:
+
+    S6: propagation lands on the ffi boundary. Note — kailash-py 2.61.0 published
+    while this shard ran, which is the dependency Wave 4's operator CLI was waiting
+    for. Wave 4 was ranked below Wave 3 only because that dependency was unlanded.
+
+G1 — redteam to convergence, scoped to Wave 2's shards:
+
+    [dispatch x5, one message] reviewer / security-reviewer / pattern-expert /
+      testing-specialist / gold-standards-validator, each scoped to S4–S9, each
+      briefed to report findings in its final message.
+
+    round 1 — reviewer: "revoke_all drops the tenant filter on the batch path." BUG.
+              security-reviewer: "revocation ledger append is not fsync'd before ack." BUG.
+              pattern-expert: clean. testing-specialist: "no case for reap-vs-resume." BUG.
+              gold-standards-validator: "two doc anchors stale." INCREMENTAL.
+    three BUGs fixed; the INCREMENTAL accretes to the deferred-quality backlog.
+    round 2 — five payloads read, zero BUG/INVEST-NOW.
+    round 3 — five payloads read, zero BUG/INVEST-NOW.
+
+Two consecutive clean rounds on BUG + INVEST-NOW, all five reviewers delivered in every round.
+
+G2 — lightweight capture, not a full codify:
+
+    [Write] journal/0588-someoperator-DISCOVERY-revocation-fsync-ordering.md
+    [Edit]  .session-notes — wave-tracker: Wave 2 CONVERGED
+    $ git log -1 --format=%H
+    7c41ab90e2d3f5188a6b0c4e7719fd2a0b36e845
+
+G3 — specs and the remaining todos:
+
+    [Edit] specs/revocation.md — fsync-before-ack recorded at first instance
+    $ rg -l "revocation ledger" specs/ docs/
+    specs/revocation.md  specs/binding-parity.md  docs/operators/revoking.md
+    [Edit] specs/binding-parity.md, docs/operators/revoking.md — sibling sweep
+    [Edit] todos/active/W3-04-binding-parity-ffi.md — amended: the ffi signature Wave 2
+      changed is the one this todo asserts against
+    [Edit] todos/active/W3-07-parity-matrix.md — amended for the same drift
+
+Wave 3 is next in the plan. Launching it.
+
+G5 — [dispatch x3] W3 shards onto <operator-home>/repos/.kr-wt/w3-binding-parity.

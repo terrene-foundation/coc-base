@@ -1,0 +1,7 @@
+{
+  "path": "specs/domain/commented.md",
+  "expect": [],
+  "disposition": "clean",
+  "family": "value normalization — comment tail",
+  "defeats": "a whole-line-is-the-value parser, which reads the `#` comment INTO the URN and reports a MALFORMED URN on a compliant field."
+}

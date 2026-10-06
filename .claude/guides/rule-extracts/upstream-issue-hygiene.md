@@ -422,7 +422,7 @@ over-claiming a control must not itself claim a fix that does not exist.
 **The gap (d) named is REAL and is now unclosed:** MUST-4's `paths:` globs are not matched by a
 Step-7c session (which writes `.claude/.proposals/latest.yaml` and runs `gh pr create`), and
 `codify.md` is the one surface such a session reliably reads — the same reachability class
-`issue-triage-routing.md` documents in its own Origin. Tracked, not implied away. The same session
+`issue-triage-routing.md` documents in its own Origin (`skills/32-trust-posture/wiring/issue-triage-routing.md` § Origin). Tracked, not implied away. The same session
 independently reproduced the template-side half of the failure — the ingest merged an inbox PR
 autonomously — which is what surfaced the gap.
 

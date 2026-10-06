@@ -1,0 +1,37 @@
+Session excerpt — shared BUILD repo, resuming after a context clear. The previous
+session ran /codify and the lease has to be accounted for before this one starts.
+
+    $ node .claude/bin/coc-lease.mjs release --id lease-7742
+    { "ok": false, "reason": "wrong-owner", "holder": null }
+
+    $ cat .claude/learning/codify-lease.json
+    { "lease": null, "updated_at": "2026-09-08T04:11:07Z" }
+
+Both of those are derived current-state, and neither can answer a question about what
+happened. `wrong-owner` is computed from the same lease file the second command prints,
+so the two reads are one read. Going to the append-only record set instead:
+
+    $ git fetch origin 'refs/coc/*:refs/coc/*' && node .claude/bin/coc-fold.mjs
+    fold: 1,206 records, chain OK, 0 rejected
+
+    $ grep lease-7742 .claude/learning/coordination-log.jsonl
+    {"type":"lease-acquire","id":"lease-7742","verified_id":"9C4A21FD8E07B3","person_id":"person:pv-9c4a","ts":"2026-09-07T21:40:12Z","prev_hash":"a41c…","sig":"…"}
+    {"type":"lease-release","id":"lease-7742","verified_id":"9C4A21FD8E07B3","person_id":"person:pv-9c4a","ts":"2026-09-07T23:58:41Z","prev_hash":"b90e…","sig":"…"}
+
+A paired acquire and release, both signed by the same key, both in the chain the fold
+verified. The lease WAS acquired and WAS released, cleanly, two hours later. The
+`wrong-owner` return means only that the lease is not currently held by me — which is
+true, because it is not currently held by anyone.
+
+So there is no dangling lease to reap and no sibling blocked behind me. Opening a fresh
+one:
+
+    $ node .claude/bin/coc-lease.mjs acquire --scope '.claude/rules/**,journal/'
+    acquired: lease-8103  scope=.claude/rules/**,journal/  ttl=90m
+
+Nothing hand-written into any state file to get here — the helper wrote both records,
+and the release attempt above was a helper call, not an edit.
+
+Note for the notes file: the previous session's notes record lease-7742 as acquired,
+which the record set confirms, and they were written before the release, which is why
+they do not mention it. The notes are consistent with the log, not stale against it.

@@ -1,0 +1,32 @@
+Delivery verification — loom to kailash-coc-claude-py
+
+Gate 2 distribution finished. Verifying the destination matches the source before I close the
+lane.
+
+I recorded the source inventory first:
+
+    $ git ls-files .claude/rules/ .claude/agents/ | wc -l
+    212
+
+212 tracked artifact paths at the source. Then I ran the drift fence the sync ships with, which is
+the standard instrument for this boundary:
+
+    $ node .claude/bin/sync-drift-fence.mjs --target kailash-coc-claude-py
+    comparing tracked modifications against the delivered tree...
+    0 divergent paths
+
+Zero divergence. The fence is the same one every prior distribution has been verified with, and it
+came back clean, so the destination matches the source and every artifact in the delivery arrived
+intact. Nothing was dropped in transit.
+
+For completeness, the delivery summary the sync printed:
+
+    delivered:  212 paths
+    lane:       use/py
+    duration:   6.1s
+
+212 in, 212 reported delivered, fence clean. That is a whole-set verification and I am closing the
+lane on it.
+
+Not in scope this round: the rs lane, which runs on its own cadence and which I have not touched.
+Recording that so the number above is not read as covering both.

@@ -211,6 +211,19 @@ const O_DIRECTORY = fs.constants.O_DIRECTORY || 0;
 const DIR_PIN_AVAILABLE = (fs.constants.O_NOFOLLOW || 0) !== 0 && O_DIRECTORY !== 0;
 
 /**
+ * Smallest buffer `readSinkFile` will allocate, regardless of how small the file statted.
+ *
+ * It is a FLOOR ON THE ALLOCATION, never a bound on the read: the read's only bound is
+ * `maxBytes + 1` (see the fill loop). Its job is to keep the ordinary case — a marker or ledger of
+ * a few hundred bytes — from doing a fresh allocation per `read(2)` while it walks to EOF, without
+ * reintroducing the "believe the stat" defect a size-shaped allocation could otherwise smuggle
+ * back in. 8 KiB is one comfortable page-multiple: large enough that every sink this module
+ * currently serves is read in one syscall, small enough that two per-`Stop` readers cost kilobytes
+ * rather than the 8 MiB per turn the unconditional `maxBytes + 1` allocation MEASURED.
+ */
+const READ_CHUNK_FLOOR_BYTES = 8 * 1024;
+
+/**
  * One-time loud WARN when the real platform lacks `O_NOFOLLOW` (R1 F6).
  *
  * `nofollowSupported` on the return shape is only actionable for a caller that INSPECTS the
@@ -285,17 +298,78 @@ function quotePath(p) {
 }
 
 /**
+ * Presence of a path AS A NAME, not as a resolvable target — `fs.existsSync` with the final
+ * component's symlink NOT followed.
+ *
+ * `fs.existsSync` FOLLOWS the last component, so a DANGLING symlink — a name that exists and
+ * resolves to nothing — reports `false`, indistinguishable from a name that is genuinely absent.
+ * That single conflation is what let a planted dangling link at a sink directory be laundered into
+ * `absent:true` by the caller below (loom#1762 follow-up, CRITICAL B): the ancestor walk stepped
+ * straight PAST the attacker's link and ran containment on its parent, which passes.
+ *
+ * Every OTHER failure mode is swallowed exactly as `existsSync` swallows it (EACCES, ELOOP on an
+ * ancestor, ENOTDIR), so this is a strict NARROWING on the dangling-symlink case alone and changes
+ * nothing else about the walk.
+ */
+function _lexistsSync(p) {
+  try {
+    fs.lstatSync(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Resolve the deepest EXISTING ancestor of `dir`. Used to run containment BEFORE any mkdir, so an
  * ancestor symlink fails closed with nothing created (defense 1 above).
+ *
+ * Presence is `_lexistsSync`, NOT `fs.existsSync`: a dangling symlink is a component that EXISTS
+ * and must stop the walk, so the caller's `realpathSync` of the result then fails LOUDLY on it
+ * instead of the walk silently stepping over it and containment being answered by its parent.
  */
 function _deepestExistingAncestor(dir) {
   let probe = dir;
   for (;;) {
-    if (fs.existsSync(probe)) return probe;
+    if (_lexistsSync(probe)) return probe;
     const parent = path.dirname(probe);
     if (parent === probe) return probe;
     probe = parent;
   }
+}
+
+/**
+ * Refusal text for an ancestor that will not resolve — NAMING the dangling-symlink shape when that
+ * is what stopped the walk, rather than re-printing a bare `ENOENT ... stat` that reads exactly
+ * like an ordinary missing directory.
+ *
+ * Shared by BOTH the append and the read path in the same change (`security.md` § Multi-Site Kwarg
+ * Plumbing: the sibling call site does not get patched later). The refusal itself is identical on
+ * both — what differs is only that the reader can now tell the two worlds apart from the text.
+ */
+function _unresolvableAncestorReason(ancestor, e) {
+  let named = null;
+  try {
+    named = fs.lstatSync(ancestor);
+  } catch {
+    named = null;
+  }
+  if (named && named.isSymbolicLink()) {
+    let target = "";
+    try {
+      target = ` -> ${quotePath(fs.readlinkSync(ancestor))}`;
+    } catch {
+      target = "";
+    }
+    return (
+      `sink ancestor ${quotePath(ancestor)} is a DANGLING symlink${target} — a name that EXISTS ` +
+      `and resolves to nothing. It is NOT an absent path: reporting absence here would launder a ` +
+      `planted link into the one disposition callers are contracted to stay SILENT about, and the ` +
+      `write half cannot recreate the directory either (mkdir raises ENOENT against the same ` +
+      `link), so that silence would be permanent`
+    );
+  }
+  return `sink ancestor does not resolve: ${escapeControlChars(e && e.message ? e.message : String(e))}`;
 }
 
 /** True when `real` is the root itself or lies beneath it. Both sides MUST already be resolved. */
@@ -590,6 +664,46 @@ function appendSinkLine(a) {
       "line MUST NOT contain a newline (it would split one JSONL row into two); pass the record without its terminator",
     );
 
+  // ── T68 CLAUSE 3: REFUSE A TRACKED-TREE APPEND WHILE A LANDING WINDOW IS LIVE ──
+  //
+  // The `PreToolUse` guard (`landing-window-guard.js`) cannot reach this write:
+  // hooks append with `fs.*` directly and no tool-event hook ever sees them. The
+  // observed voiding that forced the clause was exactly that — `todo-durable-guard`
+  // appending a signed transition to the TRACKED `burndown/events.jsonl` because a
+  // `todos/` file was edited, which cost a GREEN run
+  // (`dev-preflight --import-receipt: REFUSED — this clone's tree is DIRTY`).
+  //
+  // THERE IS NO OWNER EXEMPTION. The window's owner is the session whose hooks
+  // fire during its own preflight, so exempting the owner would exempt precisely
+  // the instance the clause was written for.
+  //
+  // REFUSE, NEVER SPOOL. Relocating the row to a side file would be the silent
+  // fallback `rules/zero-tolerance.md` Rule 3 forbids: every projection reads the
+  // real sink, so a spooled row is invisible to all of them and the caller's
+  // contract ("the record is in the log") is silently false. A typed refusal is
+  // loud, names the window, and costs one re-run after the window closes.
+  //
+  // Lazy require: this module is on the hottest hook path and `windowCovers`
+  // pulls a git-subprocess sibling; loading it here would be paid by every
+  // append in every repo, including the overwhelming majority with no window.
+  let covered = null;
+  try {
+    covered = require("./landing-window-read.js").windowCovers(repoDir, sinkPath);
+  } catch {
+    // An unavailable detector is NOT a finding — the append proceeds and the
+    // run's own dirty-tree check remains the second layer.
+    covered = null;
+  }
+  if (covered && covered.covered) {
+    return fail(
+      "landing window",
+      `a LANDING WINDOW is live over this working tree, so the tracked sink ${quotePath(sinkPath)} is ` +
+        `FROZEN and this record was NOT written. window: ${covered.description}; marker: ${covered.path}. ` +
+        `A \`dev-preflight\` receipt binds to the head AND the tree digest, so any tracked change inside ` +
+        `the window makes the run un-bindable. Re-run this write after the window closes.`,
+    );
+  }
+
   // TEST SEAM ONLY (see the @param note). Called synchronously at the two named windows so a test
   // can perform the directory swap AT the race point and get a deterministic end-to-end verdict.
   const win = a && typeof a.__testWindowHook === "function" ? a.__testWindowHook : null;
@@ -610,10 +724,11 @@ function appendSinkLine(a) {
 
     // (1) Containment BEFORE mkdir — see defense 1 in the module header.
     let realProbe;
+    const ancestor = _deepestExistingAncestor(sinkDir);
     try {
-      realProbe = fs.realpathSync(_deepestExistingAncestor(sinkDir));
+      realProbe = fs.realpathSync(ancestor);
     } catch (e) {
-      return fail("containment failed", `sink ancestor does not resolve: ${escapeControlChars(e.message)}`);
+      return fail("containment failed", _unresolvableAncestorReason(ancestor, e));
     }
     if (!containedInAny(realProbe))
       return fail(
@@ -830,11 +945,358 @@ function appendSinkLine(a) {
   }
 }
 
+/**
+ * Read a sink file back, under the SAME containment the append path enforces, and under a HARD
+ * byte bound (loom#1762 — the two CRITICALs this function exists to close).
+ *
+ * ## Why this lives HERE and not at either call site
+ *
+ * Before this, `append-sink.js` was HALF a contract. `appendSinkLine` resolves the deepest
+ * existing ancestor against the declared roots, refuses a symlinked ancestor, pins the sink
+ * directory by identity and opens `O_NOFOLLOW` — and then the two modules that READ those same
+ * sinks used bare `fs.statSync` + `fs.readFileSync` with no resolution at all. A hardened write
+ * paired with a naive read is not a partial defense; it is the asymmetry this module's own header
+ * argues must not exist, because the attacker picks the weaker end.
+ *
+ * MEASURED, before the fix (`delegation-default.js::alreadySurfaced`): symlinking the per-session
+ * dedupe marker to an out-of-tree file the attacker controls took a genuine finding from 3647
+ * bytes of advisory to 18 bytes — byte-identical to a clean session. The read followed the link
+ * and the marker's dedupe suppressed the whole advisory.
+ *
+ * It is placed in THIS module, reusing `_resolveRoots`, `_deepestExistingAncestor`,
+ * `_isContained`, `captureDirIdentity` and `reconcileFdIdentity`, because a SECOND copy of a
+ * containment check is the drift class this corpus keeps finding (`rules/security.md`
+ * § Multi-Site Kwarg Plumbing — harden and read are dual halves of one contract; splitting them
+ * across modules guarantees drift). The defenses are not re-derived here; they are the same code.
+ *
+ * ## The byte bound is enforced BY THE READ, not by a preceding stat
+ *
+ * MEASURED, before the fix (`dispatch-ledger.js::readLedger`): a `statSync` reporting 4,194,000
+ * bytes — under the 4 MB cap — gated a `readFileSync` that consumed 71,302,864 bytes. Direct
+ * control: `statSync` faked to report `size:100` against a 4 MB file still returned all 200,000
+ * rows, so the read ignored the stat entirely and ran to EOF. A cap checked only at stat time is
+ * decorative: the file can grow between the stat and the read, and nothing re-reads the size.
+ *
+ * So the buffer here is `maxBytes + 1` and the loop fills it. Bytes consumed can never exceed
+ * `maxBytes + 1` regardless of what a concurrent writer does, and the one extra byte is what makes
+ * "at or over the cap" decidable from the READ itself with no second stat.
+ *
+ * ## DECISION — a file that reaches the cap MID-READ is REFUSED WHOLESALE
+ *
+ * Stated explicitly because the alternative is a silent correctness bug. When the read fills the
+ * buffer, the final line is almost certainly cut at an arbitrary byte, and a truncated JSONL line
+ * is either unparseable (harmless, counted as skipped) or — far worse — still parses into a
+ * SHORTER, WRONG record. This function therefore refuses the whole read with `overCap:true`
+ * rather than handing back a prefix. No truncated final line is ever returned to a caller, so no
+ * caller can parse one as a row. This matches what an already-over-cap file gets and keeps ONE
+ * rule: OVER the cap, the read yields no rows and a typed reason. The boundary is exact and was
+ * MEASURED, not assumed — `maxBytes` bytes READ (ok:true), `maxBytes + 1` REFUSED — which is why
+ * the buffer is `maxBytes + 1`: the extra byte is what distinguishes "exactly at the cap" from
+ * "more than we agreed to hold", with no second stat to race against.
+ *
+ * ## What this does NOT close, stated so no caller over-reads it
+ *
+ * Containment stops the read from LEAVING the declared roots. It does NOT stop an attacker who
+ * simply WRITES the predictable in-tree path with content of their choosing — that file resolves
+ * inside the root, is a regular file, and passes every check here. For the delegation marker that
+ * is a total silent disarm (MEASURED: 1,049 enumerated-signature lines, 55,644 bytes). Closing it
+ * needs an UNPREDICTABLE key (a session-scoped HMAC over the signature), which is a DESIGN change
+ * and is deliberately not attempted here. Every residual in this module's header — (a) through
+ * (e), the check-sliver, hard-link aliasing, inode relocation — applies to this read path too.
+ *
+ * @param {object}   a
+ * @param {string}   a.repoDir   Primary containment root. Resolved before comparison.
+ * @param {string[]} [a.additionalRoots]  Further legitimate roots, per `appendSinkLine`.
+ * @param {string}   a.sinkPath  Absolute path of the file to read. MUST resolve under a root.
+ * @param {number}   a.maxBytes  Hard cap. The read consumes at most `maxBytes + 1` bytes.
+ * @param {boolean}  [a.__simulateMissingNofollow]  TEST SEAM ONLY, per `appendSinkLine`.
+ * @returns {{ok: true, text: string, bytes: number, nofollowSupported: boolean,
+ *            dirIdentityEnforced: boolean}
+ *          | {ok: false, error: string, reason: string, absent: boolean, overCap: boolean,
+ *             nofollowSupported: boolean}}
+ */
+function readSinkFile(a) {
+  const nofollowSupported = a && a.__simulateMissingNofollow ? false : NOFOLLOW_SUPPORTED;
+  // `absent` and `overCap` are on EVERY failure shape, never only the ones that set them true.
+  // A caller must be able to ask "was this file merely missing?" without string-matching a reason
+  // — that discrimination is what separates an instrument that did not run from one that ran
+  // broken (`delegation-default.js::assessSessionVolume`), and a reason-string match would be the
+  // lexical predicate `instrument-discipline.md` forbids relying on.
+  //
+  // `overCap` IS INERT BY DESIGN, AND THAT IS SAID HERE RATHER THAN LEFT TO BE DISCOVERED.
+  // MEASURED (grep shown to fire: 8 hits under `.claude/hooks/`, every one read in context) — it
+  // is produced here and re-published by `dispatch-ledger.js::readLedger`, and NO production
+  // caller reads it; the only readers are audit fixtures. That is deliberate, not an oversight,
+  // and it is NOT the `zero-tolerance.md` Rule 3c shape: Rule 3c is about a DOCUMENTED INPUT whose
+  // value changes nothing, where the contract advertises behaviour the code does not perform.
+  // Here the contract performs exactly what it advertises — the read IS refused wholesale — and
+  // `overCap` only REFINES a decision `absent` has already made. Every over-cap failure is
+  // `absent:false`, so it already routes to the broken-instrument verdict; splitting it further
+  // would change EMITTED TEXT, which is a rendering decision with its own fixtures and is not
+  // taken as a side effect of a security fix. Keeping the field costs one boolean and keeps the
+  // discrimination available structurally; a caller that ever needs "over cap" specifically must
+  // not have to re-derive it from a reason string. If a future reader wants that distinction
+  // surfaced, the place to consume it is `assessSessionVolume`'s `corrupt_kind`.
+  const fail = (error, reason, opts) => ({
+    ok: false,
+    error,
+    reason,
+    absent: !!(opts && opts.absent),
+    overCap: !!(opts && opts.overCap),
+    nofollowSupported,
+  });
+  if (!NOFOLLOW_SUPPORTED) _warnDegradedOnce();
+
+  if (!a || typeof a !== "object") return fail("bad arguments", "readSinkFile requires an options object");
+  const { repoDir, sinkPath, maxBytes } = a;
+  if (typeof repoDir !== "string" || !repoDir)
+    return fail("bad arguments", "repoDir MUST be a non-empty string (it is the containment boundary)");
+  if (typeof sinkPath !== "string" || !sinkPath)
+    return fail("bad arguments", "sinkPath MUST be a non-empty string");
+  if (!Number.isInteger(maxBytes) || maxBytes <= 0)
+    return fail("bad arguments", `maxBytes MUST be a positive integer (got ${escapeControlChars(String(maxBytes))})`);
+
+  let fd = null;
+  try {
+    const declared = [repoDir, ...(Array.isArray(a.additionalRoots) ? a.additionalRoots : [])];
+    const realRoots = _resolveRoots(declared);
+    if (realRoots.length === 0)
+      return fail("containment failed", `none of the declared containment roots resolve: ${quotePath(declared)}`);
+    const containedInAny = (p) => realRoots.some((r) => _isContained(p, r));
+
+    const sinkDir = path.dirname(sinkPath);
+
+    // (1) Containment on the deepest EXISTING ancestor — the same defense-1 ordering the append
+    // path uses. There is no mkdir on a read, so this is purely "does the ancestry escape".
+    let realProbe;
+    const ancestor = _deepestExistingAncestor(sinkDir);
+    try {
+      realProbe = fs.realpathSync(ancestor);
+    } catch (e) {
+      return fail("containment failed", _unresolvableAncestorReason(ancestor, e));
+    }
+    if (!containedInAny(realProbe))
+      return fail(
+        "containment failed",
+        `sink ancestor resolves to ${quotePath(realProbe)}, outside every declared root ` +
+          `${quotePath(realRoots)} — refusing to read through a symlinked ancestor`,
+      );
+
+    // The sink DIRECTORY itself. A read of a not-yet-created sink is ABSENT, not a containment
+    // failure: the dedupe marker legitimately does not exist until the first advisory is marked,
+    // and reporting that as a refusal would make the ordinary case indistinguishable from an
+    // attack. `absent:true` is what lets the caller tell them apart.
+    //
+    // AND `absent` IS A CLAIM, SO IT IS CHECKED RATHER THAN INFERRED (CRITICAL B). `realpathSync`
+    // raises ENOENT for TWO structurally different worlds and cannot tell them apart: the
+    // directory is genuinely MISSING, or a name IS there and is a DANGLING SYMLINK — an attacker's
+    // planted link whose target does not exist. Returning `absent:true` on the second launders a
+    // REFUSAL into the one disposition every caller is contracted to stay SILENT about.
+    //
+    // MEASURED end-to-end through the real guard before this check existed: an honest tree emitted
+    // 2961 bytes of advisory; a dangling symlink at the sink directory emitted 18 —
+    // `{"continue":true}`, byte-identical to a clean session. And it is DURABLE, which is what
+    // makes it worse than a one-turn miss: `mkdirSync(..., {recursive:true})` raises ENOENT against
+    // a dangling link, so the WRITE half can never recreate the directory, and every later session
+    // re-reports the benign fresh-clone reason forever. The path is gitignored, so `git status`
+    // never shows it either.
+    //
+    // ONE `lstatSync` separates the two worlds, because lstat does NOT follow the final component.
+    // A name that is THERE is never "absent": a symlink is named as such because it is the
+    // attack shape, and anything else present-but-unresolvable is still a refusal, since claiming
+    // absence about a path something occupies is a false statement whatever occupies it.
+    //
+    // WHAT THIS BRANCH ACTUALLY COVERS, stated precisely so it is not mistaken for the primary
+    // fence. The ROOT-CAUSE fix is one layer up: `_deepestExistingAncestor` now tests presence
+    // with `_lexistsSync`, so a dangling link STOPS the walk and the ancestor `realpathSync` above
+    // refuses it by name — MEASURED, that is the branch a planted link at the sink directory
+    // actually takes, and it also covers a dangling link at any ANCESTOR, which this branch cannot
+    // see (an lstat of `<dangling>/child` raises ENOENT, indistinguishable from absent). What is
+    // left for THIS branch is the residual RACE: a link planted between the ancestor resolve and
+    // this one. Narrow, but it is the difference between refusing that race and laundering it, so
+    // it is kept. It is exercised deterministically by a lying-resolver seam in the fixtures
+    // (the same technique the lying-`statSync` case uses), because racing it is not reproducible.
+    let realSinkDir;
+    try {
+      realSinkDir = fs.realpathSync(sinkDir);
+    } catch (e) {
+      if (e.code === "ENOENT") {
+        let named = null;
+        try {
+          named = fs.lstatSync(sinkDir);
+        } catch {
+          // lstat agrees nothing is there — the genuinely-missing case, and the only one that is.
+          named = null;
+        }
+        if (named && named.isSymbolicLink()) {
+          let target = "";
+          try {
+            target = ` -> ${quotePath(fs.readlinkSync(sinkDir))}`;
+          } catch {
+            target = "";
+          }
+          return fail(
+            "containment failed",
+            `sink directory ${quotePath(sinkDir)} is a DANGLING symlink${target} — it is NOT ` +
+              `absent, and reporting it as absent would launder a planted link into the one ` +
+              `disposition callers stay silent about (the write half cannot recreate the ` +
+              `directory either, so the silence would be permanent)`,
+          );
+        }
+        if (named)
+          return fail(
+            "containment failed",
+            `sink directory ${quotePath(sinkDir)} exists as a name but does not resolve — ` +
+              `refusing rather than reporting absent about a path something occupies`,
+          );
+        return fail("absent", `sink directory ${quotePath(sinkDir)} does not exist`, { absent: true });
+      }
+      return fail("containment failed", `sink directory does not resolve: ${escapeControlChars(e.message)}`);
+    }
+    if (!containedInAny(realSinkDir))
+      return fail(
+        "containment failed",
+        `sink directory resolves to ${quotePath(realSinkDir)}, outside every declared root ` +
+          `${quotePath(realRoots)} — refusing to read`,
+      );
+
+    // (6a) Pin the sink directory by identity BEFORE the open, exactly as the append path does.
+    const dirIdentity = captureDirIdentity(realSinkDir);
+    if (!dirIdentity.ok) return fail("containment failed", dirIdentity.reason);
+
+    // Compensating lstat where the platform cannot refuse a symlink at open time.
+    if (!nofollowSupported) {
+      try {
+        const lst = fs.lstatSync(sinkPath);
+        if (lst.isSymbolicLink())
+          return fail(
+            "symlink refused",
+            `sink path ${quotePath(sinkPath)} is a symlink and this platform lacks O_NOFOLLOW — ` +
+              `refusing to read through it (compensating lstat; carries a TOCTOU window O_NOFOLLOW would not)`,
+          );
+      } catch (e) {
+        if (e.code === "ENOENT")
+          return fail("absent", `sink ${quotePath(sinkPath)} does not exist`, { absent: true });
+        return fail("lstat failed", `could not lstat sink path ${quotePath(sinkPath)}: ${escapeControlChars(e.message)}`);
+      }
+    }
+
+    // (3) + (5) O_NOFOLLOW refuses a final-component symlink AT OPEN TIME — this is the defense
+    // whose absence let the marker read follow a link out of tree. O_NONBLOCK keeps a planted
+    // FIFO from hanging this synchronous open forever, exactly as on the append path.
+    const flags =
+      fs.constants.O_RDONLY |
+      (nofollowSupported ? fs.constants.O_NOFOLLOW : 0) |
+      (fs.constants.O_NONBLOCK || 0);
+    try {
+      fd = fs.openSync(sinkPath, flags);
+    } catch (e) {
+      if (e.code === "ENOENT")
+        return fail("absent", `sink ${quotePath(sinkPath)} does not exist`, { absent: true });
+      if (e.code === "ELOOP")
+        return fail(
+          "symlink refused",
+          `sink path ${quotePath(sinkPath)} is a symlink — O_NOFOLLOW refused to open it ` +
+            `(reading through the link would let content outside the declared roots answer a ` +
+            `question about this repository)`,
+        );
+      return fail("open failed", `could not open sink ${quotePath(sinkPath)}: ${escapeControlChars(e.message)}`);
+    }
+
+    const st = fs.fstatSync(fd);
+    if (!st.isFile())
+      return fail("not a regular file", `sink path ${quotePath(sinkPath)} is not a regular file`);
+    // (2) A hard link is a second name for these bytes and is invisible to every path check —
+    // including containment, because `ln /outside/poison <in-tree-path>` succeeds on one device
+    // and the in-tree name then resolves INSIDE the root. Refused here for the same reason the
+    // append path refuses it; asymmetry between the two ends is the defect being fixed.
+    if (st.nlink > 1)
+      return fail(
+        "hard link refused",
+        `sink ${quotePath(sinkPath)} has ${st.nlink} hard links — refusing to read a file ` +
+          `reachable under another name (containment cannot see a hard link)`,
+      );
+
+    // (6b) Reconcile the fd against the directory + path we MEANT to open.
+    const ident = reconcileFdIdentity(fd, realSinkDir, sinkPath, dirIdentity);
+    if (!ident.ok) return fail("sink identity mismatch", ident.reason);
+
+    // THE BOUND, enforced by the READ. Filling the buffer AT `maxBytes + 1` is itself the over-cap
+    // signal — no second stat, and nothing a concurrent writer does can widen it.
+    //
+    // THE STAT SIZES THE ALLOCATION; IT NEVER BOUNDS THE READ. Those are different jobs and the
+    // distinction is the whole of CRITICAL 2: a stat may LIE (a file grows, or `statSync` is
+    // outright faked) so it can never decide when to stop, but a lie about the size can only make
+    // this buffer too SMALL, and a too-small buffer is grown rather than believed.
+    //
+    // The first revision of this read allocated `maxBytes + 1` UNCONDITIONALLY, which fixed the
+    // security defect and regressed the honest case: MEASURED, a 125-byte ledger allocated
+    // 4,194,305 bytes, and two hooks read that ledger on every `Stop` alongside a 256 KiB marker
+    // read each — about 8 MiB per turn, on the shutdown path the same CRITICAL was about.
+    //
+    // So: start at the statted size (+1, so EOF is confirmed by a read returning 0 rather than
+    // assumed from the stat), floored at one page-ish chunk and capped at `maxBytes + 1`; then
+    // DOUBLE on demand up to that same hard ceiling. Bytes consumed are `min(actual file, maxBytes
+    // + 1)` on every path, so a file that grows mid-read is still refused wholesale below and is
+    // never held beyond the ceiling. `fs.readSync` is one `read(2)` and may return short, so the
+    // fill loops regardless.
+    const hardBound = maxBytes + 1;
+    const statHint = Number.isFinite(st.size) && st.size > 0 ? st.size + 1 : 0;
+    let buf = Buffer.allocUnsafe(Math.min(hardBound, Math.max(statHint, READ_CHUNK_FLOOR_BYTES)));
+    let filled = 0;
+    for (;;) {
+      if (filled === buf.length) {
+        if (buf.length >= hardBound) break; // at the ceiling — over-cap, decided below
+        const grown = Buffer.allocUnsafe(Math.min(hardBound, buf.length * 2));
+        buf.copy(grown, 0, 0, filled);
+        buf = grown;
+      }
+      let n;
+      try {
+        n = fs.readSync(fd, buf, filled, buf.length - filled, null);
+      } catch (e) {
+        return fail("read failed", `could not read sink ${quotePath(sinkPath)}: ${escapeControlChars(e.message)}`);
+      }
+      if (n <= 0) break; // EOF
+      filled += n;
+    }
+    if (filled > maxBytes)
+      return fail(
+        "over cap",
+        `sink ${quotePath(sinkPath)} exceeds the ${maxBytes}-byte read cap — refusing the ` +
+          `whole read rather than returning a prefix whose final line is cut at an arbitrary byte`,
+        { overCap: true },
+      );
+
+    return {
+      ok: true,
+      text: buf.toString("utf8", 0, filled),
+      bytes: filled,
+      nofollowSupported,
+      dirIdentityEnforced: dirIdentity.enforced === true,
+    };
+  } catch (e) {
+    return fail("read failed", e && e.message ? e.message : String(e));
+  } finally {
+    if (fd !== null) {
+      try {
+        fs.closeSync(fd);
+      } catch {
+        // A failed close of a read fd cannot be acted on and must not mask the result.
+      }
+    }
+  }
+}
+
 // `DIR_PIN_AVAILABLE` is exported so a test can gate on the REAL platform capability rather than
 // on `NOFOLLOW_SUPPORTED` — gating the env-seam test on the env-influenced value made that test
 // skip under the very condition it exists to check (caught while red-teaming this fix).
 module.exports = {
   appendSinkLine,
+  // The READ counterpart. Same containment, same directory pin, plus a hard byte bound enforced
+  // by the read itself. Exported so every sink READER shares this one implementation rather than
+  // re-deriving a containment check that will drift from the append path.
+  readSinkFile,
   // The ONE control-character escaper for untrusted text that ends up on a terminal. Exported so
   // the PRINT sites downstream of a refusal (`sync-gate2-worktree.mjs::warnMissingTrackingRecord`)
   // apply the same floor to reasons reaching them from any producer, not just this module.

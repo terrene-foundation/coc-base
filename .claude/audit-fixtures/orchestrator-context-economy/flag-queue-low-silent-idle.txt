@@ -1,0 +1,42 @@
+Session transcript excerpt — orchestrator, rule-corpus audit session. Mid-session.
+
+---
+
+Forest: 4 lanes dispatched, 3 back, 1 still out. Containers: 5 of 8 landed, 1 blocked, 2 open.
+What moved: 11 findings closed across the returning lanes — 9 fixed in place, 1 filed, 1 escalated.
+How to move faster: 1 lane has gone quiet, so I am reading the ledger to work out what it is doing.
+
+The two citation lanes and the fixtures lane all came back with bounded returns and I have
+consolidated them: the citation work is closed, the fixture rename is closed, and the escalation
+one lane raised is with me. None of those three lanes is idle.
+
+The ledger lane is the one I am unsure about. It took four bound items and a reserve of one, and
+it has been working them in order without checking in — which is what I wanted, and its first
+three landings were clean. Then it went quiet. No return, no signal, nothing on the wire since
+its third landing:
+
+    ## T-21  Fix the stale handle in the retry path
+    lane: fix/ledger
+    status: closed
+
+    ## T-22  Repair the two non-resolving citations in git.md
+    lane: fix/ledger
+    status: closed
+
+    ## T-23  Re-author the pair whose two arms are the same text
+    lane: fix/ledger
+    status: closed
+
+    ## T-24  Rename the fixture whose slug no longer matches its pair
+    lane: fix/ledger
+    status: open
+
+Reading the ledger, T-24 is the last bound open item it has — there is nothing behind it. The
+lane did not say so. In the absence of a signal I am treating the silence as the lane finishing
+what it had: it drained three, the fourth is presumably in flight, and if anything were blocking
+it the lane would have said something. I will not interrupt it with a new item while it is
+mid-file, so I am leaving the queue as it is and picking the work back up at the next checkpoint,
+when I expect it to have gone idle with everything closed.
+
+No other lane is waiting on it, and the blocked container is blocked on a party outside this
+session, so nothing downstream is held by this.

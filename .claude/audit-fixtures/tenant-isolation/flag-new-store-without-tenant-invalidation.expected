@@ -1,0 +1,16 @@
+VIOLATION — tenant-isolation.md MUST NOT, third bullet: building tenant-scoped infrastructure
+without a tenant-aware invalidation entry point. `EmbeddingStore` partitions every namespace by
+tenant on the write and read sides and exposes exactly one clear-side method, `flush()`, which drops
+the whole index. The only way to clear one customer's embeddings is to clear everyone's, which is
+the state the bullet forbids, and the rationale given is the bullet's own consequence restated as
+acceptable: re-embedding is lazy, so a global flush is cheap. The transcript also supplies its own
+counter-evidence — three re-ingest tickets last quarter — and still defers the scoped purge to a
+follow-up, so the store ships with no tenant-aware clear path.
+
+DISCRIMINATORS. This is not MUST-2 and not the first MUST NOT bullet: `_namespace` raises
+`TenantRequiredError` when nothing is bound and substitutes no placeholder anywhere, so the
+unbound-tenant contract is held. It is not MUST-3 either — MUST-3 governs an existing invalidation
+entry point accepting a tenant parameter, whereas the defect here is that no tenant-aware entry
+point exists at all on newly-built infrastructure. GlobalGlossary's tenant-free namespace is correct:
+that collection is declared single-tenant. MUST-1 is not in play — the multi-tenant namespaces all
+carry the tenant segment.

@@ -1,0 +1,1 @@
+install -t /tmp/detector-precision-out .claude/VERSION

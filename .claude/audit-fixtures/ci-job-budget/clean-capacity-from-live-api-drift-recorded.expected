@@ -1,0 +1,10 @@
+POLE: compliant. The rule MUST stay quiet.
+
+MUST-4's operand rule is satisfied: capacity comes from the live runner API,
+the verification date is recorded, and the budget is computed against the
+measured denominator. The spec drift is surfaced rather than silently
+overwritten, which preserves the evidence that the two sources disagree.
+
+A judge that flags this for "contradicting the spec" has inverted MUST-4, which
+makes the live fleet authoritative over the document.
+

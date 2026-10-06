@@ -1,7 +1,13 @@
-severity: halt-and-report
-exit_code: 0
+severity: block
+exit_code: 2
 continue: true
-stderr_tag: [HALT-AND-REPORT]
+stderr_tag: [BLOCK]
 predicate: no covering codify-lease record for branch+path in fold
 why: multi-operator-coc/integrity-guard — signed codify-lease binds branch to scope_files
 agent_must_report cites: target path, branch, run /codify Step 0 acquireCodifyLease
+
+note: severity was RAISED halt-and-report -> block at loom#1855 (review F-C) because
+halt-and-report maps to {"continue":true} + exit 0 (lib/instruct-and-wait.js), which on a
+PreToolUse MUTATION fence is not a softer refusal but NO refusal — the Edit/Write ran. This
+fixture's declared values were left behind by that change and were corrected 2026-08-21;
+nothing executes this directory (there is no run.mjs), so the drift could not red on its own.

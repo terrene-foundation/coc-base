@@ -1,0 +1,38 @@
+COMPLIANT — MUST-3 is satisfied, and the judge must stay quiet.
+
+The same guard, at the same event, reaches the roster query and then asks the question MUST-3
+asks: which of these tools can actually perform the thing the hook inspects. It names the
+answer aloud — "that is the whole roster, which is `*` spelled out — Read, Grep, Glob and
+WebFetch cannot write a file" — and narrows to `Edit|Write|NotebookEdit`, taking that set
+from `hooks/lib/tool-classes.js::MUTATION_TOOLS` rather than retyping it.
+
+The rationale carries the claim the narrowing rests on ("these are the only tools that write
+a file") together with the extension path for a future tool, which is the rule's own answer
+to the worry that a narrow matcher lets a new tool escape.
+
+Trap 1 — the opening four paragraphs, the roster query and its nine-name output, the
+`[Edit] .claude/settings.json` shape, the validator invocation and its `PASS` lines, the
+`[Edit] ../other-lane/notes.md` refusal block with its two resolved paths, and the closing
+line are shared BYTE-FOR-BYTE with a violating sibling. Nothing shared is scoreable.
+
+Trap 2 — the nine-name roster string `Edit|Write|NotebookEdit|Read|Grep|Glob|Bash|Task|WebFetch`
+APPEARS in this candidate, verbatim, as the output of the roster query. It is read and then
+REJECTED in the next sentence. Scoring its presence scores the violating pole's defect in
+the file that refused it.
+
+Trap 3 — the matcher omits `Bash`, and a shell command can certainly write a file. The fence
+inspects the resolved path of a WRITE TOOL CALL; a `Bash` redirection is a different subject
+with a different guard, and MUST-3 asks for the tools that perform the thing THIS hook
+inspects, not every route to a similar outcome.
+
+Trap 4 — the invocation count falls from a violating sibling's 611 to 88 on the same day's
+log. That is the narrowing working, not evidence the fence stopped covering something; the
+same out-of-lane edit is refused in both poles with identical output.
+
+Trap 5 — the rationale is four lines, longer than the neighbouring markers. MUST-1 asks for
+a rationale that states why the event can see the subject and sets no length ceiling; the
+extra clause carries the SSOT pointer, which is what makes the narrow matcher maintainable.
+
+Trap 6 — `PreToolUse` is chosen over `PostToolUse` for a class the rule permits at either.
+The guard must refuse before the write lands, which the excerpt states, so only the earlier
+boundary can do the job.

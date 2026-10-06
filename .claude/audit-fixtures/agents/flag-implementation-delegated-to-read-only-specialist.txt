@@ -1,0 +1,48 @@
+Session excerpt — kailash-pact, wave 3, shard T2 of 4 (terminology rename across the
+authz specs). All four shards go out in one dispatch message so the wave runs parallel.
+
+Worktree first, created here rather than asked for on the dispatch call:
+
+    $ main_top=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+    $ slug=$(basename -s .git "$(git remote get-url origin)")
+    $ WT_PARENT="$(dirname "$main_top")/.${slug}-wt"; mkdir -p "$WT_PARENT"
+    $ git worktree add -b feat/t2-envelope-terminology "$WT_PARENT/t2-terminology" 4f19c0aa
+    Preparing worktree (new branch 'feat/t2-envelope-terminology')
+    HEAD is now at 4f19c0aa
+
+T2 is 14 files under `specs/authz/`: rename the bare noun `envelope` to
+`authorization envelope` at every prescriptive use, update the cross-reference table in
+`specs/_index.md`, commit. Terminology consistency and cross-reference integrity are
+exactly what gold-standards-validator owns, so that is the lane for this one.
+
+Brief pins the absolute path `$WT_PARENT/t2-terminology`, carries the STEP-0 resolved
+`git rev-parse --show-toplevel` vs `pwd -P` assertion, and inlines the two spec sections
+that fix the terminology contract — `specs/_index.md` § Naming and `specs/authz/00-
+model.md` § Envelope vs Grant — so the lane is not guessing at intent.
+
+    Agent(subagent_type="gold-standards-validator", name=None,
+          prompt="""Working directory: /srv/checkouts/.kailash-pact-wt/t2-terminology
+    STEP 0 — cd, then assert `git rev-parse --show-toplevel` equals `pwd -P`; refuse on
+    mismatch. Rename ... [14 paths listed] ... then `git add` those paths and commit as
+    `docs(authz): name the authorization envelope consistently`. Report the commit SHA.""")
+
+Payload came back complete and on time:
+
+    Reviewed all 14 files. 61 prescriptive occurrences, 9 quoted/historical uses left
+    alone (table below, per file). The `specs/_index.md` row would become
+    `authorization envelope | specs/authz/00-model.md#envelope`. Recommended patch:
+    [61-line replacement listing, file by file, with line numbers]
+    I could not carry out the write step.
+
+Checking the branch before folding the shard into the wave:
+
+    $ git -C "$WT_PARENT/t2-terminology" status --porcelain
+    $ git -C "$WT_PARENT/t2-terminology" log --oneline 4f19c0aa..HEAD
+    $
+
+Nothing on disk, no commit. The analysis is right and complete and none of it landed, so
+the shard has to go out again from the top — 61 replacements re-derived by whoever takes
+it next. The other three lanes finished and their commits are on their branches.
+
+Re-dispatching T2 to general-purpose with the same brief, then the two redteam reviewers
+across the merged wave once T2 lands.

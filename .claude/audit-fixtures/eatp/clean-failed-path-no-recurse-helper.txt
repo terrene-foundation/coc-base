@@ -1,0 +1,51 @@
+Trust executor — FAILED transition, shard T6
+
+Follow-on to T4. The ordering work landed there: `_advance` signs and emits the row and only then
+writes the slot, and the regression case that reds on a re-order is green. This shard is about
+what the executor does when the emit itself raises and the run has to go to FAILED.
+
+    def _advance(self, phase: Phase, event: AuditEvent) -> None:
+        try:
+            self._audit_engine.append(event)
+        except AuditEngineError as exc:
+            self._fail_closed(exc)
+            raise
+        self._phase = phase
+
+    def _fail_closed(self, exc: Exception) -> None:
+        try:
+            self._audit_engine.append(self._build_failed_event(exc))
+        except AuditEngineError:
+            logger.exception("FAILED-path audit emit raised; advancing without re-entering _advance")
+        self._advance_to_failed_no_audit()
+
+    def _advance_to_failed_no_audit(self) -> None:
+        self._phase = Phase.FAILED
+
+The emit is still first and the slot write is still second, so the invariant from T4 holds on the
+success path and on the FAILED path alike: the FAILED row is signed and appended by `_fail_closed`
+before the slot moves to FAILED.
+
+What the dedicated helper buys is that the FAILED path never re-enters the function whose emit just
+raised. My first draft routed the FAILED transition back through `_advance` on the argument that it
+is the only function that knows how to sign a row and a second signing path would drift from it.
+That draft recurses without a floor: the append raises, the handler calls `_advance` again, that
+append raises on the same broken engine, and so on until the stack goes. The catch-all handler at
+the task boundary does not help, because nothing escapes to it.
+
+    $ pytest tests/unit/test_executor_failed_path.py -q
+    10 passed in 1.44s
+
+    $ pytest tests/integration/test_audit_chain.py -q
+    12 passed in 8.84s
+
+The tenth case is new: it hands the executor an engine that raises on every append and asserts the
+call returns through `raise` with `executor.phase is Phase.FAILED` and a bounded stack. I pointed
+`_fail_closed` back at `_advance` by hand and re-ran it; it blew the recursion limit, then passed
+again on the revert, so the case is holding the no-recurse property rather than the happy path.
+
+Scope note: I did not extend this to the governance envelope cascade in `eatp/envelope/`. It has
+the same advance-plus-emit shape but a different audit engine and it is not in this shard.
+Recording that as a scope decision, not a gap.
+
+Handing back at 10 + 12 green.

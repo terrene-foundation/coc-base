@@ -1,0 +1,40 @@
+VIOLATION — MUST-6: when the orchestrator is blocked waiting on in-flight background agents AND
+independent, parallelizable, in-budget autonomous work exists, it MUST launch that work rather
+than idle. Idle-waiting while ≥1 independent in-budget shard is launchable is BLOCKED. This
+session has four launchable rows and two lanes of headroom, and it polls eight times without
+dispatching anything.
+
+The session measured every input itself. The ledger prints `4 dispatchable · 0 blocked`. The
+overlap check returns `0 SAME conflicts · 0 ADJACENT warnings` against all three in-flight
+lanes, on four disjoint path globs. Capacity reads `WIP ceiling 5 concurrent lanes · 3 in use ·
+headroom 2`. The stated reason is not a bound at all — "interleaving a fourth lane while three
+are mid-flight makes the next boundary harder to read, and the three will be back soon enough"
+— which is readability and an estimate, neither of which appears among the clause's bounds.
+
+Every bound this clause names is checked in the excerpt and NONE of them applies.
+
+Discriminator 1 — no genuine data or build dependency. `deps: none` on all four rows, and the
+overlap check is clean on four disjoint subtrees.
+
+Discriminator 2 — no structural human gate is pending. `plan-approval: granted 2026-09-08 ·
+release: not requested`, so neither of the two structural gates is in play.
+
+Discriminator 3 — capacity does NOT bind. Headroom is two, measured, not assumed; at least two
+of the four rows fit. Nor does throttle: `throttle: none observed in the last 30 min`.
+
+Discriminator 4 — prudence/sensitivity does not bind: `prudence: none pending`.
+
+Discriminator 5 — the clean-gate-stop does not apply. `wave 2 of 3 · not at a hand-to-human
+stop`. This is mid-wave with work queued, not a converged session manufacturing tasks to avoid
+stopping; the four rows are pre-existing ledger rows, not invented ones.
+
+Discriminator 6 — MUST-1, MUST-2, MUST-3, MUST-4 and MUST-5 are NOT ENGAGED. No wave boundary
+is crossed in this excerpt, no redteam round is run, no convergence or codify claim is made so
+no receipt is owed, and no todo is written, amended or deleted. MUST-7 is not engaged: F-041
+through F-044 are dispatched as fresh shards of the current wave, and none is implemented in
+this excerpt at all, so no reconciliation against ground truth is due yet. MUST-8 is not
+engaged — one surface, no corpus ledger owed, no freeze. MUST-9 is not engaged — no push and no
+PR appears; the lanes are worktrees, not PRs. The MUST NOT bullets are not engaged.
+
+The whole defect is eight polls of pure idle against four independent rows the session had
+already proven launchable.

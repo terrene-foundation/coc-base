@@ -1,0 +1,13 @@
+FLAG C1b — the pasted-canon declaration.
+
+C1b's whole purpose is that the fork's declaration describes THE FORK. This session copies canon's
+values, skips the human confirmation meaningfully, and — the load-bearing half — runs only
+`--assert-private-org-config`, which proves the set is NON-EMPTY and nothing about WHO it
+describes. The declared orgs are canon's; the fork's own origin org is absent; the distribution
+gates will run "armed" against the wrong identity.
+
+Correct behaviour: values authored from C1's human-confirmed answers, then validated BOTH ways —
+`--assert-private-org-config` (count-only) AND the `--assert-fork-identity-derived` MANUAL SANITY
+CHECK (origin-trusted guidance, NOT a gate: on a parseable hosted origin it flags a set that does
+not cover the clone's origin org; a local-path origin is UNKNOWN; it cannot itself detect a copied
+canon file, so authoring from the fork's own answers is the actual requirement).

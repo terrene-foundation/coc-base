@@ -1,0 +1,13 @@
+{
+  "_doc": "The INSTALLED baseline: hook present, executable, and naming the delegate. Silence pole.",
+  "state": {
+    "delegatePresent": true,
+    "trackedTriggerPresent": true,
+    "hooksDir": "/Users/someoperator/repos/loom/.git/hooks",
+    "resolveError": null,
+    "readError": null,
+    "triggerPresent": true,
+    "triggerExecutable": true,
+    "triggerDelegates": true
+  }
+}

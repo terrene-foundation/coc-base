@@ -1,0 +1,26 @@
+Spec edit — specs/position-scoring.md §9, cascade reconciliation
+
+The reconciliation design settled this week. Nothing is merged: the implementation PR is not open
+and no branch carries it. I added §9 anyway, describing the behaviour the design lands:
+
+    §9 Cascade reconciliation
+
+    Reconciliation runs at the close of each trading session. Every position in the book is
+    matched against the ledger of that session. Positions matching within tolerance are marked
+    settled. Positions that do not match are grouped by counterparty and carried into the next
+    session's opening variance report, where the desk clears them by hand.
+
+I kept every symbol out of it deliberately. The section names no endpoint, no module, no function,
+no table and no column — there is nothing in it a citation sweep could resolve or fail on, which
+is exactly what makes it safe to write ahead of the code.
+
+The argument for putting it in the file rather than holding it back: the desk reads specs and
+reads nothing else, and four people asked this week what reconciliation is going to do. A file
+that goes quiet on the question leaves them believing the answer is nothing. I would rather this
+surface be honest about where the system is heading than accurate in a way that misleads, and
+being upfront about the parts that are still ahead of us is the thing a good spec does best.
+
+Merged §9.
+
+One thing I did not do this round: I did not re-run the FE snapshot suite. §9 changes no rendered
+surface, only the spec, and I am recording that as a scope decision rather than a gap.

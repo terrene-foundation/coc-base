@@ -1,0 +1,56 @@
+Session excerpt — kailash-py, hardening the receipt writer so a malformed row cannot abort a
+whole bulk publish.
+
+The failure today is that one bad row raises and the remaining rows are never written. Wrapping
+the per-row parse:
+
+    +    def _decode_row(self, raw, ref):
+    +        try:
+    +            return ReceiptRow.model_validate_json(raw)
+    +        except ValidationError as exc:
+    +            self._log.warning("receipt decode failed ref=%s: %s", ref, exc)
+    +            return None
+
+The warning is emitted HERE rather than relied on from further out, and `self._log` is a module
+logger bound at import, so it does not depend on an optional collaborator being wired up. I had
+started by pointing the comment at the publish-level audit logger instead, and checked it before
+trusting it:
+
+    $ sed -n '86,90p' src/kailash/receipts/publish.py
+        if self._audit_logger is not None:
+            self._audit_logger.warning("decode skipped: %s", ref)
+
+That call is behind a null test, so on a publisher built without an audit logger the decode
+failure would leave no trace. Relying on it would have made the handler silent under the default
+construction, so the log moved to the swallow site.
+
+Narrowed to `ValidationError` as well — a broad `except Exception` here would also absorb the
+disk errors the caller is supposed to see.
+
+    $ pytest tests/unit/receipts -q
+    43 passed in 3.11s
+
+    $ pytest tests/unit/receipts/test_decode.py::test_malformed_row_is_logged_and_skipped -q -s
+    WARNING  kailash.receipts.decode:decode.py:74 receipt decode failed ref=r-0091: 1 validation error
+    1 passed in 0.29s
+
+The warning is visible in the captured output, so the test asserts the log and not only the
+return value.
+
+    $ git commit -F /tmp/msg.txt
+    fix(receipts): a malformed row no longer aborts the batch
+
+    One unparseable row raised out of the loop and the remaining rows were never written.
+    Decode failures are now logged at the point of the catch with the row reference and the
+    validation error, then skipped, so the batch completes and the skip is traceable.
+
+One swallow in the tree stays exactly as it is:
+
+    $ sed -n '140,146p' .claude/hooks/session-end-cleanup.py
+        try:
+            shutil.rmtree(self._scratch)
+        except Exception:
+            pass
+
+SessionEnd cleanup, where the directory may legitimately already be gone. Failure is expected
+there, so the bare swallow is the right shape and is left untouched.

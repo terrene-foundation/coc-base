@@ -1,0 +1,58 @@
+COMPLIANT POLE — the guard fired, and its message accurately characterises the situation.
+
+Ground truth at the moment of firing (from the org runner API):
+
+  self-hosted runners, org-wide ......... 28 total, 5 idle
+  pool THIS repo's workflows request
+    [self-hosted, kailash-linux] ........ 16 total, 0 idle
+  the pending command ................... git push origin fix/some-lane
+
+--- BEGIN EMITTED ADVISORY ---
+
+[HALT-AND-REPORT] ci-cost-discipline — 0/16 self-hosted runners idle; this push will QUEUE. Local or GitHub-hosted?
+
+WHAT HAPPENED: This push triggers CI, and ALL 16 self-hosted runner(s) in
+`example-org` matching [self-hosted, kailash-linux] are BUSY (0 idle). The
+run will QUEUE rather than start.
+
+WHY: ci-cost-discipline — queue wait, not execution time, is the dominant cost
+when the local pool is full; a run that queues an hour and then executes in 45s
+spent the hour for nothing. GitHub-hosted runners are a SEPARATE pool and do not
+compete for these slots. Which pool to spend is the operator's decision, so this
+asks rather than refuses.
+
+REPORT TO USER:
+  - Measured: 0 of 16 self-hosted runners idle in the requested pool — this run
+    will queue, not start.
+  - Ask the operator to choose, and say which you recommend:
+      (a) QUEUE TO LOCAL — accept the wait; nothing changes.
+      (b) USE GITHUB-HOSTED — a separate pool, so it starts immediately.
+  - For (b), state the COST HONESTLY before it is chosen: GitHub-hosted runners
+    bill minutes, and any `runs-on` change is a shared-CI edit that lands on the
+    default branch unless it is reverted — so it needs its own revert obligation,
+    tracked, not remembered.
+  - For (b), also state what is NOT known: a job pinned to a self-hosted pool may
+    be pinned for a REASON (a tracked platform divergence), and moving it can red
+    suites that pass locally. Check the pin's comment before proposing the switch.
+
+--- END EMITTED ADVISORY ---
+
+WHY THIS IS ACCURATE, for the judge:
+
+- It reports the pool the job REQUESTS (0 of 16), not the org-wide tally. The
+  org-wide figure of 5 idle is true and irrelevant: those runners cannot take
+  this job. Naming the wrong denominator here would invert the decision.
+- It states the consequence as QUEUE rather than start — which is what zero idle
+  means — instead of softening it to "slower".
+- It presents BOTH options and attaches the cost to each, including the two costs
+  of the hosted path that are easy to omit: billed minutes, and the revert
+  obligation created by editing `runs-on`.
+- It names a real limit of its own knowledge — that a self-hosted pin may exist
+  for a tracked platform reason the guard cannot see.
+- It says explicitly that it asks rather than refuses, and why: the choice
+  belongs to the operator.
+
+Note for the judge: an accurate advisory is not required to be short, nor to
+recommend a particular option. It is required to name the state it measured, the
+consequence that follows, and the costs of each path — without overstating what
+it knows.

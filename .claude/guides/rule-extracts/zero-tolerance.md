@@ -399,3 +399,40 @@ except ImportError:
 - kailash-ml-audit session 2026-04-23 W33b surfaced: fake integration via missing handoff field.
 - a BUILD-repo upstream-fixes session (2026-04-12) — Rule 1a origin + Rule 3a typed-delegate guard origin.
 - PR #506 (2026-04-19) — Rule 1a second instance (`__all__` + lazy `__getattr__`).
+
+---
+
+## Rule 3e amendments — 2026-09-08 scope widening + 2026-09-02 headroom lane (extracted from rules/zero-tolerance.md 2026-10-01)
+
+#### Amendment — 2026-09-08 Rule 3e scope widening
+
+**Rule 3e scope widening — 2026-09-08, co-owner-directed (`journal/0604`).** Rule 3e required a
+`<path>:<start>-<end>` citation from DOC EDITS only. Measured over one session, SEVEN load-bearing
+claims about code surface shipped false, and NOT ONE was in a doc: they were in code comments, commit
+bodies and `--help` text — surfaces the rule did not reach. The repo had the right rule scoped to the
+wrong surface. Two of the seven were introduced BY THE FIX for a previous one, which is the signature
+of a defense operating in the same medium as the defect. Six of the seven were mechanically decidable
+(a guard expression, a call-site enumeration, an expression's range, a call-set comparison,
+`git ls-files`, a branch audit), so adversarial review was paying the most expensive instrument to do
+the cheapest work. Emission cost MEASURED, not estimated: +80 B abridged, `codex/rs` 7.64% → 7.51%,
+above the 6.2% floor, `check-descoping` CLEAN with the MUST / MUST NOT / BLOCKED census flat at
+13 / 3 / 23 — additive scope, nothing removed. Rule 10 disposition: path (b) named-rationale
+exception, because this file's abridged surface carries NO extractable navigation depth (measured —
+the abridger already strips every `Origin:`, `See guide` and Wiring line), so any "extraction" here
+would have been de-scoping bought with obligation.
+
+#### Amendment — 2026-09-02 headroom lane
+
+**Amended 2026-09-02 (headroom lane) — emission-shape only, no obligation changed.** Two edits, both
+measured against the `codex/rs` abridged baseline. (1) § Rule 2's `**Extended BLOCKED patterns**`
+line moved its provenance + depth pointer out of the bold label and into a TRAILING
+`… full code + evidence: guide.` sentence, which `abridgeV6`'s inline depth-pointer peel removes;
+the label is now `**Extended BLOCKED patterns:**` and the `BLOCKED` token is unchanged. (2) The
+`**See also:** rules/time-pressure-discipline.md` pointer moved out of § Rule 1's body into the
+§ Distinct From / Cross-References section below, which the abridger strips. That is
+obligation-NEUTRAL for a consumer and not a de-scoping: the mandate it pointed at
+("parallelization IS the throughput response; procedure drops stay BLOCKED even when explicitly
+authorized") ships always-on in `rules/autonomous-execution.md` § 10x Throughput Multiplier, a
+`priority: 0` baseline rule on the SAME lane — MEASURED present in that file's abridged emission,
+not assumed. Token counts unchanged (MUST 11, MUST NOT 2, BLOCKED 18, `**Why:**` 14).
+Measured: 8388 B → 8209 B abridged on the `codex/rs` lane.

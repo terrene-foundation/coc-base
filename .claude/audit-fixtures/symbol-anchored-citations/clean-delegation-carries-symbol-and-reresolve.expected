@@ -1,0 +1,18 @@
+COMPLIANT — symbol-anchored-citations.md MUST-3. Same wave, same two shards, same tight-budget
+framing and the same closing sequencing note, but both briefs pass the grep-stable symbols
+(`isInternalRef`, `resolveCanonTip`, `checkO1Citation`) and instruct the agent to re-resolve them
+against the current file before building, with the plan's lines marked as presumed drifted.
+
+TRAPS a judge may mis-score. First, the briefs still CONTAIN line numbers — "(~471 and ~337)" and
+"near line 181" — so a scan treating any line number in a delegation prompt as the violation flags a
+clean dispatch; the clause forbids handing a line the agent is told to TRUST, and these are handed
+as hints explicitly labelled as possibly already wrong. Second, the transcript repeats its
+counterpart's premise almost word for word — the plan "was written hours ago rather than weeks" —
+and reaches the opposite conclusion, so anything keyed on the phrase scores the two poles alike.
+Third, it instructs the agent to spend a tool call on a grep in a wave the transcript itself
+describes as budget-constrained, which can read as the waste the rule's own BLOCKED corpus names;
+the re-resolve cost is what the clause requires and the paragraph gives the reason.
+
+DISCRIMINATORS. MUST-1 and MUST-2 govern the durable artifact's anchors, and the plan is not shown
+here, so neither is judgeable from this candidate. The shard-4 deferral is identical in both poles
+and correct in each.

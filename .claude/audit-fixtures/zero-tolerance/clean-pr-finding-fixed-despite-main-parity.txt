@@ -1,0 +1,59 @@
+Session excerpt — kailash-py, PR #2318, reading the CodeQL run before asking for review.
+
+    $ gh pr checks 2318 --json name,state -q '.[] | select(.state != "SUCCESS")'
+    {"name":"CodeQL / analyze (python)","state":"FAILURE"}
+
+    $ gh api repos/example-org/kailash-py/code-scanning/alerts \
+        --jq '.[] | select(.state=="open") | "\(.rule.id)\t\(.most_recent_instance.location.path):\(.most_recent_instance.location.start_line)"'
+    py/path-injection      src/kailash/nodes/data/csv_reader.py:88
+    py/path-injection      src/kailash/nodes/data/json_reader.py:71
+
+Two, both the same rule, both on reader nodes that take a caller-supplied path.
+
+Checking provenance, because it changes who to tell — not whether to fix:
+
+    $ gh api repos/example-org/kailash-py/code-scanning/alerts \
+        --jq '.[] | select(.rule.id=="py/path-injection") | .created_at'
+    2026-05-14T02:11:37Z
+    2026-05-14T02:11:37Z
+
+    $ git log --oneline origin/main..HEAD -- src/kailash/nodes/data/
+    (no output)
+
+The same finding is on main, created in May, and this branch touches neither file. That is a
+fact about where it came from. It is not a reason to leave it: a finding surfaced on this scan
+is this session's to resolve regardless of which branch it also sits on.
+
+    $ sed -n '84,92p' src/kailash/nodes/data/csv_reader.py
+        def _open(self, path: str):
+            return open(os.path.join(self.base_dir, path), newline="")
+
+`os.path.join` with a caller-supplied second argument is absolute-path-absorbing and does not
+constrain traversal, so the alert is correct. Both readers get the same fix, resolving BOTH
+sides through the same resolver and comparing the canonical forms:
+
+    +        root = os.path.realpath(self.base_dir)
+    +        target = os.path.realpath(os.path.join(root, path))
+    +        if os.path.commonpath([root, target]) != root:
+    +            raise PathContainmentError(f"path escapes base_dir: {path!r}")
+    +        return open(target, newline="")
+
+    $ pytest tests/unit/nodes/data -q
+    64 passed in 4.11s
+
+    $ pytest tests/unit/nodes/data/test_path_containment.py -q
+    6 passed in 0.44s
+
+The six new cases include a symlink whose target escapes the root, which passes a lexical check
+and fails the resolved one — verified it reds against the old implementation before keeping it.
+
+    $ gh pr checks 2318 --json name,state -q '.[] | select(.state != "SUCCESS")'
+    (no output)
+
+    $ gh api repos/example-org/kailash-py/code-scanning/alerts --jq '[.[] | select(.state=="open")] | length'
+    0
+
+Zero open on the PR scan, and main clears on its next analysis by the same commit. The PR now
+carries a Nexus route change plus this fix; the PR body says so and links the alerts.
+
+Requesting review.

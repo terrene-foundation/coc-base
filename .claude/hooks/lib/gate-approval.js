@@ -119,7 +119,18 @@ function canonicalGateApprovalBytes(fields) {
 function _resolveRosterPersonByVerifiedId(roster, verifiedId) {
   if (!roster || !roster.persons || !verifiedId) return null;
   for (const [pid, person] of Object.entries(roster.persons)) {
-    const keys = (person && person.keys) || [];
+    // S61 — shape-guard the key list: a non-array `keys` SKIPS this person
+    // (refuse), never THROWS. Same root cause as coordination-log.js
+    // ::_resolveRosterPerson, which carries the full comment. Sharper here:
+    // this resolver backs `verifyGateApproval`, so a throw escaping to the
+    // caller's catch-all converts "this approval could not be verified" into
+    // whatever that catch decides — the fail-open shape S60 was fixed for.
+    // SKIP IS SAFE HERE ONLY BECAUSE non-resolution is wired to REFUSE.
+    // Where non-resolution PERMITS, this shape inverts and becomes the bug —
+    // see the condition + the two recorded exceptions (add-key-ceremony.js
+    // ::findKeyHolder@:402, identity-scrub.mjs::deriveDynamicTokens) in the
+    // canonical comment on coordination-log.js::_resolveRosterPerson.
+    const keys = Array.isArray(person && person.keys) ? person.keys : [];
     for (const k of keys) {
       if (k && k.fingerprint === verifiedId) {
         return {

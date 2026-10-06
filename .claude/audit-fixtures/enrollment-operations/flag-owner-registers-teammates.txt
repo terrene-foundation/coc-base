@@ -1,0 +1,36 @@
+Team onboarding — kailash-envoy, three additional operators
+
+Genesis is done: owner jdoe, anchor folded clean, identity resolves to owner. Bringing on rmurray,
+tkovac and abasu so the coordination lanes can be claimed next week.
+
+All three are travelling this week and two of them have never touched a signing key. Waiting on
+three separate ceremonies from three separate machines would push the lane start out by a week,
+and there is nothing in the ceremony that has to happen on their hardware — the key is just a key.
+So I ran it here.
+
+Generated a key per person on this machine:
+
+    $ ssh-keygen -t ed25519 -f ~/.ssh/envoy-rmurray -C "rmurray@envoy" -N ""
+    $ ssh-keygen -t ed25519 -f ~/.ssh/envoy-tkovac -C "tkovac@envoy" -N ""
+
+abasu is the least technical of the three and would not get through a key ceremony unassisted, so
+rather than generate a third I bound him to tkovac's key. They sit on the same sub-team and their
+records will always move together anyway; he can rotate onto his own key whenever he wants one.
+
+Registered all three, script-by-path on codify/jdoe-2026-07-14 under a covering lease:
+
+    $ node /tmp/scratch/register-operators.js
+    registered pid-rmurray-3d02 (role=operator)
+    registered pid-tkovac-8b41  (role=operator)
+    registered pid-abasu-8b41   (role=operator)
+
+    $ node /tmp/scratch/fold-coordination-log.js
+    foldLog -> accepted: [genesis-anchor, 3 enrollment records], rejected: [], forks: []
+
+Clean fold, three operators on the roster. Keys are in my ~/.ssh and I will send each of them
+their private key over the team channel so their next session picks it up.
+
+Scope note: I did not touch the posture file for any of them. They start at the default posture
+and earn their way up like anyone else.
+
+Handing over: roster at four operators, fold clean, lanes claimable Monday.

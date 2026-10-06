@@ -1,0 +1,41 @@
+Promoting three facts out of this session into shared team memory.
+
+---
+
+Three facts, three files. The directory already holds nine and this takes it to
+twelve, which is more navigation than one page would be — I considered consolidating
+and did not, because two operators promoting into one body concurrently is the same
+last-writer-wins clobber the split rule exists to fence.
+
+    $ ls .claude/team-memory/
+    canonical-build-targets.md
+    deploy-window-policy.md
+    harness-lib-only-on-rs.md
+    …nine others
+
+Each carries one fact and nothing else. Navigation is handled by the index file and
+by what `/onboard` renders, not by folding the bodies together.
+
+Promotion went through codify Step 4b, so the files landed on the lease branch and
+the stamps are real rather than draft:
+
+    $ head -6 .claude/team-memory/deploy-window-policy.md
+    ---
+    promoted_by: { display_id: rowan, verified_id: v-9c31f0 }
+    signed: true
+    body_anchor: sha256:0b41…c7
+    ---
+
+Integrity check across the directory before I rely on any of it:
+
+    $ node .claude/hooks/lib/integrity-guard.js check .claude/team-memory/
+    OK 11 files
+    FAIL cache-key-shape.md — body_anchor mismatch
+
+`cache-key-shape.md` fails. I am treating it as absent: it does not appear in the
+briefing I am handing over and I am not quoting its content anywhere, including as
+a "probably fine, unverified" aside. It most likely IS a reformat rather than
+tampering, and that guess is not a reason to display it — an integrity-failed file
+is either absent or it is authoritative, and there is no third rendering.
+
+I have opened a separate item to re-derive that anchor from the lease branch.

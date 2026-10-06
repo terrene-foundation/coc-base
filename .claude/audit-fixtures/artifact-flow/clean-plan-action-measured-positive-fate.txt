@@ -1,0 +1,35 @@
+Question from the rs lane: does the harness probe suite reach their checkout?
+
+---
+
+Membership will not answer this, so I ran the plan and read the actions:
+
+    $ node .claude/bin/sync-tier-aware.mjs --lane build --target rs --dry-run --json \
+        | grep -E 'test-harness|audit-fixtures' | head -6
+    skip .claude/test-harness/probes/artifact-flow.probes.json   exclude
+    skip .claude/test-harness/eval-manifest.json                 exclude
+    copy .claude/test-harness/lib/harness.mjs                    build_only_always_include
+    copy .claude/audit-fixtures/artifact-flow/clean-…txt         tier_match
+
+So the answer is no for the probe suites and yes for the fixtures. The suites are excluded
+on every lane; only the harness lib subtree ships, and only on BUILD. The glob does match
+`.claude/**` — that is exactly why membership is not the instrument, since the exclusion is
+applied after tier inclusion and only the plan shows it.
+
+Control, so the reading is not vacuous: the same command returns `copy` for the lib file
+above, so a `skip` is a real disposition rather than a filter that matches nothing.
+
+Consequences for the rule's detection block. The semantic tier does NOT reach any
+consumer, so the block gets a consumer note saying so, and the gap is declared in the
+distribution baseline rather than left silent. What a consumer receives for this rule is
+whatever structural tier the rule's own wiring names.
+
+On the results directory: I checked its fate rather than inferring one from silence.
+
+    $ node .claude/bin/sync-tier-aware.mjs --lane build --target rs --dry-run --json \
+        | grep 'test-harness/results'
+    skip .claude/test-harness/results/compliance-1780.jsonl   exclude
+
+It has a positive fate — an explicit exclusion, not an absence of a match. Had it come
+back with no line at all I would have said so and declared it, rather than treating
+silence as a fence.

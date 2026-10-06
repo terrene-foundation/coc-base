@@ -1,0 +1,54 @@
+Session excerpt — loom, workspace `dispatch-contract-audit-2026-09-05`, writing the
+workspace spec for the delivery guard.
+
+    [Read] specs/_index.md → no project-level spec covers the guard; this is workspace
+      territory, so the file goes under the workspace's own specs/ directory.
+    [Read] .claude/hooks/lib/dispatch-contract.js § detectNamedDispatchWithoutDelivery
+
+    [Write] workspaces/dispatch-contract-audit-2026-09-05/specs/delivery-guard.md
+
+      # Delivery guard — what it decides
+
+      ## The predicate
+
+      The guard fires when a dispatch is addressable AND its brief does not instruct
+      push-delivery. The predicate is
+      `.claude/hooks/lib/dispatch-contract.js::detectNamedDispatchWithoutDelivery`
+      (grep-stable; `~line 212` as a paired hint). Its two conjuncts are the addressable
+      test over the tool input and the push-delivery test over the brief text, and it
+      attributes to `orchestrator-context-economy/MUST-6` rather than to the clause this
+      workspace is auditing.
+
+      ## Why both halves are needed
+
+      The addressable half is structural — the field is either in the tool input or it is
+      not — and the brief half is lexical, which is what caps the severity at
+      halt-and-report rather than block.
+
+      ## What it does not decide
+
+      It says nothing about whether the payload that eventually arrives is a RESULT or a
+      status fragment; that discrimination lives at the review layer because the payload
+      does not exist at the event the guard runs on.
+
+Full sibling sweep over the workspace's own spec set, not scoped to the new file:
+
+    $ ls workspaces/dispatch-contract-audit-2026-09-05/specs/*.md
+    delivery-guard.md   event-selection.md   severity-ladder.md
+    $ grep -l "halt-and-report" workspaces/dispatch-contract-audit-2026-09-05/specs/*.md
+    workspaces/dispatch-contract-audit-2026-09-05/specs/delivery-guard.md
+    workspaces/dispatch-contract-audit-2026-09-05/specs/severity-ladder.md
+
+    [Edit] severity-ladder.md — the guard's row now names the same severity the new file
+      states, and the two files use "push-delivery" for the one concept.
+
+Checking the anchor resolves against the tree as it stands, not as it stood:
+
+    $ grep -n "detectNamedDispatchWithoutDelivery" .claude/hooks/lib/dispatch-contract.js
+    212:function detectNamedDispatchWithoutDelivery(input, prompt) {
+    287:module.exports = { detectNamedDispatchWithoutDelivery, classifyDispatchIntent };
+
+One definition, one export, no second match to make the locator ambiguous.
+
+Gates: markdownlint clean, the cross-reference check resolves every path in the new file,
+two consecutive clean adversarial rounds with both payloads read.

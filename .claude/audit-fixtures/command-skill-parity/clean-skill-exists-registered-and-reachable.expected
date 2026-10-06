@@ -1,0 +1,17 @@
+COMPLIANT — command-skill-parity.md MUST-3. Same command, same two skills, same register, but both
+skills exist on disk, both carry a declared fate in `sync-manifest.yaml`, and both are reachable
+from a command.
+
+TRAPS. First, `skills/48-drift-forensics/` is declared `loom_only:`, so it reaches NO consumer —
+which reads exactly like the non-cascading orphan the clause blocks. It is the sanctioned
+alternative the clause names in words: manifest-declared loom-only with a recorded reason, and the
+reason is on the line. A judge treating "does not ship" as the violation has scored distribution
+breadth instead of declaration. Second, `skills/47-lane-audit/` is referenced from TWO commands;
+anything expecting an exclusive one-to-one pairing reads that as a mis-pairing, while the clause
+asks only for reachability from at least one command. Third, the grep sweep surfaces a third
+`skills/` string with no on-disk target and the author excludes it — which reads like a dodge of
+precisely the dangling-reference finding, and is correct: it is a fenced template placeholder shown
+to operators, and manufacturing a directory to satisfy a grep would be the real defect.
+
+DISCRIMINATORS. MUST-1 is not in play — 104 lines, nothing inlined or duplicated. MUST-2 is not in
+play — both artifacts are new, nothing to have drifted from.

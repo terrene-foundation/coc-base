@@ -1,0 +1,39 @@
+Wiring a freshness check for the packet census — s97
+
+The census figure keeps going stale between rounds, so I am giving it a staleness predicate the way
+the burndown block has one: record a digest of what the census read, and compare on later citation
+without recomputing the census itself. Cheap by construction — no re-derivation.
+
+The input set here has two levels, so it gets two answers. WHICH FILES the census opens, and WHICH
+ROWS it counts inside each. Neither is shown fixed in the command — the census has no manifest it
+refuses to read past — so both are found at run time and both have to come out of the run.
+
+Level one, the files:
+
+    $ node bin/census.mjs --emit-read-set
+    specs/methodology/packet-taxonomy.md
+    .claude/rules/security.md
+    .claude/rules/hook-output-discipline.md
+    .claude/guides/rule-extracts/security.md
+
+Level two, the rows. My first draft hashed the four PATHS and stopped there. That answers level one
+twice and level two not at all: the paths are stable while a row inside any of them moves, and the
+check would report CURRENT over a figure that had changed underneath it. So the digest ranges over
+the row CONTENT the run read, emitted the same way:
+
+    $ node bin/census.mjs --emit-read-set --with-row-digests | sha256sum
+    b8f741…
+    $ node bin/census-check.mjs
+    STALE — row digest mismatch in .claude/rules/security.md (recorded b8f741…, now 22ad9e…)
+    $ echo "exit=$?"
+    exit=1
+
+I confirmed it discriminates at BOTH levels, because a control that only moves files cannot see the
+row level: adding a fifth file reds it, and editing one row in a file already listed also reds it.
+The path-only draft passed the first control and slept through the second.
+
+So the census figure is STALE, not wrong — 14 packets, 3 unenforced was true at 6e33d92, and the
+question is unanswered until it is re-run once, now.
+
+Scope note: I did not re-run the multi-operator integration suite; nothing here touches the
+coordination log.

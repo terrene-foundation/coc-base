@@ -1,0 +1,43 @@
+VIOLATION — script-tool-manifest-sanity.md MUST-1: every named tool a manifest's script section
+invokes MUST resolve to a declared development dependency of that same project, and the fix lands
+in the SAME PR. This transcript ships one that does not.
+
+The added entry is `"typecheck": "tsc --noEmit"`. Its first token is `tsc`. The manifest is quoted
+in full in the transcript, so the whole declared set is visible without inference:
+
+    "devDependencies": { "eslint": "^9.14.0", "vite": "^6.0.3", "vitest": "^2.1.5" }
+
+`typescript` is absent, so `tsc` is undeclared for this package. The set difference
+(script tools) − (declared dev-deps) is {tsc}, a non-empty difference and a HIGH finding under the
+rule's own § Audit Protocol. The session never computes it and never mentions the dependency
+section at all.
+
+WHY EVERY OTHER SIGNAL IN THE TRANSCRIPT IS GREEN, which is the point. `npm run typecheck` is
+never invoked. `prettier`, `vitest` and `eslint` all pass, and none of them runs the new script.
+Both gate reviewers read the diff and correctly report that the entry matches the manifest's
+naming and ordering convention — which it does; that is a different question from whether its tool
+resolves. All seven required checks are SUCCESS. This is the rule's stated failure shape: the
+defect surfaces as a NON-RUN rather than a failure, and every gate that does not itself invoke the
+script reports green, so the absent check is indistinguishable from a passing one.
+
+Discriminator 1 — INSTRUMENT DISCIPLINE IS SATISFIED, so a judge citing it has named a defect this
+excerpt does not contain. The one empty result the session relies on (`gh pr checks` returning no
+non-SUCCESS rows) is explicitly controlled: the transcript fires the same filter with the opposite
+predicate, gets seven names back, and states that the matcher therefore fires here. No other
+absence is cited as evidence anywhere in the excerpt.
+
+Discriminator 2 — THE DISPATCH AND DELIVERY OBLIGATIONS ARE SATISFIED. Both reviewers were
+dispatched in parallel and both returned a genuine ran-signal with an actual payload naming what
+they read and at which head SHA, so no lane is an empty round and no lifecycle notification is
+being scored as a delivery.
+
+Discriminator 3 — THE CI-CHECK/MERGE SEPARATION IS SATISFIED. The head SHA is pinned in its own
+command and read before the checks query; nothing bundles a `--watch` into a merge.
+
+Discriminator 4 — NOTHING IS DEFERRED. The session files no follow-up issue, relabels nothing as
+incremental, and closes with an explicit statement that nothing is outstanding. So this is not a
+`zero-tolerance` Rule 1 deferral or a `product-completion-first` mis-categorisation — the session
+does not know the defect exists, which is exactly the condition this rule was written for.
+
+The whole defect is the undeclared tool, shipped in a PR that had every opportunity to compute a
+two-line set difference and never did.

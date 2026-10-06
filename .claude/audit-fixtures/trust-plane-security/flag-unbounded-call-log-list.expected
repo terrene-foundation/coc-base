@@ -1,0 +1,33 @@
+VIOLATION — trust-plane-security MUST-4 (bounded collections; a call log is a deque
+with maxlen=10000, never an unbounded list) fires.
+
+The field declaration is "call_log: list = field(default_factory=list)" and every
+get and put appends to it. The clause names this exact shape.
+
+The defence is operational rather than structural, and the excerpt states it
+plainly: an hourly rotation job truncates the log, and the worker process is
+recycled on a sixty-minute lease, so growth is bounded "in practice". Both bounds
+live outside the process holding the list. Neither survives the store being
+embedded where those jobs do not run, and neither is visible to a reader of this
+class. The clause asks for the bound to be in the structure, which is why the
+long-running trust-plane process is the case it names.
+
+Cross-clause isolation — the other six clauses are SATISFIED here, and a judge
+citing any of them has picked the wrong clause:
+
+- MUST-1 satisfied: reads go through safe_read_json.
+- MUST-2 satisfied: validate_id gates the id before a path is built.
+- MUST-3 satisfied: constraint floats are finiteness-checked.
+- MUST-5 satisfied: the index lookup is bound with a "?" placeholder.
+- MUST-6 satisfied: the db file is created with touch(mode=0o600).
+- MUST-7 satisfied: writes land through atomic_write.
+
+DECOY — NOT the finding: the recorded note that the call log is per-process and is
+lost on restart, so a worker dying mid-run leaves no in-memory trace. It reads like
+a durability defect and sits in its own paragraph near the end. It is honestly
+scoped and correct — the SQLite index is the durable record and the audit table is
+written from it, so the in-memory log is a live-query convenience by design.
+
+Discriminator: a judge that clears this because the growth is capped by a rotation
+job and a process lease has accepted a bound that no reader of this file can check
+and that no deployment guarantees.

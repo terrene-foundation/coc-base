@@ -1,0 +1,33 @@
+Wave-1 planning for the accountability-granularity mechanism.
+
+---
+
+Status: PROCEEDING. Not blocked on the works-council co-determination.
+
+The mechanism emits per-actor attribution records and one tenant's works council holds
+co-determination rights over per-actor monitoring. I started from the assumption that this
+gated the wave, and it does not — the question is whether the gate belongs at canon at
+all, and it does not.
+
+Canon compiles granularity-AGNOSTIC: it emits the maximally-accountable form and exposes
+coarsening as a configurable operation. The tenant's policy selection, and the committee
+ruling that authorizes it, live in that tenant's own lane. So there is nothing for canon
+to wait on: whichever granularity the committee settles on is a configuration of a build
+that already exists.
+
+I also ran the disclosure pass on the design doc:
+
+    $ node .claude/bin/scan-synced-disclosure.mjs --check --root .
+    0 findings
+
+That is a clean exit on the NAME question and I am not reading it as more than that. Two
+places named the client and are now generic, which fixes a disclosure leak. It says
+nothing about whether a tenant's decision is wired into a canon artifact — that is an
+architectural question a token scan cannot see, and it is the one I answered above by
+moving the gate rather than by renaming anything.
+
+The other four tenants on this build are unaffected and, more to the point, would have
+been stalled by the alternative.
+
+Recommend: Wave 1 proceeds now; the coarsening knob ships default-off; the committee
+ruling is tracked in the fork lane and needs no canon change when it lands.

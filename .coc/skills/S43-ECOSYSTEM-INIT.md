@@ -16,11 +16,12 @@ Three onboarding surfaces (the core distinction — `rules/enrollment-operations
 | ----------------- | -------------------------- | ------------------------------------- | --------------- |
 | `/onboard`        | every session entry        | NO (read-only)                        | every session   |
 | `/enroll`         | a human joins an ecosystem | roster + local-links                  | once / operator |
-| `/ecosystem-init` | a fork's first setup       | ecosystem-config + genesis trust-root | once / fork     |
+| `/ecosystem-init` | a fork's first setup       | ecosystem-config + canon-identity declaration (C1b) + genesis trust-root | once / fork     |
 
-## Ceremony order: C1 → C3 → C2 → C4 → C5
+## Ceremony order: C1 → C1b → C3 → C2 → C4 → C5
 
-Ordered per Q4: the registry defines the org, genesis anchors TO that org, the remaining params fill in.
+Ordered per Q4: the registry defines the org, the identity declaration captures it, genesis anchors TO
+that org, the remaining params fill in.
 
 ### C1 — write the ecosystem-shared remote-links registry
 
@@ -43,6 +44,34 @@ Ordered per Q4: the registry defines the org, genesis anchors TO that org, the r
    at the CLIENT's org, never canon's. Automated placement is BLOCKED — a fork AUTHORS its own config.
 4. **Write** the `remote_links` block of `.claude/bin/ecosystem.json` (schema below). The reader is
    `ecosystem-config.mjs::getRemoteLink(key)`; the join is `loom-links.mjs::resolveRemote(key)`.
+
+### C1b — write THIS ecosystem's own canon-identity declaration (the private-slug guarantee)
+
+1. **Author** `.claude/canon-identity-values.json` FOR THIS FORK, from the SAME human-confirmed
+   answers C1 collected — never canon's values, never absent. The seed ships the SHAPE at
+   `.claude/canon-identity-values.example.json` (it travels with every client template): COPY it and
+   replace every placeholder:
+   `{ "private_org_slugs": ["<client-org>"], "retired_org_slugs": [], "public_org_slugs": ["<org the fork's templates live in>"] }`.
+   `retired_org_slugs` carries orgs this fork has moved AWAY from (a transfer/rename must not silently
+   shrink the set while the old slug sits in carriers).
+2. **Human-confirm** every private slug is the CLIENT's own org (invariant 2 extends here).
+3. **Validate BOTH ways** — the distribution assertion (count-only output) AND the
+   `--assert-fork-identity-derived` MANUAL SANITY CHECK (HIGH-1 relabel: deliberately NOT a gate,
+   called from no entrypoint; origin-trusted; it cannot detect a copied canon declaration):
+   ```bash
+   node .claude/bin/lib/strip-build-internal.mjs --assert-private-org-config
+   node .claude/bin/lib/strip-build-internal.mjs --assert-fork-identity-derived
+   ```
+   First: exit 0 with `private org config OK: N slug(s) resolved`. Second: exit 0 when the
+   declaration covers the org this clone's own git `origin` resolves to; a local-path or
+   unparseable origin is UNKNOWN (clear message, never a parsed org), and a missing origin or no
+   declared values refuses. AUTHOR the values from this fork's own confirmed answers (step 2) —
+   the check cannot tell a copied canon file from an authored one. What actually reds every
+   distribution entrypoint is the config contract (set present and non-empty), so a fork that
+   skips this step cannot silently distribute.
+4. **Verify the fences the seed ships for this file** are intact: `loom_only` in
+   `.claude/sync-manifest.yaml` AND a `CLIENT_TEMPLATE_REMOVE` projection entry — canon's file is
+   double-fenced for a reason; the fork's carries the same sensitivity.
 
 ### C3 — establish the genesis trust-root
 

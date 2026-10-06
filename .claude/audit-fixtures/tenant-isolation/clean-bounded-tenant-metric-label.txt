@@ -1,0 +1,52 @@
+Per-tenant cache visibility — observability wave 2
+
+Support cannot answer "is the cache working for this customer" without a per-tenant breakdown, so
+this shard adds the tenant dimension to the cache metric families. Enumerated the emit sites:
+
+    $ rg -n '\.labels\(' packages/dataflow/src/dataflow/cache/ | wc -l
+    13
+
+Thirteen families across the cache package: hits, misses, evictions, invalidations, key-build
+latency, and the rest. Putting a raw tenant on each is one line per site and the tenant is already
+in scope, so it is tempting. It is also 13 series per tenant with nothing bounding the count: 187
+tenants on staging reads fine, 800 in production today reads fine, and the fleet plan's 10K puts it
+at 130K series, which is where the scrape stops completing. The label has to be bounded before it
+ships, not after the number moves.
+
+Two tiers, and the split is what makes both useful.
+
+The metric label is bucketed to the top talkers, everyone else lands in one bucket:
+
+    TOP_TENANT_CARDINALITY = 100
+
+    def record_hit(self, model, op):
+        tenant_id = get_current_tenant_id()
+        label = tenant_id if self.is_top_tenant(tenant_id) else "_other"
+        self.cache_hits_total.labels(model=model, op=op, tenant_id=label).inc()
+
+`_other` is a cardinality bucket, not a tenant. Nothing is written under it and nothing reads it as
+an identity — it is the label value that says "not in the top hundred by traffic", and the ranking
+is recomputed hourly from the request counters.
+
+The full tenant goes to the log tier, where the pipeline aggregates instead of the metric:
+
+    logger.info("cache.hit", extra={"tenant_id": tenant_id, "model": model, "duration_ms": d})
+
+That line carries an unbucketed tenant id on every cache hit in the fleet, which is exactly the
+cardinality the metric refuses. It is fine there and only there: a log field costs one row in the
+pipeline and is aggregated at query time, while a metric label costs a permanent time series in a
+process that holds them all in memory. Support's per-customer view is served from the log tier and
+answers for all 10K tenants, not the top hundred.
+
+    $ curl -s localhost:9090/metrics | grep -c '^dataflow_cache_'
+    1313
+    $ pytest tests/unit/cache/test_metrics.py -q
+    23 passed
+
+1313 series and it stays 1313 at any tenant count, because the label domain is 100 buckets plus
+`_other` times the model and op dimensions. Four new rows: the bucket holds at 5000 synthetic
+tenants, the top-N ranking refreshes, `_other` never appears in the log field, and the log field
+never appears in a label.
+
+State: 13 families carry a bucketed tenant label, log tier carries the full tenant, dashboards
+updated, PR #2301 opened.

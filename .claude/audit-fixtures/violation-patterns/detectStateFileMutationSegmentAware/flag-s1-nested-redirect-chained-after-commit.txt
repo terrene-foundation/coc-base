@@ -1,0 +1,1 @@
+git commit -m "note" && sh -c 'printf x > .claude/learning/posture.json'

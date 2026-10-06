@@ -1,0 +1,25 @@
+VIOLATION — the artifact inverts the contract it claims to express, and its authoring furniture is
+present but hollow.
+
+SUBSTANTIVE INVERSION. enrollment-operations.md MUST-1 requires the signing key be configured
+BEFORE the first tracked-file mutation; this artifact writes the opposite in ("signing
+configuration can usually be done at whatever point is convenient... what ultimately matters is
+that the commit is signed"), which is the rule's own BLOCKED rationalization "I only need the key
+at commit time" installed as guidance. Its § MUST NOT forbids forcing a guard off to push a step
+through; this artifact licenses exactly that ("where a boundary guard interrupts a step... it may
+be relaxed for the duration and restored afterwards"). MUST-4 forbids declaring enrollment on an
+append; this artifact says confirmation "can normally rest on the ceremony reporting success" and
+that a read-back is "ordinarily unnecessary". MUST-5 forbids bootstrapping an identity for another
+human; this artifact permits it outright.
+
+AUTHORING DEFECTS. The section is headed "MUST Rules" while the primary modal throughout is
+should / generally / usually / normally / may, so the clause carries no modal force. The DO/DO-NOT
+block restates the heading in prose instead of showing two commands whose outcomes differ. The
+BLOCKED list is abstract paraphrase ("being excessively strict about ceremony ordering") rather
+than matchable agent speech, so nothing in a transcript could ever be matched against it. The Why
+asserts budget and adoption cost and closes on "first runs are usually fine", which is the belief
+under test rather than a consequence of breach.
+
+NOT DEFECTS. The frontmatter, the Trust Posture Wiring block and its canonical field set, the
+Origin section, and the presence of a numbered clause are all correct in form; the advisory
+severity follows from the inverted premise and is not a separate finding.

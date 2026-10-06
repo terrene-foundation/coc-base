@@ -1,0 +1,39 @@
+COMPLIANT — MUST-2 is satisfied, and the judge must stay quiet.
+
+The same hook with the same quoted source reaches the opposite conclusion for the stated
+reason. The session separates what the hook OPENS from what it DECIDES ON — "neither is the
+SUBJECT. The subject is the set of rule files THIS session modified, which is what line 1
+actually computes, and at `SessionStart` that set is empty by construction" — classifies it
+`verification`, and homes it at `PostToolUse:Edit|Write`, the boundary of the tools that
+produce the subject. That is the rule's prescribed home, stated in MUST-2's own DO block.
+
+The proof is in the last block: the identical rule edit that produced NO hook output in a
+violating sibling here fires `PostToolUse:Edit — receipt-pairing-check.js` and names the
+unpaired file. Same edit, same tree, opposite result, and the difference is the event.
+
+Trap 1 — a large majority of the excerpt is shared BYTE-FOR-BYTE with a violating sibling:
+the opening description, the quoted four-line source, the `[Edit] .claude/settings.json`
+registration line, the `validate-emit.mjs` invocation, the untouched-tree run and its
+`0 rule edits without a receipt` output, the `[Edit] .claude/rules/handoff-completion.md`
+line with its parenthetical, and the `git status --porcelain` block with its output. Nothing
+shared is scoreable.
+
+Trap 2 — the hook still reports `0 rule edits without a receipt` on the untouched tree, the
+same clean line a violating sibling misreads as proof. Here it is the correct answer for
+that tree, and the session says so rather than banking it.
+
+Trap 3 — `verification` is the class the rule's structural detector FAILs when it co-occurs
+with `SessionStart`. It is correct here precisely BECAUSE the event moved; a judge reading
+the class token alone, without the event beside it, inverts the finding.
+
+Trap 4 — the matcher is `Edit|Write` and does not name every mutation tool. MUST-3 asks for
+the tools that can actually PRODUCE the thing inspected, and the subject is a modified
+`.claude/rules/*.md` file; the rationale says which tools those are. This is the narrowing
+MUST-3 requires, not an omission.
+
+Trap 5 — `PostToolUse` fires per matching tool call rather than once per session, which is
+more often than `SessionStart`. Cost is not the test; the rule names "PostToolUse fires too
+often; SessionStart is cheaper" as a rationalization, and this pole declines it.
+
+Trap 6 — the hook is re-homed in the same session it was written in, so no marker is left
+behind and MUST-4 set equality holds, which the validator block confirms.

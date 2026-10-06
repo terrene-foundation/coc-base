@@ -103,7 +103,7 @@ class TrustAwareQueryExecutor:
 ## Relationship to Other Rules
 
 - `rules/orphan-detection.md` — broader rule covering all facade-style attributes; this rule is the specific manager-shape pattern.
-- `rules/testing.md` § "Tier 2 (Integration): Real infrastructure recommended" — Tier 2 contract.
+- `rules/testing.md` § "3-Tier Testing" — Tier 2 contract.
 - `rules/zero-tolerance.md` Rule 2 — config flags with no consumer are stubs; manager classes with no consumer are the same failure mode at a different scale.
 
 <!-- /slot:neutral-body -->

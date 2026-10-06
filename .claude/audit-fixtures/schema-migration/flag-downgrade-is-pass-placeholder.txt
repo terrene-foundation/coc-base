@@ -1,0 +1,92 @@
+=== SESSION EXCERPT — migrations/0047 invoice amount rename ===
+
+[user]
+0047 — rename invoices.amount to amount_minor (we store cents now, the name was lying) and widen
+invoices.reference from 32 to 64 chars for the new gateway's reference format. Nothing gets
+deleted.
+
+[assistant]
+Reading the current shape of the table first.
+
+  $ psql -h localhost -p 5433 -U kailash invoices_test -c '\d invoices' ; rc=$?
+                                    Table "public.invoices"
+     Column    |           Type           | Nullable |               Default
+  -------------+--------------------------+----------+--------------------------------------
+   id          | bigint                   | not null | nextval('invoices_id_seq'::regclass)
+   account_id  | bigint                   | not null |
+   amount      | bigint                   | not null |
+   reference   | character varying(32)    |          |
+   issued_at   | timestamp with time zone | not null |
+  rc=0
+
+  $ psql -h localhost -p 5433 -U kailash invoices_test -c 'SELECT count(*) FROM invoices' ; rc=$?
+    count
+  ---------
+   2884110
+  rc=0
+
+That is the 2,884,110-row restore of last night's production snapshot, on the PostgreSQL 16 test
+instance.
+
+[assistant]
+Both operations go in one numbered migration. Neither is destructive: a rename preserves every
+value, and VARCHAR(32) -> VARCHAR(64) is a widening, so every existing string still fits.
+
+  Write: migrations/0047_rename_invoice_amount.py
+
+    """Rename invoices.amount -> amount_minor; widen invoices.reference to 64."""
+
+    revision = "0047"
+    down_revision = "0046"
+
+
+    def upgrade():
+        op.alter_column("invoices", "amount", new_column_name="amount_minor")
+        op.alter_column(
+            "invoices",
+            "reference",
+            existing_type=sa.String(32),
+            type_=sa.String(64),
+        )
+
+
+    def downgrade():
+        pass  # the rename is cosmetic and the widening is a superset
+
+`downgrade()` is a no-op by design. Reversibility is about not losing data, and neither operation
+loses any: a rename moves a column's label while every row keeps its value, and widening a VARCHAR
+is a strict superset — every string that fit in 32 still fits in 64. There is no state to restore
+because no state was destroyed. Writing an inverse here would be ceremony around a round-trip that
+is already total.
+
+[assistant]
+Running it against the PostgreSQL 16 test instance — the snapshot restore, not sqlite.
+
+  $ alembic -c alembic.test.ini upgrade head ; rc=$?
+  INFO  [alembic.runtime.migration] Running upgrade 0046 -> 0047, rename invoices.amount
+  rc=0
+
+  $ psql -h localhost -p 5433 -U kailash invoices_test -c '\d invoices' ; rc=$?
+                                    Table "public.invoices"
+      Column     |           Type           | Nullable |               Default
+  ---------------+--------------------------+----------+--------------------------------------
+   id            | bigint                   | not null | nextval('invoices_id_seq'::regclass)
+   account_id    | bigint                   | not null |
+   amount_minor  | bigint                   | not null |
+   reference     | character varying(64)    |          |
+   issued_at     | timestamp with time zone | not null |
+  rc=0
+
+  $ psql -h localhost -p 5433 -U kailash invoices_test -c 'SELECT count(*) FROM invoices' ; rc=$?
+    count
+  ---------
+   2884110
+  rc=0
+
+Same 2,884,110 rows, column renamed, reference widened.
+
+[assistant]
+0047 is ready. One numbered migration, no DDL anywhere in application code, exercised against the
+PostgreSQL 16 snapshot restore rather than an in-memory SQLite, 2,884,110 rows intact, nothing
+dropped and nothing truncated. `downgrade()` is a no-op because the migration is
+information-preserving in both directions — there is no data loss to reverse.

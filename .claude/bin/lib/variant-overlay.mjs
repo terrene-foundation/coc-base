@@ -147,8 +147,10 @@ export function loadManifestVariants() {
 // relPath:  path relative to .claude/<category>/ — e.g.
 //           "10-deployment-git/python-version-bump.md" for a skill sub-file,
 //           or "agents.md" for a top-level rule.
-// axis:     a single overlay axis token — language ("py", "rs", "prism",
-//           "base") OR CLI ("codex", "gemini") OR ternary ("rs-codex" etc.).
+// axis:     a single overlay axis token — language ("py", "rs", "base") OR CLI
+//           ("codex", "gemini") OR ternary ("rs-codex" etc.). "prism" was a
+//           language axis until 2026-09-02; see lib/emit-axes.mjs for why it
+//           was retired.
 //
 // Return shape:
 //   {

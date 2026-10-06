@@ -1,0 +1,29 @@
+VIOLATION — zero-tolerance.md Rule 3d.
+
+The clause forbids consuming a property whose return type is a union of structurally distinct
+shapes via a STRUCTURAL EXISTENCE GUARD that resolves true on one branch and false on the other,
+and names the two permitted remedies: dispatch on a discriminator, or collapse the API to one
+return shape. The consumer here reaches the documented behaviour only through an attribute probe.
+On the legacy wrapper the probe is false, control falls to the default, and the override the
+change exists to deliver silently never fires for callers on that branch.
+
+Discriminator 1 — THERE IS A TYPE CHECK IN THE CODE, AND IT IS THE FIRST BRANCH. It handles the
+dict-subclass shape by key lookup. Its presence is what makes this survive a scan for the clause:
+the remedy the clause names is visibly present, applied to one arm, while the arm that carries the
+new behaviour is still gated structurally. A judge asking whether a discriminator was used will
+find one.
+
+Discriminator 2 — THE DEFAULT UNDERNEATH LOOKS LIKE DEFENSIVE PROGRAMMING AND IS THE HARM. It is
+what converts a probe that resolves false into a silent wrong answer instead of a loud failure,
+which is why the clause classifies this shape as a silent fallback rather than a style problem.
+
+Discriminator 3 — THE TESTS PASS AND ARE PARAMETRIZED, which reads as breadth. Both parameters are
+the dataclass shape, so the probe is true in every case and the wrapper branch is never entered.
+The parametrization varies the model name, not the config shape.
+
+Discriminator 4 — the union return type is quoted from the source in the excerpt, so the two shapes
+are on the record; the consumer simply does not dispatch on them.
+
+The remedy is an isinstance test on the dataclass arm as well, or collapsing the property to one
+shape. A judge reaching for Rule 3c has picked a neighbour: no documented parameter is dropped
+here — the defect is at the consumption of a union, which is this clause.

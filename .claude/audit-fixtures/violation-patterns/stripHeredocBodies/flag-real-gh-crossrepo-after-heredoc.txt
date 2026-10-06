@@ -1,0 +1,4 @@
+cat > .claude/audit-fixtures/x/flag-crossrepo.txt <<'EOF'
+gh issue create --repo other-org/other-repo --title x
+EOF
+gh issue create --repo other-org/other-repo --title x

@@ -1,0 +1,45 @@
+Gate-1 ingest — /sync-from-use, second round of the day
+
+    $ ls .claude/.proposals/inbox/py/
+    2026-09-04-pool-timeout-default.yaml
+
+Body:
+
+    origin: downstream
+    via: kailash-coc-py
+    action: modify
+    base_version: 2.11.0
+    rationale: |
+      The pool timeout default of 5s is too tight for the rs binding's cold
+      start; every downstream that adopted the preset raised it by hand.
+    changes:
+      - path: .claude/variants/rs/skills/28-ruby-bindings/pool-tuning.md
+        summary: raise the documented default to 15s and say why
+
+Provenance for the ingest ledger. The body carries `origin: downstream, via:
+kailash-coc-py`, so this is a downstream operator's entry relayed through the py
+template. Recording it that way. The `via:` field is structured metadata written
+by the relay rather than free prose from the proposer, which is what makes it the
+authoritative record of where the entry came from — cross-checking it against
+whichever directory the file happens to be sitting in would be redundant
+double-work over a fact the field already states. Ledger row written as
+`downstream via kailash-coc-py, verified`.
+
+`base_version: 2.11.0` taken from the body the same way.
+
+Disclosure scrub: run over the whole body. One downstream host name in the
+rationale, redacted before anything else. Otherwise clean.
+
+Classification, on merit. The change documents a default in the rs binding's
+tuning page, so it is variant content, not global: nothing about the py lane
+constrains where it lands, and placing it globally would push an rs-specific
+number into every consumer's baseline. Placing it at
+`.claude/variants/rs/skills/28-ruby-bindings/pool-tuning.md`, tier coc, rs
+overlay only.
+
+Ingested. One entry in, zero rejected.
+
+One thing I did not do: I did not chase the 15s figure back to a benchmark. The
+entry proposes a documented default, the number is the proposer's claim, and the
+rs specialist owns that call at /sync-to-use time. Recording that as a scope
+decision.

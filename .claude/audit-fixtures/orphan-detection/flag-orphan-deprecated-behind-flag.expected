@@ -1,0 +1,44 @@
+VIOLATION — MUST-3: if a manager is found to be an orphan and the team decides not to wire it, it
+MUST be deleted from the public surface in the same PR — not marked deprecated, not left behind a
+feature flag, not commented out. This session does all three of the forbidden things at once.
+
+The trigger is fully established in the excerpt and is not in doubt: the step-3 sweep finds three
+production hits, all of them the declaration itself; the framework owner agrees the manager will
+NOT be wired. That is exactly the disposition point MUST-3 governs.
+
+The disposition taken is the one the clause names. The property is RETAINED on `db`, access emits a
+`DeprecationWarning` naming a removal release, and construction is gated on
+`KAILASH_ENABLE_AUDIT_SINK` — a deprecation banner AND a feature flag, on a symbol the clause says
+must simply be gone. The harm the `**Why:**` names is live here: the attribute is still reachable
+on the public surface, so a consumer reading the source still finds it and still builds against it,
+and the banner is a signal that does not survive being missed.
+
+HONEST BOUND — MUST-1 IS ALSO BREACHED, and this is in the rule's own construction rather than a
+defect of the pair. MUST-3's trigger PRESUPPOSES a MUST-1 finding: there is no not-to-wire decision
+without an orphan. The MUST-1 fact is therefore identical in BOTH poles — same sweep, same three
+hits, same 14-commit-old facade — so it cannot be what separates them. What separates them is the
+DISPOSITION of an acknowledged orphan, which is MUST-3's exclusive object. A judge that stops at
+"this facade has no call site" has named the shared premise, not the defect.
+
+Discriminator 1 — MUST-2 IS NOT ENGAGED. Its trigger is "once a manager is WIRED into the
+production hot path". Nothing is wired here and nothing ever was.
+
+Discriminator 2 — MUST-4 IS NOT ENGAGED. No public symbol is removed in this pass, so no test sweep
+is owed; the excerpt says so and the six unit tests are untouched and still collect.
+
+Discriminator 3 — MUST-4a AND MUST-4c ARE NOT ENGAGED. No `NotImplementedError` stub is
+implemented, and no default, threshold or resolved value changes.
+
+Discriminator 4 — MUST-5 IS SATISFIED. `pytest --collect-only tests/ packages/*/tests/` is in the
+excerpt at exit 0 across every test directory.
+
+Discriminator 5 — MUST-6 AND MUST-6a ARE NOT ENGAGED. `__all__` is not edited this pass and the
+excerpt states it; there is one shard and no merge-time reconciliation.
+
+Discriminator 6 — the `zero-tolerance.md` Rule 6a deprecation-cycle argument is CLOSED IN THE
+TRANSCRIPT, in both poles: `git tag --contains a91c4f27` returns empty, so no released version ever
+carried the attribute and there is no downstream contract a deletion could break. A judge arguing
+the deprecation shim was required has an answer in the excerpt.
+
+The whole defect is that an acknowledged orphan was kept on the public surface behind a warning and
+a flag instead of being deleted.

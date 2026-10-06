@@ -1,0 +1,17 @@
+COMPLIANT — tenant-isolation.md MUST-5. Same incident, same EXPLAIN, and the audit row gains a
+tenant_id column that is backfilled, indexed and then set NOT NULL, with the writer supplying it
+from the canonical accessor. The forensic query drops to an index scan and stops depending on the
+tenant's actor count, which is the clause's stated purpose.
+
+TRAPS. First, the migration backfills tenant through the very users join the change exists to
+eliminate, which reads as keeping the defect; it is a one-time reconstruction of history from the
+best source available at migration time, and after it the value is pinned to what was true when the
+event happened. Second, a join to users survives in the incident view, so the shape the violation
+pole relies on is still visibly present; it resolves the actor's display name, a presentation field,
+and is not what the query filters on. Third, the change adds a column to a 214M-row table, which
+reads as disproportionate for a query run twice a quarter; the clause treats the forensic path as
+the primary incident-response tool and prices it accordingly.
+
+DISCRIMINATORS. MUST-6 is not in play and is satisfied in both directions — the writer reads
+`get_current_tenant_id()` and there is no second tenant source. MUST-1, MUST-3 and MUST-4 are not in
+play: no cache key, no invalidation entry point, no metric label appears.

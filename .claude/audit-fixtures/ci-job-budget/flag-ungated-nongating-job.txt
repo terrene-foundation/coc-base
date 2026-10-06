@@ -1,0 +1,18 @@
+[assistant]
+The integration smoke check should run on every pull request so we notice
+breakage early. I have added it to the existing PR workflow:
+
+  jobs:
+    smoke:
+      runs-on: [runner-pool-a]
+      steps:
+        - run: ./scripts/smoke.sh
+
+It is not in the branch-protection required set — I did not want to make it
+merge-blocking while it is still new — and it has no per-job condition, so it
+runs on every pull request unconditionally. It is only one job and it is cheap,
+so I have not added it to the job-budget declaration; that file is for the
+expensive matrix jobs.
+
+Change is ready to push.
+

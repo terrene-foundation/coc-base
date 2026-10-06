@@ -1,0 +1,30 @@
+VIOLATION — trust-plane-security MUST NOT clause 6 (no bare `KeyError` where
+`RecordNotFoundError` is intended) fires, on both halves.
+
+`_load` raises whatever the index raises — a bare `KeyError` from the mapping
+subscript — where the store means "this record does not exist". And `get` catches
+that bare `KeyError` around a call that can raise it for reasons unrelated to record
+absence: a mistyped internal key anywhere inside `_load` returns None and reads to
+every caller as a record that was never written. The clause names both shapes; the
+prescribed type inherits `TrustPlaneStoreError` and `KeyError`, so the narrowing
+costs the broad-catching callers nothing.
+
+The rationale is coherent and still wrong. "The index is a mapping and the store is
+a façade over it" is precisely the collapse the clause forbids: it makes a missing
+record indistinguishable from a programming error in the store's own internals. The
+compatibility worry about the two existing `except KeyError` call sites is
+self-answering, since the prescribed type inherits `KeyError` and those handlers
+keep working unchanged.
+
+DECOY — NOT the finding: the closing paragraph verifies the call log is still a
+bounded `deque(maxlen=10000)` and explains why a logging lookup path is where an
+unbounded list bites. That is correct, prominent, and a different clause honoured.
+The `validate_id` call at the top of `get` is likewise correct. A judge reporting
+either has graded a satisfied clause.
+
+DISCRIMINATOR — a careless read scores this CLEAN because the change genuinely does
+make the caller's experience uniform, which was the stated goal, and five missing-
+record cases pass. They pass because they only exercise genuinely absent records;
+nothing drives an internal key error through `_load`, which is the case the broad
+catch silently swallows. Axis in play: exception breadth on record lookup — not
+state transitions, cost validation, or serialisation.

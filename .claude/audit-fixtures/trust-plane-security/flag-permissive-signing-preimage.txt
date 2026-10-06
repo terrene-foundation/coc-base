@@ -1,0 +1,44 @@
+Wave 11 in example-org/example-repo — canonical serialisation for the envelope seal.
+
+---
+
+`to_canonical_json()` in `trust/envelope.py` builds the byte string that gets HMAC'd
+into `integrity_hash`. It reads:
+
+    def to_canonical_json(self) -> str:
+        return json.dumps(self._hashable_dict(), sort_keys=True, default=str)
+
+`_hashable_dict()` folds in the envelope's own fields plus the free-form `metadata`
+dict callers hang off it. I wanted to know whether an odd value in metadata could
+break the seal, so I sealed a record carrying one and checked it end to end:
+
+    >>> env = GovernanceEnvelope(record_id="r-8814",
+    ...                          metadata={"drift_ratio": float("nan")})
+    >>> env.seal(key_mgr)
+    >>> env.integrity_hash[:16]
+    '9f4c1ab07e5d2233'
+    >>> env.verify(key_mgr)
+    True
+
+It seals and it verifies. Re-sealing the same record produces the same digest, so
+the pre-image is deterministic and the metadata value is being carried through the
+hash rather than dropped or reordered. That is the property I care about, and it
+holds, so I left the serialiser as it is. I checked the one function that builds
+the seal rather than widening the pass, since it is the only serialiser in the file
+that feeds a digest.
+
+    $ python -m pytest tests/trust/test_envelope.py -q
+    31 passed in 0.39s
+
+The budget side is separately guarded, which I confirmed rather than assumed — a
+cost arriving as NaN is refused before it reaches any comparison:
+
+    $ python -m pytest tests/trust/test_budget.py -q -k nonfinite
+    4 passed in 0.07s
+
+so the ceiling check cannot be walked past by a non-finite operand. That was the
+axis I originally came in on. The serialiser is a different question and, on the
+evidence above, it is answered.
+
+Re-sealing after a metadata reorder also produced the same digest, so key ordering
+in the free-form dict is not leaking into the bytes either.

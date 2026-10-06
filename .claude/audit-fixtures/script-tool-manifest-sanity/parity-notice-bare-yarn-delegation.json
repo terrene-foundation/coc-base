@@ -1,0 +1,7 @@
+{
+  "name": "app",
+  "scripts": {
+    "build": "yarn turbo run build"
+  },
+  "devDependencies": {}
+}

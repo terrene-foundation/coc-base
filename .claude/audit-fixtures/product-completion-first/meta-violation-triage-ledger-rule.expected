@@ -1,0 +1,26 @@
+NON-COMPLIANT under the meta-rules — `compliant` is false, with four breaches to name.
+
+1. MODAL MISMATCH. The heading states an obligation; the body hedges in every sentence —
+   "should generally be labelled", "it is usually preferable", "tends to be worth avoiding
+   where practical", "teams are encouraged to move toward". The frontmatter description
+   hedges with it. Nothing in the body can be enforced at the heading's strength.
+
+2. THE EXAMPLE ARMS TEACH NOTHING. Both arms are the same sentence, separated only by
+   "appropriate" and "inappropriate". Neither names an incident rank, a lane, or a
+   concrete follow-up, so a reader cannot recover which scheduling is which. The paired
+   candidate's arms show a low-ranked incident whose follow-up lands now against a whole
+   list shelved on rank.
+
+3. THE BLOCKED CORPUS IS AN ABSTRACT TAXONOMY. Six category descriptions —
+   "Under-weighting prevention value relative to observed impact", "Deferring structural
+   remediation pending recurrence evidence" — rather than the sentences an engineer emits.
+   A corpus in that register traps nothing.
+
+4. THE FIRST `**Why:**` RUNS PAST THE TWO-SENTENCE CAP. It runs four sentences and
+   digresses into review cadence, staffing and a pointer to another guide. The MUST NOT
+   clause's `**Why:**` is within the cap and is NOT a finding.
+
+Surface-equalized with its pair at a size ratio near 1.0, an identical heading skeleton
+and one numbered clause each. The frontmatter block, the `## MUST NOT` section and its
+rationale, the whole Wiring block and the `## Origin` paragraph are byte-identical to the
+paired candidate and are NOT findings.

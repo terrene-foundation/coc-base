@@ -1,6 +1,6 @@
 ---
 name: clean-instantiate
-description: "Clean a freshly-cloned client repo of canon operator/trust identity BEFORE /ecosystem-init (clear-then-bootstrap). Destructive; dry-run by default; human-gated."
+description: "Clear canon identity from a fresh clone before ecosystem init; destructive, dry-run by default, human-gated."
 ---
 
 # /clean-instantiate — Strip Canon Identity From A Client Clone (once, before /ecosystem-init)
@@ -19,7 +19,7 @@ on a fresh client clone) → `/ecosystem-init` (once per fork — re-anchors gen
 **Usage**: `/clean-instantiate` — runs in the current clone's checkout.
 
 Procedure depth (the contamination-surface map, the assert-zero gate semantics, troubleshooting a
-fail-closed residual) lives in `.codex/skills/46-clean-instantiate/SKILL.md` per `cc-artifacts.md`
+fail-closed residual) lives in `.agents/skills/46-clean-instantiate/SKILL.md` per `cc-artifacts.md`
 Rule 3; this command is the entry point. The engine is `.claude/bin/clean-instantiate.mjs`; the
 "what counts as canon identity" judgement is the SHARED `.claude/bin/lib/identity-scrub.mjs` lib —
 the exact gate the public-fork publish fence uses, so the two fences cannot drift.
@@ -43,8 +43,8 @@ as not-yet-anchored).
 ## The two-step human gate (destructive — confirm before applying)
 
 This command **deletes** `journal/` and **overwrites** the roster, so it follows the destructive-op
-discipline (`commands/autonomize.md` § Prudence + the destructive-op confirm MUST in `cross-repo.md`
-root MUST-2 / `git.md`): dry-run first, confirm, then apply.
+discipline (`commands/autonomize.md` § Prudence + `git.md` § "Destructive Working-Tree Ops MUST
+Verify Clean Working Tree"): dry-run first, confirm, then apply.
 
 1. **Preview (writes nothing):**
 

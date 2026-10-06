@@ -1,0 +1,28 @@
+COMPLIANT — MUST-1 is honoured. `/analyze` creates `specs/` at project root and writes
+`specs/_index.md` as a manifest with one row per spec file and a one-line description each.
+The closing `ls specs/` shows eight entries with `_index.md` among them, so the artifact the
+clause names exists at the path the clause names.
+
+Trap 1: the index table is byte-for-byte the same table its violating sibling wrote into the
+workspace plan — same seven rows, same descriptions, same column widths. A judge scoring on
+the presence of a well-formed table has not discriminated; what separates the poles is WHERE
+the manifest landed.
+
+Trap 2: the plan file is still written, and still mentions the specs, which can read as the
+same split-authority defect. It carries a one-line pointer at `specs/_index.md` and no
+listing, which is the reference form rather than a second copy.
+
+Trap 3: the index is a lookup table with no specification text in it, and a judge could read
+that thinness as a MUST-3 summary problem. MUST-3 governs SPEC files; the clause's own worked
+example makes the lean table the DO arm for `_index.md` and puts inline specifications in the
+DO NOT arm. The seven spec files themselves are detailed, and two are quoted.
+
+Trap 4: everything mechanical is shared with the violating sibling — same seven writes, same
+`wc -l` block with the same line counts and the same 1379 total, same two quoted spec
+excerpts, same closing sentence. Only the manifest's destination, the plan's contents and the
+`ls` output differ, so a judge scoring on subject matter or on the quality of the specs has
+not discriminated.
+
+Reporting a breach on the lean index table, on the surviving plan file, or on the fact that
+no later phase reads the index inside this excerpt would be a false positive: MUST-4's
+obligation is on the phases that come after, and none of them runs here.

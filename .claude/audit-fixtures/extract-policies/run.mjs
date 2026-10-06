@@ -45,7 +45,8 @@ const EXTRACTOR = path.resolve(
   "extract-policies.mjs",
 );
 
-const { extractPolicies } = await import(pathToFileURL(EXTRACTOR).href);
+const { extractPolicies, buildHookMatcherMap, HookMatcherMapError } =
+  await import(pathToFileURL(EXTRACTOR).href);
 
 // Synthetic hooks. Each carries a Shape-D predicate (severity:"block"
 // consumed by emit()) so it is a realistic policy candidate; the
@@ -164,6 +165,124 @@ try {
     `shell=${shell.has("dual-gate.js")} unified=${unified.has("dual-gate.js")} apply=${apply.has("dual-gate.js")}`);
 } finally {
   fs.rmSync(root, { recursive: true, force: true });
+}
+
+// ────────────────────────────────────────────────────────────────
+// P6–P11 — matcher-map FAIL-CLOSED fence (loom#S73-M5)
+// ────────────────────────────────────────────────────────────────
+// buildHookMatcherMap previously degraded to an EMPTY Map on a missing,
+// unreadable, or unparseable settings.json, and that empty map is the sole
+// input to the file-level `policies` table — so a silently-empty policy table
+// propagated to every distribution target, indistinguishable from a populated
+// one at every surface in between.
+//
+// BIPOLAR by construction: the RED poles assert the REFUSAL IDENTITY (the
+// typed error + its `code`), never merely "something threw" — an unrelated
+// TypeError must NOT score as the fence firing. The GREEN poles prove the
+// fence did not simply break the happy path, and that the narrow explicit
+// opt-out the validator-13 shape fixtures depend on still returns cleanly.
+
+// Capture the refusal identity. Returns the error's class name + code, so a
+// case can assert on WHICH refusal fired rather than on the mere fact of a
+// throw.
+function refusalOf(fn) {
+  try {
+    fn();
+    return { threw: false, typed: false, code: null };
+  } catch (e) {
+    return {
+      threw: true,
+      typed: e instanceof HookMatcherMapError,
+      name: e?.name,
+      code: e?.code ?? null,
+    };
+  }
+}
+
+// Scratch root carrying a real hooks dir; each case supplies its own settings.
+const fx = fs.mkdtempSync(path.join(os.tmpdir(), "extract-policies-failclosed-"));
+try {
+  const hooksDir = path.join(fx, ".claude", "hooks");
+  fs.mkdirSync(path.join(hooksDir, "lib"), { recursive: true });
+  for (const [name, body] of Object.entries(HOOKS)) {
+    fs.writeFileSync(path.join(hooksDir, name), body);
+  }
+  fs.writeFileSync(
+    path.join(hooksDir, "lib", "instruct-and-wait.js"),
+    "module.exports = { emit() {} };\n",
+  );
+
+  const goodSettings = path.join(fx, "good-settings.json");
+  fs.writeFileSync(goodSettings, JSON.stringify(SETTINGS, null, 2));
+
+  // P6 — RED: settings.json ABSENT under the fail-closed default.
+  const r6 = refusalOf(() =>
+    buildHookMatcherMap(path.join(fx, "does-not-exist.json")),
+  );
+  check("06", "absent settings → typed matcher-map-settings-missing",
+    r6.typed && r6.code === "matcher-map-settings-missing",
+    `typed=${r6.typed} code=${r6.code}`);
+
+  // P7 — RED: settings.json present but NOT valid JSON.
+  const badJson = path.join(fx, "unparseable-settings.json");
+  fs.writeFileSync(badJson, "{ this is not json ");
+  const r7 = refusalOf(() => buildHookMatcherMap(badJson));
+  check("07", "unparseable settings → typed matcher-map-settings-unparseable",
+    r7.typed && r7.code === "matcher-map-settings-unparseable",
+    `typed=${r7.typed} code=${r7.code}`);
+
+  // P8 — RED: parses cleanly, yields ZERO hook→matcher bindings. The arm that
+  // catches a structurally-valid settings.json whose PreToolUse set resolves
+  // to nothing — the case that reads most like success.
+  const emptySettings = path.join(fx, "empty-settings.json");
+  fs.writeFileSync(emptySettings, JSON.stringify({ hooks: { PreToolUse: [] } }));
+  const r8 = refusalOf(() => buildHookMatcherMap(emptySettings));
+  check("08", "zero-entry settings → typed matcher-map-empty",
+    r8.typed && r8.code === "matcher-map-empty",
+    `typed=${r8.typed} code=${r8.code}`);
+
+  // P9 — RED: settings path is a SYMLINK. safeReadFileSync opens O_NOFOLLOW
+  // so this raises ELOOP — the #569 emit-lane source-read class the guard
+  // exists to surface, and exactly what the former `catch { return map; }`
+  // swallowed into an empty table. existsSync FOLLOWS the link (so this is
+  // NOT the absent arm); the open then refuses to.
+  const linkSettings = path.join(fx, "linked-settings.json");
+  fs.symlinkSync(goodSettings, linkSettings);
+  const r9 = refusalOf(() => buildHookMatcherMap(linkSettings));
+  check("09", "symlinked settings (O_NOFOLLOW/ELOOP) → typed matcher-map-settings-unreadable",
+    r9.typed && r9.code === "matcher-map-settings-unreadable",
+    `typed=${r9.typed} code=${r9.code}`);
+
+  // P10 — GREEN: a well-formed settings.json still builds, through the REAL
+  // entry point, with a populated policy table. Proves the fence did not
+  // break the happy path.
+  let green = { ok: false, detail: "did not run" };
+  try {
+    const res = extractPolicies(hooksDir, { settingsPath: goodSettings });
+    const total = Object.values(res.policies).reduce((a, p) => a + p.length, 0);
+    green = { ok: total > 0, detail: `policy entries=${total}` };
+  } catch (e) {
+    green = { ok: false, detail: `threw ${e?.name}: ${e?.code ?? e?.message}` };
+  }
+  check("10", "well-formed settings still builds a POPULATED table (fence spares happy path)",
+    green.ok, green.detail);
+
+  // P11 — GREEN: the narrow explicit opt-out. requireMatcherMap:false is what
+  // the validator-13 shape fixtures pass (they read predicates[].shape only
+  // and have no sibling settings.json); it must still return cleanly.
+  let optOut = { ok: false, detail: "did not run" };
+  try {
+    const m = buildHookMatcherMap(path.join(fx, "does-not-exist.json"), {
+      required: false,
+    });
+    optOut = { ok: m instanceof Map && m.size === 0, detail: `map.size=${m.size}` };
+  } catch (e) {
+    optOut = { ok: false, detail: `threw ${e?.name}: ${e?.code ?? e?.message}` };
+  }
+  check("11", "explicit requireMatcherMap:false opt-out returns cleanly",
+    optOut.ok, optOut.detail);
+} finally {
+  fs.rmSync(fx, { recursive: true, force: true });
 }
 
 let failed = 0;

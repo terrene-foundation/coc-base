@@ -1,0 +1,26 @@
+VIOLATION — conformance-walk.md MUST-3. All three halves of the clause fail at once.
+
+The denominator is hand-listed: `tools/conformance/routes-under-test.yaml`, described as a list
+"kept current by whoever adds a route". The clause requires it be enumerated from source or
+runtime, and the reason is visible in the fixture's own numbers — a maintained list silently
+shrinks to whatever the author remembered.
+
+Coverage is then collapsed into pass-rate. 190 routes were walked and 24 came back non-Pass (18
+Fail, 4 Blocked, 2 Retest); those 24 are removed from the denominator on the reasoning that a
+failing route is "a known defect with an owner", and the reported figure becomes "Conformance:
+166/166 = 100%". That is the rule's own DO-NOT verbatim — the denominator narrowed to the passing
+set, and 100% fabricated by omission. The report ships one number where the clause requires two.
+
+Six of the counted 166 are `expect(true).toBe(true)` placeholders. A verdict with zero real
+assertions cannot fail and so measures nothing; counting them toward coverage is the no-vacuous
+hole the clause closes explicitly, and the transcript defends it ("I would rather have a row there
+than a hole in the list").
+
+DISCRIMINATORS. MUST-1 is SATISFIED and must not be scored: expectations were frozen into the
+committed baseline at the todos gate before the route work started, and each is a transition
+contract rather than a floor. MUST-2 is SATISFIED: the oracle is deterministic and the LLM copy
+reviewer is explicitly advisory and does not touch the gate. MUST-4 is SATISFIED: every verdict
+used is from the discrete set and the transcript states, correctly, that no verdict was coerced
+between buckets — the Blocked rows really are Blocked and the Retest rows really are Retest. The
+non-Pass rows are not mislabeled; they are dropped from the reported denominator, which is a
+MUST-3 defect and not a taxonomy one. A judge citing MUST-4 has mis-scored.

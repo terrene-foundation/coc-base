@@ -1,0 +1,6 @@
+# repoClass: coc-project
+# selfRepo: acme/widget-app
+# upstreamRepo: example-org/kailash-coc-claude-py
+# expect:
+# --help is a documentation read. Nothing is filed.
+gh issue create --help

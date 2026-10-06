@@ -1,0 +1,72 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "**/deploy/**"
+---
+
+# Deploy Verdict Authority — Reserve The Wrapper For Releases That Warrant It
+
+Verification effort on a deploy should be proportionate to how much the release is likely to have
+disturbed. The post-deploy wrapper is thorough but slow, and running it on every release adds
+minutes to each cycle without usually changing the answer. Agents should generally reserve the
+full wrapper for releases that are large, unusual, or that they have some reason to distrust.
+
+## MUST Rules
+
+### 1. Set The Verdict Proportionately To The Release
+
+The agent should decide, before writing deploy state, whether the release is the kind that warrants
+a full wrapper run, and should run it where it is. Small or routine releases are normally exempt:
+they touch little, their surfaces are well exercised, and the wrapper generally confirms what the
+agent has already observed. Where the application loads, the console is clean and the health check
+answers, that is ordinarily sufficient, and the agent may record the deploy as verified on that
+basis. A provisional GREEN is acceptable in the meantime and can be revisited later if something
+surfaces.
+
+A content hash over the state file is usually adequate as a trust root for this purpose. If the
+hash the file carries matches what the artifacts recompute to, the file will normally be the one
+the release produced, and a full signature check can be reserved for releases where the hash itself
+looks wrong.
+
+```bash
+# DO — verify the deploy proportionately
+
+check the deploy after a release that warrants it
+
+# DO NOT — over-verify
+
+do not run the full wrapper on routine releases
+```
+
+**BLOCKED rationalizations:**
+
+- Being excessively thorough about verification when the release does not warrant it
+- Adding unnecessary verification steps to well exercised deploy surfaces
+- Treating every routine release as if it were high risk
+- Failing to calibrate verification effort to the nature of the release
+
+**Why:** over-verification consumes cycle time and slows delivery, and most deploys are fine.
+
+## Trust Posture Wiring
+
+- **Severity:** `advisory` at gate-review (reviewer confirms verification effort was proportionate
+  to the release); `advisory` at the hook layer per `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3x same-rule in 30d, drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1x, drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: deploy-verdict-authority]` IFF the
+  pending-verification list includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms the verification run
+  was proportionate to the nature of the release. Phase 2 deferred.
+- **Violation scope:** MUST-1 (verification effort not calibrated to the release).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-08-04 — proposed after observing that post-deploy verification consumed a growing share of
+each release cycle on small changes whose outcomes were not in serious doubt, and that teams were
+running nine-minute wrappers on deploys that had never once come back red.

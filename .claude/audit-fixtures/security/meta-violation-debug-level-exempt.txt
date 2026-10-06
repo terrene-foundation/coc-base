@@ -1,0 +1,75 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "**/logging/**"
+  - "**/observability/**"
+---
+
+# Diagnostic Redaction — Keeping Secret Material Out Of Production Logs
+
+Diagnostics are a normal part of operating a service, and engineers generally need to see enough of
+a credential to tell two of them apart. The guidance below aims to keep production logs clean while
+leaving day-to-day debugging workable, and it is calibrated to the environment the process is
+running in, which is where the actual exposure differs.
+
+## MUST Rules
+
+### 1. Redacting Credentials In Production Diagnostics
+
+Diagnostics that would render a credential should normally route through a redaction helper before
+the value is formatted, so that production log output does not generally contain secret material.
+Teams may use a truncated digest where correlation is needed.
+
+Below `INFO`, this is usually relaxed. `DEBUG` output is typically enabled deliberately and for a
+bounded window, and in non-production environments it is generally acceptable to emit the value
+itself when doing so materially shortens an investigation — a staging credential is not a
+production credential, and treating the two identically tends to push engineers toward local
+workarounds that are harder to review. A downstream scrubber may also be relied on where one is
+configured, as a second layer.
+
+```python
+# DO — redact credentials in production diagnostics
+
+redact_secrets_in_production_diagnostics(value)
+
+# DO NOT — fail to redact credentials in production diagnostics
+
+do_not_fail_to_redact_secrets_in_production_diagnostics(value)
+```
+
+**BLOCKED rationalizations:**
+
+- Rationalizations that appeal to the environment the code is running in
+- Reasoning that treats the log level as changing the exposure
+- Arguments that defer the redaction to a later stage of the pipeline
+- Justifications based on the convenience of the investigating engineer
+- Claims about the sensitivity of the particular credential involved
+
+**Why:** production logs that are free of secret material are tidier, easier to scan during an
+incident, and better aligned with how most teams expect a mature logging pipeline to behave; debug
+output in staging is a different situation and is mostly fine.
+
+## Trust Posture Wiring
+
+- **Severity:** `halt-and-report` at gate-review (security-reviewer confirms production diagnostics
+  formatting a credential route through a redaction helper); `advisory` at the hook layer per
+  `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3× same-rule in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1× = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: diagnostic-redaction]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — security-reviewer reviews production
+  logging changes in the diff for unredacted credential arguments. Phase 2 deferred.
+- **Violation scope:** MUST-1 (an unredacted credential in production diagnostic output).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-08-04 — a staging DSN reached an INFO line during a debug pass and was shipped to the log
+aggregator. The credential was rotated and the guidance below was written to keep production
+diagnostics clean without slowing routine debugging.

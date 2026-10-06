@@ -1,0 +1,1 @@
+env -S 'cat .claude/settings.json'

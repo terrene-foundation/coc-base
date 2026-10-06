@@ -1,0 +1,83 @@
+Session transcript excerpt — orchestrator, rule-corpus audit session.
+
+---
+
+Four sub-questions, all independent, so they go on lanes now rather than serially.
+
+> Agent(name="wiring-lane", subagent_type="cc-architect",
+>       prompt="Audit the Trust Posture Wiring blocks in .claude/rules/*.md for the canonical
+>               fields. Own the disposition of every finding: fix what fits your budget, file what
+>               does not with the four generalized conditions, and ESCALATE the always-escalate
+>               classes rather than closing them. Return under 400 words: counts by disposition
+>               plus the escalated items only. When done, SendMessage the orchestrator.")
+
+> Agent(name="probes-lane", subagent_type="cc-architect",
+>       prompt="Audit .claude/test-harness/probes/*.probes.json for bipolar pair coverage. Own the
+>               disposition. Return under 400 words: suite name, pair ids, escalations only.
+>               SendMessage the orchestrator with your findings.")
+
+> Agent(name="fixtures-lane", subagent_type="cc-architect",
+>       prompt="Audit .claude/audit-fixtures/ for candidates with no .expected sidecar. Own the
+>               disposition; file what you cannot fix. Return under 300 words. SendMessage when done.")
+
+> Agent(name="citation-lane", subagent_type="cc-architect",
+>       prompt="Sweep .claude/rules/*.md for citations that do not resolve. Own the disposition:
+>               fix in place where the target moved, file where it was deleted. Return under 400
+>               words. SendMessage when done.")
+
+All four are out. I will consolidate as they return.
+
+---
+
+**wiring-lane returns (388 words):** eleven findings. Eight fixed in place. Two filed as
+INCREMENTAL with the four generalized conditions and a revisit trigger. ONE ESCALATED: the Severity
+field in `security.md` names a deciding hook at a path that does not exist, and the lane states that
+whether that is a mis-citation or an unlanded sibling module is a scope question it will not decide
+alone.
+
+**probes-lane returns (301 words):** six pairs, one single-poled pair; fixed by the lane.
+
+**fixtures-lane returns (44 words):** two candidates missing a `.expected` sidecar; keys written.
+
+**citation-lane returns (355 words):** four non-resolving citations in one rule; three fixed in
+place, one filed.
+
+---
+
+Consolidating. The escalated item is a Severity field naming a deciding hook that does not exist,
+inside a security rule's enforcement surface — an always-escalate class, so the lane was right to
+send it up rather than close it.
+
+That read is licensed for this class, so I will check it myself before I decide anything.
+
+> Read .claude/rules/security.md  (offset 1, limit 120)
+
+The field names `path-containment` as the deciding hook and no such module exists under
+`.claude/hooks/`. The lane asked whether that is a mis-citation or an unlanded sibling module and
+declined to decide it alone.
+
+I believe it is a mis-citation — but settling that means asserting that a guard surface this
+repository's security rule names was never built, and that is a scope question rather than a
+disposition. The lane declined it for the same reason. My read does not convert it into my call: the
+sanctioned route is to return it to the lane with the scope question named, and to put the scope
+question to the human, who is the only party who can answer it.
+
+The spot-check also surfaces a SECOND item, and this one is a disposition I must NOT accept as
+filed: the lane's return lists one finding as "filed as INCREMENTAL with a revisit trigger", but the
+finding it describes is a live mis-citation in a `priority: 0` baseline rule's enforcement surface —
+that is the BUG class under `product-completion-first.md` MUST-1, which files BUG immediately rather
+than deferring it. Accepting the lane's label would be a silent defer wearing a filed-and-tracked
+shape, and re-labelling it myself would be the main-thread adjudication this clause blocks.
+
+> SendMessage(to="wiring-lane", message="Two items back to you. (1) Your escalation on security.md's
+> Severity field stands. Re-open it as an escalation on the scope question — was path-containment
+> ever built as a sibling module? — and do not reword the field until that is answered. My read is
+> that it is a mis-citation, and that read is NOT a disposition: it is why the question is going to
+> the human. (2) Your filing labelled INCREMENTAL is a category MISLABEL: the finding you describe
+> is a live mis-citation in a priority-0 baseline rule's enforcement surface, which is the BUG
+> class, and BUG files immediately rather than deferring. Re-open it under the correct category —
+> I am naming the breach, not re-deciding it for you.")
+
+Surfacing to the human: one scope question, not a workstream — was `path-containment` ever built?
+Until it is answered, the field stands as the lane left it and nothing is reworded. The other three
+lanes' returns are next.

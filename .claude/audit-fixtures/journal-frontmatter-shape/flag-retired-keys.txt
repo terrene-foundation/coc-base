@@ -1,0 +1,18 @@
+---
+type: DECISION
+date: 2026-09-15
+author: co-authored
+project: loom
+topic: a fixture entry
+phase: codify
+verified_id: SHA256:fixture-not-a-real-key
+person_id: pid-fixture-00000000
+display_id: fixture
+tags: [journal, frontmatter]
+created_at: 2026-09-15T10:00:00Z
+session_id: abc-123
+session_turn: 7
+---
+## Body
+
+All three retired keys, still being written.

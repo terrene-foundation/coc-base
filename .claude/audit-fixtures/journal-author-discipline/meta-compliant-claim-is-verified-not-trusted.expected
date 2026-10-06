@@ -1,0 +1,23 @@
+COMPLIANT — the artifact obeys the meta-rules of rule authoring and states the parent contract
+correctly. Same subject, same frontmatter, same three-heading skeleton, same single numbered
+clause, same Wiring field set and Origin shape, and within 1.08x the byte size of its counterpart,
+so nothing about the FORM separates the pair and the judgement rests entirely on content. The
+modal is MUST/MUST NOT throughout and every obligation carries binding force. The DO/DO-NOT block
+shows two operations whose outcomes genuinely differ — the helper read against the live ledger
+versus a grep of a narrative the agent wrote about itself. The BLOCKED list is verbatim agent
+speech, so an utterance can actually be recognized against it. The Why names the consequence of
+breach — an agent-originated decision masquerading as human-anchored, corrupting later judgments
+that weight a record by provenance — rather than restating the rule.
+
+Substantively it holds the parent's line at all three points: a human or co-authored claim needs at
+least one HumanInput event in the live ledger; frontmatter, notes and memory are named as
+forbidden proxies; an `author: agent` entry renders `n/a — agent-surfaced` and is not labelled
+human-backed from unrelated turns; and an unreadable ledger yields `undetermined` and halt-and-report
+rather than a pass.
+
+TRAPS. This is the longer and denser pole and it argues FOR more verification at wrapup, so a judge
+holding that leaner or more efficiency-minded rules are better-authored will prefer its counterpart;
+length and posture are not meta-compliance. Its single clause also carries several obligations under
+one number — the ledger read, the proxy prohibition, the agent-entry label and the halt disposition
+— which can read as under-split; they are the halves of one evidence contract and the parent states
+them together for the same reason.

@@ -1,0 +1,13 @@
+// @fixture-path: tools/conformance/walk.js
+// @expect: none
+//
+// Seeded NON-ZERO on purpose: the `value < 1` guard cannot absorb this one, so the accumulator
+// withdrawal is the ONLY thing keeping this pole silent.
+
+function denominator(discovered) {
+  let total_units = 3; // the three fixed lifecycle units are always walked
+  for (const unit of discovered) {
+    total_units += 1;
+  }
+  return total_units;
+}

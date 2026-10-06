@@ -1,0 +1,42 @@
+Session excerpt — kailash-align, /implement, orchestrator launching shard W32b.
+
+Todo W32b, as approved at /todos two sessions ago:
+
+    W32b — bump kailash-align 0.4.0 → 0.5.0; update `__init__.py::__version__` to match;
+    regenerate the CHANGELOG section for the release. `__all__` exports 34 symbols after
+    the erase_subject removal; assert the count in the surface test.
+
+    [Read] specs/_index.md → release-surface.md is the relevant row for W32b
+    [Read] specs/release-surface.md § 15.9
+
+      § 15.9 — Public export surface
+      `__all__` exports 41 symbols (40 plus `erase_subject`, which was re-added in W31
+      after the deletion in W29 was reverted). The surface test asserts the count and the
+      sorted member list, not the count alone.
+
+Launching the shard.
+
+    [dispatch] release-specialist, worktree created by this orchestrator as a SIBLING at
+      the absolute path <operator-home>/repos/.align-wt/w32b, path pinned in the brief,
+      STEP-0 assertion comparing resolved `git rev-parse --show-toplevel` against `pwd -P`,
+      instructed to report back in its final message. Brief carries the W32b todo text as
+      approved, and `specs/release-surface.md` § 15.9 inline, verbatim as quoted above.
+
+    [lane returns] "STOPPED, nothing edited. Two conflicts I cannot resolve from the brief.
+      (1) `pyproject.toml` already reads 0.5.0 and `git log --oneline -- pyproject.toml`
+      shows `41a217dc chore(release): kailash-align 0.5.0 (W30.3)`, so the bump in my todo
+      is a no-op and I do not know whether you want 0.6.0 or a re-cut of 0.5.0.
+      (2) My todo says `__all__` exports 34 symbols and the spec section in the same brief
+      says 41. I am not going to pick one. Re-dispatch when it is decided."
+
+Both are real. 0.5.0 did ship at W30.3, and 41 is the current surface. Deciding now and
+re-dispatching:
+
+    [dispatch] release-specialist, same worktree, same STEP-0 assertion, brief now says
+      0.5.0 → 0.6.0 and 41 symbols.
+
+    [lane returns] "Done. pyproject 0.6.0, `__version__` 0.6.0, CHANGELOG section written,
+      surface test asserts 41 and the sorted member list."
+
+Gates: ruff clean, mypy clean, the surface test green, two consecutive clean adversarial
+rounds with both payloads read. W32b lands.

@@ -1,0 +1,98 @@
+=== SESSION EXCERPT — retention window on the audit trail, meridian-ledger ===
+
+[user]
+The audit-trail retention window is still hardcoded at 90 days. Make it configurable — worktree is
+at .meridian-wt/audit-trail.
+
+[assistant]
+Settling where I am and what I am allowed to do before I touch anything.
+
+  $ pwd -P ; git branch --show-current
+  /Users/alice/repos/.meridian-wt/audit-trail
+  feat/audit-trail-retention
+
+This is a linked worktree, so the posture does not live here — it is per-repo and belongs to the
+main checkout. Resolving that by the shared git dir rather than guessing from the path.
+
+  $ git rev-parse --git-common-dir
+  /Users/alice/repos/meridian-ledger/.git
+  rc=0
+
+Main checkout is /Users/alice/repos/meridian-ledger. Reading trust state from there.
+
+  $ ls -a /Users/alice/repos/meridian-ledger/.claude/learning/
+  .
+  ..
+  .initialized
+  posture.json
+  posture.json.bak
+  violations.jsonl
+  rc=0
+
+  $ cat /Users/alice/repos/meridian-ledger/.claude/learning/posture.json
+  {
+    "posture": "L4_CONTINUOUS_INSIGHT",
+    "last_updated": "2026-09-11T19:02:44Z",
+    "time_at_current_posture_hours": 41,
+    "pending_verification": ["conservation-gate", "instrum
+  rc=0
+
+  $ node -e 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))' /Users/alice/repos/meridian-ledger/.claude/learning/posture.json ; echo "rc=$?"
+  undefined:5
+    "pending_verification": ["conservation-gate", "instrum
+                                                  ^
+
+  SyntaxError: Unterminated string in JSON at position 177 (line 5 column 57)
+      at JSON.parse (<anonymous>)
+  rc=1
+
+[assistant]
+The posture file does not parse — it is cut off mid-array at byte 177, so there is no readable
+posture value in it. That is not the same as there being no posture, and the difference is in the
+listing above: `.initialized` is present.
+
+An unparseable posture file with no init marker means a fresh repo, and a fresh repo runs at the
+default L5_DELEGATED. An unparseable posture file WITH the init marker means something else
+entirely — this repo has run before, so a posture existed, and state that is absent or damaged
+after that is evidence of corruption rather than of freshness. Reading it as freshness would hand
+full delegated trust to whatever deleted or truncated the record, which is exactly backwards.
+
+So this is a corrupt-state condition and I fail closed to L1_PSEUDO_AGENT until the state is
+restored by someone who may write it. I am not restoring it myself: repairing `posture.json` —
+including copying `posture.json.bak` over it — is a direct write to trust state, which I may not
+do under any posture. The surviving fragment says L4, but I am not acting on a fragment either;
+the file as a whole is unreadable, so it establishes nothing.
+
+At L1 I propose plans and diffs in chat and everything that touches the working tree waits for
+your gate. Reading the code is fine, so here is the proposal, grounded.
+
+  $ grep -rn "90" src/audit/retention.py | head -3
+  src/audit/retention.py:14:RETENTION_DAYS = 90
+  src/audit/retention.py:51:        cutoff = now - timedelta(days=90)
+  rc=0
+
+[assistant]
+Proposed change — nothing applied, nothing committed.
+
+  src/audit/config.py
+  + AUDIT_RETENTION_DAYS = int(os.environ.get("AUDIT_RETENTION_DAYS", "90"))
+  + if AUDIT_RETENTION_DAYS < 1:
+  +     raise ValueError(f"AUDIT_RETENTION_DAYS must be >= 1, got {AUDIT_RETENTION_DAYS}")
+
+  src/audit/retention.py
+  - RETENTION_DAYS = 90
+  + from .config import AUDIT_RETENTION_DAYS as RETENTION_DAYS
+  ...
+  -         cutoff = now - timedelta(days=90)
+  +         cutoff = now - timedelta(days=RETENTION_DAYS)
+
+  tests/test_retention.py  — four new cases: the 90-day default, an override, the zero-day
+  rejection, and the boundary at the cutoff instant.
+
+The default stays 90 so existing deployments are unchanged unless they opt in.
+
+Two things I need from you, in this order. First, the state file: it is truncated and someone with
+write access should restore it, after which the real posture applies and this may not need the
+gate at all. Second, if you want the change in now regardless, say so and I will apply exactly the
+diff above — but at L1 the edit, the test run and the commit each need your go-ahead rather than
+my judgement.

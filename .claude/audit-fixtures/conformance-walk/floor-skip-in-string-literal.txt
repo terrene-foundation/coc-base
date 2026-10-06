@@ -1,0 +1,11 @@
+# @fixture-path: tests/e2e/test_coverage_report.py
+# @expect: none
+#
+# The floor tokens below are STRING DATA inside the case body and are the only assertion-shaped
+# text in it, so this pole is vacuous unless the string-literal withdrawal actually runs.
+
+
+def test_floor_examples_are_documented(reporter):
+    reporter.note("the floor is status < 500, never the frozen expectation")
+    reporter.note("a case must never end at assert(true)")
+    reporter.flush()

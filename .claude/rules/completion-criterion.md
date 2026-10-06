@@ -53,6 +53,82 @@ Anything in the budgeted half shipping unfixed is a **residual** and is not self
 
 **Why:** a residual with no name against it is indistinguishable from a defect nobody noticed; the backstop stops the bet becoming permanent.
 
+**A DECLARED OMISSION IS A RESIDUAL, AND PROSE DISCHARGES NOTHING.** A gap named in prose — a code
+comment recording what was deliberately NOT done, a `**Detection mechanism:**` row naming an unbuilt
+detector, a header stating a known consequence — is a residual under this clause and carries its full
+weight. SHIPPING it unbound is BLOCKED; three bindings discharge it, and **none substitutes for this
+clause's named-human acceptance — each makes that acceptance OBSERVABLE**:
+
+1. a dated row in `.claude/test-harness/phase2-deferrals.json` (the registry
+   `phase2-deferral-integrity.mjs` reconciles) — **available ONLY for a residual attached to a RULE
+   CLAUSE.** That registry is keyed `<rule-file>.md#<clause-slug>` and validates that `rule` resolves
+   under `.claude/rules/` and that `quote` carries a Phase-2 token, so a declared omission in `bin/`,
+   `hooks/lib/` or a test — where most of them will be — CANNOT use it and must take (2) or (3).
+   MEASURED: a lane attempted exactly this row and the gate went PASS → FAIL on four counts. Note
+   also that the registry REFUSES `accepted_by: null` in its own words — "a present-but-empty
+   acceptor is accepted-by-absence ... strictly worse than an absent field because it reads as
+   compliant" — so leaving the acceptor blank is not the owed-acceptance form; an unaccepted
+   residual is a PENDING DECISION, not a row with a hole in it;
+2. a test that REDS when the named consequence's PRECONDITION is reached; or
+3. an acceptance recorded IN PLACE carrying what this clause already requires above — a named human
+   resolving to a standing role, a revisit trigger, and a calendar backstop (or a RECORDED deviation
+   from the backstop, as `security.md` § "Accepted residual" does).
+
+This is a POSITIVE ALLOWLIST (`cc-artifacts.md` Rule 10): a discharge not on it is not one.
+
+**THE BLOCK IS ON SHIPPING, NEVER ON WRITING — AND DELETING THE NOTE HIDES THE RESIDUAL RATHER THAN
+DISCHARGING IT.** The obligation attaches to the GAP, not to the sentence describing it. Declining to
+write, or removing, a comment that names a live consequence leaves the residual in force AND adds a
+second violation: an undeclared gap no later reader can find. Where no human is reachable to accept,
+MUST-6's existing exit applies unchanged — surface it as a PENDING DECISION and the deliverable is not
+done. Silence is never the compliant path.
+
+**OUT OF SCOPE — EPISTEMIC DISCLOSURE.** A statement about the CURRENT report's REACH — an instrument's
+blind class, a STALE or UNANSWERED verdict, a named scope limit — is NOT a residual and binds nothing.
+It is mandated elsewhere (`conservation-gate.md` MUST-3 requires naming what an instrument cannot see;
+`instrument-discipline.md` MUST-1 and MUST-6(b) require reporting UNANSWERED and STALE), and reading it
+as a declared omission would put this clause in direct conflict with rules it must compose with. The
+discriminator is not phrasing: something DELIBERATELY NOT DONE that STILL BITES is a residual and is IN
+scope; a statement about what this report could not see is not.
+
+**GRANDFATHERED.** Residuals already recorded when this clause landed are NOT retroactively in
+violation; each binds at its next `/codify`-touch — the cutoff shape `trust-posture.md` MUST-8 uses.
+Enumerated at landing rather than implied: this rule's own § Detection-mechanism reachability residual,
+and `security.md` § "Accepted residual — the three-phase TOCTOU is OPEN, not deferred". The latter
+already satisfies binding (3) and is named because it explicitly argues a registry row is NOT owed,
+which this clause must not silently overrule.
+
+```markdown
+# DO — the omission is named AND bound, in the same change.
+# ILLUSTRATIVE: the binding forms are deliberately GENERIC. A concrete key or case name
+# here would be a citation this rule's own mandate requires to resolve, and an exemplar
+# resolving to nothing teaches the defect it forbids.
+// <consequence, in one line>.
+// Bound: phase2-deferrals.json::<key> (expires <YYYY-MM-DD>, accepted_by <named human>)
+//   OR  <suite>.test.mjs::"<case that REDS when the precondition is reached>"
+//   OR  an in-place acceptance naming acceptor + revisit trigger + backstop.
+
+# DO NOT — the consequence named, nothing bound, shipped
+// We deliberately do NOT copy stranded-artifact-guard's {unavailable:true} discrimination,
+// so a claim about the HOST is read as a claim about the REPOSITORY.
+```
+
+**BLOCKED rationalizations:**
+
+- "It is documented, so the next reader will know"
+- "The comment names the consequence precisely; that is the record"
+- "Writing it down is better than saying nothing"
+- "A registry row for a comment is bureaucracy"
+- "The header already explains why we did not do it"
+- "It is a known limitation, not a defect"
+- "Whoever touches this next will see the note"
+- "Better to say nothing than to book an obligation I cannot pay"
+- "Removing the comment removes the residual"
+- "If I don't write it down, it isn't a declared omission"
+- "I'll leave it undocumented and fix it properly later"
+
+**Why:** a documented omission is worth full credit at review time and ZERO at runtime, so it is the cheapest possible substitute for a fix and the one least likely to be challenged. The in-class instance measured at landing: the `WHAT THIS DOES NOT COPY FROM stranded-artifact-guard.js` block in `wip-lanes.js` (`:450-456`) recorded a missing discrimination AND its consequence, shipped, and that consequence then silently disabled a MUST-7 enforcement — per-instance detail, the three NEIGHBOURING false-compliance-claim cases this clause does NOT reach, and why write-time binding is the load-bearing moment: the paired evidence skill § "MUST-6 — declared omissions".
+
 ## MUST NOT
 
 - Declare done on the ABSENCE of findings rather than a stated list reached — **Why:** unreachable by construction over an inexhaustible set.
@@ -66,12 +142,12 @@ Anything in the budgeted half shipping unfixed is a **residual** and is not self
 ## Trust Posture Wiring
 
 - **Severity:** `halt-and-report` at gate-review (reviewer at `/redteam` + cc-architect at `/codify` run the Detection checks below); `advisory` at the hook layer per `hook-output-discipline.md` MUST-2 (semantic judgment over session history; no structural tool-call signal).
-- **Grace period:** 7 days from rule landing (2026-08-02 → 2026-08-09).
+- **Grace period:** 7 days from rule landing (2026-08-02 → 2026-08-09). The MUST-6 DECLARED-OMISSION half added 2026-09-11 opens its OWN 7-day window (2026-09-11 → 2026-09-18), per the clause-scoped-extension shape `security.md`, `agents.md`, `instrument-discipline.md` and `zero-tolerance.md` § Rule 3e all use; without it the new obligation would be live with zero grace and `regression_within_grace` would have no window to key on.
 - **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4 cumulative-window math (3× same-rule / 5× total in 30d → drop 1 posture).
 - **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md` MUST-4 (1× = drop 1 posture) — NO dedicated key (a review-layer semantic judgment; minting one would drag `trust-posture.md`, a `self-referential-codify.md` allowlist file, into a self-referential edit). Named deviation per `trust-posture.md` Rule 8 — same disposition `orchestration-launch-ledger.md` + `security.md` § Enforcement-Surface Parity took.
 - **Receipt requirement:** SessionStart soft-gate `[ack: completion-criterion]` IFF `posture.json::pending_verification` includes the `completion-criterion` rule_id.
-- **Detection mechanism:** Phase 1 (manual, gate-review) — confirm **(a)** a ratified durable list predates round 1; **(b)** convergence covered every gating-half finding, only `INCREMENTAL` off-list budgeted, no ambiguous finding resolved out of the gating half; **(c)** no counter reset on an observation, touched-surface included transitive consumers; **(d)** depth cited oracle presence, not capability; **(e)** the reviewer INDEPENDENTLY derives an acceptance surface from the spec/brief and reports every item absent from the authored list — any absence is a finding (without (e) the check cannot discriminate a narrow list from an honest one); **(f)** every trust-bearing surface took the full uncapped loop; **(g)** no cap-stop recorded as convergence and a last-known-good survived. **Reachability residual, measured and recorded rather than papered over:** gate-review is the only detector, and the `paths:` set is NARROWER than this rule's subject warrants. `**/workspaces/**` and `**/journal/**` were authored, then REMOVED, for a measured reason: the `workspace-note` injection profile (probe path `workspaces/example/journal/0001-x.md`, matched by BOTH globs) sat at 218736 B against a 216904 B budget BEFORE this rule — already 100.8% — so adding a 14 KB rule there exceeded the +5% ceiling by ~5 KB even after full paired extraction to the skill. The honest consequence: a session that edits ONLY `workspaces/**` or writes ONLY a `journal/` close-out receipt does NOT load this rule. What remains covers the two moments that matter most — `**/todos/**` (where the acceptance list is authored) and `**/.session-notes*` + `**/.session-notes.d/**` (where the completion claim is written). This is a CORPUS-SATURATION residual, not a scoping judgment: the profile cannot absorb a new rule of normal size until an existing oversized one is extracted (the checker names `multi-operator-coordination.md` at 19022 B and `user-flow-validation.md` at 16107 B as broad-load #678-giant-class rules firing in EVERY profile). Restoring the two globs is the correct fix once that headroom exists, and is BLOCKED on it — not on a judgment about this rule's scope. Scanner: none (semantic). Fixtures `.claude/audit-fixtures/completion-criterion/` — 6 files in 3 bipolar pairs (MUST-1; MUST-3/4; meta-compliance) = `coc-artifact-eval-coverage.md` MUST-1's per-PROPERTY mandate, NOT one pair per MUST; MUST-2/5/6 ride gate-review plus the surfaces those pairs exercise. Probes `.claude/test-harness/probes/completion-criterion.probes.json` (6 rows, `scanner: null`) via `/test-harness-probe`, NOT in CI (the loom↔csq boundary keeps CI LLM-free); pinned in `probe-suite-integrity.test.mjs::PINNED_SUITES`. Phase 2 deferred — advisory `Stop` detector; fixtures land WITH it per `cc-artifacts.md` Rule 9.
-- **Violation scope:** MUST-1 (no list; visibility-scoped; severity-as-gate; self-authored unratified) + MUST-2 (convergence on the budgeted half; a live-incident finding held to round end) + MUST-3 (reset by a finding; touched-surface as diff alone; aggregate not minimum) + MUST-4 (round-count budget; non-rotating instrument; cap-stop as convergence; discarded last-known-good) + MUST-5 (depth on capability; a trust-bearing surface reduced, incl. via ambiguous classification; suite-level green as sound oracle) + MUST-6 (residual with no named acceptor, missing trigger or backstop, or accepted-by-absence).
+- **Detection mechanism:** Phase 1 (manual, gate-review) — confirm **(a)** a ratified durable list predates round 1; **(b)** convergence covered every gating-half finding, only `INCREMENTAL` off-list budgeted, no ambiguous finding resolved out of the gating half; **(c)** no counter reset on an observation, touched-surface included transitive consumers; **(d)** depth cited oracle presence, not capability; **(e)** the reviewer INDEPENDENTLY derives an acceptance surface from the spec/brief and reports every item absent from the authored list — any absence is a finding (without (e) the check cannot discriminate a narrow list from an honest one); **(f)** every trust-bearing surface took the full uncapped loop; **(g)** no cap-stop recorded as convergence and a last-known-good survived. **Reachability residual, measured and recorded rather than papered over:** gate-review is the only detector, and the `paths:` set is NARROWER than this rule's subject warrants. `**/workspaces/**` and `**/journal/**` were authored, then REMOVED, for a measured reason: the `workspace-note` injection profile (probe path `workspaces/example/journal/0001-x.md`, matched by BOTH globs) sat at 218736 B against a 216904 B budget BEFORE this rule — already 100.8% — so adding a 14 KB rule there exceeded the +5% ceiling by ~5 KB even after full paired extraction to the skill. The honest consequence: a session that edits ONLY `workspaces/**` or writes ONLY a `journal/` close-out receipt does NOT load this rule. What remains covers the two moments that matter most — `**/todos/**` (where the acceptance list is authored) and `**/.session-notes*` + `**/.session-notes.d/**` (where the completion claim is written). This is a CORPUS-SATURATION residual, not a scoping judgment: the profile cannot absorb a new rule of normal size until an existing oversized one is extracted (the checker names `multi-operator-coordination.md` at 19022 B and `user-flow-validation.md` at 16107 B as broad-load #678-giant-class rules firing in EVERY profile). Restoring the two globs is the correct fix once that headroom exists, and is BLOCKED on it — not on a judgment about this rule's scope. Scanner: none (semantic). Fixtures `.claude/audit-fixtures/completion-criterion/` — 6 files in 3 bipolar pairs (MUST-1; MUST-3/4; meta-compliance) = `coc-artifact-eval-coverage.md` MUST-1's per-PROPERTY mandate, NOT one pair per MUST; MUST-2/5/6 ride gate-review plus the surfaces those pairs exercise. Probes `.claude/test-harness/probes/completion-criterion.probes.json` (6 rows, `scanner: null`) via `/test-harness-probe`, NOT in CI (the loom↔csq boundary keeps CI LLM-free); pinned in `probe-suite-integrity.test.mjs::PINNED_SUITES`. **Phase 2 is RETIRED, not pending (2026-09-11): no `Stop` detector will EVER be built**, and no fixtures are owed for one. Every check (a)–(g) above turns on semantic adequacy, not on any observable event: whether a list was RATIFIED and PREDATES round 1 is a claim about authority and ordering that no tool call records; whether convergence covered every GATING-half finding requires classifying each finding; (e) requires a reviewer to INDEPENDENTLY derive an acceptance surface from the spec and diff it against the authored one, which is the generation of a second judgment, not the reading of a signal; and (g) turns on whether a stop was a cap-stop or a convergence. The block already says `Scanner: none (semantic)` for the same reason. `hook-output-discipline.md` MUST-2 forbids `block` on a lexical signal and `rule-authoring.md` MUST NOT § "`**Detection mechanism:**` row filing `Phase 2 (deferred)`" names booking such a detector as teeth that cannot arrive. Gate-review plus the registered probe suite ARE the enforcement layers here, permanently. The REACHABILITY residual recorded above is NOT retired and is unaffected: it is a `paths:`-budget problem with a named unblocking condition, not an undecidable property.
+- **Violation scope:** MUST-1 (no list; visibility-scoped; severity-as-gate; self-authored unratified) + MUST-2 (convergence on the budgeted half; a live-incident finding held to round end) + MUST-3 (reset by a finding; touched-surface as diff alone; aggregate not minimum) + MUST-4 (round-count budget; non-rotating instrument; cap-stop as convergence; discarded last-known-good) + MUST-5 (depth on capability; a trust-bearing surface reduced, incl. via ambiguous classification; suite-level green as sound oracle) + MUST-6 (residual with no named acceptor, missing trigger or backstop, or accepted-by-absence; AND a gap declared in prose — a code comment, a Wiring row, a header — that resolves to no dated registry row, no test that reds on the named consequence, SHIPPED with none of the three bindings; OR a known gap left UNDECLARED, or a note deleted, to avoid this clause. Epistemic disclosure is out of scope, and residuals recorded before the clause landed are grandfathered until next touched).
 - **Origin:** See § Origin.
 
 ## Distinct From / Cross-References

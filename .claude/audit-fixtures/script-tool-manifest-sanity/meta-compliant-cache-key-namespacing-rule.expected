@@ -1,0 +1,29 @@
+COMPLIANT against `rule-authoring.md`. The judge must report no meta-rule breaches.
+
+Every piece of structural furniture is present AND its content does the work the meta-rule asks of
+it:
+
+- Clause headings announce OBLIGATIONS ("Every Cache Key Carries An Owner-Qualified Prefix",
+  "A Key-Shape Change Bumps The Namespace Version") and the bodies hold them — each names the
+  alternative BLOCKED rather than discouraged, and neither hands back the case its heading forbids.
+- Both DO/DO-NOT arms differ in SUBSTANCE, so the contract is learnable from the block alone: one
+  arm routes through the builder and shows the resulting prefixed key, the other shows the bare
+  interpolated key that omits it; one bumps the version to v4, the other leaves v3 in place.
+- The BLOCKED corpora hold first-person sentences a session would really emit ("no other module
+  uses the word invoice", "the deploy is atomic, both shapes never coexist"), not a taxonomy of
+  error types.
+- Each `**Why:**` is one sentence and states the mechanism, not a survey.
+- The Trust Posture Wiring block carries all eight canonical fields in order, ending with the
+  violation scope, and its severity respects `hook-output-discipline.md` MUST-2 — `advisory` at
+  the hook layer, `halt-and-report` at gate-review.
+- The Phase-2 deferral names a STRUCTURAL signal: whether a cache-client call's key argument is a
+  literal/f-string or a builder call is a property of the AST call node. It therefore books
+  enforcement that can actually arrive, which is what `rule-authoring.md` requires of a
+  `**Detection mechanism:**` row filing `Phase 2 (deferred)`.
+- `## Origin` carries a dated, specific incident with its mechanism, and closes by explaining what
+  the incident implies about the rule's FORM (a construction mandate rather than a review
+  checklist) rather than trailing off into a sentiment.
+
+This pole shares its frontmatter, its `## ` heading skeleton, its numbered-clause count, its MUST
+NOT bullet, and most of its Wiring block with its sibling; nothing shared between them is
+scoreable.

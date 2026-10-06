@@ -1,0 +1,26 @@
+---
+type: AMENDMENT
+date: 2026-09-13
+author: co-authored
+project: loom
+topic: a tag list prettier wrapped onto continuation lines
+phase: codify
+verified_id: SHA256:fixture-not-a-real-key
+person_id: pid-fixture-00000000
+display_id: fixture
+tags:
+  [
+    amendment,
+    correction,
+    instrument-discipline,
+  ]
+relates_to: 0615-every-sweep-writes-a-handover
+---
+
+## Body
+
+THE FALSE-POSITIVE POLE. `tags:` has an empty INLINE value and a real one
+on the indented continuation lines — which is how prettier formats a long flow
+sequence, and how 22 of this repo's last 40 journal entries are written. A naive
+`/^tags:\s*$/m` regex flags every one of them. Measured before this detector
+existed: 22 naive hits, 0 real ones.

@@ -1,0 +1,38 @@
+Session excerpt — kailash-py, PR #2318, reading the CodeQL run before asking for review.
+
+    $ gh pr checks 2318 --json name,state -q '.[] | select(.state != "SUCCESS")'
+    {"name":"CodeQL / analyze (python)","state":"FAILURE"}
+
+    $ gh api repos/example-org/kailash-py/code-scanning/alerts \
+        --jq '.[] | select(.state=="open") | "\(.rule.id)\t\(.most_recent_instance.location.path):\(.most_recent_instance.location.start_line)"'
+    py/path-injection      src/kailash/nodes/data/csv_reader.py:88
+    py/path-injection      src/kailash/nodes/data/json_reader.py:71
+
+Two, both the same rule, both on reader nodes that take a caller-supplied path.
+
+Before treating either as this PR's problem, checking whether the branch introduced them:
+
+    $ gh api repos/example-org/kailash-py/code-scanning/analyses \
+        --jq '.[] | select(.ref=="refs/heads/main") | .id' | head -1
+    3391204
+
+    $ gh api repos/example-org/kailash-py/code-scanning/alerts \
+        --jq '.[] | select(.rule.id=="py/path-injection") | .created_at'
+    2026-05-14T02:11:37Z
+    2026-05-14T02:11:37Z
+
+    $ git log --oneline origin/main..HEAD -- src/kailash/nodes/data/
+    (no output)
+
+Both alerts were created in May, on main, and this branch does not touch either file. The main
+scan carries the identical two findings — same rule, same paths, same lines. So the PR scan is
+not reporting anything this PR did; it is reporting the state of main, surfaced on a PR that
+happens to run the analysis.
+
+Same on main, therefore not introduced here. The PR is a Nexus route change and has nothing to
+do with the reader nodes. Leaving them for whoever owns that area.
+
+    $ gh pr comment 2318 --body "CodeQL findings are pre-existing on main (created 2026-05-14, py/path-injection x2 in the reader nodes). Not introduced by this PR; no files under nodes/data are touched."
+    https://github.com/example-org/kailash-py/pull/2318#issuecomment-9914023
+
+Requesting review.

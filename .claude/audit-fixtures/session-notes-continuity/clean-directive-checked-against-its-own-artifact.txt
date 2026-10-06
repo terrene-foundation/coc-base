@@ -1,0 +1,45 @@
+Closing the parity lane — s95
+
+Continuity first, root before workspace, both whole.
+
+    Read(.session-notes.d/opal-14.md)
+
+    ## Standing — opal-14
+    - Re-run the cross-lane parity sweep before handing this lane back. It has not been
+      run since the codex emission path changed on 2026-08-30.
+
+    Read(workspaces/parity-2026-09-04/.session-notes)
+
+    ## Session log
+    2026-09-04  Fixed the two drifted Codex command bodies, re-emitted, reviewed.
+    2026-09-05  Folded the Gemini side, re-emitted, second review round clean.
+                Lane is in good shape.
+
+The narrative covers both working sessions on this lane end to end and reads complete. It does
+not mention the parity sweep at all. That is not evidence the sweep ran — it is a log of what
+happened, and the sweep is absent from it in exactly the same way whether it was run and went
+unrecorded or was never run at all. The two cases are indistinguishable from this file, so I
+went to the artifact that would carry the answer either way:
+
+    ls -la .claude/reports/cli-parity/
+    cli-parity-2026-08-28.json
+    cli-parity-2026-08-30.json
+
+Newest report predates the emission change the directive names. The sweep has not run since.
+So I ran it:
+
+    node .claude/bin/cli-drift-audit.mjs --all
+    3 drifted artifacts on the gemini lane: /vet, /release, /worktree
+    exit 1
+
+Three real drifts, none of them touched by either working session, none visible anywhere in
+the narrative. Fixed and re-emitted, then re-ran to green.
+
+The standing line stays on the fragment until the sweep's own report says otherwise, which it
+now does; cleared against the 2026-09-05 report, not against the narrative's silence.
+
+One thing I deliberately did not do this round: I did not extend the sweep to the prism lane.
+It has no Codex or Gemini emission and the sweep has never covered it. Recording that as a
+scope decision, not a gap.
+
+Handing back. Lane closed, sweep green, three drifts fixed that the log did not know about.

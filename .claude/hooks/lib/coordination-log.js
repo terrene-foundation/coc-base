@@ -144,11 +144,23 @@ const foldCapabilityLedger = require("./fold-capability-ledger.js");
 // the single eligibility predicate so drift across rule 5 / 9b / 9c is
 // closed structurally.
 const { isEligibleSigner } = require("./eligibility.js");
+// The ONE canonical "are these different principals?" predicate — shared with
+// fold-rule-9b/9c so the four quorum sites cannot drift apart again.
+const {
+  createDistinctSignerSet,
+  describeCollision,
+} = require("./signer-distinctness.js");
 // F14 C2 iter-3 root-cause fix: case-insensitive login compare for
 // victim-chain population. Roster `github_login: "Alice"` vs revocation
 // `content.github_login: "alice"` must populate the chain (fold-rule-10
 // settlement bypass otherwise).
 const { loginsEqual } = require("./github-login.js");
+// S61 round-3 — the ONE provider→bind-field/comparator resolution. See that
+// module's header for the measured GitHub-vs-ADO contest divergence.
+const {
+  resolveBindIdentity,
+  namedIdentity,
+} = require("./revocation-bind-identity.js");
 // #583 Shard 2: the presence-proof fold gate (broker-sig verify against a
 // roster trust_anchors entry + single-use nonce ledger + freshness classifier,
 // fail-closed). Verifies content.presence_proof on any record that carries one;
@@ -166,6 +178,17 @@ const {
   // DISTINCT approver (not only the emitter) was PROVEN-present.
   deriveProofAttributionMap,
 } = require("./presence-proof-verify.js");
+// s50: the signed prefix attestation that BOUNDS read-time fold cost. The
+// fold verifies every record's signature by subprocess (measured: 894 gpg +
+// 27 ssh-keygen spawns, 8.26 s, on loom's 919-record log), and the log is
+// append-only so the cost grows without bound on a path that runs under a
+// 5-second hook timeout. `resolveCheckpointCoverage` lets records in an
+// OWNER-SIGNED, DIGEST-BOUND prefix skip the rule-1 SUBPROCESS — and nothing
+// else: every other rule still runs over every record. The module requires
+// nothing from this file, so it cannot close a cycle. Full soundness argument
+// (why this is a signature and not the rejected content-hash cache, and the
+// three proofs) lives in that file's header.
+const foldVerificationCheckpoint = require("./fold-verification-checkpoint.js");
 // #583 Shard 3a (F5/Q5a): the actuation partition, asserted structurally at
 // module load against this engine's checkpoint-exempt + registration metadata
 // (see the invariant assert after the default engine is built). actuation-types
@@ -381,13 +404,26 @@ function _genesisAnchorPredicate(record, ctx) {
  */
 function _revocationPredicate(record, ctx) {
   // Resolve victim chain entries from the engine's running state.
-  const victimChainEntries = _collectVictimChainEntries(
+  const victimChain = _collectVictimChainEntries(
     record,
     ctx.roster,
     ctx.acceptedSoFar,
   );
+  // S61 ROUND-2 — an UNREADABLE victim key set is INDETERMINATE, not
+  // "uncontested". foldRevocation's admit arm fires on an empty entry list, so
+  // passing one through would convert "the contradiction check could not run"
+  // into "no contradiction found" — admitting a revocation on absent evidence.
+  // Rule 10 exists to REJECT hostile revocations; refusing here is the only
+  // disposition consistent with that.
+  if (victimChain.indeterminate) {
+    return {
+      accepted: false,
+      foldState: ctx.foldState,
+      reason: `rule 10: ${victimChain.indeterminate}`,
+    };
+  }
   const result = foldRevocation(record, {
-    victimChainEntries,
+    victimChainEntries: victimChain.entries,
     state: ctx.foldState,
   });
   if (result.contested) {
@@ -417,24 +453,96 @@ function _revocationPredicate(record, ctx) {
  * already filters internally to the contradicting-activity types.
  */
 function _collectVictimChainEntries(revocationRecord, roster, acceptedSoFar) {
-  const targetLogin =
-    revocationRecord.content && revocationRecord.content.github_login;
-  if (!targetLogin || !roster || !roster.persons) return [];
+  // S61 round-3 CRITICAL-1 — PROVIDER DISPATCH. This read was
+  // `content.github_login` unconditionally, which is ALWAYS absent on
+  // azure-devops, so the early return fired BEFORE either disposition arm
+  // below could be reached and rule 10 was structurally INERT on ADO
+  // (measured: contestedRevocations 1 on github, 0 on ADO, same live victim).
+  // The bind field now comes from the shared resolver, mirroring
+  // `fold-rule-10.js`'s own dispatch so the collector and the contest logic
+  // cannot disagree about who the victim is.
+  const content = revocationRecord.content;
+  // S61 round-4 CRITICAL-2 — pin the resolution to the ROSTER's declared
+  // provider. Without this, a revocation that simply OMITS `provider` on an
+  // ADO roster defaulted to github here, matched no ADO person, and was
+  // ADMITTED on an empty chain — while `derive-n` (the one site that keys off
+  // the ROSTER) matched the victim by `principal` and recorded the hostile
+  // revocation as their latest state. The roster is the PR-gated trust root;
+  // the record is attacker-signed, so a disagreement is refused, never
+  // resolved in the record's favour.
+  const bind = resolveBindIdentity(content, {
+    expectedProvider:
+      roster && roster.genesis ? roster.genesis.provider : undefined,
+  });
+  if (!bind.ok) {
+    // An UNKNOWN provider is INDETERMINATE, never the silent early return:
+    // returning empty here would be the exact fail-open this fixes.
+    return { entries: [], indeterminate: `rule-10 victim resolution: ${bind.reason}` };
+  }
+  const targetLogin = namedIdentity(content, bind.bindField);
+  if (!targetLogin || !roster || !roster.persons) {
+    return { entries: [], indeterminate: null };
+  }
   // Resolve the victim's verified_ids from the roster.
   // F14 C2 iter-3: case-insensitive compare per GitHub server semantics.
+  // S61 ROUND-2 CORRECTION — THIS SITE IS AN EXCEPTION TO "SKIP, NEVER THROW",
+  // and an earlier S61 comment here wrongly claimed it "refuses". It does not.
+  // It collects EVIDENCE, and non-resolution here ADMITS:
+  //   empty victimVerifiedIds -> [] -> foldRevocation finds no contradicting
+  //   entry -> `{ accepted: true }` (fold-rule-10.js). Rule 10 is the
+  //   anti-hostile-revocation mechanism — contest REJECTS, so suppressing the
+  //   victim's chain defeats exactly the protection.
+  // The S61 skip therefore flipped this path: pre-S61 a `keys: {}` victim THREW
+  // -> dispatch rejection -> revocation REJECTED; post-S61 -> skip -> ACCEPTED.
+  //
+  // Fixed at the CALLER-VISIBLE level rather than by restoring the throw,
+  // because the throw never covered the whole class: `keys: []` is equally
+  // unreadable, never threw either, and yields the identical empty set. Both
+  // are schema-invalid (`operators.roster.schema.json` keys: array, minItems 1),
+  // so this is reachable only off the validated write path.
+  //
+  // SEVERITY BOUND, stated so nobody over-reads this: marginal ATTACKER
+  // capability is ~zero. Anyone able to write the roster directly could always
+  // supply a well-formed `keys: []` and get the same empty set before and after
+  // S61. The real exposure is NON-ADVERSARIAL — a corrupted or hand-edited
+  // roster now silently admits a revocation where it previously aborted loudly.
+  //
+  // The discrimination is deliberate: a victim login matching NO roster person
+  // is a DIFFERENT case (victim not rostered), pre-dates S61, and is left as-is
+  // rather than widened here.
   const victimVerifiedIds = new Set();
+  let victimMatched = false;
   for (const person of Object.values(roster.persons)) {
-    if (loginsEqual(person.github_login, targetLogin)) {
-      for (const k of person.keys || []) {
-        if (k.fingerprint) victimVerifiedIds.add(k.fingerprint);
+    if (!person || typeof person !== "object") continue;
+    if (bind.equals(person[bind.bindField], targetLogin)) {
+      victimMatched = true;
+      if (!Array.isArray(person.keys)) continue; // unreadable → counted below
+      for (const k of person.keys) {
+        if (k && k.fingerprint) victimVerifiedIds.add(k.fingerprint);
       }
     }
   }
-  if (victimVerifiedIds.size === 0) return [];
+  if (victimMatched && victimVerifiedIds.size === 0) {
+    // We KNOW who the victim is and CANNOT enumerate their keys. That is
+    // INDETERMINATE, not "uncontested": returning [] would report an
+    // unreadable roster identically to a genuinely quiet one
+    // (rules/instrument-discipline.md MUST-1).
+    return {
+      entries: [],
+      indeterminate:
+        `victim '${targetLogin}' is in the roster but no usable key fingerprints ` +
+        `could be enumerated (keys is absent, non-array, or empty) — the rule-10 ` +
+        `contradiction check cannot run, so the revocation cannot be shown uncontested`,
+    };
+  }
+  if (victimVerifiedIds.size === 0) return { entries: [], indeterminate: null };
   // Pull every accepted record signed by one of those ids.
-  return (acceptedSoFar || []).filter((r) =>
-    victimVerifiedIds.has(r.verified_id),
-  );
+  return {
+    entries: (acceptedSoFar || []).filter((r) =>
+      victimVerifiedIds.has(r.verified_id),
+    ),
+    indeterminate: null,
+  };
 }
 
 /**
@@ -709,6 +817,31 @@ function _registerM0Defaults(registry) {
   // against acceptedSoFar + the engine's wall clock.
   registry.set("compaction-checkpoint", {
     fn: (record, ctx) => ({ accepted: true, foldState: ctx.foldState }),
+    meta: {
+      checkpoint_exempt: true,
+      authoritative_for_record: true,
+      authoritative_for_aggregate: false,
+    },
+  });
+  // s50 — the signed prefix attestation. Registered here (not only in the
+  // consuming hooks) for the same reason journal-body-anchor and the
+  // member-registry namespace are: an UNREGISTERED type is dispatch-rejected
+  // and rule-2-poisons the emitter's subsequent chain in every consumer that
+  // lacks the registration, AND `coc-emit.js::emitSignedRecord` refuses to
+  // emit a type with no registered predicate (`step: "type-check"`).
+  //
+  // `checkpoint_exempt: true` per rule 6 — it is a trust/accountability
+  // attestation, not liveness churn, so a future compaction MUST NOT fold it
+  // into a digest and lose it.
+  //
+  // Note what this predicate does NOT do: it does not grant the fast path.
+  // Being ACCEPTED into the fold only makes a checkpoint a well-formed
+  // owner-signed record. Whether any record may skip its rule-1 subprocess is
+  // decided separately, BEFORE the loop, by `resolveCheckpointCoverage`, which
+  // re-derives the prefix digest from the physical array. Acceptance and
+  // coverage are deliberately two gates, not one.
+  registry.set(foldVerificationCheckpoint.CHECKPOINT_TYPE, {
+    fn: foldVerificationCheckpoint.foldVerificationCheckpoint,
     meta: {
       checkpoint_exempt: true,
       authoritative_for_record: true,
@@ -1004,7 +1137,22 @@ function _coSignedStubPredicate(record, ctx) {
       reason: `${record.type}: 2-of-N owner co-signature required; co_signers missing or empty`,
     };
   }
-  const distinctSigners = new Set([record.verified_id]);
+  // DISTINCTNESS IS PER-PRINCIPAL, NOT PER-KEY (see lib/signer-distinctness.js).
+  // The primary is resolved HERE rather than left as a bare fingerprint: seeding
+  // the set with `record.verified_id` would compare a fingerprint against a
+  // person, so two keys under one person_id never collided. Rule 1 has already
+  // established the record's signer is rostered by the time this predicate runs,
+  // so an unresolvable primary is a corrupt-roster state and refuses.
+  const distinctSigners = createDistinctSignerSet();
+  const primary = _resolveRosterPerson(roster, record.verified_id);
+  if (!primary) {
+    return {
+      accepted: false,
+      foldState: state,
+      reason: `${record.type}: primary signer ${record.verified_id} not in roster`,
+    };
+  }
+  distinctSigners.add(primary.person_id, primary.person);
   const coSignedBytes = _coSignedBytes(record);
   for (const co of c.co_signers) {
     if (!co || typeof co !== "object") {
@@ -1026,13 +1174,6 @@ function _coSignedStubPredicate(record, ctx) {
         accepted: false,
         foldState: state,
         reason: `${record.type}: co_signer missing sig`,
-      };
-    }
-    if (distinctSigners.has(co.verified_id)) {
-      return {
-        accepted: false,
-        foldState: state,
-        reason: `${record.type}: co_signer ${co.verified_id} not distinct from prior signer`,
       };
     }
     const resolved = _resolveRosterPerson(roster, co.verified_id);
@@ -1057,9 +1198,16 @@ function _coSignedStubPredicate(record, ctx) {
         reason: `${record.type}: co_signer ${co.verified_id} ineligible: ${elig.reason}`,
       };
     }
-    const matchingKey = (resolved.person.keys || []).find(
-      (k) => k.fingerprint === co.verified_id,
-    );
+    // S61 defense-in-depth. HONEST COVERAGE NOTE, on the model of the fence (b)
+    // comment in genesis-anchor-guard.js::verifyRecord: this guard REDS NO POLE
+    // today and nobody should claim it does. A person resolved by
+    // `_resolveRosterPerson` provably has an ARRAY `keys` — the resolver only
+    // returns after iterating that value and matching a `.fingerprint` inside
+    // it, which no non-array JSON value can do. It earns its place against a
+    // future caller that resolves a person some other way.
+    const matchingKey = (
+      Array.isArray(resolved.person.keys) ? resolved.person.keys : []
+    ).find((k) => k && k.fingerprint === co.verified_id);
     if (!matchingKey) {
       return {
         accepted: false,
@@ -1069,6 +1217,18 @@ function _coSignedStubPredicate(record, ctx) {
     }
     let r;
     try {
+      // NO `expectedFpr`, AND THAT IS SAFE ONLY BECAUSE THERE IS NO SHARED RING
+      // HERE. Omitting the bind is safe exactly when the keyring holds ONE key:
+      // this call passes no `gpgHome`, so `coc-sign` builds a fresh ephemeral
+      // homedir containing only `matchingKey.pubkey`, and gpg can structurally
+      // accept nothing else. MEASURED: an attacker's signature against a victim's
+      // pubkey on this path returns `ok:true valid:false indeterminate:true`.
+      //
+      // THREADING A SHARED `gpgHome` INTO THIS SITE WOULD SILENTLY REMOVE THE
+      // BIND — a multi-key ring accepts a signature from ANY key in it, which is
+      // the §1 bounded-trust impersonation this file guards everywhere else with
+      // an explicit `expectedFpr`. If this call ever gains a homedir parameter it
+      // MUST gain `expectedFpr: matchingKey.fingerprint` in the same change.
       r = cocSign.verify(coSignedBytes, co.sig, matchingKey.pubkey, {
         keyType: matchingKey.type,
       });
@@ -1086,13 +1246,22 @@ function _coSignedStubPredicate(record, ctx) {
         reason: `${record.type}: co_signer signature did not verify: ${r && r.reason ? r.reason : "invalid"}`,
       };
     }
-    distinctSigners.add(co.verified_id);
+    // Admitted only AFTER the signature verified: a co-signer that fails
+    // verification must not consume a principal slot.
+    const dist = distinctSigners.add(resolved.person_id, resolved.person);
+    if (!dist.ok) {
+      return {
+        accepted: false,
+        foldState: state,
+        reason: `${record.type}: co_signer ${co.verified_id} ${describeCollision(dist.collidingKey)}`,
+      };
+    }
   }
-  if (distinctSigners.size < 2) {
+  if (distinctSigners.size() < 2) {
     return {
       accepted: false,
       foldState: state,
-      reason: `${record.type}: 2-of-N owner co-signature required; only ${distinctSigners.size} distinct signer(s)`,
+      reason: `${record.type}: 2-of-N owner co-signature required; only ${distinctSigners.size()} distinct principal(s)`,
     };
   }
   return { accepted: true, foldState: state };
@@ -1236,7 +1405,45 @@ function _validateRecordShape(record) {
 function _resolveRosterPerson(roster, verifiedId) {
   if (!roster || !roster.persons) return null;
   for (const [pid, person] of Object.entries(roster.persons)) {
-    const keys = (person && person.keys) || [];
+    // S61 — shape-guard the key list: a non-array `keys` must SKIP this person
+    // (refuse), never THROW. `(person.keys || [])` iterated whatever was on
+    // disk, and a roster reaching here comes from a bare `JSON.parse` with NO
+    // schema validation on the read path — so `keys: {}` / `5` / `true` threw
+    // `TypeError: keys is not iterable` HERE. That is the same fail-OPEN
+    // mechanism genesis-anchor-guard.js::verifyRecord was fixed for in S60:
+    // the throw escapes to a catch-all, which degrades the guard to
+    // `passthrough()`.
+    //
+    // THE CONDITION UNDER WHICH "SKIP, NEVER THROW" IS CORRECT — read this
+    // before applying this shape anywhere else. Skipping is safe ONLY where
+    // NON-RESOLUTION IS WIRED TO REFUSE. Here it is: an unresolved signer
+    // returns null and every caller turns that into a rejection, so skipping a
+    // malformed person can only ever REFUSE a record, never admit one.
+    //
+    // Where non-resolution is wired to PERMIT, this shape INVERTS and becomes
+    // the vulnerability. Two sites in this repo are exactly that, and MUST NOT
+    // be "fixed" by copying this fence:
+    //   - `add-key-ceremony.js::findKeyHolder` as called at :402, the
+    //     roster-wide DUPLICATE-fingerprint check: `if (holder) return refuse(...)`,
+    //     so NOT-FOUND is the PERMIT path. That search must be EXHAUSTIVE to be
+    //     sound; skipping a malformed person would admit a fingerprint already
+    //     enrolled under it, which ":399-401" states breaks attribution outright.
+    //     Leaving it to throw is what keeps it fail-closed. Note its OTHER
+    //     caller, eleven lines later at :435, has the OPPOSITE polarity
+    //     (`if (!signerHolder) return refuse(...)`) — so no single fence inside
+    //     that function can be correct for both.
+    //   - `identity-scrub.mjs::deriveDynamicTokens`, which REFUSES LOUDLY on a
+    //     non-array `keys` for this reason; see the long comment there.
+    //
+    // THIS LOOP IS THE ROOT CAUSE for its module, not the downstream
+    // `(resolved.person.keys || []).find(...)` expressions. MEASURED: those
+    // expressions cannot throw, because a person is only ever RESOLVED after
+    // this loop successfully iterated its `keys` and matched a `.fingerprint`
+    // inside it — which no non-array JSON value can do (an object/number/bool
+    // throws here first; a string iterates to chars that have no
+    // `.fingerprint` and so never matches). Fixing only the `.find` sites
+    // would have left every real throw in place.
+    const keys = Array.isArray(person && person.keys) ? person.keys : [];
     for (const k of keys) {
       if (k && k.fingerprint === verifiedId) {
         return { person_id: pid, person };
@@ -1260,9 +1467,11 @@ function _verifyRule1(record, roster, opts, gpgHome) {
       reason: `rule 1: signer verified_id (${record.verified_id}) not in roster keys`,
     };
   }
-  const matchingKey = (resolved.person.keys || []).find(
-    (k) => k.fingerprint === record.verified_id,
-  );
+  // S61 defense-in-depth; REDS NO POLE today (a resolved person provably has an
+  // array `keys` — see the coverage note on the co_signer sibling above).
+  const matchingKey = (
+    Array.isArray(resolved.person.keys) ? resolved.person.keys : []
+  ).find((k) => k && k.fingerprint === record.verified_id);
   if (!matchingKey) {
     return {
       ok: false,
@@ -1278,8 +1487,33 @@ function _verifyRule1(record, roster, opts, gpgHome) {
   // every signature on every emit is pure waste — it does NOT change which
   // records fold-accept, only how long it takes. The COC-CHAIN guard needs
   // rule-2 (chain) + rule-3 (fork) + the predicate, none of which depend on
-  // rule-1's crypto check. Read-time folds (every reader) ALWAYS verify
-  // (this opt is never set there) — forgery detection is unaffected.
+  // rule-1's crypto check.
+  //
+  // "READ-TIME FOLDS ALWAYS VERIFY (this opt is never set there)" STOOD HERE AND
+  // IS NOW FALSE — corrected 2026-09-12 rather than left, because a reader
+  // reasoning about forgery detection from it would reason from a claim about a
+  // surface that has since moved. TWO read-time callers now set it:
+  //   - `journal-reserve.js::_foldHighWater` (the allocator) — always, on every
+  //     reservation; the high-water needs chain STRUCTURE, not crypto validity.
+  //   - `journal-write-guard.js` — when COORDINATION is OFF (an enrolled
+  //     single-human repo), so the guard's acceptance set is byte-identical to
+  //     the allocator's. Coordination ON: unchanged, every signature verified.
+  // What is retained under the opt is the roster-MEMBERSHIP gate above: an
+  // unrostered or unknown-key record still rejects.
+  //
+  // RESIDUAL, recorded not closed: under this opt a record's `sig` is never
+  // checked, so a stub or forged signature whose `verified_id` names a rostered
+  // key folds as accepted. On the guard's path that means a hand-appended
+  // reservation can read as SELF-reserved on a coordination-OFF repo. It buys an
+  // attacker nothing there — the reserver population on such a repo is ONE
+  // human's own lanes, all sharing that `verified_id`, so the forgery asserts
+  // only what the honest path already asserts — and a coordination-ON repo
+  // verifies. The remaining channel is a HOST/SHELL export of
+  // `COC_TEST_SKIP_SIGN=1`, which is explicitly OUT OF SCOPE of
+  // `settings-deny-guard-shape.js` (§ SCOPE) and tracked as loom#1450 shard 2:
+  // closing it needs a sanctioned-test-context predicate at each read site, not
+  // a change here. Fixtures are already fenced — the key is stripped by
+  // `hook-fixture-runner.mjs::GUARD_ENV_KEYS`.
   if (opts && opts.skipSignatureVerify) {
     return {
       ok: true,
@@ -1329,6 +1563,31 @@ function _verifyRule1(record, roster, opts, gpgHome) {
     };
   }
   if (!verifyResult.valid) {
+    // INDETERMINATE IS NOT A FORGERY, and this surface used to collapse the two.
+    //
+    // `coc-sign::verify` now distinguishes "the signature does not verify" from
+    // "the verifier never reached a verdict" — gpg absent or killed by its
+    // timeout, a status channel that emitted no VALIDSIG, an issuing key absent
+    // from a ring nobody asserted was the trust set, a roster fingerprint that is
+    // the wrong VERSION for the key it names. Every one of those is a fact about
+    // the TOOLCHAIN or the ROSTER, and this branch reported all of them as
+    // "signature did not verify" — an accusation against an operator whose only
+    // involvement was being named.
+    //
+    // Fail-closed is unchanged: `ok:false` either way, so nothing is admitted
+    // that was not admitted before. What changes is WHO the reason accuses, and
+    // that is the whole point — `security.md` § Enforcement-Surface Parity, this
+    // being an independent consumer of the contract widened at the read gate.
+    if (verifyResult.indeterminate === true) {
+      return {
+        ok: false,
+        indeterminate: true,
+        reason:
+          `rule 1: signature verification could not RUN: ${verifyResult.reason || "no verdict"}. ` +
+          `The record is UNVERIFIED, not forged — repair the verifier or the roster entry rather than ` +
+          `investigating the signer.`,
+      };
+    }
     return {
       ok: false,
       reason: `rule 1: signature did not verify: ${verifyResult.reason || "invalid"}`,
@@ -1575,7 +1834,19 @@ function _checkRule5(record, roster) {
   // F14 MED-3: role + host_role checks now route through
   // isEligibleSigner ("owner-quorum") so drift across rule 5 / 9b / 9c
   // is closed structurally.
-  const signerVerifiedIds = new Set([record.verified_id]);
+  // Per-PRINCIPAL distinctness (lib/signer-distinctness.js) — see the rule-5
+  // note above: this rule already drifted from 9b/9c once on signature
+  // verification, so it consumes the SAME shared predicate rather than a
+  // fourth private notion of "the same signer".
+  const signerPrincipals = createDistinctSignerSet();
+  const rule5Primary = _resolveRosterPerson(roster, record.verified_id);
+  if (!rule5Primary) {
+    return {
+      ok: false,
+      reason: `rule 5: primary signer ${record.verified_id} not in roster`,
+    };
+  }
+  signerPrincipals.add(rule5Primary.person_id, rule5Primary.person);
   const coSignedBytes = _coSignedBytes(record);
   for (const co of c.co_signers) {
     if (!co || typeof co !== "object") {
@@ -1589,12 +1860,6 @@ function _checkRule5(record, roster) {
     }
     if (typeof co.sig !== "string" || !co.sig) {
       return { ok: false, reason: "rule 5: co_signer entry missing sig" };
-    }
-    if (signerVerifiedIds.has(co.verified_id)) {
-      return {
-        ok: false,
-        reason: `rule 5: co_signer verified_id ${co.verified_id} not distinct from prior signer`,
-      };
     }
     const resolved = _resolveRosterPerson(roster, co.verified_id);
     if (!resolved) {
@@ -1611,9 +1876,11 @@ function _checkRule5(record, roster) {
       };
     }
     // Cryptographic verification of the cosig signature (F14 HIGH-2).
-    const matchingKey = (resolved.person.keys || []).find(
-      (k) => k.fingerprint === co.verified_id,
-    );
+    // S61 defense-in-depth; REDS NO POLE today (a resolved person provably has
+    // an array `keys` — see the coverage note on the co_signer sibling above).
+    const matchingKey = (
+      Array.isArray(resolved.person.keys) ? resolved.person.keys : []
+    ).find((k) => k && k.fingerprint === co.verified_id);
     if (!matchingKey) {
       return {
         ok: false,
@@ -1622,6 +1889,18 @@ function _checkRule5(record, roster) {
     }
     let v;
     try {
+      // NO `expectedFpr`, AND THAT IS SAFE ONLY BECAUSE THERE IS NO SHARED RING
+      // HERE. Omitting the bind is safe exactly when the keyring holds ONE key:
+      // this call passes no `gpgHome`, so `coc-sign` builds a fresh ephemeral
+      // homedir containing only `matchingKey.pubkey`, and gpg can structurally
+      // accept nothing else. MEASURED: an attacker's signature against a victim's
+      // pubkey on this path returns `ok:true valid:false indeterminate:true`.
+      //
+      // THREADING A SHARED `gpgHome` INTO THIS SITE WOULD SILENTLY REMOVE THE
+      // BIND — a multi-key ring accepts a signature from ANY key in it, which is
+      // the §1 bounded-trust impersonation this file guards everywhere else with
+      // an explicit `expectedFpr`. If this call ever gains a homedir parameter it
+      // MUST gain `expectedFpr: matchingKey.fingerprint` in the same change.
       v = cocSign.verify(coSignedBytes, co.sig, matchingKey.pubkey, {
         keyType: matchingKey.type,
       });
@@ -1643,13 +1922,20 @@ function _checkRule5(record, roster) {
         reason: `rule 5: co_signer signature did not verify: ${v.reason || "invalid"}`,
       };
     }
-    signerVerifiedIds.add(co.verified_id);
+    const dist5 = signerPrincipals.add(resolved.person_id, resolved.person);
+    if (!dist5.ok) {
+      return {
+        ok: false,
+        reason: `rule 5: co_signer ${co.verified_id} ${describeCollision(dist5.collidingKey)}`,
+      };
+    }
   }
-  // 2-of-N: at least 2 distinct signers (including the primary).
-  if (signerVerifiedIds.size < 2) {
+  // 2-of-N: at least 2 distinct PRINCIPALS (including the primary). Distinct
+  // fingerprints are not enough — one human's two enrolled keys are one signer.
+  if (signerPrincipals.size() < 2) {
     return {
       ok: false,
-      reason: `rule 5: 2-of-N owner-co-signature required; only ${signerVerifiedIds.size} distinct signer(s)`,
+      reason: `rule 5: 2-of-N owner-co-signature required; only ${signerPrincipals.size()} distinct principal(s)`,
     };
   }
   return { ok: true };
@@ -1776,7 +2062,13 @@ function _collectRosterGpgPubkeys(roster) {
   const seen = new Set();
   if (!roster) return out;
   for (const person of Object.values(roster.persons || {})) {
-    const keys = (person && person.keys) || [];
+    // S61 — shape-guard: a non-array `keys` SKIPS this person, never throws.
+    // A FOURTH unguarded site in this file, distinct from _resolveRosterPerson
+    // and easy to miss because it resolves nothing: it pre-imports the shared
+    // GPG homedir for the whole fold. A throw here aborts that setup BEFORE any
+    // signature is verified, so it is upstream of every rule-1 check rather
+    // than inside one.
+    const keys = Array.isArray(person && person.keys) ? person.keys : [];
     for (const k of keys) {
       if (k && k.type === "gpg" && typeof k.pubkey === "string" && k.pubkey) {
         if (!seen.has(k.pubkey)) {
@@ -1847,6 +2139,18 @@ function _foldLog(records, roster, opts, registry) {
       advisories,
       contestedRevocations,
       derivedN: null,
+      checkpointCoverage: {
+        coveredCount: 0,
+        checkpointIndex: null,
+        checkpointHash: null,
+        reason: "records not an array",
+      },
+      // s50: whether THIS fold verified any signature at all. A checkpoint
+      // producer MUST refuse to attest a fold that verified nothing, and it
+      // cannot tell from `checkpointCoverage` alone: a skipSignatureVerify
+      // fold also reports coveredCount 0, which otherwise reads as "full
+      // verification, no prior checkpoint" — the strongest possible claim.
+      skippedSignatureVerify: optsResolved.skipSignatureVerify === true,
     };
   }
 
@@ -1868,8 +2172,119 @@ function _foldLog(records, roster, opts, registry) {
     }
   }
 
+  // ---- OPT-IN FOLD DEADLINE (loom s49 P5) ---------------------------------
+  //
+  // WHY A DEADLINE AND NOT A TIMER. integrity-guard.js arms `AUTH_BUDGET_MS`
+  // via setTimeout and documents that budget expiry lands on
+  // `denyIndeterminate`. Measured 2026-08-21, that arm does NOT fire while the
+  // fold is running: a budget of 1000ms produced a 9175ms hook that returned a
+  // DETERMINED verdict, because `foldLog` is synchronous and a synchronous
+  // loop cannot be preempted by a timer — the callback cannot run until the
+  // loop yields, and by then the guard has already emitted and exited. The
+  // documented fail-closed arm was therefore reachable only during the async
+  // log READ (where a 1ms budget does fire, at ~110ms), i.e. everywhere except
+  // the phase that owns essentially all of the wall time.
+  //
+  // A synchronous fold CAN be preempted — by the loop checking a deadline
+  // itself, which is what this does. The caller supplies an absolute
+  // `deadlineAtMs`; on expiry the fold THROWS a typed error, which lands in
+  // the caller's catch and lets it choose the fail-closed disposition. It
+  // throws rather than returning a partial fold on purpose: a truncated
+  // `accepted` array is indistinguishable at every call site from a genuinely
+  // short log, which is the precise confusion integrity-guard.js has already
+  // been corrected for twice (rules/instrument-discipline.md MUST-1).
+  //
+  // OPT-IN, so every existing caller is byte-for-byte unaffected: with no
+  // `deadlineAtMs` the check below is a single `=== null` test per batch and
+  // the fold never throws.
+  //
+  // CHECKED EVERY RECORD. An earlier revision batched the check every 16
+  // records to keep Date.now() "off the hot path"; that was a guess, and it is
+  // withdrawn rather than kept. There is no hot path to protect: the per-record
+  // body performs a SIGNATURE VERIFICATION, measured at 10-20ms, against which
+  // a Date.now() call is ~1e-6 of the cost. Batching bought nothing measurable
+  // and cost a real property — the deadline overshoot became 16x the per-record
+  // cost, which is worst exactly when records are slowest, i.e. in the
+  // pathological case the deadline exists to bound. Per-record checking makes
+  // the overshoot at most ONE record.
+  const deadlineAtMs =
+    typeof optsResolved.deadlineAtMs === "number" &&
+    Number.isFinite(optsResolved.deadlineAtMs)
+      ? optsResolved.deadlineAtMs
+      : null;
+  let recordsSeen = 0;
+
+  // --- s50: the signed prefix attestation (the BOUND on read-time cost) ---
+  //
+  // F17 above collapsed N gpg-agents to one; the per-record `gpg --verify`
+  // SPAWN survived, and the spawn is ~90% of the fold's wall-clock (measured:
+  // `gpg --version`, which verifies nothing, costs 8.33 ms against 7.71 ms for
+  // a full detached verify — so the crypto is free and the process is the
+  // whole bill). This resolves how much of the log an OWNER has already
+  // attested, digest-bound, so those records can skip the SUBPROCESS.
+  //
+  // Scope, stated so no later reader over-reads this green: skipping the
+  // subprocess is ALL that changes. Rules 2, 3, 4, 5, the presence gate, and
+  // per-type dispatch run over EVERY record exactly as before, in the same
+  // order, over the same array — no record is dropped, sliced away, or seeded
+  // past. The roster-MEMBERSHIP half of rule 1 also still runs on every
+  // record (`skipSignatureVerify` keeps it). Consequently every invariant that
+  // depends on seeing the whole log — the codify-lease scan that must NOT stop
+  // at the first covering-but-dead record, log-position-scoped revocation
+  // indeterminacy, per-emitter chain keying, and foldLog's throw-rather-than-
+  // partial-fold contract — is preserved BY CONSTRUCTION rather than by
+  // re-argument.
+  //
+  // `COC_FOLD_FULL_VERIFY=1` forces the pre-s50 behaviour (audit escape hatch).
+  // Every failure inside resolveCheckpointCoverage returns coveredCount 0,
+  // which IS full verification — the tightest answer is the default.
+  let _cpCoverage = {
+    coveredCount: 0,
+    rule1FailedIndices: new Set(),
+    reason: "",
+  };
+  if (
+    !optsResolved.skipSignatureVerify &&
+    process.env.COC_FOLD_FULL_VERIFY !== "1"
+  ) {
+    try {
+      _cpCoverage = foldVerificationCheckpoint.resolveCheckpointCoverage(
+        records,
+        roster,
+        { gpgHome: _sharedGpgHome || undefined },
+      );
+    } catch (err) {
+      // A throw here is an unknown; unknowns rank tightest → verify everything.
+      _cpCoverage = {
+        coveredCount: 0,
+        rule1FailedIndices: new Set(),
+        reason: `resolveCheckpointCoverage threw: ${err && err.message ? err.message : String(err)}`,
+      };
+    }
+  }
+
   try {
-    for (const record of records) {
+    for (let _i = 0; _i < records.length; _i += 1) {
+      const record = records[_i];
+      // s49 P5 deadline (preserved verbatim through the s50 indexed-loop
+      // rewrite): a synchronous fold cannot be preempted by a timer, so the
+      // loop checks the caller's absolute deadline itself and THROWS rather
+      // than returning a partial fold. The two bounds are complementary — this
+      // one bounds the fold in TIME, the checkpoint above bounds it in WORK.
+      if (deadlineAtMs !== null) {
+        if (Date.now() >= deadlineAtMs) {
+          const err = new Error(
+            `fold budget exhausted after ${recordsSeen} of ${records.length} records — ` +
+              `the coordination log could not be folded within the caller's deadline`,
+          );
+          err.code = "FOLD_DEADLINE_EXCEEDED";
+          err.recordsFolded = recordsSeen;
+          err.recordsTotal = records.length;
+          throw err;
+        }
+      }
+      recordsSeen += 1;
+
       // --- Universal shape check ---
       const shapeErr = _validateRecordShape(record);
       if (shapeErr) {
@@ -1912,7 +2327,32 @@ function _foldLog(records, roster, opts, registry) {
       }
 
       // --- Rule 1 — signature verification gate ---
-      const r1 = _verifyRule1(record, roster, optsResolved, _sharedGpgHome);
+      // s50: inside an owner-attested, digest-matched prefix the CRYPTO half is
+      // replayed from the attestation instead of re-spawning gpg. The roster-
+      // MEMBERSHIP half still runs (via skipSignatureVerify), and the pinned
+      // failure map replays the exact verdict the attesting owner recorded for
+      // these exact bytes — so a record whose signature FAILED below the
+      // checkpoint keeps failing, with its original reason, rather than being
+      // silently promoted to accepted.
+      let r1;
+      if (
+        _i < _cpCoverage.coveredCount &&
+        !_cpCoverage.rule1FailedIndices.has(_i)
+      ) {
+        r1 = _verifyRule1(
+          record,
+          roster,
+          { skipSignatureVerify: true },
+          _sharedGpgHome,
+        );
+      } else {
+        // Either outside the attested prefix, or an index the attesting owner
+        // recorded as FAILING rule 1 — those are RE-VERIFIED for real (one
+        // subprocess each, capped at MAX_PINNED_RULE1_FAILURES) rather than
+        // replaying a frozen verdict, so the reason is re-derived exactly and a
+        // transient spawn failure at attestation time can heal.
+        r1 = _verifyRule1(record, roster, optsResolved, _sharedGpgHome);
+      }
       if (!r1.ok) {
         rejected.push({ record, reason: r1.reason, rule: "rule-1" });
         continue;
@@ -1982,6 +2422,10 @@ function _foldLog(records, roster, opts, registry) {
           acceptedSoFar: accepted,
           opts: optsResolved,
           meta: entry.meta,
+          // s50: the physical index, so a predicate can bound a coverage
+          // claim against the record's REAL position instead of against a
+          // field the record itself supplies.
+          recordIndex: _i,
         });
       } catch (err) {
         rejected.push({
@@ -2153,6 +2597,25 @@ function _foldLog(records, roster, opts, registry) {
       advisories,
       contestedRevocations,
       derivedN,
+      // s50 — what this fold ACTUALLY verified, so a caller never has to guess.
+      // A producer of a new attestation MUST read this to declare `verifier_mode`
+      // honestly: coveredCount 0 ⇒ every signature in this fold was re-derived
+      // ("full"); coveredCount > 0 ⇒ the prefix rests on the named prior
+      // attestation ("chained", `derived_from` = checkpointHash). Reporting the
+      // instrument's actual scope is the point of the field.
+      checkpointCoverage: {
+        coveredCount: _cpCoverage.coveredCount,
+        checkpointIndex:
+          _cpCoverage.checkpointIndex === undefined
+            ? null
+            : _cpCoverage.checkpointIndex,
+        checkpointHash:
+          _cpCoverage.checkpointHash === undefined
+            ? null
+            : _cpCoverage.checkpointHash,
+        reason: _cpCoverage.reason,
+      },
+      skippedSignatureVerify: optsResolved.skipSignatureVerify === true,
     };
   } finally {
     // F17 — always release the shared verify-homedir's gpg-agent + temp dir,
@@ -2287,9 +2750,163 @@ for (const t of ACTUATION_RECORD_TYPES) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// SHARED FOLD-INPUT LOADING (#84 follow-up, 2026-09-12)
+// ---------------------------------------------------------------------------
+//
+// THE ROSTER IS A FOLD INPUT, AND THE TWO READERS OF IT DISAGREED. A fold takes
+// TWO inputs — the log and the roster — and a null/empty/unresolving roster is
+// NOT inert: `_resolveRosterPerson` returns null for it, so `_verifyRule1`
+// rejects EVERY record ("signer verified_id not in roster keys"), `accepted`
+// empties, and every question asked of the fold answers "nothing is there".
+//
+// `journal-reserve.js::_foldHighWater` (the ALLOCATOR) refuses on that input.
+// `journal-write-guard.js::loadRoster` (the GUARD) did `catch { return null; }`
+// and then read the empty fold as "the slot is UNRESERVED" — halt-and-report,
+// which maps to `continue:true`, so the Write LANDED. One unreadable or emptied
+// roster turned the allocator's refusal into the guard's pass, on the same
+// bytes. Two readers of one input must not hold opposite dispositions about the
+// same failure, so the read and the classification live here, once.
+//
+// TYPED DISPOSITIONS, not a boolean: `present:false` (ENOENT) is legitimate — a
+// solo, un-enrolled repo has no roster and MUST still fold — while `ok:false` is
+// UNKNOWN and every caller fails closed in its own idiom (the allocator throws,
+// the guard blocks).
+
+/**
+ * Read the roster a fold will be run against. The ONE reader for both the
+ * allocator and the read-time guard.
+ *
+ * `repoDir` MUST already be the MAIN checkout (both callers resolve it via
+ * `state-resolver.js::requireMainCheckout` first): the roster is a TRACKED
+ * file, so reading it from a worktree on a branch that omits it yields ENOENT
+ * — "no roster" — for a repo that has one.
+ *
+ * @param {string} repoDir - main-checkout root
+ * @returns {{ok:true, roster:object|null, present:boolean, path:string}
+ *          |{ok:false, code:"roster-unreadable"|"roster-unparseable",
+ *            reason:string, path:string}}
+ */
+function loadFoldRoster(repoDir) {
+  // Lazily required: this module has no top-level `fs`/`path` (it is pure fold
+  // logic over records handed to it), and this is the one I/O it owns.
+  const fs = require("fs");
+  const path = require("path");
+  const rosterPath = path.join(repoDir, ".claude", "operators.roster.json");
+  let raw;
+  try {
+    raw = fs.readFileSync(rosterPath, "utf8");
+  } catch (err) {
+    // ENOENT is the ONE failure that legitimately means "no roster":
+    // coordination is opt-in and OFF by default. Everything else —
+    // unreadable, a directory, EACCES, EIO — is UNKNOWN, not absent.
+    if (err && err.code === "ENOENT") {
+      return { ok: true, roster: null, present: false, path: rosterPath };
+    }
+    return {
+      ok: false,
+      code: "roster-unreadable",
+      path: rosterPath,
+      reason: `roster unreadable at ${rosterPath}: ${err && err.message ? err.message : String(err)}`,
+    };
+  }
+  let roster;
+  try {
+    roster = JSON.parse(raw);
+  } catch (err) {
+    // JSON.parse throws a SyntaxError carrying no path, and callers surface
+    // `reason` verbatim — name the file here or the refusal is unactionable.
+    return {
+      ok: false,
+      code: "roster-unparseable",
+      path: rosterPath,
+      reason: `roster unparseable at ${rosterPath}: ${err && err.message ? err.message : String(err)}`,
+    };
+  }
+  // PARSING CLEANLY IS NOT RESOLVING ANYBODY. `null`, `{}`, `{"persons":null}`
+  // and `{"persons":{}}` all parse and then resolve NO signer, which is the
+  // same empty `accepted` the corrupt-bytes route produces — reached by the
+  // CHEAPER act (write `{}`; no need to craft invalid JSON). That shape is NOT
+  // caught here, because a file that parses is a legitimate input to the fold;
+  // it is caught downstream by `isRosterCausedRejection` over the fold's
+  // `rejected` entries, which asks the question DIRECTLY: did a record we
+  // needed drop out because of the roster? `present` is what gates that check —
+  // a roster file that EXISTS was written by someone, so records it fails to
+  // resolve are records whose reservations we can no longer see.
+  return { ok: true, roster, present: true, path: rosterPath };
+}
+
+/**
+ * Is this fold rejection caused by the ROSTER (as opposed to chain, fork or
+ * shape)? The shared classifier for "a record we needed dropped out because the
+ * trust root no longer resolves it".
+ *
+ *   rule-1 — the roster does not resolve this signer's fingerprint.
+ *   rule-4 — the roster resolves the fingerprint but binds it to a DIFFERENT
+ *            `person_id` than the record claims (a renamed persons-map key:
+ *            quieter than erasure, same collapse).
+ *
+ * rule-2 (chain), rule-3 (fork) and `shape` are EXCLUDED: those are
+ * availability events, not roster events, and they fire on ordinary
+ * non-adversarial conditions — a caller that fails closed on them denies
+ * healthy repos permanently (measured; see `_foldHighWater`'s history).
+ *
+ * THE RULE NAME ALONE IS NOT THE ANSWER, AND ASSUMING IT WAS COST A MEASURED
+ * MISS. `rule-1` conflates TWO failures whenever signatures are actually
+ * verified: "the roster does not resolve the signer" and "the signature does not
+ * verify". A first cut keyed on the fold MODE instead — count rule-1 only under
+ * `skipSignatureVerify` — and it failed on the very input it was written for:
+ * an ERASED roster (`{"persons":{}}`) flips `coordination-mode.js` from
+ * `implicit-solo-single-operator` to `implicit-roster-genesis`, so the fold runs
+ * WITH verification, rule-1 was excluded, and the erasure walked through
+ * (measured 2026-09-12 — the mode is DERIVED FROM THE ROSTER, so the very edit
+ * being detected moves the discriminator).
+ *
+ * So ask the roster DIRECTLY, which is mode-independent and structural: does
+ * this roster resolve this record's signer to a key it holds, and bind it to the
+ * person_id the record claims? A rejection is roster-caused iff the answer is
+ * NO. A well-rostered record rejected at rule-1 was rejected for its SIGNATURE —
+ * a forgery the fold correctly refused, and UNRESERVED is the right verdict for
+ * it, not a roster failure.
+ *
+ * @param {object} entry - one `folded.rejected` entry ({rule, reason, record})
+ * @param {{roster?: object|null}} [opts] - the roster the fold ran against. When
+ *   omitted the classifier falls back to the rule name alone (conservative: both
+ *   rules count), which is sound only for a `skipSignatureVerify` fold.
+ */
+function isRosterCausedRejection(entry, opts) {
+  if (!entry || !entry.record) return false;
+  if (entry.rule !== "rule-1" && entry.rule !== "rule-4") return false;
+  if (!opts || !("roster" in opts)) return true;
+  return !rosterResolvesRecord(opts.roster, entry.record);
+}
+
+/**
+ * Does `roster` resolve `record`'s signer — fingerprint to a held key, bound to
+ * the person_id the record claims? The roster half of rule-1 and rule-4, asked
+ * without any cryptography, so the answer is the same whether or not the fold
+ * that produced the rejection verified signatures.
+ */
+function rosterResolvesRecord(roster, record) {
+  const resolved = _resolveRosterPerson(roster, record && record.verified_id);
+  if (!resolved || !resolved.person) return false;
+  const keys = Array.isArray(resolved.person.keys) ? resolved.person.keys : [];
+  if (!keys.some((k) => k && k.fingerprint === record.verified_id)) return false;
+  // rule-4's question. Co-signed types are exempt from it at fold time
+  // (`_checkRule4`), so they are exempt here too — otherwise a co-signed record
+  // whose person_id legitimately differs would read as a roster loss.
+  if (COSIGNED_TYPES.has(record.type)) return true;
+  return record.person_id === resolved.person_id;
+}
+
 module.exports = {
   // Constants
   LIVENESS_TTL_MS,
+
+  // Shared fold INPUT loading (#84) — one reader, one typed disposition, so
+  // the allocator and the read-time guard cannot disagree about a roster.
+  loadFoldRoster,
+  isRosterCausedRejection,
 
   // Module-default engine (M0 predicates pre-registered)
   foldLog: defaultEngine.foldLog,

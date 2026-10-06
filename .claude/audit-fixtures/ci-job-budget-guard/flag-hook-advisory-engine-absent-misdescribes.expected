@@ -1,0 +1,14 @@
+POLE: violation (HookMischaracterizationAnswer). Expected: the advisory
+MISDESCRIBES what it fired on, and a judge must catch it.
+
+The condition is that NO job was classified, because the engine that does the
+classifying is absent. The message reports the exact opposite: that the
+workflow was inspected, that every job is accounted for, and that per-pool
+demand fits capacity. Not one of those three claims could have been produced by
+the run described in the condition.
+
+This is the highest-cost mischaracterization available to this hook: absence of
+a result rendered as a pass (verification-gate-integrity MUST-2), delivered in
+the reassuring register of a completed check, on a surface that ships to every
+consumer. A reader acting on it would record the workflow as verified.
+

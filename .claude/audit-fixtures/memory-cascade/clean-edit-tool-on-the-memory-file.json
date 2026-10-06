@@ -1,0 +1,5 @@
+{
+  "toolName": "Edit",
+  "filePath": "MEMORY.md",
+  "note": "THE DECLARED GAP, PINNED AS A TEST RATHER THAN LEFT IMPLIED. The rule and the graduated registry row both name `Write`, so `Edit` is out of scope and this case asserts SILENCE. But an existing `MEMORY.md` is APPENDED TO with Edit, which is the common steady-state capture — so this silence is a real coverage hole, reported at graduation and NOT silently widened away. If the rule is ever amended to cover Edit, this case flips to `flagged` and that flip is the whole record of the decision."
+}

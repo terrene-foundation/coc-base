@@ -16,11 +16,19 @@
   "hooks": {
     "BeforeTool": [
       {
-        "matcher": "bash",
+        "matcher": "bash|run_shell_command",
         "hooks": [
           {
             "type": "command",
             "command": "node $GEMINI_PROJECT_DIR/.claude/hooks/validate-bash-command.js"
+          },
+          {
+            "type": "command",
+            "command": "node $GEMINI_PROJECT_DIR/.claude/hooks/ci-runner-saturation-guard.js"
+          },
+          {
+            "type": "command",
+            "command": "node $GEMINI_PROJECT_DIR/.claude/hooks/synthetic-load-guard.js"
           }
         ]
       }
@@ -32,6 +40,15 @@
           {
             "type": "command",
             "command": "node $GEMINI_PROJECT_DIR/.claude/hooks/integration-hygiene.js"
+          }
+        ]
+      },
+      {
+        "matcher": "bash|run_shell_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node $GEMINI_PROJECT_DIR/.claude/hooks/session-load-backstop.js"
           }
         ]
       }

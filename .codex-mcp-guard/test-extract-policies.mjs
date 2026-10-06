@@ -43,7 +43,12 @@ const EXPECTED_PATH = path.join(FIXTURE_DIR, "expected-policies.json");
 // ────────────────────────────────────────────────────────────────
 // Run extractor + load expected
 // ────────────────────────────────────────────────────────────────
-const actual = extractPolicies(FIXTURE_DIR);
+// requireMatcherMap:false — EXPLICIT opt-out (loom#S73-M5). This acceptance
+// test asserts the shape/reason bijection over `predicates` only; it never
+// reads the matcher map or the `policies` table, and the validator-13 fixture
+// dir has no sibling settings.json by design. See extract-policies.mjs
+// ::buildHookMatcherMap for why the default is fail-closed.
+const actual = extractPolicies(FIXTURE_DIR, { requireMatcherMap: false });
 const expected = JSON.parse(fs.readFileSync(EXPECTED_PATH, "utf8"));
 
 // Map actual predicates by id for O(1) lookup; drop the

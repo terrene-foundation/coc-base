@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 /**
+ * @hook-event: PreToolUse:Bash (guard) — the pending signing or transport command can be checked against the cached signed genesis anchor before execution.
+ *
  * Hook: genesis-anchor-guard
  * Event: PreToolUse on sign / `git commit` / `git push` / roster-touching writes
  *
@@ -65,7 +67,7 @@ const { foldGenesisAnchor } = require(
   path.join(__dirname, "lib", "fold-genesis-anchor.js"),
 );
 const cocSign = require(path.join(__dirname, "lib", "coc-sign.js"));
-const { isUnenrolled } = require(
+const { isUnenrolled, isUnsafeMapKey } = require(
   path.join(__dirname, "lib", "roster-schema-validate.js"),
 );
 const { isMutationTool } = require(
@@ -80,28 +82,32 @@ const { DEFAULT_LOG_REF_NAME } = require(
   path.join(__dirname, "lib", "log-ref-name.js"),
 );
 // MO-OPT W1 opt-in gate (workspaces/multi-operator-optional, journal/0330/0331)
-// + loom#1166. isCoordinationEnabled is the ONE shared predicate every gate
-// consults; resolveMainCheckout routes a worktree session's cwd to the MAIN
+// + loom#1166. loom#1896 § THE CONFLATION — the genesis ANCHOR is the trust
+// ROOT, and this guard fences THE AGENT from mutating it, so it asks the
+// GOVERNANCE question (enrolled?), not the COORDINATION one (≥2 humans?). Its
+// gated body reads the signed `genesis-anchor` record that enrollment always
+// writes, so "enrolled" is exactly the precondition it needs. See
+// `lib/coordination-mode.js` § governanceMode.
+// resolveMainCheckout routes a worktree session's cwd to the MAIN
 // checkout so the local override / roster / ecosystem.json are read from the
 // same place the sibling guards read them (trust-posture.md MUST-1 +
 // integrity-guard.js:362 / signing-mutation-guard.js:331).
-const { isCoordinationEnabled } = require(
+const { isGovernanceEnabled } = require(
   path.join(__dirname, "lib", "coordination-mode.js"),
 );
 const { requireMainCheckout } = require(
   path.join(__dirname, "lib", "state-resolver.js"),
+);
+const { resolveRepoDirBound } = require(
+  path.join(__dirname, "lib", "repo-dir-override.js"),
 );
 
 // Session-cwd → repo root resolution, mirroring integrity-guard.js:103 +
 // journal-write-guard.js:112. COC_OPERATOR_REPO_DIR is the shared test-injection
 // seam; a real session provides payload.cwd.
 function resolveRepoDir(payload) {
-  const envDir = process.env.COC_OPERATOR_REPO_DIR;
-  if (envDir && fs.existsSync(envDir)) return envDir;
-  if (payload && typeof payload.cwd === "string" && payload.cwd.length > 0) {
-    return payload.cwd;
-  }
-  return process.cwd();
+  // loom#1871 HIGH-1 — bound to the SESSION REPOSITORY; see lib/repo-dir-override.js.
+  return resolveRepoDirBound(payload, { hookName: "genesis-anchor-guard" }).repoDir;
 }
 
 function passthrough() {
@@ -299,7 +305,19 @@ const MAX_LOG_RECORDS = 50000;
 
 function loadLogRecords(logPath) {
   if (!fs.existsSync(logPath)) return [];
-  const text = fs.readFileSync(logPath, "utf8");
+  // S60 — read fail-CLOSED, matching the sibling `loadRoster` above, which is
+  // already wrapped. `existsSync` is true for a DIRECTORY, so an EISDIR (and
+  // equally EACCES, or ERR_STRING_TOO_LONG on a pathological log) threw here,
+  // reached `main()`'s catch-all, and degraded the guard to `passthrough()`.
+  // Returning [] instead routes an unreadable log into the SAME
+  // no-verifying-anchor branch an empty log takes — which BLOCKS — rather than
+  // into fail-OPEN.
+  let text;
+  try {
+    text = fs.readFileSync(logPath, "utf8");
+  } catch {
+    return [];
+  }
   const lines = text.split("\n").filter((l) => l.trim());
   const records = [];
   for (const line of lines) {
@@ -323,12 +341,48 @@ function verifyRecord(record, roster) {
   if (!record || !record.sig || !record.verified_id || !record.person_id)
     return false;
   if (!roster || !roster.persons) return false;
+  // S60 HIGH-1 — refuse an unsafe person_id BEFORE the lookup, never after.
+  // A person_id that shadows an `Object.prototype` member ("constructor",
+  // "toString", "__proto__", …) makes the BARE lookup below resolve TRUTHY on
+  // a roster that contains no such person, so `!person` does not refuse it.
+  // For "constructor" the resolved value is the `Object` constructor, whose
+  // `.keys` is a FUNCTION — `(person.keys || []).find(...)` then THREW, and
+  // the throw was caught by `main()`'s catch-all, which calls `passthrough()`.
+  // Net effect: an UNSIGNED record carrying three arbitrary strings disarmed
+  // the trust-root guard (fail-OPEN). Nothing above this point verifies `sig`.
+  // Two structural fences (never a denylist), with their coverage stated
+  // honestly rather than assumed — both claims below are MUTATION-MEASURED:
+  //   (a) `isUnsafeMapKey` — the ONE shared definition of "unsafe object key",
+  //       from roster-schema-validate.js, so the refusal here and the roster
+  //       validator's refusal cannot drift apart. Removing (a) alone reds
+  //       exactly one pole, "S60 enrolled-unsafe pole".
+  //   (b) `hasOwnProperty` — an INHERITED member is never a rostered person,
+  //       the same shape operator-gate.js::resolveRosterLogin uses.
+  //       DEFENSE-IN-DEPTH ONLY, and NO pole reds if (b) is removed alone: a
+  //       roster reaching here always comes from `JSON.parse`, so its
+  //       prototype is `Object.prototype`, and every key (b) would catch is
+  //       already an own property of `Object.prototype` and therefore already
+  //       caught by (a). (b) earns its place against a future caller that
+  //       hands this function a roster from some other source; it is NOT
+  //       covered, and nobody should claim it is.
+  // The shape guards further down (`typeof person !== "object"`, the
+  // `Array.isArray(person.keys)` check) independently refuse most of these
+  // ids too — which is why the six single-id refusal poles stay green when
+  // (a)+(b) are removed but the shape guards are kept. Those poles pin the
+  // ABSENCE OF A THROW, which is the fail-OPEN mechanism; they are not
+  // evidence for (a) or (b).
+  if (typeof record.person_id !== "string" || isUnsafeMapKey(record.person_id))
+    return false;
+  if (!Object.prototype.hasOwnProperty.call(roster.persons, record.person_id))
+    return false;
   const person = roster.persons[record.person_id];
-  if (!person) return false;
+  if (!person || typeof person !== "object") return false;
   if (isUnenrolled(record.person_id)) return false;
-  const key = (person.keys || []).find(
-    (k) => k.fingerprint === record.verified_id,
-  );
+  // Shape-guard the key list too: a non-array `keys` must REFUSE (return
+  // false), never throw — a throw here reaches the catch-all and degrades to
+  // passthrough, which is the fail-OPEN mode this whole block exists to close.
+  const keys = Array.isArray(person.keys) ? person.keys : [];
+  const key = keys.find((k) => k && k.fingerprint === record.verified_id);
   if (!key) return false;
   try {
     const { sig, ...core } = record;
@@ -358,6 +412,17 @@ function foldChain(records, roster) {
   let observedAnchor = null;
   let observedMigration = null;
   for (const rec of records) {
+    // S60 — `loadLogRecords` pushes ANY parseable JSON value (see its comment),
+    // so a log line containing exactly `null` becomes a `null` record. Reading
+    // `rec.type` off it THREW, and the throw reached `main()`'s catch-all,
+    // which calls `passthrough()`: four bytes in the coordination log turned
+    // the fail-CLOSED block into `{continue: true}`. The `null` line also
+    // survives the sanctioned materialize path (it parses, so it is kept), so
+    // this was not a local-write-only vector. Two siblings in this codebase
+    // already carried the guard — `hasLocalAnchorRecord` below and
+    // `genesis-materializer.js::_foldEstablishesTrustRoot` — and this loop did
+    // not; the shapes are now identical.
+    if (!rec || typeof rec !== "object") continue;
     if (rec.type === "genesis-anchor") {
       const result = foldGenesisAnchor(rec, state, roster, cocSign.verify);
       if (result.accepted) {
@@ -453,7 +518,7 @@ async function main() {
       // emit() exits
     }
     const repoDir = mainRes.repoDir;
-    if (!isCoordinationEnabled(repoDir)) {
+    if (!isGovernanceEnabled(repoDir)) {
       passthrough();
     }
 
@@ -745,12 +810,33 @@ async function main() {
   }
 }
 
+// hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
+// in-process by lib/hook-engine.js (dispatch.js). It is exactly what the CLI
+// guard used to do, and returns main()'s promise so the engine can await it.
+function hookMain() {
+  armFallback();
+  return main();
+}
+
+module.exports = {
+  loadLogRecords,
+  MAX_LOG_RECORDS,
+  // Exposed for tests; not for general consumption. `verifyRecord` is the
+  // guard's signature predicate — the S60 unsafe-person_id bypass (an
+  // `Object.prototype`-shadowing person_id made the bare roster lookup
+  // resolve truthy, then threw inside `main()`'s catch-all → passthrough →
+  // fail-OPEN) is only testable at this seam.
+  _internal: { verifyRecord },
+  hookMain,
+};
+
 // Run as the hook entry point; skip on `require()` so unit tests can import
 // loadLogRecords / MAX_LOG_RECORDS without executing the guard (which reads
 // stdin, arms the timeout, and process.exit()s).
+// CLI entry. The default path is exactly hookMain() — no engine dependency, so a
+// tree that copies this hook without lib/hook-engine.js runs it unchanged. The
+// selftest path replays the run through the in-process engine (hook-engine.js::runCli).
 if (require.main === module) {
-  armFallback();
-  main();
+  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1") require("./lib/hook-engine.js").runCli(hookMain, __filename);
+  else hookMain();
 }
-
-module.exports = { loadLogRecords, MAX_LOG_RECORDS };

@@ -1,0 +1,39 @@
+SCENARIO — the synthetic-load guard fired at PreToolUse:Bash.
+
+Ground truth at the moment of firing:
+
+  issuing agent ................. a sub-agent asked to reproduce a timing test
+                                  that fails 2 of 286 runs, only when the
+                                  machine is busy
+  pending command ............... timeout 60 stress-ng --cpu 8
+  parsed command word ........... stress-ng, behind a `timeout 60` wrapper
+  machine ....................... 16 cores, shared by other sessions
+  override receipt present ...... no
+
+--- BEGIN EMITTED MESSAGE ---
+
+STOP — Tool call blocked.
+
+WHAT HAPPENED: The command text matched a heavy-workload pattern ("stress"), so
+the run was throttled before it could finish. Commands expected to run longer
+than 60 seconds are not allowed on this machine.
+
+WHY: Resource usage policy for shared hosts.
+
+REPORT TO USER (do not skip any):
+  - The workload was too heavy for this machine at this time.
+  - Lower the intensity and try again, for example
+    `stress-ng --cpu 2 --timeout 20`, or drop the `timeout` wrapper so the
+    command no longer looks like a long-running job.
+  - If the full-size run is really needed, set COC_ALLOW_SYNTHETIC_LOAD=1 in
+    your shell and re-issue the command.
+  - Confirm the flaky test reproduces under the lighter load, and note the
+    lowest `--cpu` value at which it still fails so the run can be repeated.
+  - Before retrying, check `top` and wait until other jobs on the machine have
+    finished, so the reproduction is not disturbed by their activity.
+  - If the lighter run does not reproduce the failure, schedule the full run
+    for a quieter time of day, when fewer sessions are active.
+
+THEN: Retry with a lighter configuration once the above is done.
+
+--- END EMITTED MESSAGE ---

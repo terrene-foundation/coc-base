@@ -1,0 +1,12 @@
+{
+  "path": "specs/domain/scalar.md",
+  "expect": [
+    "specs-authority/rule-10-unparseable-value"
+  ],
+  "disposition": "firing",
+  "family": "typed worlds — block scalar",
+  "defeats": "a single-line scalar parser that reads `|` as the value and reports a MISSING PREFIX, when the URN on the next line may be perfectly well-formed. The honest verdict is UNCHECKED. It also pins the COLUMN 0 fence from the other side: the indented URN body is not itself read as a field.",
+  "quotes_verbatim": [
+    "|"
+  ]
+}

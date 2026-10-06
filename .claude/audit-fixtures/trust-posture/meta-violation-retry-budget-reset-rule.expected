@@ -1,0 +1,57 @@
+VIOLATION against `rule-authoring.md`. The judge must find the breaches below. Every one is a
+defect in the CONTENT of furniture that is fully present — frontmatter, the `## ` heading skeleton,
+two numbered clauses, DO/DO-NOT blocks, BLOCKED headings, `**Why:**` lines, an eight-field Wiring
+block in canonical order and `## Origin` all match the sibling pole, so a judge scoring on shape
+alone finds nothing.
+
+1. PHRASED AS ENCOURAGEMENT UNDER A SECTION STILL TITLED `## MUST Rules`. The title reads "Thinking
+   About When A Budget Should Refill"; the headings read "Should Usually Be Refilled" and "Consider
+   Partitioning". Each body then hands back the exact case its heading gestures at — a periodic
+   refill is "a reasonable simplification" where the dependency "has been stable for a long
+   stretch", with "the implementing team ... generally best placed to make that call", and a single
+   counter "remains a defensible choice" where tenants are "of broadly comparable size" or the
+   ceiling has "historically been far from exhausted". Both are unbounded self-issued exemptions,
+   and between them they license precisely the timer-refilled global counter the `## Origin`
+   incident describes.
+
+2. THE DO/DO-NOT ARMS DO NOT DIFFER IN SUBSTANCE. In clause 1 both arms are the same
+   two-consecutive-HEALTHY-probe refill; in clause 2 both arms are the same `budget[tenant_id] -= 1`
+   line. Each DO-NOT arm is the correct form with an approving comment appended ("this form is
+   preferred", "partitioning is the safer default here"). Neither prohibited construction — the
+   wall-clock refill, the unkeyed counter — is ever shown, so neither contract is learnable from
+   its own block.
+
+3. THE BLOCKED CORPORA ARE ABSTRACT TAXONOMIES. Both read as third-person observations about
+   engineering behaviour — "timer-driven refills are widespread because schedulers are already
+   present in most services", "the cost of per-tenant state is often perceived as disproportionate".
+   Nothing there is a sentence a session would emit, so nothing is recognisable at the moment of
+   the excuse.
+
+4. THE JUSTIFICATION LINES EXCEED THE TWO-SENTENCE CAP AND NAME NO MECHANISM. Clause 1's `**Why:**`
+   is one ~60-word sentence appealing to "the accumulated experience of teams running retry-heavy
+   architectures at scale"; clause 2's defers to "the distribution of traffic across the tenant
+   population" and to conditions "happening to remain benign"; the MUST NOT bullet's ends in
+   behaviour that is "hard to attribute once a system is carrying production traffic". None says
+   what actually happens — that a tick refills mid-outage, or that one tenant spends another's
+   allowance. The sibling states each mechanism in one sentence.
+
+5. THE WIRING SEVERITY INVERTS `hook-output-discipline.md` MUST-2. It declares `block` at the HOOK
+   layer on a purely lexical trigger — a diff that "touches a line mentioning a budget or retry
+   identifier" — and demotes gate-review to `advisory`. MUST-2 bars `block` on a lexical signal,
+   and this trigger would fire on every legitimate change to retry code as well, including the
+   changes the rule is asking for.
+
+6. THE PHASE-2 DEFERRAL BOOKS TEETH THAT CANNOT ARRIVE. It promises a detector determining whether
+   the author "weighed the refill trade-off appropriately" and whether a shared counter "reflected
+   a considered judgement about the tenant population rather than convenience". No argv token, AST
+   node, parsed-document field or git-object fact carries an author's judgement. Contrast the
+   sibling pole, whose deferral keys on two AST facts over one file — the enclosing scope of the
+   assignment, and whether the budget's declared type is a scalar or a tenant-keyed map.
+
+7. THE ORIGIN NARRATES THE INCIDENT AND THEN DROPS IT. The mechanism and the measured blast radius
+   are quoted identically to the sibling — 82 refills across a 41-minute outage, 26 minutes of
+   write saturation past recovery, two uninvolved tenants losing their retries — and then the
+   section closes on a retrospective at which the team "agreed that clearer guidance ... would be
+   valuable going forward" and that the topic "deserved more attention than it had previously
+   received". That records a sentiment rather than what the incident implies about the rule's form,
+   which is exactly the inference the sibling's closing sentence draws.

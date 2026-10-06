@@ -1,0 +1,1 @@
+if pytest tests/unit | head -5; then echo GREEN; fi

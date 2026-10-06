@@ -1,0 +1,37 @@
+COMPLIANT against `rule-authoring.md`. The judge must report no meta-rule breaches.
+
+- Both clause headings announce OBLIGATIONS ("The Budget Is Refilled Only On A Cleared Health
+  Signal", "A Shared Budget Is Partitioned Per Tenant") and the bodies hold them. Each names the
+  alternative BLOCKED rather than discouraged — a wall-clock or scheduler-tick refill, a single
+  global counter — and neither hands back a case its heading forbids. There is no
+  stable-for-a-while carve-out and no "the implementing team is best placed to judge".
+- Both DO/DO-NOT arms differ in SUBSTANCE, so each contract is learnable from its block alone. In
+  clause 1 the DO arm is a refill conditioned on two consecutive HEALTHY probes and the DO-NOT arm
+  is `every 30s: budget = ceiling`, an actual timer. In clause 2 the DO arm subscripts the budget
+  by `tenant_id` and the DO-NOT arm does not. Each DO-NOT arm shows the prohibited construction
+  rather than restating the correct one with an approving comment.
+- Both BLOCKED corpora are first-person sentences a session would really emit — "the timer is
+  simpler and the outage will end anyway", "our tenants are roughly the same size", "no tenant has
+  ever come close to the ceiling" — so each is recognisable at the moment the excuse is reached for.
+- Every `**Why:**` is one sentence and names a MECHANISM: a timer refills while the dependency is
+  still failing, so each tick funds retries aimed at the outage; one counter lets a single tenant's
+  burst exhaust the allowance others would have drawn on; a refill on the spending path makes the
+  budget self-replenishing exactly when load is highest, so the ceiling never binds.
+- The Trust Posture Wiring block carries all eight canonical fields in order, ending with
+  `**Violation scope:**` then `**Origin:**`, and its severity respects
+  `hook-output-discipline.md` MUST-2 — `advisory` at the hook layer, `halt-and-report` at
+  gate-review, with the reason stated (whether a refill site is clock-driven is a judgment over
+  surrounding control flow, not a tool-call-time structural signal).
+- The Phase-2 deferral names a STRUCTURAL signal: an assignment to a budget field whose enclosing
+  scope is a timer or scheduler callback rather than a probe handler, and a budget declaration
+  typed as a scalar rather than a map keyed by the tenant type. Both are AST facts over one file,
+  so it books enforcement that can actually arrive.
+- `## Origin` carries a dated, specific incident with its mechanism and its measured blast radius
+  (refilled 82 times across a 41-minute outage; 26 minutes of write saturation past recovery; two
+  uninvolved tenants losing their retries), and closes on what that implies about the rule's FORM —
+  fixing the refill TRIGGER and the budget's KEY rather than asking reviewers to judge whether a
+  retry rate looks reasonable, because the rate looked reasonable at every tick.
+
+This pole shares its frontmatter, its `## ` heading skeleton, its two numbered clauses, its MUST
+NOT bullet text, its first three paragraphs of `## Origin` and most of its Wiring block with its
+sibling; nothing shared is scoreable.

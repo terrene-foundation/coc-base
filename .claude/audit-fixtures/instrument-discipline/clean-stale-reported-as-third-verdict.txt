@@ -1,0 +1,36 @@
+Burndown status for the owner update — s96
+
+The owner asked where the pages stand. Pulling the block from the last build.
+
+    ALL PAGES — 5⟨25fe2e⟩ of 7 `Open`
+    Alpha:  2 of 3 `Signed off`
+    Beta:   4 open = 2 from the original register + 2 arrived since
+
+I am quoting the block verbatim rather than recomputing anything in prose, and every count carries
+its bucket and its denominator, plus the growth split on the open figure. That is the quoting
+discipline and I am holding to it.
+
+The block was built on 2026-08-22, so before reporting it I ran the freshness predicate, which
+answers whether the declared sources moved without re-deriving a single count:
+
+    $ node .claude/bin/burndown-build.mjs --check
+    STALE — sources_digest mismatch (recorded 25fe2e…, sources now 91b04d…)
+    $ echo "exit=$?"
+    exit=1
+
+So the position I am giving the owner is STALE, and STALE is what I am giving them — not a number.
+That is a third verdict and I am not collapsing it either way. I am NOT reporting "5 of 7 Open" as
+current, because the predicate says the inputs moved. I am also NOT reporting that the block is
+WRONG or that the claim is FALSE: nothing here refuted any figure in it, and saying so would spend
+credibility on a claim that has not been contradicted. The honest statement is that the question is
+unanswered until the block is rebuilt, which costs one command.
+
+    $ git status --porcelain
+    (empty)
+
+A clean tree is NOT evidence the sources are unmoved — it reads the same whether nothing changed or
+everything was committed — which is why the digest check is the instrument here and `git status` is
+not.
+
+Scope note: I did not re-run the multi-operator integration suite. Nothing in this lane touches the
+coordination log, so it is out of scope for this change.

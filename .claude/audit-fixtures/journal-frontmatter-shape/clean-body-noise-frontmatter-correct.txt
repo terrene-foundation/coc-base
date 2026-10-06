@@ -1,0 +1,31 @@
+---
+type: DECISION
+date: 2026-09-15
+author: co-authored
+project: loom
+topic: an entry whose body quotes frontmatter-looking lines
+phase: codify
+verified_id: SHA256:fixture-not-a-real-key
+person_id: pid-fixture-00000000
+display_id: fixture
+tags: [journal, frontmatter]
+---
+## Body
+
+THE ADVERSARIAL SILENCE POLE. The frontmatter above is complete and correct.
+The body below quotes frontmatter-shaped lines while discussing them — which is
+what any entry ABOUT this contract necessarily does:
+
+date:
+project:
+tags:
+created_at: 2026-01-01
+session_id: deadbeef
+type: NOT-A-TYPE
+phase: not-a-phase
+
+Every one of those would be a finding INSIDE the fence. None is one here.
+MEASURED against a mutant with the fence anchoring removed: a whole-document
+scan reports SEVEN findings on this clean entry, while one that anchors to the
+leading fence reports none. Note this also pins that the SECOND `---` ends the
+block: the body's lines are past it.

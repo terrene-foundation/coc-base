@@ -1,0 +1,12 @@
+{
+  "path": "specs/domain/churn-v3.md",
+  "expect": [
+    "specs-authority/rule-10-malformed-kp-urn"
+  ],
+  "disposition": "firing",
+  "family": "declared grammar — segment count",
+  "defeats": "a bare prefix test, and also a 'has an @version' test. Two segments means the `<domain>` opaque handle is absent altogether, so the segment invariants 3/4 have nothing to range over.",
+  "quotes_verbatim": [
+    "kp://use/churn-features@3"
+  ]
+}

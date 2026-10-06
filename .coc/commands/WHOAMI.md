@@ -1,11 +1,12 @@
 ---
 id: "WHOAMI"
-description: Identity surface for multi-operator COC — show who I am (read-only) OR register a new person_id via PR (--register). All M0 ceremony subcommands shipped; no-args read in A1.
+name: whoami
+description: "Show operator identity or register a person via PR; includes enrollment ceremony subcommands."
 ---
 
 # /whoami — Multi-Operator Identity
 
-The identity-surface command for multi-operator COC ((loom-internal reference) §2.1 + §2.3). The `--register`, `--enroll-genesis`, `--owner-add`, `--owner-depart` ceremonies and the no-args read-only display all shipped under M0.
+The identity-surface command for multi-operator COC ((loom-internal reference) §2.1 + §2.3). The `--register`, `--enroll-genesis`, `--owner-add`, `--owner-depart` ceremonies and the no-args read-only display all shipped under M0; `--add-key` closes the one §2.1 capability that had no producer — an append to an EXISTING `person_id`'s key list.
 
 ## Subcommands
 
@@ -47,32 +48,7 @@ The flow:
 
 4. **Edit the roster via the ceremony's canonical script, invoked by its own path** — validate against schema, then write to disk. The roster is a protected state-file owned by the `validate-bash-command.js` guard (`detectStateFileMutationSegmentAware`, Layer 3): only the canonical roster-write path may touch it. The roster ceremony IS that sanctioned canonical writer — it keeps the protected path inside the script body (off the run command line) and writes-then-runs as two separate Bash commands. This two-step canonical-writer shape is the form the guard sanctions; a single bundled write+run command is not (the canonical writer is the one path licensed to write the roster, so the guard recognizes the script-by-path run and lets it through). The lexical guard is defense-in-depth; the load-bearing protections are branch-protection + schema-validation + the PR gate. Full rationale + the sanctioned-canonical-writer contract: `.claude/skills/43-ecosystem-init/SKILL.md` § Operational runbook.
 
-   ```bash
-   cat > "${TMPDIR:-/tmp}/coc-roster-register.cjs" <<'CEREMONY'
-   const fs = require("fs");
-   const path = require("path");
-   const ROSTER = ".claude/operators.roster.json";
-   // require() resolves from the SCRIPT's dir (/tmp), not cwd; path.resolve rebinds to repo root.
-   const v = require(path.resolve(".claude/hooks/lib/roster-schema-validate.js"));
-   const r = JSON.parse(fs.readFileSync(ROSTER, "utf8"));
-   r.persons[process.env.PERSON_ID] = {
-     display_id: process.env.DISPLAY_ID,
-     role: "contributor",
-     github_login: process.env.GH_LOGIN,
-     host_role: process.env.HOST_ROLE,
-     keys: [{ type: process.env.KEY_TYPE, fingerprint: process.env.FP, pubkey: process.env.PUBKEY }],
-   };
-   const result = v.validate(r);
-   if (!result.valid) { console.error("schema validation failed:", result.errors); process.exit(1); }  // valid:false is a hard stop
-   fs.writeFileSync(ROSTER, JSON.stringify(r, null, 2) + "\n");
-   CEREMONY
-   ```
-
-   Run it by its own path as a SEPARATE command **from the repo root** (the cwd both the roster read and the `path.resolve(...)` lib lookup resolve against), supplying the step-1 inputs (and the step-2 `person_id`) ON the invocation — the script reads each from `process.env`, so without the env prefix the run writes `undefined` and the schema validator fails closed (the documented walk never completes a registration):
-
-   ```bash
-   PERSON_ID="$person_id" DISPLAY_ID="$display_id" GH_LOGIN="$github_login" HOST_ROLE="$host_role" KEY_TYPE="$key_type" FP="$fp" PUBKEY="$pubkey" node "${TMPDIR:-/tmp}/coc-roster-register.cjs"
-   ```
+   The verbatim writer script, its `process.env` input contract, and the run-from-repo-root invocation live in `.claude/skills/44-enroll/SKILL.md` § "The `--register` canonical writer" (`cc-artifacts.md` Rule 3: reference material → skills). Supply every input ON the invocation — the script reads each from `process.env`, so without the env prefix the run writes `undefined` and the schema validator fails closed.
 
 5. **New operators default to `role: contributor`.** Promotion to `senior` or `owner` is a separate quorum gate (architecture §6.4) NOT covered by `--register`; it requires `--owner-add` (A0b-2b) for owners and a 2-of-N roster edit for `senior`.
 
@@ -88,6 +64,26 @@ The flow:
    The PR enters the existing branch-protection + review chain. **Merge is NEVER via direct push**, NEVER via admin-merge of an owner-self-attesting roster add (that is the C2 gate matrix's job to enforce; this command body produces the proposal, not the merge).
 
 7. **`host_role: ci` recording.** When the operator selects `host_role: ci`, the value is RECORDED in the roster verbatim. **R5-S-04 advisory-ineligibility (no co-signing of owner-quorum, distinctness, gate-approval, or genesis/migration records) is enforced in shard A0b-2c — NOT in this command body.** A `host_role: ci` entry registered today is a valid roster entry; it simply cannot vote.
+
+### `/whoami --add-key` — append a key to an EXISTING person_id (self-service, PR-only)
+
+`persons.<person_id>.keys` is the append-only array `multi-operator-coordination.md` §1 and the schema both describe, and until this ceremony landed NOTHING wrote to it: `--register` MINTS a new `person_id` at `role: contributor`, and none of the other three adds a key to an existing one. The measured consequence was an owner holding one key while their other keys sat under separate contributor `person_id`s — so the owner could not sign with those keys without signing AS a contributor. It is also the precondition for binding `authority` to a signer ROLE at all.
+
+**Self-service ONLY.** An operator adds a key to THEIR OWN `person_id`, proven by SIGNING the request with a key already enrolled under it (naming an enrolled fingerprint is free — the roster is committed). Adding a key to someone ELSE's `person_id` is a quorum-gated roster edit and is REFUSED here rather than half-implemented. `role`, `github_login`, `host_role`, `person_id` and `genesis` are never touched — promotion stays `--owner-add`'s separate quorum gate.
+
+The ceremony is `.claude/hooks/lib/add-key-ceremony.js::runAddKeyCeremony`, run BY ITS OWN PATH as a separate command — the sanctioned canonical-writer shape, with the protected roster path inside the script body and off the run command line. Cut a `codify/` branch off `main` FIRST; the roster only ever lands by PR.
+
+```bash
+git checkout -b "codify/addkey-$(date -u +%Y-%m-%d)" origin/main
+node .claude/hooks/lib/add-key-ceremony.js --person-id "$pid" --new-key ~/.ssh/id_ed25519.pub          # plan; writes nothing
+node .claude/hooks/lib/add-key-ceremony.js --person-id "$pid" --new-key ~/.ssh/id_ed25519.pub --apply  # writes the WORKING TREE
+```
+
+Then `git add`/`commit`/`push`/`gh pr create` exactly as `--register` does; merge is the PR gate's job, never a direct push. Add `--new-key-type gpg --new-pubkey <armored-file>` for GPG (the armored export is REQUIRED — the ceremony never guesses at an ambient keyring); `--signing-key <path>` overrides the `git config user.signingkey` default.
+
+**Every refusal is typed and fails CLOSED** (exit 1, code on stderr, nothing written): `roster-unreadable` · `roster-malformed` · `unknown-person` · `not-self-service` · `signer-unrostered` · `signer-unresolvable` · `proof-of-possession-failed` · `duplicate-fingerprint` (already enrolled under ANY person — one key never binds two identities) · `new-key-unresolvable` · `new-pubkey-unreadable` · `bad-key-type` · `append-only-violation` (removal, replacement OR reorder) · `identity-field-change` · `schema-invalid`.
+
+Fingerprints come from `operator-id.js::_fingerprintFromKey` — the SAME resolver that computes `verified_id`; a second derivation that disagreed would enroll a key that never resolves. `--check-against <candidate.json>` runs the append-only + identity-invariant predicates over a roster diff the process did NOT construct, which is the reviewable form a PR gate can run. Fixtures: `.claude/audit-fixtures/roster-add-key/`; procedure depth: `.claude/skills/44-enroll/SKILL.md` § "Adding a key to an existing person_id".
 
 ### `/whoami --enroll-genesis` — establish the trust root (network-permitted, blocking, fail-CLOSED)
 

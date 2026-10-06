@@ -1,0 +1,13 @@
+FLAG parity — the command and its skill describe DIFFERENT ceremony orders, and the runbook the
+operator follows is the drifted one.
+
+`commands/ecosystem-init.md` header reads: "## Ceremony order (C1 → C3 → C2 → C4 → C5)" — C1b is
+absent from the order line even though a "### C1b — write THIS ecosystem's own canon-identity
+declaration" section exists below it. The paired skill reads "## Ceremony order: C1 → C1b → C3 →
+C2 → C4 → C5".
+
+An operator following the COMMAND's order line skips C1b entirely (the order is the checklist),
+runs genesis before the identity declaration exists, and discovers the missing config only when a
+distribution entrypoint later refuses. The skill's own Writes table also omits the identity file
+("ecosystem-config + genesis trust-root"), so both surfaces under-describe what the ceremony
+writes.

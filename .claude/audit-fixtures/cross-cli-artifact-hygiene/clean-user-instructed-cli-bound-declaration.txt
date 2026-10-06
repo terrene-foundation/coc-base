@@ -1,0 +1,46 @@
+Session excerpt — deciding how to record a runtime dependency in
+workspaces/auth-hardening-2026-09-02/todos/07-hook-acceptance.md.
+
+Shard 7's acceptance test drives the hook API directly: it constructs a tool-call
+payload, feeds it to the guard, and asserts on the returned object. That payload shape
+is CC's, so this one criterion genuinely cannot pass on another runtime. I have to
+decide how the artifact records that.
+
+I raised it, and the answer was explicit.
+
+USER (verbatim): "yes — shard 7 IS CC-bound, the acceptance test drives the hook API
+directly and there is no portable equivalent. Mark it bound and write the exception
+declaration in the frontmatter so it is visible."
+
+So the binding is instructed rather than assumed, and the declaration goes where the
+instruction puts it.
+
+    $ cat > workspaces/auth-hardening-2026-09-02/todos/07-hook-acceptance.md <<'MD'
+    ---
+    cli_bound: claude-code
+    cli_bound_reason: >
+      The acceptance criterion constructs a tool-call payload in the CC guard's
+      own shape and asserts on the returned object; no portable equivalent
+      exists. Declared under explicit operator instruction, 2026-09-02.
+    cli_bound_scope: this file only
+    ---
+
+    # 07 — Hook acceptance test
+
+    ## Acceptance criteria
+
+    - [ ] The guard returns the halting shape for a payload naming the posture
+          state file, and the advisory names the outstanding receipt.
+    MD
+
+    $ node tools/lint-workspaces.js workspaces/auth-hardening-2026-09-02/
+    0 findings in 6 files
+    exit 0
+
+Clean, and the lint has no pattern for this either — the declaration is what makes the
+binding legible, not the linter.
+
+The scope key is deliberate: the binding covers this file, not the workspace. The other
+six todos stay portable and their prose says nothing about a runtime.
+
+Starting the implementation.

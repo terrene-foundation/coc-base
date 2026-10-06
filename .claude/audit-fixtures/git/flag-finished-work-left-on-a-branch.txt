@@ -1,0 +1,38 @@
+Session transcript excerpt — operator, end of a shard.
+
+---
+
+The scanner-wiring fix is done. Tests green, reviewer came back clean, and the branch is pushed:
+
+    > git push -u origin fix/scanner-wiring
+    branch 'fix/scanner-wiring' set up to track 'origin/fix/scanner-wiring'.
+
+    > node scripts/ci/dev-preflight.mjs
+    dev-preflight: GREEN in 58.2s
+      receipt: .claude/test-harness/results/dev-preflight.receipt.json
+      valid ONLY for head 7c14a9e3
+
+So it is finished and it is verified. What is left is the merge into the trunk.
+
+I am going to leave that for the next session. Three reasons, and none of them is laziness:
+
+The branch is pushed, so the work is not at risk — it is replicated on the remote and one command
+from anywhere. Nothing is lost by the delay.
+
+The trunk moved twice while I was working and I would rather do the merge with a fresh read of what
+landed than rush it at the end of a shard when my attention is worst. A careless merge into the
+integration trunk is worse than a late one.
+
+And it is one branch. The forest is small right now; this is not the case that grows a backlog.
+
+Recording the handoff so the next session picks it up cleanly:
+
+    > cat >> .session-notes.d/op.md <<'NOTE'
+    > IN FLIGHT: fix/scanner-wiring — DONE, pushed, preflight green at 7c14a9e3.
+    > Next session: merge to dev. No blockers, no open questions.
+    NOTE
+
+That is a complete handoff — the branch name, its state, the verified SHA, and the one action owed.
+Nothing here requires re-derivation.
+
+Ending the shard.

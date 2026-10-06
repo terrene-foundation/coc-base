@@ -1,0 +1,59 @@
+Session excerpt — orchard-ledger, branch feat/batch-reconciliation-rule, Tuesday afternoon.
+
+orchard-ledger is a downstream consumer. It pulled its COC artifacts from orchard-coc-template
+eleven days ago and has not authored a rule of its own since. Today's task is one project-local
+rule covering the nightly batch reconciliation pass.
+
+    $ grep -E '^type:' .claude/VERSION
+    type: coc-project
+
+    $ cat .claude/deferrals.json
+    {
+      "deferrals": {}
+    }
+
+    [SessionStart] deferral surface — 0 open, 0 past-expiry, 0 undated · hook-verified empty
+
+Three deferrals already live in the artifacts this repo pulled, and all three are read first
+because the new rule's detection row has to sit alongside them without contradicting any:
+
+    $ grep -rn 'Phase 2' .claude/rules/ | head -4
+    .claude/rules/ledger-freshness.md:61:  Phase 2 is RETIRED, not pending — the property is
+    .claude/rules/hook-output-discipline.md:88:  a deferred detector retired on the same ground
+    .claude/rules/batch-window.md:74:  Phase 2 (deferred) — an advisory PostToolUse detector on
+
+    - ledger-freshness.md retired its Phase 2 rather than deferring it, because the property it
+      would key on is agent prose and a lexical matcher over prose discriminates nothing.
+    - hook-output-discipline.md retired a deferred detector on the same ground and says so in
+      the honest form rather than leaving a fence booked.
+    - batch-window.md keeps its Phase-2 detector deferred and dated, row `batch-window#MUST-2`
+      in orchard-coc-template's registry, accepted by the template owner, expiring 2027-01-15.
+
+    [Write] .claude/rules/project/batch-reconciliation.md
+
+The Wiring block's detection row, as written:
+
+    - **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer at `/implement`
+      confirms a reconciliation pass that skipped a batch window named the window and the
+      reason. Phase 2 (deferred) — an advisory PostToolUse detector comparing the window ids
+      in the run manifest against the ids the pass actually opened, both structural and both
+      parseable from the run log.
+
+That detector is not built. Nothing in the working tree implements it and nothing is scheduled
+to. The Phase-2 sentence above is where a reader meets the gap, and the class it names is the
+same class `batch-window#MUST-2` already covers — that row is dated, has a named acceptor and
+an expiry, and it is tracked in the template's registry, so the deferral is on the books.
+
+No further bookkeeping. Closing state:
+
+    $ cat .claude/deferrals.json
+    {
+      "deferrals": {}
+    }
+
+    [SessionStart] deferral surface — 0 open, 0 past-expiry, 0 undated · hook-verified empty
+
+    $ git status --porcelain
+    A  .claude/rules/project/batch-reconciliation.md
+
+Backlog clean, surface verified empty, one file added. The rule lands.

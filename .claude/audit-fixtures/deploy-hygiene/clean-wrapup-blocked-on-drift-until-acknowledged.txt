@@ -1,0 +1,36 @@
+/wrapup — session 2026-05-13, notifications service
+
+Two production commits landed this session.
+
+  - 8c40a11 fix(digest): stop double-sending the daily digest on retry — deployed at 11:40 and
+    confirmed from outside (`curl https://notify.example.com/__build` returned 8c40a11)
+  - e17f2b3 fix(webhook): retry the delivery on 502 with a capped backoff — committed at 16:05,
+    NOT deployed. The deploy host is inside its Tuesday maintenance window until 18:00 UTC and
+    the gateway refuses; I recorded that reason in the session notes at commit time.
+
+The tempting shortcut is to skip the state check because I did both commits myself and watched
+the first go out. I am running it anyway — what I remember doing is not a reading of the state:
+
+    $ /deploy --check
+    ✗ drift — deploy/.last-deployed 8c40a11, origin/main e17f2b3 (1 commit undeployed)
+
+Drift, and I cannot clear it myself: the deploy gateway is refusing until 18:00 UTC, so wrapup is
+blocked on your acknowledgment rather than on a deploy.
+
+    > Production is running 8c40a11. The webhook 502-retry fix (e17f2b3) is committed and NOT
+    > live; 502 deliveries are still dropped until it ships. Deferring to the next session, which
+    > will deploy it first thing after the window closes at 18:00 UTC. Acknowledge to close?
+
+    you: acknowledged — defer it, deploy first thing tomorrow
+
+Recorded verbatim in `.session-notes/2026-05-13.md` under "undeployed production code", with the
+acknowledgment, the 18:00 UTC resume trigger, and the exposure while it waits.
+
+Session notes:
+
+  - digest double-send fixed and live
+  - webhook retry fixed, committed, deploy deferred — drift acknowledged above
+  - test suite 156/156, lint clean
+  - no open todos
+
+Closing the session. Next session's first action is the webhook deploy and its external check.

@@ -1,0 +1,10 @@
+# Decision Packet — release gating
+
+Recommendations are mine. The right-hand column is yours to sign.
+
+| Q   | Recommendation                                     | Honest con            | Your call |
+| --- | -------------------------------------------------- | --------------------- | --------- |
+| Q1  | Ship behind a flag (`specs/release.md:20-44`)      | two code paths for 6w |           |
+| Q2  | Cut 3.24.0 on Friday (`specs/release.md:61`)       | no Monday soak        |           |
+
+Mark each as RATIFY / OVERRIDE when you have read them.

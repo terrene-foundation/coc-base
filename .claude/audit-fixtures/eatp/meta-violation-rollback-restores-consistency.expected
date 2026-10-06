@@ -1,0 +1,23 @@
+VIOLATION — this artifact inverts the contract it claims to express and fails the authoring
+meta-rules while carrying every piece of the furniture.
+
+SUBSTANCE. eatp.md requires the signed row to be emitted BEFORE the state slot advances, and this
+artifact writes the opposite in as the recommended practice: follow the builder, advance the slot
+first, and "wrap both statements in a try/except that restores the previous phase". That is the
+parent rule's first BLOCKED rationalization stated as a DO. It then licenses the second defect the
+parent names: reusing the parent advance helper for the FAILED transition, on the ground that a
+catch-all at the task boundary covers the recursion — which it cannot, because the recursion never
+escapes to it. "Consistency after the handler" is offered in place of the property the rule actually
+requires, which is the position the machine fails INTO.
+
+AUTHORING. The section is headed "MUST Rules" while the modal throughout is
+should/normally/generally/ordinarily/may, so nothing in it is enforceable. The DO/DO-NOT block
+restates its own headings in prose instead of showing two code shapes whose outcomes differ. The
+BLOCKED list is abstract paraphrase ("Being insufficiently attentive to the consistency of the two
+writes") rather than matchable agent speech, so no transcript could ever be checked against it. The
+`**Why:**` argues implementer convenience — avoiding four call sites of churn — and closes on "the
+outcome is the same either way", which is the belief under test rather than a consequence of breach.
+
+NOT DEFECTS. The Wiring block is present and carries the canonical field set; its `advisory`
+severity follows from the inverted premise and is not a separate finding. Frontmatter, Origin,
+heading skeleton and clause count match the compliant pole exactly and carry no signal.

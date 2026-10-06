@@ -135,6 +135,10 @@ function _resolveOwnerPerson(roster, record) {
   if (!targetLogin) return null;
   for (const [pid, person] of Object.entries(roster.persons)) {
     if (isUnenrolled(pid)) continue;
+    // S60 — a `null` person entry made `person.role` a null dereference, which
+    // THREW into a caller catch-all that degrades to passthrough (fail-OPEN).
+    // A malformed person is simply not an owner; skip it.
+    if (!person || typeof person !== "object") continue;
     if (person.role !== "owner") continue;
     if (!loginsEqual(person.github_login, targetLogin)) continue;
     return { person_id: pid, person };
@@ -172,6 +176,10 @@ function _resolveOwnerPersonAdo(roster, record) {
   if (!targetPrincipal) return null;
   for (const [pid, person] of Object.entries(roster.persons)) {
     if (isUnenrolled(pid)) continue;
+    // S60 — a `null` person entry made `person.role` a null dereference, which
+    // THREW into a caller catch-all that degrades to passthrough (fail-OPEN).
+    // A malformed person is simply not an owner; skip it.
+    if (!person || typeof person !== "object") continue;
     if (person.role !== "owner") continue;
     if (!principalsEqual(person.principal, targetPrincipal)) continue;
     return { person_id: pid, person };
@@ -275,9 +283,16 @@ function foldGenesisAnchor(record, foldState, roster, verifyFn) {
   }
 
   // --- Invariant 1b: signer's verified_id MUST be one of the owner's keys ---
-  const ownerKeys = owner.person.keys || [];
+  // S60 — shape-guard the key list. A non-array truthy `keys` made `.find` an
+  // undefined property, and a `null` entry made `k.fingerprint` a null
+  // dereference; either THREW, and every caller of this fold sits under a
+  // catch-all that degrades a throw to passthrough (fail-OPEN). A malformed
+  // roster must yield "no matching key" — a REFUSAL — never an exception.
+  // Same-PR sibling of the identical shape in
+  // `genesis-anchor-guard.js::verifyRecord`.
+  const ownerKeys = Array.isArray(owner.person.keys) ? owner.person.keys : [];
   const matchingKey = ownerKeys.find(
-    (k) => k.fingerprint === record.verified_id,
+    (k) => k && k.fingerprint === record.verified_id,
   );
   if (!matchingKey) {
     return {

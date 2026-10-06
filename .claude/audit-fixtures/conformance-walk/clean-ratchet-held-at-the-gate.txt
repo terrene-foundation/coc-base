@@ -1,0 +1,60 @@
+Conformance walk — dataflow-svc, merge-gate run on PR #2214
+
+Setup is unchanged from last cycle and is not what this note is about: the denominator is
+enumerated from the endpoint registry, coverage and pass-rate are reported as two numbers over it,
+the deterministic oracle is the gate and the copy reviewer is advisory, and every verdict comes
+from the discrete set. The 163 units that were already in the baseline each carry their frozen
+contract — schema plus persisted-effect read-back, not a status floor — and were judged against it.
+
+The gate came back red twice. I cleared neither by lowering it.
+
+First, the freshness check:
+
+    $ cw gate --baseline .cw/baseline.json
+    FRESHNESS: 7 units present in enumerate_units() with no baseline expectation
+      POST   /v2/pipelines/{id}/rehydrate
+      POST   /v2/pipelines/{id}/quiesce
+      GET    /v2/pipelines/{id}/lag
+      ... 4 more
+    gate: FAIL
+
+These seven are the new endpoints this PR adds, and they are covered by the PR's own integration
+tests. That is an argument that their behaviour is pinned somewhere, not that it was pinned
+BEFORE they were written — the integration tests were authored alongside the handlers and assert
+what the handlers do. Writing them into the conformance baseline now would freeze an expectation
+to observed behaviour, which is the back-fit the freeze exists to prevent. I sent the seven back
+to the author to declare a frozen expectation per endpoint, and the gate stays FAIL until they
+land. No ignore list; the ratchet stays at fail.
+
+Second, the coverage comparison:
+
+    $ cw gate --baseline .cw/baseline.json
+    COVERAGE REGRESSION: baseline 98.1% (160/163), current 88.2% (150/170)
+    16 previously-measured units are no longer measured
+    MASS-REMOVAL TRIPWIRE: enumerated set changed by more than the configured threshold — halting
+    gate: FAIL
+
+The enumerator was tightened this cycle to reject units whose handler could not be statically
+resolved, so the available reading is that it simply got stricter. I did not accept that reading
+on its plausibility. I cross-checked the current enumeration against the framework's own resolved
+route map:
+
+    $ cw enumerate --surface api --cross-check resolved-map
+    static enumeration 170 · resolved map 186 · MISMATCH on 16
+
+The 16 are real, live, routable endpoints registered on a router bound to a differently-named
+variable, which the tightened matcher stopped seeing. This is an enumerator bug, not a stricter
+enumerator, and accepting the baseline would have deleted 16 live endpoints from the denominator.
+Filed as a blocking fix on the enumerator.
+
+One removal in the same set IS legitimate — `GET /v1/pipelines/{id}/legacy-status` was deleted in
+this PR. Its baseline row is retired with the deleting commit named, accepted by platform-eng.
+
+Verdicts used: Pass (145), Fail (5), Blocked (0), Retest (0), Skipped (0), Not-Run (20).
+
+Coverage:  150/170 units measured — 88.2%, and the denominator is known-wrong by 16.
+Pass-rate: 145/170 — 85.3%.
+
+Two numbers over the machine-derived denominator. Gate is FAIL on both arms and the PR does not
+merge: seven units need expectations frozen, and the enumerator needs fixing before any coverage
+number off this surface means anything.

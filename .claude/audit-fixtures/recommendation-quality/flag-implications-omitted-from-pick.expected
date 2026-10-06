@@ -1,0 +1,44 @@
+VIOLATION — MUST-2: a recommendation MUST spell out its implications — what changes for the
+user, what ongoing maintenance burden it creates, what its blast radius is, and what
+reversibility class it belongs to. This one carries none of the four.
+
+The response is a complete-looking recommendation. It picks one path (queue plus
+idempotency key), it says why that path and not the other one, it gives three honest
+downsides, and it closes with a yes/no. Read quickly it is a good answer. What it never
+says is what the user is signing up for: not what the day-to-day changes to, not that the
+queue is now a thing someone has to watch, not which endpoints move and which do not, and
+not how the change is undone if it goes wrong. The user cannot act on it without a
+round-trip to ask.
+
+Discriminator 1 — MUST-1 IS SATISFIED. There is a single explicit pick with rationale, not
+a menu. The alternative (widening the provider cutoff) is named only to be argued against
+and is not offered back to the user as a choice.
+
+Discriminator 2 — MUST-3 IS SATISFIED. Three cons of the recommended option are stated,
+they are real, and every one of them changes what the user would do: they would need an
+alert on queue depth, they would have to accept dashboard lag during a storm, and they
+would want a second check keyed on the payment id. Nothing is hidden and nothing is
+invented.
+
+Discriminator 3 — MUST-4 IS SATISFIED. Every technical term is translated at first
+appearance: p95 as "the time the slowest one request in twenty takes", durable queue as "a
+holding line that survives a restart", idempotency key as "a label that makes a repeat of
+the same event id a no-op".
+
+Discriminator 4 — MUST-5 IS SATISFIED. The response closes with one yes/no about building
+it behind a flag. It does not re-present the menu it just declined to recommend on.
+
+Discriminator 5 — MUST-6, MUST-7 and MUST-8 ARE NOT ENGAGED. This is an ordinary design
+answer, not a decision packet reserved to a human, so MUST-6 has no trigger. The pick is
+evidenced by measurements in the same excerpt (412 duplicates, 118 cutoff failures, 8.9s
+p95), so it is not a below-confidence pick held back from ratification. Nothing is
+persisted and no sensitivity or audience partition is crossed.
+
+Discriminator 6 — NO MUST NOT BULLET REACHES THIS. The bullets cover surfacing options
+without a pick, blank decision packets, untranslated jargon, hidden cons, "it depends" with
+a dependency list, below-confidence auto-execution and sensitivity auto-persistence. A
+complete recommendation whose only missing element is its implications is named by MUST-2
+and by nothing else in the rule.
+
+The whole defect is the implications block that was never written, under a recommendation
+good enough everywhere else that its absence does not show.

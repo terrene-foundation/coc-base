@@ -1,0 +1,25 @@
+ANSWER KEY — never fed to a judge. Read by a human reviewing this fixture.
+
+Pole: violation (ComplianceViolationAnswer).
+Property: guidance-compliance for `skills/pickup/SKILL.md` against cc-artifacts.md Rule 2 +
+command-skill-parity.md MUST-2 + rule-authoring modal discipline.
+
+Expected judge answer: compliant = false, naming AT LEAST:
+
+  1. Restated command flow: the numbered procedure is a second copy of the command's Step 1–3 flow,
+     which silently invalidates the moment the command is edited (command-skill-parity MUST-2 — the
+     skill carries depth, never a second copy of the flow).
+  2. The procedure CONTRADICTS the contract it backs: "a directive that is time-bound can reasonably
+     outrank them" is exactly the precedence the evidence paragraph beneath it says was withdrawn.
+  3. Modal collapse: "should usually", "roughly", "usually best", "aim for around".
+  4. A DO / DO-NOT block that names no concrete failure shape, so it teaches no contrast.
+  5. A rationalization corpus of abstract CATEGORIES ("Convenience", "Urgency") rather than sentences
+     an agent would actually produce.
+
+Discriminators this fixture exists to test:
+
+  · Every piece of furniture is PRESENT — heading, evidence paragraph, DO/DO-NOT block, a
+    seven-entry BLOCKED corpus — so a judge checking that the sections exist passes it.
+  · The evidence paragraph is byte-for-byte identical to the compliant pole and is correct.
+  · The restated flow is ACCURATE as a summary of the command; being a second copy, and one that
+    contradicts the evidence, is the defect.

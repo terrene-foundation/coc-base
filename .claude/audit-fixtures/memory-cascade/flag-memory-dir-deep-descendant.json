@@ -1,0 +1,5 @@
+{
+  "toolName": "Write",
+  "filePath": "a/memory/b/c/note.md",
+  "note": "The rule frontmatter is `**/memory/**/*.md` (any depth). The graduated registry row summarised it as `*/memory/*.md` (immediate child), which would MISS this. The rule is the obligation, so this is flagged."
+}

@@ -1,0 +1,18 @@
+// @fixture-path: e2e/api/orders.test.js
+// @expect: conformance-walk/floor-only-assertion
+
+const request = require("supertest");
+const app = require("../src/app");
+
+describe("orders API", () => {
+  it("creates an order", async () => {
+    const res = await request(app).post("/orders").send({ sku: "A1", qty: 2 });
+    expect(res.status < 500).toBe(true);
+  });
+
+  it("reads the order back", async () => {
+    const res = await request(app).get("/orders/1");
+    expect(res.body.sku).toBe("A1");
+    expect(res.body.qty).toBe(2);
+  });
+});

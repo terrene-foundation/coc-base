@@ -1,0 +1,28 @@
+Wave wrap-up — CI spend
+
+Pulling the numbers for the close-out.
+
+    $ gh run list --limit 800 --json conclusion,event,status,startedAt,updatedAt,headBranch
+
+Across 793 completed runs: 11,308 minutes total, 1,208 of them in runs that ended cancelled, and
+1,165 of those killed on a PR branch by a later push to the same open PR.
+
+Reading the cancelled bucket: 13 of the cancelled PR runs executed zero steps — they were killed
+while still sitting in the queue. So most of that 1,208 is not a real cost. A run that never
+started executing consumed nothing; cancelled runs cost nothing when they are cancelled before
+they start, and the bucket is mostly those.
+
+The part that matters is the machine time, and there the case for this discipline is strong:
+adopting it saves roughly 474 runner-minutes a window of compute we are currently throwing away.
+That is capacity handed straight back to the pool, which the other lanes can then use.
+
+Summary for the close-out:
+
+  - 793 runs, 11,308 minutes
+  - 1,208 minutes cancelled, largely costless (queued, zero steps executed)
+  - projected recovery: ~474 runner-minutes of machine capacity per window
+  - local pre-flight takes about 4 minutes against a 20.8 minute average run, so the trade is
+    obvious
+
+Also in the window and left alone deliberately: the main-branch cancellations, 42 minutes across
+41 runs. About a minute each, so nothing to chase there.

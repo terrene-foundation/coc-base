@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # coc: unified Codex CLI dispatcher for COC phase commands.
 #
-# Replaces the deprecated `/prompts:<phase>` invocation surface that
-# OpenAI Codex CLI 0.128+ removed (custom prompts deprecated in favor
-# of skills; repo-local `.codex/prompts/` is not discovered — only
-# `~/.codex/prompts/` is loaded, see openai/codex#9848).
+# Headless counterpart to the explicit $coc-<phase> skills. Loads the
+# emitted phase procedure before the user task; output schemas alone do
+# not provide phase instructions. Legacy prompt files remain a fallback.
 #
 # Usage:
 #   bin/coc <phase> "<prompt>"         # e.g. bin/coc analyze "..."
@@ -23,7 +22,33 @@
 
 set -euo pipefail
 
-PROJECT_ROOT="${PROJECT_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+if [[ -z "${PROJECT_ROOT:-}" ]]; then
+  PROJECT_ROOT="$(pwd -P)"
+  while [[ ! -e "$PROJECT_ROOT/.git" && "$PROJECT_ROOT" != / ]]; do
+    PROJECT_ROOT="$(dirname "$PROJECT_ROOT")"
+  done
+  [[ -e "$PROJECT_ROOT/.git" ]] || { echo "No repository root found" >&2; exit 4; }
+fi
+
+# A supported headless phase needs both its output contract and procedure.
+phase_procedure() {
+  local candidate="${PROJECT_ROOT}/.agents/skills/coc-$1/SKILL.md"
+  [[ -f "$candidate" ]] || candidate="${PROJECT_ROOT}/.codex/prompts/$1.md"
+  [[ -s "$candidate" ]] && printf '%s\n' "$candidate"
+}
+list_phases() {
+  local schema phase
+  for schema in "${PROJECT_ROOT}/.claude/wrappers/schemas/"*.schema.json; do
+    [[ -f "$schema" ]] || continue
+    phase="$(basename "$schema" .schema.json)"
+    [[ "$phase" =~ ^[a-z][a-z0-9-]*$ ]] || continue
+    if phase_procedure "$phase" >/dev/null; then printf '%s\n' "$phase"; fi
+  done
+}
+if [[ "$(basename "$0")" == coc && "${1:-}" == --list-phases ]]; then
+  list_phases
+  exit 0
+fi
 
 # Resolve phase: either from basename suffix (bin/coc-<phase>) or argv[1].
 SELF_NAME="$(basename "$0")"
@@ -33,15 +58,15 @@ else
   if [[ $# -lt 1 ]]; then
     cat >&2 <<'USAGE'
 Usage:
+  bin/coc --list-phases                # installed schema/procedure intersection
   bin/coc <phase> "<prompt>"           # invoke phase with inline prompt
   bin/coc <phase>                      # read prompt from stdin (pipe)
   bin/coc-<phase> "<prompt>"           # phase-suffix shim
 
 <phase> resolves to .claude/wrappers/schemas/<phase>.schema.json.
 
-Note: OpenAI Codex CLI 0.128+ deprecated custom prompts in favor of
-skills; repo-local /prompts:<name> no longer works. This dispatcher
-is the canonical Codex invocation path for loom COC phases.
+Interactive sessions can invoke $coc-<phase> skills. This dispatcher
+loads the emitted procedure for a headless run with structured output.
 USAGE
     exit 2
   fi
@@ -64,11 +89,7 @@ SCHEMA_PATH="${PROJECT_ROOT}/.claude/wrappers/schemas/${PHASE}.schema.json"
 if [[ ! -f "$SCHEMA_PATH" ]]; then
   echo "ERROR: schema file $SCHEMA_PATH not found" >&2
   echo "       Available phases:" >&2
-  if [[ -d "${PROJECT_ROOT}/.claude/wrappers/schemas" ]]; then
-    ls "${PROJECT_ROOT}/.claude/wrappers/schemas" 2>/dev/null \
-      | sed -n 's/\.schema\.json$//p' \
-      | sed 's/^/         /' >&2
-  fi
+  list_phases | sed 's/^/         /' >&2
   exit 3
 fi
 
@@ -93,8 +114,18 @@ if [[ -z "${PROMPT//[[:space:]]/}" ]]; then
   exit 2
 fi
 
+# Prefer the native skill, retaining compatibility with earlier emitted trees.
+if ! PHASE_PATH="$(phase_procedure "$PHASE")"; then
+  echo "ERROR: phase instructions for '$PHASE' are missing or empty; re-emit Codex artifacts" >&2
+  echo "       Available phases:" >&2
+  list_phases | sed 's/^/         /' >&2
+  exit 4
+fi
+printf -v FULL_PROMPT '%s\n\nUse the task below as the phase arguments ($ARGUMENTS).\n\n## Task\n\n%s' "$(cat "$PHASE_PATH")" "$PROMPT"
+
 exec codex exec \
   --json \
   --output-schema="$SCHEMA_PATH" \
   -c project_doc_max_bytes=65536 \
-  -- "$PROMPT"
+  -C "$PROJECT_ROOT" \
+  -- "$FULL_PROMPT"

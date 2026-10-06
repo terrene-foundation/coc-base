@@ -1,0 +1,37 @@
+# coverage-clean-registered-by-fixturesdir-alias
+#
+# The artifact's basename is NOT a manifest key, but a row's `fixturesDir`
+# basename matches it. The registration index is DERIVED from the manifest's
+# own shape, so a future manifest keyed differently from the file basename
+# still reads correctly — the reject pole for that derivation.
+#
+# expect: (silent)
+{
+  "filePath": ".claude/agents/quality/reviewer-x.md",
+  "manifest": {
+    "agents": {
+      "type": "rule",
+      "scanner": null,
+      "fixturesDir": ".claude/audit-fixtures/agents",
+      "expected": {},
+      "probes": ".claude/test-harness/probes/agents.probes.json"
+    },
+    "wrapup": {
+      "type": "command",
+      "scanner": null,
+      "fixturesDir": ".claude/audit-fixtures/wrapup",
+      "expected": {},
+      "probes": ".claude/test-harness/probes/wrapup.probes.json"
+    },
+    "rule::reviewer-x@v2": {
+      "type": "agent",
+      "scanner": null,
+      "fixturesDir": ".claude/audit-fixtures/reviewer-x",
+      "expected": {},
+      "probes": ".claude/test-harness/probes/reviewer-x.probes.json"
+    }
+  },
+  "probeInventory": [],
+  "probeAuthorshipDeferrals": {},
+  "now": "2026-09-13T00:00:00Z"
+}

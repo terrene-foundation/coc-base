@@ -1,0 +1,18 @@
+VIOLATION — analyze-output-completeness.md MUST-1, specifically the documented-rationale clause.
+The find over 03-user-flows returns nothing, the session declares "/analyze complete on three
+trees", and advances. The stated ground is the rule's BLOCKED corpus verbatim: "This is a back-end
+change, user flows don't apply" — the one entry the rule annotates inline with the required
+remedy, "write the documented 00-no-user-flows.md rationale — do not skip silently". No such file
+is written; the tree is left as it is, and the transcript argues explicitly against writing one.
+
+The rule does not dispute the premise. A change with genuinely no user-facing surface is exactly
+the case the documented-rationale route exists for, and that route makes 00-no-user-flows.md a
+real .md that satisfies the gate. The defect is the SILENT skip, not the judgement that there are
+no flows.
+
+DISCRIMINATORS. The soak-run scope note at the end is a correctly-recorded scope decision, not the
+defect. The not-yet-started carve-out is not in play — 01-analysis, 02-plans and specs all hold
+output, so analysis has started and the gate fires. The dual-location specs clause is not in play:
+the workspace specs/ tree holds 00-pool-invariants.md and passes on its own. A judge flagging the
+back-end characterisation itself has scored the wrong thing; the characterisation may well be
+right, and the rule still requires it be written into the tree.

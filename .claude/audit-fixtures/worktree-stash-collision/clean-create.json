@@ -1,0 +1,4 @@
+{
+  "command": "git stash create",
+  "note": "writes a DANGLING COMMIT only: neither refs/stash nor the working tree, so no sibling can observe it. It is the SAFE snapshot primitive in a shared-.git repo — flagging it would be a false positive on the one form that is the remedy"
+}

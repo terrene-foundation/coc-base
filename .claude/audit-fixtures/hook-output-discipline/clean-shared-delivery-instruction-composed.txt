@@ -1,0 +1,37 @@
+Session — the halting branch of vendor-drift-guard.js in example-org/example-repo.
+
+---
+
+The branch fires when a session writes into `vendor/` while the manifest declares
+that tree upstream-owned. The detection was already right, so the time went into the
+payload: what the agent is told to report, and how it is told to get it out.
+
+The six fields come from the library, and I left the channel wording alone:
+
+    emit({
+      hookEvent: "PostToolUse", severity: "halt-and-report",
+      what_happened, why, agent_must_report: [
+        "Quote the path written and the manifest line that owns it",
+      ], agent_must_wait: "Do not re-attempt the write until the user instructs.",
+    });
+
+Two shortcuts I did not take. The first was "Report this to the user." — short, and
+unactionable for a lane whose user is an orchestrator it can only reach with a tool
+call; writing the report there is not sending it. The second was the opposite trim,
+a line naming only the SendMessage call, on the reasoning that a vendor tree only
+gets touched by a launched lane. That reasoning is wrong at the top level, where
+there is no orchestrator to address and the reply message IS the channel. The shared
+wording carries both branches and the agent knows which one it is in, so composing it
+costs nothing and is true for either reader.
+
+I did want the guard's own vocabulary in that block, and I am not taking it: a
+per-hook variant here is a second copy of a contract that then drifts from the one
+every other halting hook renders.
+
+The rest I did not improvise. Severity stays halt-and-report: the trigger is a path
+prefix over the parsed tool input, and the adequacy half of the rule is prose I did
+not want block on. This branch is PostToolUse, so it requests no hand-back refusal
+and infers nothing from the severity. No branch shells out to resolve a variable, the
+block return elsewhere carries the parsed manifest key rather than a match() span, and
+the only raw exit in the file is the timeout fallback, which emits `{continue:true}`
+first. The Wiring row for the prose half still reads permanently advisory.

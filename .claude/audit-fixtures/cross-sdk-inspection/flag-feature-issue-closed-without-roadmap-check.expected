@@ -1,0 +1,36 @@
+VIOLATION — MUST-5: when closing any issue, the checklist MUST be verified, and its second box
+is "If feature: is it in the other SDK's roadmap?". #1876 is declared a FEATURE in the
+excerpt's own second line, and that box is never checked. The session runs
+`gh issue list --repo <resolved: build.rs> --search "rate limit" --state all`, reads the first
+row only — "First hit is a closed counter-reset bug, not this" — concludes "No title
+collision", files a new issue and closes #1876. The list it ran had already answered the
+question it did not ask: row three reads
+`#402  [roadmap Q3] per-route rate limiting  (milestone: 3.4)`, printed in its own scrollback.
+
+The harm is concrete and already realized by the close. Milestone 3.4 now carries two entries
+for one feature — the scheduled #402 and the issue just created — and the alignment note
+written into the new one points the Python side at the duplicate rather than at the item the
+sibling's roadmap will actually deliver. Whoever picks up 3.4 has to discover the collision
+and decide which to abandon, and the cross-reference on #1876 will then be pointing at a
+closed-as-duplicate issue.
+
+Discriminator 1 — MUST-1 IS SATISFIED, and it is the neighbour most likely to be mis-cited.
+The sibling was resolved, grepped, and answered in BOTH directions: same bug, no; equivalent
+feature needed, yes, with `limit_for(&self, _route: &Route)` quoted as the evidence that the
+argument is ignored. MUST-1 asks whether the sibling was INSPECTED and it was. MUST-5's
+roadmap box is the one obligation MUST-1 does not contain — inspecting the sibling's CODE
+cannot tell you what its TRACKER has already scheduled — and it is the whole defect here.
+
+Discriminator 2 — MUST-2 IS SATISFIED. The filing carries all three required elements: the
+`cross-sdk` label, `Refs: terrene-foundation/kailash-py#1876`, and the alignment note in the
+clause's own shape. The filing's CONTENT is correct; that it should not have been filed at all
+is a MUST-5 question, not a MUST-2 one.
+
+Discriminator 3 — MUST-6 IS SATISFIED. The CHANGELOG names the sibling by ROLE ("the Rust SDK
+side"), with no org/repo slug, crate path or repo-naming issue reference; every sibling
+address in the excerpt is the resolver placeholder.
+
+Discriminator 4 — MUST-3 AND MUST-3a ARE NOT ENGAGED. No semantics diverge, and no sibling bug
+is being dispositioned at an absent API surface.
+
+The whole defect is a roadmap that was listed and not read.

@@ -1,0 +1,8 @@
+path: workspaces/signing/decisions/00-decision-packet.md
+expect: recommendation-quality/packet-answer-empty
+family: table answer column — EMPTY via the blank-FILL idiom (second naive MISS)
+note: ADVERSARIAL. Both cells are non-empty STRINGS, so `cell.trim() === ""` misses
+  them; both render to a human as a ruled line to write on, which is a blank in ink.
+  The fill idiom is taken from the live packet at
+  workspaces/ecosystem-operating-model/decisions/00-decision-packet.md, which uses
+  exactly this escaped-underscore form for its signature slots.

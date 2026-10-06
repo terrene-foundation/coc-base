@@ -1,0 +1,11 @@
+name: Demo Validate
+# A comment naming .claude/sync-manifest.yaml must NOT be extracted — comments are prose.
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: node .claude/bin/validate-emit.mjs

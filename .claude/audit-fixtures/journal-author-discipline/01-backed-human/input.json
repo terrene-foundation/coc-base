@@ -3,8 +3,8 @@
   "tool_name": "Write",
   "session_id": "<session-with-humaninput-in-ledger>",
   "tool_input": {
-    "file_path": "<repo>/journal/0042-esperie-DECISION-backed.md",
-    "content": "---\ntype: DECISION\ndate: 2026-06-01\nauthor: human\nsession_id: <session-with-humaninput-in-ledger>\ntopic: backed example\n---\n\nUser stated this conclusion before the AI.\n"
+    "file_path": "<repo>/journal/0042-someoperator-DECISION-backed.md",
+    "content": "---\ntype: DECISION\ndate: 2026-06-01\nauthor: human\nproject: loom\ntopic: backed example\nphase: codify\nverified_id: SHA256:fixture-not-a-real-key\nperson_id: p-self\ndisplay_id: someoperator\ntags: []\n---\n\nUser stated this conclusion before the AI.\n"
   },
   "cwd": "<repo>"
 }

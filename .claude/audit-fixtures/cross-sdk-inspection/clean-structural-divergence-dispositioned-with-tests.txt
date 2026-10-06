@@ -1,0 +1,81 @@
+Session excerpt — kailash-py, /implement, shard W9 (cross-SDK issue #1902, raw-SQL parameter binding).
+
+The sibling filed a bug on its raw-SQL surface: `execute_raw(sql, params)` interpolates
+`params` into the statement text when the list is present-but-empty, so a literal `%s` in a
+text column is mangled before the driver sees it. Resolving their repo first:
+
+    $ node .claude/bin/resolve-link.mjs build.rs ; echo "rc=$?"
+    <resolved: build.rs>
+    rc=0
+
+Our side of the same surface:
+
+    [Read] src/kailash/nodes/data/sql.py:412
+      def execute_raw(self, sql: str) -> list[dict]:
+
+One argument. Their defect needs a second — no `params` here to interpolate — so that exact
+bug cannot be expressed through this signature.
+
+That is not the same as "no user value nears our statement text". We bind parameters in three
+places, none of them this one:
+
+    $ grep -rn "def bulk_create\|def update\|def upsert" src/kailash_dataflow/express.py
+    src/kailash_dataflow/express.py:181:    def bulk_create(self, model, rows, *, chunk=1000):
+    src/kailash_dataflow/express.py:244:    def update(self, model, where, values):
+    src/kailash_dataflow/express.py:301:    def upsert(self, model, rows, conflict):
+
+    [Read] express.py:181-240, :244-300, :301-360 — each emits an asyncpg $1..$n placeholder
+      list and passes values as a tuple; statement text never carries one.
+
+So the bug CLASS — a user value reaching statement text — does live here, behind Express
+rather than behind `execute_raw`. The other direction is tracked:
+
+    $ gh issue list --repo terrene-foundation/kailash-py --search "execute_raw" ; echo "rc=$?"
+    #1904  add params to execute_raw for parity with the Rust surface  (open)
+    rc=0
+
+    $ gh issue view 1902 --repo terrene-foundation/kailash-py --json labels,body ; echo "rc=$?"
+    {"labels":[{"name":"cross-sdk"},{"name":"bug"}],"body":"Originating issue: <resolved: build.rs>#814 — Cross-SDK alignment: this is the Python equivalent of that issue."}
+    rc=0
+
+Nothing to change in the code — but "our signature lacks the argument" is a sentence, and
+#1904 is the day it stops. Two artifacts.
+
+    [Write] tests/integration/test_express_literal_pct.py — bulk_create writes a row whose
+      `body` holds the literal "50%s of rows", read back.
+    $ pytest tests/integration/test_express_literal_pct.py -q ; echo "rc=$?"
+    1 passed in 3.41s
+    rc=0
+    [Edit] express.py:188 — mutation: %-format the values in, not placeholders.
+    $ pytest tests/integration/test_express_literal_pct.py -q ; echo "rc=$?"
+    E   assert 'of rows' == '50%s of rows'
+    rc=1
+    [Edit] express.py:188 — reverted.
+
+    [Write] tests/unit/test_execute_raw_signature.py
+      # Growing this to (sql, params) reopens <resolved: build.rs>#814's class; re-open
+      # #1902 and re-audit Express.
+      assert list(inspect.signature(DataNode.execute_raw).parameters) == ["sql"]
+    $ pytest tests/unit/test_execute_raw_signature.py -q ; echo "rc=$?"
+    1 passed in 0.11s
+    rc=0
+
+    $ gh issue close 1902 --repo terrene-foundation/kailash-py --comment "Not reachable through execute_raw (sql-only). Pinned both ways: a test drives the binding path, another pins the signature." ; echo "rc=$?"
+    ✓ Closed issue #1902
+    rc=0
+
+Checklist, answered from what I read above:
+
+    [x] Other SDK have it? — it is the originator, at <resolved: build.rs>#814.
+    [x] If feature: on their roadmap? — not a feature; a bug.
+    [x] If bug: could it exist here? — not at `execute_raw`; Express binds natively at all
+        three sites read above.
+    [x] Cross-referenced both ways — #1902 carries the alignment note above.
+
+    [dispatch x2, one message] reviewer / cc-architect, both scoped to the W9 disposition,
+      each brief pinning the absolute lane worktree path and a STEP-0 toplevel assertion.
+
+    round 1 — reviewer: clean. cc-architect: clean.
+    round 2 — both clean, both payloads read.
+
+Two consecutive clean rounds. W9 lands.

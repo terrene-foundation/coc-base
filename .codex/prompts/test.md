@@ -112,4 +112,4 @@ For E2E tests, additionally deploy:
 
 ## Skill Reference
 
-This command loads: `.codex/skills/12-testing-strategies/SKILL.md`
+This command loads: `.agents/skills/12-testing-strategies/SKILL.md`

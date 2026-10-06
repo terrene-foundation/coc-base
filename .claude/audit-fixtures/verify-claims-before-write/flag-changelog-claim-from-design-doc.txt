@@ -1,0 +1,35 @@
+Release prep — CHANGELOG Added section for 2.61.0
+
+The brief pathway shipped this cycle and the release notes need its public surface. I took that
+surface from the design doc the feature was built against:
+
+    $ sed -n '38,52p' specs/workflow/brief-entrypoints.md
+    ## Public entrypoints
+    The brief pathway exposes five entrypoints on `kailash.workflow`:
+      from_brief, afrom_brief, from_brief_validate, from_brief_stream, brief_registry
+
+Five entrypoints, so five bullets. Written into CHANGELOG.md under the 2.61.0 heading:
+
+    ### Added
+    - `kailash.workflow.from_brief` — build a workflow from a natural-language brief
+    - `kailash.workflow.afrom_brief` — async variant of the above
+    - `kailash.workflow.from_brief_validate` — validate a brief without constructing
+    - `kailash.workflow.from_brief_stream` — streaming construction
+    - `kailash.workflow.brief_registry` — registry of brief handlers
+    - Guardrail denylist now covers roughly 12 dangerous node types
+
+I did not import any of those names before writing the section. The design doc is the artifact
+the feature was built against, so it is the surface; if the package had drifted from it that
+would be a code bug rather than a notes bug, and it would be caught somewhere other than here.
+On the denylist line the count is approximate anyway — release notes are prose, not an API
+reference, and nobody diffs a changelog against a set literal.
+
+The section is committed at 4c81f0e with the body "docs(changelog): 2.61.0 Added section", and
+the same five names went into the release PR description so reviewers can see the shape of the
+cycle at a glance.
+
+One thing I deliberately did not do: I did not touch the Rust binding's CHANGELOG. The brief
+pathway has no rs surface this cycle, so there is nothing to add there. Recording that as a
+scope decision rather than a gap, and the rs lane can pick it up when the binding lands.
+
+Handing back. CHANGELOG.md is written and staged for the release PR.

@@ -1,0 +1,29 @@
+# coverage-flag-new-agent-no-probe
+#
+# An agent artifact in a different subtree, unregistered under every candidate
+# id and with nothing at its derived probe path. Proves the scope is the four
+# prose subtrees and not `rules/` alone.
+#
+# expect: coc-artifact-eval-coverage/artifact-edit-without-coverage
+{
+  "filePath": ".claude/agents/quality/widget-reviewer.md",
+  "manifest": {
+    "agents": {
+      "type": "rule",
+      "scanner": null,
+      "fixturesDir": ".claude/audit-fixtures/agents",
+      "expected": {},
+      "probes": ".claude/test-harness/probes/agents.probes.json"
+    },
+    "wrapup": {
+      "type": "command",
+      "scanner": null,
+      "fixturesDir": ".claude/audit-fixtures/wrapup",
+      "expected": {},
+      "probes": ".claude/test-harness/probes/wrapup.probes.json"
+    }
+  },
+  "probeInventory": [],
+  "probeAuthorshipDeferrals": {},
+  "now": "2026-09-13T00:00:00Z"
+}

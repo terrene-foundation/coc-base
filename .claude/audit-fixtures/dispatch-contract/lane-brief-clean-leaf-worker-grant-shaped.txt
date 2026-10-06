@@ -1,0 +1,7 @@
+STEP 0: cd /Users/op/repos/.loom-wt/wip-ledger and assert `git rev-parse --show-toplevel` equals `pwd -P` before anything else.
+
+CONTAINMENT (worktree-isolation MUST-10): pin every git call with an absolute `-C` at this lane's worktree root, asserted against `git rev-parse --show-toplevel` before the first write.
+
+You will land your diff through the lane orchestrator, who reviews it and is the sole committer.
+You EDIT files only. Do not commit. Do not dispatch sub-agents.
+Your file set: .claude/hooks/lib/wip-lanes.js and its audit fixtures. Return a summary of the diff as your final message.

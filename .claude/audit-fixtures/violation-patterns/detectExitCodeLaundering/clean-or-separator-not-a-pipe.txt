@@ -1,0 +1,1 @@
+node .claude/bin/check-descoping.mjs || tail -5 /tmp/o.txt

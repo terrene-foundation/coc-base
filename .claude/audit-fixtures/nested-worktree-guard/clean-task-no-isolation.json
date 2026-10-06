@@ -1,0 +1,9 @@
+{
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Task",
+  "tool_input": {
+    "description": "run a shard",
+    "prompt": "Implement the thing in /abs/sibling/wt-x via git -C.",
+    "subagent_type": "general-purpose"
+  }
+}

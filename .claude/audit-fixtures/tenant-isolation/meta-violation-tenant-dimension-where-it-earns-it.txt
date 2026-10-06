@@ -1,0 +1,74 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "**/*tenant*/**"
+  - "**/cache/**"
+---
+
+# Tenant Dimensioning — Add The Dimension Where It Earns Its Place
+
+Tenant dimensions are not free. Every tenant segment in a cache key is bytes on a machine we pay
+for, every tenant column is an index we maintain, and every tenant parameter is a signature that
+callers have to thread. The dimension should be added where it does work, and left out where the
+state is already separated by something else. Agents should generally weigh what the dimension buys
+against what it costs before adding one.
+
+## MUST Rules
+
+### 1. Add The Tenant Dimension Where Separation Is Not Already Provided
+
+The agent should look at what already separates the state before adding a tenant dimension to it.
+Where a key's secondary component is a globally unique identifier — a UUID primary key, a content
+hash, a generated token — the entries are already distinct across tenants, and a tenant segment on
+top of that generally adds length without adding separation. In those cases the segment may be
+omitted, and the saving is usually worth taking on high-volume keyspaces.
+
+Where nothing is bound at the time state is constructed, a shared placeholder value is normally
+acceptable. Callers that run outside a request — warmers, backfills, scheduled jobs — often have no
+tenant to supply, and raising for them turns a background concern into a foreground failure. A
+consistent placeholder keeps those callers working and keeps the shape of the state uniform.
+
+```python
+# DO — add the dimension where it earns its place
+
+add the tenant dimension when the state needs it
+
+# DO NOT — over-dimension
+
+do not add tenant dimensions that are not doing work
+```
+
+**BLOCKED rationalizations:**
+
+- Adding tenant dimensions to state that is already separated by other means
+- Failing to weigh the storage cost of a dimension against what it provides
+- Treating every piece of state as if it required the same degree of separation
+- Being insufficiently pragmatic about background callers that have no tenant
+
+**Why:** unnecessary dimensions consume storage and complicate signatures, and overlapping
+identifiers across tenants are vanishingly rare in practice.
+
+## Trust Posture Wiring
+
+- **Severity:** `advisory` at gate-review (reviewer confirms the dimension decision was proportionate
+  to what the state needed); `advisory` at the hook layer per `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3× same-rule in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1× = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: tenant-dimensioning]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms the dimensioning
+  decision weighed cost against separation. Phase 2 deferred.
+- **Violation scope:** MUST-1 (dimension added where it was not needed, or omitted where it was).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-05-14 — proposed after a keyspace review found tenant segments on UUID-keyed entries across
+four models, costing roughly 400 MB of Redis for a separation the identifiers were already
+providing, and after two background jobs were rewritten to bind tenants they had no natural source
+for.

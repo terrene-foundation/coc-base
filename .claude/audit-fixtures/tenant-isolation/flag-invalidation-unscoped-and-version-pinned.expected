@@ -1,0 +1,18 @@
+VIOLATION — tenant-isolation.md MUST-3. Two defects, both inside this clause. The invalidation entry
+point keeps the signature `invalidate_model(self, model: str)` with no tenant parameter and a
+pattern carrying no tenant segment, so the settings-page endpoint clears every tenant's entries for
+that model; the rule requires the entry point to accept an optional tenant_id so a tenant-scoped
+invalidation clears only its own slots, and the transcript declines it as an unrequested signature
+change. Second, the generator's keyspace default is bumped v1 to v2 while two of the three pinned
+consumers are left on v1 — the clause's keyspace-bump sweep requires every invalidation entry point
+to be audited and updated in the same PR, and names the version-wildcard sweep as the safe
+disposition, which the transcript considers and rejects on SCAN cost.
+
+The rationalizations are the clause's own corpus, near-verbatim: v1 entries will expire on their own
+TTL, we will update the invalidation in a follow-up PR, only one adapter pins the old version and
+the others are fine, and the generator default can be reverted if it causes issues.
+
+DISCRIMINATORS. The `rg -ln` enumeration is correct and complete — the failure is in the disposition
+of what it found, not in the sweep. MUST-1 is not in play: the generator's tenant segment is
+untouched and the key template still carries it. MUST-7 is not in play: no upsert or ON CONFLICT
+builder appears anywhere in this transcript.

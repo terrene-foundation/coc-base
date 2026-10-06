@@ -51,6 +51,11 @@ const {
 // the single eligibility predicate so drift across rule 5 / 9b / 9c is
 // closed structurally.
 const { isEligibleSigner } = require("./eligibility.js");
+// Shared with coordination-log.js + fold-rule-9b.js — one notion of "distinct".
+const {
+  createDistinctSignerSet,
+  describeCollision,
+} = require("./signer-distinctness.js");
 // F14 C2 iter-3: case-insensitive owner-bind compare per GitHub server semantics.
 const { loginsEqual } = require("./github-login.js");
 // F122 Shard 2b: case-insensitive Entra-UPN compare for the azure-devops N=1
@@ -79,7 +84,12 @@ const { principalsEqual } = require("./ado-login.js");
 // bytes), never by re-running the allowlist.
 const { _allowlistAdoOrgAdmin } = require("./ado-api-allowlist.js");
 // F86 / MUST-7: PLACEHOLDER- person_id detection shared with genesis-ceremony.
-const { isUnenrolled } = require("./roster-schema-validate.js");
+// S61: `isUnsafeMapKey` is the ONE shared definition of "unsafe object key"
+// (roster-schema-validate.js), imported rather than re-derived so this fold's
+// read-time refusal and the roster validator's write-time refusal cannot drift.
+// A denylist here would need editing every time the JS object model grows a
+// member; the shared predicate is structural and cannot.
+const { isUnenrolled, isUnsafeMapKey } = require("./roster-schema-validate.js");
 
 // F86 / MUST-7: the explicit discriminator value the N=1 org-admin path
 // signs into the migration record. fold-rule-9c dispatches on this token
@@ -99,7 +109,18 @@ const CO_SIGN_ANCHOR_KIND_ORG_ADMIN_ADO = "ado_api_org_admin_capture";
 function _resolveRosterPerson(roster, verifiedId) {
   if (!roster || !roster.persons) return null;
   for (const [pid, person] of Object.entries(roster.persons)) {
-    const keys = (person && person.keys) || [];
+    // S61 — shape-guard the key list: a non-array `keys` SKIPS this person
+    // (refuse), never THROWS. Same root cause + rationale as the byte-identical
+    // copy in coordination-log.js::_resolveRosterPerson, which carries the full
+    // comment. A throw here escapes this predicate; the fold engine converts it
+    // into a dispatch REJECTION today (fail-closed), but the refusal must not
+    // depend on a caller's catch remaining fail-closed.
+    // SKIP IS SAFE HERE ONLY BECAUSE non-resolution is wired to REFUSE.
+    // Where non-resolution PERMITS, this shape inverts and becomes the bug —
+    // see the condition + the two recorded exceptions (add-key-ceremony.js
+    // ::findKeyHolder@:402, identity-scrub.mjs::deriveDynamicTokens) in the
+    // canonical comment on coordination-log.js::_resolveRosterPerson.
+    const keys = Array.isArray(person && person.keys) ? person.keys : [];
     for (const k of keys) {
       if (k && k.fingerprint === verifiedId) {
         return { person_id: pid, person };
@@ -154,9 +175,13 @@ function _verifyCoSigner(coSigner, record, roster) {
       reason: `co_signer ${coSigner.verified_id} ineligible: ${elig.reason}`,
     };
   }
-  const matchingKey = (resolved.person.keys || []).find(
-    (k) => k.fingerprint === coSigner.verified_id,
-  );
+  // S61 defense-in-depth; REDS NO POLE today — a person returned by
+  // `_resolveRosterPerson` provably has an ARRAY `keys` (the resolver only
+  // returns after iterating it and matching a `.fingerprint` inside). Kept for
+  // a future caller that resolves a person some other way; NOT claimed covered.
+  const matchingKey = (
+    Array.isArray(resolved.person.keys) ? resolved.person.keys : []
+  ).find((k) => k && k.fingerprint === coSigner.verified_id);
   if (!matchingKey) {
     return {
       ok: false,
@@ -187,7 +212,8 @@ function _verifyCoSigner(coSigner, record, roster) {
       reason: `co_signer signature did not verify: ${r.reason || "invalid"}`,
     };
   }
-  return { ok: true };
+  // Return the RESOLVED person — the caller keys distinctness on the PRINCIPAL.
+  return { ok: true, resolved };
 }
 
 /**
@@ -387,11 +413,33 @@ function _foldAdoN1OrgAdmin(c, record, roster) {
     };
   }
   const soleOwnerPersonId = ownerPersonIds[0];
+  // S61 (Enforcement-Surface Parity) — refuse an Object.prototype-shadowing
+  // sole-owner person_id at FOLD time, using the SHARED `isUnsafeMapKey`.
+  // `_validateSafeMapKeys` already refuses such a roster at WRITE time, but the
+  // read path never validates (`loadRoster` is a bare `JSON.parse`), so a
+  // roster carrying `persons: {"constructor": {role: "owner", …}}` was refused
+  // by one surface and silently admitted as the sole owner by this one.
+  // NOTE, honestly: the lookup below cannot itself resolve a PROTOTYPE member,
+  // because `soleOwnerPersonId` was just enumerated from this same map and an
+  // own property always shadows the prototype (measured). This fence is about
+  // surface PARITY with the validator, not about the lookup misresolving.
+  if (isUnsafeMapKey(soleOwnerPersonId)) {
+    return {
+      ok: false,
+      reason: `rule 9c: MUST-7 N=1 ADO path sole owner person_id '${soleOwnerPersonId}' is not a safe object key — it shadows a JavaScript Object.prototype member. The roster schema refuses this at write time; refusing it here keeps the read surface in parity.`,
+    };
+  }
   const soleOwner = roster.persons[soleOwnerPersonId];
 
   // (f) Primary signer (record.verified_id) MUST be the sole owner's enrolled
   //     key + eligible for "migration" context (host_role:ci forever ineligible).
-  const matchingKey = (soleOwner.keys || []).find(
+  // S61 shape-guard: unlike the `resolved.person` sites, `soleOwner.keys` was
+  // NEVER iterated to get here — the owner filter above tests only `.role`. So
+  // a non-array `keys` genuinely reaches this `.find` and threw. Refuse instead.
+  const soleOwnerKeys = Array.isArray(soleOwner && soleOwner.keys)
+    ? soleOwner.keys
+    : [];
+  const matchingKey = soleOwnerKeys.find(
     (k) => k && k.fingerprint === record.verified_id,
   );
   if (!matchingKey) {
@@ -746,12 +794,29 @@ function foldGenesisMigration(record, ctx) {
       };
     }
     const soleOwnerPersonId = ownerPersonIds[0];
+    // S61 (Enforcement-Surface Parity) — same fence as the ADO sibling above,
+    // via the SHARED `isUnsafeMapKey`: the roster validator refuses an
+    // Object.prototype-shadowing person_id at write time, and the read path
+    // never validates, so this surface must refuse it too.
+    if (isUnsafeMapKey(soleOwnerPersonId)) {
+      return {
+        accepted: false,
+        foldState: state,
+        reason: `rule 9c: MUST-7 N=1 path sole owner person_id '${soleOwnerPersonId}' is not a safe object key — it shadows a JavaScript Object.prototype member. The roster schema refuses this at write time; refusing it here keeps the read surface in parity.`,
+      };
+    }
     const soleOwner = roster.persons[soleOwnerPersonId];
 
     // (f) Primary signer (record.verified_id) MUST be the sole owner's
     //     enrolled key + MUST be eligible for "migration" context per
     //     R5-S-04 (host_role:ci forever ineligible).
-    const matchingKey = (soleOwner.keys || []).find(
+    // S61 shape-guard: `soleOwner.keys` was never iterated to get here (the
+    // owner filter tests only `.role`), so a non-array value genuinely reaches
+    // this `.find` and threw. Refuse instead of throwing.
+    const soleOwnerKeys = Array.isArray(soleOwner && soleOwner.keys)
+      ? soleOwner.keys
+      : [];
+    const matchingKey = soleOwnerKeys.find(
       (k) => k && k.fingerprint === record.verified_id,
     );
     if (!matchingKey) {
@@ -798,7 +863,19 @@ function foldGenesisMigration(record, ctx) {
           'rule 9c: R6-S-04 — degenerate self-sign BLOCKED; 2-of-N owner co-signature required even under genuine genesis N=1. Migration cannot proceed until a second distinct owner is enrolled. (For org-owned single-owner repos see MUST-7: emit content.co_sign_anchor_kind="gh_api_org_membership_capture" with the canonical capture shape.)',
       };
     }
-    const distinctSigners = new Set([record.verified_id]);
+    // R6-S-04 is the degenerate-self-sign block, and its own depth doc names the
+    // variant it must catch: "same person_id + second verified_id". A fingerprint
+    // set could not see that variant at all — only a PRINCIPAL set can.
+    const distinctSigners = createDistinctSignerSet();
+    const primary9c = _resolveRosterPerson(roster, record.verified_id);
+    if (!primary9c) {
+      return {
+        accepted: false,
+        foldState: state,
+        reason: `rule 9c: R6-S-04 — primary signer ${record.verified_id} not in roster`,
+      };
+    }
+    distinctSigners.add(primary9c.person_id, primary9c.person);
     for (const co of c.co_signers) {
       const v = _verifyCoSigner(co, record, roster);
       if (!v.ok) {
@@ -808,20 +885,20 @@ function foldGenesisMigration(record, ctx) {
           reason: `rule 9c: co-sign verification failed: ${v.reason}`,
         };
       }
-      if (distinctSigners.has(co.verified_id)) {
+      const dist9c = distinctSigners.add(v.resolved.person_id, v.resolved.person);
+      if (!dist9c.ok) {
         return {
           accepted: false,
           foldState: state,
-          reason: `rule 9c: R6-S-04 — co_signer verified_id ${co.verified_id} not distinct from prior signer; degenerate self-sign rejected`,
+          reason: `rule 9c: R6-S-04 — co_signer ${co.verified_id} ${describeCollision(dist9c.collidingKey)}; degenerate self-sign rejected`,
         };
       }
-      distinctSigners.add(co.verified_id);
     }
-    if (distinctSigners.size < 2) {
+    if (distinctSigners.size() < 2) {
       return {
         accepted: false,
         foldState: state,
-        reason: `rule 9c: R6-S-04 — 2-of-N owner co-signature required; only ${distinctSigners.size} distinct signer(s)`,
+        reason: `rule 9c: R6-S-04 — 2-of-N owner co-signature required; only ${distinctSigners.size()} distinct principal(s)`,
       };
     }
   }

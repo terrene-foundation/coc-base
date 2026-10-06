@@ -1,6 +1,6 @@
 ---
 id: "TESTING"
-paths: ["tests/**", "**/*test*", "**/*spec*", "conftest.py", "**/.spec-coverage*", "**/.test-results*", "**/02-plans/**", "**/04-validate/**"]
+paths: ["tests/**", "**/*test*", "**/*spec*", "conftest.py", "**/.spec-coverage*", "**/.test-results*", "**/02-plans/**", "**/04-validate/**", "crates/**"]
 ---
 
 # Testing Rules
@@ -9,9 +9,24 @@ See `.claude/guides/rule-extracts/testing.md` for full evidence, the kailash-ml 
 
 ## Test-Once Protocol (Implementation Mode)
 
-During `/implement`, tests run ONCE per code change, not once per phase. Full suite per todo, pre-commit Tier 1 safety net, CI full matrix as final gate. Re-run only on commit-hash mismatch, infra change, or specific test suspected wrong.
+During `/implement`, tests run ONCE per code change, not once per phase — and the run is **SCOPED TO THE DIFF by default**, the selection DERIVED from `git diff --name-only`, never picked by judgment about which tests look relevant. Pre-commit Tier 1 is the safety net; CI's full matrix is the final gate. The unscoped full suite is an EARNED exception, taken only at the five junctures `git.md` § "Pre-FIRST-Push CI Parity Discipline — SCOPED By Default" enumerates. Re-run only on commit-hash mismatch, infra change, or a specific test suspected wrong.
 
-**Why:** Running full suite every phase wastes 2-5 minutes per cycle.
+**Why:** Re-running the FULL suite every phase spends [UNMEASURED — see `guides/rule-extracts/git.md` § "The local pre-flight cost figure is UNMEASURED"] per cycle re-answering questions the diff never raised. **Scoping the gate is EXPECTED — it narrows the gate's INPUT; skipping it removes the OUTPUT and stays BLOCKED.** This rule is path-scoped to test-shaped globs, so a source-only edit never loads it: the always-on home of the mandate is `git.md`'s baseline clause.
+
+### MUST: Parallelize FIRST, Scope SECOND — The Multiplier Is Free
+
+The gate has two cost levers and they are NOT equal. **Parallelism is a mechanical ~5x that costs one flag; diff-scoping is second-order and costs correctness reasoning about what the diff touches.** Every pytest gate invocation — scoped or full — MUST carry a PINNED worker count (`--dist loadfile -n 8`, the measured optimum on a 16-CPU host); running a gate serially and then reaching for scoping to recover the time is BLOCKED. Measured on one repo's real gate: `tests/unit` 324.10s serial -> 65.23s at `-n 8` = **4.97x**, with collection clean at both (41,763 enumerated, exit 0). `pytest-xdist` was already installed and CI was already using the parallel shape.
+
+```bash
+# DO — take the free multiplier, THEN narrow the input
+pytest $(<dirs derived from git diff --name-only>) --dist loadfile -n 8
+# DO NOT — `-n auto` measured SLOWER (39/45s vs 33/40s at `-n 8`); do NOT scope a still-serial gate
+pytest tests/ -n auto
+```
+
+**`-n 8` and the durations are NOT laws** — they are one 16-CPU host's measurement. The transferable practice is _pin a worker count and measure it_; quoting another repo's seconds is `instrument-discipline.md` MUST-4. **Coverage is not the dominant term:** under `-n 8`, `--cov` measured **1.48x — 31s of a 96s run**, so dropping it buys ~half a minute, not half the gate. Rust differs and is a genuine trade, NOT a mandate — `cargo nextest` process-isolates and is therefore structurally BLIND to the cross-test interaction class shared-process `cargo test` exposes, and it never runs doctests; see the runbook. Depth, both Rust measurements, and the UNMEASURED boundary: `skills/12-testing-strategies/gate-runner-economics.md`.
+
+**Why:** An agent that scopes a serial gate has spent the expensive lever to buy back what the cheap one gives away free, and has narrowed the gate's INPUT to avoid a cost a flag would have removed outright.
 
 ## Probe-Driven Verification (MUST)
 
@@ -75,7 +90,7 @@ def test_phase_monotonicity(): ...
 
 ### MUST: `__all__` / Re-export Symbol Counts Use Structural Enumeration, Not Grep
 
-Counts of `__all__` entries (Python) or re-exports (Rust `pub use ...`) used in spec authority, docstrings, audit findings, or CHANGELOG claims MUST be produced by structural enumeration of the language's parser AST — NOT `grep -c` / `wc -l`. See guide for canonical Python (`ast.parse()`) and Rust (`syn::parse_file` / `cargo doc --document-private-items`) snippets.
+Counts of `__all__` entries (Python) or re-exports (Rust `pub use ...`) used in spec authority, docstrings, audit findings, or CHANGELOG claims MUST be produced by structural enumeration of the language's parser AST — NOT `grep -c` / `wc -l`. Canonical Python + Rust enumeration snippets: companion § `__all__` Structural-Enumeration.
 
 ```python
 # DO — Python: walk ast.Assign for __all__, len(value.elts)
@@ -141,7 +156,7 @@ Any two tests mutating SAME env var MUST serialize through a module-scope `threa
 
 ### MUST: One Lock Domain Per Env Surface Per Test Binary
 
-Serialization only works when every env-mutating test sharing one env surface holds the SAME lock. Two locking mechanisms over one surface — a module-local `threading.Lock` and a pytest-xdist group lock (`@pytest.mark.xdist_group`) — do NOT exclude each other: a test holding one interleaves with a test holding only the other, racing on the shared vars exactly as if neither were locked. When a suite adopts one lock domain for an env surface, EVERY env-mutating test touching that surface MUST join that SAME domain; introducing a second mechanism is BLOCKED. (Rust sibling: a module-local `static ENV_MUTEX: Mutex<()>` and `#[file_serial(<key>)]` over one env surface are non-interlocking — unify on one domain.)
+Serialization only works when every env-mutating test sharing one env surface holds the SAME lock. When a suite adopts one lock domain for an env surface, EVERY env-mutating test touching that surface MUST join that SAME domain; introducing a second mechanism is BLOCKED. Non-interlocking-mechanism mechanics + the Rust cross-runtime sibling: companion § "One Lock Domain — Non-Interlocking Mechanics".
 
 ```python
 # DO — every env-mutating test on this surface joins ONE module-scope lock
@@ -169,6 +184,22 @@ assert big < 60.0    # was 30s, bumped once already
 
 **Why:** Absolute bounds ratchet — each load-driven bump widens the window an algorithmic regression hides in, and the bump itself is the institutional tell. The ratio assert is a pure function of the algorithm, not the machine. Evidence: Rust SDK journal 0177 (an O(n²) loop surfaced after a 30s→60s "flake" bump); full post-mortem in companion § Complexity-Bound Ratios.
 
+### MUST: Never Assert An UPPER Bound On Real Elapsed Time
+
+A test MUST NOT assert that real elapsed time stayed BELOW a threshold — that is a claim about how fast the HOST is, so a busy runner reddens it while the code is correct. Use the runtime's **paused/virtual clock** for timer-driven async, an **injected clock** (production-gated) for throttles and windows, and **POLL-to-a-ceiling** for "an event eventually happens" — never sleep a fixed budget and then assert the event already occurred. A **lower** bound (`elapsed >= X`) is load-robust and fine. Widening a test's WINDOW to restore a premise is sound; **widening the ASSERTION is a tolerance bump and BLOCKED.**
+
+```text
+# DO — virtual clock (only an awaited timer advances it), or poll to a ceiling
+#      assert elapsed_on_virtual_clock < ONE_SEC
+#      poll_until(cond, ceiling=30s)            # asserts "eventually", not "within"
+# DO NOT — wall clock upper bound; the threshold measures the runner, not the code
+#      assert wall_clock_elapsed < FIVE_SEC
+```
+
+**BLOCKED rationalizations:** "the margin is generous" (a 5000× margin still went red) / "that one's flaky, re-run it" / "just bump the threshold" / "widening the assert is the same as widening the window".
+
+**Why:** A red that carries no information costs a diagnosis every time and trains readers to dismiss the test, which is how a genuine regression gets waved through. **A paused clock is NOT a universal fix**: it cannot see a SYNCHRONOUS stall (a blocking sleep, blocking IO, a blocking-context escape hatch) or any real-time property such as worker occupancy, so converting one of those trades a flaky signal for NO signal — pair the virtual bound with a wide real-clock hang-stop, or keep real time and make the measurement DIFFERENTIAL. Every converted test MUST be demonstrated able to FAIL (`instrument-discipline.md` MUST-2). Per-runtime primitives, the calibrated sweep commands, and the measured negative results: `.claude/skills/12-testing-strategies/test-time-discipline.md`.
+
 ## 3-Tier Testing
 
 - **Tier 1 (Unit)**: Mocking allowed, <1s per test
@@ -179,30 +210,7 @@ assert big < 60.0    # was 30s, bumped once already
 
 ## Tier-1 Conftest Stub for Newly-Side-Effecting Internal Methods (Advisory)
 
-When an internal method that was previously deterministic becomes side-effecting (e.g., an LLM call, a DB lookup, a network fetch) WITHOUT changing its return-shape contract, the canonical Tier-1 sweep is one autouse fixture in the _deepest applicable_ conftest:
-
-```python
-# tests/unit/conftest.py
-@pytest.fixture(autouse=True)
-def _stub_<method_name>(monkeypatch):
-    from <pkg>.<module> import <Class>
-    monkeypatch.setattr(
-        <Class>, "<method_name>", lambda self, *a, **kw: <fixed_return>
-    )
-```
-
-Pytest's conftest-scope rules guarantee the stub does NOT leak to Tier-2 / Tier-3 (sibling `tests/integration/` and `tests/e2e/` directories don't inherit `tests/unit/conftest.py`).
-
-**When to use:**
-
-- Method has many Tier-1 call sites (~10+); editing each costs more than the stub.
-- Tier-1 tests don't depend on the method's actual content, only its return shape.
-- The new side-effect is the side-effect (LLM, DB, network); Tier-1 must remain offline + fast per the 3-Tier contract.
-
-**When NOT to use:**
-
-- The method's actual content is tested in Tier-1 (e.g., a regression test for the keyword classifier itself). Rewrite those tests to shape-only or move them to Tier-2.
-- Only 1-3 call sites are affected — explicit args are clearer.
+When an internal method that was previously deterministic becomes side-effecting (e.g., an LLM call, a DB lookup, a network fetch) WITHOUT changing its return-shape contract, the canonical Tier-1 sweep is one autouse fixture in the _deepest applicable_ conftest. Fixture template, the conftest-scope non-leak guarantee, and the when-to-use / when-NOT-to-use criteria: companion § "Tier-1 Conftest Stub — Fixture Template And Applicability Criteria".
 
 **Why:** A monkey-patch fixture keeps Tier-1 deterministic and offline without touching N test files. Future test additions pick up the stub automatically. The pattern collapsed a 36-call-site sweep to 1 file in the kailash-kaizen 2.20.0 release cycle (2026-05-06, issue #829).
 
@@ -215,14 +223,7 @@ Pytest's conftest-scope rules guarantee the stub does NOT leak to Tier-2 / Tier-
 
 ## MUST: End-to-End Pipeline Regression Above Unit + Integration
 
-Every canonical pipeline the docs teach (README Quick Start, tutorial, 3-line example) MUST have a Tier-2+ regression test executing DOCS-EXACT code against real infra, asserting the final user-visible outcome. Lives in `tests/regression/` with `@pytest.mark.regression`; name includes "quickstart"/"readme"/tutorial-name (grep-able). See guide for full example.
-
-```python
-@pytest.mark.regression
-async def test_readme_quickstart_executes_end_to_end():
-    result = await km.train(df, target="churned")
-    assert result.trainable is not None  # handoff field MUST survive
-```
+Every canonical pipeline the docs teach (README Quick Start, tutorial, 3-line example) MUST have a Tier-2+ regression test executing DOCS-EXACT code against real infra, asserting the final user-visible outcome. Lives in `tests/regression/` with `@pytest.mark.regression`; name includes "quickstart"/"readme"/tutorial-name (grep-able). Worked docs-exact example: companion § "E2E Pipeline Regression — Docs-Exact Worked Example".
 
 **BLOCKED:** see companion § E2E Pipeline Regression — BLOCKED Corpus.
 
@@ -256,7 +257,7 @@ def test_get_raw_success(client):   resp = client.get_raw("/u/42"); assert resp[
 
 ## MUST: FFI Handle Wrappers Ship A Concurrent-Close Stress Test
 
-Every FFI handle wrapper that exposes `Close`/`free` (or a GC finalizer/Cleaner backstop) ALONGSIDE methods that pass the raw handle into native code MUST ship a stress test that races method calls against `Close()` under concurrency (including the finalizer path where the runtime has one). A flag-gated close (a "closed" boolean checked before the native call) is NOT deref-safe — the pointer read and the native call are separated by a window `Close` can free into; only a per-handle mutex serializing the entire read-pointer → native-call → free window closes it, and only the concurrent stress test makes the use-after-free non-silent. Cross-binding depth + per-runtime fix shapes (Go/Java/.NET/Ruby/Python/Node) live in the FFI-handle-lifecycle project skill shipped with the rs all-bindings template.
+Every FFI handle wrapper that exposes `Close`/`free` (or a GC finalizer/Cleaner backstop) ALONGSIDE methods that pass the raw handle into native code MUST ship a stress test that races method calls against `Close()` under concurrency (including the finalizer path where the runtime has one). Deref-safety mechanics (why a flag-gated close is not enough): companion § "FFI Handle Concurrent-Close". Cross-binding depth + per-runtime fix shapes (Go/Java/.NET/Ruby/Python/Node) live in the FFI-handle-lifecycle project skill shipped with the rs all-bindings template.
 
 ```text
 # DO — stress test races method calls vs Close (+ force GC for the finalizer racer)
@@ -277,4 +278,8 @@ native_call(ptr)              # Close can free into this window → UAF
 
 **Why:** Intermittent failures erode trust; shared state → order-dependent results that pass individually but fail in CI where order differs.
 
-Origin: warnings sweep + test-skip triage + paired-variant coverage + env-var race + E2E regression + 2026-04-27 AST-counts review. See guide for full session evidence.
+Origin: warnings sweep + test-skip triage + paired-variant coverage + env-var race + E2E regression + 2026-04-27 AST-counts review; **§ Never Assert An UPPER Bound On Real Elapsed Time** — BUILD stream, landed at loom via Gate-1 ingest 2026-08-19, classified GLOBAL.
+
+**Length rationale (per `rules/rule-authoring.md` MUST NOT § "Rules longer than 200 lines").** Named rationale: **test-surface scope** — twelve independent always-on testing surfaces, each carrying the DO/DO-NOT + `**Why:**` the meta-rule mandates. `priority: 10` + `scope: path-scoped`, so it pays NO baseline-emission cost and Rule 10's proximity-band gate does not fire; depth: `.claude/skills/12-testing-strategies/`.
+
+Depth — the full session evidence, the per-instance elapsed-time evidence + GLOBAL-classification reasoning, the 2026-08-19 extraction record with its Rule-10/Rule-11 non-firing disposition, and the full twelve-surface enumeration — lives in `.claude/guides/rule-extracts/testing.md` § "Never Assert An UPPER Bound On Real Elapsed Time — Origin And Per-Instance Evidence", § "Extraction record — 2026-08-19" and § "Length Rationale — Full Surface Enumeration".

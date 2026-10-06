@@ -21,3 +21,17 @@
 # Pre-fix behavior:
 #   regex tests the literal "...foo/../learning/posture.json" string
 #   regex does NOT match → gate passes → traversal-write lands silently.
+#
+# EXECUTING CONSUMER (added 2026-09-20): `run.mjs` in this directory, arm C.
+# Until then this file had NONE — prose nothing ran, declared in
+# test-harness/fixture-consumer-baseline.json. `C-flag/traversal-into-posture-json`
+# drives the input shape above; `C-flag/deep-traversal-into-posture-json` adds a
+# multi-hop form. Both assert the EXPECTED GATE EVALUATION as a failure IDENTITY
+# (reason cites R6-C-02 + the reserved-for-hooks contract; what-happened is the
+# defense-in-depth line), which is what makes the PRE-FIX behaviour above
+# detectable: a literal-string regex would leave that identity absent.
+#
+# The bipolar partner is `C-clean/traversal-landing-outside` — a traversal that
+# NORMALIZES to an unprotected path, which must NOT fire. Without it, an
+# implementation that fired on every path containing ".." would pass every flag
+# row here and still be wrong.

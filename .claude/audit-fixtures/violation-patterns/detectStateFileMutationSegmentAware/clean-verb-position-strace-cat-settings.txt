@@ -1,0 +1,1 @@
+strace -f -o /tmp/t sh -c 'cat .claude/settings.json'

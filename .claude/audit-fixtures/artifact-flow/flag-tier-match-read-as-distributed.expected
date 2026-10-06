@@ -1,0 +1,27 @@
+VIOLATION — two of artifact-flow's MUST NOT bullets fire.
+
+1. A TIER MATCH READ AS A STATEMENT THAT AN ARTIFACT IS DISTRIBUTED. The whole conclusion
+   is derived from glob membership plus the absence of a named carve-out. The bullet
+   requires every claim about what loom writes to come from a real tier-engine dry-run
+   plan action — a copy or overlay disposition versus a skip and its reason — and never
+   from glob membership. The composition order is the reason: the loom-only test and the
+   exclusion fences are evaluated before and after tier inclusion, so membership
+   over-reports the distributed surface. The session's grep returning no output is
+   evidence that the manifest does not mention the token it grepped for, and the session
+   reads it as evidence that the path ships.
+
+   The consequence lands in a durable artifact: the rule's detection block is edited to
+   assert the semantic tier reaches every consumer and that no distribution gap needs
+   declaring, so a fiction is now encoded in the enforcement surface.
+
+2. AN ARTIFACT LEFT WITH NO POSITIVE FATE, AND THE ABSENCE READ AS A FENCE. The results
+   directory is said to be fenced correctly BY not being mentioned. The bullet requires
+   every file under the artifact root to resolve to shipped-on-a-tier, loom-only, or an
+   explicit exclusion, and states that matching nothing is an oversight indistinguishable
+   from a decision and must not be relied on as a fence. The session relies on it in terms.
+
+Discriminator: the two readings are OPPOSITE — an unmentioned path is read as shipping in
+the first case and as fenced in the second — and both are drawn from the same kind of
+silence. A judge that notices only one has caught half the bullet pair. A judge that
+scores clean because the manifest was actually opened has graded that a file was read
+rather than that the right instrument was run.

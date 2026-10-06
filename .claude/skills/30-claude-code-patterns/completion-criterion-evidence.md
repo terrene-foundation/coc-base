@@ -250,6 +250,36 @@ Revocation path → trust-bearing → full uncapped loop regardless of oracle
 
 ## MUST-6 — residual acceptance
 
+### MUST-6 — declared omissions (added 2026-09-11)
+
+The clause states that a gap named in PROSE is a residual and that shipping it unbound is BLOCKED.
+Its warrant, and the boundary of what it reaches.
+
+**THE IN-CLASS INSTANCE.** `hooks/lib/wip-lanes.js:450-456` carries a block headed "WHAT THIS DOES NOT
+COPY FROM `stranded-artifact-guard.js`", recording that `_git` deliberately does not carry the
+`{unavailable:true}` discrimination AND naming the consequence verbatim — "a claim about the REPOSITORY
+for what is really a claim about the HOST". It shipped. That consequence is live: one `null` is read
+fail-OPEN at `wip-discipline-guard.js:444` and fail-CLOSED at `:683`, so a MUST-7 override debt silently
+clears while every receipt is refused with a remedy no name can satisfy. The omission was named
+precisely, by someone who understood it, and the precision is what made it read as handled.
+
+**THREE NEIGHBOURING CASES THIS CLAUSE DOES NOT REACH.** Recorded because an earlier draft of the rule's
+`**Why:**` cited all four as one shape, and a Tier-1 review measured that three are a DIFFERENT class —
+a FALSE COMPLIANCE CLAIM, not a declared omission. Nothing is declared undone in them; the opposite is
+asserted:
+- `wip-discipline-guard.js:1196-1197` — "this is not the dead end `hook-output-discipline.md` MUST NOT
+  forbids", while being exactly that dead end under survey failure.
+- The burndown `migration_baseline` — two surfaces vouching a protection was live when it had never
+  executed.
+- Dated registry rows booking detectors that cannot exist — these ARE the mechanism the clause blesses,
+  so the clause affirmatively clears them.
+Widening to cover false compliance assertions would be a genuinely new obligation, not this one. It is
+named here so a later author sees the boundary rather than re-deriving it.
+
+**WHY WRITE TIME.** That is the only moment the author still knows what the gap costs. A later reader
+inherits the sentence without the cost, which is why a documented omission earns full credit at review
+and none at runtime.
+
 ```markdown
 # DO — a bet, owned by a standing role, with both triggers
 

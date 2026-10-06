@@ -1,0 +1,71 @@
+# Round 4 — adversarial validation of the data-portability change set
+
+Coverage: 42 cells — 19 attacked, 7 n/a (reason given), 16 OPEN
+  of which re-opened by this round's landed fixes: 12
+Convergence: BLOCKED
+Incentive register: 9 rows — 7 REQUIREMENT, 2 PREFERENCE (1 ROUTED, 1 ACCEPTED-BY)
+
+## What happened
+
+Round 3 closed 31 cells. This round landed two fixes and the table re-opened accordingly.
+
+F1 rewrote the export-bundle clause. Every cell of that clause re-opened (6), plus 3 cells
+elsewhere whose round-3 warrants quoted the lines F1 changed, plus 3 cells on the swept
+sibling (the import clause, same shape) for R2, R3 and R6 — the roles whose question the
+change could alter. R4 and R5 on the sibling were NOT re-opened: the import path neither
+crosses a boundary nor names a record-subject, and that is stated rather than assumed.
+
+F2 corrected a field name. It re-opened nothing beyond its own clause's R2xP1, because no
+other cell's warrant cited it.
+
+## Pre-registered n/a set (declared at C1 of round 3, narrowed at round 4)
+
+Round 3 declared 9: R4xP3, R5xP3 (no emission step); R4xP4, R5xP4 (no retention by the
+recipient); R1xP6, R2xP6, R3xP6, R6xP6, R7xP6 (no predecessor version). Round 4 narrowed to
+7 — F1 created a predecessor, so R2xP6 and R3xP6 left the set and were attacked. Shrink-only
+holds. Nothing inside the never-n/a core is excused; R6xP1 and R6xP2 are attacked rather than
+asserted-away, so the "only clause in force" assertion was never needed.
+
+## Citations, sample
+
+R1xP2 attacked — ledger:r4-attack-subject — R1 attacker, 1 finding: the subject cannot produce the
+                 bundle within the stated window using only the fields the clause grants it
+R6xP2 attacked — ledger:r4-attack-cocontext — R6 attacker returned CLEAN explicitly, having tested the
+                 half-landed case
+R7xP1 attacked — ledger:r4-attack-payoff — R7 attacker, 1 finding, now register row 8
+
+## Incentive register, resolved rows
+
+  Clause:             PORT-03
+  Escape branch:      a deployment reports bundle-completeness as "unavailable"
+  Cost of escape:     0
+  Cost of compliance: a completeness check over the export
+  Verdict:            PREFERENCE (escape <= compliance)
+  Disposition:        ROUTED — "unavailable" is now a counted obligation and forfeits the
+                      portability conformance claim for the period it is declared
+
+  Clause:             PORT-09
+  Escape branch:      a deployment chooses the 30-day horizon over the 7-day one
+  Cost of escape:     lower, by roughly one engineer-week of instrumentation
+  Cost of compliance: the 7-day horizon
+  Verdict:            PREFERENCE (escape <= compliance)
+  Disposition:        ACCEPTED-BY the data-protection lead, revisit trigger: first
+                      regulator query on portability latency; calendar backstop 2027-02-01
+
+## Convergence block
+
+1. 0 CRITICAL in the gating half — PASS
+2. 0 HIGH in the gating half — PASS
+3. Yield falling — FAIL: round 4 produced 2 BUG findings, counter reset to 0
+4. Spec compliance 100% AST/grep verified — PASS
+5. New code has new tests — PASS
+6. Frontend 0 mock data — PASS
+7. Eval-harness green and accreted — PASS
+8. Coverage closed — FAIL: 16 OPEN, of which 12 re-opened by this round's fixes
+9. Questions stable: no cell added in rounds 3 or 4 — PASS
+10. Incentive register closed — PASS: both PREFERENCE rows resolved, one routed and one
+    accepted by a named human with a revisit trigger and a calendar backstop
+
+NOT CONVERGED. Criteria 3 and 8 fail. Round 5 re-attacks the 16 open cells; attacker waves
+are capped at 3 because two dispatches in round 4's first wave died at 44s carrying "(not
+your usage limit)".

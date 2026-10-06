@@ -63,6 +63,27 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import { fileURLToPath } from "node:url";
+
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+// The canonical declaration this tree would gate from — the SAME file the
+// shared lib resolves (`.claude/bin/lib/../../canon-identity-values.json`).
+const CANON_IDENTITY_PATH = path.resolve(SCRIPT_DIR, "..", "canon-identity-values.json");
+
+/** True when a canon identity DECLARATION file exists (r4-v6 LOW-2). Mirrors
+ * `emit-cli-artifacts.mjs::canonIdentityConfigPresent`: ENOENT alone is the
+ * consumer case; any OTHER access failure counts as PRESENT so the assert path
+ * runs and fails closed on the read error (only absence is benign). Promotion
+ * into `lib/strip-build-internal.mjs` is the right end state; local here
+ * because the shared lib is outside this round's file set. */
+function canonIdentityConfigPresent() {
+  try {
+    fs.accessSync(CANON_IDENTITY_PATH, fs.constants.F_OK);
+    return true;
+  } catch (e) {
+    return !(e && e.code === "ENOENT");
+  }
+}
 
 import {
   REPO,
@@ -79,6 +100,8 @@ import {
   matchesAnyGlob,
 } from "./lib/coc-manifest.mjs";
 import { stripSlotMarkers } from "./emit.mjs";
+import { isMainModule } from "./lib/entry-point.mjs";
+import { assertPrivateOrgConfig, assertTreeFreeOfPrivateIdentity } from "./lib/strip-build-internal.mjs";
 
 // ──────────────────────────────────────────────────────────────────
 // Constants — the producer-side contract knobs.
@@ -91,12 +114,40 @@ const COC_VERSION = "1.0.0";
 // COC.lock schema_version (issue #392 AC: `{"schema_version": 1, "files": [...]}`).
 const LOCK_SCHEMA_VERSION = 1;
 
-// Per-file budget (issue #392 AC: each `.coc/` file ≤ 60 KiB, "matches the
-// existing per-CLI slot cap" = emit.mjs block_cap 61440). spec-09 imposes NO
-// size cap on the consumer side, so an oversize file is a producer-quality
-// WARN (surfaced + counted), NOT a hard block — emitting a truncated body
-// would lose load-bearing content (zero-tolerance.md Rule 2/6).
-const FILE_SIZE_WARN_BYTES = 61440;
+// ── reported metric, NOT a budget (2026-08-20) ──────────────────────────────
+//
+// 61440 B is the threshold above which an emitted `.coc/` file is REPORTED. It
+// is a metric about where depth accumulates. It is NOT a compliance surface: a
+// file over it is not a finding, does not fail any gate, and MUST NOT be used
+// to justify an extraction shard. loom's budget of record is
+// `.claude/bin/budget-gate.mjs` (path-scoped per-session rule injection,
+// measured per profile against a committed ceiling, exit 1 when over).
+//
+// It was believed to be a budget for a long time, and the reason was this
+// comment — which called it one while conceding both halves of why it is not:
+//
+//   BORROWED NUMBER. #392's AC said 60 KiB "matches the existing per-CLI slot
+//   cap" = emit.mjs `block_cap` 61440. That cap governs bytes COMPOSED INTO ONE
+//   AGENTS.md/GEMINI.md slot, where the limit is real because the slot is a
+//   context window. A `.coc/` file is a file on disk. The mechanisms share a
+//   number and nothing else.
+//
+//   NO CONSUMER. spec-09 imposes no size cap on the consumer side, so nothing
+//   downstream rejects an oversize file. Accordingly this never blocked: the
+//   emitter exits 0 with a file 23 KB over, and always has.
+//
+// And compliance was unreachable by the only available lever. Measured on the
+// F100 extraction (2026-08-20): relocating 38,537 B of depth out of one rule
+// bought 765 B of headroom against this threshold, because 23,890 B of the
+// reduction went to paying down existing overage. One new clause
+// (worktree-isolation.md Rule 4a) cost 7,875 B. A full extraction shard buys
+// about a tenth of what a single clause costs — so as a budget this ratchets to
+// permanent red, and a warning nobody can clear is a warning everybody learns
+// to skip.
+//
+// Truncating to fit was never an option either: it would drop load-bearing
+// content (zero-tolerance.md Rule 2/6). Files are always emitted intact.
+const FILE_SIZE_REPORT_BYTES = 61440;
 
 // Surface allowlist (spec §9.2.2). "all" is the implicit universal default
 // (omit the field); the explicit per-surface tokens are the three CLIs.
@@ -385,11 +436,37 @@ function composeNeutralBody(category, relPath, lang) {
   return { rawFm, body, destRelPath: res.destRelPath };
 }
 
+// A file's SIZE is not its cost. What a session pays depends on how the
+// artifact reaches a context window, and the three ways differ by orders of
+// magnitude:
+//
+//   always-on   a rule with no `paths:` — its whole body loads in EVERY
+//               session, in every repo. Bytes here are the expensive ones.
+//   path-scoped a rule with `paths:` — loads once per session, and only when a
+//               tool call touches a matching path. A large path-scoped rule can
+//               be entirely free in most sessions.
+//   on-demand   agents / skills / commands — loaded only when invoked. Size
+//               here is close to free; it is a catalogue entry, not a tax.
+//
+// The size report alone cannot tell these apart, which is why it flagged a
+// path-scoped rule exactly as urgently as an always-on one of the same size.
+// Annotating each reported file with its reach is what makes the metric
+// readable. The AUTHORITATIVE per-profile figures are budget-gate.mjs's; this
+// is a directional label, deliberately derived from frontmatter already in hand
+// rather than by importing the profile set (which would put a second, drifting
+// measurement of injection cost in the emitter).
+function injectionReach(kind, paths) {
+  if (kind !== "rules") return "on-demand (loaded only when invoked)";
+  const globs = Array.isArray(paths) ? paths.filter(Boolean) : [];
+  if (globs.length === 0) return "always-on (loads in EVERY session)";
+  return `path-scoped (${globs.length} glob${globs.length === 1 ? "" : "s"}; loads only on a matching session)`;
+}
+
 // ──────────────────────────────────────────────────────────────────
 // Artifact collection — one record per emitted artifact.
 //   { kind, id, relInCoc, content }
 // ──────────────────────────────────────────────────────────────────
-function collectArtifacts({ exclusions, loomOnly, laneExclude, tierFilter, lang, warnOversize, laneSkipped }) {
+function collectArtifacts({ exclusions, loomOnly, laneExclude, tierFilter, lang, largeFiles, laneSkipped }) {
   const records = [];
   const seenIds = { rules: new Set(), agents: new Set(), skills: new Set(), commands: new Set() };
 
@@ -420,7 +497,7 @@ function collectArtifacts({ exclusions, loomOnly, laneExclude, tierFilter, lang,
     const content = `${fm}\n\n${composed.body}\n`;
     const relInCoc = `${kind}/${id}.md`;
     const bytes = Buffer.byteLength(content, "utf8");
-    if (bytes > FILE_SIZE_WARN_BYTES) warnOversize.push({ relInCoc, bytes });
+    if (bytes > FILE_SIZE_REPORT_BYTES) largeFiles.push({ relInCoc, bytes, reach: injectionReach(kind, paths) });
     records.push({ kind, id, relInCoc, content });
   };
 
@@ -746,6 +823,28 @@ function atomicSwap(finalDir, tmpDir) {
   } else {
     fs.renameSync(tmpDir, finalDir);
   }
+  // r4-v4 (security read F2): the promoted `.coc/` tree is a DELIVERED artifact
+  // (BUILD consumers' runtime surface) — the SAME fail-closed identity gate
+  // every registered exit carries runs at the LAST write, the promotion itself.
+  // Post-write halt: the tree on disk is real, the caller FAILS, the operator
+  // fixes the source.
+  //
+  // ROLE SPLIT, three states (r4-v6 LOW-2, mirroring emit-cli-artifacts):
+  //   • declaration ABSENT (consumer, /migrate Step 6) → informational line,
+  //     no refusal — refusing a consumer's own re-emission is the F6 defect;
+  //   • declaration PRESENT → `assertPrivateOrgConfig()` runs FIRST, so a
+  //     present-but-EMPTY private set REFUSES (a broken declaration must never
+  //     silently disarm the gate);
+  //   • declaration PRESENT + non-empty → the scan runs armed over the
+  //     promoted tree.
+  if (canonIdentityConfigPresent()) {
+    const privateSlugs = assertPrivateOrgConfig();
+    assertTreeFreeOfPrivateIdentity(finalDir, { slugs: privateSlugs, label: "emit-coc promoted .coc tree" });
+  } else {
+    process.stderr.write(
+      "emit-coc: no .claude/canon-identity-values.json in this checkout — the private-slug scan over the promoted .coc/ tree is INERT here (consumer-side re-emission; the distribution entrypoints assert the config before they distribute).\n",
+    );
+  }
 }
 
 // ──────────────────────────────────────────────────────────────────
@@ -761,7 +860,7 @@ export function emitCoc({ outDir, target = null, lane = "use", verbose = false }
   const tierFilter = buildTierFilter(target); // null when target absent
   const lang = loadTargetVariant(target); // null when target absent / variant unset
 
-  const warnOversize = [];
+  const largeFiles = [];
   const laneSkipped = [];
   const records = collectArtifacts({
     exclusions,
@@ -769,7 +868,7 @@ export function emitCoc({ outDir, target = null, lane = "use", verbose = false }
     laneExclude,
     tierFilter,
     lang,
-    warnOversize,
+    largeFiles,
     laneSkipped,
   });
 
@@ -793,7 +892,7 @@ export function emitCoc({ outDir, target = null, lane = "use", verbose = false }
     for (const rec of records) console.log(`  ${rec.relInCoc}`);
   }
 
-  return { ...built, records: records.length, warnOversize, laneSkipped, lane, finalDir };
+  return { ...built, records: records.length, largeFiles, laneSkipped, lane, finalDir };
 }
 
 function parseArgs(argv) {
@@ -843,18 +942,23 @@ function main() {
   console.log(`  files in .coc/: ${r.fileCount}`);
   console.log(`  coc.version: ${COC_VERSION}`);
   console.log(`  output: ${r.finalDir}`);
-  if (r.warnOversize.length > 0) {
+  if (r.largeFiles.length > 0) {
+    // Deliberately NOT the word WARN, and deliberately no "over by" arithmetic.
+    // Both framed a metric as a breach and are what sent readers looking for an
+    // extraction shard to close a gap that no gate was ever measuring.
     console.log(
-      `  WARN: ${r.warnOversize.length} file(s) exceed ${FILE_SIZE_WARN_BYTES}B ` +
-        `(60 KiB producer budget; spec-09 imposes no consumer cap — emitted, not truncated):`,
+      `  metric: ${r.largeFiles.length} file(s) above the ${FILE_SIZE_REPORT_BYTES}B report ` +
+        `threshold (where depth accumulates — NOT a budget, NOT a finding; ` +
+        `budget of record is .claude/bin/budget-gate.mjs):`,
     );
-    for (const w of r.warnOversize) {
-      console.log(`    ${w.relInCoc} — ${w.bytes}B (over by ${w.bytes - FILE_SIZE_WARN_BYTES}B)`);
+    for (const w of r.largeFiles) {
+      console.log(`    ${w.relInCoc} — ${w.bytes}B — ${w.reach}`);
     }
   }
 }
 
-const invokedAsScript = import.meta.url === `file://${process.argv[1]}`;
+// Entry-point check: .claude/bin/lib/entry-point.mjs (symlink-safe; a lexical compare exits 0 silently).
+const invokedAsScript = isMainModule(import.meta.url);
 if (invokedAsScript) {
   try {
     main();
@@ -877,6 +981,7 @@ export {
   sha256Hex,
   COC_VERSION,
   TYPED_FIELDS,
-  FILE_SIZE_WARN_BYTES,
+  FILE_SIZE_REPORT_BYTES,
+  injectionReach,
   EMPTY_SHA256,
 };

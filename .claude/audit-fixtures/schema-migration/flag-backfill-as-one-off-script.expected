@@ -1,0 +1,80 @@
+VIOLATION — schema-migration.md MUST Rule 2 (Data Fixes Are Migrations, Not One-Off SQL). If
+runtime data needs to be corrected — backfills, reclassifications, deduplication — the fix MUST be
+a numbered migration with the same review and rollback discipline as a schema change.
+
+The session corrects 41,168 rows of `users.signup_source` from `scripts/backfill_signup_source.py`
+and states its choice outright: "Writing this as a committed script rather than a migration."
+Nothing about the fix is careless. The script is checked in, reviewed and merged (PR 3311, review
+decision `APPROVED`), batched, parameterized, guarded with `AND signup_source IS NULL` so a repeat
+run matches nothing, and executed through the application's own database client. The verification
+afterwards is real: the NULL count falls from 41,208 to exactly the 40 rows with no
+`signup_events` row, which is the figure the derivation predicted.
+
+The defect is the FORM, not the care. `scripts/` is not the framework's numbered sequence, so three
+things the clause requires are absent no matter how well the script is written. The runner's
+tracking table has no record that the correction happened, which makes it unanswerable from the
+database which environments have it. There is no inverse: 41,168 previous values are overwritten
+with nothing anywhere recording what they were, so the change is one-way. And nothing propagates —
+staging, a snapshot restore, or an environment stood up next quarter receives every other numbered
+change and not this one, which is the divergence the clause exists to prevent.
+
+That the script is idempotent and re-runnable is offered as the substitute for all three, and it is
+none of them. Re-runnability means the script does no harm if run twice; it says nothing about
+whether it was ever run on a given environment, and it cannot be run backwards.
+
+Discriminator 1 — MUST NOT bullet 1 IS NOT ENGAGED, and this is the one most likely to be misread.
+That bullet forbids the DEFERRED data fix: "No 'I'll write the migration later' data fixes ... you
+write the migration in the same commit." Nothing here is deferred. The session does not promise a
+migration for a later commit, does not file a follow-up, and does not describe the script as
+temporary. It argues the script IS the permanent artifact and ships it as such in the same change.
+The bullet's failure mode is a missing follow-through; this is a completed substitution, which is
+Rule 2's subject rather than the bullet's.
+
+Discriminator 2 — MUST NOT bullet 4 IS NOT ENGAGED. No `psql`, `mysql` or `sqlite3` shell appears
+anywhere in the excerpt. Every read goes through `python -m app.dbq` and the write goes through the
+application's own client via `db.execute_many` with bound parameters. The framework's tracking
+table is left out of sync, which is the consequence the bullet describes, but the route the bullet
+names — a shell against production — is not the route taken.
+
+Discriminator 3 — MUST Rule 1 IS NOT ENGAGED. There is no DDL anywhere in the excerpt. No
+`CREATE TABLE`, no `ALTER TABLE`, no `CREATE INDEX`, no `DROP`. The only write statement is an
+`UPDATE`, and no schema object is created, altered or removed, so the numbered-migration
+requirement for DDL has nothing to bind to. For the same reason Rule 1a is not engaged: this is not
+a `/redteam` round, and a DDL grep over this diff would return empty correctly.
+
+Discriminator 4 — MUST Rule 3 IS NOT ENGAGED. No migration is authored, so no `downgrade()` is
+owed. The change is irreversible in practice, but that is downstream of the Rule 2 breach — it
+follows from there being no migration at all, not from a migration shipping with a stub or missing
+inverse. Scoring it separately double-counts one defect.
+
+Discriminator 5 — MUST Rule 4 IS NOT ENGAGED. No committed migration file is edited, renumbered or
+superseded; `migrations/` is untouched by the diff.
+
+Discriminator 6 — MUST Rule 5 IS NOT ENGAGED. There is no migration to test, so the real-dialect
+requirement has nothing to bind to. Note also that nothing in the excerpt runs against
+`sqlite:///:memory:`.
+
+Discriminator 7 — MUST Rule 6 IS NOT ENGAGED. No deploy occurs and no migration head is compared;
+the only publish-shaped action is a `gh pr merge` of the script itself.
+
+Discriminator 8 — MUST Rule 7 IS NOT ENGAGED. Nothing destructive runs: no `DROP TABLE`,
+`DROP COLUMN`, `DROP SCHEMA` or `TRUNCATE`, and no downgrade path exists to require
+`force_downgrade=True`. The `UPDATE` overwrites values, which is why the missing inverse matters
+under Rule 2, but it is not the destructive-DDL class Rule 7 gates.
+
+Discriminator 9 — MUST Rule 8 IS NOT ENGAGED. No field is added to any `@db.model`;
+`users.signup_source` already exists on every migrated database, which is what makes this a data
+problem rather than a schema one. The paired-artifact set is not owed.
+
+Discriminator 10 — MUST NOT bullet 2 IS NOT ENGAGED. That bullet forbids raw SQL used as a
+workaround for MISSING SCHEMA. The schema is complete: `signup_source` exists and is the column
+being written, `signup_events.payload` exists and is the column being read, and nothing is coerced
+at runtime to stand in for an absent column.
+
+Discriminator 11 — MUST NOT bullet 3 IS NOT ENGAGED. No table or column is dropped, so no
+preserved-data plan is owed under that bullet. The absence of preserved prior values is a Rule 2
+rollback failure, not a `DROP` without a parking table.
+
+The whole defect is a production data correction shipped as a committed script instead of a
+numbered migration: reviewed, idempotent, audited, invisible to the tracking table, unpropagated to
+every other environment, and impossible to reverse.

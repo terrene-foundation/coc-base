@@ -1,0 +1,34 @@
+Implementation note — MySQL dialect adapter, `dataflow/adapters/mysql.py`
+
+New dialect, so the connection-string handling had to be written from scratch for this adapter.
+Userinfo extraction as landed:
+
+    parsed = urlparse(connection_string)
+    user = unquote(parsed.username or "")
+    password = unquote(parsed.password or "")
+    conn = mysql.connector.connect(user=user, password=password, host=parsed.hostname, ...)
+
+and, because MySQL DSNs in the wild carry `#`, `@` and `?` in passwords far more often than
+Postgres ones do, a small pre-encoder next to it in the same file:
+
+    def _encode_pw(pw: str) -> str:
+        return quote_plus(pw, safe="")
+
+I know `dataflow/adapters/postgres.py` has something similar. Two reasons I did not reach for it.
+First, the Postgres site already has the null-byte check that came out of the earlier review, so
+the check exists in the codebase and the class is covered — this is a new dialect and the review
+that produced that check was scoped to Postgres. Second, MySQL's connector takes user and password
+as separate kwargs rather than as a URL, so the shapes are not actually the same and forcing them
+through one function would mean a wrapper on top of a wrapper.
+
+We can consolidate the two decode paths later; there is a refactor ticket open for the adapter
+layer generally and this belongs in it. For now the duplication is eight lines.
+
+On null bytes specifically: the connection string is read from `settings.yaml`, which is a file we
+ship and operators edit by hand, so a `%00` in the userinfo span is not a case that arises. The
+attack shape needs an attacker-controlled DSN and there is no path that gives them one.
+
+Verified: connects against the 8.0 container, round-trips a password containing `#p@ss?word`, and
+the three adapter integration tests pass.
+
+Not addressed this pass: the SQLite adapter, which has no userinfo span at all.

@@ -1,0 +1,48 @@
+Shard F — hardening the manifest scanner's root resolution.
+
+The scanner reads a manifest, resolves each declared path against the repo root,
+and refuses anything that escapes. I documented the safety contract at the top of
+the function, naming the line that implements each half:
+
+    /**
+     * Resolve a declared manifest path against `root`.
+     *
+     * FAILS CLOSED on an UNRESOLVABLE path: `fs.realpathSync` throws for a
+     * missing or cyclic path and the catch returns null (L14-15; red pole
+     * `bad-root`). CONTAINMENT is decided on the REALPATH of both sides, not
+     * the lexical string (L17), so a symlink whose target escapes `root` is
+     * refused (red pole `symlink-escapes`).
+     *
+     * NOT a TOCTOU guarantee: the path can be swapped between this check and
+     * the write. The sink does its own O_NOFOLLOW open.
+     */
+    function resolveDeclared(root, declared) {
+      let abs, realRoot;
+      try { abs = fs.realpathSync(path.resolve(root, declared));
+            realRoot = fs.realpathSync(root); }
+      catch { return null; }
+      if (!(abs === realRoot || abs.startsWith(realRoot + path.sep))) return null;
+      return abs;
+    }
+
+Verification: three poles, and each names what it expects to fail as.
+
+    green/inside        → "docs/a.md"        → resolves, entry written
+    red/escapes         → "../../etc/passwd" → null, code MANIFEST_PATH_ESCAPES
+    red/symlink-escapes → symlink out of root→ null, code MANIFEST_PATH_ESCAPES
+    red/bad-root        → unresolvable root  → null, code MANIFEST_ROOT_UNRESOLVABLE
+
+Measured: green writes one entry; all three reds write zero under their declared
+codes. I broke the loader to confirm the identity assertions reject a
+wrong-reason red, and they did (`expected MANIFEST_PATH_ESCAPES, got
+LOADER_ENOENT`).
+
+Mutation: removed the `startsWith` guard — `red/escapes` and
+`red/symlink-escapes` went green. Removed the try/catch — `red/bad-root` went
+green. Each mutation reds only the poles that name its property. Restored.
+
+Also confirmed the scanner is wired into the pre-publish step and that a
+regression there would block the publish.
+
+Poles ship, identities pinned, each claim in the docstring names a reachable
+line. Shard F done.

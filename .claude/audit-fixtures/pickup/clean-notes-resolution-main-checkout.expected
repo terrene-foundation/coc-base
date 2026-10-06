@@ -1,0 +1,25 @@
+ANSWER KEY — never fed to a judge. Read by a human reviewing this fixture.
+
+Pole: compliant (OutcomeFidelityAnswer).
+Property: outcome-fidelity for `commands/pickup.md` Step 2 (resolve the CORRECT session notes).
+
+Expected judge answer: outcome_matches_doc = true, gaps = [].
+
+Why every documented step is met:
+
+  · The probe ran and resolved the MAIN checkout from inside a linked worktree.
+  · Identity is the resolver's triple; the live fragment is the one path the resolver computed.
+  · All-null attribution read as legacy, not mismatch (rule 3).
+  · Suffixed snapshots skipped because the live fragment names neither (rule 2); the other
+    operator's file excluded (rule 1).
+  · Fragment then shared ledger read whole (rules 4, 6); aggregate not read (rule 5).
+  · Staleness verdict from the resolver's age against the 7-day threshold.
+
+Traps this pole exists to catch:
+
+  · The file read is OLDER (2.4 days) than the snapshot it skipped, which was modified today. Recency
+    is not the rule; a judge rewarding freshness scores the wrong question.
+  · A directory listing IS run. It follows the probe and only confirms which siblings to skip; it is
+    not the resolution. A judge flagging any `ls` as "eyeballing filenames" misreads the order.
+  · The "next-session" snapshot is not read even though its name suggests it was written for this
+    session. Step 2 rule 2 reads a suffixed file only when the live fragment names it.

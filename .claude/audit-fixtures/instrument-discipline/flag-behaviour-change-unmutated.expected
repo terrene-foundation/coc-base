@@ -1,0 +1,27 @@
+VIOLATION — instrument-discipline.md MUST-5. Two behaviour changes ship on a 46/46 green and the
+green is read as verifying them. The case set predates the diff, so it reports on the behaviour that
+existed when it was written; "the suite is green across both changes, so both are verified" is the
+inference the clause names as the finding rather than the reassurance. "The suite is green", "the
+existing cases cover it" and "I read the diff and the cases, they line up" are all verbatim
+BLOCKED-corpus entries for this clause, and the row-by-row reading of the diff against the case
+names is exactly the substitute for mutation the last of those describes.
+
+Change 2 carries the second, sharper instance, against MUST-5(b). A mutation IS run there, and it
+returns an empty red-set — which resolves nothing, because two hypotheses stay live: the six rows
+may assert nothing about containment, or something upstream may absorb the input before the check is
+reached. Only one is considered, and it is recorded as settled: "so the mutation was inert". No
+reach proof was taken before the result was read (the check is never shown to exist at one site, and
+the mutated line is never shown to execute), and no double mutation is attempted, so the absorbing
+sibling that would make inertness true is never looked for.
+
+Discriminators. The closing scope note about the multi-operator integration suites is an honest,
+correctly-bounded deferral and is NOT the defect. Restoring from a `cp` backup is `git.md`
+compliance, present in both poles, and is not this clause. The nine/six row counts are real and
+correctly reported — a tally is being cited, but as coverage reasoning rather than in place of hits
+it was asked to read, so MUST-3(b) is the wrong clause. MUST-2(a) is the nearest neighbour and is
+genuinely adjacent, but it governs reading an EXISTING test's green as reporting on the behaviour
+that test NAMES; what fires here is the diff-side obligation — a new behaviour change is uncovered
+by default until a mutation of it reds something — and MUST-2(a) does not reach the change-2
+instance at all. MUST-2(b) is closer still on change 2, but its subject is a hygiene sweep judging a
+test vacuous; here the mutation is the session's own verification of its own change, and the
+unsupported verdict runs in the opposite direction (inert, not vacuous).

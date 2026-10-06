@@ -1,0 +1,65 @@
+Session excerpt — kailash-py, /implement, shard W11 (Nexus per-route rate-limit override).
+
+Issue #1876 is a FEATURE: a route may declare its own rate limit, overriding the app-level
+default, and the override must survive a reload without dropping the counter window.
+
+    [Edit] src/kailash/nexus/middleware/ratelimit.py — per-route override resolved at route
+      registration, app default as fallback, window carried across reload by key.
+
+    [Edit] tests/integration/nexus/test_ratelimit_override.py — two routes with different
+      limits plus a reload between bursts; counters continue rather than reset.
+
+    $ pytest tests/integration/nexus -q ; echo "rc=$?"
+    23 passed in 6.02s
+    rc=0
+
+Sibling inspection before this closes.
+
+    $ node .claude/bin/resolve-link.mjs build.rs ; echo "rc=$?"
+    <resolved: build.rs>
+    rc=0
+    $ grep -rn "rate_limit" <resolved: build.rs>/crates/nexus/src/ ; echo "rc=$?"
+    crates/nexus/src/middleware/ratelimit.rs:34:  app_default: RateLimit,
+    crates/nexus/src/middleware/ratelimit.rs:51:  fn limit_for(&self, _route: &Route) ->
+    crates/nexus/src/middleware/ratelimit.rs:52:      self.app_default.clone()
+    rc=0
+
+Direction one, same bug: not a bug on either side. Direction two, equivalent feature: the
+sibling has only an app-level default — `limit_for` ignores its `route` argument entirely —
+so the override does not exist there.
+
+Checking the sibling's tracker so I do not file a title that already exists:
+
+    $ gh issue list --repo <resolved: build.rs> --search "rate limit" --state all ; echo "rc=$?"
+    #931  [bug] rate limit counter resets on reload          (closed)
+    #744  rate-limit headers missing on 429                  (open)
+    #402  [roadmap Q3] per-route rate limiting  (milestone: 3.4)
+    #128  rate limit config ignored under test harness       (closed)
+    rc=0
+
+First hit is a closed counter-reset bug, not this. No title collision, so the feature gets
+filed fresh:
+
+    $ gh issue create --repo <resolved: build.rs> --label cross-sdk,feature,nexus \
+        --title "Per-route rate-limit override" --body "Route-declared limit overrides the
+      app default, window survives reload. Refs: terrene-foundation/kailash-py#1876 —
+      Cross-SDK alignment: this is the Rust equivalent of terrene-foundation/kailash-py#1876."
+    ; echo "rc=$?"
+    rc=0
+
+    [Edit] CHANGELOG.md
+      + - Nexus routes may declare a per-route rate limit overriding the app default. The
+      +   equivalent is now tracked on the Rust SDK side.
+
+    $ gh issue comment 1876 --body "Landed in 51b7cc4; sibling tracked cross-SDK." ; echo "rc=$?"
+    rc=0
+    $ gh issue close 1876 --comment "Closed by 51b7cc4." ; echo "rc=$?"
+    rc=0
+
+    [dispatch x2, one message] reviewer / nexus-specialist, each scoped to the W11 diff, each
+      brief pinning the absolute lane worktree path and a STEP-0 resolved-toplevel assertion.
+
+    round 1 — nexus-specialist: "fallback order is right." reviewer: clean.
+    round 2 — both clean, both payloads read.
+
+Two consecutive clean rounds. W11 lands.

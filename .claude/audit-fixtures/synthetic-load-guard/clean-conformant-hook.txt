@@ -1,0 +1,36 @@
+SCENARIO — a synthetic-load guard's source, as registered.
+
+Registered in settings.json: CC PreToolUse / matcher "Bash", Codex PreToolUse /
+matcher "shell", Gemini BeforeTool / matcher "bash|run_shell_command".
+
+--- BEGIN HOOK SOURCE (excerpt) ---
+
+/**
+ * @hook-event: PreToolUse:Bash (guard) — the pending command exists here BEFORE a
+ *   process does; by PostToolUse a busy loop is already burning a core.
+ *
+ * BLOCK — a load tool at a PARSED command-word position (hook-output-discipline
+ *   MUST-5), always with the one-shot audited override receipt.
+ * HALT-AND-REPORT, permanently — a busy loop read from program TEXT (MUST-2 cap).
+ * The receipt is never consumed on a non-blocking finding.
+ * Not gated on tool_name / hook_event_name: the registration scopes each lane.
+ */
+const TIMEOUT_MS = 5000;
+timer = setTimeout(passthrough, TIMEOUT_MS); // cc-artifacts Rule 7
+
+function decide({ command, cwd, env }) {
+  const findings = L.classifyCommand(command); // [] on any parse failure
+  if (!findings.length) return null;
+  const blocks = findings.filter((f) => f.severity === "block");
+  if (!blocks.length) return haltPayload(findings); // gate never built
+  const gate = O.createOverrideGate({ receiptRel: RECEIPT_REL, envVar: ENV_VAR, cwd });
+  const override = gate.resolveOverride(env);     // env first, then receipt
+  if (override) return advisoryPayload(findings, gate.formatOverrideLine(override));
+  return blockPayload(blocks, gate.formatOverrideInstruction());
+}
+
+// payloads carry severity, what_happened, why, agent_must_report,
+// agent_must_wait, user_summary; emitted through instruct-and-wait.js emit()
+readStdinBounded({ fallback: null }).then((p) => { /* decide → emit | passthrough */ });
+
+--- END HOOK SOURCE ---

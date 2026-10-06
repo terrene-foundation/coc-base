@@ -1,0 +1,1 @@
+gh pr view 1760 --json body | head -40

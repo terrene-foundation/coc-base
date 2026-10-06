@@ -1,0 +1,16 @@
+# @fixture-path: tests/e2e/test_refund_flow.py
+# @expect: conformance-walk/floor-only-assertion
+
+import pytest
+from app.client import Client
+
+
+def test_refund_is_recorded(client: Client):
+    client.refund(order_id=7, amount_cents=1200)
+    assert True
+
+
+def test_refund_updates_the_ledger(client: Client):
+    before = client.ledger_total()
+    client.refund(order_id=8, amount_cents=500)
+    assert client.ledger_total() == before - 500

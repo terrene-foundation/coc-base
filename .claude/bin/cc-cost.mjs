@@ -26,11 +26,11 @@
 //
 // Requires Node 14+.
 
-import { readdirSync, readFileSync, statSync, realpathSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { isMainModule } from "./lib/entry-point.mjs";
 import process from "node:process";
 
 // --since is compared LEXICALLY against ISO-8601 timestamps. It is documented as
@@ -659,19 +659,8 @@ export {
   main,
 };
 
-// Run only when invoked directly (NOT when imported by the test). Compare REAL
-// paths on both sides: import.meta.url is symlink-resolved, and the invocation
-// path (process.argv[1]) may be a symlink on PATH — realpathSync resolves it so
-// a symlinked launcher still runs main() (and Windows file:///C:/… is handled
-// by fileURLToPath). Any resolution error falls back to NOT running main.
-let _runDirect = false;
-try {
-  _runDirect =
-    !!process.argv[1] &&
-    realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
-} catch {
-  _runDirect = false;
-}
-if (_runDirect) {
+// Run only when invoked directly (NOT when imported by the test).
+// Entry-point check: .claude/bin/lib/entry-point.mjs (symlink-safe; a lexical compare exits 0 silently).
+if (isMainModule(import.meta.url)) {
   main();
 }

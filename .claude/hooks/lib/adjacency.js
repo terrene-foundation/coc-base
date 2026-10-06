@@ -133,8 +133,8 @@ function _globMatch(glob, candidate) {
   const c = _norm(candidate);
   // Convert glob to a regex. `**` → ".*", `*` → "[^/]*", escape regex meta.
   // First mark `**` with sentinel.
-  const SENTINEL_DSTAR = "";
-  const SENTINEL_SSTAR = "";
+  const SENTINEL_DSTAR = "\x01";
+  const SENTINEL_SSTAR = "\x02";
   let pattern = g
     .replace(/\*\*/g, SENTINEL_DSTAR)
     .replace(/\*/g, SENTINEL_SSTAR);

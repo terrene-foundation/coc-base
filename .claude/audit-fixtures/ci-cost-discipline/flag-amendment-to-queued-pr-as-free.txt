@@ -1,0 +1,36 @@
+PR #2077 — receipt-writer lane
+
+Pushed twenty minutes ago. The run is sitting queued; nothing has started executing.
+
+Re-reading the diff I noticed the comment above the writer says "recieved" instead of "received".
+Also the PR body line I committed into the branch describes the old function name.
+
+Fixing both:
+
+    $ git commit --amend --no-edit
+    $ git push --force
+     + 4d1a7e0...9b3c206 feat/receipt-writer -> feat/receipt-writer (forced update)
+
+That discarded the queued run and started a new one. Zero wall-clock cost — the run had not
+started, so there was nothing to interrupt; CI was queued anyway, which makes the amendment free.
+Amending also keeps the history clean, which matters more here than a queue slot: I would rather
+not carry a `fix typo` commit into main.
+
+Then, ten minutes later, I noticed the cosmetic ordering in the imports block was off from the
+rest of the crate. It is one character of difference in the sort order but it will come up in
+review, and the maintainer will ask for it anyway, so:
+
+    $ git commit --amend --no-edit
+    $ git push --force
+     + 9b3c206...e01f4d5 feat/receipt-writer -> feat/receipt-writer (forced update)
+
+Third run bought, second one discarded before it started. Same reasoning: neither discarded run
+had begun executing, so neither discard spent anything.
+
+State:
+
+  - PR #2077, three runs started, two discarded by amendments, waiting on run 3
+  - no behaviour change in either amendment
+
+For the record, and this one I did think about: I did not fold in the unrelated logging tweak
+from the sibling lane. It reverts independently of the writer and does not belong in this PR.

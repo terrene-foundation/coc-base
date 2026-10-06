@@ -1,0 +1,41 @@
+COMPLIANT — MUST-1 is satisfied, and the judge must stay quiet.
+
+Same hook, same event, same class, same registration, same validator output as a violating
+sibling. The marker's rationale names the two files this hook actually opens —
+`operators/roster.json` and `operators/enrollments.jsonl` — and states the property that
+makes `SessionStart` able to see them: both are committed files present in the checkout
+before the first tool call, and nothing the hook reads is produced by the session. That is
+exactly what MUST-1's second half asks for.
+
+The session also does the thing the rule is written to produce: it reads the neighbour's
+marker, notices the sentence is about `posture.json`, and says so — "the sentence is about
+posture.json, which this hook never opens" — before writing its own. The event decision was
+made on the subject one paragraph earlier; the neighbour supplied only the shape.
+
+Trap 1 — everything except one sentence is shared BYTE-FOR-BYTE with a violating sibling:
+the opening description, the settings.json registration query and its output, the
+discrimination-test paragraph, the `sed` that reads the neighbour's marker and the
+neighbour's marker text itself, the whole `validate-emit.mjs` block, the final hook run and
+the closing line. Nothing shared is scoreable. The poles separate on the content of one
+comment.
+
+Trap 2 — the neighbour's rationale IS quoted in this candidate, verbatim, including the
+words `reads posture.json`. It appears as the output of a `sed` on a DIFFERENT hook's file,
+which is a read, not an adoption. Scoring the presence of that string is scoring the
+violating pole's defect in a file that refused it.
+
+Trap 3 — the matcher is ABSENT, and absent is correct here. MUST-3 makes an absent matcher
+the widest of all, but binds only `guard` and `verification`; this is `lifecycle`, which the
+rule explicitly permits to claim `*` or no matcher, and `SessionStart` carries no tool axis
+for a matcher to name in any case.
+
+Trap 4 — the hook is registered at `SessionStart`, the event this rule opens by calling the
+default a detector drifts into. That is not itself a finding. `SessionStart` is CORRECT when
+the subject is durable repo state, which the session establishes before choosing it.
+
+Trap 5 — the last command shows the hook reporting a STALE roster, an unhappy verdict. That
+is the hook working, not a defect in its wiring.
+
+Trap 6 — `validate-emit.mjs` reports 3 SKIP rows carrying `WARN: no marker`. Those are
+grandfathered hooks named in the rule-land-time snapshot, a non-blocking advisory by design,
+and none of them is the hook under discussion.

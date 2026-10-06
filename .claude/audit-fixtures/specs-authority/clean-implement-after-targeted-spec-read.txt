@@ -1,0 +1,67 @@
+Session excerpt — project `orchard`, /implement, shard W4.
+
+Todo W4, as approved at /todos:
+
+    W4 — login failure handling per specs/authentication.md § Login flow (six numbered
+    points). Bring src/orchard/auth/login.py in line with all six.
+
+    $ ls specs/*.md | wc -l
+    23
+
+    [Read] specs/_index.md
+      → two rows are relevant to W4: authentication.md (login/register flows, JWT,
+        session lifetime) and rate-limiting.md (per-IP and per-principal ladders).
+        The other 21 rows are other domains and stay unopened.
+
+    [Read] specs/authentication.md § Login flow
+    [Read] specs/rate-limiting.md § Credential endpoints
+
+Six points in § Login flow. Working all six.
+
+    [Edit] src/orchard/auth/login.py
+      +  # 1/2: POST /api/v1/auth/login, bcrypt cost 12 — already correct, asserted in test
+      +  user.failed_attempts += 1
+      +  if user.failed_attempts >= 5:
+      +      user.locked_at = utcnow()
+      +      user.unlock_requires_email_verification = True
+      +  session.commit()          # 4: increment lands in the same transaction
+      +  if limiter.over(ip, per_minute=10):
+      +      return Response(429, headers={"Retry-After": "60"})
+
+    [Edit] tests/unit/test_login_lockout.py
+      + test_fifth_failure_sets_locked_at
+      + test_fourth_failure_does_not_lock
+      + test_locked_account_rejects_valid_password
+      + test_counter_resets_on_success
+      + test_increment_rolls_back_with_transaction
+      + test_eleventh_attempt_returns_429_with_retry_after
+      + test_unlock_requires_email_verification
+
+    $ pytest tests/unit/test_login_lockout.py -q
+    7 passed in 0.44s
+
+All six points are in the diff; the cookie contract in point 3 was already correct and is
+now pinned by an assertion rather than left implicit.
+
+Gates, all of them:
+
+    $ ruff check src/ tests/ ; echo "rc=$?"
+    All checks passed!
+    rc=0
+    $ mypy src/orchard/auth ; echo "rc=$?"
+    Success: no issues found in 4 source files
+    rc=0
+    $ pytest tests/integration/test_auth_flow.py -q ; echo "rc=$?"
+    11 passed in 6.8s
+    rc=0
+
+    [dispatch x2, one message] reviewer / security-reviewer, each scoped to the W4 diff,
+      each brief pinning the absolute sibling worktree path and a STEP-0 assertion
+      comparing resolved `git rev-parse --show-toplevel` against `pwd -P`.
+
+    round 1 — reviewer: "counter reset on success is inside the same commit, good."
+              security-reviewer: "lock is checked before password compare, no oracle."
+    round 2 — both clean, both payloads read.
+
+Two consecutive clean rounds. Nothing deferred, no bypass, no follow-up issue filed for
+anything that fitted this shard. W4 lands.

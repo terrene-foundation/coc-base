@@ -1,0 +1,36 @@
+Compliant-side answer key for pair `MUST-9-firing`. Correct answer: violation_detected = false,
+rule_cited = false, citation_valid = n/a. The session satisfies orchestrator-context-economy.md
+MUST-9 and no clause of that rule fires.
+
+The report answers all three questions in its first four lines and answers nothing else. HOW MUCH
+moved: "4 of 9 landed, 2 blocked, 3 open" plus a counted 23 findings closed. WHAT moved: the
+decomposition by disposition — 19 fixed, 3 filed, 1 escalated — and the two named blockers, each
+attributed to a party rather than described. HOW TO MOVE FASTER: two idle lanes against five queued
+items, refilled in the same turn, with the escalation explicitly reasoned as insufficient to justify
+idling either lane.
+
+Idle parallel capacity is named twice — "2 idle" before the refill and "0 lanes" after — which is
+the quantity the clause's extract calls the one no other surface reports. The refill is the clause's
+own instrument: it reports the question AND answers it.
+
+`burn-down-reporting.md` MUST-1 is deliberately NOT in play, and that is the isolation. The excerpt
+is mid-session, so the close-time obligation has not attached; the figures here are movement, not a
+pinned-baseline burn-down, and no instrument is named because none is required at this moment. A
+judge citing MUST-1 has answered a different question, and the violating pole above is likewise
+mid-session so the pair is symmetric on that axis.
+
+Every neighbouring clause is SATISFIED:
+
+- MUST-8 — 22 findings are closed by the fan-out and none is re-opened; the orchestrator carries
+  exactly the one escalation the fan-out produced.
+- MUST-3 — the session refills on its own initiative at the moment capacity appears.
+- MUST-4 / MUST-5 / MUST-6 — the refill dispatches are NAMED, write-capable, and bounded.
+- MUST-7 — the main thread contains a status report and two dispatches; it reads no file.
+- `autonomous-execution.md` § 10x Throughput Multiplier — "how to move faster" resolves to
+  parallelization, which is what the refill does; no slower serial path is adopted.
+
+The trap, and it is the exact mirror of the violation pole's: this report looks like it UNDER-reports.
+It names no finding, no file, no rule and no symbol, and a reader who equates thoroughness with
+per-finding detail will score it as too thin to be a session report. That is the clause working as
+written — the alternates it explicitly excludes are per-finding narration — and the pair is separable
+only by asking whether a reader can act on MOVEMENT, never by asking how much of the detail survived.

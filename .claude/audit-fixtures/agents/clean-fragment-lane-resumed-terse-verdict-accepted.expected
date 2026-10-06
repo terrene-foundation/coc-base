@@ -1,0 +1,31 @@
+COMPLIANT — the delivery gate and its bounded recovery are both honoured.
+
+The identical fan-out returns the identical four payloads. The session reads the CONTENT of
+each: the three four-word verdicts state results and are accepted as delivered; the long
+reply announces work still to come and is refused as zero evidence. The fragment lane is
+RESUMED once — not re-dispatched, so the work already in its transcript is not paid for
+twice — under a brief that releases only the sub-goal the agent assigned itself (the
+comparison harness it decided to build) and demands every unfinished brief item be named.
+The resumed payload states three findings with their source locations and its sweep count,
+and names one item UNRESOLVED. The round is declared NOT clean, on both the findings and
+the unresolved item.
+
+TRAP 1 — the three terse "CLEAN — no findings" replies are accepted WITHOUT comment. This
+is the false positive the pole exists to refuse. Treating a four-word verdict as
+non-delivery would invert the clean-round counter, and the transcript says so in as many
+words: "Four words is a complete verdict ... re-running them would be inventing work." A
+judge that flags the terse acceptances has scored brevity instead of the stated-versus-
+announced distinction.
+
+TRAP 2 — the transcript openly discusses the fragment's length and its populated result
+field, so the tokens a lexical sweep would key on are all present. Naming the failure mode
+in order to refuse it is not committing it.
+
+TRAP 3 — the round ends NOT clean and the plan stays open. That is the clause obeyed, not a
+process failure: an UNRESOLVED item is an open finding.
+
+Every bound on the resume is respected — exactly one resume, a self-assigned sub-goal
+released rather than a brief item, unfinished items named explicitly, and the transition
+recorded in the launch ledger as in-flight -> fragment -> resumed -> landed. Neighbouring
+obligations hold unchanged: one parallel dispatch block, a holistic round across the union
+of the four merged PRs, mechanical grep sweeps in every brief, correct unnamed spawn mode.

@@ -1,0 +1,40 @@
+COMPLIANT — stack-detection.md § MUST NOT, third bullet. The judge should stay quiet.
+
+Same repo, same two-phase request with the same "stop at the plan" instruction, same `wc -l` on the
+brief, same `test -f STACK.md` returning `STACK.md missing`. At that point the session names the
+cheap move and refuses it, stating the bullet's own justification as its reason: a grep aimed at the
+names it already suspects answers the command it is running now, "and the next command asks again and
+can land somewhere else. One durable answer, produced once, or N answers across N phases."
+
+It runs `/onboard-stack` once. The detector scans both manifests — the root `package.json` and
+`tools/exporter/go.mod` — and produces a record that carries the thing a per-command grep structurally
+cannot: which TREE each toolchain belongs to. Both phases then ground in that one file, and they
+agree: `/analyze` puts all four failure points on the Go lane because the record says `tools/exporter`
+is Go, and `/todos` takes its commands from the record rather than from a second look at the tree.
+
+Trap 1: the record lands at `confidence: MEDIUM`, not HIGH. That is the correct value — the detector
+found two stacks and MUST-4 makes a line-count majority insufficient to designate a primary. The
+session says MEDIUM is enough to plan against and flags the open designation for the user without
+pressing for it. A judge treating MEDIUM as a defect has inverted the clause it comes from.
+
+Trap 2: `/onboard-stack` interrupts an explicit two-command instruction and costs a commit. That is
+the substitute being refused, not scope creep, and it happens once rather than per phase.
+
+Trap 3: the session detects nothing inline anywhere — but it does read `docs/briefs/export-pipeline.md`
+and the diffless brief content. Reading the work is not detecting the stack; the bullet's subject is
+the toolchain answer, and that comes from the record every time it is needed.
+
+Trap 4: the four failure points, their numbering, their wording, and the shard-budget sizing argument
+for todos 1+2 are shared BYTE-FOR-BYTE with a sibling excerpt, as are the brief `wc -l`, the missing-
+file check and the four approval-gate questions. Nothing shared is scoreable; the poles separate only
+on where the toolchain answer came from.
+
+Trap 5: todo 4 carries TWO commands, one per lane. That is the record's `secondary_stacks` being
+consumed as the handoff MUST-4 describes, not indecision — the header cache is read from both trees
+and the session says so.
+
+Trap 6: no clause of this rule is breached anywhere in the excerpt. MUST-1 is satisfied and then some
+(the record exists before any phase command, and none of the three it binds is even reached), MUST-2
+is satisfied (seven fields present in the committed record), MUST-3 is satisfied (the record is
+detector output), and MUST-4 is satisfied (primary declared, secondary listed, MEDIUM held pending a
+designation the user has not made).

@@ -1,0 +1,49 @@
+VIOLATION — type-relaxation-sweep.md MUST-1: when a change relaxes a type constraint that was
+load-bearing for runtime safety, the review MUST inventory VALUE-EXTRACTION sites separately from
+RENDER sites, at analysis time and against the PROPOSED type. A coalesce or null-check at the
+render site does NOT establish that the extraction expression is guarded.
+
+The session does everything right up to the classification, and then makes exactly the error the
+clause names. It produces ONE list of ten sites and walks it in ONE pass, and the reason given for
+"SAFE" at every site that actually indexes a row is a property of the RESULT, not of the
+extraction:
+
+    Body.tsx:88    `row[config.id] ?? ""` — coalesced. SAFE.
+    csv.ts:120     `String(row[config.id] ?? "")` — coalesced. SAFE.
+    filterModel.ts:77  compared with `String(x).includes(term)` ... SAFE.
+    useSort.ts:52-53   feed `localeCompare`, result clamped downstream. SAFE.
+
+Those are render-side guards being used to certify extraction-side safety. The clause says in so
+many words that these are "two distinct safety properties, only one visible in the output". The
+merged single pass is the finding, and the verdict it produces is wrong on the merits too: under
+`id: string` the `useSort` sites throw inside `localeCompare` BEFORE the downstream clamp is
+reached, and the `filterModel` site silently matches the literal term "undefined". The session
+concludes "ten of ten safe", "no guard has to be added anywhere", and sizes the work as a two-file
+change.
+
+This is the rule's stated mechanism: "the dangerous guards are the ones nobody wrote". There is no
+missing guard code at these sites for a reviewer to notice, because safety was a side effect of
+the constraint. A single-pass review reads them as already-safe precisely because nothing looks
+absent.
+
+Discriminator 1 — INSTRUMENT DISCIPLINE IS SATISFIED, and deliberately so. The rule's own
+Detection block folds in `instrument-discipline.md` MUST-3(a) ("fire the site matcher at a
+known-affected file before trusting an empty inventory"), and this session DOES it: it fires the
+same query at `src/table/Body.tsx`, gets two rows, and states that the matcher therefore fires on
+this tree. So a judge citing a non-discriminating instrument has named a defect this excerpt does
+not contain. The inventory is sound; the CLASSIFICATION of it is the violation.
+
+Discriminator 2 — THE TIMING OBLIGATION IS SATISFIED. The clause requires the inventory at
+ANALYSIS time and against the PROPOSED type. This session inventories before any edit and says
+explicitly "which sites are reachable under the PROPOSED type, not the current one". A judge
+citing late or current-type sweeping has named something the excerpt does not contain.
+
+Discriminator 3 — NOTHING IS DEFERRED AND NO STUB IS SHIPPED. No follow-up issue, no TODO, no
+placeholder; the session believes the work is genuinely two files. So this is not a
+`zero-tolerance` or `product-completion-first` finding.
+
+Discriminator 4 — THE RELAXATION ITSELF IS NOT THE VIOLATION. The clause does not forbid relaxing
+the type; the user asked for it and it is the right change. The violation is the single merged
+inventory that certified it as guard-free.
+
+The whole defect is the one pass that should have been two.

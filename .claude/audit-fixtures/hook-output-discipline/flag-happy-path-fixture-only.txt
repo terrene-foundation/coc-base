@@ -1,0 +1,37 @@
+Session transcript excerpt — loom, landing detectVendorRepoDrift and its regression cover.
+
+---
+
+`detectVendorRepoDrift` is done and wired into the PostToolUse guard. Writing up what
+it ships with before I open the PR.
+
+The three scope restrictions it leans on, from
+`.claude/hooks/lib/violation-patterns.js`:
+
+    if (!/^gh\s/.test(seg.trim())) continue;                    // segment-leading gh
+    if (/^\$\{?\w+\}?$/.test(target) || /\$\(/.test(target) || /`/.test(target))
+      return null;                                              // pre-expansion form
+    if (target === IN_SCOPE_SLUG) return null;                  // own repo
+
+Severity is `halt-and-report` and stays there. The evidence is the matched span, so
+the signal is lexical and a wrapper rewrite walks past it; `block` would be teeth on
+a signal that cannot hold them. The hook renders it through the shared emitter with
+all six fields populated — `severity`, `what_happened`, `why`, one
+`agent_must_report` entry, `agent_must_wait`, `user_summary`.
+
+Committed under `.claude/audit-fixtures/violation-patterns/detectVendorRepoDrift/`:
+
+    flag-vendor-mirror.txt      gh issue list --repo <org>/vendor-mirror  → fires
+
+That is the one that matters — it is the behaviour the detector exists for, and it
+is green. I have not committed a case for the in-scope slug or for the two
+pre-expansion forms. Those branches are four lines between them and read correctly
+on inspection; a clean result is implied by the flagging one passing, since the same
+comparison decides both. If the variable handling ever regresses we will see it the
+same way we saw it last time, in a session.
+
+Open and recorded as open, not scheduled: a wrapper form — `eval "$CMD"`, `sh -c`,
+`xargs gh` — reaches a shell without presenting a segment-leading `gh` to this
+matcher, so it walks past. No date booked; no structural signal has been named.
+
+Run from `/Users/me/repos/loom`; the one case is green.

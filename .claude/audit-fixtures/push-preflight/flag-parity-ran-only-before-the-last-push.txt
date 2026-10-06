@@ -1,0 +1,15 @@
+{
+  "note": "The window matters, not the session. A parity run BEFORE the previous push verified the previous tree; the commit after it is unverified. A predicate scanning the whole session would score this clean.",
+  "expect": {
+    "verdict": "flag",
+    "why": "no-parity-since-last-push"
+  },
+  "input": {
+    "command": "git push origin feat/rate-limit",
+    "remoteBranchExists": true,
+    "workflows": [
+      "name: gate\non: [pull_request]\njobs:\n  g:\n    runs-on: [self-hosted]\n    steps:\n      - run: |\n          echo \"starting the gate\"\n          node .claude/bin/validate-xref-integrity.mjs\n          git status --porcelain\n      - run: pre-commit run --all-files\n"
+    ],
+    "transcriptText": "{\"type\":\"assistant\",\"uuid\":\"u0\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"t0\",\"name\":\"Bash\",\"input\":{\"command\":\"node .claude/bin/validate-xref-integrity.mjs\"}}]}}\n{\"type\":\"assistant\",\"uuid\":\"u1\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"Bash\",\"input\":{\"command\":\"git push origin feat/rate-limit\"}}]}}\n{\"type\":\"assistant\",\"uuid\":\"u2\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"t2\",\"name\":\"Bash\",\"input\":{\"command\":\"git commit --amend --no-edit\"}}]}}"
+  }
+}

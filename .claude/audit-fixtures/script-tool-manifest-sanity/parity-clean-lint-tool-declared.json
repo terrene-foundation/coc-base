@@ -1,0 +1,9 @@
+{
+  "name": "frontend",
+  "scripts": {
+    "lint": "eslint src/"
+  },
+  "devDependencies": {
+    "eslint": "^9.0.0"
+  }
+}

@@ -1,0 +1,30 @@
+# coverage-flag-new-rule-unregistered
+#
+# A NEW baseline rule lands with no manifest row, no probe suite on disk and
+# no declaration of the absence. MUST-1's prose-artifact mandate is unmet.
+# PAIRED with coverage-clean-registered-artifact, which is byte-identical to
+# this file except for ONE token: the artifact's own basename.
+#
+# expect: coc-artifact-eval-coverage/artifact-edit-without-coverage
+{
+  "filePath": ".claude/rules/widget-hygiene.md",
+  "manifest": {
+    "agents": {
+      "type": "rule",
+      "scanner": null,
+      "fixturesDir": ".claude/audit-fixtures/agents",
+      "expected": {},
+      "probes": ".claude/test-harness/probes/agents.probes.json"
+    },
+    "wrapup": {
+      "type": "command",
+      "scanner": null,
+      "fixturesDir": ".claude/audit-fixtures/wrapup",
+      "expected": {},
+      "probes": ".claude/test-harness/probes/wrapup.probes.json"
+    }
+  },
+  "probeInventory": [],
+  "probeAuthorshipDeferrals": {},
+  "now": "2026-09-13T00:00:00Z"
+}

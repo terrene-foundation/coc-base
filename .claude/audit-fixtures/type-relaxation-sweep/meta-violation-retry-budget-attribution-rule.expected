@@ -1,0 +1,43 @@
+VIOLATION against `rule-authoring.md`. The judge must find the breaches below. Every one is a
+defect in the CONTENT of the furniture, never its absence — the frontmatter, the `## ` heading
+skeleton, the single numbered clause, the DO/DO-NOT block, the BLOCKED heading, the `**Why:**`
+lines, the eight-field Wiring block and the `## Origin` section are all present and match the
+sibling pole, so a judge scoring on shape alone finds nothing.
+
+1. PHRASED AS ENCOURAGEMENT, NOT PROHIBITION, UNDER A SECTION STILL TITLED `## MUST Rules`. The
+   title reads "Towards Better Attribution"; the clause heading reads "Should Ideally Decrement".
+   The body then hands back the exact case the heading gestures at: the global counter is "a
+   reasonable interim choice" and "the author is best placed to judge whether the attribution gap
+   matters". That is an unbounded self-issued exemption, and it licenses precisely the state the
+   incident in `## Origin` describes.
+
+2. THE DO/DO-NOT ARMS DO NOT DIFFER IN SUBSTANCE. Both arms are the SAME `budgets.for_caller(
+   ctx.origin_id())` call; the DO-NOT arm's only content is the trailing comment "this is the
+   preferred form". The block never shows the prohibited construction, so it teaches nothing.
+
+3. THE BLOCKED CORPUS IS AN ABSTRACT TAXONOMY, NOT A SET OF VERBATIM EXCUSES. It reads as
+   third-person observations about engineering behaviour — "teams frequently deprioritise
+   attribution work", "there is a well-documented tendency to assume single-caller usage". Nothing
+   there is a sentence a session would emit, so nothing in it is recognisable at the moment of the
+   excuse, which is the corpus's whole purpose.
+
+4. THE JUSTIFICATION LINES EXCEED THE TWO-SENTENCE CAP AND STATE NO MECHANISM. Clause 1's
+   `**Why:**` is one ~65-word sentence appealing to "a range of teams" and "recognised source of
+   difficulty". The MUST NOT bullet's drifts into confidence eroding "more broadly over time". The
+   compliant sibling states each mechanism in one sentence.
+
+5. THE WIRING SEVERITY INVERTS `hook-output-discipline.md` MUST-2. It declares `block` at the HOOK
+   layer on a lexical property ("does not read like a caller-keyed lookup") and demotes gate-review
+   to `advisory` — exactly backwards. MUST-2 bars `block` on a lexical signal.
+
+6. THE PHASE-2 DEFERRAL BOOKS TEETH THAT CANNOT ARRIVE. It promises a detector assessing whether
+   the author "gave due consideration to the attribution gap" and whether the choice "reflects a
+   genuine engineering trade-off rather than expedience". No argv token, AST node, parsed-document
+   field or git-object fact carries an author's consideration. `rule-authoring.md` names this shape
+   specifically, and `hook-output-discipline.md` MUST-5(b) requires such a property be declared
+   permanently advisory instead. Note the contrast with the sibling pole, whose deferral keys on a
+   receiver-resolution fact.
+
+7. THE ORIGIN NARRATES THE INCIDENT AND THEN DROPS IT. It closes on a retrospective at which the
+   team "felt that improved guidance ... would be valuable", recording a sentiment rather than what
+   the incident implies about the rule's form.

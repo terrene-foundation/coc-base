@@ -1,0 +1,134 @@
+=== SESSION EXCERPT — regional revenue report, orders.region ===
+
+[user]
+The finance report needs revenue broken out by region. Make `GET /reports/revenue?by=region` return
+one row per region for a date window.
+
+[assistant]
+Checking whether `region` exists on the table before I write anything against it.
+
+  $ psql "$APP_DB_URL" -c '\d orders' ; rc=$?
+                                 Table "public.orders"
+     Column    |           Type           | Nullable |          Default
+  -------------+--------------------------+----------+----------------------------
+   id          | bigint                   | not null | nextval('orders_id_seq')
+   tenant_id   | uuid                     | not null |
+   total_cents | integer                  | not null |
+   payload     | jsonb                    | not null |
+   placed_at   | timestamptz              | not null |
+  Indexes:
+      "orders_tenant_placed_idx" btree (tenant_id, placed_at)
+  rc=0
+
+No `region` column. The value is inside `payload`, written by checkout:
+
+  $ psql "$APP_DB_URL" -c "SELECT count(*) FILTER (WHERE payload ? 'region') AS with_region, count(*) AS total FROM orders" ; rc=$?
+   with_region | total
+  -------------+--------
+        812455 | 812491
+  rc=0
+
+812,455 of 812,491 rows carry a region key; 36 do not.
+
+  $ psql "$APP_DB_URL" -c "SELECT min(placed_at), max(placed_at) FROM orders WHERE NOT payload ? 'region'" ; rc=$?
+           min           |         max
+  -----------------------+---------------------
+   2022-08-14 09:12:03   | 2022-11-30 17:44:51
+  rc=0
+
+All 36 are pre-2023 imports that predate the checkout field, and all of them fall outside the
+report's window.
+
+  Read: tests/reporting/test_revenue_report.py
+    def test_revenue_by_region(client, seeded_orders):
+        r = client.get("/reports/revenue?by=region&from=2024-01-01&to=2024-12-31")
+        assert r.status_code == 200
+        assert {row["region"] for row in r.json()["rows"]} == {"emea", "apac", "amer"}
+        assert sum(row["total_cents"] for row in r.json()["rows"]) == 4_182_300
+
+The group-by has to run against whatever shape region is read from, so I measured that first:
+
+  $ psql "$APP_DB_URL" -c "EXPLAIN (COSTS OFF) SELECT payload->>'region', sum(total_cents) FROM orders WHERE tenant_id = '0000...0001' AND placed_at >= '2024-01-01' AND placed_at < '2025-01-01' GROUP BY 1" ; rc=$?
+  HashAggregate
+    Group Key: (payload ->> 'region'::text)
+    ->  Index Scan using orders_tenant_placed_idx on orders
+  rc=0
+
+The tenant/date predicate still drives the index scan; the grouping itself falls to a hash aggregate
+over the extracted key, because there is nothing indexable to group on.
+
+[assistant]
+Checkout writes region into `payload`, but a JSONB key is not a column and this report is the first
+consumer of region, not the last. A key carries no `NOT NULL` and no `CHECK`, cannot be indexed for
+the group-by, and — the one that decides it — is invisible to field classification, so region would
+be the only reporting dimension with no tenant/redaction classification against it. Whatever shape
+the first consumer reads is the shape every later one copies, so region becomes a column.
+
+`orders` exists in every migrated database already, so adding the field to the model is not the
+change: `create_tables()` is `CREATE TABLE IF NOT EXISTS` and no-ops there. Full paired set here.
+
+  Edit: src/app/models.py
+  @@ @db.model
+     class Order:
+         placed_at: datetime
+  +      region: str | None = None
+
+  Write: migrations/0071_add_orders_region.py
+    def upgrade(op):
+        op.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS region TEXT")
+    def downgrade(op):
+        # region is a projection of payload->>'region', which this migration never
+        # touches; dropping the column removes no value the row does not still hold.
+        op.execute("ALTER TABLE orders DROP COLUMN IF EXISTS region")
+
+  Write: migrations/0072_backfill_orders_region.py
+    def upgrade(op):
+        op.execute("UPDATE orders SET region = payload->>'region' "
+                   "WHERE region IS NULL AND payload ? 'region'")
+    def downgrade(op):
+        op.execute("UPDATE orders SET region = NULL")
+
+The backfill is guarded on `payload ? 'region'`, so the 36 pre-2023 rows end with region NULL rather
+than an empty string. Those orders genuinely have no region, and NULL is the value that says so.
+
+  $ python -m app.tools.classify_fields --model Order --write ; rc=$?
+  wrote src/app/models/_classification/order.json — region: tenant_scoped, redaction: none
+  rc=0
+
+  Edit: schema-manifest.json — `Order.fields` 7 -> 8, matching the regenerated classification.
+
+  $ alembic upgrade head ; rc=$?
+  INFO  [alembic.runtime.migration] Running upgrade 0070 -> 0071 -> 0072
+  rc=0
+
+  $ psql "$APP_DB_URL" -c "SELECT count(*) FILTER (WHERE region IS NULL) AS null_region, count(*) AS total FROM orders" ; rc=$?
+   null_region | total
+  -------------+--------
+            36 | 812491
+  rc=0
+
+The same split the payload census showed, so the backfill reached every row that had a value.
+
+  Edit: src/reporting/repository.py
+  @@ class RevenueRepository:
+  +    async def revenue_by_region(self, tenant_id, start, end):
+  +        return await self.db.fetch_all(
+  +            "SELECT region, sum(total_cents) AS total_cents FROM orders "
+  +            "WHERE tenant_id = $1 AND placed_at >= $2 AND placed_at < $3 "
+  +            "GROUP BY region ORDER BY region",
+  +            tenant_id, start, end,
+  +        )
+
+  Edit: src/reporting/service.py
+  @@     async def revenue(self, tenant_id, by, start, end):
+  +        if by == "region":
+  +            return await self.repo.revenue_by_region(tenant_id, start, end)
+
+  $ pytest tests/reporting/test_revenue_report.py -q ; rc=$?
+  1 passed in 2.13s
+  rc=0
+
+[assistant]
+`GET /reports/revenue?by=region` is serving off a real column. The column, its backfill, the
+regenerated classification and the bumped manifest count all land in this change, so an
+already-migrated database gets the column at deploy rather than erroring on first read.

@@ -1,0 +1,35 @@
+Session — the halting branch of vendor-drift-guard.js in example-org/example-repo.
+
+---
+
+The branch fires when a session writes into `vendor/` while the manifest declares
+that tree upstream-owned. The detection was already right, so the time went into the
+payload: what the agent is told to report, and how it is told to get it out.
+
+The six fields come from the library, so `agent_must_report` is populated the usual
+way. The one thing I changed is the channel wording:
+
+    const body = buildValidationBody({
+      hookEvent: "PostToolUse", severity: "halt-and-report",
+      what_happened, why, agent_must_report: [
+        "Quote the path written and the manifest line that owns it",
+      ], agent_must_wait: "Do not re-attempt the write until the user instructs.",
+    });
+    const ours = body.replace(DELIVERY_INSTRUCTION,
+      "Send this to your orchestrator with a SendMessage call before you re-plan.");
+    writeBody(ours);
+
+Two reasons for the swap. The shared text spends several lines resolving who "user"
+means, and in this guard the answer is not in doubt — a vendor tree only gets touched
+by a lane an orchestrator launched, so naming the tool call directly is shorter and
+lands the same instruction with less to read. And the guard's own vocabulary
+("upstream-owned", "the manifest line") reads better than generic wording written for
+every hook at once.
+
+The rest I did not improvise. Severity stays halt-and-report: the trigger is a path
+prefix over the parsed tool input, and the adequacy half of the rule is prose I did
+not want block on. This branch is PostToolUse, so it requests no hand-back refusal
+and infers nothing from the severity. No branch shells out to resolve a variable, the
+block return elsewhere carries the parsed manifest key rather than a match() span, and
+the only raw exit in the file is the timeout fallback, which emits `{continue:true}`
+first. The Wiring row for the prose half still reads permanently advisory.

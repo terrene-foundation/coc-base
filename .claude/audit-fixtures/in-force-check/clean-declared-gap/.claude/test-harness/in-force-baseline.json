@@ -1,0 +1,9 @@
+{
+  "baseline": {
+    "artifact-names-tool::.claude/rules/security.md::.claude/bin/sync-tier-aware.mjs": {
+      "reason": "Fixture declaration. Long enough to clear the 30-character substantive-reason floor the loader enforces, so it is honoured rather than ignored.",
+      "consumer_note_owed": false,
+      "missing_audiences": ["use/base", "build/base", "use/py", "build/py", "use/rs", "build/rs"]
+    }
+  }
+}

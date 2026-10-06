@@ -5,6 +5,8 @@ paths: ["**/Dockerfile", "**/*.dockerfile", "deploy/**", "**/k8s/**", "**/kubern
 
 # Deploy Hygiene — Committed ≠ Deployed
 
+Full examples: `.claude/guides/rule-extracts/deploy-hygiene.md`. The numbered clauses remain the governing contract.
+
 For full DO/DO NOT examples, the Step 0–5 checklist's per-step guidance, the deployment-config.md schema, frontend deployment patterns (Vite, Docker, Next.js), and cache-layer troubleshooting, see `skills/10-deployment-git/application-deployment.md`. This rule loads only when infrastructure files are touched; the verbose details live in the skill.
 
 ## The Failure Mode
@@ -138,28 +140,7 @@ Every GitHub Actions workflow that triggers on `push` to a deploy branch (`main`
 
 The accompanying ssh invocation MUST include `-o ServerAliveInterval=15 -o ServerAliveCountMax=3` so the remote command receives SIGHUP within 45 seconds of the runner being cancelled. Without keep-alives, an orphan `docker build` (or `cargo build`, or `npm install`) process can survive on the deploy host and fight the next workflow run for the docker daemon lock or the build cache.
 
-```yaml
-# DO — cancel in-progress, ssh keep-alive
-concurrency:
-  group: auto-deploy-${{ github.ref_name }}
-  cancel-in-progress: true
-
-steps:
-  - name: Deploy
-    run: |
-      ssh -i ~/.ssh/deploy_key.pem \
-        -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
-        ubuntu@$DEPLOY_HOST bash <<'REMOTE'
-        cd ~/app && git pull && \
-        docker compose -f docker-compose.prod.yml up -d
-      REMOTE
-
-# DO NOT — queue every deploy; waste a full build cycle per superseded merge
-concurrency:
-  group: auto-deploy-main
-  cancel-in-progress: false # BLOCKED on idempotent deploy workflows
-# OR — concurrency block omitted entirely (defaults to no cancellation)
-```
+**DO:** set `concurrency: {group: "auto-deploy-${{ github.ref_name }}", cancel-in-progress: true}` and invoke SSH with `-o ServerAliveInterval=15 -o ServerAliveCountMax=3`. **DO NOT:** omit concurrency or queue superseded idempotent deploys with `cancel-in-progress: false`.
 
 **BLOCKED rationalizations:**
 
@@ -174,22 +155,9 @@ concurrency:
 
 **Exception**: A workflow whose steps include a non-idempotent destructive operation (database migration that's not transactional, schema rename without rollback, secret rotation, blue-green cutover) MAY set `cancel-in-progress: false` ONLY with a same-file comment naming the specific step that is non-idempotent and why queueing is safer. The comment is the audit trail; missing comment is BLOCKED.
 
-```yaml
-# DO — exception with explicit audit comment
-concurrency:
-  group: prod-migrate-${{ github.ref_name }}
-  # cancel-in-progress: false because Step 3 (`alembic upgrade head`) is
-  # non-transactional for SQLite production; a cancelled migration leaves
-  # the schema in a half-applied state that the next run cannot detect.
-  cancel-in-progress: false
+**DO:** beside `cancel-in-progress: false`, name the non-transactional migration step and explain how cancellation leaves a half-applied schema. **DO NOT:** set `false` without a same-file comment naming the specific non-idempotent step and why queueing is safer.
 
-# DO NOT — exception with no comment
-concurrency:
-  group: prod-migrate-main
-  cancel-in-progress: false # ← which step is non-idempotent? unaudited.
-```
-
-**Why (exception):** The default is cancel-on-supersede; the exception is queueing. Without a same-file comment naming the specific non-idempotent step, the next reviewer (or the same author six months later) cannot tell whether the queueing is load-bearing or a copy-paste from another workflow. The comment converts an opaque YAML invariant into a maintainable audit trail. Same structural-confirmation principle as `dataflow-identifier-safety.md` Rule 4 (DROP) and `git.md` § "git reset --hard" — destructive-or-irreversible operations require a written justification at the call site.
+**Why (exception):** The default is cancel-on-supersede; the exception is queueing. Without a same-file comment naming the specific non-idempotent step, the next reviewer (or the same author six months later) cannot tell whether the queueing is load-bearing or a copy-paste from another workflow. The comment converts an opaque YAML invariant into a maintainable audit trail. Same structural-confirmation principle as `dataflow-identifier-safety.md` Rule 4 (DROP) and `git.md` § "Destructive Working-Tree Ops MUST Verify Clean Working Tree" — destructive-or-irreversible operations require a written justification at the call site.
 
 Origin: 2026-05-01 downstream surfacing (loom #23) — a rapid-merge session ran 4× full deploy cycles on a workflow with `cancel-in-progress: false` and rationale "A cancelled mid-deploy leaves docker compose in a partial state"; empirical analysis showed every step was idempotent and the rationale was overstated. Fix landed locally; lifted to loom for cross-USE-template adoption.
 
@@ -214,6 +182,6 @@ Applies to the **§9a positive-COPY** clause (added 2026-07-08, backlog-actionab
 - **Cumulative posture impact:** same-class violations (a COC-consumer Dockerfile shipping `COPY . .` / an over-broad `COPY` that bakes per-clone state into a distributable image) contribute to `trust-posture.md` MUST-4 cumulative-window math (3× same-rule in 30d → drop 1 posture; 5× total in 30d → drop 1 posture).
 - **Regression-within-grace:** a same-class violation within the 7-day grace window routes through the GENERIC `regression_within_grace` emergency trigger per `trust-posture.md` MUST-4 (1× = drop 1 posture) — NO dedicated per-clause trigger key (a Dockerfile-COPY-shape property is review-layer-detected, and minting a key would drag `trust-posture.md`, a self-referential-codify allowlist file, into a self-ref edit; the universal `regression_within_grace` trigger already covers it). Named deviation from the canonical key-per-clause shape, recorded here per `trust-posture.md` Rule 8 — the same no-dedicated-key disposition `security.md` § Enforcement-Surface Parity and `git.md` § CI-check/merge took.
 - **Receipt requirement:** SessionStart soft-gate `[ack: deploy-hygiene]` IFF `posture.json::pending_verification` includes the `deploy-hygiene` rule_id.
-- **Detection mechanism:** Phase 1 (manual, gate-review) — for any COC-consumer image, reviewer + security-reviewer inspect the Dockerfile for a positive-COPY of enumerated runtime paths (absence of `COPY . .` / `COPY . /app`) AND confirm a hardened `.dockerignore` is present as defense-in-depth; run at `/implement` + `/deploy`. Probes `.claude/test-harness/probes/deploy-hygiene.probes.json` — NOT YET AUTHORED, declared in `phase2-deferrals.json::probe_authorship_deferrals`. Phase 2 (SHIPPED 2026-08-14, no longer deferred) — `violation-patterns.js::detectDockerfileWholeContextCopy` fires `advisory` on a PostToolUse `Edit`/`Write` whose file BASENAME is a Dockerfile/Containerfile (structural, read off the tool call; document suffixes like `.md` excluded so prose naming the antipattern — including this rule — is not flagged) and whose parsed `COPY` carries a whole-context source (`.`, `./`, `/`, `*`). `--from=<stage>` is deliberately NOT flagged: it copies from a build STAGE, where per-clone state and `.git/` are unreachable, so the leak this clause names cannot occur. Audit fixtures at `.claude/audit-fixtures/violation-patterns/detectDockerfileWholeContextCopy/` (the per-detector location `validate-emit.mjs::audit-fixture-coverage` enforces, NOT the `deploy-hygiene-positive-copy/` path the pre-graduation Wiring anticipated — that path BLOCKED `/sync`) (9 bipolar: 5 flag, 4 clean) per `cc-artifacts.md` Rule 9; suite `.claude/test-harness/tests/deploy-hygiene-positive-copy.test.mjs`, registered `bulk` in `ci-suites.json`. Measured fire rate on this repo's real corpus: 0 of 3 tracked Dockerfiles (all three already positive-COPY). Severity stays `advisory` per the § Severity field above — the parse is structural, but whether an image is a COC-CONSUMER image is not readable off the tool call, so it MUST NOT carry `block`.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — for any COC-consumer image, reviewer + security-reviewer inspect the Dockerfile for a positive-COPY of enumerated runtime paths (absence of `COPY . .` / `COPY . /app`) AND confirm a hardened `.dockerignore` is present as defense-in-depth; run at `/implement` + `/deploy`. **Probes: REGISTERED** — `.claude/test-harness/probes/deploy-hygiene.probes.json` (26 rows, 13 bipolar pairs; fixtures `.claude/audit-fixtures/deploy-hygiene/`; probe-only, pinned in `probe-suite-integrity.test.mjs`). Registration buys DISPATCHABILITY, never execution — a green CI run is NEVER evidence these probes passed. Phase 2 (SHIPPED 2026-08-14, no longer deferred) — `violation-patterns.js::detectDockerfileWholeContextCopy` fires `advisory` on a PostToolUse `Edit`/`Write` whose file BASENAME is a Dockerfile/Containerfile (structural, read off the tool call; document suffixes like `.md` excluded so prose naming the antipattern — including this rule — is not flagged) and whose parsed `COPY` carries a whole-context source (`.`, `./`, `/`, `*`). `--from=<stage>` is deliberately NOT flagged: it copies from a build STAGE, where per-clone state and `.git/` are unreachable, so the leak this clause names cannot occur. Audit fixtures at `.claude/audit-fixtures/violation-patterns/detectDockerfileWholeContextCopy/` (the per-detector location `validate-emit.mjs::audit-fixture-coverage` enforces, NOT the `deploy-hygiene-positive-copy/` path the pre-graduation Wiring anticipated — that path BLOCKED `/sync`) (9 bipolar: 5 flag, 4 clean) per `cc-artifacts.md` Rule 9; suite `.claude/test-harness/tests/deploy-hygiene-positive-copy.test.mjs`, registered `bulk` in `ci-suites.json`. Measured fire rate on this repo's real corpus: 0 of 3 tracked Dockerfiles (all three already positive-COPY). Severity stays `advisory` per the § Severity field above — the parse is structural, but whether an image is a COC-CONSUMER image is not readable off the tool call, so it MUST NOT carry `block`.
 - **Violation scope:** the §9a positive-COPY clause ONLY (clause-scoped); the pre-existing grandfathered Rules 1–11 stay exempt until each is itself `/codify`-touched.
 - **Origin:** GH #833 (backlog-actionable-7) — the `.gitignore`-vs-`.dockerignore` independence failure mode stated inline in §9a; distributed via the deploy-hygiene tier.

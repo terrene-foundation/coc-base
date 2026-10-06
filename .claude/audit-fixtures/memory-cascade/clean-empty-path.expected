@@ -1,0 +1,4 @@
+{
+  "verdict": "clean",
+  "defeats": "a predicate that threw or matched on empty input"
+}

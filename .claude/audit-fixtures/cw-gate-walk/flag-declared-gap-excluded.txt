@@ -1,0 +1,15 @@
+# kind: ci-gate
+# tool: check-x.mjs
+# ci_tools: check-x.mjs
+# reach:
+# declared_suite: s.test.mjs
+# declared_line: 2
+# suite_mode: excluded
+# expect_verdict: Fail
+# expect_rule: cw-gate/unverifiable-declared-gap
+# The cited line is a genuine spawn, so the citation check PASSES — and the
+# declaration is still refused, because the registry marks the covering suite
+# `excluded`, i.e. nothing runs it. A suite that does not execute cannot cover
+# anything, however honest its source looks.
+import { execFileSync } from "node:child_process";
+const out = execFileSync("node", [".claude/bin/check-x.mjs", "--json"]);

@@ -1,0 +1,65 @@
+Session excerpt — kailash-py, adding the passthrough methods on `WorkflowSession`.
+
+`WorkflowSession` wraps a `RuntimeContext` that is assigned lazily — `_ctx` is None until
+`bind()` runs, which happens on first execute rather than in `__init__`. That is the case the
+delegates have to survive, so each goes through one guard rather than three copies of it:
+
+    +    def _bound(self) -> RuntimeContext:
+    +        if self._ctx is None:
+    +            raise SessionNotBoundError(
+    +                "WorkflowSession is not bound to a runtime context; call bind() or "
+    +                "execute() before checkpoint/rollback/snapshot"
+    +            )
+    +        return self._ctx
+    +
+    +    def checkpoint(self, label: str) -> str:
+    +        return self._bound().checkpoint(label)
+    +
+    +    def rollback(self, token: str) -> None:
+    +        self._bound().rollback(token)
+    +
+    +    def snapshot(self) -> dict:
+    +        return self._bound().snapshot()
+
+The error type is new and is exported, so a caller can catch it rather than string-matching:
+
+    +class SessionNotBoundError(WorkflowError):
+    +    """Raised when a delegate is called before bind() has assigned the context."""
+
+The constructor's existing check stays where it is — it refuses a missing runtime, which is a
+different field arriving at a different time, and it does not cover `_ctx`:
+
+    $ sed -n '38,46p' src/kailash/workflow/session.py
+        def __init__(self, spec: WorkflowSpec, runtime: Runtime | None = None):
+            if runtime is None:
+                raise SessionConfigError("WorkflowSession requires a runtime")
+            self._runtime = runtime
+            self._ctx: RuntimeContext | None = None
+
+Testing the UNBOUND path specifically, since the existing fixture binds and would never reach it:
+
+    $ sed -n '20,30p' tests/unit/workflow/test_session.py
+    @pytest.fixture
+    def unbound():
+        return WorkflowSession(spec, runtime=FakeRuntime())   # deliberately not bound
+
+    @pytest.mark.parametrize("call", [lambda s: s.checkpoint("a"),
+                                      lambda s: s.rollback("t"),
+                                      lambda s: s.snapshot()])
+    def test_delegate_before_bind_raises_typed(unbound, call):
+        with pytest.raises(SessionNotBoundError, match="call bind"):
+            call(unbound)
+
+    $ pytest tests/unit/workflow/test_session.py -q
+    23 passed in 1.14s
+
+Checked that the new cases can actually fail: dropping the guard from `_bound` and re-running
+reds all three, and an AttributeError does not match `SessionNotBoundError`, so the assertion is
+not satisfiable by the un-guarded shape.
+
+    $ git commit -F /tmp/msg.txt
+    feat(workflow): checkpoint/rollback/snapshot passthroughs on WorkflowSession
+
+    Each forwards through a single guard that raises a typed error naming bind(), so calling
+    one before the context is assigned yields the missing step rather than an attribute error
+    on a null receiver.

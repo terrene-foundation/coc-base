@@ -1,0 +1,12 @@
+ADVISORY — the action proceeded. Acknowledge in next message.
+
+WHAT HAPPENED: A git invocation that may replay commits was measured for content loss and found clean: the rebase base "no/such/ref" does not resolve to a commit in this repo, so 0 merge commits will be dropped.
+WHY: rebase-content-loss-guard (loom#1773) — a rebase of a branch assembled by merging feature branches in drops its merge commits and, with them, the content those merges carried. This guard fails OPEN on every unresolved condition, so the command is NOT blocked; but an unmeasured risk is not an absent one (instrument-discipline.md MUST-1).
+
+REPORT TO USER (do not skip any):
+  - Merge commits at risk: 0. The branch is linear, so this rebase preserves all of its content.
+  - The content-loss check completed and returned clean; no pre-rebase snapshot is needed.
+  - Before rebasing, record the pre-rebase tip: `git rev-parse HEAD` (or `git branch pre-rebase-<name>`).
+  - After rebasing, run: node .claude/hooks/rebase-content-loss-guard.js --verify <pre-rebase-ref>
+
+THEN: You may proceed; no further reporting is required for this rebase.

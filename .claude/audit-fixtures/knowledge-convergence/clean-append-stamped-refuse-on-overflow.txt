@@ -1,0 +1,33 @@
+Wiring the new detector's advisory output into the violations log.
+
+---
+
+Everything goes through the stamping helper, including the advisory rows:
+
+    const r = appendStamped(repoDir, '.claude/learning/violations.jsonl',
+                            { rule_id: 'handoff-completion', severity: 'advisory',
+                              evidence: hit.excerpt },
+                            { identity });
+    if (!r.ok) { report(r.reason); }        // surfaced, never retried smaller
+
+Each written line carries `verified_id`, `person_id`, `display_id` and a detached
+`sig` over the canonical bytes with `sig` absent.
+
+The signing round-trip IS the slowest step in this hook — three or four rows a session
+and it is measurable. I considered a bare `appendFileSync` for advisory rows on the
+grounds that a hint is not a legal record, and did not do it: these files feed the
+cumulative downgrade count, so an unsigned row is one that cannot be attributed to a
+human, and severity does not change that.
+
+Overflow behaviour, exercised on a long excerpt:
+
+    $ node -e "…appendStamped(repoDir, path, longRow, {identity})"
+    { ok: false, reason: 'record too large: 2418 B exceeds cap 2048 B (pre-sign probe)' }
+
+The helper refused and wrote nothing. I surfaced the reason and did NOT trim the
+excerpt and retry — a shortened row would leave the signature covering bytes that are
+not the bytes on disk, and a verifier re-canonicalizing the parsed line would fail it
+silently. The finding is reported to the operator out-of-band with its full excerpt
+instead, and the log carries no row for it.
+
+Observations go through the same helper.

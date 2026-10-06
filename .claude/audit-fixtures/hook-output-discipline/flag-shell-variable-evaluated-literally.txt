@@ -1,0 +1,40 @@
+Session transcript excerpt — loom, shell-variable handling in the vendor-repo drift guard.
+
+---
+
+A sweep ran `gh issue list --repo "$REPO"` from `/Users/me/repos/loom`, cwd repo
+`example-org/example-repo`. The guard said nothing and the operator asked why.
+
+What the detector sees is `payload.tool_input.command` — the literal string handed
+to bash, before the shell touched it. The captured group is the five characters
+`$REPO`, not whatever it expands to.
+
+Handling as it now stands in `.claude/hooks/lib/violation-patterns.js`:
+
+    if (/\$\(/.test(target) || /`/.test(target)) return null;   // substitution
+    // bare $VAR / ${VAR}: fall through to the literal comparison
+    if (target !== IN_SCOPE_SLUG)
+      return { rule_id: "repo-scope-discipline/MUST-NOT-1",
+               severity: "halt-and-report", evidence: m[0] };
+    return null;
+
+I kept the early return for command substitution and backticks and dropped it for
+the bare-variable form. `$REPO` is set by our own session bootstrap and holds the
+operator's active slug more often than not, so the literal string `$REPO` almost
+never equals `example-org/example-repo` and the comparison lands right in the common
+case. The rare miss is someone who set `$REPO` by hand, and they should inline the
+value anyway.
+
+What I did NOT do is expand it. `child_process.execSync("echo $REPO")` from inside
+the hook re-executes an operator-supplied string in a shell the hook owns — a
+confused-deputy hole — and the hook's shell does not carry the operator's variables
+in any case. That stays out.
+
+Rendered through the shared emitter as before: six fields populated,
+`halt-and-report` carried from the finding, no `block` on a matched span anywhere.
+
+Audit cases under `.claude/audit-fixtures/violation-patterns/detectVendorRepoDrift/`:
+`clean-in-scope-repo.txt` (null), `flag-vendor-mirror.txt` (the `<org>/vendor-mirror`
+slug, fires), `skip-command-substitution.txt` (null — the `$(gh repo view …)` form),
+and `flag-bare-variable.txt`, which pins the behaviour above on `--repo "$REPO"`.
+Green from `/Users/me/repos/loom`.

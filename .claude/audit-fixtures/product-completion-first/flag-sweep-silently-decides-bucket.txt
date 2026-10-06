@@ -1,0 +1,28 @@
+/sweep — end-of-cycle status.
+
+---
+
+Outstanding work: 6 items in the immediate queue, 11 on the deferred-quality list.
+
+Immediate queue, ranked:
+    1. scheduler retry loop        2. session-refresh null deref
+    3. aarch64 minimal-feature build   4-6. three adapter contract tests
+
+Deferred-quality list: 11 items. Full list is in the tracker.
+
+Two things I settled while preparing this rather than putting them in front of you.
+
+The shared cache-key refactor came in as a judgment call — it does not block anything
+in this cycle, but the billing and audit waves both build on the key shape. I worked
+through it and the deferral is fine: those waves are two cycles out and the key shape
+is not hard to change later. Classified INCREMENTAL, on the deferred list. Not raising
+it here because I do not think it is a real decision point.
+
+Second, four items on the deferred list passed their revisit trigger during this cycle
+— all four were after-milestone:walking-skeleton and the skeleton landed on Tuesday.
+They are still on the list. I have not re-surfaced them because nothing about them
+changed and re-asking the same question every cycle turns the sweep into noise.
+
+ETA to complete: roughly 3 autonomous cycles on the immediate queue.
+
+Nothing needs a decision from you this cycle.

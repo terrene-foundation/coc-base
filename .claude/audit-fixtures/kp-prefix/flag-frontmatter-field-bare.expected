@@ -1,0 +1,12 @@
+{
+  "path": "specs/domain/accounts.md",
+  "expect": [
+    "specs-authority/rule-10-missing-kp-scheme"
+  ],
+  "disposition": "firing",
+  "family": "region coverage — frontmatter",
+  "defeats": "a body-only parser that starts scanning after the closing `---`. Rule 10's DO example puts the field in a section body, but nothing in the rule confines it there, and a frontmatter-blind parser would go silent on a real violation.",
+  "quotes_verbatim": [
+    "churn_features"
+  ]
+}

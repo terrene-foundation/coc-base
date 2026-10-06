@@ -1,0 +1,53 @@
+Session excerpt — loom, closing out the receipt-pairing work, 2026-09-10.
+
+`receipt-pairing-check.js` is written. It takes the set of `.claude/rules/*.md` paths the
+working tree has modified, and for each one looks for a `journal/` entry naming that rule.
+Any rule edit without a receipt is reported.
+
+    $ sed -n '1,14p' .claude/hooks/receipt-pairing-check.js
+    const changed = execSync("git status --porcelain .claude/rules/", {encoding:"utf8"})
+      .split("\n").filter(Boolean).map(l => l.slice(3));
+    const receipts = readdirSync("journal").join("\n");
+    const unpaired = changed.filter(p => !receipts.includes(basename(p, ".md")));
+
+Now the event. It reads two things: the rules tree and the journal directory. Both are on
+disk in the checkout before the first tool call, so they are durable repo state and
+`SessionStart` can see them. That makes this `lifecycle`, and `lifecycle` may sit at
+`SessionStart` with no matcher — `SessionStart` carries no tool axis anyway.
+
+    [Edit] .claude/hooks/receipt-pairing-check.js
+    +/**
+    + * @hook-event: SessionStart (lifecycle) — reads the .claude/rules tree and the
+    + *   journal directory, both present in the checkout before the first tool call.
+    + */
+
+    [Edit] .claude/settings.json
+    +        { "type": "command", "command": "node .claude/hooks/receipt-pairing-check.js" }
+
+Set check:
+
+    $ node .claude/bin/validate-emit.mjs --check hook-event-declaration
+    hook-event-declaration
+      receipt-pairing-check.js   declared {SessionStart} == registered {SessionStart}   PASS
+        class lifecycle: in vocabulary
+        rationale: non-empty
+      42 registrations, 42 declared, 0 FAIL
+    check: clean
+
+Exercising it:
+
+    $ node .claude/hooks/receipt-pairing-check.js < /dev/null
+    receipt-pairing: 0 rule edits without a receipt
+
+Clean. Then editing a rule to watch it work:
+
+    [Edit] .claude/rules/handoff-completion.md   (one clause tightened, no receipt written)
+
+    $ git status --porcelain .claude/rules/
+     M .claude/rules/handoff-completion.md
+
+The edit is there and unpaired, which is the case the hook exists for. No further hook
+output this session — `SessionStart` has already been and gone.
+
+Landing it. The registration is declared, the class is in the vocabulary, the sets agree
+and the validator is clean.

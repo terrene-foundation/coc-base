@@ -1,0 +1,24 @@
+LAND FIRST: finished work lands on dev in the session that finishes it. Branches, worktrees, stashes, tags and every ref namespace are containers, not resting states - drain each on completion. Carry this line into every delegation brief.
+For THIS task: you EDIT files only. Do NOT git add/commit/push/stash/reset/clean/checkout --/restore. The lane orchestrator is the sole committer and reviews your diff. Do not dispatch sub-agents.
+
+ROOT-CAUSE DISPOSITION (rules/autonomous-execution.md): where a defect admits a symptom patch and a root-cause fix, implement the root-cause fix without asking. A same-class gap inside your budget: fix it, do not file it. Carry this clause into any brief you write.
+
+CONTAINMENT (worktree-isolation MUST-10): any fixture that builds a repo uses its own mkdtemp dir with an absolute `-C`/`cwd` on every git call, asserted against `git rev-parse --show-toplevel` before the first write. You make NO git writes outside a temp fixture. Never write in /Users/op/repos/loom (main checkout) or any other worktree under /Users/op/repos/.loom-wt/. Never write `journal/`, `.claude/learning/**`, `.claude/settings.json`.
+
+STEP 0 (first action):
+  cd "/Users/op/repos/.loom-wt/wip-ledger" || { echo "STOP: cannot enter"; exit 1; }
+  top=$(git rev-parse --show-toplevel) || { echo "STOP: not a git repo"; exit 1; }
+  [ "$top" = "$(pwd -P)" ] || { echo "STOP: not a worktree ROOT"; exit 1; }
+  [ "$(git rev-parse --abbrev-ref HEAD)" = "codify/op-2026-09-12-wip-ledger" ] || { echo "STOP: wrong branch"; exit 1; }
+Use absolute paths. Scratch ONLY under /tmp/scratch/lanes/wip-ledger/E/ (create it).
+
+SHARED WORKTREE: other agents edit OTHER files here concurrently, including `hooks/wip-discipline-guard.js` (which LOADS your `dispatch-contract.js`) and `hooks/lib/wip-lanes.js`. Edit ONLY your file set. Mutate-run-restore inside ONE Bash call so a mutation of `dispatch-contract.js` never outlives the call (other runners load it). A red in a file you don't own: re-run once after a minute; if it persists, report. Don't edit shared registration files — report the exact entry needed.
+
+AUTHORITY: read `journal/0608-…AMENDMENT…md` (dispatch-time bullet) and `journal/0607-…mini-orchestrators…md` decisions 1–2, whole.
+
+FILE SET: `.claude/hooks/lib/dispatch-contract.js`, `.claude/hooks/dispatch-contract-guard.js`, `.claude/audit-fixtures/dispatch-contract/**`.
+
+W6b — DISPATCH TIME. At `PreToolUse:Task|Agent`, add `detectLaneBriefWithoutPartition` beside the existing predicates: a LANE-ORCHESTRATOR brief that carries no fan-out / partition instruction gets an `advisory` naming what is missing. Advisory at most — the signal is prose; never block.
+The discrimination is the whole job. A LANE-ORCHESTRATOR brief names a lane worktree (a sibling path like `<parent>/.<slug>-wt/<name>` and/or a STEP-0 `rev-parse --show-toplevel` + branch assertion) AND grants commit authority on that lane branch. It is COMPLIANT when it instructs fan-out under the partition contract (dispatch agents in parallel / disjoint write file sets / sole committer / read-only agents unbounded / per-agent build dirs / mini-orchestrator). A LEAF WORKER brief also names the lane worktree but denies commit authority or dispatch (e.g. "you EDIT files only… do not commit… do not dispatch sub-agents") — it MUST NOT fire (this very brief is one: use it as the no-false-positive fixture shape). A brief naming no lane worktree MUST NOT fire.
+
+RETURN CONTRACT — your final message IS the deliverable, states results: the predicate's structural trigger and compliance test; sample advisory text; files changed; runner rcs before/after with counts; mutation red-set with cmp proof; registration entries needed; residuals. Under 600 words.

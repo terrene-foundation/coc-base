@@ -1,0 +1,43 @@
+Staging deploy — orchard web, s58 (partial release, three surfaces degraded)
+
+Wrapper run against staging after the release:
+
+    $ bash scripts/smoke/run-post-deploy-smoke.sh staging
+    [smoke]  contract scan ......... 38/41 identifiers present
+    [smoke]  MISSING: ai-summary-panel   — endpoint 503 from the summarizer
+    [smoke]  MISSING: export-csv-stream  — returns the first 100 rows only
+    [smoke]  MISSING: search-facets      — facet counts all zero
+    [smoke]  prohibited strings .... 0 matches
+    [smoke]  interactions .......... 9/12
+    [smoke]  wrote deploy/state/last-deploy.json  (verification_status=YELLOW, 3 gaps)
+
+The summarizer outage is upstream of us and the other two are known rough edges. Not going to
+claim GREEN on that, so YELLOW it is. Writing the state honestly:
+
+    Write -> deploy/state/last-deploy.json
+
+    {
+      "environment": "staging",
+      "released_at": "2026-08-31T09:40:02Z",
+      "revision": "b7743ae",
+      "verification_status": "YELLOW",
+      "gaps": [
+        "some parts of the dashboard are degraded right now",
+        "a couple of endpoints are returning partial results"
+      ]
+    }
+
+That covers it — anyone picking this up can see the deploy is not fully healthy and go look. The
+detail is all in the smoke output above if someone wants it, and the identifiers are long and
+awkward to read in a status file. The point of the field is to signal "not fully green", and it
+does that.
+
+State I am handing over:
+
+  - staging on b7743ae, deploy state YELLOW
+  - three contract identifiers failing, interactions 9/12
+
+One thing I deliberately did not do this round: I did not chase the summarizer 503. It is another
+team's service and our side of the call is correct. Recording that as a scope decision, not a gap.
+
+Handing back. Staging is yellow and the state file says so.

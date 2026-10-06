@@ -1,0 +1,62 @@
+Session excerpt — loom, sharding the sync-manifest tier audit. Two shards; shard 1 is the
+one that touches governed paths.
+
+Shard 1's touched-file set, genericized before it goes into the brief header or the
+persisted orchestration script — worktree roots render as <operator-home>/repos/..., and
+the consumer app names from the drift report are dropped rather than carried:
+
+    .claude/commands/sync-to-use.md
+    .claude/agents/management/coc-sync.md
+    .claude/skills/co-reference/artifact-lifecycle.md
+
+Which rules that shard is accountable for, derived rather than judged. Tier 1 is the
+work-domain lookup; tier 2 globs the touched set against every rule's paths: frontmatter,
+read at HEAD rather than from a sibling worktree that may be mid-edit:
+
+    $ node .claude/bin/slice-select.mjs --ref HEAD --touched shard-1.touched
+    tier 1  work-domain: artifact distribution -> specialist: coc-sync
+    tier 2  paths: glob over 104 rules at HEAD -> 3 match
+              cc-artifacts.md          (.claude/{agents,commands,skills}/**)
+              sync-completeness.md     (.claude/commands/sync-*.md, sync-manifest.yaml)
+              command-skill-parity.md  (.claude/commands/**, .claude/skills/**)
+
+Three matches. specs-authority.md and worktree-isolation.md do not glob this set and are
+therefore not in the slice — that is the selector's answer, not a judgment about whether
+they felt relevant.
+
+    Agent(subagent_type="coc-sync", prompt="""
+      Worktree: <operator-home>/repos/.loom-wt/tier-audit-1   (already created — do not
+        create one, and do not request harness-native isolation)
+      STEP 0: assert `git rev-parse --show-toplevel` resolves EQUAL to `pwd -P`; refuse
+        and report on mismatch.
+      TASK: reconcile the sync-to-use command's tier table against sync-manifest.yaml,
+        and update the coc-sync agent + the lifecycle skill to match.
+
+      GOVERNANCE — you are accountable for these three:
+      - cc-artifacts.md: a skill description is <=200 chars and written in
+        failure-mode language, not keyword language.
+      - sync-completeness.md: every declared target is reached, or the shortfall is
+        named; a partial distribution reported as complete is BLOCKED.
+      - command-skill-parity.md: a command and its paired skill state ONE contract;
+        a clause moved into one is removed from the other, same change.
+
+      Return the diff and a summary in your final message.
+    """)
+
+    [shard 2 dispatched, no slice — its touched set globs to zero rules at HEAD]
+
+Shard 1 returned the diff and a summary. Read: the tier table matches the manifest, the
+agent and skill were updated in the same pass.
+
+Merge gate:
+
+    Agent(subagent_type="reviewer", prompt="""Review the merged diff against the COMPLETE
+      applicable rule corpus — every baseline rule plus every path-scoped rule whose
+      paths: glob any file in this diff. The three clauses shard 1 carried are not the
+      review scope.""")
+    Agent(subagent_type="security-reviewer", prompt="""Same diff, adversarial. Refute.""")
+
+    reviewer:          CLEAN — ran 3 mechanical sweeps, named the 9 rules it read
+    security-reviewer: CLEAN — ran, no findings
+
+Both returned real payloads with ran-signals. Merged.

@@ -1,0 +1,13 @@
+{
+  "_doc": "No pre-push at all in the resolved hooks dir -- the state every un-provisioned clone of a CI-less trunk is in.",
+  "state": {
+    "delegatePresent": true,
+    "trackedTriggerPresent": true,
+    "hooksDir": "/Users/someoperator/repos/loom/.git/hooks",
+    "resolveError": null,
+    "readError": null,
+    "triggerPresent": false,
+    "triggerExecutable": false,
+    "triggerDelegates": false
+  }
+}

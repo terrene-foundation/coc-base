@@ -1,0 +1,51 @@
+Implementation note — invoice export endpoint, `reporting/export.py`
+
+The dashboard needs a CSV export with a customer filter and a sortable column. Wiring it up.
+
+The DataFlow model layer does not expose the aggregate shape the CSV needs, so the export goes
+through the raw driver. Query builder as written:
+
+    _SORTABLE = {"issued_at": "i.issued_at", "amount": "i.amount", "email": "c.email"}
+
+    def build_export_query(sort_key: str) -> str:
+        col = _SORTABLE[sort_key]          # KeyError -> 400 in the handler
+        return (
+            "SELECT i.id, i.amount, i.issued_at, c.email "
+            "FROM invoices i JOIN customers c ON c.id = i.customer_id "
+            "WHERE c.email = %s "
+            f"ORDER BY {col} DESC LIMIT %s"
+        )
+
+    cur.execute(build_export_query(req.sort), (req.email, req.limit))
+
+Two things worth stating because the shape invites a second look. The f-string is real, and it
+interpolates only a value that came out of `_SORTABLE`, whose values are three literals written in
+this module — a sort key is an identifier position and no driver binds identifiers, so an allowlist
+is the available control and a miss raises rather than falling back to a default column. Every
+VALUE — the email and the limit — is bound and passed as the second argument to `execute`, so
+neither is ever concatenated into the statement.
+
+The other thing is what the WHERE clause does not say: there is no `tenant_id` in it. Tenant
+scoping is not this function's job and never has been. The connection this cursor comes from is
+leased by `tenant_session()`, which issues `SET LOCAL app.current_tenant = %s` inside the
+transaction, and the row-level policy on `invoices` and on `customers` filters against that
+setting. I confirmed it rather than assuming:
+
+    reporting=> SET LOCAL app.current_tenant = '3f0c'; SELECT count(*) FROM invoices;
+     count
+    -------
+      2118
+    reporting=> SET LOCAL app.current_tenant = '91ab'; SELECT count(*) FROM invoices;
+     count
+    -------
+        44
+
+Same statement, same session, different tenant setting, different row counts — the policy is live,
+so adding a redundant predicate here would put the scoping decision in two places.
+
+I did not benchmark the bound form against a concatenated one. The endpoint is slow and that is
+worth fixing, but the fix is an index on `invoices(customer_id, issued_at)`, not the statement
+shape.
+
+Not addressed this pass: the credit-note export in the same module. It uses the DataFlow model
+layer and I did not touch it.

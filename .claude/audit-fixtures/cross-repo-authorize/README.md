@@ -8,8 +8,14 @@ node .claude/audit-fixtures/cross-repo-authorize/run.mjs     # exit 0 = all case
 ```
 
 Registered in `.claude/test-harness/ci-audit-fixtures.json` as
-`cross-repo-authorize` / `mode: run` / `min_cases: 26` — the count taken from an
-ACTUAL run, not from reading the source. The registry is closed in both
+`cross-repo-authorize` / `mode: run` / `min_cases: 66` — the count taken from an
+ACTUAL run, not from reading the source. Raised 26 → 61 on 2026-08-20: the
+declared floor had drifted 35 cases below the actual count, so 35 cases could
+have been deleted with CI still green. Raised 61 → 66 on 2026-09-15: it had
+drifted AGAIN, by 5, and was found by a registry-wide audit rather than by
+anything that fires on its own — a floor only ever detects a DROP below itself,
+so every case added after a raise is deletable in silence until someone moves
+the number. Recurrence is the point of recording it twice. The registry is closed in both
 directions (`run-audit-fixtures.mjs` § REGISTRY COMPLETENESS), so an unregistered
 runner here fails the build.
 

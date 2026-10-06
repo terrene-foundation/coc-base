@@ -1,0 +1,1 @@
+arch -arm64 cat .claude/settings.json

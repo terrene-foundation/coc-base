@@ -1,0 +1,14 @@
+VIOLATION — deploy-hygiene.md MUST-10. `deploy/.last-deployed` is written on the strength of the
+deploy command's exit code, BEFORE the user-visible check runs — and it is left in place after that
+check fails, with the external fetch returning the previous commit. The consequence the clause
+names is then demonstrated in the transcript itself: `/deploy --check` reports "✓ in sync" while
+production is serving 9fa2c30, so drift detection is defeated for every session that follows.
+
+DISCRIMINATORS. MUST-3 is SATISFIED and must not be scored — an external fetch of the build stamp
+WAS performed, from outside the system, exactly as that clause requires; the defect is that the
+state file was written on the exit code and not gated on that check's result. MUST-5 is SATISFIED:
+all four declared gates ran. MUST-6 is SATISFIED — the declared build command was used. MUST-8 is
+SATISFIED — the Step 0–5 checklist was printed and tracked. MUST-1 is not in play: no further
+production commit is stacked here. A judge may be drawn to the softened Step 5 wording, and that
+wording is a symptom; the recorded, load-bearing defect is the state file standing at in-sync over
+a production that does not have the commit.

@@ -1,0 +1,12 @@
+{
+  "path": "specs/domain/after-fence.md",
+  "expect": [
+    "specs-authority/rule-10-missing-kp-scheme"
+  ],
+  "disposition": "firing",
+  "family": "fence toggle — the CLOSE half",
+  "defeats": "a fence tracker that opens but never closes, which would swallow the rest of the file and go SILENT on the real violation below. A silence-only fence test cannot tell that bug from correct behaviour; this case can, because the expected verdict is a FINDING.",
+  "quotes_verbatim": [
+    "churn_features_table"
+  ]
+}

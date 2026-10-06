@@ -33,10 +33,69 @@
  *      RELOCATED tier-3 config (via $LOOM_ECOSYSTEM_CONFIG or opts) may force
  *      ON but may NOT disable an ENROLLED repo — see § ENROLLED-DISABLE FENCE.
  *   4. implicit                            — roster present AND genesis
- *      anchored (a non-empty `genesis.root_commit`). Back-compat: the ~12
- *      already-enrolled repos stay ON with NO config change, because
+ *      anchored (a non-empty `genesis.root_commit`) AND the roster binds
+ *      ≥2 DISTINCT HUMANS (§ SOLO FLOOR below). Back-compat: the already-
+ *      enrolled MULTI-operator repos stay ON with NO config change, because
  *      "genesis anchored" already means someone deliberately turned this on.
  *   5. default                             — OFF.
+ *
+ * § SOLO FLOOR (loom#1890) — "enrolled" is not "multi-operator".
+ *   Tier 4's original predicate was "roster present AND genesis anchored".
+ *   NEITHER conjunct is evidence that more than one human works here:
+ *   `/genesis-bootstrap` makes BOTH true for ANY repo, including a fresh solo
+ *   one, so the substrate enabled ITSELF on every bootstrapped repo and nobody
+ *   ever decided to run it. Measured on canon loom: no ecosystem.json entry, no
+ *   local override, coordination ON *solely* via this tier — with a roster
+ *   carrying THREE person_ids that all bind the SAME github_login, i.e. one
+ *   human. The consequences are not cosmetic:
+ *     - the 2-of-N quorum is STRUCTURALLY DEAD. `gh-api-allowlist.js` R5-S-07
+ *       rejects any cosign whose primary and cosigner share a bound login
+ *       (`loginsEqual`), so with ONE distinct login every possible pair is a
+ *       sock-puppet rejection. Nothing the substrate gates can ever be
+ *       approved; the gate is unsatisfiable, not merely unused.
+ *     - every integrity-critical write pays a full fold, which verifies each
+ *       record's signature by subprocess — measured 894 `gpg` spawns, the bulk
+ *       of a 16-second fold, to prove a single human's own records are their own.
+ *     - `operator-id.js`'s SOLO identity path (`_soloIdentity` /
+ *       `_soloDisplayId`, "MO-OPT W1-d — SOLO mode, coordination OFF") is
+ *       written, shipped and UNREACHABLE, because this tier pre-empts it.
+ *
+ *   THE CORRECT PREDICATE is ≥2 distinct HUMANS, and the codebase already knows
+ *   how to count that: distinct bound provider identity — the SAME measure
+ *   R5-S-07 uses for sock-puppet detection (`loginsEqual`/`normalizeLogin`,
+ *   case-insensitive, ASCII-fenced; `principalsEqual`/`normalizePrincipal` on
+ *   the azure-devops provider). One distinct binding ⇒ SOLO, however many
+ *   `person_id`s exist.
+ *
+ *   FAIL DIRECTION — asymmetric, and deliberately so. Being too eager to call
+ *   SOLO silently strips the gates off a genuine multi-operator repo, which is a
+ *   SECURITY REGRESSION; being too eager to call MULTI merely reproduces the
+ *   status quo we are correcting. So SOLO is returned ONLY on POSITIVE,
+ *   UNAMBIGUOUS evidence: a readable, well-formed roster whose every person
+ *   yields a determinable binding and whose distinct-binding count is exactly 1.
+ *   Anything unreadable, malformed, unrecognized (an unknown `provider`, an
+ *   unknown `host_role`, a missing/non-ASCII binding) or absent is INDETERMINATE
+ *   and keeps the CURRENT behaviour — ON — per `rules/security.md` (fail-closed;
+ *   unrecognized ranks TIGHTEST). A corrupt roster can therefore never flip a
+ *   repo to SOLO; that is the whole point of routing the verdict through
+ *   `_soloOperatorVerdict`'s tri-state rather than a boolean.
+ *
+ *   NOT SILENT. A SOLO disable attaches `result.warning`, so
+ *   multi-operator-sessionstart.js prints it once per session. The one case this
+ *   predicate can get wrong on real data — two humans sharing ONE provider
+ *   account — is thereby announced, and the operator's remedy is tier 2/3, which
+ *   still WIN over this tier (an explicit `{enabled:true}` is honoured
+ *   unconditionally). Note that such a repo's quorum was ALREADY dead under
+ *   R5-S-07 before this change; what it loses is the log/claim/lease layer, and
+ *   it gets one line of banner telling it exactly how to get it back.
+ *
+ *   TIERS 1-3 ARE UNTOUCHED. Someone who has explicitly enabled coordination on
+ *   a one-person roster has MADE A DECISION, and this tier never runs for them —
+ *   the first decisive tier still wins. The enrolled-disable fence
+ *   (`_refuseEnrolledDisable`) is likewise unchanged: it can only ever push
+ *   toward ON, so leaving it on the old "enrolled" reading cannot produce a
+ *   SOLO false-positive. See § SOLO FLOOR / SURFACE PARITY at
+ *   `_soloOperatorVerdict`.
  *
  * WHY SYNCHRONOUS + fs-direct (NOT the ESM ecosystem-config.mjs loader):
  *   The four guards are PreToolUse hooks; a synchronous predicate is callable
@@ -65,8 +124,10 @@
  *     enabled: boolean,
  *     source:  "opts" | "local-override" | "ecosystem-config"
  *            | "implicit-roster-genesis"
+ *            | "implicit-solo-single-operator"        // enrolled, but ONE distinct human
  *            | "implicit-corrupt-roster-failclosed"   // roster present but unparseable
  *            | "implicit-head-enrolled-failclosed"    // absent/degenerate here, ANCHORED at HEAD
+ *            | "implicit-head-indeterminate-failclosed" // git could not answer at HEAD
  *            | "default-off",
  *     warning?: string   // present when a tier was skipped (read/parse error)
  *                        // OR a tier-2 / tier-3 enrolled-disable was refused;
@@ -134,6 +195,15 @@ const { spawnSync } = require("child_process");
 // spawns git — per rules/security.md § Enforcement-Surface Parity, two copies of an
 // env allowlist is exactly the shape that leaves one of them a variable behind.
 const { resolveGitBinary, resetGitBinaryCache, gitEnv } = require("./git-subprocess-env.js");
+// THE canonical provider-identity normalizers (loom#1890 § SOLO FLOOR). Both are
+// pure, zero-dep, zero-I/O CommonJS modules, so requiring them from a PreToolUse
+// predicate costs a module load and nothing else. Routing the solo count through
+// the SAME normalizers R5-S-07 uses for sock-puppet detection is deliberate per
+// `rules/security.md` § Enforcement-Surface Parity: "one distinct human" MUST mean
+// the same thing to the tier-4 predicate and to the cosign fence, or a roster that
+// defeats the quorum could still read as multi-operator here.
+const { normalizeLogin } = require("./github-login.js");
+const { normalizePrincipal } = require("./ado-login.js");
 
 // O_NOFOLLOW / O_NONBLOCK are POSIX-only; Node leaves them undefined on Windows.
 // `| 0` degrades to a plain O_RDONLY there rather than producing NaN flags. The
@@ -1322,7 +1392,14 @@ function coordinationMode(repoDir, opts) {
     }
   }
 
-  // Tier 4 — implicit: roster present AND genesis anchored.
+  // Tier 4 — implicit: roster present AND genesis anchored AND ≥2 distinct humans.
+  //
+  // § SOLO FLOOR (loom#1890). Only the FIRST branch below changed: an enrolled
+  // roster that binds exactly ONE distinct human now resolves OFF instead of ON.
+  // Every OTHER branch here is a fail-closed-toward-ON disposition reached
+  // precisely BECAUSE the roster could not be read (malformed, unreadable,
+  // absent-but-anchored-at-HEAD, attestation-unavailable), and each is left
+  // EXACTLY as it was: a roster we cannot read is not a roster we may call solo.
   if (!result) {
     const rp = _rosterPath(rd, o);
     // Same sink-pinned read + same non-object classification as
@@ -1339,7 +1416,34 @@ function coordinationMode(repoDir, opts) {
       r.value.genesis &&
       _isGenesisAnchored(r.value.genesis)
     ) {
-      result = { enabled: true, source: "implicit-roster-genesis" };
+      const solo = _soloOperatorVerdict(r.value);
+      if (solo.state === "solo") {
+        // NOT SILENT. An automatic disable of a security substrate must announce
+        // itself: multi-operator-sessionstart.js prints result.warning once per
+        // session, so the one case this predicate can get wrong on real data (two
+        // humans sharing ONE provider account) surfaces with its own remedy
+        // attached, rather than the gates simply going quiet.
+        warnings.push(
+          `roster is ENROLLED but binds a SINGLE human (${solo.binding}) across ` +
+            `${Object.keys(r.value.persons || {}).length} person_id(s) — coordination OFF ` +
+            "(a 2-of-N quorum is unsatisfiable with one distinct bound login: " +
+            "gh-api-allowlist R5-S-07 rejects every such cosign as a sock-puppet). " +
+            'To run the substrate anyway, record the decision explicitly: set ' +
+            '{"coordination":{"enabled":true}} in .claude/bin/ecosystem.json ' +
+            "(tier 3 wins over this tier)",
+        );
+        result = { enabled: false, source: "implicit-solo-single-operator" };
+      } else {
+        // `multi` AND `indeterminate` both land here, and DELIBERATELY produce a
+        // result byte-identical to the pre-#1890 one — no new `source`, no added
+        // `warning`. The indeterminate disposition IS "no change from today", so it
+        // must be observationally indistinguishable from today; surfacing a banner
+        // line for every oddly-shaped roster would make this hot PreToolUse
+        // predicate the complaint surface for roster hygiene, which belongs to
+        // `roster-schema-validate.js`. The verdict's `reason` is still available to
+        // callers via the exported `_test_soloOperatorVerdict` seam.
+        result = { enabled: true, source: "implicit-roster-genesis" };
+      }
     } else if (malformed) {
       warnings.push(
         `roster present but not an object (${rp}) — fail-closed toward ON (indeterminate enrollment)`,
@@ -1422,6 +1526,147 @@ function _isGenesisAnchored(genesis) {
     return false;
   if (/^0+$/.test(rc.trim())) return false;
   return true;
+}
+
+/**
+ * § SOLO FLOOR (loom#1890) — how many DISTINCT HUMANS does this roster bind?
+ *
+ * Returns a TRI-STATE, never a boolean, because "not solo" and "cannot tell" must
+ * reach the SAME disposition (keep the substrate ON) while remaining
+ * distinguishable to the operator-facing warning:
+ *
+ *   { state: "solo",   count: 1, binding: "<normalized>" }
+ *   { state: "multi",  count: N }                              (N >= 2)
+ *   { state: "indeterminate", reason: "<why>" }
+ *
+ * ONLY `"solo"` disables. `"indeterminate"` is produced by EVERY shape this
+ * function does not positively recognize — an unknown `genesis.provider`, a
+ * `persons` map that is not a plain object, a person entry that is not an object,
+ * an unrecognized `host_role`, a missing or non-ASCII provider binding, or a
+ * roster with zero human persons. Per `rules/security.md`, unrecognized ranks
+ * TIGHTEST: on this predicate TIGHTEST means "keep the gates up".
+ *
+ * WHY `host_role: "ci"` IS EXCLUDED FROM THE COUNT (not merely ignored): a CI /
+ * deploy-key identity is AUDIT-ONLY and NEVER quorum-eligible — architecture
+ * §2.3 R5-S-04, restated in `rules/multi-operator-coordination.md` §1 and MUST-3.
+ * Counting it would let "one human + one deploy key" read as multi-operator when
+ * the quorum it implies is exactly as dead as the all-sock-puppet case. The
+ * literal string `"ci"` is the ONLY value that skips; anything else that is not
+ * the literal `"human"` is indeterminate, so a future or misspelled host_role
+ * cannot silently drop a real person out of the count.
+ *
+ * WHY THE BINDING, NOT `person_id`: `person_id` is the unit of AUTHORITY, not the
+ * unit of HUMAN. Three person_ids under one github_login are one human wearing
+ * three hats — which is the exact roster shape that motivated this predicate, and
+ * the exact shape R5-S-07 refuses to accept a cosign from.
+ *
+ * § SOLO FLOOR / SURFACE PARITY. `_refuseEnrolledDisable` deliberately does NOT
+ * consult this function. That fence answers a DIFFERENT question ("may a
+ * non-auditable {enabled:false} be honoured?") and its every answer pushes toward
+ * ON, so leaving it on the plain enrolled reading cannot manufacture a SOLO
+ * false-positive — the worst it can do on a solo repo is refuse a local-override
+ * disable that tier 4 then reaches anyway, i.e. the same OFF with an extra
+ * (accurate) warning. Teaching it the solo dimension would WIDEN what a
+ * gitignored, unaudited file may do, which is the direction #1429 closed.
+ *
+ * NEVER THROWS (`rules/zero-tolerance.md` Rule 3) — every unexpected shape is
+ * classified, not raised, because the caller is a PreToolUse guard.
+ *
+ * @param {object} roster - a parsed roster object (caller has already established
+ *   it is a non-null, non-array object with an anchored genesis).
+ * @returns {{state:"solo",count:number,binding:string}|{state:"multi",count:number}|{state:"indeterminate",reason:string}}
+ */
+function _soloOperatorVerdict(roster) {
+  if (!roster || typeof roster !== "object" || Array.isArray(roster)) {
+    return { state: "indeterminate", reason: "roster is not an object" };
+  }
+
+  // PROVIDER DISPATCH. `genesis.provider` absent/empty ⇒ "github" (the documented
+  // backward-compatible default, matching vcs-provider.js::DEFAULT_PROVIDER_ID and
+  // roster-schema-validate.js::_validateProviderIdentity). Any OTHER value is
+  // unrecognized and therefore indeterminate — we deliberately do NOT require
+  // vcs-provider.js here (it pulls both REST adapters into every guard process);
+  // what we need is the FIELD NAME and the NORMALIZER, and getting a provider we
+  // do not know about is a refusal either way.
+  const genesis = roster.genesis;
+  const rawProvider =
+    genesis && typeof genesis === "object" && !Array.isArray(genesis)
+      ? genesis.provider
+      : undefined;
+  let field;
+  let normalize;
+  if (rawProvider === undefined || rawProvider === null || rawProvider === "") {
+    field = "github_login";
+    normalize = normalizeLogin;
+  } else if (rawProvider === "github") {
+    field = "github_login";
+    normalize = normalizeLogin;
+  } else if (rawProvider === "azure-devops") {
+    field = "principal";
+    normalize = normalizePrincipal;
+  } else {
+    return {
+      state: "indeterminate",
+      reason: `unrecognized genesis.provider (${JSON.stringify(String(rawProvider).slice(0, 32))})`,
+    };
+  }
+
+  const persons = roster.persons;
+  if (!persons || typeof persons !== "object" || Array.isArray(persons)) {
+    return { state: "indeterminate", reason: "roster.persons is not an object" };
+  }
+
+  const bindings = new Set();
+  // OWN properties only, READ AS ENTRIES, never by re-indexing the map.
+  //
+  // TWO distinct hazards, both live on an attacker-authorable `persons` map:
+  //   (a) PROTOTYPE-CHAIN READ — an inherited `constructor` / `toString` must never
+  //       enter the count (the hazard vcs-provider.js::getProvider records for its
+  //       adapter lookup). `Object.entries` is own-enumerable only.
+  //   (b) `__proto__` / accessor RE-INDEXING — a sibling lane measured a live
+  //       prototype-pollution hole in the roster ceremony where a `__proto__` key
+  //       was assigned before validation, so the validator read an unchanged object
+  //       and passed. The lesson generalizes: a PARSED roster is NOT a well-formed
+  //       one. `Object.entries` hands back the VALUE that was parsed, so no
+  //       `persons[pid]` property-get runs and no accessor or prototype slot can
+  //       substitute a different object between enumeration and inspection.
+  // Every value is then re-validated as a plain object below regardless.
+  for (const [pid, p] of Object.entries(persons)) {
+    if (!p || typeof p !== "object" || Array.isArray(p)) {
+      return {
+        state: "indeterminate",
+        reason: `person ${JSON.stringify(pid.slice(0, 48))} is not an object`,
+      };
+    }
+    if (p.host_role === "ci") continue; // audit-only, never quorum-eligible
+    if (p.host_role !== "human") {
+      return {
+        state: "indeterminate",
+        reason: `person ${JSON.stringify(pid.slice(0, 48))} has unrecognized host_role (${JSON.stringify(String(p.host_role).slice(0, 32))})`,
+      };
+    }
+    const bound = normalize(p[field]);
+    if (bound === null) {
+      return {
+        state: "indeterminate",
+        reason: `person ${JSON.stringify(pid.slice(0, 48))} has no usable ${field} binding`,
+      };
+    }
+    bindings.add(bound);
+    // EARLY EXIT on the common multi-operator path: two distinct bindings already
+    // settle the question, and no later entry can un-settle it.
+    if (bindings.size >= 2) return { state: "multi", count: bindings.size };
+  }
+
+  if (bindings.size === 0) {
+    // A roster of nothing but CI identities (or no persons at all) is NOT positive
+    // evidence of a single human — it is a roster we cannot read a human out of.
+    return {
+      state: "indeterminate",
+      reason: "roster binds no human persons (all entries are host_role:ci, or persons is empty)",
+    };
+  }
+  return { state: "solo", count: 1, binding: Array.from(bindings)[0] };
 }
 
 /**
@@ -1545,10 +1790,169 @@ function isCoordinationEnabled(repoDir, opts) {
   return coordinationMode(repoDir, opts).enabled;
 }
 
+/**
+ * governanceMode — THE SECOND, ORTHOGONAL QUESTION (loom#1896 follow-up).
+ *
+ * § THE CONFLATION THIS SPLITS
+ *   `isCoordinationEnabled` was, until now, the sole gate on EIGHT hooks, and it
+ *   was answering TWO questions that are not the same question:
+ *
+ *     (1) INTER-HUMAN COORDINATION — sibling claims, adjacency contention, the
+ *         2-of-N quorum, session banners, journal SLOT RESERVATION. Every one of
+ *         these is a fact about OTHER HUMANS. At N=1 there are none, so OFF is
+ *         correct and #1890's solo floor is right to say so.
+ *
+ *     (2) AGENT-WRITE GOVERNANCE — the codify-branch fence, the DIRECT-set fence,
+ *         signing-mutation refusal, journal author-backing, the coordination-mode
+ *         Bash-mutation fence. Every one of these fences THE AGENT, not a sibling.
+ *         There is ONE operator here and SIXTEEN agent lanes ran in a single day.
+ *         "One human" is NOT evidence that these should stand down; it is not even
+ *         evidence bearing on the question.
+ *
+ *   #1896 correctly turned (1) OFF for a single-human roster. As a SIDE EFFECT it
+ *   turned (2) off too, because both hung off one boolean. This function is the
+ *   second question, asked separately.
+ *
+ * § THE PREDICATE: governance is ON iff the repo is ENROLLED.
+ *   Enrolled = a roster is present AND genesis is anchored — i.e. somebody
+ *   deliberately established a trust root here. That is precisely tier 4's
+ *   ORIGINAL predicate, BEFORE #1890 added the ≥2-distinct-humans floor on top.
+ *   #1890's floor is exactly right for question (1) and has no bearing on (2), so
+ *   governance reads the ladder WITHOUT it.
+ *
+ *   A genuinely fresh, never-enrolled repo has no roster: governance is OFF there,
+ *   so MO-OPT W1's whole purpose — a fresh solo repo is not blocked by a substrate
+ *   it never opted into — is preserved byte-for-byte.
+ *
+ * § WHY THIS CANNOT DRIFT OUT OF SYNC WITH `coordinationMode`
+ *   Three structural reasons, none of them a promise to be careful:
+ *
+ *   (a) IT IS NOT A SECOND SWITCH. There is no `governance.enabled` key, in
+ *       ecosystem.json or anywhere else. No operator can set it, so there is no
+ *       second setting that could disagree with the first. Introducing one would
+ *       reproduce the very defect this fixes, one level up.
+ *
+ *   (b) ONE COMPUTATION, ONE MODULE. It calls `coordinationMode()` — the same
+ *       function, the same cache, the same tier ladder, the same fail-closed
+ *       tri-states — and reads its TYPED `source`. It re-derives nothing. If the
+ *       ladder changes, both answers change together because there is only one
+ *       ladder.
+ *
+ *   (c) A MONOTONE INVARIANT, PINNED BY TEST:
+ *          coordinationEnabled(d) === true  ⇒  governanceEnabled(d) === true
+ *       Governance is a strict SUPERSET of coordination. The dangerous direction —
+ *       coordination armed while governance stands down — is unrepresentable in the
+ *       return shape below, because every `enabled:true` returns ON at line one.
+ *
+ * § HOW THE `source` MAP IS READ (and why an enrolled-but-OFF source means ON)
+ *   `coordinationMode` already publishes WHY it decided, and the OFF sources
+ *   partition cleanly on the only thing governance cares about:
+ *
+ *     enabled:true (ANY source)              -> governance ON   (invariant (c))
+ *     "implicit-solo-single-operator"        -> governance ON   ENROLLED; the OFF is
+ *                                                               about human COUNT, and
+ *                                                               that is question (1)
+ *     "default-off"                          -> governance OFF  no roster at all: the
+ *                                                               fresh-repo case W1 exists
+ *                                                               to protect
+ *     "opts"/"local-override"/"ecosystem-config" with enabled:false
+ *                                            -> RE-ASK enrollment directly (below)
+ *
+ *   That last row is the only one needing work, and it is deliberately NOT resolved
+ *   by trusting the explicit switch. An operator who writes
+ *   `{"coordination":{"enabled":false}}` has recorded a decision about the SUBSTRATE
+ *   — the quorum, the claims, the log — which is what that key is documented to mean
+ *   in this file's own header. Reading it as also standing down the codify-lease and
+ *   signing fences would let one config line disarm the agent-write governance of an
+ *   enrolled repo: the same disarm-eight-guards-with-one-flag shape, wearing a
+ *   different key name. So for an explicit disable we ask enrollment on its own
+ *   evidence, using THE SAME roster read tier 4 uses (`_readJsonPinned` +
+ *   `_isGenesisAnchored`) and THE SAME HEAD attestation (`_committedRosterEnrolled`),
+ *   with the same fail-closed direction: unreadable / malformed / indeterminate ranks
+ *   ENROLLED, per `rules/security.md` § Enforcement-Surface Parity.
+ *
+ *   THE ESCAPE HATCH IS THEREFORE ENROLLMENT ITSELF, not a flag: a repo that wants
+ *   no agent-write governance is a repo with no trust root, and tearing down genesis
+ *   is a committed, attested act rather than a gitignored one-line write.
+ *
+ * § WHAT THIS FUNCTION DELIBERATELY DOES NOT DO
+ *   It does not fold the coordination log, verify a signature, or spawn `gpg`. It
+ *   reads at most two JSON files and (only on the explicit-disable path) one git
+ *   blob — all of which `coordinationMode` had already read and cached. The 894-gpg
+ *   fold #1890 measured is bought by SIGNATURE VERIFICATION ACROSS N OPERATORS,
+ *   which is question (1); no caller of this predicate is permitted to re-introduce
+ *   it. See the per-check classification in the guards that call this.
+ *
+ * @returns {{enabled: boolean, source: string, coordination: {enabled: boolean, source: string}}}
+ */
+function governanceMode(repoDir, opts) {
+  const coord = coordinationMode(repoDir, opts);
+  const wrap = (enabled, source) => ({
+    enabled,
+    source,
+    coordination: { enabled: coord.enabled, source: coord.source },
+  });
+
+  // Invariant (c) — coordination ON always implies governance ON. This branch is
+  // FIRST so the dangerous direction is unreachable regardless of anything below.
+  if (coord.enabled === true) return wrap(true, "coordination-enabled");
+
+  // ENROLLED, and OFF only because one human is bound (#1890's solo floor). That
+  // is a verdict about question (1); it carries no information about question (2).
+  if (coord.source === "implicit-solo-single-operator") {
+    return wrap(true, "enrolled-solo");
+  }
+
+  // No roster, no genesis — a genuinely fresh repo. MO-OPT W1's protected case.
+  if (coord.source === "default-off") return wrap(false, "not-enrolled");
+
+  // An EXPLICIT disable (tier 1/2/3). Ask enrollment on its own evidence rather
+  // than letting the substrate switch answer a question it was not asked. Same
+  // reads, same fail-closed ranking as tier 4.
+  // Same argument resolution as `coordinationMode` above, so both answers are
+  // about the same directory by construction rather than by coincidence.
+  const rd = repoDir || process.cwd();
+  const o = opts || {};
+  const r = _readJsonPinned(_rosterPath(rd, o));
+  const malformed =
+    r.ok && (!r.value || typeof r.value !== "object" || Array.isArray(r.value));
+  if (r.ok && !malformed && r.value.genesis && _isGenesisAnchored(r.value.genesis)) {
+    return wrap(true, "enrolled-explicit-coordination-disable");
+  }
+  if (malformed || (!r.ok && r.error)) {
+    // Indeterminate enrollment ranks TIGHTEST — a roster we cannot read is not a
+    // roster we may call absent. Identical disposition to tier 4's own arm.
+    return wrap(true, "enrolled-indeterminate-failclosed");
+  }
+  const head = _committedRosterEnrolled(rd, o);
+  if (head.state === "enrolled" || head.state === "indeterminate") {
+    return wrap(true, `enrolled-at-head-failclosed:${head.state}`);
+  }
+  return wrap(false, "not-enrolled");
+}
+
+/**
+ * Ergonomic boolean accessor for guard call sites.
+ *
+ * READ THE CALL SITE CAREFULLY BEFORE SUBSTITUTING THIS FOR
+ * `isCoordinationEnabled`. They are not interchangeable and the substitution is
+ * only correct for a check that fences THE AGENT rather than a SIBLING HUMAN.
+ * A check that reads sibling claims, sibling worktrees, slot reservations, the
+ * quorum, or the signature-verified fold is question (1) and MUST keep
+ * `isCoordinationEnabled` — re-arming one of those here re-introduces both the
+ * solo disruption and the fold cost #1896 removed.
+ */
+function isGovernanceEnabled(repoDir, opts) {
+  return governanceMode(repoDir, opts).enabled;
+}
+
 module.exports = {
   coordinationMode,
   isCoordinationEnabled,
+  governanceMode,
+  isGovernanceEnabled,
   _resetCache,
   // Test-only — NOT part of the supported API.
   _test_isGenesisAnchored: _isGenesisAnchored,
+  _test_soloOperatorVerdict: _soloOperatorVerdict,
 };

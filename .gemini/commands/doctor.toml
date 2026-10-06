@@ -1,5 +1,5 @@
 name = "doctor"
-description = "loom onboarding health-check. Read-only: role, env/versions, line-endings, VCS-host auth, resolver — all at once with remediation."
+description = "Check onboarding health: role, environment, line endings, VCS auth, and resolver; read-only with remediation."
 prompt = '''
 `loom doctor` is the onboarding health-check. It surfaces EVERY onboarding issue
 at once with an actionable remediation per finding — so a fresh operator on a
@@ -56,11 +56,56 @@ detail lives in the backing skill `.gemini/skills/47-loom-doctor/`.
 | `vcs-host`     | derived: at least one VCS host authenticated                             |
 | `resolver`     | `resolveAll()` link errors / resolver-absent USE-consumer                |
 
+## Gate-2 target protection (`--targets`, opt-in)
+
+The ONE check that leaves this repo. For each Gate-2 distribution target declared in
+the ecosystem config (`build.*` + `use-template.*` in `remote_links`), it resolves the
+repo's default branch and reports whether that branch carries **≥1 REQUIRED status
+check** and whether **`enforce_admins`** is on.
+
+```bash
+node .claude/bin/loom-doctor.mjs --targets                     # resolve each default branch
+node .claude/bin/loom-doctor.mjs --targets --target-base main  # skip the lookup, probe 'main'
+node .claude/bin/loom-doctor.mjs --target-repo use-template.py # ONE target (implies --targets)
+node .claude/bin/loom-doctor.mjs --target-repo <owner>/<repo>  # same, by slug
+```
+
+| Row | Meaning |
+| --- | ------- |
+| `[OK] gate2-target:<key>` | ≥1 required check AND `enforce_admins=on` |
+| `[WARN] …enforce_admins=OFF` | required checks exist, but an admin merge bypasses them |
+| `[CRIT] …NO required status check` | merges into this target are unverified BY CONSTRUCTION |
+| `[CRIT] …protection UNKNOWN` | the probe did not answer — ZERO evidence, never an all-clear |
+
+- **Opt-in.** Off by default, so an unattended `loom doctor` makes no cross-repo call.
+  A default run still prints a visible `NOT PROBED` row rather than staying silent.
+- **Fail-closed.** An API error, a bare 404, a permission denial, a missing `gh`, an
+  unparseable body, or a failed default-branch lookup all report CRIT/UNKNOWN — the
+  same severity as unprotected, never `ok` (`evidence-first-claims.md` MUST-3).
+- **Report-only.** loom does not own a target's branch protection and MUST NOT edit it
+  (`repo-scope-discipline.md`); every remediation names the TARGET's owner. Running it
+  against real repos is a cross-repo READ and needs a `/cross-repo-authorize` receipt.
+- **`--target-base` is fenced too.** The base ref is interpolated into the API path, so a
+  traversal (`..`), a percent-encoded one (`%2e%2e`), a `#`, or any character git's own
+  `check-ref-format` forbids is REFUSED at CRIT before any request. It is **not** a slash
+  ban — `release/v1.2.3` is a real branch name and still probes.
+- **`--target-repo` is an ALLOWLIST, not a free-form slug.** It accepts only the Gate-2
+  targets `--targets` already probes (resolver key or `owner/repo`) plus this repo's own
+  origin — so it NARROWS the enumeration and cannot widen it. It is therefore not a route
+  around `/cross-repo-authorize`. Anything else is REFUSED at CRIT before any API call.
+  `loom`/`atelier`/`command` are declared in `remote_links` but are NOT Gate-2 targets, so
+  they are refused too. Use it to fire the instrument at a repo whose protection state you
+  already know — the known-answer control that shows the check discriminates here.
+- **Not a merge gate.** The Gate-2 driver's own refusal (`sync-gate2-worktree.mjs`,
+  exit 6 on `--merge`) is unchanged; this is the fleet-wide reporting view of the same
+  question, and reuses that driver's classifier rather than re-deriving it.
+
 ## Notes
 
 - **Run `loom doctor` BEFORE `/onboard`** — the `/onboard` command preamble points back here.
 - The engine takes injectable seams (`runDoctor(opts)` / `runFix(result, opts)`); the
-  unit tests at `.claude/bin/loom-doctor.test.mjs` drive every check + repair branch.
+  loom-side unit tests (`.claude/bin/loom-doctor.test.mjs` — loom-only, purged
+  downstream per `sync-manifest.yaml`) drive every check + repair branch.
 - `--fix` writes ONLY to the safe surface (git config, the resolver seed, `.coc-role`
   with an explicit `--role`) and never to hook-mediated state.
 '''

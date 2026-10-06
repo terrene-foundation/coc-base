@@ -1,0 +1,13 @@
+{
+  "_README": "SYNTHETIC: a USER-owned repo whose owner IS the person's login, and that login collides with a slug the scrubber rewrites.",
+  "genesis": { "repo_owner": "terrene-foundation", "repo_owner_kind": "user" },
+  "persons": {
+    "pid-collide-0000cccc": {
+      "display_id": "collideop",
+      "role": "owner",
+      "github_login": "terrene-foundation",
+      "host_role": "human",
+      "keys": []
+    }
+  }
+}

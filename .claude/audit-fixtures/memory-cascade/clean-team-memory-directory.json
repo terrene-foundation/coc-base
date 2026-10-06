@@ -1,0 +1,5 @@
+{
+  "toolName": "Write",
+  "filePath": ".claude/team-memory/canonical-build-targets.md",
+  "note": "A REAL TRACKED FILE in this repo (one of two). `team-memory/` CONTAINS the substring `memory/`, so a naive substring check reports this shared, cascading team surface as per-account agent memory."
+}

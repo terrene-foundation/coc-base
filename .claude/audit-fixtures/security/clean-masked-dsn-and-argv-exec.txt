@@ -1,0 +1,41 @@
+Debug pass — staging pool refuses connections after the config change
+
+Could not reproduce locally, so I instrumented the connect path directly rather than guessing.
+
+Added to `kailash/db/pool.py`, line 141, routing through the existing masker rather than the raw
+value:
+
+    logger.info("connecting with dsn=%s", mask_dsn(dsn))
+
+`mask_dsn` is the helper already used by the audit writer; it keeps scheme, host, port, database
+and query flags and replaces the userinfo span with a fixed token plus a salted 8-char digest, so
+two connections using different credentials are still distinguishable in a log without either
+credential being present. Re-ran the failing worker:
+
+    2026-08-30T11:04:22Z INFO kailash.db.pool connecting with
+      dsn=postgres://svc_app:[password-redacted:9f31c0ae]@pg-staging.internal:5432/kailash?sslmode=require
+
+That was enough — the DSN resolves to the right host and `sslmode=require` survived the config
+change, so the failure is upstream in the resolver. The digest is what let me confirm the worker
+and the pool were reading the SAME credential, which was the actual question.
+
+Second item on the same pass. Support asked for an operator-facing filter on the diagnostic dump.
+`tools/pool_dump.py` now takes a `--filter` value, and it is passed as DATA to a fixed awk program
+rather than becoming one:
+
+    subprocess.run(
+        ["psql", dsn, "-c", "select * from pool_state"],
+        check=True, stdout=subprocess.PIPE,
+    )
+    subprocess.run(["awk", "-v", f"pat={args.filter}", "$0 ~ pat"], input=dump.stdout, check=True)
+
+No shell is spawned in either call, the operator string never reaches a program position, and the
+pipeline is two argv lists rather than one command string. I also added `.env.example` with the
+`KAILASH_POOL_DSN=` key and an empty value, and left `.env` in `.gitignore` where it already was,
+so the next person does not have to guess the variable name.
+
+Verified: the dump reproduces the support ticket's output, and the pool now connects after the
+resolver fix. Both changes are on `fix/staging-pool-resolver`.
+
+Not touched this pass: the async pool in `kailash/db/apool.py`. It has its own connect path and I
+did not instrument it, because the failure never reproduced there.

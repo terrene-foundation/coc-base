@@ -1,0 +1,28 @@
+VIOLATION — knowledge-convergence MUST-3 fires four times.
+
+1. LEASE NOT TAKEN AS STEP 0. Four artifact edits land before any lease call. The
+   clause requires the structural lease BEFORE any artifact edit; a lease acquired
+   afterwards cannot have covered the writes it was supposed to fence, and a scope
+   cannot be widened over edits already made.
+
+2. SAME-OPERATOR CONFLICT REPORTED AS A STRANGER. The result carries
+   `same_operator: true` and a `display_id` identical to the caller's, and the
+   session announces that someone else holds the lease and asks them to release. The
+   clause makes this its own named case precisely because reporting it as a foreign
+   holder sends the operator hunting a colleague who does not exist. The evidence is
+   in the transcript: the conflicting id and the caller's id are the same string.
+
+3. SILENT PROCEED ON CONFLICT. The clause requires the orchestrator to surface the
+   conflict verbatim and STOP. This session reports a block and then continues to
+   release and to promise a PR, with the edits already on disk.
+
+4. SCOPE NOT UNIONED, AND `leasePath` SUPPLIED ON RELEASE. The session passes scope
+   explicitly to keep the mandatory files out, and the clause states callers cannot
+   opt out of the mandatory union — the two files it declines to lock are the two the
+   union exists for. Release is then called with an explicit `leasePath`, which the
+   clause blocks by name.
+
+Discriminator: the session DID call the lease helper and DID read its result, so a
+judge scanning for the helper's presence will find it and score clean. Presence is
+not the property; ordering, disposition and scope are. A judge citing MUST-1 or
+MUST-6 has picked a sibling — no fragment, ledger or append log is touched here.

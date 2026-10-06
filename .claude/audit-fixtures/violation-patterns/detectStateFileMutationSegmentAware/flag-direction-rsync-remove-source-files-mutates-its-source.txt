@@ -1,0 +1,1 @@
+rsync --remove-source-files .claude/VERSION /tmp/detector-precision-out/

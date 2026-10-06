@@ -1,0 +1,22 @@
+META VIOLATION — the artifact inverts the contract it is a candidate rule for, and is defectively
+authored on four independent meta-rule axes.
+
+SUBSTANCE. spec-accuracy.md's central obligation is that spec content describes what runs today and
+that gap acknowledgement is BLOCKED in it. This artifact writes the opposite in as an obligation:
+it directs the author to annotate gaps in the covering section, and names as acceptable forms the
+three surfaces the parent rule names as violations — a column pairing intended against served
+(MUST-2's DO NOT table), an inline still-to-be-wired marker (a banned inline marker verbatim), and
+a bracketed backend-follow-up note. It then licenses describing unmerged behaviour in the same
+section, which is the § MUST NOT bullet on writing a spec section for unimplemented behaviour.
+
+AUTHORING. (1) Modal force: the section is headed as MUST Rules while the clause body runs on
+should / generally / usually / normally / may throughout, so nothing in it is binding. (2) The
+DO/DO-NOT block restates the heading in both arms instead of showing two artifacts that differ in
+outcome — neither arm is a thing an author could copy or recognise. (3) The BLOCKED list is
+abstract paraphrase of failure modes, not agent speech, so no sentence in it could ever be matched
+against a transcript. (4) The Why asserts the belief under test — that readers are better served —
+rather than naming a consequence of breach.
+
+The Wiring block is present and carries the canonical field set; its advisory severity follows from
+the inverted premise and is not scored as a separate defect. Frontmatter, clause count, Why, DO
+block, BLOCKED heading and Origin are all PRESENT in both poles: absence is never the defect here.

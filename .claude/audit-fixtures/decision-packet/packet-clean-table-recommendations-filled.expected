@@ -1,0 +1,6 @@
+path: workspaces/identity/decisions/00-decision-packet.md
+expect:
+family: table answer column — FILLED (the reject pole for family 1)
+note: The rule's DO shape. Same three questions as the flag pole, same columns, same
+  ratify gate — the poles separate ONLY on whether the recommendation cell carries a
+  pick. A detector that fired here would flag every correct packet in the repo.

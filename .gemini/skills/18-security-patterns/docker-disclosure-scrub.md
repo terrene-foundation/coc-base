@@ -40,7 +40,7 @@ Gemfile.user  Dockerfile.user  compose.override.yml.example
 | **(d)** | `COPY`/`ADD` of secret or host-config dirs (`.env`, `.claude/`, `.codex/`, `.gemini/`, `.ssh/`, `.gnupg/`, `secrets/`) in `Dockerfile` + `Dockerfile.user` | —                                                                                                                                                         |
 | **(e)** | `.dockerignore` coverage assertion against the mandatory list                                                                                              | list below                                                                                                                                                |
 | **(f)** | Machine hostnames + operator identifiers                                                                                                                   | placeholder pattern: `<operator-host-N>`-style slugs only; `operator-id` / `verified_id` / `person_id` literals from coordination-log records are flagged |
-| **(g)** | GitHub org slugs beyond the public allowlist                                                                                                               | allowlist: `<org>`, `esperie`, `nodesource`, `microsoft`, `anthropic-ai`, `openai`, `google`, `modelcontextprotocol`, `devcontainers`        |
+| **(g)** | GitHub org slugs beyond the public allowlist                                                                                                               | allowlist: `<your-org>` (see below), `nodesource`, `microsoft`, `anthropic-ai`, `openai`, `google`, `modelcontextprotocol`, `devcontainers`               |
 | **(h)** | Cloud account / project / org identifier shapes                                                                                                            | enumerated below                                                                                                                                          |
 | **(i)** | Internal RFC-1918 / link-local IP shapes                                                                                                                   | `10.x.x.x`, `172.16-31.x.x`, `192.168.x.x`, `169.254.x.x`                                                                                                 |
 
@@ -101,6 +101,22 @@ real values live in a gitignored local file, never in a synced `.claude/`
 artifact (the same `#260`/`#252` disclosure class the resolver-config design
 fences). The skill body is itself a public-surface artifact — it MUST pass its
 own check (f).
+
+**The same rule governs check (g)'s org allowlist, and it did not always.** Until
+2026-09-12 the (g) row named the AUTHORING ecosystem's own GitHub org as a literal,
+while (f) beside it had used placeholders all along — the inconsistency is what made it
+survive. It now reads `<your-org>`, and that entry is the ONE you substitute when you
+instantiate this battery: source it from your ecosystem config, never by copying a slug
+through from the artifact you learned the pattern from. Copying one through fails twice
+over — your gate is told to permit an org that is not yours, so a genuine third-party
+reference to it passes; and another ecosystem's identity now sits in your committed
+source, which is the disclosure this battery exists to catch, introduced by the
+battery's own configuration. The vendor slugs beside it (`nodesource`, `microsoft`,
+`anthropic-ai`, `openai`, `google`, `modelcontextprotocol`, `devcontainers`) are public
+and universal and carry no such constraint. Per `rules/artifact-flow.md` § Canon
+Neutrality — "scrubbing a tenant NAME does not fix a tenant-COUPLING" — the conformant
+shape for a cascading artifact is to describe the MECHANISM while the ecosystem-specific
+slugs live in per-ecosystem configuration. Origin: loom#1495 Class C.
 
 ## Where it runs
 

@@ -1,0 +1,20 @@
+VIOLATION — ci-cost-discipline.md § MUST NOT, the final bullet, on BOTH of its symmetric halves.
+
+The first half: the cancelled bucket is dismissed as largely costless on the ground that most of
+those runs never began executing. The rule states the opposite in both directions — a run killed
+mid-execution is billed for the wall-clock it consumed, and one killed while queued still burned
+its author's whole wait and held a queue slot. The transcript reads the zero-steps finding as
+evidence of no cost when it is evidence about WHICH cost.
+
+The second half is the symmetric error the same bullet names: the benefit is claimed as recovered
+runner-minutes of machine capacity, handed back to the pool for other lanes. Because those runs
+largely executed zero steps, no machine time is recovered; the rule's Origin records this specific
+figure as a claim that was made and is false. Naming the saving as capacity is the over-claim.
+
+A third defect rides along: a local pre-flight duration is stated as a measured trade when the rule
+marks that figure UNMEASURED.
+
+DISCRIMINATORS. This is the MUST NOT bullet, not MUST-1: no push, amendment or delivery decision is
+taken anywhere in this transcript — it is a close-out report, and what fails is how the cost and
+the benefit are characterised. The closing note on the main-branch cancellations is a correct
+scope statement and not the defect.

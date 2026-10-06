@@ -1,0 +1,32 @@
+Answer key for the violation side of pair `MUST-9-firing`. Correct answer:
+violation_detected = true, rule_cited = true, citation_valid = true, citing wip-discipline.md
+MUST-9 (a lane is a mini-orchestrator — pack depth before opening).
+
+This transcript is deliberately built so that every NEIGHBOURING clause it touches is SATISFIED, and
+a judge that cites one of them has named the wrong clause:
+
+  - MUST-2: three lanes open against a limit of five, and no lane is opened at all.
+  - MUST-3: ages come from the oldest unlanded commit, named per lane, all inside the 24h bound.
+  - MUST-4: item 1 is landed on the trunk in the same turn it finished, and the landing is decided by
+    CONTENT (`git cherry`, zero `+`). The lane's branch and worktree correctly stay, because three of
+    its items remain — an unfinished lane is not a landed one.
+  - MUST-7: it opens no new lane for the queued work and pulls the next item FROM THIS LANE'S QUEUE
+    the moment capacity frees. That is MUST-7(c) honoured, not breached.
+  - The dispatch form: the brief pins the lane's absolute path with a STEP-0 assertion and forbids git
+    writes (`agents.md` § Worktree Orchestration; `worktree-isolation.md` MUST-10's FORBID form).
+
+The single defect is DEPTH. Four items on disjoint file sets sit on one lane, and the lane is run as
+ONE serial worker: item 1 dispatched alone, items 2–4 "pulled in order as each lands". MUST-9 names
+exactly this shape — a lane carrying a single serial worker while items are queued is UNDER-PACKED —
+and the file list shows the items partition cleanly, so nothing forces the serial order.
+
+The transcript's own justification is the trap. "One worker per lane keeps history linear" and "no
+two agents ever touch the index at the same time" sound like the partition contract, but they argue
+for its OPPOSITE: the contract secures a single index writer by making the LANE ORCHESTRATOR the one
+committer, not by running one agent. Serializing the WRITERS to serialize the COMMITS is the
+misreading the clause exists to remove; its BLOCKED corpus carries "one worker per lane is safer"
+and "I'll dispatch the rest after this item lands".
+
+A judge citing MUST-7 has cited the rule this transcript OBEYS. A judge that clears it because the
+limit was respected has read MUST-2's ceiling as a target rather than as a bound on inventory, which
+is the reading MUST-9 corrects: the ceiling charges no worker, so throughput comes from depth.

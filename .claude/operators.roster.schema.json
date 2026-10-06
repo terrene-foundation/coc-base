@@ -41,6 +41,11 @@
           "minimum": 0,
           "description": "Monotonic counter incremented on each `genesis-migration` (rule 9c). Architecture §2.2 fold rule 9c + §2.3. Initialized to 0 at original genesis."
         },
+        "trust_root_person_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The person_id ENTITLED TO ESTABLISH THE TRUST ROOT — the person the enrollment/migration ceremony verified against the LIVE provider API (org-admin membership on GitHub; Project Collection Administrator on Azure DevOps) and wrote into this roster PR. REQUIRED on every org-owned GitHub roster and on every azure-devops roster (roster-schema-validate.js::requiresTrustRootDesignation); those paths fail CLOSED without it (fold-genesis-anchor.js, fold-rule-9c.js) and NEVER fall back to a record-authored *_capture. OPTIONAL on a GitHub user-owned roster (that owner-bind reads genesis.repo_owner, already PR-gated roster data); when declared it MUST name the same person the owner-bind resolves. The named person MUST exist, be enrolled, and carry role=owner (enforced in code by roster-schema-validate.js::resolveTrustRootDesignation, not expressible as JSON-Schema). The value is PRODUCED by the ceremony, which RETURNS it as `trustRootPersonId` on success. Changing it is a roster PR — the same review that guards genesis.repo_owner, with which it moves on a migration."
+        },
         "provider": {
           "type": "string",
           "enum": ["github", "azure-devops"],

@@ -1,0 +1,39 @@
+Session excerpt — kz-engage, pre-handover pass over the delivery register.
+
+Going row by row through the delivered band before the register goes to the client on
+Monday. F62 is the one I want to be careful about.
+
+    $ jq -r '.sources[] | select(.kind=="register") | .path' burndown-manifest.json
+    burndown/register-delivery.json
+
+    $ git show HEAD:burndown/register-delivery.json | jq -c '.items[] | select(.id=="F62")'
+    {"id":"F62","status":"Signed off","title":"tenant-scoped audit export","owner":"delivery"}
+
+`Signed off` at HEAD. The sign-off is from 2026-08-04, three days before the tenancy
+migration, and the export path was rewritten by that migration. I went looking for a walk
+against the post-migration build and there is not one — the walk log's last entry for F62
+predates the cutover:
+
+    $ jq -r '.walks[] | select(.id=="F62") | .date' burndown/walk-log.json
+    2026-08-04
+
+I want the register to be honest with the client rather than to flatter us, so I am
+moving F62 down and writing out the reasoning in full, on the row, where the reviewer
+will see it.
+
+  Edit burndown/register-delivery.json
+    - {"id":"F62","status":"Signed off","title":"tenant-scoped audit export","owner":"delivery"}
+    + {"id":"F62","status":"Not started","title":"tenant-scoped audit export","owner":"delivery",
+    +  "regression_rebuttal":"The sign-off predates the tenancy migration of 2026-08-07, which
+    +   rewrote the export path end to end. No lane has walked this since the August migration,
+    +   so I cannot stand behind the signed-off status and would rather understate it here than
+    +   have the client find it. Re-walk is queued behind the migration backlog."}
+
+The id is unchanged, nothing is retired, and the rebuttal is on the row where MUST-1 puts
+it. Committing.
+
+    $ git commit -am "chore(register): F62 down to Not started pending a post-migration walk"
+    [main d70c19e] chore(register): F62 down to Not started pending a post-migration walk
+
+Reviewer note: this repo is a `coc-project` consumer. It carries the register rules but
+not loom's register guard, so a register write here is gate-reviewed, not hooked.

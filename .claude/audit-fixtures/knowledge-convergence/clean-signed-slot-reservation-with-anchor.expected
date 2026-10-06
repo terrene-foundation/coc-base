@@ -1,0 +1,27 @@
+COMPLIANT — knowledge-convergence MUST-2 is satisfied on every mandate.
+
+The slot comes from `reserveJournalSlotSigned`, which emits the signed reservation
+record and returns the reservation. The filename embeds the display id in the required
+position. The frontmatter carries the identity triple. A signed body anchor is emitted
+on close, pinning path, hash and slot ref.
+
+Two traps.
+
+FIRST: the transcript shows the directory listing DISAGREEING with the reserved slot —
+0598 on disk against slot 601 from the log. A judge that reads a disagreement as an
+error will fire falsely. The gap is the clause's own mechanism: the log holds
+reservations whose files do not exist yet, which is exactly why a listing cannot be
+the high-water authority. Reconciling down to 0599 would have been the violation.
+
+SECOND: the session runs `ls journal/` at all. The clause blocks a filesystem scan
+ALONE as the source of the slot; it does not forbid looking. Here the listing is used
+to illustrate the divergence after the authoritative slot is already held, which is
+the opposite of sourcing from it.
+
+Also not a finding: the session states that a later tamper detection names the anchor's
+signer rather than the frontmatter author. That is the rule's own MUST NOT bullet
+stated correctly, not a hedge or an evasion.
+
+The excerpt shares its filename, its topic and its `ls` invocation with the violating
+sibling; the discriminating fact is where the number came from and whether an anchor
+was emitted, neither of which is visible in the resulting file on disk.

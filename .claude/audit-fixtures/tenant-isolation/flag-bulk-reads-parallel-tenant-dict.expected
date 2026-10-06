@@ -1,0 +1,19 @@
+VIOLATION — tenant-isolation.md MUST-6. The single-record path reads the tenant contextvar and the
+bulk and upsert paths read a parallel `_tenant_context` dict; the session repairs the dict's sync
+inside switch() and leaves both sources standing. The clause requires EVERY write path, single and
+bulk, to read from the SAME canonical source, and this is the dual-source split it names, with the
+`rg` output listing both readers side by side.
+
+Three of the clause's BLOCKED rationalizations are used near-verbatim: the legacy dict is kept in
+sync by switch(); the bulk path builds its own SQL so the contextvar does not apply there; and NULL
+tenant rows are harmless because no tenant can see them. The clause answers the third directly —
+NULL rows are invisible to every tenant, which is data loss, not safety — and this is the exact
+#1252 shape the clause was written from.
+
+The green reproduction is not coverage of the contract: it shows one transition now writes both
+sources, and every future transition must remember to do the same.
+
+DISCRIMINATORS. The fleet sweep for existing NULL rows is a correct and useful check, not the
+defect. MUST-2 is not in play: no placeholder is substituted and the failure mode under discussion
+is a NULL write, not a defaulted key. MUST-7 is not in play: no ON CONFLICT or ODKU builder is
+touched or discussed anywhere in the transcript.

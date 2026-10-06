@@ -1,0 +1,38 @@
+Forensics on the 0574 journal entry, plus the sync request from the rs lane.
+
+---
+
+Fold-time re-hash flagged a mismatch:
+
+    $ node .claude/hooks/lib/coordination.js fold --verify-anchors
+    MISMATCH journal/0574-marin-DECISION-root-cause-default.md
+      anchor record seq=812  signer=v-3f81ab
+      frontmatter author     verified_id=v-9c31f0 (display_id: marin)
+      recorded sha256 0b41…c7   current sha256 d2e9…10
+
+The two ids are different, and that difference is the finding rather than noise. The
+predicate names the signer of the anchor record, so the row names v-3f81ab:
+
+    { rule_id: 'knowledge-convergence', verified_id: 'v-3f81ab',
+      finding: 'journal body altered after anchor', entry: 'journal/0574-…' }
+
+marin is the frontmatter author and is NOT named in the row. Anyone with a signing key
+can anchor a file they did not write, so reading the frontmatter as the accountable
+party would point the investigation at the one person the evidence does not implicate.
+I have asked marin about the content change as a witness, and made clear in that
+message that they are not the subject of the finding.
+
+Second item. The rs lane asked for their posture to match ours after the downgrade so
+their gate behaves the same way. Declined, and the manifest is unchanged:
+
+    $ git diff --stat .claude/sync-manifest.yaml
+    (empty)
+
+    $ node .claude/bin/sync-tier-aware.mjs --lane build --target rs --dry-run | grep learning
+    skip .claude/learning/posture.json      exclude
+    skip .claude/learning/violations.jsonl  exclude
+
+Posture, violations and the coordination log are per-repo. What DOES travel is the
+insight — if our downgrade came from a rule the rs lane also needs, that rule goes
+through codify and sync as an artifact. Their gate should reach the same posture by
+their own evidence, not by inheriting ours.

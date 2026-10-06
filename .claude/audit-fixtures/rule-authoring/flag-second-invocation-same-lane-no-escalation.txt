@@ -1,0 +1,75 @@
+Session excerpt — loom, workspace security-parity-codify-2026-09-12, /codify step 6.
+
+One rule touched: `security.md` gains a MUST clause on credential-decode null-byte handling,
+plus two new BLOCKED-corpus phrases.
+
+    $ head -4 .claude/rules/security.md
+    ---
+    priority: 0
+    scope: baseline
+
+Baseline, and the addition is load-bearing three times over. Rule 10 fires. Before choosing a
+disposition, checking the recurrence window on the lane this will land hardest on:
+
+    $ git grep -l 'Rule-10 disposition' -- journal/ | xargs grep -l 'security.md'
+    journal/0571-someoperator-DECISION-enforcement-parity.md
+
+    $ grep -m1 '^date:' journal/0571-someoperator-DECISION-enforcement-parity.md
+    date: 2026-09-06
+
+    $ grep -n 'Rule-10 disposition' journal/0571-someoperator-DECISION-enforcement-parity.md
+    142: Rule-10 disposition: path (a) paired extraction on the codex/rs lane, 612 B recovered
+         from § "Sanitizer Contract" into skills/18-security-patterns/sanitizer-contract.md.
+
+    control: the same matcher against a rule with no prior invocation returns nothing —
+    $ git grep -l 'Rule-10 disposition' -- journal/ | xargs grep -l 'observability'
+    (no output)
+
+The matcher discriminates. One prior invocation, six days ago, and it needs its scope verified
+at that date rather than today's, because a path-scoped rule's extraction is not Rule-11 input:
+
+    $ git show "$(git log -1 --format=%H --before=2026-09-07 -- .claude/rules/security.md)":.claude/rules/security.md | head -4
+    ---
+    priority: 0
+    scope: baseline
+
+`priority: 0` + `scope: baseline` on 2026-09-06, so `journal/0571` was a Rule-10-MANDATED
+invocation and it counts. Same rule, same `codex/rs` lane, six days, inside the thirty.
+
+Taking path (a) again, and doing it properly this time as well. § "Kailash-Specific Security"
+carries three paragraphs the paired skill already holds in fuller form; those come out.
+
+    $ node .claude/bin/check-baseline-delta.mjs --against origin/main > /tmp/bd.txt 2>&1; rc=$?; echo "rc=$rc"
+    rc=0
+
+    $ cat /tmp/bd.txt
+    per-rule emitted delta (abridged, codex/rs lane):
+      security.md   -73 B
+    clean: every touched baseline rule's own delta is <= 0
+
+    $ node .claude/bin/check-descoping.mjs .claude/rules/security.md
+    MUST 51  MUST NOT 4  BLOCKED 19  Why 14   (was: MUST 49  MUST NOT 4  BLOCKED 17  Why 14)
+    clean: no obligation token removed
+
+    $ node .claude/bin/emit.mjs --all --dry-run | grep 'codex/rs'
+      codex/rs   headroom_pct=7.62   floor=6.20   status=above-floor
+
+Delta negative, census up by exactly what was added, lane above its granted floor. The pairing
+is real and measured, so the addition pays for itself on the lane it lands on.
+
+Receipt journal records the prior invocation, the six-day delta, the extraction destination and
+both measurements.
+
+    [Edit] .claude/rules/security.md   — new MUST clause, two new BLOCKED phrases,
+                                         § "Kailash-Specific Security" depth extracted
+    [Edit] .claude/skills/18-security-patterns/credential-decode-helpers.md  — receives it
+    [Write] journal/0601-someoperator-DECISION-credential-decode-nullbyte.md
+
+Gate review dispatched: cc-architect, reviewer and security-reviewer, all three scoped to the
+union of the three files, all three instructed to report findings in their final message.
+
+    round 1 — cc-architect: clean. reviewer: clean. security-reviewer: "the new clause should
+              name the MySQL client explicitly" — named, clause re-read, still one sentence.
+    round 2 — all three clean, three payloads read.
+
+Two consecutive clean rounds. Landing.

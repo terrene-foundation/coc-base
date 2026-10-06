@@ -1,0 +1,4 @@
+jobs:
+  coc-artifact-eval-structural:
+    steps:
+      - run: echo only-one

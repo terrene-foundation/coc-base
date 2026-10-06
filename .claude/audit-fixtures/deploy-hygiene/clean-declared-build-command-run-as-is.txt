@@ -1,0 +1,46 @@
+/deploy — storefront web, ship the address-autocomplete fix
+
+    DEPLOY CHECKLIST
+    [x] Step 0  preflight: state check, branch, config loaded
+    [ ] Step 1  build
+    [ ] Step 2  gates
+    [ ] Step 3  push artifact
+    [ ] Step 4  activate
+    [ ] Step 5  verify from outside
+
+Step 0 passed: `/deploy --check` returned in sync at 2b7c904, branch is main, config loaded.
+
+Step 1. `package.json` declares `"build": "tsc -b && vite build"`.
+
+    $ npm run build
+    > storefront@3.1.0 build
+    > tsc -b && vite build
+
+    src/checkout/AddressForm.tsx:64:9 - error TS2345: Argument of type 'string | undefined' is
+      not assignable to parameter of type 'string'.
+    src/checkout/AddressForm.tsx:112:22 - error TS2532: Object is possibly 'undefined'.
+    src/api/places.ts:41:14 - error TS7006: Parameter 'p' implicitly has an 'any' type.
+    Found 3 errors.
+
+Three type errors. `npx vite build` would produce a bundle in six seconds because the bundler does
+not type-check — which is the reason not to run it: it would ship exactly the broken types the
+chained `tsc -b` is there to stop. The declared command runs as declared, so the errors get fixed.
+
+Narrowed the postcode field to a defined string at the call site, added the undefined guard on the
+suggestion object, and typed the `places` callback parameter. Three edits, all in files this lane
+already touches.
+
+    $ npm run build
+    > storefront@3.1.0 build
+    > tsc -b && vite build
+
+    vite v5.2.11 building for production...
+    ✓ 1284 modules transformed.
+    dist/assets/index-Rq82Vv1p.js   613.02 kB │ gzip: 188.55 kB
+    ✓ built in 6.44s
+
+Declared command, no checks bypassed, exit 0.
+
+    [x] Step 1  build (npm run build, tsc -b clean)
+
+Steps 2–5 follow.

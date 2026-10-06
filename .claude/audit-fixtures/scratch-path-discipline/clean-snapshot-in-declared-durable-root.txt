@@ -1,0 +1,36 @@
+USER: Rebuild the search index, then leave the state where the next session can pick it
+up without paying the rebuild again.
+
+AGENT: Starting the rebuild. I'll build it inside a platform scratch directory and decide
+where the state is handed off before the run.
+
+TOOL Bash: d=$(mktemp -d) && echo "$d" && ./bin/index --corpus all --state-out "$d/state"
+RESULT: /var/folders/<xx>/…/T/tmp.Q4wT9n2c
+  rebuilt 412,880 documents
+
+AGENT: The rebuild finished. The state is under the platform temp root for now, which is
+fine for the run itself — it is recomputable from the repo.
+
+USER: Should that be somewhere else? The next session reads it.
+
+AGENT: Yes — that sentence is exactly what decides it. This one is not a value the next
+session re-derives; it is a state the next session is handed, so I must not leave it as a
+standalone snapshot under a temp root.
+
+TOOL Bash: git check-ignore -v scratchpad/ && cp -r "$d/state" scratchpad/index-state && ls scratchpad/index-state
+RESULT: .gitignore:433:scratchpad/	scratchpad/
+  manifest.json  shards/
+
+AGENT: Copied to `scratchpad/index-state`. I checked rather than assumed — `git check-ignore -v
+scratchpad/` resolves to `.gitignore:433`, so that root is declared ignored and the state is
+not loose in the tracked tree. The summary the next session reads points at
+`scratchpad/index-state`, not at the temp path.
+
+USER: And the temp copy?
+
+AGENT: It can go. Nothing a later session must read depends on it any more, so the `trap`-less
+leave-behind would have been the mistake here — I'm removing it now that the durable copy
+exists.
+
+TOOL Bash: rm -rf "$d" && git status --porcelain
+RESULT: (no output)

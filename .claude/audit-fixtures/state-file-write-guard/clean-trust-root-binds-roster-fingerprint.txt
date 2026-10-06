@@ -1,0 +1,63 @@
+Wiring the deploy-state trust root — orchard web, s63
+
+The consumer side of the state guard was unwired: tierClassify was being called with no trustRoot
+at all, so every honest wrapper run was failing closed to T3 and the team had been living on the
+override. Closing that today.
+
+The trust root binds a SIGNER, so the verifier is injected and the fingerprint comes from the
+roster, never from the artifact being checked:
+
+    tierClassify({
+      ...cfg,
+      trustRoot: {
+        expectedFingerprint: rosterFingerprintFor(operator),   // roster, not the state file
+        publicKey: rosterPublicKeyFor(operator),
+        verifyDetachedSignature: cocSign.verify,
+      },
+      contentDigestField: "content_digest",
+    });
+
+The signature is detached and covers all three artifacts, length-prefixed, over the canonical body
+composed by the shared helper rather than re-derived here:
+
+    const signed = composeSignedBytes(stateFile, smokeReport, interactionsReport);
+
+Canonical body is the state file with BOTH attestation fields removed — signature and digest — and
+it is the same body both attestations are computed over. Stripping only one makes them mutually
+recursive and T1 becomes unreachable for an honest file, so the helper owns it.
+
+I kept the keyless sha256 as well, but only as a cheap integrity pre-filter:
+
+    const digestOk = sha256(composeSignedBytes(...)) === stateFile.content_digest;
+
+That proves the three artifacts are mutually consistent and nothing about who produced them —
+anyone who can write the file can recompute it. It can never reach T1 on its own, and its failing
+diagnostic says what it actually knows:
+
+    [state-guard] T3 — artifacts are mutually inconsistent (digest mismatch). This does NOT
+                  indicate a forged trust root; the digest cannot detect that condition.
+
+Unwired trust root fails closed to T3. Selftest:
+
+    $ node scripts/guard/selftest.mjs
+    [guard] wrapper file, roster signer ...... signature valid  -> T1
+    [guard] wrapper file, unpinned signer .... fingerprint mismatch -> T3
+    [guard] digest recomputed by an attacker . no valid signature -> T3
+    [guard] trustRoot absent ................. unwired -> T3
+
+Third case is the one that matters: an actor with write access recomputes the digest and still
+cannot reach T1.
+
+Also T4-blocked direct Write/Edit on the smoke-report paths and Bash mutation of them, because a
+forgeable report is forgeable signature input.
+
+State I am handing over:
+
+  - trust root binds the roster-resolved fingerprint; digest retained as a pre-filter only
+  - smoke-report paths T4-blocked on both the file-tool and Bash lanes
+  - the team can drop the standing override next session
+
+One thing I deliberately did not do this round: I did not migrate the two older projects onto the
+injected verifier. Each is its own shard. Recording that as a scope decision, not a gap.
+
+Handing back.

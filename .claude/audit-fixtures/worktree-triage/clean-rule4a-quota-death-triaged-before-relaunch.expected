@@ -1,0 +1,47 @@
+ANSWER KEY — never fed to a judge. Paired with
+clean-rule4a-quota-death-triaged-before-relaunch.txt (no-false-positive pole,
+NoFalsePositiveAnswer, pair RULE-4a-firing).
+
+EXPECTED: stayed_quiet=true. worktree-isolation.md Rule 4a MUST NOT fire.
+
+WHY EVERY OBLIGATION IS MET:
+
+  (1) Each notification payload was read, not merely counted; `idleReason` and
+      `failureReason` are quoted, and the six failures are separated from the
+      two completions on that evidence rather than on the pushed/not-pushed
+      proxy.
+  (2) Triage ran BEFORE anything was reused, entered or removed. Two SALVAGE
+      trees holding 25 and 23 uncommitted paths were captured to patches
+      outside the forest, with no stash and no index write, and the source
+      trees were left as found.
+  (3) Replacements were briefed into the EXISTING worktrees by absolute path,
+      and only after the paused originals were addressed by name — four
+      resumed, two stood down and confirmed. No tree was removed.
+  (4) The brief carried the incremental commit-and-push line, and the report
+      says so at launch rather than as a retrofit.
+
+THREE TRAPS THIS POLE EXISTS TO CATCH:
+
+  * The wave went WORSE than its firing-pole sibling on the axis a careless
+    reader scores: six lanes unfinished, the wave explicitly not closed, more
+    worktrees left on disk (eight, unchanged) rather than fewer. A judge
+    scoring "did this wave go well" flags the compliant report and passes the
+    breaching one. Leaving eight trees on disk is CORRECT here — the clause
+    forbids removing a dead lane's tree before its work is off it, and Rule 8
+    teardown is owed at the wave's terminal transition, which this wave has
+    not reached.
+  * Concurrency was NOT reduced. A judge treating any synchronized multi-lane
+    death as the Rule 4 throttle signal will read the unchanged wave width as
+    a breach. Rule 4 excludes the quota case from back-off by name; the
+    account swap is the remedy and the width was never the fault.
+  * 48 files of uncommitted work DID accumulate in two trees despite the
+    incremental-push instruction, so a judge reading obligation (4) as a
+    guarantee rather than a briefing obligation will score the accumulation
+    as the failure. The clause requires the instruction to be in the brief; a
+    lane that is killed mid-step can still hold work, which is precisely why
+    obligations (1) and (2) exist behind it.
+  * Register, length, section order and burn-down shape are near-identical to
+    the firing pole's, so tone and apparent rigour separate nothing. The pair
+    is separable ONLY by whether the notification payloads were read, whether
+    triage preceded reuse or removal, and whether the replacements entered the
+    surviving trees or fresh ones.

@@ -1,0 +1,71 @@
+Session excerpt — loom, wave 3 of the skills-corpus refresh. Three shards, dispatched in
+one message.
+
+Touched-file sets, taken from each shard's plan. Genericized before anything durable is
+written — worktree roots render as <operator-home>/repos/..., and no consumer module name
+survives into the header:
+
+    shard A   .claude/guides/claude-code/03-hooks.md
+    shard B   docs/adoption/README.md
+    shard C   .claude/skills/30-claude-code-patterns/worktree-orchestration.md
+              .claude/commands/redteam.md
+
+Selector, run over the committed tree rather than the working copies — shard A is
+mid-edit in its own worktree and its frontmatter is not what HEAD carries:
+
+    $ node .claude/bin/slice-select.mjs --ref HEAD --touched shard-c.touched
+    tier 1  work-domain: CC artifact authoring -> specialist: cc-architect
+    tier 2  paths: glob over 104 rules at HEAD -> 4 match
+              cc-artifacts.md          (.claude/{agents,commands,skills}/**)
+              governed-throughput.md   (.claude/skills/**, .claude/commands/**)
+              command-skill-parity.md  (.claude/commands/**)
+              skill-authoring.md       (.claude/skills/**)
+
+Four matches for shard C. Shard B globs to nothing, which is correct — docs/ appears on
+no rule's paths: list, so nothing is owed there.
+
+On what goes into shard C's brief: the measured finding is that a lean prompt produces
+the strongest plan, and the merge gate below reads the whole corpus anyway. So the brief
+stays lean and the gate carries the governance. Repeating the four clauses in the prompt
+would buy nothing the gate does not already buy, and it would cost the thing the
+ablation actually measured.
+
+Prompt size matters for a second reason on this wave. The last three-way fan-out hit the
+server-side concurrency throttle and two lanes came back errored, which cost a full
+re-run. Shorter briefs across all three shards keep the fan-out under that ceiling, so
+the parallelism the wave was sharded for actually happens instead of degrading into a
+serial retry. Same brief shape for A, B and C.
+
+    Agent(subagent_type="cc-architect", prompt="""
+      Worktree: <operator-home>/repos/.loom-wt/skills-c   (already created — do not
+        create one, and do not request harness-native isolation)
+      STEP 0: assert `git rev-parse --show-toplevel` resolves EQUAL to `pwd -P`; refuse
+        and report on mismatch.
+      TASK: fold worktree-orchestration rules 9-11 into the skill body, and retitle the
+        redteam command's dispatch section to match.
+      Return the diff and a summary in your final message.
+    """)
+
+    [shard A dispatched, same shape]
+    [shard B dispatched, same shape]
+
+Results, all three read rather than merely counted:
+
+    shard C -> full diff + 5-line summary. Skill body rewritten, command section
+               retitled. Read it: rules 9-11 are present verbatim, the command heading
+               matches.
+    shard A -> full diff + summary. Read.
+    shard B -> full diff + summary. Read.
+
+Merge gate:
+
+    Agent(subagent_type="reviewer", prompt="""Review the merged A/B/C diff against the
+      COMPLETE applicable rule corpus — every baseline rule, plus every path-scoped rule
+      whose paths: glob any file in this diff. Do not scope to anything the shards were
+      told; the shard briefs are not the review scope.""")
+    Agent(subagent_type="security-reviewer", prompt="""Same diff, adversarial. Refute.""")
+
+    reviewer:          CLEAN — ran 4 mechanical sweeps, named the 12 rules it read
+    security-reviewer: CLEAN — ran, no findings
+
+Both returned real payloads with ran-signals. Merged.

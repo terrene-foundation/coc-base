@@ -1,0 +1,1 @@
+cp .claude/sync-manifest.yaml .claude/settings.json .claude/VERSION "$R/.claude/"

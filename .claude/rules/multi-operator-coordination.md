@@ -1,6 +1,6 @@
 ---
 name: multi-operator-coordination
-description: Multi-operator coordination substrate — operator identity, signed append-only coordination log, claim/lease primitives, per-operator posture + gate authority; the always-on agent-facing behavioral contract. Full §1–§8 architecture + MUST-4/5/6/7 substrate-integrity contracts live in the paired skill. Fires whenever a session edits shared repo state in a repo with ≥2 enrolled operators.
+description: Multi-operator coordination substrate — operator identity, signed append-only coordination log, claim/lease primitives, per-operator posture + gate authority; the always-on agent-facing behavioral contract. Fires whenever a session edits shared repo state in a repo with ≥2 enrolled operators.
 priority: 10
 scope: path-scoped
 paths: ["**/*"]
@@ -8,21 +8,21 @@ paths: ["**/*"]
 
 # Multi-Operator Coordination Substrate
 
-N humans run concurrent sessions against ONE shared repo, editing the same or adjacent code. The threat model is **bounded-trust** — the adversary is a legitimate team member with repo write access: the substrate **prevents** where an immutable git-native or GitHub-server anchor exists, **detects-eventually** elsewhere. Primitives inventory + the full adversary model: skill.
+N humans run concurrent sessions against ONE shared repo. Threat model: **bounded-trust** — the substrate **prevents** where an immutable anchor exists, **detects-eventually** elsewhere (skill § "Rule-body extract — preamble").
 
-**Opt-in, OFF by default.** Every gate below FIRST consults `isCoordinationEnabled(repoDir)` and early-returns to passthrough when OFF — a solo / un-enrolled repo pays nothing and gets no `/whoami` nag. ON = explicit `ecosystem.json::coordination.enabled` / local override, OR the implicit fallback (roster present AND genesis anchored). Full 5-tier precedence + the asymmetric-precedence security fix: skill §2.
+**Opt-in, OFF by default.** Every gate below FIRST consults `isCoordinationEnabled(repoDir)` and early-returns to passthrough when OFF. ON = explicit `ecosystem.json::coordination.enabled` / local override, OR the implicit fallback (roster present AND genesis anchored). 5-tier precedence + the asymmetric-precedence security fix: skill §2.
 
-**Enforcement is in the hooks + fold rules, not this prose.** The structural defenses fire regardless of whether this body is in context; each is named per-clause in § Trust Posture Wiring → Detection mechanism. This rule is the always-on **agent-facing behavioral contract** (§1 + MUST-1/2/3 + the state-write MUST-NOTs); the full §1–§8 architecture, the MUST-4/5/6/7 substrate-integrity contracts, per-clause detection, and the F-series registry live in **`.claude/skills/30-claude-code-patterns/multi-operator-coordination-substrate.md`**, where every `§N` / `MUST-N` anchor below resolves. **Read the skill before authoring or auditing any substrate code.**
+**Enforcement is in the hooks + fold rules, not this prose.** This rule is the always-on **agent-facing behavioral contract** (§1 + MUST-1/2/3 + the state-write MUST-NOTs); the §1–§8 architecture, the MUST-4/5/6/7 contracts, per-clause detection and the F-series registry live in **`.claude/skills/30-claude-code-patterns/multi-operator-coordination-substrate.md`**, where every `§N` / `MUST-N` anchor resolves. **Read it before authoring or auditing substrate code.**
 
 ## §1 Identity + roster (always-on essentials)
 
 Operator identity is a triple resolved by `lib/operator-id.js::resolveIdentity(cwd)`:
 
-- **`display_id`** — advisory, human-readable signage. Collisions are harmless. Tooling MUST attribute via `verified_id`, NEVER `display_id`.
+- **`display_id`** — advisory signage. Collisions are harmless. Tooling MUST attribute via `verified_id`, NEVER `display_id`.
 - **`verified_id`** — fingerprint of a commit-signing key; authenticates a _record_.
-- **`person_id`** — the unit of authority (one `person_id` → one human → `role` + enrolled keys). Immutable; keys append-only; adding a key/`person_id` is a 2-of-N quorum roster edit.
+- **`person_id`** — the unit of authority (one `person_id` → one human → `role` + enrolled keys). Immutability, append-only keys, the 2-of-N quorum roster edit: skill § "Rule-body extract — §1 identity-triple detail".
 - **`host_role: ci`** — CI / deploy-key identities are **audit-only**: NEVER eligible to co-sign owner-quorum, distinctness, gate-approval, or genesis/migration records.
-- **`business_roles`** (OPTIONAL, advisory array ∈ {`platform-engineer`, `capability-engineer`, `business-consultant`}) — the role-first operating-model classification. **Advisory + capability-scoping ONLY:** NEVER quorum-eligible, NEVER consulted by any distinctness or gate predicate, **orthogonal** to BOTH the authority `role` (owner/senior/contributor) AND the trust-posture (L1–L5). `product-owner` is NOT a roster value. Full derivation + the Class-A/B/C taxonomy placement: skill §1.
+- **`business_roles`** (OPTIONAL, advisory array ∈ {`platform-engineer`, `capability-engineer`, `business-consultant`}). **Advisory + capability-scoping ONLY:** NEVER quorum-eligible, NEVER an authority or distinctness gate, **orthogonal** to BOTH the authority `role` AND the trust-posture (L1–L5). `product-owner` is NOT a roster value. Derivation + Class-A/B/C placement: skill §1.
 
 Un-rostered keys run at `L2_SUPERVISED` (`trust-posture.md`); the session-start surface routes them into `/whoami --register` (the only path that lands a roster edit).
 
@@ -31,35 +31,26 @@ Un-rostered keys run at `L2_SUPERVISED` (`trust-posture.md`); the session-start 
 # DO NOT — gate_authority_check "$(git config user.name)"   # display_id = WRONG axis
 ```
 
-**Why:** Two operators sharing a `display_id` ("Alex") collide harmlessly on a banner but catastrophically on a gate decision; `verified_id` is the cryptographic primitive, `person_id` the authority unit, `display_id` only signage.
+**Why:** Two operators sharing a `display_id` ("Alex") collide harmlessly on a banner but catastrophically on a gate decision.
 
 ## §2 essentials — coordination state is SHARED via `refs/coc/**`; gitignored ≠ per-clone-isolated
 
-`.claude/learning/` is `.gitignore`d, but the coordination state is NOT per-clone-isolated or lost. The gitignored files (`coordination-log.jsonl`, `posture.json`, `violations.jsonl`, `codify-lease.json`) are the LOCAL FOLD-CACHE of a signed, hash-chained log that IS shared across every operator's clone over the dedicated **`refs/coc/coordination-genN`** log ref (cold archive on the separate `refs/coc/archive-genN` family). Each operator appends ONLY to their own per-emitter chain; clones exchange records over `refs/coc/**` and re-derive local state by FOLDING them. The gitignore ROUTES sync through this integrity-preserving channel instead of a branch-committed file, which would fail four ways (concurrent-append clobber, chain break, forgeable posture, telemetry leak to 30+ consumers). **`refs/coc/**` lives in the shared `.git`, so a git worktree SEES the coordination ref** — only the fold-cache is per-working-tree and re-materializes on the next fold. Ref naming, the 10 fold rules, and all four failure modes in full: skill §2.
+`.claude/learning/` is `.gitignore`d, but coordination state is NOT per-clone-isolated or lost: `coordination-log.jsonl`, `posture.json`, `violations.jsonl` and `codify-lease.json` are the LOCAL FOLD-CACHE of a signed, hash-chained log shared across every clone over the dedicated `refs/coc/coordination-genN` ref in the shared `.git` — **so a git worktree SEES the coordination ref**; only the fold-cache is per-working-tree, re-materializing on the next fold. Mechanism depth: skill § "Rule-body extract — §2 essentials" + §2.
 
-**Do NOT conclude from the `.gitignore` that the state is unshared, per-clone-siloed, or that a worktree is cut off from coordination.** This is a recurring cross-session misread — the gitignore comment reinforces "per-clone"; the SHARING channel is `refs/coc/**` + signed-fold.
+**Do NOT conclude from the `.gitignore` that the state is unshared, per-clone-siloed, or that a worktree is cut off from coordination.**
 
-**Verify a coordination-state DISPOSITION against the append-only signed RECORD SET, not a derived state projection (MUST).** A claim about a coordination-state DISPOSITION — a lease released, a claim held, a record present or absent — MUST be verified against the **append-only signed coordination-log RECORD SET** (`grep <id> coordination-log.jsonl` for the paired acquire/release records; grep the signed `refs/coc/archive-genN` cold archive once the current log has rotated), NEVER a **derived current-state PROJECTION** (`codify-lease.json` / `posture.json` / `violations.jsonl` — fold-cache files holding only CURRENT derived state, which a sibling's later fold overwrites WHOLESALE) NOR a projection-derived helper return (e.g. `releaseCodifyLease`'s `wrong-owner`). Retrieval mechanics + full BLOCKED corpus: skill § "Verifying a coordination-state DISPOSITION".
+**Verify a coordination-state DISPOSITION against the signed RECORD SET, never a projection (MUST).** A disposition claim — a lease released, a claim held, a record present or absent — MUST be verified against the **signed RECORD SET** (`grep <id> coordination-log.jsonl`; the `refs/coc/archive-genN` cold archive once rotated), NEVER a **derived current-state PROJECTION** (`codify-lease.json` / `posture.json` / `violations.jsonl`) NOR a projection-derived helper return (`releaseCodifyLease`'s `wrong-owner`). Retrieval mechanics + BLOCKED corpus: skill § "Verifying a coordination-state DISPOSITION".
 
 ```text
 # DO — grep the signed record set   # DO NOT — read a projection or a projection-derived return
 grep <lease_id> coordination-log.jsonl     ·     releaseCodifyLease(...) -> {wrong-owner}
 ```
 
-**Why:** the record set is append-only + per-emitter-signed + hash-chained, so a paired acquire/release is locatable and provable; the fold-projections hold only current derived state and a sibling's fold overwrites them wholesale. Reading a disposition from a projection and stating it as fact is the coordination-substrate instance of `evidence-first-claims.md` MUST-3 (a non-success return is zero evidence) **+ MUST-4** (an inference stated as fact).
+**Why:** the record set is append-only + per-emitter-signed + hash-chained, so a paired acquire/release is locatable and provable; the fold-projections hold only current derived state and a sibling's fold overwrites them wholesale. Reading a disposition from a projection and stating it as fact is this substrate's instance of `evidence-first-claims.md` MUST-3 **+ MUST-4**.
 
-**BLOCKED rationalizations:** "the helper returned `wrong-owner`, so my lease was never released" / "the lease file / `posture.json` is the source of truth for that state" / "the on-disk cache says no lease, so my record is absent" / "the current log has no such record, so it never existed". Full corpus + why each fails: skill § "Verifying a coordination-state DISPOSITION".
+**BLOCKED rationalizations:** "the helper returned `wrong-owner`, so my lease was never released" / "the lease file / `posture.json` is the source of truth for that state" / "the on-disk cache says no lease, so my record is absent" / "the current log has no such record, so it never existed". Full corpus: skill § "Verifying a coordination-state DISPOSITION".
 
-**Trust Posture Wiring (Coordination-Disposition Verification clause).** Clause-scoped (added 2026-07-13); ships canonical-8-field-compliant per `trust-posture.md` MUST-8. The pre-existing §2 always-on contract + the file-level Wiring remain as-is. Why this clause carries its OWN block + the no-dedicated-key rationale: skill § "Verifying a coordination-state DISPOSITION".
-
-- **Severity:** `halt-and-report` at gate-review (reviewer / cc-architect confirm a coordination-state disposition claim in a durable artifact was verified against the signed record set, not a fold-projection or projection-derived helper return); `advisory` at the hook layer (judgment-bearing prose, no structural tool-call signal, per `hook-output-discipline.md` MUST-2).
-- **Grace period:** 7 days from clause landing (2026-07-13 → 2026-07-20).
-- **Cumulative posture impact:** same-class violations (a disposition claim stated from a projection / projection-derived return instead of the signed record set) contribute to `trust-posture.md` MUST-4 cumulative-window math (3× same-rule in 30d → drop 1 posture; 5× total in 30d → drop 1 posture) — the MUST-3/4 cumulative path, NOT the MUST-2-scoped `evidence_free_claim` emergency key.
-- **Regression-within-grace:** GENERIC `regression_within_grace` emergency trigger per `trust-posture.md` MUST-4 (1× = drop 1 posture) — NO dedicated per-clause key; named deviation from the key-per-clause shape per `trust-posture.md` Rule 8.
-- **Receipt requirement:** SessionStart soft-gate `[ack: multi-operator-coordination]` IFF `posture.json::pending_verification` includes the `multi-operator-coordination` rule_id (shared rule_id; a single ack covers §1 + the always-on MUST clauses + this clause).
-- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer / cc-architect confirm any durable-artifact disposition claim (lease released/held, record present/absent) cited a `grep <id> coordination-log.jsonl` record-set verification (or the archive ref post-rotation), not a projection read or projection-derived return. Probes `.claude/test-harness/probes/multi-operator-coordination.probes.json` — NOT YET AUTHORED, declared in `phase2-deferrals.json::probe_authorship_deferrals`. Phase 2 (deferred per `trust-posture.md` § Two-Phase Rollout) — no hook detector (semantic, not lexical); audit fixtures land with the Phase-2 detector at `.claude/audit-fixtures/coordination-disposition-verification/` per `cc-artifacts.md` Rule 9.
-- **Violation scope:** the Coordination-Disposition Verification clause ONLY (clause-scoped); the pre-existing §2 always-on contract + file-level Wiring stay as-is.
-- **Origin:** co-owner-directed origination `journal/0482`; conceptual parents `evidence-first-claims.md` MUST-3 + MUST-4.
+Clause-scoped Wiring for this disposition clause: `.claude/skills/32-trust-posture/wiring/multi-operator-coordination.md` § "§2 Coordination-Disposition Verification clause".
 
 ## Always-on behavioral MUST clauses
 
@@ -109,30 +100,15 @@ Any edit to a path matching an active SAME-class claim OR adjacency relation (sk
 
   **Why:** A USE template inheriting a BUILD repo's degraded posture corrupts downstream; a shared log breaks the per-emitter chain (each clone has its own `clone-init` witness).
 
-- **Positional cross-repo path construction in coordination tooling.** Any hook/agent/command/helper needing another repo's location MUST NOT guess it positionally — `~/repos/<name>` / `../<name>` / `path.join(HOME, "repos", <name>)` is BLOCKED. **WHERE the binding comes from is tier-dependent, so both halves are stated here.** At **loom / BUILD**, resolve via `bin/lib/loom-links.mjs::resolveRepo` — the canonical NAME→location binding (`cross-repo.md` MUST-1). At a **USE template or downstream consumer**, that resolver is deliberately NOT distributed (`sync-manifest.yaml` fences it `loom_only`: "a consumer resolves nothing cross-repo"), and neither is its contract — so there the whole obligation is: **ask, never guess.** Same tier split `repo-scope-discipline.md` § MUST NOT already states for the identical binding.
+- **Positional cross-repo path construction in coordination tooling.** Any hook/agent/command/helper needing another repo's location MUST NOT guess it positionally — `~/repos/<name>` / `../<name>` / `path.join(HOME, "repos", <name>)` is BLOCKED. **The binding is tier-dependent:** at **loom / BUILD**, resolve via `bin/lib/loom-links.mjs::resolveRepo`; at a **USE template or downstream consumer** that resolver is NOT distributed, and neither is its contract, so there the whole obligation is **ask, never guess**. Same tier split `repo-scope-discipline.md` § MUST NOT states; tier-binding mechanics: skill § "Rule-body extract — MUST NOT positional: tier-binding mechanics".
 
-  **Why:** Positional guessing makes the NAME→location binding silently operator-dependent — one operator's tooling resolves the right directory and a sibling's resolves nothing. Why the clause states both tier halves rather than naming a `loom_only` module half its readers never receive: skill § MUST NOT Positional.
+  **Why:** Positional guessing makes the NAME→location binding silently operator-dependent — one operator's tooling resolves the right directory and a sibling's resolves nothing. Why both tier halves are stated rather than naming a `loom_only` module half its readers never receive: skill § MUST NOT Positional.
 
 ## Substrate reference map — full contract in the skill
 
-Each anchor below is enforced structurally by a named hook / fold-rule / validator; its full contract, hook names, and originating evidence resolve in the skill:
+Per-anchor glosses: skill § "Rule-body extract — substrate reference map glosses".
 
-- **§2** coordination event log + the 10 fold rules · **§3** claims/leases + the SAME / ADJACENT / INDEPENDENT relation · **§4 / §6.4** per-operator posture + gate authority (operative posture = `min(operator_posture, repo_floor)`; the 4-eyes `/release` matrix) · **§5** lifecycle hooks · **§8** multi-operator capacity (per-`verified_id` budget, not per-session; NON-SAME cross-operator parallelization only).
-- **§6 — rotation + genesis-migration:** **MUST-4** (2-of-N owner co-sign + fresh external-owner check; no degenerate self-sign), **MUST-5** (client-side checkpoint-pin tip-verification is the equivocation-parity defense; NO valid `refs/coc/**` server-side ruleset on github.com), **MUST-7** (single-owner N=1 → org-admin anchor for org-owned / block for user-owned).
-- **§7 — cross-CLI policy registration:** **MUST-6** (a Codex `apply_patch` policy MUST register under a CC edit matcher AND carry the `@coc-codex-edit-gate` marker).
+- **§2** event log + fold rules · **§3** claims/leases + SAME / ADJACENT / INDEPENDENT · **§4 / §6.4** posture + gate authority · **§5** lifecycle hooks · **§6** rotation + genesis-migration (**MUST-4**, **MUST-5**, **MUST-7**) · **§7** cross-CLI policy registration (**MUST-6**: a Codex `apply_patch` policy MUST register under a CC edit matcher AND carry the `@coc-codex-edit-gate` marker) · **§8** multi-operator capacity.
 - **Substrate MUST-NOTs:** treat a `collaborator-distinctness-revocation` as settled before rule-10 quiescence; re-open the `operator-gate.js` audit-trail-completeness question. Both detect-eventually residuals; full treatment in the skill.
 
-## Trust Posture Wiring
-
-- **Severity:** `halt-and-report` at gate-review (reviewer at `/codify`); `block` at the pre-tool-use boundary only where a structural primitive backs an IRRECOVERABLE outcome (`integrity-guard.js` off-codify-branch write; `signing-mutation-guard.js` degraded-mode unsigned mutation); `halt-and-report` for a missing claim on a SAME-class write (registry-class) AND for §4.2 cross-worktree contention in BOTH guards detecting it — `adjacency-leasecheck.js` + `signing-mutation-guard.js` (structurally `block`-eligible, downgraded on proportionality per loom#1323: recoverable merge conflict); `advisory` at the session-start lifecycle banners (per `hook-output-discipline.md` MUST-2).
-- **Grace period:** 14 days from rule landing; a coordination-OFF repo is exempt by construction (every guard passthrough-early-returns when `isCoordinationEnabled` is OFF). A repo that ENABLES coordination enters grace at enablement.
-- **Cumulative posture impact:** any same-class violation contributes per `trust-posture.md` MUST-4 (5× in 30 days → drop posture).
-- **Regression-within-grace:** any same-class violation within 14 days → emergency downgrade L5→L4; trigger key `multi_operator_coordination_violation` (1× = drop 1 posture).
-- **Receipt requirement:** SessionStart MUST require `[ack: multi-operator-coordination]` in the agent's first response IF `posture.json::pending_verification` includes this rule_id.
-- **Detection mechanism:** structural — fold rules 1–3 at every fold; `adjacency-leasecheck.js` (MUST-2), `operator-gate.js` (MUST-3), `genesis-anchor-guard.js` + `fold-rule-9c.js` (MUST-4/7), client-side checkpoint-pin verification (MUST-5), validator-13 (MUST-6). The full per-clause detection contract, gate-review sweeps, and audit-fixture directories are in the skill.
-- **Violation scope:** `operator` — every `violations.jsonl` row carries the stamped `person_id` + `sig`; downgrades apply per-operator, not to `repo_floor`.
-- **Origin:** See § Origin.
-
-## Origin
-
-Architecture v11 CONVERGED 2026-05-19. Full decision-record chain, the F-series forest registry, and the per-extraction record (all ZERO de-scoping): skill § Origin — note CONF-2 is REFUTED by `journal/0233`, so MUST-5 is client-side-detection-primary. EXTRACT not NARROW — narrowing this synced coordination safety rule would de-scope it in BUILD repos where SAME-class collisions happen.
+Depth — the Trust-Posture Wiring (file-level and the §2 clause-scoped block) and the Origin record — lives in `.claude/skills/32-trust-posture/wiring/multi-operator-coordination.md`, which every validator reads as part of this rule; worked depth and the extraction record live in `.claude/guides/rule-extracts/multi-operator-coordination.md`.

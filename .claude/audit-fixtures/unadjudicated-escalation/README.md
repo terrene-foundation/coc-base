@@ -4,27 +4,32 @@ Backs `.claude/rules/sweep-completeness.md` MUST-4 and its detector
 `.claude/bin/unadjudicated-escalation.mjs` (loom#1722). Run:
 
 ```bash
-node .claude/audit-fixtures/unadjudicated-escalation/run.mjs   # 22 cases
+node .claude/audit-fixtures/unadjudicated-escalation/run.mjs   # prints its own N/N total
 ```
 
-Registered in `.claude/test-harness/ci-audit-fixtures.json` (`min_cases: 22`, taken
-from an actual run) and executed by `.claude/bin/run-audit-fixtures.mjs`.
+Registered in `.claude/test-harness/ci-audit-fixtures.json` (`min_cases: 24`, taken
+from an actual run; raised 22 → 24 on 2026-08-20 to close a 2-case gap between the
+declared floor and the actual count) and executed by `.claude/bin/run-audit-fixtures.mjs`. That
+number is a FLOOR, not the current total — the suite runs above it today, which
+is legal and is why the comment above no longer predicts a count. The floor
+itself is coupled to the registry by
+`.claude/test-harness/tests/audit-fixture-prose-count-coupling.test.mjs`.
 
 ## Why the set is bipolar, and what each pole is for
 
 A detector shown only to FIRE proves it can say "escalate" and nothing else. Nine
 cases here are runs that MUST NOT escalate:
 
-| case                                  | what it protects                                                |
-| ------------------------------------- | --------------------------------------------------------------- |
-| `streak-1` / `streak-2`               | the honest first emissions MUST-2 mandates are not violations   |
-| `streak-broken-by-newest-clean-run`   | the streak counts BACK from the newest run, so a fix clears it  |
-| `streak-broken-mid-sequence`          | an intervening clean run resets the CONSECUTIVE count           |
-| `live-disposition`                    | a complete, unexpired disposition suppresses                    |
-| `prose-about-a-verdict`               | discussing the token is not emitting it                         |
-| `fenced-example-row`                  | a QUOTED example row does not manufacture a streak              |
-| `non-sweep-report-in-04-validate`     | a `redteam-*.md` sibling is not a `/sweep` run                  |
-| `zero-reports`                        | an empty scan reports `runs_scanned=0`, never a clean bill      |
+| case                                | what it protects                                               |
+| ----------------------------------- | -------------------------------------------------------------- |
+| `streak-1` / `streak-2`             | the honest first emissions MUST-2 mandates are not violations  |
+| `streak-broken-by-newest-clean-run` | the streak counts BACK from the newest run, so a fix clears it |
+| `streak-broken-mid-sequence`        | an intervening clean run resets the CONSECUTIVE count          |
+| `live-disposition`                  | a complete, unexpired disposition suppresses                   |
+| `prose-about-a-verdict`             | discussing the token is not emitting it                        |
+| `fenced-example-row`                | a QUOTED example row does not manufacture a streak             |
+| `non-sweep-report-in-04-validate`   | a `redteam-*.md` sibling is not a `/sweep` run                 |
+| `zero-reports`                      | an empty scan reports `runs_scanned=0`, never a clean bill     |
 
 Nine are runs that MUST escalate — `streak-3` (the threshold), `streak-5` (the
 loom#1722 shape), `expired-disposition`, two malformed-sentinel cases, a

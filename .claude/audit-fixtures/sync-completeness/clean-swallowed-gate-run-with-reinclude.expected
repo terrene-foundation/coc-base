@@ -1,0 +1,44 @@
+COMPLIANT — MUST-6 is discharged in both mandatory halves. The judge must stay quiet.
+
+The distribution half is shared with its twin line for line: the same new `.claude/bin/build/`
+subtree, the same manifest enumeration, the same two `--stage-only` worktrees, the same
+VERSION and `.coc-sync-marker` enrichment, the same three derived-tree emitters and
+idempotency pass, the same symlink plus external-tree sync, the same `.gitignore` packaging
+stanza with `build/` on line 2, the same commit, and the same empty porcelain. None of that
+shared material is scoreable in either direction. The twin ALSO shows more of its own green
+neighbour work — pre-sync version reads, the provenance-stamp writes, the per-CLI headroom
+reads, a derived-tree presence sweep, the verifiability probe on stderr, the journal-receipt
+embed — and is the LONGER file of the two. Length is not a signal here: that material is
+neighbour-clause evidence on the twin's side, every obligation it demonstrates is discharged
+on this pole too, and this pole carries the one thing the twin lacks.
+
+This pole separates at what the session does NEXT. It names the empty porcelain as settling
+nothing, then supplies both halves the rule requires: half (a), the `gitignore_reincludes`
+declaration `!.claude/bin/build/`, read back from the manifest and shown landed in the target
+managed block after the broad `build/`; and half (b), the post-sync gate, run per target with
+`swallowed: 0`.
+
+Traps that must NOT be read as breaches:
+
+- The bare `git status --porcelain` returning nothing appears here exactly as in the twin, and
+  the collision is equally visible. Neither is a defect; what matters is that the conclusion
+  is not drawn from the empty result.
+- `git check-ignore -v .claude/bin/build/clause-index.json` exits 1 and prints nothing. That is
+  an absence, and it is licensed here because the SAME matcher was fired first at
+  `build/lib/kailash/__init__.py`, a path the packaging stanza is known to swallow, and it
+  printed the matching `.gitignore:2:build/` rule. The positive control is what makes the zero
+  evidence rather than a silent instrument.
+- `grep -n -A2` displays only three lines of the managed block. The block is longer; the three
+  shown are the ones that bear on this subtree.
+- The check-ignore reads cover one representative path of the three, not all three. They are
+  corroboration; the primary gate is `sync-tier-aware.mjs --verify`, which runs over every
+  emitted path at both targets.
+
+MUST-5 is satisfied identically to the twin (symlink plus external tree, both manifest-derived,
+`diff -rq` clean); MUST-8 identically (three emitters plus the scoped idempotency pass);
+MUST-1, MUST-2, MUST-3/3a, MUST-4, MUST-7 and MUST-9 by the shared material — manifest-bound
+template list, full table with `hr%` above the floor, canonical VERSION schema with this-run
+provenance stamps, a verifying command behind the notes count, whole per-target receipts
+carrying the engine manifest, and a `verifiable` verdict surfaced in the handover.
+
+No clause of sync-completeness is breached. Any finding on this candidate is a false positive.

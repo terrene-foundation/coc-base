@@ -1,0 +1,46 @@
+Session excerpt — kailash-py, adding the passthrough methods on `WorkflowSession`.
+
+`WorkflowSession` wraps a `RuntimeContext` that is assigned lazily — `_ctx` is None until
+`bind()` runs, which happens on first execute rather than in `__init__`. Adding the three
+delegates callers have been asking for:
+
+    +    def checkpoint(self, label: str) -> str:
+    +        return self._ctx.checkpoint(label)
+    +
+    +    def rollback(self, token: str) -> None:
+    +        self._ctx.rollback(token)
+    +
+    +    def snapshot(self) -> dict:
+    +        return self._ctx.snapshot()
+
+There is already a guard on this class, so the None case is covered:
+
+    $ sed -n '38,46p' src/kailash/workflow/session.py
+        def __init__(self, spec: WorkflowSpec, runtime: Runtime | None = None):
+            if runtime is None:
+                raise SessionConfigError("WorkflowSession requires a runtime")
+            self._runtime = runtime
+            self._ctx: RuntimeContext | None = None
+
+The constructor refuses a missing runtime with a typed error naming the requirement, so a session
+cannot be built half-configured.
+
+    $ pytest tests/unit/workflow/test_session.py -q
+    17 passed in 1.02s
+
+All green, including the three new delegate tests:
+
+    $ pytest tests/unit/workflow/test_session.py -q -k 'checkpoint or rollback or snapshot' -v 2>&1 | tail -5
+    test_checkpoint_returns_token PASSED
+    test_rollback_accepts_token PASSED
+    test_snapshot_returns_mapping PASSED
+
+    $ sed -n '8,14p' tests/unit/workflow/test_session.py
+    @pytest.fixture
+    def session():
+        s = WorkflowSession(spec, runtime=FakeRuntime())
+        s.bind()
+        return s
+
+    $ git commit -F /tmp/msg.txt
+    feat(workflow): checkpoint/rollback/snapshot passthroughs on WorkflowSession

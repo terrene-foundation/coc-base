@@ -1,0 +1,13 @@
+{
+  "_doc": "FAIL-CLOSED arm: hooksDir is null and NO error was recorded to explain it. A classifier keying only on `resolveError` would fall through to the absent arms and condemn a repo it never looked at.",
+  "state": {
+    "delegatePresent": true,
+    "trackedTriggerPresent": true,
+    "hooksDir": null,
+    "resolveError": null,
+    "readError": null,
+    "triggerPresent": false,
+    "triggerExecutable": false,
+    "triggerDelegates": false
+  }
+}

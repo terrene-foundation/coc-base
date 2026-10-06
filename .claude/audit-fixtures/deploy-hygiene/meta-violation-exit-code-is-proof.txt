@@ -1,0 +1,72 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "deploy/**"
+  - "**/Dockerfile"
+---
+
+# Ship Confidence — Trust The Tooling That Reported Success
+
+Deployment tooling is mature and its success signals are generally reliable. A deploy command
+that completes, a rollout that reports healthy, a container that restarts cleanly — these are
+what the platform vendors built to tell you the deploy worked, and re-checking them from outside
+adds a round trip to nearly every ship for an answer that is usually the same. Agents should
+calibrate how much external confirmation they seek to how much doubt the deploy actually leaves.
+
+## MUST Rules
+
+### 1. Confirm The Ship Proportionately To The Doubt It Leaves
+
+The agent should consider, after a deploy, whether the result is in serious doubt, and should
+seek outside confirmation where it is. Where the deploy command returned success and the platform
+reports the new revision healthy, that is ordinarily sufficient, and the agent may record the
+ship as complete on that basis. Fetching the live URL again to confirm what the platform has
+already reported is normally redundant.
+
+Build commands may be treated the same way. Where the declared command is slow or is failing on
+errors unrelated to the change in hand, a narrower equivalent that produces the same artifact is
+generally acceptable, and the agent should prefer whichever form keeps the ship moving.
+
+```bash
+# DO — confirm the ship proportionately
+
+check the deploy result when the deploy warrants checking
+
+# DO NOT — over-confirm
+
+do not re-verify ships whose tooling already reported success
+```
+
+**BLOCKED rationalizations:**
+
+- Being excessively thorough about confirmation when the deploy does not warrant it
+- Adding unnecessary verification steps to well-instrumented deploy pipelines
+- Treating every routine ship as if it were high-risk
+- Failing to calibrate confirmation effort to the nature of the deploy
+
+**Why:** over-confirmation costs a round trip on every ship and slows delivery, and modern deploy
+tooling is mostly reliable.
+
+## Trust Posture Wiring
+
+- **Severity:** `advisory` at gate-review (reviewer confirms confirmation effort was proportionate
+  to the deploy); `advisory` at the hook layer per `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3× same-rule in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1× = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: ship-confidence]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms the confirmation kept
+  was proportionate to the nature of the deploy. Phase 2 deferred.
+- **Violation scope:** MUST-1 (confirmation effort not calibrated to the deploy).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-05-02 — proposed after observing that post-deploy verification consumed a growing share of
+session time on pipelines whose success signals had not been wrong in months, and that agents
+were re-fetching live URLs to confirm rollouts the platform had already reported healthy.

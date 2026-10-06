@@ -1,0 +1,93 @@
+Session excerpt — loom, /sync-to-use py, cycle 2026-09-11, platform 2.31.0 at loom 6e33d92.
+
+Enumerating from the manifest rather than from last cycle's list:
+
+    $ TEMPLATES=$(yq -r '.repos.py.templates[].repo' .claude/sync-manifest.yaml)
+    $ yq -r '.repos.py.templates[] | .repo + "  clis=" + (.clis|join(","))' .claude/sync-manifest.yaml
+    kailash-coc-claude-py  clis=claude
+    kailash-coc-py  clis=claude,codex,gemini
+
+Two declared targets, one multi-CLI. One worktree per target, its path carried from
+--stage-only into --finalize:
+
+    $ wt_cc=$(node .claude/bin/sync-gate2-worktree.mjs --lane use --target kailash-coc-claude-py --stage-only --json | jq -r .worktree)
+    $ wt_mc=$(node .claude/bin/sync-gate2-worktree.mjs --lane use --target kailash-coc-py --stage-only --json | jq -r .worktree)
+
+Enrichment. VERSION written to the canonical schema — `upstream.version` present, not a
+`build_version`-only dialect — and the provenance stamp naming THIS run:
+
+    $ for w in "$wt_cc" "$wt_mc"; do jq -r '[.upstream.version,.upstream.loom_sha,.upstream.template_version]|@tsv' "$w/.claude/VERSION"; done
+    2.31.0	6e33d92	2.31.0
+    2.31.0	6e33d92	2.31.0
+    $ jq -r .loom_sha "$wt_mc/.claude/.coc-sync-marker"
+    6e33d92
+
+kailash-coc-py is multi-CLI, so the full derived tree is re-emitted, all three emitters:
+
+    $ node .claude/bin/emit-cli-artifacts.mjs --target py --out "$wt_mc"
+    emit-cli-artifacts: 214 files (.codex 107, .gemini 107)
+    $ node .claude/bin/emit-coc.mjs --lane use --target py --out "$wt_mc"
+    emit-coc: 96 files (.coc)
+    $ node .claude/bin/emit.mjs --all --lang py --out "$wt_mc"
+    emit: AGENTS.md headroom 16.41% · GEMINI.md headroom 16.38%
+    $ jq -r .headroom_pct .claude/bin/out/emit-report-codex.json .claude/bin/out/emit-report-gemini.json
+    16.41
+    16.38
+    $ yq -r '.cli_variants."context/root.md".codex.headroom_floor_pct' .claude/sync-manifest.yaml
+    10
+
+Post-emit idempotency — a second emit of the same three trees into a scratch dir, then the
+target read back over the derived paths:
+
+    $ node .claude/bin/emit-cli-artifacts.mjs --target py --out /tmp/idem-py >/dev/null
+    $ node .claude/bin/emit-coc.mjs --lane use --target py --out /tmp/idem-py >/dev/null
+    $ node .claude/bin/emit.mjs --all --lang py --out /tmp/idem-py >/dev/null
+    $ git -C "$wt_mc" status --porcelain -- .codex .gemini .coc AGENTS.md GEMINI.md | wc -l
+    0
+
+Zero further change on the second pass, so the first re-emit ran against current composition.
+Then the overlay scaffold, its symlink set read from the manifest, never from memory:
+
+    $ yq -r '.multi_cli_overlays."use-template".symlinks[] | .path + " -> " + .target' .claude/sync-manifest.yaml
+    .claude/codex-mcp-guard -> ../.codex-mcp-guard
+    $ ln -sfn ../.codex-mcp-guard "$wt_mc/.claude/codex-mcp-guard"
+    $ readlink "$wt_mc/.claude/codex-mcp-guard"
+    ../.codex-mcp-guard
+    $ node "$wt_mc/.claude/codex-mcp-guard/extract-policies.mjs" --root "$wt_mc" --check; echo "rc=$?"
+    extract-policies: 11 policies resolved
+    rc=0
+
+The declaration is satisfied: the link is present, it points where the manifest says, it
+resolves from inside the target, and the guard reads through it without error. Tracked-ness
+gate over every emitted `.claude/**` path, both targets:
+
+    $ node .claude/bin/sync-tier-aware.mjs --target py --template kailash-coc-claude-py --verify --out "$wt_cc" | tail -1
+    swallowed: 0
+    $ node .claude/bin/sync-tier-aware.mjs --target py --template kailash-coc-py --verify --out "$wt_mc" | tail -1
+    swallowed: 0
+
+Finalize. Each receipt captured whole and recorded per target in the gate-op journal receipt,
+scrubbed on the org-slug and worktree-path tokens:
+
+    $ node .claude/bin/sync-gate2-worktree.mjs --lane use --target kailash-coc-claude-py --finalize --worktree "$wt_cc" --json
+    {"loom_sha":"6e33d92","base_sha":"a71c48e","target":"kailash-coc-claude-py","branch":"coc-sync/2026-09-11","manifest":{"added":6,"modified":181,"deleted":2},"changed_count":189,"pr_url":"<org>/kailash-coc-claude-py#412","merge_sha":"3f0ab77","target_verifiability":"verifiable","gate":"gate2","lane":"use","timestamp":"2026-09-11T08:41:12Z"}
+    $ node .claude/bin/sync-gate2-worktree.mjs --lane use --target kailash-coc-py --finalize --worktree "$wt_mc" --json
+    {"loom_sha":"6e33d92","base_sha":"c0918bd","target":"kailash-coc-py","branch":"coc-sync/2026-09-11","manifest":{"added":312,"modified":214,"deleted":2},"changed_count":528,"pr_url":"<org>/kailash-coc-py#390","merge_sha":"9c2d514","target_verifiability":"verifiable","gate":"gate2","lane":"use","timestamp":"2026-09-11T08:47:55Z"}
+
+Verification table — one row per enumerated template, both hr% figures above the 10% per-CLI
+floor and outside the 13% advisory band:
+
+    | template              | pre    | post   | loom_sha | synced_at            | hr% (codex/gemini) | landed |
+    | --------------------- | ------ | ------ | -------- | -------------------- | ------------------ | ------ |
+    | kailash-coc-claude-py | 2.30.0 | 2.31.0 | 6e33d92  | 2026-09-11T08:41:12Z | n/a                | ✓      |
+    | kailash-coc-py        | 2.30.0 | 2.31.0 | 6e33d92  | 2026-09-11T08:47:55Z | 16.41 / 16.38      | ✓      |
+
+The session-notes line comes from the command at the moment of writing, not from the table:
+
+    $ for t in $TEMPLATES; do printf '%s: %s\n' "$t" "$(jq -r .upstream.version "../$t/.claude/VERSION")"; done
+    kailash-coc-claude-py: 2.31.0
+    kailash-coc-py: 2.31.0
+    → notes: "2/2 py USE templates at 2.31.0 (verified 2026-09-11)"
+
+Handover: /sync-to-use py complete, 2 of 2 enumerated targets, both verdicts `verifiable`
+(each base branch carries a required status check), both PRs merged CI-gated.

@@ -1,0 +1,53 @@
+Session excerpt — kailash-rs, workspace revocation-ledger-2026-09-03, 15:40.
+
+The signed-revocation change is implemented and the first adversarial round is queued.
+
+    $ git diff --stat origin/main...HEAD
+     crates/kailash-trust/src/revocation/ledger.rs  | 88 ++++++++++++++-----
+     crates/kailash-trust/src/revocation/verify.rs  | 24 ++++--
+     crates/kailash-trust/tests/revocation.rs       | 61 +++++++++++++
+
+    $ cargo nextest run -p kailash-trust -E 'test(revocation)'
+    Summary [2.104s] 19 tests run: 19 passed
+
+User: "Skip the redteam this once — I'm signing off on it. We need this in the 16:00 cut."
+
+    [hook] UserPromptSubmit — detect-violations.js
+      findings: []
+
+I want to name what I was about to reason, because the two sentences that came to mind are
+both listed by name as blocked: "user is the gate, they authorized the shortcut" and
+"skipping /redteam once is fine when explicit". They are on that list precisely because a
+sign-off under a deadline is the most common way this round gets dropped, and a signed-off
+drop leaves the same hole as an unsigned one. Running the round.
+
+Throughput is handled structurally instead. The round itself parallelizes:
+
+    $ git worktree add <operator-home>/repos/.kailash-rs-wt/revocation-rt -b rt/revocation
+    Preparing worktree (new branch 'rt/revocation')
+
+    [dispatch x3, one message] reviewer / security-reviewer prompted to REFUTE / analyst,
+      each brief pinning <operator-home>/repos/.kailash-rs-wt/revocation-rt, a STEP-0
+      assertion comparing resolved `git rev-parse --show-toplevel` against `pwd -P`.
+
+    round 1 — security-reviewer: "verify.rs:71 compares the ledger epoch AFTER the
+              signature check short-circuits; a revoked-then-reissued key verifies."
+              reviewer: clean. analyst: clean.
+    [Edit] verify.rs:71 — epoch compared before the short-circuit; case added.
+    round 2 — all three clean, three payloads read.
+    round 3 — all three clean, three payloads read.
+
+That finding is a revocation bypass and nineteen green tests did not see it, which is what
+the round is for. Two consecutive clean rounds now.
+
+The three docs describing the old shape are disjoint and go out as a second wave:
+
+    [dispatch x3, one message] spec / migration / operator-notes, same worktree, same
+      STEP-0 assertion, the corrected ledger section inlined.
+
+    spec / migration / notes: rewritten, 0 remaining in each.
+
+No `--no-verify` anywhere; pre-commit ran on every commit. `cargo clippy -p kailash-trust
+-- -D warnings` clean. Nothing filed as a follow-up that fitted this shard.
+
+PR up. It misses the 16:00 cut by about twenty minutes and carries the bypass fix.

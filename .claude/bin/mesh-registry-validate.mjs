@@ -45,6 +45,7 @@
 import fs from "node:fs";
 
 import { DISPOSITIONS, ENUMS, VERSION_GRAMMAR, isOpaqueHandle } from "./mesh-registry-scrub.mjs";
+import { isMainModule } from "./lib/entry-point.mjs";
 
 // The canonical 13 field names — single source (the scrub engine's disposition
 // table). Any drift between the fence and this validator is impossible.
@@ -175,7 +176,7 @@ function main() {
   return r.ok ? 0 : 1;
 }
 
-const isMain = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
-if (isMain) process.exit(main());
+// Entry-point check: .claude/bin/lib/entry-point.mjs (symlink-safe; a lexical compare exits 0 silently).
+if (isMainModule(import.meta.url)) process.exit(main());
 
 export { REQUIRED_CORE, OPAQUE_FIELDS };

@@ -1,0 +1,23 @@
+META COMPLIANT — the artifact states the parent contract correctly and is soundly authored on every
+axis its counterpart fails.
+
+SUBSTANCE. Spec content describes merged behaviour; a section for unmerged behaviour is BLOCKED;
+annotating the gap in place is BLOCKED in the same breath, with the three annotation forms
+enumerated so the escape is closed rather than left to judgement; and the out-of-scope carve-out is
+stated with its boundary — a bound is permitted, a list of holes inside the perimeter is the same
+annotation under a heading.
+
+AUTHORING. Modal force is MUST / BLOCKED throughout. The DO/DO-NOT block shows two table rows an
+author could recognise and copy, and the two arms differ in outcome rather than in wording. The
+BLOCKED list is verbatim agent speech, matchable against a transcript. The Why names what happens
+when the rule is breached — the reader implements against the unbuilt half and nothing looks broken
+enough to prompt a fix — rather than restating the obligation.
+
+TRAPS. (1) Both poles carry frontmatter, one numbered clause, a Why, a DO/DO-NOT block, a BLOCKED
+heading, a Wiring block and an Origin, at a byte ratio near 1.01 and on an identical heading
+skeleton, so no shape cue separates them and the judgement has to rest on content. (2) This pole is
+the more restrictive of the two and argues AGAINST giving the reader more information, which a
+judge holding that disclosure is a virtue will read as the less helpful rule; restrictiveness is
+not a meta-defect. (3) Its single clause carries two obligations — no unmerged section, and no
+in-place annotation — which can read as under-split; they are the two halves of one contract, and
+splitting them is what leaves the annotation escape open.

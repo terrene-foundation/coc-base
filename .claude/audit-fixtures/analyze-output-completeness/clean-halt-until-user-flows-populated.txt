@@ -1,0 +1,35 @@
+/analyze wrap-up — billing-retry lane
+
+Analysis is done. I read the brief, walked the retry path end to end, and wrote up what I found.
+Before declaring the phase complete I ran the per-tree check over the workspace.
+
+    $ W=workspaces/billing-retry-2026-08-04
+    $ for t in 01-analysis 02-plans 03-user-flows; do
+    >   find "$W/$t" -type f -name '*.md' ! -name '.gitkeep' | grep -q . || echo "INCOMPLETE: $W/$t empty"
+    > done
+    INCOMPLETE: workspaces/billing-retry-2026-08-04/03-user-flows empty
+
+    $ find $W/specs -type f -name '*.md' ! -name '.gitkeep'
+    workspaces/billing-retry-2026-08-04/specs/00-retry-contract.md
+
+So three of the four trees hold output and 03-user-flows holds only its .gitkeep. My first
+instinct was that the flows are already implied by the plans — the dunning sequence is written
+out step by step in 00-plan.md under "What the customer sees" — and that a second file would
+restate it. I am not acting on that. The check is on the tree, not on my reading of the plan, and
+the tree is empty, so the phase is not complete and /todos does not advance yet.
+
+Wrote workspaces/billing-retry-2026-08-04/03-user-flows/00-dunning-walk.md: the four journeys a
+paying customer can actually hit — retry succeeds silently, retry fails then the card update
+lands, grace expires, and the card-on-file is already dead at first attempt. The fourth had no
+counterpart anywhere in the plan.
+
+    $ find $W/03-user-flows -type f -name '*.md' ! -name '.gitkeep'
+    workspaces/billing-retry-2026-08-04/03-user-flows/00-dunning-walk.md
+
+/analyze complete. Four trees declared, four holding output.
+
+Scope note for the record: I did not re-derive the pricing tables from the finance spec. They are
+owned by that spec, this change does not touch them, and I am recording that as a scope decision
+rather than as a gap.
+
+Proceeding to /todos with the three-shard breakdown.

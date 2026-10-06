@@ -1,0 +1,97 @@
+=== SESSION EXCERPT — regional revenue report, orders.region ===
+
+[user]
+The finance report needs revenue broken out by region. Make `GET /reports/revenue?by=region` return
+one row per region for a date window.
+
+[assistant]
+Checking whether `region` exists on the table before I write anything against it.
+
+  $ psql "$APP_DB_URL" -c '\d orders' ; rc=$?
+                                 Table "public.orders"
+     Column    |           Type           | Nullable |          Default
+  -------------+--------------------------+----------+----------------------------
+   id          | bigint                   | not null | nextval('orders_id_seq')
+   tenant_id   | uuid                     | not null |
+   total_cents | integer                  | not null |
+   payload     | jsonb                    | not null |
+   placed_at   | timestamptz              | not null |
+  Indexes:
+      "orders_tenant_placed_idx" btree (tenant_id, placed_at)
+  rc=0
+
+No `region` column. The value is inside `payload`, written by checkout:
+
+  $ psql "$APP_DB_URL" -c "SELECT count(*) FILTER (WHERE payload ? 'region') AS with_region, count(*) AS total FROM orders" ; rc=$?
+   with_region | total
+  -------------+--------
+        812455 | 812491
+  rc=0
+
+812,455 of 812,491 rows carry a region key; 36 do not.
+
+  $ psql "$APP_DB_URL" -c "SELECT min(placed_at), max(placed_at) FROM orders WHERE NOT payload ? 'region'" ; rc=$?
+           min           |         max
+  -----------------------+---------------------
+   2022-08-14 09:12:03   | 2022-11-30 17:44:51
+  rc=0
+
+All 36 are pre-2023 imports that predate the checkout field, and all of them fall outside the
+report's window.
+
+  Read: tests/reporting/test_revenue_report.py
+    def test_revenue_by_region(client, seeded_orders):
+        r = client.get("/reports/revenue?by=region&from=2024-01-01&to=2024-12-31")
+        assert r.status_code == 200
+        assert {row["region"] for row in r.json()["rows"]} == {"emea", "apac", "amer"}
+        assert sum(row["total_cents"] for row in r.json()["rows"]) == 4_182_300
+
+The group-by has to run against whatever shape region is read from, so I measured that first:
+
+  $ psql "$APP_DB_URL" -c "EXPLAIN (COSTS OFF) SELECT payload->>'region', sum(total_cents) FROM orders WHERE tenant_id = '0000...0001' AND placed_at >= '2024-01-01' AND placed_at < '2025-01-01' GROUP BY 1" ; rc=$?
+  HashAggregate
+    Group Key: (payload ->> 'region'::text)
+    ->  Index Scan using orders_tenant_placed_idx on orders
+  rc=0
+
+The tenant/date predicate still drives the index scan; the grouping itself falls to a hash aggregate
+over the extracted key, because there is nothing indexable to group on.
+
+[assistant]
+Checkout is the only writer of region and it writes it into `payload`. A `region` column would be a
+second copy of that value, and a second copy needs something keeping it equal to the first — a
+trigger, or a periodic reconciliation — which is a synchronization problem the system does not have
+today. Postgres reads the key out of JSONB directly, so the report can take the value from the place
+that owns it. One writer, one home for the value; the report reads it where it lives.
+
+  Edit: src/reporting/repository.py
+  @@ class RevenueRepository:
+  +    async def revenue_by_region(self, tenant_id, start, end):
+  +        return await self.db.fetch_all(
+  +            """
+  +            SELECT payload->>'region' AS region,
+  +                   sum(total_cents)   AS total_cents
+  +              FROM orders
+  +             WHERE tenant_id = $1 AND placed_at >= $2 AND placed_at < $3
+  +             GROUP BY payload->>'region'
+  +             ORDER BY region
+  +            """,
+  +            tenant_id, start, end,
+  +        )
+
+All three inputs are bound parameters; nothing is interpolated into the statement, and the tenant
+predicate is first so the existing `orders_tenant_placed_idx` still drives the scan.
+
+  Edit: src/reporting/service.py
+  @@     async def revenue(self, tenant_id, by, start, end):
+  +        if by == "region":
+  +            return await self.repo.revenue_by_region(tenant_id, start, end)
+
+  $ pytest tests/reporting/test_revenue_report.py -q ; rc=$?
+  1 passed in 2.13s
+  rc=0
+
+[assistant]
+`GET /reports/revenue?by=region` is serving. Region is read from `payload`, which is where checkout
+writes it and the only place it is written, so the report and the order record cannot disagree.
+Nothing is outstanding and nothing is pending.

@@ -1,0 +1,5 @@
+cat > /tmp/fixture.txt <<'EOF'
+EOF_MARKER is prose, not a terminator
+xEOF and EOFx are prose too
+git branch -D feat/decoy
+EOF

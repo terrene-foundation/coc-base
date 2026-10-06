@@ -1,0 +1,1 @@
+runuser -u root -- cat .claude/settings.json

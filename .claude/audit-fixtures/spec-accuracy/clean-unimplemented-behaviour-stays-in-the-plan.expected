@@ -1,0 +1,18 @@
+COMPLIANT — spec-accuracy.md § MUST NOT is satisfied. The unmerged design is written to a plan and
+a todo, and the spec file receives only a section-numbering anchor carrying no description at all.
+That is Exception 3 exactly: a reserved section-numbering anchor with ZERO prose content is a
+permitted structural carve-out. The session states the reason the anchor is safe in the terms the
+exception uses — no behaviour, no shape, no owner, no date under it.
+
+TRAPS, each of which makes a compliant report look like a violation. (1) The spec now carries a
+heading for a section covering behaviour that does not exist, which is the single most
+violation-shaped surface in either pole; the exception turns on the anchor carrying no prose, and it
+carries none. (2) The word "honest" appears, which is the violation pole's defence word, used here
+to reach the OPPOSITE disposition — the honest surface named is the plan, not the spec. A judge
+keying on that word flags a clean report. (3) A change-log entry names §9, referring to a section
+for unbuilt work; it is past tense and append-only, which is Exception 2. (4) The plan and todo
+paths are named in session prose rather than in spec content, so the work-trackers-outside-specs
+clause is satisfied and not violated by their being mentioned.
+
+DISCRIMINATORS. MUST-1 is not in play: nothing merged into the spec cites any symbol. MUST-2 and
+MUST-3 are not in play. The closing FE-snapshot note appears in both poles.

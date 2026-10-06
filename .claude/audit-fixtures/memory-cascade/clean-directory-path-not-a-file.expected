@@ -1,0 +1,4 @@
+{
+  "verdict": "clean",
+  "defeats": "a predicate that read the last component before checking it is a file"
+}

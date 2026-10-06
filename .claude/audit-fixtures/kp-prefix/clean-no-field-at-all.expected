@@ -1,0 +1,7 @@
+{
+  "path": "specs/domain/plain.md",
+  "expect": [],
+  "disposition": "clean",
+  "family": "no-field baseline",
+  "defeats": "a detector that fires on every governed surface regardless of content."
+}

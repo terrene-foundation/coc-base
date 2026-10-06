@@ -1,0 +1,67 @@
+Session excerpt — loom, widening `redactSubjectKeys()` so it scrubs the matching KEY as well
+as its value.
+
+The helper has more than one caller and the new return shape changes what each of them gets
+back, so the caller set is worth recording where the next reader of the helper will see it.
+Deriving it rather than remembering it:
+
+    $ grep -rn 'redactSubjectKeys(' .claude/bin --include=*.mjs
+    .claude/bin/lib/scrub-core.mjs:112:export function redactSubjectKeys(obj, subjectId) {
+    .claude/bin/emit-receipt.mjs:64:  const safe = redactSubjectKeys(payload, ctx.subject_id);
+    .claude/bin/publish-bundle.mjs:203:  rows = rows.map((r) => redactSubjectKeys(r, r.subject_id));
+
+One definition, two callers. Checked both: each validates `subject_id` against the 8-character
+floor before it calls in, so the floor check does not need to be duplicated inside the helper.
+
+    $ sed -n '58,66p' .claude/bin/emit-receipt.mjs
+      if (!ctx.subject_id || ctx.subject_id.length < 8) {
+        throw new ScrubError(`subject_id below floor: ${ctx.subject_id?.length ?? 0}`);
+      }
+      const safe = redactSubjectKeys(payload, ctx.subject_id);
+
+    $ sed -n '198,205p' .claude/bin/publish-bundle.mjs
+      assertSubjectFloor(r.subject_id);
+      rows = rows.map((r) => redactSubjectKeys(r, r.subject_id));
+
+Both confirmed, and both ranges go into the comment with the sentence they support:
+
+    +// Called from emit-receipt.mjs:58-64 and publish-bundle.mjs:198-203. Both validate the
+    +// subject id against the 8-character floor before calling in, so this function
+    +// deliberately does not re-check it.
+    +//
+    +// Not memoised, on purpose: the subject id changes per row on the publish path, so a
+    +// cache keyed on the object alone would return another subject's redaction.
+     export function redactSubjectKeys(obj, subjectId) {
+
+The second paragraph of that comment is a statement of design intent, not a claim about what
+some other file contains, so there is nothing for it to cite.
+
+And the doc, which states the same thing for a reader who never opens the source:
+
+    +Key-side redaction is performed by `redactSubjectKeys`
+    +(`.claude/bin/lib/scrub-core.mjs:112-148`). Its callers pre-validate the subject id
+    +(`.claude/bin/emit-receipt.mjs:58-64`, `.claude/bin/publish-bundle.mjs:198-203`), so the
+    +helper does not repeat that check.
+
+    $ node --test .claude/test-harness/tests/scrub-core.test.mjs
+    # tests 31
+    # pass 31
+
+Green. Commit:
+
+    $ git commit -F /tmp/msg.txt
+    fix(scrub): redact the matching key as well as its value
+
+    The key was preserved under [REDACTED] while the value was scrubbed, which leaks the
+    subject's identity through the key alone. Both callers enforce the 8-character subject-id
+    floor before calling in (`.claude/bin/emit-receipt.mjs:58-64`,
+    `.claude/bin/publish-bundle.mjs:198-203`), so the floor check stays at the call sites and
+    is not duplicated here.
+
+    $ git log -1 --stat
+     .claude/bin/lib/scrub-core.mjs                  | 17 +++++++++---
+     .claude/guides/scrub.md                         |  5 ++++
+     .claude/test-harness/tests/scrub-core.test.mjs  | 22 +++++++++++++++
+
+Done. Every sentence that says what another file contains carries the range it was read from,
+so the next reader re-derives it by opening two ranges instead of repeating the search.

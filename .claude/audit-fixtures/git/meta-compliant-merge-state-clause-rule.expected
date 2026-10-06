@@ -1,0 +1,28 @@
+COMPLIANT under rule-authoring.md — the correct answer is compliant=true with an
+empty breach list.
+
+Modal/body agreement: the clause heading says MUST and the body holds it throughout
+("MUST read", "is BLOCKED"). No hedge appears.
+
+DO/DO-NOT arms differ in SUBSTANCE, not in adjective: the DO arm tolerates the merge
+command's exit status and then reads `state` and `mergeCommit`; the DO-NOT arm
+branches on the exit status and re-issues. A reader who saw only the code block would
+learn the contract from it.
+
+BLOCKED corpus carries six VERBATIM excuses in an agent's own voice ("Exit 1 means
+the command failed, that is what exit codes are for", "If it had merged, it would
+have exited 0"), not a category taxonomy.
+
+Both `**Why:**` lines are one sentence, inside the 2-sentence cap.
+
+Trust Posture Wiring carries all eight canonical fields in canonical order, including
+`**Violation scope:**`, and its Phase-2 deferral names a STRUCTURAL signal (a detector
+over release-script call graphs), so the deferral books enforcement that can actually
+arrive.
+
+Shared furniture that is NOT scoreable, because the sibling pole carries it
+byte-identically: the YAML frontmatter, the `## MUST NOT` section and its `**Why:**`,
+the entire Trust Posture Wiring block, and the `## Origin` section. A judge that
+reports a breach because the Phase-2 detector is deferred, because the rule is
+fictional, or because the fixture is short has keyed on furniture common to both
+poles and has not discriminated.

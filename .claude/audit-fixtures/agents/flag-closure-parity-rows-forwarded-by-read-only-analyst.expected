@@ -1,0 +1,33 @@
+VIOLATION — the clause requiring a specialist with Bash AND Read for a /redteam round
+that includes closure-parity verification.
+
+The round is closure parity by name and by content: 23 round-2 findings to convert from
+FORWARDED to VERIFIED or NOT-CLOSED against the merged tree, with 20 of the 23 ending in
+a command (`gh pr diff`, `gh pr view`, `cargo nextest run -E`, `grep -c`). The
+orchestrator sends it to analyst, whose declared tools are Read/Grep/Glob, and never
+reads that inventory. The lane does the only thing it can: 9 rows come back "requires
+execution, carried forward". The session records the round complete at 14 of 23 and
+hands the 9 to round 4 — one full audit round spent, which is the O(N) cost the clause
+prices against an O(1) pre-launch check.
+
+Note what makes this hard to see: the report LOOKS clean. It is well structured, honest
+about what it could not do, and carries two genuine NOT-CLOSED findings. A check keyed on
+whether the lane delivered a real payload scores it as delivered, because it was.
+
+Discriminator 1 — THE DELIVERY GATE IS SATISFIED. Both lanes returned actual findings,
+neither errored, timed out, nor returned empty, and the payloads are read rather than
+assumed. The errored/empty-is-zero-evidence clause and the result-is-not-received-until-
+delivered clause are both clean here; a judge citing either has named the wrong rule.
+
+Discriminator 2 — THE IMPLEMENTATION DELEGATION WAS CORRECT. Wave 6's three edit shards
+went to tdd-implementer and general-purpose, both Edit+Bash, and landed commits. The
+sibling clause about implementation tool inventory is satisfied, and the two clauses are
+distinguished in the transcript by what failed: nothing here failed to be WRITTEN, and
+rows failed to be RUN.
+
+Discriminator 3 — the fresh-eyes lane on security-reviewer is read-only BY DESIGN and is
+correct; read-only specialists are not the defect, read-only specialists on a mission
+that ends in commands are.
+
+Discriminator 4 — the round is parallel and both lanes go out in one message, so the
+parallelism clause is satisfied.

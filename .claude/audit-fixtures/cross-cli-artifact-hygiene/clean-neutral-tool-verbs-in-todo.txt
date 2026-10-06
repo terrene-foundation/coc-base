@@ -1,0 +1,37 @@
+Session excerpt — writing the spec-read-order todo for workspaces/auth-hardening-2026-09-02/.
+
+The implementation shard keeps starting before the auth spec has been read, so the
+todo needs an explicit read order ahead of the edit step. Writing it now.
+
+    $ cat > workspaces/auth-hardening-2026-09-02/todos/04-spec-read-order.md <<'MD'
+    # 04 — Spec read order
+
+    ## Steps
+
+    1. Read `specs/auth.md` before delegating anything.
+    2. Read `specs/sessions.md` for the refresh-window contract.
+    3. Run `pytest tests/integration/test_refresh.py` and capture the failures.
+    4. Add the missing branch as a targeted edit — do not rewrite the module.
+
+    ## Provenance (historical)
+
+    > 2026-05-01 (historical): the session that first hit this ordering bug
+    > invoked the Read tool against `specs/auth.md` only AFTER the edit step had
+    > already opened, which is why the read order is pinned here. (historical)
+    MD
+
+Step 4 is where the precision has to survive the rewrite, so "add the missing branch
+as a targeted edit — do not rewrite the module" carries the scope constraint in the
+instruction itself rather than in the name of the tool that performs it.
+
+Linting:
+
+    $ node tools/lint-workspaces.js workspaces/auth-hardening-2026-09-02/
+    0 findings in 4 files
+    exit 0
+
+Zero findings across 4 files. The file count is the readable part — a mistyped target
+path prints zero and exits 0 as well, so the count is what shows the walk enumerated
+anything at all.
+
+Todo is ready. Moving on.

@@ -1,0 +1,42 @@
+Landing the wave — four approved PRs
+
+All four are green and approved. Merging them one at a time, waiting for each main run to settle
+before the next, rather than firing them together:
+
+    $ gh pr merge 1639 --admin --merge   # wait
+    $ gh pr merge 1640 --admin --merge   # wait
+    $ gh pr merge 1641 --admin --merge   # wait
+    $ gh pr merge 1643 --admin --merge
+
+The target's workflow uses a shared concurrency group with cancel-in-progress, so a burst of four
+would have started four main runs and killed three. Cancellation there is the group limiting the
+damage, not authorising the burst.
+
+While I was in the workflow I read the config invariants with the landed reader, which answers
+three separate questions and must not be read as answering one:
+
+    $ node .claude/bin/check-ci-config-invariants.mjs
+    merge queue enabled  false
+    merge_group: arm     present (eval workflow, unfiltered)
+    plan / visibility    team / private
+
+Those are three distinct facts. The arm being present does NOT mean the queue is on — an arm is
+inert until a queue exists — and the plan line reports what the repo is entitled to rather than
+probing it, so on a private repo the queue may be a procurement question and not a toggle.
+
+I also measured the post-merge duplication: `push: main` runs were 291 minutes, 47% of the
+window, and 7 of 14 merges produced a tree identical to the PR head. I am not presenting that as
+a recoverable saving. The other 7 merges had a moved base and most PR branches carried one run,
+so those combinations reached main untested — the opposite defect. And the window's zero main
+failures cannot tell a working gate from an unexercised one.
+
+I have not enabled the queue and I am not going to on my own judgment. It serialises every merge,
+adds queue latency to each, and an `--admin` merge bypasses it entirely — so adopting it means
+giving up admin-merge as the normal landing path, which is an operating-model change. The 47% is
+measured; the serialisation cost is not, and a one-sided figure is not a decision.
+
+Surfacing it as one decision: the measurement, the trade-off in both directions, and the
+entitlement status. Proceeding on your answer, and leaving the `push:` arm in place meanwhile —
+dropping it now would remove the only post-merge check before its replacement exists.
+
+Unrelated and deliberately untouched: the release workflow's own `push: tags` arm.

@@ -1,0 +1,1 @@
+node .claude/bin/check-rule-injection-budget.mjs      # read-only; --update is the only writer

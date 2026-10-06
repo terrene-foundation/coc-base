@@ -15,8 +15,8 @@
  * v2 consumers (`computeOperativePosture`, gate-matrix) consume the v2-shape
  * fields (`schema_version`, `repo_floor`, `operators`).
  *
- * Per `rules/multi-operator-coordination.md` § "MUST NOT — Edit
- * .claude/learning/posture.json directly via the file-edit tools": this
+ * Per `rules/multi-operator-coordination.md` § "MUST NOT (always-on)" —
+ * no direct file-edit/shell write to `.claude/learning/posture.json`: this
  * module is the ONLY legitimate reader; writes still flow through
  * `fold-posture-event.js` + `writePosture`.
  */
@@ -439,7 +439,7 @@ function _readFileHardened(p, opts) {
 
 // ---- F52: clone-init witness separate-location sentinel ---------------------
 //
-// Per `rules/multi-operator-coordination.md` § Origin "Open follow-up forest
+// Per `skills/30-claude-code-patterns/multi-operator-coordination-substrate.md` § Origin "Open follow-up forest
 // items" — F52 acceptance: the witness MUST resolve OUTSIDE `.claude/learning/`
 // so a directory-sweep adversary (`rm -rf .claude/learning/*`) cannot defeat
 // the discriminator in the same invocation. Canonical target:
@@ -1202,6 +1202,76 @@ function _stripRepoPath(p) {
 }
 
 /**
+ * THE session identity a violation row is stamped with, and the ONLY identity a
+ * reader may look it up by. Every writer (`appendViolation` here,
+ * `coc-append.js::appendStamped`) and every deduper
+ * (`detect-violations.js`, Stop branch, acknowledgement_failure) routes through
+ * this one function, so the id a row is WRITTEN under and the id a reader
+ * SEARCHES for cannot disagree (`security.md` § Multi-Site Kwarg Plumbing).
+ *
+ * THE DEFECT THIS CLOSES, MEASURED (2026-09-27). The writers read
+ * `CLAUDE_SESSION_ID`, a variable the Claude Code host never exports to a hook.
+ * In the 2.1.283 host binary that name occurs only as the `${CLAUDE_SESSION_ID}`
+ * TEMPLATE substitution in skill/command bodies; the env the hook runner builds
+ * (`{...base, ...zMe(g), CLAUDE_PROJECT_DIR}`, with
+ * `zMe = {CLAUDECODE, CLAUDE_CODE_SESSION_ID: e.sessionId, CLAUDE_CODE_CHILD_SESSION,
+ * CLAUDE_CODE_SESSION_ATTENDED, CLAUDE_PID}`) carries `CLAUDE_CODE_SESSION_ID`.
+ * So every stored row said `"unknown"` while the Stop deduper looked for
+ * `payload.session_id`: in a sandbox with that host env, 3 Stops wrote 3
+ * acknowledgement_failure rows (expected 1); with the env aligned, 1.
+ *
+ * WHY THE ENVIRONMENT AND NOT THE PAYLOAD. The id is resolved HERE, with no
+ * parameter, so no caller can supply a row's identity — the env-seam redteam F5
+ * lever (`appendViolation`'s pinned-provenance comment) stays closed. The host
+ * sets `CLAUDE_CODE_SESSION_ID` from the same session id it puts in the payload,
+ * so for a host-spawned hook the two agree. `CLAUDE_SESSION_ID` stays as the
+ * second rung so an operator or harness that sets it keeps working.
+ *
+ * RESIDUAL, STATED: where neither variable is set (a runtime other than Claude
+ * Code, or a hand-run hook), every row and every lookup resolve to the literal
+ * `"unknown"`. Writer and reader still agree, but the dedupe then spans every
+ * id-less session in the recent-rows window, not one session.
+ *
+ * Bounded at ingest (128 chars): env-derived and attacker-influenceable, and an
+ * unbounded value inflates the record past the signed path's pre-sign cap.
+ *
+ * @param {Object} [env=process.env] injectable for tests
+ * @returns {string}
+ */
+function resolveViolationSessionId(env = process.env) {
+  for (const raw of [env.CLAUDE_CODE_SESSION_ID, env.CLAUDE_SESSION_ID]) {
+    if (typeof raw === "string" && raw.trim() !== "") return raw.slice(0, 128);
+  }
+  return "unknown";
+}
+
+/**
+ * Is this JSONL row a VIOLATION record, as opposed to guard telemetry?
+ *
+ * `.claude/learning/violations.jsonl` is a MIXED-SCHEMA file: alongside
+ * violation rows (`{id, timestamp, rule_id, severity, evidence, …}` written
+ * here) the Codex MCP guard appends operational telemetry in a completely
+ * different shape (`{kind, ts, tool, source_file, cwd}` —
+ * `.claude/codex-mcp-guard/server.js`, which bypasses this module entirely and
+ * writes with a raw `fs.appendFileSync`). As of the loom#1502 audit those
+ * telemetry rows were 417 of 513 lines — 81% of the file.
+ *
+ * They carry no `rule_id` and no `timestamp`, so anything counting rows for
+ * `trust-posture.md` MUST-4 must exclude them BY KIND. Filtering them on the
+ * missing timestamp alone would be the wrong instrument: it happens to catch
+ * them today, but it would equally catch a genuine violation row whose date was
+ * lost, which is exactly the row a reader most needs to see.
+ */
+function isViolationRecord(row) {
+  return !!(
+    row &&
+    typeof row === "object" &&
+    typeof row.rule_id === "string" &&
+    row.rule_id !== ""
+  );
+}
+
+/**
  * Append a violation. Single-line JSON, ≤2KB, atomic O_APPEND (mitigates HIGH-6 race).
  */
 function appendViolation(cwd, partial) {
@@ -1225,11 +1295,10 @@ function appendViolation(cwd, partial) {
     ...partial,
     id: newId("vio"),
     timestamp: new Date().toISOString(),
-    // Env-derived and attacker-influenceable, so bounded HERE, at ingest, rather than
-    // trusted downstream (`security.md` § Input Validation). Unbounded it is a lever for
-    // inflating the record past the signed path's cap — see the F5 note in
-    // `detect-violations.js::_logViolation`.
-    session_id: String(process.env.CLAUDE_SESSION_ID || "unknown").slice(0, 128),
+    // Env-derived, bounded at ingest, and resolved by the ONE helper the Stop deduper
+    // also uses — see `resolveViolationSessionId` for why the host's variable is
+    // `CLAUDE_CODE_SESSION_ID` and why this is not caller-suppliable (F5).
+    session_id: resolveViolationSessionId(),
     repo: _stripRepoPath(cwd || process.cwd()),
   };
 
@@ -1427,7 +1496,32 @@ function readRecentViolations(cwd, { sinceTs, limit = 1000 } = {}) {
   for (let i = lines.length - 1; i >= 0 && out.length < limit; i--) {
     try {
       const obj = JSON.parse(lines[i]);
-      if (sinceTs && obj.timestamp < sinceTs) continue;
+      // loom#1502 — an undated row must be EXCLUDED from a windowed read, not
+      // silently included. The old predicate was `obj.timestamp < sinceTs`, and
+      // because every relational comparison against undefined evaluates false,
+      // a row with no timestamp was never skipped: it stayed inside every
+      // window, forever, unable to age out.
+      //
+      // Why EXCLUDE is the conservative direction here, and why that is the
+      // OPPOSITE of what "fail closed" means at a security gate. At a gate,
+      // failing closed means DENY, because wrongly allowing (a breach) costs
+      // more than wrongly denying (friction). The action gated by this window
+      // is DOWNGRADING AN OPERATOR'S POSTURE, so the costs invert: wrongly
+      // counting a row silently strips autonomy for a violation that may never
+      // have occurred and can never be argued away, whereas wrongly omitting
+      // one is recoverable — the next genuine violation still counts, and
+      // gate-review still fires. The invariant being protected is the integrity
+      // of the count, and an undated row carries no information about the
+      // window at all.
+      //
+      // This is only safe because it ships WITH the write-side fence above: an
+      // undated violation row is now impossible to create, so "omit the
+      // timestamp" cannot become a laundering channel for rows that dodge the
+      // math. Neither half is sound alone.
+      if (sinceTs) {
+        const ts = obj && typeof obj.timestamp === "string" ? obj.timestamp : null;
+        if (ts === null || ts < sinceTs) continue;
+      }
       out.push(obj);
     } catch {
       // skip corrupt line, continue
@@ -1468,7 +1562,12 @@ module.exports = {
   // corrupts state — hooks are the only legitimate posture writers).
   isPendingWithinGrace,
   appendViolation,
+  resolveViolationSessionId,
   readRecentViolations,
+  // loom#1502 — the single correct "is this row a violation, or guard
+  // telemetry sharing the same file?" predicate, so every MUST-4 counter uses
+  // one implementation instead of each re-deriving it.
+  isViolationRecord,
   failClosedPosture,
   resolveLogPath,
   // M9.1 R4 Sec-R4-S-01 — exported so `coc-append.js::appendStamped` and
@@ -1491,6 +1590,24 @@ module.exports = {
   // asymmetry this file's own header warns about — the hardened pattern present in
   // one place and the plain one beside it. `security.md` § Multi-Site Kwarg Plumbing.
   readFileHardened: _readFileHardened,
+  // loom#1444 excise lane: exported for the SAME reason `readFileHardened` was —
+  // a second writer of durable trust state must route through THIS open(2) flag
+  // set (O_EXCL|O_NOFOLLOW, fchmod on the held fd, short-write loop, post-write
+  // nlink re-stat) rather than re-deriving it. First external caller is
+  // `.claude/bin/trust-ledger-excise.mjs`, which rewrites violations.jsonl to
+  // quarantine leaked fixture rows; a hand-rolled `writeFileSync` there would be
+  // exactly the asymmetry this file's header warns about — the hardened pattern
+  // in one place and the plain one beside it. `security.md` § Multi-Site Kwarg
+  // Plumbing (one helper, every caller routes through it; siblings cannot drift).
+  writeFileHardened: _writeFileHardened,
+  // Exported alongside `writeFileHardened` because the two are HALVES OF ONE
+  // CONTRACT, and shipping the writer without the containment check is what let
+  // the excise tool become the only durable-trust-state writer that skipped it.
+  // `writePosture` and `appendViolation` both call this BEFORE any read or write;
+  // with a symlinked `.claude/learning` they fail closed, and a caller that has
+  // the hardened writer but not this predicate would instead read and rewrite the
+  // attacker's file. `security.md` § Path Containment + § Multi-Site Kwarg Plumbing.
+  assertStateDirContained: _assertStateDirContained,
   VALID_POSTURES,
   MAX_LINE_BYTES,
   COORDINATION_LOG_FILE,

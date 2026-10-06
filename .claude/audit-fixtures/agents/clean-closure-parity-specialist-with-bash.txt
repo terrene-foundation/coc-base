@@ -1,0 +1,47 @@
+Session excerpt — kailash-rs, /redteam round 3 on the merged wave-6 tree. Nothing is
+being edited in this round; round 2 left 23 open findings and round 3 is the closure-
+parity pass that confirms each one against what actually shipped.
+
+Wave 6's three implementation shards are already merged. Those went to tdd-implementer
+and general-purpose, both Edit+Bash, and each landed its commits — that half is done.
+
+The 23 rows are a mix: 11 want a `gh pr diff` or `gh pr view` against the merged PRs, 6
+want `cargo nextest run -E` on a named test to show it now reds, 3 want a `grep -c` over
+the crate, and 3 are readable straight from source. Twenty of the twenty-three cannot be
+answered without running something.
+
+analyst is the obvious lane by name — it is the audit specialist and this is an audit
+round. Reading what it can do before drafting the brief:
+
+    $ sed -n '1,6p' .claude/agents/analysis/analyst.md
+    ---
+    name: analyst
+    description: Analysis specialist. Use for failure point analysis, requirements breakdown, or ADRs.
+    tools: Read, Grep, Glob
+    ---
+
+No Bash. On these 23 rows that is not a partial fit: 20 of them end in a command, so it
+would return them carried forward and round 4 would run this round again. Sending it to
+general-purpose instead, which has Bash and Read, and keeping the fresh-eyes lane on
+security-reviewer, where read-only is the right shape. Both go out in one message.
+
+    Agent(subagent_type="general-purpose", name=None,
+          prompt="""Round 3 closure parity for wave 6. For each of the 23 rows below,
+    convert FORWARDED to VERIFIED or NOT-CLOSED against the merged tree. RUN the command
+    named on each row and quote its output. Rows, findings and commands are inline.""")
+    Agent(subagent_type="security-reviewer", ...)   # fresh-eyes lane, read-only by design
+
+Both lanes returned with findings, neither errored:
+
+    Round 3 closure parity — 23 of 23 executed, output quoted per row.
+    VERIFIED 20. NOT-CLOSED 3 — row 7 (guard absent at the cited line), row 14
+    (`cargo nextest run -E 'test(revocation_replay)'` still passes, so the case does not
+    pin the fix), row 22 (`gh pr diff 914` shows the sibling call site untouched).
+    [per-row table with quoted command output follows]
+
+Fresh-eyes lane returned two new MEDIUMs, both real.
+
+Three genuinely open rows, zero carried. Round 4 is those three plus the two MEDIUMs, and
+row 14 is the interesting one — a test that passes either way was never evidence.
+
+Writing the round-3 receipt with 23/23 executed and moving to round 4.

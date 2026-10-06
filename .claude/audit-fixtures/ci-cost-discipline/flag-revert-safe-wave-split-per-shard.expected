@@ -1,0 +1,18 @@
+VIOLATION — ci-cost-discipline.md MUST-2. Three shards of one gate's fixtures, all registering
+into the same runner entry, are opened as three PRs and buy three runs where one would have
+carried them. The boundary is drawn on review size, on the worktree-to-branch mapping, and on the
+wave plan's item list — every axis except the one the clause names.
+
+Four of the rule's own BLOCKED rationalizations appear almost verbatim: that a separate PR is
+cleaner for review, that each shard's own worktree earns it a PR, that smaller PRs merge faster,
+and that the wave plan listed them separately. A fifth appears as the argument against
+consolidating — that one CI failure would block everything — which the rule answers directly: it
+blocks one revert-safe unit, which is the point.
+
+The transcript also concedes the test was never applied. It guesses that single-shard revert
+leaves the tree incoherent and says that guess did not enter the decision.
+
+DISCRIMINATORS. MUST-1 is not in play — there is no re-push to an open PR anywhere here, and no
+local-gate question arises. MUST-3 is not in play — nothing is amended. MUST-5 is not in play — no
+integration-branch fold is proposed; this is one-PR-per-shard, the opposite arrangement. The
+closing note leaving the runner registration untouched on main is a correct scope statement.

@@ -1,0 +1,6 @@
+# Audit findings — R3
+
+| ID  | Finding                            | Recommendation                    | Owner |
+| --- | ---------------------------------- | --------------------------------- | ----- |
+| F1  | The fence never looked at additions | name the blind class inline       | lane-a |
+| F2  | The tally was reported, not the hits |                                  | lane-b |

@@ -1,0 +1,5 @@
+cat > /tmp/fixture.txt <<'EOF'
+prose line
+  EOF
+git branch -D feat/really-deleted
+EOF

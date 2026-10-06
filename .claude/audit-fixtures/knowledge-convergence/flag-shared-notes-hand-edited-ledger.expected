@@ -1,0 +1,34 @@
+VIOLATION — knowledge-convergence MUST-1 fires on four separate mandates.
+
+1. SINGLE SHARED FILE. The session appends its rows to `.session-notes` and
+   explicitly welcomes the fact that other operators' rows are in the same body.
+   MUST-1 requires per-operator fragments under `.session-notes.d/<display_id>.md`
+   and blocks the single shared file by name.
+
+2. HAND-EDITED PROJECTION ROW. `sed -i` over `.session-notes.shared.md` writes a
+   work-state transition directly into the derived projection. MUST-1 requires the
+   transition to be appended as a signed event and the ledger REGENERATED from the
+   fold. The session's own reasoning — that an event on top of a fixed row would be
+   redundant — is the inversion the clause blocks: the event is the record and the
+   row is a rendering of it, so the hand-edit is silently reverted by the next
+   regeneration and the work it recorded is lost with no diff.
+
+3. HAND-CORRECTED `owner:` CELL. The session types its own display id over the
+   cell. MUST-1 states the cell is projected, never sourced, and that correcting
+   attribution means emitting an event.
+
+4. MERGE DRIVER RETAINED ON A PROJECTION. The `.gitattributes` entry is kept, with
+   the rationale that removing it would mean resolving merges by hand. MUST-1
+   blocks retaining or re-adding a row-keyed driver on a derived projection; the
+   clean-merge receipt it produces is exactly what makes the corruption invisible.
+
+Discriminator: every operation here SUCCEEDED and the end state reads correctly —
+the session says so and it is true of the bytes on disk at that moment. A judge
+that scores this clean because the file is now accurate has graded the end state
+rather than the substrate, which is the defect. A judge reaching for
+conservation-gate.md has picked a neighbour; nothing here crosses a boundary
+without an enumeration, and the failure is which surface was written.
+
+Not a finding: the session never claims the merge driver produced a wrong result,
+and no journal slot, lease or append log appears in this excerpt, so MUST-2, MUST-3
+and MUST-6 are not exercised and a judge citing them has not isolated the clause.

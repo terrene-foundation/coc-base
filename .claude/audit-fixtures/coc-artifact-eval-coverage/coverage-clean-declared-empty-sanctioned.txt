@@ -1,0 +1,18 @@
+# coverage-clean-declared-empty-sanctioned
+#
+# The manifest declares ZERO structural coverage via a live `_declared_empty`
+# ({reason, graduation}) — the sanctioned whole-manifest exit MUST-1 names.
+#
+# expect: (silent)
+{
+  "filePath": ".claude/rules/widget-hygiene.md",
+  "manifest": {
+    "_declared_empty": {
+      "reason": "eval ENGINE adopted with no local structural scanners yet",
+      "graduation": "delete when the first local scanner lands"
+    }
+  },
+  "probeInventory": [],
+  "probeAuthorshipDeferrals": {},
+  "now": "2026-09-13T00:00:00Z"
+}

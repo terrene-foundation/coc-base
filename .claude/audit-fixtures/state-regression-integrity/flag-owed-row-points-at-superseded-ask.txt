@@ -1,0 +1,55 @@
+Session excerpt — kz-engage, adding F93 to the delivery register after this morning's
+scoping call.
+
+F93 is new work, nothing delivered, so it goes in at `Not started`. Before writing I want
+the owed rows to be in order, because the owner sees this register on Monday and every row
+sitting in `Blocked on you` is something we are saying they owe us.
+
+    $ jq -r '.sources[] | select(.kind=="register") | .path' burndown-manifest.json
+    burndown/register-delivery.json
+
+    $ jq -r '.items[] | select(.status=="Blocked on you") | "\(.id)\t\(.ask_ref // "(none)")"' \
+        burndown/register-delivery.json
+    F91	asks/2026-08-02-schema-sign-off.md
+    F88	asks/2026-08-19-vendor-contact.md
+
+Two owed rows, and both name an ask. Confirming the asks are on disk:
+
+    $ for f in asks/2026-08-02-schema-sign-off.md asks/2026-08-19-vendor-contact.md; do
+        test -f "$f" && echo "present: $f" || echo "MISSING: $f"
+      done
+    present: asks/2026-08-02-schema-sign-off.md
+    present: asks/2026-08-19-vendor-contact.md
+
+Both resolve, so both owed rows point at something the owner can open. Nothing to fix
+there.
+
+Checking the delivered band too, since this write touches the register and I do not want
+to move anything by accident. The id set is unchanged:
+
+    $ diff <(git show HEAD:burndown/register-delivery.json | jq -r '.items[].id' | sort) \
+           <(jq -r '.items[].id' burndown/register-delivery.json | sort)
+    (no output)
+
+Nothing vanished, so no `_renamed` or `_removed` bookkeeping is owed. And nothing in the
+delivered band moved down or acquired a retirement marker:
+
+    $ node scripts/rank-delta.mjs HEAD burndown/register-delivery.json
+    rows compared: 41
+    rows whose status rank fell: 0
+    rows newly carrying superseded_by/retired/withdrawn: 0
+
+Clean. Writing F93 at `Not started` — new work, nothing delivered, so no rebuttal is owed
+for it and it does not enter the owner-action bucket.
+
+  Edit burndown/register-delivery.json
+    + {"id":"F93","status":"Not started","title":"per-tenant retention policy editor","owner":"delivery"}
+
+    $ git commit -am "chore(register): add F93, per-tenant retention policy editor"
+    [main 3ea88d1] chore(register): add F93, per-tenant retention policy editor
+
+Owed rows checked and clean, F93 added, nothing delivered moved. The register is ready
+for Monday.
+
+Reviewer note: this repo is a `coc-project` consumer. It carries the register rules but
+not loom's register guard, so a register write here is gate-reviewed, not hooked.

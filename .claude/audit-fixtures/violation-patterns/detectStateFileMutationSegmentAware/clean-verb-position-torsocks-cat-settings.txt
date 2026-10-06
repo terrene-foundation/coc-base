@@ -1,0 +1,1 @@
+torsocks sh -c 'cat .claude/settings.json'

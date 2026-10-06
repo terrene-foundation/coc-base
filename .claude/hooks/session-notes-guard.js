@@ -57,7 +57,7 @@ const crypto = require("crypto");
 
 // cc-artifacts.md Rule 7 — fail-open timer. Exit 1 (not 0) marks a timeout-FIRED
 // passthrough as distinguishable from a normal one in exit-code logs (parity with
-// session-notes-incorporation-guard.js). Armed only inside `_main()`, so a
+// session-notes-incorporation-guard.js). Armed only inside `hookMain()`, so a
 // `require()` of this module for fixtures has ZERO side effects.
 const TIMEOUT_MS = 5000;
 let _timeout = null;
@@ -425,26 +425,48 @@ function _writeArm(payload, repoDir, hookEvent) {
 const READ_TOOLS = new Set(["Read"]);
 const WRITE_TOOLS = new Set(["Edit", "Write", "NotebookEdit"]);
 
-function _main() {
+// hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
+// in-process by lib/hook-engine.js (dispatch.js).
+function hookMain() {
   _timeout = setTimeout(() => {
     process.stdout.write(JSON.stringify({ continue: true }) + "\n");
     process.exit(1);
   }, TIMEOUT_MS);
   _timeout.unref?.();
 
-  let input = "";
-  process.stdin.on("error", passthrough);
-  process.stdin.on("data", (d) => (input += d));
-  process.stdin.on("end", () => {
+  return new Promise((resolve, reject) => {
+    let input = "";
+    process.stdin.on("error", passthrough);
+    process.stdin.on("data", (d) => (input += d));
+    process.stdin.on("end", () => {
+      try {
+        _onStdinEnd(input);
+      } catch (e) {
+        return reject(e);
+      }
+      resolve();
+    });
+  });
+}
+
+function _onStdinEnd(input) {
     try {
       const payload = JSON.parse(input || "{}");
       const toolName = payload.tool_name;
       const hookEvent = payload.hook_event_name || "PreToolUse";
-      const repoDir =
-        process.env.COC_OPERATOR_REPO_DIR ||
-        process.env.CLAUDE_PROJECT_DIR ||
-        (typeof payload.cwd === "string" && payload.cwd) ||
-        process.cwd();
+      // loom#1871 HIGH-1 — this was the WEAKEST of the eight readers: it took
+      // COC_OPERATOR_REPO_DIR with no existence check at all, so a nonexistent
+      // path became the repo root outright. CLAUDE_PROJECT_DIR is dropped from
+      // the chain for the same reason it cannot serve as a baseline: an attacker
+      // able to add one env var to a `settings.json` env: block can add the
+      // other, so corroborating either against the other is no corroboration.
+      // Required lazily, matching this file's zero-side-effect require style.
+      const { resolveRepoDirBound } = require(
+        path.join(__dirname, "lib", "repo-dir-override.js"),
+      );
+      const repoDir = resolveRepoDirBound(payload, {
+        hookName: "session-notes-guard",
+      }).repoDir;
 
       if (READ_TOOLS.has(toolName)) return _readArm(payload, repoDir, hookEvent);
       if (WRITE_TOOLS.has(toolName)) return _writeArm(payload, repoDir, hookEvent);
@@ -452,11 +474,6 @@ function _main() {
     } catch {
       return passthrough();
     }
-  });
-}
-
-if (require.main === module) {
-  _main();
 }
 
 module.exports = {
@@ -471,4 +488,13 @@ module.exports = {
   markerPathFor,
   readRootNotesSeen,
   markRootNotesSeen,
+  hookMain,
 };
+
+// CLI entry. The default path is exactly hookMain() — no engine dependency, so a
+// tree that copies this hook without lib/hook-engine.js runs it unchanged. The
+// selftest path replays the run through the in-process engine (hook-engine.js::runCli).
+if (require.main === module) {
+  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1") require("./lib/hook-engine.js").runCli(hookMain, __filename);
+  else hookMain();
+}

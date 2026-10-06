@@ -1,0 +1,1 @@
+flock /tmp/l -c 'rm .claude/settings.json'

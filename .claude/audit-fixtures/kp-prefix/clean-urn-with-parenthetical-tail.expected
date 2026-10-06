@@ -1,0 +1,7 @@
+{
+  "path": "specs/domain/annotated.md",
+  "expect": [],
+  "disposition": "clean",
+  "family": "value normalization — trailing annotation",
+  "defeats": "an end-anchored grammar match over the whole remainder, which reports MALFORMED because of prose that is not part of the URN. The candidate is the first whitespace-delimited token."
+}

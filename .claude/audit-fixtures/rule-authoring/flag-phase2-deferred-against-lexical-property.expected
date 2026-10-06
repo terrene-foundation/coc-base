@@ -1,0 +1,44 @@
+VIOLATION — MUST NOT, bullet 3: a `**Detection mechanism:**` row MUST NOT file `Phase 2
+(deferred)` enforcement against a property only observable lexically — agent prose, intent,
+semantic adequacy. It must name the parsed or structural signal, or declare the detection
+PERMANENTLY ADVISORY.
+
+This file's Detection row books exactly that. Its Phase 2 reads: "a detector reading the
+agent's stated reasoning in the session transcript for whether it INTENDED the truncation as a
+quota measure or as an unrelated pagination change, and whether the author considered the
+caller's interpretation adequate." Both halves are lexical over prose. INTENT is not an argv
+token, an AST node, a parsed-document field, a filesystem or git-object fact, or a
+process/tool-event read; ADEQUACY of a consideration is a semantic judgment over the author's
+own words. `hook-output-discipline.md` MUST-2 forbids `block` on a lexical signal, so the row
+books teeth that cannot arrive, and it reads to every later maintainer as scheduled
+enforcement. The honest dispositions were both available and neither was taken: the row could
+have named a structural signal, or it could have said the detection is permanently advisory.
+
+Discriminator 1 — MUST NOT BULLET 1 IS SATISFIED. Every `**Why:**` in the file — both clauses
+and the MUST NOT section — is exactly one sentence, inside the two-sentence cap.
+
+Discriminator 2 — MUST NOT BULLET 2 IS SATISFIED. No hedging phrase appears inside a MUST
+clause. "In most cases" and "generally speaking" occur nowhere, and neither clause body softens
+its obligation.
+
+Discriminator 3 — MUST NOT BULLET 4 IS SATISFIED. The file is well under the 200-line guidance,
+so no named length rationale is owed.
+
+Discriminator 4 — MUST-1 THROUGH MUST-4 ARE SATISFIED. Both clauses use MUST and MUST NOT as
+their primary modal and name the alternative BLOCKED; the BLOCKED corpus holds six literal
+first-person sentences a session would really emit ("Truncating is friendlier than failing the
+whole request"); both clauses carry a two-armed DO / DO NOT block whose arms differ in
+substance; each clause and the MUST NOT section carries a one-sentence `**Why:**`.
+
+Discriminator 5 — MUST-5, MUST-6 AND MUST-7 ARE SATISFIED. Frontmatter declares `priority: 10`
+with `scope: path-scoped` and a matching `paths:` list, a pair Rule 7 sanctions; Origin cites
+`journal/0466-INCIDENT-silent-quota-truncation.md` § 2 with the status code and the three-week
+window.
+
+Discriminator 6 — MUST-8 IS NOT ENGAGED (no CLI-divergent content), MUST-9 IS NOT ENGAGED (the
+rule ships no empirical-validation fixtures — the audit-fixtures path in the Detection row is
+a future landing site for a detector's fixtures, not a shipped A/B set), and MUST-10 / MUST-11
+ARE NOT ENGAGED (`priority: 10` + `scope: path-scoped`, excluded by Rule 10's own Trigger-scope
+paragraph).
+
+The whole defect is one Phase-2 clause booking a detector against intent.

@@ -1,0 +1,5 @@
+{
+  "toolName": "Write",
+  "filePath": ".claude/projects/-Users-someoperator-repos-loom/memory/project_kailash_prism.md",
+  "note": "A REAL TRACKED FILE in this repo, and the ONLY case the `memory-dir` arm catches that the `basename` arm does not. This case is what makes that arm load-bearing rather than decorative — drop the arm and this file silently stops being a memory surface."
+}

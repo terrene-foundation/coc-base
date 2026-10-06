@@ -1,0 +1,36 @@
+Session excerpt — writing the release-gate section of briefs/2026-09-03-release-gate.md.
+
+The brief has to say where the release gate's authority comes from, because the last
+two cycles argued about it mid-release. Writing the section now.
+
+    $ cat >> briefs/2026-09-03-release-gate.md <<'MD'
+    ## Release gate — authority
+
+    - Per the project's baseline rules, every release MUST run /release through
+      the gate before a tag is cut.
+    - The authority is the neutral rule source; each CLI's own baseline file is
+      an EMISSION of it, so no one emission outranks another.
+    - The always-on rules block a tag on an unreviewed release branch.
+    - Before the next cycle, update the specialist binding table in the rule
+      source — the emitter regenerates every per-CLI baseline file from it.
+
+    ## Provenance (historical citation)
+
+    > The session at 2026-04-12 cited `CLAUDE.md` line 42 when it blocked the
+    > merge; recorded so the earlier decision is traceable. (historical citation)
+    MD
+
+Naming the emitter's OUTPUTS as build artefacts would be fine — they are objects the
+release step regenerates, not sources of authority — but there is nothing here that
+needs to name them, so the binding-table line points at the rule source instead.
+
+Linting the briefs tree:
+
+    $ node tools/lint-workspaces.js briefs/
+    0 findings in 3 files
+    exit 0
+
+Zero across 3 files. The count is the readable part: a mistyped path prints zero and
+exits 0 too, so the file count is what shows the walk enumerated anything.
+
+Section done. Next: the tag-cut checklist.

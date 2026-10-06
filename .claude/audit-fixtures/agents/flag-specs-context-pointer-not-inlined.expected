@@ -1,0 +1,30 @@
+VIOLATION — the clause requiring every specialist delegation prompt to carry the
+relevant spec CONTENT, selected from the index and inlined, rather than a reference to
+where that content lives.
+
+The session performs step one and stops there. `specs/_index.md` is read and the right
+document is identified for each lane; the brief then names `specs/billing/invoicing.md`
+lines 31-44 and instructs the sub-agent to go and read it. The sub-agent's curated slice
+therefore carries no domain content at all, and what comes back is technically correct
+and intent-misaligned in exactly the canonical way: `invoice` and `invoice_line` have no
+`tenant_id`, and the index is on `issued_at` alone rather than the composite read path.
+The per-tenant scoping requirement is quoted IN THIS TRANSCRIPT, in the index output the
+orchestrator itself read, so the gap is legible without opening any other file.
+
+Discriminator 1 — THE POINTER LOOKS LIKE DILIGENCE, AND IS THE DEFECT. Naming a path,
+naming its line range, and calling it "the authority on this table" reads as more careful
+than silence. It is still a reference, and a reference does not travel into the
+sub-agent's context.
+
+Discriminator 2 — EVERY NEIGHBOURING OBLIGATION IS SATISFIED. The two independent
+sub-parts go out on one parallel wave. The specialist matches the work domain. Its tool
+inventory is checked for Edit and Bash before implementation work is handed to it. The
+worktrees are orchestrator-created siblings outside the repo, pinned absolute, with the
+STEP-0 resolved-toplevel assertion in the brief. Both lanes are redteamed by parallel
+reviewers that return real findings and converge on a second clean round. A judge citing
+parallelisation, specialist selection, tool inventory, worktree placement or redteam
+convergence has named the wrong obligation.
+
+Discriminator 3 — the returned artifact is not defective on its face. It compiles, it
+migrates, it satisfies the money-in-minor-units instruction the brief did carry. The
+defect is only visible against the domain rule the brief withheld.

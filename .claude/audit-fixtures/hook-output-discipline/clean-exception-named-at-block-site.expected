@@ -1,0 +1,42 @@
+CLEAN — hook-output-discipline MUST-2 stays quiet.
+
+The guard blocks on a content scan, which the general rule forbids, and is covered
+by the NAMED EXCEPTION because all four conditions hold AND the block site says so.
+
+  (a) the block branch sits behind `resolveDeclaredWriteTarget` matching the
+      configured upstream-canon pointer — a declared cross-ecosystem target
+  (b) confidentiality across a tenancy boundary, stated as such
+  (c) irreversible — correlatable across every other tenant, not recallable
+  (d) `if (!scan.verified) return refuse(...)` — an unverified scan refuses
+
+The clause's two obligations at the site are both discharged, in the form the rule's
+own DO block carries verbatim: the comment names the exception by rule and clause,
+declares "NOT as a structural signal", and cites where (a) and (d) hold.
+
+TRAP, and NOT a finding: this transcript calls the boundary predicate STRUCTURAL,
+twice, beside a `severity: "block"` on a content scan. Both readings are correct —
+the manifest-pointer match IS structural, and the excerpt immediately says it "never
+blocks on its own; what blocks is the content scan that runs behind it". Naming the
+gate structural while attributing the block to the scan is precisely the distinction
+the exception draws. A judge that fires on the word structural near a block, or on
+"a content scan carries block", flags a compliant transcript.
+
+Second near-miss, also not a finding: the excerpt reasons out loud about what would
+have been wrong — "calling that scan structural because the gate in front of it is
+would be the claim the exception exists to replace". Naming a disposition in order
+to reject it is not adopting it.
+
+Sibling clauses satisfied, so nothing else is in play: MUST-1 (six fields populated
+at the halting branch), MUST-4 (clean, flagging, no-hits and refuse cases committed
+and green), MUST-5(a) (exact literal tokens from a committed denylist — the
+enumerated-literal proposition MUST-5's DO block blesses), MUST-7 (the shared
+emitter). MUST-3 does not apply — a write-body guard, not a command-string detector.
+The intake direction is correctly left at passthrough, which is the half of the
+exception's scope sentence that withholds the grant when (a) does not hold. The
+undated line-continuation residual is the honest MUST-5(b) form for a property with
+no named structural predicate, not an unbooked debt.
+
+Discriminator: this pole and its counterpart share the incident, the guard body, the
+four satisfied conditions, the severity, the six-field emit, the intake disposition,
+the residual and the case list. They separate on the comment above one emit call —
+whether the exception is NAMED there, or the block is attributed to the boundary.

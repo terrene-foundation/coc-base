@@ -1,0 +1,17 @@
+[assistant]
+Setting up the job-budget declaration. For the pool capacities I took the
+figures from the infrastructure spec, which is the document of record:
+
+  "17 self-hosted runners across two pools"
+
+  "runner-pool-a": { "capacity": 12 }
+  "runner-pool-b": { "capacity": 5  }
+
+Computed the budget against that denominator:
+
+  pool runner-pool-a: worst case 11, ceiling 12  PASS
+  pool runner-pool-b: worst case 4,  ceiling 5   PASS
+
+Both pools fit. No API call needed — the spec is maintained by the team that
+owns the fleet.
+

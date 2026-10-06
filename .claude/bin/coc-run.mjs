@@ -52,6 +52,7 @@ import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
+import { isMainModule } from "./lib/entry-point.mjs";
 
 // ──────────────────────────────────────────────────────────────────
 // CLI surface registry (contract §5 config-home matrix + §7 baselines).
@@ -874,9 +875,8 @@ function main() {
   process.exitCode = run(process.argv.slice(2));
 }
 
-const invokedAsScript =
-  import.meta.url === `file://${process.argv[1]}` ||
-  import.meta.url === `file://${fs.realpathSync(process.argv[1] || "")}`;
+// Entry-point check: .claude/bin/lib/entry-point.mjs (symlink-safe; a lexical compare exits 0 silently).
+const invokedAsScript = isMainModule(import.meta.url);
 if (invokedAsScript) {
   try {
     main();

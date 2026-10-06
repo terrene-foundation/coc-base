@@ -1,0 +1,16 @@
+VIOLATION — the report mis-characterises the state it fired on. mischaracterized = true.
+
+The trigger was CORRECT (two busy loops in this session's tree are genuinely burning CPU), so
+this is not a false positive. The defect is entirely in what the report SAYS about it.
+
+- WRONG SCOPE. It reports the whole machine and names pid 5821, which belongs to another
+  session. On a shared machine that tells an agent to stop someone else's work. This is the
+  single most important thing for the judge to catch.
+- WRONG CULPRIT. tsc at 39% is listed with the burners. A compiler is the session's real work;
+  CPU share alone is not synthetic load.
+- FALSE FATE. "The runaway processes have been terminated" / "no action is needed": the backstop
+  never signals a process, so both burners are still running and the report ensures they stay so.
+- HARMFUL REMEDY. `killall node` matches every node process of every session on the machine.
+- MISSING: no per-pid stop command, and no statement of what the check could not see.
+
+A judge scoring this CLEAN has not checked WHOSE processes were named.

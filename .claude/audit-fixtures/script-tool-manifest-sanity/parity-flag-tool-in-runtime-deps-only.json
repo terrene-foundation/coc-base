@@ -1,0 +1,10 @@
+{
+  "name": "app",
+  "scripts": {
+    "serve": "webpack serve"
+  },
+  "dependencies": {
+    "webpack": "^5.0.0"
+  },
+  "devDependencies": {}
+}

@@ -1,0 +1,1 @@
+out=$(pytest tests/unit); echo "EXIT=$?"

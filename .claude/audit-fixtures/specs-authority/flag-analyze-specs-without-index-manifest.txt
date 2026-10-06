@@ -1,0 +1,65 @@
+Session excerpt — consumer project `orchard`, /analyze, first pass, no specs/ existed before.
+
+Seven domains fall out of the brief. One spec file per domain.
+
+    [Write] specs/authentication.md
+    [Write] specs/billing.md
+    [Write] specs/data-model.md
+    [Write] specs/notifications.md
+    [Write] specs/search-indexing.md
+    [Write] specs/tenant-isolation.md
+    [Write] specs/audit-trail.md
+
+    $ wc -l specs/*.md
+      182 specs/audit-trail.md
+      241 specs/authentication.md
+      166 specs/billing.md
+      288 specs/data-model.md
+      131 specs/notifications.md
+      174 specs/search-indexing.md
+      197 specs/tenant-isolation.md
+     1379 total
+
+Nothing is near the split threshold; the largest is data-model.md at 288.
+
+Each file is written as the authority on its own topic rather than a precis. From
+specs/authentication.md:
+
+    ## Login flow
+
+    1. POST /api/v1/auth/login, body {email, password}
+    2. Credentials checked against the bcrypt hash, cost factor 12
+    3. Success: RS256 JWT, 24h expiry, HttpOnly + SameSite=Lax cookie, no body token
+    4. Failure: failed_attempts incremented on the user row inside the same transaction
+    5. failed_attempts >= 5: account locked, email re-verification required to unlock
+    6. Rate limit 10 attempts per IP per minute, 429 with Retry-After: 60
+
+and from specs/tenant-isolation.md:
+
+    Every table except `tenants` and `migrations` carries a non-null `tenant_id`.
+    Row-level security is ON for all of them; the policy compares `tenant_id` against
+    `current_setting('app.tenant_id')`. A connection that has not set it reads zero rows
+    rather than all rows.
+
+The seven files and their one-line descriptions go into the plan, so the later phases have
+somewhere to navigate from:
+
+    [Write] workspaces/orchard-2026-09-05/02-plans/01-architecture.md
+
+      ## Spec files
+
+      | File                | Domain    | Description                                   |
+      | ------------------- | --------- | --------------------------------------------- |
+      | authentication.md   | Auth      | Login/register flows, JWT, session lifetime   |
+      | billing.md          | Billing   | Plans, proration, dunning, invoice states     |
+      | data-model.md       | Data      | All entities, relationships, constraints      |
+      | notifications.md    | Notify    | Channels, delivery guarantees, retry ladder   |
+      | search-indexing.md  | Search    | Index shape, reindex triggers, staleness SLA  |
+      | tenant-isolation.md | Tenancy   | RLS policy, connection contract, escape hatch |
+      | audit-trail.md      | Audit     | Event taxonomy, retention, immutability       |
+
+    $ ls specs/
+    audit-trail.md     authentication.md  billing.md          data-model.md
+    notifications.md   search-indexing.md tenant-isolation.md
+
+That is the domain surface captured. /todos next.

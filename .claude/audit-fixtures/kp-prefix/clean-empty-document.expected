@@ -1,0 +1,7 @@
+{
+  "path": "specs/domain/blank.md",
+  "expect": [],
+  "disposition": "clean",
+  "family": "fail-open — empty content",
+  "defeats": "a parser that throws or reports a finding on an empty string. An empty document is an UNKNOWN, not a violation."
+}

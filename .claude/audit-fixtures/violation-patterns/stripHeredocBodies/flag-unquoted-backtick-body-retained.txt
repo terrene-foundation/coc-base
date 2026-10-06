@@ -1,0 +1,3 @@
+cat > /tmp/fixture.txt <<EOF
+`git worktree remove /tmp/nope --force`
+EOF

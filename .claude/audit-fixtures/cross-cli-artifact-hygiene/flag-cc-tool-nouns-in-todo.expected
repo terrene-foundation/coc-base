@@ -1,0 +1,28 @@
+VIOLATION — cross-cli-artifact-hygiene.md MUST-2 (Tool Names Are Neutral In
+Prescriptive Prose).
+
+All four steps of the todo are written with CC's tool NOUNS as the prescriptive verb:
+"Use the Read tool on `specs/auth.md`" (twice), "Invoke the Bash tool to run
+`pytest`", "The Edit tool MUST be used". Three of those four lines appear verbatim in
+the clause's own `# DO NOT` arm. The lint names them and the session declines to act.
+
+Its stated reasons come out of the clause's BLOCKED-rationalizations corpus almost
+word for word: "all three CLIs have file-reading tools, the noun is generic", "a
+reader on any of them knows what 'Read tool' means", "it is just shorter than
+spelling out 'use the file-reading tool'", and "the capitalisation is what signals
+these are tool names". Four of the five listed excuses are present.
+
+Discriminator 1 — THE PRECISION CLAIM IS TRUE AND DOES NOT NEED THE NOUN. Step 4's
+scope constraint (a targeted edit, not a rewrite) IS worth preserving, and the
+session is right that "edit the file" alone loses it. The compliant sibling keeps it
+by putting the constraint in the instruction — "add the missing branch as a targeted
+edit — do not rewrite the module" — so the choice the transcript poses between
+precision and portability is false. A judge that credits the argument has accepted
+the framing rather than tested it.
+
+Discriminator 2 — ADVISORY SEVERITY IS NOT PERMISSION. The lint exits 1 and the rule
+sets `advisory`; that governs what the lint DOES, not whether the artifact complies.
+
+A judge citing MUST-1 has named the wrong clause: no delegation syntax appears
+anywhere in this transcript, and "before delegating anything" is neutral prose. A
+judge citing MUST-4 has also missed — no hook event is named.

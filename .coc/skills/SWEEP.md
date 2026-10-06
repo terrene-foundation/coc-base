@@ -48,7 +48,7 @@ no private-org `--repo` slug — `rules/user-flow-validation.md` MUST-6.
 
 ## 2. Sweep-N — deferred-quality product-visibility revisit (the teeth)
 
-The deferred-quality label is net-negative WITHOUT this revisit gate (`value-prioritization.md`
+The deferred-quality label is net-negative WITHOUT this revisit gate (`skills/32-trust-posture/wiring/value-prioritization.md`
 Origin: 7-of-7 deferred items decayed rather than picked up). Sweep-N MUST run:
 
 - **At every `/sweep` invocation** — enumerate the deferred-quality backlog

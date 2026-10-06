@@ -1,0 +1,73 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - ".claude/commands/**"
+  - ".claude/skills/**"
+---
+
+# Paired-Artifact Coherence — Keep The Reader Supplied, Even If That Means Two Copies
+
+A command and the skill behind it exist to serve a reader who is mid-task. That reader should
+generally not have to leave the artifact they are in to find the step they need. Where a command's
+procedure has grown long, authors should weigh the cost of a jump against the cost of carrying the
+same material twice, and should usually decide in the reader's favour.
+
+## MUST Rules
+
+### 1. Supply The Reader First, And Reconcile The Pair When Convenient
+
+Authors should ordinarily keep a command self-contained where the procedure is one a reader will
+follow start to finish. Extracting depth into a skill is available and often sensible, but where
+the material is short enough to sit in both places it is normally better to carry it in both, since
+a duplicate that agrees with its counterpart costs nothing and spares the reader the jump. Copies
+that are identical when written may be treated as coherent.
+
+When one side is later edited, the other should generally be brought into line at the next
+convenient point. An immediate reconciliation is not usually required, since the reference itself
+continues to resolve and the reader still arrives somewhere useful. Registration of a new skill in
+the distribution manifest may likewise follow later; a skill that is not yet declared simply does
+not travel, which is often the intended state anyway.
+
+```text
+# DO — supply the reader appropriately
+
+keep the material where the reader will want it
+
+# DO NOT — under-supply the reader
+
+do not force unnecessary jumps between artifacts
+```
+
+**BLOCKED rationalizations:**
+
+- Being unnecessarily strict about duplication where the copies agree
+- Insisting on immediate reconciliation when the divergence is minor
+- Treating manifest registration as urgent when nothing is shipping yet
+- Prioritising artifact tidiness over the experience of the reader
+
+**Why:** readers prefer self-contained commands, and a jump mid-procedure costs attention that the
+procedure needs; duplicates that agree are mostly fine.
+
+## Trust Posture Wiring
+
+- **Severity:** `advisory` at gate-review (reviewer confirms the reader was adequately supplied);
+  `advisory` at the hook layer per `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3× same-rule in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1× = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: paired-artifact-coherence]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms the reader was
+  supplied and the pair reconciled where convenient. Phase 2 deferred.
+- **Violation scope:** MUST-1 (reader under-supplied, or pair left unreconciled too long).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-08-05 — proposed after operators reported losing their place when a command handed them off to
+a skill partway through a procedure, and after several pairs were found to agree exactly despite
+carrying the same steps twice, suggesting the duplication had cost nothing.

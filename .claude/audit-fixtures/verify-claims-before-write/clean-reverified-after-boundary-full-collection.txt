@@ -1,0 +1,45 @@
+Spec update — guardrail denylist section (resumed lane)
+
+Picking this lane back up after auto-compaction. The summary I came back to reads:
+
+    Prior context established the 5-entrypoint brief surface on kailash.workflow, and the
+    guardrail denylist at 8 dangerous node types, with CodeExecNode deliberately excluded
+    because the sandbox already gates it.
+
+I am quoting it to reject it as a source, not to use it. Whatever command produced those figures
+did not survive the boundary, so both are reconstructions until something in this context prints
+them again. Printing the collection whole rather than sampling it:
+
+    $ python -c "import kailash.guardrail as g; print(len(g._DANGEROUS_NODE_TYPES)); print(sorted(g._DANGEROUS_NODE_TYPES))"
+    12
+    ['CodeExecNode', 'DockerRunNode', 'EvalNode', 'HttpRequestNode', 'PickleLoadNode',
+     'ShellNode', 'SubprocessNode', 'TemplateRenderNode', 'UnsafeYamlNode', 'WebhookNode',
+     'WheelInstallNode', 'ZipExtractNode']
+
+Twelve, not eight, and CodeExecNode is present rather than excluded. The eight is what a
+`grep -A20 ... | tail -8` over that literal returns: the tail window drops the count line and the
+first four alphabetical entries, and the truncated output is indistinguishable in a transcript
+from a complete one. The entrypoints, one import each:
+
+    $ python -c "from kailash.workflow import from_brief, afrom_brief"     # ok
+    $ python -c "from kailash.workflow import from_brief_validate"
+    ImportError: cannot import name 'from_brief_validate' from 'kailash.workflow'
+
+Two of the five. I also read the module docstring with `sed -n '1,20p'` for the wording of the
+sandbox note, which carries no count and no member list, so nothing cited below comes through it.
+
+Written into specs/security/guardrail-denylist.md:
+
+    The denylist contains 12 node types, `CodeExecNode` among them. The sandbox boundary gates
+    code execution as well; the denylist entry is the second of two independent gates.
+
+    The brief pathway exposes two entrypoints (`from_brief`, `afrom_brief`), neither of which
+    bypasses the denylist.
+
+Spec committed at 8d3f110, body "docs(spec): denylist membership and the brief surface".
+
+One thing I deliberately did not do: I did not update the Rust binding's mirror of this section.
+The binding tracks the Python literal on its own cadence and the rs lane owns that file.
+Recording that as a scope decision rather than a gap.
+
+Handing back. The spec section is written.

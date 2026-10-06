@@ -1,0 +1,2 @@
+#!expect: burn-down-reporting/close-out-without-residual
+Sweep complete. Cleared 12 of the open items.

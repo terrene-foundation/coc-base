@@ -17,7 +17,7 @@ files on the host contained the string the cleanup line would have printed: it n
 executed in any invocation. They were found and killed by hand a day and a half later.
 
 ```bash
-# THE SCRIPT THAT LEAKED — the intent is fine, the construction is not
+# THE SCRIPT THAT LEAKED — its purpose is now BLOCKED (ci-cost-discipline MUST-7), and its construction was wrong too
 for i in $(seq 1 48); do (while :; do :; done) & done   # unbounded, no self-limit
 BURNERS=$(jobs -p | tr '\n' ' ')                        # subshell job table — may be EMPTY
 sleep 2; uptime
@@ -26,7 +26,9 @@ kill $BURNERS 2>/dev/null                               # the one error that mat
 echo "burners killed"                                   # prints whether or not anything died
 ```
 
-**The burners destroyed no work and blocked nothing.** What they did was silently
+**On that host the burners destroyed no work and blocked nothing** — on a machine whose
+sessions DO compete for CPU the same burners starve that work outright, which is the
+2026-09-12 incident behind `ci-cost-discipline.md` MUST-7 (`journal/0609`). What they did was silently
 corrupt every timing-sensitive measurement taken on that host for 22 hours —
 including a `spawnSync ETIMEDOUT` that was nearly recorded as a structural property
 of a validator with nothing wrong with it. A leaked load generator is an **invisible
@@ -38,21 +40,28 @@ measurement without appearing in any of them.
 Ranked by what removes the dependency on something else working — **not** the order
 the defects appear in the script.
 
-### 1. Self-terminating load — the decisive one (MUST)
+### 1. Self-terminating background processes — the decisive one (MUST)
 
 A background process MUST carry its own deadline. This is worth more than the trap
 and more than every other layer, because it makes the incident self-heal regardless
 of whether cleanup, the trap, the shell, or the session survives.
 
+**This layer is not a licence for load tests.** The incident's script was a synthetic
+CPU-load generator, and launching one on a shared machine is BLOCKED outright by
+`rules/ci-cost-discipline.md` MUST-7 — a deadline bounds how long the harm lasts, not
+whether it lands, and a load- or timing-dependent failure is reproduced by forcing the
+budget instead. What this layer governs is the background process that IS legitimate:
+a dev server, a watcher, a readiness poll.
+
 ```bash
-# DO — the burner dies on its own, with no killer involved at all
-( end=$((SECONDS+60)); while [ $SECONDS -lt $end ]; do :; done ) &
+# DO — the poll dies on its own, with no killer involved at all
+( end=$((SECONDS+60)); until curl -sf localhost:3000 >/dev/null || [ $SECONDS -ge $end ]; do sleep 1; done ) &
 # DO NOT — lifetime depends entirely on someone else's kill
-( while :; do :; done ) &
+( while :; do curl -sf localhost:3000 >/dev/null; sleep 1; done ) &
 ```
 
-**Why:** `while :; do :; done` exits only by external kill, so the moment cleanup
-fails the failure is PERMANENT. Everything else on this list reduces the probability
+**Why:** a loop with no exit condition of its own exits only by external kill, so the
+moment cleanup fails the failure is PERMANENT. Everything else on this list reduces the probability
 that cleanup fails; only this one makes cleanup's failure survivable.
 
 ### 2. Unconditional cleanup via `trap`, armed BEFORE the first spawn (MUST)

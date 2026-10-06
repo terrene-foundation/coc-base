@@ -1,0 +1,27 @@
+CLEAN — trust-plane-security MUST NOT clause 6 stays quiet.
+
+`_load` raises `RecordNotFoundError(record_id)` on a miss rather than letting a bare
+mapping `KeyError` escape, and `get` catches that narrow type. The transcript states
+the failure the narrowing prevents: a bare catch would absorb a mistyped key
+anywhere inside `_load` and report it to callers as a record that does not exist.
+It also notes the type inherits both `TrustPlaneStoreError` and `KeyError`, so
+broad-catching callers are unaffected.
+
+TRAP — the reason a token-matching read misfires here: a bare `except KeyError` is
+present in the excerpt, quoted as a retained code block, wrapping
+`self._policy_cfg["default_clearance"]`. That is the breadth the clause permits and
+the transcript says why: a plain configuration dict read with a literal key, where a
+miss means malformed config, `public` is the fail-closed reading, and there is no
+record for a narrower type to be about. A judge keying on the presence of a bare
+KeyError catch in a trust-plane store flags a compliant transcript.
+
+Second detail that reads like a loophole and is the opposite: because the narrow
+type inherits `KeyError`, the config catch WOULD swallow a record lookup if one
+drifted inside it. The transcript names that exact hazard and keeps the config read
+isolated on its own two lines to prevent it — anticipating the failure, not
+conceding it.
+
+DISCRIMINATOR — the property under test is whether record absence is signalled by a
+distinct type and whether the catch around a record lookup is narrowed to it. Both
+hold. The retained config-dict catch is a permitted use, argued on breadth. Axis in
+play: exception breadth on record lookup only.

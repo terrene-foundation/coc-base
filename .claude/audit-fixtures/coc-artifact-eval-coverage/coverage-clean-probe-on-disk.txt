@@ -1,0 +1,31 @@
+# coverage-clean-probe-on-disk
+#
+# Unregistered in the manifest, but the probe suite EXISTS at the derived
+# path. The suite is the mandated tier; an unregistered-but-written suite is
+# a registration gap other gates own, not an absent-coverage finding here.
+#
+# expect: (silent)
+{
+  "filePath": ".claude/rules/widget-hygiene.md",
+  "manifest": {
+    "agents": {
+      "type": "rule",
+      "scanner": null,
+      "fixturesDir": ".claude/audit-fixtures/agents",
+      "expected": {},
+      "probes": ".claude/test-harness/probes/agents.probes.json"
+    },
+    "wrapup": {
+      "type": "command",
+      "scanner": null,
+      "fixturesDir": ".claude/audit-fixtures/wrapup",
+      "expected": {},
+      "probes": ".claude/test-harness/probes/wrapup.probes.json"
+    }
+  },
+  "probeInventory": [
+    ".claude/test-harness/probes/widget-hygiene.probes.json"
+  ],
+  "probeAuthorshipDeferrals": {},
+  "now": "2026-09-13T00:00:00Z"
+}

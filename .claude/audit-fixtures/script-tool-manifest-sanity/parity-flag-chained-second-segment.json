@@ -1,0 +1,7 @@
+{
+  "name": "app",
+  "scripts": {
+    "ci": "node scripts/pre.mjs && eslint ."
+  },
+  "devDependencies": {}
+}

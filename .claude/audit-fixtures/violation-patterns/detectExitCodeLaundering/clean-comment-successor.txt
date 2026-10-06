@@ -1,0 +1,1 @@
+node .claude/bin/check-descoping.mjs; # the caller reads the status

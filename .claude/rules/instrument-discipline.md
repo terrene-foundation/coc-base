@@ -10,7 +10,9 @@ Before any check, probe, fixture, or test result is cited as evidence, ONE test 
 
 > **Would this instrument produce a DIFFERENT result if the proposition were false?**
 
-If not, it is not evidence — whatever it printed. Instrument table, worked cases, BLOCKED corpus: `.claude/guides/rule-extracts/instrument-discipline.md`.
+If not, it is not evidence — whatever it printed.
+
+Depth — worked cases, per-clause BLOCKED corpora, subject test — lives in `.claude/guides/rule-extracts/instrument-discipline.md`.
 
 ## MUST Rules
 
@@ -27,11 +29,11 @@ git status --porcelain      # empty on "nothing done" AND on "all committed"
 
 **BLOCKED rationalizations:** "the command ran clean" / "it exited 0" / "the number looked right" / "that's how we always check it" / "it's a sanity check, not proof".
 
-**Why:** A result consistent with both branches of the hypothesis carries zero information, so acting on it is acting on a guess wearing the grammar of a measurement.
+**Why:** A result consistent with both branches carries zero information: acting on it is acting on a guess wearing the grammar of a measurement.
 
-### 2. A Passing Test Is An Instrument — And A Non-Reddening Mutation Is Two Hypotheses
+### 2. A Passing Test Is An Instrument
 
-**(a)** A green test, fixture, suite, or probe reports on the behavior it NAMES and MUST clear MUST-1 first; citing a green without having established the run would RED in that behavior's absence is BLOCKED. **(b)** A mutation that does NOT red the test leaves TWO live hypotheses — vacuous test, OR inert mutation — so recording "proven vacuous" on it is BLOCKED; show the mutation reached the code under test, or the result stands UNRESOLVED.
+**(a)** A green test, fixture, suite, or probe reports on the behavior it NAMES and MUST clear MUST-1 first; citing a green without having established the run would RED in that behavior's absence is BLOCKED. **(b)** A mutation that does NOT red the test is read under MUST-5(b), never as a vacuity verdict.
 
 ```bash
 # DO — establish the red, and prove the mutation executes, before reading either green
@@ -43,7 +45,7 @@ pytest -q   # "412 pass"; <mutate>; still green → "vacuous"  ← also an INERT
 
 **BLOCKED rationalizations:** "the suite is green" / "CI passed" / "the test is named for that behavior" / "it would have failed if it were broken" / "I changed the code and nothing failed" / "the mutation was obviously reachable" / "the test must be vacuous then".
 
-**Why:** A test asserting nothing about its named behavior passes identically whether that behavior is present or absent; an unvalidated mutation then becomes a second non-discriminating instrument, issuing false vacuity verdicts against working tests.
+**Why:** A test asserting nothing about its named behavior passes identically whether that behavior is present or absent.
 
 ### 3. Show The Instrument Fires HERE, And Read The Hits
 
@@ -60,7 +62,7 @@ node --test tests/integration/*.test.js        # "tests 14" counts FILES; inner 
 
 **BLOCKED rationalizations:** "it returned empty, so there are none" / "grep is grep" / "that flag is POSIX" / "it works on my other machine" / "the tally is the finding" / "I read a sample and they all looked fine" / "the count went down, so the fix landed" / "`ls` and `head` both agree, so the path is right" / "a control for a one-line check is ceremony".
 
-**Why:** A sound check can be physically unable to emit its falsifying result here — an unimplemented regex dialect, a shell that will not word-split, a case-insensitive filesystem — so its silence is indistinguishable from a true negative, and survives review that checks only the reasoning; no control catches an over-match, which only reading the hits reveals.
+**Why:** A sound check can be physically unable to emit its falsifying result here, so its silence is indistinguishable from a true negative and survives reasoning-only review; and no control catches an over-match — only reading the hits does.
 
 ### 4. An Instrument Is Scoped To The Question It Was BUILT For
 
@@ -80,36 +82,48 @@ gh run view "$ID" --json jobs -q '.jobs[].labels'   # records what the job REQUE
 
 **Why:** Discrimination belongs to the PROPOSITION, not the tool — so a value plausible for B survives a self-review that only ever asked about A.
 
+### 5. A Behaviour Change Is Not Verified Until A Mutation Of It REDS Something
+
+After ANY behaviour change, MUTATE it and confirm a case REDS before reading any green as covering it — a green over a real behaviour change IS the finding. **(a)** Prove the mutation REACHED the code BEFORE reading its result. **(b)** An EMPTY red-set resolves nothing — vacuous case OR inert mutation, e.g. a defense-in-depth SIBLING absorbing it — so resolve it with a DOUBLE mutation dropping both, never a vacuity verdict.
+
+```bash
+# DO — mutate, prove it reached the code, THEN read the red-set
+<mutate>; <assert the mutated line runs>; <run suite>    # names reds ⇒ that behaviour is covered
+<drop the sibling too>; <run suite>                      # reds ⇒ the sibling was the absorber
+# DO NOT — read the green, or call an empty red-set "vacuous"
+<change behaviour>; <run suite>   # "99/99 green" ⇒ NOT evidence; that IS the finding
+```
+
+**BLOCKED rationalizations:** "the suite is green" / "it's a small change" / "the existing cases cover it" / "I'll add a test if it breaks" / "the change is obviously covered by what's already there" / "the mutation didn't red, so the test is vacuous" / "writing a case for it now is teaching to the test" / "the review round will catch it" / "I read the diff and the cases, they line up".
+
+**Why:** cases test the behaviour that existed when they were written, so NEW behaviour is un-covered by default — the green measures the case set's age, not the change.
+
+### 6. A Cited Measurement Carries Its STATE And A DERIVED Input Set
+
+MUST-5's object is a BEHAVIOUR CHANGE, discharged by RE-DERIVING it; this clause's object is a FIGURE cited outside its producing turn, discharged WITHOUT recomputing it. A turn holding BOTH is bound by BOTH. **(a)** A figure restated later MUST carry its measured state and input set. **(b)** It MUST ship a CHEAP predicate answering "have those inputs moved?" without recomputing it; absent one the verdict is **STALE — a THIRD verdict**, and reporting it CURRENT or FALSE are BOTH BLOCKED. **(c)** Answer PER LEVEL, never once for all: any level not SHOWN fixed in the command MUST be emitted from what it READ; hand-typing one is BLOCKED.
+
+```text
+# DO — state + a PER-LEVEL answer + a predicate that recomputes nothing
+"115 rows at 6e33d92 over .claude/rules/*.md"; set=$(build --emit-read-set); check --digest
+# sources: DECLARED = SHOWN fixed (the command reads ONLY that list, and refuses otherwise)
+# members: DISCOVERED = everything else, incl. anything you cannot show fixed ⇒ emitted from what it READ
+# STALE ⇒ "UNANSWERED until re-run", never "current" and never "false"
+# DO NOT — bare figure, ONE answer for a two-level set, a hand-typed DISCOVERED
+#          level, a collapsed third verdict, or citing to dodge MUST-5
+"115 rows" · sources: [a.md, b.md] · "STALE, so the claim is FALSE"
+"members: DECLARED" — asserted, never SHOWN, of a level the command finds at run time: the typed
+              list is a SECOND claim about the world, not the command's input
+"I am the citer, so I need not re-derive" — said of a behaviour change in the SAME diff
+```
+
+**BLOCKED rationalizations:** "I measured it this session" / "it was right an hour ago" / "nothing has changed since" / "the SHA is in the transcript above" / "if it were stale someone would have noticed" / "stale just means wrong" / "the manifest lists the sources" / "I know what it reads" / "the input set is static" / "the predicate reports CURRENT, so we're fine" / "I am the CITER here, so my remedy must NOT re-derive" / "MUST-5 binds whoever changes behaviour, and that is not the hat I am wearing" / "the sources are declared, so the members are declared too" / "the input set is one list, so one answer covers it" / "the reference implementation declares its sources, so (c) is satisfied".
+
+**Why:** Recency is not freshness, so an unchecked figure is re-cited on trust until a decision rests on it; and an under-declared input set reports CURRENT while the claim is false, so the check vouches for the stale figure.
+
 ## MUST NOT
 
 - Report a question ANSWERED, or treat a lexical match (grep, keyword scan, string presence) as a verdict on a semantic property, when no result the instrument could have produced would have falsified the proposition
 
-**Why:** A token's presence is consistent with assertion, negation, and quotation alike; a confident wrong answer ends the search that would have found the right instrument.
+**Why:** A token's presence is consistent with assertion, negation and quotation alike; a confident wrong answer ends the search for the right instrument.
 
-## Trust Posture Wiring
-
-- **Severity:** `halt-and-report` at gate-review (cc-architect at `/codify` + reviewer at `/redteam` confirm each check cited as evidence carries a named falsifying result, that no green test or non-reddening mutation was read as a verdict without its discrimination shown, and that any instrument cited was shown to fire HERE with its hits read rather than its tally); `advisory` at the hook layer per `hook-output-discipline.md` MUST-2 — whether an instrument discriminates is judgment-bearing over the check's semantics, with no structural tool-call-time signal.
-- **Grace period:** 7 days from rule landing (2026-07-29 → 2026-08-05).
-- **Cumulative posture impact:** same-class violations (a non-discriminating check cited as evidence; a green suite cited as verification without an established red; a non-reddening mutation recorded as a vacuity verdict; an instrument never shown to fire here cited as evidence; a tally reported in place of the hits) contribute to `trust-posture.md` MUST-4 cumulative-window math (3× same-rule in 30d → drop 1 posture; 5× total in 30d → drop 1 posture).
-- **Regression-within-grace:** a same-class violation within the grace window routes through the GENERIC `regression_within_grace` emergency trigger per `trust-posture.md` MUST-4 (1× = drop 1 posture) — NO dedicated per-clause trigger key. Named deviation from the canonical key-per-clause shape, recorded here per `trust-posture.md` Rule 8: whether an instrument discriminates is a judgment-bearing property of the check's semantics, resolvable only at the review layer, so it does not warrant an instant-drop key; and minting one would drag `trust-posture.md` — a `self-referential-codify.md` allowlist file — into a self-referential edit. The universal `regression_within_grace` trigger already covers it. Same no-dedicated-key disposition `security.md` § Enforcement-Surface Parity, `git.md` § CI-check/merge, and `issue-triage-routing.md` took.
-- **Receipt requirement:** SessionStart soft-gate `[ack: instrument-discipline]` IFF `posture.json::pending_verification` includes the `instrument-discipline` rule_id.
-- **Detection mechanism:** Phase 1 (manual, gate-review) — cc-architect at `/codify` + reviewer at `/redteam` inspect any session citing a check, probe, fixture, or test result as evidence and confirm (a) the falsifying result was named, (b) a green cited as verification had its red established, (c) any mutation read as a vacuity verdict was shown to reach the code under test, (d) the instrument was fired at a known-answer case so it is shown to discriminate HERE, and (e) the hits were read rather than a tally reported in their place. Phase 2 is RETIRED, not pending (2026-08-14): no hook detector will EVER be built, because a regex detector would itself instance this class — so no structural fixtures are owed either. Gate-review IS the enforcement layer here, permanently. **Probes: REGISTERED — `.claude/test-harness/probes/instrument-discipline.probes.json`**, 14 rows in 7 bipolar `pair_id` pairs covering ALL SIX sub-clauses (MUST-1, MUST-2(a), MUST-2(b), MUST-3(a), MUST-3(b), and — via the clause-scoped block below — MUST-4) plus a meta-compliance pair, with candidates + answer-key sidecars at **`.claude/audit-fixtures/instrument-discipline/`** (SEMANTIC tier only — not the deferred Phase-2 structural set). Registered in `eval-manifest.json` as a probe-only entry (`scanner: null`) and pinned in `.claude/test-harness/tests/probe-suite-integrity.test.mjs::PINNED_SUITES`, which enforces the bipolar-pole, answer-key-separation and meta-pole surface-equalization floor. This satisfies `coc-artifact-eval-coverage.md` MUST-1's prose-artifact mandate (efficacy + no-false-positive + meta-compliance) and DISCHARGES the former `_deferred_probes` declaration and its `expires: 2026-08-12` hard-fail, both removed in the same change. **What registration buys, MEASURED and not assumed: DISPATCHABILITY, never automatic execution.** `/test-harness-probe --artifacts` (Mode B) reads the registered suites from `eval-manifest.json`, NOT the Mode-A `results/{compliance,safety}-*.jsonl` glob, so `coc-probe-dispatch.mjs plan` renders every one of this suite's judge prompts (measured at THIS suite's landing: plan `dispatch_count` 24 → 36, with 12 rows under `suite: instrument-discipline` where there were 0; both figures are that landing's measurement and are NOT current — re-measure rather than citing them, as the MUST-4 block below does). But NO workflow invokes the dispatcher — a `grep -rn 'coc-probe-dispatch\|test-harness-probe\|--artifacts' .github/workflows/` (against a control shown to fire on the same tree) returns exactly one hit, and it is a COMMENT, not a `run:` step — and the loom↔csq boundary keeps CI LLM-free. The suite therefore executes ONLY when an orchestrator dispatches it at gate-review, and a green CI run is NEVER evidence the probes passed. The prior claim that `/test-harness-probe` "never reaches this file at all" described Mode A alone and is superseded. What CI DOES gate is REGISTRATION and hygiene — `coc-manifest-integrity.mjs` (check (b) `artifact_id` rows, check (e) orphan probe files) and `probe-suite-integrity.test.mjs` — on EVERY PR targeting `main` — the `pull_request` arm carries NO `paths:` filter (loom#1567 removed it so a required context always reports), and the FOUR-entry filter (`.claude/**`, `tests/integration/multi-operator/**`, the workflow file itself, `variants/**`) sits on the `push:` arm ALONE, so a PR touching only `journal/` or `workspaces/` still instantiates the workflow but SKIPS the expensive structural job on a job-level `if:`. The `on:` block ALSO carries `merge_group`, `push`, `workflow_dispatch`, and — since 2026-08-14 — a WEEKLY `schedule:` (`cron: "17 6 * * 1"`). Three of those four corrections are to PRE-EXISTING errors, not to breakage introduced by the calendar arm: the superseded text claimed a `paths:`-filtered PR arm and no `push:`/`workflow_dispatch:` trigger, and all three were already false on `main`; only the `no schedule:` clause was falsified by the calendar change — and whether it is merge-preventing is a claim about MUTABLE repo settings, so **re-measure it rather than citing this line** — with `has()`, never the object-construction form, which yields `null` for a missing key and so cannot tell ABSENT from PRESENT-AND-NULL (a non-discriminating instrument in this rule's own sense). Measured 2026-08-08: `contexts: ["Required checks"]`, `enforce_admins` `true` — it IS merge-preventing now; the prior text here said the opposite, which held only until loom #65 step 1 landed. Consumer note: `.claude/test-harness/**` is never-synced to USE and downstream, and on the BUILD lane only `test-harness/lib/**` ships (`sync-tier-aware.mjs::BUILD_ONLY_ALWAYS_INCLUDE`) — so no audience receives the suite, `eval-manifest.json`, or the `results/` glob; `commands/test-harness-probe.md` is `use_exclude`d (absent at USE-template and downstream) but SHIPS to BUILD on the CC lane.
-- **Violation scope:** MUST-1 (unnamed falsifying result) + MUST-2(a) (green cited without an established red) + MUST-2(b) (non-reddening mutation read as a vacuity verdict) + MUST-3(a) (instrument never shown to fire here) + MUST-3(b) (tally reported in place of the hits). MUST-4 carries its OWN clause-scoped block below. Every `violations.jsonl` row names the instrument and the proposition it was cited for.
-- **Origin:** See § Origin.
-
-## Trust Posture Wiring — MUST-4 (instrument scope)
-
-Applies to the **MUST-4** clause ONLY (added 2026-08-11, `/sync-from-use` Gate-1 placement of a downstream-relayed upflow entry). Per `trust-posture.md` MUST-8 grandfather cutoff it lands AT/AFTER the MUST-8 SHA and ships canonical-8-field-compliant; the MUST-1..3 Wiring block above stays on its own wiring until itself `/codify`-touched (the clause-scoped precedent set by `security.md` § Enforcement-Surface Parity + `git.md` § CI-check/merge).
-
-- **Severity:** `halt-and-report` at gate-review (cc-architect at `/codify` + reviewer at `/redteam` confirm that an instrument re-read for a second question carried a falsifying result named for THAT question); `advisory` at the hook layer per `hook-output-discipline.md` MUST-2 — whether two readings of one instrument are the same question is judgment-bearing over the check's semantics, with no structural tool-call-time signal.
-- **Grace period:** 7 days from clause landing (2026-08-11 → 2026-08-18).
-- **Cumulative posture impact:** same-class violations (an instrument sound for one question cited as evidence for a second without its own named falsifying result; a producer-defined field read under the reader's meaning) contribute to `trust-posture.md` MUST-4 cumulative-window math (3× same-rule in 30d → drop 1 posture; 5× total in 30d → drop 1 posture).
-- **Regression-within-grace:** a same-class violation within the 7-day grace window routes through the GENERIC `regression_within_grace` emergency trigger per `trust-posture.md` MUST-4 (1× = drop 1 posture) — NO dedicated per-clause trigger key. Named deviation from the canonical key-per-clause shape, recorded here per `trust-posture.md` Rule 8, on the SAME reasoning the MUST-1..3 block records: question-scope is a review-layer semantic judgment that does not warrant an instant-drop key, and minting one would drag `trust-posture.md` — a `self-referential-codify.md` allowlist file — into a self-referential edit. MUST-4 does not reuse the MUST-1..3 block's disposition; this is its own record.
-- **Receipt requirement:** SessionStart soft-gate `[ack: instrument-discipline]` IFF `posture.json::pending_verification` includes the `instrument-discipline` rule_id (shared rule_id; one ack covers MUST-1..4).
-- **Detection mechanism:** Phase 1 (manual, gate-review) — cc-architect at `/codify` + reviewer at `/redteam` inspect any session that cites one instrument for two distinct propositions and confirm a falsifying result was named for the SECOND. Scanner: none — `eval-manifest.json::instrument-discipline` stays `scanner: null` (question-scope is semantic, with no structural signal), so no structural fixture set is claimed for this clause. **Probes: REGISTERED, and the paths below resolve** — `.claude/test-harness/probes/instrument-discipline.probes.json` gains one bipolar `pair_id` pair (`MUST-4-firing`): an efficacy (`RuleEfficacyAnswer`, violation pole) + no-false-positive (`NoFalsePositiveAnswer`, compliant pole) row, with candidates + answer-key sidecars at `.claude/audit-fixtures/instrument-discipline/`. This satisfies `coc-artifact-eval-coverage.md` MUST-1's prose-artifact mandate for the clause; the suite's existing meta-compliance pair covers the modified artifact. Dispatchability re-measured on THIS change, not inherited, two-pole on one tree: `coc-probe-dispatch.mjs plan` reports `dispatch_count` 52 → 54 with `suite: instrument-discipline` rising 12 → 14 and `refusal_count` 0 on both poles (2026-08-12). Execution semantics are unchanged from the MUST-1..3 block: no workflow invokes the dispatcher, so a green CI run is NEVER evidence these probes passed. Phase 2 is RETIRED for MUST-4 too (2026-08-14): no hook detector will EVER be built, because a regex detector would itself instance this rule's class — so no structural fixtures are owed. Gate-review IS the enforcement layer, permanently.
-- **Violation scope:** MUST-4 ONLY (an instrument re-used for a second question without a falsifying result named for that question, including a producer-defined field read under the reader's meaning). Every `violations.jsonl` row names the instrument, the proposition it was cited for, and the question it was originally built for.
-- **Origin:** See § Origin.
-
-Origin: 2026-07-29 — O1 co-owner-directed origination; receipt-first `journal/0569`. Baseline because no loaded rule carries this obligation: `evidence-first-claims.md` governs claim GRAMMAR, this governs instrument SELECTION. A reachability argument for this scope is BLOCKED and NOT made (`93e47705` refuted it). Depth: `journal/0569` + `.claude/guides/rule-extracts/instrument-discipline.md`.
-
-**MUST-4** — 2026-08-11, landed via `/sync-from-use` Gate-1 placement of a DOWNSTREAM-relayed upflow entry; hop-level provenance only, GLOBAL on both axes. A paired entry claiming the same slot was evaluated in the same pass and deliberately ordered AFTER this one; it measured 612 B and is DEFERRED, not landed — this file has no MUST-5, and any future placement of that entry takes the slot. Extension-vs-standalone reasoning, the originating incident class, and the scrub record: extract § "MUST-4 — depth".
+Depth — the Trust-Posture Wiring, the rule-graph cross-references and the Origin record — lives in `.claude/skills/32-trust-posture/wiring/instrument-discipline.md`, which every validator reads as part of this rule.

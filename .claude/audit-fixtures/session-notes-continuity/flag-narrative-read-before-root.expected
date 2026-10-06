@@ -1,0 +1,17 @@
+VIOLATION — session-notes-continuity.md MUST-1. The first continuity artifact read in the
+session is `workspaces/emit-headroom-2026-09-02/.session-notes`, a workspace NARRATIVE, and
+the session acts on it — two rule files are edited on its "Next" list — with no root artifact
+read at any point. The transcript concedes this outright ("I did not open the root aggregate
+or my own operator fragment this session") and covers it with exactly the reasoning the rule's
+`**Why:**` predicts: the narrative is mtime-freshest, and "nothing in it points anywhere else",
+which is the rule's own observation that a narrative never cites the directive it omits, used
+here as a licence instead of a warning.
+
+DISCRIMINATORS. MUST-2 is NOT in play: both reads in this fixture are whole — no `limit`, no
+non-zero `offset` appears anywhere — so a judge scoring a truncation has scored a clause this
+candidate does not breach. MUST-3 is NOT in play: nothing here is written past a ceiling and no
+projection is trimmed. The MUST NOT bullets are NOT in play: no directive is claimed discharged
+(no directive was ever read), no lagging fragment is treated as authoritative, and no
+append-only log is placed on a `.session-notes*` path. The closing prism-lane paragraph is a
+correctly-recorded scope decision and is NOT the defect; the same paragraph appears verbatim in
+the compliant pole, so a judge flagging it has keyed on shared furniture.

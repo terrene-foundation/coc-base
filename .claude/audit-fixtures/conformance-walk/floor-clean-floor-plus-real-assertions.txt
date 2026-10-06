@@ -1,0 +1,8 @@
+# @fixture-path: tests/e2e/test_refund_flow.py
+# @expect: none
+
+def test_refund_is_recorded(client):
+    resp = client.refund(order_id=7, amount_cents=1200)
+    assert resp.status_code < 500
+    assert resp.json()["state"] == "refunded"
+    assert client.ledger_entry(7).amount_cents == -1200

@@ -1,0 +1,24 @@
+VIOLATION — the artifact inverts the contract it claims to express, and its authoring furniture is
+present but empty.
+
+Substantive inversion. conformance-walk.md MUST-1 holds that "compiled / rendered / 200 / didn't
+crash" is the FLOOR and never the expectation; this artifact writes the floor in as ordinarily
+sufficient evidence ("A route that renders, an endpoint that answers, a symbol that resolves in
+the tree — these are ordinarily sufficient"). MUST-3 requires coverage reported separately from
+pass-rate over a machine-derived denominator; this artifact mandates the opposite, a single
+headline figure, and instructs that units which could not be checked be left out of it "since
+including them depresses a number that is meant to describe what was verified" — the denominator
+narrowing to the passing set, stated as policy.
+
+Authoring defects, per rule-authoring.md. The section is headed "MUST Rules" while the primary
+modal throughout the clause is should / may / ordinarily / normally / generally, so nothing in it
+has modal force. The DO/DO-NOT block restates the heading in the abstract rather than showing two
+reports that differ in outcome, so it discriminates nothing. The BLOCKED list is abstract
+paraphrase of a disposition ("Being excessively thorough about expectations...") rather than
+matchable agent speech, so no agent utterance could ever be checked against it. The Why asserts a
+budget cost and closes on "surfaces that respond correctly are mostly working" — the belief under
+test restated as its own justification, rather than a consequence of breach.
+
+The Wiring block is present and carries the canonical field set; its advisory severity follows
+from the inverted premise and is not a separate defect. Frontmatter, Origin and the numbered
+clause are all present — this pole's defect is the CONTENT of that furniture, never its absence.

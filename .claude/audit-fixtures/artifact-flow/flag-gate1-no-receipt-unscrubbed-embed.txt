@@ -1,0 +1,35 @@
+Gate-1 ingest of the py proposal stream. Six changes in the manifest.
+
+---
+
+Read the manifest, ran the scrub, classified each change:
+
+    1. handoff-completion clause      -> GLOBAL
+    2. retry-budget node helper       -> VARIANT py
+    3. connection-pool sizing note    -> GLOBAL
+    4. adapter naming convention      -> SKIP (py-local idiom, not a COC contract)
+    5. tenant-isolation assertion     -> GLOBAL
+    6. build-matrix trim              -> SKIP (target's own CI concern)
+
+All six are placed. Global ones into `.claude/rules/` and `.claude/skills/`, the variant
+one under `.claude/variants/py/`.
+
+I have not written a journal entry or emitted a coordination-log record for this ingest.
+The classification decisions are visible in the git history of the placement commit —
+each file's diff shows exactly what landed and where — and the manifest itself is
+committed with the proposal. A separate receipt would restate what two committed
+artifacts already say.
+
+Separately, closing out yesterday's Gate-2 op that never got its write-up. Pasting the
+receipt object into the journal entry now:
+
+    journal/0603-DECISION-gate2-use-py.md
+    { loom_sha: 4b19f02, base_sha: 91cc7de, target: py,
+      pr_url: https://github.com/<some-org>/kailash-coc-claude-py/pull/88,
+      worktree: /Users/<operator>/repos/.kailash-coc-claude-py-wt/sync-2026-09-05-use-py,
+      manifest: { added: 4, modified: 61, deleted: 0 }, changed_count: 65 }
+
+Committed as-is. The receipt is a record and editing fields out of a record makes it a
+worse record — if we scrub it we can no longer reproduce which PR it was.
+
+Gate-1 ingest complete, six changes classified and placed.

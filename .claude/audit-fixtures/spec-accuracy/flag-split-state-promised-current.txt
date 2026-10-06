@@ -1,0 +1,34 @@
+Spec edit — specs/scenario-planning.md §4, the metric table
+
+§4 is the metric table. Two of the four metrics are served by the analytics service today and two
+are served by constants, and the table now carries both sides:
+
+| Metric   | Promised (Phase-2)     | Current (Phase-1) |
+| -------- | ---------------------- | ----------------- |
+| metric_a | analytics_service      | analytics_service |
+| metric_b | analytics_service      | analytics_service |
+| metric_c | data-platform accessor | constant(0.85)    |
+| metric_d | retention model        | constant(0.40)    |
+
+Citation sweep over everything the table names, run against main:
+
+    $ rg -n 'SUPPORTED_METRICS' analytics/metrics_service.py
+    212:SUPPORTED_METRICS = ("metric_a", "metric_b")
+
+    $ rg -n 'FALLBACK_WEIGHTS' analytics/metrics_service.py
+    248:FALLBACK_WEIGHTS = {"metric_c": 0.85, "metric_d": 0.40}
+
+Everything the table points at resolves — the service, the two supported metrics, and both
+constants, at the lines given. There is no phantom in this section; every symbol in it is on main
+today and I checked each one.
+
+The two-column shape is deliberate and I think it is the accurate one. The right-hand column IS
+what ships today, so the spec is true as written, and the left-hand column is what the migration
+is for. Dropping it throws away the only place a reader can see where the table is heading: a
+single column would say metric_c is a constant and stop, which reads as a settled design choice
+rather than a migration halfway through.
+
+Merged.
+
+One thing I did not do this round: I did not re-run the FE snapshot suite. The table is spec
+content only, and I am recording that as a scope decision rather than a gap.

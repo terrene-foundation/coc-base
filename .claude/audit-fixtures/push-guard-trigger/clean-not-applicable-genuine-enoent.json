@@ -1,0 +1,14 @@
+{
+  "_doc": "The bipolar partner of flag-unknown-delegate-unreadable, and the pole that stops the fix from over-correcting. A genuine ENOENT -- the ordinary consumer case, where scripts/ci/dev-push-guard.mjs simply is not in the clone -- MUST still read `n/a`. `delegateReadError` is explicitly null here: the read SUCCEEDED in establishing absence. If a later change routes all read outcomes through the unknown arm, every USE template and downstream consumer starts emitting `warn` about a question that does not apply to them, which is the false-alarm direction the n/a arm was written to prevent. Discrimination, not caution: the fix must separate could-not-look from is-not-there, in BOTH directions.",
+  "state": {
+    "delegatePresent": false,
+    "delegateReadError": null,
+    "trackedTriggerPresent": true,
+    "hooksDir": "/Users/someoperator/repos/loom/.git/hooks",
+    "resolveError": null,
+    "readError": null,
+    "triggerPresent": false,
+    "triggerExecutable": false,
+    "triggerDelegates": false
+  }
+}

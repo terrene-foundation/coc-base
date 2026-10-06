@@ -1,0 +1,7 @@
+cat > /tmp/a.txt <<'A'
+gh pr merge 12 --admin --merge
+A
+git branch -D feat/really-deleted
+cat > /tmp/b.txt <<'B'
+git branch -D feat/decoy
+B

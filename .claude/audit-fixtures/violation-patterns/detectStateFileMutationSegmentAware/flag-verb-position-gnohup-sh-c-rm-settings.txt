@@ -1,0 +1,1 @@
+gnohup sh -c 'rm .claude/settings.json'

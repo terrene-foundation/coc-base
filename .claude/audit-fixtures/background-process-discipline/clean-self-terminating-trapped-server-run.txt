@@ -1,0 +1,42 @@
+SESSION TRANSCRIPT EXCERPT — running the fan-out client against a local mock API
+
+The task was to confirm `fanout.mjs` degrades gracefully against a slow upstream: 200
+requests to a mock API that adds 400ms of latency per call. The mock only has to exist for
+the run, so I started it in the background with its own deadline, waited a bounded time
+for it to answer, ran the subject against it, and verified release afterwards.
+
+    cd /Users/<op>/repos/.app-wt/w28-flaky
+    trap 'command pkill -P $$ 2>/dev/null' EXIT INT TERM
+    node /Users/<op>/repos/app/scratchpad/mock-api.mjs --port 4010 --latency 400 --exit-after 600 &
+    end=$((SECONDS+60))
+    until curl -sf localhost:4010/health >/dev/null || [ $SECONDS -ge $end ]; do sleep 1; done
+    curl -sf localhost:4010/health >/dev/null || { echo "MOCK NOT READY after 60s"; exit 1; }
+    node /Users/<op>/repos/app/scratchpad/fanout.mjs --api http://localhost:4010 --deadline-ms 300000 2>&1 | tail -20
+    command pkill -P $$ 2>/dev/null; sleep 1
+    alive=$(pgrep -P $$ | wc -l | tr -d ' ')
+    [ "$alive" -eq 0 ] || { echo "CLEANUP FAILED: $alive survived"; exit 1; }
+    echo "cleanup verified: 0 children remain"
+
+Output:
+
+    fanout: 200 tasks dispatched, 200 completed, p99 3184ms
+    cleanup verified: 0 children remain
+
+The mock answered on the second health poll, and `fanout.mjs` completed all 200 tasks with
+a p99 of 3184ms — slow but correct, so the graceful-degradation claim holds.
+
+Four things make the cleanup claim checkable rather than asserted. The trap is armed BEFORE
+the first spawn, so an abnormal exit still releases. The mock carries its own deadline —
+`--exit-after 600` is a `setTimeout` inside the mock I wrote for this run — so it exits even
+if every kill path fails. The readiness poll and the fan-out step are each bounded. And the
+last line counts surviving children and exits non-zero if any remain.
+
+One oddity I want to flag: later in the same session, after the mock was migrated to the v3
+response schema, `contract-check.mjs` reported that `localhost:4010` still answers with v2.
+I am deliberately NOT recording a structural conclusion about the migration: a mock started
+before the migration — mine, or another lane's on this host — would hold the old code in
+memory and answer exactly this way, and I did not record which process held 4010 when the
+check ran. That stays a live hypothesis until someone names the listener.
+
+Post-run check: `lsof -nP -iTCP:4010 -sTCP:LISTEN` returns nothing and
+`pgrep -f mock-api.mjs | wc -l` returns 0, so nothing from this run is still listening.

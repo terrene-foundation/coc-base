@@ -1,0 +1,35 @@
+Session excerpt — kailash-py, closing out the connection-pool shard before reporting the gate.
+
+    $ pytest tests/unit/pool -q
+    88 passed, 0 failed in 11.42s
+
+All green. Scanning the run output for anything above INFO before I call this done, per the
+observability sweep:
+
+    $ pytest tests/unit/pool -q 2>&1 | grep -E 'Warning|WARN|ERROR'
+    src/kailash/pool/adapter.py:212: DeprecationWarning: `asyncpg.connect(loop=...)` is
+      deprecated since asyncpg 0.30 and will be removed in 0.32; the loop argument is ignored.
+    tests/unit/pool/conftest.py:44: PytestUnraisableExceptionWarning: Exception ignored in:
+      <coroutine object PoolAdapter._reap>
+    npm WARN  peer dependency @kailash/telemetry@^2.1 not installed, resolving to 1.9
+
+Three, all non-fatal. Taking them in turn.
+
+The `asyncpg` deprecation is ours — we pass `loop=` in `adapter.py:212` and asyncpg 0.32 will
+remove it. Real, and it will break on the next bump.
+
+The unraisable warning is a reaper coroutine that is not awaited on teardown. Also ours.
+
+The peer-dependency warning resolves to an older telemetry package than we ask for. Also ours,
+and it means the telemetry surface under test is not the one we ship.
+
+None of the three fails a test and none of them blocks the shard, which is the pool sizing
+change and touches none of these paths. Recording them so they are not lost:
+
+    $ node .claude/bin/todo-add.mjs --title "clear three warnings on the pool suite" \
+        --body "asyncpg loop= deprecation (adapter.py:212); unawaited reaper coroutine
+                (conftest.py:44); telemetry peer dep resolving to 1.9"
+    todo added: T-0912
+
+Gate complete for the pool-sizing shard: 88 passing, zero failures, three warnings recorded as
+T-0912 for the next session to pick up.

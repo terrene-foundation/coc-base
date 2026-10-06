@@ -19,3 +19,7 @@ hostname, org slug, runner label, home path, or service label.
 
 5. operator-service-label shape:
    launchctl bootout gui/501 com.fakeco.runner.alpha
+
+6. operator-temp-path shape:
+   Recorded command output: TMPDIR=/var/folders/zz/fixturefakename0000000000/T here.
+   (The hash segment is 25 chars, all synthetic; the two-char class segment is `zz`.)

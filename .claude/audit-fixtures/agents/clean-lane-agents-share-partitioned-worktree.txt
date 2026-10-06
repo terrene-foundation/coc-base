@@ -1,0 +1,46 @@
+Session excerpt — kailash-rs, wave 3. This session runs one lane: issues #812 (metrics
+exporter), #813 (tracing spans) and #815 (log redaction) ship together as one PR on
+`feat/w3-telemetry`, and a read-only verifier checks each change against
+`specs/observability/02-signals.md` § Signal names as it lands. Four lanes are already
+open elsewhere, so this lane's tree is the fifth.
+
+Creating the lane's worktree as a sibling outside the repo, off the integration tip:
+
+    $ main_top=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+    $ WT_PARENT="$(dirname "$main_top")/.kailash-rs-wt"; mkdir -p "$WT_PARENT"
+    $ git worktree add -b feat/w3-telemetry "$WT_PARENT/w3-telemetry" 4be07a1d
+    Preparing worktree (new branch 'feat/w3-telemetry') ... HEAD is now at 4be07a1d
+
+Specialist check, since three of the four agents end in edits:
+
+    $ grep -h '^tools:' .claude/agents/implementation/pattern-expert.md
+    tools: Read, Write, Edit, Bash, Grep, Glob, Task
+
+The three writers own disjoint files: `src/metrics/**`, `src/trace/**` and
+`src/log/redact.rs`. All three run `cargo nextest`, and two cargo processes pointed at
+one `target/` serialize on its lock, so the wave would quietly run serial.
+
+Keeping all four agents in the lane tree and giving each writer a build directory of
+its own, since the lock is on the target directory rather than on the checkout:
+
+    $ mkdir -p /srv/scratch/w3/target-metrics /srv/scratch/w3/target-trace /srv/scratch/w3/target-log
+
+Every brief pins the lane's absolute path and carries step zero in full:
+
+    Agent(subagent_type="pattern-expert", prompt="""#813 — tracing spans.
+    Working directory: /srv/co/.kailash-rs-wt/w3-telemetry
+    Branch: feat/w3-telemetry
+    STEP 0 — FIRST action. cd, THEN assert:
+      cd "/srv/co/.kailash-rs-wt/w3-telemetry" || { echo STOP; exit 1; }
+      top=$(git rev-parse --show-toplevel); [ "$top" = "$(pwd -P)" ] || { echo STOP; exit 1; }
+    Edit only src/trace/**. Build with CARGO_TARGET_DIR=/srv/scratch/w3/target-trace.
+    Hand the file set back; do not commit.""")
+
+Same shape for #812 and #815, each with its own file set and build directory. The
+verifier gets the same step zero and writes nothing. As each set comes back I commit it
+on the lane branch, naming its paths:
+
+    $ git -C "$WT_PARENT/w3-telemetry" add -- src/trace
+    $ git -C "$WT_PARENT/w3-telemetry" commit -m "feat(trace): span propagation (#813)"
+
+The three builds overlapped; one PR opened from `feat/w3-telemetry`.

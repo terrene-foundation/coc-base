@@ -55,19 +55,48 @@ const {
 const { ensureCanonicalDriver } = require("./lib/coc-ledger-driver");
 const { resolveIdentity } = require("./lib/operator-id");
 
-// Timeout fallback — prevents hanging the Claude Code session
+// Timeout fallback — prevents hanging the Claude Code session. Armed inside
+// hookMain() (never at load), so require() of this file schedules nothing.
 const TIMEOUT_MS = 10000;
-const _timeout = setTimeout(() => {
-  console.log(JSON.stringify({ continue: true }));
-  process.exit(1);
-}, TIMEOUT_MS);
 
-let input = "";
-process.stdin.setEncoding("utf8");
-process.stdin.on("data", (chunk) => (input += chunk));
-const { readPosture, isPendingWithinGrace } = require("./lib/state-io");
+const {
+  readPosture,
+  isPendingWithinGrace,
+  writeFileHardened,
+} = require("./lib/state-io");
 
-process.stdin.on("end", () => {
+// hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
+// in-process by lib/hook-engine.js (dispatch.js). Everything a standalone run
+// did at load time happens here instead, so a require() has no side effects.
+// The returned promise settles only after the stdin `end` work has run, so the
+// engine never reads the detector as finished before its output.
+function hookMain() {
+  setTimeout(() => {
+    console.log(JSON.stringify({ continue: true }));
+    process.exit(1);
+  }, TIMEOUT_MS);
+  return new Promise((resolve, reject) => {
+    let input = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (chunk) => (input += chunk));
+    process.stdin.on("end", () => {
+      try {
+        onStdinEnd(input);
+      } catch (e) {
+        return reject(e);
+      }
+      resolve();
+    });
+  });
+}
+
+// Engine residual (hook-engine.js § process.exit): the outer `catch` below
+// encloses the `process.exit(0)`. In-engine that exit throws a sentinel the
+// catch receives; the catch does console.error / console.log / process.exit
+// ONLY, all of which the engine discards once the detector has exited. Every
+// side-effecting step (observation append, .env provision, git config) runs
+// BEFORE the exit, inside initializeSession, exactly as it did standalone.
+function onStdinEnd(input) {
   try {
     const data = JSON.parse(input);
     const result = initializeSession(data);
@@ -133,13 +162,17 @@ process.stdin.on("end", () => {
 
     // Unlanded-work surface: the complement of the open-PR block. That one
     // answers "what is ON the board?"; this answers "what never GOT to the
-    // board?" — local branches with commits not on the upstream default branch
-    // and no open PR. Adds 2 LOCAL git calls and ZERO network calls.
+    // board?" — local branches with commits not on the integration trunk
+    // (`lib/trunk-ref.js`: `origin/dev` where it exists, else the upstream
+    // default branch) and no open PR. It also renders the dev→main PROMOTION gap
+    // as one counted line, and names REAP CANDIDATES — local branches whose every
+    // commit is already on the trunk. Every call is LOCAL git, each carrying its
+    // own timeout; ZERO network calls.
     //
     // ADVISORY ONLY. It reports REACHABILITY, which over-reports content: at
     // loom, 14 of 40 surfaced branches had a PR in history and 9 of those were
     // merged. It must therefore never gate, auto-reap, or drive a deletion —
-    // the rendered block says so and a test pins that sentence.
+    // the rendered block says so (reap candidates are labelled REPORT-ONLY).
     let unlandedBlock = null;
     try {
       unlandedBlock = formatUnlandedBlock(
@@ -147,6 +180,34 @@ process.stdin.on("end", () => {
       );
     } catch {
       unlandedBlock = null; // never block session start
+    }
+
+    // Landing-provenance audit (lib/landing-provenance-audit.js): what the push
+    // gate cannot refuse — a missing/stale pre-push shim, off-machine pushes
+    // (untrailered commits on the remote-tracking trunk), landed-but-open
+    // branches. INERT (null) without .claude/bin/landing-provenance.json, so
+    // consumers see nothing. LAZY require, same reason as deferral-surface
+    // below; runAudit never throws, so a catch here is a require/bug failure,
+    // reported loudly where the config exists — a check that did not run must
+    // not look clean.
+    let landingAuditBlock = null;
+    try {
+      const {
+        runAudit,
+        renderAudit,
+      } = require("./lib/landing-provenance-audit");
+      landingAuditBlock = renderAudit(runAudit({ repoDir: data.cwd }));
+    } catch (e) {
+      landingAuditBlock = fs.existsSync(
+        path.join(
+          String(data.cwd || ""),
+          ".claude",
+          "bin",
+          "landing-provenance.json",
+        ),
+      )
+        ? `## Landing provenance\nlanding-provenance audit did not run: ${e.message}`
+        : null;
     }
 
     // Phase-2 deferral surface: the third sibling. The open-PR block answers
@@ -179,8 +240,10 @@ process.stdin.on("end", () => {
 
     const output = { continue: true };
     const ctxParts = [];
+    if (result.sessionsRefusal) ctxParts.push(result.sessionsRefusal);
     if (openPrBlock) ctxParts.push(openPrBlock);
     if (unlandedBlock) ctxParts.push(unlandedBlock);
+    if (landingAuditBlock) ctxParts.push(landingAuditBlock);
     if (deferralBlock) ctxParts.push(deferralBlock);
     if (result.sessionNotesContext) ctxParts.push(result.sessionNotesContext);
     if (trustGate) ctxParts.push(trustGate);
@@ -197,26 +260,48 @@ process.stdin.on("end", () => {
     console.log(JSON.stringify({ continue: true }));
     process.exit(1);
   }
-});
+}
 
 function initializeSession(data) {
-  const result = { sessionNotesContext: null };
+  const result = { sessionNotesContext: null, sessionsRefusal: null };
   const session_id = (data.session_id || "unknown").replace(
     /[^a-zA-Z0-9_-]/g,
     "_",
   );
   const cwd = data.cwd || process.cwd();
   const homeDir = process.env.HOME || process.env.USERPROFILE;
-  const sessionDir = path.join(homeDir, ".claude", "sessions");
+  // Creates the directory as before, then refuses it unless it resolves to
+  // <realpath ~/.claude>/sessions — see resolveSessionsDir.
+  const sessions = resolveSessionsDir(homeDir);
+  const sessionDir = sessions.dir;
   const learningDir = resolveLearningDir(cwd);
-
-  // Ensure directories exist
-  [sessionDir].forEach((dir) => {
-    try {
-      fs.mkdirSync(dir, { recursive: true });
-    } catch {}
-  });
   ensureLearningDir(cwd);
+
+  // ── Session start time (the ONE writer of `startedAt`) ────────────────
+  // session-end.js reads `startedAt` from this same file to size its duration
+  // estimate and its decision-reference / journal-candidate windows. Nothing
+  // wrote it before this, so every reader fell back to "the last 4 hours" and a
+  // fresh checkout logged every journal entry as this session's decision. Keyed
+  // on the RAW id: an id-less payload records nothing rather than an "unknown".
+  if (!sessions.ok) {
+    console.error(
+      `[SESSION] ${sessions.dir} REFUSED (${sessions.why}) — start time not recorded, nothing read or written there`,
+    );
+    // The stderr line above is invisible: the host does not show an exit-0
+    // hook's stderr at SessionStart. This ONE line rides the hook's context
+    // output instead, so the refusal — and what it costs at SessionEnd — is seen.
+    result.sessionsRefusal =
+      `[SESSION] ${sessions.dir} REFUSED (${sessions.why}) — this session's start time was not recorded, ` +
+      `and at session end the checkpoint will not be saved and old session files will not be cleaned up there.`;
+  } else {
+    try {
+      recordSessionStart(data.session_id, sessionDir, Date.now());
+    } catch (e) {
+      console.error(
+        `[SESSION] start time not recorded (${e.message}) — session-end falls back to a 4-hour window`,
+      );
+    }
+  }
 
   // ── .env provision ────────────────────────────────────────────────────
   const envResult = ensureEnvFile(cwd);
@@ -475,6 +560,158 @@ function initializeSession(data) {
   }
 
   return result;
+}
+
+// The only accepted `startedAt` shape: exactly what Date#toISOString emits.
+// Mirrored in session-end.js (the reader); session-start-end-startedat.test.mjs
+// pins the two copies to the same verdicts.
+const STARTED_AT_SHAPE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+/**
+ * A recorded session start, as epoch ms — or null when the value is absent,
+ * not a string, not the toISOString shape, not a real calendar instant (the
+ * round-trip rejects 2026-02-30), or in the FUTURE relative to `nowMs`.
+ */
+function parseSessionStartedAt(value, nowMs) {
+  if (typeof value !== "string" || !STARTED_AT_SHAPE.test(value)) return null;
+  const ms = Date.parse(value);
+  if (!Number.isFinite(ms) || new Date(ms).toISOString() !== value) return null;
+  if (ms > nowMs) return null;
+  return ms;
+}
+
+// ── readSessionFile + resolveSessionsDir: MIRRORED byte-for-byte in
+// session-end.js; session-start-end-startedat.test.mjs (S13) pins the two
+// copies to the same verdicts. Mirrored rather than required across hooks so
+// neither hook fails to LOAD in a tree that ships only one of them.
+
+/**
+ * A session file's JSON, read from ONE descriptor — never a path-based check
+ * followed by a path-based read, which a swap between the two defeats (a FIFO
+ * swapped in blocks the reader; a symlink swapped in is read through).
+ * O_NOFOLLOW refuses a link at the final component, O_NONBLOCK keeps a FIFO
+ * from blocking the open, and the regular-file check is made on the OPEN fd.
+ *   { kind: "absent" }       ENOENT
+ *   { kind: "not-regular" }  a symlink (ELOOP/EMLINK) or a non-regular fd
+ *   { kind: "unopenable" }   any other open failure (EACCES, ENXIO, …)
+ *   { kind: "corrupt" }      a regular file that did not read / parse
+ *   { kind: "ok", data }     the parsed JSON value
+ */
+function readSessionFile(file) {
+  const c = fs.constants;
+  let fd;
+  try {
+    fd = fs.openSync(
+      file,
+      c.O_RDONLY | (c.O_NOFOLLOW || 0) | (c.O_NONBLOCK || 0),
+    );
+  } catch (e) {
+    if (e && e.code === "ENOENT") return { kind: "absent" };
+    if (e && (e.code === "ELOOP" || e.code === "EMLINK"))
+      return { kind: "not-regular" };
+    return { kind: "unopenable" };
+  }
+  try {
+    if (!fs.fstatSync(fd).isFile()) return { kind: "not-regular" };
+    return { kind: "ok", data: JSON.parse(fs.readFileSync(fd, "utf8")) };
+  } catch {
+    return { kind: "corrupt" };
+  } finally {
+    try {
+      fs.closeSync(fd);
+    } catch {}
+  }
+}
+
+/**
+ * ~/.claude/sessions, created as before and then CONTAINED (rules/security.md
+ * § Path Containment): both sides go through the same resolver, and the dir is
+ * accepted only when realpath(<home>/.claude/sessions) equals
+ * realpath(<home>/.claude) + "/sessions". So a symlinked ~/.claude (dotfiles)
+ * still works, while a `sessions` link to another directory — where the hooks
+ * would write, and session-end's cleanup would unlink every *.json but the
+ * newest 20 — is refused, as is a dir that will not resolve (fail closed).
+ * Returns { ok, dir, why } — `dir` is the lexical path, `why` set when !ok.
+ */
+function resolveSessionsDir(homeDir) {
+  const claudeDir = path.join(homeDir, ".claude");
+  const dir = path.join(claudeDir, "sessions");
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+  } catch {}
+  let real;
+  let expected;
+  try {
+    real = fs.realpathSync(dir);
+    expected = path.join(fs.realpathSync(claudeDir), "sessions");
+  } catch (e) {
+    return { ok: false, dir, why: `does not resolve: ${(e && e.code) || e}` };
+  }
+  if (real !== expected) {
+    return { ok: false, dir, why: `resolves to ${real}, not ${expected}` };
+  }
+  return { ok: true, dir, why: null };
+}
+
+/**
+ * Record `startedAt` in ~/.claude/sessions/<id>.json, MERGING into whatever the
+ * file already holds. A valid existing `startedAt` is kept, so a resume or
+ * compact SessionStart for a live session never resets its start; an absent,
+ * malformed or future one is replaced by `nowMs`. A session-end rewrite drops
+ * the field, so a session resumed after it ended starts a new window instead of
+ * re-counting the segment already logged. A non-regular file at the path
+ * (symlink, directory) is left untouched. Write is tmp + rename, never partial.
+ *
+ * The tmp is created through `state-io.js::_writeFileHardened` (exported as `writeFileHardened`;
+ * O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW, mode 0600, `lib/state-io.js:255-371`), so
+ * an entry planted at the pid-predictable tmp path — a symlink, a hard link, a
+ * directory — is REFUSED rather than written through; the refusal throws into
+ * the caller's one-line "[SESSION] start time not recorded" path. A stale
+ * plain tmp left by a crashed same-pid run is replaced (`replaceExisting`).
+ * `rename` itself never follows a link at the final path.
+ */
+function recordSessionStart(rawSessionId, sessionDir, nowMs) {
+  if (typeof rawSessionId !== "string" || rawSessionId === "") return;
+  const id = rawSessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const file = path.join(sessionDir, `${id}.json`);
+  let existing = {};
+  // Read from ONE descriptor (readSessionFile): an lstat followed by a read BY
+  // PATH let a swap between the two block this hook on a FIFO, or read a
+  // symlink's target and merge its keys into the new session file.
+  const r = readSessionFile(file);
+  if (r.kind === "not-regular") return;
+  if (r.kind === "unopenable") {
+    // Classification only — nothing is read here: a regular file we cannot
+    // open is replaced below (as a corrupt one is); anything else is left alone.
+    let st = null;
+    try {
+      st = fs.lstatSync(file);
+    } catch {}
+    if (!st || !st.isFile()) return;
+  }
+  if (r.kind === "ok") {
+    const parsed = r.data;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      existing = parsed;
+    }
+  }
+  // "corrupt": nothing to preserve; replaced below, as session-end would.
+  if (parseSessionStartedAt(existing.startedAt, nowMs) !== null) return;
+  const next = { ...existing, startedAt: new Date(nowMs).toISOString() };
+  const tmp = `${file}.${process.pid}.tmp`;
+  const wrote = writeFileHardened(tmp, JSON.stringify(next, null, 2), {
+    replaceExisting: true,
+  });
+  // On refusal the planted entry is left in place (it is not ours to delete).
+  if (!wrote.ok) throw new Error(`tmp write refused: ${wrote.reason}`);
+  try {
+    fs.renameSync(tmp, file);
+  } catch (e) {
+    try {
+      fs.unlinkSync(tmp);
+    } catch {}
+    throw e;
+  }
 }
 
 /**
@@ -761,6 +998,17 @@ function checkReleaseDrift(cwd) {
     `[RELEASE-DRIFT] ⚠ ${unreleased.length} package(s) have commits since last release:`,
   );
   for (const pkg of unreleased) {
+    // A count git could NOT produce is UNKNOWN, never clean. Rendering an
+    // unavailable count as an ordinary numeric row makes a failed `git
+    // rev-list` indistinguishable from a genuine answer — a reading no output
+    // of this hook could falsify, which is exactly what instrument-discipline
+    // MUST-1 blocks. Say UNKNOWN out loud instead.
+    if (pkg.count_unavailable) {
+      console.error(
+        `[RELEASE-DRIFT]   ${pkg.name} (${pkg.path}): count UNAVAILABLE — git could not answer for ${pkg.last_tag}..HEAD. Status UNKNOWN, not clean.`,
+      );
+      continue;
+    }
     console.error(
       `[RELEASE-DRIFT]   ${pkg.name} (${pkg.path}): ${pkg.commits_since_tag} commit(s) since ${pkg.last_tag} — pyproject at v${pkg.current_version}`,
     );
@@ -816,4 +1064,21 @@ function detectPoolConfig(cwd) {
     }
   } catch {}
   return result;
+}
+
+module.exports = {
+  hookMain,
+  parseSessionStartedAt,
+  readSessionFile,
+  recordSessionStart,
+  resolveSessionsDir,
+};
+
+// CLI entry. The default path is exactly hookMain() — no engine dependency, so a
+// tree that copies this hook without lib/hook-engine.js runs it unchanged. The
+// selftest path replays the run through the in-process engine (hook-engine.js::runCli).
+if (require.main === module) {
+  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1")
+    require("./lib/hook-engine.js").runCli(hookMain, __filename);
+  else hookMain();
 }

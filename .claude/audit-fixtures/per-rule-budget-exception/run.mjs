@@ -33,7 +33,11 @@ import {
   PER_RULE_BUDGET_EXCEPTION_MAX_MULTIPLE,
 } from "../../bin/emit.mjs";
 
-// The live declaration's shape, inlined so the fixtures are hermetic.
+// A realistically-shaped declaration, inlined so the fixtures are hermetic.
+// NOT a copy of anything live: the last per-rule grant (rs/security.md, #1355) was
+// RETIRED 2026-09-02 and none is declared. These are the ORIGINAL 2026-07-26 grant's
+// numbers — note granted_block_ceiling_bytes 9600, which is the value AS FIRST GRANTED,
+// not the 9475 the entry had been tightened to by the time it was retired.
 const RS_SECURITY = {
   lane: "rs",
   clis: ["codex", "gemini"],
@@ -100,10 +104,16 @@ const resolveFixtures = [
     expect: null,
   },
   {
-    name: "fixture-04-prism-lane-not-covered",
+    name: "fixture-04-unnamed-lane-not-covered",
     input: {
       cli: "codex",
-      lang: "prism",
+      // SYNTHETIC, deliberately not a declared lane. This row read `prism`
+      // until that lane was retired (2026-09-02); pinning a "lane the grant
+      // does not name" fixture to a REAL lane is what makes it perishable —
+      // the same correction emit-arg-validation.test.mjs already applied when
+      // `rb` was retired. The predicate matches `lane` as an opaque string and
+      // this file is hermetic, so a synthetic name tests the CONTRACT.
+      lang: "zz-unnamed-lane",
       rule: "security.md",
       exceptions: EXCEPTIONS,
       now: "2026-07-26",
@@ -287,7 +297,7 @@ const budgets = new Map([
 
 const boundFixtures = [
   {
-    name: "fixture-21-live-shaped-grant-is-within-bounds",
+    name: "fixture-21-realistically-shaped-grant-is-within-bounds",
     exceptions: [RS_SECURITY],
     expectThrow: null,
   },

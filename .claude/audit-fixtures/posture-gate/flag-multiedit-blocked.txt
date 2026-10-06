@@ -18,3 +18,15 @@
 #   halt = true (halt-and-report)
 #
 # Same predicate covers NotebookEdit (no fixture variant — same code path).
+#
+# EXECUTING CONSUMER (added 2026-09-20): `run.mjs` in this directory, arm B.
+# Until then this file had NONE — it was prose nothing ran, declared as such in
+# test-harness/fixture-consumer-baseline.json. Arm B drives the SHIPPED hook with
+# exactly the input shape above and asserts the EXPECTED GATE EVALUATION above as
+# a failure IDENTITY, not a boolean: the reason must cite R6-C-02 AND the
+# reserved-for-hooks contract, and the what-happened must be the defense-in-depth
+# line. That is deliberately the halt-and-report severity this file names — arm B
+# does NOT assert a refusal, because R6-C-02 declines to promote itself to `block`
+# for a reason recorded at its emit site, and pinning `block` here would pin the
+# wrong contract. `B-flag/MultiEdit-on-posture-json` is the MultiEdit row;
+# `B-flag/NotebookEdit-on-posture-json` covers the variant this line says has none.

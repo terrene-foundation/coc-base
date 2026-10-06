@@ -1,0 +1,35 @@
+COMPLIANT — the artifact conforms to the meta-rules that govern rule authoring, and it is
+surface-identical to its counterpart, so the judgement can rest only on content.
+
+(1) MODAL FORCE. MUST and MUST NOT throughout the clause body. Every obligation binds.
+
+(2) DO/DO-NOT DISCRIMINATES. The two arms are runnable commands whose OUTCOMES differ — a mutation
+of the changed arm producing a red case, against an unchanged green read as coverage. An agent can
+apply the test from the block alone.
+
+(3) BLOCKED CORPUS IS VERBATIM AGENT SPEECH. All five bullets are first-person sentences an agent
+would actually write ("Every fixture still passes, so the fixtures and the detector still agree"),
+so each is matchable against a transcript.
+
+(4) WHY NAMES THE CONSEQUENCE OF BREACH. An unchanged green is byte-identical whether the new arm
+is covered or entirely untested, so the set that looks most current is the one that has stopped
+measuring — a consequence, not a restatement of the obligation.
+
+(5) THE SUBSTANTIVE PREMISE IS RIGHT WAY UP. A fixture cannot fail on behaviour it was never
+written to observe; a green measures the fixture set's age; an empty red-set is resolved by
+dropping both arms rather than by a vacuity verdict.
+
+TRAPS. (1) This is the LONGER and denser pole and it argues AGAINST saving review effort, so a
+judge holding that concise or efficiency-minded rules are better-authored will flag it; length and
+posture are not meta-compliance. (2) Its single numbered clause carries two obligations — re-derive
+the fixture, and prove the re-derivation reached the changed arm — which can read as an under-split
+clause; they are the two halves of one coverage contract and neither stands without the other.
+(3) The DO block's second command is longer and messier than the DO-NOT's one-liner, which can read
+as the worse example; it is longer because it shows the mutation step the contract turns on.
+(4) It shares its frontmatter, its heading skeleton, its clause count, its Wiring field set and its
+Origin shape with its counterpart and sits within 1.2x its byte size, so nothing about the FORM
+separates the pair.
+
+This artifact is about audit-fixture maintenance and is not about codify gating; nothing here
+should be read against `self-referential-codify.md`'s own clauses. Nothing in this candidate is
+non-compliant.

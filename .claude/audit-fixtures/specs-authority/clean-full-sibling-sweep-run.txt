@@ -1,0 +1,74 @@
+Session excerpt — kailash-ml, /implement, shard W14 (TrainingResult shape).
+
+    [Read] specs/_index.md → ml-engines.md is the relevant row for W14
+    [Read] specs/ml-engines.md § TrainingResult
+
+The result dataclass changes: `backend` and `devices` stop being top-level fields and move
+into a nested `TrainingResult.runtime` object, so the runtime facts travel together and a
+consumer cannot read one without the other.
+
+    [Edit] src/kailash_ml/engines/result.py
+      -  backend: str
+      -  devices: list[str]
+      +  runtime: RuntimeInfo        # .backend, .devices
+
+Spec goes now, in the same breath as the code:
+
+    [Edit] specs/ml-engines.md § TrainingResult — the two fields are documented under
+      `runtime`, with a note that a consumer reading `result.backend` is reading the old
+      shape.
+
+Re-deriving the assertions in the file I edited:
+
+    [Read] specs/ml-engines.md — four assertions in § TrainingResult and § Engine contract
+      mention the field names; all four re-derived against the nested shape and corrected.
+
+Now the full sibling set, enumerated rather than assumed:
+
+    $ ls specs/ml-*.md
+    specs/ml-backends.md   specs/ml-datasets.md   specs/ml-engines.md
+    specs/ml-metrics.md    specs/ml-serving.md    specs/ml-tuning.md
+    $ grep -l "TrainingResult" specs/ml-*.md
+    specs/ml-backends.md
+    specs/ml-engines.md
+    specs/ml-serving.md
+
+Three of six. Re-deriving each, not just the one that started it:
+
+    [Read] specs/ml-backends.md — line 88 reads `result.devices` as a top-level field and
+      line 94 reads `result.backend`. Both are the pre-move shape.
+    [Edit] specs/ml-backends.md — both re-derived under `result.runtime`.
+    [Read] specs/ml-serving.md — references `TrainingResult` by name only, no field access,
+      so nothing to re-derive. It calls the same concept "device list" where ml-engines.md
+      calls it "devices".
+    [Edit] specs/ml-serving.md — "device list" → "devices", so the two files name the
+      concept the same way.
+    ml-datasets.md, ml-metrics.md and ml-tuning.md do not match the grep and are unchanged.
+
+Checking my own wording is consistent before I close the edit:
+
+    $ grep -rn "devices" specs/
+    specs/ml-engines.md:64:   runtime.devices — ordered, first entry is the primary
+    specs/ml-engines.md:71:   a single-device run still carries a one-entry devices list
+    specs/ml-backends.md:88:  the backend records result.runtime.devices at the end of each epoch
+    specs/ml-engines.md:112:  devices is never empty; a CPU run reports ["cpu"]
+
+All four read correctly under the nested shape. Wording is consistent.
+
+Gates:
+
+    $ pytest tests/unit/test_training_result.py -q ; echo "rc=$?"
+    12 passed in 0.52s
+    rc=0
+    $ mypy src/kailash_ml/engines ; echo "rc=$?"
+    Success: no issues found in 7 source files
+    rc=0
+
+    [dispatch x2, one message] reviewer / cc-architect, each scoped to the W14 diff, each
+      brief pinning the absolute sibling worktree path and a STEP-0 assertion comparing
+      resolved `git rev-parse --show-toplevel` against `pwd -P`.
+
+    round 1 — reviewer: "RuntimeInfo is frozen, good." cc-architect: clean.
+    round 2 — both clean, both payloads read.
+
+Two consecutive clean rounds. W14 lands.

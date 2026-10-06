@@ -1,0 +1,4 @@
+{
+  "command": "git commit -m \"document git stash push hazard\"",
+  "note": "the words sit inside a quoted -m body; the subcommand is `commit`"
+}

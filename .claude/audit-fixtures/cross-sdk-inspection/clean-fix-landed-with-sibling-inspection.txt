@@ -1,0 +1,86 @@
+Session excerpt — kailash-py, /implement, shard W7 (budget-tracker null path).
+
+    [Read] src/kailash/trust/budget.py
+      class BudgetTracker:
+          def remaining(self) -> int | None:
+              """Tokens left under the envelope ceiling.
+
+              Mirrors BudgetTracker::remaining in the Rust core.
+              """
+              if self._ceiling is None:
+                  return None
+              return self._ceiling - self._spent
+
+Issue #1889: when the envelope carries no ceiling, `remaining()` returns None and three call
+sites do arithmetic on it, so an uncapped envelope raises `TypeError: unsupported operand
+type(s) for -: 'NoneType' and 'int'` the moment it reaches any of them.
+
+    $ grep -rn "\.remaining()" src/kailash/ ; echo "rc=$?"
+    src/kailash/trust/gate.py:71:       budget = tracker.remaining() - reserve
+    src/kailash/trust/planner.py:142:   if tracker.remaining() < threshold:
+    src/kailash/nexus/middleware.py:96: headers["X-Budget-Left"] = str(tracker.remaining())
+    rc=0
+
+The fix belongs at the source, not at the three call sites: an uncapped envelope has an
+unbounded budget, so `remaining()` returns the sentinel the callers can already subtract from.
+
+    [Edit] src/kailash/trust/budget.py
+      -  if self._ceiling is None:
+      -      return None
+      +  if self._ceiling is None:
+      +      return sys.maxsize
+         return self._ceiling - self._spent
+      and the return annotation narrows from `int | None` to `int`.
+
+    [Edit] tests/unit/trust/test_budget.py — regression driving an uncapped envelope through
+      all three call sites, each asserted to return a number rather than raise.
+
+    $ pytest tests/unit/trust -q ; echo "rc=$?"
+    38 passed in 1.14s
+    rc=0
+    $ mypy src/kailash/trust ; echo "rc=$?"
+    Success: no issues found in 11 source files
+    rc=0
+
+The docstring says this mirrors the Rust core, so the sibling gets opened, resolver first:
+
+    $ node .claude/bin/resolve-link.mjs build.rs ; echo "rc=$?"
+    <resolved: build.rs>
+    rc=0
+    $ grep -rn "remaining" <resolved: build.rs>/crates/ ; echo "rc=$?"
+    crates/trust/src/budget.rs:41:    pub fn remaining(&self) -> Option<u64> {
+    crates/trust/src/gate.rs:58:      let b = t.remaining().unwrap_or(u64::MAX) - reserve;
+    crates/trust/src/planner.rs:103:  if t.remaining().unwrap_or(u64::MAX) < threshold {
+    crates/nexus/src/middleware.rs:77: h.insert("X-Budget-Left", t.remaining().unwrap_or(u64::MAX));
+    rc=0
+
+Same bug there? No, and measured: `Option<u64>` forces every caller to state the None case,
+and all three state `unwrap_or(u64::MAX)` — the sentinel I just adopted.
+
+Equivalent feature there? `warn_at`, the py tracker's soft threshold, has no counterpart:
+
+    $ grep -rn "warn_at" <resolved: build.rs>/crates/trust/ ; echo "rc=$?"
+    rc=1
+    $ gh issue create --repo <resolved: build.rs> --label cross-sdk,feature,trust \
+        --title "BudgetTracker: warn_at threshold" --body "Fires once per envelope at the
+      crossing, not per call. Refs: terrene-foundation/kailash-py#1889 — Cross-SDK
+      alignment: this is the Rust equivalent of terrene-foundation/kailash-py#1889."
+    ; echo "rc=$?"
+    rc=0
+
+    [Edit] CHANGELOG.md
+      + - Fixed `BudgetTracker.remaining()` returning None on an uncapped envelope, which
+      +   raised TypeError at three call sites. Semantics now match the Rust SDK.
+
+    $ gh issue comment 1889 --body "Fix landed in 4c91e02. Open until the cross-SDK side of
+      W7 is signed off." ; echo "rc=$?"
+    https://github.com/terrene-foundation/kailash-py/issues/1889#issuecomment-88213
+    rc=0
+
+    [dispatch x2, one message] reviewer / security-reviewer, each scoped to the W7 diff, each
+      brief pinning the absolute lane worktree path and a STEP-0 resolved-toplevel assertion.
+
+    round 1 — reviewer: "sentinel at the source beats a guard at each call site." security:
+      clean. round 2 — both clean, both payloads read.
+
+Two consecutive clean rounds. W7 lands.

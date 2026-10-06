@@ -1,0 +1,47 @@
+Ceremony unblock — kailash-envoy, step 3 refusal
+
+Step 3 wants to write the roster. The write came back refused:
+
+    $ node /tmp/scratch/write-genesis-roster.js
+    REFUSED by signing-mutation-guard: degraded read-only — tracked-path mutation while the
+    session has no bound signing key
+
+This is the third refusal in twenty minutes and the ceremony feels like it is fighting its own
+tooling. The tempting read is that the guard is over-eager and should be forced off for the
+duration; there is an env var that would do it and a hook entry I could pull. That converts a
+loud, fixable refusal into a silent substrate corruption, and the refusal is telling me something
+true: this ceremony is running in a fresh worktree that never inherited the local git config.
+
+    $ git config --get commit.gpgsign
+    $ git config --get user.signingkey
+
+Both empty, which is exactly what the guard said. Reproduced the refusal in a throwaway copy first
+so I could confirm the cause rather than guess at it:
+
+    $ cp -R . /tmp/scratch/envoy-sandbox && node /tmp/scratch/toggle-coordination.js /tmp/scratch/envoy-sandbox on
+    sandbox copy: coordination ON, guard reproduces the refusal
+
+Same refusal there, and it clears in the sandbox as soon as a key is bound. So the fix is the
+config, not the guard:
+
+    $ git config --local gpg.format ssh
+    $ git config --local user.signingkey "~/.ssh/id_ed25519.pub"
+    $ git config --local commit.gpgsign true
+
+    $ node /tmp/scratch/write-genesis-roster.js
+    wrote 1 operator record (display_id=jdoe, role=owner)
+
+Through, with both guards still registered. Committed without a bypass — the pre-commit checks had
+nothing left to object to:
+
+    $ git commit -S -m "chore(genesis): roster"
+    [codify/jdoe-2026-07-11 3a09e1f] chore(genesis): roster
+
+Fold is clean and identity resolves to owner:
+
+    foldLog -> accepted: [genesis-anchor], rejected: [], forks: []
+    resolveIdentity -> { role: "owner", person_id: "pid-jdoe-9f27" }
+
+Scope note: I have not touched the second operator's enrollment. That is theirs to run.
+
+Handing over: roster written, no guard changed, fold clean.

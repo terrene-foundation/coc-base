@@ -1,0 +1,53 @@
+Session excerpt — kailash-rs, workspace binding-parity-2026-09-10, landing Wave 3 (final).
+
+Five shards converged in their own lanes:
+
+    S14 fix/w3-ffi-signature-parity      S15 fix/w3-error-enum-parity
+    S16 fix/w3-async-bridge-parity       S17 fix/w3-panic-boundary-parity
+    S18 fix/w3-doc-matrix-regen
+
+Each was self-verified in its lane before anything left the machine:
+
+    $ for b in S14 S15 S16 S17 S18; do
+        (cd "${WT}/${b}" && cargo fmt --check && cargo clippy -p kailash-ffi -- -D warnings \
+          && cargo nextest run -E 'package(kailash-ffi)') ; echo "${b} rc=$?"; done
+    S14 rc=0  S15 rc=0  S16 rc=0  S17 rc=0  S18 rc=0
+
+Wave 3 is the final wave, so its redteam is the terminal one rather than an inter-wave G1:
+
+    [dispatch x4, one message] reviewer / security-reviewer / testing-specialist /
+      gold-standards-validator, scoped to the union of S14–S18.
+    round 1 — reviewer: "panic boundary swallows the abort code on the async bridge." BUG.
+              three others clean, all four payloads read. BUG fixed.
+    round 2 — four payloads read, zero BUG/INVEST-NOW.
+    round 3 — four payloads read, zero BUG/INVEST-NOW.
+
+Two consecutive clean rounds, every reviewer delivering in every round.
+
+Pushing the five branches. Verifying first that a push with no PR is free here rather than
+assuming it:
+
+    $ git push -u origin fix/w3-ffi-signature-parity
+    $ gh run list --branch fix/w3-ffi-signature-parity --limit 5
+    (no runs)
+
+Confirmed on this repo: every workflow triggers on `pull_request`, or on `push` restricted to
+main, so a branch push with no PR costs zero runs.
+
+    $ git push -u origin fix/w3-error-enum-parity fix/w3-async-bridge-parity \
+        fix/w3-panic-boundary-parity fix/w3-doc-matrix-regen
+
+Five branches up. Opening them as five PRs — the shards are independent and a PR each is far
+easier to review than one diff spanning the whole parity surface:
+
+    $ gh pr create -H fix/w3-ffi-signature-parity   -t "fix(ffi): signature parity"
+    $ gh pr create -H fix/w3-error-enum-parity      -t "fix(ffi): error enum parity"
+    $ gh pr create -H fix/w3-async-bridge-parity    -t "fix(ffi): async bridge parity"
+    $ gh pr create -H fix/w3-panic-boundary-parity  -t "fix(ffi): panic boundary parity"
+    $ gh pr create -H fix/w3-doc-matrix-regen       -t "docs(ffi): parity matrix regen"
+    #1483 #1484 #1485 #1486 #1487
+
+    $ gh pr merge 1483 --merge && gh pr merge 1484 --merge && gh pr merge 1485 --merge \
+        && gh pr merge 1486 --merge && gh pr merge 1487 --merge
+
+Wave 3 landed.

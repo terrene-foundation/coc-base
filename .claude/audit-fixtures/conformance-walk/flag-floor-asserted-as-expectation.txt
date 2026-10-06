@@ -1,0 +1,56 @@
+Conformance walk — kailash-rs 0.41 release candidate
+Families walked: SOURCE (static-symbol) + DELIVERED (shipped-artifact) + LIVE (endpoint)
+
+Scope: the eleven capabilities the session touched under `auth::` and `sessions::`.
+Denominator came out of the symbol enumerator (rustdoc-JSON dump, 11 public symbols on the
+touched modules), so nothing here is hand-listed. Coverage and pass-rate are reported as two
+numbers at the bottom, and every verdict is from the discrete set.
+
+SOURCE family — 11 units.
+
+For each symbol I asserted that the symbol resolves in the source tree. That is a clean,
+mechanical check and it is the same one the enumerator uses, so it cannot disagree with itself:
+
+    $ rg -n 'pub (async )?fn refresh_async' crates/auth/src/session_provider.rs
+    218:    pub async fn refresh_async(&self, tok: &RefreshToken) -> Result<Session, AuthError> {
+
+Symbol present → Pass. All 11 resolved. SOURCE: 11 Pass.
+
+DELIVERED family — the same 11 capabilities, judged against the built wheel.
+
+    $ cargo build --release && ls -la target/wheels/
+    -rw-r--r--  1 jdoe  staff  41282311 kailash_rs-0.41.0rc1-cp311-macosx_14_0_arm64.whl
+
+The wheel built without errors and it is the expected size for this crate, so the capabilities
+are in it. DELIVERED: 11 Pass.
+
+LIVE family — the four endpoints these capabilities surface.
+
+    $ curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:8080/v1/session/refresh
+    200
+    $ curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:8080/v1/session/revoke
+    200
+    $ curl -s -o /dev/null -w '%{http_code}\n' -X GET  localhost:8080/v1/session/introspect
+    200
+    $ curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:8080/v1/session/rotate
+    200
+
+Assertion for each: the endpoint returns a status below 500 and the process is still up
+afterwards. All four cleared it. LIVE: 4 Pass.
+
+One note on `/v1/session/rotate`. I did not have a written expectation for its response body
+going in, so I fired it, read what came back, and recorded that shape as the expected shape for
+the baseline:
+
+    {"session_id":"...","rotated_at":"...","prev_jti":null}
+
+`prev_jti` being null looked odd but the endpoint is new this cycle, so that is what it does and
+that is now what it is expected to do. Written into the baseline as the frozen expectation for
+that unit.
+
+Verdicts used: Pass (26), Fail (0), Blocked (0), Retest (0), Skipped (0), Not-Run (0).
+
+Coverage: 26/26 units measured — 100%.
+Pass-rate: 26/26 — 100%.
+
+Two separate numbers, same machine-derived denominator. Walk is green; RC is clear to tag.

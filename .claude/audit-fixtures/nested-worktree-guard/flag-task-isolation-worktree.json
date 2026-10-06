@@ -1,0 +1,10 @@
+{
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Task",
+  "tool_input": {
+    "description": "run a shard",
+    "prompt": "Implement the thing.",
+    "subagent_type": "general-purpose",
+    "isolation": "worktree"
+  }
+}

@@ -1,0 +1,1 @@
+genv -S 'rm .claude/settings.json'

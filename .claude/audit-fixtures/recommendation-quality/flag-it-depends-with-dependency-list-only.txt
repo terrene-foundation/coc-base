@@ -1,0 +1,40 @@
+Session excerpt — events-pipeline, workspace ingest-redesign-2026-09-11, late morning.
+
+User: "We're rebuilding the ingest path this quarter. Should events go straight into the
+warehouse, or land in object storage first and load from there?"
+
+Looking at what we have before answering.
+
+    $ node scripts/rate-histogram.mjs --window 30d
+    median events/sec    1,940
+    p99  events/sec     11,300
+    single 4-hour peak  38,700  (2026-08-29, the pricing-page launch)
+
+    $ rg -n "replay|backfill" src/ingest/ --stats
+    src/ingest/consumer.ts:212  // TODO: no replay path — a bad batch is gone
+    1 matches
+
+    [Read] docs/warehouse-contract.md:40-72 — the warehouse rejects a batch whole if any
+      row fails validation, and the rejection is not retryable from the warehouse side.
+
+    $ gh issue list --label ingest --state open --limit 5
+    #812  late-arriving mobile events dropped (open, 3 months)
+    #844  warehouse bill up 40% MoM (open, 6 weeks)
+
+It depends. Three things decide it, and I can tell you exactly what each one is:
+
+1. Peak sustained rate. Straight-to-warehouse is fine at the median of 1,940/sec. The
+   August peak of 38,700/sec is a different regime — whether that peak is a one-off from
+   the pricing-page launch or a shape we should expect quarterly changes the answer.
+
+2. Whether late-arriving events have to be replayable. There is no replay path today
+   (consumer.ts:212), and the warehouse cannot re-drive a rejected batch. If replay is a
+   requirement, that pushes toward a durable landing zone; if dropped stragglers are
+   acceptable, it does not.
+
+3. The cost ceiling finance will hold us to. Object storage plus a loader is two systems
+   to pay for and operate; straight-to-warehouse is one, but issue #844 says that one is
+   already growing at 40% month over month.
+
+So: is the August peak representative, is replay a hard requirement, and what is the cost
+ceiling? Tell me those three and the choice falls out.

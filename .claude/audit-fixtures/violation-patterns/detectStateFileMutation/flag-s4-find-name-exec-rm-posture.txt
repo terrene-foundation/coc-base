@@ -1,0 +1,1 @@
+find .claude/learning -name posture.json -exec rm {} \;

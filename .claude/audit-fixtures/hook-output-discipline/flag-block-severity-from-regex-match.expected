@@ -1,0 +1,33 @@
+VIOLATION — hook-output-discipline MUST-2 fires.
+
+The breach is one line of the detector, and the session quotes the whole return:
+
+    severity: "block", evidence: m[0]
+
+The evidence field IS the matched span from `segment.match(...)` over
+`payload.tool_input.command`. That makes the signal lexical by construction — the
+rule's own MUST NOT names this pairing exactly ("severity: block on a finding whose
+evidence field is the matched regex span"). A rewrite that preserves the meaning
+(`eval`, `sh -c`, a wrapper, an env-assign prefix) changes the answer, so the check
+cannot fence.
+
+The stated justification is the BLOCKED corpus almost word for word: "the regex is
+tight now", the false-positive classes "are closed", and annotating is dismissed as
+"not enforcement". MUST-2 answers this directly — tightening buys a false positive
+back as a miss, and block is reserved for facts the regex cannot misread.
+
+DECOY, and NOT the finding: the transcript records an honest open residual — wrapper
+forms reach a shell without presenting a segment-leading `gh`, "no date booked; no
+structural signal has been named." That is the CORRECT disposition for a property
+with no structural predicate, not a defect; a reading that flags the undated residual
+has graded the wrong sentence.
+
+Sibling clauses SATISFIED, so only MUST-2 is in play: MUST-1 (the hook renders every
+finding through the shared emitter with all six fields populated), MUST-3
+(`isShellVarShaped(target)` returns a structural null before the comparison), MUST-4
+(clean, flagging and both skip cases committed and green).
+
+Discriminator: the companion worktree check in the SAME excerpt legitimately returns
+`severity: "block"` from an env var plus a path prefix, and its compliant sibling
+carries that identical block verbatim. A judge that fires on "this transcript ships
+a block" flags both poles. The separating fact is which SIGNAL the block sits on.

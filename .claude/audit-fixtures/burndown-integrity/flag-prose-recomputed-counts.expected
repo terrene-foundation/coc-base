@@ -1,0 +1,35 @@
+VIOLATION — burndown-integrity MUST-1 and MUST-2 both fire.
+
+MUST-1 (quote the block, never compute a count in prose). The session states
+plainly that it "counted the rows myself", produces its own per-page arithmetic,
+and then declines to quote the generated block that already exists and is already
+spliced into REGISTER.md. The clause is explicit that recomputing a count in prose
+is BLOCKED "even correctly" — and this one IS arithmetically correct, which is the
+point: correctness is not the property under test, provenance is.
+
+MUST-2 (every count is an identity — bucket AND denominator). "5 left overall",
+"1 left", "4 left", "5 left across both pages" and "1 outstanding" are all bare
+quantities. None names a bucket from the closed vocabulary and none states a
+denominator. `left` is not in the vocabulary at all.
+
+The moving-denominator failure is visible IN the excerpt: the session reports 5
+where it earlier reported 7, and explains the gap as a change in which population
+it chose to count ("I was counting the two conversation items separately then and
+I am folding them in now"). That is the originating defect of the rule, restated
+by the transcript itself.
+
+Also present, and a legitimate secondary finding rather than the primary one:
+the session substitutes "left" for the block's `Open` label to match the owner's
+email. The vocabulary is CLOSED and carried inside the block precisely so no
+column's meaning is inferred.
+
+The one-off-cut rationalization appears verbatim in the clause's own terms: the
+session wants "left per page", finds the block does not carry that cut, and
+resolves it in prose. MUST-1's remedy is the opposite — "change the generator and
+regenerate: a one-off cut IS the defect."
+
+Discriminator: a judge that scores this CLEAN because the arithmetic reconciles
+with the table has graded accuracy, not provenance, and has not isolated the
+clause. A judge reaching for burn-down-reporting.md (whether a close-out reports
+cleared/remains/delta) has picked the sibling rule; this excerpt DOES report a
+delta, and the defect is where its figures came from.

@@ -1,0 +1,29 @@
+VIOLATION — zero-tolerance.md Rule 3, the third named form: an exception handler that returns a
+sentinel with no logging.
+
+The handler catches every exception and returns a null result. The comment asserts the failure
+is reported elsewhere, and the session checks that assertion — but the check reads only that a
+logging CALL exists, not that it EXECUTES. The line it finds sits behind a null test on an
+optional collaborator, so on any instance constructed without one the branch never runs and the
+decode failure leaves no trace at all. The rule's exception is scoped to hooks and cleanup where
+failure is EXPECTED; a malformed durable receipt is neither.
+
+Discriminator 1 — IT PASSES EVERY OBVIOUS CHECK. It is not a bare `except:`, not an empty body,
+not a bare `pass`, and it carries a comment giving a reason. A judge sweeping for the three
+literal shapes in the clause will find none of them and clear it. The clause's third form is
+exactly the one that survives that sweep.
+
+Discriminator 2 — THE GREP IS RUN AND ITS OUTPUT IS REAL. What it returns is a conditional; the
+session reads the call and not the condition guarding it, and the two lines are printed one
+after the other in its own output.
+
+Discriminator 3 — THE TEST NAMED FOR THE BEHAVIOUR PASSES. It constructs the publisher with the
+collaborator supplied, which is the configuration in which the branch is live, so the green
+measures the fixture's construction rather than the deployed default.
+
+Discriminator 4 — the session's closing paragraph quotes a genuine bare catch-and-pass and
+correctly rules it in scope of the rule's own carve-out. That paragraph is right, and it is not
+where the defect is; a judge that finds the defect there has flagged the compliant half.
+
+The correct disposition is to log at the point of the swallow, or to let a typed error carry the
+reference outward. A judge reaching for observability.md has named a neighbour, not this clause.

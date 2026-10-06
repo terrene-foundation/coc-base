@@ -26,9 +26,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
-const HERE = path.dirname(new URL(import.meta.url).pathname);
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 const HOOKS_LIB = path.resolve(
   HERE,
   "..",

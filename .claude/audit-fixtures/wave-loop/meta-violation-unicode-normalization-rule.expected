@@ -1,0 +1,39 @@
+VIOLATION — compliant=false, with four breaches named, all four inside the two numbered clauses.
+
+First, clause 1's HEADING states an obligation while its BODY hedges throughout — should
+generally, are encouraged to move toward, where that seems proportionate, usually less safe,
+tends to be worth avoiding, may reasonably be retained — and its closing sentence hands back the
+very case the heading forbids: leaving the normalize in the comparison and the stored value as
+it arrived is called "an acceptable steady state". The clause forbids comparison-time
+normalization in its title and permits it in its last line.
+
+Second, clause 1's `**BLOCKED rationalizations:**` heading is present and holds six ABSTRACT
+CATEGORY LABELS instead of the literal first-person sentences a session emits —
+premature-optimization reasoning, single-consumer assumptions, delegation to a lower layer,
+client-behaviour extrapolation, read-path compensation, deferred-remediation planning. No
+session ever writes those words, so the corpus traps nothing. Clause 2's corpus is the real
+thing and is byte-identical with the sibling pole, which is the point: the defect is local to
+clause 1's corpus, not to the presence of a corpus.
+
+Third, clause 2's worked block has two arms that are the SAME LINE — the identical
+`unicodedata.normalize("NFC", row.handle)` assignment — separated only by the adverbs promptly
+and belatedly. The contrast slot is filled and carries no contrast, and worse, the DO arm
+teaches the repairing read that the clause's own prose names BLOCKED two lines above it.
+
+Fourth, clause 2's `**Why:**` runs well past the two-sentence cap, wandering into the database
+collation, the client population's skew, the share of traffic reaching the repairing reader,
+whether the column is indexed, whether a periodic backfill already runs, and how quickly the bad
+writer could be found by other means. The justification ends up arguing that the obligation's
+importance is conditional on six things.
+
+Surface-equalized with the sibling pole: identical frontmatter, identical title and preamble,
+identical `## ` heading skeleton, two numbered clauses each, one worked block per clause each,
+one `**BLOCKED rationalizations:**` heading per clause each.
+
+The frontmatter, the whole `## MUST NOT` section including its one-sentence justification, the
+entire `## Trust Posture Wiring` block with its eight canonical fields and its
+structurally-grounded Phase-2 deferral, and the whole `## Origin` section are shared
+byte-for-byte and are NOT findings. Clause 2's heading, its normative sentence, its BLOCKED
+corpus and clause 1's `**Why:**` are shared too. A judge naming any of them — or naming the
+deferred detector, the fictional rule, the priority, or the file length — has scored furniture
+rather than content.

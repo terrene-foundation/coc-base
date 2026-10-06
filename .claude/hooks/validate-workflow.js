@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 /**
+ * @hook-event: PostToolUse:Edit|NotebookEdit|Write (verification) — the written source exists for SDK-pattern and model-key checks.
+ *
  * Hook: validate-workflow
  * Event: PostToolUse
  * Matcher: Edit|Write
@@ -23,23 +25,42 @@
 const fs = require("fs");
 const path = require("path");
 const { parseEnvFile, getModelProvider } = require("./lib/env-utils");
+const { findRawSqlStatement } = require("./lib/raw-sql-shape");
+const { codeView } = require("./lib/source-code-view");
 const {
   logObservation: logLearningObservation,
 } = require("./lib/learning-utils");
 
 const TIMEOUT_MS = 5000;
-const timeout = setTimeout(() => {
-  console.error("[HOOK TIMEOUT] validate-workflow exceeded 5s limit");
-  console.log(JSON.stringify({ continue: true }));
-  process.exit(1);
-}, TIMEOUT_MS);
+let timeout = null;
 
-let input = "";
-process.stdin.setEncoding("utf8");
-process.stdin.on("data", (chunk) => (input += chunk));
 const { instructAndWait: _iaw } = require("./lib/instruct-and-wait");
 
-process.stdin.on("end", () => {
+// hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
+// in-process by lib/hook-engine.js (dispatch.js). Everything a standalone run
+// did at load time happens here instead, so a require() has no side effects.
+function hookMain() {
+  timeout = setTimeout(() => {
+    console.error("[HOOK TIMEOUT] validate-workflow exceeded 5s limit");
+    console.log(JSON.stringify({ continue: true }));
+    process.exit(1);
+  }, TIMEOUT_MS);
+  return new Promise((resolve, reject) => {
+    let input = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (chunk) => (input += chunk));
+    process.stdin.on("end", () => {
+      try {
+        onStdinEnd(input);
+      } catch (e) {
+        return reject(e);
+      }
+      resolve();
+    });
+  });
+}
+
+function onStdinEnd(input) {
   clearTimeout(timeout);
   try {
     const data = JSON.parse(input);
@@ -96,7 +117,7 @@ process.stdin.on("end", () => {
     console.log(JSON.stringify({ continue: true }));
     process.exit(1);
   }
-});
+}
 
 // =====================================================================
 // Main dispatcher
@@ -149,38 +170,53 @@ function validateFile(data) {
   const messages = [];
   let shouldBlock = false;
 
+  // Code checks read CODE, not prose. lib/source-code-view.js::codeView yields two
+  // same-length views with every newline in place (so line numbers are the
+  // file's own): `code` blanks comments + docstrings and keeps string literals
+  // (SQL, model ids, not-implemented messages live there); `syntax` also blanks
+  // string/regex literal bodies. `raw` stays for the checks whose subject IS
+  // comment text (TODO/FIXME markers, `pass  # placeholder`) or is dangerous in
+  // a comment too (hardcoded API keys). Configs have no language: views == raw.
+  const lang = isRust ? "rust" : isPy ? "python" : isJs ? "js" : null;
+  const views = {
+    raw: content,
+    code: codeView(content, lang),
+    syntax: codeView(content, lang, { maskStrings: true }),
+  };
+
   // -- Kailash Rust-specific checks (.rs only) ----------------------------
   if (isRust) {
-    checkRustPatterns(content, filePath, messages);
+    checkRustPatterns(views, filePath, messages);
   }
 
   // -- Python-specific checks (.py only) ----------------------------------
   if (isPy) {
-    const pyBlocked = checkPythonPatterns(content, filePath, messages);
+    const pyBlocked = checkPythonPatterns(views, filePath, messages);
     if (pyBlocked) shouldBlock = true;
-    checkPoolPatterns(content, filePath, messages);
-    checkRuntimeLeaks(content, filePath, messages);
+    checkPoolPatterns(views.code, filePath, messages);
+    checkRuntimeLeaks(views.code, filePath, messages);
   }
 
   // -- Hardcoded model detection (code files only -- configs may list models intentionally)
   if (isRust || isPy || isJs) {
-    const modelResult = checkHardcodedModels(content, filePath, env, isRust);
+    const modelResult = checkHardcodedModels(views.code, filePath, env, isRust);
     messages.push(...modelResult.messages);
     if (modelResult.block) shouldBlock = true;
   }
 
   // -- Hardcoded API key detection (all file types including configs) -----
-  checkHardcodedKeys(content, filePath, messages);
+  // Deliberately RAW: a live key pasted into a comment is still a leaked key.
+  checkHardcodedKeys(views.raw, filePath, messages);
 
   // -- Frontend mock data detection (JS/TS only) --------------------------
   if (isJs) {
-    const mockBlocked = checkFrontendMockData(content, filePath, messages);
+    const mockBlocked = checkFrontendMockData(views.syntax, filePath, messages);
     if (mockBlocked) shouldBlock = true;
   }
 
   // -- Stub/TODO/simulation detection (code files only) -------------------
   if (isRust || isPy || isJs) {
-    const stubBlocked = checkStubsAndSimulations(content, filePath, messages);
+    const stubBlocked = checkStubsAndSimulations(views, filePath, messages);
     if (stubBlocked) shouldBlock = true;
   }
 
@@ -204,7 +240,12 @@ function validateFile(data) {
 // Kailash SDK pattern checks (Rust only)
 // =====================================================================
 
-function checkRustPatterns(content, filePath, messages) {
+function checkRustPatterns(views, filePath, messages) {
+  // `content` has string literal bodies blanked (purely syntactic shapes);
+  // `code` keeps them for the checks that read a literal (SQL, secrets).
+  const content = views.syntax;
+  const code = views.code;
+
   // Anti-pattern: workflow.execute(runtime) -- wrong direction
   if (/workflow\s*\.\s*execute\s*\(\s*(&\s*)?runtime/.test(content)) {
     messages.push(
@@ -245,27 +286,28 @@ function checkRustPatterns(content, filePath, messages) {
     );
   }
 
-  // Check for raw SQL strings instead of sqlx macros
-  if (
-    /r#?"(?:SELECT|INSERT|UPDATE|DELETE|DROP|ALTER)\s/i.test(content) ||
-    /"\s*(?:SELECT|INSERT|UPDATE|DELETE|DROP|ALTER)\s/i.test(content)
-  ) {
+  // Check for raw SQL strings instead of sqlx macros. Matched by SQL STATEMENT
+  // SHAPE via lib/raw-sql-shape.js::findRawSqlStatement (shared with
+  // integration-hygiene.js); the prior keyword-prefix regex fired on English
+  // strings such as "Update the config" or "Drop the connection".
+  const rawSql = findRawSqlStatement(code, { quoteChars: '"' });
+  if (rawSql) {
     // Only flag if not already using sqlx::query! or sqlx::query_as!
     if (!/sqlx::query(?:_as)?!/.test(content)) {
       messages.push(
-        "WARNING: Raw SQL string detected. Prefer sqlx::query!() or sqlx::query_as!() macros for compile-time checked queries.",
+        `WARNING: Raw SQL string detected (${rawSql.shape}, line ${rawSql.line}). Prefer sqlx::query!() or sqlx::query_as!() macros for compile-time checked queries.`,
       );
     }
   }
 
   // Check for format!() in SQL context (SQL injection risk)
-  if (
-    /format!\s*\(\s*"(?:SELECT|INSERT|UPDATE|DELETE|DROP|ALTER)\s/i.test(
-      content,
-    )
-  ) {
+  const formatSql = findRawSqlStatement(code, {
+    quoteChars: '"',
+    prefix: String.raw`format!\s*\(\s*r?#*`,
+  });
+  if (formatSql) {
     messages.push(
-      "CRITICAL: format!() with SQL detected -- potential SQL injection. Use sqlx parameterized queries.",
+      `CRITICAL: format!() with SQL detected (${formatSql.shape}, line ${formatSql.line}) -- potential SQL injection. Use sqlx parameterized queries.`,
     );
   }
 
@@ -309,7 +351,7 @@ function checkRustPatterns(content, filePath, messages) {
 
   // Check for hardcoded secret patterns in Rust
   if (
-    /let\s+\w*(secret|password|token|key)\w*\s*=\s*"[^"]{8,}"/.test(content) &&
+    /let\s+\w*(secret|password|token|key)\w*\s*=\s*"[^"]{8,}"/.test(code) &&
     !isTestFile(filePath)
   ) {
     messages.push(
@@ -322,18 +364,17 @@ function checkRustPatterns(content, filePath, messages) {
 // Python-specific pattern checks
 // =====================================================================
 
-function checkPythonPatterns(content, filePath, messages) {
+function checkPythonPatterns(views, filePath, messages) {
   if (isTestFile(filePath)) return false;
 
   let hasBlocking = false;
-  const lines = content.split("\n");
+  // Same line count in every view: `line` has comments, docstrings and string
+  // bodies blanked; `rawLines` keeps the comment the stub-pass shape needs.
+  const lines = views.syntax.split("\n");
+  const rawLines = views.raw.split("\n");
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const trimmed = line.trim();
-
-    // Skip comments
-    if (trimmed.startsWith("#")) continue;
 
     // BLOCKING: raise NotImplementedError in production code
     if (/\braise\s+NotImplementedError\b/.test(line)) {
@@ -344,9 +385,14 @@ function checkPythonPatterns(content, filePath, messages) {
       hasBlocking = true;
     }
 
-    // BLOCKING: pass as placeholder (pass with stub/placeholder comment)
+    // BLOCKING: pass as placeholder (pass with stub/placeholder comment). The
+    // comment is the signal, so it is read from the raw line — but only when
+    // the `pass` itself is code, not text inside a docstring.
     if (
-      /^\s*pass\s*#\s*(placeholder|stub|todo|fixme|not\s*implement)/i.test(line)
+      /^\s*pass\b/.test(line) &&
+      /^\s*pass\s*#\s*(placeholder|stub|todo|fixme|not\s*implement)/i.test(
+        rawLines[i],
+      )
     ) {
       messages.push(
         `BLOCKED: stub pass at ${path.basename(filePath)}:${i + 1}. ` +
@@ -633,10 +679,16 @@ function checkHardcodedKeys(content, filePath, messages) {
  * Detect mock/fake/generated data in frontend production code.
  * BLOCKING — frontend mock data is a stub. See rules/zero-tolerance.md.
  *
- * Patterns:
+ * Patterns (read over the `syntax` view — comments and literal bodies blanked):
  *   - MOCK_*, FAKE_*, DUMMY_*, SAMPLE_* constants
- *   - generate*() / mock*() functions producing synthetic data
+ *   - mock<Name> bindings whose value is a function, and generate*() / mock*()
+ *     calls producing synthetic display data
  *   - Math.random() used to generate display data
+ *   - advisory only: mock<Name> bound to an object or array-of-objects literal
+ *
+ * A BLOCKED finding is emitted as halt-and-report (see the stdin handler): every
+ * shape here is lexical, so none may carry `block` (hook-output-discipline.md
+ * MUST-2).
  *
  * Returns true if any blocking violation was found.
  */
@@ -655,10 +707,34 @@ function checkFrontendMockData(content, filePath, messages) {
   const sampleDataPattern =
     /\bSAMPLE_(?!RATE\b|SIZE\b|INTERVAL\b|FREQUENCY\b)[A-Z][A-Z0-9_]*\b/;
 
-  // Function patterns: only mock*() declarations (not generate* — too broad,
-  // catches generateUUID, generateKeyPair, generateCSRFToken, generateHash)
-  const mockFuncDeclPattern =
-    /\b(?:function\s+|const\s+|let\s+|var\s+)(mock\w+)\s*[=(]/;
+  // Generator declarations: a mock<Name> binding whose VALUE IS A FUNCTION —
+  // `function mockUsers(`, `async function* mockUsers(`, or a const/let/var
+  // bound to a function or arrow expression (`const mockUsers = () =>`,
+  // `= async function`, `: () => User[] = (n) =>`). Rule 2 names mock*()
+  // FUNCTIONS; a prefix match on any binding blocked ordinary values such as
+  // `const mockBlocked = check()` and `let mockCount = 0`. The name must be
+  // `mock` + an uppercase letter or `_` so `mockery` is not read as a generator.
+  // Not generate* declarations — too broad (generateUUID, generateKeyPair,
+  // generateCSRFToken, generateHash); display-data generate* CALLS are below.
+  const BINDING_NAME = String.raw`(mock[A-Z_]\w*)`;
+  const PARAMS = String.raw`\((?:[^()]|\([^()]*\))*\)`;
+  const mockFuncDeclPattern = new RegExp(
+    String.raw`\bfunction\s*\*?\s*${BINDING_NAME}\s*\(` +
+      "|" +
+      String.raw`\b(?:const|let|var)\s+${BINDING_NAME}\s*(?::(?:[^=;\n]|=>)*)?=\s*` +
+      String.raw`(?:async\s+)?(?:function\b|(?:<[^<>]*>\s*)?${PARAMS}\s*(?::[^=;\n]*)?=>|[A-Za-z_$][\w$]*\s*=>)`,
+  );
+
+  // Hardcoded records bound to a mock<Name>: an object literal, or an array
+  // whose first element is an object literal (`const mockUsers = [{ id: 1 }]`).
+  // ADVISORY, never BLOCKED: a lexical read of a literal cannot tell display
+  // data from a lookup table or options object with the same prefix
+  // (hook-output-discipline.md MUST-2). Matched over the whole view because
+  // the first element usually sits on the next line.
+  const mockRecordsPattern = new RegExp(
+    String.raw`\b(?:const|let|var)\s+${BINDING_NAME}\s*(?::[^=;\n]*)?=\s*(?:\[\s*)?\{`,
+    "g",
+  );
 
   // Call patterns: functions that produce synthetic display data
   // Targets: generate*Data/List/Records/Entries/Stats/Metrics/Occupancy/Transactions/Revenue
@@ -701,10 +777,10 @@ function checkFrontendMockData(content, filePath, messages) {
       }
     }
 
-    // generate*() / mock*() function declarations
+    // mock*() generator declarations (function-valued bindings only)
     if (mockFuncDeclPattern.test(line)) {
       const match = line.match(mockFuncDeclPattern);
-      const name = match ? match[1] : "generate*";
+      const name = match ? match[1] || match[2] : "mock*";
       if (!found.has("mock-func-" + name)) {
         found.add("mock-func-" + name);
         messages.push(
@@ -742,6 +818,20 @@ function checkFrontendMockData(content, filePath, messages) {
     }
   }
 
+  // Hardcoded mock records: advisory only (see mockRecordsPattern above).
+  let rec;
+  while ((rec = mockRecordsPattern.exec(content)) !== null) {
+    const name = rec[1];
+    if (found.has("mock-func-" + name) || found.has("mock-records-" + name))
+      continue;
+    found.add("mock-records-" + name);
+    const lineNo = content.slice(0, rec.index).split("\n").length;
+    messages.push(
+      `WARNING: Mock records "${name}" at ${path.basename(filePath)}:${lineNo}. ` +
+        `Hardcoded mock data presented as real is a stub; load it from the real source (rules/zero-tolerance.md Rule 2).`,
+    );
+  }
+
   return hasBlocking;
 }
 
@@ -757,22 +847,32 @@ function checkFrontendMockData(content, filePath, messages) {
  *
  * Returns true if any blocking violation was found.
  */
-function checkStubsAndSimulations(content, filePath, messages) {
+function checkStubsAndSimulations(views, filePath, messages) {
   if (isTestFile(filePath)) return false;
 
   const isPy = filePath.endsWith(".py");
   const isRust = filePath.endsWith(".rs");
-  const lines = content.split("\n");
+  // All views share one line count. Each pattern names the view it reads:
+  //   code   — comments + docstrings blanked, strings kept
+  //   syntax — string literal bodies blanked too
+  //   raw    — the check's subject IS comment text (markers, stub comments)
+  const lineSets = {
+    raw: views.raw.split("\n"),
+    code: views.code.split("\n"),
+    syntax: views.syntax.split("\n"),
+  };
+  const lines = lineSets.raw;
   const cfgTestLine = isRust ? findCfgTestLine(lines) : -1;
 
-  // Blocking patterns per language
+  // Blocking patterns per language: [pattern, label, view]
   const blockingPatterns = isRust
     ? [
-        [/\btodo!\s*\(/, "todo!() macro — IMPLEMENT fully"],
-        [/\bunimplemented!\s*\(/, "unimplemented!() — IMPLEMENT fully"],
+        [/\btodo!\s*\(/, "todo!() macro — IMPLEMENT fully", "syntax"],
+        [/\bunimplemented!\s*\(/, "unimplemented!() — IMPLEMENT fully", "syntax"],
         [
           /\bpanic!\s*\(\s*"not\s+(yet\s+)?implement/i,
           "panic!(not implemented) — IMPLEMENT fully",
+          "code",
         ],
       ]
     : isPy
@@ -780,63 +880,66 @@ function checkStubsAndSimulations(content, filePath, messages) {
           [
             /\braise\s+NotImplementedError\b/,
             "raise NotImplementedError — IMPLEMENT fully",
+            "syntax",
           ],
+          // The comment is the signal: raw line, gated below on `pass` being code.
           [
             /^\s*pass\s*#\s*(placeholder|stub|todo|fixme|not\s*implement)/i,
             "stub pass — IMPLEMENT fully",
+            "raw",
           ],
         ]
       : [];
 
+  // [pattern, label, view]. Markers and "placeholder data" prose live in
+  // comments by design, so they read the raw line; the two code shapes do not.
   const warningPatterns = [
-    [/\bTODO\b/, "TODO marker — do it now"],
-    [/\bFIXME\b/, "FIXME marker — fix it now"],
-    [/\bHACK\b/, "HACK marker — implement properly"],
-    [/\bSTUB\b/, "STUB marker — implement real logic"],
-    [/\bXXX\b/, "XXX marker — resolve immediately"],
+    [/\bTODO\b/, "TODO marker — do it now", "raw"],
+    [/\bFIXME\b/, "FIXME marker — fix it now", "raw"],
+    [/\bHACK\b/, "HACK marker — implement properly", "raw"],
+    [/\bSTUB\b/, "STUB marker — implement real logic", "raw"],
+    [/\bXXX\b/, "XXX marker — resolve immediately", "raw"],
     [
       /\b(simulated?|fake|dummy|placeholder)\s*(data|response|result|value)/i,
       "simulated/fake data",
+      "raw",
     ],
     [
       /\b(MOCK_|FAKE_|DUMMY_)[A-Z][A-Z0-9_]*\s*[=:]/,
       "mock data constant — replace with real data source",
+      "syntax",
     ],
-    [/catch\s*\([^)]*\)\s*\{\s*\}/, "empty catch block — handle the error"],
+    [
+      /catch\s*\([^)]*\)\s*\{\s*\}/,
+      "empty catch block — handle the error",
+      "syntax",
+    ],
   ];
 
   const found = new Set();
   let hasBlocking = false;
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmed = line.trim();
+    const trimmed = lines[i].trim();
 
     if (cfgTestLine > 0 && i + 1 >= cfgTestLine) break;
 
-    const isComment =
-      trimmed.startsWith("//") ||
-      trimmed.startsWith("///") ||
-      trimmed.startsWith("//!") ||
-      trimmed.startsWith("/*") ||
-      trimmed.startsWith("*") ||
-      trimmed.startsWith("#");
-
-    if (!isComment) {
-      for (const [pattern, label] of blockingPatterns) {
-        if (pattern.test(line) && !found.has(label)) {
-          found.add(label);
-          messages.push(
-            `BLOCKED: ${label} at ${path.basename(filePath)}:${i + 1}. ` +
-              `Stubs are NOT allowed. Implement fully or remove.`,
-          );
-          hasBlocking = true;
-        }
+    // A raw-view blocking shape counts only where its line holds code.
+    const codeLine = lineSets.syntax[i];
+    for (const [pattern, label, view] of blockingPatterns) {
+      if (view === "raw" && !/^\s*pass\b/.test(codeLine)) continue;
+      if (pattern.test(lineSets[view][i]) && !found.has(label)) {
+        found.add(label);
+        messages.push(
+          `BLOCKED: ${label} at ${path.basename(filePath)}:${i + 1}. ` +
+            `Stubs are NOT allowed. Implement fully or remove.`,
+        );
+        hasBlocking = true;
       }
     }
 
-    for (const [pattern, label] of warningPatterns) {
-      if (pattern.test(line) && !found.has(label)) {
+    for (const [pattern, label, view] of warningPatterns) {
+      if (pattern.test(lineSets[view][i]) && !found.has(label)) {
         if (
           trimmed.includes("rules/") ||
           trimmed.includes("Detection Patterns")
@@ -1088,4 +1191,14 @@ function isTestFile(filePath) {
     // Rust test convention: files in tests/ directory or #[cfg(test)] modules
     (filePath.endsWith(".rs") && basename.startsWith("test_"))
   );
+}
+
+module.exports = { hookMain };
+
+// CLI entry. The default path is exactly hookMain() — no engine dependency, so a
+// tree that copies this hook without lib/hook-engine.js runs it unchanged. The
+// selftest path replays the run through the in-process engine (hook-engine.js::runCli).
+if (require.main === module) {
+  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1") require("./lib/hook-engine.js").runCli(hookMain, __filename);
+  else hookMain();
 }

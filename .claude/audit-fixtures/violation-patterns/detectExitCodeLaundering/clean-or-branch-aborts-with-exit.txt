@@ -1,0 +1,2 @@
+node .claude/bin/scan-synced-disclosure.mjs --check || { echo "HALT"; exit 1; }
+cp -R "$SISTER/.codex" ./.codex

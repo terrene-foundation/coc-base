@@ -5,45 +5,42 @@ paths: [".claude/commands/**", ".claude/rules/**"]
 
 # Product-Completion-First — Triage Gate Findings By CATEGORY, Not Severity
 
-Red-team runs in every phase / wave / session and stays — it is good practice. But grinding
-_every_ surfaced finding to convergence spends most of the budget on the lowest-value increments,
-so weeks pass with no complete, visible product to show. The fix is not to weaken red-team (every
-reviewer still RUNS every round — the errored/empty-reviewer evidence gate is unchanged). The fix
-is to triage the **disposition of findings** by CATEGORY: findings that block completion are fixed
-now; polish that does not block completion is documented, tracked, and revisited at the right
-juncture (product-visible, or on demand).
+Red-team runs in every phase / wave / session and stays. But grinding _every_ surfaced finding to
+convergence spends most of the budget on the lowest-value increments, so weeks pass with no
+complete, visible product. The fix is not to weaken red-team
+(every reviewer still RUNS every round — the errored/empty-reviewer evidence gate is unchanged);
+it is to triage the **disposition of findings** by CATEGORY: findings that block completion are
+fixed now; polish that does not is documented, tracked, and revisited at the right juncture
+(product-visible, or on demand).
 
 **Severity (CRIT/HIGH/MED/LOW) is a ranking + reporting attribute ONLY — it NEVER gates
 fix-vs-defer.** A LOW-severity bug still blocks completion and is fixed now; a MED-severity polish
 item with no forward-impact is deferred. The gate is the category, not the severity.
 
-This is mature-agile practice adapted for autonomous COC codegen: labor is ~10× cheaper and
-parallel (`rules/autonomous-execution.md`), so the scarce resource this protects is
-**convergence-attention + context-budget**, never labor. The honest reason to defer an increment is
+The scarce resource this rule protects is **convergence-attention + context-budget**, never labor
+(`rules/autonomous-execution.md` — labor is ~10× cheaper and parallel). The honest reason to defer an increment is
 "it would overflow this wave's convergence-attention budget," NEVER "we don't have time"
 (`rules/time-pressure-discipline.md` — procedure drops stay BLOCKED). Depth (the full classifier
 walkthrough, the `/sweep` report contract, worked examples) lives in `.claude/skills/sweep/`.
 
 ## The three categories (positive-allowlist definitions per `cc-artifacts.md` Rule 10)
 
-| Category                    | Definition                                                                                                                                                                                                                                                        | Disposition                                                                                                                                                      |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **BUG**                     | Prevents successful testing/closure of an in-scope item — a failing test/build/type check, a shipped path that is wrong/insecure/lossy, a contract/API break, a gate-integrity or self-ref-enforcement defect, an unmet success-criterion on a _shipped_ feature. | **FIX NOW — severity-independent.** Converges to 2 clean rounds.                                                                                                 |
-| **INVEST-NOW ISSUE**        | Does not itself block testing/closure of the current item, BUT has material impact on later stages such that fixing now is the correct investment (deferring compounds cost — foundational / architectural / shared-substrate that later work builds on).         | **FIX NOW**, AND the **judgment bucket** → classify WITH an impact rationale and SURFACE at the gate (`/sweep`) for co-owner direction. Never silently deferred. |
-| **INCREMENTAL IMPROVEMENT** | "Could do" quality — polish, prose/naming, defense-in-depth _beyond an already-working guard_, tail-quality _off_ shipped paths, redundant coverage, refactor-for-elegance. No forward-impact; does not block testing/closure.                                    | **DEFER** to the deferred-quality tracking list with a value-anchor. Does NOT reset the redteam clean-round counter.                                             |
+- **BUG** — prevents successful testing/closure of an in-scope item: a failing test/build/type check, a shipped path that is wrong/insecure/lossy, a contract/API break, a gate-integrity or self-ref-enforcement defect, an unmet success-criterion on a _shipped_ feature. → **FIX NOW — severity-independent.** Converges to 2 clean rounds.
+- **INVEST-NOW ISSUE** — does not itself block testing/closure of the current item, BUT has material impact on later stages such that fixing now is the correct investment (deferring compounds cost — foundational / architectural / shared-substrate that later work builds on). → **FIX NOW**, AND the **judgment bucket** → classify WITH an impact rationale and SURFACE at the gate (`/sweep`) for co-owner direction. Never silently deferred.
+- **INCREMENTAL IMPROVEMENT** — "could do" quality: polish, prose/naming, defense-in-depth _beyond an already-working guard_, tail-quality _off_ shipped paths, redundant coverage, refactor-for-elegance. No forward-impact; does not block testing/closure. → **DEFER** to the deferred-quality tracking list with a value-anchor. Does NOT reset the redteam clean-round counter.
 
 ## MUST Rules
 
 ### 1. Every Gate-Surfaced Finding Is Classified Into Exactly ONE Category; Severity Never Gates
 
 Every finding a review/redteam/sweep gate surfaces MUST be classified into exactly one of BUG /
-INVEST-NOW ISSUE / INCREMENTAL IMPROVEMENT per the positive-allowlist table above, BEFORE any
+INVEST-NOW ISSUE / INCREMENTAL IMPROVEMENT per the positive-allowlist definitions above, BEFORE any
 fix-vs-defer disposition. The finding's SEVERITY (CRIT/HIGH/MED/LOW) is a ranking/reporting
 attribute and MUST NOT be used to decide fix-vs-defer. Using severity as the fix-vs-defer gate —
 "it's only LOW, defer it" OR "it's HIGH, so it blocks" — is BLOCKED. **Classification is
 fail-closed:** any finding whose category is ambiguous resolves toward IMMEDIATE
-(bug/invest-now), NEVER toward silent defer — mirroring `rules/self-referential-codify.md`'s
-"edge cases resolve in favor of the gate firing." (The paired name-the-success-criterion
+(bug/invest-now), NEVER toward silent defer (`rules/self-referential-codify.md`'s
+boundary tiebreaker). (The paired name-the-success-criterion
 mitigation — an INCREMENTAL label MUST name the criterion it checked against, and "no criterion
 covers this path" → ESCALATE — is MUST-3.)
 
@@ -93,7 +90,7 @@ guard + test; (iv) revisit: after-milestone:walking-skeleton.
 
 **BLOCKED rationalizations:** "it's incremental, tracked separately" (without the four conditions) / "a build failure is incremental this cycle" / "defer the invest-now issue silently, note it later" / "Carried-forward (no grace clock)" / "Phase-N / v-next scope" / "implement OR document as a known limitation".
 
-**Why:** Silent deferral is deferral-as-forgetting — the item leaves the queue and its value-rationale evaporates across the next `/clear` (`value-prioritization.md` Origin: 7-of-7 deferred items decayed rather than picked up). The four generalized-1b conditions are what make an incremental defer a tracked hold on the same work, not an abandonment; relabelling a bug/invest-now "incremental" ships the exact defect the category gate exists to catch.
+**Why:** Silent deferral is deferral-as-forgetting — the item leaves the queue and its value-rationale evaporates across the next `/clear` (`skills/32-trust-posture/wiring/value-prioritization.md` Origin: 7-of-7 deferred items decayed rather than picked up). The four generalized-1b conditions are what make an incremental defer a tracked hold on the same work, not an abandonment; relabelling a bug/invest-now "incremental" ships the exact defect the category gate exists to catch.
 
 ### 3. A Warm Same-Class Bug/Invest-Now Gap Is Fixed Now — The Category Verdict Gates The Lane
 
@@ -149,7 +146,7 @@ compounds. Pro: unblocks two waves. Con: ~1 cycle now vs ~3 if deferred. Ratify?
 
 ## Skip-Class Carve-Out — A Declared Fork Dual-Surface Skip Is Not An Uncategorized Coverage Gap
 
-An explicit "N inherited-canon-CLEAN artifacts skipped (reviewed upstream)" line from the fork dual-surface redteam seat (`commands/redteam.md` § Step 0.5 + `skills/30-claude-code-patterns/dual-surface-redteam.md`) is NOT a surfaced finding requiring category classification (MUST-1) and MUST NOT be flagged at `/sweep` or a product-completion pass as an unaddressed coverage gap. A CLEAN artifact is byte-identical to the last-accepted canon blob canon already reviewed to convergence — it carries NO fork-side delta to find, so its review is DELEGATED upstream by construction, not deferred as incremental. The carve-out is bounded to the DECLARED CLEAN class only: the skip is reported explicitly with its count (never silent), it never covers a Seat-L / Seat-D surface (both still converge to the BUG + INVEST-NOW gate), and it never licenses relabelling a real fork-side BUG/INVEST-NOW finding as "inherited-canon, skip". An UNDECLARED skip, or a "skip" of anything other than byte-identical-to-canon inherited artifacts, is a finding that MUST be classified per MUST-1.
+An explicit "N inherited-canon-CLEAN artifacts skipped (reviewed upstream)" line from the fork dual-surface redteam seat (`commands/redteam.md` § Step 0.5 + `skills/30-claude-code-patterns/dual-surface-redteam.md`) is NOT a surfaced finding requiring category classification (MUST-1) and MUST NOT be flagged at `/sweep` or a product-completion pass as an unaddressed coverage gap. The carve-out is bounded to the DECLARED CLEAN class only: the skip is reported explicitly with its count (never silent), it never covers a Seat-L / Seat-D surface (both still converge to the BUG + INVEST-NOW gate), and it never licenses relabelling a real fork-side BUG/INVEST-NOW finding as "inherited-canon, skip". An UNDECLARED skip, or a "skip" of anything other than byte-identical-to-canon inherited artifacts, is a finding that MUST be classified per MUST-1. Depth (why a declared CLEAN skip carries no fork-side delta): `.claude/guides/rule-extracts/product-completion-first.md` § Skip-Class Carve-Out.
 
 **Why:** A declared delegated-upstream skip is accounted-for by construction (canon's own convergence + the explicit count), so treating it as an uncategorized coverage hole would grind the convergence-attention budget on a surface with zero fork-side risk — the exact mis-allocation this rule's category gate exists to prevent, one layer up. Bounding the carve-out to the byte-identical CLEAN class keeps it from becoming the "skip it, it's inherited" relabel that would let a real fork-side defect ship under the skip banner.
 
@@ -169,32 +166,25 @@ An explicit "N inherited-canon-CLEAN artifacts skipped (reviewed upstream)" line
 
 - Ship the deferred-quality label/list without the `/sweep` revisit teeth in the same cycle.
 
-**Why:** A label that makes deferral easier, with no revisit gate, is net-negative — deferred items rot (`value-prioritization.md` Origin, 7-of-7 decay). The list and the teeth ship paired.
+**Why:** A label that makes deferral easier, with no revisit gate, is net-negative — deferred items rot (`skills/32-trust-posture/wiring/value-prioritization.md` Origin, 7-of-7 decay). The list and the teeth ship paired.
 
 ## Trust Posture Wiring
 
-- **Severity:** `halt-and-report` at gate-review (reviewer at `/implement` + cc-architect at `/codify` + the `/redteam` + `/sweep` gates confirm every surfaced finding was category-classified, that no BUG/INVEST-NOW was deferred as incremental, and that the judgment bucket was surfaced not silently decided); `advisory` at the hook layer (whether a finding is a bug vs an incremental is judgment-bearing per `hook-output-discipline.md` MUST-2 — a lexical detector cannot carry `block`).
+- **Severity:** `halt-and-report` at gate-review (reviewer at `/implement` + cc-architect at `/codify` + the `/redteam` + `/sweep` gates confirm every surfaced finding was category-classified, that no BUG/INVEST-NOW was deferred as incremental, and that the judgment bucket was surfaced not silently decided); `advisory` at the hook layer (whether a finding is a bug vs an incremental is judgment-bearing per `hook-output-discipline.md` MUST-2).
 - **Grace period:** 7 days from rule landing (2026-07-11 → 2026-07-18).
 - **Cumulative posture impact:** same-class violations (deferring a genuine BUG/INVEST-NOW as "incremental", OR a silent incremental defer missing the four conditions, OR silently self-deciding a judgment-bucket item) contribute to `trust-posture.md` MUST Rule 4 cumulative-window math (3× same-rule in 30d → drop 1 posture; 5× total in 30d → drop 1 posture).
-- **Regression-within-grace:** a same-class violation within the 7-day grace window fires the emergency trigger `blocking_triage_bypass` per `trust-posture.md` MUST-4 (1× = drop 1 posture) — a dedicated key because mis-triaging a completion-blocking finding as deferrable polish is a distinct, high-consequence failure class (a real defect ships under a converged banner) warranting an instant drop, not only cumulative accrual.
+- **Regression-within-grace:** a same-class violation within the 7-day grace window fires the emergency trigger `blocking_triage_bypass` per `trust-posture.md` MUST-4 (1× = drop 1 posture) — a DEDICATED key, not the generic `regression_within_grace`; rationale in `.claude/guides/rule-extracts/product-completion-first.md` § Regression-Within-Grace — Key Rationale.
 - **Receipt requirement:** SessionStart soft-gate `[ack: product-completion-first]` IFF `posture.json::pending_verification` includes this rule_id.
-- **Detection mechanism:** Probes `.claude/test-harness/probes/product-completion-first.probes.json` — NOT YET AUTHORED, declared in `phase2-deferrals.json::probe_authorship_deferrals`. Phase 1 (manual, gate-review) — reviewer at `/implement` + cc-architect at `/codify` + the `/redteam`/`/sweep` gates inspect any session that surfaced findings and confirm (a) each finding carries a category label, (b) no finding whose evidence shows a failing test/build/type-check/insecure-or-lossy shipped path was routed to the deferred-quality list, (c) every incremental defer carries the four generalized-1b conditions, (d) the judgment bucket was surfaced at `/sweep`, not silently decided. The eval-harness suite `.claude/test-harness/tests/product-completion-first.test.mjs` structurally asserts the classifier + convergence-scoping + fail-closed properties. Phase 2 (deferred per `trust-posture.md` § Two-Phase Rollout) — an advisory detector flagging a defer whose finding text matches a BUG signal (`failing test` / `build error` / `type error` / `insecure` / `lossy` / `contract break` / `gate-integrity` / `self-ref-enforcement defect` — the full BUG-definition signal set); audit fixtures land with it at `.claude/audit-fixtures/product-completion-first/` per `cc-artifacts.md` Rule 9.
+- **Detection mechanism:** **Probes: REGISTERED — `.claude/test-harness/probes/product-completion-first.probes.json`**, 12 rows in 6 bipolar `pair_id` pairs (one per derived clause — MUST-1..4 and MUST NOT — plus a meta-compliance pair), with candidate fixtures + `.expected` answer-key sidecars at `.claude/audit-fixtures/product-completion-first/`. Registered in `eval-manifest.json`, pinned in `probe-suite-integrity.test.mjs::PINNED_SUITES`; no workflow invokes `coc-probe-dispatch.mjs`. Phase 1 (manual, gate-review) — reviewer at `/implement` + cc-architect at `/codify` + the `/redteam`/`/sweep` gates inspect any session that surfaced findings and confirm (a) each finding carries a category label, (b) no BUG-signal finding (failing test/build/type-check, insecure-or-lossy shipped path) was routed to the `deferred-quality` list, (c) every incremental defer carries the four generalized-1b conditions, (d) the judgment bucket was surfaced at `/sweep`, not silently decided. The eval-harness suite `.claude/test-harness/tests/product-completion-first.test.mjs` structurally asserts the classifier + convergence-scoping + fail-closed properties. **A detector is ARMED AT LOOM and FENCED FROM CONSUMERS — a co-owner-approved STAGED rollout (2026-09-13).** `.claude/hooks/bug-signal-defer-guard.js` runs the predicate `.claude/hooks/lib/bug-signal-defer.js::findBugSignalDefers` and flags a DEFERRED finding whose text also names a BUG signal from the CLOSED signal set. It emits `rule_id "product-completion-first/MUST-2"` at `advisory`, permanently: both halves are lexical reads of prose, so `hook-output-discipline.md` MUST-2 caps it below `block`. Registered in `.claude/settings.json`; fenced `loom_only` in `sync-manifest.yaml` + `validate-emit.mjs::LOOM_ONLY_TIER_CARVEOUTS`, it reaches NO consumer — there, enforcement is GATE-REVIEW and its silence is the ABSENCE OF AN INSTRUMENT, never evidence that no mis-categorized defer shipped; the gap is declared in `detector-distribution-baseline.json`, and its `phase2-deferrals.json` row sits under `acknowledged_non_deferrals`. Four suppressors: fenced code, markdown table rows, a FIXED / FIX NOW disposition, and a `BLOCKED`-marked quotation of a rationalization. STRUCTURAL fixtures at `.claude/audit-fixtures/bug-signal-defer/` per `cc-artifacts.md` Rule 9 — 25 bipolar cases registered `{mode: run}` in `ci-audit-fixtures.json` per `instrument-bipolarity.md` MUST-2. Depth — probe-registration and consumer-lane measurement, the CLOSED signal set, the RECORDED-disposition scope, the arming/fencing measurement and PROMOTION instruction, the discrimination census and blind spots — lives in `.claude/guides/rule-extracts/product-completion-first.md` § Detection Mechanism — Depth.
 - **Violation scope:** MUST-1 (severity-as-gate) + MUST-2 (silent/mis-categorized defer) + MUST-3 (warm same-class bug/invest-now deferred as incremental) + MUST-4 (judgment bucket silently decided).
 - **Origin:** See § Origin.
 
 ## Origin
 
 2026-07-11 — co-owner-directed origination (`rules/artifact-flow.md` § Co-Owner-Directed Origination
-/ O1 lane), receipt-first `journal/0467`. Verbatim directive: red-team stays in every phase/wave, but
-the harness must stop grinding ~80% of the budget on <10%-value increments that do not block a
-complete, visible product — "small increments that do not block the sprints to completion should be
-documented and tracked separately, and revisited as required or after the full product is done and
-visible." Corrected in-session to the CATEGORY gate (bug/invest-now = immediate regardless of
-severity; incremental = defer) with severity decoupled from fix-vs-defer, and `/sweep` rebuilt as a
-management decision report. Ratified dispositions D1–D4 (`journal/0467`): D1 lean anchor rule (authored
-`priority:10 path-scoped` under the measured saturated-baseline constraint — codex 11.89% / gemini
-12.35% headroom within the 15% proximity band, matching the `knowledge-cascade-routing.md` precedent),
-D2 invest-now surfaced-for-direction, D3 GH `deferred-quality` label surface, D4 numeric
-autonomous-cycle ETA. Companion consumers: `redteam.md` § Category-Based Finding Triage + Convergence
-Criterion 3, `wave-loop.md` G1/MUST-3, `zero-tolerance.md` Rule 1d, `autonomous-execution.md` Rule 4,
-`self-referential-codify.md` two-tier gate.
+/ O1 lane), receipt-first `journal/0467`. Companion consumers: `redteam.md` § Category-Based
+Finding Triage + Convergence Criterion 3, `wave-loop.md` G1/MUST-3, `zero-tolerance.md` Rule 1d,
+`autonomous-execution.md` Rule 4, `self-referential-codify.md` two-tier gate.
+
+Depth — the verbatim co-owner directive and the ratified D1–D4 dispositions — lives in
+`.claude/guides/rule-extracts/product-completion-first.md` § Origin — Depth.

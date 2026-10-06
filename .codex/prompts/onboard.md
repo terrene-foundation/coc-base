@@ -1,6 +1,6 @@
 ---
 name: onboard
-description: "Onboard a new operator to a multi-operator COC repo. Deterministic read-path: roster + posture + team-memory + active claims + recent decisions."
+description: "Onboard an operator by reading roster, posture, team memory, active claims, and recent decisions."
 ---
 
 Onboard the operator into the current repo's multi-operator COC state. Read-only command — no commits, no state writes. Output is a structured briefing the operator (and the next session) can act on.
@@ -11,7 +11,7 @@ Onboard the operator into the current repo's multi-operator COC state. Read-only
 
 ## Process
 
-`/onboard` is a deterministic read-path: every invocation surfaces the same artifacts in the same order, so two operators starting fresh sessions see consistent state. The procedure detail lives in the skill `.codex/skills/41-onboard/SKILL.md`; this command is the entry point.
+`/onboard` is a deterministic read-path: every invocation surfaces the same artifacts in the same order, so two operators starting fresh sessions see consistent state. The procedure detail lives in the skill `.agents/skills/41-onboard/SKILL.md`; this command is the entry point.
 
 ### 1. Identify the operator
 
@@ -61,7 +61,7 @@ The M5 `multi-operator-sessionstart.js` hook already renders a "rules changed si
 
 ### 7. Emit the briefing
 
-In `--json` mode, emit a structured object: `{operator, team_memory, workspace, posture, claims, codify_lease, rules_changed}`. In default markdown mode, render each section under a `##` heading in the order above. The operator (and any agent reading the briefing) can act from this single read.
+In `--json` mode, emit a structured object with the eight section keys: `{operator, team_memory, workspace, posture, claims, codify_lease, rules_changed, action_items}` — the same eight the markdown mode renders (§ Output format) and the same eight `skills/41-onboard/SKILL.md` § `--json mode` pins. In default markdown mode, render each section under a `##` heading in the order above. The operator (and any agent reading the briefing) can act from this single read.
 
 ### Failure modes (typed errors — no silent fallbacks per `rules/zero-tolerance.md` Rule 3)
 
@@ -85,9 +85,9 @@ Next: /whoami (verify identity) → /claims (see what's locked) → /analyze or 
 ## Notes
 
 - This command is read-only. It does NOT write to roster, posture, lease, or coordination log. Every state-write surface is a separate command (`/whoami --register`, `/claim`, `/release-claim`, `/posture upgrade`, `/codify`).
-- Procedure detail (failure-mode handling, JSON schema, integrity-fail formatting, MUST-clause grep) lives in `.codex/skills/41-onboard/SKILL.md`. Update the skill, not this command, when the procedure changes.
+- Procedure detail (failure-mode handling, JSON schema, integrity-fail formatting, MUST-clause grep) lives in `.agents/skills/41-onboard/SKILL.md`. Update the skill, not this command, when the procedure changes.
 - This command pairs with `multi-operator-sessionstart.js` (M5): the session-start hook auto-runs a subset (workspace + posture + rules-changed); `/onboard` is the on-demand full read that an operator invokes when joining the repo or after a `/clear`.
 
 ## Origin
 
-F14 M7 Shard E (workspaces/multi-operator-coc 02-plans/01-architecture.md §7.4) — deterministic read-path for new-operator onboarding. Command body ≤150 lines per `rules/cc-artifacts.md` Rule 3; procedure detail in `skills/41-onboard/SKILL.md`.
+F14 M7 Shard E ((loom-internal reference) §7.4) — deterministic read-path for new-operator onboarding. Command body ≤150 lines per `rules/cc-artifacts.md` Rule 3; procedure detail in `skills/41-onboard/SKILL.md`.

@@ -1,0 +1,54 @@
+Session excerpt — loom, /codify, Step 3/4 artifact emission.
+
+Three artifacts were generated or updated this pass: the rule, its paired skill, and the
+auditor agent. One edge record per artifact.
+
+    $ node .claude/bin/emit-derives-from.mjs \
+        --artifact-type rule --artifact-id conservation-gate \
+        --from "specs/ontology/glossary.md#§boundary conservation:spec" \
+        --from ".claude/hooks/lib/derives-from-edge.js::classifyAnchor:artifact" ; echo "rc=$?"
+    edge staged: conservation-gate — 2 anchors, both resolve, both unique
+    rc=0
+
+    $ node .claude/bin/emit-derives-from.mjs \
+        --artifact-type skill --artifact-id boundary-enumeration \
+        --from "specs/ontology/glossary.md#§before-and-after sets:spec" ; echo "rc=$?"
+    REJECTED: anchor does not resolve against the current tree —
+      specs/ontology/glossary.md carries no heading matching "before-and-after sets".
+      No row written.
+    rc=1
+
+That heading existed when the todo was written, so the origin is real and the LOCATOR is
+stale. The pass stops here until it is fixed; re-emitting this as an orphan would assert that
+no origin was claimed, which is false and would point the sweep at the wrong repair.
+
+    $ grep -n '^#' specs/ontology/glossary.md | grep -i "before\|after\|set"
+    142:### Boundary before/after sets
+    $ grep -c '^### Boundary before/after sets$' specs/ontology/glossary.md
+    1
+
+One heading, one match — the locator is unique and not a substring accident.
+
+    $ node .claude/bin/emit-derives-from.mjs \
+        --artifact-type skill --artifact-id boundary-enumeration \
+        --from "specs/ontology/glossary.md#§Boundary before/after sets:spec" ; echo "rc=$?"
+    edge staged: boundary-enumeration — 1 anchor, resolves, unique
+    rc=0
+
+The auditor agent is genuinely originless — it was written this session from a co-owner
+directive, and no spec section or workspace rationale predates it. That one is an orphan on
+its own merits, and the empty array is emitted rather than suppressed:
+
+    $ node .claude/bin/emit-derives-from.mjs \
+        --artifact-type agent --artifact-id conservation-auditor --orphan ; echo "rc=$?"
+    edge staged: conservation-auditor — derives_from: [] (ORPHAN)
+    rc=0
+
+    $ cat .claude/.derives-from-staging/$SESSION.jsonl | python3 -m json.tool --json-lines \
+        | grep -c '"artifact_id"'
+    3
+
+Three artifacts touched, three records staged, none suppressed. No anchor in any record is a
+bare line number, no record carries a `kp://` handle in either direction, and nothing in the
+staged rows is credential-shaped — no `api_key`, no `*_token`, no PEM block, no
+provider-prefixed value. Step 3 done.

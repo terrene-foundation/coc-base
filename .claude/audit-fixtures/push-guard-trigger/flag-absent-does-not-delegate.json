@@ -1,0 +1,13 @@
+{
+  "_doc": "A pre-push hook that is present and executable but belongs to something else -- so the tracked guard never runs. Distinct identity from `absent-no-hook` because the remediation differs: this one must not be blindly overwritten.",
+  "state": {
+    "delegatePresent": true,
+    "trackedTriggerPresent": true,
+    "hooksDir": "/Users/someoperator/repos/loom/.git/hooks",
+    "resolveError": null,
+    "readError": null,
+    "triggerPresent": true,
+    "triggerExecutable": true,
+    "triggerDelegates": false
+  }
+}

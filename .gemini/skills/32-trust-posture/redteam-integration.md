@@ -4,7 +4,7 @@
 
 ## Audit Depth By Posture
 
-Depth is **cumulative down the ladder** (each lower posture's per-round floor includes every higher posture's). The convergence target — 2 consecutive clean rounds + Convergence Criteria 4–6 — is **invariant** at L2–L5.
+Depth is **cumulative down the ladder** (each lower posture's per-round floor includes every higher posture's). The convergence target — 2 consecutive clean rounds + Convergence Criteria 4–9 — is **invariant** at L2–L5.
 
 | Posture               | Per-round audit DEPTH floor (cumulative)                                                             | Convergence target             |
 | --------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------ |
@@ -22,7 +22,7 @@ When a `/codify` proposal touches the self-referential surface allowlist enumera
 
 ## Mechanical Sweeps (Round 1)
 
-Per `rules/agents.md` "Reviewer Mechanical Sweeps":
+Per `rules/agents.md` § "MUST: Reviewer Prompts Include Mechanical AST/Grep Sweep":
 
 - `grep -c` parity on critical call-site patterns
 - `pytest --collect-only -q` exit 0 across all test dirs

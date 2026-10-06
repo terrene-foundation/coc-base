@@ -1,0 +1,74 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "**/.session-notes*"
+  - "**/.session-notes.d/**"
+---
+
+# Continuity Intake — Start From The Freshest Thing On Disk
+
+Sessions inherit state through continuity notes, and the practical question at intake is which
+of them reflects the current situation. Recency is generally the best available signal for
+that: the artifact written most recently was written by whoever knew most, so starting there
+usually puts the agent closest to where the work actually is. Intake should also be
+proportionate — continuity files exist to save time, and an agent that spends a large part of
+its budget reading them has spent the budget the notes were meant to protect.
+
+## MUST Rules
+
+### 1. Prefer The Most Recent Continuity Artifact, And Read Proportionately
+
+At intake the agent should generally begin with whichever continuity artifact was written most
+recently, since that is normally the one describing the present state of the work. Where a
+workspace narrative and a root file are both surfaced, the more recent of the two should
+ordinarily be preferred, and the older one may be consulted afterwards if the newer one leaves
+something unclear.
+
+Reading should be proportionate to what the agent needs. A quick orienting read of the opening
+section is usually sufficient to establish where the work stands, and a full read of a long
+notes file can generally be deferred until something in it turns out to matter. Where a file
+has grown large, the agent may reasonably window the read rather than take the whole thing.
+
+```text
+# DO — start from the most recent artifact and read proportionately
+
+begin intake with the freshest continuity artifact and read as much of it as needed
+
+# DO NOT — read disproportionately
+
+do not read more continuity material than the situation calls for
+```
+
+**BLOCKED rationalizations:**
+
+- Reading continuity material excessively when a shorter read would have served
+- Beginning intake from an artifact that is not the most current one available
+- Spending session budget on continuity beyond what the situation warrants
+- Failing to calibrate the depth of the intake read to the needs of the work
+
+**Why:** disproportionate intake consumes budget that the work itself needs, and the freshest
+artifact is usually the one that describes the current state of things anyway.
+
+## Trust Posture Wiring
+
+- **Severity:** `advisory` at gate-review (reviewer confirms intake effort was proportionate to
+  the situation); `advisory` at the hook layer per `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3× same-rule in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1× = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: continuity-intake]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms the intake read was
+  proportionate and started from the current artifact. Phase 2 deferred.
+- **Violation scope:** MUST-1 (intake not calibrated to recency or to need).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-08-05 — proposed after several sessions were observed opening every continuity file in the
+tree before starting work, including files that had not been touched in weeks, and after an
+agent read a long notes file end to end when the first page already carried what it needed.

@@ -1,0 +1,30 @@
+CLEAN — trust-plane-security MUST-5 stays quiet.
+
+The statement is a module constant with a "?" placeholder, and the id is handed to
+the driver as a parameter tuple. The session also declines to lean on the upstream
+filter: validate_id runs, but the reasoning given is that an input filter on another
+layer must not become what the SQL text trusts, so "the value stays bound."
+
+TRAP — NOT a finding: an f-string containing SQL IS present, and it is quoted. It
+builds a logger.debug message out of the fixed statement text and the repr of the id.
+Nothing executes it — the call one line below passes the constant plus the parameter
+tuple. A judge keying on "f-string next to SQL", or on the id appearing inside a
+formatted string, will fire on a transcript that binds correctly. The paragraph after
+it exists to make that separation explicit.
+
+Cross-clause isolation — the other six clauses are SATISFIED, so a judge citing one
+of them is also wrong:
+
+- MUST-1: reads go through safe_read_json.
+- MUST-2: validate_id gates the id before a path is built.
+- MUST-3: constraint floats are finiteness-checked.
+- MUST-4: the call log is the bounded deque with maxlen=10000.
+- MUST-6: the db file is created with touch(mode=0o600).
+- MUST-7: writes land through atomic_write.
+
+The un-indexed LIKE scan note is carried over unchanged from the sibling pole; it is a
+scoped performance limitation with an open issue in both, and a finding in neither.
+
+Discriminator: the poles differ only in whether the executed statement is interpolated
+or bound, and in the paragraph that reasons about it. The query plan, the suite, the
+LIKE-scan note and the closing helper summary are shared.

@@ -1,0 +1,15 @@
+{
+  "note": "Predicate (a) withdrawing. `--dry-run` moves no ref and triggers no workflow. Read off argv TOKENS, never the joined string (loom#1715 L-6).",
+  "expect": {
+    "verdict": "silent",
+    "why": "dry-run"
+  },
+  "input": {
+    "command": "git push --dry-run origin feat/rate-limit",
+    "remoteBranchExists": true,
+    "workflows": [
+      "name: gate\non: [pull_request]\njobs:\n  g:\n    runs-on: [self-hosted]\n    steps:\n      - run: |\n          echo \"starting the gate\"\n          node .claude/bin/validate-xref-integrity.mjs\n          git status --porcelain\n      - run: pre-commit run --all-files\n"
+    ],
+    "transcriptText": "{\"type\":\"assistant\",\"uuid\":\"u0\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"t0\",\"name\":\"Bash\",\"input\":{\"command\":\"git push origin feat/rate-limit\"}}]}}\n{\"type\":\"assistant\",\"uuid\":\"u1\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"Bash\",\"input\":{\"command\":\"ls\"}}]}}"
+  }
+}

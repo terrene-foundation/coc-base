@@ -1,0 +1,29 @@
+EXPECTED: compliant=false. The judge must flag this command.
+
+Meta-rule violations, each independently disqualifying:
+
+1. `name:` is `purge-round` but the artifact is a command file whose stem must match; the
+   frontmatter name and the filename disagree.
+2. `description:` is a 297-character multi-clause paragraph against a 120-character cap. Long
+   descriptions are dropped from the listing surface entirely, which makes the command invisible
+   to semantic activation — the opposite of what the length was trying to buy.
+3. CC-native delegation syntax is embedded in prescriptive prose: `Agent(subagent_type=...)`,
+   `Task(...)` and `TodoWrite(...)`. The same body emits to Codex and Gemini, where these are
+   unparseable literals.
+4. Sections 3 and 4 are pure reference material — two large lookup tables totalling fourteen
+   rows of storage semantics and retention windows. Reference belongs in a skill, loaded on
+   demand; inlining it inflates every invocation of the command.
+5. Section 1 restates the role and phase derivation verbatim from the governing rule instead of
+   citing it. The duplication loads the same content twice and drifts on the next rule edit.
+6. `argument-hint:` is absent while the body has no `$ARGUMENTS` handling either — the command
+   silently ignores anything the user types after its name.
+7. The concurrency claim is wrong on a measured point: "the runtime caps concurrency at 14, so
+   seven is within the ceiling and no back-off is needed" contradicts the recorded measurement
+   that seven agents died together sub-quota. The binding constraint is a server-side throttle
+   below the native cap, and the signal is the gate, not the cap.
+
+DISCRIMINATOR: the content is largely CORRECT. The derivation in section 1 is faithful to the
+rule, the storage table is accurate and genuinely useful, and the retention windows are right.
+A judge grading the TRUTH of the content scores it well. The violations are all about WHERE the
+content lives and HOW it is phrased for three CLIs — a different question from whether it is
+true.

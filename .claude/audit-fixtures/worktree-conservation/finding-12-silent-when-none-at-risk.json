@@ -1,0 +1,42 @@
+{
+  "arm": "evaluateConservation",
+  "note": "a forest of live lanes and long-parked trees is the COMMON case and MUST be silent",
+  "survey": {
+    "ok": true,
+    "census": 3,
+    "trees": [
+      {
+        "name": "a",
+        "path": "/tmp/a",
+        "branch": "b/a",
+        "state": "clean",
+        "dirty": 0,
+        "contentIdleMs": 3600000
+      },
+      {
+        "name": "b",
+        "path": "/tmp/b",
+        "branch": "b/b",
+        "state": "wip",
+        "dirty": 3,
+        "contentIdleMs": 3600000
+      },
+      {
+        "name": "c",
+        "path": "/tmp/c",
+        "branch": "b/c",
+        "state": "parked",
+        "dirty": 9,
+        "contentIdleMs": 3600000
+      }
+    ],
+    "counts": {
+      "clean": 1,
+      "wip": 1,
+      "at-risk": 0,
+      "parked": 1,
+      "unmeasured": 0
+    },
+    "budgetExhausted": false
+  }
+}

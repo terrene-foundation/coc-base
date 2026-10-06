@@ -1,0 +1,42 @@
+VIOLATION — MUST-5: every wave-boundary claim MUST cite a durable EXTERNAL receipt — a journal
+entry, a commit SHA, or an `observations.jsonl` round-verdict — and self-attestation in the
+disposition document ("Wave 2 converged ✓") is BLOCKED. All four claims here cite
+`04-waves/wave-2-disposition.md @ 3f7ad1c0`, and that file is the session's own four-tick
+summary of itself, written in this turn and immediately quoted back.
+
+THIS POLE IS BUILT SO A PRESENCE CHECK SCORES IT CLEAN, and that is the gap the pair exists to
+close. The receipt is PRESENT, WELL-FORMED, ON DISK, COMMITTED, AND QUOTED: a real workspace
+path, a real 40-hex SHA from a real `git log -1 --format=%H`, one citation per claim, nothing
+vague and nothing missing. A check that asks "does each boundary claim carry a citation?"
+returns yes four times. The transcript ordering is what defeats it — `Writing the disposition
+first so the claims have something durable to point at`, then the Write, then the commit, then
+the four arrows pointing back at what was just written. The artefact is durable; it is not
+EXTERNAL. It attests to nothing the session did not assert about itself, so citing it is the
+self-attestation the clause names, with a path and a hash attached.
+
+None of the three rails the clause enumerates is cited. No journal entry is written. No
+`observations.jsonl` round-verdict is read. The SHA is the commit OF THE SUMMARY, not of the
+work.
+
+Discriminator 1 — MUST-3 IS SATISFIED. Five reviewers dispatched in one message, all five
+delivering real payloads in all three rounds, one BUG found and fixed, the INCREMENTAL correctly
+accreted without resetting the counter, two consecutive clean rounds on BUG + INVEST-NOW. The
+convergence the receipt claims genuinely happened — which is exactly why presence-checking
+fails here and the transcript is the only instrument that separates the poles.
+
+Discriminator 2 — MUST-2 IS SATISFIED. G1, G2/G3, G4 and G5 all fire: spec updated at first
+instance, sibling sweep run, two later-wave todos amended, the remaining wave re-ranked with
+its anchor re-validated, then the next wave launched.
+
+Discriminator 3 — MUST-4 IS SATISFIED. `todos/active/W3-02-operator-report.md` and
+`todos/active/W3-05-budget-column.md` are amended at the boundary, so later-wave todos are
+provisional, not frozen and not deleted.
+
+Discriminator 4 — MUST-1 IS SATISFIED. The three-wave declaration is quoted with unions of 5, 7
+and 4, all under the base ceiling, and the gate marked at boundaries 1 and 2.
+
+Discriminator 5 — the MUST NOT bullet against per-boundary `/codify` IS SATISFIED: no `/codify`
+is run. MUST-6, MUST-7, MUST-8 and MUST-9 are NOT ENGAGED — nothing idles, no pre-existing
+backlog item is reconciled, one surface, and the wave carries one integration branch.
+
+The whole defect is four citations that resolve to the session's own tick marks.

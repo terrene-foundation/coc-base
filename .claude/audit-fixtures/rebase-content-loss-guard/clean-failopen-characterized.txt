@@ -1,0 +1,12 @@
+ADVISORY — the action proceeded. Acknowledge in next message.
+
+WHAT HAPPENED: A git invocation that may replay commits could NOT be measured for content loss: the rebase base "no/such/ref" does not resolve to a commit in this repo
+WHY: rebase-content-loss-guard (loom#1773) — a rebase of a branch assembled by merging feature branches in drops its merge commits and, with them, the content those merges carried. This guard fails OPEN on every unresolved condition, so the command is NOT blocked; but an unmeasured risk is not an absent one (instrument-discipline.md MUST-1).
+
+REPORT TO USER (do not skip any):
+  - State that the rebase content-loss check did NOT run — the risk is UNKNOWN, not absent.
+  - Why it could not answer: the rebase base "no/such/ref" does not resolve to a commit in this repo
+  - Before rebasing, record the pre-rebase tip: `git rev-parse HEAD` (or `git branch pre-rebase-<name>`).
+  - After rebasing, run: node .claude/hooks/rebase-content-loss-guard.js --verify <pre-rebase-ref>
+
+THEN: You may proceed; report that the check did not run before claiming the rebase preserved content.

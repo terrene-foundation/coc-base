@@ -1,0 +1,6 @@
+{
+  "rule_id": "instrument-discipline/MUST-1",
+  "severity": "halt-and-report",
+  "laundering_form": "discarded-by-successor",
+  "evidence": "the command's exit status is `tail -5 /tmp/o.txt`'s, not `node .claude/bin/check-descoping.mjs`'s — the gate is not the last statement and nothing reads $? after it, so a FAILING gate reports overall success (a backgrounded run notifies \"exit code 0\"): \"node .claude/bin/check-descoping.mjs; tail -5 /tmp/o.txt\""
+}

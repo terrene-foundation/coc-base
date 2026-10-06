@@ -1,0 +1,6 @@
+path: workspaces/retention/02-plans/00-open-decisions.md
+expect: recommendation-quality/packet-answer-empty
+family: bare prose ANSWER marker — EMPTY
+note: The third shape: no table at all, just the marker. The prose beneath the title
+  is the BLOCKED rationalization verbatim from MUST-6's corpus — "These are
+  clarifications for the human to answer, not choices for me to recommend on."

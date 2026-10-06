@@ -1,0 +1,10 @@
+path: .claude/rules/recommendation-quality.md
+expect:
+family: command-vs-data — an INLINE-CODE marker is a citation, not an instance
+note: COPIED FROM the live rule body (line 240 plus two BLOCKED bullets). The `→
+  ANSWER:` marker appears inside backticks as the rule QUOTING itself, and the punt
+  tokens appear inside quotation marks as the rule NAMING them. A detector that fired
+  here would flag the rule file on every edit to the clause. Note the deliberate
+  asymmetry in the module: inline spans are stripped for the prose-marker check ONLY
+  and NEVER before the table walk, because a cell whose whole content is `--flag`
+  would then normalize to empty and be read as a blank recommendation.

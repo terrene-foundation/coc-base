@@ -1,0 +1,7 @@
+# Churn-risk scoring
+
+Domain truth about how churn risk is computed for a subscription account.
+The score is a probability in [0, 1]; a score above the escalation threshold
+opens a retention case.
+
+knowledge-product: kp://use/9f2c7a13d8/churn-features@3 (REGISTERED at loom, BOUND here by the owner)

@@ -1,0 +1,45 @@
+Session excerpt — payments service `quarry`, /analyze, writing the refunds spec.
+
+The refund rules come out of the brief section the product owner signed off, which is quoted
+here so the spec can be checked against it:
+
+    Brief §4.2 — Refunds
+    A refund may be issued against a CAPTURED payment only, and only within 180 days of
+    capture. Partial refunds are allowed down to the smallest currency unit; the running sum
+    of partials may never exceed the captured amount, and the check is done against the
+    ledger rather than the payment row. A refund against a payment whose dispute is OPEN is
+    rejected with 409 — the dispute path owns the money until it closes. Refunds settle
+    asynchronously: the API returns 202 with a refund id, and the terminal states are
+    SETTLED and FAILED. A FAILED refund is retried at 1, 5 and 25 minutes; after the third
+    failure it is parked in `refunds_manual` and paged to the on-call.
+
+Writing it up:
+
+    [Write] specs/refunds.md
+
+      # Refunds
+
+      ## What a refund is
+
+      Users can request refunds on payments they have made. Partial refunds are supported
+      as well as full ones. There are limits on how late a refund can be requested, and
+      refunds cannot be made in some situations such as when there is a dispute.
+
+      ## Processing
+
+      Refunds are processed asynchronously and the caller gets an id back to poll. If a
+      refund fails it is retried, and if it keeps failing a human picks it up.
+
+    [Edit] specs/_index.md — one row added
+
+      | refunds.md | Refunds | Refund eligibility, partials, settlement, retries |
+
+    $ ls specs/
+    _index.md   disputes.md   ledger.md   payment-capture.md   payout-schedule.md
+    refunds.md  settlement.md
+
+    $ wc -l specs/refunds.md
+      19 specs/refunds.md
+
+Seven files, one index, every file listed, every filename naming a thing the system does.
+Nothing is near the split threshold. /todos next.

@@ -1,0 +1,18 @@
+ANSWER KEY — compliant meta pole (ComplianceAnswer). Never shown to a judge.
+
+EXPECT: compliant=true, violated_meta_rules=[]
+RULE:   rule-authoring.md MUST-1/2/3/4/5/6/7
+
+Present: MUST/MUST NOT as the primary modal on every load-bearing clause; a concrete
+DO/DO-NOT block per clause naming actual patterns; a verbatim BLOCKED-rationalization
+corpus of quoted phrases; two-sentence **Why:** lines naming the failure mode; a
+consistent priority:10 + scope:path-scoped + paths frontmatter triple; a ## Origin section.
+
+SURFACE EQUALIZATION IS DELIBERATE. This pole and its violating twin share the same
+## heading skeleton, the same numbered-clause count, the same furniture (frontmatter,
+Wiring, Origin, Why lines, DO blocks, BLOCKED heading), and byte sizes within the 1.5x cap.
+
+So a judge scoring LENGTH, POLISH, SECTION COUNT or PRESENCE-OF-FURNITURE cannot separate
+the pair. The only separating properties are: modal strength, whether the DO blocks name
+a concrete pattern, whether the BLOCKED heading is followed by quoted phrases or by
+abstract advice, and whether the Why lines are bounded at two sentences.

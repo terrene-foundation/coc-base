@@ -108,4 +108,4 @@ Deploy these agents when doing design work:
 
 ## Skill Reference
 
-This command loads: `.codex/skills/23-uiux-design-principles/SKILL.md`
+This command loads: `.agents/skills/23-uiux-design-principles/SKILL.md`

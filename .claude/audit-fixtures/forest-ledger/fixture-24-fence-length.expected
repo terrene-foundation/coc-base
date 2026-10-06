@@ -1,2 +1,4 @@
 FAIL forest-ledger: .claude/audit-fixtures/forest-ledger/fixture-24-fence-length.session-notes
   [L1] unterminated code fence in ledger section — rows after it are invisible; balance the fence (journal/0092)
+  [L1] line outside the ledger grammar — a code fence (it hides the lines inside it from the ledger); move it out of the section: ````
+  [L1] line outside the ledger grammar — a code fence (it hides the lines inside it from the ledger); move it out of the section: ```

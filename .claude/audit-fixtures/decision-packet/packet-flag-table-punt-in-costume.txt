@@ -1,0 +1,7 @@
+# Decision Packet — retention and export
+
+| Q   | Recommendation      | Honest con                    | Your call         |
+| --- | ------------------- | ----------------------------- | ----------------- |
+| Q1  | needs founder input | —                             | RATIFY / OVERRIDE |
+| Q2  | TBD                 | —                             | RATIFY / OVERRIDE |
+| Q3  | depends             | —                             | RATIFY / OVERRIDE |

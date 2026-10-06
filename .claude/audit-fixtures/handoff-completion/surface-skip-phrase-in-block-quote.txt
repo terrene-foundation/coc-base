@@ -1,0 +1,6 @@
+# expect:
+The rule's Origin quotes the originating failure:
+
+> reported the cross-SDK mirror handoff prepared without filing any Rust SDK issue
+
+Nothing in this session made such a claim.

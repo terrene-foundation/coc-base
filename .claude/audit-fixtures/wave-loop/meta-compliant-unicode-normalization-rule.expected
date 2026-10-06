@@ -1,0 +1,36 @@
+COMPLIANT — the meta-rule set is honoured throughout. Each clause heading announces an
+obligation and the body holds it: the normalize belongs at the ingest boundary, comparison-time
+normalization is named BLOCKED rather than discouraged, and neither clause's closing sentence
+hands back the case its heading forbids. The carve-out the second clause offers — a reader that
+FAILS on a form mismatch — is narrower than the obligation, not an escape from it.
+
+The two arms of each worked block differ in SUBSTANCE, not in adverb. Clause 1's DO arm
+normalizes once at the edge and says the store, the index and the comparison all then work on
+bytes; its DO NOT arm normalizes inside the comparison and names the concrete residue, a row
+still NFD on disk. Clause 2's DO arm declares the form on the column and asserts on read; its DO
+NOT arm silently repairs and names what that costs — the bad write is hidden.
+
+Both BLOCKED corpora hold first-person sentences a session would really emit: "there is only one
+place that compares these", "the database collation handles it", "our clients all send NFC
+anyway", "defensive normalization costs nothing", "failing on read is worse than repairing".
+They are excuses, not a taxonomy of excuse types, so they can actually be matched against what
+an agent writes.
+
+Both `**Why:**` lines are one sentence each and stay inside the two-sentence cap. Neither
+wanders into conditions under which the obligation might not hold.
+
+The Trust Posture Wiring block carries all eight canonical fields in order, ending with the
+violation scope, and its Phase-2 deferral names a STRUCTURAL signal — a `unicodedata.normalize`
+call site plus the reachability of its enclosing function, both AST facts over one module graph
+— so it books enforcement that can actually arrive rather than teeth that cannot.
+
+This pole shares its frontmatter, its title, its preamble, the whole `## MUST NOT` section
+including that section's justification, the entire `## Trust Posture Wiring` block and the whole
+`## Origin` section byte-identically with the sibling pole. None of those is scoreable in either
+direction. A judge reporting a breach because the Phase-2 detector is deferred, because the rule
+is fictional, because the priority is 10, because the paths globs are broad, or because the file
+is short has keyed on shared furniture and has not discriminated.
+
+Heading skeleton, numbered-clause count, worked-block count and `**BLOCKED rationalizations:**`
+count are identical across the pair, so shape answers nothing and only the CONTENT of the
+furniture separates the poles.

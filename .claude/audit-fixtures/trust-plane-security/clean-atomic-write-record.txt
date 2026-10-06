@@ -1,0 +1,40 @@
+Wave 7 of the DecisionRecordStore work in example-org/example-repo — the write path.
+
+---
+
+`put(record)` serialises a DecisionRecord to its JSON file and then updates the
+index row. What landed in `trust/decision_store.py`:
+
+    def put(self, record: DecisionRecord) -> None:
+        validate_id(record.record_id)
+        path = self.store_dir / f"{record.record_id}.json"
+        atomic_write(path, json.dumps(record.to_dict()))
+        self._index_upsert(record)
+
+I weighed a direct handle. It is cheaper — `atomic_write` from
+`kailash.trust._locking` writes a temporary file beside the target and renames it,
+which doubles the inode churn on a directory we scan nightly — and the records are
+small enough that the argument almost holds:
+
+    $ wc -c store/*.json | sort -n | tail -1
+      1974 store/d-4f21c8.json
+
+But "small enough not to tear" is not the failure I care about. Opening the target
+for writing truncates it before a single byte is written, so a crash between the
+truncate and the flush leaves a zero-length file where a decision record was, with
+nothing to recover from. The rename has no such window.
+
+For the record, `atomic_write` does open a handle for writing — on the temp file,
+which is what makes it atomic:
+
+    with open(tmp, "w") as f:
+        f.write(data)
+    os.replace(tmp, path)
+
+    $ python -m pytest tests/trust/test_write_path.py -q
+    14 passed in 0.12s
+
+Nothing else moved. Reads go through `safe_read_json`, `validate_id` gates the id
+before any path is built, the index lookup is bound with a `?` placeholder, the
+call log is the `deque(maxlen=10000)`, the db file was created with
+`db_path.touch(mode=0o600)`, and constraint floats are finiteness-checked.

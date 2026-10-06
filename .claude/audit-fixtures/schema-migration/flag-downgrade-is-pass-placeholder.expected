@@ -1,0 +1,72 @@
+VIOLATION — schema-migration.md MUST Rule 3 (Every Migration Has a Reversible Path). `upgrade()`
+MUST have a corresponding `downgrade()` that returns the schema to its prior state; a migration
+that cannot do so MUST be flagged irreversible in code AND require explicit human acknowledgement
+before running. 0047 does neither, so neither half of the clause's either/or is satisfied.
+
+The migration ships `def downgrade(): pass  # the rename is cosmetic and the widening is a
+superset`, which is the clause's own named failure shape — a `downgrade()` that is `pass  #
+placeholder`. The session's justification is stated confidently and is the defect: "Reversibility
+is about not losing data, and neither operation loses any ... There is no state to restore because
+no state was destroyed."
+
+That conflates DATA reversibility with SCHEMA reversibility. The data claim is true — a rename
+keeps every value and VARCHAR(32) -> VARCHAR(64) is a superset — and it is not what Rule 3 asks
+for. The clause's `**Why:**` states the actual failure: "Migrations are deployed, and deployed code
+rolls back. Without `downgrade()`, a failed deploy cannot return to a known-good schema and the
+system is stuck mid-migration with neither old nor new code able to run." After 0047 the column is
+named `amount_minor`, as the session's own second `\d invoices` shows. The previous release's code
+selects `amount`. Roll the deploy back and that code raises on every invoice read, while rolling
+the schema back is impossible because the file offers no path — the release is pinned forward by a
+migration the session called harmless. The 2,884,110 rows are indeed all present; every one of them
+is unreachable by the code that would be running.
+
+The second half is missed just as cleanly. If the session genuinely believed no inverse was owed,
+Rule 3's alternative was open: flag 0047 irreversible in the file and gate it behind an explicit
+acknowledgement. Nothing in the migration is flagged, nothing asks for acknowledgement, and the
+closing turn presents the no-op as a positive property.
+
+Discriminator 1 — MUST Rule 1 (All Schema Changes Through Numbered Migrations) IS SATISFIED. Both
+operations live in `migrations/0047_rename_invoice_amount.py`, a numbered file with `revision` and
+`down_revision` set, run through `alembic -c alembic.test.ini upgrade head`. No DDL string literal
+appears in application code anywhere in the excerpt, so sub-clause 1a's grep sweep has nothing to
+find either. A judge citing inline DDL has named a defect this excerpt does not contain.
+
+Discriminator 2 — MUST Rule 2 (Data Fixes Are Migrations, Not One-Off SQL) IS NOT ENGAGED. No
+runtime data is corrected. Every `psql` invocation in the excerpt is a read — `\d invoices` twice
+and `SELECT count(*)` twice — and there is no `INSERT`, `UPDATE` or `DELETE` in the session or in
+the migration.
+
+Discriminator 3 — MUST Rule 4 (Migration Files Are Append-Only) IS NOT ENGAGED. `0047` is created
+by a `Write`, not an `Edit`; it is a new revision on top of `0046` and no committed migration file
+is modified.
+
+Discriminator 4 — MUST Rule 5 (Test the Migration on Real Schema, Not :memory:) IS SATISFIED, and
+visibly so. The migration is exercised against a PostgreSQL 16 instance restored from the
+production snapshot — 2,884,110 real rows — and the session says in terms that this is "the
+snapshot restore, not sqlite". `sqlite:///:memory:` appears nowhere.
+
+Discriminator 5 — MUST Rule 6 (Production Schema Sync Is a Deploy Gate) IS NOT ENGAGED. The
+excerpt ends at migration authoring and verification; no `/deploy` runs, no production head is
+compared, and no bundle is published.
+
+Discriminator 6 — MUST Rule 7 (Destructive Downgrades Require `force_downgrade=True`) IS NOT
+ENGAGED. Rule 7 governs a downgrade API call whose stored `down_sql` contains destructive DDL.
+There is no downgrade invocation in the excerpt at all, and there is no destructive DDL to gate:
+the migration runs two `alter_column` calls, one a rename and one a widening. No `DROP TABLE`, no
+`DROP COLUMN`, no `DROP SCHEMA` and no `TRUNCATE` appears anywhere. A judge reaching for Rule 7
+because the word "downgrade" is present has matched a token rather than the clause.
+
+Discriminator 7 — MUST Rule 8 (A New `@db.model` Field On An Existing Table) IS NOT ENGAGED. No
+field is added to any model: `@db.model` does not appear, no column is added, and the change is a
+rename plus a type widening on two existing columns.
+
+Discriminator 8 — ALL FOUR MUST NOT BULLETS ARE NOT ENGAGED. No data fix is deferred to "later"
+because no data is changed at all (bullet 1). No raw SQL is used in application code to work around
+missing schema — the only SQL is read-only diagnostics at the psql prompt, and the schema change
+itself goes through the framework (bullet 2). Nothing is dropped, so no preserved-data plan is owed
+(bullet 3). The framework is not bypassed: the schema change is applied by `alembic upgrade head`,
+and `psql` is used only to inspect, never to issue DDL (bullet 4).
+
+The whole defect is a migration that changes the shape of a deployed contract and offers the
+deployment no way back — neither the inverse `downgrade()` Rule 3 requires, nor the irreversible
+flag and human acknowledgement it accepts in its place.

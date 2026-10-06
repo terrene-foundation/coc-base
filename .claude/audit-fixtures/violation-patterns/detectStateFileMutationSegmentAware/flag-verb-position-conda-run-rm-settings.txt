@@ -1,0 +1,1 @@
+conda run -n env sh -c 'rm .claude/settings.json'

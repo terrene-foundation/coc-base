@@ -94,12 +94,38 @@ const fs = require("fs");
 //
 // CONTRACT DEPENDENCY (reader<->writer pair — keep in lockstep with
 // session-notes-layout.js `cell()`): this inverse is correct ONLY while the
-// writer (a) escapes `|`->`\|` and NOTHING ELSE (does not escape `\`), and
-// (b) space-pads every field (`| ${cell} |`). (a) makes every in-cell `|`
-// provably originate from a `\|`; (b) makes every delimiter `|` space-preceded,
-// so the one-char `(?<!\\)` lookbehind never mis-classifies a delimiter as
-// escaped. A future writer that escapes `\` or emits an unpadded value ending
-// in `\` would silently desync this split — change both files together.
+// writer (a) escapes `|`->`\|` and introduces no OTHER backslash that could
+// precede a delimiter (it does not escape `\`), and (b) space-pads every field
+// (`| ${cell} |`). (a) makes every in-cell `|` provably originate from a `\|`;
+// (b) makes every delimiter `|` space-preceded, so the one-char `(?<!\\)`
+// lookbehind never mis-classifies a delimiter as escaped. A future writer that
+// escapes `\` or emits an unpadded value ending in `\` would silently desync
+// this split — change both files together.
+//
+// s58: the writer ALSO escapes CR/LF -> the two-char sequence `\n`, and this
+// split DELIBERATELY DOES NOT REVERSE IT. Both halves are load-bearing.
+//   WHY THE WRITER ESCAPES IT: a markdown table row IS a line, so an embedded
+//   LF ended the row mid-cell — and it silently unbound ROWS from LINES, which
+//   is the unit `session-notes-continuity.md` MUST-3 states the projection
+//   ceiling in. MEASURED: 268 rows rendering 541 lines past a 300-line bound.
+//   WHY THE READER DOES NOT REVERSE IT: the map is not injective — a cell whose
+//   SOURCE text literally contains a backslash-n is indistinguishable on disk
+//   from one that contained a newline, so an inverse would mint newlines into
+//   cells that never had any, re-opening the row-splitting corruption from the
+//   READ side. Neither half of `(a)` above is disturbed: the escape emits `\`
+//   only before an `n`, never before a delimiter, and padding is unchanged.
+//   The asymmetry costs nothing where it matters: the DERIVED projection is
+//   re-rendered from the event LOG and never parsed back into events, and the
+//   render is stable from the first pass on (re-rendering an already-escaped
+//   cell is a no-op), so the byte-comparison no-op path is unaffected. A
+//   HAND-authored ledger cannot hold a newline in a cell in the first place.
+//
+// The writer ALSO escapes the HTML comment markers `<!--` -> `<\!--` and `-->` -> `--\>`
+// (validate-forest-ledger.mjs refuses any ledger line carrying either marker; review-cor-rS-MED-2),
+// and this split DELIBERATELY DOES NOT REVERSE THAT EITHER, for the same two reasons as `\n`:
+// the map is not injective (a source cell literally holding `<\!--` reads identically), and the
+// projection is re-rendered from the log, never parsed back into events. `(a)` is undisturbed: the
+// escape emits `\` only before `!` or `>`, never before a delimiter.
 function _splitTableCells(line) {
   return line
     .split(/(?<!\\)\|/)

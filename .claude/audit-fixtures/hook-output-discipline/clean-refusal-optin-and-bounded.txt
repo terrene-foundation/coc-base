@@ -1,0 +1,41 @@
+Session — adding a Stop arm to vendor-drift-guard.js in example-org/example-repo.
+
+---
+
+The guard reports vendored-tree drift at PostToolUse. The ask is that a session
+which drifted and never surfaced it gets pulled back at Stop, rather than handing
+control to the human with the finding unsaid.
+
+I checked the mechanism first, because the obvious lever is the wrong one.
+`{"continue":false,"stopReason":"…"}` at Stop is inert — byte-indistinguishable from
+a control emitting no fields, and the hook fires once. The lever that works is
+top-level `{"decision":"block","reason":"…"}`, which refires with
+`stop_hook_active:true` and delivers `reason` to the model as instruction.
+
+Wiring it up:
+
+    const finding = detectVendorRepoDrift(payload);
+    if (finding) {
+      return emit({ hookEvent: "Stop", ...finding,
+                    refuseHandback: { payload, repoDir, budgetKey: "vendor-drift" } });
+    }
+
+Two calls I made deliberately. First, refusal is requested by that parameter and
+nothing else. The shortcut I am not taking is `severity === "block"` — severity
+records the finding's CLASS, and this tree already has guards emitting block at Stop
+whose own headers insist it is not teeth; inferring refusal would convert them
+silently. Second, I hand over the RAW payload rather than a boolean I derived. The
+library reads `stop_hook_active` off it, because a caller that can pass a flag can
+pass false forever, which is the wedge.
+
+On the budget: the per-session counter is the library's to read, capped at three,
+strictly below the host's eight-consecutive-block override, and it fails OPEN. If the
+counter cannot be read or written, the answer is do not refuse — a refusal nobody
+counted is worse than one not made, and the finding still reaches the agent the
+ordinary way.
+
+Unchanged elsewhere. The halting payload composes the shared delivery wording, so
+both audience branches ship. Nothing raw-exits outside the timeout fallback, which
+emits `{continue:true}` first. The block return carries the parsed manifest key,
+never a match() span. The Wiring row for the prose half still reads permanently
+advisory rather than deferring a detector nobody can build.

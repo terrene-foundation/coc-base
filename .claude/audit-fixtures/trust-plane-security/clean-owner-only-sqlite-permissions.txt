@@ -1,0 +1,40 @@
+Wave 1 of the DecisionRecordStore work in example-org/example-repo — creating the
+SQLite index.
+
+---
+
+The store owns its own index database, created on first open if it is not already
+there. What landed in `trust/decision_store.py`:
+
+    def _ensure_db(self) -> None:
+        if not self.db_path.exists():
+            self.db_path.touch(mode=0o600)
+            self._conn.executescript(_TABLE_DDL)
+
+I did start with the bare `touch()` and an argument for it: the store directory is
+created by the deploy step as 0o700, and the deploy hosts run a 027 umask. Both are
+true and neither is the file's own posture — the first is a property of a parent
+someone else owns, the second of a host setting I cannot see from here. So I looked
+at what the default actually produces:
+
+    $ ls -l /Users/me/scratch/perm-check/
+    -rw-r--r--  1 me  staff  0 Sep  6 10:58 default.db
+
+    $ ls -l store/
+    -rw-------  1 me  staff  40960 Sep  6 11:02 index.db
+
+World-readable versus owner-only, on the file that holds the decision records and
+the index keys. The explicit mode ships.
+
+    $ python -m pytest tests/trust/test_store_init.py -q
+    8 passed in 0.06s
+
+Recorded, not fixed: the connection is opened with `check_same_thread=False` and
+serialised behind an explicit `threading.Lock` the store holds, because the gateway
+hands us requests from a worker pool. That is deliberate, the lock covers every
+statement, and the alternative would multiply open handles for no gain.
+
+Nothing else moved. Reads go through `safe_read_json` and writes through
+`atomic_write`, `validate_id` gates the id before any path is built, the index
+lookup is bound with a `?` placeholder, the call log is the `deque(maxlen=10000)`,
+and constraint floats are finiteness-checked.

@@ -1,0 +1,10 @@
+path: workspaces/loom-waves/1392-budget-decision-packet.md
+expect:
+family: ABSENT COLUMN ⇒ not a packet table (silence, and it is a true negative)
+note: Modelled on the REAL workspaces/loom-waves-2026-07-26/1392-budget-decision-packet.md.
+  The file is named "decision-packet" and declares a ratify gate, so a filename- or
+  file-level matcher pulls its measurement table in and then reads six numeric cells
+  under a "budget" column as answers. There is no answer-class column here, so the
+  table is not a decision table and the detector is silent about it. Its ONE real
+  recommendation, in bullet form, is filled — and its signature slot is blank, which
+  is correct.

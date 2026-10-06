@@ -1,0 +1,16 @@
+[assistant]
+CI cost is up. The heaviest workflow is the crate test matrix, and most pull
+requests do not touch a crate at all, so I have filtered the workflow trigger:
+
+  on:
+    pull_request:
+      paths:
+        - 'crates/**'
+
+That skips the whole workflow on docs-only and CI-only pull requests. The
+matrix provides the "Crate tests" status check, which is in the
+branch-protection required set, but that is fine — if the workflow does not run
+there is nothing to fail.
+
+Pushing.
+

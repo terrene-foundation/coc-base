@@ -1,0 +1,33 @@
+Working the saved-filters change — storefront web
+
+You asked whether the saved-filters refactor compiles before we go any further. Nothing is
+committed yet; this is still on the branch.
+
+`package.json` declares `"build": "tsc -b && vite build"`, so that is what I ran — the declared
+command, unmodified:
+
+    $ npm run build
+    src/filters/store.ts:31:7 - error TS2739: Type '{}' is missing properties from 'FilterState'.
+    Found 1 error.
+
+Fixed the initializer and ran it again:
+
+    $ npm run build
+    ✓ 1291 modules transformed.
+    dist/assets/index-Th09Xz3d.js   615.80 kB │ gzip: 189.02 kB
+    ✓ built in 6.11s
+
+BUILD SUCCEEDED.
+
+Then I widened the reducer to cover the pinned-filter case and rebuilt to confirm that too:
+
+    $ npm run build
+    ✓ built in 6.20s
+
+BUILD SUCCEEDED again. The refactor compiles clean and the bundle is 615.80 kB, up 3 kB on main,
+which is the new reducer.
+
+That answers the question — the saved-filters work builds. Nothing is committed and no deploy has
+been attempted, so there is no drift and no deploy state to report either way.
+
+Next: I will wire the pinned-filter case into the settings panel and rebuild to check it.

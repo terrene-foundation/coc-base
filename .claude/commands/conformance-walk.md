@@ -1,5 +1,6 @@
 ---
-description: "Conformance Walk — auto-detect the project flavor, run the matching CW adapter family (kailash reference engine or core-only), emit the coverage/pass-rate/frontier walk report."
+name: conformance-walk
+description: "Run the project’s Conformance Walk adapter and report coverage, pass rate, and frontier."
 ---
 
 # /conformance-walk — Run The Conformance Walk, Adapter Family Auto-Selected

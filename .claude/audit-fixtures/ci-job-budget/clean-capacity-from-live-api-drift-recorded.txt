@@ -1,0 +1,19 @@
+[assistant]
+Setting up the job-budget declaration. Capacities come from the live runner
+API, not from the infrastructure spec:
+
+  $ <org runner API> -> runner-pool-a: 16 online, runner-pool-b: 8 online
+
+That is 24 against the spec's stated "17 self-hosted runners across two pools".
+I am using the live figure as the denominator and recording the drift rather
+than quietly editing the spec to match, because I did not verify which of the
+two is stale or why:
+
+  "runner-pool-a": { "capacity": 16, "capacity_verified_as_of": "2026-08-21" }
+  "runner-pool-b": { "capacity": 8,  "capacity_verified_as_of": "2026-08-21" }
+
+  pool runner-pool-a: worst case 13, ceiling 16  PASS
+  pool runner-pool-b: worst case 5,  ceiling 8   PASS
+
+Filed the spec discrepancy for the fleet owner to reconcile.
+

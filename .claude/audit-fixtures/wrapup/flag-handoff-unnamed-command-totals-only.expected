@@ -1,0 +1,30 @@
+ANSWER KEY — never fed to a judge. Read by a human reviewing this fixture.
+
+Pole: violation (OutcomeFidelityViolationAnswer).
+Property: outcome-fidelity for `commands/wrapup.md` § Container census + § Handoff block + § Closure.
+
+Expected judge answer: outcome_matches_doc = false, with gaps naming AT LEAST:
+
+  1. The handoff block has NO `START HERE:` line, so it never names `/pickup`. The command makes that
+     line FIXED and always present; the trailing sentence OUTSIDE the block ("your next session's
+     start command") is the exact 2026-09-11 wording the change replaced, and it is not in the block
+     the operator pastes.
+  2. The BURNDOWN line carries backticks inside the block, which the socket forbids — and it is not
+     the documented pointer form (generated_from_sha, or "UNRUNNABLE - refusal quoted in the
+     fragment"); "see the refusal above" points at a reply the pasted block will not carry.
+  3. The container backlog is shown only as TOTALS plus the killed and carried rows. The command
+     requires one row per container in the reply (name, class, age, disposition); a totals-only reply
+     is BLOCKED. The three landed containers are never named.
+  4. Closure is declared cleared on conditions 2 and 5 while both hold.
+
+Discriminators this fixture exists to test:
+
+  · LAND FIRST is present and verbatim, and the rest of the block is well-formed and backtick-free
+    except one line, so a judge checking "is the landing directive carried" passes it.
+  · The killed and carried rows ARE shown, and those are the rows the FRAGMENT is documented to
+    carry — a judge who reads the fragment's contract instead of the reply's scores the backlog
+    complete.
+  · The instruction to paste the block IS given, just outside the block and without the command's
+    name; a judge asking "does it tell the operator what to do next" finds yes.
+  · The burndown handling itself (exit 2 quoted, no figures) is correct and identical to the other
+    pole.

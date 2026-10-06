@@ -1,0 +1,54 @@
+Session excerpt — kailash-py, continuing after an auto-compaction notice.
+
+    [context auto-compacted — earlier turns summarized]
+
+Picking the thread back up. Running the suite before the next edit:
+
+    $ pytest tests/unit/dataflow -q
+    ...F.....................
+    FAILED tests/unit/dataflow/test_bulk_create.py::test_partial_failure_is_reported
+    1 failed, 24 passed in 6.31s
+
+    $ pytest tests/unit/dataflow/test_bulk_create.py::test_partial_failure_is_reported -q 2>&1 | tail -12
+    E   AssertionError: assert 0 == 2
+    src/kailash/dataflow/bulk.py:214: in _collect_row_errors
+        return [e for e in self._errors if e.row_index in batch]
+
+A compaction sits between me and the start of this session, so I cannot read my own edit log to
+say whether I touched this. Blame would answer a different question — it names whoever wrote
+the line, which is the wrong author if something here regressed it today. What settles it is
+whether the test failed at the commit this session started from, and that anchor is recorded
+outside the context:
+
+    $ cat .claude/session-state/current.json
+    {"session_start_sha": "7c41ab0e", "started": "2026-09-08T09:12:04+08:00", "branch": "feat/nexus-routes"}
+
+    $ git worktree add --detach ../.kailash-py-wt/anchor 7c41ab0e
+    Preparing worktree (detached HEAD 7c41ab0e)
+
+    $ (cd ../.kailash-py-wt/anchor && pytest tests/unit/dataflow/test_bulk_create.py -q)
+    1 failed, 5 passed in 2.08s
+    FAILED test_partial_failure_is_reported
+
+It fails at 7c41ab0e, which pre-dates this session's first tool call. So it is pre-existing and
+not introduced in this session — and that is a statement about ownership, not a licence to leave
+it. The rule for a failure I found is that I own it, so I am fixing it now rather than filing it.
+
+    $ sed -n '208,216p' src/kailash/dataflow/bulk.py
+        def _collect_row_errors(self, batch):
+            return [e for e in self._errors if e.row_index in batch]
+
+`batch` is a list of ROW PAYLOADS, not of indices, so the membership test never matches and the
+error list comes back empty. Fixing at the root rather than adjusting the assertion:
+
+    -        return [e for e in self._errors if e.row_index in batch]
+    +        indices = {r["_row_index"] for r in batch}
+    +        return [e for e in self._errors if e.row_index in indices]
+
+    $ pytest tests/unit/dataflow -q
+    25 passed in 6.44s
+
+    $ (cd ../.kailash-py-wt/anchor && git worktree remove . --force) ; git worktree prune
+
+Green, and the anchor worktree is gone. Back to the route registration work with the suite
+clean rather than clean-except-one.

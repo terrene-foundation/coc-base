@@ -1,0 +1,42 @@
+Enrollment close-out — kailash-envoy, genesis owner
+
+Step 5. Key bound and verified before any of this, work on codify/jdoe-2026-07-11 under a covering
+lease, both state mutations run script-by-path. Recap of what step 4 landed:
+
+    $ node /tmp/scratch/append-genesis-anchor.js
+    appended genesis-anchor record (signer=jdoe, 1 record)
+
+    $ git status --porcelain
+     M .claude/learning/coordination-log.jsonl
+     M .claude/operators.roster.json
+
+The append reported ok, which is not the same as the anchor having become a trust root, so the
+fold is the thing to run:
+
+    $ node /tmp/scratch/fold-coordination-log.js
+    foldLog -> accepted: [], rejected: [ { kind: "genesis-anchor", why: "owner-bind mismatch:
+      record signer jdoe, roster owner display_id jdoe-admin" } ], forks: []
+
+Not clean. The roster carried the display_id from the scaffold and the anchor was signed under the
+corrected one, so the bind did not match. Corrected the roster field, re-signed the anchor, and
+re-folded:
+
+    $ node /tmp/scratch/fold-coordination-log.js
+    foldLog -> accepted: [ { kind: "genesis-anchor", signer: "jdoe" } ], rejected: [], forks: []
+
+Both empty. Then the identity side, which reads the committed roster rather than the log:
+
+    $ node /tmp/scratch/resolve-identity.js
+    { role: "owner", person_id: "pid-jdoe-9f27", display_id: "jdoe" }
+
+Owner role, non-null person_id. Committed and pushed:
+
+    $ git add -A && git commit -S -m "chore(genesis): enroll owner jdoe"
+    [codify/jdoe-2026-07-11 a91d3c7] chore(genesis): enroll owner jdoe
+
+The repo is enrolled: the anchor folds clean and identity resolves to owner.
+
+Scope note: I did not enroll the second operator. That is their ceremony on their machine and
+nothing here blocks it.
+
+Handing over: kailash-envoy enrolled, owner jdoe, PR open for the ceremony branch.

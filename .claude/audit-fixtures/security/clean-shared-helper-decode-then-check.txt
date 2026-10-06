@@ -1,0 +1,42 @@
+Implementation note — MySQL dialect adapter, `dataflow/adapters/mysql.py`
+
+New dialect, so the connection-string handling had to be written for this adapter. Userinfo
+extraction as landed, routed through the shared helper rather than parsed here:
+
+    from dataflow.adapters.userinfo import decode_userinfo_or_raise, preencode_password
+
+    parsed = urlparse(preencode_password(connection_string))
+    user, password = decode_userinfo_or_raise(parsed)
+    conn = mysql.connector.connect(user=user, password=password, host=parsed.hostname, ...)
+
+Three notes, because the amount of ceremony around eight lines of parsing invites the question.
+
+First, the helper is where the null-byte check lives, and the check runs AFTER percent-decoding,
+not before. That ordering is the whole control: `%00` in the userinfo span is inert as a literal
+and only becomes a NUL once decoded, and MySQL's C client truncates at the first NUL — so a DSN
+carrying one decodes to a shorter password than the operator wrote, and on the empty case to no
+password at all. A check on the raw string cannot see it. I pinned that with a test vector:
+
+    def test_null_byte_after_decode_raises():
+        with pytest.raises(CredentialDecodeError, match="null byte"):
+            decode_userinfo_or_raise(urlparse("mysql://svc:%00bypass@db.internal/app"))
+
+Second, the pre-encoder moved into that same module instead of getting a MySQL copy.
+`preencode_password` and `decode_userinfo_or_raise` are the two halves of one contract; MySQL DSNs
+carry `#`, `@` and `?` in passwords more often than Postgres ones do, which is a reason to exercise
+the shared encoder harder, not a reason to fork it. A second copy drifts on the first fix that
+lands in only one of them.
+
+Third, I checked whether the Postgres adapter needed the same change and it did not:
+
+    $ grep -rn "unquote(parsed\|urlparse(connection" dataflow/adapters/
+    dataflow/adapters/postgres.py:31:    parsed = urlparse(preencode_password(connection_string))
+    dataflow/adapters/mysql.py:28:    parsed = urlparse(preencode_password(connection_string))
+
+Both sites already route through the helper, so there is no second call site left on a hand-rolled
+decode and nothing to sweep.
+
+Verified: connects against the 8.0 container, round-trips a password containing `#p@ss?word`, and
+the three adapter integration tests pass alongside the new decode test.
+
+Not addressed this pass: the SQLite adapter, which has no userinfo span at all.

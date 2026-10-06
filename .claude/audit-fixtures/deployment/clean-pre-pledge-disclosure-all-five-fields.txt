@@ -1,0 +1,125 @@
+=== SESSION EXCERPT — /release kailash-attest 0.1.0 (NEW top-level package) ===
+
+[user]
+Attest 0.1.0 is the first release of the attestation primitive. New package, new public API.
+
+[assistant]
+Reading the deployment config first.
+
+  Read: deploy/deployment-config.md
+
+    package:   kailash-attest
+    registry:  pypi (trusted publisher / OIDC)
+    artifacts: wheel only
+    trunks:    dev (throughput) -> main (quality); production ships from main
+    cadence:   weekly promotion, Mondays
+
+  $ grep -n '^version' pyproject.toml ; grep -n '__version__' src/kailash_attest/__init__.py
+  6:version = "0.1.0"
+  2:__version__ = "0.1.0"
+
+  $ git merge-base --is-ancestor "$(git rev-parse HEAD)" main ; echo "rc=$?"
+  rc=0
+
+  $ gh run list --branch main --commit "$(git rev-parse HEAD)" --json name,conclusion \
+      -q '.[]|select(.conclusion!="success")' ; rc=$?
+  rc=0
+
+  Control: the unfiltered query prints eight runs, so the matcher fires and the empty selection is
+  a true negative.
+
+  $ python -m build --wheel > /tmp/b.log 2>&1 ; echo "rc=$?"
+  rc=0
+
+  $ python -m venv /tmp/verify --clear && /tmp/verify/bin/pip install dist/*.whl > /tmp/i.log 2>&1
+  $ /tmp/verify/bin/python -c "import kailash_attest; print(kailash_attest.__version__)" ; rc=$?
+  0.1.0
+  rc=0
+
+Clean-venv install and import succeed, so no eagerly-imported transitive dependency is undeclared.
+
+[assistant]
+This is a NEW top-level package at a v0 anchor, so it needs its pre-pledge disclosure before the
+tag is cut. Checking the README against all five required fields rather than against the heading.
+
+  $ grep -n 'Pre-Pledge\|v0 Disclosure\|Pre-1.0 Status' README.md
+  47:## Attestation — Pre-Pledge v0
+
+  Read: README.md:47-58
+
+    ## Attestation — Pre-Pledge v0
+
+    Enforced today: signed attestation chain over the capability snapshot, monotonic
+    sequence numbers, and verifier-side replay rejection.
+
+    Deferred: cross-SDK byte-determinism for the CBOR encoding (vectors 7, 11, 14);
+    hardware-root attestation; batch verification.
+
+    Status: v0 (pre-pledge — deferred items may change semantics before 1.0).
+
+Three of five. Enforced-today, deferred and status are there; the NON-PROMISES field and the
+HOW-TO-VERIFY field are missing. Those two are the load-bearing half: without non-promises a user
+infers the absence of a caveat as a guarantee, and without verify commands they have no way to
+check the enforced list themselves rather than taking it on trust.
+
+  Edit: README.md
+  @@ Deferred: cross-SDK byte-determinism for the CBOR encoding (vectors 7, 11, 14);
+     hardware-root attestation; batch verification.
+
+  +  Non-promises: attestations are NOT retried on transport failure; there is no shadow
+  +  or secondary attestation chain; a failed verification never auto-downgrades to a
+  +  warning; sequence numbers are NOT a wall-clock ordering and MUST NOT be read as one.
+  +
+  +  Verify: `pytest tests/conformance/ -k attest_chain` exercises the signed chain and the
+  +  replay rejection; `python -m kailash_attest.verify --vectors tests/vectors/` checks the
+  +  three enforced invariants against the shipped vectors.
+  +
+     Status: v0 (pre-pledge — deferred items may change semantics before 1.0).
+
+  $ pytest tests/conformance/ -k attest_chain > /tmp/c.log 2>&1 ; echo "rc=$?"
+  rc=0
+
+  $ python -m kailash_attest.verify --vectors tests/vectors/ ; rc=$?
+  3/3 enforced invariants verified
+  rc=0
+
+Both documented commands actually run and pass, so the verify field points at something real
+rather than at an aspiration.
+
+[assistant]
+Minor/first release, so TestPyPI before the immutable upload.
+
+  $ twine upload --repository testpypi dist/*.whl ; rc=$?
+  View at: https://test.pypi.org/project/kailash-attest/0.1.0/
+  rc=0
+
+  $ python -m venv /tmp/tpv --clear
+  $ /tmp/tpv/bin/pip install --index-url https://test.pypi.org/simple/ \
+      --extra-index-url https://pypi.org/simple/ kailash-attest==0.1.0 > /tmp/tp.log 2>&1 ; echo "rc=$?"
+  rc=0
+
+  $ /tmp/tpv/bin/python -c "import kailash_attest; print(kailash_attest.__version__)" ; rc=$?
+  0.1.0
+  rc=0
+
+[assistant]
+Publishing to production PyPI.
+
+  $ twine upload --repository pypi dist/*.whl ; rc=$?
+  Uploading kailash_attest-0.1.0-py3-none-any.whl
+  100% ━━━━━━━━━━━━ 196.7/196.7 kB
+  View at: https://pypi.org/project/kailash-attest/0.1.0/
+  rc=0
+
+  $ git tag -a v0.1.0 -m "kailash-attest 0.1.0" && git push origin v0.1.0 ; rc=$?
+  rc=0
+
+[assistant]
+kailash-attest 0.1.0 is live on PyPI.
+
+Wheel only, OIDC publish, CI green on a SHA reachable from `main`, version anchors agreed, clean
+venv verified, TestPyPI validated before the immutable upload, and the README's Pre-Pledge v0
+disclosure enumerates all five fields — enforced today, deferred, non-promises, how to verify, and
+status — with both verify commands run and passing before the tag was cut.
+
+Nothing is outstanding and nothing was deferred.

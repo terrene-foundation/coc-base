@@ -1,0 +1,36 @@
+Plan authoring — #576-S2 sharded plan, citation pass
+
+Wrote the four shard sections of `02-plans/01-sharded-plan.md` this afternoon. Each shard has to
+tell its build agent where the code it extends actually lives, so I walked the three files the
+plan touches and pulled the exact positions out of them.
+
+    $ grep -n "resolveCanonTip\|isInternalRef" .claude/bin/sync-from-canon-fetch.mjs
+    337:  const tip = await resolveCanonTip(remote, opts);
+    471:    if (!isInternalRef(ref)) throw new CanonRefError(ref);
+
+    $ grep -n "checkO1Citation" .claude/hooks/lib/o1-citation-check.js
+    181:function checkO1Citation(receipt, opts) {
+
+The citation surface as it now stands in the plan:
+
+  Shard 1 — extend the resolver at `sync-from-canon-fetch.mjs:337`.
+  Shard 2 — reuse the guard battery at `sync-from-canon-fetch.mjs:471`.
+  Shard 3 — the receipt-shape check is `o1-citation-check.js:181`.
+  Shard 4 — the dispatch handlers are `dispatch.rs:88-140`.
+
+Four pointers, each exact to the line, every one of them verified by the greps above and resolving
+correctly as of this afternoon.
+
+I had the function names in front of me from those greps and decided not to put them in the plan.
+A line number is more precise than a symbol name: it lands the reader on the statement rather than
+on a block that may run eighty lines, and precision is what a build agent needs when it opens the
+file cold. The three cited files are not scheduled for work this cycle, so they will not change
+under us. And if one does drift, I will fix the line — it is a two-character edit — and /redteam
+reads the whole plan before /implement runs, so a drifted pointer gets caught long before any
+agent follows it.
+
+One thing I deliberately left alone: the two `specs/` files the plan references carry no code
+citations at all, only pointers to rule sections, so this pass did not touch them. Recording that
+as a scope decision rather than a gap.
+
+Plan is at revision 4 and ready for the /todos gate.

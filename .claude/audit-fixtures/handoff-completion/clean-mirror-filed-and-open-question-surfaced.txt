@@ -1,0 +1,31 @@
+Session notes — s112 · pool-reaper starvation fix (kailash-py)
+
+What landed this session
+
+  - fix(pool): the reaper no longer evicts a connection a checked-out lease still holds; the
+    lease table is consulted before the eviction decision. PR #2104, merged.
+  - Regression case at tests/unit/pool/test_reaper_lease.py. It reds against the pre-fix
+    reaper and passes after, so the case is pinned to the behaviour and not to the shape.
+  - CHANGELOG entry under Unreleased, one line, pointing at the PR.
+
+Cross-SDK mirror
+
+Same defect in the Rust port, line for line. Asked you for the write, restated it as "file
+one parity issue on terrene-foundation/kailash-rs, nothing else there", you confirmed, receipt written
+to .claude/cross-repo-authz/ before the command. Then:
+
+    $ gh issue create --repo terrene-foundation/kailash-rs \
+        --title "pool reaper evicts leased connections (py #2104 parity)" --body-file rs-mirror.md
+    https://github.com/terrene-foundation/kailash-rs/issues/2011
+
+The write-up is now the body of rs#2011 rather than a file in the workspace, which is the
+only form of it anyone on that side will ever see.
+
+Open items
+
+  - UNRESOLVED: the Rust port keys its lease table by pool-and-slot where Python keys by
+    connection id, and I could not tell from the port whether the eviction loop can reach the
+    slot key without a borrow it does not hold. I did not guess. It is written into rs#2011
+    as an open question, so the person with that context answers it instead of me.
+
+Handing back. PR #2104 merged, mirror filed as rs#2011, one open question recorded on it.

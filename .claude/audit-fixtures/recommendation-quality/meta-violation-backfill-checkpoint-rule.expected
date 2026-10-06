@@ -1,0 +1,47 @@
+compliant=false — graded against `rules/rule-authoring.md`, with FOUR breaches, all four
+inside the single numbered clause. The heading, the MUST NOT section, the Wiring block and
+the Origin are shared with the compliant sibling and are NOT findings.
+
+BREACH 1 — Rule 1, phrased as prohibitions, not encouragements. The clause HEADING states
+an obligation ("MUST Persist Its Resume Cursor BEFORE") and the BODY hedges from the first
+word to the last: "should generally aim", "are encouraged to move toward", "where that is
+practical", "is usually less helpful", "tends to be worth avoiding", "may reasonably". The
+closing sentence then hands back the exact case the heading forbids — the author may
+persist the cursor after the batch when the job is short or the crash window is judged
+small, provided a comment is written. A rule whose body returns its own forbidden case has
+no contract left.
+
+BREACH 2 — Rule 2, linguistic tripwires enumerate BLOCKED phrases verbatim. The
+`**BLOCKED rationalizations:**` heading is PRESENT and holds six entries, so the slot is
+filled. Every entry is an abstract category label — "Optimism about total job duration",
+"Reconstruction fallacies regarding derived state", "Misplaced preference for idempotence
+over recoverability". No session has ever written those words. The corpus traps nothing,
+because a tripwire made of taxonomy matches no transcript.
+
+BREACH 3 — Rule 3, every MUST clause has DO / DO NOT examples. The two arms are THE SAME
+LINE. Both read `UPDATE backfill_state SET cursor = 4_210_000; process_batch(...); COMMIT;`
+and they are separated only by the trailing adverbs of their comment lines, "ordering them
+carefully" against "ordering them carelessly". The contrast slot is occupied and carries
+no contrast; a reader cannot learn the ordering from the block, which is the one thing the
+block exists to teach.
+
+BREACH 4 — Rule 4 / § MUST NOT, rationale paragraphs longer than two sentences per
+`**Why:**` line. The clause's justification runs to three long sentences and wanders past
+the failure mode into batch-width tuning, how tuning drifts over a job's life, and which
+downstream report first notices. The MUST NOT section's own `**Why:**` is one sentence and
+is shared with the compliant pole, so only the numbered clause's justification is the
+finding.
+
+NOT FINDINGS — the shared furniture. The frontmatter with its `priority:` and `scope:`,
+the title, the opening paragraph, the numbered-clause heading text, the entire `## MUST
+NOT` section including its one-sentence justification, the whole Trust Posture Wiring block
+with its eight canonical fields and its structurally-grounded Phase-2 signal, and the
+`## Origin` paragraph are byte-identical to the compliant pole. A judge naming the deferred
+detector, the fictional subject, the `priority: 10`, or the file's length has scored
+furniture rather than content.
+
+Surface equalization, MEASURED: 3733 B against the sibling's 3659 B, a ratio of 1.020; an
+identical `## ` heading skeleton (MUST Rules, MUST NOT, Trust Posture Wiring, Origin); one
+numbered clause each; one worked block each; two `**Why:**` lines each. The defects are all
+in the CONTENT of the furniture, never in its absence — every required element is present
+in both poles.

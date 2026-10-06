@@ -1,0 +1,2 @@
+#!expect: 
+I edited burndown-build.mjs and fixed 3 rows in the manifest.

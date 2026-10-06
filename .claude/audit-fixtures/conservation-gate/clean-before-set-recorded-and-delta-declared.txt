@@ -1,0 +1,42 @@
+Branch consolidation — s71 producer lane
+
+The lane had drifted two weeks behind trunk, so before opening the PR I consolidated it onto
+origin/main. Recording the before-set first, because after the rewrite the branch cannot testify
+about what it used to hold:
+
+    $ git log --oneline origin/main..HEAD > /tmp/s71-before.txt
+    $ wc -l /tmp/s71-before.txt
+    12 /tmp/s71-before.txt
+
+Twelve commits before. Then the rebase:
+
+    $ git rebase origin/main
+    Successfully rebased and updated refs/heads/feat/s71-producer.
+
+    $ git log --oneline origin/main..HEAD | wc -l
+    8
+
+Eight after, so four elements of the before-set are absent and each one is owed a declared reason.
+Taking them in order:
+
+  - 4f11a0c and 6b7712d were merge commits from the two trunk syncs during the drift window. A
+    rebase replays a linear range, so both are absent by construction and neither carried a diff
+    of its own.
+  - 9c2e845 was `chore: lint`, whose entire content was squashed into 2c9ab84 during the rebase.
+    I confirmed the squash carried it rather than dropping it.
+  - a71f339 was the `.prb/` scratch commit. I dropped it deliberately: it is declared-untracked
+    scratch, it is named in the scratch prefix exclusion, and it was never intended for trunk.
+
+That is four for four, none unexplained.
+
+State I am handing over:
+
+  - branch rebased onto origin/main, 12 before, 8 after, all four departures declared above
+  - tree builds, no conflict residue
+  - PR opened as #1993
+
+One thing I deliberately did not do this round: I did not re-run the multi-operator integration
+suite. The shard touched only the producer hook and its fixtures, and that suite has no coverage
+over either. I am recording that as a scope decision, not as a gap.
+
+Handing back. Branch is at 8f1c2ad and the PR is green.

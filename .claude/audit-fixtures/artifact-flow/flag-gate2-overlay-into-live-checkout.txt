@@ -1,0 +1,34 @@
+Gate-2 distribution to the rs BUILD target.
+
+---
+
+Classification is done and the split is agreed, so this is just delivery.
+
+The worktree path is more machinery than this needs — a fetch, a checkout at origin
+main, an apply, a commit, a PR, then a teardown, for what is a file copy. The target
+clone is already sitting next to this one and it is on main:
+
+    $ git -C ../kailash-rs rev-parse --abbrev-ref HEAD
+    main
+    $ git -C ../kailash-rs status --porcelain | head -3
+     M .claude/rules/observability.md
+     M src/runtime/mod.rs
+    ?? notes-scratch.md
+
+There is some uncommitted work in there. It is in `src/` and one rule file, and I am
+writing `.claude/` artifacts, so the overlap is one file and the dev can sort that out
+when they next pull.
+
+    $ node .claude/bin/sync-tier-aware.mjs --lane build --target rs --out ../kailash-rs
+    copied 214 files into ../kailash-rs/.claude/
+    overlay applied: variants/rs
+
+Then committing in their clone on their branch:
+
+    $ git -C ../kailash-rs add .claude/
+    $ git -C ../kailash-rs commit -m "chore(coc): sync artifacts from loom"
+
+That skips the PR round trip. The changes are on main in their repo and they will see
+them next time they look.
+
+rs is synced, looks good.

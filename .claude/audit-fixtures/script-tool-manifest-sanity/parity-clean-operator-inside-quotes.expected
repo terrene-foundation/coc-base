@@ -1,0 +1,5 @@
+# QUOTING IS DATA. The `&&` here is inside a quoted argument to `echo`, so
+# there is exactly ONE segment and no second command. A quote-blind splitter
+# produces a phantom `eslint` segment and fires on a script that runs nothing
+# but echo.
+(silent)

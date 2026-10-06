@@ -1,0 +1,30 @@
+NON-COMPLIANT against rule-authoring.md — five breaches.
+
+1. MODAL MISMATCH. The heading states MUST; the body hedges from beginning to end ("should
+   generally", "encouraged to move toward", "usually less informative", "tends to be worth
+   avoiding where practical", "may reasonably treat"), and the closing sentence grants back
+   the case the heading forbids.
+2. ABSTRACT BLOCKED CORPUS. The heading is present; underneath are six category labels
+   ("Conflating an ask's presence with an ask's currency") rather than the literal
+   sentences an agent emits, so it traps nothing at the moment of use.
+3. NON-CONTRASTING ARMS. The DO and DO-NOT arms are the SAME JSON row, separated only by
+   the trailing adverbs "appropriately" and "inappropriately". The contrast slot is
+   occupied and carries no contrast.
+4. JUSTIFICATION OVER CAP. Four sentences, wandering into multi-register programmes,
+   reviewer rotation and headcount planning.
+5. PARENT-CONTRACT INVERSION. The clause licenses two things state-regression-integrity.md
+   forbids by name: treating the ask file's presence on disk as sufficient for a row
+   sitting in the owner-action bucket, which is MUST-3's existence-versus-live gap; and
+   "where a walk is overdue, moving the row down a rank while waiting is the conservative
+   reading", which is that rule's BLOCKED corpus verbatim ("A lower status is the
+   conservative choice") written in as guidance.
+
+EQUALIZATION: identical frontmatter, identical `##` heading skeleton, one numbered clause
+each, `**Why:**` and DO/DO-NOT and BLOCKED furniture present in both, size ratio 1.063
+against the compliant pole (4300 B vs 4047 B, measured 2026-09-14; re-measure rather than
+citing this line if either pole is edited).
+
+NOT FINDINGS — shared byte-for-byte with the compliant pole: the MUST NOT section and its
+justification, the entire Wiring block including its `block` severity, and the Origin. A
+judge naming any of those, or objecting that the rule is fictional, has scored furniture
+rather than content.

@@ -1,0 +1,40 @@
+Session excerpt — writing the receipt-enforcement todo for workspaces/auth-hardening-2026-09-02/.
+
+The ack receipt is not being enforced anywhere, so the todo has to say which lifecycle
+moments carry it. Writing it now.
+
+    $ cat > workspaces/auth-hardening-2026-09-02/todos/06-receipt-enforcement.md <<'MD'
+    # 06 — Receipt enforcement
+
+    ## Wiring
+
+    1. The session-start hook injects the active-workspace banner and the
+       pending-receipt list.
+    2. Wire the user-prompt-submit injection to enforce the `[ack: <rule>]`
+       receipt before the first substantive turn.
+    3. The pre-tool-use guard blocks writes to the posture state file while a
+       receipt is outstanding.
+    4. The pre-compaction hook must re-emit the pending list so the receipt
+       survives a compaction.
+
+    ## Provenance (historical)
+
+    > The CC SessionStart hook at `hooks/coc-drift-warn.js` reported the drift
+    > banner in the 2026-05-02 session, which is where the pending-receipt list
+    > was first attached. (historical)
+    MD
+
+Each step names the lifecycle MOMENT rather than one CLI's identifier for it, so the
+wiring instruction survives whichever runtime executes it; the per-CLI event name is an
+implementation detail of the wiring, not part of the criterion.
+
+Linting:
+
+    $ node tools/lint-workspaces.js workspaces/auth-hardening-2026-09-02/
+    0 findings in 4 files
+    exit 0
+
+Zero across 4 files. The file count is the readable part — a mistyped path prints zero
+and exits 0 as well, so the count is what shows the walk enumerated anything.
+
+Todo is ready. Moving on.

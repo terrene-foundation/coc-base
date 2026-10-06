@@ -392,3 +392,242 @@ sites 2 and 3 pin current correct behaviour. Stating that beats an aggregate
 NOT a migration backlog and MUST NOT be driven to zero by count. Ask instead:
 *at this site, does a match relax or tighten detection?* Relaxes ⇒ quote-aware.
 Tightens ⇒ flat.
+
+## Residual mechanics (a)–(i)
+
+Full mechanism for each accepted residual, extracted from the rule body at F100
+(loom#1793) so the rule carries the register and the extract carries the why.
+
+- **(a) variable-assembled / indirected paths** (`P=…; rm "$P"`) — the literal
+  path is absent from the command string, so no path-matcher can resolve it.
+  Correct per `hook-output-discipline.md` MUST-3, which forbids in-hook shell
+  expansion.
+- **(b) interactive editors** (`vim`/`ex`/`ed`/`nano`/`emacs -batch`) — neither
+  layer keys on editor verbs.
+- **(c) a script file whose hardcoded body writes the path**
+  (`python3 write_state.py`, path not on the command line). The `/whoami
+  --register` roster write and the `/certify` coordination-log anchor each write
+  via a ceremony script invoked by its own path, the protected path living in
+  the script body. The Layer-4 pass closes ONE narrow sub-case: the ceremony's
+  write (test `NEW-C`) and run (`NEW-A`/`NEW-A2`/`NEW-B`) are SEPARATE Bash
+  invocations, each analyzed independently, so neither alone satisfies the
+  write+run conjunction.
+- **(d) an interpreter behind a command prefix** (`sudo`/`env`/`time`/`nice`/a
+  `VAR=val` assignment / a subshell) — the Layer-3 fallback anchors on the
+  interpreter as the leading token of a command segment, the same limit the
+  removed `Bash(python*<state>*)` prefix-glob had. Layer 4's RUN half shares the
+  root cause: a shebang/executable-bit (`chmod +x s && ./s`) or shell-sourced
+  (`source s` / `. s`) run is the same accepted residual.
+- **(e) `cd` then bare-relative redirect** (`cd .claude/learning && echo >
+  posture.json`) — `STATE_PATH_RX` anchors on the literal `.claude/learning/`
+  prefix, which the bare relative path lacks after the `cd` (#745 Evasion 2).
+- **(f) glob-metacharacter redirect target** (`posture.jso[n]`, `posture.jso?`,
+  `posture.js*n`) — bash expands the glob to the real file at runtime, but the
+  pre-expansion token carries a `[`/`?`/`*` that `STATE_PATH_RX` cannot match.
+  The glob must expand to exactly one file, else bash errors "ambiguous
+  redirect".
+- **(g) PATH-AS-DATA indirection** — the path is written to a DATAFILE (not the
+  executed script) and the executed script READS it at runtime (`echo <path> >
+  /tmp/pf; node -e '…read /tmp/pf…write…'`). Reproducible with NO heredoc.
+- **(h) write verb / interpreter outside the POSITIVE Layer-4 allowlists** — a
+  `patch`/`ed` write, a `mv`-rename dataflow hop, or an interpreter absent from
+  `RUN_INTERPRETER_RX`. Broadening the allowlists (`sponge`/`cp`/`install`;
+  `deno`/`bun`/`php`) narrows this residual but a positive allowlist is never
+  exhaustive. Sub-case: a listed SINK verb behind a command PREFIX (`sudo tee
+  s`, `env cp /dev/stdin s`) is not stage-lead-recognized — the WRITE-half
+  analogue of (d). A `>`/`dd of=` write behind a prefix IS still caught, since
+  those scan the whole line, not the stage lead.
+- **(i)** see § "(i) — the interpreter write-vector allowlist" below.
+
+Residuals (a)–(f) were equally open under the prior `Bash(verb:path)`
+deny-matrix; the deepest forever-defense for the coordination log + posture
+state is the signed-fold / fail-closed-to-L1 integrity layer, not the command
+interceptor.
+
+## (i) — the interpreter write-vector allowlist
+
+`STATE_INTERP_WRITE_RX` is function-agnostic (it matches the write VECTOR, not
+the API name) and grouped BY SURFACE in `STATE_INTERP_WRITE_SOURCES` so a new
+language/API has an obvious home:
+
+1. **mode + open flags** — comma-quoted write MODE (`,'w'`/`,'a+'`/`,'r+'`; a
+   tight grammar so `,'war'` or read mode `,'r'` does NOT match), python keyword
+   `mode='w'`, positional-first `Path(p).open('w')`, the perl/ruby SHELL-mode
+   open (`, '>'` / `, '>>'` / `">$p"` — perl's CANONICAL write form, which the
+   mode grammar alone never admitted), perl `+<`, POSIX open-flag barewords
+   (`O_WRONLY`/`O_TRUNC`/…).
+2. **node fs write APIs** — `writeFile`/`WriteStream`/`appendFile` plus the fd
+   forms `writeSync`/`writev`/`writevSync`. Fs-only spellings: a bare `write(`
+   would false-match `process.stdout.write(`.
+3. **destructive / replacement ops** — `\b`-anchored `syswrite`/`unlink`/
+   `rename`/`truncate`/`ftruncate` (+ `…Sync`, so `renamed_files` does NOT
+   match) and the CALL-anchored `rm(`/`rmSync(`/`rmdir(`, `copyFile(`/`cp(`,
+   `chmod(`/`chown(`/`utimes(`/`mkdir(`/`symlink(`/`link(`. Call-anchoring is
+   what keeps prose passing — `node -e 'const s="rm <state>"'` stays clean.
+4. **python** — `os.{remove,replace,rename,unlink,truncate,chmod,…}`,
+   `shutil.{copy,copy2,move,rmtree,…}`, `write_text`/`write_bytes`,
+   `inplace=True`.
+5. **ruby** — `File.{write,binwrite,delete,rename,truncate,…}`,
+   `IO.{write,binwrite,copy_stream}`, `FileUtils.*`. `File.open`/`File.new` are
+   deliberately ABSENT — they are mode-gated by group 1, because
+   `File.open(p).read` is a legitimate READ.
+6. **shell-out from the body** — `os.system(`, `subprocess.*`, `child_process`,
+   `execSync(`, `spawn(`, `Popen(`, `system("…")`. The interpreter becomes a
+   shell, so the inner command is an unanalyzable write vector.
+7. **dynamic dispatch / obfuscation** — a bracket member-access whose key is
+   built by `+` (`fs['write'+'FileSync']`), `eval(`, `new Function(`,
+   `__import__('os'…)`, `getattr(os,…)`, `File.send(`. An un-analyzable body in
+   a command naming authority state fails CLOSED, while a NON-concatenated
+   `fs['readFileSync']` still reads clean.
+
+`STATE_INTERP_INPLACE_RX` separately covers the perl/ruby `-i` in-place flag —
+the one write vector living in ARGV rather than the body (`perl -i -pe
+'s/L1_SUPERVISED/L5_DELEGATED/' <state>` rewrites the file with NO write API in
+the command text).
+
+**The #1337 corpus.** The original #1292 allowlist enumerated ~8 vectors and
+left most of each interpreter's real mutation surface open: empirically 37 of a
+4-interpreter mutation corpus reached the file untouched, including
+`fs.rmSync`/`copyFileSync`/`chmodSync`/`writeSync`, python
+`os.remove`/`os.replace`/`shutil.*`/`write_text`/`mode='w'`, ruby
+`File.write`/`File.delete`/`IO.write`/`FileUtils.*`, perl's canonical 2-/3-arg
+shell-mode `open(FH, ">", $p)`, and the perl/ruby `-i` ARGV flag.
+
+**The five second-pass evasions** (`.claude/hooks/lib/violation-patterns.js`,
+the `STATE_INTERP_WRITE_SOURCES` list), each of which reached the file untouched
+against the real hook before the fix: a NUMERIC open flag (`openSync(p, 577)` =
+`O_WRONLY|O_CREAT|O_TRUNC`, and its perl `sysopen` sibling — the `O_*` bareword
+pattern matched the SPELLING only); a truthy-but-not-`True` python `inplace=`
+(`inplace=1`/`2`/a variable — the pattern keyed on the literal `True`); perl's
+body-side in-place variable `$^I` / `$INPLACE_EDIT` (set in the BODY, so neither
+the ARGV `-i` regex nor any body token saw it); and the two quote-like shell-out
+spellings ruby `%x{…}` and perl `qx{…}`. The numeric-flag closure is scoped to
+the `open`-family CALL surface, so an opaque numeric flag reaching a write by
+another route (a bare fd from a helper, `mmap`) remains residual; the `%x`
+non-bracket delimiters are matched with a format-string discriminator, so a
+printf conversion (`"%x/%x"`) stays clean.
+
+**Documentation-body masking (#1292).** `detectStateFileMutationSegmentAware`
+masks a state-write example quoted as DATA inside a non-interpreter wrapper —
+`git commit` (pre-existing) PLUS `gh issue/pr create|edit --body/--body-file`,
+`echo`, `printf` — so a write example quoted in an issue body or commit message
+does NOT fire, while a REAL interpreter execution and the stdin-heredoc case
+(`python3 - <<PY … open(p,'w') … PY`) still do.
+
+## Layer 4 — heredoc parser mechanics
+
+**Positive allowlists.** The write surface covers `>`/`>>` + `tee`/`sponge`/
+`cp`/`install` stdin-sinks + `dd of=`; the interpreter set covers the standard
+shells plus common script interpreters (`node`/`nodejs`/`python`/`python3`/
+`ruby`/`perl`/`bash`/`sh`/`zsh`/`deno`/`bun`/`php`/`tsx`/`Rscript`/`lua`/…). A
+write-verb or interpreter outside either is residual (h).
+
+**Opener parsing.** Parsed with bash quote-removal + escape: numeric `<<9`,
+quoted `<<"9"`, hyphenated `<<'a-b'`, partially-quoted `<<E"O"F`, ANSI-C/locale
+`<<$'EOF'` / `<<$"EOF"` — all close on their dequoted terminator, not the narrow
+`[A-Za-z_]` an earlier cut used. The `<<<` here-string form is STRUCTURALLY
+excluded via a char-scan, not a regex lookahead a shifted re-match could slip
+past into a phantom-body evasion.
+
+**Delimiter-close is STRUCTURAL.** A plain `<<EOF` closes ONLY on an
+exactly-`EOF` line (no leading whitespace); a `<<-EOF` strips leading TABS only,
+never spaces. `tee` collects EVERY operand (`tee a b`, `|& tee`,
+backslash-in-quote args) so executing ANY written file is caught.
+
+**The fail-closed backstop.** It covers residual divergence between this
+hand-written parser's terminator/close derivation and bash's — an ANSI-C
+`<<$'EO\x46'` escape, a same-line arithmetic `1<<4` opener with a seeded close,
+a `\r`-seeded early close. Such a divergence can only SPILL the real body + RUN
+line into `structural`, so if the protected path appears on a structural line
+AND a structural-written script is executed on a structural line, it flags. The
+per-body `pathRx.test(hd.body)` gate runs before the structural exec-scan and
+cannot see a truncated body, but the backstop can.
+
+**Why the doc-authoring case is safe.** The LEXICAL heredoc-body write-call
+regex a prior attempt shipped hard-blocked writing a doc that merely QUOTED
+`writeFileSync(".claude/…")` — the exact self-block on editing THIS rule's
+fixtures. The structural write→execute conjunction avoids it because (b) fails:
+authoring WRITES a file but does not execute it.
+
+**Git-commit chaining.** A heredoc chained AFTER `git commit` (`git commit -m x
+&& cat >s.cjs <<EOF …write… EOF; node s.cjs`) is analyzed on its own write→exec
+merits, never skipped — strictly tighter than a scoped git-commit skip.
+
+## Layer-3 path-class justification
+
+**Why the BOUNDED set may be advisory.** `observations.jsonl` qualifies because
+a forged positive observation cannot self-upgrade — it is AND-gated on the human
+challenge-nonce (`trust-posture.md` MUST-5) — and a wipe only harms the agent's
+OWN upgrade eligibility (self-harm, not escalation). The caches
+(`.heartbeat-cache`, `.session-end-cache`) are ephemeral.
+
+**Why the block set may NOT.** On a coordination-OFF repo nothing re-derives
+them, so their Layer-3 forgery would STAND:
+
+- a forged `posture.json` is a trusted L5 grant, read via
+  `state-io.js::readPosture`, which has NO signature check;
+- deleting `.initialized` (+ `posture.json`) yields a fresh-repo L5 reset
+  (`trust-posture.md` MUST-2 / CRIT-4);
+- wiping `violations.jsonl` evades the cumulative-downgrade counter;
+- `presence-mechanism.json` is a standalone provisioning contract, not
+  fold-derived;
+- roster and coordination-log are committed / append-authority sources.
+
+**The ~0-FP premise and its repair.** Prose-mentions of the block-set paths are
+rare because the #1292 `gh`/`echo`/`printf` mask handles the doc-wrapper case —
+a premise #1363 found FALSE as originally shipped. The mask was defeated by
+markdown backticks in ANY quoted body (a backtick was matched even inside a
+single-quoted span, where the shell cannot execute it) and did not cover `git
+tag -m` / `git notes -m` / `gh release --notes` / `gh gist --desc` / `gh pr
+comment|review --body` at all, so ordinary prose ABOUT a state file blocked at
+`block` severity. The rule's § "The prose exception is QUOTE-AWARE …" restored
+the premise by fixing that root cause rather than demoting the severity.
+
+**The two false-positive classes #1293 named**, both on
+`.claude/learning/observations.jsonl`: Class 1 = a read-only `node -e`; Class 2
+= a write-example quoted inside a `gh --body`/`echo` wrapper arg.
+
+## Git-commit-body exception
+
+**Why quote-awareness and masking are jointly load-bearing.** `git commit -m
+"cleanup && rm <state>"` keeps the operator inside the quotes (one segment) AND
+masks the body, so a mentioned verb/path never flags. A naive split-on-`&&` OR a
+run-detection-on-the-raw-commit-segment would each re-expose the false positive.
+
+**The two evasions that forced mask-not-skip.** A whole-command skip (the
+pre-#745 form, `isGitCommitWithBody ? null : detect(...)`) let `git commit -m x
+&& rm <state>` ride, because the leading-anchor `[^|;]*` did not exclude `&`
+(#745 Evasion 1). A whole-SEGMENT skip let `git commit -m x > <state>` ride — a
+redirect ON the commit segment, the same exploitation primitive.
+
+**Fail-closed cases.** `git commit -m "$(rm <state>)"` and `git commit -m $'\''
+&& rm <state>` MUST block; a benign `$(…)` with no state path MUST NOT
+over-block. `${x}` parameter expansion runs no command and MUST NOT trigger the
+raw re-scan.
+
+**The recognizer's inline-body forms.** `-m`, attached `-m"…"`, combined `-am`,
+`--message[= ]`, `-F`, `--file[= ]`. A `\s-m\s`-only anchor false-positive-blocks
+a legit `git commit -am "…<verb> <state>…"` whose message merely mentions a verb
+plus a state path.
+
+## The shared pathRx registry
+
+**The ~10 sites the answer had fragmented across, before loom#1422 built them
+all from `PROTECTED_PATHS` in `hooks/lib/guard-path-scope.js`:**
+`STATE_PATH_RX` / `LAYER3_BLOCK_RX` / `COORD_MODE_RX` in
+`validate-bash-command.js`; `integrity-guard.js`'s DIRECT set plus its
+`team-memory/` / `journal/` / `workspaces/*/journal/` subtrees;
+`posture-gate.js`'s three inline regexes; `journal-write-guard.js`'s entry
+grammar; and the `.claude/learning/*.jsonl` own-WIP predicate in
+`multi-operator-sessionstart.js`, which no prior sweep had listed.
+
+**Why surface membership is per-row** (`bash` / `layer3` / `direct` /
+`coordMode` / `postureGate`): the surfaces genuinely differ.
+`learning-codified.json` is codify-writable and therefore DIRECT-only,
+`coordination-mode.json` is enrolled-gated, and the BOUNDED Layer-3 paths must
+stay advisory.
+
+**The three dimensions landed through the registry**, each of which would
+previously have needed the same edit at ~10 sites, are enumerated in the rule
+body: redundant path forms (loom#1409), `.claude/settings.local.json`
+(loom#1429 AC-3), and `.claude/bin/ecosystem.json` (loom#1441).

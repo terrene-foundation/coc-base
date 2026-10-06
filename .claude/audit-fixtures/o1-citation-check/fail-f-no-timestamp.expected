@@ -1,0 +1,3 @@
+ok=false lane=co-owner-directed arm=co-owner-directed reason=no-directive-timestamp failed=(f)
+predicate: (f) FAILED — attributed quoted directive with NO timestamp in its attribution context. The frontmatter `date:` present in this fixture does NOT satisfy it.
+note: locks the discrimination boundary for (f). EVERY journal entry carries a frontmatter `date:`, so a receipt-wide date check would pass on every input and could never fail — a check that cannot discriminate is not evidence (instrument-discipline.md MUST-1). Scoping (f) to the attribution context is what makes the predicate falsifiable.

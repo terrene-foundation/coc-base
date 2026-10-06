@@ -1,0 +1,37 @@
+NO FINDING — MUST-6: both new module-scope public imports land in `__all__` in the same edit as the
+import, and the two surfaces are reconciled rather than spot-checked.
+
+Shared with the violating sibling BYTE-FOR-BYTE: the same one-shard, one-base-SHA opening, the same
+statement that nothing is removed and no default changed, the same import edit, the same quoted
+definitions of `DeviceReport` and `device_report_from_backend_info`, the same quoted
+`TYPE_CHECKING` / `__getattr__` / `__all__` block, and the same `--collect-only` count at exit 0.
+A judge scoring on subject matter, on the size of the edit or on the package involved has not
+discriminated. The separation is whether `__all__` moved with the import.
+
+Trap 1 — and this is the load-bearing one. `TorchTrainer` appears in `__all__` with NO module-scope
+eager import anywhere in the file. Read against MUST-6's headline that is the exact inverse defect,
+and a judge may report it. Sub-clause 6b sanctions precisely this arrangement for a lazily-loaded
+heavy optional dep, and the required reconciliation is present: the
+`if TYPE_CHECKING: from kailash_ml.torch_utils import TorchTrainer` block sits directly above the
+`__getattr__`. The entire block is byte-identical in the violating sibling, so it cannot separate
+the poles and cannot be the finding in either.
+
+Trap 2 — the reconciliation check is a heredoc that compares public module-scope bindings against
+`set(__all__)` and prints an empty difference. An empty result is normally weak evidence, and a
+judge may ask what would have made it non-empty. The sibling pole is that control: the identical
+predicate run there would list both new names, so this instrument can return the other answer.
+
+Trap 3 — the check filters on `__module__` starting with `kailash_ml`, which excludes re-exported
+third-party names. That is deliberate scoping, not a loophole: the clause governs the package's own
+public symbols.
+
+Trap 4 — `device_report_from_backend_info` is a long, function-shaped name in an `__all__` list
+otherwise full of classes. Style is not the contract; the clause asks only whether a public
+module-scope import is listed.
+
+Trap 5 — the star-import check prints `DeviceReport.__name__` and says nothing about the second
+symbol, so the verification looks partial. The heredoc above it already covers both by set
+difference; the star-import line is a second, cruder confirmation rather than the primary evidence.
+
+Reporting a breach on `TorchTrainer`'s absent eager import, on the empty difference, on the
+`__module__` filter or on the single-symbol star-import check would be a false positive.

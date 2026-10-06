@@ -125,19 +125,65 @@ function _relativizePath(repoDir, p) {
  *
  * @returns {{ priorEvent: ?object, resetReason: ?string }}
  */
+const TAIL_CHUNK = 64 * 1024;
+
+/**
+ * The file's last line whose `.trim()` is non-empty — EXACTLY
+ * `readFileSync(p,"utf8").split("\n").filter(l => l.trim()).pop()` — but read
+ * from the END, so the cost no longer grows with the ledger.
+ *
+ * WHY (perf/hook-cost). The chain head was derived by reading and splitting the
+ * WHOLE per-session ledger on every Bash/Edit/Write/Agent call, so capture cost
+ * grew linearly over a session. Equivalence argument: a suffix that begins
+ * immediately after a "\n" byte (or at offset 0) is a sequence of COMPLETE
+ * lines, decodes cleanly (the cut is at an ASCII byte), and the last non-blank
+ * line of the file is the last non-blank line of any such suffix that contains
+ * one. So we widen the suffix until it holds a non-blank line or reaches offset
+ * 0, and apply the SAME split/trim filter to it.
+ *
+ * @returns {string|null} null when the file has no non-blank line. Throws on IO
+ *   error (the caller maps that to `prior_ledger_unreadable`, as before).
+ */
+function _lastNonBlankLine(p) {
+  const fd = fs.openSync(p, "r");
+  try {
+    const size = fs.fstatSync(fd).size;
+    let want = Math.min(size, TAIL_CHUNK);
+    for (;;) {
+      const start = size - want;
+      const buf = Buffer.alloc(want);
+      let got = 0;
+      while (got < want) {
+        const n = fs.readSync(fd, buf, got, want - got, start + got);
+        if (n === 0) break;
+        got += n;
+      }
+      let slice = buf.subarray(0, got);
+      if (start > 0) {
+        const nl = slice.indexOf(0x0a);
+        slice = nl === -1 ? Buffer.alloc(0) : slice.subarray(nl + 1);
+      }
+      const lines = slice.toString("utf8").split("\n").filter((l) => l.trim().length > 0);
+      if (lines.length > 0) return lines[lines.length - 1];
+      if (start === 0) return null;
+      want = Math.min(size, want * 2);
+    }
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 function _deriveChainHead(ledgerPath) {
   if (!fs.existsSync(ledgerPath))
     return { priorEvent: null, resetReason: null };
-  let raw;
+  let last;
   try {
-    raw = fs.readFileSync(ledgerPath, "utf8");
+    last = _lastNonBlankLine(ledgerPath);
   } catch {
     // Ledger exists but is unreadable — reset loudly rather than silently fork.
     return { priorEvent: null, resetReason: "prior_ledger_unreadable" };
   }
-  const lines = raw.split("\n").filter((l) => l.trim().length > 0);
-  if (lines.length === 0) return { priorEvent: null, resetReason: null };
-  const last = lines[lines.length - 1];
+  if (last === null) return { priorEvent: null, resetReason: null };
   let parsed;
   try {
     parsed = JSON.parse(last);
@@ -274,6 +320,7 @@ module.exports = {
   captureProvenance,
   _ledgerPath,
   _deriveChainHead,
+  _lastNonBlankLine,
   _projectOperatorRef,
   _relativizePath,
 };

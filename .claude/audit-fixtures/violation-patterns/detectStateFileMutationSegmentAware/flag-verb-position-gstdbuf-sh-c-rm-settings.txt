@@ -1,0 +1,1 @@
+gstdbuf -oL sh -c 'rm .claude/settings.json'

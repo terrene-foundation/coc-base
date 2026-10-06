@@ -1,0 +1,47 @@
+VIOLATION — MUST-7: every rule MUST declare BOTH `priority:` and `scope:` in YAML frontmatter.
+This file declares `priority: 10` and omits `scope:` entirely.
+
+The frontmatter carries `name:`, `description:`, `priority: 10` and `paths:`. There is no
+`scope:` key. The consequence MUST-7's own justification names is live here: with scope
+undeclared the emitter classifies by filename heuristic rather than by declaration, which is
+the mechanism that produced the phantom-rule and surplus-rule findings the v2→v6 convergence
+rounds kept surfacing. The v6 §A.1 validator that exists to catch a mismatch at author time
+has nothing to compare `priority: 10` against.
+
+Discriminator 1 — MUST-5 IS SATISFIED, and this is the whole point of the pair. Rule 5 requires
+a path-scoped rule to carry `paths:` matching where it applies. The `paths:` list is PRESENT,
+two entries, and both match the rule's subject — `**/migrations/**` and
+`**/src/**/schema_*.sql`. Rule 5's baseline half and skill-embedded half are not engaged,
+because the file claims neither scope. A judge citing MUST-5 has named a clause this file
+honours on content. The separation is deliberate: a MISSING `paths:` would breach MUST-5 and
+MUST-7 together and would measure neither, so the defect chosen is the one only MUST-7 reaches.
+
+Discriminator 2 — MUST-1 IS SATISFIED. Both clauses use MUST and MUST NOT as their primary
+modal and name the alternative BLOCKED; no "should," "prefer," "consider" or "try to" appears
+as a clause modal.
+
+Discriminator 3 — MUST-2 IS SATISFIED. The BLOCKED corpus holds six literal first-person
+sentences a session would really emit ("We have never rolled back a migration in this
+service"), not abstract category labels.
+
+Discriminator 4 — MUST-3 AND MUST-4 ARE SATISFIED. Both clauses carry a two-armed DO / DO NOT
+block whose arms differ in substance — an exercised reverse against a raising one, two deploys
+against one — and each clause plus the `## MUST NOT` section carries a one-sentence `**Why:**`.
+
+Discriminator 5 — MUST-6 IS SATISFIED. Origin cites
+`journal/0462-INCIDENT-rollback-blocked-by-dropped-column.md` § 1 with the column name and the
+measured outage length.
+
+Discriminator 6 — MUST-8 IS NOT ENGAGED (no CLI-divergent content), MUST-9 IS NOT ENGAGED (no
+empirical-validation fixtures ship with this rule), and MUST-10 / MUST-11 ARE NOT ENGAGED. Note
+the last one carefully: Rule 10 fires on `priority: 0` + `scope: baseline`, and this file
+declares `priority: 10`, so the trigger is unmet on the half that IS declared. The undeclared
+`scope:` does not make it a baseline rule; it makes it an unclassified one, which is the
+MUST-7 defect and not a Rule-10 one.
+
+Discriminator 7 — THE `## MUST NOT` BULLETS ARE SATISFIED. Every `**Why:**` is one sentence; no
+hedging phrase sits inside a MUST clause; the Detection row names a parsed function body and
+two git-commit objects, all structural, rather than booking a lexical detector; the file is
+well under 200 lines.
+
+The whole defect is one absent frontmatter key.

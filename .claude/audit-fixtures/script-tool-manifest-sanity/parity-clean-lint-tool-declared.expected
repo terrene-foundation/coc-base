@@ -1,0 +1,4 @@
+# The declared pole of the SAME command line. Byte-identical script value;
+# the ONLY difference is the devDependencies entry. If this fires, the
+# detector is not reading the declaration at all.
+(silent)

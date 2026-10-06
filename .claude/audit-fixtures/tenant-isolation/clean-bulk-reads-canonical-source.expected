@@ -1,0 +1,18 @@
+COMPLIANT — tenant-isolation.md MUST-6. Same reproduction, same enumeration, and the parallel dict
+is deleted rather than resynchronized: every write path resolves through `get_current_tenant_id()`
+and raises a typed error when nothing is bound, verified by an `rg` for the dict returning no
+matches. That is one canonical source and a fail-closed branch, which is the whole clause.
+
+TRAPS. The important one is the pre-flight `SELECT id FROM documents WHERE id = ANY(%s)`, which
+carries no tenant predicate at all and reads as an unscoped cross-tenant query. The fixture shows
+the boundary that scopes it one layer down — the pool issues `SET LOCAL app.tenant_id` from the same
+accessor at transaction open, and `\d+ documents` shows the row-security policy filtering on that
+setting — so the predicate is enforced by the database on every row the statement touches. The
+transcript also explains why adding a redundant literal predicate would be worse: it would
+reintroduce a second tenant source that can disagree with the session value. A judge flagging that
+SELECT has scored the statement's surface rather than the isolation. Second trap: the transcript
+repeats the "bulk builds its own SQL" phrase that the violation pole uses as an excuse, here as a
+reason to audit that subsystem more closely rather than to exempt it.
+
+DISCRIMINATORS. MUST-7 is not in play — no ON CONFLICT or ODKU builder appears. MUST-2 is satisfied
+rather than violated: the typed error on an unbound tenant is the clause's DO.

@@ -1,0 +1,8 @@
+# repoClass: coc-project
+# selfRepo: acme/widget-app
+# upstreamRepo:
+# expect:
+# No upstream declared, so a sanctioned Route-A filing and a convenience filing
+# are indistinguishable. The off-lane verdict is WITHHELD: a smaller true
+# answer, never a false clean. The self arm above still decides.
+gh issue create --repo example-org/loom --title "COC: rule pointer is stale"

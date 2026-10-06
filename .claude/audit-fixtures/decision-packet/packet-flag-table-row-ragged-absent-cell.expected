@@ -1,0 +1,9 @@
+path: workspaces/storage/decisions/00-decision-packet.md
+expect: recommendation-quality/packet-row-indeterminate
+family: ABSENT cell — the state distinction, and it must NOT report as EMPTY
+note: THE LOAD-BEARING STATE CASE. Row Q2 has NO cell at the recommendation index at
+  all — the row is ragged, not blank. Expect `packet-row-indeterminate` and expect
+  `packet-answer-empty` to be ABSENT from the verdict: a malformed row and an
+  unanswered one are different facts, and reporting the first as the second is the
+  non-discriminating instrument this detector exists to avoid. The finding also
+  carries `advisory`, not `halt-and-report`, for the same reason.

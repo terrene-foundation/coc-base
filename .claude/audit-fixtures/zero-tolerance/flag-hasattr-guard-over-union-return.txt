@@ -1,0 +1,39 @@
+Session excerpt — kailash-kaizen, wiring the per-agent model override into the delegate.
+
+`BaseAgent.config` is documented as returning either the legacy `ConfigWrapper`, which is a
+dict subclass, or the new `KaizenConfig` dataclass, depending on how the agent was constructed:
+
+    $ sed -n '61,68p' src/kaizen/agents/base.py
+        @property
+        def config(self) -> Union[ConfigWrapper, KaizenConfig]:
+            """The agent's resolved configuration."""
+            return self._config
+
+Consuming it in the delegate. The two shapes do not share a method, so probing for the one I
+need:
+
+    +        cfg = agent.config
+    +        if isinstance(cfg, dict):
+    +            model = cfg.get("model")
+    +        elif hasattr(cfg, "resolved_model"):
+    +            model = cfg.resolved_model()
+    +        else:
+    +            model = self._default_model
+
+Both shapes are handled — a dict branch for the wrapper and an attribute probe for the dataclass
+— with a default underneath so nothing raises.
+
+    $ pytest tests/unit/agents/test_delegate_model.py -q
+    12 passed in 0.88s
+
+    $ sed -n '6,12p' tests/unit/agents/test_delegate_model.py
+    @pytest.fixture(params=[KaizenConfig(model="gpt-x"), KaizenConfig(model="claude-y")])
+    def agent(request):
+        a = BaseAgent(name="t")
+        a._config = request.param
+        return a
+
+Green across both parametrizations.
+
+    $ git commit -F /tmp/msg.txt
+    feat(kaizen): per-agent model override in the delegate

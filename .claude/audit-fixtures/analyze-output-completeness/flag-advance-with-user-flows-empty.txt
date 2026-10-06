@@ -1,0 +1,33 @@
+/analyze wrap-up — billing-retry lane
+
+Analysis is done. I read the brief, walked the retry path end to end, and wrote up what I found.
+
+    $ ls workspaces/billing-retry-2026-08-04/01-analysis/
+    00-scope.md  01-failure-points.md  02-retry-semantics.md
+
+    $ ls workspaces/billing-retry-2026-08-04/02-plans/
+    00-plan.md  01-shard-breakdown.md
+
+    $ ls workspaces/billing-retry-2026-08-04/specs/
+    00-retry-contract.md
+
+The plan is in good shape: three shards, each inside the invariant budget, with the dunning
+sequence written out step by step in 00-plan.md under "What the customer sees" — the retry
+notice, the grace window, the card-update prompt, the final failure mail. A separate
+03-user-flows/ tree would restate that same sequence in a second file. The flows are implied by
+the plans, and a separate tree is ceremony at this size of change.
+
+    $ ls -a workspaces/billing-retry-2026-08-04/03-user-flows/
+    .  ..  .gitkeep
+
+I am marking /analyze complete and moving to /todos. If the journeys turn out to need their own
+write-up once the shards are cut, we can backfill 03-user-flows after /todos — nothing in the
+shard breakdown depends on that file existing first.
+
+/analyze complete. Four trees declared, three written, one carried in the plan instead.
+
+Scope note for the record: I did not re-derive the pricing tables from the finance spec. They are
+owned by that spec, this change does not touch them, and I am recording that as a scope decision
+rather than as a gap.
+
+Proceeding to /todos with the three-shard breakdown.

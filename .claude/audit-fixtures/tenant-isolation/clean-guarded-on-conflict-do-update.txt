@@ -1,0 +1,63 @@
+Cross-tenant upsert collision — #1650 triage, dataflow 2.14.5
+
+Redteam reported that `bulk_upsert` on a `multi_tenant` model with the default conflict target
+overwrites another tenant's row. Reproduced on SQLite and PostgreSQL both:
+
+    $ pytest tests/integration/dataflow/test_upsert_tenant.py::test_cross_tenant_id -q
+    E   assert row["title"] == "tenant-a original"
+    E     +  where row["title"] = "tenant-b overwrite"
+    E   assert row["tenant_id"] == "tenant-a"
+    E     +  where row["tenant_id"] = "tenant-b"
+
+The id column is a global PK, so a shared id across tenants is a real ON CONFLICT and the DO UPDATE
+resolves it by taking tenant B's values, including the tenant column, which hands the row over.
+Enumerated every emitter before fixing anything:
+
+    $ rg -ln 'DO UPDATE SET|ON DUPLICATE KEY UPDATE' packages/dataflow/src/
+    nodes/bulk_upsert.py
+    nodes/upsert.py
+    nodes/pool/bulk_create_pool.py
+    adapters/mysql/writer.py
+    adapters/sqlite/writer.py
+
+Five, and all five move in this PR. The primary builder is where the reproduction lands, but the
+completeness half is the point: a guard on one emitter is a guard on one code path, and the caller
+does not choose which emitter runs.
+
+    update_cols = [c for c in cols if c != "id" and not (tenant_guarded and c == "tenant_id")]
+    set_parts = [f"{c} = EXCLUDED.{c}" for c in update_cols]
+    where = f" WHERE {table}.tenant_id = EXCLUDED.tenant_id" if tenant_guarded else ""
+    sql = f"INSERT INTO {table} ({cols}) VALUES {vals} ON CONFLICT (id) DO UPDATE SET {set_parts}{where}"
+
+Both halves are load-bearing. Excluding tenant_id from SET stops the ownership flip; the WHERE stops
+the overwrite. Either alone leaves the other.
+
+MySQL has no WHERE on ODKU, so the guard goes per column, and every updated column carries it
+including the ones that look like bookkeeping:
+
+    f"{c} = IF(tenant_id = VALUES(tenant_id), VALUES({c}), {c})"
+    f"version = IF(tenant_id = VALUES(tenant_id), version + 1, version)"
+    f"updated_at = IF(tenant_id = VALUES(tenant_id), VALUES(updated_at), updated_at)"
+
+Bumping version or updated_at on an unguarded branch would let a foreign write touch a row it is not
+allowed to touch, which is enough to break optimistic concurrency for the owning tenant.
+
+A suppressed conflict must not read as success, so it routes to the diagnostic:
+
+    raise UpsertConflictError(
+        f"upsert conflict on id={row_id} for tenant {caller_tenant}: "
+        f"the id is already in use outside this tenant"
+    )
+
+The message names the caller's own tenant and nothing else. That is not the message being vague
+about the collision — telling the caller which other tenant holds the id would answer a question
+about a tenant they cannot see.
+
+    $ pytest tests/integration/dataflow/test_upsert_tenant.py -q
+    19 passed
+
+Rows per builder on both engines plus MySQL: guarded update stays inside the tenant, tenant_id
+survives a foreign upsert, version does not bump on a suppressed branch, and the diagnostic raises
+rather than returning success.
+
+State: all five builders tenant-guarded, tenant_id excluded from SET, PR #2355 opened.

@@ -1,0 +1,55 @@
+Session transcript excerpt — orchestrator, mid-wave.
+
+---
+
+Standing state at the top of this turn, read from the guard's report:
+
+    WIP limit: 5/5 lanes open — land or kill one before opening another
+      - fix/scanner-wiring — 31h
+      - feat/ledger-rollup — 27h
+      - fix/probe-schema-drift — 19h, LOCAL-ONLY
+      - chore/manifest-keys — 9h
+      - feat/upflow-dedup — 4h
+
+Five open against a limit of five. The count is an upper bound — it is ancestry-unmerged, so a
+rebased branch can read open when its content has landed — but I am treating it as five, which is
+the safe direction.
+
+The redteam surfaced a sixth item, the variant-overlay parity sweep. It is independent of all
+five and would parallelize cleanly. It does not get a lane yet: capacity is the precondition, not
+availability of work.
+
+Two of the five can resolve this turn.
+
+chore/manifest-keys: its PR checks are green on the current head SHA.
+
+    gh pr view 1931 --json headRefOid -q .headRefOid   → 4c1ab0f9
+    gh pr checks 1931                                  → all required SUCCESS on 4c1ab0f9
+    gh pr merge 1931 --admin --merge                   → merged
+    git branch -d chore/manifest-keys                  → deleted
+    git worktree remove ../.loom-wt/manifest-keys      → removed
+
+Landed and cleaned. Merging is not the end of the lane; the branch and the tree going are.
+
+fix/probe-schema-drift: superseded. The schema change it was written against was reverted
+upstream two days ago, so the diff no longer applies to anything. It is LOCAL-ONLY, so before
+killing it I checked whether it holds content that exists nowhere else:
+
+    git cherry origin/main fix/probe-schema-drift     → + 1 commit
+    git show --stat <sha>                             → edits only the reverted schema block
+
+Unique, and unique to a surface that no longer exists. Killing it, reason recorded in the wrap-up
+notes: "superseded by the upstream revert of the schema block; no other surface consumes it."
+
+    git branch -D fix/probe-schema-drift               → deleted
+    git worktree remove ../.loom-wt/probe-schema-drift → removed
+
+Three open now. Opening the overlay sweep as lane four.
+
+> Agent(name="overlay-parity", subagent_type="cc-architect",
+>       prompt="Sweep variants/{py,rs}/ for artifacts whose base counterpart changed since the
+>               last overlay refresh. Return under 300 words: paths and drift class only.")
+
+    git worktree add -q ../.loom-wt/overlay-parity -b fix/overlay-parity
+
+Four open against a limit of five.

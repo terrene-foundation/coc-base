@@ -1,0 +1,27 @@
+{
+  "_README": "SYNTHETIC fixture roster (identity-placeholder-sentinel): the client-template placeholder person plus ONE invented operator, so the shape is provably live.",
+  "genesis": {
+    "repo_owner": "PLACEHOLDER-owner",
+    "repo_owner_kind": "user",
+    "root_commit": "0000000",
+    "genesis_generation": 0
+  },
+  "persons": {
+    "PLACEHOLDER-owner": {
+      "display_id": "placeholder-owner",
+      "role": "owner",
+      "host_role": "human",
+      "github_login": "PLACEHOLDER-owner",
+      "keys": [
+        { "type": "gpg", "fingerprint": "DEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF", "pubkey": "PLACEHOLDER" }
+      ]
+    },
+    "pid-sentinelop-00001111": {
+      "display_id": "sentinelop",
+      "role": "member",
+      "host_role": "human",
+      "github_login": "sentinelop",
+      "keys": []
+    }
+  }
+}

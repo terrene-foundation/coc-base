@@ -1,0 +1,66 @@
+Conformance walk — kailash-rs 0.41 release candidate
+Families walked: SOURCE (static-symbol) + DELIVERED (shipped-artifact) + LIVE (endpoint)
+
+Scope: the eleven capabilities the session touched under `auth::` and `sessions::`.
+Denominator came out of the symbol enumerator (rustdoc-JSON dump, 11 public symbols on the
+touched modules), so nothing here is hand-listed. Coverage and pass-rate are reported as two
+numbers at the bottom, and every verdict is from the discrete set.
+
+Expectations for all 26 units were pinned into the committed baseline at the todos gate, before
+any of this code was written. I judged observed state against that baseline; I did not write any
+expectation during this run except through the capture lane noted at the end.
+
+SOURCE family — 11 units.
+
+The frozen expectation per symbol is its signature plus the spec contract it is declared to hold,
+not its presence. Presence is the floor and I am not scoring it:
+
+    $ rg -n 'pub (async )?fn refresh_async' crates/auth/src/session_provider.rs
+    218:    pub async fn refresh_async(&self, tok: &RefreshToken) -> Result<Session, AuthError> {
+
+The symbol resolves in the source tree, which tells me only that there is something to judge.
+Judged against the frozen contract, 9 hold it and 2 do not: `refresh_async` returns `AuthError`
+where the baseline froze `AuthError::Expired` as a distinct variant, and `rotate` takes no
+`prev_jti` parameter the frozen signature requires. SOURCE: 9 Pass, 2 Fail.
+
+DELIVERED family — the same 11 capabilities, judged against the built wheel.
+
+    $ cargo build --release && ls -la target/wheels/
+    -rw-r--r--  1 jdoe  staff  41282311 kailash_rs-0.41.0rc1-cp311-macosx_14_0_arm64.whl
+
+The wheel built and it is the expected size, which is again the floor. The frozen expectation is
+that each capability is reachable and non-stub in the artifact under the resolved feature set:
+
+    $ python -c "import kailash_rs; kailash_rs.auth.SessionProvider.refresh_async"
+    AttributeError: module 'kailash_rs.auth' has no attribute 'refresh_async'
+
+Source has it and the unit tests pass against source, but it is gated behind `feature = "async"`
+which is not in the default set the wheel resolved. DELIVERED: 8 Pass, 3 Fail.
+
+LIVE family — the four endpoints these capabilities surface.
+
+    $ curl -s -X POST localhost:8080/v1/session/refresh | jq -c .
+    {"session_id":"s_9f21","expires_at":"2026-07-04T11:02:00Z","rotated":false}
+
+Each returned a status below 500 and left the process up. That is not the expectation; the frozen
+expectation is status plus response schema plus a persisted-effect read-back. Two matched.
+`/v1/session/revoke` returned 200 with the right schema and the session was still resolvable on
+read-back, so a different-than-expected effect: Fail. The fourth is handled below.
+LIVE: 2 Pass, 1 Fail, 1 Not-Run.
+
+One note on `/v1/session/rotate`. Its exact response bytes were not knowable at freeze time, so it
+went into the baseline as a CAPTURE slot rather than an assertion. This run captured:
+
+    {"session_id":"...","rotated_at":"...","prev_jti":null}
+
+`prev_jti` being null contradicts the frozen contract, so I am not freezing this capture. It goes
+to the human freeze queue unasserted, and the unit is Not-Run for this walk.
+
+Verdicts used: Pass (19), Fail (6), Blocked (0), Retest (0), Skipped (0), Not-Run (1).
+
+Coverage: 25/26 units measured — 96.2%. The one Not-Run stays in the denominator; it is a
+coverage gap to close, not a pass.
+Pass-rate: 19/26 — 73.1%.
+
+Two separate numbers, same machine-derived denominator. Walk is red; the 6 fails are the fix-list
+and the RC does not tag until the delivered gap closes.

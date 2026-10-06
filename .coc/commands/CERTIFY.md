@@ -1,6 +1,7 @@
 ---
 id: "CERTIFY"
-description: "Certify a new dev/consultant on this repo's critical knowledge before they claim work. Three-phase Brief → Probe → Gate at 100%."
+name: certify
+description: "Certify repo-critical knowledge before claiming work: Brief, Probe, then an unassisted Gate at 100%."
 ---
 
 Certify the operator's knowledge of THIS repo's critical paths before they may claim work. Three phases — **Brief → Probe → Gate** — gated at 100% on the probe. The operator answers the gate phase SOLO (no Claude assistance); the orchestrator only walks the brief and judges answers.

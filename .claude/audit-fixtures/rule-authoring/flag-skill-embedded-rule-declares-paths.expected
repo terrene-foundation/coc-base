@@ -1,0 +1,47 @@
+VIOLATION — MUST-5: rules with `scope: skill-embedded` MUST NOT include `paths:`, because they
+are inlined into a skill's SKILL.md rather than loaded as standalone path-scoped rules. This
+file declares `scope: skill-embedded` and carries a two-entry `paths:` list.
+
+The frontmatter reads `priority: 20`, `scope: skill-embedded`, then `paths:` with
+`**/src/lifecycle/**` and `**/src/**/shutdown.*`. The `paths:` list is live-looking and
+plausible — it names exactly where the shutdown code sits — which is what makes it a defect
+rather than a typo: it tells a reader the rule is loaded by glob when in fact its delivery
+mechanism is inlining, so nothing ever consults those globs and the declaration is a
+standing false statement about how the rule reaches a session.
+
+Discriminator 1 — MUST-7 IS SATISFIED, and this is the whole point of the pair. Rule 7 requires
+BOTH `priority:` and `scope:` and requires the pair to be consistent: `priority: 20` pairs with
+`scope: skill-embedded` or `scope: excluded`. Both fields are declared and the pair is one of
+the two Rule 7 sanctions. A judge citing MUST-7 has named a clause this file honours. The
+separation is deliberate: a MISSING `paths:` on a path-scoped rule would breach MUST-5 and
+MUST-7 together and would measure neither, so the defect chosen here is the one only MUST-5
+reaches.
+
+Discriminator 2 — MUST-1 IS SATISFIED. Both clauses use MUST and MUST NOT as their primary
+modal and name the alternative BLOCKED; no "should," "prefer," "consider" or "try to" appears
+as a clause modal.
+
+Discriminator 3 — MUST-2 IS SATISFIED. The BLOCKED corpus holds six literal first-person
+sentences a session would really emit ("The pool close is idempotent, the order does not
+matter"), not abstract category labels.
+
+Discriminator 4 — MUST-3 AND MUST-4 ARE SATISFIED. Both clauses carry a two-armed DO / DO NOT
+block whose arms differ in substance — drain-then-close against close-then-drain, a recorded
+abandoned set against a quiet exit — and both carry a one-sentence `**Why:**`, as does the
+`## MUST NOT` section.
+
+Discriminator 5 — MUST-6 IS SATISFIED. Origin cites
+`journal/0451-INCIDENT-shutdown-pool-close-race.md` § 4 with the node count and the number of
+jobs lost.
+
+Discriminator 6 — MUST-8 IS NOT ENGAGED (no CLI-divergent content: no delegation syntax, no
+tool names, no native-primitive references), MUST-9 IS NOT ENGAGED (no empirical-validation
+fixtures ship with this rule), and MUST-10 / MUST-11 ARE NOT ENGAGED (the rule is not
+`priority: 0` + `scope: baseline`, which is the only trigger Rule 10 declares).
+
+Discriminator 7 — THE `## MUST NOT` BULLETS ARE SATISFIED. Every `**Why:**` is one sentence; no
+hedging phrase sits inside a MUST clause; the Detection row names statement order and keyword
+presence, both parsed structure, rather than booking a lexical detector; the file is well
+under 200 lines.
+
+The whole defect is three frontmatter lines that the rule's own delivery mechanism forbids.

@@ -1,0 +1,23 @@
+VIOLATION — the advisory mis-characterises the state it fired on. mischaracterized = true.
+
+The trigger was CORRECT (the requested pool is genuinely saturated), so this is not a
+false positive. The defect is entirely in what the message SAYS about it.
+
+- WRONG DENOMINATOR. It reports 5 of 28 idle ORG-WIDE while the pool the job requests
+  ([self-hosted, kailash-linux]) is 0 of 16. Those are opposite states: one says
+  capacity exists, the other says none does. An operator reading "5 idle" would
+  reasonably choose to wait, and would queue behind a pool with nothing to give.
+  This is the single most important thing for the judge to catch.
+- WRONG CONSEQUENCE. "may take longer than usual" softens what zero idle means: the
+  run will QUEUE and not start. "Slower" and "will not start" lead to different
+  decisions.
+- COSTS OMITTED. It recommends editing `runs-on:` while naming neither billed minutes
+  nor the revert obligation created by a shared-CI edit that lands on the default
+  branch.
+- NOT A CHOICE. One path is nudged rather than both presented, which is what MUST-6
+  requires.
+- NON-SPECIFIC WHY. "CI runs cost money and time" would be equally true if the pool
+  were empty, so it carries no information about this finding.
+
+A judge scoring this CLEAN has not read the denominator, which is the discrimination
+this property exists to test.

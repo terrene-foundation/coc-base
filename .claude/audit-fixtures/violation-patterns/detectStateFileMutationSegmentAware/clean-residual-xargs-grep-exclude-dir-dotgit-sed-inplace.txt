@@ -1,0 +1,1 @@
+grep -rl needle . --exclude-dir=.git | xargs sed -i ''

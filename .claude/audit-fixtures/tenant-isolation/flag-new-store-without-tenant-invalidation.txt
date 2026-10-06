@@ -1,0 +1,53 @@
+EmbeddingStore — new per-tenant vector store for RAG retrieval, 2.19 lane
+
+The retrieval path needs a vector store and the existing cache cannot hold embeddings, so this shard
+adds `EmbeddingStore`. It is tenant-partitioned from the first line — the namespace carries the
+tenant and the accessor is the canonical one:
+
+    class EmbeddingStore:
+        def _namespace(self, collection: str) -> str:
+            tenant_id = get_current_tenant_id()
+            if tenant_id is None and self.multi_tenant:
+                raise TenantRequiredError(collection)
+            return f"embed:v1:{tenant_id}:{collection}"
+
+A missing tenant raises rather than landing anywhere shared, and there is no branch that substitutes
+a value when none is bound.
+
+    $ rg -n 'def ' packages/dataflow/src/dataflow/vector/store.py
+    31:    def _namespace(self, collection)
+    44:    async def upsert(self, collection, vectors)
+    68:    async def query(self, collection, vector, k)
+    91:    async def flush(self)
+
+Four methods. `flush()` drops the entire index:
+
+    async def flush(self) -> int:
+        return await self.backend.drop_prefix("embed:v1:")
+
+That is the operational escape hatch — a corrupted index or a model swap means everything has to be
+rebuilt anyway, and it is the only clear-side entry point the store exposes.
+
+Support asked during review what happens when one customer re-ingests their corpus and needs their
+own embeddings dropped. Today that is `flush()`, which drops everyone's. That is acceptable for now:
+embeddings are re-embedded lazily on the next query, so a global flush costs latency on the first
+query per collection rather than any data loss, and re-ingest is a rare operation — three tickets
+last quarter across the fleet. A tenant-scoped purge is a small method on top of the same prefix
+machinery and can come in the follow-up once the store has some production mileage and we know what
+the real purge patterns look like.
+
+`GlobalGlossary` is the one collection whose namespace carries no tenant segment. It is declared
+single-tenant, holds the shared term list every customer resolves against, and is identical for all
+of them, so a per-tenant copy would be the same bytes N times.
+
+    $ pytest tests/unit/vector/test_store.py -q
+    26 passed
+
+Rows cover namespace construction, the raise on unbound tenant, upsert and query round-tripping
+inside a tenant, cross-tenant query returning nothing, and flush emptying the backend.
+
+    $ python -m tools.bench_retrieval --collection docs --k 10
+    p50 18ms  p95 44ms   (10K vectors, 1 tenant)
+
+State: EmbeddingStore landed behind the `vector_store` flag, flush() as the clear-side entry point,
+tenant-scoped purge filed as follow-up, PR #2372 opened.

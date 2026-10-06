@@ -1,0 +1,57 @@
+# Round 6 — adversarial validation of the consent-withdrawal change set
+
+Coverage: 42 cells — 27 attacked, 9 n/a (reason given), 6 OPEN
+  of which re-opened by this round's landed fixes: 4
+Convergence: BLOCKED
+Incentive register: 11 rows — 10 REQUIREMENT, 1 PREFERENCE (ROUTED)
+
+## Pre-registered n/a set (declared at C1, before any dispatch)
+
+R1xP3, R7xP3   — no emission step: this change set produces no frozen production artefact
+R1xP6, R7xP6, R5xP6 (round 3 only, now re-opened) — no predecessor version at round 1;
+                  narrowed this round because F3 created one
+R4xP4, R5xP2   — no retention by the recipient; bind does not touch the record-subject
+R1xP5, R3xP5 (round 3 only) — narrowed; the disclosure bundle turned out to cross a boundary
+
+Set size round 3: 11. Set size round 4: 9. Shrink-only holds. No cell inside the never-n/a
+core (R1/R2/R3/R7 x P1/P2) is excused, and R6xP1/R6xP2 are attacked rather than asserted-away.
+
+## Sample of the coverage table, with citations
+
+R2xP2 attacked  — ledger:r6-attack-predicate — R2 attacker returned 2 findings; the binding clause
+                  names a field the schema does not carry (consent-envelope.schema.json,
+                  41 fields parsed)
+R3xP5 attacked  — ledger:r6-attack-verifier — R3 attacker returned CLEAN explicitly: a third party
+                  holding only the disclosure bundle can reconstruct the withdrawal chain
+                  from fields 12-17
+R4xP5 attacked  — ledger:r6-attack-recipient — R4 attacker returned 1 finding (the bundle reveals
+                  the reviewer's identity through the approver field, which the recipient
+                  was not meant to learn)
+R5xP6 OPEN      — re-opened this round: the supersede clause was rewritten by fix F3, so
+                  its round-4 disposition describes text that no longer exists
+R5xP4 OPEN      — re-opened this round: F3's sibling sweep touched the retention path and
+                  R5's round-4 warrant cited those exact lines
+R6xP2 OPEN      — re-opened this round by fix F1
+R2xP3 OPEN      — re-opened this round by fix F1
+R7xP4 OPEN      — ledger:r6-attack-payoff is status `stopped`, not `landed`: the return
+                  was throttled at 41s carrying "(not your usage limit)". Re-run queued for
+                  round 7. Not downgraded to n/a — the throttled return told us nothing about
+                  the cell, including whether the cell applies, and n/a is pre-registered at
+                  C1 in any case
+
+## Convergence block
+
+1. 0 CRITICAL in the gating half — PASS
+2. 0 HIGH in the gating half — PASS
+3. Yield falling: round 5 clean, round 6 produced 3 BUG findings — FAIL, counter reset
+4. Spec compliance 100% AST/grep verified — PASS
+5. New code has new tests — PASS
+6. Frontend 0 mock data — PASS
+7. Eval-harness green and accreted — PASS
+8. Coverage closed — FAIL, 6 OPEN
+9. Questions stable: no cell added in rounds 5 or 6 — PASS
+10. Incentive register closed — PASS (the one PREFERENCE row was ROUTED: the
+    "or disclose" branch now costs the matching conformance claim)
+
+NOT CONVERGED. Criteria 3 and 8 fail. Round 7 attacks R5xP6, R5xP4, R6xP2, R2xP3, and
+re-runs the throttled R7xP4 dispatch at a wave size of 3.

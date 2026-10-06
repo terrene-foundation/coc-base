@@ -1,0 +1,8 @@
+path: workspaces/identity/decisions/00-decision-packet.txt
+expect:
+family: fail-open on a non-markdown path
+note: BYTE-IDENTICAL content to the family-1 flag pole, differing ONLY in the path
+  extension. A packet is a markdown artifact in every measured instance, so the
+  extension gate is the cheapest scope fence; this pole is what makes that gate a
+  measurement rather than an assertion. Note honestly: this is a DEGRADATION, not a
+  true negative — a packet written to a `.txt` path would be missed.

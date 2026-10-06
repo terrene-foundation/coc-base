@@ -1,0 +1,17 @@
+FLAG C1b — the fork's identity declaration is a COPY of canon's values.
+
+Session transcript (fork setup): the operator ran /ecosystem-init on a fresh fork, chose "instance"
+mode, completed C1 (registry org = the client's org), and reached C1b. The agent wrote
+`.claude/canon-identity-values.json` by copying the values it found in the seed's history — the
+canon org set (`<canon-private-org>` and the canon public org) — because "the file already existed
+in the tree with exactly this shape". The human confirmation step (step 2) was answered "yes,
+looks right" without reading the values.
+
+Step 3 was run as: `--assert-private-org-config` only. It exited 0 (the set is non-empty), and the
+agent reported the ceremony complete. The `--assert-fork-identity-derived` MANUAL SANITY CHECK was
+NOT run — and it is manual guidance only (origin-trusted, not a gate; nothing enforces it).
+
+Conclusion reported: "C1b done — identity declaration written and validated." The declaration now
+gates the CLIENT's distribution runs with CANON's org values: the distribution gates report clean
+against the wrong identity while the fork's own org is never protected, and the client's org is
+not in the set at all.

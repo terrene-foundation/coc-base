@@ -1,0 +1,121 @@
+=== SESSION EXCERPT — DataFlowMigrator.rollback() replay path ===
+
+[user]
+Finish `DataFlowMigrator.rollback(target)` in kailash-dataflow. It replays the `down_sql` we
+persist in the tracking table when a migration is applied. `cli/migrate.py` is wired to it already.
+
+[assistant]
+Reading what is actually persisted before I write the replay loop.
+
+  Read: src/kailash_dataflow/migration/tracker.py
+    # down_sql is captured at apply time by rendering downgrade() through the dialect
+    # helper layer and storing the emitted statements verbatim, one row per version.
+
+  $ psql "$DATAFLOW_TEST_URL" -c "SELECT version, down_sql FROM _dataflow_migrations WHERE version='0042'" ; rc=$?
+   version |                        down_sql
+  ---------+---------------------------------------------------------
+   0042    | CREATE TABLE IF NOT EXISTS _parked_0042_events AS       +
+           |   SELECT id, retention_class, parked_at FROM events;    +
+           | CREATE TABLE IF NOT EXISTS _parked_0042_archived AS     +
+           |   SELECT * FROM archived_events;                        +
+           | DROP TABLE archived_events;                             +
+           | ALTER TABLE events DROP COLUMN retention_class;         +
+           | ALTER TABLE events DROP COLUMN parked_at;
+  rc=0
+
+One table drop and two column drops, each preceded by the `CREATE TABLE ... AS SELECT` that parks
+the rows it is about to remove — 0042's own downgrade carries its preserved-data plan, as every
+migration in this tree is required to.
+
+  $ grep -L 'def downgrade' src/kailash_dataflow/migrations/0*.py ; rc=$?
+  rc=1
+
+Nothing listed, and the same flag against a token no migration carries prints all 71 paths, so the
+matcher fires here: no placeholder downgrades, which is why there is a `down_sql` row to replay.
+
+[assistant]
+Two layers in this repo can emit destructive DDL, so I read what the lower one already does.
+
+  $ grep -n 'force_drop' src/kailash_dataflow/ddl/primitives.py ; rc=$?
+  88:    async def drop_table(self, name: str, *, force_drop: bool = False) -> None:
+  91:        if not force_drop:
+  92:            raise DropRefusedError(f"drop_table({name!r}) requires force_drop=True")
+  rc=0
+
+  Read: src/kailash_dataflow/cli/migrate.py
+    @migrate.command("rollback")
+    def rollback_cmd(target: str) -> None:
+        plan = asyncio.run(migrator.plan_rollback(target))
+        click.confirm(
+            f"Roll back {target}? This will DROP {plan.tables} table and "
+            f"{plan.columns} columns",
+            abort=True,
+        )
+        asyncio.run(migrator.rollback(target))
+
+That renders `Roll back 0042? This will DROP 1 table and 2 columns [y/N]` and aborts on anything
+but `y`.
+
+  $ grep -n 'DataFlowMigrator' src/kailash_dataflow/__init__.py ; rc=$?
+  31:from .migration.migrator import DataFlowMigrator
+  58:    "DataFlowMigrator",
+  rc=0
+
+[assistant]
+So the CLI is one caller, not the caller set — line 58 puts `DataFlowMigrator` in the package
+`__all__`, so anything importing `kailash_dataflow` reaches `rollback()` with nothing between it
+and those DROPs. Neither existing gate covers that path: the prompt lives in the command module,
+and `force_drop` guards `drop_table()`, which this code never calls — the replay hands raw
+statements to `execute_raw`, so the orchestrator IS the caller at the primitive layer's boundary.
+The default for every importer has to be refusal.
+
+  Edit: src/kailash_dataflow/migration/migrator.py
+  @@ class DataFlowMigrator:
+  +    async def rollback(self, target: str, *, force_downgrade: bool = False) -> RollbackResult:
+  +        applied = await self._applied_after(target)
+  +        if not force_downgrade:
+  +            for row in reversed(applied):
+  +                for stmt in split_statements(row.down_sql):
+  +                    if _contains_destructive_ddl(stmt):
+  +                        raise DowngradeRefusedError(
+  +                            f"{row.version}: {' '.join(stmt.split()[:3])} is destructive; "
+  +                            f"pass force_downgrade=True to proceed")
+  +        for row in reversed(applied):
+  +            for stmt in split_statements(row.down_sql):
+  +                await self.dataflow.execute_raw(stmt)
+  +            await self._mark_rolled_back(row.version)
+  +        return RollbackResult(rolled_back=[r.version for r in applied])
+
+The scan is its own pass over the whole plan, so a rollback spanning several versions refuses
+before the first statement runs rather than halfway through. Replay stays newest-first, marked per
+version. Checking the default both ways against the public entry point:
+
+  $ python -c "import asyncio,kailash_dataflow as k; asyncio.run(k.DataFlowMigrator(url).rollback('0042'))" ; rc=$?
+  kailash_dataflow.errors.DowngradeRefusedError: 0042: DROP TABLE archived_events is destructive; pass force_downgrade=True to proceed
+  rc=1
+
+  $ python -c "import asyncio,kailash_dataflow as k; asyncio.run(k.DataFlowMigrator(url).rollback('0042', force_downgrade=True))" ; rc=$?
+  RollbackResult(rolled_back=['0043', '0042'])
+  rc=0
+
+Refuses by default, proceeds on the flag, same entry point, so the guard is what decides it. The
+prompt in `migrate.py` stays as it is and now forwards the intent it collected:
+
+  Edit: src/kailash_dataflow/cli/migrate.py
+  -        asyncio.run(migrator.rollback(target))
+  +        asyncio.run(migrator.rollback(target, force_downgrade=True))
+
+  Edit: tests/migration/test_rollback.py — the nine call sites that exercise a real rollback now
+  pass `force_downgrade=True`, which is what a suite intending a destructive downgrade is supposed
+  to say, plus two new cases asserting the bare call raises.
+
+[assistant]
+  $ pytest tests/migration/test_rollback.py -q ; rc=$?
+  fixture db: postgresql://dataflow@localhost:55432/dataflow_test (PostgreSQL 16.4)
+  16 passed in 6.58s
+  rc=0
+
+[assistant]
+`DataFlowMigrator.rollback()` is done. It replays exactly the statements the framework itself
+emitted at apply time, in reverse application order, and refuses by default on any importer's
+behalf, with the CLI prompt kept in front of the one caller that has a human to ask.

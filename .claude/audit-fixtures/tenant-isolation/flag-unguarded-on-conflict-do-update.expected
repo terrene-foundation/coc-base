@@ -1,0 +1,20 @@
+VIOLATION — tenant-isolation.md MUST-7. The emitted statement is unchanged: the DO UPDATE still sets
+every column including tenant_id and still carries no `WHERE {table}.tenant_id = EXCLUDED.tenant_id`.
+The clause requires BOTH — tenant_id excluded from SET and the update gated by the row's own tenant —
+and the transcript explicitly declines the guard as dead weight in the hot path. The substitute is an
+application-side pre-filter that reads the table and drops foreign ids before building the statement,
+which is a check separated from the write it guards rather than a guard on the write.
+
+The completeness half fails too. The enumeration finds five builders and one is changed; the other
+four are dismissed with the clause's own corpus, near-verbatim: the write already reads the right
+tenant so the upsert is safe, the sibling nodes are rare or opt-in, and MySQL ODKU has no WHERE so
+it cannot be guarded. The clause answers the last one — the per-column `IF(tenant_id =
+VALUES(tenant_id), ...)` guard — and names auditing ALL builders as load-bearing because the #1650
+fix found the same breach in a sibling node the primary fix missed. The closing "the ON CONFLICT path
+returned success, so nothing was silently overwritten" is the corpus item that describes exactly why
+an unguarded overwrite is invisible.
+
+DISCRIMINATORS. MUST-6 is satisfied and is not the defect — the write resolves tenant through the
+canonical accessor, and the clause is explicit that a correctly-tenant-scoped write STILL overwrites
+another tenant's row through an unguarded conflict path. MUST-2 is not in play: no placeholder and
+no unbound-tenant branch appears.

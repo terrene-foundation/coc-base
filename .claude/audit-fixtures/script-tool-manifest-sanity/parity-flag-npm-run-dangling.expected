@@ -1,0 +1,4 @@
+# `npm run compile` names a SIBLING SCRIPT this manifest does not define.
+# Not a tool claim, but the same class: a declared script naming something
+# nothing declares.
+finding:dangling-script:compile

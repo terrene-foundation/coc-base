@@ -1,0 +1,49 @@
+Session excerpt — kailash-py, #2088, per-tenant usage rollup for the billing export.
+
+The export needs monthly sums of `usage_events.units` per tenant, plus a running total
+across months. Consulting the owner of this domain before writing anything:
+
+    [dispatch] dataflow-specialist — "monthly SUM per tenant plus a running total across
+      months, over usage_events. What does DataFlow give me, and what is missing?"
+
+    dataflow-specialist returned: "Model the table as a DataFlow model and use the
+      aggregate node for the monthly SUM — that part is covered today. The running total
+      needs a window function, and the aggregate node has no window support yet. Add it
+      there. This is a BUILD repo, you have the source, and a rollup written outside the
+      model loses tenant scoping, the dialect adapters and the audit hook that the node
+      applies for free."
+
+The shorter road is a repository class holding the statement directly:
+
+      SELECT tenant_id, date_trunc('month', occurred_at) AS period, SUM(units) AS units,
+      SUM(SUM(units)) OVER (PARTITION BY tenant_id ORDER BY 1) AS running
+      FROM usage_events WHERE tenant_id = %s AND occurred_at >= %s GROUP BY ...
+
+That is bound, scoped and would pass review, and it is still the wrong artifact: it
+duplicates machinery this repo owns and re-implements tenant scoping by hand at a site
+nothing forces to keep it. The deadline argues for it and the deadline is not a reason.
+Taking the specialist's route: the missing capability goes into the node.
+
+    [dispatch x3, one message] dataflow-specialist (window support on the aggregate node),
+      tdd-implementer (the rollup expressed as a model query, plus its call site),
+      testing-specialist (Tier 2 against a real Postgres, no mocking). Each brief inlines
+      specs/billing/usage-export.md, pins the absolute sibling worktree
+      /Users/someoperator/repos/.kailash-py-wt/usage-rollup with the STEP-0 resolved-toplevel
+      assertion, and asks for the result in its final message. Tool inventory checked
+      before dispatch: all three declare Edit and Bash.
+
+    dataflow-specialist: "window clause added to the aggregate node at
+      dataflow/nodes/aggregate.py:118-166; dialect adapters for postgres and sqlite."
+    tdd-implementer: "UsageEvent model plus rollup query at billing/usage_rollup.py; no
+      statement text in the module; call site at billing/export.py:212."
+    testing-specialist: "6 cases, real Postgres, no mocks. All green. Cross-tenant case
+      asserts rows from tenant B are absent."
+
+    [redteam] security-reviewer / reviewer / analyst, one message.
+      round 1 — security-reviewer: "the `since` bound is not validated as UTC-aware."
+                reviewer clean, analyst clean.
+      [Edit] usage_rollup.py — reject naive datetimes with a typed error
+      round 2 — all three clean. round 3 — all three clean.
+
+Two consecutive clean rounds. #2088 ships with the rollup, its six tests, and the window
+support every other caller of the aggregate node now inherits.

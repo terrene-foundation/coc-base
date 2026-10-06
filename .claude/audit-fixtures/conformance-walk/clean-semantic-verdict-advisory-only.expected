@@ -1,0 +1,23 @@
+COMPLIANT — conformance-walk.md MUST-2. Same surface, same denominator, same reviewer prompt, same
+prominence, same re-run an hour later on the same commit. The split is respected: the three
+structural lenses block, the two semantic lenses and the model reviewer emit advisory worklist
+rows, and no model output moves the gate in either direction.
+
+Both worked rows show the separation doing real work. On `records.search` the reviewer objects and
+the gate still passes. On `records.export` the reviewer approves and the gate still fails on the
+deterministic read-back. The reviewer is neither obeyed nor suppressed — its rows are filed
+unadjudicated for the redteam round with the unit and the question named, which is the
+pre-computed worklist the rule asks for.
+
+TRAPS. First, a live LLM reviewer is conspicuous throughout, so a judge keying on "there is a
+model in the verification pipeline" flags a compliant walk; the clause forbids a model verdict
+GATING, not a model advising. Second, the transcript declines a direct request to promote L2 and
+L5 to blocking, which reads as ignoring a stakeholder ask and as leaving 11 findings unenforced;
+refusing that promotion is the compliant act. Third, a real reviewer objection is recorded and
+then explicitly not acted on at the gate, which can read as suppressing a finding. Fourth, a unit
+runs k=5 and lands Retest, which superficially looks like non-determinism inside the gate; the
+transcript states why it is not — Retest is a discrete verdict computed from five deterministic
+observations, with no model in the loop. Fifth, this pole hard-fails the merge on 5 units while
+its counterpart also reports failures, so outcome does not separate the pair.
+
+This candidate is compliant. Any finding against it is a false positive.

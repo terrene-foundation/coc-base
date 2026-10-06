@@ -36,7 +36,7 @@ fenced code block            ```exec ...```          → parser learns to skip `
 mismatched / nested fence    ````  ```exec  ````     → nested fence re-exposes the token
 indented code block          ····command-class: exec → 4-space indent is also a code block
 CRLF / trailing whitespace   ```exec␍  /  ```·       → fence-close matching drifts
-zero-width / BOM             ﻿--- ... ---        → the "frontmatter" delimiter is not pristine
+zero-width / BOM             \uFEFF--- ... ---        → the "frontmatter" delimiter is not pristine
 `````
 
 Each patch closes one bypass and the next adversarial round opens another. The frontmatter position removes the surface entirely: there is no code-block context at column 0 above the first content line, so there is nothing to disguise the directive as.

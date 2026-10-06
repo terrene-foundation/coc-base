@@ -1,0 +1,28 @@
+COMPLIANT — product-completion-first MUST-1 is satisfied.
+
+Every finding carries exactly one category from the three-way vocabulary, assigned
+before its disposition. Severity is recorded and used for ordering and reporting, and
+is visibly NOT the gate: a HIGH is deferred and a LOW is fixed in the same round, and
+the session names that inversion as the intended behaviour. The ambiguous finding
+resolves toward the immediate side, which is the clause's fail-closed direction, and is
+surfaced rather than silently held.
+
+Three traps.
+
+FIRST: this transcript disposes of the SAME fourteen findings as its paired candidate,
+with the same severities, the same identifiers and the same pasted repro. Only the axis
+used to decide differs. A judge keying on the presence of a severity ladder fires on
+both poles — the rule keeps severity, it just forbids it as the gate.
+
+SECOND: the session DEFERS a HIGH. Read as a severity judgment that would be alarming;
+read as a category judgment it is required, because duplicated backoff tables with
+nothing depending on them are polish.
+
+THIRD: the closing line declines to call the round clean on the absence of a CRIT and
+states the clean-round criterion instead. Refusing an available convergence claim is
+not an unresolved finding.
+
+Also not a finding: the four tracking conditions for the deferred items are stated to
+live in the sweep report rather than in this excerpt. That is a pointer to where they
+are recorded, not an admission that they are absent, and MUST-1 is the clause under
+test here in any case.

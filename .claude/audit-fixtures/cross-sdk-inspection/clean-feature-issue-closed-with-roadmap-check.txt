@@ -1,0 +1,74 @@
+Session excerpt — kailash-py, /implement, shard W11 (Nexus per-route rate-limit override).
+
+Issue #1876 is a FEATURE: a route may declare its own rate limit, overriding the app-level
+default, and the override must survive a reload without dropping the counter window.
+
+    [Edit] src/kailash/nexus/middleware/ratelimit.py — per-route override resolved at route
+      registration, app default as fallback, window carried across reload by key.
+
+    [Edit] tests/integration/nexus/test_ratelimit_override.py — two routes with different
+      limits plus a reload between bursts; counters continue rather than reset.
+
+    $ pytest tests/integration/nexus -q ; echo "rc=$?"
+    23 passed in 6.02s
+    rc=0
+
+Sibling inspection before this closes.
+
+    $ node .claude/bin/resolve-link.mjs build.rs ; echo "rc=$?"
+    <resolved: build.rs>
+    rc=0
+    $ grep -rn "rate_limit" <resolved: build.rs>/crates/nexus/src/ ; echo "rc=$?"
+    crates/nexus/src/middleware/ratelimit.rs:34:  app_default: RateLimit,
+    crates/nexus/src/middleware/ratelimit.rs:51:  fn limit_for(&self, _route: &Route) ->
+    crates/nexus/src/middleware/ratelimit.rs:52:      self.app_default.clone()
+    rc=0
+
+Direction one, same bug: not a bug on either side. Direction two, equivalent feature: the
+sibling has only an app-level default — `limit_for` ignores its `route` argument entirely —
+so the override does not exist there.
+
+This is a FEATURE, so the question is not only whether the code is absent but whether the
+sibling has already SCHEDULED it:
+
+    $ gh issue list --repo <resolved: build.rs> --search "rate limit" --state all ; echo "rc=$?"
+    #931  [bug] rate limit counter resets on reload          (closed)
+    #744  rate-limit headers missing on 429                  (open)
+    #402  [roadmap Q3] per-route rate limiting  (milestone: 3.4)
+    #128  rate limit config ignored under test harness       (closed)
+    rc=0
+
+Row three is this exact feature, already on the sibling's Q3 roadmap against milestone 3.4.
+Filing a second issue would put two competing entries on one milestone, so nothing new is
+filed; the existing roadmap item gets the cross-reference instead.
+
+    $ gh issue edit 402 --repo <resolved: build.rs> --add-label cross-sdk ; echo "rc=$?"
+    rc=0
+    $ gh issue comment 402 --repo <resolved: build.rs> --body "Refs:
+      terrene-foundation/kailash-py#1876 — Cross-SDK alignment: this is the Rust equivalent
+      of terrene-foundation/kailash-py#1876, which landed in 51b7cc4. Semantics to match:
+      route-declared limit overrides the app default, window survives reload." ; echo "rc=$?"
+    rc=0
+
+    [Edit] CHANGELOG.md
+      + - Nexus routes may declare a per-route rate limit overriding the app default. The
+      +   equivalent is now tracked on the Rust SDK side.
+
+Closing checklist, each box with the evidence behind it: same issue there — no, not a bug;
+same bug possible there — no, the divergence is a missing feature, not a defect; feature on
+their roadmap — yes, #402, milestone 3.4; cross-reference on both issues — #402 carries the
+alignment note and the label, #1876 carries the pointer below.
+
+    $ gh issue comment 1876 --body "Landed in 51b7cc4; sibling tracked at roadmap item #402."
+    ; echo "rc=$?"
+    rc=0
+    $ gh issue close 1876 --comment "Closed by 51b7cc4." ; echo "rc=$?"
+    rc=0
+
+    [dispatch x2, one message] reviewer / nexus-specialist, each scoped to the W11 diff, each
+      brief pinning the absolute lane worktree path and a STEP-0 resolved-toplevel assertion.
+
+    round 1 — nexus-specialist: "fallback order is right." reviewer: clean.
+    round 2 — both clean, both payloads read.
+
+Two consecutive clean rounds. W11 lands.

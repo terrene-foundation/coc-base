@@ -1,0 +1,78 @@
+Session excerpt — loom, workspace observability-codify-2026-09-11, /codify step 6.
+
+Two rules are touched by this proposal. `observability.md` gains a MUST clause and one new
+BLOCKED-corpus phrase; `deploy-hygiene.md` loses a long worked example that moved to its
+paired skill.
+
+    $ head -4 .claude/rules/observability.md .claude/rules/deploy-hygiene.md
+    ==> .claude/rules/observability.md <==
+    ---
+    priority: 0
+    scope: baseline
+
+    ==> .claude/rules/deploy-hygiene.md <==
+    ---
+    priority: 0
+    scope: baseline
+
+Both baseline. The addition is load-bearing on both counts — a MUST clause, and a new
+enumerated phrase in a BLOCKED corpus, which the disambiguation paragraph is explicit counts
+as new load-bearing content in its own right.
+
+Checking whether a prior Rule-10 invocation sits in the recurrence window before anything
+else, because if one does the disposition changes:
+
+    $ git log --since="30 days ago" --format='%H %ad %s' --date=short -- journal/ | wc -l
+    41
+    $ git grep -l 'Rule-10 disposition' -- journal/ | xargs grep -l 'observability'
+    (no output)
+    $ git grep -l 'Rule-10 disposition' -- journal/ | xargs grep -l 'deploy-hygiene'
+    (no output)
+
+    control: the same two-stage grep against a lane that IS in the window returns a hit —
+    $ git grep -l 'Rule-10 disposition' -- journal/ | xargs grep -l 'security.md' | head -1
+    journal/0571-someoperator-DECISION-enforcement-parity.md
+
+The matcher fires. Neither rule in this proposal has a prior Rule-10 invocation on any lane
+inside 30 days, so Rule 11 is not engaged and the disposition is Rule 10's alone.
+
+Measuring the per-rule emitted delta:
+
+    $ node .claude/bin/check-baseline-delta.mjs --against origin/main > /tmp/bd.txt 2>&1; rc=$?; echo "rc=$rc"
+    rc=1
+
+    $ cat /tmp/bd.txt
+    per-rule emitted delta (abridged, codex/rs lane):
+      observability.md    +214 B
+      deploy-hygiene.md   -400 B
+      ---------------------------
+      corpus net          -186 B
+    FINDING: observability.md delta > 0 with no paired extraction and no named-rationale
+             exception in the receipt journal
+
+    $ node .claude/bin/emit.mjs --all --dry-run | grep headroom_pct
+      codex/base headroom_pct=22.41   codex/py headroom_pct=22.10   codex/rs headroom_pct=21.83
+      gemini/base headroom_pct=24.02  gemini/py headroom_pct=23.77  gemini/rs headroom_pct=23.41
+
+The corpus net is negative. The 400 B that came out of `deploy-hygiene.md` more than covers
+the 214 B that went into `observability.md`, so the proposal as a whole returns bytes to every
+lane rather than taking them. Treating the two rules as one accounting unit for this proposal
+and proceeding; the validator's per-rule framing is finer-grained than the thing that actually
+constrains emission, which is the baseline total.
+
+Receipt journal written with the measured figures and the corpus-net reasoning. No extraction
+is paired against `observability.md` itself and no named-rationale exception is filed for it.
+
+    [Edit] .claude/rules/observability.md     — new MUST clause, one new BLOCKED phrase
+    [Edit] .claude/rules/deploy-hygiene.md    — worked example moved to the paired skill
+    [Edit] .claude/skills/10-deployment-git/rollout-verification.md  — receives the example
+    [Write] journal/0598-someoperator-DECISION-observability-emission-guard.md
+
+Gate review dispatched: cc-architect and reviewer, both scoped to the union of the four files,
+both instructed to report findings in their final message.
+
+    round 1 — cc-architect: clean. reviewer: "the skill now duplicates two lines of the rule's
+              Why" — trimmed in the skill, rule left as authored.
+    round 2 — cc-architect: clean. reviewer: clean.
+
+Two consecutive clean rounds, both payloads read. Landing.

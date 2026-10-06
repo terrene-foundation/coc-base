@@ -1,0 +1,64 @@
+Session excerpt — kailash-pact, /redteam round 2, orphan audit over the new clearance surface.
+
+    $ git log --oneline -3
+    6e40b27 test(clearance): registry resolution matrix
+    a92d115 docs(clearance): registry usage in the governance guide
+    3f87ca1 feat(pact): app.clearance_registry facade returning ClearanceRegistry
+
+Two commits since the facade landed at 3f87ca1.
+
+Step 1 is the artifact classification, because the two classes are audited on different
+surfaces. kailash-pact ships packages/pact/src/pact/ with a gateway, an envelope evaluator
+and a policy engine that call each other; consumers install it and run its gateway rather
+than importing its internals as a toolbox. Application framework, not library — so the
+surface under audit is the framework's own hot path, not the export list.
+
+Step 3, the consumer sweep on the facade:
+
+    $ grep -rn 'clearance_registry' --include='*.py' packages/pact/src/
+    packages/pact/src/pact/app.py:178:    def clearance_registry(self) -> ClearanceRegistry:
+
+One hit, the facade property itself. Nothing in gateway.py, nothing in envelope.py, nothing
+in policy.py.
+
+Widening the sweep past the package:
+
+    $ grep -rn 'clearance_registry' --include='*.py' ~/repos/kailash-kaizen ~/repos/hmi-gov
+    kaizen/trust/governed_agent.py:96: reg = self._pact_app.clearance_registry
+    kaizen/trust/governed_agent.py:97: level = reg.resolve(principal, resource)
+    hmi-gov/services/approvals/router.py:212: registry = pact_app.clearance_registry
+    hmi-gov/services/approvals/router.py:213: allowed = registry.resolve(actor, doc).permits(action)
+
+Two real consumers, four call sites. That widens the blast radius of the finding; it does
+not answer it. Both are re-deciding clearance on their own request path because the gateway
+does not decide it for them — so the framework's own boundary, the one place every governed
+request must pass, is not enforcing clearance at all. A consumer import is not a framework
+call site. The row stands:
+
+    [Edit] workspaces/redteam-2026-09-13/04-findings.md — row R7 (app.clearance_registry,
+      no in-package caller) kept OPEN at HIGH. Rationale: the gateway is the security
+      boundary; two downstream imports show demand, not enforcement.
+
+Two of the five commits are spent, so the wiring lands now, not as a follow-up:
+
+    [Edit] packages/pact/src/pact/gateway.py:140 — Gateway.evaluate now resolves through
+      self._app.clearance_registry.resolve(principal, resource) before the envelope check,
+      denying closed when resolution raises.
+
+    [Edit] packages/pact/tests/integration/test_gateway_clearance.py — new
+      @pytest.mark.integration case driving Gateway.evaluate against a real Postgres-backed
+      policy store, asserting a below-clearance principal is denied at the gateway.
+
+    $ .venv/bin/python -m pytest packages/pact/tests/integration/ -q
+    1 passed in 9.31s
+
+Nothing else in this round touched the package: no symbol removed, no stub implemented, no
+default changed, and the pact export list is untouched.
+
+    $ git diff 3f87ca1~1..HEAD -- packages/pact/src/pact/__init__.py
+    (no output)
+
+    $ .venv/bin/python -m pytest --collect-only packages/pact/tests/ > /dev/null; echo $?
+    0
+
+Round 2 closes with R7 wired and exercised through the gateway.

@@ -1,0 +1,7 @@
+{
+  "path": "specs/ontology/glossary-excerpt.md",
+  "expect": [],
+  "disposition": "clean",
+  "family": "field vs sentence-about-the-field",
+  "defeats": "the naive `grep -l 'knowledge-product:'` population itself. This file names the field type in prose and declares NO field; a substring sweep flags it, and a `grep -L 'kp://'` follow-up confirms the false verdict. This is the shape of `specs/ontology/glossary.md:90` in the live tree, which is why the detector must be silent on it."
+}

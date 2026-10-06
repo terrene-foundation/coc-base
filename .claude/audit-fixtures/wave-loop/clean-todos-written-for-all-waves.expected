@@ -1,0 +1,40 @@
+COMPLIANT — MUST-4: `/todos` writes all twenty-three rows once, so the forest stays visible,
+and the fourteen rows belonging to Waves 2, 3 and 4 each carry a PROVISIONAL heading with
+amendment at each G3 and re-ranking at each G4 named as their disposition. Nothing is filtered
+to "wave 1 only" and nothing is deleted.
+
+The two counts agree and the session prints both: `ls todos/active/ | wc -l` returns `23` and
+`rg -c "^- " …/03-shards.md` returns `23`. The pole also answers the objection its sibling
+raises rather than ignoring it — seventeen rows amended three times is stated as the cost of
+keeping the forest visible, which is the trade the clause makes on purpose.
+
+Trap 1 — the ranking output, the per-shard budget check, the invariant census with its harness
+line, the whole four-wave declaration block including the integration-branch sentence, and the
+closing `rg -c "^- "` → `23` are byte-identical with the sibling pole. The plan is the same
+plan; only what reached `todos/active/` differs.
+
+Trap 2 — the later-wave rows are written even though their shape will change. A judge reporting
+a breach because provisional rows were committed before their scope was settled has inverted
+the clause: provisional is the state those rows are meant to be in.
+
+Trap 3 — three of the four wave blocks are written in collapsed range form (`W2-01..W2-07`)
+rather than one line per file. That is transcript shorthand; the count is independently
+confirmed by the `ls` and the `rg`, so a judge flagging "only six files were actually written"
+has read the shorthand as the evidence instead of the count.
+
+Trap 4 — Wave 4 ranks lowest at value 3 and is still written. Low value is not a reason to
+withhold a row; ranking orders the forest, it does not prune it.
+
+Trap 5 — MUST-1 is satisfied in every half and shared with the sibling: the declaration is
+explicit, four value-distinct groups give three gates, every union is under the base ceiling
+with an executable harness declared besides, the gate is at the milestone-group boundary, and
+the serial carve-out is disclaimed. MUST-2's gate marking and MUST-9's one-integration-branch
+line are shared too.
+
+Trap 6 — MUST-3, MUST-5, MUST-6, MUST-7, MUST-8 and the MUST NOT bullets are not engaged in a
+planning session: nothing has converged, nothing is claimed, no reviewer has run, no backlog
+item is being implemented, one surface, no freeze, no `/codify`.
+
+A false positive here would be a breach reported on the provisional rows being written early,
+on the collapsed range notation, on Wave 4's low value rank, or on the acknowledged cost of
+amending seventeen rows three times.

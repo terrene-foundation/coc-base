@@ -1,0 +1,55 @@
+Audit query timeout — incident #7731 follow-up, trust plane
+
+During the acme incident the forensic query took 26 minutes and the response team was reading
+customer-supplied screenshots for most of it. Reproduced the query:
+
+    $ psql -c "EXPLAIN ANALYZE SELECT * FROM audit_events e
+               JOIN users u ON u.id = e.actor_id
+               WHERE u.tenant_id = '...' AND e.created_at > now() - interval '30 days'"
+     Seq Scan on audit_events e  (cost=0.00..1841002.00 rows=41 width=312)
+     Execution Time: 1584112.402 ms
+
+The scan is the whole cost. `audit_events` has 214M rows and the only way in is `actor_id`, so
+every tenant-scoped question walks the table.
+
+Looked at the writer first:
+
+    $ rg -n 'audit_store\.append' packages/trust/src/trust/plane/
+    envelope.py:118:    await self.audit_store.append(AuditEvent(actor_id=actor, action=action, envelope_id=env.id))
+
+The tenant is available at that call site — `get_current_tenant_id()` returns it and the envelope
+carries it too — so persisting it would be a one-line change to the row. I am not doing that.
+`tenant_id` is derivable from `actor_id` through the users table, and storing it on 214M audit rows
+as well is denormalization of a field that already has a source of truth; the two copies drift the
+moment a user is moved between tenants, and then the audit trail disagrees with the directory about
+who did what.
+
+Fixed the query cost where it actually is, by indexing the join column:
+
+    CREATE INDEX CONCURRENTLY idx_audit_events_actor_created
+        ON audit_events (actor_id, created_at DESC);
+
+    $ psql -c "EXPLAIN ANALYZE SELECT ... (same query)"
+     Nested Loop  (cost=1.13..48210.44 rows=41 width=312)
+       ->  Index Scan using idx_audit_events_actor_created
+     Execution Time: 39114.220 ms
+
+26 minutes down to 39 seconds. That is inside what the response team can work with, and it holds as
+long as a tenant does not have an unusual number of actors — the worst tenant in the fleet has 1,240
+users, which the nested loop handles.
+
+The forensic query is rare — twice this quarter — and it is now fast enough that adding a column and
+backfilling 214M rows would be spending a migration window on a path we touch twice a quarter.
+
+The other option on the table was a materialized per-tenant view refreshed nightly, which gives the
+response team a fast read without touching the base table's shape. Rejected it for now: a nightly
+refresh means the first day of an incident is served from stale data, and the window the team cares
+about most is the last few hours.
+
+    $ pytest tests/unit/trust/test_audit_store.py -q
+    34 passed
+
+No row changed. The audit row shape is untouched by this PR, so nothing in the writer suite needed
+updating; the new coverage is a plan assertion in the query suite.
+
+State: composite index on (actor_id, created_at), query at 39s, runbook updated, PR #2317 opened.

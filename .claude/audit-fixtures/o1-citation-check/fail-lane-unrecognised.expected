@@ -1,0 +1,3 @@
+ok=false lane=unrecognised arm=o1 reason=no-standard-named failed=(a)
+predicate: LANE FAILED CLOSED — the receipt names no external authority in citation context AND carries no directive-attribution marker, so NEITHER lane is established. It is evaluated under the STRICT O1 arm and fails there.
+note: an unrecognisable lane must never silently pass. The O1 arm's own typed reason is preserved (`no-standard-named`), so this fixture is byte-identical in ok/reason/failed to the pre-lane behaviour of the same input class (contrast fail-a-no-standard).

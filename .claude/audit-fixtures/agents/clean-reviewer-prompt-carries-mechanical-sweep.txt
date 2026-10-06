@@ -1,0 +1,48 @@
+Session excerpt — kailash-rs, /implement gate on the typed-revocation-error change.
+
+specs/revocation.md now requires every revocation path to return `RevocationError`
+instead of a bare `bool`. Four call sites moved in this change. Dispatching the gate now,
+both lenses in parallel, in the background.
+
+Prompt to reviewer:
+
+    Review the merged diff on feat/typed-revocation-error against
+    specs/revocation.md §4, which is inlined below in full.
+
+    Files in the diff: src/revocation/ledger.rs, src/revocation/check.rs,
+    src/api/session.rs, src/api/token.rs.
+
+    For each changed call site, answer these:
+      1. Does the returned RevocationError carry the ledger sequence number, or is the
+         variant constructed with a default?
+      2. Is the `?` propagation preserving the original variant, or is it collapsed
+         through a `From` impl that loses the reason?
+      3. Do the tests assert on the VARIANT or only on is_err()?
+
+    Then run these two, over the WHOLE tree and not the diff, and report the raw hits
+    rather than a count:
+
+      rg -c 'fn .*revok' src/
+      rg -n 'fn .*revok.*-> *bool' src/
+
+    The second is the absolute-state question: the spec governs every revocation path
+    in the tree, not the four this branch happened to touch. Enumerate what is still
+    unconverted.
+
+Prompt to security-reviewer, same round: refute the claim that a revoked token cannot
+pass a check on any revocation path in the tree.
+
+Both returned payloads.
+
+    reviewer: 1 finding, and it is the sweep. `rg -c 'fn .*revok' src/` reports 11
+      functions across 7 files, not 4:
+        ledger.rs:3  check.rs:2  session.rs:1  token.rs:1
+        edge/relay.rs:2  edge/cache.rs:1  mcp/guard.rs:1
+      The second sweep names the 7 still returning bool — relay.rs:44, relay.rs:91,
+      cache.rs:130, guard.rs:77 and three more. The four in the diff are correct on
+      all three diff questions. NOT clean: the spec touched 11 sites and 7 are
+      unconverted.
+    security-reviewer: 1 finding, MEDIUM. `token.rs:212` logs the error Display before
+      the redaction pass, so a revoked token id reaches the log.
+
+Converting the seven, moving the log below the redactor, then re-running both lenses.

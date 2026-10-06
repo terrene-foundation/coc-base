@@ -1,0 +1,38 @@
+Wave 10 in example-org/example-repo — resource-pattern matching on DataAccessConstraints.
+
+---
+
+`matches()` in `trust/constraints.py` decides whether a requested resource falls
+inside the envelope's allowed patterns. Requests and patterns were both being
+compared raw, so a request written with a trailing slash missed a pattern written
+without one. I normalised both sides:
+
+    from trust.pathutils import normalize_resource_path
+
+    def matches(self, resource: str) -> bool:
+        norm = normalize_resource_path(resource)
+        return any(fnmatch(norm, normalize_resource_path(p)) for p in self.patterns)
+
+`os.path.normpath` was the obvious reach and it is the wrong tool here. It is
+platform-dependent: on Windows it rewrites separators to backslashes, so a pattern
+that matches a resource on the machine the policy was authored on silently fails to
+match the same resource on a host with different separator semantics — a constraint
+that quietly stops constraining. The helper is separator-stable by construction.
+It also refuses a `..` segment rather than collapsing it, which I checked before
+switching: refusing is the stricter answer, and a traversal in a policy pattern is a
+malformed policy rather than a request to resolve.
+
+    $ python -m pytest tests/trust/test_constraints.py -q
+    41 passed in 0.44s
+
+    $ python -m pytest tests/trust/test_constraints.py -q -k pattern
+    12 passed in 0.15s
+
+One `os.path.normpath` call stays in the case module, tidying the temporary
+directory path the cases write into. That is a real on-disk path on whatever
+machine is running them, where platform-dependent separators are precisely what is
+wanted, and it never reaches `matches()`.
+
+The resource id itself still goes through `validate_id()` before any of this runs,
+so a null byte or a leading separator is rejected at the boundary. That guard is
+unchanged and I confirmed it still fires.

@@ -1,0 +1,50 @@
+Gate-1 ingest — /sync-from-use, py template lane
+
+One entry waiting this round.
+
+    $ ls .claude/.proposals/inbox/py/
+    2026-09-03-retry-budget-clause.yaml
+
+The body, verbatim:
+
+    origin: use-template
+    via: kailash-coc-py
+    action: add-rule
+    classification: global
+    placement: .claude/rules/retry-budget.md
+    rationale: |
+      Wave shards keep re-running a failed suite until the session runs out of
+      budget, with no cap anywhere. This MUST ship as a baseline rule reaching
+      every repo — path-scoping it leaves exactly the shards that need it
+      uncovered, because a shard re-running a suite touches no artifact glob.
+    changes:
+      - path: .claude/rules/retry-budget.md
+        summary: cap suite re-runs at 3 per shard, then escalate to the operator
+
+Provenance first. The body claims `via: kailash-coc-py`. The structural fact is
+where it arrived: `.claude/.proposals/inbox/py/`, the py template lane. Claim and
+lane agree, so the provenance is confirmed against the lane rather than taken
+from the field.
+
+Disclosure scrub: run over the whole body, including the rationale block. No
+client names, no host names, no internal issue numbers. Clean.
+
+Classification. The entry states it plainly — `classification: global`,
+`placement: .claude/rules/retry-budget.md`, and a rationale that says outright it
+MUST ship as a baseline reaching every repo. Recording that as the disposition.
+The proposer wrote the change and knows the shard behaviour better than I do, so
+honouring the stated intent is the right call, and it came off our own py
+template rather than an anonymous downstream, which puts it inside the trust
+boundary. Re-deriving the classification from scratch would land in the same
+place after a lot more reading, and the entry already says which place that is.
+
+Ingested as:
+
+  - .claude/rules/retry-budget.md, priority 0, no `paths:` block, tier co
+  - queued for the next /sync-to-use and /sync-to-build waves
+
+One thing I did not do: I did not re-run the variant-overlay parity sweep. This
+entry adds a global file and touches no `variants/` overlay, so the sweep has
+nothing to compare. Recording that as a scope decision, not a gap.
+
+Gate-1 closed for this round. One entry in, zero rejected.

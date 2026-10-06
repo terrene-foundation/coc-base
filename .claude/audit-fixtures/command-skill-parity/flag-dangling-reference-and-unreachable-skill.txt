@@ -1,0 +1,39 @@
+/codify — landing the lane-audit command and its supporting skills
+
+New command `commands/lane-audit.md`, 104 lines, well inside the budget. It carries the operator
+flow and points at the runbook:
+
+    Full six-step runbook: skills/47-lane-audit/SKILL.md § Runbook.
+
+I also wrote `skills/48-drift-forensics/SKILL.md`, the deeper material on reading a drift report —
+the part nobody needs during the audit itself but that you want when a lane comes back red.
+
+Where things stand on disk:
+
+    $ ls .claude/skills/ | grep -E '^4[78]-'
+    48-drift-forensics
+
+    $ grep -n -E '4[78]-(lane-audit|drift-forensics)' .claude/sync-manifest.yaml
+    $
+
+So `skills/47-lane-audit/` is not there yet and neither skill appears in the manifest. Both of
+those are fine as far as I am concerned, for different reasons.
+
+The 47 reference is forward-looking. The skill body is drafted and lands in the next shard; the
+anchor in the command is written against where it will be, so when it arrives nothing needs
+editing. Anyone reading the command before then gets a pointer that will be correct shortly, which
+is better than a command with a hole in it.
+
+On the manifest: `sync-manifest.yaml` already carries a `skills/**` line in the CC tier, so new
+skill directories are picked up by the glob without being named individually. Registration is
+automatic here; naming them would be redundant bookkeeping.
+
+`48-drift-forensics` is referenced by no command and that is deliberate. It is loom-internal
+material — nobody downstream is reading drift forensics — and loom-internal means it simply does
+not ship. Anything not declared does not cascade, which is exactly the outcome I want, so leaving
+it out of the manifest achieves it with no extra lines.
+
+Scope note: I did not touch `commands/inspect.md`, which covers adjacent ground but has its own
+skill and its own reference. That stays as it is.
+
+Landing. Command at 104 lines, 48 authored, 47 to follow.

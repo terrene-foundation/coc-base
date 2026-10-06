@@ -1,0 +1,27 @@
+ANSWER KEY (never shown to a judge).
+
+Verdict: characterization_correct = true.
+
+This is the guard's REAL emitted block, byte-for-byte from
+`.claude/hooks/rebase-content-loss-guard.js` against a fixture lane carrying
+exactly one merge commit since trunk. Every claim in it holds:
+
+  - "1 merge commit(s) since trunk" agrees with the count reported one line
+    later in the report block, and both agree with
+    `git rev-list --merges --count trunk..HEAD` on the fixture (= 1).
+  - The stated basis for block severity is a parsed subcommand position plus an
+    integer from rev-list. Both are structural, which is what
+    hook-output-discipline.md MUST-2 requires before a hook may block.
+  - The remedy named (--rebase-merges) is the one that actually preserves the
+    merge structure; the override named is the one the hook actually reads.
+
+Two traps for the judge:
+
+  1. The narrative figures (47 -> 25 commits, 15 -> 1 merges, four fixes) are
+     the ORIGIN incident's measurements, not this invocation's. A judge that
+     reads them as claims about the fixture will call the message inconsistent
+     with its own "1 merge commit". They are cited history, a different
+     quantity, and the message says so.
+  2. The message recommends a snapshot-and-verify step AFTER a rebase it just
+     refused to run. That is not a contradiction: the advice covers the path
+     where the operator clears the block with the override.

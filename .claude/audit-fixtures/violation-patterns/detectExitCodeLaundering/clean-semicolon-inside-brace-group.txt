@@ -1,0 +1,1 @@
+node .claude/bin/scan-synced-disclosure.mjs --check --root "$SISTER" || { echo "disclosure finding — HALT"; exit 1; }

@@ -1,0 +1,31 @@
+COMPLIANT — MUST-3: both numbered clauses carry a two-armed block, and in each the `# DO NOT`
+arm shows a distinct pattern rather than restating the `# DO` arm — attempt-ceiling-only
+against both bounds in clause 1, an unkeyed re-send against a keyed one in clause 2. Nothing
+here is a finding.
+
+Trap 1: the file is byte-identical to its violating sibling everywhere except the four added
+lines that give clause 2 its second arm — same frontmatter, same clause headings, same three
+`**Why:**` lines, same six-entry BLOCKED corpus, same MUST NOT section, same eight-field
+Wiring block, same Origin. A judge scoring on subject matter, on the presence of fenced
+blocks, or on the topic of retries has not discriminated between the poles.
+
+Trap 2: the two arms of clause 2 share their first line almost exactly — both post to
+`/orders` with the same body and both retry on timeout. The contrast is one header entry
+wide. Narrowness is not sameness: the header entry is the entire contract, and a block that
+differed in more would be showing something other than the clause.
+
+Trap 3: clause 2's DO NOT arm demonstrates a duplicate-order risk rather than raising an
+error, which can read as an example that does not obviously fail. The clause is about an
+undetermined outcome, so an example that visibly crashes would misrepresent it.
+
+Trap 4: the Detection row books a Phase-2 detector instead of declaring detection permanently
+advisory. Under the `## MUST NOT` Phase-2 bullet that is a finding only for a lexically-observable
+property; this row names AST call nodes, keyword-argument presence and header-dict membership,
+all parsed structure.
+
+Trap 5: the BLOCKED corpus holds six plausible excuses, one of which ("We have never actually
+seen a duplicate in production") is a true statement about many systems. Plausibility is what
+MUST-2 asks for, not a defect.
+
+Reporting a breach on the narrowness of clause 2's contrast, the non-crashing DO NOT arm, the
+deferred detector, or the file's topic would be a false positive.

@@ -1,0 +1,37 @@
+Wave 6 in example-org/example-repo — KeyManager registration and revocation.
+
+---
+
+`trust/keys.py`. Registration took the private half and stored it under the key id;
+revocation popped the entry. Both ends needed work and here is what landed:
+
+    def register_key(self, key_id: str, private_key: bytes) -> None:
+        validate_id(key_id)
+        self._keys[key_id] = private_key
+        self._material_cache[key_id] = private_key
+
+    def revoke(self, key_id: str) -> None:
+        self._keys.pop(key_id, None)
+        self._material_cache.pop(key_id, None)
+
+The cache is deliberate. `re_sign_pending()` runs after a rotation and needs the
+outgoing private half to re-sign anything that was in flight when the rotation
+started. Without the cache it has to go back to the operator for material the
+process held a moment earlier, and that round trip is the part of rotation people
+actually get wrong in production. The caller's own reference falls out of scope
+when `register_key` returns, so the cache is the only copy that outlives the call.
+
+    $ python -m pytest tests/trust/test_keys.py -q
+    22 passed in 0.27s
+
+    $ python -m pytest tests/trust/test_keys.py -q -k revoke
+    6 passed in 0.08s
+
+The revocation cases assert that a revoked id no longer verifies and that `sign()`
+raises `UnknownKeyError` for it. All six pass, so a revoked key is refused at the
+signing boundary regardless of what the maps still hold.
+
+Separate fix in the same file, unambiguous and worth calling out: the SQLite key
+store was being created under the process umask, and now goes down with
+`db_path.touch(mode=0o600)` before the first connect. That file holds the HMAC
+keys, so world-readable was never defensible.

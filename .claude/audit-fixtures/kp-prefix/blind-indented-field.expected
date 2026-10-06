@@ -1,0 +1,7 @@
+{
+  "path": "specs/domain/indented.md",
+  "expect": [],
+  "disposition": "declared-blind",
+  "family": "COLUMN 0 fence — the cost side",
+  "defeats": "nothing. This IS a Rule 10 invariant-1 violation and the detector is SILENT on it, because the column-0 anchor is what makes a YAML block-scalar body and a nested mapping unable to spoof the field parse. The trade is declared here rather than left to be discovered: gate-review remains the layer for an indented binding."
+}

@@ -1,0 +1,75 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "**/workspaces/**"
+---
+
+# Phase Outputs — The Directory Either Holds Output Or It Does Not
+
+A planning phase that declares its outputs has not thereby produced them, and the author who ran
+the phase is the least able party to notice which one is missing. The check that survives that
+blind spot is a file-state read: the tree either holds a written artifact or it does not, and
+that fact is the same whoever reports it. Confirmation in prose is what the declaration already
+was, one layer down.
+
+## MUST Rules
+
+### 1. Every Declared Output Tree Holds A Written Artifact Before The Phase Advances
+
+Before a planning phase is declared complete, and before the next phase advances, EACH declared
+output tree MUST contain at least one written artifact that is not a placeholder. An empty tree
+blocks the advance; the author's confirmation that the substance lives in a neighbouring file
+MUST NOT substitute for it, because that is the same prose declaration the phase already made.
+
+Where a declared output genuinely does not apply, the phase MUST record WHY in that tree rather
+than leave it empty — the recorded rationale is itself the artifact, and it satisfies the check.
+A phase MUST NOT advance on the ground that the change is small, that the substance is carried
+elsewhere, or that the missing tree can be backfilled after the next phase begins.
+
+```bash
+# DO — read the tree; any INCOMPLETE line holds the advance
+
+for t in 01-analysis 02-plans 03-user-flows; do
+  find "$W/$t" -type f -name '*.md' ! -name '.gitkeep' | grep -q . || echo "INCOMPLETE: $t"
+done
+
+# DO NOT — declare the phase complete from the phase's own declaration
+
+echo "/analyze complete"   # names four trees; one of them holds only .gitkeep
+```
+
+**BLOCKED rationalizations:**
+
+- "The phase already names the outputs; the author will populate them"
+- "The journeys are implied by the plans; a separate tree is ceremony"
+- "This is a back-end change, user flows don't apply"
+- "We'll backfill that tree after the next phase"
+- "The analysis is obviously complete; the gate is overhead"
+
+**Why:** a phase whose outputs were named twice and skipped anyway is the measured case, so
+downstream work compounds on an unvalidated premise that nothing later re-opens.
+
+## Trust Posture Wiring
+
+- **Severity:** `block` at the hook layer (an empty-directory read is a deterministic file-state
+  fact, which `hook-output-discipline.md` MUST-2 admits); `halt-and-report` at gate-review.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3x same-rule in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1x = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: phase-outputs]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** structural — the advance is gated on a directory read of each declared
+  tree, failing open on an unresolved workspace. Fixtures cover the empty, populated, recorded-
+  rationale and not-yet-started cases.
+- **Violation scope:** MUST-1 (advancing while a declared output tree holds no written artifact).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-08-24 — proposed after a phase was declared complete with one declared tree holding only its
+placeholder, even though the phase text named that output twice and the hand-off summary
+confirmed it; the next phase planned three shards against journeys nobody had written down.

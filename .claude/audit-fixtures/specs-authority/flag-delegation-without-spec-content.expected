@@ -1,0 +1,42 @@
+VIOLATION — MUST-7: when delegating to a specialist, the orchestrator MUST read
+`specs/_index.md`, select the relevant spec files, and INCLUDE THEIR CONTENT IN THE
+DELEGATION PROMPT. This orchestrator does everything up to the last step. It reads the index,
+selects both relevant files, reads both sections — and then dispatches a brief whose entire
+spec content is "follow the project's existing migration style".
+
+The excerpt quotes the brief in full, so the omission is verifiable rather than inferred, and
+the returned schema is the clause's own worked failure: `email citext UNIQUE` instead of the
+composite `UNIQUE (tenant_id, email)`, and no `tenant_id` column at all, therefore no
+possibility of the FORCE row-level-security policy the second section mandates. The
+specialist produced technically sound work that is wrong for this system, because the two
+facts that made it wrong were on the orchestrator's screen and not in the prompt. The
+uniqueness rule is the sharpest instance: the spec states in one sentence why `email` alone
+is wrong — the same address in two tenants is two different people — and that sentence
+travelled nowhere.
+
+Discriminator 1 — MUST-4 IS SATISFIED, and this is what makes the pair hard. The orchestrator
+read `specs/_index.md` first, selected exactly the two relevant rows from it, and read only
+those two sections. The specs-before-acting obligation is discharged; the defect is that the
+reading stayed with the reader.
+
+Discriminator 2 — MUST-5c IS SATISFIED. The todo's claims are cross-checked against current
+package state before launch — the migration directory is listed, the model is grepped for and
+absent — and the excerpt states the conclusion that the todo is accurate as written. Nothing
+stale was launched.
+
+Discriminator 3 — MUST-5, MUST-5b AND MUST-6 ARE NOT ENGAGED. No spec file is edited here and
+no domain truth moves, so no first-instance update, no sibling sweep and no deviation
+acknowledgement is owed. The specs are correct; only the code diverges from them, and it
+diverges because it never saw them.
+
+Discriminator 4 — MUST-8 IS NOT ENGAGED by anything visible here, and MUST-1 / MUST-2 /
+MUST-3 are all satisfied: a manifest exists and was used, both files are domain-named, and
+both quoted sections are detailed authorities carrying exact columns, constraints and
+predicates.
+
+Discriminator 5 — the dispatch ceremony is otherwise complete: orchestrator-created sibling
+worktree at an absolute path outside the repo, path pinned, STEP-0 resolved-toplevel
+assertion, report-back instruction, and a payload that was actually read. A judge reaching
+for a dispatch-hygiene finding has nothing to hold.
+
+The whole defect is two spec sections that were read and not forwarded.

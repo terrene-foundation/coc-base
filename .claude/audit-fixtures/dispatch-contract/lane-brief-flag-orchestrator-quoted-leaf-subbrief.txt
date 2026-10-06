@@ -1,0 +1,10 @@
+STEP 0: cd /Users/op/repos/.loom-wt/wip-ledger, then assert `git rev-parse --show-toplevel` equals `pwd -P` and `git rev-parse --abbrev-ref HEAD` is codify/op-2026-09-12-wip-ledger.
+
+CONTAINMENT (worktree-isolation MUST-10): pin every git call with an absolute `-C` at this lane's worktree root, asserted against `git rev-parse --show-toplevel` before the first write.
+
+You own lane W6; you will commit each landed item on the lane branch. Dispatch agents in parallel, one per queued ledger item, each with this worker brief:
+
+> You EDIT files only. Do not commit, and do not dispatch sub-agents.
+> Return a summary of your diff as your final message.
+
+Collect their results, review each diff, and report back when the lane is drained.

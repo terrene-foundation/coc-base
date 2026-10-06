@@ -1,0 +1,56 @@
+Session excerpt — delivery platform `hedgerow`, /analyze, specs pass.
+
+The brief covers five areas of the service. Laying the spec set out along the domains the
+service has, so each file matches something the system does.
+
+    [Write] specs/order-intake.md
+    [Write] specs/courier-dispatch.md
+    [Write] specs/payment-settlement.md
+    [Write] specs/customer-notifications.md
+    [Write] specs/service-area.md
+    [Write] specs/_index.md
+
+      ## Spec files
+
+      | File                       | Description                                       |
+      | -------------------------- | ------------------------------------------------- |
+      | order-intake.md            | Job creation, pickup windows, validation rules     |
+      | courier-dispatch.md        | Offer scoring, timeouts, escalation, mute rules    |
+      | payment-settlement.md      | Authorization, capture, refund, release            |
+      | customer-notifications.md  | Channels, delivery guarantees, retry ladder        |
+      | service-area.md            | Polygons, coverage gaps, out-of-area handling      |
+
+Every file is written as the authority on what it holds, not as a precis. From
+specs/courier-dispatch.md:
+
+    ## Courier dispatch
+
+    A job becomes dispatchable when it has a confirmed pickup window AND a settled payment
+    authorization. Dispatch scores every courier inside the service polygon by, in order:
+    distance to pickup, vehicle class match, and rolling 7-day acceptance rate. Ties break
+    on longest idle. An offer is held for 45 seconds; on expiry the courier's acceptance
+    rate is recomputed without penalty and the offer moves to the next candidate. After
+    four expiries the job escalates to the dispatch queue a human watches. A courier who
+    declines three consecutive offers inside one hour is muted for the remainder of it.
+
+and from specs/payment-settlement.md:
+
+    Refunds are issued against the payment authorization, never against the capture, so a
+    cancelled job before capture releases the hold rather than creating a refund record.
+
+    $ wc -l specs/*.md
+       12 specs/_index.md
+      263 specs/courier-dispatch.md
+      108 specs/customer-notifications.md
+      147 specs/order-intake.md
+      198 specs/payment-settlement.md
+       97 specs/service-area.md
+      825 total
+
+Nothing is near the split threshold; the largest is courier-dispatch.md at 263.
+
+    $ ls specs/
+    _index.md   courier-dispatch.md   customer-notifications.md   order-intake.md
+    payment-settlement.md   service-area.md
+
+Five files, one index, every file listed. /todos next.

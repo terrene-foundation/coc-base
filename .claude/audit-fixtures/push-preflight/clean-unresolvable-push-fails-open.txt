@@ -1,0 +1,15 @@
+{
+  "note": "The parser cannot know the remote, so neither can this. An unknown resolves to silence with its OWN name — never to a guess and never to a measured all-clear.",
+  "expect": {
+    "verdict": "silent",
+    "why": "unresolvable-push"
+  },
+  "input": {
+    "command": "eval \"git push origin $BRANCH\"",
+    "remoteBranchExists": true,
+    "workflows": [
+      "name: gate\non: [pull_request]\njobs:\n  g:\n    runs-on: [self-hosted]\n    steps:\n      - run: |\n          echo \"starting the gate\"\n          node .claude/bin/validate-xref-integrity.mjs\n          git status --porcelain\n      - run: pre-commit run --all-files\n"
+    ],
+    "transcriptText": "{\"type\":\"assistant\",\"uuid\":\"u0\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"t0\",\"name\":\"Bash\",\"input\":{\"command\":\"ls\"}}]}}"
+  }
+}

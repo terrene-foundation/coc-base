@@ -1,5 +1,6 @@
 ---
-description: List all active claims in the multi-operator coordination log — own first, then siblings by granted_at DESC. Surfaces F2-1 contested claims (ADJACENT later overridden by SAME).
+name: claims
+description: "List active work claims, own first; surface contested claims across operators."
 ---
 
 # /claims — Multi-Operator Active-Claim Surface

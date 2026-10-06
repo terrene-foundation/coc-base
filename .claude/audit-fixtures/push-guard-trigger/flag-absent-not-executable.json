@@ -1,0 +1,13 @@
+{
+  "_doc": "SAME BYTES as clean-installed but for `triggerExecutable`. MEASURED on git 2.54.0: a non-executable hook is IGNORED -- git prints `hint: ... not set as executable`, the operation LANDS, rc=0. A presence-only checker scores this INSTALLED, which is a gate reported as running while it is not.",
+  "state": {
+    "delegatePresent": true,
+    "trackedTriggerPresent": true,
+    "hooksDir": "/Users/someoperator/repos/loom/.git/hooks",
+    "resolveError": null,
+    "readError": null,
+    "triggerPresent": true,
+    "triggerExecutable": false,
+    "triggerDelegates": true
+  }
+}

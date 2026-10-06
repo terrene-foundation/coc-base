@@ -1,0 +1,4 @@
+# An entry with no frontmatter at all
+
+rules/journal.md MUST NOT: 'Create entries without frontmatter'. There is no
+leading `---` fence, so nothing can filter this entry by type, phase or date.

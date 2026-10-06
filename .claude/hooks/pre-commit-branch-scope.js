@@ -56,6 +56,9 @@
 
 const { execFileSync } = require("child_process");
 const path = require("path");
+const { resolveGitBinary, gitEnv } = require(
+  path.join(__dirname, "lib", "git-subprocess-env.js"),
+);
 
 const TIMEOUT_MS = 4000;
 const startedAt = Date.now();
@@ -75,13 +78,25 @@ const _scopeTimeoutHandle = setTimeout(() => {
 }, TIMEOUT_MS + 500);
 _scopeTimeoutHandle.unref?.();
 
+// loom#1471 (s49). LOCAL profile — `rev-parse` / `diff` against a repository
+// already on disk. This guard decides whether a commit is IN SCOPE for the
+// current branch; under an ambient `GIT_DIR` the branch name and the staged
+// diff both came from a decoy repository, so the scope check passed on facts
+// about a repo the operator was not committing to.
+//
+// `...opts` is spread BEFORE `env` deliberately: a caller-supplied `cwd` still
+// applies, but no caller can override the environment back to ambient.
 function git(args, opts = {}) {
+  const gitBin = resolveGitBinary();
+  // INDETERMINATE — `null` is this wrapper's existing "could not answer".
+  if (!gitBin) return null;
   try {
-    return execFileSync("git", args, {
+    return execFileSync(gitBin, args, {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 1500,
       ...opts,
+      env: gitEnv(),
     }).trim();
   } catch (e) {
     return null;

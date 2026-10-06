@@ -1,6 +1,6 @@
 ---
 name: hook-authoring
-description: "Authoring or auditing hooks (CC/Codex/Gemini). hooks.json registration, COC_RUNTIME, instructAndWait emit, Codex Bash-only gap + MCP-guard bijection, timeout fallback."
+description: "Authoring or auditing hooks (CC/Codex/Gemini). hooks.json registration, COC_RUNTIME, instructAndWait emit, Codex native tool bridge + policy parity, timeout fallback."
 tools:
   - Read
   - Glob
@@ -19,8 +19,8 @@ Authoring a new hook script under `.claude/hooks/`. Auditing an existing hook fo
 
 | CLI    | Registration                                               | Event surface                                                              | Path env                               |
 | ------ | ---------------------------------------------------------- | -------------------------------------------------------------------------- | -------------------------------------- |
-| CC     | `.claude/settings.json` `hooks` block                      | `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`    | `$CLAUDE_PROJECT_DIR` exported         |
-| Codex  | `.codex/hooks.json` (repo) or `~/.codex/hooks.json` (user) | Same names; **Bash tool only** — `apply_patch` / Write / MCP do NOT fire   | NOT exported; resolve via cwd-relative |
+| CC     | `.claude/hooks/dispatch-registry.json` (run in-process by `dispatch.js <Event>`) | `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`    | `$CLAUDE_PROJECT_DIR` exported         |
+| Codex  | `.codex/hooks.json` (repo) or `~/.codex/hooks.json` (user) | Shared core names; native Bash, patch, MCP, and local-tool events   | NOT exported; resolve via cwd-relative |
 | Gemini | `.gemini/settings.json` `hooks` object                     | `BeforeTool` / `AfterTool` / `BeforeAgent` / `SessionStart` / `SessionEnd` | `$GEMINI_PROJECT_DIR` exported         |
 
 | Constraint                | Value                                                                                                                 |
@@ -38,14 +38,25 @@ Authoring a new hook script under `.claude/hooks/`. Auditing an existing hook fo
 The authoritative copy of every hook lives at `.claude/hooks/<name>.js`. All three CLIs reference the same file by path; what differs is the registration manifest:
 
 - CC reads `.claude/settings.json` `hooks` → command list. Working directory at hook launch is the project root; CC exports `CLAUDE_PROJECT_DIR`.
-- Codex reads `.codex/hooks.json` and invokes each Bash-lane hook through the COC_RUNTIME-delivery wrapper: `node ./.claude/hooks/lib/codex-hook-runtime.js ./.claude/hooks/<name>.js` (the wrapper stamps `COC_RUNTIME=codex` + `CLAUDE_PROJECT_DIR`, then delegates to the hook as a native child process — see § The COC_RUNTIME Contract). Codex does NOT export a project-dir env var; the wrapper's `CLAUDE_PROJECT_DIR` stamp AND the hook's own `cwd` extraction from the stdin payload both resolve the project root.
+- Codex reads `.codex/hooks.json` and invokes each registered native hook through the COC_RUNTIME-delivery wrapper: `node "$(git rev-parse --show-toplevel)/.claude/hooks/lib/codex-hook-runtime.js" ./.claude/hooks/<name>.js` (the wrapper stamps `COC_RUNTIME=codex` + `CLAUDE_PROJECT_DIR`, then delegates to the hook as a native child process — see § The COC_RUNTIME Contract). Codex does NOT export a project-dir env var; the wrapper's `CLAUDE_PROJECT_DIR` stamp AND the hook's own `cwd` extraction from the stdin payload both resolve the project root.
 - Gemini reads `.gemini/settings.json` `hooks` (the `hooks` object) and renames events to its own taxonomy (`BeforeTool`, `AfterTool`). Gemini exports `GEMINI_PROJECT_DIR`.
 
 The single-source contract means every hook MUST work under all three runtimes without per-CLI source forks. The shared library `lib/runtime.js::parseHook()` validates the `COC_RUNTIME` env var (closed enum: `cc` / `codex` / `gemini`) and returns a canonical payload shape regardless of source.
 
+## Register A Detector, Not A Process (CC)
+
+loom's CC hooks run through ONE process per event: `settings.json` registers `node "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch.js" <Event>`, and `dispatch.js` loads every hook `.claude/hooks/dispatch-registry.json` lists for that event and runs it in-process under `hooks/lib/hook-engine.js` (its own stdin, stdout/stderr capture, `process.exit` capture, time budget and error boundary; any deny wins and every reason reaches the agent in one message). A new hook therefore:
+
+1. Is added as a group entry in `dispatch-registry.json` under its event — same `matcher`/`command`/`timeout` shape a settings.json group had. A new DIRECT `settings.json` hook entry is BLOCKED by `hook-registration-regrowth.test.mjs` (the two settings-deny guards stay direct by design: they verify their own registration).
+2. Exports `hookMain()` holding everything the script used to do at load time — timeout fallback, stdin read, the decision — and ends with a CLI guard (`if (require.main === module) hookMain();`). A `require()` of the file MUST have no side effects (`hook-dispatch-registry.test.mjs` loads every registered hook and fails on any output or armed timer).
+3. Reads shared git answers through the event context (`hooks/lib/event-git.js`, used by `state-resolver.js::safeExec` and `operator-id.js`): one answer per distinct git question per event, a failure stays a failure. Never add a file-keyed git memo.
+4. Asks first whether it belongs on a tool call at all: a lexical, advisory-only detector is a gate-review check (`rules/probe-driven-verification.md` MUST-4), not a per-call hook.
+
+Tooling that asks "which hooks are registered" reads the EXPANDED view (`hooks/lib/dispatch-registry.js::expandSettingsHooks`, which ships everywhere; loom additionally carries a bin-side wrapper over it that does not ship), never raw `settings.json`.
+
 ## The COC_RUNTIME Contract
 
-Every hook invocation MUST set `COC_RUNTIME` to one of `cc`, `codex`, `gemini` before the script starts. Each runtime delivers it differently: CC via the process env at launch; Codex via two lanes — the **Bash lane** through the `codex-hook-runtime.js` wrapper (`.codex/hooks.json` registers `node ./.claude/hooks/lib/codex-hook-runtime.js ./.claude/hooks/<name>.js`, which stamps `COC_RUNTIME=codex`), and the **non-Bash / mutating-primitive lane** through the `codex-mcp-guard` server (which stamps it programmatically before replaying the hook). Manual invocations MUST set it explicitly. A shell env-prefix (`COC_RUNTIME=codex node …`) is BLOCKED for Codex registration — under `execvp` it becomes `argv[0]` → ENOENT → the hook silently does not run (fail-open on the git-safety lane); the plain-argv wrapper is the robust form. Silent passthrough of an unknown runtime is BLOCKED per `rules/zero-tolerance.md` Rule 3.
+Every hook invocation MUST set `COC_RUNTIME` to one of `cc`, `codex`, `gemini` before the script starts. CC delivers it through process environment; Codex's native bridge and compatibility guard set it before invoking shared checks. Registrations use the Node bridge, which also establishes project context. Manual invocations MUST set it explicitly. Silent passthrough of an unknown runtime is BLOCKED per `rules/zero-tolerance.md` Rule 3.
 
 ```javascript
 // DO — use parseHook for the canonical shape; throws on missing COC_RUNTIME
@@ -58,7 +69,7 @@ const data = JSON.parse(rawStdin);
 const event = data.hook_event_name; // CLI taxonomy not normalized
 ```
 
-`parseHook` normalizes Codex / Gemini snake_case event names back to PascalCase, so downstream branching can compare against canonical event identifiers regardless of the source CLI's event taxonomy.
+`parseHook` normalizes legacy event aliases to the shared event identifiers, so downstream branching can compare against canonical event identifiers regardless of the source CLI's event taxonomy.
 
 ## Path Resolution Across CLIs
 
@@ -71,20 +82,17 @@ const projectDir =
   payload.cwd; // from stdin — Codex fallback
 ```
 
-Codex invokes hooks with `cwd = project_root` (verified 2026-04-23) but the docs do not explicitly guarantee this. The hook MUST extract `cwd` from the stdin payload as the durable fallback. A `.codex/hooks.json` command of `node $CODEX_PROJECT_DIR/.claude/hooks/<name>.js` silently expands to `node /.claude/hooks/<name>.js` and exits `MODULE_NOT_FOUND` — the correct form routes through the wrapper: `node ./.claude/hooks/lib/codex-hook-runtime.js ./.claude/hooks/<name>.js` (cwd-relative, no env var; it also stamps `CLAUDE_PROJECT_DIR=cwd` so `parseHook().projectDir` resolves on the Codex Bash lane). This node-argv wrapper is distinct from the deferred `.claude/wrappers/*.sh.template` shell-wrapper mechanism.
+The native payload's `cwd` identifies the session working directory, which may be nested below the repo root. The bridge establishes COC project context before invoking shared hooks. A cwd-relative launch still needs to locate the bridge before payload processing can help; validate nested-cwd launches against the delivered registration. Do not assume the historical root-cwd observation is a runtime guarantee. This Node bridge is distinct from phase dispatch through `bin/coc`.
 
-## Hook Coverage Gap — Codex Bash-Only
+## Codex Native Coverage and Compatibility
 
-Codex hooks fire on **Bash / shell tool invocations only**. The following surfaces are NOT reachable from `.codex/hooks.json`:
+Verified 2026-09-28: current native hooks reach Bash, `apply_patch`, MCP calls, and most local function tools. Patch calls also match `Edit`/`Write`; agent spawn also matches `Agent`. Hosted tools and specialized opt-outs are outside that path. Later `write_stdin` input does not repeat the original pre-tool check.
 
-- `apply_patch` (Codex's file-write primitive)
-- Write tool equivalents
-- MCP tool calls (servers wrapping file writes, network, etc.)
-- `web_search` / `web_fetch`
+The COC bridge selects delivered registrations and projects patch targets into shared checks. Runtime capability alone is not proof that a particular COC check is registered, trusted, or executed. Native pre-tool output uses supported permission decisions; unsupported `continue`/`stopReason` fields can invalidate a hook response. Background hooks cannot deny the triggering operation.
 
-For these surfaces, the `.claude/codex-mcp-guard/` MCP server is the only enforcement point — it wraps every non-Bash tool at the MCP layer and re-runs the same predicate set the Bash-layer hooks would have applied. Both surfaces together cover the full tool envelope; either alone leaves a gap.
+The MCP companion remains compatibility/policy machinery for explicit wrapper calls; it does not intercept all native calls. Validator 13 checks extracted predicate parity. Preserve that contract while the library is delivered, and avoid duplicate capture when two paths observe the same operation.
 
-The bijection requirement is enforced by validator 13 at `/sync` emit time: every predicate function in `.claude/hooks/*.js` MUST have a coverage-equivalent reject-condition in `.claude/codex-mcp-guard/policies.json`. Divergence hard-blocks the sync.
+Review new or changed non-managed definitions through `/hooks`. Trust is operator-local and definition-specific. Hook sources merge across active config layers. Event-specific contracts and newer compaction/subagent/session lifecycle events are documented in the [official Hooks reference](https://learn.chatgpt.com/docs/hooks).
 
 ## Predicate Function Shapes (Validator-13 Bijection)
 
@@ -184,7 +192,7 @@ Per `rules/cc-artifacts.md` Rule 9. Fixtures are the mechanical regression lock 
 
 ## Wrapper Status — Native Hook Registration Is Canonical
 
-Hook-level Bash wrappers were briefly authored at Phase J1 to bridge missing Codex hook events via shell shims, but **wrapper emission was deferred at Shard C (2026-05-10)** per `journal/0006-DECISION-wrapper-emission-disposition-strip.md`. The MCP-guard companion covers the non-Bash gap directly; wrappers added no coverage and required a separate runtime corpus that was never authored.
+Hook-level Bash wrappers were briefly authored at Phase J1 to bridge missing Codex hook events via shell shims, but **wrapper emission was deferred at Shard C (2026-05-10)** per `journal/0006-DECISION-wrapper-emission-disposition-strip.md`. That historical deferral concerned per-hook shell wrappers. Current native coverage is described above; `bin/coc` is a separate phase dispatcher.
 
 New hooks MUST NOT add `.claude/wrappers/*.sh.template` files. If a future workstream requires external CLI invocation or structured-output enforcement at the hook layer, revival is documented in the journal entry — propose at `/codify`, do not assume the path is live.
 
@@ -211,9 +219,9 @@ Highest-frequency authoring bug. A new detector ships a halting branch with `pro
 
 Lexical regex against `payload.tool_input.command` cannot see shell expansion; matching `"$REPO"` as a literal string and reporting block-severity false-positives blocks in-scope work. Fix: lexical matches emit `halt-and-report`; block requires structural evidence (env var, exit code, file existence, AST shape).
 
-### 3. Bash-Only Coverage Assumed Across Tools
+### 3. Native Patch Input Assumed To Be A CC Edit
 
-Author wires a Codex enforcement path through `.codex/hooks.json` expecting `PreToolUse` to fire on `apply_patch`; it doesn't. Fix: add the same predicate to `.claude/codex-mcp-guard/policies.json` so non-Bash surfaces are covered. Validator 13 will hard-block the sync if the bijection drifts.
+Native `apply_patch` does fire tool hooks, but its input is a patch in `tool_input.command`, not a CC `file_path` edit. Route through the native bridge's target projection and verify the delivered registration with deny/allow fixtures. Keep extracted compatibility policy parity current.
 
 ### 4. Missing Timeout Fallback
 
@@ -221,7 +229,7 @@ Hook author skips the `setTimeout` block "because the work is fast." First runti
 
 ### 5. `$CODEX_PROJECT_DIR` Referenced In Hook Registration
 
-Codex does not export a project-dir env var; `node $CODEX_PROJECT_DIR/.claude/hooks/<name>.js` silently expands to `node /.claude/hooks/<name>.js` (MODULE_NOT_FOUND). Fix: register through the wrapper — `node ./.claude/hooks/lib/codex-hook-runtime.js ./.claude/hooks/<name>.js` (cwd-relative, no env var; the wrapper stamps `CLAUDE_PROJECT_DIR` + `COC_RUNTIME`) — and rely on `payload.cwd` from stdin as the in-script fallback.
+Codex does not export a project-dir env var; `node $CODEX_PROJECT_DIR/.claude/hooks/<name>.js` silently expands to `node /.claude/hooks/<name>.js` (MODULE_NOT_FOUND). Fix: register through the wrapper — `node "$(git rev-parse --show-toplevel)/.claude/hooks/lib/codex-hook-runtime.js" ./.claude/hooks/<name>.js` (Git-root-resolved, no invented env var; the wrapper stamps `CLAUDE_PROJECT_DIR` + `COC_RUNTIME`) — and rely on `payload.cwd` from stdin as the in-script fallback.
 
 ### 6. Gemini Event Names As CC Aliases
 
@@ -263,7 +271,7 @@ When auditing an existing hook:
 - `rules/hook-output-discipline.md` — instructAndWait emit shape, no raw exit, severity grounding, shell-variable skip
 - `rules/probe-driven-verification.md` MUST-4 — lexical hook detectors paired with probe-driven gate review
 - `rules/trust-posture.md` — posture state read from main checkout; hooks are the only legitimate writers
-- `agents/codex-architect.md` § Hooks Coverage — Bash-only event surface + MCP-guard fallback
+- `agents/codex-architect.md` § Hooks Coverage and Compatibility — native tool events + compatibility policy library
 - `agents/gemini-architect.md` § Hook Event Name Translation — CC ↔ Gemini event taxonomy
 - `agents/cc-architect.md` — CC-side hook authoring + audit responsibilities
 - `codex-mcp-guard/README.md` — POLICIES table population, validator-13, predicate shapes

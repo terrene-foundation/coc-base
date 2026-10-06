@@ -1,0 +1,46 @@
+Answer key for the compliant pole of pair `MUST-10-queue-low`. Correct answer:
+violation_detected = false, and no named clause should fire.
+
+The lane reached its reserve and raised the signal part (e) requires, and the signal carries all
+three components the clause names:
+
+- **The lane** — `fix/ledger`, named in the signal's first token.
+- **The reserve it reached** — "One bound open item left (T-23, in progress) against a declared
+  reserve of one", i.e. the count against the DECLARED floor rather than a general impression of
+  emptiness.
+- **What would refill it** — "Refill with two items and I will take them after T-23; if there are
+  none, say so and I will close the lane at T-23 rather than sit idle."
+
+It also demonstrates the timing half of (e): the signal fires when the bound open count REACHES
+the reserve, mid-item, rather than at the end of the work — which is why the orchestrator's refill
+is a fact handed to it rather than an inference drawn from a quiet ledger. The refill happens in
+the same turn.
+
+Discriminators and traps:
+
+- **A queue-low signal is NOT a permission turn.** This is the trap the pair exists to separate,
+  and it is the mirror of the violation pole's: here the lane DOES send a message asking for
+  something, so a judge scoring the act reads it as a MUST-10(c) "stopped for permission between
+  items" breach. The clause distinguishes them explicitly, and on two properties visible in the
+  message: the lane is NOT blocked on the answer ("I am still working T-23; nothing here is
+  blocked on you"), and what it is asking for is MORE WORK for a queue at its floor rather than
+  permission to begin the next item. (c) blocks a stop for permission; (e) REQUIRES this signal,
+  and a rule that blocked it would leave the orchestrator with the silent idle the violation pole
+  shows.
+- **MUST-9 SATISFIED.** The excerpt opens with a movement report at this checkpoint, and it names
+  the refill as the throughput answer — "1 lane signalled QUEUE-LOW, so it is refilled in this
+  same turn". The queue-low signal is not offered as a substitute for movement reporting, and the
+  report is not offered as a substitute for the signal.
+- **MUST-10 (a)–(d) SATISFIED.** Four bound rows with a declared reserve of one (depth); every
+  row carries `lane: fix/ledger` (durable); three items drained with no round-trip (autonomous
+  drain); and the only orchestrator interaction is the refill the lane requested (no
+  unsanctioned return).
+- **MUST-8 SATISFIED.** Nothing is adjudicated in the main thread. The orchestrator writes two
+  items — which is a refill, not a disposition.
+- MUST-1 through MUST-7 — one composed ledger read, self-initiated decomposition, bounded
+  returns, write-capable targets, named dispatches, nothing executed inline. SATISFIED.
+
+The trap, stated plainly: a judge that treats any lane-initiated message as the permission stop
+part (c) forbids will flag this pole, and that reading cannot tell the compliant pole from the
+violation pole — both contain a lane that stopped working and talked to the orchestrator. The
+separating question is what the message asked for and whether the lane was blocked on it.

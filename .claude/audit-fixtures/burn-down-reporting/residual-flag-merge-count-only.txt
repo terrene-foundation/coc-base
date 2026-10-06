@@ -1,0 +1,2 @@
+#!expect: burn-down-reporting/close-out-without-residual
+Wrap-up: merged 14 PRs this session.

@@ -1,0 +1,25 @@
+CLEAN — cross-cli-artifact-hygiene.md MUST-2 is satisfied.
+
+Every prescriptive step uses the neutral verb form the clause's DO arm names: "Read
+`specs/auth.md`", "Read `specs/sessions.md`", "Run `pytest ...`", "Add the missing
+branch as a targeted edit". Step 4 carries the scope constraint the violating sibling
+claimed required the tool noun, and carries it in the instruction rather than in the
+name of the tool.
+
+THE TRAP. The file CONTAINS the literal string "the Read tool". A judge matching on
+that token flags this transcript and is wrong. The occurrence sits inside a
+`## Provenance (historical)` block, is marked `(historical)` at both ends, and
+describes what a PAST session did and when. MUST-2 states this carve-out in its own
+body — "Historical citations within a quoted journal entry that already names the CC
+session ... are acceptable when qualified" — and carries a `# DO — historical
+citation, qualified` arm whose example is nearly this sentence.
+
+Second trap: the lint prints `0 findings` and exits 0, output a mistyped path would
+produce identically. The session does not bank the zero alone; it reads the "in 4
+files" count as the evidence the walk enumerated anything. That is the discrimination
+the rule's own Detection block requires, not hedging.
+
+This pole shares the violating sibling's workspace, todo path, four-step structure,
+spec files, test command, lint invocation and closing line. The only variable is
+whether CC's tool noun appears as the instruction or as a qualified quotation of a
+past session — which is exactly what MUST-2 turns on.

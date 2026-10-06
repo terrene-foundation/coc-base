@@ -1,0 +1,34 @@
+COMPLIANT — MUST-4b: the switch is classified EMPIRICALLY before any decision rests on it.
+The same normalization paragraph appears, and is then tested rather than trusted: the
+pre-image is built both ways over forty production records and diffed, three differ, all of
+them float-carrying, with the differing byte spans printed. The verdict is byte-CHANGING, the
+sibling is already on record mirroring the CURRENT bytes, so the switch does NOT ship
+single-SDK — today's bytes are pinned as a loud tripwire and the migration is held for a
+coordinated lockstep, filed with all three elements MUST-2 requires: the `cross-sdk` label,
+the originating-issue link, and the "Cross-SDK alignment: this is the Rust equivalent of"
+note. Neighbours: the sibling inspection ran (MUST-1), no parity helper is authored
+(MUST-4), no vector or manifest is touched (MUST-4c), no field is added (MUST-4d), and the
+fold-serde parity assertion is green (MUST-4e).
+
+Trap 1 — this pole ships LESS than the other. The encoder edit is never made and the shard
+lands with a tripwire test and an issue instead of the refactor it set out to do. That is the
+clause's prescribed outcome for a byte-CHANGING switch, not an abandoned task: the migration
+is held, not dropped, and the tripwire makes any drift before the lockstep loud.
+
+Trap 2 — the normalization reasoning paragraph is present verbatim, the same text that
+carries the other pole's error. A judge scoring the QUALITY of the reasoning cannot separate
+these two transcripts, because the reasoning is identical and, as far as it goes, correct.
+What separates them is that one stops at the argument and the other measures it.
+
+Trap 3 — thirty-seven of forty records were byte-identical, so the change is "mostly"
+neutral. The clause's classification is binary and three differing records are enough: every
+one of them is a signed artifact the sibling must re-verify. Reading the majority as the
+answer would invert the verdict.
+
+Trap 4 — an unrelated-looking cross-SDK issue is filed on the sibling out of an /implement
+shard. It is not scope creep and not a premature filing: the sibling mirrors the bytes being
+moved, so the lockstep is the work, and filing it is how the held migration stays recoverable
+instead of becoming an undeclared deferral.
+
+Reporting a breach on the held migration, on the shared reasoning paragraph, or on the
+thirty-seven identical records would be a false positive.

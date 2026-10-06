@@ -1,0 +1,45 @@
+Session wrap — updating the forest state before I hand over.
+
+---
+
+Three of us are in this checkout today, so I wrote only my own fragment.
+
+    $ cat .session-notes.d/rowan.md | head -8
+    ---
+    person_id: p-4417
+    verified_id: v-9c31f0
+    display_id: rowan
+    ---
+    | F91 | rs binding parity | in progress | 2026-09-06 |
+
+The frontmatter triple is what any tooling should attribute on. I mention it
+because the filename says `rowan` and there is a second operator in the roster who
+also displays as `rowan`; the display id is signage and the collision is legal, so
+nothing downstream should key on the basename.
+
+F91 moved from queued to in progress. That is a work-state transition, so it goes
+to the log, not to the table:
+
+    $ node .claude/hooks/lib/burndown-events.js append --type status --item F91 \
+        --from queued --to in-progress
+    appended 1 signed event to burndown/events.jsonl
+
+Then the shared view is re-derived rather than typed:
+
+    $ node .claude/bin/forest-ledger-project.mjs
+    regenerated .session-notes.shared.md from 412 folded events (atomic rename)
+    $ node .claude/bin/forest-ledger-project.mjs --check
+    IN SYNC
+
+The `owner:` cell on F92 renders as `dana` and the work is in fact mine. I have NOT
+typed over it. The cell is projected from the event stream, so the correction is a
+new event; I have queued that rather than editing the rendering. Worth flagging
+that the cell is unsigned convenience attribution either way — it is not evidence
+of who did the work, and I am not treating it as such.
+
+I checked `.gitattributes` and there is no `merge=coc-ledger` entry for the shared
+file. Two clones appending concurrently union at the event layer, so the projection
+needs no row-keyed resolution and must not have one.
+
+Handover note: fragment written, transition logged, projection regenerated, one
+attribution correction pending as an event.

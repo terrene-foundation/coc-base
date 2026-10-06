@@ -1,0 +1,66 @@
+Session excerpt — loom, rule-burndown workspace, first turn of the session.
+
+Surveying for user-anchored sources before ranking anything:
+
+    $ ls workspaces/rule-burndown-2026-09/
+    01-analysis/  02-todos/  briefs/  journal/
+
+    $ git grep -n "equal priority" -- workspaces/rule-burndown-2026-09/
+    workspaces/rule-burndown-2026-09/briefs/01-user-brief.md:14:Both the hook blind-spot
+    clause and the boundary blind-class clause matter to me at equal priority — I want the
+    enumeration honest at both surfaces before anyone builds on either.
+
+That sentence is the anchor, at `briefs/01-user-brief.md` §2 "What I want", quoted above as
+it stands. The workspace journal carries no decision entry touching either clause and no
+spec success criterion names them, so the brief is the only materialized source and it is
+the primary one. Neither item is a carried-forward deferral; both enter the queue from this
+brief.
+
+Two candidates are eligible and the brief names both:
+
+    $ node .claude/bin/burndown-build.mjs --eligible
+    (d) hook-blind-spot-naming       grace clock expires Fri 2026-09-18
+    (e) boundary-blind-class-census  (no grace clock)
+
+Ranked against the brief first, and they come out EQUAL. The brief puts them at equal
+priority in one sentence and gives no ordering between them, so nothing higher-value is
+being passed over here — whichever goes first, the other goes next, and both stay in scope.
+
+Then size, so the order cannot be a fittability pick: (d) is one detector plus five fixture
+cells, (e) is one enumeration helper plus six. Same order of magnitude, both comfortably
+inside one shard, neither needs decomposing and neither is the easier one to fit.
+
+Equal on value and equal on fit, so the order comes down to a tiebreak — and the ledger's
+clock column is the wrong axis for it. A grace clock measures a rule's own enforcement
+window, the span the corpus gives itself before that clause's breaches start counting; it
+says nothing about what you get out of the work. (e)'s blank column is a fact about when
+that clause landed, not a signal that its census matters less to you, so it is not an input
+here. Tiebreaking on blast radius instead: (d)'s detector is registered on two hook events
+and its output shape is read by the posture ledger, so a defect in it is live at three
+surfaces at once, while (e)'s enumeration helper has a single call site. Order is (d) first
+because its defect reaches further, (e) after.
+
+Carried forward: (e) boundary-blind-class-census — delivers honest blind-class naming at the
+second of the two surfaces the brief names, per `briefs/01-user-brief.md` §2 quoted above.
+Re-validation gate at pickup. Not closed, not reframed, not moved out of the workspace.
+
+Starting (d).
+
+    $ git worktree add <operator-home>/repos/.loom-wt/blind-spot -b fix/blind-spot-naming
+    Preparing worktree (new branch 'fix/blind-spot-naming')
+
+    [dispatch x2, one message] detector / fixtures, each brief pinning
+      <operator-home>/repos/.loom-wt/blind-spot and a STEP-0 assertion comparing resolved
+      `git rev-parse --show-toplevel` against `pwd -P`.
+
+    detector: "the report named tracked modifications only; additions and untracked are now
+               named inline as unseen. 1 site."
+    fixtures: "5 cells added, one per class the report can and cannot observe."
+
+    $ node --test .claude/test-harness/tests/blind-spot.test.mjs
+    # pass 21  # fail 0
+
+Mutation before reading that green: dropped the unseen-class line from the report, asserted
+the mutated line runs, re-ran — 5 reds, all in the new cells. Restored, green again.
+
+Two adversarial rounds clean, both payloads read. (d) is ready for a PR; (e) is next.

@@ -43,7 +43,15 @@ Rules (soft, AI interprets) + Hooks (hard, deterministic scripts outside model c
 
 ### Layer 4: Instructions — The Operating Procedures
 
-Seven-phase workflow (analyze → plan → implement → test → deploy → release → final). Quality gates at 4 points. Evidence-based completion (file-and-line proof). Mandatory delegation (security review before every commit).
+Five-phase COC cycle — **01 `/analyze` → 02 `/todos` → 03 `/implement` ⇄ 04 `/redteam` → 05 `/codify`**, then `/release`. The ordinals are the commands' own frontmatter, which is the only machine-checkable source for them. `/implement ⇄ /redteam` is re-entrant per wave (`wave-loop.md` MUST-2), not a single pass. Evidence-based completion (file-and-line proof). Mandatory delegation (security review before every commit).
+
+**`/test` and `/deploy` are UTILITIES, not lifecycle phases** — they exist as commands but `CLAUDE.md` classes them with the SDK/dev utility set, so naming them as phases mis-describes the cycle.
+
+**Checkpoints, named by kind per the glossary** (`specs/ontology/glossary.md` § "gate"): `/todos` plan approval and `/release` authorization are **gates** — a human clears them. `/redteam` convergence, `/implement` correctness and `/analyze` completeness are **convergence criteria** — the agent iterates to them and stopping to ask is BLOCKED.
+
+> **CORRECTED 2026-09-18 (co-owner-directed).** This line read *"Seven-phase workflow (analyze → plan → implement → test → deploy → release → final)"*. MEASURED against the tree: `/plan` and `/final` **do not exist** and never have here, while every other command named does (control: `/analyze` EXISTS on the same check) — so the list named two commands a reader could not run and omitted `/todos`, `/redteam` and `/codify`, which are three of the five phases COC actually has.
+>
+> **This is a COC-scoped correction and deliberately NOT a reconciliation with CO.** `co-spec.md`'s six-phase table is CO's **domain-general** vocabulary; other CO domains adapt the same intent under their own names, so it is not supposed to name COC's commands and is left untouched. COC's spec carries COC's vocabulary. Editing CO's table to match loom would be loom originating methodology, which `artifact-flow.md` § "loom Splits, Never Originates" forbids; editing COC's own spec to describe COC is not.
 
 ### Layer 5: Learning — The Performance Review
 

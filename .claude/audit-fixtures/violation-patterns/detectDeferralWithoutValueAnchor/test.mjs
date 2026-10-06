@@ -17,10 +17,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
 const HOOKS_LIB = path.resolve(
-  path.dirname(new URL(import.meta.url).pathname),
+  path.dirname(fileURLToPath(import.meta.url)),
   "..",
   "..",
   "..",
@@ -32,7 +33,7 @@ const { detectDeferralWithoutValueAnchor } = require(HOOKS_LIB);
 
 function readFixture(name) {
   return fs.readFileSync(
-    path.resolve(path.dirname(new URL(import.meta.url).pathname), name),
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), name),
     "utf8",
   );
 }

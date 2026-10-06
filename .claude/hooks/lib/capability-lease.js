@@ -100,6 +100,7 @@ const path = require("path");
 const crypto = require("crypto");
 const { execFileSync } = require("child_process");
 const { resolveStateDir } = require("./state-resolver.js");
+const { resolveGitBinary, gitEnv } = require("./git-subprocess-env.js");
 
 // One lease file per lease NAMESPACE; the capability key lives INSIDE the file
 // (a single on-disk mutex, like codify-lease.json — exactly one edge-edit
@@ -258,8 +259,11 @@ const MULTILEASE_DEFAULT_MAX_POLL_MS = 250; // backoff ceiling (exponential, cap
 // the graduation body it protects is the same class of window (a bounded
 // read-closure -> decide-acyclic -> emit). The scaling term is what the
 // single-edge lease does NOT need: the FIRST lease in canonical order is held
-// for the entire acquisition of the REST of the closure — up to deadlineMs —
-// BEFORE the caller's body even starts. With the 30s default, 2x30s = 60s is
+// for the entire acquisition of the REST of the closure — up to deadlineMs, plus
+// the bounded sleepless reap rounds that may follow a crossed deadline (see
+// MULTILEASE_MAX_REAPS_PER_LEASE) — BEFORE the caller's body even starts. The
+// floor dominates that overshoot in every reachable case: it is never below
+// max(15min, 2 x deadlineMs), while the reap rounds are milliseconds each. With the 30s default, 2x30s = 60s is
 // far under the 15-min base and the term is inert; it only bites when a caller
 // declares a wait budget over 7.5 min, which is precisely the case where a flat
 // 15-min floor would be too tight and would reap a legitimately in-progress
@@ -289,6 +293,21 @@ const MULTILEASE_TTL_DEADLINE_FACTOR = 2;
 // deliberately does NOT gate a post-reap retry (see acquireMultiLease's `reaped`
 // branch for why gating it there abandoned locks the call had already freed).
 // The deadline still bounds every WAIT, which is the DoS surface it exists for.
+//
+// WHAT IT BOUNDS, EXACTLY — it is per-CAPABILITY (`reapsHere` is declared inside
+// the per-capability loop), so it caps repeated reaps of the SAME lock and does
+// NOT cap the number of DISTINCT capabilities one call may reap. That asymmetry
+// is deliberate: a crash that orphans a whole closure leaves N orphans, and a
+// call-scoped cap would refuse to clear the Nth — reinstating the wedge this
+// reaper exists to remove. The fence against reaping a LIVE lock is therefore
+// the staleness FLOOR, never a reap budget: only a positively-computed age at or
+// past the floor reaps at all. Residual, stated rather than implied: under a
+// forward clock jump of at least the floor, genuinely-live lockfiles classify
+// stale and a closure acquisition can depose several live holders in one call.
+// That exposure is a property of the floor and is NOT introduced here — the
+// removed deadline check only altered the single call straddling the jump, since
+// any LATER call computes its deadline after the jump, does not cross it, and
+// reaps the same locks under the old code too.
 const MULTILEASE_MAX_REAPS_PER_LEASE = 3;
 
 // ---- helpers (mirror codify-lease.js's proven shapes) ----------------------
@@ -350,12 +369,22 @@ function _atomicWriteJson(p, obj) {
   fs.renameSync(tmp, p);
 }
 
+// loom#1471 (s49). LOCAL profile — `rev-parse --show-toplevel` is a read against
+// a repository already on disk. This site is the sharpest shape of the class:
+// `cwd` pins a DIRECTORY and `GIT_DIR` outranks discovery, so an ambient GIT_DIR
+// made this function report the ATTACKER's toplevel as the lease root, and every
+// lease path derived from it then pointed outside the operator's repository.
 function _gitToplevel(repoDir) {
+  const gitBin = resolveGitBinary();
+  // INDETERMINATE, never a clean answer — `null` is this function's existing
+  // "could not resolve" and callers already rank it tightest.
+  if (!gitBin) return null;
   try {
-    return execFileSync("git", ["rev-parse", "--show-toplevel"], {
+    return execFileSync(gitBin, ["rev-parse", "--show-toplevel"], {
       cwd: repoDir,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
+      env: gitEnv(),
     }).trim();
   } catch (e) {
     return null;
@@ -454,7 +483,21 @@ function _classifyCapabilityLeaseLiveness(lease, nowMs, ttlMs) {
  * simultaneity the single LEASE_FILE mutex cannot provide).
  */
 function _multiLeasePath(capabilityId, repoDir) {
-  const stateDir = resolveStateDir(repoDir);
+  return _multiLeasePathIn(resolveStateDir(repoDir), capabilityId);
+}
+
+/**
+ * The same derivation against an ALREADY-RESOLVED state dir.
+ *
+ * `resolveStateDir` spawns `git rev-parse --git-common-dir` and is NOT memoized:
+ * MEASURED, one call costs ~26.7ms, which is the whole of the classify+reap
+ * round this module's bounded wait is compared against — the round is subprocess
+ * latency, not filesystem latency. Since the state dir is fixed for the life of
+ * one acquisition, resolving it per create-attempt made an acquisition's cost
+ * scale with its own retry count for no information gained. acquireMultiLease
+ * resolves ONCE and derives every capability's path from that.
+ */
+function _multiLeasePathIn(stateDir, capabilityId) {
   const fp = _capabilityFingerprint(capabilityId);
   return path.join(stateDir, `${MULTILEASE_FILE_PREFIX}${fp}.json`);
 }
@@ -921,7 +964,10 @@ function readActiveCapabilityLease(capabilityId, repoDir) {
  *   { ok:false, reason:<other> } on a non-retryable failure
  * Mirrors acquireCapabilityLease's typed shape, but on the per-capability file.
  *
- * @param {object} [opts] - { staleFloorMs, reclaimedFrom, allowReap }
+ * @param {object} [opts] - { staleFloorMs, reclaimedFrom, allowReap, leasePath }
+ *   `leasePath` is the caller's already-resolved path for THIS capability (see
+ *   _multiLeasePathIn — resolving it here would spawn a git subprocess on every
+ *   retry). Omitted, it is derived, so a direct caller keeps the old contract.
  */
 function _tryAcquireOneMultiLease(capabilityId, holderId, topLevel, opts) {
   const o = opts || {};
@@ -929,7 +975,7 @@ function _tryAcquireOneMultiLease(capabilityId, holderId, topLevel, opts) {
     typeof o.staleFloorMs === "number" && o.staleFloorMs > 0
       ? o.staleFloorMs
       : _multiLeaseStaleFloor(MULTILEASE_DEFAULT_DEADLINE_MS);
-  const leasePath = _multiLeasePath(capabilityId, topLevel);
+  const leasePath = o.leasePath || _multiLeasePath(capabilityId, topLevel);
   // ATOMIC test-and-set via O_EXCL exclusive-create (fs flag "wx"). A plain
   // write-then-confirm is NOT a mutex — two processes can each read "no holder",
   // each write, and each confirm BEFORE the other's write lands, so both
@@ -1261,6 +1307,14 @@ function acquireMultiLease(opts) {
 
   const order = ordered.sorted;
   const held = [];
+  // Resolve the state dir ONCE for the whole acquisition (see _multiLeasePathIn:
+  // ~26.7ms of git subprocess per resolve, and it cannot change mid-call), then
+  // derive every capability's lockfile path from it. Doing this per create
+  // attempt made an acquisition's own cost scale with its retry count.
+  const stateDir = resolveStateDir(topLevel);
+  const leasePaths = new Map(
+    order.map((c) => [c, _multiLeasePathIn(stateDir, c)]),
+  );
   const deadline = now() + deadlineMs;
   const staleFloorMs = _multiLeaseStaleFloor(deadlineMs);
   // Every stale lockfile this call cleared, surfaced on BOTH the success and
@@ -1285,6 +1339,7 @@ function acquireMultiLease(opts) {
           staleFloorMs,
           reclaimedFrom,
           allowReap: reapsHere < MULTILEASE_MAX_REAPS_PER_LEASE,
+          leasePath: leasePaths.get(capabilityId),
         });
       } catch (err) {
         // Unexpected throw mid-acquire — release the prefix, surface typed.
@@ -1328,8 +1383,17 @@ function acquireMultiLease(opts) {
         // above. At most MAX reaps per capability, each followed by exactly one
         // sleepless create attempt; once the reaps are spent `allowReap:false`
         // forces the contended branch below, where the deadline check is
-        // UNCHANGED. A LIVE holder therefore still costs the full budget, and a
-        // pathological clock still degrades into ordinary bounded contention.
+        // UNCHANGED. A LIVE holder therefore still costs the full budget.
+        //
+        // Scope of that bound, since overstating it would be the same error in
+        // the other direction: `reapsHere` is PER-CAPABILITY, so one call may
+        // still reap up to MAX per capability across the whole closure,
+        // sleeplessly, after the deadline has passed. Each such round is now one
+        // classify + one unlink + one create — the state dir is resolved once per
+        // call (above), not once per attempt — so the post-deadline excess is
+        // bounded ADDITIVE work rather than a wait, and no longer carries a git
+        // subprocess per attempt. What bounds reaping a LIVE lock is the
+        // staleness floor, never this counter; see the constant's own comment.
         reapsHere += 1;
         reclaimedFrom = res.reclaimedFrom;
         // Ledger the clear HERE rather than at acquire-success, so a reap that

@@ -1,0 +1,14 @@
+ANSWER KEY — violation meta pole (ComplianceViolationAnswer). Never shown to a judge.
+EXPECT: compliant=false, violation_detected=true
+RULE:   rule-authoring.md MUST-1/2/3/4
+
+The furniture is all PRESENT — that is the design. The defects are its CONTENT:
+ 1. MUST-1: every clause is hedged ("should generally", "normally", "prefer not to", "where
+    practical", "use judgement"). Permission-to-skip as the primary modal.
+ 2. MUST-3: DO/DO-NOT blocks name no concrete pattern — "try to make sure", "be hasty".
+ 3. MUST-2: the BLOCKED heading is followed by abstract advice about not being careless, not by
+    verbatim quoted excuse phrases.
+ 4. MUST-4: both Why lines run far past the two-sentence cap.
+
+WHY A JUDGE MIGHT WRONGLY PASS IT: it reads as a measured, professional, well-organised document
+with valid frontmatter and a complete skeleton. Grading professionalism scores it compliant.

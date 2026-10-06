@@ -1,0 +1,9 @@
+path: .claude/guides/rule-extracts/recommendation-quality.md
+expect:
+family: command-vs-data — a FENCED example is documentation of the violation
+note: COPIED BYTE-FOR-BYTE from the live extract's DO/DO-NOT block. Without the
+  fenced-block strip this file is the detector's loudest true positive in the whole
+  repo — it would fire on the rule's own documentation of the thing it forbids, every
+  time anyone edited the extract. Both DO-NOT tables are inside the fence; so is the
+  DO table. Same class as "a heredoc'd or quoted example stays silent" in the
+  merge-separation guard.

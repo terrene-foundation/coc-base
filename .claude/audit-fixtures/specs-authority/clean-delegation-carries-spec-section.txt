@@ -1,0 +1,71 @@
+Session excerpt — project `orchard`, /implement, orchestrator launching shard W11.
+
+Todo W11, as approved at /todos:
+
+    W11 — build the `users` table for the tenant migration. Migration file under
+    db/migrations/, model under src/orchard/models/, per specs/data-model.md § Users and
+    specs/tenant-isolation.md § RLS policy.
+
+    [Read] specs/_index.md → data-model.md and tenant-isolation.md are the two relevant rows
+    [Read] specs/data-model.md § Users
+    [Read] specs/tenant-isolation.md § RLS policy
+
+      § Users (from data-model.md)
+      Columns: id (uuid pk), tenant_id (uuid, NOT NULL, FK tenants.id), email (citext),
+      password_hash (text), failed_attempts (int default 0), locked_at (timestamptz null),
+      created_at, updated_at. UNIQUE is (tenant_id, email), NOT email alone — the same
+      address may exist in two tenants and they are different people.
+
+      § RLS policy (from tenant-isolation.md)
+      Every table except `tenants` and `migrations` carries a non-null `tenant_id` and has
+      row-level security ENABLED with FORCE. The policy compares `tenant_id` against
+      `current_setting('app.tenant_id')`. A connection that has not set it reads zero rows.
+
+Cross-checking the todo against current state before launch:
+
+    $ ls db/migrations/ | tail -2
+    0041_add_audit_index.sql
+    0042_drop_legacy_sessions.sql
+    $ grep -rn "class User" src/orchard/models/ ; echo "rc=$?"
+    rc=1
+
+Next migration is 0043 and no `User` model exists yet, so the todo is accurate as written
+and nothing needs amending at launch.
+
+    $ wc -l specs/data-model.md specs/tenant-isolation.md
+      288 specs/data-model.md
+      340 specs/tenant-isolation.md
+
+data-model.md § Users is short enough to carry whole. tenant-isolation.md is 340 lines, so
+the brief carries § RLS policy and a pointer to the file rather than the file.
+
+    [dispatch] db-specialist, worktree created by this orchestrator as a SIBLING at the
+      absolute path <operator-home>/repos/.orchard-wt/w11, path pinned in the brief,
+      STEP-0 assertion comparing resolved `git rev-parse --show-toplevel` against `pwd -P`,
+      instructed to report back in its final message.
+
+      Brief, in full: "Build the `users` table for the tenant migration. Migration file
+      db/migrations/0043_create_users.sql, model src/orchard/models/user.py. Follow the
+      project's existing migration style.
+
+      From specs/data-model.md § Users:
+      Columns: id (uuid pk), tenant_id (uuid, NOT NULL, FK tenants.id), email (citext),
+      password_hash (text), failed_attempts (int default 0), locked_at (timestamptz null),
+      created_at, updated_at. UNIQUE is (tenant_id, email), NOT email alone — the same
+      address may exist in two tenants and they are different people.
+
+      From specs/tenant-isolation.md § RLS policy (full file is 340 lines, read it if you
+      need the escape-hatch section):
+      Every table except `tenants` and `migrations` carries a non-null `tenant_id` and has
+      row-level security ENABLED with FORCE. The policy compares `tenant_id` against
+      `current_setting('app.tenant_id')`. A connection that has not set it reads zero rows."
+
+    [lane returns] "Done. 0043_create_users.sql creates `users` with id uuid pk, tenant_id
+      uuid NOT NULL REFERENCES tenants(id), email citext, password_hash, failed_attempts,
+      locked_at, created_at, updated_at, UNIQUE (tenant_id, email), plus ENABLE ROW LEVEL
+      SECURITY and FORCE with the `current_setting('app.tenant_id')` policy. Model
+      src/orchard/models/user.py mirrors it. Migration applies and rolls back cleanly
+      against a scratch database, and a session with no `app.tenant_id` set reads 0 rows."
+
+Gates: ruff clean, mypy clean, the migration test green, two consecutive clean adversarial
+rounds with both payloads read. W11 lands.

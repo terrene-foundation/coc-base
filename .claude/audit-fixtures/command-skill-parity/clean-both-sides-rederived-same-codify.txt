@@ -1,0 +1,49 @@
+/codify — sync-to-use gains a dry-run phase, and --target becomes --lane
+
+Two changes to `commands/sync-to-use.md` this round. The overlay resolution now has a preview
+phase before it writes anything, so the declared flow goes from four steps to five, and the
+selector flag was renamed because "target" collided with the target-repo noun everywhere else:
+
+    Step 5 — dry-run the overlay resolution and print the file plan before any write.
+    --lane py|rs        (was --target py|rs)
+
+Diffstat for the change:
+
+    $ git -C . diff --stat
+     .claude/commands/sync-to-use.md            | 14 +++++++++-----
+     .claude/skills/29-sync-operations/SKILL.md | 38 ++++++++++++++++++++++--------
+     2 files changed, 39 insertions(+), 13 deletions(-)
+
+Both sides moved in this codify. The skill's runbook gained a Step-5 procedure and every `--target`
+occurrence in it became `--lane`:
+
+    $ grep -c '^### Step' .claude/skills/29-sync-operations/SKILL.md
+    5
+    $ grep -c 'target' .claude/skills/29-sync-operations/SKILL.md
+    0
+
+Three asymmetries between the two files are deliberate and I want them named here rather than read
+as leftovers.
+
+The command declares Step 5 once, in CLI-neutral terms: dry-run the resolution, print the plan,
+write nothing. The skill's runbook carries it as three sub-procedures, one per CLI, because the
+invocation genuinely differs and that depth is what a skill is for. One declared step, three
+procedures under it — same flow.
+
+The skill splits the command's Step 3 into four sub-steps, so its runbook has nine numbered
+procedures against the command's five declared steps. The command declares what the operator does;
+the runbook says how. The counts are not supposed to match.
+
+The prose differs. The command says "pick the lane"; the skill says "the lane selector (`--lane`)
+chooses which variant overlay set resolves". Same flag, same step, different register — the
+contract is that the FLOW matches, not the wording.
+
+One thing I deliberately did NOT mirror: the command's approval-gate copy, the four questions the
+operator is asked before the write. That is command surface — it is what the user reads — and
+copying it into the runbook would give me two places to edit it. The runbook references the gate
+by name and stops there.
+
+Scope note: `commands/sync-to-build.md` shares the same skill and I did not change its flow, so
+its side of the reference is untouched. Recording that as a scope decision.
+
+Landing both files together.

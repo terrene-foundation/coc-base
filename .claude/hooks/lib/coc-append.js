@@ -12,7 +12,9 @@
  *
  * Contract:
  *   appendStamped(repoDir, filePath, partial, opts) → {ok, error?, reason?}
- *     - partial: caller-supplied content (any JSON-serializable shape).
+ *     - partial: caller-supplied content (any JSON-serializable shape). The
+ *       envelope keys (id, timestamp, session_id, repo, verified_id,
+ *       person_id, display_id) are PINNED — a same-named partial key is ignored.
  *     - opts.identity: {verified_id, person_id, display_id?} — REQUIRED.
  *     - opts.sign: function (bytes) → {ok, sig} | {ok:false, ...} —
  *       caller-injectable for tests; defaults to coc-sign::sign with
@@ -44,7 +46,9 @@ const { canonicalSerialize, sign: defaultSign } = require(
 // M9.1 R4 Sec-R4-S-01 — shared strip helper for the `repo` field per
 // `security.md` § Multi-Site Kwarg Plumbing (single SSOT, every writer
 // routes through it).
-const { stripRepoPath } = require(path.join(__dirname, "state-io.js"));
+const { stripRepoPath, resolveViolationSessionId } = require(
+  path.join(__dirname, "state-io.js"),
+);
 // loom#1349 — the ONE hardened append primitive; see append-sink.js for the six defenses.
 const { appendSinkLine } = require(path.join(__dirname, "append-sink.js"));
 
@@ -120,10 +124,14 @@ function appendStamped(repoDir, filePath, partial, opts) {
     };
   }
 
-  // The id, timestamp, session_id, repo, identity-stamp fields PRECEDE
-  // the caller's partial so the canonical bytes include them in the
-  // signature scope. Caller-provided keys with the same names override
-  // — explicit-by-construction.
+  // The id, timestamp, session_id, repo and identity-stamp fields are the
+  // ENVELOPE, owned by this function and PINNED: a caller-provided key of the
+  // same name does NOT override it (see the composition below). They were
+  // previously caller-overridable ("explicit-by-construction"), which let the
+  // audited party supply its own row's id, timestamp, session and signer
+  // identity — under a signature, so the forgery became non-repudiable. That is
+  // the env-seam redteam F5 lever `state-io.js::appendViolation` already closed
+  // on the unsigned path; this closes it on the signed one.
   // M9.1 R4 Sec-R4-S-01 — strip the home-prefix from repoDir before
   // stamping into the canonical signed bytes. Pre-fix the stamped path
   // wrote `repo: repoDir` (absolute path) under cryptographic signature,
@@ -134,18 +142,26 @@ function appendStamped(repoDir, filePath, partial, opts) {
   const prefix = {
     id: _newId("rec"),
     timestamp: new Date().toISOString(),
-    // Bounded at ingest: env-derived and attacker-influenceable, and an unbounded value
-    // here inflates the record past the pre-sign probe, which downgrades the row to the
-    // caller's unsigned fallback (see `detect-violations.js::_logViolation`). Mirrors the
-    // same bound in `state-io.js::appendViolation` so the two appenders agree.
-    session_id: String(process.env.CLAUDE_SESSION_ID || "unknown").slice(0, 128),
+    // The SAME helper `state-io.js::appendViolation` stamps with and the Stop ack deduper
+    // looks rows up by, so a signed row and an unsigned row of one session carry one id.
+    // It reads the host's `CLAUDE_CODE_SESSION_ID` (the host never exports the
+    // `CLAUDE_SESSION_ID` this line used to read, so every signed row said "unknown") and
+    // bounds it at ingest — an unbounded value inflates the record past the pre-sign probe
+    // and downgrades the row to the caller's unsigned fallback.
+    session_id: resolveViolationSessionId(),
     repo: stripRepoPath(repoDir),
     verified_id: identity.verified_id,
     person_id: identity.person_id,
   };
   if (identity.display_id) prefix.display_id = identity.display_id;
 
-  const record = Object.assign({}, prefix, partial);
+  // Prefix FIRST so its keys keep their leading position in the serialized line,
+  // then the partial, then the prefix AGAIN so every envelope value is re-pinned
+  // over a same-named caller key. `display_id` is the one optional envelope field:
+  // when the identity carries none, a caller-supplied one is dropped rather than
+  // left to name a signer the identity never vouched for.
+  const record = Object.assign({}, prefix, partial, prefix);
+  if (!identity.display_id) delete record.display_id;
 
   // Per Sec-LOW-2 (M6 D, 2026-05-22): refuse-on-overflow BEFORE signing
   // rather than truncating AFTER signing. The prior implementation
@@ -159,12 +175,37 @@ function appendStamped(repoDir, filePath, partial, opts) {
   // would have produced lines that look valid but verify-fail later.
   //
   // The size probe serializes (record - sig) padded by a worst-case
-  // signature length so we don't sign a record we then have to throw
-  // away. Actual signature length depends on the signer (ed25519 → 64
-  // raw bytes → ~88 base64 chars + JSON quotes); 128 is a comfortable
-  // upper bound that matches the canonicalSerialize+JSON.stringify
-  // overhead distinction in practice.
-  const SIG_RESERVE = 128;
+  // signature length so we don't sign a record we then have to throw away.
+  //
+  // The prior value (128) was sized for a RAW ed25519 signature — "64 raw
+  // bytes → ~88 base64 chars + JSON quotes". No signer in this repo emits
+  // that shape. MEASURED over the 920 signed records in the live
+  // coordination log: 894 carry `-----BEGIN PGP SIGNATURE-----` and 26 carry
+  // `-----BEGIN SSH SIGNATURE-----`, both ARMORED multi-line blocks. Their
+  // SERIALIZED cost — `,"sig":` plus the JSON string, which is what the
+  // MAX_LINE_BYTES cap actually pays, and which exceeds the raw value length
+  // because armor newlines escape to `\n` — measured min 329, max 896.
+  // So 128 under-reserved for 920 of 920 records: every record in the
+  // probe band ~1152..1920 B was signed and only THEN refused by the
+  // post-sign guard below. Never unsafe (that guard is the fail-closed
+  // backstop and refuse-not-truncate always held) but the early refusal
+  // this probe exists to provide never fired, and the operator-facing
+  // diagnostic named a reserve 768 B smaller than the real one.
+  //
+  // 896 is the measured maximum, NOT a padded round number, and the padding
+  // is deliberately omitted: over-reserving REFUSES records that would
+  // actually fit (a 1024 reserve introduces a 128 B false-refusal band),
+  // whereas under-reserving only wastes a signing operation before the
+  // post-sign guard refuses correctly. The two errors are not symmetric —
+  // one loses a legitimate record, the other loses some work — so this
+  // tracks the measurement exactly. `sig-reserve.test.mjs` pins it against
+  // the armored-signature fixtures; a signer emitting a larger armor reds
+  // that test rather than silently re-opening the band.
+  //
+  // Deliberately NOT unified with `checkpoint-emitter.js::SIG_RESERVE_BYTES`
+  // (1024): that guards a different record shape, and importing its value
+  // here would import its 128 B false-refusal band with it.
+  const SIG_RESERVE = 896;
   const probe = JSON.stringify(record) + "\n";
   if (Buffer.byteLength(probe, "utf8") + SIG_RESERVE > MAX_LINE_BYTES) {
     return {

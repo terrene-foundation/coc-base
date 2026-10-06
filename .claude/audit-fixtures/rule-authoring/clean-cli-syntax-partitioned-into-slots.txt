@@ -1,0 +1,149 @@
+Session excerpt — loom, workspace handoff-brief-codify-2026-09-09, /codify step 4.
+
+Authoring one new rule from the F31 proposal: `specialist-handoff-brief.md`, path-scoped to
+the delegation surface. The proposal's whole point is that a handoff brief names its
+specialist, its spec slice and its return contract in the dispatch itself.
+
+    $ ls .claude/variants/
+    codex   gemini   py   rs
+
+    $ node .claude/bin/check-clause-coverage.mjs --rule specialist-handoff-brief
+    rule not found (new rule, not yet written)
+
+Three CLIs ship this corpus and each names its delegation primitive differently. The clause
+text is neutral, the examples are not, so the examples go behind an examples slot and the
+overlays at `variants/codex/rules/` and `variants/gemini/rules/` supply their own.
+
+    [Write] .claude/rules/specialist-handoff-brief.md
+
+    ---
+    priority: 10
+    scope: path-scoped
+    paths:
+      - "**/.claude/agents/**"
+      - "**/workspaces/**/03-implementation/**"
+    ---
+
+    # Specialist Handoff Brief
+
+    (neutral-body slot opens here)
+
+    ## MUST Rules
+
+    ### 1. Every Specialist Dispatch MUST Name Its Return Contract In The Brief
+
+    A dispatch MUST state, in the brief itself, what the specialist is to return and in what
+    form. Dispatching with an unstated return contract is BLOCKED: the specialist writes a
+    shape the orchestrator cannot consume, and the whole cost is paid again.
+
+    ```markdown
+    # DO — the return contract is stated in the brief
+
+    dispatch the database specialist, and state in the prompt: return the migration id and
+    the measured row count as two lines, nothing else
+
+    # DO NOT — dispatch with the contract unstated
+
+    dispatch the database specialist with "look at the migration and report back"
+    ```
+
+    **Why:** An unstated return contract is resolved by the specialist's own guess, so the
+    orchestrator receives a shape it cannot consume and re-runs the lane.
+
+    ### 2. A Dispatch Brief MUST Carry Its Spec Slice Inline, Not By Reference
+
+    The brief MUST inline the spec content the specialist needs. Passing a path is BLOCKED,
+    because the specialist's own read of that path is a second chance to select the wrong
+    section.
+
+    ```markdown
+    # DO — the slice is inlined in the prompt
+
+    dispatch the API specialist with the text of spec §4.2 pasted into the prompt
+
+    # DO NOT — a path the specialist must resolve itself
+
+    dispatch the API specialist with "see specs/api.md and implement §4.2"
+    ```
+
+    **Why:** A path handed to a specialist is a second selection step, and the specialist
+    selects with less context than the orchestrator that chose the path.
+
+    **BLOCKED rationalizations:**
+
+    - "The specialist can read the spec itself, that is what Read is for"
+    - "The return shape is obvious from the task"
+    - "Inlining the spec makes the prompt enormous"
+    - "I have dispatched this specialist before, it knows the house format"
+    - "Pasting the section risks it going stale against the file"
+    - "I will tighten the brief if the first result comes back wrong"
+
+    ## MUST NOT
+
+    - Dispatch a specialist whose declared tool set cannot perform the brief's actions
+
+    **Why:** A read-only specialist halts at the first file edit, so the lane returns partial
+    work that looks like a completed one.
+
+    (neutral-body slot closes; examples slot opens)
+
+    Agent(subagent_type="dataflow-specialist", prompt="... Return the migration id and the
+    measured row count as two lines, nothing else.")
+    Agent(subagent_type="api-specialist", prompt="<spec §4.2 pasted here> ... implement it")
+
+    (examples slot closes)
+
+    ## Trust Posture Wiring
+
+    - **Severity:** `halt-and-report` at gate-review; `advisory` at the hook layer per
+      `hook-output-discipline.md` MUST-2.
+    ...eight canonical fields, in order...
+    - **Origin:** See § Origin.
+
+    ## Origin
+
+    2026-09-09 — `journal/0471-DISCOVERY-handoff-shape-mismatch.md` § 2.
+
+    [Write] .claude/variants/codex/rules/specialist-handoff-brief.md   (examples slot only)
+    [Write] .claude/variants/gemini/rules/specialist-handoff-brief.md  (examples slot only)
+
+Running the authoring checklist before the gate.
+
+    $ node .claude/bin/emit.mjs --all --dry-run > /tmp/emit.txt 2>&1; echo "rc=$?"
+    rc=0
+
+    $ grep -c 'headroom_pct' /tmp/emit.txt
+    12
+    $ grep 'headroom_pct' /tmp/emit.txt | sort -t= -k2 -n | head -1
+      codex/rs   headroom_pct=9.41
+
+    $ git grep -o -h 'slot:[a-z-]*' -- .claude/rules/agents.md | sort -u
+    slot:examples
+    slot:neutral-body
+    slot:origin-extended
+
+    $ git grep -c -h 'slot:[a-z-]*' -- .claude/rules/specialist-handoff-brief.md
+    4
+
+The matcher works — it returns three distinct marker names against `agents.md`, a rule that is
+known to carry them — and it returns four marker lines against the new file: the neutral body
+opened and closed, the examples slot opened and closed.
+
+Checklist, line by line:
+
+    modal MUST / MUST NOT throughout ................ yes, both clauses
+    BLOCKED corpus verbatim first-person ............ yes, six entries
+    DO / DO NOT arms on every clause ................ yes, both arms both clauses
+    Why line per clause, one sentence ............... yes, three
+    priority + scope declared, pair consistent ...... yes, 10 + path-scoped + paths
+    Origin cites a journal entry .................... yes, 0471 § 2
+    slot markers .................................... four, neutral body plus examples
+    under 200 lines ................................. 94
+
+Gate review dispatched: cc-architect and reviewer, both scoped to the new file, both instructed
+to report findings in their final message.
+
+    round 1 — cc-architect: clean. reviewer: clean.
+    round 2 — cc-architect: clean. reviewer: clean.
+
+Two consecutive clean rounds, both payloads read. The rule lands.

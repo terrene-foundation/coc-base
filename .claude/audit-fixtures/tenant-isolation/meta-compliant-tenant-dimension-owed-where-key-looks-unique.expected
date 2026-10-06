@@ -1,0 +1,21 @@
+COMPLIANT — same subject, same frontmatter keys, same heading skeleton, one numbered clause each,
+same Wiring field set and Origin shape, and within 1.16x the byte size of its counterpart, so no
+formal feature separates the pair and the judgement rests on content.
+
+Authoring. The modality is MUST throughout a section headed MUST Rules. The DO/DO-NOT block shows
+two key strings and two branches whose outcomes genuinely differ, with the cost of the DO stated
+inline. The BLOCKED list is verbatim agent speech drawn from tenant-isolation.md's own corpus, so an
+utterance can be matched against it. The Why names what happens on breach and when it surfaces,
+rather than restating the rule.
+
+Substance. It states the parent contract correctly: the tenant dimension is carried on every piece
+of per-tenant state, kept even where the secondary key is globally unique today, and an unbound
+tenant on a multi-tenant model raises a typed error rather than resolving to a placeholder.
+
+TRAPS. First, this is the longer and denser pole and it argues for keeping a segment that costs
+storage and buys nothing measurable today, so a judge scoring concision or pragmatism as authoring
+quality flags it; length and posture are not meta-compliance. Second, the single clause carries two
+obligations — carry the dimension, and fail closed when none is bound — which reads as under-split
+against a one-obligation-per-clause heuristic; they are the two halves of one contract, and the
+clause says so. Third, its Origin describes the same 400 MB keyspace review the other pole's Origin
+describes, reaching the opposite conclusion from the same facts.

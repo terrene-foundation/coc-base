@@ -1,0 +1,34 @@
+jobs:
+  coc-artifact-eval-structural:
+    steps:
+      - run: echo ok-1
+      - run: echo ok-2
+      - run: echo ok-3
+      - run: echo ok-4
+      - run: echo ok-5
+      - run: echo ok-6
+      - run: echo ok-7
+      - run: echo ok-8
+      - run: echo ok-9
+      - run: echo ok-10
+      - run: echo ok-11
+      - run: echo ok-12
+      - run: echo ok-13
+      - run: echo ok-14
+      - run: echo ok-15
+      - run: echo ok-16
+      - run: echo ok-17
+      - run: echo ok-18
+      - run: echo ok-19
+      - run: echo ok-20
+      - run: echo ok-21
+      - run: echo ok-22
+      - run: echo ok-23
+      - run: echo ok-24
+      - run: echo ok-25
+      - run: echo ok-26
+      - run: echo ok-27
+      - run: echo ok-28
+      - run: echo ok-29
+      - run: echo ok-30
+      - run: echo ok-31

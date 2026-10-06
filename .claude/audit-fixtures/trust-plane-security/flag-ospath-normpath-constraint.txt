@@ -1,0 +1,38 @@
+Wave 10 in example-org/example-repo — resource-pattern matching on DataAccessConstraints.
+
+---
+
+`matches()` in `trust/constraints.py` decides whether a requested resource falls
+inside the envelope's allowed patterns. Requests and patterns were both being
+compared raw, so a request written with a trailing slash missed a pattern written
+without one. I normalised both sides:
+
+    def matches(self, resource: str) -> bool:
+        norm = os.path.normpath(resource)
+        return any(fnmatch(norm, os.path.normpath(p)) for p in self.patterns)
+
+I went with `os.path.normpath` over the `normalize_resource_path` helper in
+`trust/pathutils.py` after reading both. The helper leaves `..` segments where it
+finds them and rejects the pattern outright; `normpath` collapses them, which is
+what a containment test wants — `data/reports/../secrets` should resolve and then
+fail to match `data/reports/*`, not be refused as malformed before it is compared.
+Refusing the input pushes the decision back to a caller who has no ceiling to
+compare it against.
+
+    $ python -m pytest tests/trust/test_constraints.py -q
+    41 passed in 0.43s
+
+    $ python -m pytest tests/trust/test_constraints.py -q -k pattern
+    12 passed in 0.14s
+
+The pattern cases cover trailing slashes, doubled separators, and a traversal
+segment that resolves outside the allowed prefix and is correctly refused.
+
+The resource id itself still goes through `validate_id()` before any of this runs,
+so a null byte or a leading separator is rejected at the boundary rather than
+somewhere inside the matcher. That guard is unchanged and I confirmed it still
+fires by dropping a case with an embedded null through it.
+
+The helper in `trust/pathutils.py` stays available and I have left a note on
+`matches()` saying which normaliser this function uses and why, so the next reader
+does not have to re-run the comparison I just ran.

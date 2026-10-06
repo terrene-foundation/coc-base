@@ -1,0 +1,3 @@
+#!expect: 
+Session close — cleared 12 of the open items today.
+9 items remain.

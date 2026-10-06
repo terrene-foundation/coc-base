@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 /**
+ * @hook-event: PreToolUse:Edit|NotebookEdit|Write (guard) — the pending artifact path can be checked against gitignore before an untracked write is mistaken for durable codification.
+ *
  * Hook: gitignored-claude-warn
  * Event: PreToolUse
  * Matcher: Edit|Write
@@ -33,18 +35,38 @@
 
 const path = require("path");
 const { execFileSync } = require("child_process");
+const { resolveGitBinary, gitEnv } = require(
+  path.join(__dirname, "lib", "git-subprocess-env.js"),
+);
 
 const TIMEOUT_MS = 5000;
-const timeout = setTimeout(() => {
-  console.error("[HOOK TIMEOUT] gitignored-claude-warn exceeded 5s limit");
-  console.log(JSON.stringify({ continue: true }));
-  process.exit(1);
-}, TIMEOUT_MS);
+let timeout = null;
 
-let input = "";
-process.stdin.setEncoding("utf8");
-process.stdin.on("data", (chunk) => (input += chunk));
-process.stdin.on("end", () => {
+// hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
+// in-process by lib/hook-engine.js (dispatch.js). Everything a standalone run
+// did at load time happens here instead, so a require() has no side effects.
+function hookMain() {
+  timeout = setTimeout(() => {
+    console.error("[HOOK TIMEOUT] gitignored-claude-warn exceeded 5s limit");
+    console.log(JSON.stringify({ continue: true }));
+    process.exit(1);
+  }, TIMEOUT_MS);
+  return new Promise((resolve, reject) => {
+    let input = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (chunk) => (input += chunk));
+    process.stdin.on("end", () => {
+      try {
+        onStdinEnd(input);
+      } catch (e) {
+        return reject(e);
+      }
+      resolve();
+    });
+  });
+}
+
+function onStdinEnd(input) {
   clearTimeout(timeout);
   try {
     const data = JSON.parse(input);
@@ -69,7 +91,7 @@ process.stdin.on("end", () => {
     console.log(JSON.stringify({ continue: true }));
     process.exit(1);
   }
-});
+}
 
 function checkPath(data) {
   const filePath = data.tool_input?.file_path || "";
@@ -84,10 +106,29 @@ function checkPath(data) {
   const cwd = data.cwd || process.cwd();
   let ignored = false;
   try {
-    execFileSync("git", ["check-ignore", "-v", norm], {
+    // loom#1471 (s49). LOCAL profile. `cwd` chose a DIRECTORY; an ambient
+    // `GIT_DIR` outranked it, so the question "is .claude ignored HERE?" was
+    // answered by an attacker-named repository's `.gitignore` — and this hook
+    // fails silent, so a "not ignored" from a decoy repo suppressed the warning
+    // with nothing to show for it.
+    //
+    // NAMED BEHAVIOUR NARROWING, accepted deliberately: `gitEnv()` sets
+    // GIT_CONFIG_GLOBAL=/dev/null, so a path ignored ONLY via the operator's
+    // global `core.excludesFile` now reads as not-ignored. That is a narrower
+    // warning, and it is the correct trade — the config profile cannot be used
+    // here in any case (`check-ignore` is outside CONFIG_PROFILE_SUBCOMMANDS and
+    // gitConfigInvocation() THROWS on it), and admitting global config to widen
+    // a warning would re-open the steering channel this closes.
+    const gitBin = resolveGitBinary();
+    // Rule 7 fail-OPEN: no binary ⇒ cannot determine ⇒ no warning, which is
+    // exactly what the catch below already does for "not a git repo". Returns
+    // this function's OWN shape — `{messages: []}`, never a bare boolean.
+    if (!gitBin) return { messages: [] };
+    execFileSync(gitBin, ["check-ignore", "-v", norm], {
       cwd,
       stdio: ["ignore", "ignore", "ignore"],
       timeout: 2000,
+      env: gitEnv(),
     });
     ignored = true; // exit 0 — path is ignored
   } catch (e) {
@@ -113,4 +154,14 @@ function checkPath(data) {
       },
     ],
   };
+}
+
+module.exports = { hookMain };
+
+// CLI entry. The default path is exactly hookMain() — no engine dependency, so a
+// tree that copies this hook without lib/hook-engine.js runs it unchanged. The
+// selftest path replays the run through the in-process engine (hook-engine.js::runCli).
+if (require.main === module) {
+  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1") require("./lib/hook-engine.js").runCli(hookMain, __filename);
+  else hookMain();
 }

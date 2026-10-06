@@ -2,13 +2,15 @@
 /**
  * provenance-capture-tool.js — F101-2 (loom#411 governance-as-DNA, loom lane).
  *
- * @hook-event: PreToolUse:* (telemetry) — records the about-to-run tool call and
- *   never gates; every tool call is a provenance event, so "any tool call" IS the
- *   subject and the `*` matcher is licensed (hook-event-selection.md MUST-3).
- *   PreToolUse specifically — not PostToolUse — because the record must be
- *   deterministic: the model cannot route around a capture that precedes the call.
+ * @hook-event: PreToolUse:Bash|Edit|Write|MultiEdit|NotebookEdit|Agent|Task (telemetry) — records the about-to-run tool call and never gates; the subject is a tool call that produces a provenance RECORD, which is exactly the set `classify()` maps to Action/Decision/Delegation, so the matcher is the RECORDING set and not `*` (it was `*` until FW-1: a read-path call reached this hook only for `classify()` to return null — read-path is out of scope per #411 — buying a module load and a classify() per read and no record). PreToolUse specifically — not PostToolUse — because the record must be deterministic: the model cannot route around a capture that precedes the call. THE DECLARATION MUST STAY ON ONE LINE: `hook-event-declaration` (hook-event-selection.md MUST-4) requires this shape and reds a wrapped one as malformed.
  *
- * Event: PreToolUse (*)
+ *   THE MATCHER IS DERIVED, NEVER HAND-TYPED: `lib/provenance-scope.js` composes it
+ *   from `tool-classes.js::MUTATION_TOOLS` plus the CC shell and delegation tools,
+ *   and `hook-dispatch-registry.test.mjs` reds a NAMED case when the registered
+ *   matcher and the derived one disagree. Edit the SSOT, then re-pin; do not edit
+ *   this line or the registry row by hand.
+ *
+ * Event: PreToolUse (Bash|Edit|Write|MultiEdit|NotebookEdit|Agent|Task)
  * Severity: NEVER blocks. {continue:true} on every path. Captured at PreToolUse
  *           so it is DETERMINISTIC — the model cannot skip the record by routing
  *           around it (#411 "Deterministic; model cannot bypass").
@@ -25,7 +27,8 @@
  *                                                       per #411 completeness vet)
  *
  * CROSS-CLI (F101 item 1, loom#411): this ONE hook file is registered as the
- * provenance capture surface on ALL THREE CLIs — CC (PreToolUse *), Gemini
+ * provenance capture surface on ALL THREE CLIs — CC (PreToolUse, narrowed to the
+ * recording set above), Gemini
  * (BeforeTool), Codex (PreToolUse shell). classify() therefore recognizes each
  * CLI's tool vocabulary, which is DISJOINT across CLIs, so the CLI is implicit
  * in the tool name (no env var / flag): CC {Task, Edit/Write/…, Bash}, Gemini
@@ -89,28 +92,35 @@ const PROJECT_DIR = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const JOURNAL_DECISION_RE =
   /(?:^|\/)journal\/(?:\.pending\/)?\d+-[^/]*DECISION[^/]*\.md$/i;
 
-// Cross-CLI tool vocabularies (F101 item 1). Disjoint across CLIs, so membership
-// alone disambiguates the CLI — classify() maps by EFFECT, not by CLI.
+// Cross-CLI tool vocabularies (F101 item 1). Native adapters may project names;
+// classify() maps by EFFECT, not by CLI identity or delegated-actor attribution.
 //   - DELEGATION: CC's delegation tool — named `Agent` in current/enhanced
 //     harnesses (verified CC 2.1.195) and `Task` in vanilla CC (legacy alias) —
 //     is a tool call; accept BOTH (legacy-tolerant — same PATTERN as
 //     tool-classes.js::MUTATION_TOOLS's legacy-tool retention, not its
 //     contents). Gemini `@agent` fires the native
 //     BeforeAgent lifecycle event (a different payload shape, not a tool call);
-//     Codex delegation is inline-cat injection via bin/coc (no tool call). Both are
-//     deferred per #411 provenance_parity — no tool-call capture point exists here.
+//     Codex native spawn_agent is projected to Agent by the native-policy bridge.
+//     Correct actor attribution remains unverified/deferred per #411; the capture
+//     point exists and is distinct from the explicit inline-cat fallback.
 //   - WRITE (non-CC): CC write tools come from tool-classes.js::isMutationTool; the
-//     Gemini (write_file/replace) + Codex (apply_patch) write-tool names live here.
+//     Gemini (write_file/replace) + Codex (apply_patch) write-tool names are part
+//     of the vocabulary set below.
 //   - SHELL: the consequential-command surface across all CLIs.
-const DELEGATION_TOOLS = new Set(["Task", "Agent"]);
-const GEMINI_WRITE_TOOLS = new Set(["write_file", "replace"]);
-const CODEX_WRITE_TOOLS = new Set(["apply_patch"]);
-const SHELL_TOOLS = new Set([
-  "Bash", // CC
-  "run_shell_command", // Gemini
-  "shell", // Codex
-  "unified_exec", // Codex
-]);
+//
+// FW-1 — THE VOCABULARIES LIVE IN ONE PLACE. `lib/provenance-scope.js` owns every
+// set below AND DERIVES the PreToolUse matcher this hook is registered under, from
+// `tool-classes.js::MUTATION_TOOLS` (the editing-tools SSOT). One source, so the
+// classifier and the registration cannot drift: a tool this file would record is a
+// tool the matcher must admit, and `hook-dispatch-registry.test.mjs` reds a NAMED
+// case when they disagree. Before FW-1 the matcher was `*`, so a read-path call
+// started this hook only for `classify()` to return null.
+const S = require("./lib/provenance-scope.js");
+// Sets, not arrays: `classify()` is a hot predicate and these are `.has()` lookups.
+const DELEGATION_TOOLS = new Set(S.DELEGATION_TOOLS);
+const GEMINI_WRITE_TOOLS = new Set(S.GEMINI_WRITE_TOOLS);
+const CODEX_WRITE_TOOLS = new Set(S.CODEX_WRITE_TOOLS);
+const SHELL_TOOLS = new Set(S.SHELL_TOOLS);
 
 function sha256(s) {
   return crypto.createHash("sha256").update(String(s), "utf8").digest("hex");
@@ -335,12 +345,22 @@ async function main() {
   }
 }
 
-// Run main() ONLY when invoked as a hook (node provenance-capture-tool.js) — NOT
-// when required for testing classify(), so the test never blocks reading fd 0.
-if (require.main === module) {
-  main();
+// hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
+// in-process by lib/hook-engine.js (dispatch.js).
+function hookMain() {
+  return main();
 }
 
 // Exported for the test harness (classify is the load-bearing kind-dispatch;
 // attachAgentAttribution is the #448 per-subagent attribution merge).
-module.exports = { classify, attachAgentAttribution, JOURNAL_DECISION_RE };
+module.exports = { classify, attachAgentAttribution, JOURNAL_DECISION_RE, hookMain };
+
+// Run main() ONLY when invoked as a hook (node provenance-capture-tool.js) — NOT
+// when required for testing classify(), so the test never blocks reading fd 0.
+// CLI entry. The default path is exactly hookMain() — no engine dependency, so a
+// tree that copies this hook without lib/hook-engine.js runs it unchanged. The
+// selftest path replays the run through the in-process engine (hook-engine.js::runCli).
+if (require.main === module) {
+  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1") require("./lib/hook-engine.js").runCli(hookMain, __filename);
+  else hookMain();
+}

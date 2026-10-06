@@ -1,0 +1,4 @@
+{
+  "command": "git status --porcelain && git stash push",
+  "note": "the mutation is in segment 2"
+}

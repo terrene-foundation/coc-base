@@ -1,0 +1,1 @@
+echo "abc123def" >> .git-blame-ignore-revs

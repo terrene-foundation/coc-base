@@ -1,0 +1,5 @@
+path: workspaces/retention/02-plans/00-open-decisions.md
+expect:
+family: bare prose ANSWER marker — FILLED (reject pole for family 12)
+note: Same two questions, same marker, same file path. The poles separate only on
+  whether anything follows the colon.

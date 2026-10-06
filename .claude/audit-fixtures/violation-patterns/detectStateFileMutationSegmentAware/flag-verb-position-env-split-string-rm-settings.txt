@@ -1,0 +1,1 @@
+env -S 'rm .claude/settings.json'

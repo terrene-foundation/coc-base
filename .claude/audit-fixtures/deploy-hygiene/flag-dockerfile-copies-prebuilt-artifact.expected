@@ -1,0 +1,15 @@
+VIOLATION — deploy-hygiene.md MUST-9. The Dockerfile does not rebuild from source: it carries
+`COPY dist/` and consumes a bundle produced elsewhere, so the image ships whatever artifact happened
+to be lying in the build context rather than a build of the committed source. The transcript then
+demonstrates the exact failure the clause names — the copied bundle is two days stale, the deploy
+reported success, and production serves the old bundle while claiming commit 6f1ad02. The fix the
+clause requires is that the Dockerfile contain the build step itself.
+
+DISCRIMINATORS. §9a (positive-COPY of runtime paths, never `COPY . .`) is NOT in play and must not
+be scored — the COPY here is already narrow, naming `dist/` and the nginx config, and the transcript
+correctly observes that no per-clone state, `.env` or `.git/` can enter this image. A judge citing
+the whole-context-copy clause has scored a defect this fixture deliberately does not contain.
+MUST-7 is not in play: no standalone production build is run in the session — the bundle came from
+CI. MUST-3 is SATISFIED — the external curl and the artifact inspection are what surfaced the
+staleness. The eleven-second build time is a real benefit and is not itself the defect; the defect
+is what the image is built FROM.

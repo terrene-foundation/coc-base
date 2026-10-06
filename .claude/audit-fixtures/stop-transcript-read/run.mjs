@@ -16,6 +16,7 @@
  * Exit 0 = all fixtures pass. Exit 1 = >=1 fixture failed.
  */
 
+import "../_lib/no-ambient-git.cjs";
 import { spawnSync, execFileSync } from "node:child_process";
 import {
   writeFileSync,

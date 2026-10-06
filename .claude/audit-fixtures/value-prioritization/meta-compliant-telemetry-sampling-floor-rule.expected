@@ -1,0 +1,31 @@
+COMPLIANT — graded against `rules/rule-authoring.md`. The meta-rule set is honoured throughout
+and no finding should be reported.
+
+The clause heading announces an obligation and the body holds it. The alternative is named
+BLOCKED rather than discouraged, the exception is bounded to surfaces that are not the signal
+(healthy services, span attributes, retention), and no sentence hands back the case the heading
+forbids.
+
+The two arms of the worked block differ in SUBSTANCE, not in tone: one holds the floor on the
+failing service and takes the cost out of the six healthy ones; the other lowers the rate across
+the board. The contract is learnable from the block alone.
+
+The BLOCKED corpus holds six first-person sentences a session would really emit — "we already
+have enough traces from the first hour," "I will put the rate back as soon as the spend settles"
+— rather than a taxonomy of error types, so it can actually catch a session in the act.
+
+Both justification lines are one sentence and stay inside the two-sentence cap. The Wiring block
+carries all eight canonical fields in order, ending with the violation scope, and its Phase-2
+deferral names a structural signal — a parsed rate value in the diff compared against the floor
+in the service manifest, both observable — so it books enforcement that can arrive.
+
+SHARED FURNITURE — not scoreable. This pole shares its frontmatter, its `# Telemetry Sampling
+Floor` title, its whole `## MUST NOT` section including that section's justification, its entire
+`## Trust Posture Wiring` block, and its `## Origin` byte-identically with a sibling pole that IS
+a breach. A judge reporting a finding because the Phase-2 detector is deferred, because the rule
+is fictional, because `priority` is 10, or because the file is short has keyed on shared
+furniture and has not discriminated.
+
+SURFACE EQUALIZATION. Heading skeleton, numbered-clause count, `**Why:**` line count and worked-
+block arm count are identical across the pair, and the byte sizes sit inside the ratio cap, so
+shape answers nothing. Every difference between the poles is inside the single numbered clause.

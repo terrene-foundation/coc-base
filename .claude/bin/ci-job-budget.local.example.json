@@ -1,0 +1,198 @@
+{
+  "_README": [
+    "CI JOB BUDGET — the DEPLOYMENT DECLARATION.",
+    "",
+    "Read by `.claude/bin/ci-job-budget-audit.mjs`, which is the generic ENGINE and",
+    "carries ZERO values from any deployment: no runner label, no capacity number, no",
+    "host identifier, no workflow filename. Every such value is read from THIS file.",
+    "That split is the whole point — the engine cascades to every USE template and",
+    "BUILD repo through the normal artifact flow, and this file never does.",
+    "",
+    "COPY INSTRUCTION",
+    "  cp .claude/bin/ci-job-budget.local.example.json \\",
+    "     .claude/bin/ci-job-budget.local.json",
+    "  $EDITOR .claude/bin/ci-job-budget.local.json",
+    "",
+    "NEVER CASCADES. `.claude/bin/*.local.json` matches `LOOM_LOCAL_PATTERNS` in",
+    "`.claude/bin/sync-tier-aware.mjs`, so the real file is skipped on EVERY sync lane",
+    "(reason `loom_local`) — USE and BUILD alike. Only THIS `.example` is committed and",
+    "distributed. `*.local.example.json` does not match `*.local.json`, which is why the",
+    "example travels and the declaration does not. Do NOT put a real runner label, org",
+    "slug, hostname, or internal workflow name in this committed template — every token",
+    "below is synthetic.",
+    "",
+    "OVERRIDE",
+    "  $CI_JOB_BUDGET_DECLARATION (an ABSOLUTE path) takes precedence over the local",
+    "  file. Precedence: $CI_JOB_BUDGET_DECLARATION > ci-job-budget.local.json >",
+    "  fail-LOUD. There is no default declaration and no positional fallback: an audit",
+    "  with no declaration reports UNKNOWN and exits non-zero, never green.",
+    "",
+    "WHY THIS EXISTS. A per-PR job fan-out is bounded by real runner capacity. Left",
+    "undeclared it grows until one pull request cannot validate without saturating the",
+    "fleet, and two concurrent pull requests become structurally impossible. Every job",
+    "reachable from a `pull_request` trigger must be one of:",
+    "  required  — it provides a branch-protection required context (it IS the gate)",
+    "  gated     — a per-JOB relevance skip, or a paths:-filtered workflow providing",
+    "              no required context",
+    "  budgeted  — listed under `budgeted` below, with a rationale a reviewer approved",
+    "Anything else is UNBUDGETED and the audit fails.",
+    "",
+    "NOT A paths: FILTER. A required context inside a paths:-filtered workflow NEVER",
+    "REPORTS, and wedges the pull request at 'Expected — Waiting for status to be",
+    "reported'. The sanctioned shape for a required context is an unconditional trigger",
+    "with a per-JOB skip."
+  ],
+
+  "_fleets_why": [
+    "A FLEET is a set of physical runners with one measured total. Pools draw from a",
+    "fleet; a pool's capacity can never exceed its fleet's, and the non-overlay pools",
+    "of one fleet can never SUM past it.",
+    "",
+    "FRESHNESS IS FAIL-CLOSED, and this is the contract's load-bearing half. Every",
+    "capacity-bearing node — each fleet and each pool — MUST carry all three of:",
+    "  capacity                 a finite positive number",
+    "  capacity_authority       >= 40 chars naming HOW the number was obtained, and",
+    "                           RESTATING it as the literal `capacity <n>`",
+    "  capacity_verified_as_of  a real ISO date, not in the future",
+    "A missing, unreal, or future date is a finding. A read older than",
+    "`capacity_max_age_days` (clamped by the engine, see below) is a finding. The audit",
+    "REFUSES rather than trusting a stale ceiling — a declared number whose freshness",
+    "nothing evaluates is a policy constant wearing a measurement's clothes.",
+    "",
+    "WHY THE AUTHORITY STRING AND NOT JUST A DATE. A date alone reads identically",
+    "whether the number was re-measured or merely re-typed, so it cannot discriminate",
+    "between fresh and restated. The authority names the command or procedure a reader",
+    "can RE-RUN, and the `capacity <n>` restatement makes the sentence answerable to the",
+    "number: move the capacity without re-deriving the sentence and the audit reds.",
+    "",
+    "NO CREDENTIAL IS REQUIRED FOR CORRECTNESS. `--verify-capacity` is an OPTIONAL",
+    "reconciliation for an operator who holds an API credential; it compares the",
+    "declared numbers against a live reading. Correctness does NOT depend on it, and it",
+    "is not the freshness gate. An engine whose only capacity reader needs a credential",
+    "no CI secret carries has no reader at all."
+  ],
+
+  "fleets": {
+    "self-hosted": {
+      "capacity": 12,
+      "capacity_authority": "SYNTHETIC EXAMPLE. Replace with your own: name the exact command a reader can re-run and restate the number it returned, e.g. `<runner-api-list-command>` returning capacity 12 registered and online.",
+      "capacity_verified_as_of": "2026-08-21",
+      "oversubscribe": 2,
+      "_oversubscribe_why": "SYNTHETIC EXAMPLE RATCHET, not an allowance. floor(12 x 2) = 24 = exactly today's fleet-wide worst-case demand, so any job added anywhere fails this audit in the diff that adds it. Replace with your own derivation. REVIEW BY 2026-11-16: if this value has not fallen, that is the finding."
+    },
+    "vendor-hosted": {
+      "capacity": 2,
+      "capacity_authority": "SYNTHETIC EXAMPLE for a fleet that is NOT in the self-hosted runner API — a vendor-hosted pool whose ceiling is set by billing or runner-group configuration. Name that surface and restate what it showed: capacity 2 concurrent.",
+      "capacity_verified_as_of": "2026-08-21"
+    }
+  },
+
+  "_pools_why": [
+    "A POOL is a set of runner LABELS with a shared capacity. A job's `runs-on` is",
+    "tokenised and matched against these labels; a label declared by two pools is",
+    "ambiguous and resolves to NOTHING rather than being arbitrated.",
+    "",
+    "`union: true` marks an OVERLAY pool whose runners are already counted in a sibling",
+    "pool of the same fleet. It excludes the pool from the capacity SUM and from",
+    "nothing else: it does NOT exempt the pool from its own ceiling, from the fleet",
+    "bound, or from the freshness contract. A `union: true` with no dated `_union_why`",
+    "is a finding — one key must never buy an exemption silently.",
+    "",
+    "`oversubscribe` is the declared allowance. 1.0 means one pull request must fit the",
+    "pool outright. Above 1.0 it MUST carry `_oversubscribe_why` with a >= 40-char",
+    "rationale, an unexpired `REVIEW BY <YYYY-MM-DD>`, and the literal arithmetic",
+    "`floor(<capacity> x <ratio>) = <ceiling>` so the sentence notices either operand",
+    "moving. It is also PINNED: the ceiling must EQUAL today's worst case, never stand",
+    "above it, or the slack is free job slots nothing reds on."
+  ],
+
+  "pools": {
+    "pool-alpha": {
+      "labels": ["example-label-alpha"],
+      "fleet": "self-hosted",
+      "capacity": 8,
+      "capacity_authority": "SYNTHETIC EXAMPLE. Name the command that enumerated this label and restate what it returned: capacity 8 runners carrying example-label-alpha.",
+      "capacity_verified_as_of": "2026-08-21",
+      "oversubscribe": 2,
+      "_oversubscribe_why": "SYNTHETIC EXAMPLE RATCHET. floor(8 x 2) = 16 = exactly today's worst case on this pool, so any added job reds in its own diff. Replace with your own derivation and re-derive whenever the CENSUS changes, not only when jobs are added. REVIEW BY 2026-11-16: if this has not fallen, that is the finding."
+    },
+    "pool-beta": {
+      "labels": ["example-label-beta"],
+      "fleet": "self-hosted",
+      "capacity": 4,
+      "capacity_authority": "SYNTHETIC EXAMPLE. Name the command that enumerated this label and restate what it returned: capacity 4 runners carrying example-label-beta.",
+      "capacity_verified_as_of": "2026-08-21"
+    },
+    "pool-union": {
+      "labels": ["example-label-any"],
+      "fleet": "self-hosted",
+      "capacity": 12,
+      "union": true,
+      "_union_why": "SYNTHETIC EXAMPLE OVERLAY. This label is carried by every runner in the fleet, so its runners are already counted in pool-alpha and pool-beta and it must not be SUMMED with them. It is still held to its own ceiling and to the fleet bound. REVIEW BY 2026-11-16: confirm the label is still fleet-wide.",
+      "capacity_authority": "SYNTHETIC EXAMPLE. Name the command showing this label spans the whole fleet and restate the number: capacity 12 runners carry example-label-any.",
+      "capacity_verified_as_of": "2026-08-21"
+    },
+    "pool-vendor": {
+      "labels": ["example-label-vendor"],
+      "fleet": "vendor-hosted",
+      "capacity": 2,
+      "capacity_authority": "SYNTHETIC EXAMPLE for a vendor-hosted pool. Name the billing or runner-group surface that sets the concurrency and restate it: capacity 2 concurrent.",
+      "capacity_verified_as_of": "2026-08-21"
+    }
+  },
+
+  "_required_contexts_why": [
+    "The branch-protection required contexts, by CHECK-RUN NAME — the string GitHub",
+    "reports, which is a job's `name:` when it has one and its job ID when it does not.",
+    "",
+    "ANTI-VACUITY: an EMPTY set is a finding, not a clean pass. With no required",
+    "contexts every job reads as non-required, so every job in a paths:-filtered",
+    "workflow reads as gated and the whole contract becomes undetectable.",
+    "",
+    "A job whose `name:` interpolates a template can NEVER string-equal a required",
+    "context, because the check-run is reported under the unexpanded template. Such a",
+    "job must be declared under `_template_named_jobs` below or given a literal name."
+  ],
+  "required_contexts": ["Example Gate"],
+
+  "_budgeted_why": [
+    "An entry here is an EXEMPTION: a job that runs per-PR, gates nothing, and is",
+    "nevertheless kept. Each MUST carry a rationale that survives a reviewer asking",
+    "'why is this worth a runner slot on every pull request?'.",
+    "",
+    "An exemption with no rationale is a permanent excuse — a deferral whose wake-up",
+    "condition nothing evaluates. The audit therefore fails a `why` shorter than 40",
+    "characters, one with no `REVIEW BY <YYYY-MM-DD>`, one whose date has passed, and",
+    "one whose date is further out than the review horizon.",
+    "",
+    "EMPTY ON PURPOSE at introduction. Populating it is a REVIEWED act: the first audit",
+    "run enumerates the current unbudgeted jobs, and each one is then gated, promoted to",
+    "required, moved off the pull-request trigger, or declared here with a reason.",
+    "Pre-seeding it from the failing run launders today's drift into tomorrow's",
+    "baseline, which is the ratchet this file exists to stop."
+  ],
+  "budgeted": {},
+
+  "_template_named_jobs_why": [
+    "Jobs whose `name:` contains a template interpolation. Such a job's check-run is",
+    "reported under the UNEXPANDED template string, so the name can never string-equal a",
+    "branch-protection required context; promoting one to required would wedge every",
+    "pull request at 'Expected — Waiting for status to be reported'.",
+    "",
+    "Declared rather than failed, because a template-named job that is NOT required is",
+    "LATENT rather than a live defect. An UNDECLARED one is a finding; so is a STALE",
+    "entry here, because leaving one standing pre-approves the next. Each entry needs",
+    "the same dated rationale every sibling exemption on this surface carries."
+  ],
+  "_template_named_jobs": {},
+
+  "capacity_max_age_days": 90,
+  "_capacity_max_age_days_why": [
+    "How old the read behind a declared capacity may be before the audit REFUSES.",
+    "",
+    "CLAMPED BY THE ENGINE. The effective window is min(this value, the engine's hard",
+    "ceiling), so a deployment may TIGHTEN it and can never loosen it. Without the clamp",
+    "this key would be a one-token way to make a stale ceiling fresh — raising the",
+    "window is the same move as raising the number it protects."
+  ]
+}

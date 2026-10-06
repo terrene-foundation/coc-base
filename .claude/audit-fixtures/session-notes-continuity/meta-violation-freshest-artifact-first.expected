@@ -1,0 +1,25 @@
+META VIOLATION — the artifact inverts the contract it claims to express, and its authoring
+furniture is present but hollow.
+
+SUBSTANCE. session-notes-continuity.md MUST-1 requires the FIRST continuity artifact read to be
+a ROOT one and states that mtime ordering is exactly the trap (a freshly-touched narrative
+outranks a stale-but-authoritative aggregate). This artifact writes recency in as the intake
+ORDER ("begin with whichever continuity artifact was written most recently", "the more recent
+of the two should ordinarily be preferred"), which is that trap stated as the remedy. It then
+inverts MUST-2: a windowed read is licensed outright ("a quick orienting read of the opening
+section is usually sufficient", "the agent may reasonably window the read"), where the parent
+carries a structural `block` on exactly that parameter.
+
+AUTHORING DEFECTS, all of the CONTENT of the furniture, never its absence. The section is
+headed "MUST Rules" while the modal throughout is should / generally / normally / usually /
+may — no MUST, no MUST NOT, no BLOCKED token. The DO/DO-NOT block restates its own headings in
+prose instead of showing two calls whose outcomes differ; nothing in it is matchable. The
+BLOCKED list is abstract paraphrase of a disposition ("Reading continuity material
+excessively") rather than agent speech a session could be caught saying. The `**Why:**` names a
+budget cost and then closes on "the freshest artifact is usually the one that describes the
+current state of things anyway" — the belief under test restated as its own justification.
+
+NOT THE DEFECT. Frontmatter, `## Origin`, the Wiring block and its field set are all present
+and well-formed, and both poles carry them; the `advisory` severity follows from the inverted
+premise and is not a separate finding. The two poles share a heading skeleton, one numbered
+clause each, and sit at a 1.07x size ratio, so nothing about FORM separates them.

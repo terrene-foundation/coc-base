@@ -1,0 +1,72 @@
+Session excerpt — loom, workspace coc-adapter-parity-2026-09-11, first working turn.
+
+    $ ls workspaces/coc-adapter-parity-2026-09-11/
+    briefs/  journal/  specs/  .session-notes
+
+    $ grep -n "single command" workspaces/coc-adapter-parity-2026-09-11/briefs/01-brief.md
+    41:Every one of our four client repos must be able to run the conformance walk from a
+    41:single command by the end of the month; today only the Python one can.
+
+Three workstreams are eligible. Ranked by what the brief asks for, not by what fits:
+
+    1. HIGH  — conformance-walk adapter parity across the four surfaces.
+               briefs/01-brief.md §3 "Delivery outcomes", line 41, quoted verbatim above.
+    2. LOW   — sweep-ledger pagination. No brief anchor; internal ergonomics only.
+    3. LOW   — journal search index rebuild. No brief anchor; my own convenience.
+
+(1) is the pick. It exceeds one shard — four surfaces, seven invariants, and the adapter
+contract itself is load-bearing — so it decomposes rather than stepping aside for (2),
+which would fit one pass cleanly. Four shards:
+
+    S1  cw_core adapter contract + shared three-tier fixture harness
+    S2  Python adapter wired to S1
+    S3  Rust adapter
+    S4  Ruby-binding + Prism adapters
+
+S1 and S2 land this session. S3 and S4 do not fit the remaining budget.
+
+    $ node --test .claude/test-harness/tests/cw-core.test.mjs
+    # pass 41  # fail 0
+
+Mutation before reading that green: dropped the surface key from the contract resolver,
+asserted the mutated line executes, re-ran — 9 reds. Restored, green again.
+
+    $ gh issue create --title "conformance-walk: rs adapter" --body-file /tmp/s3.md
+    https://github.com/example-org/loom/issues/2213
+
+    Why this matters to you: rs is the largest client repo that still cannot run the walk
+      from one command — the end-of-month outcome in briefs/01-brief.md §3 line 41, quoted
+      verbatim above.
+    Depends on: #2212 (S2 lands the reference wiring)
+    Estimate: ~380 LOC, 4 invariants, one pass
+    Owner: platform-engineer
+    Acceptance: `cw --surface rs` exits 0 against the three-tier fixture set; the parity
+      table row `rs/delivered` reads PASS.
+    Scheduling: next session.
+    Before starting, confirm with you that the end-of-month outcome still stands.
+
+    $ gh issue create --title "conformance-walk: rb-binding + prism adapters" \
+        --body-file /tmp/s4.md
+    https://github.com/example-org/loom/issues/2214
+
+    Why this matters to you: these are the two of your four surfaces with no walk at all —
+      0 adapters registered as of `a94bf5f2` 2026-09-13T02:10Z — so until they land, the
+      "every one of our four client repos" in briefs/01-brief.md §3 line 41 is two short.
+    Depends on: #2213
+    Estimate: ~300 LOC across two adapters, 3 invariants
+    Owner: platform-engineer
+    Acceptance: `cw --surface rb` and `cw --surface prism` both exit 0; both parity rows
+      read PASS.
+    Scheduling: Phase II scope.
+    Before starting, re-run `cw --list-adapters`; if the 0-adapter state moved, re-derive.
+
+    [Write] workspaces/coc-adapter-parity-2026-09-11/.session-notes
+
+    ## Carried-forward
+    - S3 rs adapter (#2213) — largest repo still unable to run the walk from one command,
+      per briefs/01-brief.md §3 line 41. Blocked on #2212, ~380 LOC, next session.
+    - S4 rb-binding + prism adapters (#2214) — the two surfaces with no walk at all, 0
+      adapters as of `a94bf5f2` 2026-09-13T02:10Z, same brief line. Blocked on #2213,
+      ~300 LOC, Phase II scope.
+
+S1 and S2 are on a branch and ready for a PR. S3 and S4 are filed, estimated and owned.

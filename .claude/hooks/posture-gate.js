@@ -81,10 +81,7 @@
  */
 
 const TIMEOUT_MS = 5000;
-const fallback = setTimeout(() => {
-  process.stdout.write(JSON.stringify({ continue: true }) + "\n");
-  process.exit(1);
-}, TIMEOUT_MS);
+let fallback = null;
 
 const path = require("path");
 const fs = require("fs");
@@ -241,11 +238,11 @@ const VALUE_FLAGS = {
     "-t",
     "--template",
     "--trailer",
-    "-S",
-    "--gpg-sign",
-    "-u",
-    "--untracked-files",
     "--pathspec-from-file",
+    // Added 2026-09-20 by the CLOSURE census below, not by the original probe.
+    "--unified",
+    "-U",
+    "--inter-hunk-context",
   ]),
   push: new Set([
     "--repo",
@@ -253,10 +250,71 @@ const VALUE_FLAGS = {
     "--exec",
     "-o",
     "--push-option",
-    "--force-with-lease",
-    "--signed",
+    // Same census. MEASURED CONSUMED: `git push --recurse-submodules --zzz`
+    // reports "bad recurse-submodules argument", never "unknown option".
+    "--recurse-submodules",
   ]),
 };
+// MEASURED, never copied. Six entries were removed from the sets above on
+// 2026-09-20 — `commit -S`, `commit --gpg-sign`, `commit -u`,
+// `commit --untracked-files`, `push --force-with-lease`, `push --signed`.
+// Each takes an OPTIONAL value in the ATTACHED form only (`-Skeyid`,
+// `--gpg-sign=keyid`, `--force-with-lease=main:abc`), which is a single token
+// and so needs no entry here; written SEPARATED they consume NOTHING, and
+// listing them made this walk skip the following word.
+//
+// The consequence was live and is reproduced by `.claude/audit-fixtures/
+// posture-gate/run.mjs`: `git commit -S --dry-run` and the five siblings were
+// BLOCKED at every degraded posture, because the skip swallowed the very
+// `--dry-run` that proves the command mutates nothing. That is the inverted
+// defect the header above calls "worse in practice, because a gate that
+// refuses `--help` is a gate someone switches off".
+//
+// THAT IS THE MILDER HALF, AND AN EARLIER REVISION OF THIS COMMENT STOPPED
+// THERE, calling the defect "an over-block, NOT a bypass, since isNonMutating
+// fails closed". The second clause is true and the conclusion drawn from it was
+// WRONG, so it is corrected here rather than softened: a wrong VALUE_FLAGS entry
+// also opens a REAL BYPASS in this same hook, in the dangerous direction.
+// `git commit -S -m "--dry-run"` made `-S` skip `-m`, which exposed the commit
+// MESSAGE in a flag position, so `isNonMutating` returned TRUE and a genuine
+// commit was ALLOWED at L3/L2/L1. Failing closed protects the walk from an
+// UNKNOWN flag; it does not protect it from a KNOWN-WRONG one, because a wrong
+// entry makes the walk skip a token it should have read. Pinned by
+// `A-bypass/commit-S-m-dry-run-still-blocks` in the fixture runner.
+//
+// The direction flips in a fence of the OPPOSITE polarity. Copying this table
+// into the `--no-verify` fence in validate-bash-command.js would make
+// `git push --force-with-lease --no-verify origin main` go SILENT — a real
+// bypass. That is why each entry below is probed rather than inherited:
+//   git <sub> <flag> --zzz-not-a-flag
+//   stderr carries "unknown option" ⇒ the flag did NOT consume it ⇒ BOOLEAN.
+// Reading the literal token back is NOT a discriminator: it appears both when
+// git rejects it as an option AND when git eats it as a value. Every entry
+// remaining above returned CONSUMED under that probe, and all six removed ones
+// returned BOOLEAN, on git 2.54.0 / 2.50.1 / 2.43.0 against seven controls
+// (`-m`, `--file`, `--repo` value-taking; `--amend`, `--quiet`, `--all`,
+// `--tags` boolean) that passed 7/7 on each version.
+//
+// THE PROBE ABOVE ANSWERS ONE DIRECTION ONLY, and the two directions are
+// different propositions: it establishes "every LISTED entry is CONSUMED", and
+// says NOTHING about "every CONSUMED flag is LISTED". A census run in the second
+// direction on 2026-09-20 found FOUR consuming flags missing — `commit
+// --unified`, `commit -U`, `commit --inter-hunk-context` (each "expects an
+// integer value") and `push --recurse-submodules` ("bad recurse-submodules
+// argument") — all four now added above. A missing entry is the OVER-BLOCK
+// direction here (the walk reads a flag's VALUE as a flag), so none was
+// exploitable, but `git push --recurse-submodules --dry-run origin main` was
+// reaching the fence with `--dry-run` in a flag position.
+//
+// THE SET IS MEASURED, NOT PROVEN CLOSED, and the limit is the enumerator, not
+// the probe. The census enumerates from `git <sub> -h`, which UNDER-REPORTS:
+// its own control fired, showing `-h` omits `--message`, `--file`, `--author`
+// and `--date` on commit and `--repo`, `--exec`, `--receive-pack` and
+// `--push-option` on push. Those were folded back by hand, which means the
+// census can only find flags someone already thought to control for —
+// `--recurse-submodules` was missed by the census and caught by review. Treat
+// this table as a LOWER BOUND on git's consuming flags. Re-run the census
+// (both directions, with its control) when adopting a new git major.
 
 // Markers meaning "this invocation does not mutate", PER SUBCOMMAND. The
 // per-subcommand split is not decoration: `-n` is `--no-verify` on commit
@@ -483,150 +541,186 @@ function gateAtPosture(posture, tool, input) {
   return null;
 }
 
-let input = "";
-if (process.stdin.isTTY) {
-  passthrough();
-} else {
-  process.stdin.setEncoding("utf8");
-  process.stdin.on("data", (c) => (input += c));
-  process.stdin.on("end", () => {
-    let data = {};
-    try {
-      data = JSON.parse(input);
-    } catch {
-      return passthrough();
-    }
-    const event = data.hook_event_name || data.hookEventName || "";
-
-    if (event === "SessionStart") {
-      try {
-        const posture = readPosture(data.cwd);
-        // loom#875 — count only entries still WITHIN grace; a grace-expired
-        // entry must not inflate the "N pending verification(s)" diagnostic.
-        const pvCount = (posture.pending_verification || []).filter(
-          (e) => e && e.rule_id && isPendingWithinGrace(e),
-        ).length;
-        const tag = posture._fail_closed
-          ? "FAIL-CLOSED"
-          : posture._fresh
-            ? "FRESH"
-            : "OK";
-        process.stderr.write(
-          `[posture-gate] ${posture.posture} (${tag})` +
-            (pvCount ? ` — ${pvCount} pending verification(s)` : "") +
-            "\n",
-        );
-      } catch (e) {
-        process.stderr.write(`[posture-gate] read failed: ${e.message}\n`);
-      }
-      return passthrough();
-    }
-
-    if (event === "PreToolUse") {
-      const tool = data.tool_name;
-      const toolInput = data.tool_input || {};
-
-      // ---- R6-C-02 defense-in-depth -----------------------------------
-      // Primary fence: settings.json::permissions.deny blocks Edit/Write/
-      // MultiEdit/NotebookEdit on .claude/learning/{posture.json,
-      // violations.jsonl, .initialized}.
-      // Secondary fence (this hook): if the deny rule somehow doesn't fire
-      // (settings malformed / override / out-of-tree write), surface a
-      // clear halt-and-report citing rules/trust-posture.md MUST NOT.
-      //
-      // F14 LOW-2: include MultiEdit + NotebookEdit. Anthropic added
-      // these tools after the original Edit/Write fence shipped; without
-      // coverage the secondary fence silently passes on those tools.
-      // F14 LOW-3: realpath-normalize file_path BEFORE regex match so
-      // path traversal (../) cannot bypass the literal-string regex.
-      // F14 C2 iter-3 root-cause fix: route through isMutationTool() (SSOT
-      // from lib/tool-classes.js) — adding a new mutation tool requires
-      // one edit, not N edits across every hook.
-      // loom#1549 F4: the tool-name half routed through the SSOT, but the
-      // PAYLOAD half still read `file_path` ONLY. NotebookEdit carries
-      // `notebook_path` (tool-classes.js says so in its own JSDoc), so the
-      // conjunct was false and a NotebookEdit write to posture.json passed
-      // through UNFENCED — the SSOT made the tool recognized and the payload
-      // read made it unreachable. Six sibling hooks (signing-mutation-guard,
-      // genesis-anchor-guard, journal-write-guard, adjacency-leasecheck,
-      // detect-violations, settings-deny-edit-guard) already read all three
-      // keys; this site and integrity-guard.js were the two that did not.
-      const mutationPath =
-        toolInput.file_path || toolInput.filePath || toolInput.notebook_path;
-      if (isMutationTool(tool) && typeof mutationPath === "string") {
-        const fp = _bestEffortRealpath(mutationPath);
-        // The case-insensitivity dimension (and now #1409's redundant-separator
-        // dimension) reaches this surface because the predicate is BUILT from
-        // the one registry — not because someone remembered this file.
-        if (isPostureGateProtectedPath(fp)) {
-          clearTimeout(fallback);
-          const out = instructAndWait({
-            hookEvent: "PreToolUse",
-            // loom#1590 — DELIBERATELY LEFT AT halt-and-report, and this is a
-            // recommendation surfaced rather than a change made.
-            //
-            // The signal here IS structural (a realpath-normalized path against
-            // the shared registry), so MUST-2 would permit `block`, and the
-            // argument for it is real: this is the SECONDARY fence for
-            // trust-state self-modification, existing precisely for the case
-            // where the PRIMARY fence (settings.json::permissions.deny) is
-            // malformed or overridden — and a secondary fence that only
-            // annotates leaves exactly that case unfenced.
-            //
-            // It is NOT promoted here because promoting it measurably broke the
-            // Codex lane, which forwards-and-SURFACES this branch by design:
-            // codex-mcp-guard/test-server.mjs asserts "posture-gate's
-            // learning-path fence MUST fire on the non-first target (surface)".
-            // That is a deliberate cross-CLI contract, not a stale fixture, so
-            // flipping it is a decision for the owner of that contract rather
-            // than a side effect of this fence. The primary settings.json deny
-            // remains a REAL block (verified: a write to posture.json returns a
-            // tool error and does not execute), so the protection is not resting
-            // on this branch alone.
-            severity: "halt-and-report",
-            what_happened: `Defense-in-depth: ${tool} attempted on protected state file ${fp.slice(-80)}`,
-            why: "trust-posture/MUST-NOT — posture.json / violations.jsonl writes are reserved for hooks (R6-C-02). settings.json::permissions.deny is the primary fence; this hook is the secondary fence in case settings is malformed or overridden",
-            agent_must_report: [
-              `State the protected path attempted: ${fp}`,
-              "Cite rules/trust-posture.md MUST NOT (state self-modification BLOCKED)",
-              "Surface the user-visible reason: trust state is hook-owned, never tool-owned",
-              "Do not retry the Edit/Write against this path",
-            ],
-            agent_must_wait:
-              "The user must adjudicate. If the intent was legitimate (corrupt-state recovery), the user runs /posture override; do not bypass.",
-            user_summary: `posture-gate R6-C-02 halted ${tool} on ${fp.split("/").pop()}`,
-          });
-          process.stdout.write(JSON.stringify(out.json) + "\n");
-          process.exit(out.exitCode);
-          return;
+// hookMain — the ONE entry, run by the CLI guard at the bottom of this file AND
+// in-process by lib/hook-engine.js (dispatch.js). Everything a standalone run
+// did at load time happens here instead, so a require() has no side effects.
+function hookMain() {
+  fallback = setTimeout(() => {
+    process.stdout.write(JSON.stringify({ continue: true }) + "\n");
+    process.exit(1);
+  }, TIMEOUT_MS);
+  return new Promise((resolve, reject) => {
+    let input = "";
+    if (process.stdin.isTTY) {
+      passthrough();
+    } else {
+      process.stdin.setEncoding("utf8");
+      process.stdin.on("data", (c) => (input += c));
+      process.stdin.on("end", () => {
+        try {
+          onStdinEnd(input);
+        } catch (e) {
+          return reject(e);
         }
-      }
-
-      try {
-        const posture = readPosture(data.cwd);
-        const gate = gateAtPosture(posture.posture, tool, toolInput);
-        if (gate) {
-          clearTimeout(fallback);
-          // loom#1590: the severity is the BRANCH's, not a constant. This site
-          // hardcoded "halt-and-report" and so overrode every branch — which is
-          // why a file whose comment said "block" shipped as an annotation.
-          const out = instructAndWait({
-            hookEvent: "PreToolUse",
-            severity: gate.severity || "halt-and-report",
-            ...gate,
-          });
-          process.stdout.write(JSON.stringify(out.json) + "\n");
-          process.exit(out.exitCode);
-          return;
-        }
-      } catch {
-        // posture read failed → passthrough; corrupt-state already handled
-        // by readPosture's fail-closed-to-L1 default which would block
-        // here — we explicitly choose passthrough to avoid double-failure.
-      }
-      return passthrough();
+        resolve();
+      });
     }
-
-    return passthrough();
   });
+}
+
+function onStdinEnd(input) {
+  let data = {};
+  try {
+    data = JSON.parse(input);
+  } catch {
+    return passthrough();
+  }
+  const event = data.hook_event_name || data.hookEventName || "";
+
+  if (event === "SessionStart") {
+    try {
+      const posture = readPosture(data.cwd);
+      // loom#875 — count only entries still WITHIN grace; a grace-expired
+      // entry must not inflate the "N pending verification(s)" diagnostic.
+      const pvCount = (posture.pending_verification || []).filter(
+        (e) => e && e.rule_id && isPendingWithinGrace(e),
+      ).length;
+      const tag = posture._fail_closed
+        ? "FAIL-CLOSED"
+        : posture._fresh
+          ? "FRESH"
+          : "OK";
+      process.stderr.write(
+        `[posture-gate] ${posture.posture} (${tag})` +
+          (pvCount ? ` — ${pvCount} pending verification(s)` : "") +
+          "\n",
+      );
+    } catch (e) {
+      process.stderr.write(`[posture-gate] read failed: ${e.message}\n`);
+    }
+    return passthrough();
+  }
+
+  if (event === "PreToolUse") {
+    const tool = data.tool_name;
+    const toolInput = data.tool_input || {};
+
+    // ---- R6-C-02 defense-in-depth -----------------------------------
+    // Primary fence: settings.json::permissions.deny blocks Edit/Write/
+    // MultiEdit/NotebookEdit on .claude/learning/{posture.json,
+    // violations.jsonl, .initialized}.
+    // Secondary fence (this hook): if the deny rule somehow doesn't fire
+    // (settings malformed / override / out-of-tree write), surface a
+    // clear halt-and-report citing rules/trust-posture.md MUST NOT.
+    //
+    // F14 LOW-2: include MultiEdit + NotebookEdit. Anthropic added
+    // these tools after the original Edit/Write fence shipped; without
+    // coverage the secondary fence silently passes on those tools.
+    // F14 LOW-3: realpath-normalize file_path BEFORE regex match so
+    // path traversal (../) cannot bypass the literal-string regex.
+    // F14 C2 iter-3 root-cause fix: route through isMutationTool() (SSOT
+    // from lib/tool-classes.js) — adding a new mutation tool requires
+    // one edit, not N edits across every hook.
+    // loom#1549 F4: the tool-name half routed through the SSOT, but the
+    // PAYLOAD half still read `file_path` ONLY. NotebookEdit carries
+    // `notebook_path` (tool-classes.js says so in its own JSDoc), so the
+    // conjunct was false and a NotebookEdit write to posture.json passed
+    // through UNFENCED — the SSOT made the tool recognized and the payload
+    // read made it unreachable. Six sibling hooks (signing-mutation-guard,
+    // genesis-anchor-guard, journal-write-guard, adjacency-leasecheck,
+    // detect-violations, settings-deny-edit-guard) already read all three
+    // keys; this site and integrity-guard.js were the two that did not.
+    const mutationPath =
+      toolInput.file_path || toolInput.filePath || toolInput.notebook_path;
+    if (isMutationTool(tool) && typeof mutationPath === "string") {
+      const fp = _bestEffortRealpath(mutationPath);
+      // The case-insensitivity dimension (and now #1409's redundant-separator
+      // dimension) reaches this surface because the predicate is BUILT from
+      // the one registry — not because someone remembered this file.
+      if (isPostureGateProtectedPath(fp)) {
+        clearTimeout(fallback);
+        const out = instructAndWait({
+          hookEvent: "PreToolUse",
+          // loom#1590 — DELIBERATELY LEFT AT halt-and-report, and this is a
+          // recommendation surfaced rather than a change made.
+          //
+          // The signal here IS structural (a realpath-normalized path against
+          // the shared registry), so MUST-2 would permit `block`, and the
+          // argument for it is real: this is the SECONDARY fence for
+          // trust-state self-modification, existing precisely for the case
+          // where the PRIMARY fence (settings.json::permissions.deny) is
+          // malformed or overridden — and a secondary fence that only
+          // annotates leaves exactly that case unfenced.
+          //
+          // It is NOT promoted here because promoting it measurably broke the
+          // Codex lane, which forwards-and-SURFACES this branch by design:
+          // codex-mcp-guard/test-server.mjs asserts "posture-gate's
+          // learning-path fence MUST fire on the non-first target (surface)".
+          // That is a deliberate cross-CLI contract, not a stale fixture, so
+          // flipping it is a decision for the owner of that contract rather
+          // than a side effect of this fence. The primary settings.json deny
+          // remains a REAL block (verified: a write to posture.json returns a
+          // tool error and does not execute), so the protection is not resting
+          // on this branch alone.
+          severity: "halt-and-report",
+          what_happened: `Defense-in-depth: ${tool} attempted on protected state file ${fp.slice(-80)}`,
+          why: "trust-posture/MUST-NOT — posture.json / violations.jsonl writes are reserved for hooks (R6-C-02). settings.json::permissions.deny is the primary fence; this hook is the secondary fence in case settings is malformed or overridden",
+          agent_must_report: [
+            `State the protected path attempted: ${fp}`,
+            "Cite rules/trust-posture.md MUST NOT (state self-modification BLOCKED)",
+            "Surface the user-visible reason: trust state is hook-owned, never tool-owned",
+            "Do not retry the Edit/Write against this path",
+          ],
+          agent_must_wait:
+            "The user must adjudicate. If the intent was legitimate (corrupt-state recovery), the user runs /posture override; do not bypass.",
+          user_summary: `posture-gate R6-C-02 halted ${tool} on ${fp.split("/").pop()}`,
+        });
+        process.stdout.write(JSON.stringify(out.json) + "\n");
+        process.exit(out.exitCode);
+        return;
+      }
+    }
+
+    try {
+      const posture = readPosture(data.cwd);
+      const gate = gateAtPosture(posture.posture, tool, toolInput);
+      if (gate) {
+        clearTimeout(fallback);
+        // loom#1590: the severity is the BRANCH's, not a constant. This site
+        // hardcoded "halt-and-report" and so overrode every branch — which is
+        // why a file whose comment said "block" shipped as an annotation.
+        const out = instructAndWait({
+          hookEvent: "PreToolUse",
+          severity: gate.severity || "halt-and-report",
+          ...gate,
+        });
+        process.stdout.write(JSON.stringify(out.json) + "\n");
+        process.exit(out.exitCode);
+        return;
+      }
+    } catch {
+      // posture read failed → passthrough; corrupt-state already handled
+      // by readPosture's fail-closed-to-L1 default which would block
+      // here — we explicitly choose passthrough to avoid double-failure.
+    }
+    return passthrough();
+  }
+
+  return passthrough();
+}
+
+module.exports = { hookMain };
+
+// CLI entry. The default path is exactly hookMain() — no engine dependency, so a
+// tree that copies this hook without lib/hook-engine.js runs it unchanged. The
+// selftest path replays the run through the in-process engine (hook-engine.js::runCli).
+if (require.main === module) {
+  if (process.env.COC_HOOK_ENGINE_SELFTEST === "1") require("./lib/hook-engine.js").runCli(hookMain, __filename);
+  else {
+    // FW-TIER2 — a STANDALONE invocation is one hook event, so it opens the same
+    // one-answer-per-question scope the dispatch worker opens. Without it every
+    // asker in this process pays its own `git rev-parse --git-common-dir`.
+    require("./lib/event-git.js").installStandaloneEventScope();
+    hookMain();
+  }
 }

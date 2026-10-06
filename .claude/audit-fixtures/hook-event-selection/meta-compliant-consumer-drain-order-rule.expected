@@ -1,0 +1,72 @@
+COMPLIANT under rule-authoring.md — no meta-rule is breached. Property by property:
+
+MUST-1 (prohibitions, not encouragements). Both clause headings announce obligations and both
+bodies hold them. Clause 1: the shutdown "MUST first close the intake ... and MUST NOT close,
+cancel or time out the acknowledgement channel until the in-flight set is empty", with the
+alternative named BLOCKED rather than discouraged. Clause 2: the message "MUST be acked,
+including past the drain deadline", and nacking it "is BLOCKED". No sentence in either body
+returns the case its heading forbids, and no hedging modal ("should", "generally", "may
+reasonably") appears in a load-bearing position.
+
+MUST-3 (DO / DO NOT examples). The two arms of each worked block differ in SUBSTANCE, so each
+contract is learnable from its block alone. Clause 1 contrasts a two-step teardown — cancel
+plus prefetch zero, then await the in-flight set, then close — against a single
+`connection.close()` in the signal handler with fourteen handlers resident. Clause 2 contrasts
+a recorded commit point followed by an ack past the deadline against a blanket
+`nack(msg, requeue=True)` when the drain timer fires. The prohibited construction is shown, not
+merely named.
+
+MUST-2 (BLOCKED phrases verbatim). Both corpora hold first-person sentences a session would
+really emit — "the broker will redeliver it, that is what redelivery is for", "SIGTERM means
+stop now, not stop politely", "the handler is idempotent, a second run is free", "nacking is
+the safe default when I am not sure" — rather than a taxonomy of error types. Each is
+recognisable at the moment the excuse is formed, which is what makes it a tripwire.
+
+MUST-4 and MUST NOT § two-sentence cap. All three justification lines are one sentence and each
+names a MECHANISM: an undeliverable ack is indistinguishable at the broker from a dead
+consumer; redelivery restarts the handler at its first line; a drain reported complete releases
+the process to exit between the side effect and the ack.
+
+trust-posture.md MUST-8 (canonical 8-field Wiring). All eight fields appear in canonical order —
+Severity, Grace period, Cumulative posture impact, Regression-within-grace, Receipt requirement,
+Detection mechanism, Violation scope, Origin — and the Regression row records its deviation from
+the key-per-clause shape with a reason, as Rule 8 requires.
+
+hook-output-discipline.md MUST-2 (severity direction). `advisory` at the hook layer,
+`halt-and-report` at gate-review: the direction MUST-2 requires, since whether a valve order is
+correct is a judgment over the shutdown handler rather than a structural tool-call-time signal.
+
+rule-authoring.md MUST NOT § Phase-2-against-a-lexical-property. The deferral names a STRUCTURAL
+signal and books enforcement that can arrive: a `close()` call in the shutdown handler with no
+`basic_cancel` or prefetch-zero assignment dominating it in the same function body, and a
+`nack(..., requeue=True)` reachable from a branch that post-dominates a committed-write call.
+Both are AST facts over a single patch — no authorial intent is read.
+
+MUST-6 (Origin). Origin carries a dated incident (2026-08-19, `payments-capture`), its mechanism
+(SIGTERM closed the connection, every in-flight ack failed, the broker redelivered) and its
+measured blast radius (thirty-one duplicate charges over six minutes), and closes on what that
+implies about the rule's FORM — it fixes an order and a commit point rather than asking an
+author to judge idempotency, because idempotency was exactly what everyone believed.
+
+Traps — things that superficially look like defects and are NOT.
+
+- The Phase-2 detector is DEFERRED. Deferral is not itself a breach; rule-authoring.md objects
+  only to a deferral whose property is lexical, and this one's is structural.
+- The rule is fictional and the paths glob matches nothing in this repo. It is a fixture; the
+  subject matter is not under judgement, the rule craft is.
+- `priority: 10` / `scope: path-scoped` / `cli_delivery: skill-channel` is a consistent triple
+  under MUST-5 and MUST-7, and a path-scoped rule correctly carries `paths:`.
+- The clause bodies use "MUST NOT ... until", which reads at a glance like a conditional
+  permission. It is not: it fixes an order, and the forbidden state is named BLOCKED directly
+  afterwards.
+- The topic is message-queue shutdown, not the subject matter of the suite this pair sits in.
+  That is deliberate — the meta pair grades rule craft, so any judgement keyed on the suite's
+  own subject has answered the wrong question.
+
+Shared surface that is NOT scoreable. This pole shares its frontmatter, its whole MUST NOT
+section including that section's justification, five of its eight Wiring fields (Grace period,
+Cumulative posture impact, Regression-within-grace, Receipt requirement, Violation scope), and
+the first three sentences of Origin byte-identically with the sibling pole. Heading skeleton,
+numbered-clause count, justification-line count, worked-block count and BLOCKED-corpus count are
+identical across the pair at a size ratio under 1.01, so shape discriminates nothing and a
+verdict must come from reading the content.

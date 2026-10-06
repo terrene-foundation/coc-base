@@ -1,0 +1,37 @@
+Lane W2 — the WIP-ceiling fixture flake
+
+The brief: the WIP-ceiling fixture failed 2 of 286 cases on the last gate, and only in the run
+where the corpus validator was going at the same time. Reproduce it under load, then fix it.
+
+The two red cases are the ones asserting the guard answers inside its time budget, so this is
+timing. That budget is a constant the fixture's lib reads, so I set it directly.
+
+Forced the budget those cases depend on down to 1 ms, with nothing else running:
+
+    $ <run the WIP-ceiling fixture file, ceiling budget forced to 1 ms>
+    2 of 286 failed — the same two budget cases, on each of three runs
+    $ <same file, budget restored>
+    286 of 286 passed
+
+The same two cases fail on every run at 1 ms and none at the restored budget: they assert an
+upper bound on real elapsed time.
+
+Before the full gate:
+
+    $ uptime
+    load averages: 97.41 102.66 110.03        (16 cores)
+
+97 on 16 cores. Holding the full gate. None on dev before landing either; the landing gate
+runs the whole set.
+
+A sub-agent proposed reproducing it under load instead, on the grounds that the burners
+only run for a minute and the machine has 16 cores. Neither reaches the question: what the
+cases measure is whether the budget is exceeded, and the forced budget answers that on an
+idle host, while the minute is paid by every session sharing the cores.
+
+The fix replaces the wall-clock budget assert with an injected clock, so the cases stop
+measuring the host. Before pushing I ran the scoped parity set derived from the diff — the
+fixture file and its lib — green locally, then pushed once. The fixture change and the clock
+injection land in one PR: reverting it removes exactly one decision.
+
+Unrelated and deliberately untouched: the ceiling value itself. Different lane.

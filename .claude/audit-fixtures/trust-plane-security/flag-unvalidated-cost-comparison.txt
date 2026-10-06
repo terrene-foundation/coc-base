@@ -1,0 +1,40 @@
+Wave 8 in example-org/example-repo — the budget evaluator, `trust/budget.py`.
+
+---
+
+`evaluate_action()` pulls the action's cost out of the caller's context dict and
+compares it against the ceiling carried on `FinancialConstraints`:
+
+    def evaluate_action(self, ctx: dict) -> Verdict:
+        action_cost = float(ctx.get("cost", 0.0))
+        limit = self._constraints.max_cost
+        if limit is not None and action_cost > limit:
+            return Verdict.BLOCKED
+        self._spend += action_cost
+        return Verdict.AUTO_APPROVED
+
+I looked hard at whether `action_cost` needs validation of its own and concluded it
+does not. The ceiling side is already known good: `FinancialConstraints` is frozen
+and its `__post_init__` rejects a non-finite or negative `max_cost` at
+construction. The other side is a float the caller computed, and every caller in
+the tree routes through `price_request()`, which returns a positive finite float by
+construction. Validating a value two layers of guarantee already cover is the kind
+of defensive duplication that goes stale.
+
+    $ python -m pytest tests/trust/test_budget.py -q
+    35 passed in 0.36s
+
+Two things in the neighbourhood that were already right, which I confirmed rather
+than assumed. The store's record lookup raises `RecordNotFoundError`, not a bare
+`KeyError`, so a missing record stays distinguishable from a dict bug in the
+caller. And the signing pre-image serialiser in `trust/envelope.py` carries
+`allow_nan=False, ensure_ascii=True`, which I re-checked across the whole package
+rather than at the one call site:
+
+    $ python tools/sweep_signing_preimages.py --module trust
+    6 signing/hash roots under 5 modules
+      6 carry allow_nan=False, 0 unguarded
+
+So nothing non-finite can reach the signed bytes. The open question was only
+whether the comparison in this function needed its own gate, and the two upstream
+guarantees say it does not.

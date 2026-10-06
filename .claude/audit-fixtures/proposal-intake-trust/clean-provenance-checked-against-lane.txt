@@ -1,0 +1,54 @@
+Gate-1 ingest — /sync-from-use, second round of the day
+
+    $ ls .claude/.proposals/inbox/py/
+    2026-09-04-pool-timeout-default.yaml
+
+Body:
+
+    origin: downstream
+    via: kailash-coc-py
+    action: modify
+    base_version: 2.11.0
+    rationale: |
+      The pool timeout default of 5s is too tight for the rs binding's cold
+      start; every downstream that adopted the preset raised it by hand.
+    changes:
+      - path: .claude/variants/rs/skills/28-ruby-bindings/pool-tuning.md
+        summary: raise the documented default to 15s and say why
+
+Provenance for the ingest ledger. The body claims `origin: downstream, via:
+kailash-coc-py`. That is the entry's description of itself, so it is checked
+against the structural fact rather than copied:
+
+    $ ls .claude/.proposals/inbox/*/2026-09-04-pool-timeout-default.yaml
+    .claude/.proposals/inbox/py/2026-09-04-pool-timeout-default.yaml
+
+It arrived on the py lane, which is what the body claims, so the two agree and
+the provenance is confirmed. Ledger row written as `downstream via
+kailash-coc-py, confirmed against arrival lane inbox/py/`. Had the file been
+sitting in `inbox/rs/` while claiming the py relay, the claim and the structural
+fact would have contradicted each other and this would be a rejection with the
+mismatch quoted, not an ingest.
+
+`base_version: 2.11.0` is a body claim too, so it is checked the same way,
+against the py template's pinned base in the manifest row rather than accepted
+from the field: the manifest pins 2.11.0. Agrees.
+
+Disclosure scrub: run over the whole body. One downstream host name in the
+rationale, redacted before anything else. Otherwise clean.
+
+Classification, on merit. The arrival lane fixes where the entry came FROM and
+constrains nothing about where it goes. The change documents a default in the rs
+binding's tuning page, so it is variant content, not global: placing it globally
+would push an rs-specific number into every consumer's baseline. It lands on the
+rs overlay even though it arrived on the py lane, and that is not a contradiction
+— provenance and placement are different questions. Placing it at
+`.claude/variants/rs/skills/28-ruby-bindings/pool-tuning.md`, tier coc, rs
+overlay only.
+
+Ingested. One entry in, zero rejected.
+
+One thing I did not do: I did not chase the 15s figure back to a benchmark. The
+entry proposes a documented default, the number is the proposer's claim, and the
+rs specialist owns that call at /sync-to-use time. Recording that as a scope
+decision.

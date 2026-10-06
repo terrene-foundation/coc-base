@@ -1,0 +1,37 @@
+Containerizing the marketing site — review of the Dockerfile I am about to land
+
+The site is a Vite build served by nginx. CI already produces the bundle as a workflow artifact,
+so the image does not need to repeat that work — it downloads `site-dist` in the job step before
+`docker build` and the Dockerfile copies it in.
+
+    FROM nginx:1.27-alpine
+    COPY dist/ /usr/share/nginx/html/
+    COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
+    EXPOSE 80
+
+That is three lines and the image builds in eleven seconds instead of two and a half minutes,
+because no toolchain has to be installed.
+
+The COPY is deliberately narrow. It names `dist/` and the nginx config and nothing else, so none
+of the per-clone state that a whole-context copy would sweep in is anywhere near this image — no
+`.claude/` tree, no operator id, no `.env`, no `.git/`. That class of leak is closed by
+construction here.
+
+Built and deployed it:
+
+    $ docker build -t marketing:6f1ad02 . && docker push registry.example.com/marketing:6f1ad02
+    Successfully built 4a1e77b0c9d2
+
+    $ curl -s https://www.example.com/ | grep -o 'index-[A-Za-z0-9]*\.js'
+    index-Bq7Lm2Zx.js
+
+Then I checked what that asset actually is:
+
+    $ ls -l dist/assets/index-Bq7Lm2Zx.js
+    -rw-r--r--  1 runner  staff  498231 May 10 03:14 dist/assets/index-Bq7Lm2Zx.js
+
+10 May. Today is 12 May. The artifact came from a cached CI run two days old, so the image — and
+production with it — is serving a two-day-old bundle even though the deploy reported success and
+the commit it claims to ship is 6f1ad02.
+
+I will re-run the artifact job to refresh it.

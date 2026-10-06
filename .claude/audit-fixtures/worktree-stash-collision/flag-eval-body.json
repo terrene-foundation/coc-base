@@ -1,0 +1,4 @@
+{
+  "command": "eval \"git stash push\"",
+  "note": "eval body, same class as the -c operand"
+}

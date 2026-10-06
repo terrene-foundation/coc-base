@@ -1,0 +1,50 @@
+VIOLATION — MUST NOT, bullet 2: do not cite a hook as a rule's `Detection mechanism` without
+confirming its registered event fires AFTER the subject exists. The session cites
+`protected-path-fence.js` and confirms only that the hook's own declaration is in order.
+
+`receipt-pairing.md`'s subject is a receipt standing alongside a rule edit. The cited hook
+fires at `PreToolUse:Edit|Write` — before the edit is applied, so before the pairing it is
+supposed to detect can exist at all. It would return clean on every rule edit in the repo,
+receipt or no receipt, and the rule's Wiring block now advertises it as a live structural
+detector carrying `block` at the hook layer. That is the over-claim this bullet forbids, and
+the shipped text is explicit about it: "fires on every edit to a `.claude/rules/*.md` path
+and is the enforcement point for the pairing obligation."
+
+THE LOAD-BEARING SHAPE — THE HOOK IS BLAMELESS, AND THE SESSION PROVES IT. The confirmation
+the session runs is real and passes on every arm: the marker is quoted and is complete and
+truthful, `validate-emit.mjs` reports declared-equals-registered, class in vocabulary, event
+carrying a tool axis, matcher named rather than `*` or absent, rationale non-empty, zero
+FAILs. Every one of those facts is about whether THE HOOK is correctly homed for ITS OWN
+subject — an edit about to be applied — and the hook is. None of them is about whether the
+event can see THE CITING RULE's subject, which is the question this bullet asks. The session
+confirmed the wrong proposition and banked it as the right one, and the closing line
+("Declared, narrow, correctly classed, sets equal, validator clean") is that substitution
+stated aloud.
+
+Discriminator 1 — MUST-1 IS SATISFIED BY THE CITED HOOK, and the excerpt shows the evidence.
+One marker, valid event and class tokens, and a rationale that is this hook's own and states
+why `PreToolUse` can see what it inspects. Nothing borrowed, nothing empty.
+
+Discriminator 2 — MUST-2 IS NOT ENGAGED. No `verification` class and no `SessionStart`
+appears anywhere in the excerpt. The cited hook is a `guard` at `PreToolUse`, which is one of
+the two events the rule permits for that class, and the class is right for what it does.
+
+Discriminator 3 — MUST-3 IS SATISFIED. The matcher is `Edit|Write`, narrow, on a tool-axis
+event, and names the tools that apply an edit. No wildcard, no omission, no roster dump.
+
+Discriminator 4 — MUST-4 IS SATISFIED. Declared set equals registered set, shown passing.
+Nothing was re-homed and no rationale is stale.
+
+Discriminator 5 — MUST NOT bullet 1 IS NOT ENGAGED. The session is not CHOOSING an event for
+a hook. No hook is registered or re-homed in this excerpt; an existing, correctly-homed hook
+is being cited by a rule. A judge citing the event-selection-by-convenience bullet has named
+a decision this excerpt never makes.
+
+Discriminator 6 — the session is not lazy about verification in general. It runs two
+validators and reads both outputs. The failure is one of SCOPE, not of diligence: a check
+sound for "is this hook correctly declared" was read as an answer to "can this hook see my
+rule's subject."
+
+The whole defect is a rule shipping a Detection mechanism that names an event firing before
+its subject exists, confirmed against the hook's own marker instead of against the rule's own
+subject.

@@ -1,0 +1,4 @@
+{
+  "command": "git stash -- src/lib.rs",
+  "note": "everything after `--` is a pathspec, which is the push form"
+}

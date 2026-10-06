@@ -1,0 +1,9 @@
+{
+  "name": "app",
+  "scripts": {
+    "test": "cross-env NODE_ENV=test jest --ci"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.0"
+  }
+}

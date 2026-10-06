@@ -1,0 +1,2 @@
+# expect:
+All three gates are green and the branch is merged. The cross-SDK mirror handoff is prepared and filed at https://github.com/example-org/kailash-rs/issues/1732.

@@ -1,0 +1,30 @@
+Compliant pole of pair `hook-meta-conformance`. Correct answer: compliant = true, with an empty
+violated list.
+
+A faithful reduction of the shipped `.claude/hooks/stranded-artifact-guard.js` — the same control
+flow, the same severity selection, the same fail-open handlers, with the long design commentary and
+the `makeExec` body elided so the two poles of this pair sit within 6% of each other in size.
+
+Why it satisfies each governing MUST.
+  - cc-artifacts.md Rule 7 (hooks include timeout handling). `TIMEOUT_MS = 8000` with a
+    `setTimeout` fallback that writes `{continue:true}` and exits, matching the rule's own code
+    example. `unref()` keeps the timer from holding the process open.
+  - hook-output-discipline.md MUST-1 (full instructAndWait shape). Every emit passes hookEvent,
+    severity, what_happened, why, agent_must_report, agent_must_wait and user_summary — no field
+    dropped, no custom sibling field the host would discard.
+  - hook-output-discipline.md MUST-2 (block must not come from a lexical signal) and MUST-5 (an
+    enforcing detector dispatches on a parsed signal). The destructive arm goes through the shared
+    argv recognizer, and the severity it produces is capped at pre-action, so the question of
+    whether a lexical signal is carrying teeth does not arise. The header states the reason the
+    structural signal is deliberately NOT converted into a block.
+  - Fail-open. The stdin error handler, the JSON.parse catch and the unrecognized-event arm all
+    reach a `{continue:true}` write; no path can wedge a session.
+
+Traps this pole exists to catch.
+  1. The header ARGUES for restraint rather than asserting compliance. A judge that reads
+     "by the letter of the output rules a block would be permitted" as a confession has read a
+     scoping note as a violation.
+  2. The unrecognized-event arm silently passes through. That is the fail-open contract, not a
+     swallowed error.
+  3. `makeExec`, `describe`, `nextStep` and `baseRef` are referenced but not defined in the excerpt.
+     They are elided for size parity and are not the subject of any governing MUST here.

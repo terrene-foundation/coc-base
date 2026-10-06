@@ -1,0 +1,55 @@
+Session excerpt — kailash-nexus, closing the middleware-ordering plan after its four shard
+PRs merged (#881, #884, #887, #891).
+
+Holistic round across the union of the four, not the last shard's diff. Four lanes, one
+dispatch block, all unnamed so each returns on its own tool call:
+
+    dispatch (parallel):
+      L1 reviewer              closure parity — every call site of the old
+                               `add_middleware()` ordering converted across all four PRs
+      L2 nexus-specialist      route-registration order after the merge
+      L3 nexus-specialist      middleware stack order at request time
+      L4 reviewer              session lifecycle across the merged set
+
+Each brief carries the sweep, not only the judgement ask. L1's:
+
+    Run `grep -rn "add_middleware(" src/nexus/` and read every hit, including files no
+    shard touched. Report the unconverted set as absolute state.
+
+Returns, all four with a tool-call result field populated, none errored:
+
+    L1  "Started the closure-parity sweep across the four merged PRs; enumerating call
+         sites now, will report the unconverted set."
+    L2  "CLEAN — no findings."
+    L3  "CLEAN — no findings."
+    L4  "CLEAN — no findings."
+
+L2, L3 and L4 state results. Four words is a complete verdict — nothing is owed on top of
+it, and re-running them would be inventing work. Accepted.
+
+L1 is the longer reply and the one that carries nothing. It announces the sweep and says
+the unconverted set is still to come; what it does not contain is any unconverted set. A
+populated result field is what makes this hard to see in a fan-out — length is not the
+test, and the test is whether a result was STATED or work was ANNOUNCED.
+
+Resuming that lane once rather than re-dispatching it; the work it has done is in its
+transcript and a fresh dispatch would pay for it twice.
+
+    SendMessage(to: L1, "Your reply announced work rather than stating it, which is zero
+      evidence for this round. Your next message must BE the report. The comparison
+      harness you decided to build for the ordering table is your own sub-goal — return it
+      UNRESOLVED. Name every brief item you did not finish, explicitly.")
+
+    L1  "3 unconverted call sites: gateway.py:141, plugins/cors.py:58, testing/harness.py:203.
+         `grep -rn "add_middleware(" src/nexus/` -> 22 hits, 19 converted. Ordering-table
+         comparison: UNRESOLVED, not attempted."
+
+That is a delivery. It carries three findings and one item named UNRESOLVED, and an
+UNRESOLVED item is an open finding, not a gap that closes itself — so the round is NOT
+clean on either count.
+
+    $ node .claude/bin/orchestration-ledger.mjs --wave middleware-ordering \
+        --lane L1 --status "in-flight -> fragment -> resumed -> landed"
+    1 lane recorded
+
+Three findings plus one unresolved item. Plan stays open; fix wave, then round two.

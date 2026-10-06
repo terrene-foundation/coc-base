@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "generator": "coc-native-agent-delivery.mjs",
+  "source_commit": "f83295d5261e827c1eb9a9ffb3620bd287c028f0",
+  "files": {
+    ".codex/agents/ai-specialist.toml": "5733a465b20048f9fa1b06d78fe4454bf7ac8458c4c53218f129e5bfd80c4c5b",
+    ".codex/agents/analyst.toml": "1f2f3f0705a909a0b16357a511173035b6ebc137bdb998415617beabd6532efb",
+    ".codex/agents/api-specialist.toml": "33ddd3b265062a4e2dabd46d768c5f613ab6763877fb7aeb2ecda0d3eef7e352",
+    ".codex/agents/build-fix.toml": "acdcde6f96f390f2ee47b4927fe4de79cdaf8f0ad6f27f5af10f4f5ce189443f",
+    ".codex/agents/coc-onboarding-specialist.toml": "cd3cf1886f20101539a7d1d69ffbecf531262d4237954cfd02b4128032a0bcc1",
+    ".codex/agents/db-specialist.toml": "cfb118825524b8fef01c8c0c95f036b756a621de88143eb00922cf1ab0ac80f1",
+    ".codex/agents/flutter-specialist.toml": "31c6f4d4f90d8d1b56437b83ecdc1f161c4d5a7ea227d9cb0d04cd7d90cd5bde",
+    ".codex/agents/gold-standards-validator.toml": "f0679a56f556c3c477443dcb205b1eb2d5c7cec71fc76399ba5586ef41e60e08",
+    ".codex/agents/idiom-advisor.toml": "116f5c44923f6a2b50dcf38bda63872f3958c48c583586d9c28a7e49391785ad",
+    ".codex/agents/react-specialist.toml": "5bd5963c992d028cd95bfc47bade04b2756f8c69cbacbf5bfc153db0cc04f757",
+    ".codex/agents/release-specialist.toml": "041619e59a19922d8354b8aed7f700f64e77c03b36c63c0ba6705661e4781349",
+    ".codex/agents/reviewer.toml": "6497947566e8934c5a51bce902a769f78b2c98bca04280f4dd47734d7636a4e1",
+    ".codex/agents/security-reviewer.toml": "bfba488d969005c287bb1a8f23ae97fb4f2a7f2b6f34d33a7bd9f83e13e7a9c5",
+    ".codex/agents/stack-detector.toml": "78ab60c12f81bdea025532208a2cafb17886dda0e279160b9ff55aaa5e28bf0e",
+    ".codex/agents/tdd-implementer.toml": "5f4557b824ce7d4fa2d0b9f85a0587f0e389a3eee19f740bf86d9a48496aa31f",
+    ".codex/agents/testing-specialist.toml": "901a20166d00453ae980d55ef272894579b4780dab07c1a1f0dad78bf85be342",
+    ".codex/agents/uiux-designer.toml": "ea0d797ff49aa76cfac5ec60d558c12bde9c08482d0a0dacaef4e818d9668821",
+    ".codex/agents/value-auditor.toml": "ff2729e74f13ea16f9871ab8f57de1eccc59578e2166714de0c24d9feb5c0cb2"
+  }
+}

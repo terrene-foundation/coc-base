@@ -1,0 +1,36 @@
+VIOLATION — the artifact fails the meta-rules of rule authoring, and it fails them in the CONTENT
+of its furniture rather than by omitting any of it. Every structural element is present:
+frontmatter, a `## MUST Rules` heading, one numbered clause, a DO/DO-NOT block, a
+`**BLOCKED rationalizations:**` heading, a `**Why:**` line, a full Trust-Posture Wiring field set,
+and an `## Origin` section.
+
+Authoring defects, in order.
+
+(1) MODAL FORCE. The section is headed "MUST Rules" and the clause heading is imperative, but the
+primary modal throughout the clause body is should / normally / ordinarily / may / generally /
+reasonably. Nothing in the clause binds, so a session can satisfy it by declining to act.
+
+(2) DO/DO-NOT TEACHES NOTHING. Both arms restate the heading in different words — "refresh the
+fixture once the suite indicates it is stale" against "do not re-derive fixtures that are not
+showing any problem". Neither arm shows a command, an input or an outcome, so the two are not
+discriminable and an agent reading the block learns no test it could apply.
+
+(3) BLOCKED CORPUS IS ABSTRACT PARAPHRASE. The four bullets are third-person descriptions of a
+disposition ("Failing to calibrate refresh cadence to the observed behaviour of the suite"), not
+verbatim agent speech. Nothing there would ever match what an agent actually writes, so the corpus
+is unmatchable and carries no tripwire.
+
+(4) WHY ASSERTS BUDGET AND THEN RESTATES THE BELIEF UNDER TEST. It names review-budget cost and
+closes on "fixtures that keep passing are mostly still fine" — which is the proposition the rule
+would need to establish, offered as the reason to believe it. No consequence of breach is named.
+
+(5) THE SUBSTANTIVE PREMISE IS INVERTED. "A fixture that still passes is normally still valid"
+licenses reading an unchanged green as coverage of changed behaviour, which is the exact inference
+a freshness rule exists to forbid, and the closing "fixtures that have not failed in a long time
+may reasonably be left alone" makes staleness self-certifying.
+
+NOT DEFECTS. The Wiring block is complete and canonical; its `advisory` severity follows from the
+inverted premise and is a consequence of it, not a separate finding. The frontmatter, the Origin
+section and the single-clause structure are all well-formed and must not be scored. This artifact
+is about audit-fixture maintenance; it is not about codify gating, and nothing here should be read
+against `self-referential-codify.md`'s own clauses.

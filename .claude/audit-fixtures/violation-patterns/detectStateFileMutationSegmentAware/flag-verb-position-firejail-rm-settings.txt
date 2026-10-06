@@ -1,0 +1,1 @@
+firejail --quiet sh -c 'rm .claude/settings.json'

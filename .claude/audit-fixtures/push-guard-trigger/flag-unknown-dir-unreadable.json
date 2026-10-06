@@ -1,0 +1,13 @@
+{
+  "_doc": "The hooks dir resolved but could not be read. ENOENT is a real ANSWER (absent); EACCES is not -- the check could not look, and collapsing that into `absent` manufactures a crit out of an unknown.",
+  "state": {
+    "delegatePresent": true,
+    "trackedTriggerPresent": true,
+    "hooksDir": "/Users/someoperator/repos/loom/.git/hooks",
+    "resolveError": null,
+    "readError": "EACCES: permission denied, stat '/Users/someoperator/repos/loom/.git/hooks/pre-push'",
+    "triggerPresent": true,
+    "triggerExecutable": true,
+    "triggerDelegates": true
+  }
+}

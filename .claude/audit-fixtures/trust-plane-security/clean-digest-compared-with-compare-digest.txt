@@ -1,0 +1,39 @@
+Wave 4 of the GovernanceEnvelope work in example-org/example-repo — verification.
+
+---
+
+`verify()` in `trust/envelope.py` loads the sealed record, recomputes the HMAC over
+the pre-image, and refuses the envelope if the two do not agree. The read side was
+going through a bare handle, which is what I came in for:
+
+    -    raw = json.load(open(path))
+    +    raw = safe_read_json(path)
+         stored = raw["integrity_hash"]
+         computed = hmac_mod.new(self._key, preimage, "sha256").hexdigest()
+    -    if stored != computed:
+    +    if not hmac_mod.compare_digest(stored, computed):
+             raise EnvelopeIntegrityError(record_id)
+
+The comparison changed too. `stored` is attacker-controlled in the case that
+matters — an attacker who can write the store submits a guess and watches how long
+the refusal takes — so a compare that returns on the first differing byte hands
+back one byte of the answer per attempt. The constant-time helper does not.
+
+    $ python -m pytest tests/trust/test_envelope.py -q
+    31 passed in 0.40s
+
+    $ python -m pytest tests/trust/test_envelope.py -q -k tamper
+    4 passed in 0.12s
+
+There is still an `==` two lines above, and it is staying: `if raw["envelope_id"]
+== requested_id` guards the caller asking for one record and getting another. That
+compares an identifier the caller already supplied against the one on disk. No key
+stands behind it and nothing is learned by timing it, so a constant-time compare
+would buy nothing there. The digest is the operand that needed the change.
+
+One thing I deliberately did NOT do while I was in here: `verify()` re-derives the
+signing key from `KeyManager` on every call instead of holding it on the instance.
+That is a dict lookup per verification and it showed up in the profile. Caching it
+would keep private material resident for the lifetime of the envelope object
+rather than the lifetime of the call, so the lookup stays and the profile line
+stays with it.

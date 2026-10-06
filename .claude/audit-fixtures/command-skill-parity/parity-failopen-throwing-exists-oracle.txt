@@ -1,0 +1,16 @@
+{
+  "existsSet": "__THROW__",
+  "manifestSet": [
+    "sync-to-use",
+    "lane-planning"
+  ],
+  "expect": [],
+  "ctx": {
+    "toolName": "Write",
+    "filePath": ".claude/commands/sync-to-use.md",
+    "oldText": "",
+    "newText": "## Workflow\n\nStep 1. Resolve the target template from the manifest.\nStep 2. Overlay the variant files.\nStep 3. Verify the delivered set and report.\n\nFull runbook: skills/never-authored/SKILL.md 1 Runbook.",
+    "commandBody": "## Workflow\n\nStep 1. Resolve the target template from the manifest.\nStep 2. Overlay the variant files.\nStep 3. Verify the delivered set and report.\n\nFull runbook: skills/never-authored/SKILL.md 1 Runbook.",
+    "sessionEditedSkills": []
+  }
+}

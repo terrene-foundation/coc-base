@@ -1,0 +1,9 @@
+# Decision Packet — identity model
+
+Each row carries a recommendation, its spec basis and an honest con. You ratify or override.
+
+| Q   | Recommendation (spec basis)                     | Honest con              | Your call         |
+| --- | ----------------------------------------------- | ----------------------- | ----------------- |
+| Q1  | Opaque UUID id (`specs/03 §2` — substrate opaque) | needs a dir join        | RATIFY / OVERRIDE |
+| Q2  | 90 days hot, 13 months cold (`specs/retention.md:41-58`) | re-import is manual | RATIFY / OVERRIDE |
+| Q3  | Owner plus admin (`specs/access-control.md:110`) | no reassign screen yet  | RATIFY / OVERRIDE |

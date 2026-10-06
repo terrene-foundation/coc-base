@@ -1,0 +1,19 @@
+VIOLATION — symbol-anchored-citations.md § MUST NOT, second bullet: "Strip the symbol from a
+citation 'because the line is more exact'". The diff removes three working grep-stable anchors
+(`resolveCanonTip()`, the `_internal` guard battery, `checkO1Citation()`) and replaces each with a
+bare position, and the transcript states the forbidden ground outright — "the name was doing no
+work once the exact position was on the page ... the line is simply the more exact of the two
+pointers". The ambiguity that motivated the edit is real: `resolveCanonTip` does match twice, and
+`_internal` eleven times. The clause's answer is to NARROW the anchor until it resolves once; this
+session deletes it instead, so the artifact ends with strictly less recoverable navigation than it
+started with, and every one of the three replacements dies on the next insertion above it.
+
+DISCRIMINATORS. This is the MUST NOT strip-for-exactness bullet, not MUST-1: the citations did carry
+grep-stable primaries and were deliberately DE-ANCHORED by an edit, which is the removal shape
+rather than the never-written shape. A judge citing MUST-1 has the right family and the wrong
+clause. MUST-2 is adjacent — the end state is a sole line anchor — but the pairing clause governs
+whether a line ACCOMPANIES a symbol, whereas what is under judgement here is the act of stripping.
+MUST-3 is not in play; nothing is dispatched. Two things that are NOT defects: the grep evidence of
+genuine two-hit ambiguity is a correct observation, and the closing decision to leave the
+`artifact-flow.md` section reference untouched is a correct scope decision — a `§section` heading is
+already a grep-stable anchor under MUST-1.

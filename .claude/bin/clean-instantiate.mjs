@@ -22,9 +22,13 @@
  *
  * SCOPE (brief S3 — operator/TRUST identity): this clears the coordination
  * SUBSTRATE (roster/genesis/coordination-log/journal/team-memory/ecosystem/
- * tenant-denylist) via 6 structured surfaces, DELETES the loom-only canon-publish
+ * tenant-denylist) via 6 structured surfaces, DELETES the roster's verification
+ * half (.claude/trust-root.json — signer pubkeys + canon's repo root commit, which
+ * no scrub pair can clear), DELETES the loom-only canon-publish
  * tooling (scripts/publish-to-public.mjs — carries non-derivable static canon
- * identity), THEN runs a WHOLE-TREE NEUTRALIZE pass that scrubs every remaining
+ * identity), DELETES canon's trust root (.claude/trust-root.json — signer pubkeys
+ * whose armor encodes the UID, invisible to a token grep) and its signed burndown
+ * data (burndown/), THEN runs a WHOLE-TREE NEUTRALIZE pass that scrubs every remaining
  * non-binary file (the ~130+ test-harness/audit fixtures, workspaces, prose/config
  * the 6 surfaces never touch) so the fail-closed assert-zero gate has something to
  * pass over — the gate greps the WHOLE tree, so without the whole-tree neutralize a
@@ -44,21 +48,190 @@
  *
  * Node ESM. roster-schema-validate.js is CommonJS (createRequire).
  */
-import { existsSync, readFileSync, writeFileSync, rmSync, readdirSync } from "node:fs";
+import {
+  existsSync, rmSync, readdirSync, statSync, lstatSync, realpathSync, openSync, fchmodSync, writeSync, closeSync,
+  renameSync, unlinkSync, constants as FS,
+} from "node:fs";
+import { randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
-  deriveDynamicTokens, walkFiles, readTextOrNull, synthHex, makeScrubber, SCRUB_MODES, assertNoSymlinkEscape,
+  deriveDynamicTokens, walkFiles, readTextOrNull, synthHex, makeScrubber, SCRUB_MODES, assertNoSymlinkEscape, foldForGate,
+  readRegularFileNoFollow,
+  isScrubPlaceholderToken,
+  jsonParseOrThrow,
 } from "./lib/identity-scrub.mjs";
 // clause-e.2 key basenames/suffixes — SAME source the runtime tripwire scans, so the
 // clean-instantiate DELETE fence and the committed-key tripwire never drift (redteam #965 R3).
 import { FORBIDDEN_KEY_BASENAMES, FORBIDDEN_KEY_SUFFIXES } from "./lib/mesh-keys.mjs";
+import { isFixtureCorpusFile } from "./lib/fixture-corpus.mjs";
+// r4-v4 F4 (correctness item 13): the SHARED canonical-set identity gate —
+// the same `assertTreeFreeOfPrivateIdentity` every registered content exit runs
+// — over the WHOLE post-clear tree. The slug set is the CLONE's own declaration
+// (see readClonePrivateSlugs: the ceremony clears `--root`, which need not be
+// the tree this script runs from), captured at ENTRY because the clear deletes
+// the declaration. Imported, never re-implemented: the ceremony's own
+// token/shape scanners stay as the complementary instruments, this is the
+// canonical one.
+import {
+  privateOrgSlugs as runningTreePrivateOrgSlugs,
+  assertTreeFreeOfPrivateIdentity as assertSharedIdentityGate,
+} from "./lib/strip-build-internal.mjs";
 
 const require = createRequire(import.meta.url);
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+
+/**
+ * The slug set the post-clear SHARED gate scans for (r4-v4 item 13), derived
+ * from the tree THIS RUN WILL CLEAR.
+ *
+ * WHY NOT `privateOrgSlugs()` ALONE: that helper resolves
+ * `.claude/canon-identity-values.json` relative to the RUNNING module's tree,
+ * while this ceremony clears `--root` — normally the same tree (the client runs
+ * it inside their clone), but NOT under `--root <other>` (tests, and an operator
+ * clearing a separate tree). Scanning for the running tree's values against a
+ * different tree answers a different question and would MISS the root's own
+ * declaration, which is exactly the value set a client clone would gate with.
+ * So: the ROOT's declaration is authoritative; the running tree's set is the
+ * documented FALLBACK for the (normal) case where root and runner agree but the
+ * root's file is already absent. Absent on both → INERT, reported, never silent.
+ *
+ * The parse/validate path is the SHARED lib's (`jsonParseOrThrow`; the same
+ * ≥4-char-or-hyphen floor `strip-build-internal.mjs::assertValidOrgValue`
+ * enforces, so a sub-floor value cannot become a needle that substring-matches
+ * ordinary prose). The scanner itself is imported, never reimplemented.
+ * @returns {{slugs: string[], note: string}}
+ */
+function readClonePrivateSlugs(root) {
+  const rel = path.join(".claude", "canon-identity-values.json");
+  const p = path.join(root, rel);
+  if (!existsSync(p)) {
+    const fallback = runningTreePrivateOrgSlugs();
+    return fallback.length
+      ? { slugs: fallback, note: `${rel} is absent from the --root tree; scanned with the RUNNING tree's ${fallback.length} declared value(s)` }
+      : { slugs: [], note: `no ${rel} in the --root tree and none in the running tree` };
+  }
+  const text = readTextOrNull(p);
+  if (text === null) throw new Error(`${rel} is not readable text (binary / non-regular) — refusing to run a private-slug scan against a declaration I cannot read`);
+  const parsed = jsonParseOrThrow(text, rel);
+  const read = (key) => {
+    const v = parsed ? parsed[key] : undefined;
+    if (v === undefined) return [];
+    if (!Array.isArray(v)) throw new Error(`${rel}::${key} must be an array (got ${typeof v})`);
+    return v.map((s) => {
+      if (typeof s !== "string") throw new Error(`${rel}::${key} holds a NON-STRING entry (type ${typeof s}) — refusing to skip it silently`);
+      const t = s.trim().toLowerCase();
+      if (!(t.length >= 4 || t.includes("-"))) throw new Error(`${rel}::${key} holds a value below the scan floor (length ${t.length}) — refusing to scan with it`);
+      return t;
+    });
+  };
+  const slugs = [...new Set([...read("private_org_slugs"), ...read("retired_org_slugs")])].sort();
+  return { slugs, note: `${slugs.length} declared value(s) read from the --root tree's own ${rel}` };
+}
+
+// ── benign-collision ADJUDICATION — the publish fences' own stage, reused, never restated ──
+// assert-zero's token gate is an UNBOUNDED substring scan (deliberately — see
+// identity-scrub.mjs::tokenBoundedRe's "DO NOT WIRE THIS INTO THE GATE"), while the neutralize is
+// BOUNDED. So a short canon token embedded in an unrelated identifier survives the neutralize by
+// design and then hits the gate, and on a real canon clone that made --apply unpassable: it failed
+// closed on ordinary words, with nothing real left to find. The publish fences
+// (publish-to-public.mjs::runIdentityTokenGate, edition-output-gate.mjs) resolve exactly this with
+// the human-ratified (token, host) registry, and this gate now consults the SAME code
+// (disclosure-adjudication.mjs::tokenIsUnadjudicatedHit) over the SAME fold (foldForGate): an
+// occurrence clears ONLY when its exact (token, host-identifier) pair is ratified benign; a
+// standalone occurrence (host === token) can never clear.
+//
+// LAZY, existsSync-GUARDED import, not a static one, and the reason is distribution. This bin
+// SHIPS to consumers (sync-tier-aware ALWAYS_INCLUDE); the adjudication lib and its registry are
+// loom_only. A static import would MODULE_NOT_FOUND the whole ceremony at every consumer. Where the
+// lib is absent there is no registry either, so "suppress nothing" is the exact publish-side
+// disposition for an absent registry — the gate stays at full, unsuppressed strictness. A lib that
+// is PRESENT but fails to import throws here and aborts the ceremony loudly (fail closed).
+// The SAME lazy, existsSync-guarded shape for edition-emit.mjs (loom-only), from which the clear
+// reuses the client-template edition's placeholder generator for the workspace-name ledger
+// instead of restating it. Unlike the adjudication lib, an IMPORT FAILURE here does not abort:
+// without the generator the ledger is simply left in place, and assert-zero still greps it — so
+// any canon identity it carries fails the ceremony closed. Recorded (never silent) in the plan.
+const EDITION_EMIT = path.join(SCRIPT_DIR, "edition-emit.mjs");
+let editionEmit = null;
+let editionEmitNote = null;
+if (existsSync(EDITION_EMIT)) {
+  try { editionEmit = await import(pathToFileURL(EDITION_EMIT).href); }
+  catch (e) { editionEmitNote = `edition-emit.mjs present but failed to import (${(e && e.name) || "Error"}) — workspace-name ledger NOT reset; assert-zero still gates it`; }
+}
+const ADJUDICATION_LIB = path.join(SCRIPT_DIR, "lib", "disclosure-adjudication.mjs");
+const adjudicationLib = existsSync(ADJUDICATION_LIB) ? await import(pathToFileURL(ADJUDICATION_LIB).href) : null;
+
+/**
+ * Load the ratified benign adjudications from `root` BEFORE the clear. Pre-clear is load-bearing:
+ * the registry names canon tokens literally, so the whole-tree neutralize rewrites it, and a
+ * post-clear load would match nothing. Returns the lib's own shape ({keys, error, rejectedNote}).
+ */
+function snapshotBenignAdjudications(root) {
+  if (!adjudicationLib) {
+    return {
+      keys: new Set(), error: null, rejectedNote: null,
+      absentNote: "benign-collision adjudication not present in this tree (loom-only lib) — suppressing nothing",
+    };
+  }
+  return adjudicationLib.loadBenignAdjudications(root);
+}
 const { validate: validateRoster } = require("../hooks/lib/roster-schema-validate.js");
+// THE single durable roster writer, shared with `add-key-ceremony.js` and
+// `coc-roster-register.mjs` (`security.md` section Enforcement-Surface Parity).
+const { writeRosterAtomic } = require("../hooks/lib/roster-write.js");
+
+// ── the shared git subprocess envelope (loom#1471 / s47-F10 / s49) ───────────
+//
+// Every `git` below used to be the LITERAL string `git` with no `env:`, so the
+// child inherited the AMBIENT environment and the binary came off the ambient
+// PATH. In THIS bin that is worse than elsewhere, because this bin is
+// DESTRUCTIVE and its gates are the thing being steered:
+//
+//   * `probeRemotePublished()` runs `ls-remote <remote>` — a REMOTE read — and
+//     S9 refuses the destructive clear on its verdict. An inherited
+//     `GIT_CONFIG_GLOBAL` carrying `url.<attacker>.insteadOf` re-points that
+//     probe at an EMPTY remote, which returns "unpushed", which is precisely the
+//     answer that lets `assertOriginNotPublished` proceed to destroy a tree
+//     whose real remote is published. The fail-closed gate is turned fail-open
+//     by an environment variable.
+//   * `GIT_SSH_COMMAND` / `GIT_ASKPASS` / `GIT_PROXY_COMMAND` are arbitrary
+//     execution, and the ssh `ls-remote` is the path that reaches them.
+//   * `GIT_DIR` outranks repository DISCOVERY, so `-C <dir>` did NOT pin which
+//     repository answered `gitToplevel`, `gitAllRemotes`, `gitHistoryCount` or
+//     the object-store scan — `-C` chooses a DIRECTORY, not a repository. The
+//     assert-zero disclosure scan could be pointed at a clean decoy.
+//
+// HARD require, not a guarded one: the precedent is the roster-schema line
+// directly above, and for a bin that DELETES an operator's tree the correct
+// disposition when the envelope is missing is to not start at all.
+const _gse = require("../hooks/lib/git-subprocess-env.js");
+
+/**
+ * Absolute git + both env profiles, or THROW. FAIL CLOSED — no ambient
+ * fallback: `resolveGitBinary()` returning null means "git that cannot answer",
+ * which the shared module's contract ranks TIGHTEST, never a clean negative.
+ *
+ * Callers invoke this OUTSIDE their `try` blocks. That placement is
+ * load-bearing here: nearly every helper in this file maps a caught exception to
+ * a fail-closed sentinel (`null`, `-1`, `"unknown"`), and an unresolvable git
+ * swallowed into one of those would be indistinguishable from the real condition
+ * the sentinel encodes.
+ */
+function gitEnvelope(what) {
+  const gitBin = _gse.resolveGitBinary();
+  if (!gitBin) {
+    throw new Error(
+      `clean-instantiate: no ABSOLUTE \`git\` binary resolved (candidate list + PATH ` +
+        `search both empty), so ${what} could not be run. Refusing a PATH-resolved ` +
+        `\`git\`: a planted binary earlier on PATH answers the published-remote gate ` +
+        `with whatever lets the destructive clear proceed. INDETERMINATE, not clean.`,
+    );
+  }
+  return { gitBin, localEnv: _gse.gitEnv(), netEnv: _gse.gitNetEnv() };
+}
 
 // ── arg parsing ──────────────────────────────────────────────────────────────
 function parseArgs(argv) {
@@ -91,13 +264,15 @@ function parseArgs(argv) {
 }
 
 function gitToplevel(dir) {
+  const { gitBin, localEnv } = gitEnvelope("the toplevel probe");
   try {
-    return execFileSync("git", ["-C", dir, "rev-parse", "--show-toplevel"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    return execFileSync(gitBin, ["-C", dir, "rev-parse", "--show-toplevel"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], env: localEnv }).trim();
   } catch { return null; }
 }
 function gitRemoteUrl(dir, remote) {
+  const { gitBin, localEnv } = gitEnvelope("the remote-URL read");
   try {
-    return execFileSync("git", ["-C", dir, "remote", "get-url", remote], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    return execFileSync(gitBin, ["-C", dir, "remote", "get-url", remote], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], env: localEnv }).trim();
   } catch { return null; }
 }
 function gitOriginUrl(dir) {
@@ -126,8 +301,9 @@ function gitOriginUrl(dir) {
  */
 function gitAllRemotes(dir) {
   if (!existsSync(path.join(dir, ".git"))) return []; // not a git clone -> no remotes, genuinely safe
+  const { gitBin, localEnv } = gitEnvelope("the remote-name enumeration");
   try {
-    return execFileSync("git", ["-C", dir, "remote"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] })
+    return execFileSync(gitBin, ["-C", dir, "remote"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], env: localEnv })
       .split("\n").map((l) => l.trim()).filter(Boolean);
   } catch { return null; } // .git present but the command ERRORED -> UNKNOWN (fail-closed)
 }
@@ -141,8 +317,9 @@ function gitAllRemotes(dir) {
  */
 function gitHistoryCount(dir) {
   if (!existsSync(path.join(dir, ".git"))) return 0; // not a git clone -> no history to strip
+  const { gitBin, localEnv } = gitEnvelope("the history count");
   try {
-    return parseInt(execFileSync("git", ["-C", dir, "rev-list", "--count", "HEAD"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(), 10) || 0;
+    return parseInt(execFileSync(gitBin, ["-C", dir, "rev-list", "--count", "HEAD"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], env: localEnv }).trim(), 10) || 0;
   } catch { return -1; } // .git present but the count ERRORED -> UNKNOWN (fail-closed)
 }
 
@@ -169,8 +346,21 @@ function gitHistoryCount(dir) {
  * @returns {"unpushed"|"published"|"unknown"}
  */
 function probeRemotePublished(dir, remote = "origin") {
+  // THE REMOTE call, and the only one in this file on the NET profile: it needs
+  // the host's egress config (proxy, TLS anchors, ssh-agent handle) or a
+  // corporate host reads every remote as "unknown" and the ceremony becomes
+  // unusable. `gitNetEnv()` CALLS `gitEnv()` and adds only DATA git connects to
+  // or verifies against, so `GIT_SSH_COMMAND`/`GIT_ASKPASS`/`GIT_PROXY_COMMAND`
+  // stay denied by construction and an inherited `insteadOf` can no longer
+  // re-point this probe at an empty decoy remote to manufacture "unpushed".
+  //
+  // Envelope OUTSIDE the try: an unresolvable git must not collapse into
+  // "unknown". "unknown" is fail-closed HERE, so this is a correctness point
+  // rather than a security one — but the two conditions have different
+  // remediations and the operator is told which one they are in.
+  const { gitBin, netEnv } = gitEnvelope("the published-remote probe");
   try {
-    const out = execFileSync("git", ["-C", dir, "ls-remote", remote], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 15000 }).trim();
+    const out = execFileSync(gitBin, ["-C", dir, "ls-remote", remote], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 15000, env: netEnv }).trim();
     return out === "" ? "unpushed" : "published";
   } catch {
     return "unknown"; // offline / remote doesn't exist / auth fail → fail-closed, NOT all-clear
@@ -289,8 +479,12 @@ function scanObjectStore(root, canonTokens, { maxBlobs = 5000 } = {}) {
   const lc = canonTokens.map((t) => t.toLowerCase());
   const hits = [];
   let scanned = 0, truncated = false;
+  // Envelope OUTSIDE the try: this scan's catch returns `ran: false`, and an
+  // unresolvable git reaching that path would be reported as a scan that did not
+  // complete rather than as a missing prerequisite.
+  const { gitBin, localEnv } = gitEnvelope("the object-store disclosure scan");
   try {
-    const objs = execFileSync("git", ["-C", root, "rev-list", "--objects", "--all"], { encoding: "utf8", maxBuffer: 256 * 1024 * 1024 })
+    const objs = execFileSync(gitBin, ["-C", root, "rev-list", "--objects", "--all"], { encoding: "utf8", maxBuffer: 256 * 1024 * 1024, env: localEnv })
       .split("\n").map((l) => l.trim()).filter(Boolean);
     for (const line of objs) {
       const sha = line.split(" ")[0];
@@ -298,11 +492,11 @@ function scanObjectStore(root, canonTokens, { maxBlobs = 5000 } = {}) {
       // Only blobs carry content text; skip trees/commits/tags for the token grep (commit AUTHOR
       // identity is caught by the working-tree roster snapshot + the count warning, not here).
       let type;
-      try { type = execFileSync("git", ["-C", root, "cat-file", "-t", sha], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch { continue; }
+      try { type = execFileSync(gitBin, ["-C", root, "cat-file", "-t", sha], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], env: localEnv }).trim(); } catch { continue; }
       if (type !== "blob") continue;
       if (scanned >= maxBlobs) { truncated = true; break; }
       let content;
-      try { content = execFileSync("git", ["-C", root, "cat-file", "-p", sha], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }); } catch { continue; }
+      try { content = execFileSync(gitBin, ["-C", root, "cat-file", "-p", sha], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, env: localEnv }); } catch { continue; }
       scanned++; // count only blobs actually READ + grepped (a read failure does not inflate the count)
       // grep ALL blob content: a binary blob won't carry a clean canon-token substring, and if
       // it somehow does, flagging it is the fail-closed direction (no space/NUL pre-filter).
@@ -332,7 +526,16 @@ function resetHistory(root) {
   // raw uncaught throw (hook-output-discipline) — and report that history is
   // ALREADY discarded regardless, so the disclosure goal holds either way.
   rmSync(path.join(root, ".git"), { recursive: true, force: true });
-  const git = (...args) => execFileSync("git", ["-C", root, ...args], { stdio: ["ignore", "ignore", "inherit"] });
+  // `gitEnv()` now does the config-neutralization this function's comment above
+  // describes, and does it at a STRONGER layer than the `-c` flags below:
+  // `GIT_CONFIG_GLOBAL=/dev/null` + `GIT_CONFIG_NOSYSTEM=1` mean `commit.gpgsign`
+  // and `core.hooksPath` are never READ, rather than read and then overridden.
+  // The `-c` flags are kept as belt-and-braces for any path that re-derives
+  // them, which is the same disposition the shared module's own CONFIG
+  // neutralizer prefix takes. `user.name`/`user.email` are supplied explicitly,
+  // so the absent `HOME` cannot leave the commit without an identity.
+  const { gitBin, localEnv } = gitEnvelope("the fresh-root re-commit");
+  const git = (...args) => execFileSync(gitBin, ["-C", root, ...args], { stdio: ["ignore", "ignore", "inherit"], env: localEnv });
   try {
     git("init", "-q");
     git("add", "-A");
@@ -344,38 +547,152 @@ function resetHistory(root) {
     return { ok: false, error: e && e.message ? e.message : String(e) };
   }
 }
+/**
+ * Read a CONFIG file in the tree being cleared: text, or null when nothing is there. Routed
+ * through the lane's `readRegularFileNoFollow` (O_NOFOLLOW|O_NONBLOCK, regular-file-ness decided
+ * from the opened descriptor), never `existsSync` + `readFileSync` — that pair BLOCKED FOREVER on
+ * a FIFO planted at a config path (measured: the dry run killed at the timeout for a FIFO trust
+ * root; --apply for a FIFO VERSION) and followed a symlink. Anything but a regular file THROWS
+ * the typed `UnsafeFileReadError`, whose message names `label` (root-relative) and never a byte.
+ */
+function readTreeConfig(p, label) {
+  return readRegularFileNoFollow(p, { allowAbsent: true, label });
+}
+
+/**
+ * Replace the file at `p` with `content` WITHOUT ever opening what is currently there — the ONE
+ * writer for every tree write this ceremony makes (the placeholder carriers and the whole-tree
+ * neutralize).
+ *
+ * WHY. `writeFileSync(p)` opens `p` O_WRONLY, and opening a FIFO for writing waits for a reader
+ * forever (measured: --apply killed at the timeout on a FIFO ecosystem.json). The preflight
+ * refuses a FIFO that is present at START, but one planted after it — racing the ceremony — still
+ * blocked the write. Here the bytes go to a FRESH tmp in the same directory (O_CREAT|O_EXCL|
+ * O_NOFOLLOW: it can only be a file we created, never an existing inode, link or FIFO) and
+ * `rename(2)` replaces the directory ENTRY at `p`. The old entry is never opened, whatever it is,
+ * so nothing can block — and the replacement is atomic (whole old or whole new), which the old
+ * truncate-in-place write was not.
+ *
+ * SEMANTICS KEPT, deliberately:
+ *   - MODE is PRESERVED from the existing regular file (exact, via fchmod on the held fd, not
+ *     umask-dependent). This matters: the neutralize rewrites tracked EXECUTABLES (48 at the time
+ *     of writing), and a fixed mode would flip 100755 → 100644 in git. An absent target, or a
+ *     non-regular one being replaced, gets 0644 — what a checkout gives a tracked file.
+ *   - An in-tree SYMLINK is written THROUGH to its target, as `writeFileSync` did: the entry
+ *     replaced is the link's resolved target, so the link survives. `assertNoSymlinkEscape`
+ *     already guarantees that target is inside the tree.
+ * Throws on failure (the tmp is removed first); the caller's error handling is unchanged.
+ */
+function replaceFileSafely(p, content) {
+  let target = p;
+  let mode = 0o644;
+  let st = null;
+  try { st = lstatSync(p); } catch (e) { if (!e || e.code !== "ENOENT") throw e; }
+  if (st && st.isSymbolicLink()) {
+    target = realpathSync(p);
+    try { st = lstatSync(target); } catch (e) { if (!e || e.code !== "ENOENT") throw e; st = null; }
+  }
+  if (st && st.isFile()) mode = st.mode & 0o777;
+  const tmp = path.join(path.dirname(target), `.${path.basename(target)}.ci-tmp.${process.pid}.${randomBytes(6).toString("hex")}`);
+  const fd = openSync(tmp, FS.O_WRONLY | FS.O_CREAT | FS.O_EXCL | (FS.O_NOFOLLOW || 0), 0o600);
+  try {
+    fchmodSync(fd, mode);
+    const buf = Buffer.from(String(content), "utf8");
+    for (let off = 0; off < buf.length; ) {
+      const n = writeSync(fd, buf, off, buf.length - off);
+      if (!(n > 0)) throw Object.assign(new Error(`short write: ${off}/${buf.length} bytes`), { code: "EIO" });
+      off += n;
+    }
+  } catch (e) {
+    closeSync(fd);
+    try { unlinkSync(tmp); } catch { /* best effort: never mask the real error */ }
+    throw e;
+  }
+  closeSync(fd);
+  try { renameSync(tmp, target); } catch (e) {
+    try { unlinkSync(tmp); } catch { /* best effort */ }
+    throw e;
+  }
+}
+
+/**
+ * The root as printed. The absolute path carries the operator's home directory, so it is never
+ * printed: a path under the current directory prints relative to it (still runnable), anything
+ * else prints as `<clone-root>` — the same placeholder convention the rest of the disclosure lane
+ * uses for a scanned root.
+ */
+function displayRoot(root) {
+  const rel = path.relative(process.cwd(), root);
+  if (rel === "") return ".";
+  if (!rel.startsWith("..") && !path.isAbsolute(rel)) return rel.split(path.sep).join("/");
+  return "<clone-root>";
+}
+
+/**
+ * FAIL-CLOSED preflight: refuse a tree that contains a FIFO, socket or device anywhere (directly
+ * or as an in-tree symlink's target) BEFORE anything reads or writes it. `assertNoSymlinkEscape`
+ * does not see these, and every read/write site in this ceremony can block on one: a config read
+ * (`readFileSync` on a FIFO waits for a writer forever), a placeholder WRITE (`writeFileSync` to a
+ * FIFO waits for a reader forever — measured: --apply killed at the timeout on a FIFO
+ * ecosystem.json), and the whole-tree walks (which now refuse per-file mid-walk, AFTER the clear
+ * has already mutated the tree). One walk here converts all of those into ONE loud refusal with no
+ * mutation. Walks with `withFileTypes` (lstat semantics, never opening anything) and never
+ * descends through a symlink; `.git` is git's own store and is not walked. Returns root-relative
+ * paths.
+ */
+function findSpecialFiles(root) {
+  const found = [];
+  const walk = (dir) => {
+    for (const d of readdirSync(dir, { withFileTypes: true })) {
+      if (d.name === ".git") continue;
+      const abs = path.join(dir, d.name);
+      if (d.isDirectory()) { walk(abs); continue; }
+      if (d.isFile()) continue;
+      if (d.isSymbolicLink()) {
+        let st = null;
+        try { st = statSync(abs); } catch { continue; } // dangling: nothing to open, nothing to block on
+        if (st.isFile() || st.isDirectory()) continue;
+      }
+      found.push(path.relative(root, abs).split(path.sep).join("/"));
+    }
+  };
+  walk(root);
+  return found;
+}
+
 /** Is this tree already a cleared placeholder? (its genesis repo_owner is a PLACEHOLDER- sentinel) */
 function isAlreadyCleared(root) {
-  const rp = path.join(root, ".claude", "operators.roster.json");
-  if (!existsSync(rp)) return false;
+  // readTreeConfig: absent → null (not cleared, as before); a FIFO/symlink/device THROWS the typed
+  // refusal OUTSIDE the try, so it reaches main's refusal handler instead of reading as "not
+  // cleared". Only a PARSE failure keeps the old `false` (the derive refuses it loudly next).
+  const text = readTreeConfig(path.join(root, ".claude", "operators.roster.json"), ".claude/operators.roster.json");
+  if (text === null) return false;
   try {
-    const g = (JSON.parse(readFileSync(rp, "utf8")) || {}).genesis || {};
+    const g = (JSON.parse(text) || {}).genesis || {};
     return typeof g.repo_owner === "string" && g.repo_owner.startsWith("PLACEHOLDER-");
   } catch { return false; }
 }
 
 // ── filtered canon-token snapshot (drop placeholder + synthetic markers so a
 //    re-run over an already-cleared tree does not grep for placeholder tokens) ──
-// A synthHex placeholder is "DEADBEEF…" repeated then TRUNCATED to length — so a
-// non-multiple-of-8 length (e.g. a future SSH-shaped synthetic) ends mid-"deadbeef"
-// and the old /^(deadbeef)+$/ whole-repeat anchor MISSED it (MED-3). Match any
-// prefix of the infinite "deadbeef" stream, length-agnostic.
-function isSynthHex(t) {
-  const low = String(t).toLowerCase();
-  if (low.length === 0) return false;
-  for (let i = 0; i < low.length; i++) if (low[i] !== "deadbeef"[i % 8]) return false;
-  return true;
-}
+// The SCRUB's replacement vocabulary (`maintainer`, `example-host`, `<canon-owner>`, … and the
+// `synthHex` DEADBEEF stream at ANY length, a truncated non-multiple-of-8 form included — MED-3)
+// is declared ONCE in `identity-scrub.mjs::SCRUB_PLACEHOLDER` and recognized through
+// `isScrubPlaceholderToken`, the SAME predicate `scan-synced-disclosure.mjs` consults, so the two
+// filters cannot disagree about it again (they did: this one exempted `maintainer` by its own
+// literal, the scanner did not). No synthHex floor is passed here — this filter has always taken
+// any length; the scanner floors at 16 for its own reasons (see its `isIdentityPlaceholder`).
+// The PLACEHOLDER-roster sentinels below are this ceremony's own (`placeholderRoster`).
 function isPlaceholderToken(t) {
   if (typeof t !== "string") return true;
   if (t.startsWith("PLACEHOLDER-") || t.startsWith("placeholder-")) return true;
-  if (isSynthHex(t)) return true;                 // synthHex output (any length)
-  if (t === "PLACEHOLDER" || t === "maintainer") return true;
+  if (t === "PLACEHOLDER") return true;
+  if (isScrubPlaceholderToken(t)) return true;    // scrub vocabulary + synthHex (any length)
   return false;
 }
 function snapshotCanonTokens(root) {
   const { gate } = deriveDynamicTokens(root);
-  return [...new Set(gate.filter((t) => typeof t === "string" && t.length >= 3 && !isPlaceholderToken(t)))];
+  return [...new Set(gate.filter((t) => typeof t === "string" && !isPlaceholderToken(t)))];
 }
 // Snapshot BOTH the fail-closed gate token list AND the [from,to] scrub pairs in a
 // SINGLE pre-clear derive. Both MUST be captured BEFORE performClear resets the
@@ -384,8 +701,28 @@ function snapshotCanonTokens(root) {
 // gate ⊆ scrub-froms (identity-scrub emits a scrub pair for every gated token), so
 // neutralize(scrubPairs) removes exactly what assertZero(canonTokens) greps.
 function snapshotCanonIdentity(root) {
-  const { gate, scrub } = deriveDynamicTokens(root);
-  const canonTokens = [...new Set(gate.filter((t) => typeof t === "string" && t.length >= 3 && !isPlaceholderToken(t)))];
+  const { gate, scrub, unhonoured } = deriveDynamicTokens(root);
+  // ENFORCEMENT-SURFACE PARITY (security.md). The publish fence
+  // (`publish-to-public.mjs::runIdentityTokenGate`) fails CLOSED on a token the operator DECLARED
+  // and derive could not honour; this is the OTHER independent validation surface for the same
+  // token set, and a fail-closed dimension that lands at one surface and not the other is the
+  // bypass that rule exists to name. Here it matters at least as much: this ceremony's entire
+  // contract is to assert ZERO canon identity in a fresh client clone, and it cannot assert zero
+  // for a token it was never given. Proceeding would report a CLEAR that is not one.
+  //
+  // Reason and length only — never the value. This message reaches the operator's terminal.
+  if (unhonoured && unhonoured.length) {
+    const detail = unhonoured
+      .map((u) => `${u.reason}: length ${u.length} < floor ${u.floor}`)
+      .join("; ");
+    throw new Error(
+      `refusing to clear: ${unhonoured.length} disclosure-tenant-denylist token(s) were DECLARED but ` +
+      `cannot be honoured (${detail}). assert-zero cannot vouch for a token it was never given, so a ` +
+      `CLEAR here would be a clean bill of health this ceremony did not earn. Lengthen the entries or ` +
+      `remove them, then re-run.`,
+    );
+  }
+  const canonTokens = [...new Set(gate.filter((t) => typeof t === "string" && !isPlaceholderToken(t)))];
   return { canonTokens, scrubPairs: scrub };
 }
 
@@ -413,6 +750,10 @@ function placeholderRoster() {
       },
     },
   };
+}
+/** The identity-free VERSION stub: a neutral fork baseline the fork re-stamps. See performClear (k). */
+function placeholderVersion(type) {
+  return { version: "0.0.0", type };
 }
 function placeholderEcosystem(upstreamUrl, ecosystemId) {
   return {
@@ -445,7 +786,21 @@ function performClear(root, opts) {
     const placeholder = placeholderRoster();
     const res = validateRoster(placeholder);
     if (!res.valid) throw new Error(`placeholder roster failed schema validation: ${JSON.stringify(res.errors)}`);
-    writeFileSync(rosterPath, JSON.stringify(placeholder, null, 2) + "\n");
+    // Atomic (tmp-in-same-dir then rename) so a crash cannot leave a TRUNCATED
+    // roster that every loader fails closed on. The compare-and-swap is
+    // DELIBERATELY opted out of via `allowClobber`, and this is the one writer
+    // for which that is correct: the CLEAR ceremony's whole purpose is to
+    // REPLACE whatever canon roster the client inherited, so there is no
+    // pre-image to preserve. It still takes the lock, so it cannot interleave
+    // with a concurrent enrollment. `allowClobber` is REQUIRED rather than
+    // defaulted precisely so this opt-out is a decision, never an omission.
+    const written = writeRosterAtomic({
+      rosterPath,
+      roster: placeholder,
+      expectBytes: null,
+      allowClobber: true,
+    });
+    if (!written.ok) throw new Error(`placeholder roster was NOT written: ${written.reason}`);
     done.push("roster → placeholder");
   }
 
@@ -467,14 +822,14 @@ function performClear(root, opts) {
   // (d) ecosystem.json → placeholder (+ upstream_canon, W2-b)
   const ecoPath = path.join(claude, "bin", "ecosystem.json");
   if (existsSync(ecoPath)) {
-    writeFileSync(ecoPath, JSON.stringify(placeholderEcosystem(opts.upstreamCanonUrl, opts.ecosystemId), null, 2) + "\n");
+    replaceFileSafely(ecoPath, JSON.stringify(placeholderEcosystem(opts.upstreamCanonUrl, opts.ecosystemId), null, 2) + "\n");
     done.push("ecosystem.json → placeholder (+ upstream_canon)");
   }
 
   // (e) disclosure-tenant-denylist → empty
   const denyPath = path.join(claude, "disclosure-tenant-denylist.json");
   if (existsSync(denyPath)) {
-    writeFileSync(denyPath, JSON.stringify({ tokens: [] }, null, 2) + "\n");
+    replaceFileSafely(denyPath, JSON.stringify({ tokens: [] }, null, 2) + "\n");
     done.push("disclosure-tenant-denylist → empty");
   }
 
@@ -554,7 +909,140 @@ function performClear(root, opts) {
   if (meshVaultDeleted) done.push(`mesh handle-vault.json → ${meshVaultDeleted} DELETED (client↔handle deanonymization map, basename-anywhere; spec-02 clause e.4)`);
   if (meshKeyDeleted) done.push(`mesh key material → ${meshKeyDeleted} DELETED (.claude/mesh/-scoped; a cp -r carries gitignored key files; spec-02 clause e.2)`);
 
+  // (i) DELETE .claude/trust-root.json — canon's DERIVED authority surface. It carries every
+  //     canon signer's FULL pubkey (a PGP armor whose base64 body holds the signer's UID packet,
+  //     and SSH key bodies), canon's root-commit anchor and each signer's person_id/role.
+  //     Disposition: DELETE, not neutralize, and the reason is measured. The whole-tree
+  //     neutralize below rewrites TOKENS: it turned each person_id into a placeholder word and
+  //     each fingerprint map-key into a synthetic one, and left the key material byte-identical —
+  //     so the canon signer's UID stayed decodable from a tree assert-zero then passed as clean.
+  //     Neither gate could see it: a UID inside base64 is not a token substring, and the
+  //     structural scanner never inspects this path (it is on its never-synced list). A
+  //     placeholder file is not a correct substitute either: the file is DERIVED from the roster
+  //     and ANCHORED to the repository's root commit, so any stand-in written here is either
+  //     canon's anchor (the readers refuse it as "anchored elsewhere") or a guess. ABSENT is the
+  //     state every consumer treats as "not adopted yet": burndown-events.js falls back to the
+  //     roster, validate-emit's trust-root-fresh SKIPs, and `build-trust-root.mjs --write` creates
+  //     the fork's own file (no --reanchor) once /ecosystem-init has written the real roster.
+  //     Same disposition as edition-emit.mjs's CLIENT_TEMPLATE_REMOVE for the same path.
+  const trustRootPath = path.join(claude, "trust-root.json");
+  if (existsSync(trustRootPath)) { rmSync(trustRootPath, { force: true }); done.push("trust-root.json → DELETED (canon signer key material + root-commit anchor; regenerate after /ecosystem-init)"); }
+
+  // (n) DELETE .claude/canon-identity-values.json — canon's ORG-VALUE declaration (r4-v4
+  //     item 13; found by wiring the shared gate below, which refused the post-clear tree
+  //     exactly because this file survived it). The file names canon's private/retired/public
+  //     orgs, i.e. it IS canon identity, and it is the declaration the r4 private-slug gate
+  //     ARMS from — a client clone keeping it gates the CLIENT's distributions with CANON's
+  //     set (the "pasted canon" C1b scenario, where a client's own org is never protected and
+  //     the gate reports clean). Disposition: DELETE, the same one edition-emit.mjs's
+  //     CLIENT_TEMPLATE_REMOVE gives this path and the same state a template-instantiated
+  //     client starts from; ABSENT is the benign empty case every reader already handles
+  //     (strip-build-internal.mjs::orgSets), and /ecosystem-init writes the client's own.
+  //     NOT neutralized/placeholdered: an empty-but-present declaration reads as "declared
+  //     nothing", which is a different state from "not yet declared", and the file's whole
+  //     purpose is to carry values a scrub pair would have to know in advance.
+  const identityValuesPath = path.join(claude, "canon-identity-values.json");
+  if (existsSync(identityValuesPath)) { rmSync(identityValuesPath, { force: true }); done.push("canon-identity-values.json → DELETED (canon org-value declaration; the client writes its own via /ecosystem-init)"); }
+
+  // (j) DELETE burndown/ — canon's burndown DATA: the append-only SIGNED event log (every record
+  //     carries a canon signer's verified_id), the register and the issue inventory. Same class as
+  //     journal/ above, and the same boundary edition-emit.mjs's CLIENT_TEMPLATE_REMOVE draws: the
+  //     DIRECTORY only — the generator, its manifest (burndown-manifest.json) and BURNDOWN.md are
+  //     siblings, not children, and stay. Neutralizing it instead would rewrite the signer
+  //     fingerprints and hand the fork a signed log whose signatures no longer bind to anything.
+  const burndownDir = path.join(root, "burndown");
+  if (existsSync(burndownDir)) { rmSync(burndownDir, { recursive: true, force: true }); done.push("burndown/ → DELETED (canon's signed burndown event log + register data)"); }
+
+  // (l) DELETE .claude/cross-repo-authz/ — operator cross-repo authorization RECEIPTS. Their
+  //     filenames and bodies name canon's org slugs and private tenant/work references; a client
+  //     re-produces its own via /cross-repo-authorize. Same disposition edition-emit.mjs's
+  //     CLIENT_TEMPLATE_REMOVE gives this directory (journal/0566), and measured here: on a real
+  //     canon clone these receipts were 20 of the structural scanner's findings after the clear.
+  const authzDir = path.join(claude, "cross-repo-authz");
+  if (existsSync(authzDir)) { rmSync(authzDir, { recursive: true, force: true }); done.push(".claude/cross-repo-authz/ → DELETED (canon's cross-repo authorization receipts)"); }
+
+  // (m) .claude/bin/lib/loom-workspace-names.json → the client-template edition's reset (empty
+  //     `strip`, generic `preserve`). Its `strip` array IS canon's internal workspace inventory —
+  //     measured: 1 structural finding on a real canon clone after the clear. It is RESET, not
+  //     deleted, for edition-emit's reason (the emission fence reads it and the fork's own ratchet
+  //     writes to it). The bytes come from edition-emit's exported generator, never a copy here.
+  //     The file is loom-only, so it exists exactly where that generator does.
+  const wsNamesRel = path.join(".claude", "bin", "lib", "loom-workspace-names.json");
+  const wsNamesPath = path.join(root, wsNamesRel);
+  if (existsSync(wsNamesPath)) {
+    const content = editionEmit && typeof editionEmit.clientTemplatePlaceholderContent === "function"
+      ? editionEmit.clientTemplatePlaceholderContent(".claude/bin/lib/loom-workspace-names.json")
+      : null;
+    if (typeof content === "string") {
+      replaceFileSafely(wsNamesPath, content);
+      done.push("loom-workspace-names.json → reset (empty strip; generic preserve — edition-emit's generator)");
+    } else {
+      done.push(`loom-workspace-names.json → LEFT IN PLACE (${editionEmitNote || "no edition-emit generator in this tree"}); assert-zero gates its content`);
+    }
+  }
+
+  // (k) .claude/VERSION → identity-free stub, the SAME reset edition-emit.mjs gives the
+  //     client-template edition. The canon ledger embeds canon org slugs (`upstream.repo`,
+  //     `version_url`) and the full codify changelog (per-entry PR / journal / workspace refs and
+  //     private project names). It is RESET, not deleted: the fork's own hooks read it
+  //     (version-utils / session-start / template-resolver) and issue triage routes on
+  //     `VERSION::type`. An absent `upstream` is what version-utils reads as "source repo".
+  //     ONE deliberate difference from edition-emit, which hard-codes `type: "coc-source"`
+  //     because it only ever projects loom: this ceremony also clears BUILD and USE-template
+  //     clones, so the clone's own `type` is KEPT when it is a coc-* class string, and
+  //     `coc-source` is the fallback only when it is missing or malformed. The type names a
+  //     repo class, never an identity.
+  const versionPath = path.join(claude, "VERSION");
+  // Read OUTSIDE the try: a non-regular VERSION is the typed refusal, never "unparseable → fallback".
+  const versionText = readTreeConfig(versionPath, ".claude/VERSION");
+  if (versionText !== null) {
+    let type = "coc-source";
+    try {
+      const t = (JSON.parse(versionText) || {}).type;
+      if (typeof t === "string" && /^coc-[a-z-]+$/.test(t)) type = t;
+    } catch { /* unparseable ledger → the fallback type; its content is replaced either way */ }
+    replaceFileSafely(versionPath, JSON.stringify(placeholderVersion(type), null, 2) + "\n");
+    done.push(`VERSION → identity-free stub (type ${type}, no upstream, no changelog)`);
+  }
+
   return done;
+}
+
+// ── canon KEY-MATERIAL snapshot (pre-clear) ──────────────────────────────────
+/**
+ * The canon signer KEY MATERIAL the token gate cannot see. `deriveDynamicTokens` harvests
+ * NAMES, logins, emails, fingerprints — tokens — and assert-zero greps for those. A PGP armor
+ * block carries its UID inside base64, where no token substring ever appears, and an SSH key
+ * body is not a token at all; so a surviving pubkey passed the gate while its UID stayed
+ * decodable. This returns the needles that close that gap: every full-width base64 BODY line of
+ * every armor block, and every SSH key body, drawn from the roster AND the trust root, captured
+ * BEFORE the clear resets them. Fragment lines, not whole blocks, so a partial copy still hits.
+ *
+ * Unparseable carriers throw: this is an input to a fail-closed gate, and a silently empty
+ * needle set would report a clean tree for a reason unrelated to the tree.
+ * @returns {string[]}
+ */
+function snapshotCanonKeyMaterial(root) {
+  const needles = new Set();
+  const addPub = (pub) => {
+    if (typeof pub !== "string") return;
+    for (const m of pub.matchAll(/ssh-[a-z0-9-]+ (AAAA[0-9A-Za-z+/=]{20,})/g)) needles.add(m[1]);
+    if (/BEGIN PGP PUBLIC KEY BLOCK/.test(pub)) {
+      for (const l of pub.split(/\r?\n/)) { const t = l.trim(); if (/^[0-9A-Za-z+/]{40,}={0,2}$/.test(t)) needles.add(t); }
+    }
+  };
+  const read = (rel) => {
+    // Unsafe (FIFO/symlink/device) throws the typed refusal from readTreeConfig, BEFORE the parse.
+    const text = readTreeConfig(path.join(root, rel), rel.split(path.sep).join("/"));
+    if (text === null) return null;
+    try { return JSON.parse(text); }
+    catch (e) { throw new Error(`refusing to clear: ${rel} is present but not valid JSON, so its key material cannot be snapshotted for the assert-zero gate`); }
+  };
+  const roster = read(path.join(".claude", "operators.roster.json"));
+  for (const p of Object.values((roster && roster.persons) || {})) for (const k of (p && p.keys) || []) addPub(k && k.pubkey);
+  const trust = read(path.join(".claude", "trust-root.json"));
+  for (const s of Object.values((trust && trust.signers) || {})) addPub(s && s.pubkey);
+  return [...needles];
 }
 
 // ── whole-tree NEUTRALIZE pass ───────────────────────────────────────────────
@@ -576,22 +1064,19 @@ function performClear(root, opts) {
 // token-gate exemption in assertZero handles that file's grep). It NEVER weakens
 // assertZero — it feeds it; assertZero remains the fail-closed backstop after this runs.
 function neutralizeWholeTree(root, scrubPairs) {
-  // assertZero greps case-INSENSITIVELY (it lowercases both the token and the file),
-  // but the shared makeScrubber replaces case-SENSITIVELY (the publish fence handles
-  // case by ENUMERATING both forms in its loom-only STATIC_SCRUB — a mechanism this
-  // synced ceremony deliberately lacks). A canon token whose on-disk case differs from
-  // the derived SSOT case (e.g. denylist `<TENANT>` vs a path token `<tenant>-<region>`) would then
-  // survive the neutralize yet still trip assertZero — the exact defect-4 "fails-closed
-  // with no mechanism" this shard closes. Since identity-scrub.mjs (S1) is case-sensitive
-  // by contract and MUST NOT change here, augment each [from,to] pair with its lower- and
-  // upper-case variants so makeScrubber clears every case assertZero can match. (The `to`
-  // placeholders — "a downstream tenant" / "<canon-owner>" / synthHex — never re-introduce
-  // a token, so the augmentation cannot loop.)
-  const augmented = [];
-  for (const [from, to] of scrubPairs) {
-    for (const v of new Set([from, from.toLowerCase(), from.toUpperCase()])) augmented.push([v, to]);
-  }
-  const scrub = makeScrubber(augmented, { mode: SCRUB_MODES.NEUTRALIZE });
+  // assertZero greps case-INSENSITIVELY (it lowercases both the token and the file). This used to
+  // enumerate each pair's lower- and upper-case variants, because the shared `makeScrubber`
+  // replaced case-SENSITIVELY and a token whose on-disk case differed from the derived SSOT case
+  // would survive the neutralize yet still trip assertZero.
+  //
+  // That workaround is REMOVED because the defect it compensated for is FIXED at the root:
+  // `identity-scrub.mjs::makeScrubber` now matches case-INSENSITIVELY, in agreement with all three
+  // fences that DETECT. The enumeration was also INCOMPLETE — it covered lower and UPPER but not
+  // TITLE case, which is the form that was actually leaking (a Title-case tenant token reached a
+  // public `is_template` repo through all three fences). Keeping it beside the real fix would leave
+  // dead code whose comment asserts a case-sensitivity contract that no longer holds, and would act
+  // as a defense-in-depth sibling that silently absorbs mutations of the new path.
+  const scrub = makeScrubber(scrubPairs, { mode: SCRUB_MODES.NEUTRALIZE });
   // SHAPE-PRESERVE *.test.mjs disclosure fixtures: a second scrubber that applies
   // the SAME dynamic canon-token pairs but routes the structural operator-home-path
   // rewrite through a SYNTHETIC-USERNAME ALLOWLIST (identity-scrub.mjs's
@@ -611,7 +1096,7 @@ function neutralizeWholeTree(root, scrubPairs) {
   // the scrub must clear for a real canon clone to pass; the exact count is runtime-
   // derived against a live canon clone, not statically knowable here), and assertZero's
   // canon-token grep still covers *.test.mjs as the fail-closed backstop.
-  const scrubTestFixture = makeScrubber(augmented, { mode: SCRUB_MODES.NEUTRALIZE, preserveSyntheticFixtureHomes: true });
+  const scrubTestFixture = makeScrubber(scrubPairs, { mode: SCRUB_MODES.NEUTRALIZE, preserveSyntheticFixtureHomes: true });
   const ECO_REL = path.join(".claude", "bin", "ecosystem.json");
   let neutralized = 0;
   walkFiles(root, (f) => {
@@ -619,11 +1104,50 @@ function neutralizeWholeTree(root, scrubPairs) {
     const rel = path.relative(root, f);
     if (rel === ECO_REL) return; // preserve the ceremony's own placeholder + upstream_canon.url
     const before = readTextOrNull(f); if (before === null) return; // binary → skip (fail-safe)
-    // *.test.mjs → homepath-skipping scrubber (shape-preserve synthetic fixtures);
-    // every other file → full neutralize (real operator homes MUST be rewritten).
-    const isTestFixture = /\.test\.mjs$/.test(path.basename(f));
+    // loom's OWN detector fixtures → homepath-skipping scrubber (shape-preserve synthetic
+    // fixtures); every other file → full neutralize (real operator homes MUST be rewritten).
+    //
+    // THE CORPUS HAS TWO CONVENTIONS, AND KEYING ON ONE OF THEM WAS THE DEFECT. The original
+    // predicate was a BASENAME test (`*.test.mjs`) — loom's `node:test` suites. The newer
+    // audit-fixture convention is a DIRECTORY: `audit-fixtures/<name>/` holding a `run.mjs`/
+    // `run.cjs` runner plus its sibling candidate payloads (`.txt`, `.md`, `.json`). NO file
+    // written to that convention can ever end `.test.mjs`, so for those fixtures the
+    // shape-preserve route was STRUCTURALLY UNREACHABLE — not "evaluated and declined".
+    // Measured on this tree: 73 tracked files under `.claude/audit-fixtures/` carry a
+    // `/Users|/home/<name>/` home, and the usernames the neutralize was silently rewriting
+    // include `fakeuser` (33), `op` (21), `x` (2) and `alice` (1) — every one of them already a
+    // SYNTHETIC_FIXTURE_USERS member, i.e. a fixture the fork needs to KEEP firing.
+    //
+    // THE SAFETY HALF IS UNTOUCHED. This widens WHICH FILES take the preserve route, never
+    // WHICH USERNAMES are preserved: `scrubTestFixture` is `makeScrubber({
+    // preserveSyntheticFixtureHomes: true })`, whose allowlist callback rewrites every username
+    // outside SYNTHETIC_FIXTURE_USERS. Measured on the same tree: `<operator>` (33 spans),
+    // `me` (45), `vscode` (9), `dev` (6), `not<operator>` (5) are NOT in the set and are STILL
+    // rewritten to `/Users/<user>/` inside the corpus. The dynamic canon-IDENTITY scrub is not
+    // routed through this branch at all, and assertZero's canon-token grep still covers every
+    // file here as the fail-closed backstop.
+    //
+    // Both conventions are owned by `bin/lib/fixture-corpus.mjs` (segment-anchored rather than
+    // `includes()` so a file merely NAMED `…my-audit-fixtures-notes.md` does not match, and
+    // root-relative so it also covers `variants/<lang>/audit-fixtures/**`).
+    //
+    // THIS SURFACE IS NARROWER THAN THE OTHER THREE, DELIBERATELY PRESERVED. It accepts
+    // `*.test.mjs` ONLY — hence `{ includeDotJs: false }` — where
+    // `scan-synced-disclosure.mjs::scanFile`, `edition-emit.mjs::buildClientTemplateTree` and
+    // `publish-to-public.mjs::runIdentityTokenGate` all accept `*.test.(mjs|js)`. An earlier
+    // revision of this comment claimed "same predicate shape" as two of those and named a
+    // three-surface parity floor; that was FALSE as to the `.test.js` half and is withdrawn.
+    // Widening it here is NOT a free harmonization: the widened half selects `scrubTestFixture`
+    // (the PRESERVING scrub) over `scrub`, so it would make MORE files keep their synthetic
+    // operator homes. That is a preservation widening and is a security decision, not a cleanup.
+    //
+    // `rel` is passed for the basename half where this used to pass `path.basename(f)`. NOT a
+    // widening: the suite-basename pattern is END-ANCHORED and contains no path separator, so it
+    // matches a full POSIX relative path exactly when it matches that path's basename
+    // (exhaustively verified in `.claude/bin/fixture-corpus.test.mjs`).
+    const isTestFixture = isFixtureCorpusFile(rel, { includeDotJs: false });
     const after = (isTestFixture ? scrubTestFixture : scrub)(before);
-    if (after !== before) { writeFileSync(f, after); neutralized++; }
+    if (after !== before) { replaceFileSafely(f, after); neutralized++; }
   });
   return neutralized;
 }
@@ -632,7 +1156,12 @@ function neutralizeWholeTree(root, scrubPairs) {
 /**
  * @param {string} root
  * @param {string[]} canonTokens
- * @param {{ scannerPath?: string }} [opts]  scannerPath overrides the structural-scanner
+ * @param {{ scannerPath?: string, keyMaterial?: string[], expectTrustRootAbsent?: boolean, sharedGate?: boolean, privateSlugs?: string[], privateSlugsNote?: string }} [opts]
+ *   keyMaterial: pre-clear canon signer key fragments (snapshotCanonKeyMaterial) grepped EXACTLY;
+ *   expectTrustRootAbsent: post-clear only — a surviving .claude/trust-root.json is a hit.
+ *   sharedGate + privateSlugs (r4-v4 item 13): POST-CLEAR only — run the SHARED
+ *   `assertTreeFreeOfPrivateIdentity` over the whole tree with the slug set captured at ENTRY.
+ *   scannerPath overrides the structural-scanner
  *   invocation below -- TEST-ONLY seam (see parseArgs's `--scanner-path`, ENV-GATED on
  *   process.env.CLEAN_INSTANTIATE_TEST_MODE === "1"), mirrors edition-emit.mjs's
  *   `runOutputDisclosureScan(tree, repoRoot, { scannerPath })`. Unset (the default,
@@ -640,8 +1169,14 @@ function neutralizeWholeTree(root, scrubPairs) {
  *   the real scan-synced-disclosure.mjs.
  */
 function assertZero(root, canonTokens, opts = {}) {
-  const lc = canonTokens.map((t) => t.toLowerCase());
   const hits = [];
+  const keyMaterial = Array.isArray(opts.keyMaterial) ? opts.keyMaterial : [];
+  const foldedTokens = canonTokens.map((t) => foldForGate(t));
+  const benign = opts.benign || { keys: new Set(), error: null };
+  const benignKeys = benign.keys instanceof Set ? benign.keys : new Set();
+  // An UNREADABLE registry is a HIT, exactly as at publish: a broken adjudicator is not an
+  // all-clear, and "suppressed nothing" must not be indistinguishable from "could not ask".
+  if (benign.error) hits.push(`adjudication-registry  ~  ${benign.error}`);
   const ECO_REL = path.join(".claude", "bin", "ecosystem.json");
   walkFiles(root, (f) => {
     if (f.includes(`${path.sep}.git${path.sep}`)) return; // skip the .git object store
@@ -674,9 +1209,33 @@ function assertZero(root, canonTokens, opts = {}) {
         if (typeof url === "string" && url) txt = txt.split(url).join("<upstream-canon-url>");
       } catch { /* unparseable → grep the raw text (fail-closed) */ }
     }
-    const lower = txt.toLowerCase();
-    for (let i = 0; i < lc.length; i++) if (lower.includes(lc[i])) hits.push(`${rel}  ~  ${canonTokens[i]}`);
+    // BOTH sides through the ONE shared gate fold (never a local .toLowerCase() — the U+0130
+    // homograph evasion identity-scrub.mjs::foldForGate documents), then the publish fences'
+    // adjudicated-hit test. Unbounded: a token is a hit unless EVERY occurrence is ratified benign.
+    const folded = foldForGate(txt);
+    for (let i = 0; i < foldedTokens.length; i++) {
+      const hit = adjudicationLib
+        ? adjudicationLib.tokenIsUnadjudicatedHit(folded, foldedTokens[i], benignKeys)
+        : Boolean(foldedTokens[i]) && folded.includes(foldedTokens[i]);
+      if (hit) hits.push(`${rel}  ~  ${canonTokens[i]}`);
+    }
+    // Canon KEY MATERIAL (see snapshotCanonKeyMaterial): exact, case-SENSITIVE (base64 is), and
+    // over the JSON-unescaped text because a roster/trust-root stores armor on one `\n`-joined
+    // line. The needle is NEVER printed — only the file and a fragment count reach the terminal.
+    if (keyMaterial.length) {
+      const flat = txt.replace(/\\n/g, "\n");
+      let n = 0;
+      for (const k of keyMaterial) if (flat.includes(k)) n++;
+      if (n) hits.push(`${rel}  ~  <canon signer key material: ${n} fragment(s)>`);
+    }
   });
+  // A trust root present AFTER the clear is canon's by construction: the clear deletes it and
+  // nothing in this ceremony writes one (the fork's own is generated after /ecosystem-init).
+  // Checked by PRESENCE as well as by content, so a trust root carrying key material the
+  // pre-clear snapshot never saw (a signer absent from the roster) still fails closed.
+  if (opts.expectTrustRootAbsent && existsSync(path.join(root, ".claude", "trust-root.json"))) {
+    hits.push(`.claude/trust-root.json  ~  <canon trust root survived the clear>`);
+  }
   // Structural disclosure shapes (home paths, org slugs, hostnames the literal
   // token list lacks) — reuse the framework's own Gate-2 scanner over the tree.
   // The scanner flags `.claude/bin/ecosystem.json` under --root by design (in a
@@ -693,7 +1252,17 @@ function assertZero(root, canonTokens, opts = {}) {
     // console) so the scanner's findings are CAPTURED into e.stderr for the
     // filter — never leaked raw to the operator's terminal, and never silently
     // un-captured (which would make the structural cross-check a no-op).
-    execFileSync("node", [scannerBin, "--check", "--root", root], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    //
+    // `--allow-synthetic-fixture-homes`: the neutralize above DELIBERATELY preserves a SYNTHETIC
+    // fixture home (a SYNTHETIC_FIXTURE_USERS name such as a `jdoe`-style `/Users/<name>/`) in
+    // loom's own detector fixtures so they keep firing in the fork (#1141-7), and the scanner
+    // then flagged exactly those preserved homes: MEASURED on a real canon clone, 9 of the
+    // post-clear structural findings, every one a synthetic set member in a `*.test.mjs`. The
+    // flag is the one edition-emit.mjs's client-template gate already passes for the same
+    // reason — scoped by the scanner to the fixture corpus AND the synthetic set, so a REAL
+    // home, or a synthetic one in an ordinary file, still fails closed. It cannot admit more
+    // than the neutralize preserved: every non-synthetic home was rewritten before this runs.
+    execFileSync("node", [scannerBin, "--check", "--root", root, "--allow-synthetic-fixture-homes"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   } catch (e) {
     const rawOut = (e.stdout || "") + (e.stderr || "");
     const rawFindings = rawOut.split("\n").map((l) => l.trim()).filter((l) => /\[SHAPE:/.test(l));
@@ -714,6 +1283,31 @@ function assertZero(root, canonTokens, opts = {}) {
       // `ecosystem.json.d/leak.md` — letting a structural shape on an adversarial
       // sibling escape the gate. Only the ceremony's OWN ecosystem.json is exempt.
       scannerFindings = rawFindings.filter((l) => !/^\.claude\/bin\/ecosystem\.json:\d/.test(l));
+    }
+  }
+  // r4-v4 F4 (correctness item 13): the SHARED canonical-set identity gate over
+  // the WHOLE post-clear tree — the same `assertTreeFreeOfPrivateIdentity` every
+  // content exit runs, imported rather than re-implemented. The slug set is
+  // captured at ENTRY by the caller (`opts.privateSlugs`): the clear
+  // removes/neutralizes the declaration the derivation reads, so a post-clear
+  // re-derive would be EMPTY and the scan vacuous. `sharedGate` is set only on
+  // the POST-CLEAR call — in DRY RUN the tree still carries canon's identity,
+  // and a whole-tree scan there would report the PRE-clear state as if it were
+  // a residual. A clone that entered with no declaration (the client-template
+  // path) records INERT rather than refusing: this ceremony's job is to CLEAN,
+  // and a missing declaration is not residual identity — its own token + shape
+  // gates stay armed regardless.
+  if (opts.sharedGate) {
+    const privateSlugs = Array.isArray(opts.privateSlugs) ? opts.privateSlugs : [];
+    if (!privateSlugs.length) {
+      console.log(`  (shared private-slug gate INERT — ${opts.privateSlugsNote || "no declared org values"}; the token + shape gates above remain armed)`);
+    } else {
+      try {
+        assertSharedIdentityGate(root, { slugs: privateSlugs, label: "clean-instantiate post-clear tree" });
+        console.log(`  (shared private-slug gate: clean over the whole post-clear tree, ${privateSlugs.length} declared org value(s))`);
+      } catch (e) {
+        hits.push(`<shared private-slug gate>  ~  ${e.message}`);
+      }
     }
   }
   return {
@@ -799,7 +1393,7 @@ function main() {
   if (a.bad) { console.error(`unknown argument: ${a.bad}`); return 2; }
 
   const root = a.root ? path.resolve(a.root) : (gitToplevel(process.cwd()) || process.cwd());
-  if (!existsSync(path.join(root, ".claude"))) { console.error(`✗ ${root} has no .claude/ — not a COC repo`); return 2; }
+  if (!existsSync(path.join(root, ".claude"))) { console.error(`✗ ${displayRoot(root)} has no .claude/ — not a COC repo`); return 2; }
 
   // HIGH — symlink-escape / arbitrary-file-write guard (holistic redteam; made
   // UNCONDITIONAL by the F7 redteam MEDIUM/LOW-2 fix — see
@@ -822,7 +1416,8 @@ function main() {
   // the destructive path. Pre-fix, this guard sat inside `if (a.apply)`, so the
   // documented default (dry-run) invocation walked + read the tree with NO symlink
   // check at all. No step in this ceremony CREATES a symlink (performClear /
-  // neutralizeWholeTree only writeFileSync / rmSync already-known paths), so this
+  // neutralizeWholeTree only replaceFileSafely — a fresh REGULAR tmp + rename — / rmSync
+  // already-known paths), so this
   // single up-front assertion covers every later read/write walk with no
   // re-materialization needed — nothing between here and assertZero can (re-)introduce
   // an escaping symlink. On a hit, this throws; the ceremony hard-fails (nonzero exit)
@@ -834,6 +1429,27 @@ function main() {
     console.error("  refusing to run clean-instantiate (no read/mutation of the tree when this guard fires).");
     return 2;
   }
+  // FIFO / socket / device preflight — see findSpecialFiles. Same position and disposition as the
+  // symlink guard above: before ANY read or mutation, dry run and --apply alike.
+  const special = findSpecialFiles(root);
+  if (special.length) {
+    console.error(`✗ ${special.length} non-regular file(s) (FIFO / socket / device) in the tree — reading or writing one blocks or misbehaves:`);
+    for (const s of special.slice(0, 20)) console.error(`   ${s}`);
+    console.error("  refusing to run clean-instantiate (no read/mutation of the tree when this guard fires). Remove them and re-run.");
+    return 2;
+  }
+  // TEST-ONLY seam, gated on the SAME CLEAN_INSTANTIATE_TEST_MODE=1 marker as --scanner-path and
+  // inert without it: plant FIFOs AFTER the preflight, at comma-separated root-relative paths, so
+  // the regression suite can drive the post-preflight race against the write sites. Paths that
+  // resolve outside the root are ignored.
+  if (process.env.CLEAN_INSTANTIATE_TEST_MODE === "1" && process.env.CLEAN_INSTANTIATE_TEST_POST_PREFLIGHT_FIFOS) {
+    for (const rel of process.env.CLEAN_INSTANTIATE_TEST_POST_PREFLIGHT_FIFOS.split(",").filter(Boolean)) {
+      const p = path.resolve(root, rel);
+      if (!p.startsWith(root + path.sep)) continue;
+      rmSync(p, { force: true });
+      execFileSync("mkfifo", [p], { env: _gse.gitEnv() });
+    }
+  }
 
   if (!a.upstreamCanonUrl) a.upstreamCanonUrl = gitOriginUrl(root); // the URL the client cloned canon from
 
@@ -842,7 +1458,7 @@ function main() {
   // would FALSE-pass even if the first run left residue. Refuse rather than
   // silently claim clean; verification belongs against the FIRST run's output.
   if (a.apply && isAlreadyCleared(root)) {
-    console.error(`✗ ${root} is already cleared (roster genesis is a PLACEHOLDER-).\n` +
+    console.error(`✗ ${displayRoot(root)} is already cleared (roster genesis is a PLACEHOLDER-).\n` +
       `  Re-running --apply cannot re-derive the canon snapshot (the carriers are gone), so it\n` +
       `  cannot honestly re-verify. If you need to confirm the clear, check the FIRST run's output,\n` +
       `  or re-clone canon and run --apply once. (To re-anchor your OWN ecosystem, use /ecosystem-init.)`);
@@ -865,13 +1481,30 @@ function main() {
   // Snapshot the gate tokens AND the scrub pairs in ONE pre-clear derive (the
   // neutralize pass below needs the pairs; a post-clear re-derive returns empty).
   const { canonTokens, scrubPairs } = snapshotCanonIdentity(root);
-  console.log(`\n=== clean-instantiate (${a.apply ? "APPLY" : "DRY RUN"}) — root: ${root} ===`);
+  // r4-v4 item 13: the SHARED gate's slug set, ALSO captured pre-clear — the
+  // clear DELETES the declaration this derives from (performClear section (n)),
+  // so this is the only moment the canon org values exist to scan FOR.
+  const entrySharedGate = readClonePrivateSlugs(root);
+  // KEY MATERIAL too, and ALSO pre-clear: the clear deletes the trust root and resets the roster,
+  // after which there is nothing left to snapshot it from.
+  const keyMaterial = snapshotCanonKeyMaterial(root);
+  const benign = snapshotBenignAdjudications(root);
+  if (benign.absentNote) console.log(benign.absentNote);
+  else console.log(`benign-collision adjudications loaded: ${benign.keys.size}${benign.error ? " (REGISTRY ERROR — fail-closed)" : ""}`);
+  if (benign.rejectedNote) console.error(benign.rejectedNote);
+  console.log(`\n=== clean-instantiate (${a.apply ? "APPLY" : "DRY RUN"}) — root: ${displayRoot(root)} ===`);
   console.log(`canon trust-identity tokens snapshotted: ${canonTokens.length}`);
+  console.log(`canon signer key-material fragments snapshotted: ${keyMaterial.length}`);
+  console.log(
+    entrySharedGate.slugs.length
+      ? `shared private-slug gate: ${entrySharedGate.slugs.length} declared org value(s) snapshotted at entry (post-clear scan armed) — ${entrySharedGate.note}`
+      : `shared private-slug gate: INERT — ${entrySharedGate.note}`,
+  );
 
   if (!a.apply) {
-    const preview = assertZero(root, canonTokens, { scannerPath: a.scannerPath });
+    const preview = assertZero(root, canonTokens, { scannerPath: a.scannerPath, keyMaterial, benign });
     const historyN = gitHistoryCount(root);
-    console.log(`\nDRY RUN — would clear: roster→placeholder · journal/ DELETE · team-memory facts · ecosystem.json→placeholder · tenant-denylist→empty · coordination state · scripts/publish-to-public.mjs DELETE · mesh handle-vault.json DELETE · whole-tree NEUTRALIZE`);
+    console.log(`\nDRY RUN — would clear: roster→placeholder · journal/ DELETE · team-memory facts · ecosystem.json→placeholder · tenant-denylist→empty · coordination state · scripts/publish-to-public.mjs DELETE · mesh handle-vault.json DELETE · trust-root.json DELETE · burndown/ DELETE · cross-repo-authz/ DELETE · VERSION→placeholder · loom-workspace-names.json→reset · whole-tree NEUTRALIZE`);
     console.log(`current tree carries ${preview.hits.length} canon-token occurrence(s) across ${new Set(preview.hits.map((h) => h.split("  ~  ")[0])).size} file(s) (these would be cleared/surfaced).`);
     console.log(`upstream_canon would be set to: ${a.upstreamCanonUrl || "(placeholder)"}`);
     if (historyN !== 0) emitHistoryGuidance(root, historyN, canonTokens, false); // != 0: >0 real history OR -1 errored-unknown -> fail-closed
@@ -889,7 +1522,7 @@ function main() {
   const neutralized = neutralizeWholeTree(root, scrubPairs);
   console.log(`  ✓ whole-tree neutralize → ${neutralized} file(s) rewritten`);
 
-  const { hits, scannerOk, scannerOut } = assertZero(root, canonTokens, { scannerPath: a.scannerPath });
+  const { hits, scannerOk, scannerOut } = assertZero(root, canonTokens, { scannerPath: a.scannerPath, keyMaterial, benign, expectTrustRootAbsent: true, sharedGate: true, privateSlugs: entrySharedGate.slugs, privateSlugsNote: entrySharedGate.note });
   console.log("");
   if (hits.length || !scannerOk) {
     console.error(`✗ ASSERT-ZERO FAILED — residual canon identity remains in the WORKING TREE (nothing is "clean"):`);
@@ -911,7 +1544,7 @@ function main() {
         console.log(`✓ HISTORY RESET — .git/ re-anchored to a fresh root commit (${historyN} canon commit(s) discarded).`);
       } else {
         console.log(`✓ canon .git/ HISTORY DISCARDED (${historyN} commit(s) removed), but the fresh commit did not complete: ${rr.error}`);
-        console.log(`  → run \`git -C ${root} add -A && git -C ${root} commit -m "Clean ecosystem instantiation"\` manually. Canon history is already gone — safe to push once committed.`);
+        console.log(`  → run \`git -C ${displayRoot(root)} add -A && git -C ${displayRoot(root)} commit -m "Clean ecosystem instantiation"\` manually. Canon history is already gone — safe to push once committed.`);
       }
     } else {
       emitHistoryGuidance(root, historyN, canonTokens, true);
@@ -921,4 +1554,18 @@ function main() {
   return 0;
 }
 
-process.exit(main());
+// A typed unsafe-file refusal (readTreeConfig, or the lib's readTextOrNull / derive) is reported
+// as a refusal — its message names a root-relative label and the file TYPE, never bytes — instead
+// of an uncaught stack trace, whose frames print the absolute install path (the operator's home).
+// Exit 2, the ceremony's "refused before completing" code. Any OTHER error keeps its prior uncaught
+// behaviour and exit code: this handler narrows nothing it was not written for.
+let exitCode;
+try {
+  exitCode = main();
+} catch (e) {
+  if (!(e && e.code === "ERR_UNSAFE_FILE_READ")) throw e;
+  console.error(`✗ ${e.message}`);
+  console.error("  refusing to run clean-instantiate on a non-regular file (FIFO / socket / device / symlink) at a path it reads.");
+  exitCode = 2;
+}
+process.exit(exitCode);

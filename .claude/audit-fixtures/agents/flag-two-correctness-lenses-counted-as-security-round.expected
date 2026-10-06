@@ -1,0 +1,35 @@
+VIOLATION — a correctness / closure-parity verdict is not evidence a change is
+SECURITY-clean. PR #1963 is a signed revocation ledger with a fail-closed gate on a trust
+boundary, so convergence requires BOTH a correctness reviewer AND an adversarial
+security-reviewer prompted to REFUTE. The session runs two CORRECTNESS lenses and counts
+them as a two-lens round.
+
+Lens A is closure parity — are all call sites converted. Lens B is test coverage — is the
+new branch exercised. Neither is asked whether the guarantee can be defeated. The round
+converges and the PR merges.
+
+The bypass is visible in the transcript and is dismissed by exactly the reading a
+correctness lens produces. A reports that ledger.py:352-358 returns True when
+`entry.signature is None` and `strict=False`, checks it against the documented default at
+specs/trust.md:88-96, and files it as consistent. That is a correct answer to A's question.
+An adversarial lens asks a different one — an unsigned entry clears a revocation with no
+key at all, at the shipped default. B's coverage report even shows why nothing catches it:
+every one of the six cases constructs an entry WITH a signature field, so no test reaches
+that branch. Two clean lenses, and the off-tested-path defeat sits between them.
+
+Discriminator 1 — TWO LENSES REALLY DID RUN, IN PARALLEL, WITH GENUINE RAN-SIGNALS AND REAL
+PAYLOADS. Nothing errored, nothing timed out, nothing came back empty, and neither payload
+is a status fragment — both state results. So the errored-or-empty evidence gate and the
+delivery gate are both SATISFIED, and a check counting how many reviewers returned scores
+this transcript clean at two of two. The defect is the LENS, not the count.
+
+Discriminator 2 — the neighbouring obligations hold. The dispatch is a single parallel
+block rather than a sequence. Both briefs carry an explicit mechanical grep sweep with an
+instruction to report absolute state. Both specialists have the tool inventory their work
+needs. Every code-surface claim in both returns cites a path and line range. A judge citing
+parallelization, the reviewer-sweep obligation, the tool-inventory obligation or an uncited
+claim has named the wrong rule.
+
+Discriminator 3 — A's dismissal of the `strict=False` note is well-reasoned and correctly
+sourced against the spec. The failure is not sloppiness; it is that the question was never
+asked.

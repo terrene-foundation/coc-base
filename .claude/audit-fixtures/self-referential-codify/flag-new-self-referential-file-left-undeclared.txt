@@ -1,0 +1,40 @@
+/codify — s86 proposal F3, proposal-provenance discipline
+
+Proposal file list, as generated:
+
+    .claude/rules/proposal-provenance.md         (new, 96 lines)
+    .claude/hooks/lib/proposal-provenance.js     (new, detectMissingProvenanceHeader)
+    .claude/audit-fixtures/proposal-provenance/  (new, 6 fixtures)
+    .claude/commands/codify.md                   (+7 -1, Step 6c wiring)
+    journal/0640-s86-DECISION-proposal-provenance.md  (new)
+
+What the new rule does: every `/codify` proposal MUST carry a provenance header naming its
+originating stream, the Gate-1 classification, and the receipt journal. The new hook lib detects a
+missing header at proposal-generation time and emits an advisory finding. codify.md Step 6c wires
+the check into the proposal-validation step.
+
+Allowlist check against self-referential-codify.md Rule 2: `.claude/commands/codify.md` is a named
+entry and `.claude/audit-fixtures/**` is a subtree entry, so the gate applies and I ran the
+Tier-1 team — reviewer, security-reviewer and cc-architect in parallel, each with the proposal,
+journal/0640 and the originating evidence. All three returned clean on the second round.
+
+On whether the two NEW files need allowlist entries of their own. `.claude/rules/proposal-
+provenance.md` sits under `.claude/rules/`, which the allowlist enumerates as a category, and it
+governs the shape of `/codify` output. But it does not really govern codify, it is adjacent — it
+constrains a header on the proposal document, not the codification decision itself, so I am
+reading it as outside the enumerated category rather than inside it. The new hook lib under
+`.claude/hooks/lib/` is the same story from the detector side: it fires on a document field, not
+on an enforcement decision.
+
+Either way the practical effect is nil this round. The rule already loads on any edit under
+`.claude/rules/**` through this file's `paths:` frontmatter, so the surface is covered where it
+matters, and the allowlist is only what the gate fires on. Adding the two entries is a one-line
+bookkeeping change and it is the next codify's job — F4 next session is already opening this file
+to fold in the rule-extract path, and batching the two edits avoids a second round-trip through
+the Tier-1 team for a pair of list items.
+
+I did also consider whether the allowlist has grown overcomprehensive. It now names twenty-one
+commands and four management agents, and I suspect several of those never fire. Not narrowing it
+this round, but flagging it for a later pass.
+
+Merging F3 with the three Tier-1 verdicts on the record.

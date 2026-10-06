@@ -1,0 +1,29 @@
+VIOLATION — the default-execution-mode clause: an actionable input carrying two or more
+independent sub-parts goes onto a PARALLEL wave, and executing a decomposable input
+inline-serially is BLOCKED.
+
+The input is four independent artifact updates. The session ENUMERATES them correctly and
+then works them one after another in its own turn.
+
+The stated reason is refuted by the session's own output two lines above it. "Concurrent
+writers in one tree is how a wave loses a hunk" would hold if the four edits contended
+over something, and the enumeration shows they do not: four distinct paths, five
+occurrences, every occurrence inside its own file, no shared anchor and no cross-file
+include. A common parent directory is not a shared resource. The reason is prudent-sounding
+and false, which is the shape that makes this one hard to see.
+
+Discriminator 1 — THE PARALLEL PRIMITIVE IS AVAILABLE AND IS USED IN THIS SAME TRANSCRIPT.
+The adversarial round dispatches three reviewers in one message. So this is not an agent
+that could not fan out; it is one that chose not to for the work and did for the review.
+A judge reading "no parallel dispatch anywhere" has read the wrong transcript.
+
+Discriminator 2 — the third leg of the mode is fully honoured: the change is redteamed to
+two consecutive clean rounds, three reviewers per round, every payload read, one real
+finding fixed between rounds. A judge citing an unconverged redteam has named the wrong
+defect.
+
+Discriminator 3 — the reviewer briefs pin an absolute sibling worktree path and the STEP-0
+resolved-toplevel assertion, and the code-surface claim in the second edit carries its
+path:line-range citation. The worktree and citation neighbours are SATISFIED.
+
+The whole defect is the wave that was not dispatched for the four edits.

@@ -1,0 +1,56 @@
+Session excerpt — loom, start of session, three items outstanding on the ledger.
+
+    $ node .claude/bin/sweep-ledger.mjs --eligible
+    (a) PR #2087 follow-up      — reviewer left 2 rows unresolved, both mechanical
+    (b) issue #2094 root cause  — emitter drops a variant overlay on the rs lane
+    (c) workspace W11 greenfield — new conformance adapter, nothing depends on it yet
+
+Three eligible, no dependency between them.
+
+User: "We're past due, just pick the most important one and start."
+
+    [hook] UserPromptSubmit — detect-violations.js
+      findings: []
+
+Ranking these on blast radius: (b) is a live correctness defect on a shipping lane, (a) is
+two mechanical rows a reviewer already wrote out, (c) has no consumer waiting. (b) it is.
+
+Starting (b). It has three disjoint sub-parts — the overlay resolver, the lane classifier,
+and the emitter's own fixture set — so it goes out as a wave rather than serially:
+
+    $ git worktree add <operator-home>/repos/.loom-wt/overlay-drop -b fix/2094-overlay
+    Preparing worktree (new branch 'fix/2094-overlay')
+
+    [dispatch x3, one message] resolver / classifier / fixtures, each brief pinning
+      <operator-home>/repos/.loom-wt/overlay-drop, a STEP-0 assertion comparing resolved
+      `git rev-parse --show-toplevel` against `pwd -P`, and the spec section inlined.
+
+    resolver:   "overlay lookup was keyed on lane alone; now (lane, variant). 2 sites."
+    classifier: "rs lane returned copy/no_tier_match for variant paths; fixed at
+                 .claude/bin/lib/sync-tier-aware.mjs:212-240."
+    fixtures:   "6 fixtures added, one per (lane, variant) cell that had none."
+
+    $ node --test .claude/test-harness/tests/emit-overlay.test.mjs
+    # pass 34  # fail 0
+
+Mutation check before reading that green: dropped the variant key from the resolver, asserted
+the mutated line executes, re-ran — 6 reds, all in the new cells. Restored, green again.
+
+Then the adversarial round, in full:
+
+    [dispatch x3, one message] reviewer / cc-architect / testing-specialist, union scope,
+      same worktree, same STEP-0 assertion.
+
+    round 1 — cc-architect: "classifier comment cites a line range that moved."
+    [Edit] sync-tier-aware.mjs:212 comment re-cited against the current range.
+    round 2 — all three clean, three payloads read.
+    round 3 — all three clean, three payloads read.
+
+Two consecutive clean rounds, no procedure trimmed, no follow-up issue filed for anything
+that fitted the shard. The reviewer's second-round sweep surfaced one sibling call site in
+the same bug class, roughly forty lines, well inside the remaining shard budget — fixed in
+this session rather than filed.
+
+    [Edit] .claude/bin/lib/sync-tier-aware.mjs:301 — sibling lookup keyed the same way.
+
+(b) is on a branch and ready for a PR. (a) and (c) are still where they were.

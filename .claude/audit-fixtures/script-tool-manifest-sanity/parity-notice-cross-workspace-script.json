@@ -1,0 +1,7 @@
+{
+  "name": "monorepo",
+  "scripts": {
+    "build": "npm run build -w packages/app"
+  },
+  "devDependencies": {}
+}

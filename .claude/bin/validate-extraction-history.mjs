@@ -69,7 +69,8 @@
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join, resolve, relative, basename, dirname } from "node:path";
 import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { isMainModule } from "./lib/entry-point.mjs";
+import { stripFencedContent } from "./lib/markdown-fences.mjs";
 
 // --- Constants ----------------------------------------------------------
 
@@ -313,11 +314,21 @@ function listJournalEntries(journalDir) {
 // Returns { mandated, reason, details } where mandated is true iff this
 // entry counts as a Rule-11-input (Rule-10-MANDATED invocation on the
 // target rule lane).
+//
+// A FENCED block is illustration, not structure (loom sweep finding C4,
+// 2026-09-06): both anchor + citation detection run over the entry with
+// fenced content stripped first, so a worked example quoting "Rule-10
+// disposition: ..." purely for illustration inside a ```text fence is not
+// misread as a real disposition assertion on the target rule. CONFIRMED by a
+// two-pole control before this fix: an entry whose ONLY anchor occurrence was
+// inside a fence classified `mandated: true` identically to one with the
+// same text unfenced.
 function classifyEntry(entryPath, body, fm, targetRule, repoRoot) {
-  if (!hasRule10Anchor(body)) {
+  const scannable = stripFencedContent(body);
+  if (!hasRule10Anchor(scannable)) {
     return { mandated: false, reason: "no-rule10-anchor" };
   }
-  if (!citesRule(body, targetRule)) {
+  if (!citesRule(scannable, targetRule)) {
     return { mandated: false, reason: "rule-not-cited" };
   }
   const entryDate = fm.get("date");
@@ -597,9 +608,8 @@ function main() {
 }
 
 // Export internals for audit-fixture harness
-const __filename = fileURLToPath(import.meta.url);
-const isMain =
-  process.argv[1] && resolve(process.argv[1]) === resolve(__filename);
+// Entry-point check: .claude/bin/lib/entry-point.mjs (symlink-safe; a lexical compare exits 0 silently).
+const isMain = isMainModule(import.meta.url);
 
 export {
   parseDateUTC,

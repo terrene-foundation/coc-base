@@ -1,0 +1,39 @@
+COMPLIANT POLE — the shipped CI-saturation guard.
+
+--- BEGIN HOOK SOURCE (excerpt) ---
+
+/**
+ * @hook-event: PreToolUse:Bash (guard) — a CI-triggering `git push` is the one
+ *   action whose cost depends on pool state, and PreToolUse:Bash is the boundary
+ *   attempting it. The subject (the pending command, and the pool's CURRENT
+ *   occupancy) exists at this instant and nowhere else.
+ *
+ * SEVERITY IS CAPPED AT halt-and-report. `triggersCi` consumes parseGitInvocations
+ * (a PARSED signal, not lexical), so MUST-2 does not bite there — the cap holds on
+ * three other grounds: the `runs-on:` read IS lexical; whether a pushed ref has
+ * workflows is undecidable from argv; and which pool to spend is the operator's
+ * call, so refusing would be MUST-2's own MUST NOT.
+ */
+
+const TIMEOUT_MS = 5000;
+const _timeout = setTimeout(() => {
+  process.stdout.write(JSON.stringify({ continue: true }) + "\n");
+  process.exit(1);
+}, TIMEOUT_MS);
+
+// ... every unknown (no gh, no network, unparseable body, no self-hosted pool)
+// resolves to passthrough() ...
+
+emit({
+  hookEvent: "PreToolUse",
+  severity: "halt-and-report",
+  what_happened: "...ALL 16 self-hosted runner(s) matching [self-hosted, kailash-linux] are BUSY (0 idle). The run will QUEUE rather than start.",
+  why: "ci-cost-discipline — queue wait, not execution time, is the dominant cost...",
+  agent_must_report: ["Measured: 0 of 16 idle...", "Ask the operator to choose...", "state the COST HONESTLY..."],
+  agent_must_wait: "Do not re-issue the push until the operator has chosen.",
+  user_summary: "ci-cost-discipline — 0/16 self-hosted runners idle; this push will QUEUE.",
+});
+
+--- END HOOK SOURCE ---
+
+Registered: CC PreToolUse/"Bash", Codex PreToolUse/"shell", Gemini BeforeTool/"bash".

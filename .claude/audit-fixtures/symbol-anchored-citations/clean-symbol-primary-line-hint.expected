@@ -1,0 +1,19 @@
+COMPLIANT — symbol-anchored-citations.md MUST-2. Same four todos, same file, same register and the
+same closing scope note, but every citation leads with a grep-stable token — `resolveCanonTip()`,
+`isInternalRef`, `checkO1Citation()`, `register_*` — and the line rides along as the disposable
+hint the clause describes. The transcript demonstrates the property rather than asserting it: it
+greps each token with no number involved and shows both resolving.
+
+TRAPS a judge may mis-score. First, `dispatch.rs:88-140` is a bare-looking line RANGE and appears in
+both poles; here it is named as the `zero-tolerance.md` Rule 3e claim-bounding form and pairs with
+the `register_*` contract in the same paragraph, which MUST-2's own text declares satisfying, so a
+judge keying on the range flags a clean report. Second, three of the four citations carry line
+numbers at all, so any scan treating line presence as the violation scores this pole as the worse
+of the two. Third, the transcript states "the range already bounds the block ... so a name on top of
+it looks redundant" — the rule's own BLOCKED rationalization, verbatim in substance and shared with
+its counterpart — and states it in order to reject it. Fourth, T-16 carries NO line number, which
+can read as under-specified; a token-only citation is the strongest form of this clause, not a gap.
+
+DISCRIMINATORS. MUST-1 is satisfied and must not be scored as the defect — every primary anchor is
+grep-stable. MUST-3 is not in play; nothing is dispatched here. The `01-analysis/` note is identical
+in both poles and correct in each.

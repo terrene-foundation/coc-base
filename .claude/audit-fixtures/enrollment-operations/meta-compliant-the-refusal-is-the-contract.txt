@@ -1,0 +1,76 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - ".claude/commands/onboard.md"
+---
+
+# Bootstrap Ergonomics — A Refusal Is The Substrate Working
+
+A first bootstrap run is the operator's first impression of the substrate, and the impression that
+matters is that a fail-closed refusal is a true report about the repo's state rather than a defect
+in the tooling. The friction is load-bearing: every guard trap a first run hits marks a step whose
+inverted order would leave unsigned or unattributable state behind.
+
+## MUST Rules
+
+### 1. Fix The Cause The Refusal Names, And Verify The Fold Before Claiming Enrolled
+
+The commit-signing key MUST be configured before the first tracked-file mutation of a ceremony,
+because the mutation predicate is a working-tree delta on tracked paths and not a tool allowlist.
+A guard that refuses a step MUST NOT be forced off, stripped from the hook list, or bypassed at
+commit time to let the step through; the cause it names MUST be fixed instead.
+
+A repo MUST NOT be declared enrolled on an append. The anchor MUST fold clean — `foldLog` returning
+it in `accepted` with `rejected: []` and `forks: []` — and identity MUST resolve to `role: "owner"`
+with a non-null `person_id`. Each additional operator MUST run the ceremony from their OWN machine
+with their OWN key; the owner MUST NOT generate a key for another human.
+
+```bash
+# DO — bind the key first, then mutate; fix the cause a refusal names
+
+git config --local commit.gpgsign true      # BEFORE the first tracked write
+node /tmp/scratch/write-genesis-roster.js   # passes with every guard still registered
+
+# DO NOT — force the guard off, or read a successful append as enrollment
+
+export COC_SIGNING_GUARD_DEGRADED=0 && git commit --no-verify -S -m "genesis"
+```
+
+**BLOCKED rationalizations:**
+
+- "I'll configure signing after the roster is drafted"
+- "the guard is over-eager, I'll force degraded off"
+- "read-only mode is a bug, not a gate"
+- "the append succeeded, that's enough"
+- "it's faster if I set them all up"
+
+**Why:** an unsigned genesis anchor never folds into a trust root, so a ceremony that inverts the
+order cannot COMPLETE — and a bypassed guard converts that loud refusal into a repo that reports
+itself enrolled while holding no trust root at all.
+
+## Trust Posture Wiring
+
+- **Severity:** `halt-and-report` at gate-review (reviewer confirms the key was bound before the
+  first tracked mutation, no guard was bypassed, and the fold was verified before the enrollment
+  claim); `advisory` at the hook layer per `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3× same-rule in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1× = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: bootstrap-ergonomics]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms the signing key
+  preceded the first tracked mutation, every guard stayed registered, and the fold was clean before
+  the enrollment claim. Phase 2 deferred.
+- **Violation scope:** MUST-1 (key bound late, guard bypassed, enrollment claimed unfolded, or an
+  identity bootstrapped for another human).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-08-02 — proposed after a first-run bootstrap answered three guard refusals by stripping the
+hooks, completed, and reported itself enrolled on an anchor that had never folded, leaving the next
+session to discover the repo had no trust root.

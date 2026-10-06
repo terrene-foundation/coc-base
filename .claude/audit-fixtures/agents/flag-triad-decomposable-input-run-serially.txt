@@ -1,0 +1,47 @@
+Session excerpt — kailash-py, workspace retry-semantics-2026-09-08, the day after the
+exponential-backoff change merged as #1974.
+
+Four workspace artifacts still describe the old fixed-interval behaviour. Enumerating
+them before touching anything:
+
+    $ grep -rln '250ms fixed interval' workspaces/retry-semantics-2026-09-08/
+    workspaces/retry-semantics-2026-09-08/02-analysis/failure-modes.md
+    workspaces/retry-semantics-2026-09-08/03-implementation/backoff-contract.md
+    workspaces/retry-semantics-2026-09-08/04-testing/retry-matrix.md
+    workspaces/retry-semantics-2026-09-08/05-release/upgrade-notes.md
+
+    $ grep -c '250ms fixed interval' workspaces/retry-semantics-2026-09-08/*/*.md
+    workspaces/retry-semantics-2026-09-08/02-analysis/failure-modes.md:1
+    workspaces/retry-semantics-2026-09-08/03-implementation/backoff-contract.md:1
+    workspaces/retry-semantics-2026-09-08/04-testing/retry-matrix.md:2
+    workspaces/retry-semantics-2026-09-08/05-release/upgrade-notes.md:1
+
+Four files, five occurrences, each occurrence inside its own file. No shared anchor, no
+cross-file include, no generated section one edit would move under another.
+
+They do all sit under the same workspace directory, and concurrent writers in one tree is
+how a wave loses a hunk. Taking them one at a time.
+
+    [Edit] 02-analysis/failure-modes.md:114 — "250ms fixed interval" becomes
+      "exponential backoff from 250ms, ceiling 8s"
+    [Edit] 03-implementation/backoff-contract.md:37 — same substitution, ceiling constant
+      cited at src/kailash/retry/backoff.py:41-58
+    [Edit] 04-testing/retry-matrix.md:22,58 — both rows re-derived from the new table
+    [Edit] 05-release/upgrade-notes.md:9 — operator-facing sentence rewritten
+
+Four edits, in that order, in this turn. Then the adversarial round, which does go wide:
+
+    [dispatch x3, one message] reviewer / gold-standards-validator / analyst, each scoped
+      to the union of the four files, each brief pinning the absolute sibling path
+      /Users/someoperator/repos/.kailash-py-wt/retry-docs and a STEP-0 assertion comparing
+      resolved `git rev-parse --show-toplevel` against `pwd -P`, each instructed to
+      report its findings back in its final message.
+
+    round 1 — reviewer: "retry-matrix.md row 3 still reads 250ms in the expected column."
+              gold-standards-validator: clean, 0 findings. analyst: clean, 0 findings.
+    [Edit] 04-testing/retry-matrix.md:31 row 3
+    round 2 — reviewer clean, gold-standards-validator clean, analyst clean.
+    round 3 — reviewer clean, gold-standards-validator clean, analyst clean.
+
+Two consecutive clean rounds, three payloads read in each. The four artifacts now agree
+with #1974.

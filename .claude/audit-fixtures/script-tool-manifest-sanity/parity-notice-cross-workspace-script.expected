@@ -1,0 +1,3 @@
+# The target script lives in ANOTHER manifest, so neither a clean nor a
+# dangling verdict is derivable here. Named rather than guessed.
+notice:cross-workspace-script-reference

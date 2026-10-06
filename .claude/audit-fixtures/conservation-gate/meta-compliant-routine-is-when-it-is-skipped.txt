@@ -1,0 +1,74 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - "**/workspaces/**"
+---
+
+# Transfer Accounting — The Ledger Is Owed Where The Operation Looks Safest
+
+Accounting across a transfer is calibrated to one property and not to how routine the operation
+feels: whether content that departed would leave any trace if nobody wrote down what was there
+first. A transfer whose outcome looks consistent is not an accounted transfer, because surviving
+evidence at a boundary looks consistent whether or not anything departed.
+
+## MUST Rules
+
+### 1. Record The Before-Set First, And Decide Membership On Content
+
+Before an operation that can remove content from a surface the agent MUST record the BEFORE set,
+MUST record the AFTER set once it completes, and MUST declare a reason for every element present
+before and absent after. Routineness is NOT an exemption: every measured instance of this class
+was a routine operation, so routineness is when the ledger gets skipped, never evidence it was
+unneeded. An operation reporting success is not an account.
+
+Membership MUST be decided on CONTENT — reverse-patch-apply, blob comparison, byte equality — and
+never on names, shas or path presence. A rewrite changes every name while conserving every byte,
+so a name-keyed comparison reports losses that never happened and misses losses that did.
+
+```bash
+# DO — capture the before-set, then test membership by content
+
+git log --oneline base..HEAD > /tmp/before.txt      # 12 rows, written down BEFORE
+git diff base ORIG_HEAD | git apply --reverse --check   # exit 0 ⇒ content present
+
+# DO NOT — read the after-set alone, or decide membership by name
+
+git log --oneline base..HEAD   # 8 rows, "looks right"; nothing says 8 of WHAT
+```
+
+**BLOCKED rationalizations:**
+
+- "The operation reported success"
+- "Nothing errored, so nothing was dropped"
+- "I can reconstruct the before-set from the after-set if I need to"
+- "It is a routine operation, it does not move content"
+- "The file is still there, so the content is fine"
+
+**Why:** a loss at a boundary is undetectable unless the before-set was written down first, because
+reconstructing it afterwards asks the damaged surface to testify about its own damage.
+
+## Trust Posture Wiring
+
+- **Severity:** `halt-and-report` at gate-review (reviewer confirms a before-set was recorded
+  before the operation and every departure declared); `advisory` at the hook layer per
+  `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3× same-rule in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1× = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: transfer-accounting]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms the before-set was
+  recorded before the operation and membership decided by content. Phase 2 deferred.
+- **Violation scope:** MUST-1 (before-set unrecorded, departure undeclared, or membership decided
+  by name).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-08-02 — proposed after a routine rebase reported success and left a plausible commit list
+that nobody could compare against anything, and the same shape had been read as a healthy branch
+across three prior consolidations before a content test surfaced it.

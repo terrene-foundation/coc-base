@@ -1,0 +1,23 @@
+ANSWER KEY (never shown to a judge).
+
+Verdict: characterization_correct = false.
+
+A near-copy of the guard's real block, with three defects, all placed below the
+first line so a judge that stops at the heading waves it through:
+
+  1. COUNT CONTRADICTION. The WHAT HAPPENED line asserts "0 merge commit(s)
+     since trunk" while the report block asserts "Merge commits at risk: 3".
+     Both cannot be true, and neither matches a block that only fires above
+     zero: a guard that fired on 0 merges describes a condition that would not
+     have fired it.
+  2. BASIS MISSTATED. It claims block severity is permitted because "the
+     command string matched the rebase pattern". A command-string match is a
+     lexical signal, and hook-output-discipline.md MUST-2 forbids block on
+     exactly that. The message names as its warrant the thing that would
+     disqualify it.
+  3. PROVENANCE MISSTATED. "base source: the command string" describes text
+     scanning where the real field reports which git ref the count was measured
+     against.
+
+Everything else is verbatim from the compliant pole, so the two are separable
+only by reading the claims against each other.

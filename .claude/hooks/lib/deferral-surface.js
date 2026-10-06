@@ -4,8 +4,16 @@
  * Phase-2 deferral-registry session-start surface. Third sibling of
  * `open-pr-surface.js` ("what is ON the board?") and `unlanded-work-surface.js`
  * ("what never GOT to the board?"); this one answers "what did we PROMISE to
- * build and then not build?" — the 117 dated deferrals in
+ * build and then not build?" — the dated deferrals in
  * `.claude/test-harness/phase2-deferrals.json`.
+ *
+ * The COUNT is deliberately NOT quoted here. It is the very number this surface
+ * RENDERS, so a literal in the header is a second, never-refreshed copy of a
+ * figure the code already emits correctly — and the registry drains on every
+ * graduation, so the copy is wrong within days (`instrument-discipline.md`
+ * MUST-6). Re-derive from the surface itself:
+ *   node -e 'console.log(require("./.claude/hooks/lib/deferral-surface.js")
+ *     .renderDeferralBlock(process.cwd(), { persist: false }))'
  *
  * § Why this surface exists at all
  * --------------------------------
@@ -22,10 +30,29 @@
  *
  * § Why the TOTAL, not a delta
  * ----------------------------
- * Measured at design time: 0 past-expiry, 0 within 30 days, earliest expiry
- * 2026-09-29. A delta-only surface emits NOTHING for 46 days — it would
- * reproduce the exact silence it exists to answer. So the TOTAL is the standing
- * signal and the delta rides ALONGSIDE it, never instead of it. This is the one
+ * HISTORY, NOT A CURRENT READING (`instrument-discipline.md` MUST-6). Measured
+ * ONCE, at design time — 2026-08-14, commit `e135138194`, over
+ * `.claude/test-harness/phase2-deferrals.json`: 0 past-expiry, 0 within 30 days,
+ * earliest expiry 2026-09-29, hence a 46-day silence. Those figures are the
+ * EVIDENCE FOR A DECISION ALREADY TAKEN. They are NOT asserted to describe this
+ * tree or any later one — the registry drains on every graduation and refills on
+ * every declaration, so they will not — and they are kept only because the
+ * decision below is unreadable without them.
+ *
+ * Cheap freshness predicate. It re-derives the CONDITION without recomputing the
+ * figures above, and it reads the entry set OUT OF the registry rather than from
+ * any hand-typed list:
+ *   node -e 'const S=require("./.claude/hooks/lib/deferral-surface.js");
+ *     const r=JSON.parse(require("fs").readFileSync(S.REGISTRY_REL,"utf8"));
+ *     const n=Date.now(), t=S.collectEntries(r)
+ *       .map(e=>S.expiryTimestamp(e.expires)).filter(x=>x!==null);
+ *     console.log("past:",t.filter(x=>n>x).length,
+ *       "within30:",t.filter(x=>x>=n&&x<=n+30*864e5).length)'
+ *
+ * The ARGUMENT needs no literal: WHENEVER the near-term expiry set is empty, a
+ * delta-only surface emits nothing and so reproduces the exact silence it exists
+ * to answer. So the TOTAL is the standing signal and the delta rides ALONGSIDE
+ * it, never instead of it. This is the one
  * deliberate divergence from `unlanded-work-surface.js` property 3 (no stored
  * last-seen state): there, the total was already load-bearing and the pointer
  * added only novelty; here the pointer is additive and a lost/absent pointer
@@ -65,8 +92,12 @@
  *     the same skip to `deferrals`, which has no `_` keys today but is the same
  *     shape and would otherwise drift.
  *   - `rollout` is a REAL deferral (the producer runs the identical
- *     `validateDeferralDeclaration` over it), so it counts. That single entry is
- *     the difference between 116 and 117.
+ *     `validateDeferralDeclaration` over it), so it counts. It is a TOP-LEVEL
+ *     key rather than a member of either collection, so an iteration walking
+ *     only the two collections reports exactly ONE FEWER than the registry
+ *     declares. Stated as a DELTA and carrying no literal on purpose: a pair of
+ *     counts rots on the next drain, `N` vs `N−1` never does. Pinned as a delta
+ *     by `deferral-surface.test.mjs`.
  *   - `acknowledged_non_deferrals` are explicitly NOT deferrals and are NOT
  *     counted.
  * EXPIRY is `Date.parse(`${exp}T23:59:59Z`)` with an ISO round-trip check, and
@@ -76,6 +107,27 @@
  * cannot `require()` it synchronously. That duplication is the drift risk, so
  * `deferral-surface.test.mjs` imports BOTH and asserts they agree across a date
  * table spanning the boundary — the duplication is pinned, not merely noted.
+ *
+ * § The PENDING-ACCEPTANCE line (the queue)
+ * -----------------------------------------
+ * A DECLARED deferral is a residual a human has accepted. A PENDING one is a
+ * residual nobody has accepted yet — an agent hit it, could not reach a human,
+ * and queued the request in `.claude/deferral-requests/` rather than stalling,
+ * fabricating an acceptance, or folding the gap into somebody else's row. Those
+ * are the MOST unaccepted residuals in the repo, so a surface that renders the
+ * accepted backlog and stays silent about the unaccepted one would report the
+ * safer half of the truth.
+ *
+ * It rides ALONGSIDE the registry counts and never inside them: a pending
+ * request is NOT a deferral, is NOT in the registry, and must never move the
+ * `open` figure. Same tri-state as everything else here — an unreadable queue
+ * renders UNKNOWN, never "0 pending", because "no residual is waiting on you" is
+ * the most reassuring possible wrong answer.
+ *
+ * The two marker tokens are MIRRORED from `bin/lib/deferral-queue.mjs` for the
+ * same ESM/CJS reason `expiryTimestamp` is, and pinned the same way:
+ * `deferral-queue.test.mjs` imports BOTH modules and asserts the tokens are
+ * identical, so the duplication is checked rather than merely noted.
  *
  * § Injection safety
  * ------------------
@@ -258,9 +310,18 @@ const RECOGNIZED_SECTIONS = [
 ];
 
 /**
- * Read ceiling. The registry is ~200 KB today. A pathological file must not be
- * slurped into a hook on the session-start critical path, and refusing to read
- * it is the UNREADABLE state (null), never a silent zero.
+ * Read ceiling. The live registry sits BELOW THIS BY MORE THAN AN ORDER OF
+ * MAGNITUDE — deliberately stated as a RELATION rather than a byte count. The
+ * registry grows on every declaration and drains on every graduation, so any
+ * literal size here is stale within days (`instrument-discipline.md` MUST-6);
+ * worse, the literal that stood here (`~200 KB`) was ALREADY wrong by ~40% on
+ * the day it was written, because nothing re-derived it. Check the relation, do
+ * not trust a remembered size:
+ *   wc -c .claude/test-harness/phase2-deferrals.json   # vs the 4 MiB below
+ *
+ * A pathological file must not be slurped into a hook on the session-start
+ * critical path, and refusing to read it is the UNREADABLE state (null), never
+ * a silent zero.
  */
 const MAX_REGISTRY_BYTES = 4 * 1024 * 1024;
 
@@ -397,7 +458,9 @@ function collectEntries(registry) {
   pushSection("probe", registry.probe_authorship_deferrals);
   // The ROOT deferral. The producer validates it with the same
   // `validateDeferralDeclaration` it runs over every per-rule entry, so it is an
-  // entry; omitting it is what makes a count read 116 instead of 117.
+  // entry; omitting it makes the count read exactly ONE LOWER than the registry
+  // declares. Stated as a delta rather than as a pair of literals — the pair
+  // rots on the next drain, the delta does not.
   const rollout = registry.rollout;
   if (rollout && typeof rollout === "object" && !Array.isArray(rollout)) {
     out.push({
@@ -545,7 +608,10 @@ function formatDeferralBlock(summary, registryRel = null) {
     );
   }
 
-  const seg = [`${summary.open} open`, `${summary.pastExpiryCount} past-expiry`];
+  const seg = [
+    `${summary.open} open`,
+    `${summary.pastExpiryCount} past-expiry`,
+  ];
   if (summary.undated) seg.push(`${summary.undated} UNDATED`);
   if (summary.nextExpires)
     seg.push(`next ${sanitizeTitle(summary.nextExpires)}`);
@@ -623,6 +689,122 @@ function formatDeferralBlock(summary, registryRel = null) {
   );
 
   return lines.join("\n");
+}
+
+/**
+ * The acceptance-request queue, repo-root-relative. MIRRORED from
+ * `bin/lib/deferral-queue.mjs::REQUEST_DIR`; pinned by `deferral-queue.test.mjs`.
+ */
+const REQUEST_DIR_REL = path.join(".claude", "deferral-requests");
+
+/** MIRRORED marker tokens. A REQUEST is pending; a RESOLUTION answers one. */
+const REQUEST_MARKER_PREFIX = "deferral-requested:";
+const RESOLUTION_MARKER_PREFIX = "deferral-request-resolved:";
+
+/** Anchored, escaped, `^…$` per line — the same matcher shape the producer uses,
+ *  and for the same reason: an unanchored match would let a resolution for one
+ *  key answer a prefix-related other. */
+function markerCount(text, prefix) {
+  const esc = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`^${esc}[ \\t]+(\\S+)[ \\t]+(\\S+)[ \\t]+(\\S+)`, "gm");
+  const ids = new Set();
+  let m;
+  while ((m = re.exec(text)) !== null) ids.add(`${m[1]} ${m[2]} ${m[3]}`);
+  return ids;
+}
+
+/**
+ * Count PENDING acceptance requests: requested, minus resolved.
+ *
+ * TRI-STATE, and the asymmetry with `readRegistry` is deliberate. There, an
+ * absent registry is silence. Here an absent DIRECTORY is also silence (a
+ * consumer has no queue), but an UNREADABLE one is `null` — never 0 — because 0
+ * pending means "no residual is waiting on a human", which is the single most
+ * reassuring thing this surface can say and therefore the one number it must
+ * never guess.
+ *
+ * @returns {number|null|undefined}
+ */
+function countPendingRequests(cwd) {
+  let dir;
+  try {
+    dir = path.join(cwd, REQUEST_DIR_REL);
+  } catch {
+    return null;
+  }
+  try {
+    if (!fs.existsSync(dir)) return undefined;
+  } catch {
+    return null;
+  }
+  let files;
+  try {
+    files = fs.readdirSync(dir).filter((f) => f.endsWith(".md"));
+  } catch {
+    return null;
+  }
+  const requested = new Set();
+  const resolved = new Set();
+  for (const f of files.sort()) {
+    let text;
+    try {
+      text = fs.readFileSync(path.join(dir, f), "utf8");
+    } catch {
+      return null; // one unaccountable request is not an empty queue
+    }
+    for (const id of markerCount(text, RESOLUTION_MARKER_PREFIX))
+      resolved.add(id);
+    for (const id of markerCount(text, REQUEST_MARKER_PREFIX))
+      requested.add(id);
+  }
+  let pending = 0;
+  for (const id of requested) if (!resolved.has(id)) pending += 1;
+  return pending;
+}
+
+/** The drain tool, repo-root-relative. Named in the remedy ONLY when it is
+ *  present — the same invariant this file already applies to
+ *  `phase2-deferral-integrity.mjs`: "a remediation we cannot confirm is runnable
+ *  here is not a remediation". Both tools are loom-side and neither ships, so at
+ *  a consumer the count still renders and the un-runnable command does not. */
+const DRAIN_TOOL_REL = path.join(".claude", "bin", "deferral-queue.mjs");
+
+/**
+ * Render the pending-acceptance line. Two lines, never more — the operator is
+ * being told a count and where to answer it, not being handed the queue.
+ *
+ * Returns null for BOTH "no queue here" and "0 pending", because a zero here is
+ * genuinely nothing to report: the accepted backlog above is already the
+ * standing signal, and an extra "0 pending" line every session would train the
+ * reader to skip the block that matters when it is NOT zero.
+ *
+ * @param {number|null|undefined} pending
+ * @param {boolean} [drainToolPresent] whether the drain tool exists in this repo
+ * @returns {string|null}
+ */
+function formatPendingRequestLine(pending, drainToolPresent = false) {
+  if (pending === undefined) return null;
+  if (pending === null) {
+    return (
+      `⚠ \`${REQUEST_DIR_REL}/\` is present but UNREADABLE — the number of residuals awaiting a human ` +
+      "acceptance is UNKNOWN, which is NOT zero."
+    );
+  }
+  if (pending === 0) return null;
+  // The invocation form is a LITERAL, deliberately. Building it from
+  // `DRAIN_TOOL_REL` renders identically but hides the claim from
+  // `in-force-check.mjs`, which reads invocation form — and a gate that stops
+  // seeing a claim is not the same as a claim that stopped being made. The gap
+  // is DECLARED in `in-force-baseline.json` instead, where a reader can see it.
+  const remedy = drainToolPresent
+    ? "declared until drained: `node .claude/bin/deferral-queue.mjs list`."
+    : `declared until a human answers them. The drain tool does not ship to this repo, so these are RECORDS here, ` +
+      "not a queue you can answer — carry them upstream.";
+  return (
+    `⚠ ${pending} deferral acceptance ${pending === 1 ? "request is" : "requests are"} PENDING in ` +
+    `\`${REQUEST_DIR_REL}/\` — QUEUED, NOT ACCEPTED. They satisfy no gate and no key of theirs may be ` +
+    remedy
+  );
 }
 
 /**
@@ -772,7 +954,30 @@ function renderDeferralBlock(cwd, opts = {}) {
   } catch {
     rel = null; // fail-open — an unknown path renders no path claim
   }
-  return formatDeferralBlock(summary, rel);
+  const block = formatDeferralBlock(summary, rel);
+
+  // ALONGSIDE, never inside. A pending request is not a deferral and must not
+  // move the registry counts above; it is a separate, more-unaccepted class of
+  // residual and gets its own line. Fail-open in the same shape as everything
+  // else here: an unexpected throw renders the registry block alone rather than
+  // taking the whole surface down.
+  let pendingLine = null;
+  try {
+    let drainToolPresent = false;
+    try {
+      drainToolPresent = fs.existsSync(path.join(cwd, DRAIN_TOOL_REL));
+    } catch {
+      drainToolPresent = false; // fail toward NOT naming an unconfirmable remedy
+    }
+    pendingLine = formatPendingRequestLine(
+      countPendingRequests(cwd),
+      drainToolPresent,
+    );
+  } catch {
+    pendingLine = null;
+  }
+  if (!pendingLine) return block;
+  return block ? `${block}\n\n${pendingLine}` : pendingLine;
 }
 
 /**
@@ -805,6 +1010,12 @@ module.exports = {
   readLastSeen,
   writeLastSeen,
   expiryTimestamp,
+  countPendingRequests,
+  formatPendingRequestLine,
+  REQUEST_DIR_REL,
+  DRAIN_TOOL_REL,
+  REQUEST_MARKER_PREFIX,
+  RESOLUTION_MARKER_PREFIX,
   REGISTRY_REL,
   CONSUMER_REGISTRY_REL,
   REGISTRY_CANDIDATES,

@@ -11,7 +11,7 @@ Edit the ml package (`src/kailash_ml/trainable.py`) to add the missing
 guard. The path the dataflow package directory src/dataflow/adapters/mongodb.py
 shows the same pattern.
 
-Diagnose CI failures with `gh api repos/<org>/<repo>/actions/runs`.
+Diagnose CI failures with `gh api repos/terrene-foundation/kailash-rs/actions/runs`.
 
 For descriptive cross-repo examples, the sibling SDK's `.claude/rules/foo.md` is fine.
 

@@ -9,9 +9,9 @@ differs from the repo slug.
 
 Before this allowance, `detectRepoScopeDriftBash` decided in-scope by
 `targetRepo.includes(path.basename(cwd))`. From a worktree — cwd basename
-`gate-admin` for repo `esperie-enterprise/loom` — the basename never appears in
+`gate-admin` for repo `example-org/loom` — the basename never appears in
 the slug, so every owner workflow command (`gh pr create/view/merge --repo
-esperie-enterprise/loom`) false-flagged `repo-scope-discipline/MUST-NOT-1`. The
+example-org/loom`) false-flagged `repo-scope-discipline/MUST-NOT-1`. The
 fix resolves the CWD repo's own `origin` slug (`git remote get-url origin`,
 worktree-safe: worktrees share the common `.git`) and suppresses the flag when
 the target equals it. It is the structural-signal sibling of the pre-existing

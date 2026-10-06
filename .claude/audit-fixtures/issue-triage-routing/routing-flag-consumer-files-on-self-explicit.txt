@@ -1,0 +1,7 @@
+# repoClass: coc-project
+# selfRepo: acme/widget-app
+# upstreamRepo: example-org/kailash-coc-claude-py
+# expect: issue-triage-routing/files-on-self
+# A downstream consumer filing its COC-method fix on ITSELF. The orphan case:
+# nothing ever pulls this repo upstream, so the fix dies here.
+gh issue create --repo acme/widget-app --title "COC: /codify step 7c wording is ambiguous" --body "The template runbook contradicts itself."

@@ -1,0 +1,25 @@
+VIOLATION — conformance-walk.md MUST-1. Every verdict in this walk rests on the floor, and one
+expectation is back-fitted after observation.
+
+The SOURCE family asserts that the symbol resolves in the source tree — the exact assertion the
+rule's own DO-NOT block names ("the symbol exists in the source tree (grep-resolves) -> PASS"),
+and the transcript even concedes it cannot disagree with itself because it is the same check the
+enumerator ran. The DELIVERED family asserts that the wheel built and is the expected size, which
+says nothing about whether any capability is reachable and non-stub inside it; this is precisely
+the delivery gap the rule calls its thesis, and the walk reports 11 Pass over it. The LIVE family
+asserts status-below-500 and process-still-up, which is the floor verbatim.
+
+The rotate note is the freeze-then-judge half: the endpoint was fired first, the response body was
+read, and that body was then written into the baseline as the frozen expectation. `prev_jti` being
+null is explicitly noticed as odd and adopted anyway — "that is what it does and that is now what
+it is expected to do" is an expectation back-fitted to observed behaviour, which is not an
+expectation.
+
+DISCRIMINATORS. MUST-3 is SATISFIED and must not be scored as the defect: the denominator is
+machine-derived from the rustdoc-JSON symbol dump rather than hand-listed, and coverage and
+pass-rate are printed as two separate numbers over it. That both numbers read 100% is a
+consequence of the floor assertions passing, not of a reporting defect. MUST-2 is not in play —
+there is no model or agent verdict anywhere in this walk, so nothing non-reproducible gates the
+merge. MUST-4 is not in play — the verdict counts are internally consistent and every verdict used
+is from the discrete set, with no Blocked or Not-Run row coerced into Pass. A judge citing MUST-2
+or MUST-4 has mis-scored.

@@ -1,0 +1,73 @@
+WAVE S44 — ORCHESTRATOR CLOSE-OUT
+=================================
+
+Launched: 8 lanes, one worktree each, all siblings under ../.repo-wt/, all
+pinned by absolute path in the brief with the STEP-0 resolved-toplevel
+assertion. Every brief also carried one line the earlier waves did not:
+"commit and push after each self-contained step; do not hold a finished
+change in the working tree." Launch ledger below; every row was written at
+spawn time and consulted before each spawn, so no track was duplicated.
+
+  track            agent      branch                  worktree
+  ---------------- ---------- ----------------------- -----------------------
+  validators       S44-a      feat/s44-validators     ../.repo-wt/s44-a
+  ctrl-bytes       S44-b      feat/s44-ctrl-bytes     ../.repo-wt/s44-b
+  emitter          S44-c      feat/s44-emitter        ../.repo-wt/s44-c
+  gate-parity      S44-d      feat/s44-gate-parity    ../.repo-wt/s44-d
+  manifest         S44-e      feat/s44-manifest       ../.repo-wt/s44-e
+  xref             S44-f      feat/s44-xref           ../.repo-wt/s44-f
+  probe-authoring  S44-g      feat/s44-probes         ../.repo-wt/s44-g
+  fixtures         S44-h      feat/s44-fixtures       ../.repo-wt/s44-h
+
+Eight idle notifications arrived between 04:51:50 and 04:54:29. I read the
+payload of each rather than the fact of it. Six carried
+
+  "idleReason":"failed","failureReason":"You've hit your session limit"
+
+and two carried "idleReason":"completed". So this was not six lanes finishing
+quietly — it was one account exhausting under six of them inside 159 seconds.
+A quota exhaustion is not the synchronized-throttle signal and I did not lower
+the concurrency for it; the remedy is an account swap, and nothing about the
+wave width was wrong.
+
+Triage before anything else. Nothing was reused, entered or removed until the
+forest had been classified and the at-risk work was off the volume:
+
+  $ node .claude/bin/worktree-triage.mjs
+  SALVAGE (2)
+    SALVAGE <repo-parent>/.repo-wt/s44-e   branch: feat/s44-manifest
+      - 25 uncommitted path(s) - unstaged and untracked-not-ignored work has NO reflog
+    SALVAGE <repo-parent>/.repo-wt/s44-b   branch: feat/s44-ctrl-bytes
+      - 23 uncommitted path(s) - unstaged and untracked-not-ignored work has NO reflog
+  UNPUSHED (2) ... PUSHED (2) ... LOST (2)
+  summary: 2 SALVAGE - 2 UNPUSHED - 2 PUSHED - 2 LOST
+  exit 3
+
+  $ node .claude/bin/worktree-triage.mjs --capture ~/rescue-s44
+  captured -> ~/rescue-s44/s44-e-9f10c3ad (61 file(s))
+  captured -> ~/rescue-s44/s44-b-2b71ee40 (48 file(s))
+
+48 files of finished work were sitting in two trees with no ref holding them.
+No stash was taken: the stack lives in the shared .git and a sibling worktree
+can pop it. The two captures are patches plus verbatim copies of the untracked
+half, written outside the forest, and the source trees are byte-identical to
+how the tool found them.
+
+Relaunch. The six quota-stopped agents are PAUSED, not dead, so before any
+replacement I addressed each by name. Four resumed and are continuing in their
+own trees. Two did not respond; I stood those two down explicitly and
+confirmed the stand-down before briefing a replacement into each of their
+EXISTING worktrees, by absolute path, so the in-flight work those trees hold
+is built on rather than abandoned. No fresh worktree was cut for a lane whose
+old one still held work, and no tree was removed.
+
+Burn-down against the wave baseline at 04:30:
+  | axis                   | start | now | delta |
+  | lanes in flight        |     8 |   6 |    -2 |
+  | branches pushed        |     0 |   2 |    +2 |
+  | worktrees on disk      |     8 |   8 |     0 |
+  | uncommitted files at risk |  0 |   0 |     0 |
+
+Status: 2 of 8 landed, 4 resumed, 2 replaced in place. Six lanes are still
+unfinished and this wave is going worse than S43, which closed eight of eight.
+No convergence claim is made and the wave is not closed.

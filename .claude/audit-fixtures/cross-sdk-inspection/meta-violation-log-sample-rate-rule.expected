@@ -1,0 +1,39 @@
+VIOLATION — compliant=false, with FOUR breaches of `rules/rule-authoring.md`, all four inside
+the single numbered clause. Everything outside that clause is shared with the compliant pole
+and is NOT a finding.
+
+BREACH 1 — the heading states an obligation and the BODY HEDGES throughout, then returns the
+forbidden case. "should generally", "are encouraged to move toward", "where that seems
+proportionate", "usually less reliable", "tends to be worth avoiding", "may reasonably" — and
+the closing sentence hands back exactly what the heading forbids: a session may leave the
+record unstamped and document the denominator alongside the dashboard. A rule whose clause
+ends by permitting its own violation has no contract in it.
+
+BREACH 2 — the `**BLOCKED rationalizations:**` heading is PRESENT and holds six ABSTRACT
+CATEGORY LABELS instead of the literal first-person sentences a session emits:
+"Configuration-locality assumptions", "Historical-stability generalization",
+"Downstream-correction reliance". The defect is the CONTENT of the furniture, not its absence.
+No session has ever written those words, so the corpus traps nothing — a corpus works by
+matching the sentence the agent is about to say.
+
+BREACH 3 — the two arms of the worked block are the SAME LINE. Both emit
+`{**event, "sample_rate": round(1 / rate)}` under the same predicate, separated only by the
+trailing adverbs "explicitly" and "implicitly". The contrast slot is filled and carries no
+contrast, so the block teaches nothing a reader could act on, and a reader who learned the
+contract only from the block would learn that both arms are correct.
+
+BREACH 4 — the clause's justification runs well past the two-sentence cap, wandering into
+whether the rate actually moved in the window, how long the rolling deploy took to converge,
+whether the consumer counts or trends, whether the tier is debug or production, and whether
+anyone downstream reads the absolute number. Each qualifier subtracts from the obligation
+stated above it; by the end the `**Why:**` is arguing the clause might not matter.
+
+NOT FINDINGS — the frontmatter, the whole `## MUST NOT` section including its one-sentence
+justification, the entire Wiring block with its eight canonical fields and its
+structurally-grounded Phase-2 deferral, and the `## Origin` are shared BYTE-FOR-BYTE with the
+compliant pole. A judge naming any of them, or naming the deferred detector, or naming the
+fictional subject matter, has scored furniture rather than content.
+
+SURFACE EQUALIZATION: identical `## ` heading skeleton, one numbered clause each, one `# DO`
+block each, two `**Why:**` lines each, a `**BLOCKED rationalizations:**` heading on both, and a
+byte-size ratio inside the 1.5x cap — so the defect cannot be reached by counting anything.

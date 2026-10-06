@@ -1,0 +1,8 @@
+{
+  "_README": ["A declaration that outlived its fact — registry->corpus reconciliation."],
+  "baseline": {
+    ".claude/rules/security.md::.claude/test-harness/probes/security.probes.json": {
+      "reason": "This key names a claim the rule no longer makes, so the declaration is stale and must red rather than sit green."
+    }
+  }
+}

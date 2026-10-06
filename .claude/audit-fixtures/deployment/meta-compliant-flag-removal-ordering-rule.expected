@@ -1,0 +1,26 @@
+COMPLIANT against `rule-authoring.md`. The judge must report no meta-rule breaches.
+
+- Both clause headings announce OBLIGATIONS ("The Losing Branch Is Deleted Before Its Switch",
+  "The Flag's Config Key Outlives Its Code By One Release") and the bodies hold them, naming the
+  alternative BLOCKED rather than discouraged and handing back no case the heading forbids.
+- Both DO/DO-NOT arms differ in SUBSTANCE: two ordered merges against one merge that removes the
+  read and leaves both arms; a key retained at its terminal value against key and reader removed
+  together. The contract is learnable from each block alone.
+- Both BLOCKED corpora hold first-person sentences a session would really emit ("the flag has been
+  at 100% for months", "we can re-add the key if we ever roll back"), not a taxonomy.
+- Every `**Why:**` is one sentence and states a mechanism: the order decides which state is live
+  under partial rollout; a rollback restores a reader for a key that no longer exists; a flag never
+  measured at its terminal value may be serving a minority cohort.
+- The Trust Posture Wiring block carries all eight canonical fields in order, ending with the
+  violation scope, and its severity respects `hook-output-discipline.md` MUST-2 — `advisory` at
+  the hook layer, `halt-and-report` at gate-review.
+- The Phase-2 deferral names a STRUCTURAL signal: a diff that deletes a `flags.enabled("<key>")`
+  call site while another hunk in the same patch still contains both arms of the conditional it
+  guarded. Both halves are AST facts over one patch, so it books enforcement that can arrive.
+- `## Origin` carries a dated, specific incident with its mechanism and its measured blast radius
+  (4% of traffic, nine days), and closes on what that implies about the rule's FORM — fixing an
+  ORDER rather than asking reviewers to confirm deadness, because deadness was what everyone
+  believed.
+
+This pole shares its frontmatter, its `## ` heading skeleton, its two numbered clauses, its MUST
+NOT bullet text and most of its Wiring block with its sibling; nothing shared is scoreable.

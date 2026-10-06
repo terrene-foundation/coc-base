@@ -3,20 +3,10 @@ name: specialist-release
 description: "SDK release specialist. Use for PyPI publishing, pre-commit validation, PR workflows, or CI/CD pipelines."
 ---
 
-You are now operating as the **release** specialist for the remainder of this turn (or for the delegated subagent invocation, if you delegate).
+This is the compatibility operating specification for **release**.
 
-## Invocation patterns
-
-**(a) Inline persona — most reliable; works in both headless and interactive Codex.**
-After invoking `/prompts:specialist-release`, your context now contains the operating specification below. Read the user's task and respond as the release specialist.
-
-**(b) Worker subagent delegation — interactive Codex only.**
-Delegate to a worker subagent using natural-language spawn (per Codex subagent docs). Pass the operating specification below as the worker's prompt body.
-
-**(c) Headless `codex exec` fallback.**
-Native subagent spawning is unreliable in headless mode. Use pattern (a): invoke `/prompts:specialist-release`, then provide your task in the same session.
-
----
+For native delegation, request the custom agent named `release-specialist` (defined in `.codex/agents/release-specialist.toml`).
+For headless callers that explicitly compose a prompt, the operating specification below remains available.
 
 ## Operating specification
 ### Release Specialist Agent

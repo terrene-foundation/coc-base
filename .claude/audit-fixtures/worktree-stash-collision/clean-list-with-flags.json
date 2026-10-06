@@ -1,0 +1,4 @@
+{
+  "command": "git stash list --stat --date=iso",
+  "note": "READ with flags"
+}

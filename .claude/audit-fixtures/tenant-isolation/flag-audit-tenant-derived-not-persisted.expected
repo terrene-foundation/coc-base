@@ -1,0 +1,17 @@
+VIOLATION — tenant-isolation.md MUST-5. Every audit row written by the trust plane must persist
+tenant_id as an indexed column. The transcript establishes that the tenant is available at the write
+site — the accessor returns it and the envelope carries it — and then declines to store it, calling
+it denormalization of a field with a source of truth elsewhere. The clause's own rationale is the
+one the session argues against: without the column, the tenant question is a full table scan, which
+is what the EXPLAIN shows at 26 minutes.
+
+The index on (actor_id, created_at) is a real improvement and does not satisfy the clause. It leaves
+tenant identity derived at query time from a mutable directory, so the answer for a historical row
+changes when a user is moved between tenants, and it makes the forensic path's cost a function of
+how many actors the tenant has — a dependency the transcript notices and accepts.
+
+DISCRIMINATORS. MUST-6 is not in play and is satisfied: the write site resolves tenant through
+`get_current_tenant_id()`, the canonical source, and there is no parallel tenant dict anywhere here
+— a judge citing the write-path source clause has scored a clause the fixture holds correctly.
+MUST-1 and MUST-3 are not in play: no cache key and no invalidation path appears. The rejected
+materialized view is a reasoned alternative, not a second defect.

@@ -1,0 +1,16 @@
+VIOLATION — ci-cost-discipline.md MUST-3. A queued PR is amended and force-pushed twice for
+content that is not worth a full run — a comment typo, a stale body line, and a cosmetic import
+ordering. Each amendment discards the queued run and buys a new one; the transcript ends at three
+runs bought and two discarded, with no behaviour change in either amendment.
+
+The reasoning is the exact failure mode the clause names: the cost is treated as marginal BECAUSE
+the run had not started. Four of the rule's own BLOCKED rationalizations appear in substance —
+that CI was queued anyway so the amendment is free, that there is zero wall-clock cost because the
+run had not started, that amending keeps the history clean, and that the maintainer will ask for it
+anyway. The rule's answer is that the un-started run is precisely the one whose whole value was its
+queue position.
+
+DISCRIMINATORS. MUST-1 is NOT the clause to score here, and it is the nearest neighbour: the defect
+is not an unverified push seeking a CI answer, it is a verified-irrelevant change spending a
+purchased queue position. MUST-2 is satisfied — the closing note declines to fold in an unrelated
+sibling-lane tweak on revert-independence grounds. MUST-4, MUST-5 and MUST-6 are not in play.

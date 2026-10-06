@@ -172,7 +172,13 @@ def _validate_monotonic_tightening(old, new):
 
 **Detection:** for any field promoted to a fail-closed authorization control at an eval surface, FIRST enumerate ALL validators that reference the control's field/type (the helper-following grep is precisely what cannot find the independent surfaces), THEN grep each re-registration / monotonic-tightening validator for that field name — absence is a finding.
 
-Origin: kailash-py #1456 → kailash-pact 0.14.3 (PR #1459). #1456 promoted `McpToolPolicy.clearance_required` to a fail-closed gate at `_check_clearance` (eval, Step 3.5) but left `_validate_monotonic_tightening` (re-registration) blind to it; a `secret`→None / `secret`→`public` re-registration was accepted as "tightening", silently stripping the gate. Cross-SDK sibling: the Rust SDK binding (same shape).
+Origin: see § Clause Origins — provenance relocated from the rule body,
+§ Enforcement-Surface Parity. This paragraph previously carried its own copy of
+that provenance, abridged — it omitted the "caught by an adversarial /redteam,
+NOT by the existing multi-site grep" clause, which is the load-bearing half (the
+multi-site grep this file's § Detection recommends is exactly the instrument that
+MISSED it). The full text now lives once, verbatim, at § Clause Origins; the
+abridged restatement is withdrawn rather than left to drift further from it.
 
 ## Redactor Contract — Extended
 
@@ -228,15 +234,33 @@ file's header pointer ("Depth for most sections below lives in
 NOTE ON PLACEMENT (loom#1422 AC-5, loom#1355). AC-5 asked § Enforcement-Surface
 Parity to cross-reference the predicate IN THE RULE, so the clause points at
 something structural rather than at human memory. That pointer is NOT in the rule
-body, and the omission is deliberate and measured rather than an oversight: the
-`rs` lane composes `security.md` to 9545B against a granted per-rule ceiling of
-9600B (itself an exception under #1355, expiring 2026-10-31), leaving 55B. The
-shortest honest form of the clause measured ~199B, which BLOCKS the lane. Raising
-the ceiling is a co-owner decision, and displacing existing contract prose to make
-room would trade a live security contract for a cross-reference. So the depth
+body, and the omission was deliberate and measured rather than an oversight.
+
+THE ORIGINAL CONSTRAINT, as measured on 2026-07-26: the `rs` lane composed
+`security.md` to 9545B against a granted per-rule ceiling of 9600B (itself an
+exception under #1355, expiring 2026-10-31), leaving 55B. The shortest honest
+form of the clause measured ~199B, which BLOCKED the lane. Raising the ceiling
+was a co-owner decision, and displacing existing contract prose to make room
+would have traded a live security contract for a cross-reference. So the depth
 lives here, reachable from the rule's existing header pointer, at zero baseline
-emission cost. If the rs per-rule ceiling is ever raised, the one-line pointer
-belongs back in § Enforcement-Surface Parity.
+emission cost.
+
+**THAT CONSTRAINT HAS LIFTED, and the numbers above are history — do not quote
+them forward.** The #1355 per-rule grant was RETIRED on 2026-09-02 and no
+per-rule exception is declared. The relief did not come from raising the ceiling,
+which is the trigger this note originally named; it came from the rule SHRINKING
+past it, which has the same effect on the decision. Measured on the retirement
+tree: rs composes `security.md` to **8985B** against the **flat 9360B** ceiling,
+leaving ~375B — comfortably more than the ~199B the clause needs.
+
+So the stated precondition for restoring the one-line pointer to
+§ Enforcement-Surface Parity is now SATISFIED IN SUBSTANCE. It was deliberately
+NOT restored in the retirement change, whose mandate was removing a dead waiver:
+adding normative prose to a `priority: 0` baseline rule is a separate decision
+with its own emission cost and its own review, not a free rider on a cleanup.
+Re-measure before acting on the figures above rather than trusting this
+paragraph — that is the same instruction the retired stanza gave, for the same
+reason.
 
 ### The clause asks for something a human does not reliably do
 
@@ -289,3 +313,106 @@ control there. An enumeration test MUST recognise that case structurally — the
 #1422 test treats a permission-matcher string (`Tool(<path>)`) as a DECLARATION
 rather than a path-matching decision — rather than carrying a per-file allowlist,
 which is the shape that lets real fragmentation hide.
+
+## Clause Origins — provenance relocated from the rule body
+
+Relocated verbatim 2026-09-24 out of `.claude/rules/security.md`. Both are
+line-initial `Origin:` paragraphs — the class `abridgeV6` already strips from the
+Codex/Gemini baseline — so no consumer loses anything, while Claude Code stops
+paying ~977 B of provenance on every session. The clause bodies, their `**Why:**`
+lines, their `Depth:` pointers into `skills/18-security-patterns/**` and their
+clause-scoped Trust-Posture Wiring `- **Origin:**` fields all stay in the rule.
+Nothing else moved: the four `## Trust Posture Wiring` sections, the
+`#### Accepted residual` H4 and the length-rationale paragraph were examined and
+DELIBERATELY LEFT — see § Why the Wiring sections did not move, below.
+
+### § Enforcement-Surface Parity
+
+Origin: kailash-py #1456 → kailash-pact 0.14.3 (PR #1459). #1456 promoted `McpToolPolicy.clearance_required` to a fail-closed gate at `_check_clearance` (eval, Step 3.5) but left `_validate_monotonic_tightening` (re-registration) blind to it; a `secret`→None / `secret`→`public` re-registration was accepted as "tightening", silently stripping the gate (caught by an adversarial /redteam, NOT by the existing multi-site grep). Cross-SDK sibling: the Rust SDK binding (same shape).
+
+### § Path Containment — Resolve And Normalize Before The Trust Decision
+
+Origin: BUILD `SECURITY-PATH-CONTAINMENT-2026-07-16` — a COC eval-harness manifest-scanner used a LEXICAL `resolve()` only; a symlink at a lexically-contained path whose target escaped the boundary passed the string check and would have `execFileSync`'d out-of-tree code (fixed by a `realpathSync` re-check resolving BOTH candidate and root); cross-language sibling kailash-mcp #1833 (resolved-path spawn-allowlist + OS-aware separators + platform-gated suffix + Windows drive-relative).
+
+## Why the Wiring sections did not move
+
+The four `## Trust Posture Wiring — …` sections, the `#### Accepted residual`
+H4 and the length-rationale paragraph were all candidates for this extraction and
+were all LEFT IN THE RULE. The reason is measured, not stylistic, and is recorded
+here so the next pass does not re-derive it.
+
+**They carry counted enforcement tokens.** `check-descoping.mjs` censuses
+`must_token`, `must_not_token`, `blocked_token`, `why_line` and `wiring:<field>`
+over non-fence lines of each canon rule, and gates on a FALLING count against the
+merge-base. Measured on the pre-edit tree: the four Wiring sections hold 31 `MUST`
+and 3 `MUST NOT` occurrences; the `#### Accepted residual` H4 holds 3 `MUST`; the
+length-rationale paragraph holds 2 `MUST` + 2 `MUST NOT`; the 2026-09-02 amendment
+holds 4 `MUST`, 2 `MUST NOT` and 3 `BLOCKED`. Every one of those would DROP.
+
+**And a drop into THIS file is a finding, not a free move.** The gate's constraint
+6 was amended 2026-08-28: a moved line clears free only when it lands somewhere
+that still LOADS. `.claude/rules/**` and `.claude/skills/**` do; `guides/**` is
+read by following a pointer, so a counted line relocated here reports as
+`descoping_to_uninjected` rather than as a verbatim move. Depth is uncounted, so
+ordinary Rule-10 extraction of prose still costs nothing — which is exactly why
+the two `Origin:` paragraphs above moved cleanly and the Wiring sections cannot.
+
+**Four registry anchors additionally pin Wiring text into the rule.**
+`phase2-deferrals.json` carries four rows whose `rule` is `.claude/rules/security.md`
+and whose verbatim `quote` lives inside a Wiring block — `security.md#path-containment`,
+`security.md#approver-identity-server-derived`, and the two `acknowledged_non_deferrals`
+retirement rows `security.md#enforcement-surface-parity` and
+`security.md#secure-default-new-feature`. `phase2-deferral-integrity.mjs` reconciles
+registry ⇄ corpus in BOTH directions, so a quote that no longer appears in its rule
+is a STALE entry and a hard fail. `check-clause-coverage.mjs` separately treats a
+rule with no `Trust Posture Wiring` heading as NOT WIRED and skips it, which would
+silently drop this rule out of clause-coverage rather than fail loudly.
+
+Moving those sections is therefore a multi-file change spanning
+`phase2-deferrals.json` and `descoping-exceptions.json`, not a two-file extraction.
+
+**Superseded by `8e5bba6e3` (recorded 2026-09-27).** The Wiring sections did move, into
+`.claude/skills/32-trust-posture/wiring/security.md`. `lib/rule-governance-surface.mjs` reads
+each rule together with its wiring sibling, and the governance validators, `phase2-deferral-integrity.mjs`
+among them, read through it. So the four anchors above now resolve through the sibling. The
+analysis above is kept as the reasoning of its date.
+
+---
+
+## Accepted residual — the three-phase TOCTOU (extracted from rules/security.md 2026-10-01)
+
+#### Accepted residual — the three-phase TOCTOU is OPEN, not deferred
+
+Recorded at H4 deliberately: the `**Why:**` above already carries the whole normative contract for
+every consumer (resolve both sides; do NOT over-claim the resolve as TOCTOU-complete). What follows
+is loom-internal accounting of WHICH half is open and why — the same class `abridgeV6` already
+strips for `Origin:` and Trust Posture Wiring, and it is therefore absent from the abridged
+Codex/Gemini baseline by design, not by budget.
+
+**MEASURED on this tree, not inferred.** A TWO-phase swap — repoint the name between the check and
+the open — is REFUSED. A THREE-phase swap is not: swap, revert, re-swap, and the sink returns
+out-of-band content as its text. The `lstat` and the `open` are separate syscalls over a name the
+attacker still controls in between, so the third phase restores the honest target for exactly the
+window the check looks at.
+
+**What IS closed.** The LEXICAL-bypass class, completely, and that is what the resolve was for: a
+symlink at a lexically-contained path whose target escapes the boundary no longer passes, because
+both candidate and root go through the same resolver. `O_NOFOLLOW` at the sink additionally closes
+the one-level symlink swap, which is why the two-phase attack is refused.
+
+**What is NOT closed, and why.** Check-to-use, for the WHOLE path walk. The root cause is a platform
+limit, not an oversight in the check: Node exposes no `openat` / fd-relative resolution, so "the path
+I checked" cannot be atomically BOUND to "the fd I opened". `O_NOFOLLOW` binds the final component;
+nothing available here binds the ancestors. Closing it needs fd-relative resolution AT the sink — a
+dir-fd handle held across the walk, via a native binding or a runtime that exposes `openat`.
+
+**Status: ACCEPTED, not deferred.** No Phase-2 row, no expiry, and none is owed. A dated debt here
+would be booked against a RUNTIME CAPABILITY nobody in this repo can schedule, which is the
+permanent-by-default shape `hook-output-discipline.md` MUST-5(b) forbids and `trust-posture.md`
+§ "Every Phase-2 Deferral Carries A DATED Declaration" exists to prevent. Accepted by the co-owner —
+the named human in a standing role `completion-criterion.md` MUST-6 requires — on the session that
+measured it. The revisit TRIGGER is fd-relative resolution becoming available at the sink, an
+observable event; the deviation from MUST-6's calendar backstop is recorded HERE rather than papered
+over with a date nobody chose. The acceptance is a BET, logged and owned, never a claim that the
+residual is harmless: an attacker who can win a three-phase race against a path this repo reads
+still gets out-of-band content read as in-tree content.

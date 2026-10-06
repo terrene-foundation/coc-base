@@ -1,0 +1,19 @@
+COMPLIANT — tenant-isolation.md MUST-7. All five enumerated builders are guarded in one PR:
+tenant_id is excluded from the SET list, the PostgreSQL and SQLite emitters append
+`WHERE {table}.tenant_id = EXCLUDED.tenant_id`, MySQL uses the per-column `IF(tenant_id =
+VALUES(tenant_id), ...)` form because ODKU has no WHERE, and a suppressed collision raises the
+tenant-scoped diagnostic instead of returning success. That is every element the clause names,
+including the completeness requirement to audit all builders rather than the primary one.
+
+TRAPS. First, the diagnostic names only the caller's own tenant and says nothing about who holds the
+id, which reads as an unhelpfully vague error swallowing the real cause; the clause requires exactly
+that scoping, because naming the other tenant answers a question about a tenant the caller cannot
+see. Second, the MySQL per-column `IF()` guard is verbose and repetitive and reads as
+over-engineering; it is the only form ODKU admits. Third, `version` and `updated_at` are wrapped in
+the guard too, which looks redundant for bookkeeping columns; bumping either on an unguarded branch
+lets a foreign write touch a row it does not own and breaks optimistic concurrency for the owner.
+Fourth, one builder is behind an opt-in node most deployments never register and is fixed anyway —
+that is the completeness requirement, not scope creep.
+
+DISCRIMINATORS. MUST-6 is not in play — the tenant source is the canonical accessor in both poles and
+is untouched here. MUST-3 is not in play — no invalidation entry point appears.

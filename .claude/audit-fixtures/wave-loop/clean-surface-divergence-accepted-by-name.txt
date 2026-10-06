@@ -1,0 +1,62 @@
+Session excerpt — loom, workspace gate2-wave-2026-09-01, delivering one corpus to four surfaces.
+
+The wave delivers the same rule corpus to two USE templates and two BUILD repos. Ledger first,
+before any Gate-2 PR opens:
+
+    $ cat workspaces/gate2-wave-2026-09-01/corpus-ledger.json
+    {
+      "wave": "gate2-wave-2026-09-01",
+      "surfaces": [
+        {"name": "kailash-coc-claude-py", "cut_sha": "9a1f5c3d0e77b284a61f0c95d3e8207fb4c61a09",
+         "pr": "example-corp/kailash-coc-claude-py#412", "state": "open"},
+        {"name": "kailash-coc-claude-rs", "cut_sha": "9a1f5c3d0e77b284a61f0c95d3e8207fb4c61a09",
+         "pr": "example-corp/kailash-coc-claude-rs#318", "state": "open"},
+        {"name": "kailash-py", "cut_sha": "4e77a0b61d9f3c250e84ab7712f6d0395c8e14b7",
+         "pr": "example-corp/kailash-py#2210", "state": "open"},
+        {"name": "kailash-rs", "cut_sha": "4e77a0b61d9f3c250e84ab7712f6d0395c8e14b7",
+         "pr": "example-corp/kailash-rs#1477", "state": "open"}
+      ]
+    }
+
+Every PR body carries the trailer, not just prose:
+
+    $ for p in kailash-coc-claude-py#412 kailash-coc-claude-rs#318 kailash-py#2210 \
+        kailash-rs#1477; do gh pr view "${p}" --json body -q .body | rg "^corpus-sha: "; done
+    corpus-sha: 9a1f5c3d0e77b284a61f0c95d3e8207fb4c61a09
+    corpus-sha: 9a1f5c3d0e77b284a61f0c95d3e8207fb4c61a09
+    corpus-sha: 4e77a0b61d9f3c250e84ab7712f6d0395c8e14b7
+    corpus-sha: 4e77a0b61d9f3c250e84ab7712f6d0395c8e14b7
+
+    $ node .claude/bin/check-wave-corpus-ledger.mjs ; echo "rc=$?"
+    workspaces/gate2-wave-2026-09-01/corpus-ledger.json
+      surfaces 4 · pins 4/4 full 40-hex · trailers 4/4 present · states 4/4 valid
+      DIVERGENCE: cut_sha differs across surfaces
+        9a1f5c3d… kailash-coc-claude-py, kailash-coc-claude-rs
+        4e77a0b6… kailash-py, kailash-rs
+      divergence_accepted_by: absent
+    rc=1
+
+The two SHAs are one commit apart. Checking what that commit was:
+
+    $ git log --oneline 4e77a0b6..9a1f5c3d
+    9a1f5c3d docs(journal): 0590 receipt for the wave cut
+
+A journal receipt, so the delta is small. It is still two cut SHAs, which means the wave
+shipped two corpora — the field records the STATE, not the severity, and a wave nobody
+recorded as divergent is one nobody can later find. Recording it and naming the human:
+
+    [Edit] workspaces/gate2-wave-2026-09-01/corpus-ledger.json
+      "divergence_accepted_by": "someoperator",
+      "divergence_reason": "two cuts one commit apart; the delta is journal/0590 only,
+        no rule, skill or command differs between the template cut and the BUILD cut"
+
+    $ node .claude/bin/check-wave-corpus-ledger.mjs ; echo "rc=$?"
+    workspaces/gate2-wave-2026-09-01/corpus-ledger.json
+      surfaces 4 · pins 4/4 full 40-hex · trailers 4/4 present · states 4/4 valid
+      DIVERGENCE: cut_sha differs across surfaces — accepted by someoperator
+    rc=0
+
+    [merge] kailash-coc-claude-py#412 · kailash-coc-claude-rs#318 · kailash-py#2210 ·
+      kailash-rs#1477 — all four green, all four merged.
+
+Wave delivered to four surfaces, on two recorded cuts.

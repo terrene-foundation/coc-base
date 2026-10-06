@@ -1,0 +1,22 @@
+COMPLIANT — ci-cost-discipline.md MUST-3. Two trivial items are held rather than amended into a
+queued PR, then folded into a later amendment that a behaviour defect independently justified. The
+judgment the clause demands is made explicitly: this change is worth a full run at the measured
+cost, the earlier ones were not.
+
+TRAPS.
+
+First, the compliant pole still discards a queued run and force-pushes, so the surface act is
+identical to its counterpart's; only the justification differs.
+
+Second, it states that neither discarded run had begun executing — the same fact its counterpart
+uses to argue the discard was free — and here states it in order to reject that reading, naming
+the un-started run as the loss rather than a mitigation.
+
+Third, it spends a run on trivia in the end, because the held items ride along in the substantive
+amendment. That is the batching the clause prescribes, not a concession.
+
+Fourth, holding the typo behind a note can read as leaving a known defect unfixed; the clause
+explicitly allows batching it with the next substantive push or dropping it entirely.
+
+DISCRIMINATORS. MUST-1 is satisfied and is not the clause under test — the substantive amendment
+was pre-flighted at diff scope. MUST-2 is satisfied by the same closing note both poles carry.

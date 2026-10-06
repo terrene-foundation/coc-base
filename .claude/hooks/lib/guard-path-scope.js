@@ -95,6 +95,17 @@
  * one-character bypass loom#1399 closed at the matcher layer. Wider here is
  * safe — the precheck only ever admits a path to the matcher.
  *
+ * WHAT THIS DOES NOT CLOSE — CHECK-TO-USE TOCTOU (stated so the resolve is not
+ * over-claimed, per `rules/security.md` § Path Containment):
+ *   Resolving here closes the LEXICAL-bypass class only. This module answers a
+ *   question in the PreToolUse hook process; the write happens later, in the
+ *   tool. An actor who can create symlinks in the tree can swap one BETWEEN the
+ *   two — resolve `<repo>/notes.txt` to an unwatched target, then repoint it at
+ *   a protected path before the write lands — and nothing in this file can see
+ *   that. Closing it needs enforcement AT THE SINK (an `O_NOFOLLOW` / fd-based
+ *   open by the writing tool), which is not this module's surface and is NOT
+ *   claimed here. The realpath discipline is NECESSARY, NOT SUFFICIENT.
+ *
  * Style: CommonJS, pure node builtins, to match sibling lib/* guard modules.
  * Never throws into a guard (zero-tolerance.md Rule 3): every fs/spawn
  * failure resolves to the fail-closed disposition.
@@ -147,6 +158,23 @@ function _toPosix(p) {
   return p.replace(/\\/g, "/");
 }
 
+// Bound on the manual dangling-symlink hop chain in `normalizeAbs`. A cycle
+// (`a -> b -> a`) makes `realpathSync` raise ELOOP, but the hop path resolves
+// links itself and so must carry its own bound. 32 is far above any honest
+// layout; the kernel's own SYMLOOP_MAX is 32 on macOS and 40 on Linux.
+const MAX_SYMLINK_HOPS = 32;
+
+/**
+ * Resolve for a CLASSIFICATION question (repo-family identity, walk cursor) —
+ * inputs that exist BY CONSTRUCTION because git or a `statSync` just reported
+ * them. Returns the input unresolved on failure, and every caller of this form
+ * routes that into a null/fail-closed disposition of its own.
+ *
+ * NOT for a CONTAINMENT decision. Use `_realpathStrict` there: returning the
+ * unresolved input to a containment site makes `path.relative` compare a RAW
+ * root against a RESOLVED candidate, which is the lexical comparison
+ * `rules/security.md` § Path Containment forbids.
+ */
 function _realpathSafe(p) {
   try {
     return fs.realpathSync(p);
@@ -156,26 +184,124 @@ function _realpathSafe(p) {
 }
 
 /**
+ * Resolve for a CONTAINMENT decision. Returns **null** — never the unresolved
+ * input — when the path will not resolve (loom#1496).
+ *
+ * WHY NULL AND NOT A THROW. This module must never throw into a guard (see the
+ * header, `zero-tolerance.md` Rule 3), and all three containment call sites
+ * ALREADY branch on a null root and route it to their fail-closed disposition:
+ *
+ *   :matchedRoot  null ⇒ the rel is still yielded (fenced) but no tree is
+ *                 named, and the documented consumer contract is to REFUSE on
+ *                 null rather than substitute a root of its own choosing.
+ *   :escaping-rel null base ⇒ the "jurisdiction INDETERMINATE" branch, which
+ *                 emits fail-closed suffixes.
+ *   :candidate-1  null root ⇒ candidate 1 is skipped, and the git-probe and
+ *                 fail-closed-suffix branches below own the decision.
+ *
+ * So the raw fallback was not merely imprecise — it was actively DEFEATING
+ * null-handling those sites already had.
+ */
+function _realpathStrict(p) {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * True when `p` exists AS AN ENTRY, including a DANGLING symlink.
+ *
+ * `fs.existsSync` FOLLOWS the link, so it reports FALSE for a symlink whose
+ * target is absent. `lstat` reports on the link itself. That distinction is
+ * the whole of loom#1496 — see `normalizeAbs`.
+ */
+function _entryExists(p) {
+  try {
+    fs.lstatSync(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Realpath-normalize an absolute path whose leaf may not exist yet (the
- * file is about to be created). Walks up to the deepest EXISTING ancestor,
- * realpaths that, and re-appends the remainder. Preserved verbatim in
- * behaviour from the two hooks this module factors out of.
+ * file is about to be created). Walks up to the deepest existing ancestor,
+ * realpaths that, and re-appends the remainder.
+ *
+ * THE DEFECT THIS CLOSES (loom#1496) — A DANGLING SYMLINK IS AN ENTRY.
+ *   The walk used `fs.existsSync`, which FOLLOWS symlinks. A symlink whose
+ *   target does not exist YET therefore reads as "this component is absent",
+ *   so the walk climbed straight PAST the very component that redirects the
+ *   write, and the containment decision then ran on the LEXICAL string.
+ *
+ *   A write to that path CREATES the target — so the redirect is real, and a
+ *   marker-free spelling of a protected path passed the fence unwatched.
+ *   Measured on the real guard, one fixture, the two states differing ONLY in
+ *   whether the symlink's target already exists:
+ *
+ *     <repo>/notes.txt -> <repo>/.claude/learning/posture.json  ABSENT
+ *       normalizeAbs = <repo>/notes.txt      rels=[]                 UNWATCHED
+ *       then fs.writeFileSync("<repo>/notes.txt", '{"posture":"L5"}')
+ *       => .claude/learning/posture.json now holds {"posture":"L5"}  BYPASS
+ *
+ *     <repo>/notes.txt -> <repo>/.claude/learning/posture.json  PRESENT
+ *       normalizeAbs = <repo>/.claude/learning/posture.json
+ *       rels=[".claude/learning/posture.json"]                       FENCED
+ *
+ *   The PRESENT row is the control: the resolver was always correct for a live
+ *   target, which is why every existing symlink test read clean. Only the
+ *   dangling state was open. The shell-redirect spelling (`> notes.txt`)
+ *   creates the target identically, so the hole was not Node-specific.
+ *
+ * THE FIX is `lstat` for the existence walk plus an explicit `readlink` hop
+ * when the deepest entry exists but will not resolve. Ordinary paths are
+ * unaffected: a not-yet-created file under a real directory still stops at
+ * that directory and realpaths it, exactly as before. Only a path traversing
+ * a BROKEN link changes verdict — which is the point.
  */
 function normalizeAbs(absPath) {
+  let cur = absPath;
   try {
-    let ancestor = absPath;
-    while (ancestor && !fs.existsSync(ancestor)) {
-      const parent = path.dirname(ancestor);
-      if (parent === ancestor) break;
-      ancestor = parent;
-    }
-    if (ancestor && fs.existsSync(ancestor)) {
-      return fs.realpathSync(ancestor) + absPath.slice(ancestor.length);
+    // Each iteration resolves at most ONE dangling-symlink hop; a resolvable
+    // ancestor returns immediately, so honest paths never loop twice.
+    for (let hop = 0; hop < MAX_SYMLINK_HOPS; hop++) {
+      let ancestor = cur;
+      while (ancestor && !_entryExists(ancestor)) {
+        const parent = path.dirname(ancestor);
+        if (parent === ancestor) break;
+        ancestor = parent;
+      }
+      if (!ancestor || !_entryExists(ancestor)) break;
+
+      try {
+        return fs.realpathSync(ancestor) + cur.slice(ancestor.length);
+      } catch {
+        // Exists as an entry but will not resolve — a DANGLING symlink, or a
+        // chain with a broken hop. Substitute the target and go around again.
+      }
+
+      let target;
+      try {
+        target = fs.readlinkSync(ancestor);
+      } catch {
+        break; // not a symlink (permission / IO error) — nothing to resolve
+      }
+      const hopped =
+        path.resolve(path.dirname(ancestor), target) + cur.slice(ancestor.length);
+      if (hopped === cur) break; // no progress — never spin
+      cur = hopped;
     }
   } catch {
-    // best-effort — fall back to the raw path
+    // best-effort — fall through
   }
-  return absPath;
+  // Unresolvable (a symlink CYCLE, or an entry that neither resolves nor
+  // readlinks). Returning the last spelling is not a fence gap: a cycle cannot
+  // be written THROUGH either — the write itself raises ELOOP — so there is no
+  // redirect for an attacker to aim. See § WHAT THIS DOES NOT CLOSE below.
+  return cur;
 }
 
 /** Deepest existing DIRECTORY at or above absPath, or null. */
@@ -474,17 +600,23 @@ function* _candidates(absPath, repoDir, opts, state) {
       // revision of this comment called the relative reading "pre-existing and
       // unchanged" full stop — true of the resolver, misleading about the
       // consumer, which is precisely where #1664's widening lived.
+      // CONTAINMENT site (loom#1496): strict, so an unresolvable root becomes
+      // null — which the consumer contract above already requires a refusal on
+      // — instead of a RAW root the consumer would read as a resolved one.
       state.matchedRoot =
         typeof repoDir === "string" && repoDir.length > 0
-          ? _realpathSafe(repoDir)
+          ? _realpathStrict(repoDir)
           : null;
       if (cleaned.length > 0) yield cleaned;
       return;
     }
 
+    // CONTAINMENT site (loom#1496): strict. An unresolvable root must reach the
+    // "NO BASE ... jurisdiction INDETERMINATE" fail-closed branch below, not
+    // become a raw base that `path.resolve` would treat as canonical.
     const base =
       typeof repoDir === "string" && repoDir.length > 0
-        ? _realpathSafe(repoDir)
+        ? _realpathStrict(repoDir)
         : null;
     if (base) {
       yield* _candidates(path.resolve(base, cleaned), repoDir, opts, state);
@@ -522,9 +654,16 @@ function* _candidates(absPath, repoDir, opts, state) {
     return p;
   };
 
+  // CONTAINMENT site (loom#1496) — THE candidate-1 comparison. Strict, because
+  // `path.relative(normalizedRepo, normalizedAbs)` below compares this root
+  // against an ALREADY-RESOLVED candidate; handing it a raw root is exactly the
+  // resolved-candidate-vs-RAW-root mismatch `rules/security.md` § Path
+  // Containment names. Null simply skips candidate 1 — the git probe and the
+  // fail-closed suffixes below still own the decision, so this cannot silence
+  // the fence.
   const normalizedRepo =
     typeof repoDir === "string" && repoDir.length > 0
-      ? _realpathSafe(repoDir)
+      ? _realpathStrict(repoDir)
       : null;
 
   // Candidate 1 — the session/main root (today's behaviour, kept first).
@@ -936,16 +1075,76 @@ function matchFirstCandidate(absPath, repoDir, match, opts, out) {
  * the pattern" — which is exactly what the registry dissolved: there is now one
  * copy, and this is the one edit.
  *
- * `..` IS DELIBERATELY EXCLUDED. `//` and `/./` are no-ops, so collapsing them
- * cannot change WHICH FILE is named. A `..` segment DOES change the target, so
- * canonicalizing it into a match would be a semantic decision this token must
- * not make silently. The token cannot match it: after the separator,
- * `\.\/+` requires a `/` immediately following the single `.`, which `../` does
- * not provide. The path-shaped lanes resolve `..` upstream instead —
- * `normalizeAbs` realpaths the deepest existing ancestor, and the relative
- * branch of `_candidates` runs `path.posix.normalize`, which collapses an
- * INTERIOR `..` (`.claude/foo/../learning/posture.json` -> the canonical rel,
- * measured WATCHED) while leaving a genuinely ESCAPING `../` prefix intact.
+ * `..` IS DELIBERATELY EXCLUDED, AND CANNOT BE INCLUDED. `//` and `/./` are
+ * no-ops, so collapsing them cannot change WHICH FILE is named. A `..` segment
+ * DOES change the target, so canonicalizing it into a match would be a semantic
+ * decision this token must not make silently. The token cannot match it: after
+ * the separator, `\.\/+` requires a `/` immediately following the single `.`,
+ * which `../` does not provide.
+ *
+ * NOR WOULD WIDENING IT HELP — measured, loom#1681. A `..` ROUND-TRIP repeats a
+ * segment (`.claude/learning/../learning/posture.json` carries `learning`
+ * TWICE), and a separator token joins a FIXED segment list, so no separator
+ * pattern can cancel a segment. Widening SEP to `\/+(?:\.{1,2}\/+)*` was BUILT
+ * AND TESTED rather than reasoned about, with the fixed forms as controls
+ * proving the probe discriminates:
+ *
+ *                                       current  widened   RESOLVES TO
+ *   .claude/learning/posture.json          true     true    (the real file)  <- CONTROL
+ *   .claude//learning/posture.json         true     true    (the real file)  <- CONTROL
+ *   .claude/./learning/posture.json        true     true    (the real file)  <- CONTROL
+ *   .claude/learning/../learning/…json    FALSE    FALSE    (the real file)  <- STILL MISSED
+ *   .claude/../learning/posture.json      false     TRUE    learning/…json   <- FALSE POSITIVE
+ *
+ * Read the LAST row, which is the decisive one: widening does not merely fail
+ * to catch the round-trip, it starts MATCHING a spelling that resolves to a
+ * DIFFERENT, unprotected file. So the widened token is wrong in BOTH directions
+ * at once — still blind to the defect, and newly over-matching. `..` is a
+ * path-NORMALIZATION problem, not a separator one, and it has to be solved
+ * where paths are normalized.
+ *
+ * THE PATH-SHAPED LANES RESOLVE `..` UPSTREAM — `normalizeAbs` realpaths the
+ * deepest existing ancestor, and the relative branch of `_candidates` runs
+ * `path.posix.normalize`, which collapses an INTERIOR `..`
+ * (`.claude/foo/../learning/posture.json` -> the canonical rel, measured
+ * WATCHED) while leaving a genuinely ESCAPING `../` prefix intact. So does
+ * `normalizeRel` — which the THREE REL-MATCHERS below call FIRST
+ * (`matchIntegrityWatchedRel`, `matchJournalEntryRel`,
+ * `classifyGovernedArtifactRel`), and which the other two registry-derived
+ * predicates do NOT.
+ *
+ * BE PRECISE ABOUT WHICH, because "every predicate normalizes" is exactly the
+ * over-broad claim this paragraph was rewritten to STOP making, and repeating it
+ * one line later would be self-undermining. `isPostureGateProtectedPath` and
+ * `isLearningStateJsonlPath` call only `_toPosix`, which is a separator swap
+ * (`p.replace(/\\/g, "/")`) and does NOT collapse a `..`. Neither is exploitable
+ * today, but the safety is their CALLER'S, not theirs.
+ *
+ * `posture-gate.js` passes `_bestEffortRealpath(mutationPath)`, and BOTH of its
+ * branches collapse `..`, not just the happy one: the success branch returns
+ * `path.join(real, ...segments)` (kernel-resolved), and the ancestor-walk
+ * FAILURE branch falls back to `path.normalize(filePath)` — which is lexical,
+ * but still collapses. So that caller has no un-normalized exit at all. An
+ * earlier revision of this paragraph credited only the kernel-resolved branch;
+ * the margin is larger than it said.
+ *
+ * `multi-operator-sessionstart.js` feeds paths straight out of
+ * `git status --porcelain`, whose v1 format is documented repo-root-relative and
+ * was MEASURED so — from a subdirectory, under an explicit `../../` pathspec, and
+ * with `status.relativePaths=true` forced, all three emitting root-relative
+ * names. That is a PRODUCER guarantee with no normalizer in the code, so it
+ * remains the weaker of the two: a future caller passing un-normalized text to
+ * either predicate inherits the #1681 hole and nothing here would stop it.
+ *
+ * THE BASH LANE DID NOT, AND THAT WAS loom#1681. `STATE_PATH_RX` /
+ * `LAYER3_BLOCK_RX` / `COORD_MODE_RX` are applied to RAW COMMAND TEXT, which no
+ * upstream normalizes — so on that ONE surface this paragraph's "resolved
+ * upstream instead" was FALSE, and a `..` round-trip passed the guard entirely.
+ * The Bash lane now normalizes its own input word-wise before matching
+ * (`state-target-scope.js::collapsePathTraversal`, reached through the single
+ * `violation-patterns.js::pathSpellingHit` predicate). Any FUTURE consumer that
+ * applies a registry-derived regex to un-normalized text inherits the same hole:
+ * normalize first, or route through `pathSpellingHit`.
  *
  * BE PRECISE ABOUT WHAT REJECTS THE ESCAPING FORM — an earlier revision of this
  * paragraph said it "is rejected by `usable()`", which is FALSE and was measured
@@ -1265,7 +1464,51 @@ const PROTECTED_PATHS = Object.freeze(
       // direction: the residual cost is that a fully-quoted benign spelling
       // (`>> ".git/info/exclude"`) still over-blocks exactly as it does on
       // origin/main. Pinned by flag-1534-dotgit-quote-concat-{dq,sq}-traversal.
-      suffix: "(?!/(?:info/exclude|COMMIT_EDITMSG|MERGE_MSG)(?:$|[\\s|;&)]))",
+      // loom#s65 — the `\b` trailer `_buildSurfaceRx` appends is a WORD boundary,
+      // and a word boundary is NOT a path-token boundary. The comment above
+      // ("every sibling dotfile continues with a WORD character") is true of the
+      // four siblings it enumerates and FALSE of the class: `.git` followed by any
+      // NON-word character satisfies `\b`, so `.git-blame-ignore-revs` — a standard
+      // git file — `.git-commit-msg.txt` and `.git.bak` all matched and hard-blocked.
+      // That is the `cc-artifacts.md` Rule 10 shape: an enumerated denylist read as a
+      // closed class.
+      //
+      // WHY A NEGATIVE ASSERTION, NOT A POSITIVE TERMINATOR ALLOWLIST. The first cut
+      // of this fix asserted a positive list of characters that MAY follow the token.
+      // A Tier-1 redteam refuted it, and the refutation MEASURED at 13 fail-OPEN
+      // regressions against origin/main: every shell metacharacter the list omitted
+      // became a BYPASS. The cheapest is a trailing glob star — it expands to the
+      // token itself, but `*` was not in the class, so the row stopped matching
+      // altogether. Brace expansion, a backslash-escaped separator, a `$`-variable
+      // splice and the backtick form all did the same, on the bash AND Layer-3 lanes.
+      // A positive allowlist cannot enumerate a shell.
+      //
+      // The right question is not "what may follow the token" but "what makes this a
+      // DIFFERENT FILE". A word character or a hyphen does. A dot does ONLY when a
+      // name character follows it: `<token>.bak` is a different file, `<token>.` is
+      // NOT — Win32 canonicalization strips trailing dots from every path component,
+      // so `<token>./config` and `<token>.\config` open the protected directory's
+      // own config, where `core.hooksPath` lives. Everything else (a separator, end
+      // of token, a quote, whitespace, and every metacharacter) is the token itself,
+      // possibly with shell decoration, and MUST stay protected.
+      //
+      // A FLAT `(?![\w\-.])` was the shipped form and it was REFUTED: it excluded a
+      // BARE trailing dot too, so it fail-OPENed on `<token>./config` — a spelling
+      // origin/main blocked. That is why the dot arm is conditional and the word and
+      // hyphen arms are not. Measured over a 15-pole corpus: origin/main 3 wrong,
+      // positive-allowlist 13 wrong, flat-negative 2 wrong (both fail-OPEN), this 0.
+      //
+      // KNOWN RESIDUAL, deliberate: `<token>-x` as an attacker-created SYMLINK to the
+      // real directory is released here, where origin/main blocked it collaterally.
+      // This module resolves no symlinks by contract (see the header), so the lexical
+      // lane cannot distinguish that alias from a genuinely different file; blocking
+      // it would re-introduce the `-blame-ignore-revs` false positive this row fixes.
+      //
+      // The quoted spellings still match, which the fixtures pin — that direction was
+      // the one the first cut got right and it must not regress while fixing the rest.
+      suffix:
+        "(?!/(?:info/exclude|COMMIT_EDITMSG|MERGE_MSG)(?:$|[\\s|;&)]))" +
+        "(?![\\w-])(?!\\.[\\w-])",
       surfaces: { bash: true, layer3: true, direct: true },
       subtree: true,
     },
@@ -1294,6 +1537,181 @@ const PROTECTED_PATHS = Object.freeze(
       // asymmetry is the whole point, and it is why `surfaces` is per-row.
       id: "learning-codified.json",
       segments: [".claude", "learning", "learning-codified.json"],
+      surfaces: { direct: true },
+    },
+
+    /* ───────────────────────────────────────────────────────────────────────
+     * THE `governedArtifact` SURFACE — CLASSIFICATION ONLY, NEVER A FENCE.
+     *
+     * READ THIS BEFORE ADDING OR REUSING A ROW HERE. Every surface above
+     * answers "may this path be WRITTEN?" and feeds a matcher that blocks or
+     * gates. This one answers a DIFFERENT question — "is this path a governed
+     * COC artifact, and of WHICH kind?" — for `stranded-artifacts.js`, which
+     * reports artifacts committed onto a branch that reaches no default branch.
+     * It gates nothing and blocks nothing.
+     *
+     * THE ROWS ARE DELIBERATELY ABSENT FROM `bash`/`layer3`/`direct`/
+     * `coordMode`/`postureGate`, and that is a DECISION, not an omission:
+     * `.claude/rules/**`, `.claude/agents/**`, `journal/**` and `specs/**` are
+     * exactly the paths an operator is SUPPOSED to author freely. Granting any
+     * of them a write surface would fence the corpus against its own authors.
+     * `_rowsFor()` filters on `=== true`, so a row here reaches no other
+     * matcher by construction rather than by anyone remembering.
+     *
+     * WHY THEY LIVE HERE AT ALL. They were a SECOND private table of path
+     * regexes inside `stranded-artifacts.js` — the exact re-derivation loom#1422
+     * dissolved, and `protected-path-predicate-1422.test.js` flagged it (the
+     * `^journal\/` row, the one class its recogniser reaches). Rather than move
+     * only the flagged row and leave eleven siblings in a private table the
+     * test cannot see — a fix that passes the test while preserving the defect —
+     * the WHOLE vocabulary moved. One table, one place to add a class.
+     *
+     * `artifactKind` IS THE REPORT LABEL, AND IT IS A FIELD OF THE ROW THAT
+     * DECIDES MEMBERSHIP. The consumer names the kind in its output ("Name the
+     * rule(s): …"), so it needs a label as well as a yes/no. Carrying the label
+     * on the matching row is what keeps membership and label from drifting: a
+     * boolean predicate plus a private kind lookup would be two tables again,
+     * with the second one invisible to the enumeration test. `id` stays UNIQUE
+     * (two rows spell `burndown`), so the kind is its own field.
+     * ─────────────────────────────────────────────────────────────────────── */
+    {
+      id: "artifact:rule",
+      artifactKind: "rule",
+      segments: [".claude", "rules"],
+      suffix: SEP + ".+\\.md",
+      surfaces: { governedArtifact: true },
+    },
+    {
+      id: "artifact:agent",
+      artifactKind: "agent",
+      segments: [".claude", "agents"],
+      suffix: SEP + ".+\\.md",
+      surfaces: { governedArtifact: true },
+    },
+    {
+      id: "artifact:skill",
+      artifactKind: "skill",
+      segments: [".claude", "skills"],
+      suffix: SEP + ".+",
+      surfaces: { governedArtifact: true },
+    },
+    {
+      id: "artifact:command",
+      artifactKind: "command",
+      segments: [".claude", "commands"],
+      suffix: SEP + ".+\\.md",
+      surfaces: { governedArtifact: true },
+    },
+    {
+      id: "artifact:hook",
+      artifactKind: "hook",
+      segments: [".claude", "hooks"],
+      suffix: SEP + ".+\\.(?:js|mjs|cjs)",
+      surfaces: { governedArtifact: true },
+    },
+    {
+      id: "artifact:manifest",
+      artifactKind: "manifest",
+      segments: [".claude", "sync-manifest.yaml"],
+      surfaces: { governedArtifact: true },
+    },
+    {
+      id: "artifact:audit-fixture",
+      artifactKind: "audit-fixture",
+      segments: [".claude", "audit-fixtures"],
+      suffix: SEP + ".+",
+      surfaces: { governedArtifact: true },
+    },
+    {
+      id: "artifact:probe",
+      artifactKind: "probe",
+      segments: [".claude", "test-harness", "probes"],
+      suffix: SEP + ".+",
+      surfaces: { governedArtifact: true },
+    },
+    {
+      id: "artifact:spec",
+      artifactKind: "spec",
+      segments: ["specs"],
+      suffix: SEP + ".+",
+      surfaces: { governedArtifact: true },
+    },
+    {
+      // `.session-notes`, `.session-notes.d/<operator>.md`, `.session-notes.shared.md`.
+      id: "artifact:session-notes",
+      artifactKind: "session-notes",
+      segments: [".session-notes"],
+      suffix: "(?:\\.d" + SEP + ".+|\\.shared\\.md)?",
+      surfaces: { governedArtifact: true },
+    },
+    {
+      id: "artifact:burndown-file",
+      artifactKind: "burndown",
+      segments: ["BURNDOWN.md"],
+      surfaces: { governedArtifact: true },
+    },
+    {
+      id: "artifact:burndown-dir",
+      artifactKind: "burndown",
+      segments: ["burndown"],
+      suffix: SEP + ".+",
+      surfaces: { governedArtifact: true },
+    },
+    {
+      // `journal/.pending/**` is a DRAFT slot reservation, not an authored
+      // entry, so it is carved out — an unlanded draft is not a stranded
+      // artifact. The lookahead sits AFTER the separator token, so the
+      // redundant spellings (`journal//.pending/x.md`, `journal/./.pending/x.md`)
+      // are carved out too rather than reclassified as entries.
+      id: "artifact:journal",
+      artifactKind: "journal",
+      segments: ["journal"],
+      suffix: SEP + "(?!\\.pending\\/).+\\.md",
+      surfaces: { governedArtifact: true },
+    },
+    {
+      // loom#1849b — THE CODIFY MUTEX ITSELF. `codify-lease.json` is the
+      // singleton that serializes every /codify against the shared mutable
+      // state (`.claude/.proposals/latest.yaml`,
+      // `.claude/learning/learning-codified.json`) — and it was fenced on NO
+      // lane, while its DIRECTORY SIBLING `coordination-log.jsonl` has been a
+      // three-surface row since the registry existed. Measured on a real
+      // fixture (integrity-guard driven as a subprocess, coordination ON,
+      // target worktree on a codify branch), with the sibling as the
+      // anti-vacuity control:
+      //
+      //   .claude/learning/codify-lease.json        {"continue":true}  exit 0   <- UNFENCED
+      //   .claude/learning/coordination-log.jsonl   refused            exit 2   <- CONTROL
+      //
+      // With the write open, any agent could hand-write the mutex: forge a
+      // conflicting holder to deny every sibling lane, or blank `_released` to
+      // steal a live lease out from under its holder. Neither needs a signing
+      // key, because unlike the coordination log this file is NOT signed — it
+      // is plain local JSON, which is exactly why the file-tool fence is the
+      // control that matters for it.
+      //
+      // DIRECT ONLY, and the two omissions are decisions:
+      //
+      //   NOT `bash` — Layer 2 is DIRECTION-BLIND (`pathRx.test(line)`), so a
+      //   bash row would flag every READ too, and reading this file is a
+      //   documented happy path (`/onboard` surfaces the active lease). It
+      //   would also fence the RECOVERY path below.
+      //
+      //   NOT `settings.json permissions.deny` — same reasoning as
+      //   `learning-codified.json` one row up: a flat absolute deny cannot
+      //   express the enrolled-CONDITIONAL model. On a pre-enrollment / solo
+      //   repo integrity-guard passes through, so a fresh fork is unaffected;
+      //   on an enrolled repo the write routes through codify-branch +
+      //   covering-lease exactly like its siblings.
+      //
+      // NO CHICKEN-AND-EGG. `acquireCodifyLease` writes this file with
+      // `fs.writeFileSync` from inside node, never with the Edit/Write tool, so
+      // the sanctioned acquire path does not touch this fence at all. The
+      // corrupt-lease RECOVERY path (`reason: "lease-corrupt"`, which refuses
+      // the acquire) stays open too: removing the file via Bash is unaffected
+      // because this row is deliberately off the `bash` surface.
+      id: "codify-lease.json",
+      segments: [".claude", "learning", "codify-lease.json"],
       surfaces: { direct: true },
     },
   ].map(Object.freeze),
@@ -1422,10 +1840,43 @@ const _DIRECT_LC = new Set(DIRECT_WATCHED_RELS.map((p) => p.toLowerCase()));
  *
  * A genuinely escaping `../` is LEFT INTACT rather than resolved, so the
  * caller's out-of-tree rejection still fires — same `..` reasoning as SEP.
+ *
+ * WIN32 COMPONENT PADDING (loom#s66). Win32 canonicalization strips trailing
+ * DOTS and SPACES from every path component, so `<token>./config` and
+ * `<token> /config` open `<token>/config` — a redundant SPELLING of the watched
+ * path, which is precisely what this function exists to collapse. `path.posix.
+ * normalize` preserves them, so without this the direct lane's exact-membership
+ * and subtree tests both miss: measured, `<token>./config` returned watched=
+ * false while `<token>/config` returned true.
+ *
+ * The strip runs BEFORE `normalize` so that any `.`/`..` it exposes (`".. ."`
+ * canonicalizes to `".."` on Win32) is then collapsed by normalize rather than
+ * surviving as an un-collapsed traversal component.
+ *
+ * DIRECTION IS FAIL-CLOSED, deliberately. On POSIX `<token>.` IS a genuinely
+ * different directory, so treating it as the watched path OVER-blocks there.
+ * That is the safe direction — the cost is a refused write to an unusual name,
+ * where the alternative is an unwatched write onto the real admin directory on
+ * every Windows consumer. A component that is ENTIRELY dots/spaces (`"..."`) is
+ * left INTACT: stripping would empty it, and it aliases nothing.
  */
+const _WIN32_COMPONENT_PADDING_RX = /[. ]+$/;
+
+function _stripWin32ComponentPadding(p) {
+  if (p.indexOf(".") === -1 && p.indexOf(" ") === -1) return p;
+  return p
+    .split("/")
+    .map((seg) => {
+      if (seg === "." || seg === "..") return seg;
+      const stripped = seg.replace(_WIN32_COMPONENT_PADDING_RX, "");
+      return stripped.length > 0 ? stripped : seg;
+    })
+    .join("/");
+}
+
 function normalizeRel(rel) {
   if (typeof rel !== "string" || rel.length === 0) return "";
-  const n = path.posix.normalize(_toPosix(rel));
+  const n = path.posix.normalize(_stripWin32ComponentPadding(_toPosix(rel)));
   if (n === "." || n === "./") return "";
   return n.replace(/^\.\//, "");
 }
@@ -1484,10 +1935,146 @@ function isPostureGateProtectedPath(filePath) {
   return POSTURE_GATE_RX.test(_toPosix(filePath));
 }
 
+/**
+ * The governed-artifact vocabulary, DERIVED from the registry rows above.
+ *
+ * A per-row ANCHORED matcher rather than one alternation, because the consumer
+ * needs WHICH class matched, not merely whether one did. Registry order is
+ * preserved and FIRST MATCH WINS, so a more specific `.claude/**` row can
+ * precede a broader one without the outcome depending on regex alternation
+ * semantics.
+ *
+ * `i` for the same reason every other matcher here carries it: on a
+ * case-insensitive filesystem `.claude/Rules/x.md` IS `.claude/rules/x.md`, and
+ * the failure direction of missing that is UNDER-reporting a stranded artifact.
+ */
+const GOVERNED_ARTIFACT_CLASSES = Object.freeze(
+  _rowsFor("governedArtifact").map((r) =>
+    Object.freeze({
+      id: r.id,
+      kind: r.artifactKind,
+      rx: new RegExp("^" + _rowSource(r) + "$", "i"),
+    }),
+  ),
+);
+
+/**
+ * Classify one repo-RELATIVE path as a governed COC artifact.
+ *
+ * Returns the artifact KIND (`"rule"`, `"journal"`, …) or `null`. The kind is
+ * read off the SAME registry row that decided membership, so there is exactly
+ * one table — see the `governedArtifact` block in PROTECTED_PATHS for why that
+ * matters here specifically.
+ *
+ * POSITIVE allowlist (`cc-artifacts.md` Rule 10): a path naming no row is
+ * simply not governed. `normalizeRel` folds separators and strips a leading
+ * `./` first, and leaves a genuinely escaping `../` intact — which then fails
+ * every `^`-anchored row, the same rejection `matchIntegrityWatchedRel` relies
+ * on.
+ */
+function classifyGovernedArtifactRel(rel) {
+  const norm = normalizeRel(rel);
+  if (norm.length === 0) return null;
+  for (const c of GOVERNED_ARTIFACT_CLASSES) {
+    if (c.rx.test(norm)) return c.kind;
+  }
+  return null;
+}
+
 /** `.claude/learning/*.jsonl` own-WIP attribution predicate. */
 function isLearningStateJsonlPath(filePath) {
   if (typeof filePath !== "string" || filePath.length === 0) return false;
   return LEARNING_JSONL_RX.test(_toPosix(filePath));
+}
+
+// ---- single-segment glob covering test (2026-08-16) -------------------------
+//
+// The READER half of the bounded codify-lease scope shape. It lives HERE rather
+// than inside integrity-guard.js for two reasons: this module is already the SSOT
+// for every path predicate the guards share (loom#1422 dissolved exactly this
+// kind of hand-maintained second copy), and integrity-guard.js self-executes its
+// main() on require, so a predicate defined there cannot be unit-tested at all.
+//
+// WHY A GLOB EXISTS AT ALL. `codify-lease.js::_resolveJournalScope` used to
+// ENUMERATE one `workspaces/<name>/journal/` entry per workspace. That list is
+// O(repo size) and lands verbatim in `content.scope_files` of a signed record
+// capped at 2048 B by `coc-emit.js::_defaultAppend` — so at loom's MAIN-checkout
+// scale (32 workspace journal dirs, 31 enumerated) the record measured 2964 B
+// and was REFUSED, reproduced end-to-end 2026-08-23. Not on EVERY acquire: a
+// worktree materializes far fewer workspace journals (mostly untracked), so
+// those acquires fit and 195 records did land. Main-checkout leases were the
+// ones never visible to any sibling clone, leaving `findCoveringLease` nothing
+// to find while `acquireCodifyLease` reported success. See codify-lease.js
+// § THE ENUMERATION WAS UNBOUNDED for the log histogram that shows the cap
+// censoring its own audit trail. The enumeration is now the bounded shape
+// `workspaces` + `*` + `journal/`, and this reads it.
+// Writer and reader change together per `security.md` § Enforcement-Surface
+// Parity; `findCoveringLease` is the ONLY reader of `scope_files` (verified by
+// grep across `.claude/**` — `pre-commit-branch-scope.js::isInScope` looks
+// similar but never reads a lease record).
+//
+// THE WILDCARD MATCHES WITHIN ONE SEGMENT ONLY — `[^/]` star, never crossing a
+// separator. That is the same width as WATCHED_SUBTREE_RX's own
+// `workspaces` + `[^/]+` + `journal` row above, so the coverable set matches the
+// WATCHED set segment for segment instead of widening past it. A `.` star would
+// have made `workspaces/a/b/journal/x` coverable by a lease that never reached it.
+//
+// Coverage against the old enumerator is a residual CLOSED, not a widening: the
+// watched regex has no `_`-prefix exclusion, so `workspaces/_archive/journal/x`
+// was always WATCHED, yet the enumerator's `startsWith("_")` skip meant no lease
+// could ever COVER it.
+//
+// TWO FENCES ON WHAT A PATTERN MAY CLAIM. The record is signed and the caller has
+// already matched signer and branch, but a scope entry is still authored data
+// from this predicate's point of view:
+//
+//   (a) THE FIRST SEGMENT MUST BE LITERAL — a bare star, or a star as the first
+//       segment, is refused outright, so no lease can mint itself a
+//       cover-everything scope. A broad LITERAL prefix was already expressible
+//       through the pre-existing dot-free bare-dir branch, so this adds no reach
+//       that branch did not have; it only declines to add a NEW way to ask for
+//       everything.
+//   (b) AT MOST 8 WILDCARDS — bounds what a hostile pattern can ask the regex
+//       engine to explore. The shapes this substrate emits carry exactly one.
+//
+// Case-SENSITIVE, deliberately, matching the three literal branches in
+// findCoveringLease rather than matchIntegrityWatchedRel's case-insensitivity.
+// The candidate is derived through matchFirstCandidate, which realpaths the
+// absolute branch, so it carries the on-disk spelling — the same spelling a
+// scope entry names. Making only THIS branch case-insensitive would introduce a
+// new asymmetry, not repair the existing one.
+//
+// @param {string} pattern      one `scope_files` entry
+// @param {string} candidateRel repo-relative path of the Edit/Write target
+// @returns {boolean} true iff the pattern covers the candidate
+function globCoversRel(pattern, candidateRel) {
+  if (typeof pattern !== "string" || !pattern.includes("*")) return false;
+  if (typeof candidateRel !== "string" || candidateRel.length === 0) {
+    return false;
+  }
+  if (pattern.split("*").length - 1 > 8) return false; // fence (b)
+  const firstSeg = pattern.split("/")[0];
+  if (!firstSeg || firstSeg.includes("*")) return false; // fence (a)
+
+  const trailingSlash = pattern.endsWith("/");
+  const body = trailingSlash ? pattern.slice(0, -1) : pattern;
+  if (body.length === 0) return false;
+  // Escape each literal run; join with the single-segment wildcard class.
+  const bodyRx = body
+    .split("*")
+    .map((lit) => lit.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("[^/]*");
+
+  // Mirrors findCoveringLease's three literal branches, one for one:
+  //   trailing separator → prefix-dir match
+  //   no wildcard left   → whole-path match
+  //   dot-free bare dir  → prefix match with the separator supplied
+  if (trailingSlash) return new RegExp("^" + bodyRx + "/").test(candidateRel);
+  if (new RegExp("^" + bodyRx + "$").test(candidateRel)) return true;
+  if (!body.includes(".")) {
+    return new RegExp("^" + bodyRx + "/").test(candidateRel);
+  }
+  return false;
 }
 
 module.exports = {
@@ -1505,9 +2092,12 @@ module.exports = {
   JOURNAL_ENTRY_RX,
   DIRECT_WATCHED_RELS,
   WATCHED_SUBTREE_RX,
+  GOVERNED_ARTIFACT_CLASSES,
+  classifyGovernedArtifactRel,
   normalizeRel,
   matchIntegrityWatchedRel,
   matchJournalEntryRel,
   isPostureGateProtectedPath,
   isLearningStateJsonlPath,
+  globCoversRel,
 };

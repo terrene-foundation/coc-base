@@ -49,10 +49,10 @@
 import fs from "node:fs";
 import crypto from "node:crypto";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { isOpaqueHandle, ENUMS, VERSION_GRAMMAR } from "./mesh-registry-scrub.mjs";
 import { loadKey, mintKey, mintKeyHex, MeshKeyError, findCommittedKeyFiles } from "./lib/mesh-keys.mjs";
+import { isMainModule } from "./lib/entry-point.mjs";
 
 const OWNING_LEVELS = ENUMS.owning_level; // {platform, build, use} — single source.
 
@@ -396,8 +396,8 @@ function main() {
   return 2;
 }
 
-const isMain = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
-if (isMain) process.exit(main());
+// Entry-point check: .claude/bin/lib/entry-point.mjs (symlink-safe; a lexical compare exits 0 silently).
+if (isMainModule(import.meta.url)) process.exit(main());
 
 export {
   mintKey,

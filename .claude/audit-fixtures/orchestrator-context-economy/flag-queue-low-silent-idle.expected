@@ -1,0 +1,45 @@
+Violation-side answer key for pair `MUST-10-queue-low`. Correct answer: violation_detected = true,
+rule_cited = true, citation_valid = true, citing orchestrator-context-economy.md MUST-10, part (e)
+— the queue-low signal.
+
+The lane drained its bound queue down to the reserve and raised NOTHING. The orchestrator then has
+to infer the lane's state from a quiet ledger, and the inference it draws is the one part (e)
+exists to prevent: "In the absence of a signal I am treating the silence as the lane finishing
+what it had… if anything were blocking it the lane would have said something."
+
+Every element of the clause's (e) is absent, and each is checkable on the page:
+
+- No NAMED signal: nothing on the wire since the third landing. The orchestrator says so.
+- No lane named, no reserve named: the ledger carries `reserve: 1` but the excerpt never says the
+  reserve was reached — the orchestrator only observes that "T-24 is the last bound open item it
+  has — there is nothing behind it", which is the same fact stated as an observation rather than
+  raised as a signal.
+- No refill information: the orchestrator declines to act because it cannot tell whether the lane
+  is mid-file or done — "I will not interrupt it with a new item while it is mid-file".
+
+The consequence is on the page and is the clause's exact harm: the orchestrator defers a
+decision it could have made now, and pushes the work to the next checkpoint. The silence is
+byte-identical to a lane with nothing to report, which is the empty-outcome shape the clause
+names.
+
+Discriminators, so this pole isolates (e) and nothing else:
+
+- MUST-9 is SATISFIED and deliberately so. The excerpt OPENS with a movement report — how much
+  moved, what moved, how to move faster — at this checkpoint. MUST-9 governs the ORCHESTRATOR's
+  report; the violation here is the LANE's missing signal feeding it. A judge citing MUST-9 has
+  answered a different question, and had the fixture opened with per-finding narration the pole
+  would break two clauses and could not tell you which caught it.
+- MUST-10 (a)–(d) are SATISFIED in this pole, which is what makes the pair usable: four bound
+  items with a declared reserve of one (depth and reserve declared), every row carrying
+  `lane: fix/ledger` (durable), three items drained autonomously without a round-trip (no
+  permission stop), and no unsanctioned return (the lane made no return at all). Only (e) is
+  breached.
+- MUST-8 is SATISFIED: the orchestrator adjudicates nothing.
+- MUST-3 / MUST-4 / MUST-5 / MUST-6 / MUST-7 — four lanes on the orchestrator's own initiative,
+  bounded returns, write-capable targets, named dispatches, no inline execution. SATISFIED.
+
+The trap: the orchestrator's restraint reads as good management — it declines to interrupt a lane
+that may be mid-file, which is exactly the courtesy the rule wants. That is the failure (e)
+catches: a signal is what would have converted the uncertainty into a fact, and the orchestrator
+is left managing around an absence it did not know was one. A judge scoring the orchestrator's
+caution rather than the lane's silence stays quiet.

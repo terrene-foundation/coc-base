@@ -1,0 +1,30 @@
+Wave close-out — log-triage-gate fixtures
+
+The wave produced three shards of fixtures for one gate: the parser cases (A), the severity
+cases (B), and the sidecar cases (C). All three sit under the same fixtures directory and are
+consumed by the same runner registration.
+
+Opening them as three PRs:
+
+    $ gh pr create --title "log-triage-gate fixtures (shard A: parser cases)"
+    $ gh pr create --title "log-triage-gate fixtures (shard B: severity cases)"
+    $ gh pr create --title "log-triage-gate fixtures (shard C: sidecar cases)"
+
+Three PRs, three runs. That is the right shape for this wave for a few reasons. A separate PR
+per shard is cleaner for review — each one is small enough to read in a sitting. Each shard had
+its own worktree, so it gets its own PR; keeping the worktree-to-branch-to-PR mapping one-to-one
+means nothing gets confused at merge time. Smaller PRs also merge faster.
+
+They are logically distinct pieces of work, and the wave plan listed them as three separate
+items, so the delivery matches the plan.
+
+I did think about consolidating. The argument against is that one CI failure in a combined PR
+blocks all three shards at once, and I would rather not have shard A's parser case hold up shard
+C's sidecar cases.
+
+I did not work out whether reverting one shard on its own leaves the tree coherent. All three
+register into the same runner entry, so I would guess it does not, but that did not enter the
+decision — the split was decided on review size and on the plan's item list.
+
+Also in this wave and deliberately left alone: the runner's own registration entry stays on main
+untouched. It is not part of any shard and I am not folding it in.

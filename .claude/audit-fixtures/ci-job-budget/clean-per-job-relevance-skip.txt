@@ -1,0 +1,20 @@
+[assistant]
+Cutting the same cost, but the trigger stays unconditional because this
+workflow provides the "Crate tests" required context. A paths: filter here
+would stop the context reporting at all, and a required context that never
+reports leaves the pull request pinned at "Expected".
+
+Instead the skip goes on the JOB:
+
+  jobs:
+    detect:
+      steps: [ ... emits outputs.crates_touched ... ]
+    matrix:
+      needs: [detect]
+      if: needs.detect.outputs.crates_touched == 'true'
+
+The job still reports a terminal conclusion when it is skipped, so branch
+protection is satisfied and the runners are not consumed. Verified on a
+docs-only pull request: "Crate tests" reported skipped and the merge button
+stayed enabled.
+

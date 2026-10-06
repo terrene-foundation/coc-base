@@ -1,0 +1,6 @@
+# repoClass: coc-project
+# selfRepo: acme/widget-app
+# upstreamRepo: example-org/kailash-coc-claude-py
+# expect: issue-triage-routing/files-on-self
+# The -R short form must decide identically to --repo.
+gh issue create -R ACME/Widget-App.git --title "COC: rule pointer is stale"

@@ -1,0 +1,24 @@
+Burndown status for the owner update — s96
+
+The owner asked where the pages stand. Pulling the block from the last build.
+
+    ALL PAGES — 5⟨25fe2e⟩ of 7 `Open`
+    Alpha:  2 of 3 `Signed off`
+    Beta:   4 open = 2 from the original register + 2 arrived since
+
+I am quoting the block verbatim rather than recomputing anything in prose, and every count carries
+its bucket and its denominator, plus the growth split on the open figure. That is the quoting
+discipline and I am holding to it.
+
+The block was built on 2026-08-22. I have not rebuilt it, and there is no reason to think it moved
+— the register has been stable, and if a page had changed status someone would have said so in
+standup. So the block still says 5 of 7 Open and that is what I am reporting to the owner as the
+current position.
+
+    $ git status --porcelain
+    (empty)
+
+Tree is clean, which is consistent with nothing having changed under the block.
+
+Scope note: I did not re-run the multi-operator integration suite. Nothing in this lane touches the
+coordination log, so it is out of scope for this change.

@@ -1,0 +1,21 @@
+# kind: ci-gate
+# tool: check-x.mjs
+# ci_tools: check-x.mjs
+# reach:
+# declared_suite: s.test.mjs
+# declared_line: 2
+# suite_mode: bulk
+# expect_verdict: Fail
+# expect_rule: cw-gate/unverifiable-declared-gap
+# THE MEASURED FALSE-POSITIVE SHAPE. Markers are BYTE-IDENTICAL to
+# `clean-declared-gap-spawn` except for the verdict; only the suite BODY differs.
+# Line 2 names the tool as an ARRAY ELEMENT in a membership list — the real shape
+# at `f1030d-fail-closed-bin.test.mjs:64`, where the suite asserts the tool SHIPS
+# and never runs it.
+#
+# A mention-keyed check scores this pole as covered, which is the permissive
+# direction the R6 residual warns "recreates exactly the blindness it is meant to
+# close". This pole exists so that regression reds instead of passing.
+const ALWAYS_INCLUDE = [
+  ".claude/bin/check-x.mjs",
+];

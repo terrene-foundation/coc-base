@@ -98,7 +98,7 @@
 import { readFileSync, existsSync, statSync } from "node:fs";
 import { join, resolve, relative, basename } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { isMainModule } from "./lib/entry-point.mjs";
 
 import {
   HEADROOM_PROXIMITY_BAND_PCT_DEFAULT,
@@ -106,6 +106,7 @@ import {
 } from "./emit.mjs";
 // loom#1501 (L4) — the lang axis, declared once. See VALID_LANGS below.
 import { EMIT_LANGS, EMIT_CLIS } from "./lib/emit-axes.mjs";
+import { fencedLineNumbers } from "./lib/markdown-fences.mjs";
 
 // --- Constants ----------------------------------------------------------
 
@@ -144,7 +145,12 @@ function findRepoRoot(startDir) {
 function parseFrontmatter(text) {
   const out = new Map();
   const lines = text.split(/\r?\n/);
-  if (lines.length === 0 || lines[0].trim() !== "---") return out;
+  // `lines.length === 0` used to lead this guard and could not fire for any input:
+  // `String.prototype.split` never returns an empty array, so `lines[0]` is always a
+  // string here and the second test alone is the whole guard. Removed rather than
+  // kept as a defensive no-op — an inert disjunct reads as protection it never gave.
+  // Found by `.claude/bin/check-assertion-reachability.mjs`.
+  if (lines[0].trim() !== "---") return out;
   for (let i = 1; i < lines.length; i++) {
     const l = lines[i];
     if (l.trim() === "---") break;
@@ -215,14 +221,12 @@ export function runEmitDryRun(repoRoot, { langs = [null] } = {}) {
   for (const lang of langs) {
     const args = ["--all", "--dry-run"];
     if (lang) args.push("--lang", lang);
-    // emit.mjs lives at .claude/bin/emit.mjs from repo root. Use a
-    // RELATIVE path against cwd=repoRoot so emit's `if (import.meta.url
-    // === \`file://${process.argv[1]}\`)` entry-point check fires. On
-    // macOS, an absolute path through /var/folders/... gets canonicalized
-    // to /private/var/folders/... by import.meta.url while process.argv[1]
-    // retains the un-canonicalized form — the entry-point guard then
-    // silently returns without invoking main(), producing zero stdout.
-    // Relative-path-with-cwd avoids the realpath asymmetry entirely.
+    // emit.mjs lives at .claude/bin/emit.mjs from repo root, invoked by a
+    // RELATIVE path against cwd=repoRoot. That once dodged a lexical
+    // entry-point check that was false through a symlinked path (macOS
+    // /var -> /private/var) and exited 0 with zero stdout; emit.mjs now uses
+    // .claude/bin/lib/entry-point.mjs::isMainModule, which compares real
+    // paths, so the relative form is kept only because it is harmless.
     const scriptAbs = join(repoRoot, ".claude", "bin", "emit.mjs");
     if (!existsSync(scriptAbs)) {
       return {
@@ -450,6 +454,28 @@ export function runEmitDryRun(repoRoot, { langs = [null] } = {}) {
 //     baseline_additions: Array<...> (subset where baseline_at_head=true),
 //     warnings: Array<string>,
 //   }
+//
+// A FENCED block is illustration, not structure (loom sweep finding C4,
+// 2026-09-06): a brand-new DO/DO-NOT *example* line — this repo's own
+// rule-authoring convention, and near-universal across the corpus — routinely
+// contains `MUST`/`MUST NOT`/`BLOCKED` with no new obligation behind it. An
+// added line is filtered OUT when its position in the file AT HEAD falls
+// inside a fenced block. CONFIRMED by a two-pole control before this fix: an
+// addition whose ONLY new text sat inside an existing fence flagged
+// identically to a real new `### N. (MUST)` clause added outside one.
+//
+// Head-side LINE NUMBER (not diff-local position) is required to test fence
+// membership, because `--unified=0` carries no context to derive fence state
+// from the diff hunk alone — the file's fence structure may predate the
+// hunk entirely (an addition landing inside an EXISTING fence). Line numbers
+// are reconstructed from each hunk's `@@ -a,b +c,d @@` header (`c` is the
+// first new-side line number; every subsequent `+` or context line advances
+// it, a `-` line does not), then compared against `fencedLineNumbers()` run
+// over the rule's OWN full text at HEAD — same on-disk-at-repoRoot
+// convention `isBaselineRule()` already uses below, so a head ref that is
+// not the checked-out worktree is an existing, documented limitation of this
+// scanner, not one this fix introduces.
+const HUNK_HEADER_RE = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
 export function scanProposalDiffForBaselineAdditions(
   repoRoot,
   baseRef,
@@ -490,17 +516,25 @@ export function scanProposalDiffForBaselineAdditions(
     };
   }
 
-  // Parse unified diff. Track current file as we walk the hunk headers.
+  // Parse unified diff. Track current file + head-side line number as we
+  // walk the hunk headers (needed for the fence filter below).
   const additions = [];
   let curFile = null;
+  let headLineNum = null;
   for (const line of diffOut.split("\n")) {
     // File header: `+++ b/.claude/rules/foo.md`
     if (line.startsWith("+++ b/")) {
       curFile = line.slice("+++ b/".length);
+      headLineNum = null;
       continue;
     }
     if (line.startsWith("+++ /dev/null") || line.startsWith("--- /dev/null")) {
       // file delete / add — keep curFile from the +++ line for adds
+      continue;
+    }
+    const hunk = HUNK_HEADER_RE.exec(line);
+    if (hunk) {
+      headLineNum = parseInt(hunk[1], 10);
       continue;
     }
     // Skip the --- and +++ headers themselves; only count REAL added lines
@@ -511,6 +545,8 @@ export function scanProposalDiffForBaselineAdditions(
     // Only count additions under .claude/rules/*.md.
     if (!curFile.startsWith(".claude/rules/")) continue;
     if (!curFile.endsWith(".md")) continue;
+    const thisLineNum = headLineNum;
+    if (headLineNum !== null) headLineNum++;
     const addedText = line.slice(1); // strip the leading `+`
     // Check for load-bearing markers. Token-boundary check: `MUST` as a
     // word (not "MUSTard"), `MUST NOT` as the two-token sequence,
@@ -525,6 +561,7 @@ export function scanProposalDiffForBaselineAdditions(
       rule_path: curFile,
       line_text: addedText.length > 200 ? addedText.slice(0, 200) + "…" : addedText,
       marker: matchedMarker,
+      head_line: thisLineNum,
       baseline_at_head: false, // filled in below
     });
   }
@@ -542,13 +579,37 @@ export function scanProposalDiffForBaselineAdditions(
     a.baseline_at_head = baselineCache.get(a.rule_path);
   }
 
-  const baseline_additions = additions.filter((a) => a.baseline_at_head);
+  // Fence filter, on the SAME on-disk-at-repoRoot convention as isBaselineRule
+  // above. A file that fails to read, or an addition with no resolvable head
+  // line number, is NOT filtered — fail toward flagging (the finding stays
+  // visible for a human to dismiss) rather than silently dropping it because
+  // the fence check itself could not run.
+  const fenceCache = new Map();
+  const fencedLines = (rulePath) => {
+    if (fenceCache.has(rulePath)) return fenceCache.get(rulePath);
+    let set = null;
+    try {
+      set = fencedLineNumbers(readFileSync(resolve(repoRoot, rulePath), "utf8"));
+    } catch {
+      set = null;
+    }
+    fenceCache.set(rulePath, set);
+    return set;
+  };
+  const nonFenced = additions.filter((a) => {
+    if (a.head_line === null || a.head_line === undefined) return true;
+    const fenced = fencedLines(a.rule_path);
+    if (!fenced) return true;
+    return !fenced.has(a.head_line);
+  });
+
+  const baseline_additions = nonFenced.filter((a) => a.baseline_at_head);
 
   return {
     ok: true,
     base: baseRef,
     head: headRef,
-    additions,
+    additions: nonFenced,
     baseline_additions,
     warnings,
   };
@@ -583,6 +644,81 @@ function isValidGitRef(s) {
     s[0] !== "-" &&
     GIT_REF_RE.test(s)
   );
+}
+
+// --- The ALWAYS-ON arm (Rule 10 is unconditional) -------------------------
+//
+// Rule 10's obligation does NOT depend on current headroom: a baseline rule may
+// not grow in EMITTED bytes without a paired extraction or a named-rationale
+// exception, at ANY headroom. The near-breach detection above answers "is the
+// lane close to its floor?", which is the ESCALATION question. It cannot answer
+// the obligation question, and on a lane with room it returns
+// `clean_no_near_breach` while a baseline rule grows unpaired — measured, that
+// is exactly how mean bytes/rule rose 40% in one month at a flat rule count.
+//
+// The arithmetic is NOT reimplemented here. `check-baseline-delta.mjs` owns the
+// per-rule emitted-delta accounting (it reuses the emitter's own strip pipeline,
+// so it stays equal to what a CLI baseline actually receives); this delegates to
+// it and folds its verdict in.
+//
+// DEGRADES, NEVER CRASHES. This file is in sync-tier-aware's ALWAYS_INCLUDE and
+// ships to USE templates and downstream; `check-baseline-delta.mjs` is loom-only.
+// So the delegation is a guarded RUNTIME spawn, never a load-time static import
+// — the dep invariant that list states is about static imports resolving, and an
+// absent tool here yields a STATED coverage limitation rather than
+// ERR_MODULE_NOT_FOUND on every consumer. Whether that gate should ship to USE is
+// recorded OPEN in its own header and is deliberately NOT resolved here.
+function runBaselineDeltaGate(repoRoot, base, head) {
+  const tool = join(repoRoot, ".claude", "bin", "check-baseline-delta.mjs");
+  if (!existsSync(tool)) {
+    return {
+      status: "unavailable",
+      reason:
+        "check-baseline-delta.mjs not present in this checkout (loom-only tool) — " +
+        "the unconditional per-rule emitted-delta arm did NOT run",
+    };
+  }
+  const r = spawnSync(
+    process.execPath,
+    [tool, "--base", base, "--head", head, "--repo-root", repoRoot, "--json", "--no-trend"],
+    { cwd: repoRoot, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
+  );
+  if (r.error || typeof r.status !== "number") {
+    return {
+      status: "unavailable",
+      reason: `check-baseline-delta.mjs could not be executed: ${r.error ? r.error.message : "no exit status"}`,
+    };
+  }
+  // exit 2 = usage/IO, exit 3 = UNRUN. Neither is a pass and neither is a
+  // violation; both are reported as non-coverage so a caller cannot read the
+  // silence as clean.
+  if (r.status === 2 || r.status === 3) {
+    return {
+      status: "unrun",
+      exit_code: r.status,
+      reason:
+        `check-baseline-delta.mjs exited ${r.status} (${r.status === 3 ? "UNRUN — nothing measured" : "usage/IO error"}) — ` +
+        "the unconditional arm produced no readable verdict",
+      stderr: (r.stderr || "").split("\n").slice(-5).join("\n"),
+    };
+  }
+  let parsed = null;
+  try {
+    parsed = JSON.parse(r.stdout);
+  } catch {
+    return {
+      status: "unrun",
+      exit_code: r.status,
+      reason: "check-baseline-delta.mjs produced unparseable JSON — no readable verdict",
+    };
+  }
+  return {
+    status: r.status === 1 ? "violation" : "clean",
+    exit_code: r.status,
+    rules_grown: parsed.rules_grown,
+    findings: parsed.findings || [],
+    per_rule_grown: (parsed.per_rule || []).filter((x) => x.delta > 0),
+  };
 }
 
 function parseArgs(argv) {
@@ -895,9 +1031,14 @@ function main() {
   // Compose verdict. UNRUN outranks every other branch: when no lane was
   // examined, "clean" and "fires" are both unreadable claims, so neither
   // string may be printed.
+  // The ALWAYS-ON arm: Rule 10 binds at every headroom level.
+  const deltaArm = runBaselineDeltaGate(repoRoot, args.base, args.head);
+  const deltaFires = deltaArm.status === "violation";
+
   let verdict;
   if (!coverageAsserted) verdict = "unrun_no_coverage";
   else if (ruleFires) verdict = "fires";
+  else if (deltaFires) verdict = "fires_unconditional_delta";
   else if (nearBreachLanes.length > 0 && baselineAdditions.length === 0)
     verdict = "advisory_only_no_diff";
   else if (nearBreachLanes.length === 0 && baselineAdditions.length > 0)
@@ -910,8 +1051,11 @@ function main() {
     // did not fire — but a consumer reading only that field would take a
     // vacuous run for a clean one, which is why `coverage_asserted` exists
     // and why `ok` folds it in.
-    ok: coverageAsserted && !ruleFires,
-    rule_10_fires: ruleFires,
+    ok: coverageAsserted && !ruleFires && !deltaFires,
+    rule_10_fires: ruleFires || deltaFires,
+    rule_10_fires_near_breach: ruleFires,
+    rule_10_fires_unconditional_delta: deltaFires,
+    always_on_delta_arm: deltaArm,
     // loom#1537 — the discriminator. exit 0 says "Rule 10 did not fire";
     // this says whether any lane was examined at all. Cite this, not the
     // exit code alone.
@@ -925,6 +1069,9 @@ function main() {
     coverage_limitations: [
       "rule10.sub-item-4-deferred-5sub-field-rationale-validation",
       "rule10.sub-item-5-deferred-blocked-corpus-grep",
+      ...(deltaArm.status === "clean" || deltaArm.status === "violation"
+        ? []
+        : [`rule10.unconditional-delta-arm-did-not-run: ${deltaArm.reason}`]),
     ],
     repo_root: repoRoot,
     base: args.base,
@@ -989,6 +1136,15 @@ function main() {
       }
     }
     process.stdout.write(`  near-breach lanes: ${nearBreachLanes.length}\n`);
+    process.stdout.write(
+      `  unconditional delta arm: ${deltaArm.status}` +
+        (deltaArm.status === "violation"
+          ? ` (${deltaArm.rules_grown} baseline rule(s) grew unpaired)`
+          : deltaArm.status === "clean"
+            ? " (no baseline rule grew unpaired)"
+            : ` — NOT COVERAGE: ${deltaArm.reason}`) +
+        "\n",
+    );
     process.stdout.write(`  verdict: ${verdict}\n`);
 
     if (!coverageAsserted) {
@@ -1029,6 +1185,22 @@ function main() {
           "Adding load-bearing content WITHOUT (a) or (b) on a near-breach\n" +
           "lane is BLOCKED per Rule 10.\n",
       );
+    } else if (deltaFires) {
+      const grown = (deltaArm.per_rule_grown || [])
+        .map((r) => `    ${r.rule}: +${r.delta} B emitted`)
+        .join("\n");
+      process.stdout.write(
+        "\nRULE 10 FIRES (UNCONDITIONAL) — a baseline rule GREW in emitted bytes with\n" +
+          "no paired extraction and no named-rationale exception. Rule 10 does NOT\n" +
+          "wait for a near-breach lane: headroom decides ESCALATION, never whether\n" +
+          "the obligation applies.\n\n" +
+          (grown ? grown + "\n\n" : "") +
+          "Required disposition (per rule-authoring.md MUST Rule 10):\n" +
+          "  (a) PAIRED EXTRACTION until that rule's own emitted delta is <= 0, OR\n" +
+          "  (b) NAMED-RATIONALE EXCEPTION: `Rule-10-exception: <rule>.md` plus the\n" +
+          "      5 sub-fields, in the commit body or receipt journal.\n\n" +
+          "Full per-rule accounting: node .claude/bin/check-baseline-delta.mjs\n",
+      );
     } else if (verdict === "advisory_only_no_diff") {
       process.stdout.write(
         "\nADVISORY — near-breach lane(s) exist, but the diff carries no new\n" +
@@ -1048,13 +1220,12 @@ function main() {
   // from 1 (FIRES) and 2 (usage/IO) so a caller can tell "the gate found a
   // problem" from "the gate could not look".
   if (!coverageAsserted) process.exit(3);
-  process.exit(ruleFires ? 1 : 0);
+  process.exit(ruleFires || deltaFires ? 1 : 0);
 }
 
 // Export internals for audit-fixture harness consumption.
-const __filename = fileURLToPath(import.meta.url);
-const isMain =
-  process.argv[1] && resolve(process.argv[1]) === resolve(__filename);
+// Entry-point check: .claude/bin/lib/entry-point.mjs (symlink-safe; a lexical compare exits 0 silently).
+const isMain = isMainModule(import.meta.url);
 
 export {
   parseFrontmatter,

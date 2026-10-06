@@ -10,23 +10,24 @@ paths:
 
 ## Scope
 
-Any command that backgrounds a process with `&`, and any load generator, benchmark
-harness, or soak test that spawns workers it intends to release.
+Any command that backgrounds a process with `&` it intends to release — a dev server, a
+file watcher, a readiness poll, a mock service stood up for one test run.
 
 ## MUST Rules
 
 ### 1. A Background Process MUST Carry Its Own Deadline
 
 ```bash
-# DO — the load expires with no killer involved
-( end=$((SECONDS+60)); while [ $SECONDS -lt $end ]; do :; done ) &
+# DO — the poll expires with no killer involved
+( end=$((SECONDS+60)); until curl -sf localhost:3000 >/dev/null || [ $SECONDS -ge $end ]; do sleep 1; done ) &
 # DO NOT — lifetime depends entirely on someone else's kill
-( while :; do :; done ) &
+( while :; do curl -sf localhost:3000 >/dev/null; sleep 1; done ) &
 ```
 
-**Why:** an unbounded loop exits only by external kill, so the moment cleanup fails the
-failure is PERMANENT. Every other clause here reduces the probability that cleanup
-fails; only this one makes that failure survivable, which is why it is first.
+**Why:** a loop with no exit condition of its own exits only by external kill, so the
+moment cleanup fails the failure is PERMANENT. Every other clause here reduces the
+probability that cleanup fails; only this one makes that failure survivable, which is
+why it is first.
 
 ### 2. Cleanup MUST Be A Trap Armed BEFORE The First Spawn
 
@@ -34,11 +35,11 @@ fails; only this one makes that failure survivable, which is why it is first.
 # DO — fires on the abnormal paths too
 trap 'command pkill -P $$ 2>/dev/null' EXIT INT TERM
 # DO NOT — cleanup as the last statement, reached only on the happy path
-... ; kill $BURNERS 2>/dev/null
+... ; kill $PIDS 2>/dev/null
 ```
 
 **Why:** release placed on the happy path is not release, it is a wish. `pkill -P $$`
-needs no bookkeeping, avoiding the `BURNERS=$(jobs -p)` defect: command substitution
+needs no bookkeeping, avoiding the `PIDS=$(jobs -p)` defect: command substitution
 runs in a subshell whose job table is not reliably the parent's, so the capture can come
 back empty and degrade the kill to a bare usage error.
 
@@ -70,10 +71,10 @@ error into a script whose stderr is usually discarded.
 alive=$(pgrep -P $$ | wc -l | tr -d ' ')
 [ "$alive" -eq 0 ] || { echo "CLEANUP FAILED: $alive survived"; exit 1; }
 # DO NOT — an unconditional claim
-kill $BURNERS 2>/dev/null; echo "burners killed"
+kill $PIDS 2>/dev/null; echo "server stopped"
 ```
 
-**Why:** `echo "burners killed"` prints whether or not anything died, so no output it
+**Why:** `echo "server stopped"` prints whether or not anything died, so no output it
 could produce would indicate failure — a non-discriminating instrument at the end of a
 cleanup path, which a later session reads as proof that cleanup succeeded.
 
@@ -87,7 +88,7 @@ shell escapes its management, and POSIX reparents the survivors to the init proc
 **BLOCKED rationalizations:** "the kill is right there at the end" / "it worked when I
 ran it by hand" / "the confirmation line printed, so cleanup ran" / "`set -m` is POSIX"
 / "`timeout` is on every Unix box" / "a self-limit is belt-and-braces once there's a
-trap" / "the host looked fine afterwards".
+trap" / "the port looked free afterwards".
 
 ## Trust Posture Wiring
 
@@ -99,6 +100,8 @@ trap" / "the host looked fine afterwards".
 ## Origin
 
 2026-08-14 — 96 orphaned busy-loop shells survived 22 hours on a shared host after a
-load test's cleanup line never executed. Clause ordering puts self-termination first
-because it is the only layer that does not depend on something else working. Clauses 3
-and 4 record platform facts measured in the authoring session rather than inherited.
+CPU load test's cleanup line never executed. That test's purpose is itself not permitted
+on a shared machine; these clauses govern the legitimate background process. Clause
+ordering puts self-termination first because it is the only layer that does not depend
+on something else working. Clauses 3 and 4 record platform facts measured in the
+authoring session rather than inherited.

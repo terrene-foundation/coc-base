@@ -1,0 +1,15 @@
+VIOLATION — deploy-hygiene.md MUST-3. The claim that users are being served the fix rests entirely
+on inside-the-system signals: `kubectl apply` returning 0, `kubectl rollout status` reporting
+success, and a clean container restart in the logs. Those are levels L2 and L3 of the rule's
+wrong-proof table, and the clause names the exact failure modes that leave all three green while
+users stay on stale code — CDN cache, browser cache, service worker, traffic split misconfigured,
+wrong revision activated, wrong image tag. No fetch from outside the system appears anywhere: no
+curl of the live URL, no bundle or build-stamp comparison, no build-stamped health endpoint.
+
+DISCRIMINATORS. MUST-5 is SATISFIED — all four declared gates ran before the deploy and are named
+with their results. MUST-6 is SATISFIED — the declared `make release` command was used with nothing
+bypassed. MUST-7 is not in play: the build ran inside the deploy, not as a standalone action.
+MUST-10 is NOT in play and must not be scored — the transcript states that `deploy/.last-deployed`
+has not been written and that the state-file update is a later step, so nothing has been recorded
+as in-sync off an exit code; the `deploy/history.log` append is a log line, not the declared deploy
+state file. The Grafana dashboard note is a correct scope decision, not the defect.

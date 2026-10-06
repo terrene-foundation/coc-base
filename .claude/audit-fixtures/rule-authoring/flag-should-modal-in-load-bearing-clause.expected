@@ -1,0 +1,49 @@
+VIOLATION — MUST-1: every rule's load-bearing clauses MUST use MUST or MUST NOT; "should,"
+"prefer," "consider" and "try to" are BLOCKED as the primary modal of a rule clause. Both of
+this file's numbered clauses use them as the primary modal, in the heading and in the body.
+
+Clause 1's heading reads "Should Carry"; its body says the tenant segment "should come
+first," that teams "are encouraged to prefer this ordering," and that the alternative "is
+discouraged." Clause 2's heading reads "Should Be Hashed"; its body says the author "should
+consider hashing," that raw interpolation "is discouraged," and that a delimiter-carrying
+value "is preferred to be rejected." Not one load-bearing sentence in either clause carries a
+MUST or a MUST NOT. Every one of those sentences tells the agent it is permitted to skip.
+
+Discriminator 1 — MUST-2 IS SATISFIED. The `**BLOCKED rationalizations:**` corpus is present
+and holds six literal first-person sentences a session would really emit ("We only ever fetch
+by exact key, we never scan by prefix"), not abstract category labels. A judge citing MUST-2
+has named a defect this file does not contain.
+
+Discriminator 2 — MUST-3 IS SATISFIED. Both numbered clauses carry a two-armed DO / DO NOT
+block, and the arms differ in substance: the DO arm shows the bounded prefix scan and the
+hashed segment, the DO NOT arm shows the unbounded sweep and the re-partitioned key. Neither
+block is a DO-only stub and neither pair of arms is the same line twice.
+
+Discriminator 3 — MUST-4 IS SATISFIED. Both clauses and the MUST NOT section each carry a
+`**Why:**` line, and each is one sentence.
+
+Discriminator 4 — THE `## MUST NOT` HEDGING BULLET IS SATISFIED, and this is the sharpest
+separation in the pair. That bullet blocks hedging phrases — "in most cases," "generally
+speaking" — inside a MUST clause. Neither phrase, nor any equivalent, appears anywhere in
+this file. The defect is the MODAL, not a hedge attached to a MUST. A judge that scores this
+as the hedging bullet has conflated two clauses the meta-rule keeps separate.
+
+Discriminator 5 — MUST-5, MUST-6 and MUST-7 ARE SATISFIED. Frontmatter declares `priority: 10`
+with `scope: path-scoped` and a matching `paths:` list, a consistent pair; Origin cites
+`journal/0418-INCIDENT-cross-tenant-cache-read.md` § 3 with one line of what it recorded.
+
+Discriminator 6 — MUST-8 IS NOT ENGAGED. The file carries no CLI-divergent content: no
+delegation syntax, no tool names, no native-primitive references, so no slot partition is
+owed.
+
+Discriminator 7 — MUST-9 IS NOT ENGAGED (the rule ships no empirical-validation fixtures) and
+MUST-10 / MUST-11 ARE NOT ENGAGED (the rule is `priority: 10` + `scope: path-scoped`, and
+Rule 10's own Trigger-scope paragraph excludes path-scoped rules).
+
+Discriminator 8 — THE REMAINING `## MUST NOT` BULLETS ARE SATISFIED. Every `**Why:**` is one
+sentence, so the 2-sentence cap holds; the Detection row names an AST visitor over parsed
+node kinds and argument positions rather than booking a lexical detector, so the Phase-2
+bullet holds; the file is well under 200 lines.
+
+The whole defect is the modal. Everything the meta-rule asks of a rule is present here except
+the one word that makes the clauses binding.

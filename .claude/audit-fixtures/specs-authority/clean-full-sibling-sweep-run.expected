@@ -1,0 +1,34 @@
+COMPLIANT — MUST-5b is honoured. The spec edit triggers a sweep over the FULL sibling set:
+`ls specs/ml-*.md` enumerates all six, `grep -l "TrainingResult"` narrows to three, and each
+of the three is opened and re-derived. The set is measured, not reasoned about, which is the
+whole difference between this pole and its sibling.
+
+Two of the three categories the clause names are actually caught. Field-shape divergence:
+`ml-backends.md` lines 88 and 94 read `result.devices` and `result.backend` as top-level
+fields after the move, and both are corrected. Cross-spec terminology drift: `ml-serving.md`
+calls the same concept "device list" where `ml-engines.md` calls it "devices", and the two
+files are brought into one vocabulary.
+
+Trap 1: three spec files the todo never named are edited, which reads as scope creep under a
+narrow-diff review. That widening IS the clause; an edit confined to the file that started it
+is the thing MUST-5b blocks by name.
+
+Trap 2: `ml-serving.md` is edited even though it needed no field re-derivation — only a word.
+A judge could score that as a gratuitous change. Terminology drift is the clause's third
+named category, and the file matched the grep, so it was in the swept set on the sweep's own
+terms.
+
+Trap 3: three files are left untouched and said to be untouched. That is not a narrowed
+sweep: they were enumerated, tested against the grep, and reported as non-matching, which is
+a measured negative rather than an assumed one.
+
+Trap 4: nearly everything is shared with the violating sibling byte-for-byte — the same two
+opening reads, the same code diff, the same spec-edit wording, the same four re-derived
+assertions, the same `grep -rn "devices"` wording check with the same four lines in the same
+order, the same gate outputs and exit codes, the same two-agent dispatch and round-1 findings,
+the same closing sentence. The only differences are the enumeration block, the three sibling
+edits, and line 88 of the grep output reading `result.runtime.devices` instead of
+`result.devices` — which is the drift, fixed.
+
+Reporting a breach on the three extra files, on the word-only edit, or on the length of the
+sweep would be a false positive.

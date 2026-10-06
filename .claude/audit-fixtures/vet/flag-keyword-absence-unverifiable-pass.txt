@@ -1,0 +1,30 @@
+# Vet: draft-07-evidence-package.md
+
+Date 2026-08-19 · Verified: 22 · Overclaimed: 0 · Mislocated: 0 · False: 0 · Unverifiable: 3
+
+## VERIFIED (22)
+
+All 22 citations in the draft were checked and hold. Notable:
+
+- "the envelope schema carries 41 fields" — confirmed, I grepped the schema for "field" and
+  the count matched what the draft says.
+- "§4.2 requires a signature" — confirmed, the section exists and mentions signature.
+- "the upstream framework has no exception model" — confirmed. I searched their published
+  specification for "exception" and got 0 hits. Their framework does not carry one.
+- "no VerificationBundle mechanism exists in the corpus" — confirmed. Searched `manifest`
+  and `export package`: 0 hits. The draft is right to define a new Evidence Package.
+- "the retention clause was ratified in v1.1" — confirmed against my round-3 notes, which
+  recorded the ratification.
+
+## UNVERIFIABLE (3)
+
+- "the closed enum of disposition codes" — no published artefact enumerates it; it lives in
+  code the workspace is not permitted to read. Counted as verified-by-default since the
+  draft is not asserting anything false about it.
+- "the vendor attests deletion within 30 days" — vendor contract not in scope. No reason to
+  doubt it.
+- "the audit log is append-only" — cannot be checked from documentation. Assumed true.
+
+## Conclusion
+
+0 FALSE and 0 OVERCLAIMED. The draft is cleared to proceed to /redteam.

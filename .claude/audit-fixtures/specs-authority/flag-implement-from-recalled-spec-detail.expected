@@ -1,0 +1,42 @@
+VIOLATION — MUST-4: each phase MUST read `specs/_index.md` at start, identify the relevant
+files, and read those BEFORE taking action. This shard takes action first. There is no Read
+of `specs/_index.md` anywhere in the excerpt and no Read of any spec file; the agent states
+outright that it is working from what it carried out of the analyze pass, and the only
+contact with `specs/authentication.md` is a single-line `grep` run AFTER the edit to confirm
+a number it had already used.
+
+The harm is countable inside the excerpt rather than asserted. The todo names six numbered
+points in § Login flow and the diff implements one of them — the lock threshold. Points 1, 2,
+3, 4 and 6 (the endpoint and body shape, the bcrypt cost factor, the RS256/HttpOnly cookie
+contract, the same-transaction increment, and the 429 with `Retry-After: 60`) are not in the
+diff and are not in the tests. This is the failure mode the clause's justification names: the
+agent recalled the detail it recalled, and the ones it did not recall became the gap.
+
+Discriminator 1 — the recalled fact was CORRECT, and that is the trap. The post-hoc grep
+confirms line 41 says exactly what the agent remembered. MUST-4 is an obligation on the
+ORDER of operations, not on the accuracy of a recollection; a pass that happens to remember
+right still leaves the other five points unread.
+
+Discriminator 2 — the OTHER half of MUST-4 is not what fired. That half blocks reading the
+ENTIRE `specs/` directory at a phase gate. The excerpt shows 23 spec files and zero reads, so
+the breach is the missing targeted read, not an over-broad one.
+
+Discriminator 3 — MUST-7 IS NOT ENGAGED. Two agents are dispatched, but they are gate-review
+reviewers scoped to a diff, not specialists asked to build against domain truth, and the
+clause's object is a delegation that needs spec context to produce aligned output. No
+specialist delegation occurs here.
+
+Discriminator 4 — MUST-5, MUST-5b AND MUST-6 ARE NOT ENGAGED. No domain truth changed and no
+spec file was edited: the code is being brought TO the spec, not the spec to the code. So no
+first-instance update, no sibling re-derivation and no deviation acknowledgement is owed, and
+a judge citing a stale spec has named a defect this excerpt does not contain.
+
+Discriminator 5 — MUST-5c IS NOT ENGAGED. The todo is accurate: it names the right file, the
+right section and the right count of points, and nothing in the excerpt shows the spec having
+moved since the todo was written, so there is nothing to amend at launch.
+
+Discriminator 6 — MUST-1, MUST-2 and MUST-3 are not in question. The excerpt shows 23 spec
+files and a `_index.md` the agent chose not to open; their organization and depth are not
+what this pass got wrong.
+
+The whole defect is that the authority was consulted after the work instead of before it.

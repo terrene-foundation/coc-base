@@ -1,0 +1,8 @@
+{
+  "_case": "PRECEDENCE POLE. Identical to incomplete-undeclared-skip except bare_call_sites, which the live hook does not satisfy — so one check RUNS and FAILS while twelve others did not run. A FAILURE is an ANSWER and MUST outrank a did-not-run: grade INVALID at exit 1, with pin-no-bare-call-sites pinned in critical_failures.",
+  "dispatch": { "md": false },
+  "pin_declared": true,
+  "bare_call_sites": 99,
+  "min_pinned_call_sites": 2,
+  "payload_corrupts_under_pin": true
+}

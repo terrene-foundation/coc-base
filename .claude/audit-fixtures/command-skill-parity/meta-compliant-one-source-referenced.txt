@@ -1,0 +1,80 @@
+---
+priority: 10
+scope: path-scoped
+cli_delivery: skill-channel
+paths:
+  - ".claude/commands/**"
+  - ".claude/skills/**"
+---
+
+# Paired-Artifact Coherence — One Source, Referenced, And Both Sides Move Together
+
+A command and the skill behind it are one contract carried in two files. The reader's jump is what
+the contract is FOR: it is the price of the depth living in exactly one place, where an edit
+reaches every reader at once. A second copy is not redundancy; it is a second thing to edit, and
+the editor who finds one of them will not know the other exists.
+
+## MUST Rules
+
+### 1. Reference The Single Source, And Re-Derive Both Sides In The Same Codify
+
+Procedural depth that pushes a command past its line budget MUST be extracted to the paired skill
+and REFERENCED by a grep-stable anchor. It MUST NOT be inlined past the budget, and it MUST NOT be
+copied into both artifacts. Two copies that agree when written are not coherent — they are drift
+that has not happened yet, and the moment either is edited the reader following the reference
+executes the stale one.
+
+An edit to either side — a new step, a renamed flag, a changed sequence — MUST re-derive the other
+side IN THE SAME codify. Deferring the second half to a later round is the one-sided edit itself,
+postponed. A referenced skill MUST exist on disk and MUST carry a declared distribution fate in the
+manifest; undeclared is not the same state as declared-and-not-shipping, because afterwards nobody
+can tell a deliberate loom-only decision from a forgotten line.
+
+```text
+# DO — extract, reference by anchor, move both sides together
+
+commands/foo.md (138 lines): "Full runbook: skills/foo/SKILL.md § Runbook."
+command gains --verify  →  skills/foo/SKILL.md § Runbook gains the --verify step, same codify
+
+# DO NOT — inline past the budget, copy into both, or edit one side
+
+commands/foo.md (211 lines, runbook inline) + skills/foo/SKILL.md (the same runbook again)
+commands/foo.md gains --verify; skills/foo/SKILL.md still documents the four-step flow
+```
+
+**BLOCKED rationalizations:**
+
+- "A reference costs the reader a jump"
+- "They cannot disagree if they are the same bytes"
+- "I will edit both if either one changes"
+- "The skill's runbook is generic enough that it still applies"
+- "The reference still resolves, so nothing is dangling"
+- "Undeclared just means it does not ship, which is what I want"
+
+**Why:** the command's reference is a promise that the skill's runbook matches the command's flow,
+and a one-sided edit breaks that promise silently — the reader who trusts the reference executes a
+procedure the command no longer describes.
+
+## Trust Posture Wiring
+
+- **Severity:** `halt-and-report` at gate-review (reviewer confirms over-budget depth was
+  referenced not inlined or duplicated, and both sides moved together); `advisory` at the hook
+  layer per `hook-output-discipline.md` MUST-2.
+- **Grace period:** 7 days from rule landing.
+- **Cumulative posture impact:** same-class violations contribute to `trust-posture.md` MUST-4
+  cumulative-window math (3× same-rule in 30d → drop 1 posture).
+- **Regression-within-grace:** GENERIC `regression_within_grace` trigger per `trust-posture.md`
+  MUST-4 (1× = drop 1 posture) — no dedicated key.
+- **Receipt requirement:** SessionStart soft-gate `[ack: paired-artifact-coherence]` IFF
+  `posture.json::pending_verification` includes this rule_id.
+- **Detection mechanism:** Phase 1 (manual, gate-review) — reviewer confirms the depth sits in one
+  place, both sides were re-derived together, and the skill is on disk and declared. Phase 2
+  deferred.
+- **Violation scope:** MUST-1 (depth inlined or duplicated, one-sided edit, or undeclared skill).
+- **Origin:** See § Origin.
+
+## Origin
+
+2026-08-05 — proposed after a command and its skill were found carrying byte-identical runbooks,
+and the next edit landed on the command alone; three sessions followed the reference into the skill
+and ran the superseded sequence before the divergence was noticed at a gate review.

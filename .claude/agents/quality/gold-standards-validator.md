@@ -1,6 +1,6 @@
 ---
 name: gold-standards-validator
-description: "Documentation quality and cross-reference validator. Use for content-quality, terminology-consistency, and cross-reference compliance checks."
+description: "Use for documentation quality, terminology consistency, and cross-reference compliance checks."
 tools: Read, Glob, Grep
 model: opus
 hooks:

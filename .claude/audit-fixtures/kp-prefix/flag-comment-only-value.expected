@@ -1,0 +1,9 @@
+{
+  "path": "specs/domain/unbound.md",
+  "expect": [
+    "specs-authority/rule-10-unparseable-value"
+  ],
+  "disposition": "firing",
+  "family": "value normalization — comment-ONLY value (the case mutation exposed)",
+  "defeats": "a `\\s+#` comment anchor, and the absorption that hid its absence. `FIELD_RE` already eats the spaces after the colon, so this value reaches the normalizer as `# unbound, ...` with no leading whitespace: a `\\s+#` anchor never fires, the first-token split then yields the single character `#`, and the field is reported as `that is not a kp:// URN` when the true fact is that it declares NO VALUE and invariant 1 was never checked. This is the ONLY case in the set whose verdict the comment strip alone decides — every other comment-bearing case is covered by the first-token split as well, which is why dropping the strip left the suite green at 23/23 until this case existed."
+}
